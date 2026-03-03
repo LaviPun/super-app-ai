@@ -423,6 +423,51 @@ export default function InternalSettings() {
             </Form>
           </BlockStack>
         </Card>
+
+        {/* ─── Password & access ─── */}
+        <Card>
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">Password management</Text>
+            <Text as="p" tone="subdued">
+              The internal admin password is set via <code>INTERNAL_ADMIN_PASSWORD</code> in your environment. To change it, update <code>.env</code> (or your deployment config) and restart the app. SSO (OIDC) can be used instead — see <code>INTERNAL_SSO_*</code> in docs.
+            </Text>
+            <Text as="p" variant="bodySm" tone="subdued">
+              Send invite: configure your identity provider (e.g. Google Workspace) with the app&apos;s OIDC callback to allow team members to sign in.
+            </Text>
+          </BlockStack>
+        </Card>
+
+        {/* ─── Environment variables ─── */}
+        <Card>
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">Environment variables</Text>
+            <Text as="p" tone="subdued">
+              Sensitive config (API keys, secrets, database URL) is read from the environment. For a list of required and optional variables, see <code>.env.example</code> in the project root. Do not expose env values in the UI.
+            </Text>
+          </BlockStack>
+        </Card>
+
+        {/* ─── Advanced ─── */}
+        <Card>
+          <BlockStack gap="400">
+            <Text as="h2" variant="headingMd">Advanced</Text>
+            <Text as="p" tone="subdued">
+              Store and plan control, feature flags, and danger-zone actions.
+            </Text>
+            <BlockStack gap="300">
+              <Text as="h3" variant="headingSm">Store & plan control</Text>
+              <Text as="p" variant="bodySm" tone="subdued">
+                Change a store&apos;s billing plan (FREE, STARTER, GROWTH, PRO, ENTERPRISE) without going through Shopify billing.
+              </Text>
+              <Button url="/internal/stores">Go to Stores</Button>
+              <Divider />
+              <Text as="h3" variant="headingSm">Other controls</Text>
+              <Text as="p" variant="bodySm" tone="subdued">
+                Additional feature flags and danger-zone actions can be added here later.
+              </Text>
+            </BlockStack>
+          </BlockStack>
+        </Card>
       </BlockStack>
     </Page>
   );

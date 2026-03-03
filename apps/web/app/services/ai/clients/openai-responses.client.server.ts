@@ -1,5 +1,4 @@
 import { postJsonWithRetries } from '~/services/ai/http/ai-http.server';
-import { getRecipeJsonSchema } from '~/services/ai/recipe-json-schema.server';
 
 export async function openAiGenerateRecipe(opts: {
   apiKey: string;
@@ -11,8 +10,6 @@ export async function openAiGenerateRecipe(opts: {
   const base = (opts.baseUrl ?? 'https://api.openai.com').replace(/\/$/, '');
   const url = `${base}/v1/responses`;
 
-  const schema = getRecipeJsonSchema();
-
   const body = {
     model: opts.model,
     input: [
@@ -22,14 +19,8 @@ export async function openAiGenerateRecipe(opts: {
       },
     ],
     text: {
-      format: {
-        type: 'json_schema',
-        name: 'recipe_spec',
-        schema,
-        strict: true,
-      },
+      format: { type: 'json_object' },
     },
-    temperature: 0.2,
   };
 
   const { json } = await postJsonWithRetries({

@@ -1,0 +1,62 @@
+/* Prevent Banner icon from flashing large before Polaris styles load (CLS fix) */
+.Polaris-Banner svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+/*
+ * Card and Banner corners: Polaris uses border-radius-0 on small viewports.
+ * App uses the new Card (renders .Polaris-ShadowBevel), not LegacyCard – target both.
+ */
+.Polaris-ShadowBevel,
+.Polaris-Banner,
+.Polaris-LegacyCard {
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+
+.Polaris-LegacyCard::before {
+  border-radius: 12px !important;
+}
+
+.Polaris-Banner__Content,
+.Polaris-LegacyCard__Section {
+  border-radius: inherit;
+}
+
+.Polaris-LegacyCard .Polaris-LegacyCard__Section:first-child {
+  border-top-left-radius: 12px !important;
+  border-top-right-radius: 12px !important;
+}
+
+.Polaris-LegacyCard .Polaris-LegacyCard__Section:last-child {
+  border-bottom-left-radius: 12px !important;
+  border-bottom-right-radius: 12px !important;
+}
+
+/* TextField and Button – ensure default round when Polaris vars load late */
+.Polaris-TextField__Backdrop {
+  border-radius: var(--p-border-radius-200, 0.5rem);
+}
+
+.Polaris-Button {
+  border-radius: var(--p-border-radius-200, 0.5rem);
+}
+
+
+/* Dashboard job success bar - explicit track and fill so it always shows (survives cache reset) */
+.Dashboard-jobSuccessBar {
+  height: 8px;
+  background: var(--p-color-bg-fill-secondary, #e1e3e5);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.Dashboard-jobSuccessBar-fill {
+  height: 100%;
+  min-width: 2%;
+  border-radius: 4px;
+  transition: width 0.2s ease;
+  /* Fallback when Polaris CSS vars not yet loaded */
+  background-color: var(--p-color-bg-fill-success, #008060);
+}

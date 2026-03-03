@@ -25,9 +25,10 @@
 ## 2) Core IA (Information Architecture)
 
 ### Primary nav (current)
-- **Home** (AI Builder + Module list)
-- **Connectors** (Integrations)
-- **Flows** (Automation schedules)
+- **Home** (AI Builder / Template picker + Module list)
+- **Connectors** (Integrations + API Tester + Saved Endpoints)
+- **Flows** (Visual Flow Builder + Automation schedules)
+- **Data Stores** (Predefined + Custom databases)
 - **Billing** (Plan & usage)
 
 ### Internal admin nav
@@ -44,18 +45,26 @@
 ## 3) Key Workflows (Golden Paths)
 
 ### A) AI Create → Preview → Publish (Primary flow)
-1. Describe what you want (prompt on Home page)
+1. Describe what you want (prompt on Home page) **or** pick a template
 2. AI generates RecipeSpec JSON (module draft)
 3. Preview in embedded iframe (Desktop)
 4. Adjust via Style Builder (quick controls + advanced)
 5. Publish to theme or app embed
 6. Verify: status + version history + rollback
 
+### A2) Template Create (Alternative fast path)
+1. Toggle to "From Template" on Home page
+2. Filter by category → click "Use template"
+3. Module draft created instantly → preview → publish
+
 ### B) Manage → Iterate
 - Module list → open module → edit style → version history → republish.
 
-### C) Connect → Automate
-- Add connectors → create flow schedules → monitor in Jobs.
+### C) Connect → Test → Automate
+- Add connectors → test APIs in Postman-like tester → save endpoints → create visual flows → monitor in Jobs.
+
+### D) Data Stores → Custom Pages
+- Enable predefined stores or create custom → view/add records → flows write data automatically.
 
 ---
 
@@ -121,6 +130,34 @@
 ### Notifications
 - Toast: quick success after save/publish/delete
 - Banner: important warnings/errors requiring attention
+
+### API Tester (Connector detail)
+- Tabbed layout: **API Tester** | **Saved Endpoints**
+- Method selector (GET/POST/PUT/PATCH/DELETE) + path input + headers/body text areas
+- "Send request" primary action with loading state
+- Response panel: status badge (color-coded), headers, formatted body
+- "Save as endpoint" secondary action
+- Saved endpoints: DataTable with name, method, path, last tested, actions (Load/Delete)
+
+### Visual Flow Builder
+- Custom SVG canvas with trigger node → step nodes connected by arrows
+- Trigger selector (dropdown at top)
+- "+ Add step" button at bottom of chain
+- Each step node: type selector, inline config fields, ↑/↓ reorder, × remove
+- "Save flow" primary action in page title bar
+- Step count badge in header
+
+### Template Picker (Home page)
+- Toggle: "Generate with AI" / "From Template" (segmented control)
+- Category filter (pill buttons: All, Storefront UI, Function, Integration, Flow, etc.)
+- Card grid: template name, description, category badge, tags, "Use template" button
+
+### Data Stores
+- Predefined stores: icon card grid with Enable/Disable toggle
+- Custom stores: DataTable + "Create custom store" modal (name, key, description)
+- Record view: DataTable with title, external ID, date, payload preview
+- "Add record" modal with title, external ID, JSON payload textarea
+- Record detail modal for viewing full payload
 
 ---
 

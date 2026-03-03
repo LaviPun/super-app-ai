@@ -19,8 +19,8 @@ This system uses a **Recipes architecture**:
 ## 2. High-level architecture
 
 ### Admin UI (Embedded)
-- Remix + React + Polaris
-- Merchant can: generate module → preview → publish → rollback → manage connectors → manage billing
+- Remix + React + Polaris (Vite 6, React Router v7 future flags). Polaris 12’s **Card** uses ShadowBevel (`.Polaris-ShadowBevel`); rounded corners are enforced in `apps/web/app/app.css` and an inline style in `root.tsx` so cards stay round on all viewports. See [debug.md](./debug.md) §8 and [implementation-status.md](./implementation-status.md) (Admin app — stack, tooling & UI fixes).
+- Merchant can: generate module (AI or template) → preview → publish → rollback → manage connectors (with API tester) → build flows visually → manage data stores → manage billing
 
 ### API / Services
 | Service | File | Responsibility |
@@ -33,12 +33,13 @@ This system uses a **Recipes architecture**:
 | `ConnectorService` | `services/connectors/connector.service.ts` | Third-party API connections; SSRF-protected |
 | `MappingService` | `services/connectors/mapping.service.ts` | AI-assisted field mapping from sample responses |
 | `FlowRunnerService` | `services/flows/flow-runner.service.ts` | Step execution; retries; per-step logs |
-| `BillingService` | `services/billing/billing.service.ts` | Shopify App Subscriptions (FREE/STARTER/GROWTH/PRO) |
+| `BillingService` | `services/billing/billing.service.ts` | Shopify App Subscriptions (FREE/STARTER/GROWTH/PRO/ENTERPRISE); internal plan override via `PlanTierConfig` |
 | `QuotaService` | `services/billing/quota.service.ts` | Monthly quota enforcement per kind |
 | `ThemeAnalyzerService` | `services/theme/theme-analyzer.service.ts` | Fetch theme assets; detect patterns; suggest mount strategy |
 | Style compiler | `services/recipes/compiler/style-compiler.ts` | `compileStyleVars` / `compileStyleCss` / `compileOverlayPositionCss` / `sanitizeCustomCss` / `compileCustomCss` — storefront UI style → `--sa-*` CSS vars (theme-safe presets + scoped custom CSS) |
 | `PreviewService` | `services/preview/preview.service.ts` | HTML preview for all storefront modules (banner, popup, notification bar, proxy widget); applies style vars |
 | Proxy widget route | `routes/proxy.$widgetId.tsx` | App Proxy endpoint; reads `_styleCss` from metafield and renders styled HTML |
+| `DataStoreService` | `services/data/data-store.service.ts` | Manage predefined/custom data stores and records |
 | `AiUsageService` | `services/observability/ai-usage.service.ts` | Track tokens, cost, model per shop |
 
 ---
@@ -59,7 +60,7 @@ This system uses a **Recipes architecture**:
 | `checkout.upsell` | STOREFRONT_UI | CHECKOUT_UI_INFO_SHIP_PAY (Plus) |
 | `customerAccount.blocks` | CUSTOMER_ACCOUNT | CUSTOMER_ACCOUNT_UI |
 | `integration.httpSync` | INTEGRATION | — |
-| `flow.automation` | FLOW | — |
+| `flow.automation` | FLOW | — (13 triggers, 9 step kinds, Flow catalog, Flow extensions) |
 | `platform.extensionBlueprint` | ADMIN_UI | — |
 
 ---
@@ -100,6 +101,16 @@ Keep gating centralized in `packages/core/src/capabilities.ts`.
 | `Job` | Long-running task lifecycle (QUEUED/RUNNING/SUCCESS/FAILED) |
 | `ThemeProfile` | Theme detection results per (shop, themeId) |
 | `AppSubscription` | Active billing plan per shop |
+| `ConnectorEndpoint` | Saved API endpoints per connector (method, path, headers, body) |
+| `DataStore` | App-owned data store definition (predefined or custom, per shop) |
+| `DataStoreRecord` | Individual records within a data store (title, externalId, JSON payload) |
+| `ActivityLog` | Tracks significant user/system actions (module CRUD, publish, billing, etc.) |
+| `AppSettings` | Single-row app config: appearance, profile, contact, app config; `categoryOverrides` (type categories); `templateSpecOverrides` (admin-edited default template specs) |
+| `PlanTierConfig` | Plan definitions (display name, price, trial days, quotas); DB overrides code defaults; Enterprise = "Contact us" (unlimited) |
+| `WorkflowDef` | Versioned graph-based workflow definitions per tenant (unique: tenantId+workflowId+version) |
+| `WorkflowRun` | Workflow execution records (status lifecycle, context, timing) |
+| `WorkflowRunStep` | Per-step execution log (status, attempt, duration, inputs/results, errors) |
+| `ConnectorToken` | Encrypted auth tokens per tenant per connector provider |
 | `RetentionPolicy` | Configurable data retention per scope and kind |
 
 ---
@@ -135,6 +146,63 @@ generateValidatedRecipe(prompt)
 
 ---
 
+## 7b. Module templates
+
+In addition to AI generation, merchants can create modules from **pre-built templates** defined in `packages/core/src/templates.ts`. Each template includes a complete `RecipeSpec` and metadata (name, description, category, tags).
+
+```
+POST /api/modules/from-template   { templateId }
+  └── findTemplate(templateId)    — lookup from MODULE_TEMPLATES
+  └── QuotaService.enforce(moduleCount)
+  └── ModuleService.createDraft() — creates module + v1 DRAFT version
+  └── ActivityLog(MODULE_CREATED_FROM_TEMPLATE)
+```
+
+Templates are curated and Zod-validated at build time. Adding a new template means appending to the `MODULE_TEMPLATES` array with a valid `RecipeSpec`. Internal admin can override default template specs via **AppSettings.templateSpecOverrides** (edited at `/internal/recipe-edit` with store "All recipes (templates)"); `from-template` uses the override when present.
+
+---
+
+## 7c. Connector saved endpoints
+
+Each `Connector` can have multiple saved `ConnectorEndpoint` records, enabling a Postman-like workflow:
+
+```
+GET  /api/connectors/:id/endpoints         — list saved endpoints
+POST /api/connectors/:id/endpoints          — create/update/delete endpoints
+```
+
+The connector detail page (`/connectors/:connectorId`) provides:
+- **API Tester tab**: choose method, path, headers, body → send → view response (status, headers, body)
+- **Saved Endpoints tab**: list, load, delete saved requests
+
+---
+
+## 7d. Data stores
+
+App-owned data stores allow modules and flows to persist structured data.
+
+| Predefined store | Key |
+|---|---|
+| Product | `product` |
+| Inventory | `inventory` |
+| Order | `order` |
+| Analytics | `analytics` |
+| Marketing | `marketing` |
+| Customer | `customer` |
+
+Merchants can also create custom stores. `DataStoreService` in `services/data/data-store.service.ts` provides CRUD for stores and records.
+
+```
+Routes:
+  POST /api/data-stores    — enable/disable/create-custom/add-record/delete-record
+  GET  /data               — data stores listing page
+  GET  /data/:storeKey     — records listing for a specific store
+```
+
+The `WRITE_TO_STORE` flow step kind writes event data into a data store automatically during flow execution.
+
+---
+
 ## 8. Automation engine
 
 ```
@@ -151,7 +219,134 @@ Shopify Webhook (orders/create, products/update)
               └── JobService.succeed() or fail()
 ```
 
+### Step kinds
+| Kind | Description |
+|---|---|
+| `HTTP_REQUEST` | Call a connector API with method, path, and body mapping |
+| `SEND_HTTP_REQUEST` | Direct HTTP: URL, method, headers, body, auth (none/basic/bearer/custom_header). Mirrors Shopify Flow's Send HTTP request. SSRF-protected |
+| `TAG_CUSTOMER` | Apply a tag to the order's customer |
+| `TAG_ORDER` | Apply tags to an order |
+| `ADD_ORDER_NOTE` | Append a note to the order |
+| `WRITE_TO_STORE` | Write event data to a DataStore (auto-provisions if needed) |
+| `SEND_EMAIL_NOTIFICATION` | Send an email notification (to, subject, body) |
+| `SEND_SLACK_MESSAGE` | Send a message to a Slack channel |
+| `CONDITION` | Conditional branching: field + operator + value with then/else paths |
+
+### Triggers (13 types)
+| Trigger | Source |
+|---|---|
+| `MANUAL` | App (user-initiated) |
+| `SHOPIFY_WEBHOOK_ORDER_CREATED` | Shopify webhook |
+| `SHOPIFY_WEBHOOK_PRODUCT_UPDATED` | Shopify webhook |
+| `SHOPIFY_WEBHOOK_CUSTOMER_CREATED` | Shopify webhook |
+| `SHOPIFY_WEBHOOK_FULFILLMENT_CREATED` | Shopify webhook |
+| `SHOPIFY_WEBHOOK_DRAFT_ORDER_CREATED` | Shopify webhook |
+| `SHOPIFY_WEBHOOK_COLLECTION_CREATED` | Shopify webhook |
+| `SCHEDULED` | Cron/scheduled |
+| `SUPERAPP_MODULE_PUBLISHED` | SuperApp event → Flow trigger |
+| `SUPERAPP_CONNECTOR_SYNCED` | SuperApp event → Flow trigger |
+| `SUPERAPP_DATA_RECORD_CREATED` | SuperApp event → Flow trigger |
+| `SUPERAPP_WORKFLOW_COMPLETED` | SuperApp event → Flow trigger |
+| `SUPERAPP_WORKFLOW_FAILED` | SuperApp event → Flow trigger |
+
+### Visual flow builder
+Flows can be created and edited via a visual canvas at `/flows/build/:flowId`. The builder uses custom SVG rendering (no heavy external libraries) to display trigger → step chains. Changes are saved back as `flow.automation` RecipeSpec JSON.
+
 Failed jobs stay in DB (`status=FAILED`) as the DLQ. Replay via `POST /api/flow/run` or future admin UI.
+
+### 8b. Graph-based Workflow Engine (v2)
+
+The app also includes a full graph-based workflow engine (`services/workflows/`) that supports Shopify Flow-compatible DAG workflows.
+
+```
+Workflow JSON (nodes + edges + trigger)
+  └── WorkflowSchema.parse()          — Zod validation
+  └── validateWorkflow()              — graph reachability, cycle detection, edge completeness
+  └── WorkflowEngineService.startRun()
+        ├── mode: 'local'             — engine executes graph directly
+        │   └── for each node (BFS from start):
+        │         ├── condition: evalExpression() → route true/false edge
+        │         ├── action: resolve inputs → connector.invoke() → retry policy
+        │         ├── transform: resolve assignments → merge into context vars
+        │         ├── delay: sleep or schedule wakeup
+        │         └── end: mark run SUCCEEDED
+        │
+        └── mode: 'shopify_flow'      — delegate to Shopify Flow
+            └── emitFlowTrigger() → Shopify runs workflow
+            └── Flow calls back → handleFlowAction() → connector.invoke()
+```
+
+**Connector SDK** (`packages/core/src/connector-sdk.ts`):
+
+| Interface | Purpose |
+|---|---|
+| `Connector` | `manifest()` + `validate()` + `invoke()` |
+| `ConnectorManifest` | Provider name, auth type, operation schemas, retry hints |
+| `InvokeRequest` | runId, stepId, tenantId, operation, inputs, timeoutMs, idempotencyKey |
+| `InvokeResponse` / `InvokeError` | Structured results with error codes + retryable flags |
+| `AuthContext` | oauth / api_key / shopify / none |
+
+**Built-in connectors** (`services/workflows/connectors/`):
+
+| Provider | Operations |
+|---|---|
+| `shopify` | order.addTags, order.addNote, customer.addTags, metafield.set |
+| `http` | request (SSRF-protected HTTPS) |
+| `slack` | message.post (OAuth), webhook.send |
+| `email` | send, sendInternal |
+| `storage` | write, read, delete (DataStore bridge) |
+
+### 8c. Flow Catalog (`packages/core/src/flow-catalog.ts`)
+
+Single source of truth listing every available Shopify Flow trigger, condition operator, action, and connector.
+
+| Category | Count | Description |
+|---|---|---|
+| Triggers | 50+ | Shopify native (orders, customers, fulfillment, products, collections, B2B, discounts, checkout, returns, subscriptions, scheduled) + 5 SuperApp triggers |
+| Condition operators | 15 | equal_to, not_equal_to, greater_than, less_than, contains, starts_with, ends_with, is_set, at_least_one_of, none_of, etc. |
+| Condition data types | 6 | string, number, boolean, date, enum, list |
+| Actions | 40+ | Shopify native (tag/note/cancel/archive orders, tag customers, set metafields, send HTTP, run code, get data, wait, count, sum, for each, log) + 4 SuperApp actions + third-party connector actions |
+| Connectors | 18+ | Shopify (built-in), SuperApp, Slack, Google Sheets, Klaviyo, Judge.me, Yotpo, Recharge, Gorgias, ShipStation, AfterShip, Mailchimp, HubSpot, etc. |
+
+Helper functions: `getTriggersByCategory()`, `getTriggersBySource()`, `getActionsByCategory()`, `getActionsBySource()`, `getConnectorsBySource()`, `getTriggerCategories()`, `getActionCategories()`.
+
+### 8d. Shopify Flow Extensions (app as connector)
+
+The app registers as a Shopify Flow connector via extension TOMLs, enabling merchants to use SuperApp triggers and actions directly inside Shopify Flow.
+
+**Flow Trigger extensions** (`extensions/superapp-flow-trigger-*/`):
+
+| Extension | Handle | Payload fields |
+|---|---|---|
+| Module published | `superapp-module-published` | Module ID, Module Name, Module Type, Shop Domain |
+| Connector synced | `superapp-connector-synced` | Connector ID, Connector Name, Sync Status, Shop Domain |
+| Data record created | `superapp-data-record-created` | Store Key, Record ID, Record Title, Shop Domain |
+| Workflow completed | `superapp-workflow-completed` | Workflow ID, Workflow Name, Run ID, Shop Domain |
+| Workflow failed | `superapp-workflow-failed` | Workflow ID, Workflow Name, Run ID, Error Message, Shop Domain |
+
+Emission: `emitFlowTrigger(shop, accessToken, topic, payload)` calls `flowTriggerReceive` GraphQL mutation with handle + payload (< 50 KB).
+
+**Flow Action extensions** (`extensions/superapp-flow-action-*/`):
+
+| Extension | Handle | Input fields |
+|---|---|---|
+| Tag order | `superapp-tag-order` | order_reference, Tags |
+| Write to data store | `superapp-write-to-store` | Store Key, Title, Payload |
+| Send HTTP request | `superapp-send-http` | URL, Method, Body |
+| Send email notification | `superapp-send-notification` | To, Subject, Body |
+
+Runtime: all actions share `POST /api/flow/action`. The route verifies HMAC (`x-shopify-hmac-sha256`), resolves handle → action ID, and delegates to `handleFlowAction()`.
+
+```
+Shopify Flow workflow step
+  └── POST /api/flow/action (runtime_url)
+        └── verifyFlowActionHmac()    — HMAC-SHA-256
+        └── resolveFlowActionId()     — handle → actionId
+        └── handleFlowAction()        — route to connector
+              └── connector.invoke()  — execute
+```
+
+**Reference links**: [Triggers](https://help.shopify.com/en/manual/shopify-flow/reference/triggers), [Conditions](https://help.shopify.com/en/manual/shopify-flow/reference/conditions), [Actions](https://help.shopify.com/en/manual/shopify-flow/reference/actions), [Send HTTP request](https://help.shopify.com/en/manual/shopify-flow/reference/actions/send-http-request), [Connectors](https://help.shopify.com/en/manual/shopify-flow/reference/connectors), [Variables](https://help.shopify.com/en/manual/shopify-flow/getting-started/concepts/variables), [Admin API](https://help.shopify.com/en/manual/shopify-flow/getting-started/concepts/admin-api), [Advanced workflows](https://help.shopify.com/en/manual/shopify-flow/getting-started/concepts/advanced-workflows), [Metafields](https://help.shopify.com/en/manual/shopify-flow/getting-started/concepts/metafields), [Protected data](https://help.shopify.com/en/manual/shopify-flow/getting-started/concepts/protected-data), [Develop](https://help.shopify.com/en/manual/shopify-flow/develop).
 
 ---
 
@@ -206,6 +401,9 @@ spec.style
 5. (Optionally) add preview rendering in `PreviewService`.
 6. Rebuild core: `pnpm --filter @superapp/core build`.
 7. Add golden prompt to `services/ai/evals.server.ts` → `GOLDEN_PROMPTS`.
+8. Add at least one curated template in `packages/core/src/templates.ts` (the templates test enforces full type coverage).
+9. Add config fields for the new type in `components/ConfigEditor.tsx` (`CONFIG_FIELDS` map).
+10. If the type is storefront UI with style, add a `STYLE_CONFIG` entry in `components/StyleBuilder.tsx`.
 
 ---
 
@@ -229,7 +427,7 @@ spec.style
 pnpm i                                       # install all deps
 cd apps/web && pnpm exec prisma migrate dev  # create SQLite DB
 pnpm --filter web dev                        # start dev server
-pnpm test                                    # run all tests (163 across monorepo)
+pnpm test                                    # run all tests (core: 65, web: 145+)
 pnpm --filter web evals                      # run AI evals harness
 ```
 

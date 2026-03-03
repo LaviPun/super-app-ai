@@ -19,6 +19,10 @@ export interface AppSettingsData {
   alertRecipients: string | null;
   maintenanceMode: boolean;
   maintenanceMessage: string | null;
+  /** JSON: { [category]: { displayName?: string, enabled?: boolean } } */
+  categoryOverrides: string | null;
+  /** JSON: { [templateId]: RecipeSpec } for recipe-edit "All recipes" overrides */
+  templateSpecOverrides: string | null;
 }
 
 const DEFAULTS: AppSettingsData = {
@@ -40,6 +44,8 @@ const DEFAULTS: AppSettingsData = {
   alertRecipients: null,
   maintenanceMode: false,
   maintenanceMessage: null,
+  categoryOverrides: null,
+  templateSpecOverrides: null,
 };
 
 export class SettingsService {
@@ -66,6 +72,8 @@ export class SettingsService {
       alertRecipients: row.alertRecipients,
       maintenanceMode: row.maintenanceMode,
       maintenanceMessage: row.maintenanceMessage,
+      categoryOverrides: row.categoryOverrides,
+      templateSpecOverrides: row.templateSpecOverrides,
     };
   }
 
@@ -95,6 +103,8 @@ export class SettingsService {
       alertRecipients: row.alertRecipients,
       maintenanceMode: row.maintenanceMode,
       maintenanceMessage: row.maintenanceMessage,
+      categoryOverrides: row.categoryOverrides,
+      templateSpecOverrides: row.templateSpecOverrides,
     };
   }
 }

@@ -4,7 +4,7 @@ import {
   Frame, Navigation, TopBar, Toast,
 } from '@shopify/polaris';
 import {
-  AppsIcon, ClockIcon,
+  AppsIcon, ClockIcon, CodeIcon,
   NoteIcon, SettingsIcon,
   ExitIcon, AutomationIcon, CashDollarIcon, StoreIcon, BugIcon,
 } from '@shopify/polaris-icons';
@@ -85,6 +85,10 @@ function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
     { url: '/internal/logs', label: 'Error Logs', icon: BugIcon },
     { url: '/internal/api-logs', label: 'API Logs', icon: NoteIcon },
     { url: '/internal/stores', label: 'Stores', icon: StoreIcon },
+    { url: '/internal/plan-tiers', label: 'Plan Tiers', icon: CashDollarIcon },
+    { url: '/internal/categories', label: 'Categories', icon: StoreIcon },
+    { url: '/internal/recipe-edit', label: 'Recipe edit', icon: CodeIcon },
+    { url: '/internal/templates', label: 'Templates', icon: StoreIcon },
     { url: '/internal/jobs', label: 'Jobs', icon: ClockIcon },
   ];
 

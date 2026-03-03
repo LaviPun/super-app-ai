@@ -285,7 +285,34 @@ Also:
 
 ---
 
-## 8. Adding new bugs to this doc
+## 8. Admin app: cards sharp corners — Polaris new Card (ShadowBevel)
+
+### Symptom
+
+Cards (Connectors, Billing plan cards, Dashboard stats, etc.) have sharp, zero-radius corners in the embedded app even after adding CSS overrides for `.Polaris-LegacyCard`.
+
+### Root cause
+
+The app uses Polaris’s **new `Card`** component (`import { Card } from '@shopify/polaris'`), which renders **ShadowBevel + Box** with class **`.Polaris-ShadowBevel`**. It does **not** use LegacyCard (`.Polaris-LegacyCard`). Polaris sets `border-radius: 0` on small viewports for the new Card, so overrides targeting only LegacyCard had no effect.
+
+### Fix
+
+1. **app.css** — Include `.Polaris-ShadowBevel` in the rounded-corners rule:
+   ```css
+   .Polaris-ShadowBevel, .Polaris-Banner, .Polaris-LegacyCard {
+     border-radius: 12px !important;
+     overflow: hidden;
+   }
+   ```
+2. **root.tsx** — Add the same selector to the inline `<style>` in `<head>` so rounding applies even when the external stylesheet loads late (e.g. after cache reset).
+
+### Reference
+
+- Polaris 12: `Card` → `ShadowBevel` (`.Polaris-ShadowBevel`); `LegacyCard` is deprecated and uses `.Polaris-LegacyCard`.
+
+---
+
+## 9. Adding new bugs to this doc
 
 When you hit a new recurring or non-obvious bug:
 

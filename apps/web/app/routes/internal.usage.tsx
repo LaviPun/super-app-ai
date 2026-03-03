@@ -118,7 +118,10 @@ export default function InternalUsage() {
             {isLoading ? (
               <SkeletonBodyText lines={6} />
             ) : rows.length === 0 ? (
-              <Text as="p" tone="subdued">No AI usage matches your filters.</Text>
+              <BlockStack gap="200">
+                <Text as="p" tone="subdued">No AI usage in the selected range.</Text>
+                <Text as="p" variant="bodySm" tone="subdued">Usage is recorded when AI generation, mapping suggestions, or other AI actions run. Default range is last 30 days. Widen the date range or clear filters. Ensure at least one AI provider is active and that merchants (or you) have triggered AI calls.</Text>
+              </BlockStack>
             ) : (
               <DataTable
                 columnContentTypes={['text', 'text', 'text', 'numeric', 'numeric', 'numeric', 'text']}

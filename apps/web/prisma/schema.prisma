@@ -34,6 +34,9 @@ model Shop {
   flowStepLogs  FlowStepLog[]
   subscription  AppSubscription?
   activityLogs  ActivityLog[]
+  dataStores    DataStore[]
+  workflowDefs  WorkflowDef[]
+  connectorTokens ConnectorToken[]
 }
 
 model Module {
@@ -88,6 +91,26 @@ model Connector {
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+
+  endpoints  ConnectorEndpoint[]
+}
+
+model ConnectorEndpoint {
+  id              String   @id @default(cuid())
+  connectorId     String
+  connector       Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  name            String
+  path            String
+  method          String   @default("GET") // GET | POST | PUT | PATCH | DELETE
+  defaultHeaders  String?  // JSON key-value
+  defaultBody     String?  // JSON or raw text
+  sortOrder       Int      @default(0)
+  lastTestedAt    DateTime?
+  lastStatus      Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([connectorId, sortOrder])
 }
 
 model AuditLog {
@@ -252,6 +275,17 @@ model FlowStepLog {
   @@index([shopId])
 }
 
+model PlanTierConfig {
+  id          String   @id @default(cuid())
+  name        String   @unique // FREE | STARTER | GROWTH | PRO
+  displayName String
+  price       Int      // USD/month
+  trialDays   Int
+  quotasJson  String   // JSON: { aiRequestsPerMonth, publishOpsPerMonth, ... }
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 model AppSubscription {
   id              String   @id @default(cuid())
   shopId          String   @unique
@@ -316,6 +350,10 @@ model AppSettings {
   alertRecipients   String? // comma-separated emails
   maintenanceMode   Boolean @default(false)
   maintenanceMessage String?
+  // Admin: type category overrides (JSON: { [category]: { displayName?, enabled? } })
+  categoryOverrides  String?
+  // Admin: template spec overrides (JSON: { [templateId]: RecipeSpec } for recipe-edit "All recipes")
+  templateSpecOverrides String?
   // Meta
   updatedAt DateTime @updatedAt
 }
@@ -354,4 +392,116 @@ model FlowSchedule {
 
   @@index([shopId, isActive])
   @@index([nextRunAt, isActive])
+}
+
+model DataStore {
+  id          String   @id @default(cuid())
+  shopId      String
+  shop        Shop     @relation(fields: [shopId], references: [id])
+  key         String   // product | inventory | order | analytics | marketing | custom
+  label       String
+  description String?
+  icon        String?  // icon name hint
+  isEnabled   Boolean  @default(true)
+  schemaJson  String?  // optional column/field schema for the store
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  records     DataStoreRecord[]
+
+  @@unique([shopId, key])
+  @@index([shopId, isEnabled])
+}
+
+model DataStoreRecord {
+  id          String   @id @default(cuid())
+  dataStoreId String
+  dataStore   DataStore @relation(fields: [dataStoreId], references: [id], onDelete: Cascade)
+  externalId  String?  // e.g. Shopify product GID, order ID, etc.
+  title       String?  // human-readable label for the record
+  payload     String   // JSON document
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([dataStoreId, createdAt])
+  @@index([dataStoreId, externalId])
+}
+
+// ─── Workflow Engine (graph-based automation) ──────────────────────────
+
+model WorkflowDef {
+  id          String   @id @default(cuid())
+  tenantId    String   // shopId
+  shop        Shop     @relation(fields: [tenantId], references: [id])
+  workflowId  String   // logical workflow ID from the JSON spec
+  version     Int
+  name        String
+  status      String   @default("draft") // draft | active | paused | archived
+  specJson    String   // full Workflow JSON (nodes/edges/trigger/settings)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  runs        WorkflowRun[]
+
+  @@unique([tenantId, workflowId, version])
+  @@index([tenantId, status])
+}
+
+model WorkflowRun {
+  id              String   @id @default(cuid())
+  workflowId      String   // logical workflow ID
+  workflowVersion Int
+  tenantId        String   // shopId
+  status          String   @default("QUEUED") // QUEUED | RUNNING | SUCCEEDED | FAILED | CANCELLED | TIMED_OUT
+  triggerRef      String?  // JSON: { provider, event }
+  contextJson     String?  // full RunContext JSON (for crash recovery)
+  error           String?
+  startedAt       DateTime?
+  endedAt         DateTime?
+  createdAt       DateTime @default(now())
+
+  workflowDef     WorkflowDef? @relation(fields: [workflowId, workflowVersion, tenantId], references: [workflowId, version, tenantId])
+  steps           WorkflowRunStep[]
+
+  @@index([workflowId, tenantId])
+  @@index([tenantId, status])
+  @@index([createdAt])
+}
+
+model WorkflowRunStep {
+  id          String   @id @default(cuid())
+  runId       String
+  run         WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  stepId      String   // node ID from the workflow spec
+  nodeType    String   // condition | action | transform | delay | end
+  nodeName    String
+  status      String   // PENDING | RUNNING | SUCCESS | FAILED | RETRYING | SKIPPED | WAITING
+  attempt     Int      @default(0)
+  startedAt   DateTime?
+  endedAt     DateTime?
+  durationMs  Int?
+  inputsJson  String?  // redacted inputs
+  resultJson  String?  // redacted result
+  error       String?
+  createdAt   DateTime @default(now())
+
+  @@index([runId])
+  @@index([runId, stepId])
+}
+
+model ConnectorToken {
+  id          String   @id @default(cuid())
+  tenantId    String   // shopId
+  shop        Shop     @relation(fields: [tenantId], references: [id])
+  provider    String   // shopify | slack | email | custom
+  authType    String   // oauth | api_key | shopify | none
+  secretsEnc  String   // encrypted JSON blob (access token, refresh token, etc.)
+  scopes      String?  // comma-separated scopes
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, provider])
+  @@index([tenantId])
 }

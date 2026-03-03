@@ -9,7 +9,7 @@ export async function action({ request }: { request: Request }) {
   const { session, admin } = await shopify.authenticate.admin(request);
 
   return withApiLogging(
-    { actor: 'MERCHANT', method: 'POST', path: '/api/theme/analyze' },
+    { actor: 'MERCHANT', method: request.method, path: '/api/theme/analyze', request, captureRequestBody: true, captureResponseBody: true },
     async () => {
       const body = await request.json().catch(() => null) as null | { themeId: string };
       if (!body?.themeId) return json({ error: 'Missing themeId' }, { status: 400 });

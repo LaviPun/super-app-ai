@@ -21,7 +21,20 @@ export type ActivityAction =
   | 'PRICE_ADDED'
   | 'STORE_SETTINGS_UPDATED'
   | 'FLOW_RUN'
-  | 'WEBHOOK_PROCESSED';
+  | 'WEBHOOK_PROCESSED'
+  | 'MODULE_CREATED_FROM_TEMPLATE'
+  | 'DATA_STORE_ENABLED'
+  | 'DATA_STORE_DISABLED'
+  | 'ENDPOINT_CREATED'
+  | 'ENDPOINT_DELETED'
+  | 'WORKFLOW_CREATED'
+  | 'WORKFLOW_STARTED'
+  | 'WORKFLOW_COMPLETED'
+  | 'WORKFLOW_FAILED'
+  | 'WORKFLOW_TEMPLATE_INSTALLED'
+  | 'CONNECTOR_TOKEN_SAVED'
+  | 'MODULE_SPEC_EDITED'
+  | 'STORE_PLAN_CHANGED';
 
 export type ActivityActor = 'SYSTEM' | 'MERCHANT' | 'INTERNAL_ADMIN' | 'WEBHOOK' | 'CRON';
 
@@ -94,5 +107,13 @@ export class ActivityLogService {
       orderBy: { action: 'asc' },
     });
     return rows.map(r => r.action);
+  }
+
+  async getById(id: string) {
+    const prisma = getPrisma();
+    return prisma.activityLog.findUnique({
+      where: { id },
+      include: { shop: true },
+    });
   }
 }

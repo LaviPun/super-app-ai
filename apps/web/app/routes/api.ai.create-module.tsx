@@ -1,25 +1,47 @@
 import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
-import { generateValidatedRecipe } from '~/services/ai/llm.server';
-import { ModuleService } from '~/services/modules/module.service';
+import { generateValidatedRecipeOptions } from '~/services/ai/llm.server';
 import { getPrisma } from '~/db.server';
 import { JobService } from '~/services/jobs/job.service';
 import { withApiLogging } from '~/services/observability/api-log.service';
 import { QuotaService } from '~/services/billing/quota.service';
-import { ActivityLogService } from '~/services/activity/activity.service';
+import { classifyUserIntent } from '~/services/ai/classify.server';
+
+/** POST only; GET (e.g. prefetch or redirect) returns 405. */
+export async function loader() {
+  return json({ error: 'Method not allowed' }, { status: 405 });
+}
 
 export async function action({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
 
   return withApiLogging(
-    { actor: 'MERCHANT', method: 'POST', path: '/api/ai/create-module' },
+    { actor: 'MERCHANT', method: request.method, path: '/api/ai/create-module', request, captureRequestBody: true, captureResponseBody: true },
     async () => {
       enforceRateLimit(`ai:${session.shop}`);
 
       const form = await request.formData();
-      const prompt = String(form.get('prompt') ?? '').trim();
+      let prompt = String(form.get('prompt') ?? '').trim();
       if (!prompt) return json({ error: 'Missing prompt' }, { status: 400 });
+
+      const preferredType = String(form.get('preferredType') ?? 'Auto').trim();
+      const preferredCategory = String(form.get('preferredCategory') ?? 'Auto').trim();
+      const preferredBlockType = String(form.get('preferredBlockType') ?? 'Auto').trim();
+
+      const constraints: string[] = [];
+      if (preferredType && preferredType !== 'Auto') {
+        constraints.push(`Module type must be exactly: ${preferredType}.`);
+      }
+      if (preferredCategory && preferredCategory !== 'Auto') {
+        constraints.push(`Category must be: ${preferredCategory}.`);
+      }
+      if (preferredBlockType && preferredBlockType !== 'Auto') {
+        constraints.push(`For customer account blocks, target must be: ${preferredBlockType}.`);
+      }
+      if (constraints.length > 0) {
+        prompt = `Constraints: ${constraints.join(' ')}\n\nUser request: ${prompt}`;
+      }
 
       const prisma = getPrisma();
       const shopRow = await prisma.shop.upsert({
@@ -30,23 +52,35 @@ export async function action({ request }: { request: Request }) {
 
       const quotaService = new QuotaService();
       await quotaService.enforce(shopRow.id, 'aiRequest');
-      await quotaService.enforce(shopRow.id, 'moduleCount');
+
+      const classification = classifyUserIntent(prompt, preferredType);
 
       const jobs = new JobService();
-      const job = await jobs.create({ shopId: shopRow.id, type: 'AI_GENERATE', payload: { promptLen: prompt.length } });
+      const job = await jobs.create({ shopId: shopRow.id, type: 'AI_GENERATE', payload: { promptLen: prompt.length, classifiedType: classification.moduleType } });
       await jobs.start(job.id);
 
       try {
-        const spec = await generateValidatedRecipe(prompt, { shopId: shopRow.id, action: 'RECIPE_GENERATION', maxAttempts: 4 });
-        const moduleService = new ModuleService();
-        const mod = await moduleService.createDraft(session.shop, spec);
-        await jobs.succeed(job.id, { moduleId: mod.id, type: spec.type });
-        await new ActivityLogService().log({ actor: 'MERCHANT', action: 'MODULE_CREATED', resource: `module:${mod.id}`, shopId: shopRow.id, details: { type: spec.type, name: spec.name } });
-        return json({ moduleId: mod.id, type: spec.type, name: spec.name });
+        const recipeOptions = await generateValidatedRecipeOptions(prompt, classification, {
+          shopId: shopRow.id,
+          maxAttempts: 2,
+        });
+
+        await jobs.succeed(job.id, { optionCount: recipeOptions.length, type: classification.moduleType });
+
+        return json({
+          options: recipeOptions.map((opt, i) => ({
+            index: i,
+            explanation: opt.explanation,
+            recipe: opt.recipe,
+          })),
+        });
       } catch (e) {
         await jobs.fail(job.id, e);
-        throw e;
+        return json(
+          { error: e instanceof Error ? e.message : String(e) },
+          { status: 500 }
+        );
       }
-    }
+    },
   );
 }

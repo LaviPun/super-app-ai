@@ -1,12 +1,14 @@
 import type { AdminApiContext } from '@shopify/shopify-app-remix/server';
 import { getPrisma } from '~/db.server';
+import { getPlanConfig as getPlanConfigFromDb } from './plan-config.service';
 
-export type BillingPlan = 'FREE' | 'STARTER' | 'GROWTH' | 'PRO';
+export type BillingPlan = 'FREE' | 'STARTER' | 'GROWTH' | 'PRO' | 'ENTERPRISE';
 
 export type PlanConfig = {
   name: BillingPlan;
   displayName: string;
-  price: number; // USD/month
+  /** USD/month; -1 = "Contact us" (no price shown) */
+  price: number;
   trialDays: number;
   quotas: {
     aiRequestsPerMonth: number;
@@ -64,7 +66,20 @@ export const PLAN_CONFIGS: Record<BillingPlan, PlanConfig> = {
     price: 299,
     trialDays: 7,
     quotas: {
-      aiRequestsPerMonth: -1, // unlimited
+      aiRequestsPerMonth: 10000,   // 10x Growth
+      publishOpsPerMonth: 5000,
+      workflowRunsPerMonth: 100000,
+      connectorCallsPerMonth: 500000,
+      modulesTotal: 1000,
+    },
+  },
+  ENTERPRISE: {
+    name: 'ENTERPRISE',
+    displayName: 'Enterprise',
+    price: -1, // Contact us
+    trialDays: 0,
+    quotas: {
+      aiRequestsPerMonth: -1,
       publishOpsPerMonth: -1,
       workflowRunsPerMonth: -1,
       connectorCallsPerMonth: -1,
@@ -84,8 +99,8 @@ export class BillingService {
     plan: BillingPlan,
     returnUrl: string
   ): Promise<{ confirmationUrl: string; subscriptionId: string }> {
-    const config = PLAN_CONFIGS[plan];
-    if (config.price === 0) {
+    const config = await getPlanConfigFromDb(plan);
+    if (config.price <= 0) {
       // Free plan — no Shopify billing charge needed, just record in DB.
       await this.recordSubscription(shopId, plan, null);
       return { confirmationUrl: returnUrl, subscriptionId: 'free' };
@@ -156,8 +171,21 @@ export class BillingService {
     });
   }
 
-  getPlanConfig(planName: string): PlanConfig {
-    return PLAN_CONFIGS[planName as BillingPlan] ?? PLAN_CONFIGS.FREE;
+  async getPlanConfig(planName: string): Promise<PlanConfig> {
+    return getPlanConfigFromDb(planName);
+  }
+
+  /**
+   * Internal admin only: set a store's plan without going through Shopify billing.
+   * Use for support overrides or testing.
+   */
+  async setPlanForShop(shopId: string, plan: BillingPlan): Promise<void> {
+    await this.recordSubscription(shopId, plan, null);
+    const prisma = getPrisma();
+    await prisma.shop.update({
+      where: { id: shopId },
+      data: { planTier: plan },
+    });
   }
 
   private async recordSubscription(shopId: string, plan: BillingPlan, shopifySubId: string | null) {

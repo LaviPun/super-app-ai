@@ -37,6 +37,119 @@ function isSpecWithStyle(spec: RecipeSpec): spec is SpecWithStyle {
 }
 
 // ----------------------------------------------------------------------------
+// Per-type style configuration
+// ----------------------------------------------------------------------------
+
+type TextRole = { key: string; label: string };
+
+type TypeStyleConfig = {
+  showButtonColors: boolean;
+  showBackdrop: boolean;
+  textRoles: TextRole[];
+  showLayoutMode: boolean;
+  forceOverlay: boolean;
+  showAnchor: boolean;
+  showOffset: boolean;
+  showWidth: boolean;
+  showZIndex: boolean;
+  showGap: boolean;
+  showMargin: boolean;
+  showBorderShadow: boolean;
+  showLineHeight: boolean;
+  showAccessibility: boolean;
+  showResponsive: boolean;
+};
+
+const STYLE_CONFIG: Record<StyleableType, TypeStyleConfig> = {
+  'theme.banner': {
+    showButtonColors: true,
+    showBackdrop: false,
+    textRoles: [
+      { key: 'heading', label: 'Heading' },
+      { key: 'subheading', label: 'Subheading' },
+      { key: 'button', label: 'Button' },
+    ],
+    showLayoutMode: false,
+    forceOverlay: false,
+    showAnchor: false,
+    showOffset: false,
+    showWidth: true,
+    showZIndex: false,
+    showGap: true,
+    showMargin: true,
+    showBorderShadow: true,
+    showLineHeight: true,
+    showAccessibility: true,
+    showResponsive: true,
+  },
+  'theme.popup': {
+    showButtonColors: true,
+    showBackdrop: true,
+    textRoles: [
+      { key: 'title', label: 'Title' },
+      { key: 'body', label: 'Body text' },
+      { key: 'button', label: 'Button' },
+    ],
+    showLayoutMode: true,
+    forceOverlay: true,
+    showAnchor: true,
+    showOffset: true,
+    showWidth: true,
+    showZIndex: true,
+    showGap: true,
+    showMargin: false,
+    showBorderShadow: true,
+    showLineHeight: true,
+    showAccessibility: true,
+    showResponsive: true,
+  },
+  'theme.notificationBar': {
+    showButtonColors: false,
+    showBackdrop: false,
+    textRoles: [
+      { key: 'message', label: 'Message text' },
+      { key: 'link', label: 'Link text' },
+    ],
+    showLayoutMode: false,
+    forceOverlay: false,
+    showAnchor: false,
+    showOffset: false,
+    showWidth: true,
+    showZIndex: true,
+    showGap: false,
+    showMargin: false,
+    showBorderShadow: true,
+    showLineHeight: false,
+    showAccessibility: true,
+    showResponsive: true,
+  },
+  'proxy.widget': {
+    showButtonColors: true,
+    showBackdrop: false,
+    textRoles: [
+      { key: 'title', label: 'Title' },
+      { key: 'message', label: 'Message' },
+    ],
+    showLayoutMode: true,
+    forceOverlay: false,
+    showAnchor: true,
+    showOffset: true,
+    showWidth: true,
+    showZIndex: true,
+    showGap: true,
+    showMargin: true,
+    showBorderShadow: true,
+    showLineHeight: true,
+    showAccessibility: true,
+    showResponsive: true,
+  },
+};
+
+function getStyleConfig(specType: StyleableType): TypeStyleConfig {
+  return STYLE_CONFIG[specType];
+}
+
+// ----------------------------------------------------------------------------
 // Option sets
 // ----------------------------------------------------------------------------
 
@@ -208,8 +321,8 @@ function BasicTab({
   specType: StyleableType;
   update: (p: Partial<StorefrontStyle>) => void;
 }) {
-  const showBackdrop =
-    specType === 'theme.popup' ||
+  const cfg = getStyleConfig(specType);
+  const showBackdrop = cfg.showBackdrop ||
     style.layout.mode === 'overlay' ||
     style.layout.mode === 'sticky';
 
@@ -229,18 +342,22 @@ function BasicTab({
             value={style.colors.background}
             onChange={(v) => update({ colors: { ...style.colors, background: v || '#ffffff' } })}
           />
-          <HexField
-            label="Button bg"
-            value={style.colors.buttonBg ?? ''}
-            onChange={(v) => update({ colors: { ...style.colors, buttonBg: v || undefined } })}
-            helpText="Optional"
-          />
-          <HexField
-            label="Button text"
-            value={style.colors.buttonText ?? ''}
-            onChange={(v) => update({ colors: { ...style.colors, buttonText: v || undefined } })}
-            helpText="Optional"
-          />
+          {cfg.showButtonColors && (
+            <>
+              <HexField
+                label="Button bg"
+                value={style.colors.buttonBg ?? ''}
+                onChange={(v) => update({ colors: { ...style.colors, buttonBg: v || undefined } })}
+                helpText="Optional"
+              />
+              <HexField
+                label="Button text"
+                value={style.colors.buttonText ?? ''}
+                onChange={(v) => update({ colors: { ...style.colors, buttonText: v || undefined } })}
+                helpText="Optional"
+              />
+            </>
+          )}
         </InlineStack>
         {showBackdrop && (
           <BlockStack gap="200">
@@ -253,7 +370,7 @@ function BasicTab({
                 helpText="Optional"
               />
               <TextField
-                label="Backdrop opacity (0–1)"
+                label="Backdrop opacity (0-1)"
                 type="number"
                 min={0}
                 max={1}
@@ -276,9 +393,14 @@ function BasicTab({
 
       <Divider />
 
-      {/* Typography */}
+      {/* Typography with text role labels */}
       <BlockStack gap="200">
         <Text as="p" variant="headingSm">Typography</Text>
+        {cfg.textRoles.length > 0 && (
+          <Text as="p" variant="bodySm" tone="subdued">
+            Applies to: {cfg.textRoles.map(r => r.label).join(', ')}
+          </Text>
+        )}
         <InlineStack gap="300" wrap>
           <Select
             label="Font size"
@@ -311,7 +433,7 @@ function BasicTab({
 
       {/* Spacing & Shape */}
       <BlockStack gap="200">
-        <Text as="p" variant="headingSm">Spacing & Shape</Text>
+        <Text as="p" variant="headingSm">Spacing &amp; Shape</Text>
         <InlineStack gap="300" wrap>
           <Select
             label="Padding"
@@ -332,24 +454,27 @@ function BasicTab({
         </InlineStack>
       </BlockStack>
 
-      <Divider />
-
       {/* Responsive */}
-      <BlockStack gap="200">
-        <Text as="p" variant="headingSm">Responsive visibility</Text>
-        <InlineStack gap="400">
-          <Checkbox
-            label="Hide on mobile (< 750px)"
-            checked={style.responsive.hideOnMobile}
-            onChange={(v) => update({ responsive: { ...style.responsive, hideOnMobile: v } })}
-          />
-          <Checkbox
-            label="Hide on desktop (≥ 750px)"
-            checked={style.responsive.hideOnDesktop}
-            onChange={(v) => update({ responsive: { ...style.responsive, hideOnDesktop: v } })}
-          />
-        </InlineStack>
-      </BlockStack>
+      {cfg.showResponsive && (
+        <>
+          <Divider />
+          <BlockStack gap="200">
+            <Text as="p" variant="headingSm">Responsive visibility</Text>
+            <InlineStack gap="400">
+              <Checkbox
+                label="Hide on mobile (&lt; 750px)"
+                checked={style.responsive.hideOnMobile}
+                onChange={(v) => update({ responsive: { ...style.responsive, hideOnMobile: v } })}
+              />
+              <Checkbox
+                label="Hide on desktop (750px+)"
+                checked={style.responsive.hideOnDesktop}
+                onChange={(v) => update({ responsive: { ...style.responsive, hideOnDesktop: v } })}
+              />
+            </InlineStack>
+          </BlockStack>
+        </>
+      )}
     </BlockStack>
   );
 }
@@ -363,28 +488,30 @@ function AdvancedTab({
   specType: StyleableType;
   update: (p: Partial<StorefrontStyle>) => void;
 }) {
-  const isOverlay =
-    specType === 'theme.popup' ||
+  const cfg = getStyleConfig(specType);
+  const isOverlay = cfg.forceOverlay ||
     style.layout.mode === 'overlay' ||
     style.layout.mode === 'sticky' ||
     style.layout.mode === 'floating';
 
   return (
     <BlockStack gap="400">
-      {/* Layout */}
+      {/* Layout & Positioning */}
       <BlockStack gap="200">
-        <Text as="p" variant="headingSm">Layout & Positioning</Text>
+        <Text as="p" variant="headingSm">Layout &amp; Positioning</Text>
         <InlineStack gap="300" wrap>
-          <Select
-            label="Layout mode"
-            options={LAYOUT_MODE_OPTIONS}
-            value={style.layout.mode}
-            onChange={(v) =>
-              update({ layout: { ...style.layout, mode: v as StorefrontStyle['layout']['mode'] } })
-            }
-            helpText="Inline modules use Theme Editor placement"
-          />
-          {isOverlay && (
+          {cfg.showLayoutMode && (
+            <Select
+              label="Layout mode"
+              options={LAYOUT_MODE_OPTIONS}
+              value={style.layout.mode}
+              onChange={(v) =>
+                update({ layout: { ...style.layout, mode: v as StorefrontStyle['layout']['mode'] } })
+              }
+              helpText="Inline modules use Theme Editor placement"
+            />
+          )}
+          {cfg.showAnchor && isOverlay && (
             <Select
               label="Anchor position"
               options={ANCHOR_OPTIONS}
@@ -394,27 +521,31 @@ function AdvancedTab({
               }
             />
           )}
-          <Select
-            label="Width"
-            options={WIDTH_OPTIONS}
-            value={style.layout.width}
-            onChange={(v) =>
-              update({ layout: { ...style.layout, width: v as StorefrontStyle['layout']['width'] } })
-            }
-          />
-          <Select
-            label="Z-index level"
-            options={Z_INDEX_OPTIONS}
-            value={style.layout.zIndex}
-            onChange={(v) =>
-              update({ layout: { ...style.layout, zIndex: v as StorefrontStyle['layout']['zIndex'] } })
-            }
-          />
+          {cfg.showWidth && (
+            <Select
+              label="Width"
+              options={WIDTH_OPTIONS}
+              value={style.layout.width}
+              onChange={(v) =>
+                update({ layout: { ...style.layout, width: v as StorefrontStyle['layout']['width'] } })
+              }
+            />
+          )}
+          {cfg.showZIndex && (
+            <Select
+              label="Z-index level"
+              options={Z_INDEX_OPTIONS}
+              value={style.layout.zIndex}
+              onChange={(v) =>
+                update({ layout: { ...style.layout, zIndex: v as StorefrontStyle['layout']['zIndex'] } })
+              }
+            />
+          )}
         </InlineStack>
-        {isOverlay && (
+        {cfg.showOffset && isOverlay && (
           <InlineStack gap="300" wrap>
             <TextField
-              label="Offset X (px, –100 to 100)"
+              label="Offset X (px, -100 to 100)"
               type="number"
               min={-100}
               max={100}
@@ -430,7 +561,7 @@ function AdvancedTab({
               autoComplete="off"
             />
             <TextField
-              label="Offset Y (px, –100 to 100)"
+              label="Offset Y (px, -100 to 100)"
               type="number"
               min={-100}
               max={100}
@@ -449,106 +580,122 @@ function AdvancedTab({
         )}
       </BlockStack>
 
-      <Divider />
-
       {/* Advanced spacing */}
-      <BlockStack gap="200">
-        <Text as="p" variant="headingSm">Advanced Spacing</Text>
-        <InlineStack gap="300" wrap>
-          <Select
-            label="Gap (between children)"
-            options={GAP_OPTIONS}
-            value={style.spacing.gap}
-            onChange={(v) =>
-              update({ spacing: { ...style.spacing, gap: v as StorefrontStyle['spacing']['gap'] } })
-            }
-          />
-          <Select
-            label="Margin (outer, inline only)"
-            options={MARGIN_OPTIONS}
-            value={style.spacing.margin}
-            onChange={(v) =>
-              update({ spacing: { ...style.spacing, margin: v as StorefrontStyle['spacing']['margin'] } })
-            }
-          />
-        </InlineStack>
-      </BlockStack>
+      {(cfg.showGap || cfg.showMargin) && (
+        <>
+          <Divider />
+          <BlockStack gap="200">
+            <Text as="p" variant="headingSm">Advanced Spacing</Text>
+            <InlineStack gap="300" wrap>
+              {cfg.showGap && (
+                <Select
+                  label="Gap (between children)"
+                  options={GAP_OPTIONS}
+                  value={style.spacing.gap}
+                  onChange={(v) =>
+                    update({ spacing: { ...style.spacing, gap: v as StorefrontStyle['spacing']['gap'] } })
+                  }
+                />
+              )}
+              {cfg.showMargin && (
+                <Select
+                  label="Margin (outer, inline only)"
+                  options={MARGIN_OPTIONS}
+                  value={style.spacing.margin}
+                  onChange={(v) =>
+                    update({ spacing: { ...style.spacing, margin: v as StorefrontStyle['spacing']['margin'] } })
+                  }
+                />
+              )}
+            </InlineStack>
+          </BlockStack>
+        </>
+      )}
 
-      <Divider />
+      {/* Border & Shadow */}
+      {cfg.showBorderShadow && (
+        <>
+          <Divider />
+          <BlockStack gap="200">
+            <Text as="p" variant="headingSm">Border &amp; Shadow</Text>
+            <InlineStack gap="300" wrap>
+              <Select
+                label="Shadow"
+                options={SHADOW_OPTIONS}
+                value={style.shape.shadow}
+                onChange={(v) =>
+                  update({ shape: { ...style.shape, shadow: v as StorefrontStyle['shape']['shadow'] } })
+                }
+              />
+              <Select
+                label="Border width"
+                options={BORDER_WIDTH_OPTIONS}
+                value={style.shape.borderWidth}
+                onChange={(v) =>
+                  update({
+                    shape: { ...style.shape, borderWidth: v as StorefrontStyle['shape']['borderWidth'] },
+                  })
+                }
+              />
+              <HexField
+                label="Border color"
+                value={style.colors.border ?? ''}
+                onChange={(v) => update({ colors: { ...style.colors, border: v || undefined } })}
+                helpText="Optional; falls back to text color"
+              />
+            </InlineStack>
+          </BlockStack>
+        </>
+      )}
 
-      {/* Shape (border / shadow) */}
-      <BlockStack gap="200">
-        <Text as="p" variant="headingSm">Border & Shadow</Text>
-        <InlineStack gap="300" wrap>
-          <Select
-            label="Shadow"
-            options={SHADOW_OPTIONS}
-            value={style.shape.shadow}
-            onChange={(v) =>
-              update({ shape: { ...style.shape, shadow: v as StorefrontStyle['shape']['shadow'] } })
-            }
-          />
-          <Select
-            label="Border width"
-            options={BORDER_WIDTH_OPTIONS}
-            value={style.shape.borderWidth}
-            onChange={(v) =>
-              update({
-                shape: { ...style.shape, borderWidth: v as StorefrontStyle['shape']['borderWidth'] },
-              })
-            }
-          />
-          <HexField
-            label="Border color"
-            value={style.colors.border ?? ''}
-            onChange={(v) => update({ colors: { ...style.colors, border: v || undefined } })}
-            helpText="Optional; falls back to text color"
-          />
-        </InlineStack>
-      </BlockStack>
-
-      <Divider />
-
-      {/* Typography advanced */}
-      <BlockStack gap="200">
-        <Text as="p" variant="headingSm">Advanced Typography</Text>
-        <Select
-          label="Line height"
-          options={LINE_HEIGHT_OPTIONS}
-          value={style.typography.lineHeight}
-          onChange={(v) =>
-            update({
-              typography: {
-                ...style.typography,
-                lineHeight: v as StorefrontStyle['typography']['lineHeight'],
-              },
-            })
-          }
-        />
-      </BlockStack>
-
-      <Divider />
+      {/* Advanced Typography */}
+      {cfg.showLineHeight && (
+        <>
+          <Divider />
+          <BlockStack gap="200">
+            <Text as="p" variant="headingSm">Advanced Typography</Text>
+            <Select
+              label="Line height"
+              options={LINE_HEIGHT_OPTIONS}
+              value={style.typography.lineHeight}
+              onChange={(v) =>
+                update({
+                  typography: {
+                    ...style.typography,
+                    lineHeight: v as StorefrontStyle['typography']['lineHeight'],
+                  },
+                })
+              }
+            />
+          </BlockStack>
+        </>
+      )}
 
       {/* Accessibility */}
-      <BlockStack gap="200">
-        <Text as="p" variant="headingSm">Accessibility</Text>
-        <InlineStack gap="400">
-          <Checkbox
-            label="Focus-visible ring on buttons"
-            checked={style.accessibility.focusVisible}
-            onChange={(v) =>
-              update({ accessibility: { ...style.accessibility, focusVisible: v } })
-            }
-          />
-          <Checkbox
-            label="Respect prefers-reduced-motion"
-            checked={style.accessibility.reducedMotion}
-            onChange={(v) =>
-              update({ accessibility: { ...style.accessibility, reducedMotion: v } })
-            }
-          />
-        </InlineStack>
-      </BlockStack>
+      {cfg.showAccessibility && (
+        <>
+          <Divider />
+          <BlockStack gap="200">
+            <Text as="p" variant="headingSm">Accessibility</Text>
+            <InlineStack gap="400">
+              <Checkbox
+                label="Focus-visible ring on buttons"
+                checked={style.accessibility.focusVisible}
+                onChange={(v) =>
+                  update({ accessibility: { ...style.accessibility, focusVisible: v } })
+                }
+              />
+              <Checkbox
+                label="Respect prefers-reduced-motion"
+                checked={style.accessibility.reducedMotion}
+                onChange={(v) =>
+                  update({ accessibility: { ...style.accessibility, reducedMotion: v } })
+                }
+              />
+            </InlineStack>
+          </BlockStack>
+        </>
+      )}
     </BlockStack>
   );
 }

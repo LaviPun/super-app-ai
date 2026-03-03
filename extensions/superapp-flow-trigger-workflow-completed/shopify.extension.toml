@@ -1,0 +1,30 @@
+api_version = "2026-01"
+
+[[extensions]]
+name = "SuperApp Workflow completed"
+uid = "a211f5bc-6bd0-0847-0338-2b41c7b2a07b5aa9b6b3"
+type = "flow_trigger"
+handle = "superapp-workflow-completed"
+description = "Fires when a SuperApp workflow run completes successfully."
+
+[settings]
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Workflow ID"
+  description = "The unique identifier of the completed workflow."
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Workflow Name"
+  description = "The name of the completed workflow."
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Run ID"
+  description = "The unique identifier of the workflow run."
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Shop Domain"
+  description = "The shop domain where the workflow ran."

@@ -1,0 +1,23 @@
+api_version = "2026-01"
+
+[[extensions]]
+name = "SuperApp Tag order"
+uid = "2583cb27-1e4d-36fc-aaee-632e1093b1310514e684"
+type = "flow_action"
+handle = "superapp-tag-order"
+description = "Add tags to an order via SuperApp."
+runtime_url = "https://superapp.example.com/api/flow/action"
+
+[settings]
+
+  [[settings.fields]]
+  type = "order_reference"
+  required = true
+  description = "The order to tag."
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Tags"
+  name = "Tags"
+  description = "Comma-separated list of tags to add to the order."
+  required = true

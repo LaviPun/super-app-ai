@@ -1,5 +1,4 @@
 import { postJsonWithRetries } from '~/services/ai/http/ai-http.server';
-import { getRecipeJsonSchema } from '~/services/ai/recipe-json-schema.server';
 
 export async function anthropicGenerateRecipe(opts: {
   apiKey: string;
@@ -11,13 +10,11 @@ export async function anthropicGenerateRecipe(opts: {
   const base = (opts.baseUrl ?? 'https://api.anthropic.com').replace(/\/$/, '');
   const url = `${base}/v1/messages`;
 
-  const schema = getRecipeJsonSchema();
-
   const body = {
     model: opts.model,
-    max_tokens: 1200,
+    max_tokens: 4096,
+    system: 'You are a JSON generator. Always respond with valid JSON only. No markdown, no explanation outside the JSON.',
     messages: [{ role: 'user', content: opts.prompt }],
-    output_config: { format: { type: 'json_schema', schema } },
   };
 
   const { json } = await postJsonWithRetries({

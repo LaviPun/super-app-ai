@@ -1,5 +1,5 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, useSearchParams, useNavigation, Form } from '@remix-run/react';
+import { useLoaderData, useSearchParams, useNavigation, Form, useRevalidator } from '@remix-run/react';
 import {
   Page, Card, BlockStack, Text, Badge, DataTable, InlineStack,
   TextField, Select, Button, SkeletonBodyText,
@@ -41,8 +41,13 @@ export async function loader({ request }: { request: Request }) {
     include: { shop: true },
   });
 
-  const running = jobs.filter(j => j.status === 'RUNNING' || j.status === 'QUEUED').length;
+  const liveJobs = jobs.filter(j => j.status === 'RUNNING' || j.status === 'QUEUED');
+  const running = liveJobs.length;
   const failed = jobs.filter(j => j.status === 'FAILED').length;
+  const sortedJobs = [...jobs].sort((a, b) => {
+    const order = (s: string) => (s === 'RUNNING' ? 0 : s === 'QUEUED' ? 1 : 2);
+    return order(a.status) - order(b.status) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
 
   const stepLogs = await prisma.flowStepLog.findMany({
     orderBy: { createdAt: 'desc' },
@@ -53,7 +58,14 @@ export async function loader({ request }: { request: Request }) {
   const distinctTypes = [...new Set(jobs.map(j => j.type))].sort();
 
   return json({
-    jobs: jobs.map(j => ({
+    liveJobs: liveJobs.map(j => ({
+      id: j.id,
+      type: j.type,
+      status: j.status,
+      shopDomain: j.shop?.shopDomain ?? null,
+      createdAt: j.createdAt.toISOString(),
+    })),
+    jobs: sortedJobs.map(j => ({
       id: j.id,
       type: j.type,
       status: j.status,
@@ -87,8 +99,9 @@ const STATUS_OPTIONS = [
 ];
 
 export default function InternalJobs() {
-  const { jobs, stepLogs, running, failed, distinctTypes, filters } = useLoaderData<typeof loader>();
+  const { jobs, liveJobs, stepLogs, running, failed, distinctTypes, filters } = useLoaderData<typeof loader>();
   const nav = useNavigation();
+  const revalidator = useRevalidator();
   const isLoading = nav.state === 'loading';
   const [params, setParams] = useSearchParams();
 
@@ -127,9 +140,32 @@ export default function InternalJobs() {
           </BlockStack>
         </Card>
 
+        {liveJobs.length > 0 && (
+          <Card>
+            <BlockStack gap="200">
+              <Text as="h2" variant="headingMd">Live (RUNNING / QUEUED) — {liveJobs.length} job(s)</Text>
+              <InlineStack gap="200" blockAlign="center">
+                <Text as="p" variant="bodySm" tone="subdued">These jobs are in progress.</Text>
+                <Button size="slim" onClick={() => revalidator.revalidate()} loading={revalidator.state === 'loading'}>Refresh</Button>
+              </InlineStack>
+              <DataTable
+                columnContentTypes={['text', 'text', 'text', 'text']}
+                headings={['Time', 'Type', 'Status', 'Store']}
+                rows={liveJobs.map(j => [
+                  new Date(j.createdAt).toLocaleString(),
+                  j.type,
+                  <Badge key={j.id} tone="attention">{j.status}</Badge>,
+                  j.shopDomain ?? '—',
+                ])}
+              />
+            </BlockStack>
+          </Card>
+        )}
+
         <Card>
           <BlockStack gap="200">
-            <Text as="h2" variant="headingMd">Jobs ({jobs.length})</Text>
+            <Text as="h2" variant="headingMd">All jobs ({jobs.length})</Text>
+            <Text as="p" variant="bodySm" tone="subdued">Showing all statuses. Use filters to narrow by status or type.</Text>
             {isLoading ? (
               <SkeletonBodyText lines={6} />
             ) : jobs.length === 0 ? (

@@ -117,7 +117,10 @@ export default function InternalLogs() {
             {isLoading ? (
               <SkeletonBodyText lines={6} />
             ) : logs.length === 0 ? (
-              <Text as="p" tone="subdued">No errors match your filters.</Text>
+              <BlockStack gap="200">
+                <Text as="p" tone="subdued">No error log entries match your filters.</Text>
+                <Text as="p" variant="bodySm" tone="subdued">Errors appear here when the app writes to the error log service (e.g. ErrorLogService.error/warn/info). If you never see entries, no errors have been recorded in the selected range. Widen the date range or clear filters to check.</Text>
+              </BlockStack>
             ) : (
               <DataTable
                 columnContentTypes={['text', 'text', 'text', 'text', 'text']}

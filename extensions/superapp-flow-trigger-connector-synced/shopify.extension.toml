@@ -1,0 +1,30 @@
+api_version = "2026-01"
+
+[[extensions]]
+name = "SuperApp Connector synced"
+uid = "afd20c19-05bd-18f7-8b6f-dd8da99aa4f379c5c67f"
+type = "flow_trigger"
+handle = "superapp-connector-synced"
+description = "Fires when a connector finishes syncing in SuperApp."
+
+[settings]
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Connector ID"
+  description = "The unique identifier of the synced connector."
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Connector Name"
+  description = "The name of the connector that synced."
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Sync Status"
+  description = "The result of the sync (success or error)."
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Shop Domain"
+  description = "The shop domain where the connector synced."

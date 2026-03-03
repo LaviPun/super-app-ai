@@ -5,6 +5,18 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 
 ---
 
+## Ports
+
+| Port | Use | How to run |
+|------|-----|------------|
+| **3000** | Shopify embedded app (merchant-facing) | `shopify app dev` from repo root |
+| **4000** | Internal admin only | From `apps/web`: `pnpm dev:internal` |
+
+- **Shopify app** must run on **3000** so the CLI tunnel and Partner Dashboard point to the correct URL.
+- **Internal admin** runs on **4000** so you can use it without touching the Shopify app. Open **http://localhost:4000/internal/login**.
+
+---
+
 ## Features
 
 - Configure AI providers (OpenAI / Anthropic / Azure OpenAI / Custom OpenAI-compatible)
@@ -15,6 +27,14 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 - View installed stores and basic stats
 - View and monitor background jobs (AI generation, publish, connector tests, flow runs, theme analysis)
 - Per-step flow execution logs for debugging automations
+- **Type category configuration** — view and edit category display names / visibility; **add new categories** (JSON overrides in App Settings)
+- **Plan tier configuration** — view and edit plan definitions (quotas, display name, trial days, price; -1 = "Contact us"). **Enterprise** plan (unlimited, Contact us); **Pro** = 10× Growth quotas
+- **Recipe edit** — select a store or **"All recipes (templates)"** to view/edit module specs or default templates; Validate or Save (new version or template override). Template overrides used when merchants create from template
+- **Store & plan control** — change a store's billing plan (FREE / STARTER / GROWTH / PRO / ENTERPRISE) without Shopify billing (internal override)
+- **Templates** — Module templates (link to recipe-edit) and Flow templates section
+- **Activity log** — per-entry **View** opens full detail (actor, action, resource, store, IP, details JSON)
+- **AI Providers** — configured providers show **masked API key** (e.g. ••••••••xyz1), model, base URL; model pricing table
+- **Settings** — includes **Password management** (INTERNAL_ADMIN_PASSWORD / SSO), **Environment variables** (.env reference), and **Advanced** (store & plan control). Standalone **Advanced** nav removed; `/internal/advanced` redirects to Settings
 
 ---
 
@@ -28,8 +48,15 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 | `/internal/usage` | AI usage + costs (last 30 days) |
 | `/internal/logs` | Error logs (auto-redacted) |
 | `/internal/api-logs` | API access logs with actor, path, status, duration, requestId |
+| `/internal/stores` | Installed stores; per-store AI provider override, retention overrides, **Change plan** (FREE/STARTER/GROWTH/PRO/ENTERPRISE) |
+| `/internal/plan-tiers` | View and edit plan tier definitions (display name, price [-1 = Contact us], trial days, quotas JSON). Enterprise = unlimited + Contact us; Pro = 10× Growth |
+| `/internal/categories` | View module categories, **add new categories**, edit overrides (display name, enabled) as JSON |
+| `/internal/recipe-edit` | Select **store or "All recipes (templates)"** → module/template → edit RecipeSpec; Validate or Save (new version or template override) |
+| `/internal/templates` | Module templates (link to recipe-edit) and Flow templates section |
+| `/internal/activity` | Activity log; each row has **View** → `/internal/activity/:id` with full detail (actor, action, resource, store, IP, details JSON) |
+| `/internal/advanced` | **Redirects to** `/internal/settings` (Advanced merged into Settings) |
+| `/internal/settings` | Appearance, profile, contact, app config; **Password management**; **Environment variables**; **Advanced** (store & plan control, other controls) |
 | `/internal/jobs` | Background job list (QUEUED/RUNNING/SUCCESS/FAILED) |
-| `/internal/stores` | Installed stores; set per-store AI provider override + per-store retention day overrides (Default / AI / API / Errors) |
 | `/internal/sso/start` | Initiates OIDC SSO flow |
 | `/internal/sso/callback` | OIDC callback handler |
 | `/internal/logout` | Clears internal admin session |
@@ -111,3 +138,21 @@ Cost is computed per AI call and stored in `AiUsage.costCents`.
 Example (GPT-4o pricing):
 - Input: `250` cents / 1M tokens
 - Output: `1000` cents / 1M tokens
+
+---
+
+## Backend validation
+
+- **Recipe edit** — All admin recipe edits are validated with `RecipeSpecSchema` (Zod) before save. Validate button returns structured errors; Save returns 400 with error details if invalid. No change to module type is allowed.
+- **Plan tier edits** — Quotas are validated (numbers, -1 allowed for unlimited) before persisting to `PlanTierConfig`.
+- **Category overrides** — JSON shape is validated before saving to App Settings.
+- **Store plan change** — Only allowed plans (FREE, STARTER, GROWTH, PRO, ENTERPRISE) are accepted; internal admin only.
+
+---
+
+## Dashboard
+
+The dashboard (`/internal`) shows:
+- **Key metrics**: Stores, AI calls (24h), API cost (24h), Active AI providers (with links to Stores, Usage, AI Providers)
+- **Errors (24h)**, **Jobs (7d)** with success-rate progress bar, **Activities (24h)** (with links to Error logs, Jobs, Activity log)
+- **Quick links**: Plan tiers, Categories, Recipe edit, Settings

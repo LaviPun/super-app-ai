@@ -1,0 +1,146 @@
+import type { ModuleType } from '@superapp/core';
+
+/**
+ * Prompt design principles (from real-world successful AI app prompts):
+ * 1. Clear purpose — what we're building, who it's for.
+ * 2. User-focused flow — step-by-step visitor experience so AI gets UX right.
+ * 3. Lightweight tech hints — schema/format as "frame", not implementation.
+ * 4. Edge cases / extras — responsive, accessibility, one clear CTA; mention when relevant.
+ */
+
+/** Purpose + guidance block: anchors the AI on goal, flow, and extras. */
+export const PROMPT_PURPOSE_AND_GUIDANCE = `Purpose: You are generating Shopify storefront modules (popups, banners, notification bars, etc.) that merchants add to their theme. Each module is a single, deployable unit. Your output must be valid RecipeSpec JSON so it can be saved and deployed without errors. The audience is the store's visitors (shoppers).
+
+User flow: When the merchant's request is vague or short, infer a clear visitor flow and reflect it in your options: who sees it (e.g. all visitors, or only on product page), when (e.g. after 5 seconds, on exit intent), and what they can do (e.g. copy a code, click CTA, close). Vary the 3 options by flow (e.g. different triggers, different pages, different frequency). In your "explanation" for each option, describe the flow in one line (e.g. "Shows 5s after load on homepage, once per session, with one primary CTA").
+
+Extras to consider when relevant: responsive (mobile vs desktop), accessibility (focus, reduced motion), and one clear primary CTA. If the request mentions a coupon/code, ensure the content makes it easy to copy. Mention these in your explanation when they drive the design.`;
+
+/**
+ * Minimal valid JSON examples per type. Shown to the AI so it knows the EXACT shape we expect.
+ * All config fields (content + controls) go in a single "config" object.
+ */
+const EXPECTED_SHAPE_EXAMPLES: Partial<Record<ModuleType, string>> = {
+  'theme.popup': `{
+  "type": "theme.popup",
+  "name": "string, 3-80 chars",
+  "category": "STOREFRONT_UI",
+  "requires": ["THEME_ASSETS"],
+  "config": {
+    "title": "string, 1-60 chars, required",
+    "body": "string, 0-240, optional",
+    "trigger": "ON_LOAD | ON_EXIT_INTENT | ON_SCROLL_25 | ON_SCROLL_50 | ON_SCROLL_75 | ON_CLICK | TIMED",
+    "delaySeconds": 0,
+    "frequency": "EVERY_VISIT | ONCE_PER_SESSION | ONCE_PER_DAY | ONCE_PER_WEEK | ONCE_EVER",
+    "maxShowsPerDay": 0,
+    "showOnPages": "ALL | HOMEPAGE | COLLECTION | PRODUCT | CART | CUSTOM",
+    "customPageUrls": [],
+    "autoCloseSeconds": 0,
+    "showCloseButton": true,
+    "countdownEnabled": false,
+    "countdownSeconds": 0,
+    "countdownLabel": "",
+    "ctaText": "optional",
+    "ctaUrl": "https://... optional, must be valid URL or omit",
+    "secondaryCtaText": "optional",
+    "secondaryCtaUrl": "optional, valid URL or omit"
+  },
+  "style": { "layout": { "mode": "overlay", "anchor": "center" } }
+}`,
+
+  'theme.banner': `{
+  "type": "theme.banner",
+  "name": "string, 3-80 chars",
+  "category": "STOREFRONT_UI",
+  "requires": ["THEME_ASSETS"],
+  "config": {
+    "heading": "string, 1-80, required",
+    "subheading": "optional",
+    "ctaText": "optional",
+    "ctaUrl": "optional, valid URL or omit",
+    "imageUrl": "optional, valid URL or omit",
+    "enableAnimation": false
+  },
+  "style": { "layout": { "mode": "inline", "anchor": "top" } }
+}`,
+
+  'theme.notificationBar': `{
+  "type": "theme.notificationBar",
+  "name": "string, 3-80 chars",
+  "category": "STOREFRONT_UI",
+  "requires": ["THEME_ASSETS"],
+  "config": {
+    "message": "string, 1-140, required",
+    "linkText": "optional",
+    "linkUrl": "optional, valid URL or omit",
+    "dismissible": true
+  },
+  "style": {}
+}`,
+
+  'proxy.widget': `{
+  "type": "proxy.widget",
+  "name": "string, 3-80 chars",
+  "category": "STOREFRONT_UI",
+  "requires": ["APP_PROXY"],
+  "config": {
+    "widgetId": "lowercase-with-hyphens, 3-40 chars",
+    "mode": "JSON | HTML",
+    "title": "string, 1-80",
+    "message": "optional"
+  },
+  "style": {}
+}`,
+};
+
+const VALIDATION_RULES = `
+How we validate your response:
+- We parse your JSON and validate with a strict schema (Zod). If any field is wrong, the whole option is rejected.
+- Enum values must be EXACTLY as shown (e.g. ON_LOAD not "on_load", TIMED not "timed"). Use UPPERCASE with underscores.
+- "anchor" in style.layout must be exactly one of: top, bottom, left, right, center (not "bottom-right" or "center-bottom").
+- Optional URL fields (ctaUrl, secondaryCtaUrl, linkUrl): either omit the key or use a valid https URL. Empty string "" is invalid.
+- Numbers must be numbers (e.g. delaySeconds: 5 not "5").`;
+
+const INVALID_DO_NOT = `
+Invalid / do NOT do:
+- Do NOT use top-level "settings" or "controls". Put ALL content and control fields inside a single "config" object.
+- Do NOT include "assets", "meta", "settings", or "controls" as keys on the recipe. Only type, name, category, requires, config, and optionally style.
+- Do NOT use lowercase or kebab-case for enums (e.g. use ON_EXIT_INTENT not on_exit_intent or exit-intent).`;
+
+const RESPONSE_FORMAT = `
+Exact response format we expect (your reply must be valid JSON in this shape only):
+{
+  "options": [
+    { "explanation": "1-2 sentences describing this option", "recipe": { <one full recipe object as above> } },
+    { "explanation": "...", "recipe": { ... } },
+    { "explanation": "...", "recipe": { ... } }
+  ]
+}
+You must return exactly 3 options. Each "recipe" must follow the expected shape for the module type with no extra keys.`;
+
+/** Shorter block for modify flow: we send current spec, so we only need validation + invalid + response format. */
+export function getModifyPromptExpectations(): string {
+  return [
+    'Output rules:',
+    VALIDATION_RULES.trim(),
+    INVALID_DO_NOT.trim(),
+    'Return JSON: { "options": [ { "explanation": "...", "recipe": { <full updated recipe, same shape as current> } }, ... ] } with exactly 3 options. Each recipe must keep the same top-level keys (type, name, category, requires, config, style) and no extra keys (no settings, controls, assets, meta).',
+  ].join('\n\n');
+}
+
+/**
+ * Returns a single block to inject into the AI prompt: expected shape, validation rules, invalid examples, and response format.
+ */
+export function getPromptExpectations(moduleType: ModuleType): string {
+  const example = EXPECTED_SHAPE_EXAMPLES[moduleType];
+  const shapeBlock = example
+    ? `Expected recipe shape for "${moduleType}" (use this structure exactly; all config fields in one "config" object):\n${example}`
+    : `Use type, name, category, requires, config (single object with all settings and controls), and optionally style. No "settings", "controls", "assets", or "meta" at top level.`;
+
+  return [
+    'Technical frame (use this structure so the module deploys without errors):',
+    shapeBlock,
+    VALIDATION_RULES.trim(),
+    INVALID_DO_NOT.trim(),
+    RESPONSE_FORMAT.trim(),
+  ].join('\n\n');
+}

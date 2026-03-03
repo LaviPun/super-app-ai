@@ -56,4 +56,15 @@ export class AiProviderService {
     const d = decryptJson<{ apiKey: string }>(p.apiKeyEnc);
     return d.apiKey;
   }
+
+  /** Returns masked API key for display (e.g. "••••••••xyz1"). */
+  async getApiKeyMasked(id: string): Promise<string> {
+    try {
+      const key = await this.getApiKey(id);
+      if (!key || key.length < 4) return '••••';
+      return '••••••••' + key.slice(-4);
+    } catch {
+      return '—';
+    }
+  }
 }

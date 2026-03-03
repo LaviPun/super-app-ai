@@ -1,0 +1,30 @@
+api_version = "2026-01"
+
+[[extensions]]
+name = "SuperApp Data record created"
+uid = "ae28b694-537a-11dd-ce84-f9e25f0f42763a2aafa3"
+type = "flow_trigger"
+handle = "superapp-data-record-created"
+description = "Fires when a new record is created in a SuperApp data store."
+
+[settings]
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Store Key"
+  description = "The data store key where the record was created."
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Record ID"
+  description = "The unique identifier of the new record."
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Record Title"
+  description = "The title of the created record."
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Shop Domain"
+  description = "The shop domain where the record was created."

@@ -1,0 +1,32 @@
+api_version = "2026-01"
+
+[[extensions]]
+name = "SuperApp Write to data store"
+uid = "550c1a1a-04c7-10d4-c0b7-ceb52295b0f13e5fcc24"
+type = "flow_action"
+handle = "superapp-write-to-store"
+description = "Save data to a SuperApp data store."
+runtime_url = "https://superapp.example.com/api/flow/action"
+
+[settings]
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Store Key"
+  name = "Store Key"
+  description = "The key of the data store to write to (e.g. analytics, product, order)."
+  required = true
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Title"
+  name = "Record Title"
+  description = "Optional title for the data store record."
+  required = false
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Payload"
+  name = "JSON Payload"
+  description = "The JSON payload to store."
+  required = true

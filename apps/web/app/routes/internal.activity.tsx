@@ -1,8 +1,9 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, useSearchParams, useNavigation, Form } from '@remix-run/react';
+import { useLoaderData, useSearchParams, useNavigation, Form, useFetcher, useRevalidator } from '@remix-run/react';
+import { useEffect, useState } from 'react';
 import {
-  Page, Card, BlockStack, Text, DataTable, Badge, InlineStack,
-  TextField, Select, Button, Filters, SkeletonBodyText,
+  Page, Card, BlockStack, Text, Badge, InlineStack, Modal, Box,
+  TextField, Select, Button, SkeletonBodyText, Spinner,
 } from '@shopify/polaris';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
@@ -57,11 +58,87 @@ function toneForActor(actor: string) {
   }
 }
 
+type ActivityDetailData = {
+  id: string;
+  actor: string;
+  action: string;
+  resource: string | null;
+  shopDomain: string | null;
+  detailsJson: string | null;
+  detailsRaw: string | null;
+  ip: string | null;
+  createdAt: string;
+};
+
+const activityPreStyle = {
+  margin: 0,
+  padding: 12,
+  background: 'var(--p-color-bg-surface-secondary)',
+  borderRadius: 8,
+  fontSize: 12,
+  overflow: 'auto' as const,
+  maxHeight: '100%',
+  minHeight: 120,
+  whiteSpace: 'pre-wrap' as const,
+  wordBreak: 'break-all' as const,
+};
+
+function ActivityDetailContent({ d }: { d: ActivityDetailData }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: 16, minHeight: 320 }}>
+      <Box padding="300" background="bg-surface-secondary" borderRadius="200" minHeight={0} overflow="hidden" display="flex" flexDirection="column">
+        <Text as="h3" variant="headingSm" fontWeight="semibold">Body / Details (JSON)</Text>
+        <Box minHeight={0} flexGrow={1} overflow="auto">
+          {d.detailsJson ? <pre style={activityPreStyle}>{d.detailsJson}</pre> : <Text as="p" variant="bodySm" tone="subdued">—</Text>}
+        </Box>
+      </Box>
+      <Box padding="300" background="bg-surface-secondary" borderRadius="200" minHeight={0} overflow="hidden" display="flex" flexDirection="column">
+        <Text as="h3" variant="headingSm" fontWeight="semibold">Response / Details (raw)</Text>
+        <Box minHeight={0} flexGrow={1} overflow="auto">
+          {d.detailsRaw ? <pre style={activityPreStyle}>{d.detailsRaw}</pre> : <Text as="p" variant="bodySm" tone="subdued">—</Text>}
+        </Box>
+      </Box>
+      <Box padding="300" background="bg-surface-secondary" borderRadius="200" minHeight={0} overflow="hidden" display="flex" flexDirection="column">
+        <Text as="h3" variant="headingSm" fontWeight="semibold">Details</Text>
+        <BlockStack gap="100">
+          <Text as="p" variant="bodySm"><strong>Time</strong>: {new Date(d.createdAt).toLocaleString()}</Text>
+          <Text as="p" variant="bodySm"><strong>Actor</strong>: {d.actor}</Text>
+          <Text as="p" variant="bodySm"><strong>Action</strong>: {d.action}</Text>
+          <Text as="p" variant="bodySm"><strong>Resource</strong>: {d.resource ?? '—'}</Text>
+          <Text as="p" variant="bodySm"><strong>Store</strong>: {d.shopDomain ?? '—'}</Text>
+          {d.ip && <Text as="p" variant="bodySm"><strong>IP</strong>: {d.ip}</Text>}
+        </BlockStack>
+      </Box>
+      <Box padding="300" background="bg-surface-secondary" borderRadius="200" minHeight={0} overflow="hidden" display="flex" flexDirection="column">
+        <Text as="h3" variant="headingSm" fontWeight="semibold">Additional meta</Text>
+        <Box minHeight={0} flexGrow={1} overflow="auto">
+          <Text as="p" variant="bodySm" tone="subdued">—</Text>
+        </Box>
+      </Box>
+    </div>
+  );
+}
+
 export default function InternalActivity() {
   const { logs, distinctActions, filters } = useLoaderData<typeof loader>();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const fetcher = useFetcher<ActivityDetailData>();
+  const revalidator = useRevalidator();
   const nav = useNavigation();
   const isLoading = nav.state === 'loading';
   const [params, setParams] = useSearchParams();
+
+  useEffect(() => {
+    if (selectedId) fetcher.load(`/internal/activity/${selectedId}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only load when selectedId changes
+  }, [selectedId]);
+
+  useEffect(() => {
+    const id = setInterval(() => revalidator.revalidate(), 5000);
+    return () => clearInterval(id);
+  }, [revalidator]);
+
+  const detailData = fetcher.data;
 
   const actionOptions = [
     { label: 'All actions', value: '' },
@@ -69,7 +146,11 @@ export default function InternalActivity() {
   ];
 
   return (
-    <Page title="Activity log" subtitle={`${logs.length} entries`}>
+    <Page
+      title="Activity log"
+      subtitle={`${logs.length} entries · refreshes every 5s`}
+      primaryAction={{ content: 'Refresh', onAction: () => revalidator.revalidate(), loading: revalidator.state === 'loading' }}
+    >
       <BlockStack gap="400">
         <Card>
           <BlockStack gap="300">
@@ -159,26 +240,70 @@ export default function InternalActivity() {
             ) : logs.length === 0 ? (
               <Text as="p" tone="subdued">No activity recorded yet. Actions will appear here as users interact with the app.</Text>
             ) : (
-              <DataTable
-                columnContentTypes={['text', 'text', 'text', 'text', 'text', 'text']}
-                headings={['Time', 'Actor', 'Action', 'Resource', 'Store', 'Details']}
-                rows={logs.map(l => [
-                  new Date(l.createdAt).toLocaleString(),
-                  <Badge key={`a-${l.id}`} tone={toneForActor(l.actor)}>{l.actor}</Badge>,
-                  l.action,
-                  l.resource ?? '—',
-                  l.shopDomain ?? '—',
-                  l.details ? (
-                    <Text key={`d-${l.id}`} as="span" variant="bodySm" tone="subdued" truncate>
-                      {l.details.length > 80 ? l.details.slice(0, 80) + '...' : l.details}
-                    </Text>
-                  ) : '—',
-                ])}
-              />
+              <Box paddingBlockEnd="400">
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--p-color-border)', textAlign: 'left' }}>
+                      <th style={{ padding: 12, fontWeight: 600 }}>Time</th>
+                      <th style={{ padding: 12, fontWeight: 600 }}>Actor</th>
+                      <th style={{ padding: 12, fontWeight: 600 }}>Action</th>
+                      <th style={{ padding: 12, fontWeight: 600 }}>Resource</th>
+                      <th style={{ padding: 12, fontWeight: 600 }}>Store</th>
+                      <th style={{ padding: 12, fontWeight: 600 }}>Details</th>
+                      <th style={{ padding: 12, fontWeight: 600, width: 80 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logs.map(l => (
+                      <tr key={l.id} style={{ borderBottom: '1px solid var(--p-color-border-subdued)' }}>
+                        <td style={{ padding: 12 }}>{new Date(l.createdAt).toLocaleString()}</td>
+                        <td style={{ padding: 12 }}><Badge tone={toneForActor(l.actor)}>{l.actor}</Badge></td>
+                        <td style={{ padding: 12 }}>{l.action}</td>
+                        <td style={{ padding: 12, wordBreak: 'break-all' }}>{l.resource ?? '—'}</td>
+                        <td style={{ padding: 12 }}>{l.shopDomain ?? '—'}</td>
+                        <td style={{ padding: 12 }}>
+                          {l.details ? (
+                            <Text as="span" variant="bodySm" tone="subdued">
+                              {l.details.length > 80 ? l.details.slice(0, 80) + '...' : l.details}
+                            </Text>
+                          ) : '—'}
+                        </td>
+                        <td style={{ padding: 12 }}>
+                          <Button type="button" size="slim" variant="plain" onClick={() => setSelectedId(l.id)}>View</Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                </div>
+              </Box>
             )}
           </BlockStack>
         </Card>
       </BlockStack>
+
+      <Modal
+        open={selectedId != null}
+        onClose={() => setSelectedId(null)}
+        title="Activity detail"
+        large
+      >
+        <Modal.Section>
+          {fetcher.state === 'loading' && !detailData ? (
+            <InlineStack gap="200" blockAlign="center">
+              <Spinner size="small" />
+              <Text as="span" tone="subdued">Loading…</Text>
+            </InlineStack>
+          ) : detailData ? (
+            <Box maxHeight="70vh" overflowY="auto">
+              <ActivityDetailContent d={detailData} />
+            </Box>
+          ) : fetcher.data === undefined && fetcher.state === 'idle' ? null : (
+            <Text as="p" tone="critical">Failed to load activity.</Text>
+          )}
+        </Modal.Section>
+      </Modal>
     </Page>
   );
 }

@@ -12,7 +12,13 @@ import { getPrisma } from '~/db.server';
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
   const service = new AiProviderService();
-  const providers = await service.list();
+  const providersRaw = await service.list();
+  const providers = await Promise.all(
+    providersRaw.map(async (p) => ({
+      ...p,
+      apiKeyMasked: await service.getApiKeyMasked(p.id),
+    }))
+  );
   const prisma = getPrisma();
   const prices = await prisma.aiModelPrice.findMany({
     where: { isActive: true },
@@ -127,18 +133,23 @@ export default function InternalAiProviders() {
             ) : (
               providers.map(p => (
                 <Card key={p.id}>
-                  <InlineStack gap="200" align="space-between" blockAlign="center">
-                    <InlineStack gap="200" blockAlign="center">
-                      <Text as="p" variant="headingSm">{p.name}</Text>
-                      <Badge>{p.provider}</Badge>
-                      {p.isActive ? <Badge tone="success">Global active</Badge> : null}
+                  <BlockStack gap="200">
+                    <InlineStack gap="200" align="space-between" blockAlign="center">
+                      <InlineStack gap="200" blockAlign="center">
+                        <Text as="p" variant="headingSm">{p.name}</Text>
+                        <Badge>{p.provider}</Badge>
+                        {p.isActive ? <Badge tone="success">Global active</Badge> : null}
+                      </InlineStack>
+                      <Form method="post">
+                        <input type="hidden" name="intent" value="activate" />
+                        <input type="hidden" name="id" value={p.id} />
+                        <Button submit disabled={p.isActive} size="slim">{p.isActive ? 'Active' : 'Set global active'}</Button>
+                      </Form>
                     </InlineStack>
-                    <Form method="post">
-                      <input type="hidden" name="intent" value="activate" />
-                      <input type="hidden" name="id" value={p.id} />
-                      <Button submit disabled={p.isActive} size="slim">{p.isActive ? 'Active' : 'Set global active'}</Button>
-                    </Form>
-                  </InlineStack>
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      API key: {(p as { apiKeyMasked?: string }).apiKeyMasked ?? '—'} · Model: {p.model ?? '—'} · Base URL: {p.baseUrl ?? '—'}
+                    </Text>
+                  </BlockStack>
                 </Card>
               ))
             )}

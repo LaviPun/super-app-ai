@@ -1,5 +1,4 @@
 import { postJsonWithRetries } from '~/services/ai/http/ai-http.server';
-import { getRecipeJsonSchema } from '~/services/ai/recipe-json-schema.server';
 
 export async function openAiCompatibleGenerateRecipe(opts: {
   apiKey: string;
@@ -18,13 +17,11 @@ export async function openAiCompatibleGenerateRecipe(opts: {
 async function tryResponses(opts: any) {
   const base = opts.baseUrl.replace(/\/$/, '');
   const url = `${base}/v1/responses`;
-  const schema = getRecipeJsonSchema();
 
   const body = {
     model: opts.model,
     input: [{ role: 'user', content: [{ type: 'input_text', text: opts.prompt }] }],
-    text: { format: { type: 'json_schema', name: 'recipe_spec', schema, strict: true } },
-    temperature: 0.2,
+    text: { format: { type: 'json_object' } },
   };
 
   const { json } = await postJsonWithRetries({
@@ -46,13 +43,11 @@ async function tryResponses(opts: any) {
 async function tryChatCompletions(opts: any) {
   const base = opts.baseUrl.replace(/\/$/, '');
   const url = `${base}/v1/chat/completions`;
-  const schema = getRecipeJsonSchema();
 
   const body = {
     model: opts.model,
     messages: [{ role: 'user', content: opts.prompt }],
-    response_format: { type: 'json_schema', json_schema: { name: 'recipe_spec', schema, strict: true } },
-    temperature: 0.2,
+    response_format: { type: 'json_object' },
   };
 
   const { json } = await postJsonWithRetries({

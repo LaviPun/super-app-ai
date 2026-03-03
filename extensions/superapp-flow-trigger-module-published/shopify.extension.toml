@@ -1,0 +1,30 @@
+api_version = "2026-01"
+
+[[extensions]]
+name = "SuperApp Module published"
+uid = "227312df-0276-44b1-3f77-676ded67b8d88af1fdb7"
+type = "flow_trigger"
+handle = "superapp-module-published"
+description = "Fires when a module is published in SuperApp."
+
+[settings]
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Module ID"
+  description = "The unique identifier of the published module."
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Module Name"
+  description = "The name of the published module."
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Module Type"
+  description = "The type of module (e.g. theme.banner, flow.automation)."
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Shop Domain"
+  description = "The shop domain where the module was published."

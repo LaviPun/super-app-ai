@@ -1,8 +1,9 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, useSearchParams, useNavigation, Form } from '@remix-run/react';
+import { useLoaderData, useSearchParams, useNavigation, Form, useFetcher, useRevalidator } from '@remix-run/react';
+import { useEffect, useState } from 'react';
 import {
-  Page, Card, BlockStack, Text, DataTable, Badge, InlineStack,
-  TextField, Select, Button, SkeletonBodyText,
+  Page, Card, BlockStack, Text, Badge, InlineStack, Modal, Box,
+  TextField, Select, Button, SkeletonBodyText, Spinner,
 } from '@shopify/polaris';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
@@ -17,6 +18,7 @@ export async function loader({ request }: { request: Request }) {
   const dateTo = url.searchParams.get('dateTo') ? new Date(url.searchParams.get('dateTo')!) : undefined;
 
   const prisma = getPrisma();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Prisma where shape varies by filters
   const where: any = {};
   if (actor) where.actor = actor;
   if (statusFilter === 'success') where.success = true;
@@ -70,14 +72,117 @@ const STATUS_OPTIONS = [
   { label: 'Error', value: 'error' },
 ];
 
+type ApiLogDetailData = {
+  id: string;
+  actor: string;
+  method: string;
+  path: string;
+  status: number;
+  durationMs: number;
+  requestId: string | null;
+  success: boolean;
+  shopDomain: string | null;
+  createdAt: string;
+  requestBody: string | null;
+  requestHeaders: Record<string, string> | null;
+  responseBody: string | null;
+  metaRest: Record<string, unknown> | null;
+};
+
+const preStyle = {
+  margin: 0,
+  padding: 12,
+  background: 'var(--p-color-bg-surface-secondary)',
+  borderRadius: 8,
+  fontSize: 12,
+  overflow: 'auto' as const,
+  maxHeight: '100%',
+  minHeight: 120,
+  whiteSpace: 'pre-wrap' as const,
+  wordBreak: 'break-all' as const,
+};
+
+function ApiLogDetailContent({ d }: { d: ApiLogDetailData }) {
+  const CodeBlock = ({ value }: { value: string | Record<string, unknown> | null }) => {
+    if (value == null || value === '') return <Text as="p" variant="bodySm" tone="subdued">—</Text>;
+    const str = typeof value === 'object' ? JSON.stringify(value, null, 2) : value;
+    return <pre style={preStyle}>{str}</pre>;
+  };
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: 16, minHeight: 320 }}>
+      <Box padding="300" background="bg-surface-secondary" borderRadius="200" minHeight={0} overflow="hidden" display="flex" flexDirection="column">
+        <Text as="h3" variant="headingSm" fontWeight="semibold">Request body</Text>
+        <Box minHeight={0} flexGrow={1} overflow="auto">
+          <CodeBlock value={d.requestBody} />
+        </Box>
+      </Box>
+      <Box padding="300" background="bg-surface-secondary" borderRadius="200" minHeight={0} overflow="hidden" display="flex" flexDirection="column">
+        <Text as="h3" variant="headingSm" fontWeight="semibold">Response body</Text>
+        <Box minHeight={0} flexGrow={1} overflow="auto">
+          <CodeBlock value={d.responseBody} />
+        </Box>
+      </Box>
+      <Box padding="300" background="bg-surface-secondary" borderRadius="200" minHeight={0} overflow="hidden" display="flex" flexDirection="column">
+        <Text as="h3" variant="headingSm" fontWeight="semibold">Details</Text>
+        <BlockStack gap="100">
+          <Text as="p" variant="bodySm"><strong>Time</strong>: {new Date(d.createdAt).toLocaleString()}</Text>
+          <Text as="p" variant="bodySm"><strong>Method</strong>: {d.method}</Text>
+          <Text as="p" variant="bodySm"><strong>Path</strong>: {d.path}</Text>
+          <Text as="p" variant="bodySm"><strong>Status</strong>: {d.status}</Text>
+          <Text as="p" variant="bodySm"><strong>Duration</strong>: {d.durationMs} ms</Text>
+          <Text as="p" variant="bodySm"><strong>Success</strong>: {d.success ? 'Yes' : 'No'}</Text>
+          {d.requestId && <Text as="p" variant="bodySm"><strong>Request ID</strong>: {d.requestId}</Text>}
+          <Text as="p" variant="bodySm"><strong>Actor</strong>: {d.actor}</Text>
+          <Text as="p" variant="bodySm"><strong>Store</strong>: {d.shopDomain ?? '—'}</Text>
+          {d.requestHeaders != null && Object.keys(d.requestHeaders).length > 0 && (
+            <details style={{ marginTop: 8 }}>
+              <summary style={{ cursor: 'pointer', fontSize: 12 }}>Request headers</summary>
+              <pre style={{ ...preStyle, maxHeight: 120, marginTop: 4 }}>{JSON.stringify(d.requestHeaders, null, 2)}</pre>
+            </details>
+          )}
+        </BlockStack>
+      </Box>
+      <Box padding="300" background="bg-surface-secondary" borderRadius="200" minHeight={0} overflow="hidden" display="flex" flexDirection="column">
+        <Text as="h3" variant="headingSm" fontWeight="semibold">Additional meta</Text>
+        <Box minHeight={0} flexGrow={1} overflow="auto">
+          {d.metaRest && Object.keys(d.metaRest).length > 0 ? (
+            <pre style={preStyle}>{JSON.stringify(d.metaRest, null, 2)}</pre>
+          ) : (
+            <Text as="p" variant="bodySm" tone="subdued">—</Text>
+          )}
+        </Box>
+      </Box>
+    </div>
+  );
+}
+
 export default function InternalApiLogs() {
   const { logs, filters } = useLoaderData<typeof loader>();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const fetcher = useFetcher<ApiLogDetailData>();
+  const revalidator = useRevalidator();
   const nav = useNavigation();
   const isLoading = nav.state === 'loading';
   const [params, setParams] = useSearchParams();
 
+  useEffect(() => {
+    if (selectedId) fetcher.load(`/internal/api-logs/${selectedId}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only load when selectedId changes
+  }, [selectedId]);
+
+  useEffect(() => {
+    const id = setInterval(() => revalidator.revalidate(), 5000);
+    return () => clearInterval(id);
+  }, [revalidator]);
+
+  const detailData = fetcher.data;
+
   return (
-    <Page title="API logs" subtitle={`${logs.length} entries`}>
+    <Page
+      title="API logs"
+      subtitle={`${logs.length} entries · refreshes every 5s`}
+      primaryAction={{ content: 'Refresh', onAction: () => revalidator.revalidate(), loading: revalidator.state === 'loading' }}
+    >
       <BlockStack gap="400">
         <Card>
           <BlockStack gap="300">
@@ -113,22 +218,64 @@ export default function InternalApiLogs() {
             ) : logs.length === 0 ? (
               <Text as="p" tone="subdued">No API logs match your filters.</Text>
             ) : (
-              <DataTable
-                columnContentTypes={['text', 'text', 'text', 'text', 'numeric', 'text']}
-                headings={['Time', 'Actor', 'Method / Path', 'Status', 'Duration (ms)', 'Store']}
-                rows={logs.map(l => [
-                  new Date(l.createdAt).toLocaleString(),
-                  l.actor,
-                  `${l.method} ${l.path}`,
-                  <Badge key={l.id} tone={l.status >= 400 ? 'critical' : 'success'}>{String(l.status)}</Badge>,
-                  l.durationMs,
-                  l.shopDomain ?? '—',
-                ])}
-              />
+              <Box paddingBlockEnd="400">
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--p-color-border)', textAlign: 'left' }}>
+                      <th style={{ padding: 12, fontWeight: 600 }}>Time</th>
+                      <th style={{ padding: 12, fontWeight: 600 }}>Actor</th>
+                      <th style={{ padding: 12, fontWeight: 600 }}>Method / Path</th>
+                      <th style={{ padding: 12, fontWeight: 600 }}>Status</th>
+                      <th style={{ padding: 12, fontWeight: 600 }}>Duration (ms)</th>
+                      <th style={{ padding: 12, fontWeight: 600 }}>Store</th>
+                      <th style={{ padding: 12, fontWeight: 600, width: 80 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logs.map(l => (
+                      <tr key={l.id} style={{ borderBottom: '1px solid var(--p-color-border-subdued)' }}>
+                        <td style={{ padding: 12 }}>{new Date(l.createdAt).toLocaleString()}</td>
+                        <td style={{ padding: 12 }}>{l.actor}</td>
+                        <td style={{ padding: 12, wordBreak: 'break-all' }}>{l.method} {l.path}</td>
+                        <td style={{ padding: 12 }}><Badge tone={l.status >= 400 ? 'critical' : 'success'}>{String(l.status)}</Badge></td>
+                        <td style={{ padding: 12 }}>{l.durationMs}</td>
+                        <td style={{ padding: 12 }}>{l.shopDomain ?? '—'}</td>
+                        <td style={{ padding: 12 }}>
+                          <Button type="button" size="slim" variant="plain" onClick={() => setSelectedId(l.id)}>View</Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                </div>
+              </Box>
             )}
           </BlockStack>
         </Card>
       </BlockStack>
+
+      <Modal
+        open={selectedId != null}
+        onClose={() => setSelectedId(null)}
+        title="API log detail"
+        large
+      >
+        <Modal.Section>
+          {fetcher.state === 'loading' && !detailData ? (
+            <InlineStack gap="200" blockAlign="center">
+              <Spinner size="small" />
+              <Text as="span" tone="subdued">Loading…</Text>
+            </InlineStack>
+          ) : detailData ? (
+            <Box maxHeight="70vh" overflowY="auto">
+              <ApiLogDetailContent d={detailData} />
+            </Box>
+          ) : fetcher.data === undefined && fetcher.state === 'idle' ? null : (
+            <Text as="p" tone="critical">Failed to load log.</Text>
+          )}
+        </Modal.Section>
+      </Modal>
     </Page>
   );
 }

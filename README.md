@@ -7,17 +7,29 @@ Merchants can create modules like:
 - Storefront UI: banners, popups, notification bars, proxy widgets (theme-safe patterns). **Style Builder** (3-tab Polaris UI) lets merchants control colors, typography, spacing, positioning, and responsive options — including overlay/backdrop controls — without code. Styles compile to CSS variables (`--sa-*`) for CWV-friendly output. Proxy widgets also render styled HTML via the `_styleCss` metafield.
 - Shopify Functions: discount rules, delivery customization, payment customization, validation, cart transform (Plus-gated where required)
 - App proxy widgets: store-served styled widgets injected into storefront with signed app proxy requests
-- Integrations: ERP/3rd-party API connectors + mapping
-- Automation: n8n/flow-like workflows (webhooks/schedules/manual)
+- Integrations: ERP/3rd-party API connectors + mapping, with **Postman-like API tester** and **saved endpoints** per connector
+- Automation: visual flow builder (Zapier/Make-style) + cron schedules + webhooks. Flows can write to app-owned **Data Stores**.
 - Customer account UI: modules rendered on customer account pages (Order index, Order status, Profile) via a **Preact + Polaris** UI extension; 64 KB script limit (see [docs/debug.md](docs/debug.md))
+- **Module Templates**: 30 pre-built templates covering all 14 RecipeSpec types — merchants can generate with AI or start from a template
+- **Module Settings Editor**: per-type config/copy editor (heading, body, trigger, frequency, etc.) on the module detail page
+- **Modify with AI**: rework/regenerate modules using AI instructions without creating a new module
+- **Theme Dropdown**: publish section fetches themes from Shopify and shows a Select dropdown with theme name + role
+- **Data Stores**: predefined (Product, Inventory, Order, Analytics, Marketing, Customer) and custom databases for app-owned data
+- **Workflow Engine**: graph-based DAG workflow engine with typed expressions, 5 built-in connectors (Shopify, HTTP, Slack, Email, Storage), dual-mode execution (local + Shopify Flow delegation), workflow templates with approval checklist
+- **Shopify Flow Integration**: 5 Flow trigger extensions (module published, connector synced, data record created, workflow completed/failed) + 4 Flow action extensions (tag order, write to store, send HTTP, email notification). Send HTTP Request step with URL/method/headers/body/auth (mirrors Flow's native action). Comprehensive flow catalog (50+ triggers, 40+ actions, 15 operators, 18+ connectors)
 
 You (the app owner/dev team) get:
 - Internal developer dashboard with sidebar navigation (Polaris Frame + TopBar + Navigation)
-  - Dashboard with stat cards, AI Providers, Usage & Costs, Activity Log, Error Logs, API Logs, Stores, Jobs
-  - Activity logging system tracking all significant actions (module CRUD, publish, billing, provider changes)
-  - Advanced filters on all log/data pages (Level, Actor, Status, Type, Search, Date range)
-  - Toast notifications for success/error feedback
-  - Loading states and skeletons across all pages
+  - **Dashboard**: Stat cards (stores, AI calls 24h, API cost 24h, providers), errors/jobs/activities, job success rate, quick links to Plan tiers, Categories, Recipe edit, Settings
+  - **AI Providers**: Add/activate providers, model pricing; per-provider display of masked API key (••••xyz1), model, base URL
+  - **Usage & Costs**, **Activity Log** (with per-entry View → full detail: actor, action, resource, store, details JSON), **Error Logs**, **API Logs**
+  - **Stores**: Per-store AI provider override, retention overrides, **Change plan** (FREE / STARTER / GROWTH / PRO / ENTERPRISE) without Shopify billing
+  - **Plan Tiers**: View/edit plan definitions (display name, price, trial days, quotas); Enterprise = "Contact us" (unlimited); Pro = 10× Growth
+  - **Categories**: View/edit type category overrides (JSON) and **add new categories**
+  - **Recipe edit**: Select store or **"All recipes (templates)"** to view/edit default module templates; Validate + Save (store version or template override)
+  - **Templates**: Module templates (link to recipe-edit) and Flow templates section
+  - **Jobs**; **Settings** (Appearance, Profile, Contact, App config, **Password management**, **Environment variables**, **Advanced** — store/plan control)
+  - Activity logging for all significant actions; advanced filters; toasts; loading states
 - Per-store AI provider override + global provider fallback
 - Retention policies + purge scripts
 
@@ -44,10 +56,10 @@ This yields:
 ---
 
 ## Monorepo layout
-- `apps/web` — Remix embedded app (Admin UI + server routes)
-- `packages/core` — shared types + recipe schema
+- `apps/web` — Remix embedded app (Admin UI + server routes). **Stack:** Remix 2, Vite 6, React Router v7 future flags, Polaris 12 (Card = ShadowBevel; rounded corners enforced in `app.css` + root inline style). See [docs/debug.md](docs/debug.md) for auth, card corners, and other known issues.
+- `packages/core` — shared types, recipe schema, workflow engine spec, connector SDK
 - `packages/rate-limit` — rate limiting utilities
-- `extensions/*` — Shopify extensions (theme app extension, **customer account UI** [Preact + Polaris, 64 KB], checkout UI extension, functions) as *generic renderers* reading config
+- `extensions/*` — Shopify extensions (theme app extension, **customer account UI** [Preact + Polaris, 64 KB], checkout UI extension, functions, **Flow trigger extensions**, **Flow action extensions**) as *generic renderers* reading config
 - `docs/*` - Technical docs, merchant docs, internal docs, phase plan
 
 ## Local dev
@@ -60,9 +72,10 @@ This yields:
 ## Docs
 - Technical: `docs/technical.md`
 - Merchant guide: `docs/app.md`
-- Implementation status: `docs/implementation-status.md` (includes Storefront UI Style System)
+- Implementation status: `docs/implementation-status.md` (includes Storefront UI Style System, API Tester, Templates, Flow Builder, Data Stores, **Admin app stack & UI fixes**)
 - Phase plan: `docs/phase-plan.md`
-- Debug notes (extension bundle, deploy, 64 KB limit, known issues): `docs/debug.md`
+- Debug notes (extension bundle, deploy, 64 KB limit, embedded auth, **card corners**, known issues): `docs/debug.md`
+- Catalog: `docs/catalog.md`
 
 
 ## Auth/session storage
@@ -85,11 +98,12 @@ Run `pnpm --filter web seed:ai-pricing` to add default model pricing rows (then 
 See `docs/shopify-dev-setup.md`.
 
 ## App navigation
-Static app navigation in the Partner Dashboard is deprecated (removed after December 2026). This app uses **App Bridge** navigation via the `s-app-nav` web component in `apps/web/app/root.tsx`. You can delete any existing static menus in **Partner Dashboard → Your app → App setup → Navigation**. The sidebar is driven by the links inside `<s-app-nav>` (Home, Connectors, Flows, Billing).
+Static app navigation in the Partner Dashboard is deprecated (removed after December 2026). This app uses **App Bridge** navigation via the `s-app-nav` web component in `apps/web/app/root.tsx`. You can delete any existing static menus in **Partner Dashboard → Your app → App setup → Navigation**. The sidebar is driven by the links inside `<s-app-nav>` (Home, Connectors, Flows, Data Stores, Billing).
 
 ## Internal admin navigation
 The internal admin dashboard (`/internal`) uses a Polaris `Frame` layout with:
-- **Left sidebar**: Icon-based navigation (Dashboard, AI Providers, Usage & Costs, Activity Log, Error Logs, API Logs, Stores, Jobs, Logout)
-- **Top header**: Branded "SA" logo + Admin user menu
+- **Left sidebar**: Dashboard, AI Providers, Usage & Costs, Activity Log, Error Logs, API Logs, Stores, Plan Tiers, Categories, Recipe edit, Templates, Jobs; Settings and Logout (separator)
+- **Top header**: Branded logo + Admin user menu
 - **Toast notifications**: Success/error feedback on all mutations
-- All pages include advanced filters, loading skeletons, and empty states
+- **Settings** includes Password management, Environment variables, and Advanced (store & plan control). `/internal/advanced` redirects to Settings.
+- Full route list and behavior: see `docs/internal-admin.md`

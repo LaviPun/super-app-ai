@@ -16,7 +16,7 @@ export async function action({ request }: { request: Request }) {
   const { session, admin } = await shopify.authenticate.admin(request);
 
   return withApiLogging(
-    { actor: 'MERCHANT', method: 'POST', path: '/api/publish' },
+    { actor: 'MERCHANT', method: request.method, path: '/api/publish', request, captureRequestBody: true, captureResponseBody: true },
     async () => {
       enforceRateLimit(`publish:${session.shop}`);
 

@@ -9,7 +9,7 @@ export async function action({ request }: { request: Request }) {
   enforceRateLimit(`connectors:test:${session.shop}`);
 
   return withApiLogging(
-    { actor: 'MERCHANT', method: 'POST', path: '/api/connectors/test' },
+    { actor: 'MERCHANT', method: request.method, path: '/api/connectors/test', request, captureRequestBody: true, captureResponseBody: true },
     async () => {
       const body = await request.json().catch(() => null) as any;
       if (!body?.connectorId || !body?.path) {

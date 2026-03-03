@@ -8,6 +8,7 @@ import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import { AiProviderService } from '~/services/internal/ai-provider.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import { BillingService, type BillingPlan } from '~/services/billing/billing.service';
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
@@ -61,20 +62,32 @@ export async function action({ request }: { request: Request }) {
   }
 
   if (intent === 'retention') {
-    const toIntOrNull = (v: FormDataEntryValue | null) => {
+    const toIntOrUndefined = (v: FormDataEntryValue | null) => {
       const n = parseInt(String(v ?? ''), 10);
-      return isNaN(n) || n <= 0 ? null : n;
+      return isNaN(n) || n <= 0 ? undefined : n;
     };
+    const data: Record<string, number> = {};
+    const d = toIntOrUndefined(form.get('retentionDaysDefault'));
+    if (d !== undefined) data.retentionDaysDefault = d;
+    const ai = toIntOrUndefined(form.get('retentionDaysAi'));
+    if (ai !== undefined) data.retentionDaysAi = ai;
+    const api = toIntOrUndefined(form.get('retentionDaysApi'));
+    if (api !== undefined) data.retentionDaysApi = api;
+    const err = toIntOrUndefined(form.get('retentionDaysErrors'));
+    if (err !== undefined) data.retentionDaysErrors = err;
     await prisma.shop.update({
       where: { id: shopId },
-      data: {
-        retentionDaysDefault: toIntOrNull(form.get('retentionDaysDefault')),
-        retentionDaysAi: toIntOrNull(form.get('retentionDaysAi')),
-        retentionDaysApi: toIntOrNull(form.get('retentionDaysApi')),
-        retentionDaysErrors: toIntOrNull(form.get('retentionDaysErrors')),
-      },
+      data,
     });
     await activity.log({ actor: 'INTERNAL_ADMIN', action: 'STORE_SETTINGS_UPDATED', resource: `shop:${shopId}`, details: { field: 'retention' } });
+  }
+
+  if (intent === 'set_plan') {
+    const plan = String(form.get('plan') ?? '') as BillingPlan;
+    const allowed: BillingPlan[] = ['FREE', 'STARTER', 'GROWTH', 'PRO', 'ENTERPRISE'];
+    if (!allowed.includes(plan)) return json({ error: 'Invalid plan' }, { status: 400 });
+    await new BillingService().setPlanForShop(shopId, plan);
+    await activity.log({ actor: 'INTERNAL_ADMIN', action: 'STORE_PLAN_CHANGED', resource: `shop:${shopId}`, details: { plan } });
   }
 
   return redirect('/internal/stores');
@@ -91,9 +104,17 @@ export default function InternalStores() {
     ...providers.map(p => ({ label: `${p.name} (${p.provider})${p.isActive ? ' ★' : ''}`, value: p.id })),
   ];
 
-  const planOptions = [
+  const planFilterOptions = [
     { label: 'All plans', value: '' },
     ...distinctPlans.map(p => ({ label: p, value: p })),
+  ];
+
+  const billingPlanOptions: { label: string; value: BillingPlan }[] = [
+    { label: 'Free', value: 'FREE' },
+    { label: 'Starter', value: 'STARTER' },
+    { label: 'Growth', value: 'GROWTH' },
+    { label: 'Pro', value: 'PRO' },
+    { label: 'Enterprise', value: 'ENTERPRISE' },
   ];
 
   return (
@@ -105,7 +126,7 @@ export default function InternalStores() {
             <Form method="get">
               <InlineStack gap="300" wrap blockAlign="end">
                 <div style={{ minWidth: 160 }}>
-                  <Select label="Plan" name="plan" options={planOptions} value={filters.plan ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('plan', v); else p.delete('plan'); setParams(p); }} />
+                  <Select label="Plan" name="plan" options={planFilterOptions} value={filters.plan ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('plan', v); else p.delete('plan'); setParams(p); }} />
                 </div>
                 <div style={{ minWidth: 200 }}>
                   <TextField label="Search domain" name="q" value={filters.search ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('q', v); else p.delete('q'); setParams(p); }} autoComplete="off" placeholder="mystore.myshopify.com" />
@@ -137,7 +158,7 @@ export default function InternalStores() {
                     </Text>
                     {s.subscription ? (
                       <Badge tone={s.subscription.status === 'ACTIVE' ? 'success' : 'attention'}>
-                        {s.subscription.planName} ({s.subscription.status})
+                        {`${s.subscription.planName} (${s.subscription.status})`}
                       </Badge>
                     ) : null}
                   </InlineStack>
@@ -145,11 +166,38 @@ export default function InternalStores() {
                   <Form method="post">
                     <input type="hidden" name="intent" value="provider" />
                     <input type="hidden" name="shopId" value={s.id} />
-                    <InlineStack gap="200" align="start">
-                      <div style={{ minWidth: 340 }}>
+                    <InlineStack gap="200" align="start" wrap>
+                      <div style={{ minWidth: 200, maxWidth: 280 }}>
                         <Select label="AI provider override" name="providerId" options={providerOptions} value={(s.aiProviderOverrideId as string | null) ?? ''} onChange={() => {}} />
                       </div>
-                      <Button submit>Save</Button>
+                      <div style={{ paddingTop: 24 }}>
+                        <Button submit size="slim">Save</Button>
+                      </div>
+                    </InlineStack>
+                  </Form>
+
+                  <Form method="post">
+                    <input type="hidden" name="intent" value="set_plan" />
+                    <input type="hidden" name="shopId" value={s.id} />
+                    <InlineStack gap="200" align="start" wrap>
+                      <div style={{ minWidth: 120, maxWidth: 160 }}>
+                        <label className="Polaris-Label" htmlFor={`plan-${s.id}`}>
+                          Change plan
+                        </label>
+                        <select
+                          id={`plan-${s.id}`}
+                          name="plan"
+                          defaultValue={s.subscription?.planName ?? 'FREE'}
+                          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--p-color-border)', marginTop: 4 }}
+                        >
+                          {billingPlanOptions.map(o => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div style={{ paddingTop: 24 }}>
+                        <Button submit size="slim">Set plan</Button>
+                      </div>
                     </InlineStack>
                   </Form>
 
@@ -157,12 +205,14 @@ export default function InternalStores() {
                     <input type="hidden" name="intent" value="retention" />
                     <input type="hidden" name="shopId" value={s.id} />
                     <Text as="p" variant="bodySm" tone="subdued">Retention overrides (days)</Text>
-                    <InlineStack gap="200" align="start" wrap={false}>
+                    <InlineStack gap="200" align="start" wrap>
                       <TextField label="Default" name="retentionDaysDefault" type="number" autoComplete="off" value={String(s.retentionDaysDefault ?? '')} onChange={() => {}} placeholder="30" />
                       <TextField label="AI usage" name="retentionDaysAi" type="number" autoComplete="off" value={String(s.retentionDaysAi ?? '')} onChange={() => {}} placeholder="inherit" />
                       <TextField label="API logs" name="retentionDaysApi" type="number" autoComplete="off" value={String(s.retentionDaysApi ?? '')} onChange={() => {}} placeholder="inherit" />
                       <TextField label="Error logs" name="retentionDaysErrors" type="number" autoComplete="off" value={String(s.retentionDaysErrors ?? '')} onChange={() => {}} placeholder="inherit" />
-                      <Button submit>Save</Button>
+                      <div style={{ paddingTop: 24 }}>
+                        <Button submit size="slim">Save</Button>
+                      </div>
                     </InlineStack>
                   </Form>
                 </BlockStack>

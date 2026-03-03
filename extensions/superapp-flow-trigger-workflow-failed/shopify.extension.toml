@@ -1,0 +1,35 @@
+api_version = "2026-01"
+
+[[extensions]]
+name = "SuperApp Workflow failed"
+uid = "9d112331-7c5a-ec70-49e4-0d1a50216e5254fd4af5"
+type = "flow_trigger"
+handle = "superapp-workflow-failed"
+description = "Fires when a SuperApp workflow run fails."
+
+[settings]
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Workflow ID"
+  description = "The unique identifier of the failed workflow."
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Workflow Name"
+  description = "The name of the failed workflow."
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Run ID"
+  description = "The unique identifier of the workflow run."
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Error Message"
+  description = "The error message from the failed workflow."
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Shop Domain"
+  description = "The shop domain where the workflow ran."

@@ -1,0 +1,32 @@
+api_version = "2026-01"
+
+[[extensions]]
+name = "SuperApp Send email notification"
+uid = "75115279-439a-19ba-6507-34543ab48cb111266ccb"
+type = "flow_action"
+handle = "superapp-send-notification"
+description = "Send an email notification via SuperApp."
+runtime_url = "https://superapp.example.com/api/flow/action"
+
+[settings]
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "To"
+  name = "Recipient Email"
+  description = "The email address of the recipient."
+  required = true
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Subject"
+  name = "Subject"
+  description = "The email subject line."
+  required = true
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Body"
+  name = "Body HTML"
+  description = "The email body content (HTML supported)."
+  required = true

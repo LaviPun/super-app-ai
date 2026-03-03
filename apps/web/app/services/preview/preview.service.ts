@@ -148,12 +148,19 @@ function pageHtml(body: string, css: string) {
 }
 
 function esc(input: string) {
-  return input
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+  let out = '';
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    const code = input.charCodeAt(i);
+    if (ch === '&') out += '&amp;';
+    else if (ch === '<') out += '&lt;';
+    else if (ch === '>') out += '&gt;';
+    else if (ch === '"') out += '&quot;';
+    else if (ch === "'") out += '&#039;';
+    else if (code > 127) out += `&#${code};`;
+    else out += ch;
+  }
+  return out;
 }
 
 function escAttr(input: string) {

@@ -1,0 +1,32 @@
+api_version = "2026-01"
+
+[[extensions]]
+name = "SuperApp Send HTTP request"
+uid = "d7d1d1db-0591-e3c7-6225-3965bd7ba28edd6794b2"
+type = "flow_action"
+handle = "superapp-send-http"
+description = "Send an HTTP request via SuperApp with SSRF protection."
+runtime_url = "https://superapp.example.com/api/flow/action"
+
+[settings]
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "URL"
+  name = "URL"
+  description = "The HTTPS URL to send the request to."
+  required = true
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Method"
+  name = "HTTP Method"
+  description = "The HTTP method (GET, POST, PUT, PATCH, DELETE)."
+  required = true
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Body"
+  name = "Request Body"
+  description = "The request body (JSON string)."
+  required = false

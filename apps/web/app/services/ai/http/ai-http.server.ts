@@ -25,7 +25,7 @@ export async function postJsonWithRetries(opts: {
   logMeta: { provider: string; model: string; actor: 'INTERNAL' };
   shopId?: string;
 }): Promise<{ json: any; meta: AiHttpMeta }> {
-  const timeoutMs = opts.timeoutMs ?? 20_000;
+  const timeoutMs = opts.timeoutMs ?? 120_000;
   const maxRetries = opts.maxRetries ?? 2;
 
   let lastErr: unknown;

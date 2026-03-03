@@ -1,5 +1,5 @@
 import { getPrisma } from '~/db.server';
-import { PLAN_CONFIGS } from './billing.service';
+import { getPlanConfig } from './plan-config.service';
 import { AppError } from '~/services/errors/app-error.server';
 
 export type QuotaKind = 'aiRequest' | 'publishOp' | 'workflowRun' | 'connectorCall' | 'moduleCount';
@@ -14,7 +14,7 @@ export class QuotaService {
     const prisma = getPrisma();
     const sub = await prisma.appSubscription.findUnique({ where: { shopId } });
     const planName = sub?.planName ?? 'FREE';
-    const config = PLAN_CONFIGS[planName as keyof typeof PLAN_CONFIGS] ?? PLAN_CONFIGS.FREE;
+    const config = await getPlanConfig(planName);
 
     const limit = this.limitFor(config.quotas, kind);
     if (limit === -1) return; // unlimited
@@ -38,7 +38,7 @@ export class QuotaService {
     const prisma = getPrisma();
     const sub = await prisma.appSubscription.findUnique({ where: { shopId } });
     const planName = sub?.planName ?? 'FREE';
-    const config = PLAN_CONFIGS[planName as keyof typeof PLAN_CONFIGS] ?? PLAN_CONFIGS.FREE;
+    const config = await getPlanConfig(planName);
     const monthStart = startOfMonth();
 
     const [aiRequests, publishOps, workflowRuns, connectorCalls] = await Promise.all([

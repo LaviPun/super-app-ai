@@ -11,7 +11,7 @@ export async function action({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
 
   return withApiLogging(
-    { actor: 'MERCHANT', method: 'POST', path: '/api/rollback' },
+    { actor: 'MERCHANT', method: request.method, path: '/api/rollback', request, captureRequestBody: true, captureResponseBody: true },
     async () => {
       enforceRateLimit(`rollback:${session.shop}`);
 

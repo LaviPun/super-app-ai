@@ -1,6 +1,9 @@
 import { vitePlugin as remix } from '@remix-run/dev';
 import { defineConfig } from 'vite';
-import path from 'path';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // The Shopify CLI sets HOST to the tunnel URL. Map it to SHOPIFY_APP_URL
 // so that shopify.server.ts and the rest of the app see the correct origin.
@@ -38,6 +41,13 @@ export default defineConfig({
   plugins: [
     remix({
       ignoredRouteFiles: ['**/*.test.*', '**/__tests__/**'],
+      future: {
+        v3_fetcherPersist: true,
+        v3_lazyRouteDiscovery: true,
+        v3_relativeSplatPath: true,
+        v3_singleFetch: true,
+        v3_throwAbortReason: true,
+      },
     }),
   ],
   resolve: {

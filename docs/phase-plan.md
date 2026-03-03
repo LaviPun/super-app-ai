@@ -260,6 +260,51 @@ Positioning: inline placement via Theme Editor block placement; overlays use anc
 
 ---
 
+## Post-Phase Features ✅
+
+### Postman-like API Tester + Saved Endpoints ✅
+**Goal:** Let merchants test connector APIs and save frequently-used endpoints.
+- [x] `ConnectorEndpoint` model (method, path, headers, body per connector)
+- [x] API tester UI on connector detail page (send request, view response)
+- [x] Save/load/delete endpoints per connector
+- [x] Endpoint count shown on connector list
+
+### Module Templates (From Template) ✅
+**Goal:** Let merchants skip AI generation and start from proven templates.
+- [x] 12 curated templates in `packages/core/src/templates.ts`
+- [x] `POST /api/modules/from-template` with quota enforcement
+- [x] "Generate with AI" / "From Template" toggle on modules page
+- [x] Category filter for template browsing
+
+### Visual Flow Builder ✅
+**Goal:** Give merchants a Zapier/Make-style visual editor for building automation flows.
+- [x] Custom SVG-based flow canvas (`FlowBuilder.tsx`)
+- [x] Trigger selector + step nodes with inline config
+- [x] 4 step kinds: HTTP_REQUEST, TAG_CUSTOMER, ADD_ORDER_NOTE, WRITE_TO_STORE
+- [x] Round-trip: load existing spec → edit visually → save back as `flow.automation` RecipeSpec
+
+### Data Stores + Custom Pages ✅
+**Goal:** App-owned databases so modules/flows can persist and retrieve structured data.
+- [x] `DataStore` + `DataStoreRecord` models (multi-tenant)
+- [x] 6 predefined stores (Product, Inventory, Order, Analytics, Marketing, Customer)
+- [x] Custom store creation
+- [x] `WRITE_TO_STORE` flow step kind with auto-provisioning
+- [x] Data stores listing and records management pages
+
+### Workflow Engine Spec (Graph-based) ✅
+**Goal:** Full Shopify Flow-compatible automation engine with connectors, conditions, branching, and templates.
+- [x] Workflow Zod schema: nodes (condition/action/transform/delay/end), edges (next/true/false/error), expression tree
+- [x] Connector SDK: TypeScript interfaces (manifest/validate/invoke), auth resolver, structured errors
+- [x] Workflow validator: graph reachability, cycle detection, edge completeness, orphan detection
+- [x] State machine engine: per-step retries, idempotency keys, deadline, context persistence
+- [x] 5 built-in connectors: Shopify Admin, HTTP, Slack, Email, Storage
+- [x] 3 workflow templates with install + parameterization + approval checklist (24 items)
+- [x] Shopify Flow bridge: dual-mode (local engine + Flow delegation), trigger topics, action handlers
+- [x] Prisma models: WorkflowDef, WorkflowRun, WorkflowRunStep, ConnectorToken
+- [x] 17 new tests (total 179 across monorepo)
+
+---
+
 ## Working rules (Cursor)
 - Every phase must ship:
   - [x] Unit tests for new logic

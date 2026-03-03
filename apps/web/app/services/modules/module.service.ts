@@ -36,6 +36,13 @@ export class ModuleService {
     });
   }
 
+  async getModuleByShopId(shopId: string, moduleId: string) {
+    const prisma = getPrisma();
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) return null;
+    return this.getModule(shop.shopDomain, moduleId);
+  }
+
   async createNewVersion(shopDomain: string, moduleId: string, spec: RecipeSpec) {
     const prisma = getPrisma();
     const module = await prisma.module.findFirst({ where: { id: moduleId, shop: { shopDomain } }, include: { versions: true }});
@@ -50,6 +57,13 @@ export class ModuleService {
         specJson: JSON.stringify(spec),
       },
     });
+  }
+
+  async createNewVersionByShopId(shopId: string, moduleId: string, spec: RecipeSpec) {
+    const prisma = getPrisma();
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) throw new Error('Shop not found');
+    return this.createNewVersion(shop.shopDomain, moduleId, spec);
   }
 
   async markPublished(moduleId: string, versionId: string, targetThemeId?: string) {
