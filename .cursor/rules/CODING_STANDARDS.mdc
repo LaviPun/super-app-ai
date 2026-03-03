@@ -1,0 +1,14 @@
+# Coding standards
+
+- TypeScript strict mode.
+- SOLID: keep route handlers thin; business logic lives in services.
+- Keep services dependency-injected and unit-testable.
+- Prefer pure functions for compilation logic.
+- Prefer small, explicit types instead of any.
+
+Errors:
+- Throw errors in services; translate to HTTP responses in routes.
+- Never leak secrets in error messages.
+
+Comments:
+- Only add comments for complex logic or security reasoning.

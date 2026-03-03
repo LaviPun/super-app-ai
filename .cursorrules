@@ -1,0 +1,22 @@
+You are working in a Shopify embedded app monorepo using Remix + React + TypeScript.
+
+HARD RULES
+- Do NOT deploy arbitrary merchant-provided code. The AI must output RecipeSpec JSON only.
+- Follow SOLID and keep services pure and testable.
+- Prefer schema validation (Zod) at boundaries.
+- Do not add heavy frontend dependencies. Storefront outputs must be CWV-friendly.
+- For network calls, enforce SSRF protections and allowlists.
+- Add comments only for complex logic.
+- Every phase must ship:
+  - [ ] Unit tests for new logic
+  - [ ] Happy-path and edge-case tests
+  - [ ] No secrets/PII in logs
+- Add new “templates” only as:
+  - catalogId + schema + compiler + tests
+- Prefer config-driven generic extensions/functions; avoid per-store compiled code
+
+
+PROJECT STRUCTURE
+- apps/web: Remix embedded app (routes + services)
+- packages/core: recipe schema, capability gating, module catalog
+- extensions/*: generic Shopify extensions reading config from metafields

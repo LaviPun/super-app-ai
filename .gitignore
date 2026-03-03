@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+.cache/
+
+# Prisma generated
+apps/web/node_modules/.prisma/
+apps/web/prisma/dev.db
+apps/web/prisma/dev.db-journal
+apps/web/prisma/*.db
+apps/web/prisma/*.db-journal
+
+# Environment files — NEVER commit these
+.env
+.env.local
+.env.production
+.env.*.local
+apps/web/.env
+apps/web/.env.local
+apps/web/.env.production
+
+# Shopify CLI
+.shopify/
+
+# TypeScript
+*.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Test coverage
+coverage/
+.nyc_output/

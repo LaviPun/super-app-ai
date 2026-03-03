@@ -1,0 +1,49 @@
+{
+  "name": "web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "remix dev",
+    "build": "remix build",
+    "start": "remix-serve build/server/index.js",
+    "test": "vitest run",
+    "lint": "eslint app scripts --max-warnings 0",
+    "lint:fix": "eslint app scripts --fix",
+    "prisma:migrate": "prisma migrate dev",
+    "retention:run": "tsx scripts/retention.ts",
+    "seed:ai-pricing": "tsx scripts/seed-ai-pricing.ts",
+    "evals": "tsx scripts/run-evals.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "@remix-run/node": "^2.10.3",
+    "@remix-run/react": "^2.10.3",
+    "@remix-run/serve": "^2.10.3",
+    "@shopify/polaris": "^12.26.0",
+    "@shopify/shopify-api": "^11.8.1",
+    "@shopify/shopify-app-remix": "^2.8.0",
+    "@shopify/shopify-app-session-storage-prisma": "^5.0.4",
+    "@superapp/core": "workspace:*",
+    "@superapp/rate-limit": "workspace:*",
+    "openid-client": "^6.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^3.24.1",
+    "zod-to-json-schema": "^3.24.1"
+  },
+  "devDependencies": {
+    "@remix-run/dev": "^2.10.3",
+    "@types/node": "^22.10.1",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
+    "eslint": "^10.0.2",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "prisma": "^5.22.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

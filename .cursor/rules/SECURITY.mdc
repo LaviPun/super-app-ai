@@ -1,0 +1,8 @@
+# Security rules
+
+- Validate all AI outputs with Zod.
+- Treat connectors as high-risk: enforce https, allowlisted hosts, and block private network destinations.
+- Encrypt secrets at rest (AES-256-GCM) and never return them once stored.
+- Rate-limit AI generation, publishing, and connector test endpoints.
+- Add audit logs for publish/rollback/connector changes.
+- Implement Shopify GDPR webhooks for redaction in production.

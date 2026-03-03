@@ -1,0 +1,5 @@
+# Testing rules
+
+- Unit test recipe schema validation and compiler outputs.
+- Unit test security utilities (SSRF allowlist checks).
+- Mock Shopify admin calls in route/service tests.

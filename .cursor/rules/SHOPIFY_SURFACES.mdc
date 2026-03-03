@@ -1,0 +1,17 @@
+# Shopify surfaces & constraints
+
+Theme:
+- Prefer Theme App Extension blocks reading metafields.
+- For preview, theme modules can generate HTML approximation, but true preview requires publishing to a selected theme.
+
+Functions:
+- Never attempt to compile new WASM per merchant at runtime.
+- Ship generic functions that read JSON config from shop metafields.
+
+Checkout UI:
+- Use generic extensions reading config.
+- Gate Information/Shipping/Payment step UI for Plus.
+
+App Proxy:
+- Validate proxy signatures.
+- Responses should be small, cacheable, and never inject heavy scripts.

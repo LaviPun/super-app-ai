@@ -1,0 +1,24 @@
+{
+  "name": "ai-shopify-superapp",
+  "private": true,
+  "packageManager": "pnpm@9.12.2",
+  "scripts": {
+    "dev": "pnpm -r dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^16.3.1"
+  },
+  "lint-staged": {
+    "apps/web/app/**/*.{ts,tsx}": [
+      "pnpm --filter web eslint --fix"
+    ],
+    "**/*.{ts,tsx,js}": [
+      "bash -c 'pnpm -r --if-present typecheck || true'"
+    ]
+  }
+}

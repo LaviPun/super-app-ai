@@ -1,0 +1,17 @@
+# Project overview (SuperApp)
+
+Goal: One Shopify app that can generate many merchant modules safely.
+
+Key concept:
+- AI produces **RecipeSpec JSON** only.
+- Server validates + compiles to deploy operations.
+- Merchants preview on a theme, then publish.
+- Draft/publish versioning + rollback.
+
+Plan gating:
+- Certain capabilities are Shopify Plus-only (Checkout steps extensions; Cart Transform update ops).
+- Always surface a clear notice in the UI before publish.
+
+Performance:
+- Storefront modules must be minimal DOM/CSS and avoid heavy JS.
+- App proxy responses should be small + cacheable.

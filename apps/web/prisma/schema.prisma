@@ -1,0 +1,311 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Shop {
+  id           String   @id @default(cuid())
+  shopDomain   String   @unique
+  accessToken  String
+  planTier     String   @default("UNKNOWN")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  modules      Module[]
+  connectors   Connector[]
+  auditLogs    AuditLog[]
+  aiUsages     AiUsage[]
+  errorLogs    ErrorLog[]
+  aiProviderOverrideId String?
+  aiProviderOverride   AiProvider? @relation("ShopProviderOverride", fields: [aiProviderOverrideId], references: [id])
+  retentionDaysDefault Int @default(30)
+  retentionDaysAi Int?
+  retentionDaysApi Int?
+  retentionDaysErrors Int?
+  apiLogs      ApiLog[]
+  jobs         Job[]
+  retentionPolicies RetentionPolicy[]
+  themeProfiles ThemeProfile[]
+  flowSchedules FlowSchedule[]
+  flowStepLogs  FlowStepLog[]
+  subscription  AppSubscription?
+}
+
+model Module {
+  id         String   @id @default(cuid())
+  shopId     String
+  shop       Shop     @relation(fields: [shopId], references: [id])
+  type       String
+  category   String
+  name       String
+  status     String   @default("DRAFT")
+  activeVersionId String? @unique
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  versions   ModuleVersion[]
+  activeVersion ModuleVersion? @relation("ActiveVersion", fields: [activeVersionId], references: [id])
+}
+
+model ModuleVersion {
+  id         String   @id @default(cuid())
+  moduleId   String
+  module     Module   @relation(fields: [moduleId], references: [id])
+  version    Int
+  status     String   @default("DRAFT")
+  specJson   String   // RecipeSpec JSON
+  compiledJson String? // optional compilation artifacts
+
+  publishedAt DateTime?
+  targetThemeId String? // if theme-specific publish
+
+  createdAt  DateTime @default(now())
+
+  @@unique([moduleId, version])
+  @@index([moduleId, status])
+
+  activeFor   Module?  @relation("ActiveVersion")
+}
+
+model Connector {
+  id         String   @id @default(cuid())
+  shopId     String
+  shop       Shop     @relation(fields: [shopId], references: [id])
+  name       String
+  baseUrl    String
+  authType   String // API_KEY | BASIC | OAUTH2
+  secretsEnc String // encrypted JSON blob
+  allowlistDomains String // comma-separated allowlist
+  lastTestedAt DateTime?
+  sampleResponseJson String?
+  mappingJson String?
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  shopId     String
+  shop       Shop     @relation(fields: [shopId], references: [id])
+  action     String
+  details    String?
+  createdAt  DateTime @default(now())
+}
+
+
+model Session {
+  id            String   @id
+  shop          String
+  state         String
+  isOnline      Boolean  @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean  @default(false)
+  locale        String?
+  collaborator  Boolean? @default(false)
+  emailVerified Boolean? @default(false)
+}
+
+model AiProvider {
+  id          String   @id @default(cuid())
+  name        String
+  provider    String   // OPENAI | ANTHROPIC | AZURE_OPENAI | CUSTOM
+  baseUrl     String?
+  model       String?
+  apiKeyEnc   String   // encrypted
+  isActive    Boolean  @default(false)
+  costInPer1kCents  Int? // optional accounting
+  costOutPer1kCents Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  usages      AiUsage[]
+  prices      AiModelPrice[]
+  shopOverrides Shop[] @relation("ShopProviderOverride")
+}
+
+model AiUsage {
+  id          String   @id @default(cuid())
+  providerId  String
+  provider    AiProvider @relation(fields: [providerId], references: [id])
+  shopId      String?
+  shop        Shop?     @relation(fields: [shopId], references: [id])
+  action      String    // e.g. RECIPE_GENERATION, MAPPING_SUGGESTION
+  tokensIn    Int
+  tokensOut   Int
+  costCents   Int
+  meta        String?   // JSON
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([shopId, createdAt])
+  requestCount Int @default(1)
+}
+
+model ErrorLog {
+  id          String   @id @default(cuid())
+  level       String   // INFO | WARN | ERROR
+  message     String
+  stack       String?
+  route       String?
+  shopId      String?
+  shop        Shop?     @relation(fields: [shopId], references: [id])
+  meta        String?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([level, createdAt])
+}
+
+model AiModelPrice {
+  id        String   @id @default(cuid())
+  providerId String
+  provider  AiProvider @relation(fields: [providerId], references: [id])
+  model     String
+  inputPer1MTokensCents       Int
+  outputPer1MTokensCents      Int
+  cachedInputPer1MTokensCents Int?
+  isActive  Boolean  @default(true)
+  effectiveFrom DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@unique([providerId, model, effectiveFrom])
+  @@index([providerId, isActive])
+}
+
+model ApiLog {
+  id        String   @id @default(cuid())
+  shopId    String?
+  shop      Shop?    @relation(fields: [shopId], references: [id])
+  actor     String   // INTERNAL | MERCHANT | WEBHOOK | APP_PROXY
+  method    String
+  path      String
+  status    Int
+  durationMs Int
+  requestId String?
+  success   Boolean
+  meta      String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([shopId, createdAt])
+  @@index([path, createdAt])
+}
+
+model Job {
+  id        String   @id @default(cuid())
+  shopId    String?
+  shop      Shop?    @relation(fields: [shopId], references: [id])
+  type      String   // AI_GENERATE | PUBLISH | CONNECTOR_TEST | FLOW_RUN | THEME_ANALYZE
+  status    String   // QUEUED | RUNNING | SUCCESS | FAILED
+  attempts  Int      @default(0)
+  payload   String?
+  result    String?
+  error     String?
+  startedAt DateTime?
+  finishedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([status, createdAt])
+  @@index([shopId, createdAt])
+}
+
+model WebhookEvent {
+  id            String   @id @default(cuid())
+  shopDomain    String
+  topic         String
+  eventId       String   // Shopify webhook X-Shopify-Webhook-Id header
+  processedAt   DateTime @default(now())
+  success       Boolean  @default(true)
+
+  @@unique([shopDomain, topic, eventId])
+  @@index([shopDomain, topic])
+  @@index([processedAt])
+}
+
+model FlowStepLog {
+  id         String   @id @default(cuid())
+  jobId      String
+  shopId     String?
+  shop       Shop?    @relation(fields: [shopId], references: [id])
+  step       Int
+  kind       String
+  status     String   // SUCCESS | FAILED | SKIPPED
+  durationMs Int
+  output     String?
+  error      String?
+  createdAt  DateTime @default(now())
+
+  @@index([jobId])
+  @@index([shopId])
+}
+
+model AppSubscription {
+  id              String   @id @default(cuid())
+  shopId          String   @unique
+  shop            Shop     @relation(fields: [shopId], references: [id])
+  planName        String
+  shopifySubId    String?
+  status          String   @default("ACTIVE") // ACTIVE | CANCELLED | EXPIRED
+  trialEndsAt     DateTime?
+  currentPeriodEnd DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model RetentionPolicy {
+  id        String   @id @default(cuid())
+  scope     String   // GLOBAL | PLAN | SHOP
+  planTier  String?
+  shopId    String?
+  shop      Shop?    @relation(fields: [shopId], references: [id])
+  kind      String   // AI_USAGE | API_LOG | ERROR_LOG | JOBS
+  days      Int
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([scope, kind, isActive])
+  @@index([shopId, kind, isActive])
+}
+
+model ThemeProfile {
+  id        String   @id @default(cuid())
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id])
+  themeId   String
+  profileJson String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([shopId, themeId])
+}
+
+model FlowSchedule {
+  id          String    @id @default(cuid())
+  shopId      String
+  shop        Shop      @relation(fields: [shopId], references: [id])
+  name        String
+  // Cron expression (e.g. "0 9 * * 1" = every Monday 09:00 UTC)
+  cronExpr    String
+  // ISO event payload forwarded to FlowRunnerService
+  eventJson   String    @default("{}")
+  isActive    Boolean   @default(true)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([shopId, isActive])
+  @@index([nextRunAt, isActive])
+}

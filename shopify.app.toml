@@ -1,0 +1,18 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "675f836397310b8c66a6ca2b5a49923c"
+name = "Super App AI"
+application_url = "http://localhost:3000"
+embedded = true
+
+[webhooks]
+api_version = "2026-01"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "write_themes,read_products,write_products,read_orders,write_discounts,write_checkouts,write_app_proxy,write_payment_customizations,write_delivery_customizations,write_cart_transforms"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [ ]
