@@ -489,3 +489,35 @@ Extensions (read config from metafields)
 | `routes/api.ai.create-module.tsx` | Added activity logging |
 | `routes/api.rollback.tsx` | Added activity logging |
 | `package.json` | Added `@shopify/polaris-icons` dependency |
+
+---
+
+## Dashboard Settings ✅
+
+### AppSettings Model (Prisma)
+Single-row settings table with upsert pattern (`id = "singleton"`).
+
+### Settings Page (`internal.settings.tsx`)
+4 sections, each with its own save button:
+
+| Section | Fields |
+|---|---|
+| **Appearance** | App name, Header/brand color (with live preview bar + color swatch), Logo URL (with image preview), Favicon URL |
+| **Profile** | Admin name (with initials avatar fallback), Admin email, Profile picture URL (with live avatar preview) |
+| **Contact & Legal** | Company name, Support email, Support URL, Privacy policy URL, Terms of service URL |
+| **App Configuration** | Default timezone (12 options), Date format (4 options), Email alerts toggle + recipient emails, Maintenance mode toggle + custom message |
+
+### Dynamic Layout Integration
+Settings are loaded in the `internal.tsx` layout loader and applied to:
+- **TopBar color**: CSS override via `<style>` tag (`headerColor`)
+- **Logo**: Custom SVG with brand color, or user-provided `logoUrl`
+- **User menu**: `adminName`, `initials` derived from name, `profilePicUrl` as avatar
+- **Logo label**: `appName` used as accessibility label
+
+### Files changed
+| File | Change |
+|---|---|
+| `prisma/schema.prisma` | Added `AppSettings` model (appearance, profile, contact, app config fields) |
+| `services/settings/settings.service.ts` | New service with `get()` and `update()` (upsert pattern) |
+| `routes/internal.settings.tsx` | New settings page with 4 form sections |
+| `routes/internal.tsx` | Layout loads settings; applies header color, app name, profile pic, admin name dynamically; Settings link in sidebar |

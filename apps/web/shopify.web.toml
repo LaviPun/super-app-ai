@@ -1,4 +1,5 @@
-type = "backend"
+roles = ["frontend", "backend"]
+port = 3000
 
 [commands]
 dev = "pnpm dev"

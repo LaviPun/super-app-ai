@@ -1,4 +1,4 @@
-import type { LinksFunction, LoaderArgs } from '@remix-run/node';
+import type { LinksFunction, LoaderArgs, HeadersFunction } from '@remix-run/node';
 import { json } from '@remix-run/node';
 import { Link, Links, Meta, Outlet, Scripts, ScrollRestoration, useLoaderData, useRouteError, useLocation } from '@remix-run/react';
 import polarisCss from '@shopify/polaris/build/esm/styles.css?url';
@@ -6,27 +6,24 @@ import enTranslations from '@shopify/polaris/locales/en.json';
 import { AppProvider as PolarisProvider } from '@shopify/polaris';
 import { AppProvider } from '@shopify/shopify-app-remix/react';
 import { boundary } from '@shopify/shopify-app-remix/server';
-import { shopify } from '~/shopify.server';
 
 export const links: LinksFunction = () => [{ rel: 'stylesheet', href: polarisCss }];
 
 export async function loader({ request }: LoaderArgs) {
   const url = new URL(request.url);
+  const isInternal = url.pathname.startsWith('/internal');
 
-  if (url.pathname.startsWith('/internal')) {
-    return json({ apiKey: process.env.SHOPIFY_API_KEY, embedded: false });
-  }
-
-  await shopify.authenticate.admin(request);
-
-  return json({ apiKey: process.env.SHOPIFY_API_KEY, embedded: true });
+  return json({
+    apiKey: process.env.SHOPIFY_API_KEY || '',
+    embedded: !isInternal,
+  });
 }
 
 export function ErrorBoundary() {
   return boundary.error(useRouteError());
 }
 
-export const headers = (headersArgs: any) => {
+export const headers: HeadersFunction = (headersArgs) => {
   return boundary.headers(headersArgs);
 };
 
@@ -43,8 +40,7 @@ export default function App() {
       </head>
       <body>
         {embedded && !isInternal ? (
-          <AppProvider isEmbeddedApp apiKey={apiKey ?? ''}>
-            {/* App Bridge nav (replaces deprecated static app navigation); use Remix Link for client-side nav */}
+          <AppProvider isEmbeddedApp apiKey={apiKey}>
             <s-app-nav>
               <Link to="/" rel="home">Home</Link>
               <Link to="/connectors">Connectors</Link>

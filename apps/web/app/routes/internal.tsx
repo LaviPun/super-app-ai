@@ -4,22 +4,33 @@ import {
   Frame, Navigation, TopBar, Toast,
 } from '@shopify/polaris';
 import {
-  AppsIcon, ConnectIcon, ClockIcon, PersonIcon,
-  AlertCircleIcon, NoteIcon, SettingsIcon,
+  AppsIcon, ClockIcon,
+  NoteIcon, SettingsIcon,
   ExitIcon, AutomationIcon, CashDollarIcon, StoreIcon, BugIcon,
 } from '@shopify/polaris-icons';
 import { useState, useCallback, useEffect } from 'react';
 import { internalSessionStorage } from '~/internal-admin/session.server';
+import { SettingsService, type AppSettingsData } from '~/services/settings/settings.service';
 
 export async function loader({ request }: { request: Request }) {
   const cookie = request.headers.get('cookie');
   const session = await internalSessionStorage.getSession(cookie);
   const isAuthed = session.get('internal_admin') === true;
-  return json({ isAuthed });
+
+  let settings: AppSettingsData | null = null;
+  if (isAuthed) {
+    try {
+      settings = await new SettingsService().get();
+    } catch {
+      // Settings table might not exist yet; use defaults
+    }
+  }
+
+  return json({ isAuthed, settings });
 }
 
 export default function InternalLayout() {
-  const { isAuthed } = useLoaderData<typeof loader>();
+  const { isAuthed, settings } = useLoaderData<typeof loader>();
   const location = useLocation();
   const isLoginPage = location.pathname === '/internal/login' || location.pathname.startsWith('/internal/sso');
 
@@ -27,10 +38,10 @@ export default function InternalLayout() {
     return <Outlet />;
   }
 
-  return <InternalAppFrame />;
+  return <InternalAppFrame settings={settings} />;
 }
 
-function InternalAppFrame() {
+function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
   const location = useLocation();
   const [mobileNavActive, setMobileNavActive] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -53,6 +64,18 @@ function InternalAppFrame() {
       setToastActive(true);
     }
   }, [routeData?.toast]);
+
+  const appName = settings?.appName ?? 'SuperApp AI';
+  const headerColor = settings?.headerColor ?? '#000000';
+  const adminName = settings?.adminName ?? 'Admin';
+  const profilePicUrl = settings?.profilePicUrl ?? null;
+
+  const initials = adminName
+    .split(' ')
+    .map(w => w[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2) || 'SA';
 
   const navItems = [
     { url: '/internal', label: 'Dashboard', icon: AppsIcon, exactMatch: true },
@@ -78,19 +101,24 @@ function InternalAppFrame() {
       <Navigation.Section
         separator
         items={[
+          { url: '/internal/settings', label: 'Settings', icon: SettingsIcon },
           { url: '/internal/logout', label: 'Logout', icon: ExitIcon },
         ]}
       />
     </Navigation>
   );
 
-  const userMenu = (
+  const userMenuMarkup = (
     <TopBar.UserMenu
       actions={[
-        { items: [{ content: 'Logout', url: '/internal/logout' }] },
+        { items: [
+          { content: 'Settings', url: '/internal/settings' },
+          { content: 'Logout', url: '/internal/logout' },
+        ]},
       ]}
-      name="Admin"
-      initials="SA"
+      name={adminName}
+      initials={initials}
+      avatar={profilePicUrl ?? undefined}
       open={userMenuOpen}
       onToggle={toggleUserMenu}
     />
@@ -99,41 +127,46 @@ function InternalAppFrame() {
   const topBar = (
     <TopBar
       showNavigationToggle
-      userMenu={userMenu}
+      userMenu={userMenuMarkup}
       onNavigationToggle={toggleMobileNav}
     />
   );
 
+  const logoSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36"><rect width="36" height="36" rx="8" fill="${headerColor.replace('#', '%23')}"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="system-ui" font-size="14" font-weight="700" fill="%23fff">${encodeURIComponent(appName.slice(0, 2).toUpperCase())}</text></svg>`;
+
   const logo = {
     width: 36,
-    topBarSource: 'data:image/svg+xml,' + encodeURIComponent(
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36"><rect width="36" height="36" rx="8" fill="%23000"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="system-ui" font-size="16" font-weight="700" fill="%23fff">SA</text></svg>'
-    ),
-    accessibilityLabel: 'SuperApp AI',
+    topBarSource: settings?.logoUrl || ('data:image/svg+xml,' + logoSvg),
+    accessibilityLabel: appName,
     url: '/internal',
   };
 
   return (
-    <Frame
-      topBar={topBar}
-      navigation={navigation}
-      showMobileNavigation={mobileNavActive}
-      onNavigationDismiss={toggleMobileNav}
-      logo={logo}
-    >
-      <Outlet context={{ showToast: (msg: string, error?: boolean) => {
-        setToastMsg(msg);
-        setToastError(!!error);
-        setToastActive(true);
-      }}} />
-      {toastActive && (
-        <Toast
-          content={toastMsg}
-          error={toastError}
-          onDismiss={dismissToast}
-          duration={4000}
-        />
-      )}
-    </Frame>
+    <>
+      <style>{`
+        .Polaris-TopBar { background: ${headerColor} !important; }
+      `}</style>
+      <Frame
+        topBar={topBar}
+        navigation={navigation}
+        showMobileNavigation={mobileNavActive}
+        onNavigationDismiss={toggleMobileNav}
+        logo={logo}
+      >
+        <Outlet context={{ showToast: (msg: string, error?: boolean) => {
+          setToastMsg(msg);
+          setToastError(!!error);
+          setToastActive(true);
+        }}} />
+        {toastActive && (
+          <Toast
+            content={toastMsg}
+            error={toastError}
+            onDismiss={dismissToast}
+            duration={4000}
+          />
+        )}
+      </Frame>
+    </>
   );
 }

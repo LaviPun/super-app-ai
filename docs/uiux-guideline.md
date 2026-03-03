@@ -233,6 +233,15 @@ All log/data pages have contextual filters:
 - Loading spinners on all submit buttons
 - `useNavigation().state` drives loading indicators
 
+### Settings Page (Implemented)
+Dedicated `/internal/settings` page with 4 sections:
+- **Appearance**: App name, header/brand color (live preview), logo URL, favicon URL
+- **Profile**: Admin name (initials avatar fallback), email, profile picture URL
+- **Contact & Legal**: Company name, support email/URL, privacy/terms URLs
+- **App Configuration**: Timezone, date format, email alert toggle, maintenance mode toggle
+
+Settings are persisted in the `AppSettings` Prisma model (singleton row) and applied dynamically to the layout (header color, logo, user menu name/avatar).
+
 ### Security
 - All pages require internal admin authentication.
 - No secrets/PII displayed in plain text.

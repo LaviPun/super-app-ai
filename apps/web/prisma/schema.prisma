@@ -292,6 +292,34 @@ model ThemeProfile {
   @@unique([shopId, themeId])
 }
 
+model AppSettings {
+  id        String  @id @default("singleton")
+  // Appearance
+  appName         String  @default("SuperApp AI")
+  headerColor     String  @default("#000000")
+  logoUrl         String? // URL or data-uri for the logo image
+  faviconUrl      String?
+  // Profile
+  adminName       String  @default("Admin")
+  adminEmail      String?
+  profilePicUrl   String? // URL or data-uri for avatar
+  // Contact
+  companyName     String?
+  supportEmail    String?
+  supportUrl      String?
+  privacyUrl      String?
+  termsUrl        String?
+  // App config
+  defaultTimezone String  @default("UTC")
+  dateFormat      String  @default("YYYY-MM-DD")
+  enableEmailAlerts Boolean @default(false)
+  alertRecipients   String? // comma-separated emails
+  maintenanceMode   Boolean @default(false)
+  maintenanceMessage String?
+  // Meta
+  updatedAt DateTime @updatedAt
+}
+
 model ActivityLog {
   id        String   @id @default(cuid())
   actor     String   // SYSTEM | MERCHANT | INTERNAL_ADMIN | WEBHOOK | CRON
