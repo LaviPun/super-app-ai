@@ -1,5 +1,5 @@
 import { redirect } from '@remix-run/node';
-import { Issuer } from 'openid-client';
+import * as oidc from 'openid-client';
 import { internalSessionStorage, commitInternal } from '~/internal-admin/session.server';
 
 export async function loader({ request }: { request: Request }) {
@@ -24,22 +24,20 @@ export async function loader({ request }: { request: Request }) {
     throw new Response('Invalid SSO callback', { status: 400 });
   }
 
-  const issuer = await Issuer.discover(issuerUrl);
-  const client = new issuer.Client({
-    client_id: clientId,
-    client_secret: clientSecret,
-    redirect_uris: [redirectUri],
-    response_types: ['code'],
+  const config = await oidc.discovery(new URL(issuerUrl), clientId, clientSecret);
+
+  const tokens = await oidc.authorizationCodeGrant(config, new URL(request.url), {
+    pkceCodeVerifier: verifier,
+    expectedState,
   });
 
-  const tokenSet = await client.callback(redirectUri, { code, state }, { code_verifier: verifier });
-  const claims = tokenSet.claims();
+  const claims = tokens.claims();
 
   session.unset('oidc_state');
   session.unset('oidc_verifier');
   session.set('internal_admin', true);
-  session.set('internal_email', claims.email ?? null);
-  session.set('internal_name', claims.name ?? null);
+  session.set('internal_email', (claims as Record<string, unknown>).email ?? null);
+  session.set('internal_name', (claims as Record<string, unknown>).name ?? null);
 
   return redirect('/internal', { headers: { 'Set-Cookie': await commitInternal(session) } });
 }

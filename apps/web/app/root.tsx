@@ -13,12 +13,12 @@ export const links: LinksFunction = () => [{ rel: 'stylesheet', href: polarisCss
 export async function loader({ request }: LoaderArgs) {
   const url = new URL(request.url);
 
-  // Internal developer dashboard is outside Shopify embed; do not force Shopify auth there.
   if (url.pathname.startsWith('/internal')) {
     return json({ apiKey: process.env.SHOPIFY_API_KEY, embedded: false });
   }
 
   await shopify.authenticate.admin(request);
+
   return json({ apiKey: process.env.SHOPIFY_API_KEY, embedded: true });
 }
 
@@ -48,6 +48,7 @@ export default function App() {
             <s-app-nav>
               <Link to="/" rel="home">Home</Link>
               <Link to="/connectors">Connectors</Link>
+              <Link to="/flows">Flows</Link>
               <Link to="/billing">Billing</Link>
             </s-app-nav>
             <Outlet />

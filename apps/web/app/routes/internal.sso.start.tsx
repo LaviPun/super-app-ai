@@ -1,5 +1,5 @@
 import { redirect } from '@remix-run/node';
-import { Issuer, generators } from 'openid-client';
+import * as oidc from 'openid-client';
 import { internalSessionStorage, commitInternal } from '~/internal-admin/session.server';
 
 export async function loader({ request }: { request: Request }) {
@@ -12,28 +12,26 @@ export async function loader({ request }: { request: Request }) {
     throw new Response('SSO not configured', { status: 500 });
   }
 
-  const issuer = await Issuer.discover(issuerUrl);
-  const client = new issuer.Client({
-    client_id: clientId,
-    client_secret: clientSecret,
-    redirect_uris: [redirectUri],
-    response_types: ['code'],
-  });
+  const config = await oidc.discovery(new URL(issuerUrl), clientId, clientSecret);
 
   const session = await internalSessionStorage.getSession(request.headers.get('cookie'));
-  const state = generators.state();
-  const verifier = generators.codeVerifier();
-  const challenge = generators.codeChallenge(verifier);
+  const verifier = oidc.randomPKCECodeVerifier();
+  const challenge = await oidc.calculatePKCECodeChallenge(verifier);
+  const state = oidc.randomState();
 
   session.set('oidc_state', state);
   session.set('oidc_verifier', verifier);
 
-  const authUrl = client.authorizationUrl({
+  const params = new URLSearchParams({
+    redirect_uri: redirectUri,
     scope: 'openid email profile',
     state,
     code_challenge: challenge,
     code_challenge_method: 'S256',
+    response_type: 'code',
   });
 
-  return redirect(authUrl, { headers: { 'Set-Cookie': await commitInternal(session) } });
+  const authUrl = oidc.buildAuthorizationUrl(config, params);
+
+  return redirect(authUrl.href, { headers: { 'Set-Cookie': await commitInternal(session) } });
 }

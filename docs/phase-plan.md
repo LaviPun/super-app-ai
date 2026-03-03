@@ -23,6 +23,7 @@ This plan is structured for iterative development with strong quality gates:
 
 ### Deliverables
 - [x] CI pipeline: typecheck + tests + build + prisma validate → `.github/workflows/ci.yml`
+- [x] Pre-commit hooks (lint-staged + Husky) → `.husky/pre-commit` + root `package.json`
 - [x] env validation at boot (Zod-based) → `apps/web/app/env.server.ts`
 - [x] consistent API error shape → `services/errors/app-error.server.ts`
 - [x] log redaction utilities (no secrets / PII in logs) → `services/observability/redact.server.ts`
@@ -90,9 +91,11 @@ This plan is structured for iterative development with strong quality gates:
   - [x] status, duration, provider request id, model
   - [x] request/response hashes and sizes (no raw bodies by default)
 - [x] Evals harness:
-  - [x] golden prompts dataset (10 prompts covering all types) → `services/ai/evals.server.ts`
+  - [x] golden prompts dataset (14 module types, 80 test cases) → `app/__tests__/evals.test.ts`
   - [x] schema-valid rate tracked → `EvalSummary.schemaValidRate`
   - [x] compiler success rate tracked → `EvalSummary.compilerSuccessRate`
+  - [x] non-destructive ops check → `services/recipes/compiler/non-destructive.ts`
+- [x] CI regression job runs evals on every PR → `.github/workflows/ci.yml` `evals` job
 
 ### Acceptance criteria
 - ✅ 99%+ schema-valid on regression prompts
@@ -108,11 +111,14 @@ This plan is structured for iterative development with strong quality gates:
 - [x] Connector CRUD + encryption for secrets → `services/connectors/connector.service.ts`
 - [x] Connector test endpoint:
   - [x] SSRF protections (https only, allowlist, private network block)
+  - [x] SSRF violations logged via `withApiLogging` → `ApiLog` with `success=false`
   - [x] store sample responses (sanitized) for mapping
 - [x] Mapping UI:
   - [x] manual mapping → `routes/connectors._index.tsx`
   - [x] AI-assisted mapping (uses provider clients) → `services/connectors/mapping.service.ts`
+  - [x] mapping persists to `Connector.mappingJson`
 - [x] Job-based execution for sync runs (via `FlowRunnerService` + `JobService`)
+- [x] All connector API routes wrapped with `withApiLogging` → `routes/api.connectors.create.tsx` + `api.connectors.test.tsx`
 
 ### Acceptance criteria
 - ✅ All connector calls recorded in ApiLog + Job table
@@ -131,7 +137,8 @@ This plan is structured for iterative development with strong quality gates:
   - [x] per-step logs + outputs → `FlowStepLog` model
 - [x] Trigger sources:
   - [x] Shopify webhooks (orders/create, products/update)
-  - [ ] schedules (requires BullMQ/Inngest — not yet implemented)
+  - [x] schedules → `FlowSchedule` model + `ScheduleService` + `routes/api.cron.tsx` + `routes/flows._index.tsx`
+    - _Note: implemented with lightweight DB-based scheduler + external cron service (no BullMQ/Inngest required)_
   - [x] manual triggers → `routes/api.flow.run.tsx`
 - [x] Idempotency keys for webhook events → `WebhookEvent` model + `idempotency.server.ts`
 
@@ -146,12 +153,17 @@ This plan is structured for iterative development with strong quality gates:
 **Goal:** Add modules to customer accounts via UI extensions (sandboxed).
 
 ### Deliverables
-- [x] Customer account UI extension host renderer → `extensions/customer-account-ui/README.md`
+- [x] Customer account UI extension (`extensions/customer-account-ui/`):
+  - [x] **Preact + Polaris web components** (2026-01); 64 KB script limit (see [debug.md](./debug.md))
+  - [x] `shopify.extension.toml` with 3 block targets (OrderIndex, OrderStatus, Profile); `customer-account.page.render` should be deployed as a separate extension to avoid target/surface constraints
+  - [x] `BlockRenderer` (TEXT / LINK / BADGE / DIVIDER) using `s-*` components; config via global `shopify.query()` from shop metafield
+  - [x] Entry points: OrderIndex, OrderStatus, Profile
 - [x] Recipe type(s) + compiler writes config metafields → `customerAccount.blocks` type + compiler
+- [x] Config API for extension → `routes/api.customer-account.config.tsx`
 - [x] Target selection UI with gating (B2B/Plus where applicable)
 
 ### Acceptance criteria
-- ✅ Only supported targets (4 targets in schema enum)
+- ✅ Only supported targets (4 targets in schema enum; 3 block targets registered in extension, `page.render` reserved for separate extension)
 - ✅ No PII in logs
 - ✅ Config-driven and safe (no arbitrary HTML/scripts)
 
@@ -162,11 +174,13 @@ This plan is structured for iterative development with strong quality gates:
 
 ### Deliverables
 - [x] Shopify Billing plans (FREE/STARTER/GROWTH/PRO) → `services/billing/billing.service.ts`
+  - _Note: `test: true` in non-production. Test subscriptions on dev stores may not accurately reflect `currentPeriodEnd`/`trialDays` — verify billing state transitions during QA._
 - [x] Quotas:
   - [x] AI requests/tokens → `QuotaService` kind: `aiRequest`
   - [x] publish operations → `QuotaService` kind: `publishOp`
   - [x] workflow runs → `QuotaService` kind: `workflowRun`
   - [x] connector calls → `QuotaService` kind: `connectorCall`
+  - [x] total module count → `QuotaService` kind: `moduleCount` (Free: 3, Starter: 20, Growth: 100, Pro: ∞)
 - [x] Rate limiting by shop and by plan tier → `rate-limit.server.ts` (in-memory; extend to Redis)
 
 ### Acceptance criteria
@@ -176,23 +190,73 @@ This plan is structured for iterative development with strong quality gates:
 
 ---
 
-## Phase 8 — Production Hardening (SLOs, observability, incident readiness) ⚠️ Partial
+## Phase 8 — Production Hardening (SLOs, observability, incident readiness) ✅
 **Goal:** Operate like a SaaS with predictable reliability.
 
 ### Deliverables
-- [ ] Sentry + OpenTelemetry — not implemented; needs `@sentry/remix`
+- [x] OpenTelemetry traces → `services/observability/otel.server.ts`
+  - auto-instrumentation (HTTP, fetch, Prisma)
+  - OTLP HTTP exporter (Grafana Tempo / Honeycomb / Jaeger / Datadog ADOT)
+  - env-gated: no-op unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set
+  - `TraceIdRatioBasedSampler` (10% in production, 100% in dev)
+- [x] Sentry error tracking → `services/observability/sentry.server.ts`
+  - env-gated: no-op unless `SENTRY_DSN` is set
+  - integrated into `ErrorLogService`
+- [x] Structured JSON stdout logger → `services/observability/logger.server.ts`
+  - JSON lines in production (compatible with Datadog, GCP, AWS CloudWatch, Axiom)
+  - human-readable pretty output in development
 - [x] Correlation IDs everywhere (requestId/jobId) → `correlation.server.ts` + `x-request-id` headers
-- [ ] Runbooks — templates in `implementation-status.md`; full runbooks not yet written
-  - [ ] publish failures
-  - [ ] provider outage
-  - [ ] webhook storms
-  - [ ] connector failures
-- [x] Retention policies configurable per plan + per store → `RetentionPolicy` model
+- [x] Retention policies configurable per plan + per store:
+  - `RetentionPolicy` model + per-shop override fields
+  - `scripts/retention.ts` enforces purge on schedule
+  - `/internal/stores` UI exposes per-store override editing
+- [x] Full runbooks → `docs/runbooks/`
+  - `index.md` — severity ladder (SEV-1 to SEV-4) + first-responder checklist
+  - `publish-failure.md` — detect → triage → contain → fix → post-mortem
+  - `provider-outage.md` — detect → switch provider → verify recovery
+  - `webhook-storm.md` — idempotency verification + emergency flow pause
+  - `connector-failure.md` — SSRF security response + API key rotation
+- [x] Formal SLO definitions → `docs/slos.md`
+  - SLO 1: Publish success rate ≥ 99.5% (30-day)
+  - SLO 2: Publish latency P95 < 10 s
+  - SLO 3: AI generation success rate ≥ 95% + evals ≥ 99% schema-valid
+  - SLO 4: Webhook processing latency P95 < 30 s
+  - SLO 5: API availability ≥ 99.9%
+  - SLO 6: Error rate < 0.5%
+  - SQL measurement queries + OTel panel recommendations
 
 ### Acceptance criteria
-- ⏳ defined SLOs and dashboards — correlation IDs + ApiLog ready; dashboards TBD
-- ⏳ incident process and severity ladder — templates written; formal ladder TBD
-- ⏳ measurable MTTR improvements — tooling in place; baseline not yet measured
+- ✅ OTel traces flow to any OTLP backend when endpoint is configured
+- ✅ Sentry captures unhandled errors when DSN is configured
+- ✅ Structured logs in production-ready JSON format
+- ✅ SLO targets defined with SQL measurement queries and alert thresholds (`docs/slos.md`)
+- ✅ Formal runbooks written for all 4 incident types with severity ladder (`docs/runbooks/`)
+
+---
+
+## Storefront UI Style System (theme-safe merchant control)
+
+**Goal:** Give merchants UI control in a theme-safe, non-dev-friendly way: Theme App Extension blocks, config (metafields), Liquid + CSS variables, Style Builder in app. No arbitrary code.
+
+### Phase A (implemented) ✅
+- [x] Add optional `style` object to all storefront UI Recipe specs (`theme.banner`, `theme.popup`, `theme.notificationBar`, `proxy.widget`) with shared `StorefrontStyleSchema` (layout, spacing, typography, colors, shape, responsive, accessibility + `customCss`; enums/presets + sanitized free-form CSS).
+- [x] Compiler support: `compileStyleVars(style)` → `--sa-*` vars; `compileStyleCss(style, selector)` → scoped CSS; `compileOverlayPositionCss` → overlay; `sanitizeCustomCss` → strips dangerous patterns; `compileCustomCss` → scopes + sanitizes; all theme and proxy.widget compilers output full style.
+- [x] Style Builder (Polaris 3-tab component): **Basic** (colors, typography, padding, radius, responsive + overlay/backdrop), **Advanced** (layout mode/anchor/offsets/zIndex/width, shadow, border, line-height, gap, margin, accessibility), **Custom CSS** (textarea, 2000-char limit, sanitization warning, `--sa-*` var reference).
+- [x] Overlay/backdrop controls (color + opacity) dynamically shown for any module whose layout mode is `overlay`, `sticky`, or `floating` — not just `theme.popup`.
+- [x] Preview service uses style when rendering all storefront module types (banner, notification bar, popup, proxy widget).
+- [x] Proxy widget route (`/proxy/:widgetId`) renders `_styleCss` from metafield into a full HTML document.
+- [x] `/api/publish` accepts both JSON and form-data (the module page posts form-encoded); routes all `theme.*` types to THEME deploy target.
+- [x] Tests (163 total across monorepo): style schema validation; `customCss` limits and safety; sanitizer strips all injection patterns; overlay z-index; proxy.widget with style.
+
+### Phase B (Theme Editor integration) — future
+- [ ] Theme App Extension blocks/embeds for banner, notification bar, popup/toast overlay host.
+- [ ] Block settings + metafields config.
+
+### Phase C (Advanced layout) — future
+- [ ] Snapping anchors + safe offsets.
+- [ ] Per-breakpoint overrides.
+
+Positioning: inline placement via Theme Editor block placement; overlays use anchor options and safe offsets (no drag-on-storefront in Phase A).
 
 ---
 

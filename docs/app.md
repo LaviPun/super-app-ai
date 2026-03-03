@@ -55,6 +55,15 @@ SuperApp supports n8n-like flows:
 ### Scheduled flows
 Navigate to **Flow Schedules** in the app to create cron-based triggers using standard 5-field cron syntax (UTC). Set `CRON_SECRET` in your environment and call `GET /api/cron` with `X-Cron-Secret: <secret>` from your hosting cron service (Railway, GitHub Actions, etc.) to fire due schedules.
 
+## Styling storefront modules (Style Builder)
+For banners, notification bars, popups, and proxy widgets you can use the **Style Builder** on the module page. It has three tabs:
+
+- **Basic** — colors (text, background, button), typography (size, weight, align), padding, border radius, responsive visibility (hide on mobile/desktop). For overlay/sticky/floating modules you also get backdrop color and opacity controls.
+- **Advanced** — layout mode (inline/overlay/sticky/floating), anchor position, offsets, width, z-index level, shadow, border width/color, line height, gap, margin, and accessibility (focus ring, reduced motion).
+- **Custom CSS** — a textarea (2000 character limit) for additional CSS rules. Dangerous patterns are stripped automatically, and rules are scoped to your module's root selector. You can reference `--sa-*` CSS variables.
+
+Changes are saved as a new draft version; the preview updates instantly to reflect your style. Published theme assets and proxy widgets use CSS variables so styles stay theme-safe and performant.
+
 ## Module categories
 - Storefront UI: theme sections/blocks/widgets
 - Functions: backend checkout logic (discount/shipping/payment/validation/cart transform)
@@ -66,12 +75,12 @@ Navigate to **Flow Schedules** in the app to create cron-based triggers using st
 
 SuperApp offers tiered plans with monthly usage limits:
 
-| Plan | AI Requests | Publish Ops | Workflow Runs | Connector Calls |
-|------|------------|-------------|---------------|-----------------|
-| Free | 10 | 5 | 50 | 100 |
-| Starter ($19/mo) | 200 | 50 | 1,000 | 5,000 |
-| Growth ($79/mo) | 1,000 | 500 | 10,000 | 50,000 |
-| Pro ($299/mo) | Unlimited | Unlimited | Unlimited | Unlimited |
+| Plan | AI Requests | Publish Ops | Workflow Runs | Connector Calls | Modules |
+|------|------------|-------------|---------------|-----------------|---------|
+| Free | 10/mo | 5/mo | 50/mo | 100/mo | 3 |
+| Starter ($19/mo) | 200/mo | 50/mo | 1,000/mo | 5,000/mo | 20 |
+| Growth ($79/mo) | 1,000/mo | 500/mo | 10,000/mo | 50,000/mo | 100 |
+| Pro ($299/mo) | Unlimited | Unlimited | Unlimited | Unlimited | Unlimited |
 
 Starter and Growth plans include a 14-day free trial. You can view your current usage and switch plans from the **Billing** page inside the app.
 

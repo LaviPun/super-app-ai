@@ -29,7 +29,7 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 | `/internal/logs` | Error logs (auto-redacted) |
 | `/internal/api-logs` | API access logs with actor, path, status, duration, requestId |
 | `/internal/jobs` | Background job list (QUEUED/RUNNING/SUCCESS/FAILED) |
-| `/internal/stores` | Installed stores; set per-store AI provider override |
+| `/internal/stores` | Installed stores; set per-store AI provider override + per-store retention day overrides (Default / AI / API / Errors) |
 | `/internal/sso/start` | Initiates OIDC SSO flow |
 | `/internal/sso/callback` | OIDC callback handler |
 | `/internal/logout` | Clears internal admin session |

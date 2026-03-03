@@ -1,6 +1,6 @@
 import { json, redirect } from '@remix-run/node';
 import { Form, useActionData, useSearchParams } from '@remix-run/react';
-import { Page, Card, TextField, Button, BlockStack, Text } from '@shopify/polaris';
+import { Page, Card, Button, BlockStack, Text } from '@shopify/polaris';
 import { internalSessionStorage, commitInternal } from '~/internal-admin/session.server';
 
 export async function action({ request }: { request: Request }) {
@@ -31,10 +31,26 @@ export default function InternalLogin() {
           {data?.error ? <Text as="p" tone="critical">{data.error}</Text> : null}
           <Form method="post">
             <input type="hidden" name="to" value={to} />
-            <TextField label="Password" name="password" type="password" autoComplete="off" />
+            <BlockStack gap="200">
+              <label htmlFor="password" style={{ fontWeight: 600, fontSize: 14 }}>Password</label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="off"
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  fontSize: 14,
+                  borderRadius: 8,
+                  border: '1px solid #8c9196',
+                }}
+              />
+            </BlockStack>
+            <div style={{ height: 12 }} />
             <Button submit variant="primary">Sign in</Button>
-              <div style={{ height: 12 }} />
-              <a href="/internal/sso/start">Continue with SSO</a>
+            <div style={{ height: 12 }} />
+            <a href="/internal/sso/start">Continue with SSO</a>
           </Form>
         </BlockStack>
       </Card>

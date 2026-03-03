@@ -10,6 +10,7 @@ import { isCapabilityAllowed } from '@superapp/core';
 import { withApiLogging } from '~/services/observability/api-log.service';
 import { getPrisma } from '~/db.server';
 import { JobService } from '~/services/jobs/job.service';
+import { ActivityLogService } from '~/services/activity/activity.service';
 
 export async function action({ request }: { request: Request }) {
   const { session, admin } = await shopify.authenticate.admin(request);
@@ -19,7 +20,20 @@ export async function action({ request }: { request: Request }) {
     async () => {
       enforceRateLimit(`publish:${session.shop}`);
 
-      const body = await request.json().catch(() => null) as null | { moduleId: string; version?: number; themeId?: string };
+      let body: { moduleId?: string; version?: number; themeId?: string } | null = null;
+      const contentType = request.headers.get('Content-Type') ?? '';
+      if (contentType.includes('application/json')) {
+        body = await request.json().catch(() => null);
+      } else {
+        const formData = await request.formData().catch(() => null);
+        if (formData) {
+          body = {
+            moduleId: (formData.get('moduleId') as string) ?? undefined,
+            themeId: (formData.get('themeId') as string) || undefined,
+            version: formData.has('version') ? Number(formData.get('version')) : undefined,
+          };
+        }
+      }
       if (!body?.moduleId) return json({ error: 'Missing moduleId' }, { status: 400 });
 
       const prisma = getPrisma();
@@ -44,13 +58,13 @@ export async function action({ request }: { request: Request }) {
         return json({ error: 'Plan does not allow this module', blocked, reasons, planTier: tier }, { status: 403 });
       }
 
-      const target: DeployTarget =
-        spec.type === 'theme.banner'
-          ? { kind: 'THEME', themeId: body.themeId ?? '' }
-          : { kind: 'PLATFORM' };
+      const isThemeModule = spec.type.startsWith('theme.');
+      const target: DeployTarget = isThemeModule
+        ? { kind: 'THEME', themeId: body.themeId ?? '' }
+        : { kind: 'PLATFORM' };
 
       if (target.kind === 'THEME' && !target.themeId) {
-        return json({ error: 'themeId is required for theme.banner publish' }, { status: 400 });
+        return json({ error: 'themeId is required for theme module publish' }, { status: 400 });
       }
 
       const jobs = new JobService();
@@ -63,6 +77,7 @@ export async function action({ request }: { request: Request }) {
 
         await moduleService.markPublished(module.id, draft.id, target.kind === 'THEME' ? target.themeId : undefined);
         await jobs.succeed(job.id, { ok: true });
+        await new ActivityLogService().log({ actor: 'MERCHANT', action: 'MODULE_PUBLISHED', resource: `module:${module.id}`, shopId: shopRow?.id, details: { target: target.kind, versionId: draft.id } });
 
         return json({ ok: true, moduleId: module.id, publishedVersionId: draft.id, compiledJson: result.compiledJson });
       } catch (e) {

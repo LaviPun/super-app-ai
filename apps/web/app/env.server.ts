@@ -42,6 +42,16 @@ const EnvSchema = z.object({
 
   // Cron endpoint protection (optional — endpoint disabled if not set)
   CRON_SECRET: z.string().optional(),
+
+  // Observability (optional)
+  SENTRY_DSN: z.string().url().optional(),
+  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+
+  // OpenTelemetry (optional — traces sent only when endpoint is set)
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional(),
+  OTEL_SERVICE_NAME: z.string().default('superapp-web'),
+  OTEL_EXPORTER_OTLP_HEADERS: z.string().optional(),
+  OTEL_TRACES_SAMPLE_RATE: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

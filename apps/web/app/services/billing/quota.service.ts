@@ -2,7 +2,7 @@ import { getPrisma } from '~/db.server';
 import { PLAN_CONFIGS } from './billing.service';
 import { AppError } from '~/services/errors/app-error.server';
 
-export type QuotaKind = 'aiRequest' | 'publishOp' | 'workflowRun' | 'connectorCall';
+export type QuotaKind = 'aiRequest' | 'publishOp' | 'workflowRun' | 'connectorCall' | 'moduleCount';
 
 /**
  * Server-side quota enforcement.
@@ -19,13 +19,16 @@ export class QuotaService {
     const limit = this.limitFor(config.quotas, kind);
     if (limit === -1) return; // unlimited
 
-    const monthStart = startOfMonth();
-    const used = await this.countUsage(shopId, kind, monthStart);
+    const since = kind === 'moduleCount' ? new Date(0) : startOfMonth();
+    const used = await this.countUsage(shopId, kind, since);
 
     if (used >= limit) {
+      const msg = kind === 'moduleCount'
+        ? `Module limit reached. You have ${used}/${limit} published modules on the ${config.displayName} plan. Upgrade or delete an existing module to add more.`
+        : `Monthly ${kind} quota exceeded. You've used ${used}/${limit} on the ${config.displayName} plan. Upgrade to get more.`;
       throw new AppError({
         code: 'RATE_LIMITED',
-        message: `Monthly ${kind} quota exceeded. You've used ${used}/${limit} on the ${config.displayName} plan. Upgrade to get more.`,
+        message: msg,
         details: { kind, used: String(used), limit: String(limit), plan: planName },
       });
     }
@@ -53,21 +56,22 @@ export class QuotaService {
   }
 
   private limitFor(quotas: Record<string, number>, kind: QuotaKind): number {
-    const map: Record<QuotaKind, keyof typeof quotas> = {
+    const map: Record<QuotaKind, string> = {
       aiRequest: 'aiRequestsPerMonth',
       publishOp: 'publishOpsPerMonth',
       workflowRun: 'workflowRunsPerMonth',
       connectorCall: 'connectorCallsPerMonth',
+      moduleCount: 'modulesTotal',
     };
     return quotas[map[kind]] ?? 0;
   }
 
-  private async countUsage(shopId: string, kind: QuotaKind, since: Date): Promise<number> {
+  private async countUsage(shopId: string, kind: QuotaKind, _since: Date): Promise<number> {
     const prisma = getPrisma();
 
     if (kind === 'aiRequest') {
       const result = await prisma.aiUsage.aggregate({
-        where: { shopId, createdAt: { gte: since } },
+        where: { shopId, createdAt: { gte: _since } },
         _sum: { requestCount: true },
       });
       return result._sum.requestCount ?? 0;
@@ -76,13 +80,20 @@ export class QuotaService {
     if (kind === 'publishOp' || kind === 'workflowRun') {
       const type = kind === 'publishOp' ? 'PUBLISH' : 'FLOW_RUN';
       return prisma.job.count({
-        where: { shopId, type, status: { in: ['SUCCESS', 'RUNNING', 'QUEUED'] }, createdAt: { gte: since } },
+        where: { shopId, type, status: { in: ['SUCCESS', 'RUNNING', 'QUEUED'] }, createdAt: { gte: _since } },
       });
     }
 
     if (kind === 'connectorCall') {
       return prisma.apiLog.count({
-        where: { shopId, actor: 'MERCHANT', path: { contains: '/connector' }, createdAt: { gte: since } },
+        where: { shopId, actor: 'MERCHANT', path: { contains: '/connector' }, createdAt: { gte: _since } },
+      });
+    }
+
+    // moduleCount: total active (published) modules — not time-bounded
+    if (kind === 'moduleCount') {
+      return prisma.module.count({
+        where: { shopId, status: 'PUBLISHED' },
       });
     }
 

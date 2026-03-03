@@ -55,22 +55,21 @@ Shopify's Remix package expects a splat auth route that calls `authenticate.admi
 
 ## 6) Local development
 
-In one terminal, run the Remix dev server:
+**Option A — Single command (recommended):** From the **repo root**:
 ```bash
 pnpm i
 pnpm --filter web prisma:migrate
-pnpm --filter web dev
-```
-
-In a second terminal, run the Shopify CLI tunnel (needed for OAuth + webhooks):
-```bash
-cd apps/web
 shopify app dev
 ```
+The root `shopify.app.toml` has `web_directories = ["apps/web"]`, so the CLI finds the Remix app, starts the tunnel (HTTPS), and runs the app. The admin iframe will load the tunnel URL. If the app stays blank, see [docs/debug.md](./debug.md) §6.
 
-The CLI opens a browser and installs the app into your dev store.
+**Option B — Two terminals:** If you prefer to run the app and CLI separately:
+- Terminal 1: `pnpm --filter web dev`
+- Terminal 2: `cd apps/web && shopify app dev`
 
-> **Note**: Both processes must be running. The Remix server handles requests; the Shopify CLI provides the tunnel and OAuth redirect.
+Set `SHOPIFY_APP_URL` in `apps/web/.env` to the tunnel URL the CLI prints.
+
+> **Note**: The app must be reachable at an **HTTPS** URL (the tunnel) for the admin iframe to load; `http://localhost:3000` is blocked as mixed content.
 
 ## 7) Required API scopes
 
@@ -109,4 +108,14 @@ pnpm --filter web test
 pnpm --filter web evals
 ```
 
-Pass rate must be ≥ 80% for schema validity (enforced in CI).
+Pass rate must be ≥ 90% for schema validity (default `EVAL_THRESHOLD_SCHEMA=0.9`, enforced in CI). Override via env var for staged rollout.
+
+## 11) Deploy (CI / non-interactive)
+
+For CI or non-interactive terminals, use:
+
+```bash
+pnpm exec shopify app deploy --allow-updates
+```
+
+The `--allow-updates` flag is required when not in an interactive terminal. Customer account UI extension has a **64 KB script limit**; see [docs/debug.md](./debug.md) for bundle size and extension troubleshooting.

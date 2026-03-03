@@ -36,6 +36,9 @@ This system uses a **Recipes architecture**:
 | `BillingService` | `services/billing/billing.service.ts` | Shopify App Subscriptions (FREE/STARTER/GROWTH/PRO) |
 | `QuotaService` | `services/billing/quota.service.ts` | Monthly quota enforcement per kind |
 | `ThemeAnalyzerService` | `services/theme/theme-analyzer.service.ts` | Fetch theme assets; detect patterns; suggest mount strategy |
+| Style compiler | `services/recipes/compiler/style-compiler.ts` | `compileStyleVars` / `compileStyleCss` / `compileOverlayPositionCss` / `sanitizeCustomCss` / `compileCustomCss` — storefront UI style → `--sa-*` CSS vars (theme-safe presets + scoped custom CSS) |
+| `PreviewService` | `services/preview/preview.service.ts` | HTML preview for all storefront modules (banner, popup, notification bar, proxy widget); applies style vars |
+| Proxy widget route | `routes/proxy.$widgetId.tsx` | App Proxy endpoint; reads `_styleCss` from metafield and renders styled HTML |
 | `AiUsageService` | `services/observability/ai-usage.service.ts` | Track tokens, cost, model per shop |
 
 ---
@@ -73,6 +76,8 @@ Gated capabilities (Shopify Plus only):
 ```
 
 Keep gating centralized in `packages/core/src/capabilities.ts`.
+
+**Customer account UI extension:** The `customerAccount.blocks` module type is rendered by the extension in `extensions/customer-account-ui/`. That extension uses **Preact + Polaris web components** (2026-01) and reads config from the shop metafield via `shopify.query()`. Shopify enforces a **64 KB** compiled script limit; see [debug.md](./debug.md) and [implementation-status.md](./implementation-status.md) (Phase 6) for stack details and troubleshooting.
 
 ---
 
@@ -170,6 +175,28 @@ Quota enforcement runs **before** any consuming action (`aiRequest` before AI ge
 
 ---
 
+## 10b. Storefront UI style system
+
+All storefront UI recipes (`theme.banner`, `theme.popup`, `theme.notificationBar`, `proxy.widget`) accept an optional `style` object (validated by `StorefrontStyleSchema`). The style uses preset enums for safety — no arbitrary CSS values except `customCss` (sanitized + scoped at compile time).
+
+**Compile pipeline:**
+```
+spec.style
+  → normalizeStyle()          — merge with DEFAULT_STOREFRONT_STYLE
+  → compileStyleVars()        — produces --sa-text, --sa-bg, --sa-pad, etc.
+  → compileStyleCss()         — applies vars to root selector
+  → compileOverlayPositionCss() — overlay host + panel (popup/sticky/floating)
+  → compileCustomCss()        — sanitize + scope merchant free-form CSS
+```
+
+**Publish route (`/api/publish`):** Accepts both `application/json` and `application/x-www-form-urlencoded` (form posts from the module detail page). All `theme.*` modules are routed to `{ kind: 'THEME' }` deploy target.
+
+**Proxy widget route (`/proxy/:widgetId`):** Reads the compiled `_styleCss` from the shop metafield and injects it into a `<style>` block in the returned HTML document.
+
+**Overlay/backdrop controls:** The Style Builder shows backdrop color, backdrop opacity, anchor, and offset controls whenever the layout mode is `overlay`, `sticky`, or `floating` — not just for `theme.popup`.
+
+---
+
 ## 11. Adding a new module type
 
 1. Add a new union member to `RecipeSpecSchema` in `packages/core/src/recipe.ts`.
@@ -186,13 +213,13 @@ Quota enforcement runs **before** any consuming action (`aiRequest` before AI ge
 
 - [ ] Move to Postgres + Prisma migrations (`prisma migrate deploy`)
 - [ ] Add Redis rate limiting (Upstash) to replace `InMemoryRateLimiter`
-- [ ] Add BullMQ/Inngest for scheduled flow triggers + async job processing
-- [ ] Integrate Sentry: `@sentry/remix` + `Sentry.init()` in `entry.server.tsx`
+- [x] ~~Add BullMQ/Inngest for scheduled flow triggers~~ — Implemented with lightweight DB-based scheduler (`ScheduleService` + `FlowSchedule` model + `GET /api/cron`)
+- [x] Sentry integration — `sentry.server.ts` provides `captureException`/`captureMessage` interface; env-gated on `SENTRY_DSN` (install `@sentry/node` to activate)
 - [ ] Add CSP headers on embedded UI and app proxy HTML responses
 - [ ] Implement GDPR webhooks (`customers/data_request`, `customers/redact`, `shop/redact`)
 - [ ] KMS-backed envelope encryption for secrets (AWS KMS / GCP KMS)
-- [ ] Define SLOs and build dashboards on `ApiLog` table
-- [ ] Write incident runbooks (see `docs/implementation-status.md` for templates)
+- [x] Define SLOs and build dashboards — `docs/slos.md` (6 SLOs with SQL measurement queries + OTel panel recommendations)
+- [x] Write incident runbooks — `docs/runbooks/` (4 runbooks + severity ladder + first-responder checklist)
 
 ---
 
@@ -202,7 +229,7 @@ Quota enforcement runs **before** any consuming action (`aiRequest` before AI ge
 pnpm i                                       # install all deps
 cd apps/web && pnpm exec prisma migrate dev  # create SQLite DB
 pnpm --filter web dev                        # start dev server
-pnpm test                                    # run all tests (37 tests)
+pnpm test                                    # run all tests (163 across monorepo)
 pnpm --filter web evals                      # run AI evals harness
 ```
 

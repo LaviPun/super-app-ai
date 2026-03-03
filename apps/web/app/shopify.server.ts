@@ -1,10 +1,12 @@
 import '@shopify/shopify-app-remix/server/adapters/node';
-import { shopifyApp } from '@shopify/shopify-app-remix/server';
+import { shopifyApp, AppDistribution } from '@shopify/shopify-app-remix/server';
 import { LATEST_API_VERSION } from '@shopify/shopify-api';
 import { getSessionStorage } from '~/session.server';
 import { validateEnv } from '~/env.server';
+import { initOtel } from '~/services/observability/otel.server';
 
-// Validate required environment variables at boot — fails fast with clear errors.
+initOtel();
+
 if (process.env.NODE_ENV !== 'test') validateEnv();
 
 export const shopify = shopifyApp({
@@ -14,6 +16,10 @@ export const shopify = shopifyApp({
   apiVersion: LATEST_API_VERSION,
   scopes: process.env.SCOPES?.split(',') ?? [],
   appUrl: process.env.SHOPIFY_APP_URL!,
-  // Important for embedded apps; enable if you use custom domains
   isEmbeddedApp: true,
+  distribution: AppDistribution.AppStore,
+  authPathPrefix: '/auth',
+  future: {
+    unstable_newEmbeddedAuthStrategy: true,
+  },
 });

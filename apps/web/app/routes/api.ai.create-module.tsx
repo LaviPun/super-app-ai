@@ -7,6 +7,7 @@ import { getPrisma } from '~/db.server';
 import { JobService } from '~/services/jobs/job.service';
 import { withApiLogging } from '~/services/observability/api-log.service';
 import { QuotaService } from '~/services/billing/quota.service';
+import { ActivityLogService } from '~/services/activity/activity.service';
 
 export async function action({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -27,7 +28,9 @@ export async function action({ request }: { request: Request }) {
         update: {},
       });
 
-      await new QuotaService().enforce(shopRow.id, 'aiRequest');
+      const quotaService = new QuotaService();
+      await quotaService.enforce(shopRow.id, 'aiRequest');
+      await quotaService.enforce(shopRow.id, 'moduleCount');
 
       const jobs = new JobService();
       const job = await jobs.create({ shopId: shopRow.id, type: 'AI_GENERATE', payload: { promptLen: prompt.length } });
@@ -38,6 +41,7 @@ export async function action({ request }: { request: Request }) {
         const moduleService = new ModuleService();
         const mod = await moduleService.createDraft(session.shop, spec);
         await jobs.succeed(job.id, { moduleId: mod.id, type: spec.type });
+        await new ActivityLogService().log({ actor: 'MERCHANT', action: 'MODULE_CREATED', resource: `module:${mod.id}`, shopId: shopRow.id, details: { type: spec.type, name: spec.name } });
         return json({ moduleId: mod.id, type: spec.type, name: spec.name });
       } catch (e) {
         await jobs.fail(job.id, e);

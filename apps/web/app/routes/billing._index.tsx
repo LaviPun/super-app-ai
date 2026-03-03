@@ -1,10 +1,14 @@
 import { json, redirect } from '@remix-run/node';
-import { useLoaderData, Form } from '@remix-run/react';
-import { Page, Card, BlockStack, Text, Button, InlineStack, Banner, DataTable } from '@shopify/polaris';
+import { useLoaderData, Form, useNavigation } from '@remix-run/react';
+import {
+  Page, Card, BlockStack, Text, Button, InlineStack, Banner, DataTable,
+  SkeletonBodyText,
+} from '@shopify/polaris';
 import { shopify } from '~/shopify.server';
 import { BillingService, PLAN_CONFIGS } from '~/services/billing/billing.service';
 import { QuotaService } from '~/services/billing/quota.service';
 import { getPrisma } from '~/db.server';
+import { ActivityLogService } from '~/services/activity/activity.service';
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -36,6 +40,7 @@ export async function action({ request }: { request: Request }) {
 
   try {
     const { confirmationUrl } = await billing.createSubscription(admin, shopRow.id, plan, returnUrl);
+    await new ActivityLogService().log({ actor: 'MERCHANT', action: 'BILLING_PLAN_CHANGED', shopId: shopRow.id, details: { plan } });
     if (confirmationUrl && confirmationUrl !== returnUrl) {
       return redirect(confirmationUrl);
     }
@@ -47,11 +52,13 @@ export async function action({ request }: { request: Request }) {
 
 export default function BillingPage() {
   const { sub, usage, plans } = useLoaderData<typeof loader>();
+  const nav = useNavigation();
+  const isSaving = nav.state !== 'idle';
 
   const formatQuota = (v: number) => v === -1 ? 'Unlimited' : v.toLocaleString();
 
   return (
-    <Page title="Billing & Plan" backAction={{ content: 'Modules', url: '/' }}>
+    <Page title="Billing & Plan" backAction={{ content: 'Home', url: '/' }}>
       <BlockStack gap="500">
         {sub ? (
           <Banner tone="success" title={`Current plan: ${sub.planName}`}>
@@ -66,16 +73,20 @@ export default function BillingPage() {
         <Card>
           <BlockStack gap="300">
             <Text as="h2" variant="headingMd">Usage this month</Text>
-            <DataTable
-              columnContentTypes={['text', 'numeric', 'numeric']}
-              headings={['Resource', 'Used', 'Limit']}
-              rows={[
-                ['AI Requests', usage.used.aiRequests, formatQuota(usage.quotas.aiRequestsPerMonth)],
-                ['Publish Operations', usage.used.publishOps, formatQuota(usage.quotas.publishOpsPerMonth)],
-                ['Workflow Runs', usage.used.workflowRuns, formatQuota(usage.quotas.workflowRunsPerMonth)],
-                ['Connector Calls', usage.used.connectorCalls, formatQuota(usage.quotas.connectorCallsPerMonth)],
-              ]}
-            />
+            {isSaving ? (
+              <SkeletonBodyText lines={4} />
+            ) : (
+              <DataTable
+                columnContentTypes={['text', 'numeric', 'numeric']}
+                headings={['Resource', 'Used', 'Limit']}
+                rows={[
+                  ['AI Requests', usage.used.aiRequests, formatQuota(usage.quotas.aiRequestsPerMonth)],
+                  ['Publish Operations', usage.used.publishOps, formatQuota(usage.quotas.publishOpsPerMonth)],
+                  ['Workflow Runs', usage.used.workflowRuns, formatQuota(usage.quotas.workflowRunsPerMonth)],
+                  ['Connector Calls', usage.used.connectorCalls, formatQuota(usage.quotas.connectorCallsPerMonth)],
+                ]}
+              />
+            )}
           </BlockStack>
         </Card>
 
@@ -93,7 +104,7 @@ export default function BillingPage() {
                     </Text>
                     <Form method="post">
                       <input type="hidden" name="plan" value={p.name} />
-                      <Button submit variant={sub?.planName === p.name ? 'secondary' : 'primary'} disabled={sub?.planName === p.name}>
+                      <Button submit variant={sub?.planName === p.name ? 'secondary' : 'primary'} disabled={sub?.planName === p.name} loading={isSaving}>
                         {sub?.planName === p.name ? 'Current' : `Switch to ${p.displayName}`}
                       </Button>
                     </Form>

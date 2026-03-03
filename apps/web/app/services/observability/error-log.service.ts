@@ -1,5 +1,6 @@
 import { getPrisma } from '~/db.server';
 import { redact, redactString } from '~/services/observability/redact.server';
+import { captureException } from '~/services/observability/sentry.server';
 
 export class ErrorLogService {
   async info(message: string, meta?: unknown) {
@@ -10,8 +11,9 @@ export class ErrorLogService {
     await this.write('WARN', message, undefined, meta);
   }
 
-  async error(message: string, stack?: string, meta?: unknown) {
+  async error(message: string, stack?: string, meta?: unknown, err?: unknown) {
     await this.write('ERROR', message, stack, meta);
+    if (err) captureException(err, typeof meta === 'object' && meta !== null ? meta as Record<string, string> : undefined);
   }
 
   async write(level: 'INFO'|'WARN'|'ERROR', message: string, stack?: string, meta?: unknown, route?: string, shopId?: string) {

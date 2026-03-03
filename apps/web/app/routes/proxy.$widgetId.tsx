@@ -23,15 +23,34 @@ export async function loader({ request, params }: { request: Request; params: { 
       const value = data?.data?.shop?.metafield?.value;
       if (!value) return new Response('', { status: 204 });
 
-      const cfg = JSON.parse(value) as { mode: 'JSON' | 'HTML'; title: string; message?: string };
+      const cfg = JSON.parse(value) as {
+        mode: 'JSON' | 'HTML';
+        title: string;
+        message?: string;
+        _styleCss?: string;
+      };
 
       if (cfg.mode === 'JSON') return json({ title: cfg.title, message: cfg.message ?? '' });
 
+      const styleCss = cfg._styleCss ?? '';
       const html = `
-        <div class="superapp-widget">
-          <strong>${escapeHtml(cfg.title)}</strong>
-          ${cfg.message ? `<div>${escapeHtml(cfg.message)}</div>` : ''}
-        </div>
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <style>
+            ${styleCss}
+            .superapp-widget strong{ display:block; margin-bottom: 6px; }
+          </style>
+        </head>
+        <body>
+          <div class="superapp-widget">
+            <strong>${escapeHtml(cfg.title)}</strong>
+            ${cfg.message ? `<div>${escapeHtml(cfg.message)}</div>` : ''}
+          </div>
+        </body>
+        </html>
       `.trim();
 
       return new Response(html, {

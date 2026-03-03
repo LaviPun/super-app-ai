@@ -1,0 +1,13 @@
+{
+  "name": "superapp-customer-account-ui",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@shopify/ui-extensions": "2026.1.0",
+    "@preact/signals": "^2.3.0",
+    "preact": "^10.10.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

@@ -1,7 +1,8 @@
 import { RecipeSpecSchema } from '@superapp/core';
-import { compileRecipe } from '~/services/recipes/compiler';
-import type { LlmClient } from '~/services/ai/llm.server';
-import { StubLlmClient } from '~/services/ai/llm.server';
+import { compileRecipe } from '../recipes/compiler/index.js';
+import { checkNonDestructive } from '../recipes/compiler/non-destructive.js';
+import type { LlmClient } from './llm.server.js';
+import { StubLlmClient } from './llm.server.js';
 
 export type GoldenPrompt = {
   id: string;
@@ -15,6 +16,8 @@ export type EvalResult = {
   prompt: string;
   schemaValid: boolean;
   compilerSuccess: boolean;
+  nonDestructive: boolean;
+  nonDestructiveViolations: string[];
   matchedExpectedType: boolean;
   attempts: number;
   durationMs: number;
@@ -25,8 +28,10 @@ export type EvalSummary = {
   total: number;
   schemaValidCount: number;
   compilerSuccessCount: number;
+  nonDestructiveCount: number;
   schemaValidRate: number;
   compilerSuccessRate: number;
+  nonDestructiveRate: number;
   results: EvalResult[];
 };
 
@@ -54,6 +59,8 @@ export async function runEvals(client: LlmClient = new StubLlmClient(), maxAttem
     const start = Date.now();
     let schemaValid = false;
     let compilerSuccess = false;
+    let nonDestructive = false;
+    let nonDestructiveViolations: string[] = [];
     let matchedExpectedType = false;
     let error: string | undefined;
     let attempts = 0;
@@ -76,8 +83,16 @@ export async function runEvals(client: LlmClient = new StubLlmClient(), maxAttem
           const target = String(parsed.type).startsWith('theme.')
             ? { kind: 'THEME' as const, themeId: 'eval-theme-id' }
             : { kind: 'PLATFORM' as const };
-          compileRecipe(parsed as any, target);
+          const { ops } = compileRecipe(parsed as any, target);
           compilerSuccess = true;
+
+          // Check non-destructive invariants
+          const nd = checkNonDestructive(ops);
+          nonDestructive = nd.ok;
+          nonDestructiveViolations = nd.violations;
+          if (!nd.ok) {
+            error = `Non-destructive violation: ${nd.violations.join('; ')}`;
+          }
         } catch (compErr) {
           error = `Compiler error: ${String(compErr)}`;
         }
@@ -93,6 +108,8 @@ export async function runEvals(client: LlmClient = new StubLlmClient(), maxAttem
       prompt: gp.prompt,
       schemaValid,
       compilerSuccess,
+      nonDestructive,
+      nonDestructiveViolations,
       matchedExpectedType,
       attempts,
       durationMs: Date.now() - start,
@@ -102,13 +119,16 @@ export async function runEvals(client: LlmClient = new StubLlmClient(), maxAttem
 
   const schemaValidCount = results.filter(r => r.schemaValid).length;
   const compilerSuccessCount = results.filter(r => r.compilerSuccess).length;
+  const nonDestructiveCount = results.filter(r => r.nonDestructive).length;
 
   return {
     total: results.length,
     schemaValidCount,
     compilerSuccessCount,
+    nonDestructiveCount,
     schemaValidRate: results.length > 0 ? schemaValidCount / results.length : 0,
     compilerSuccessRate: results.length > 0 ? compilerSuccessCount / results.length : 0,
+    nonDestructiveRate: results.length > 0 ? nonDestructiveCount / results.length : 0,
     results,
   };
 }

@@ -5,11 +5,16 @@
     "types": [
       "@remix-run/node",
       "vite/client"
-    ]
+    ],
+    "paths": {
+      "~/*": ["./app/*"]
+    },
+    "rootDir": "."
   },
   "include": [
     "app/**/*.ts",
     "app/**/*.tsx",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "vite.config.ts"
   ]
 }

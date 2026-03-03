@@ -33,6 +33,7 @@ model Shop {
   flowSchedules FlowSchedule[]
   flowStepLogs  FlowStepLog[]
   subscription  AppSubscription?
+  activityLogs  ActivityLog[]
 }
 
 model Module {
@@ -289,6 +290,23 @@ model ThemeProfile {
   updatedAt DateTime @updatedAt
 
   @@unique([shopId, themeId])
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  actor     String   // SYSTEM | MERCHANT | INTERNAL_ADMIN | WEBHOOK | CRON
+  action    String   // e.g. MODULE_CREATED, MODULE_PUBLISHED, CONNECTOR_CREATED, SCHEDULE_CREATED, LOGIN, etc.
+  resource  String?  // e.g. "module:clxxx", "connector:clxxx"
+  shopId    String?
+  shop      Shop?    @relation(fields: [shopId], references: [id])
+  details   String?  // JSON metadata
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actor, createdAt])
+  @@index([action, createdAt])
+  @@index([shopId, createdAt])
 }
 
 model FlowSchedule {

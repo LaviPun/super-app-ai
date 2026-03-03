@@ -85,7 +85,7 @@ export class ScheduleService {
  *
  * Supported syntax:
  *   minute  hour  day-of-month  month  day-of-week
- *   *  |  number  |  */n  (step syntax is NOT supported in this minimal impl)
+ *   *  |  number  |  * /n  (step syntax is NOT supported in this minimal impl)
  *
  * For production-grade cron parsing, install `croner` or `cron-parser`.
  */

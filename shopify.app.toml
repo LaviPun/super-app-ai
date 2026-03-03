@@ -5,6 +5,13 @@ name = "Super App AI"
 application_url = "http://localhost:3000"
 embedded = true
 
+# Monorepo: web app lives in apps/web; CLI uses this when you run `shopify app dev` from repo root
+web_directories = ["apps/web"]
+
+[build]
+# So dev uses the tunnel URL (HTTPS) and the admin iframe can load the app
+automatically_update_urls_on_dev = true
+
 [webhooks]
 api_version = "2026-01"
 

@@ -10,6 +10,12 @@ import { RecipeService } from '~/services/recipes/recipe.service';
 import { CapabilityService } from '~/services/shopify/capability.service';
 import { MODULE_CATALOG, isCapabilityAllowed } from '@superapp/core';
 import { compileRecipe } from '~/services/recipes/compiler';
+import { StyleBuilder } from '~/components/StyleBuilder';
+import type { RecipeSpec } from '@superapp/core';
+
+function isThemeStorefrontUi(spec: RecipeSpec): boolean {
+  return ['theme.banner', 'theme.popup', 'theme.notificationBar', 'proxy.widget'].includes(spec.type);
+}
 
 export async function loader({ request, params }: { request: Request; params: { moduleId?: string } }) {
   const { session, admin } = await shopify.authenticate.admin(request);
@@ -61,6 +67,7 @@ export async function loader({ request, params }: { request: Request; params: { 
 export default function ModuleDetail() {
   const { moduleId, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions } =
     useLoaderData<typeof loader>();
+  const draft = mod.versions.find((v: { status: string }) => v.status === 'DRAFT') ?? mod.activeVersion ?? mod.versions[0];
   const isThemeModule = String(spec?.type ?? '').startsWith('theme.');
   const isBlocked = blockedCapabilities.length > 0;
   const nav = useNavigation();
@@ -102,6 +109,10 @@ export default function ModuleDetail() {
             </Text>
           </BlockStack>
         </Card>
+
+        {spec && isThemeStorefrontUi(spec) ? (
+          <StyleBuilder key={draft?.id} spec={spec} moduleId={moduleId} />
+        ) : null}
 
         <Card>
           <BlockStack gap="300">

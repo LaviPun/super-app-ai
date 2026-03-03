@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Capability } from './capabilities.js';
+import { StorefrontStyleSchema } from './storefront-style.js';
 
 export type ModuleStatus = 'DRAFT' | 'PUBLISHED';
 
@@ -54,6 +55,7 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       imageUrl: z.string().url().optional(),
       enableAnimation: z.boolean().default(false),
     }),
+    style: StorefrontStyleSchema.optional(),
   }),
 
   Base.extend({
@@ -68,6 +70,7 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       ctaText: z.string().min(0).max(40).optional(),
       ctaUrl: z.string().url().optional(),
     }),
+    style: StorefrontStyleSchema.optional(),
   }),
 
   Base.extend({
@@ -80,6 +83,7 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       linkUrl: z.string().url().optional(),
       dismissible: z.boolean().default(true),
     }),
+    style: StorefrontStyleSchema.optional(),
   }),
 
   Base.extend({
@@ -92,6 +96,7 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       title: z.string().min(1).max(80),
       message: z.string().min(0).max(240).optional(),
     }),
+    style: StorefrontStyleSchema.optional(),
   }),
 
   Base.extend({

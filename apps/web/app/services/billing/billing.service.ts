@@ -13,6 +13,8 @@ export type PlanConfig = {
     publishOpsPerMonth: number;
     workflowRunsPerMonth: number;
     connectorCallsPerMonth: number;
+    /** Total active (PUBLISHED) modules per shop. -1 = unlimited. */
+    modulesTotal: number;
   };
 };
 
@@ -27,6 +29,7 @@ export const PLAN_CONFIGS: Record<BillingPlan, PlanConfig> = {
       publishOpsPerMonth: 5,
       workflowRunsPerMonth: 50,
       connectorCallsPerMonth: 100,
+      modulesTotal: 3,
     },
   },
   STARTER: {
@@ -39,6 +42,7 @@ export const PLAN_CONFIGS: Record<BillingPlan, PlanConfig> = {
       publishOpsPerMonth: 50,
       workflowRunsPerMonth: 1000,
       connectorCallsPerMonth: 5000,
+      modulesTotal: 20,
     },
   },
   GROWTH: {
@@ -51,6 +55,7 @@ export const PLAN_CONFIGS: Record<BillingPlan, PlanConfig> = {
       publishOpsPerMonth: 500,
       workflowRunsPerMonth: 10000,
       connectorCallsPerMonth: 50000,
+      modulesTotal: 100,
     },
   },
   PRO: {
@@ -63,6 +68,7 @@ export const PLAN_CONFIGS: Record<BillingPlan, PlanConfig> = {
       publishOpsPerMonth: -1,
       workflowRunsPerMonth: -1,
       connectorCallsPerMonth: -1,
+      modulesTotal: -1,
     },
   },
 };

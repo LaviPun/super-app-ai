@@ -1,8 +1,9 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, Form, Link } from '@remix-run/react';
+import { useLoaderData, Form, Link, useNavigation, useActionData } from '@remix-run/react';
 import {
   Page, Card, TextField, Button, BlockStack, Text, Badge,
-  DataTable, InlineStack, EmptyState,
+  DataTable, InlineStack, EmptyState, SkeletonBodyText, Banner,
+  SkeletonDisplayText, SkeletonPage,
 } from '@shopify/polaris';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
@@ -40,9 +41,12 @@ export async function loader({ request }: { request: Request }) {
 
 export default function Index() {
   const { shop, modules } = useLoaderData<typeof loader>();
+  const nav = useNavigation();
+  const isSubmitting = nav.state === 'submitting';
+  const isLoading = nav.state === 'loading';
 
   return (
-    <Page title="SuperApp Modules" primaryAction={{ content: 'Docs', url: '/docs', disabled: true }}>
+    <Page title="SuperApp Modules">
       <BlockStack gap="500">
         <Card>
           <BlockStack gap="400">
@@ -58,29 +62,40 @@ export default function Index() {
                   autoComplete="off"
                   placeholder='e.g. "Show a discount popup after 5 seconds offering 10% off"'
                   multiline={3}
+                  helpText="Be specific about the type, trigger, and content you want."
                 />
                 <InlineStack align="start">
-                  <Button submit variant="primary">Generate draft</Button>
+                  <Button submit variant="primary" loading={isSubmitting}>
+                    Generate draft
+                  </Button>
                 </InlineStack>
               </BlockStack>
             </Form>
+            {isSubmitting && (
+              <Banner tone="info">
+                <Text as="p">AI is generating your module... This may take a few seconds.</Text>
+              </Banner>
+            )}
           </BlockStack>
         </Card>
 
         <Card>
           <BlockStack gap="300">
             <Text as="h2" variant="headingMd">Your modules ({modules.length})</Text>
-            {modules.length === 0 ? (
+            {isLoading ? (
+              <SkeletonBodyText lines={4} />
+            ) : modules.length === 0 ? (
               <EmptyState
                 heading="No modules yet"
                 image=""
+                action={{ content: 'Generate your first module', url: '#prompt' }}
               >
-                <p>Generate your first module above.</p>
+                <p>Use the AI builder above to create your first storefront module.</p>
               </EmptyState>
             ) : (
               <DataTable
                 columnContentTypes={['text', 'text', 'text', 'numeric', 'text']}
-                headings={['Name', 'Type', 'Status', 'Versions', 'Actions']}
+                headings={['Name', 'Type', 'Status', 'Version', 'Actions']}
                 rows={modules.map(m => [
                   m.name,
                   m.type,

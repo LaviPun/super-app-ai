@@ -1,0 +1,22 @@
+api_version = "2026-01"
+
+[[extensions]]
+uid = "8c6a1d28-a11d-3b1a-82ef-9374e1c146acf00e1297"
+type = "ui_extension"
+name = "SuperApp Customer Blocks"
+handle = "superapp-customer-blocks"
+
+[extensions.capabilities]
+api_access = true
+
+[[extensions.targeting]]
+module = "./src/blocks/OrderIndex.tsx"
+target = "customer-account.order-index.block.render"
+
+[[extensions.targeting]]
+module = "./src/blocks/OrderStatus.tsx"
+target = "customer-account.order-status.block.render"
+
+[[extensions.targeting]]
+module = "./src/blocks/Profile.tsx"
+target = "customer-account.profile.block.render"

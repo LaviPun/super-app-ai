@@ -5,6 +5,7 @@ import { enforceRateLimit } from '~/services/security/rate-limit.server';
 import { withApiLogging } from '~/services/observability/api-log.service';
 import { getPrisma } from '~/db.server';
 import { JobService } from '~/services/jobs/job.service';
+import { ActivityLogService } from '~/services/activity/activity.service';
 
 export async function action({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -37,6 +38,7 @@ export async function action({ request }: { request: Request }) {
         const ms = new ModuleService();
         const mv = await ms.rollbackToVersion(session.shop, moduleId, version);
         await jobs.succeed(job.id, { rolledBackTo: version, versionId: mv.id });
+        await new ActivityLogService().log({ actor: 'MERCHANT', action: 'MODULE_ROLLED_BACK', resource: `module:${moduleId}`, shopId: shopRow?.id, details: { version, versionId: mv.id } });
 
         return json({ ok: true, rolledBackToVersion: version, versionId: mv.id });
       } catch (e) {
