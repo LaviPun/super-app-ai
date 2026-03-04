@@ -95,11 +95,23 @@ const preStyle = {
   background: 'var(--p-color-bg-surface-secondary)',
   borderRadius: 8,
   fontSize: 12,
-  overflow: 'auto' as const,
-  maxHeight: '100%',
-  minHeight: 120,
   whiteSpace: 'pre-wrap' as const,
   wordBreak: 'break-all' as const,
+};
+
+const quadrantStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  minHeight: 0,
+  overflow: 'hidden',
+  padding: 12,
+  background: 'var(--p-color-bg-surface-secondary)',
+  borderRadius: 8,
+};
+const quadrantScrollStyle: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  overflowY: 'auto',
 };
 
 function ApiLogDetailContent({ d }: { d: ApiLogDetailData }) {
@@ -109,49 +121,55 @@ function ApiLogDetailContent({ d }: { d: ApiLogDetailData }) {
     return <pre style={preStyle}>{str}</pre>;
   };
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: 16, minHeight: 320 }}>
-      <Box padding="300" background="bg-surface-secondary" borderRadius="200" minHeight={0} overflow="hidden" display="flex" flexDirection="column">
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: 16, height: 420, maxHeight: '55vh' }}>
+      {/* Top left: Request body */}
+      <div style={quadrantStyle}>
         <Text as="h3" variant="headingSm" fontWeight="semibold">Request body</Text>
-        <Box minHeight={0} flexGrow={1} overflow="auto">
+        <div style={quadrantScrollStyle}>
           <CodeBlock value={d.requestBody} />
-        </Box>
-      </Box>
-      <Box padding="300" background="bg-surface-secondary" borderRadius="200" minHeight={0} overflow="hidden" display="flex" flexDirection="column">
-        <Text as="h3" variant="headingSm" fontWeight="semibold">Response body</Text>
-        <Box minHeight={0} flexGrow={1} overflow="auto">
-          <CodeBlock value={d.responseBody} />
-        </Box>
-      </Box>
-      <Box padding="300" background="bg-surface-secondary" borderRadius="200" minHeight={0} overflow="hidden" display="flex" flexDirection="column">
+        </div>
+      </div>
+      {/* Right top: Details */}
+      <div style={quadrantStyle}>
         <Text as="h3" variant="headingSm" fontWeight="semibold">Details</Text>
-        <BlockStack gap="100">
-          <Text as="p" variant="bodySm"><strong>Time</strong>: {new Date(d.createdAt).toLocaleString()}</Text>
-          <Text as="p" variant="bodySm"><strong>Method</strong>: {d.method}</Text>
-          <Text as="p" variant="bodySm"><strong>Path</strong>: {d.path}</Text>
-          <Text as="p" variant="bodySm"><strong>Status</strong>: {d.status}</Text>
-          <Text as="p" variant="bodySm"><strong>Duration</strong>: {d.durationMs} ms</Text>
-          <Text as="p" variant="bodySm"><strong>Success</strong>: {d.success ? 'Yes' : 'No'}</Text>
-          {d.requestId && <Text as="p" variant="bodySm"><strong>Request ID</strong>: {d.requestId}</Text>}
-          <Text as="p" variant="bodySm"><strong>Actor</strong>: {d.actor}</Text>
-          <Text as="p" variant="bodySm"><strong>Store</strong>: {d.shopDomain ?? '—'}</Text>
-          {d.requestHeaders != null && Object.keys(d.requestHeaders).length > 0 && (
-            <details style={{ marginTop: 8 }}>
-              <summary style={{ cursor: 'pointer', fontSize: 12 }}>Request headers</summary>
-              <pre style={{ ...preStyle, maxHeight: 120, marginTop: 4 }}>{JSON.stringify(d.requestHeaders, null, 2)}</pre>
-            </details>
-          )}
-        </BlockStack>
-      </Box>
-      <Box padding="300" background="bg-surface-secondary" borderRadius="200" minHeight={0} overflow="hidden" display="flex" flexDirection="column">
+        <div style={quadrantScrollStyle}>
+          <BlockStack gap="100">
+            <Text as="p" variant="bodySm"><strong>Time</strong>: {new Date(d.createdAt).toLocaleString()}</Text>
+            <Text as="p" variant="bodySm"><strong>Method</strong>: {d.method}</Text>
+            <Text as="p" variant="bodySm"><strong>Path</strong>: {d.path}</Text>
+            <Text as="p" variant="bodySm"><strong>Status</strong>: {d.status}</Text>
+            <Text as="p" variant="bodySm"><strong>Duration</strong>: {d.durationMs} ms</Text>
+            <Text as="p" variant="bodySm"><strong>Success</strong>: {d.success ? 'Yes' : 'No'}</Text>
+            {d.requestId && <Text as="p" variant="bodySm"><strong>Request ID</strong>: {d.requestId}</Text>}
+            <Text as="p" variant="bodySm"><strong>Actor</strong>: {d.actor}</Text>
+            <Text as="p" variant="bodySm"><strong>Store</strong>: {d.shopDomain ?? '—'}</Text>
+            {d.requestHeaders != null && Object.keys(d.requestHeaders).length > 0 && (
+              <details style={{ marginTop: 8 }}>
+                <summary style={{ cursor: 'pointer', fontSize: 12 }}>Request headers</summary>
+                <pre style={{ ...preStyle, marginTop: 4 }}>{JSON.stringify(d.requestHeaders, null, 2)}</pre>
+              </details>
+            )}
+          </BlockStack>
+        </div>
+      </div>
+      {/* Left bottom: Response body */}
+      <div style={quadrantStyle}>
+        <Text as="h3" variant="headingSm" fontWeight="semibold">Response body</Text>
+        <div style={quadrantScrollStyle}>
+          <CodeBlock value={d.responseBody} />
+        </div>
+      </div>
+      {/* Right bottom: Additional meta */}
+      <div style={quadrantStyle}>
         <Text as="h3" variant="headingSm" fontWeight="semibold">Additional meta</Text>
-        <Box minHeight={0} flexGrow={1} overflow="auto">
+        <div style={quadrantScrollStyle}>
           {d.metaRest && Object.keys(d.metaRest).length > 0 ? (
             <pre style={preStyle}>{JSON.stringify(d.metaRest, null, 2)}</pre>
           ) : (
             <Text as="p" variant="bodySm" tone="subdued">—</Text>
           )}
-        </Box>
-      </Box>
+        </div>
+      </div>
     </div>
   );
 }

@@ -114,6 +114,11 @@ export default function ModulesIndex() {
   const [filterTab, setFilterTab] = useState(0);
   const [createMode, setCreateMode] = useState<'ai' | 'template'>('ai');
 
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const typeFilter = searchParams.get('type') ?? null;
 
   const [prompt, setPrompt] = useState('');
@@ -203,6 +208,14 @@ export default function ModulesIndex() {
     { id: 'published', content: `Published (${stats.published})` },
     { id: 'drafts', content: `Drafts (${stats.drafts})` },
   ];
+
+  if (!mounted) {
+    return (
+      <div style={{ padding: 24, display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}>
+        <Spinner accessibilityLabel="Loading modules" size="large" />
+      </div>
+    );
+  }
 
   return (
     <Page title="Modules" backAction={{ content: 'Dashboard', url: '/' }}>

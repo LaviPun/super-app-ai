@@ -117,6 +117,77 @@ Exact response format we expect (your reply must be valid JSON in this shape onl
 }
 You must return exactly 3 options. Each "recipe" must follow the expected shape for the module type with no extra keys.`;
 
+/**
+ * Full StorefrontStyle schema as a string (Zod-level constraints).
+ * Used so the AI has every allowed value for style when generating storefront modules.
+ */
+export const STOREFRONT_STYLE_SCHEMA_SPEC = `Storefront style (optional object). All fields are optional; defaults apply if omitted.
+- layout: mode = "inline"|"overlay"|"sticky"|"floating"; anchor = "top"|"bottom"|"left"|"right"|"center"; offsetX, offsetY = -100..100; width = "auto"|"container"|"narrow"|"wide"|"full"; zIndex = "base"|"dropdown"|"sticky"|"overlay"|"modal".
+- spacing: padding, margin, gap = "none"|"tight"|"medium"|"loose".
+- typography: size = "XS"|"SM"|"MD"|"LG"|"XL"|"2XL"; weight = "normal"|"medium"|"bold"; lineHeight = "tight"|"normal"|"relaxed"; align = "left"|"center"|"right".
+- colors: text, background, border, buttonBg, buttonText, overlayBackdrop = hex #RRGGBB; overlayBackdropOpacity = 0-1.
+- shape: radius = "none"|"sm"|"md"|"lg"|"xl"|"full"; borderWidth = "none"|"thin"|"medium"|"thick"; shadow = "none"|"sm"|"md"|"lg".
+- responsive: hideOnMobile, hideOnDesktop = boolean.
+- accessibility: focusVisible, reducedMotion = boolean.
+- customCss: optional string, max 2000 chars (sanitized at compile).`;
+
+/**
+ * Full recipe config schema per type (Zod-level: every field, type, min/max, enums).
+ * Compiled into the prompt so the AI gets complete validation constraints.
+ */
+const FULL_RECIPE_SCHEMA_SPECS: Partial<Record<ModuleType, string>> = {
+  'theme.popup': `theme.popup — full config schema (Zod validation; every field must match):
+Top-level: type="theme.popup", name=string 3-80 chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, style=optional.
+config.title: string, required, 1-60 chars.
+config.body: string, optional, 0-240 chars.
+config.trigger: enum exactly one of: ON_LOAD, ON_EXIT_INTENT, ON_SCROLL_25, ON_SCROLL_50, ON_SCROLL_75, ON_CLICK, TIMED.
+config.delaySeconds: number, int, 0-300, default 0.
+config.frequency: enum exactly: EVERY_VISIT, ONCE_PER_SESSION, ONCE_PER_DAY, ONCE_PER_WEEK, ONCE_EVER.
+config.maxShowsPerDay: number, int, 0-100, default 0.
+config.showOnPages: enum exactly: ALL, HOMEPAGE, COLLECTION, PRODUCT, CART, CUSTOM.
+config.customPageUrls: array of strings, max 20 items, each max 200 chars.
+config.autoCloseSeconds: number, int, 0-300, default 0.
+config.showCloseButton: boolean, default true.
+config.countdownEnabled: boolean, default false.
+config.countdownSeconds: number, int, 0-86400, default 0.
+config.countdownLabel: string, max 40 chars, default "".
+config.ctaText, config.secondaryCtaText: string, optional, max 40 chars.
+config.ctaUrl, config.secondaryCtaUrl: optional; if present must be valid URL (https), empty string invalid.`,
+
+  'theme.banner': `theme.banner — full config schema (Zod validation):
+Top-level: type="theme.banner", name=string 3-80 chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, style=optional.
+config.heading: string, required, 1-80 chars.
+config.subheading: string, optional, 0-200 chars.
+config.ctaText: string, optional, 0-40 chars.
+config.ctaUrl: optional; if present valid URL (https), empty string invalid.
+config.imageUrl: optional; if present valid URL (https), empty string invalid.
+config.enableAnimation: boolean, default false.`,
+
+  'theme.notificationBar': `theme.notificationBar — full config schema (Zod validation):
+Top-level: type="theme.notificationBar", name=string 3-80 chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, style=optional.
+config.message: string, required, 1-140 chars.
+config.linkText: string, optional, 0-40 chars.
+config.linkUrl: optional; if present valid URL (https), empty string invalid.
+config.dismissible: boolean, default true.`,
+
+  'proxy.widget': `proxy.widget — full config schema (Zod validation):
+Top-level: type="proxy.widget", name=string 3-80 chars, category="STOREFRONT_UI", requires=["APP_PROXY"], config={...}, style=optional.
+config.widgetId: string, required, regex [a-z0-9-] only, length 3-40.
+config.mode: enum exactly: "JSON" or "HTML", default "HTML".
+config.title: string, required, 1-80 chars.
+config.message: string, optional, 0-240 chars.`,
+};
+
+/** Returns the full recipe schema spec for the given type (all Zod-level constraints as a string). */
+export function getFullRecipeSchemaSpec(moduleType: ModuleType): string {
+  return FULL_RECIPE_SCHEMA_SPECS[moduleType] ?? `Module type ${moduleType}: use type, name, category, requires, config (single object), and optionally style. No top-level settings, controls, assets, or meta.`;
+}
+
+/** Returns the full StorefrontStyle schema as a string (for storefront types). */
+export function getStorefrontStyleSchemaSpec(): string {
+  return STOREFRONT_STYLE_SCHEMA_SPEC;
+}
+
 /** Shorter block for modify flow: we send current spec, so we only need validation + invalid + response format. */
 export function getModifyPromptExpectations(): string {
   return [

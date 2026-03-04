@@ -8,7 +8,13 @@ import { anthropicGenerateRecipe } from '~/services/ai/clients/anthropic-message
 import { openAiCompatibleGenerateRecipe } from '~/services/ai/clients/openai-compatible.client.server';
 import { getModuleSummary, getAllTypesSummary } from '~/services/ai/module-summaries.server';
 import { getCatalogDetailsForType } from '~/services/ai/catalog-details.server';
-import { getPromptExpectations, getModifyPromptExpectations, PROMPT_PURPOSE_AND_GUIDANCE } from '~/services/ai/prompt-expectations.server';
+import {
+  getPromptExpectations,
+  getModifyPromptExpectations,
+  PROMPT_PURPOSE_AND_GUIDANCE,
+  getFullRecipeSchemaSpec,
+  getStorefrontStyleSchemaSpec,
+} from '~/services/ai/prompt-expectations.server';
 
 import { getPrisma } from '~/db.server';
 
@@ -115,7 +121,10 @@ export async function getLlmClient(shopId?: string | null): Promise<{ client: Ll
   return { client: new StubLlmClient(), providerId: null };
 }
 
-/** All inputs are strings; returns a single compiled prompt string to send to the AI. */
+/**
+ * All inputs are strings. Compiles into a single prompt to send to the AI.
+ * Optional sections (fullSchemaSpec, styleSchemaSpec, catalogDetails) are omitted on first attempt to keep cost low; add on retry when needed.
+ */
 export function compileCreateModulePrompt(params: {
   purposeAndGuidance: string;
   typesList: string;
@@ -123,6 +132,8 @@ export function compileCreateModulePrompt(params: {
   summary: string;
   expectations: string;
   userRequest: string;
+  fullSchemaSpec?: string;
+  styleSchemaSpec?: string;
   catalogDetails?: string;
   previousError?: string;
 }): string {
@@ -140,11 +151,17 @@ export function compileCreateModulePrompt(params: {
     '',
     `User request: ${params.userRequest}`,
   ];
+  if (params.fullSchemaSpec) {
+    parts.push('', 'Full recipe schema (Zod validation — every field must match):', params.fullSchemaSpec);
+  }
+  if (params.styleSchemaSpec) {
+    parts.push('', 'Style schema (storefront only):', params.styleSchemaSpec);
+  }
   if (params.catalogDetails) {
-    parts.push('', params.catalogDetails);
+    parts.push('', 'Catalog (examples for inspiration):', params.catalogDetails);
   }
   if (params.previousError) {
-    parts.push('', `(Previous error: ${params.previousError})`);
+    parts.push('', '(Previous validation error — fix in next response):', params.previousError);
   }
   return parts.join('\n');
 }
@@ -424,8 +441,12 @@ export async function generateValidatedRecipeOptions(
 
   let lastErr: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const catalogDetails =
-      attempt > 0 ? getCatalogDetailsForType(classification.moduleType, classification.intent, classification.surface) : undefined;
+    const isRetry = attempt > 0;
+    const fullSchemaSpec = isRetry ? getFullRecipeSchemaSpec(classification.moduleType) : undefined;
+    const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'proxy.widget'];
+    const styleSchemaSpec = isRetry && storefrontTypes.includes(classification.moduleType) ? getStorefrontStyleSchemaSpec() : undefined;
+    const catalogDetails = isRetry ? getCatalogDetailsForType(classification.moduleType, classification.intent, classification.surface) : undefined;
+
     const compiledPrompt = compileCreateModulePrompt({
       purposeAndGuidance,
       typesList,
@@ -433,6 +454,8 @@ export async function generateValidatedRecipeOptions(
       summary,
       expectations,
       userRequest: prompt,
+      fullSchemaSpec,
+      styleSchemaSpec,
       catalogDetails,
       previousError: lastErr ? String(lastErr) : undefined,
     });

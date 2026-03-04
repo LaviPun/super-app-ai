@@ -312,7 +312,25 @@ The app uses Polaris’s **new `Card`** component (`import { Card } from '@shopi
 
 ---
 
-## 9. Adding new bugs to this doc
+## 10. Embedded app: postMessage origin mismatch and hydration errors
+
+**Context:** App runs in Admin iframe via tunnel (e.g. `https://xxxx.trycloudflare.com`). Console shows postMessage and hydration errors.
+
+### Symptom 1: `Failed to execute 'postMessage' on 'DOMWindow': The target origin provided ('https://xxxx.trycloudflare.com') does not match the recipient window's origin ('https://admin.shopify.com')`
+
+The App Bridge (or auth flow) sends a message using the app’s origin (tunnel URL) as the target, while the iframe parent is `admin.shopify.com`. With Cloudflare (or similar) tunnels, the app URL changes each run, and the library may use that URL as the postMessage target; the parent rejects it.
+
+**What to do:** This is expected when using a dynamic tunnel URL. Ensure **Partner Dashboard → App → App setup → URLs** has the **exact** tunnel URL that `shopify app dev` prints. The app should still load; the message may be retried or handled by the bridge. For production, use a stable App URL so the origin is consistent.
+
+### Symptom 2: `Prop className did not match. Server: "...mediumTitle" Client: "...mobileView ...mediumTitle"` and `Hydration failed because the initial UI does not match what was rendered on the server`
+
+The server has no viewport, so Polaris Page/Header renders without `mobileView`. The client runs inside a narrow iframe and adds `Polaris-Page-Header--mobileView`, so the initial HTML and the first client render differ and React throws during hydration.
+
+**Fix:** Defer viewport-dependent UI until after mount. In the route that uses Polaris `Page` (e.g. Modules), render a minimal placeholder (e.g. a div with `Spinner`) on the server and on the first client paint, then in `useEffect` set `mounted` to true and render the full `Page`. That way server and client both output the same initial HTML and there is no className mismatch. See `apps/web/app/routes/modules._index.tsx`: `mounted` state + `if (!mounted) return <div>...<Spinner /></div>;` then the full page.
+
+---
+
+## 11. Adding new bugs to this doc
 
 When you hit a new recurring or non-obvious bug:
 

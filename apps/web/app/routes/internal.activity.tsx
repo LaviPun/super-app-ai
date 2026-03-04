@@ -76,45 +76,63 @@ const activityPreStyle = {
   background: 'var(--p-color-bg-surface-secondary)',
   borderRadius: 8,
   fontSize: 12,
-  overflow: 'auto' as const,
-  maxHeight: '100%',
-  minHeight: 120,
   whiteSpace: 'pre-wrap' as const,
   wordBreak: 'break-all' as const,
 };
 
+const activityQuadrantStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  minHeight: 0,
+  overflow: 'hidden',
+  padding: 12,
+  background: 'var(--p-color-bg-surface-secondary)',
+  borderRadius: 8,
+};
+const activityQuadrantScrollStyle: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  overflowY: 'auto',
+};
+
 function ActivityDetailContent({ d }: { d: ActivityDetailData }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: 16, minHeight: 320 }}>
-      <Box padding="300" background="bg-surface-secondary" borderRadius="200" minHeight={0} overflow="hidden" display="flex" flexDirection="column">
-        <Text as="h3" variant="headingSm" fontWeight="semibold">Body / Details (JSON)</Text>
-        <Box minHeight={0} flexGrow={1} overflow="auto">
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: 16, height: 420, maxHeight: '55vh' }}>
+      {/* Top left: Body / Details (JSON) */}
+      <div style={activityQuadrantStyle}>
+        <Text as="h3" variant="headingSm" fontWeight="semibold">Request / Body (JSON)</Text>
+        <div style={activityQuadrantScrollStyle}>
           {d.detailsJson ? <pre style={activityPreStyle}>{d.detailsJson}</pre> : <Text as="p" variant="bodySm" tone="subdued">—</Text>}
-        </Box>
-      </Box>
-      <Box padding="300" background="bg-surface-secondary" borderRadius="200" minHeight={0} overflow="hidden" display="flex" flexDirection="column">
-        <Text as="h3" variant="headingSm" fontWeight="semibold">Response / Details (raw)</Text>
-        <Box minHeight={0} flexGrow={1} overflow="auto">
-          {d.detailsRaw ? <pre style={activityPreStyle}>{d.detailsRaw}</pre> : <Text as="p" variant="bodySm" tone="subdued">—</Text>}
-        </Box>
-      </Box>
-      <Box padding="300" background="bg-surface-secondary" borderRadius="200" minHeight={0} overflow="hidden" display="flex" flexDirection="column">
+        </div>
+      </div>
+      {/* Right top: Details */}
+      <div style={activityQuadrantStyle}>
         <Text as="h3" variant="headingSm" fontWeight="semibold">Details</Text>
-        <BlockStack gap="100">
-          <Text as="p" variant="bodySm"><strong>Time</strong>: {new Date(d.createdAt).toLocaleString()}</Text>
-          <Text as="p" variant="bodySm"><strong>Actor</strong>: {d.actor}</Text>
-          <Text as="p" variant="bodySm"><strong>Action</strong>: {d.action}</Text>
-          <Text as="p" variant="bodySm"><strong>Resource</strong>: {d.resource ?? '—'}</Text>
-          <Text as="p" variant="bodySm"><strong>Store</strong>: {d.shopDomain ?? '—'}</Text>
-          {d.ip && <Text as="p" variant="bodySm"><strong>IP</strong>: {d.ip}</Text>}
-        </BlockStack>
-      </Box>
-      <Box padding="300" background="bg-surface-secondary" borderRadius="200" minHeight={0} overflow="hidden" display="flex" flexDirection="column">
+        <div style={activityQuadrantScrollStyle}>
+          <BlockStack gap="100">
+            <Text as="p" variant="bodySm"><strong>Time</strong>: {new Date(d.createdAt).toLocaleString()}</Text>
+            <Text as="p" variant="bodySm"><strong>Actor</strong>: {d.actor}</Text>
+            <Text as="p" variant="bodySm"><strong>Action</strong>: {d.action}</Text>
+            <Text as="p" variant="bodySm"><strong>Resource</strong>: {d.resource ?? '—'}</Text>
+            <Text as="p" variant="bodySm"><strong>Store</strong>: {d.shopDomain ?? '—'}</Text>
+            {d.ip && <Text as="p" variant="bodySm"><strong>IP</strong>: {d.ip}</Text>}
+          </BlockStack>
+        </div>
+      </div>
+      {/* Left bottom: Response / Details (raw) */}
+      <div style={activityQuadrantStyle}>
+        <Text as="h3" variant="headingSm" fontWeight="semibold">Response / Details (raw)</Text>
+        <div style={activityQuadrantScrollStyle}>
+          {d.detailsRaw ? <pre style={activityPreStyle}>{d.detailsRaw}</pre> : <Text as="p" variant="bodySm" tone="subdued">—</Text>}
+        </div>
+      </div>
+      {/* Right bottom: Additional meta */}
+      <div style={activityQuadrantStyle}>
         <Text as="h3" variant="headingSm" fontWeight="semibold">Additional meta</Text>
-        <Box minHeight={0} flexGrow={1} overflow="auto">
+        <div style={activityQuadrantScrollStyle}>
           <Text as="p" variant="bodySm" tone="subdued">—</Text>
-        </Box>
-      </Box>
+        </div>
+      </div>
     </div>
   );
 }
