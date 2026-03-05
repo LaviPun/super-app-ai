@@ -49,6 +49,22 @@ In addition to the generated catalog IDs, the app ships **12 curated templates**
 
 ---
 
+## AI retry context (catalog details)
+
+When the AI generate flow retries after a validation failure, it requests **catalog details** filtered by module type to give the model relevant examples. The mapping from module type to catalog filter is in `apps/web/app/services/ai/catalog-details.server.ts`:
+
+| Module type    | templateKind (for filter) | Notes |
+|----------------|---------------------------|--------|
+| theme.banner   | banner                    | |
+| theme.popup    | popup                     | |
+| theme.notificationBar | notification_bar | |
+| proxy.widget   | quick_view (or widget)    | Planned: use `widget` when catalog entries use that templateKind |
+| theme.effect   | *(none today)*            | **Planned:** Add `effect`; ensure `catalog.generated.json` / generator includes effect templateKind so effect prompts get relevant examples. See [implementation-status.md](./implementation-status.md) § “AI Patch Plan — Remove Generic Outputs”. |
+
+Keeping this mapping in sync with the catalog generator and with intent/routing (e.g. `utility.effect`, `utility.floating_widget`) ensures retries and low-confidence prompts receive the right inspiration and reduces generic fallback outputs.
+
+---
+
 ## Next expansions
 Add more axes (industries, compliance regimes, theme families) to the generated catalog to reach 50k+ template IDs.
 Expand curated templates to cover more use cases (B2B, subscriptions, loyalty programs).

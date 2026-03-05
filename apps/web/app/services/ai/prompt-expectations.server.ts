@@ -86,7 +86,11 @@ const EXPECTED_SHAPE_EXAMPLES: Partial<Record<ModuleType, string>> = {
   "config": {
     "effectKind": "snowfall | confetti",
     "intensity": "low | medium | high",
-    "speed": "slow | normal | fast"
+    "speed": "slow | normal | fast",
+    "startTrigger": "page_load | scroll_25 | time_3s | time_5s | time_10s",
+    "durationSeconds": 0,
+    "overlayPlacement": "full_screen | header_only | footer_only | above_fold",
+    "reducedMotion": true
   },
   "placement": { "enabled_on": { "templates": ["index", "product"] } },
   "style": { "layout": { "zIndex": "overlay" }, "accessibility": { "reducedMotion": true } }
@@ -189,7 +193,11 @@ config.dismissible: boolean, default true.`,
 Top-level: type="theme.effect", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, placement=optional, style=optional.
 config.effectKind: enum exactly "snowfall" or "confetti", required.
 config.intensity: enum exactly "low" | "medium" | "high", default "medium".
-config.speed: enum exactly "slow" | "normal" | "fast", default "normal".`,
+config.speed: enum exactly "slow" | "normal" | "fast", default "normal".
+config.startTrigger: enum exactly "page_load" | "scroll_25" | "time_3s" | "time_5s" | "time_10s", default "page_load".
+config.durationSeconds: integer 0-300, default 0 (0 = play indefinitely).
+config.overlayPlacement: enum exactly "full_screen" | "header_only" | "footer_only" | "above_fold", default "full_screen".
+config.reducedMotion: boolean, default true (disable effect when user prefers reduced motion — always set true unless explicit creative reason).`,
 
   'proxy.widget': `proxy.widget — full config schema (Zod validation):
 Top-level: type="proxy.widget", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["APP_PROXY"], config={...}, style=optional.

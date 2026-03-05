@@ -37,16 +37,22 @@ function makeId(...parts: string[]) {
 export function generateCatalog(limit = 5000): CatalogEntry[] {
   const out: CatalogEntry[] = [];
 
+  const typeTemplateKind: Record<string, string> = {
+    'theme.effect': 'effect',
+    'proxy.widget': 'widget',
+  };
   for (const moduleType of RECIPE_SPEC_TYPES) {
     const category = MODULE_TYPE_TO_CATEGORY[moduleType];
     const requires = [...MODULE_TYPE_DEFAULT_REQUIRES[moduleType]];
     const surface = MODULE_TYPE_TO_SURFACE[moduleType];
+    const templateKind = typeTemplateKind[moduleType];
     out.push({
       catalogId: makeId('type', moduleType),
       category,
       requires,
       description: `${moduleType} — ${category} on ${surface}`,
       moduleType,
+      ...(templateKind && { templateKind }),
       defaults: { type: moduleType, surface },
     });
   }

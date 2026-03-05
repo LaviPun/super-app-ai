@@ -73,10 +73,11 @@ This yields:
 - **AI Module reference:** `docs/ai-module-main-doc.md` — canonical allowed values, RecipeSpec, catalog, capabilities, placement, GDPR, analytics (single source of truth; code uses `packages/core/src/allowed-values.ts`).
 - Technical: `docs/technical.md`
 - Merchant guide: `docs/app.md`
-- Implementation status: `docs/implementation-status.md` (includes **AI Module doc alignment**, Storefront UI Style System, API Tester, Templates, Flow Builder, Data Stores, **Admin app stack & UI fixes**)
+- Implementation status: `docs/implementation-status.md` (includes **AI Module doc alignment**, **AI Patch Plan — Remove Generic Outputs**, Storefront UI Style System, API Tester, Templates, Flow Builder, Data Stores, **Admin app stack & UI fixes**)
+- **AI Patch Plan Phase 1 ✅:** All Phase 1 fixes complete — classifier returns canonical intent ID, `theme.effect`/`proxy.widget` route correctly via `utility.effect`/`utility.floating_widget`, unknown intents fall back to `platform.extensionBlueprint` (not promo popup), `theme.effect` schema expanded to 7 fields, full schema+catalog injected on attempt 0 for low-confidence prompts. See `docs/implementation-status.md` § “AI Patch Plan”.
 - Phase plan: `docs/phase-plan.md`
 - Debug notes (extension bundle, deploy, 64 KB limit, embedded auth, **card corners**, known issues): `docs/debug.md`
-- Catalog: `docs/catalog.md`
+- Catalog: `docs/catalog.md` (generated catalog, curated templates, **templateKind mapping for AI retries**)
 
 
 ## Auth/session storage

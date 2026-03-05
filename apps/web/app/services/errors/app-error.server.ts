@@ -10,6 +10,7 @@ export type ErrorCode =
   | 'PROVIDER_ERROR'
   | 'COMPILE_ERROR'
   | 'PUBLISH_ERROR'
+  | 'AI_PROVIDER_NOT_CONFIGURED'
   | 'INTERNAL_ERROR';
 
 export interface AppErrorPayload {
@@ -72,6 +73,7 @@ function statusForCode(code: ErrorCode): number {
     PROVIDER_ERROR: 502,
     COMPILE_ERROR: 422,
     PUBLISH_ERROR: 500,
+    AI_PROVIDER_NOT_CONFIGURED: 503,
     INTERNAL_ERROR: 500,
   };
   return map[code] ?? 500;

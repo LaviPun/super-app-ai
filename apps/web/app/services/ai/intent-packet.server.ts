@@ -63,7 +63,7 @@ export function buildIntentPacket(
       reasons: 'reasons' in classification ? (classification as { reasons: string[] }).reasons : [],
     },
     routing: {
-      template_id: routing.template_id,
+      prompt_scaffold_id: routing.prompt_scaffold_id,
       prompt_profile: routing.prompt_profile,
       output_schema: routing.output_schema,
       model_tier: routing.model_tier,

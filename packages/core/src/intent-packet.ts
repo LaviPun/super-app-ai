@@ -43,6 +43,8 @@ export const CLEAN_INTENTS = [
   'utility.announcement',
   'utility.localization_prompt',
   'utility.age_gate',
+  'utility.effect',
+  'utility.floating_widget',
   // Admin
   'admin.dashboard_card',
   'admin.campaign_builder',
@@ -253,7 +255,8 @@ const ConstraintsSchema = z.object({
 }).optional();
 
 const RoutingSchema = z.object({
-  template_id: z.string(),
+  /** Prompt scaffold ID (not a MODULE_TEMPLATES lookup key). Used for prompt composition only. */
+  prompt_scaffold_id: z.string(),
   prompt_profile: z.string(),
   output_schema: z.string(),
   model_tier: ModelTierSchema.optional(),
@@ -280,64 +283,75 @@ export const IntentPacketSchema = z.object({
 export type IntentPacketInput = z.infer<typeof IntentPacketInputSchema>;
 export type IntentPacket = z.infer<typeof IntentPacketSchema>;
 
-// ─── Routing table (doc 15.15): intent group → template_id, prompt_profile, output_schema ───
+// ─── Routing table (doc 15.15): intent → prompt_scaffold_id, prompt_profile, output_schema ───
 export interface RoutingEntry {
-  template_id: string;
+  /** Prompt scaffold ID for prompt composition; do not resolve via findTemplate(). */
+  prompt_scaffold_id: string;
   prompt_profile: string;
   output_schema: string;
   model_tier?: 'cheap' | 'standard' | 'premium';
 }
 
-/** Intent prefix or exact intent → routing. StorefrontModuleSpecV1 is implemented as RecipeSpec in this codebase. */
+/**
+ * Storefront routing uses this schema name. The app validates RecipeSpec (Zod union) and expects
+ * LLM output shape { options: [ { recipe: RecipeSpec, explanation?: string } ] }.
+ */
+export const OUTPUT_SCHEMA_STOREFRONT = 'StorefrontModuleSpecV1';
+
+/** Intent prefix or exact intent → routing. output_schema StorefrontModuleSpecV1 = RecipeSpec in this codebase. */
 export const ROUTING_TABLE: Record<string, RoutingEntry> = {
   // Storefront promo (theme.popup, theme.banner, theme.notificationBar map here)
-  'promo.popup': { template_id: 'tpl_promo_popup_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'promo.banner': { template_id: 'tpl_promo_banner_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'promo.slideout': { template_id: 'tpl_promo_slideout_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'promo.inline_block': { template_id: 'tpl_promo_inline_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'promo.countdown': { template_id: 'tpl_promo_countdown_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'promo.free_shipping_bar': { template_id: 'tpl_promo_free_shipping_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'promo.discount_reveal': { template_id: 'tpl_promo_discount_reveal_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'promo.popup': { prompt_scaffold_id: 'tpl_promo_popup_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'promo.banner': { prompt_scaffold_id: 'tpl_promo_banner_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'promo.slideout': { prompt_scaffold_id: 'tpl_promo_slideout_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'promo.inline_block': { prompt_scaffold_id: 'tpl_promo_inline_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'promo.countdown': { prompt_scaffold_id: 'tpl_promo_countdown_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'promo.free_shipping_bar': { prompt_scaffold_id: 'tpl_promo_free_shipping_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'promo.discount_reveal': { prompt_scaffold_id: 'tpl_promo_discount_reveal_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
   // Upsell
-  'upsell.product_reco': { template_id: 'tpl_upsell_product_reco_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'upsell.cart_upsell': { template_id: 'tpl_upsell_cart_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'upsell.bundle_builder': { template_id: 'tpl_upsell_bundle_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'upsell.cross_sell_addon': { template_id: 'tpl_upsell_cross_sell_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'upsell.post_purchase': { template_id: 'tpl_upsell_post_purchase_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'upsell.product_reco': { prompt_scaffold_id: 'tpl_upsell_product_reco_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'upsell.cart_upsell': { prompt_scaffold_id: 'tpl_upsell_cart_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'upsell.bundle_builder': { prompt_scaffold_id: 'tpl_upsell_bundle_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'upsell.cross_sell_addon': { prompt_scaffold_id: 'tpl_upsell_cross_sell_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'upsell.post_purchase': { prompt_scaffold_id: 'tpl_upsell_post_purchase_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
   // Trust & info & merch & utility
-  'trust.badges': { template_id: 'tpl_content_trust_badges_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'trust.reviews_snippet': { template_id: 'tpl_content_reviews_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'info.faq_accordion': { template_id: 'tpl_content_faq_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'info.size_guide': { template_id: 'tpl_content_size_guide_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'info.shipping_returns': { template_id: 'tpl_content_shipping_returns_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'engage.newsletter_capture': { template_id: 'tpl_engage_newsletter_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'engage.exit_intent': { template_id: 'tpl_engage_exit_intent_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'engage.quiz': { template_id: 'tpl_engage_form_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'engage.survey': { template_id: 'tpl_engage_form_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'engage.social_proof': { template_id: 'tpl_content_social_proof_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'merch.collection_grid': { template_id: 'tpl_content_collection_grid_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'merch.product_grid': { template_id: 'tpl_content_product_grid_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'merch.before_after': { template_id: 'tpl_content_before_after_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'merch.video_block': { template_id: 'tpl_content_video_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'utility.announcement': { template_id: 'tpl_content_announcement_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'utility.localization_prompt': { template_id: 'tpl_content_localization_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
-  'utility.age_gate': { template_id: 'tpl_content_age_gate_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'trust.badges': { prompt_scaffold_id: 'tpl_content_trust_badges_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'trust.reviews_snippet': { prompt_scaffold_id: 'tpl_content_reviews_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'info.faq_accordion': { prompt_scaffold_id: 'tpl_content_faq_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'info.size_guide': { prompt_scaffold_id: 'tpl_content_size_guide_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'info.shipping_returns': { prompt_scaffold_id: 'tpl_content_shipping_returns_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'engage.newsletter_capture': { prompt_scaffold_id: 'tpl_engage_newsletter_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'engage.exit_intent': { prompt_scaffold_id: 'tpl_engage_exit_intent_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'engage.quiz': { prompt_scaffold_id: 'tpl_engage_form_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'engage.survey': { prompt_scaffold_id: 'tpl_engage_form_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'engage.social_proof': { prompt_scaffold_id: 'tpl_content_social_proof_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'merch.collection_grid': { prompt_scaffold_id: 'tpl_content_collection_grid_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'merch.product_grid': { prompt_scaffold_id: 'tpl_content_product_grid_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'merch.before_after': { prompt_scaffold_id: 'tpl_content_before_after_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'merch.video_block': { prompt_scaffold_id: 'tpl_content_video_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'utility.announcement': { prompt_scaffold_id: 'tpl_content_announcement_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'utility.localization_prompt': { prompt_scaffold_id: 'tpl_content_localization_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'utility.age_gate': { prompt_scaffold_id: 'tpl_content_age_gate_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'utility.effect': { prompt_scaffold_id: 'tpl_effect_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
+  'utility.floating_widget': { prompt_scaffold_id: 'tpl_floating_widget_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
   // Admin
-  'admin.dashboard_card': { template_id: 'tpl_admin_dashboard_v1', prompt_profile: 'admin_ui_v1', output_schema: 'AdminUISpecV1' },
-  'admin.campaign_builder': { template_id: 'tpl_admin_campaign_v1', prompt_profile: 'admin_ui_v1', output_schema: 'AdminUISpecV1' },
-  'admin.analytics_report': { template_id: 'tpl_admin_analytics_v1', prompt_profile: 'admin_ui_v1', output_schema: 'AdminUISpecV1' },
-  'admin.settings_editor': { template_id: 'tpl_admin_settings_v1', prompt_profile: 'admin_ui_v1', output_schema: 'AdminUISpecV1' },
-  'admin.workflow_builder': { template_id: 'tpl_admin_workflow_v1', prompt_profile: 'admin_ui_v1', output_schema: 'AdminUISpecV1' },
+  'admin.dashboard_card': { prompt_scaffold_id: 'tpl_admin_dashboard_v1', prompt_profile: 'admin_ui_v1', output_schema: 'AdminUISpecV1' },
+  'admin.campaign_builder': { prompt_scaffold_id: 'tpl_admin_campaign_v1', prompt_profile: 'admin_ui_v1', output_schema: 'AdminUISpecV1' },
+  'admin.analytics_report': { prompt_scaffold_id: 'tpl_admin_analytics_v1', prompt_profile: 'admin_ui_v1', output_schema: 'AdminUISpecV1' },
+  'admin.settings_editor': { prompt_scaffold_id: 'tpl_admin_settings_v1', prompt_profile: 'admin_ui_v1', output_schema: 'AdminUISpecV1' },
+  'admin.workflow_builder': { prompt_scaffold_id: 'tpl_admin_workflow_v1', prompt_profile: 'admin_ui_v1', output_schema: 'AdminUISpecV1' },
   // Flow
-  'flow.create_workflow': { template_id: 'tpl_flow_create_v1', prompt_profile: 'workflow_v1', output_schema: 'WorkflowSpecV1' },
-  'flow.edit_workflow': { template_id: 'tpl_flow_edit_v1', prompt_profile: 'workflow_v1', output_schema: 'WorkflowSpecV1' },
-  'flow.debug_workflow': { template_id: 'tpl_flow_debug_v1', prompt_profile: 'workflow_v1', output_schema: 'WorkflowSpecV1' },
-  'flow.import_template': { template_id: 'tpl_flow_import_v1', prompt_profile: 'workflow_v1', output_schema: 'WorkflowSpecV1' },
+  'flow.create_workflow': { prompt_scaffold_id: 'tpl_flow_create_v1', prompt_profile: 'workflow_v1', output_schema: 'WorkflowSpecV1' },
+  'flow.edit_workflow': { prompt_scaffold_id: 'tpl_flow_edit_v1', prompt_profile: 'workflow_v1', output_schema: 'WorkflowSpecV1' },
+  'flow.debug_workflow': { prompt_scaffold_id: 'tpl_flow_debug_v1', prompt_profile: 'workflow_v1', output_schema: 'WorkflowSpecV1' },
+  'flow.import_template': { prompt_scaffold_id: 'tpl_flow_import_v1', prompt_profile: 'workflow_v1', output_schema: 'WorkflowSpecV1' },
   // Support
-  'support.troubleshoot': { template_id: 'tpl_support_debug_v1', prompt_profile: 'support_v1', output_schema: 'TroubleshootPlanV1' },
-  'support.how_to': { template_id: 'tpl_support_how_to_v1', prompt_profile: 'support_v1', output_schema: 'TroubleshootPlanV1' },
-  'support.generate_copy_only': { template_id: 'tpl_copy_pack_v1', prompt_profile: 'copy_v1', output_schema: 'CopyPackV1' },
-  'support.generate_assets': { template_id: 'tpl_assets_v1', prompt_profile: 'copy_v1', output_schema: 'CopyPackV1' },
+  'support.troubleshoot': { prompt_scaffold_id: 'tpl_support_debug_v1', prompt_profile: 'support_v1', output_schema: 'TroubleshootPlanV1' },
+  'support.how_to': { prompt_scaffold_id: 'tpl_support_how_to_v1', prompt_profile: 'support_v1', output_schema: 'TroubleshootPlanV1' },
+  'support.generate_copy_only': { prompt_scaffold_id: 'tpl_copy_pack_v1', prompt_profile: 'copy_v1', output_schema: 'CopyPackV1' },
+  'support.generate_assets': { prompt_scaffold_id: 'tpl_assets_v1', prompt_profile: 'copy_v1', output_schema: 'CopyPackV1' },
+  // Fallback for unknown intents: safe "we can build it" plan (no generic popup)
+  'platform.extensionBlueprint': { prompt_scaffold_id: 'tpl_blueprint_v1', prompt_profile: 'admin_ui_v1', output_schema: 'AdminUISpecV1' },
 };
 
 /** Map module type (e.g. theme.popup) to intent for routing when intent is not from Clean Intent List. */
@@ -345,8 +359,8 @@ export const MODULE_TYPE_TO_INTENT: Record<string, string> = {
   'theme.popup': 'promo.popup',
   'theme.banner': 'promo.banner',
   'theme.notificationBar': 'utility.announcement',
-  'theme.effect': 'decoration.effect',
-  'proxy.widget': 'utility.announcement',
+  'theme.effect': 'utility.effect',
+  'proxy.widget': 'utility.floating_widget',
   'checkout.upsell': 'upsell.cart_upsell',
   'checkout.block': 'upsell.cross_sell_addon',
   'postPurchase.offer': 'upsell.post_purchase',
@@ -366,8 +380,12 @@ export const MODULE_TYPE_TO_INTENT: Record<string, string> = {
   'platform.extensionBlueprint': 'admin.settings_editor',
 };
 
+/** Fallback route when intent is unknown — blueprint plan instead of generic popup. */
+const BLUEPRINT_FALLBACK: RoutingEntry = ROUTING_TABLE['platform.extensionBlueprint']!;
+
 /**
  * Resolve routing for an intent or module type. Prefers exact intent, then intent group (prefix), then module type map.
+ * Unknown intents resolve to platform.extensionBlueprint (safe "we can build it" plan), not promo popup.
  */
 export function resolveRouting(intentOrModuleType: string): RoutingEntry {
   const exact = ROUTING_TABLE[intentOrModuleType];
@@ -376,9 +394,5 @@ export function resolveRouting(intentOrModuleType: string): RoutingEntry {
   if (byPrefix) return byPrefix[1];
   const byModuleType = MODULE_TYPE_TO_INTENT[intentOrModuleType];
   if (byModuleType) return resolveRouting(byModuleType);
-  return {
-    template_id: 'tpl_promo_popup_v1',
-    prompt_profile: 'storefront_ui_v1',
-    output_schema: 'StorefrontModuleSpecV1',
-  };
+  return BLUEPRINT_FALLBACK;
 }

@@ -37,12 +37,13 @@ export function getCatalogDetails(opts: {
   return `Relevant catalog entries for inspiration (${entries.length}):\n${lines.join('\n')}`;
 }
 
-/** Maps module type to its templateKind in the catalog for filtering. */
+/** Maps module type to its templateKind in the catalog for filtering (AI retry inspiration). */
 const TYPE_TO_TEMPLATE_KIND: Record<string, string> = {
   'theme.banner': 'banner',
   'theme.popup': 'popup',
   'theme.notificationBar': 'notification_bar',
-  'proxy.widget': 'quick_view',
+  'theme.effect': 'effect',
+  'proxy.widget': 'widget',
   'checkout.upsell': 'sticky_cta',
 };
 

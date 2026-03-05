@@ -486,10 +486,14 @@ export const CART_TRANSFORM_MODES = ['BUNDLE', 'UNBUNDLE'] as const;
 
 /** theme.effect kind (decoration overlay). */
 export const THEME_EFFECT_KINDS = ['snowfall', 'confetti'] as const;
-/** theme.effect intensity. */
+/** theme.effect intensity (particle density). */
 export const THEME_EFFECT_INTENSITY = ['low', 'medium', 'high'] as const;
 /** theme.effect speed. */
 export const THEME_EFFECT_SPEED = ['slow', 'normal', 'fast'] as const;
+/** theme.effect start trigger — when the effect begins playing. */
+export const THEME_EFFECT_START_TRIGGERS = ['page_load', 'scroll_25', 'time_3s', 'time_5s', 'time_10s'] as const;
+/** theme.effect placement — viewport region the overlay covers. */
+export const THEME_EFFECT_PLACEMENTS = ['full_screen', 'header_only', 'footer_only', 'above_fold'] as const;
 
 /** POS block kind. */
 export const POS_BLOCK_KINDS = ['tile', 'modal', 'block', 'action'] as const;

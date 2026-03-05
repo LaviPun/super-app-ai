@@ -1,7 +1,7 @@
 import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
-import { generateValidatedRecipeOptions } from '~/services/ai/llm.server';
+import { generateValidatedRecipeOptions, AiProviderNotConfiguredError } from '~/services/ai/llm.server';
 import { getPrisma } from '~/db.server';
 import { JobService } from '~/services/jobs/job.service';
 import { withApiLogging } from '~/services/observability/api-log.service';
@@ -72,6 +72,7 @@ export async function action({ request }: { request: Request }) {
           shopId: shopRow.id,
           maxAttempts: 2,
           intentPacketJson: JSON.stringify(intentPacket, null, 2),
+          confidenceScore: intentPacket.classification.confidence,
         });
 
         await jobs.succeed(job.id, { optionCount: recipeOptions.length, type: classification.moduleType });
@@ -102,6 +103,16 @@ export async function action({ request }: { request: Request }) {
         });
       } catch (e) {
         await jobs.fail(job.id, e);
+        if (e instanceof AiProviderNotConfiguredError) {
+          return json(
+            {
+              error: e.code,
+              message: e.message,
+              setupUrl: '/internal/ai-providers',
+            },
+            { status: 503 }
+          );
+        }
         return json(
           { error: e instanceof Error ? e.message : String(e) },
           { status: 500 }

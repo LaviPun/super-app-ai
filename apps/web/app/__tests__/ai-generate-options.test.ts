@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { getRecipeJsonSchema, getProposalSetSchema } from '~/services/ai/recipe-json-schema.server';
 import { MODULE_SUMMARIES, getModuleSummary, getAllTypesSummary } from '~/services/ai/module-summaries.server';
 import { classifyUserIntent } from '~/services/ai/classify.server';
+import { getCatalogDetailsForType } from '~/services/ai/catalog-details.server';
+import { getPromptExpectations } from '~/services/ai/prompt-expectations.server';
 
 describe('getRecipeJsonSchema', () => {
   it('returns root type "object" with properties.recipe', () => {
@@ -91,9 +93,10 @@ describe('classifyUserIntent', () => {
     expect(result.confidence).toBe('high');
   });
 
-  it('detects intent: promo', () => {
+  it('returns clean intent ID for routing (promo.popup for popup prompts)', () => {
     const result = classifyUserIntent('Show a sale popup with a coupon code');
-    expect(result.intent).toBe('promo');
+    expect(result.intent).toBe('promo.popup');
+    expect(result.moduleType).toBe('theme.popup');
   });
 
   it('detects surface: homepage', () => {
@@ -107,12 +110,34 @@ describe('classifyUserIntent', () => {
     expect(result.confidence).toBe('low');
   });
 
-  it('classifies snowfall and winter effect as theme.effect', () => {
+  it('classifies snowfall and winter effect as theme.effect with utility.effect intent', () => {
     const snowfall = classifyUserIntent('Add snowfall effect on my store');
     expect(snowfall.moduleType).toBe('theme.effect');
+    expect(snowfall.intent).toBe('utility.effect');
     const winter = classifyUserIntent('I want a winter christmas effect');
     expect(winter.moduleType).toBe('theme.effect');
     const confetti = classifyUserIntent('Show confetti on the homepage');
     expect(confetti.moduleType).toBe('theme.effect');
+  });
+});
+
+describe('AI patch plan invariants', () => {
+  const STOREFRONT_TYPES = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'proxy.widget'];
+
+  it('getPromptExpectations returns non-empty for every storefront type', () => {
+    for (const type of STOREFRONT_TYPES) {
+      const expectations = getPromptExpectations(type as 'theme.banner');
+      expect(expectations.length).toBeGreaterThan(50);
+      expect(expectations).toContain(type);
+    }
+  });
+
+  it('getCatalogDetailsForType returns inspiration for theme.effect and proxy.widget', () => {
+    const effectCatalog = getCatalogDetailsForType('theme.effect');
+    expect(effectCatalog).not.toBe('No matching catalog entries found.');
+    expect(effectCatalog).toContain('effect');
+    const widgetCatalog = getCatalogDetailsForType('proxy.widget');
+    expect(widgetCatalog).not.toBe('No matching catalog entries found.');
+    expect(widgetCatalog).toContain('widget');
   });
 });

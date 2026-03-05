@@ -10,7 +10,10 @@ export const CONFIDENCE_THRESHOLDS = {
 
 export interface ClassifyResult {
   moduleType: ModuleType;
+  /** Clean intent ID for routing (from MODULE_TYPE_TO_INTENT or CLEAN_INTENTS). */
   intent?: string;
+  /** Keyword-bucket result for analytics/UI only; not used for routing. */
+  intentGroup?: string;
   surface?: string;
   confidence: 'high' | 'medium' | 'low';
   /** Numeric confidence 0–1 (doc 15.14). Used for routing and UI. */
@@ -53,13 +56,15 @@ export function classifyUserIntent(
 ): ClassifyResult {
   if (preferredType && preferredType !== 'Auto') {
     if (VALID_CLASSIFICATION_TYPES.includes(preferredType)) {
-      const intent = matchKeywords(prompt, INTENT_KEYWORDS);
+      const intentGroup = matchKeywords(prompt, INTENT_KEYWORDS);
       const surface = matchKeywords(prompt, SURFACE_KEYWORDS);
+      const intent = MODULE_TYPE_TO_INTENT[preferredType] ?? preferredType;
       const reasons = ['preferred_type_set'];
       const confidenceScore = 0.9;
       return {
         moduleType: preferredType as ModuleType,
         intent,
+        intentGroup,
         surface,
         confidence: 'high',
         confidenceScore,
@@ -89,7 +94,7 @@ export function classifyUserIntent(
   const bestMatch = best?.rule ?? null;
   const bestScore = best?.score ?? 0;
 
-  const intent = matchKeywords(prompt, INTENT_KEYWORDS);
+  const intentGroup = matchKeywords(prompt, INTENT_KEYWORDS);
   const surface = matchKeywords(prompt, SURFACE_KEYWORDS);
   const intentId = bestMatch ? (MODULE_TYPE_TO_INTENT[bestMatch.type] ?? bestMatch.type) : 'promo.popup';
 
@@ -111,7 +116,8 @@ export function classifyUserIntent(
 
   return {
     moduleType: (bestMatch?.type ?? 'theme.banner') as ModuleType,
-    intent,
+    intent: intentId,
+    intentGroup,
     surface,
     confidence: bestScore >= 2 ? 'high' : bestScore >= 1 ? 'medium' : 'low',
     confidenceScore,

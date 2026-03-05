@@ -144,6 +144,23 @@ generateValidatedRecipe(prompt)
 
 **Evals:** `pnpm --filter web evals` — runs 10 golden prompts against the configured provider and reports `schemaValidRate` + `compilerSuccessRate`. Exits 1 if rate < 90%.
 
+### 7a. AI output quality — Phase 1 complete ✅
+
+The AI pipeline is designed so that **any prompt** yields a valid RecipeSpec (no arbitrary code). Phase 1 of the AI Patch Plan (see [implementation-status.md](./implementation-status.md) § “AI Patch Plan”) has resolved the main root causes of generic outputs:
+
+| Root cause | Fix applied |
+|------------|-------------|
+| Classifier returned keyword bucket as intent | `classify.server.ts` now returns `intentId` (canonical clean intent) as `intent`; keyword bucket kept as `intentGroup` for analytics |
+| `theme.effect` / `proxy.widget` mapped to unrouted intents | `intent-packet.ts`: `theme.effect → utility.effect`, `proxy.widget → utility.floating_widget`; both added to `CLEAN_INTENTS` + `ROUTING_TABLE` |
+| Unknown intent fallback → promo popup | `resolveRouting()` now falls back to `platform.extensionBlueprint` (safe generic plan) |
+| Full schema/catalog only injected on retry | `generateValidatedRecipeOptions()` now injects full schema + style + catalog on **attempt 0** whenever `confidenceScore < 0.8` (not direct); `api.ai.create-module` passes `confidenceScore` from the classify result |
+| No AI provider → silent stub banner | `getLlmClient()` throws `AiProviderNotConfiguredError`; API surfaces a setup CTA |
+| `theme.effect` config too thin | Schema expanded from 3 → 7 fields: `effectKind`, `intensity`, `speed`, `startTrigger`, `durationSeconds`, `overlayPlacement`, `reducedMotion`; prompt expectations updated accordingly |
+| `theme.effect` missing from catalog type map | `catalog-details.server.ts` TYPE_TO_TEMPLATE_KIND includes `theme.effect: 'effect'` and `proxy.widget: 'widget'` |
+| No invariant tests for routing | `packages/core/src/__tests__/intent-packet.test.ts` covers CLEAN_INTENTS completeness, ROUTING_TABLE completeness, blueprint fallback, and utility.effect / utility.floating_widget presence |
+
+Remaining phases (embeddings Tier B, cheap classifier Tier C, settings packs, expanded floatingWidget schema, profile-driven prompt variants, drift-check CI) are tracked in `implementation-status.md`.
+
 ---
 
 ## 7b. Module templates

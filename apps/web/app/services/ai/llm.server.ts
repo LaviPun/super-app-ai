@@ -7,6 +7,7 @@ import { openAiGenerateRecipe } from '~/services/ai/clients/openai-responses.cli
 import { anthropicGenerateRecipe } from '~/services/ai/clients/anthropic-messages.client.server';
 import { openAiCompatibleGenerateRecipe } from '~/services/ai/clients/openai-compatible.client.server';
 import { getModuleSummary, getAllTypesSummary } from '~/services/ai/module-summaries.server';
+import { CONFIDENCE_THRESHOLDS } from '~/services/ai/classify.server';
 import { getCatalogDetailsForType } from '~/services/ai/catalog-details.server';
 import {
   getPromptExpectations,
@@ -108,6 +109,15 @@ class EnvOpenAiClient implements LlmClient {
   }
 }
 
+/** Thrown when no AI provider is configured and no env key is set. Surface in API with setup CTA. */
+export class AiProviderNotConfiguredError extends Error {
+  readonly code = 'AI_PROVIDER_NOT_CONFIGURED';
+  constructor() {
+    super('AI provider not configured');
+    this.name = 'AiProviderNotConfiguredError';
+  }
+}
+
 export async function getLlmClient(shopId?: string | null): Promise<{ client: LlmClient; providerId: string | null }> {
   const providerId = await resolveProviderIdForShop(shopId);
   if (providerId) return { client: new ConfiguredLlmClient(providerId, shopId ?? undefined), providerId };
@@ -118,7 +128,7 @@ export async function getLlmClient(shopId?: string | null): Promise<{ client: Ll
     return { client: new EnvOpenAiClient(envKey, model, shopId ?? undefined), providerId: null };
   }
 
-  return { client: new StubLlmClient(), providerId: null };
+  throw new AiProviderNotConfiguredError();
 }
 
 /**
@@ -481,7 +491,7 @@ Output a JSON object with a single key "recipe" whose value is the complete upda
 export async function generateValidatedRecipeOptions(
   prompt: string,
   classification: { moduleType: ModuleType; intent?: string; surface?: string },
-  options?: { shopId?: string; maxAttempts?: number; intentPacketJson?: string },
+  options?: { shopId?: string; maxAttempts?: number; intentPacketJson?: string; confidenceScore?: number },
 ): Promise<RecipeOption[]> {
   const maxAttempts = options?.maxAttempts ?? 3;
   const { client, providerId } = await getLlmClient(options?.shopId ?? null);
@@ -492,13 +502,18 @@ export async function generateValidatedRecipeOptions(
   const summary = getModuleSummary(classification.moduleType);
   const expectations = getPromptExpectations(classification.moduleType);
 
+  // Include full schema+style+catalog on attempt 0 when confidence is below the DIRECT threshold (0.8).
+  // This front-loads context for ambiguous prompts rather than waiting for a retry.
+  const isLowConfidence = (options?.confidenceScore ?? 1) < CONFIDENCE_THRESHOLDS.DIRECT;
+  const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'proxy.widget'];
+
   let lastErr: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const isRetry = attempt > 0;
-    const fullSchemaSpec = isRetry ? getFullRecipeSchemaSpec(classification.moduleType) : undefined;
-    const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'proxy.widget'];
-    const styleSchemaSpec = isRetry && storefrontTypes.includes(classification.moduleType) ? getStorefrontStyleSchemaSpec() : undefined;
-    const catalogDetails = isRetry ? getCatalogDetailsForType(classification.moduleType, classification.intent, classification.surface) : undefined;
+    const includeFullContext = isRetry || isLowConfidence;
+    const fullSchemaSpec = includeFullContext ? getFullRecipeSchemaSpec(classification.moduleType) : undefined;
+    const styleSchemaSpec = includeFullContext && storefrontTypes.includes(classification.moduleType) ? getStorefrontStyleSchemaSpec() : undefined;
+    const catalogDetails = includeFullContext ? getCatalogDetailsForType(classification.moduleType, classification.intent, classification.surface) : undefined;
 
     const compiledPrompt = compileCreateModulePrompt({
       purposeAndGuidance,

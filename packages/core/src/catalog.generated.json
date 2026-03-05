@@ -46,6 +46,7 @@
     ],
     "description": "theme.effect — STOREFRONT_UI on online_store",
     "moduleType": "theme.effect",
+    "templateKind": "effect",
     "defaults": {
       "type": "theme.effect",
       "surface": "online_store"
@@ -59,6 +60,7 @@
     ],
     "description": "proxy.widget — STOREFRONT_UI on online_store",
     "moduleType": "proxy.widget",
+    "templateKind": "widget",
     "defaults": {
       "type": "proxy.widget",
       "surface": "online_store"

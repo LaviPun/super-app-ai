@@ -32,6 +32,8 @@ import {
   THEME_EFFECT_KINDS,
   THEME_EFFECT_INTENSITY,
   THEME_EFFECT_SPEED,
+  THEME_EFFECT_START_TRIGGERS,
+  THEME_EFFECT_PLACEMENTS,
   POS_BLOCK_KINDS,
   HTTP_METHODS,
   HTTP_METHODS_EXTENDED,
@@ -158,6 +160,14 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       effectKind: z.enum(THEME_EFFECT_KINDS),
       intensity: z.enum(THEME_EFFECT_INTENSITY).default('medium'),
       speed: z.enum(THEME_EFFECT_SPEED).default('normal'),
+      /** When the effect starts playing. Defaults to page_load. */
+      startTrigger: z.enum(THEME_EFFECT_START_TRIGGERS).default('page_load'),
+      /** How long the effect runs in seconds. 0 = play indefinitely. Max 300. */
+      durationSeconds: z.number().int().min(0).max(300).default(0),
+      /** Viewport region the overlay covers. */
+      overlayPlacement: z.enum(THEME_EFFECT_PLACEMENTS).default('full_screen'),
+      /** Disable effect when user prefers reduced motion. Recommended true. */
+      reducedMotion: z.boolean().default(true),
     }),
     placement: PlacementSchema,
     style: StorefrontStyleSchema.optional(),
