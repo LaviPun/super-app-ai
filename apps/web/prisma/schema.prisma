@@ -112,6 +112,15 @@ model ModuleVersion {
 
   createdAt  DateTime @default(now())
 
+  // Hydrate step: AI-generated full config envelope (schema, defaults, validation report)
+  hydratedAt DateTime?
+  adminConfigSchemaJson String?
+  adminDefaultsJson String?
+  themeEditorSettingsJson String?
+  uiTokensJson String?
+  validationReportJson String?
+  compiledRuntimePlanJson String?
+
   @@unique([moduleId, version])
   @@index([moduleId, status])
 
@@ -195,6 +204,8 @@ model AiProvider {
   isActive    Boolean  @default(false)
   costInPer1kCents  Int? // optional accounting
   costOutPer1kCents Int?
+  /// JSON: ANTHROPIC-only { skills?: string[], codeExecution?: boolean }; skills = anthropic IDs e.g. pptx, xlsx or custom skill_01Ab...
+  extraConfig String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -398,6 +409,8 @@ model AppSettings {
   categoryOverrides  String?
   // Admin: template spec overrides (JSON: { [templateId]: RecipeSpec } for recipe-edit "All recipes")
   templateSpecOverrides String?
+  // Default AI provider when using .env keys: openai | claude (null = use DB active, then OpenAI env fallback)
+  defaultAiProvider String?
   // Meta
   updatedAt DateTime @updatedAt
 }

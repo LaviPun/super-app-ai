@@ -1,18 +1,41 @@
 import { json, redirect } from '@remix-run/node';
-import { Form, useLoaderData, useNavigation, useActionData } from '@remix-run/react';
+import { Form, useLoaderData, useNavigation, useActionData, useOutletContext } from '@remix-run/react';
 import {
   Page, Card, BlockStack, TextField, Button, Text, InlineStack,
   Banner, Checkbox, Divider, InlineGrid, Avatar, Select,
 } from '@shopify/polaris';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { SettingsService } from '~/services/settings/settings.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import { AiProviderService } from '~/services/internal/ai-provider.service';
+
+function getEnvKeyStatus() {
+  const openai = process.env.OPENAI_API_KEY?.trim();
+  const anthropic = process.env.ANTHROPIC_API_KEY?.trim();
+  return {
+    openaiEnvConfigured: !!openai,
+    openaiEnvMasked: openai ? '••••••••' + openai.slice(-4) : '',
+    claudeEnvConfigured: !!anthropic,
+    claudeEnvMasked: anthropic ? '••••••••' + anthropic.slice(-4) : '',
+  };
+}
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
   const settings = await new SettingsService().get();
-  return json({ settings });
+  const aiProviderService = new AiProviderService();
+  const defaultProviders = await aiProviderService.getDefaultProvidersForSettings();
+  const allProviders = await aiProviderService.list();
+  const activeProvider = await aiProviderService.getActive();
+  const envKeys = getEnvKeyStatus();
+  return json({
+    settings,
+    defaultProviders,
+    allProviders: allProviders.map((p) => ({ id: p.id, name: p.name, provider: p.provider, isActive: p.isActive })),
+    activeProviderId: activeProvider?.id ?? null,
+    envKeys,
+  });
 }
 
 export async function action({ request }: { request: Request }) {
@@ -68,6 +91,53 @@ export async function action({ request }: { request: Request }) {
     return json({ toast: { message: 'App configuration saved' }, section: 'config' });
   }
 
+  const aiProviderService = new AiProviderService();
+
+  if (intent === 'saveOpenAI') {
+    const apiKey = String(form.get('openaiApiKey') ?? '').trim();
+    const model = String(form.get('openaiModel') ?? '').trim();
+    try {
+      await aiProviderService.upsertDefaultOpenAI({ apiKey: apiKey || undefined, model: model || undefined });
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message : 'OpenAI save failed.' }, { status: 400 });
+    }
+    await activity.log({ actor: 'INTERNAL_ADMIN', action: 'OPENAI_PROVIDER_UPDATED' });
+    return json({ toast: { message: 'OpenAI settings saved' }, section: 'ai' });
+  }
+
+  if (intent === 'saveClaude') {
+    const apiKey = String(form.get('claudeApiKey') ?? '').trim();
+    const model = String(form.get('claudeModel') ?? '').trim();
+    const skillsRaw = String(form.get('claudeSkills') ?? '').trim();
+    const codeExecution = form.get('claudeCodeExecution') === 'true';
+    const skills = skillsRaw ? skillsRaw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean) : undefined;
+    const extraConfig = skills?.length || codeExecution ? { skills, codeExecution } : undefined;
+    try {
+      await aiProviderService.upsertDefaultClaude({ apiKey: apiKey || undefined, model: model || undefined, extraConfig });
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message : 'Claude save failed.' }, { status: 400 });
+    }
+    await activity.log({ actor: 'INTERNAL_ADMIN', action: 'CLAUDE_PROVIDER_UPDATED' });
+    return json({ toast: { message: 'Claude settings saved' }, section: 'ai' });
+  }
+
+  if (intent === 'saveDefaultAi') {
+    const value = String(form.get('defaultAiProvider') ?? '').trim();
+    const allowed = value === 'openai' || value === 'claude' ? value : null;
+    await service.update({ defaultAiProvider: allowed });
+    await activity.log({ actor: 'INTERNAL_ADMIN', action: 'DEFAULT_AI_PROVIDER_UPDATED', details: { defaultAiProvider: allowed } });
+    return json({ toast: { message: 'Default AI provider saved' }, section: 'ai' });
+  }
+
+  if (intent === 'setMainApi') {
+    const providerId = String(form.get('mainApiProviderId') ?? '').trim();
+    if (!providerId) return json({ error: 'Please select a provider.' }, { status: 400 });
+    const aiProviderService = new AiProviderService();
+    await aiProviderService.setActive(providerId);
+    await activity.log({ actor: 'INTERNAL_ADMIN', action: 'MAIN_API_PROVIDER_SET', resource: `provider:${providerId}` });
+    return json({ toast: { message: 'Main API updated' }, section: 'ai' });
+  }
+
   return json({ error: 'Unknown intent' }, { status: 400 });
 }
 
@@ -94,7 +164,7 @@ const DATE_FORMAT_OPTIONS = [
 ];
 
 export default function InternalSettings() {
-  const { settings } = useLoaderData<typeof loader>();
+  const { settings, defaultProviders, allProviders, activeProviderId, envKeys } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const nav = useNavigation();
   const isSaving = nav.state !== 'idle';
@@ -121,6 +191,65 @@ export default function InternalSettings() {
   const [maintenanceMode, setMaintenanceMode] = useState(settings.maintenanceMode);
   const [maintenanceMessage, setMaintenanceMessage] = useState(settings.maintenanceMessage ?? '');
 
+  const [openaiModel, setOpenaiModel] = useState(defaultProviders?.openai?.model ?? '');
+  const [claudeModel, setClaudeModel] = useState(defaultProviders?.claude?.model ?? '');
+  const [claudeSkills, setClaudeSkills] = useState(() => {
+    if (!defaultProviders?.claude?.extraConfig) return '';
+    try {
+      const c = JSON.parse(defaultProviders.claude.extraConfig) as { skills?: string[] };
+      return c.skills?.join(', ') ?? '';
+    } catch {
+      return '';
+    }
+  });
+  const [claudeCodeExecution, setClaudeCodeExecution] = useState(() => {
+    if (!defaultProviders?.claude?.extraConfig) return false;
+    try {
+      const c = JSON.parse(defaultProviders.claude.extraConfig) as { codeExecution?: boolean };
+      return !!c.codeExecution;
+    } catch {
+      return false;
+    }
+  });
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [claudeApiKey, setClaudeApiKey] = useState('');
+  const [defaultAiProvider, setDefaultAiProvider] = useState<'openai' | 'claude' | null>(() => {
+    const v = settings.defaultAiProvider;
+    return v === 'openai' || v === 'claude' ? v : null;
+  });
+  const [mainApiProviderId, setMainApiProviderId] = useState(activeProviderId ?? '');
+
+  useEffect(() => {
+    setOpenaiModel((prev) => defaultProviders?.openai?.model ?? prev);
+    setClaudeModel((prev) => defaultProviders?.claude?.model ?? prev);
+    if (defaultProviders?.claude?.extraConfig) {
+      try {
+        const c = JSON.parse(defaultProviders.claude.extraConfig) as { skills?: string[]; codeExecution?: boolean };
+        setClaudeSkills(c.skills?.join(', ') ?? '');
+        setClaudeCodeExecution(!!c.codeExecution);
+      } catch {
+        // keep current
+      }
+    }
+  }, [defaultProviders?.openai?.model, defaultProviders?.claude?.model, defaultProviders?.claude?.extraConfig]);
+  useEffect(() => {
+    const v = settings.defaultAiProvider;
+    setDefaultAiProvider(v === 'openai' || v === 'claude' ? v : null);
+  }, [settings.defaultAiProvider]);
+  useEffect(() => {
+    setMainApiProviderId(activeProviderId ?? '');
+  }, [activeProviderId]);
+
+  const mainApiOptions =
+    allProviders?.map((p) => {
+      const label =
+        p.provider === 'OPENAI'
+          ? 'OpenAI'
+          : p.provider === 'ANTHROPIC'
+            ? 'Claude (Anthropic)'
+            : p.name.replace(/\s*\(default\)\s*$/i, '').trim() || p.provider;
+      return { label, value: p.id };
+    }) ?? [];
   const initials = adminName
     .split(' ')
     .map(w => w[0])
@@ -128,9 +257,20 @@ export default function InternalSettings() {
     .toUpperCase()
     .slice(0, 2) || 'SA';
 
+  const outletContext = useOutletContext<{ showToast?: (msg: string, error?: boolean) => void }>();
+  useEffect(() => {
+    const toast = actionData && 'toast' in actionData ? (actionData as { toast?: { message: string; error?: boolean } }).toast : undefined;
+    if (toast?.message && outletContext?.showToast) outletContext.showToast(toast.message, toast.error);
+  }, [actionData, outletContext?.showToast]);
+
   return (
     <Page title="Settings" subtitle="Appearance, profile, contact, and app configuration.">
       <BlockStack gap="500">
+        {actionData?.error ? (
+          <Banner tone="critical" title="Error" onDismiss={() => {}}>
+            <Text as="p">{actionData.error}</Text>
+          </Banner>
+        ) : null}
         <Card>
           <BlockStack gap="400">
             <Text as="h2" variant="headingMd">Appearance</Text>
@@ -429,6 +569,142 @@ export default function InternalSettings() {
             <Text as="p" variant="bodySm" tone="subdued">
               Send invite: configure your identity provider (e.g. Google Workspace) with the app&apos;s OIDC callback to allow team members to sign in.
             </Text>
+          </BlockStack>
+        </Card>
+
+        <Card>
+          <BlockStack gap="400">
+            <Text as="h2" variant="headingMd">AI & API keys</Text>
+            <Text as="p" variant="bodySm" tone="subdued">
+              Default keys can come from .env; values are shown as protected (••••). You can overwrite with your own key below and save. Add other providers via Manage AI providers.
+            </Text>
+
+            <BlockStack gap="400">
+              <Text as="h3" variant="headingSm">Main API (select one)</Text>
+              <Text as="p" variant="bodySm" tone="subdued">Select one provider as the main API. Only the selected provider is used by default.</Text>
+              {mainApiOptions.length > 0 ? (
+                <Form method="post">
+                  <input type="hidden" name="intent" value="setMainApi" />
+                  <input type="hidden" name="mainApiProviderId" value={mainApiProviderId} />
+                  <BlockStack gap="200">
+                    <Select
+                      label="Main API provider"
+                      options={[{ label: 'Select one…', value: '' }, ...mainApiOptions]}
+                      value={mainApiProviderId}
+                      onChange={setMainApiProviderId}
+                    />
+                    <Button submit variant="primary" loading={isSaving} disabled={!mainApiProviderId}>Set as main API</Button>
+                  </BlockStack>
+                </Form>
+              ) : (
+                <Text as="p" variant="bodySm" tone="subdued">No providers configured yet. Save OpenAI or Claude keys below, or add providers in AI Providers, then select one as the main API here.</Text>
+              )}
+            </BlockStack>
+
+            {((envKeys?.openaiEnvConfigured || envKeys?.claudeEnvConfigured) && mainApiOptions.length === 0) ? (
+              <BlockStack gap="200">
+                <Text as="p" variant="bodySm" tone="subdued">When using .env only (no DB providers), prefer:</Text>
+                <Form method="post">
+                  <input type="hidden" name="intent" value="saveDefaultAi" />
+                  <input type="hidden" name="defaultAiProvider" value={defaultAiProvider ?? ''} />
+                  <BlockStack gap="200">
+                    <Checkbox label="Use OpenAI as default" checked={defaultAiProvider === 'openai'} onChange={() => setDefaultAiProvider((prev) => (prev === 'openai' ? null : 'openai'))} />
+                    <Checkbox label="Use Claude as default" checked={defaultAiProvider === 'claude'} onChange={() => setDefaultAiProvider((prev) => (prev === 'claude' ? null : 'claude'))} />
+                    <Button submit variant="secondary" size="slim" loading={isSaving}>Save</Button>
+                  </BlockStack>
+                </Form>
+              </BlockStack>
+            ) : null}
+
+            <Divider />
+
+            <BlockStack gap="400">
+              <Text as="h3" variant="headingSm">OpenAI</Text>
+              {envKeys?.openaiEnvConfigured ? (
+                <Banner tone="info" title="Key from .env">
+                  <Text as="p">Value is already set in .env (shown as {envKeys.openaiEnvMasked}). Overwrite below to use a different key and save.</Text>
+                </Banner>
+              ) : null}
+              <Form method="post">
+                <input type="hidden" name="intent" value="saveOpenAI" />
+                <BlockStack gap="200">
+                  <TextField
+                    label="API key"
+                    name="openaiApiKey"
+                    type="password"
+                    value={openaiApiKey}
+                    onChange={setOpenaiApiKey}
+                    autoComplete="off"
+                    placeholder="Leave blank to keep existing"
+                    helpText={defaultProviders?.openai ? `In database: ${defaultProviders.openai.apiKeyMasked}` : envKeys?.openaiEnvConfigured ? `From .env: ${envKeys.openaiEnvMasked}` : undefined}
+                  />
+                  <TextField
+                    label="Default model (optional)"
+                    name="openaiModel"
+                    value={openaiModel}
+                    onChange={setOpenaiModel}
+                    autoComplete="off"
+                    placeholder="gpt-4o-mini"
+                  />
+                  <Button submit variant="primary" loading={isSaving}>Save OpenAI</Button>
+                </BlockStack>
+              </Form>
+            </BlockStack>
+
+            <Divider />
+
+            <BlockStack gap="400">
+              <Text as="h3" variant="headingSm">Claude (Anthropic)</Text>
+              {envKeys?.claudeEnvConfigured ? (
+                <Banner tone="info" title="Key from .env">
+                  <Text as="p">Value is already set in .env (shown as {envKeys.claudeEnvMasked}). Overwrite below to use a different key and save.</Text>
+                </Banner>
+              ) : null}
+              <Form method="post">
+                <input type="hidden" name="intent" value="saveClaude" />
+                <BlockStack gap="200">
+                  <TextField
+                    label="API key"
+                    name="claudeApiKey"
+                    type="password"
+                    value={claudeApiKey}
+                    onChange={setClaudeApiKey}
+                    autoComplete="off"
+                    placeholder="Leave blank to keep existing"
+                    helpText={defaultProviders?.claude ? `In database: ${defaultProviders.claude.apiKeyMasked}` : envKeys?.claudeEnvConfigured ? `From .env: ${envKeys.claudeEnvMasked}` : undefined}
+                  />
+                  <TextField
+                    label="Default model (optional)"
+                    name="claudeModel"
+                    value={claudeModel}
+                    onChange={setClaudeModel}
+                    autoComplete="off"
+                    placeholder="claude-sonnet-4-20250514"
+                  />
+                  <TextField
+                    label="Agent Skills (optional, comma-separated)"
+                    name="claudeSkills"
+                    value={claudeSkills}
+                    onChange={setClaudeSkills}
+                    autoComplete="off"
+                    placeholder="pptx, xlsx, docx"
+                  />
+                  <Checkbox
+                    label="Enable code execution"
+                    checked={claudeCodeExecution}
+                    onChange={setClaudeCodeExecution}
+                  />
+                  <input type="hidden" name="claudeCodeExecution" value={claudeCodeExecution ? 'true' : 'false'} />
+                  <Button submit variant="primary" loading={isSaving}>Save Claude</Button>
+                </BlockStack>
+              </Form>
+            </BlockStack>
+
+            <Divider />
+            <Text as="p" variant="bodySm" tone="subdued">
+              To set the active provider or add Azure OpenAI / custom endpoints, go to AI Providers.
+            </Text>
+            <Button url="/internal/ai-providers">Manage AI providers</Button>
           </BlockStack>
         </Card>
 

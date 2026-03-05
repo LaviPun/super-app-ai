@@ -6,6 +6,7 @@ import {
   TextField, Select, Button, SkeletonBodyText, Spinner,
 } from '@shopify/polaris';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import { InternalTruncateCell } from '~/components/InternalTruncateCell';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 
 export async function loader({ request }: { request: Request }) {
@@ -285,23 +286,20 @@ export default function InternalActivity() {
                         <td style={{ padding: 12 }}>{new Date(l.createdAt).toLocaleString()}</td>
                         <td style={{ padding: 12 }}><Badge tone={toneForActor(l.actor)}>{l.actor}</Badge></td>
                         <td style={{ padding: 12 }}>{l.action}</td>
-                        <td style={{ padding: 12 }} title={l.resource ?? ''}>
-                          <span className="internal-truncate-wide">{l.resource ?? '—'}</span>
-                        </td>
-                        <td style={{ padding: 12 }} title={l.shopDomain ?? ''}>
-                          <span className="internal-truncate">{l.shopDomain ?? '—'}</span>
-                        </td>
-                        <td style={{ padding: 12 }} title={l.details ?? ''}>
-                          {l.details ? (
-                            <span className="internal-truncate-wide">
-                              <Text as="span" variant="bodySm" tone="subdued">
-                                {l.details.length > 80 ? l.details.slice(0, 80) + '…' : l.details}
-                              </Text>
-                            </span>
-                          ) : '—'}
+                        <td style={{ padding: 12 }}>
+                          <InternalTruncateCell value={l.resource} maxLength={60} maxWidthPx={200} />
                         </td>
                         <td style={{ padding: 12 }}>
-                          <Button type="button" size="slim" variant="secondary" onClick={() => setSelectedId(l.id)}>View</Button>
+                          <InternalTruncateCell value={l.shopDomain} maxLength={40} maxWidthPx={160} />
+                        </td>
+                        <td style={{ padding: 12 }}>
+                          <InternalTruncateCell value={l.details} maxLength={80} maxWidthPx={240} tone="subdued" />
+                        </td>
+                        <td style={{ padding: 12 }}>
+                          <InlineStack gap="200">
+                            <Button type="button" size="slim" variant="secondary" onClick={() => setSelectedId(l.id)}>View</Button>
+                            <Button url={`/internal/activity/${l.id}`} size="slim" variant="plain" target="_blank" rel="noopener noreferrer">Open in tab</Button>
+                          </InlineStack>
                         </td>
                       </tr>
                     ))}

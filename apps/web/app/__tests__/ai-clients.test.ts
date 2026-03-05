@@ -48,6 +48,34 @@ describe('Anthropic Messages client', () => {
     expect(r.tokensIn).toBe(5);
     expect(r.tokensOut).toBe(9);
   });
+
+  it('sends container.skills and tools when skillsConfig is set', async () => {
+    let capturedBody: any;
+    (globalThis as any).fetch = vi.fn(async (_url: string, opts: { body?: string; headers?: Record<string, string> }) => {
+      capturedBody = JSON.parse(opts?.body ?? '{}');
+      return {
+        status: 200,
+        headers: new Map(),
+        text: async () => JSON.stringify({
+          model: 'claude-opus-4-6',
+          content: [{ type: 'text', text: '{"recipe":{}}' }],
+          usage: { input_tokens: 1, output_tokens: 2 },
+        }),
+      };
+    });
+
+    await anthropicGenerateRecipe({
+      apiKey: 'k',
+      model: 'claude-opus-4-6',
+      prompt: 'test',
+      skillsConfig: { skills: ['pptx', 'xlsx'], codeExecution: true },
+    });
+
+    expect(capturedBody.container).toBeDefined();
+    expect(capturedBody.container.skills).toHaveLength(2);
+    expect(capturedBody.container.skills[0]).toEqual({ type: 'anthropic', skill_id: 'pptx', version: 'latest' });
+    expect(capturedBody.tools).toEqual([{ type: 'code_execution_20250825', name: 'code_execution' }]);
+  });
 });
 
 describe('OpenAI-compatible client', () => {

@@ -17,6 +17,8 @@ import {
   getStorefrontStyleSchemaSpec,
   getSettingsPack,
 } from '~/services/ai/prompt-expectations.server';
+import { buildHydratePrompt } from '~/services/ai/hydrate-prompt.server';
+import { HydrateEnvelopeSchema, type HydrateEnvelope } from '~/schemas/hydrate-envelope.server';
 
 import { getPrisma } from '~/db.server';
 
@@ -69,12 +71,24 @@ export class ConfiguredLlmClient implements LlmClient {
     }
 
     if (provider.provider === 'ANTHROPIC') {
+      let skillsConfig: { skills?: string[]; codeExecution?: boolean } | undefined;
+      if (provider.extraConfig) {
+        try {
+          const parsed = JSON.parse(provider.extraConfig) as { skills?: string[]; codeExecution?: boolean };
+          if (parsed.skills?.length || parsed.codeExecution) {
+            skillsConfig = { skills: parsed.skills, codeExecution: parsed.codeExecution };
+          }
+        } catch {
+          // ignore invalid extraConfig
+        }
+      }
       return anthropicGenerateRecipe({
         apiKey,
         baseUrl: provider.baseUrl ?? undefined,
         model,
         prompt: augmentedPrompt,
         shopId: this.shopId,
+        skillsConfig,
       });
     }
 
@@ -110,6 +124,27 @@ class EnvOpenAiClient implements LlmClient {
   }
 }
 
+/** Uses ANTHROPIC_API_KEY (and optional ANTHROPIC_DEFAULT_MODEL) from env. */
+class EnvClaudeClient implements LlmClient {
+  constructor(
+    private readonly apiKey: string,
+    private readonly model: string,
+    private readonly shopId?: string,
+  ) {}
+
+  async generateRecipe(prompt: string, hints?: { previousError?: string }) {
+    const augmentedPrompt = hints?.previousError
+      ? `${prompt}\n\n(Previous validation error: ${hints.previousError})`
+      : prompt;
+    return anthropicGenerateRecipe({
+      apiKey: this.apiKey,
+      model: this.model,
+      prompt: augmentedPrompt,
+      shopId: this.shopId,
+    });
+  }
+}
+
 /** Thrown when no AI provider is configured and no env key is set. Surface in API with setup CTA. */
 export class AiProviderNotConfiguredError extends Error {
   readonly code = 'AI_PROVIDER_NOT_CONFIGURED';
@@ -123,10 +158,24 @@ export async function getLlmClient(shopId?: string | null): Promise<{ client: Ll
   const providerId = await resolveProviderIdForShop(shopId);
   if (providerId) return { client: new ConfiguredLlmClient(providerId, shopId ?? undefined), providerId };
 
-  const envKey = process.env.OPENAI_API_KEY?.trim();
-  if (envKey) {
+  const prisma = getPrisma();
+  const appSettings = await prisma.appSettings.findUnique({ where: { id: 'singleton' } });
+  const defaultAi = (appSettings?.defaultAiProvider ?? '').trim() || null;
+
+  const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
+  const openaiKey = process.env.OPENAI_API_KEY?.trim();
+
+  if (defaultAi === 'claude' && anthropicKey) {
+    const model = process.env.ANTHROPIC_DEFAULT_MODEL?.trim() || 'claude-sonnet-4-20250514';
+    return { client: new EnvClaudeClient(anthropicKey, model, shopId ?? undefined), providerId: null };
+  }
+  if ((defaultAi === 'openai' || !defaultAi) && openaiKey) {
     const model = process.env.OPENAI_DEFAULT_MODEL?.trim() || 'gpt-5-mini';
-    return { client: new EnvOpenAiClient(envKey, model, shopId ?? undefined), providerId: null };
+    return { client: new EnvOpenAiClient(openaiKey, model, shopId ?? undefined), providerId: null };
+  }
+  if (anthropicKey && !openaiKey) {
+    const model = process.env.ANTHROPIC_DEFAULT_MODEL?.trim() || 'claude-sonnet-4-20250514';
+    return { client: new EnvClaudeClient(anthropicKey, model, shopId ?? undefined), providerId: null };
   }
 
   throw new AiProviderNotConfiguredError();
@@ -685,6 +734,53 @@ export async function modifyRecipeSpecOptions(
   }
 
   throw new Error(`AI recipe modify options failed after ${maxAttempts} attempts: ${String(lastErr)}`);
+}
+
+const MAX_HYDRATE_ATTEMPTS = 2;
+
+/**
+ * Hydrate a RecipeSpec into a full config envelope (admin schema, defaults, theme editor settings, validation report).
+ * Used after the merchant confirms a recipe; runs once per chosen module version.
+ */
+export async function hydrateRecipeSpec(
+  recipeSpec: RecipeSpec,
+  options?: { shopId?: string; merchantContext?: { planTier?: string; locale?: string }; maxAttempts?: number },
+): Promise<HydrateEnvelope> {
+  const maxAttempts = options?.maxAttempts ?? MAX_HYDRATE_ATTEMPTS;
+  const { client, providerId } = await getLlmClient(options?.shopId ?? null);
+  const usage = new AiUsageService();
+
+  const prompt = buildHydratePrompt(recipeSpec, options?.merchantContext);
+  const wrappedPrompt = prompt + '\n\nOutput only the HydrateEnvelope JSON object.';
+
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const { rawJson, tokensIn, tokensOut, model } = await client.generateRecipe(
+      wrappedPrompt,
+      lastErr ? { previousError: String(lastErr) } : undefined,
+    );
+    try {
+      const parsed = JSON.parse(rawJson);
+      const envelope = HydrateEnvelopeSchema.parse(parsed);
+      if (providerId) {
+        const costCents = await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut);
+        await usage.record({
+          providerId,
+          shopId: options?.shopId,
+          action: 'RECIPE_HYDRATE',
+          tokensIn,
+          tokensOut,
+          costCents,
+          meta: { attempts: attempt + 1, model, moduleType: recipeSpec.type },
+          requestCount: 1,
+        });
+      }
+      return envelope;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw new Error(`Hydrate envelope validation failed after ${maxAttempts} attempts: ${String(lastErr)}`);
 }
 
 async function estimateCostCentsFromDb(providerId: string, model: string, tokensIn: number, tokensOut: number) {

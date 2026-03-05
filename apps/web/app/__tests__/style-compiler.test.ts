@@ -234,8 +234,10 @@ describe('compileCustomCss', () => {
 // Theme compilers integration
 // ---------------------------------------------------------------------------
 
+const themeTarget = { kind: 'THEME' as const, themeId: 'theme-1', moduleId: 'test-module-1' };
+
 describe('theme compilers — style integration', () => {
-  it('theme.banner outputs CSS vars and no customCss when none set', () => {
+  it('theme.banner compiles with target and returns themeModulePayload', () => {
     const spec = {
       type: 'theme.banner',
       name: 'Test Banner',
@@ -243,15 +245,15 @@ describe('theme compilers — style integration', () => {
       requires: ['THEME_ASSETS'],
       config: { heading: 'Hi', enableAnimation: false },
     } as RecipeSpec;
-    const out = compileThemeBanner(spec as any, 'theme-1');
-    const cssOp = out.ops.find((o) => o.kind === 'THEME_ASSET_UPSERT' && (o as any).key?.endsWith('.css'));
-    expect(cssOp).toBeDefined();
-    const css = (cssOp as any).value;
-    expect(css).toContain('--sa-text:');
-    expect(css).not.toContain('custom css');
+    const out = compileThemeBanner(spec as any, themeTarget);
+    expect(out.ops.length).toBeGreaterThan(0);
+    expect(out.ops.some((o) => o.kind === 'AUDIT')).toBe(true);
+    expect(out.themeModulePayload).toBeDefined();
+    expect(out.themeModulePayload?.type).toBe('theme.banner');
+    expect(out.themeModulePayload?.config).toEqual(spec.config);
   });
 
-  it('theme.banner compiles custom colors and custom CSS together', () => {
+  it('theme.banner compiles custom colors and style into payload', () => {
     const spec = {
       type: 'theme.banner',
       name: 'Banner',
@@ -263,16 +265,12 @@ describe('theme compilers — style integration', () => {
         customCss: '.superapp-banner__heading { letter-spacing: 0.05em; }',
       },
     } as RecipeSpec;
-    const out = compileThemeBanner(spec as any, 'theme-1');
-    const cssOp = out.ops.find((o) => o.kind === 'THEME_ASSET_UPSERT' && (o as any).key?.endsWith('.css'));
-    const css = (cssOp as any).value;
-    expect(css).toContain('--sa-text: #222222;');
-    expect(css).toContain('--sa-bg: #eeeeee;');
-    expect(css).toContain('letter-spacing: 0.05em');
-    expect(css).toContain('custom css');
+    const out = compileThemeBanner(spec as any, themeTarget);
+    expect(out.themeModulePayload).toBeDefined();
+    expect(out.themeModulePayload?.style).toEqual(spec.style);
   });
 
-  it('theme.banner custom CSS strips @import before output', () => {
+  it('theme.banner custom CSS is passed through in payload', () => {
     const spec = {
       type: 'theme.banner',
       name: 'Banner',
@@ -281,12 +279,11 @@ describe('theme compilers — style integration', () => {
       config: { heading: 'Hi', enableAnimation: false },
       style: { customCss: '@import url("bad.css"); .foo { color: red; }' },
     } as RecipeSpec;
-    const out = compileThemeBanner(spec as any, 'theme-1');
-    const css = (out.ops.find((o) => (o as any).key?.endsWith('.css')) as any).value;
-    expect(css).not.toContain('@import');
+    const out = compileThemeBanner(spec as any, themeTarget);
+    expect(out.themeModulePayload?.style?.customCss).toBe(spec.style?.customCss);
   });
 
-  it('theme.popup compiles with overlay positioning and backdrop var', () => {
+  it('theme.popup compiles with target and returns themeModulePayload', () => {
     const spec = {
       type: 'theme.popup',
       name: 'Popup',
@@ -294,11 +291,10 @@ describe('theme compilers — style integration', () => {
       requires: ['THEME_ASSETS'],
       config: { title: 'Hi', trigger: 'ON_LOAD', frequency: 'ONCE_PER_DAY' },
     } as RecipeSpec;
-    const out = compileThemePopup(spec as any, 'theme-1');
-    const css = (out.ops.find((o) => (o as any).key?.endsWith('.css')) as any).value;
-    expect(css).toContain('--sa-backdrop');
-    expect(css).toContain('position: fixed');
-    expect(css).toContain('var(--sa-backdrop)');
+    const out = compileThemePopup(spec as any, themeTarget);
+    expect(out.ops.length).toBeGreaterThan(0);
+    expect(out.themeModulePayload).toBeDefined();
+    expect(out.themeModulePayload?.type).toBe('theme.popup');
   });
 
   it('theme.notificationBar compiles without style (defaults applied)', () => {
@@ -309,10 +305,10 @@ describe('theme compilers — style integration', () => {
       requires: ['THEME_ASSETS'],
       config: { message: 'Hello', dismissible: true },
     } as RecipeSpec;
-    const out = compileNotificationBar(spec as any, 'theme-1');
-    const css = (out.ops.find((o) => (o as any).key?.endsWith('.css')) as any).value;
-    expect(css).toContain('--sa-text');
-    expect(css).toContain('--sa-bg');
+    const out = compileNotificationBar(spec as any, themeTarget);
+    expect(out.themeModulePayload).toBeDefined();
+    expect(out.themeModulePayload?.type).toBe('theme.notificationBar');
+    expect(out.themeModulePayload?.config).toEqual(spec.config);
   });
 });
 

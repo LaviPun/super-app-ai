@@ -33,8 +33,8 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 - **Store & plan control** — change a store's billing plan (FREE / STARTER / GROWTH / PRO / ENTERPRISE) without Shopify billing (internal override)
 - **Templates** — Module templates (link to recipe-edit) and Flow templates section
 - **Activity log** — per-entry **View** opens full detail (actor, action, resource, store, IP, details JSON)
-- **AI Providers** — configured providers show **masked API key** (e.g. ••••••••xyz1), model, base URL; model pricing table
-- **Settings** — includes **Password management** (INTERNAL_ADMIN_PASSWORD / SSO), **Environment variables** (.env reference), and **Advanced** (store & plan control). Standalone **Advanced** nav removed; `/internal/advanced` redirects to Settings
+- **AI Providers** — configured providers show **masked API key** (e.g. ••••••••xyz1), model, base URL; for **Claude (ANTHROPIC)** you can set Agent Skills (e.g. pptx, xlsx) and enable code execution; model pricing table
+- **Settings** — includes **AI & API keys** (link to Manage AI providers for Claude/OpenAI keys and options), **Password management** (INTERNAL_ADMIN_PASSWORD / SSO), **Environment variables** (.env reference), and **Advanced** (store & plan control). Standalone **Advanced** nav removed; `/internal/advanced` redirects to Settings
 
 ---
 
@@ -94,7 +94,7 @@ Use `/internal/ai-providers` to:
 
 ### Provider types supported
 - `OPENAI` — uses `/v1/responses` API with `json_schema` strict mode
-- `ANTHROPIC` — uses Messages API with structured output
+- `ANTHROPIC` (Claude) — uses Messages API with structured output; optional **Agent Skills** (container.skills) and **code execution** tool (beta headers). Configure skills (e.g. pptx, xlsx, docx) and "Enable code execution" when adding or editing the provider.
 - `AZURE_OPENAI` — OpenAI-compatible with Azure base URL
 - `CUSTOM` — any OpenAI-compatible endpoint (tries `/v1/responses`, falls back to `/v1/chat/completions`)
 

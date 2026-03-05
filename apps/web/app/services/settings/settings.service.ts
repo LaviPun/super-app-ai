@@ -23,6 +23,8 @@ export interface AppSettingsData {
   categoryOverrides: string | null;
   /** JSON: { [templateId]: RecipeSpec } for recipe-edit "All recipes" overrides */
   templateSpecOverrides: string | null;
+  /** When using .env keys: 'openai' | 'claude'; null = use DB active then OpenAI env fallback */
+  defaultAiProvider: string | null;
 }
 
 const DEFAULTS: AppSettingsData = {
@@ -46,6 +48,7 @@ const DEFAULTS: AppSettingsData = {
   maintenanceMessage: null,
   categoryOverrides: null,
   templateSpecOverrides: null,
+  defaultAiProvider: null,
 };
 
 export class SettingsService {
@@ -74,6 +77,7 @@ export class SettingsService {
       maintenanceMessage: row.maintenanceMessage,
       categoryOverrides: row.categoryOverrides,
       templateSpecOverrides: row.templateSpecOverrides,
+      defaultAiProvider: row.defaultAiProvider,
     };
   }
 
@@ -105,6 +109,7 @@ export class SettingsService {
       maintenanceMessage: row.maintenanceMessage,
       categoryOverrides: row.categoryOverrides,
       templateSpecOverrides: row.templateSpecOverrides,
+      defaultAiProvider: row.defaultAiProvider,
     };
   }
 }

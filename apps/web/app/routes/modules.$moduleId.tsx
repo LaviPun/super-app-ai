@@ -97,7 +97,26 @@ export async function loader({ request, params }: { request: Request; params: { 
   const publishedVersion = mod.versions.find(v => v.status === 'PUBLISHED') ?? mod.activeVersion ?? null;
   const publishedThemeId = publishedVersion?.targetThemeId ?? null;
 
-  return json({ moduleId, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId });
+  const hydration = draft
+    ? (() => {
+        const hasHydrated = Boolean(draft.hydratedAt);
+        let validationReport: { overall: string; checks: { id: string; severity: string; status: string; description: string; howToFix?: string }[]; notes?: string[] } | null = null;
+        if (draft.validationReportJson) {
+          try {
+            validationReport = JSON.parse(draft.validationReportJson) as typeof validationReport;
+          } catch {
+            // ignore invalid JSON
+          }
+        }
+        return {
+          status: hasHydrated ? ('done' as const) : ('none' as const),
+          hydratedAt: draft.hydratedAt?.toISOString() ?? null,
+          validationReport,
+        };
+      })()
+    : { status: 'none' as const, hydratedAt: null, validationReport: null };
+
+  return json({ moduleId, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration });
 }
 
 function getDefaultThemeId(
@@ -112,7 +131,7 @@ function getDefaultThemeId(
 }
 
 export default function ModuleDetail() {
-  const { moduleId, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId } =
+  const { moduleId, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration } =
     useLoaderData<typeof loader>();
   const revalidator = useRevalidator();
   const [searchParams] = useSearchParams();
@@ -124,11 +143,13 @@ export default function ModuleDetail() {
   const nav = useNavigation();
   const modifyFetcher = useFetcher<{ options?: { index: number; explanation: string; recipe: Record<string, unknown> }[]; error?: string; moduleId?: string }>();
   const modifyConfirmFetcher = useFetcher<{ ok?: boolean; error?: string; version?: number; name?: string }>();
+  const hydrateFetcher = useFetcher<{ ok?: boolean; error?: string; validationReport?: { overall: string; checks: { id: string; severity: string; status: string; description: string; howToFix?: string }[] }; hydratedAt?: string }>();
   const publishFetcher = useFetcher<{ error?: string }>();
   const PublishForm = publishFetcher.Form;
   const isPublishing = publishFetcher.state !== 'idle';
   const isModifying = modifyFetcher.state !== 'idle';
   const isModifyConfirming = modifyConfirmFetcher.state !== 'idle';
+  const isHydrating = hydrateFetcher.state !== 'idle';
   const isSaving = nav.state !== 'idle' || publishFetcher.state !== 'idle';
 
   const defaultThemeId = getDefaultThemeId(themes, publishedThemeId ?? null);
@@ -165,6 +186,12 @@ export default function ModuleDetail() {
       window.location.reload();
     }
   }, [modifyConfirmFetcher.data, isModifyConfirming]);
+
+  useEffect(() => {
+    if (hydrateFetcher.data?.ok && hydrateFetcher.state === 'idle') {
+      revalidator.revalidate();
+    }
+  }, [hydrateFetcher.data, hydrateFetcher.state, revalidator]);
 
   return (
     <Page
@@ -275,6 +302,68 @@ export default function ModuleDetail() {
                 </Button>
               </BlockStack>
             </Card>
+
+            {spec && (
+              <Card padding="400">
+                <BlockStack gap="300">
+                  <InlineStack align="space-between" blockAlign="center">
+                    <Text as="h2" variant="headingMd">Full settings &amp; validation</Text>
+                    {hydration.status === 'done' && (
+                      <Badge tone={hydration.validationReport?.overall === 'PASS' ? 'success' : 'warning'}>
+                        {hydration.validationReport?.overall ?? 'Done'}
+                      </Badge>
+                    )}
+                  </InlineStack>
+                  {hydration.status === 'none' && (
+                    <>
+                      <Text as="p" variant="bodySm" tone="subdued">
+                        Generate admin config schema, defaults, theme editor settings, and a validation report for this module.
+                      </Text>
+                      {hydrateFetcher.data?.error && !isHydrating && (
+                        <Banner tone="critical">
+                          <Text as="p">{hydrateFetcher.data.error}</Text>
+                        </Banner>
+                      )}
+                      {isHydrating ? (
+                        <BlockStack gap="200">
+                          <SkeletonBodyText lines={3} />
+                        </BlockStack>
+                      ) : (
+                        <hydrateFetcher.Form method="post" action="/api/ai/hydrate-module">
+                          <input type="hidden" name="moduleId" value={moduleId} />
+                          <Button submit variant="primary" loading={isHydrating}>
+                            Generate full settings
+                          </Button>
+                        </hydrateFetcher.Form>
+                      )}
+                    </>
+                  )}
+                  {hydration.status === 'done' && hydration.validationReport && (
+                    <BlockStack gap="300">
+                      {hydration.hydratedAt && (
+                        <Text as="p" variant="bodySm" tone="subdued">
+                          Generated {new Date(hydration.hydratedAt).toLocaleString()}
+                        </Text>
+                      )}
+                      <BlockStack gap="200">
+                        <Text as="p" variant="bodySm" fontWeight="semibold">Validation checks</Text>
+                        {hydration.validationReport.checks.map((c, i) => (
+                          <div key={i}>
+                            <InlineStack gap="200" blockAlign="center">
+                              <Badge tone={c.status === 'PASS' ? 'success' : c.status === 'WARN' ? 'warning' : 'critical'}>{c.status}</Badge>
+                              <Text as="span" variant="bodySm">{c.description}</Text>
+                            </InlineStack>
+                            {c.howToFix && (
+                              <Text as="p" variant="bodySm" tone="subdued">{c.howToFix}</Text>
+                            )}
+                          </div>
+                        ))}
+                      </BlockStack>
+                    </BlockStack>
+                  )}
+                </BlockStack>
+              </Card>
+            )}
 
             <Card padding="400">
               <BlockStack gap="300">

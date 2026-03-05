@@ -6,6 +6,7 @@ import {
   TextField, Select, Button, SkeletonBodyText, Spinner,
 } from '@shopify/polaris';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
+import { InternalTruncateCell } from '~/components/InternalTruncateCell';
 import { getPrisma } from '~/db.server';
 
 export async function loader({ request }: { request: Request }) {
@@ -265,13 +266,13 @@ export default function InternalApiLogs() {
                       <tr key={l.id} style={{ borderBottom: '1px solid var(--p-color-border-subdued)' }}>
                         <td style={{ padding: 12 }}>{new Date(l.createdAt).toLocaleString()}</td>
                         <td style={{ padding: 12 }}>{l.actor}</td>
-                        <td style={{ padding: 12 }} title={methodPath}>
-                          <span className="internal-truncate-wide">{methodPath}</span>
+                        <td style={{ padding: 12 }}>
+                          <InternalTruncateCell value={methodPath} maxLength={80} maxWidthPx={280} />
                         </td>
                         <td style={{ padding: 12 }}><Badge tone={l.status >= 400 ? 'critical' : 'success'}>{String(l.status)}</Badge></td>
                         <td style={{ padding: 12 }}>{l.durationMs}</td>
-                        <td style={{ padding: 12 }} title={l.shopDomain ?? ''}>
-                          <span className="internal-truncate">{l.shopDomain ?? '—'}</span>
+                        <td style={{ padding: 12 }}>
+                          <InternalTruncateCell value={l.shopDomain} maxLength={40} maxWidthPx={160} />
                         </td>
                         <td style={{ padding: 12 }}>
                           <Button type="button" size="slim" variant="secondary" onClick={() => setSelectedId(l.id)}>View</Button>

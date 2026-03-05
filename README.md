@@ -21,14 +21,14 @@ Merchants can create modules like:
 You (the app owner/dev team) get:
 - Internal developer dashboard with sidebar navigation (Polaris Frame + TopBar + Navigation)
   - **Dashboard**: Stat cards (stores, AI calls 24h, API cost 24h, providers), errors/jobs/activities, job success rate, quick links to Plan tiers, Categories, Recipe edit, Settings
-  - **AI Providers**: Add/activate providers, model pricing; per-provider display of masked API key (••••xyz1), model, base URL
+  - **AI Providers**: Add/activate providers, model pricing; per-provider display of masked API key (••••xyz1), model, base URL; for Claude (ANTHROPIC): optional Agent Skills (e.g. pptx, xlsx) and code execution
   - **Usage & Costs**, **Activity Log** (with per-entry View → full detail: actor, action, resource, store, details JSON), **Error Logs**, **API Logs**
   - **Stores**: Per-store AI provider override, retention overrides, **Change plan** (FREE / STARTER / GROWTH / PRO / ENTERPRISE) without Shopify billing
   - **Plan Tiers**: View/edit plan definitions (display name, price, trial days, quotas); Enterprise = "Contact us" (unlimited); Pro = 10× Growth
   - **Categories**: View/edit type category overrides (JSON) and **add new categories**
   - **Recipe edit**: Select store or **"All recipes (templates)"** to view/edit default module templates; Validate + Save (store version or template override)
   - **Templates**: Module templates (link to recipe-edit) and Flow templates section
-  - **Jobs**; **Settings** (Appearance, Profile, Contact, App config, **Password management**, **Environment variables**, **Advanced** — store/plan control)
+  - **Jobs**; **Settings** (Appearance, Profile, Contact, App config, **AI & API keys** (link to AI Providers), **Password management**, **Environment variables**, **Advanced** — store/plan control)
   - Activity logging for all significant actions; advanced filters; toasts; loading states
 - Per-store AI provider override + global provider fallback
 - Retention policies + purge scripts

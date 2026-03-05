@@ -1,10 +1,12 @@
 import { json } from '@remix-run/node';
 import { useLoaderData, useSearchParams, useNavigation, Form, useRevalidator } from '@remix-run/react';
+import { useState } from 'react';
 import {
   Page, Card, BlockStack, Text, Badge, DataTable, InlineStack,
-  TextField, Select, Button, SkeletonBodyText,
+  TextField, Select, Button, SkeletonBodyText, Modal, Box,
 } from '@shopify/polaris';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
+import { InternalTruncateCell } from '~/components/InternalTruncateCell';
 import { JobService } from '~/services/jobs/job.service';
 import { getPrisma } from '~/db.server';
 
@@ -40,6 +42,15 @@ export async function loader({ request }: { request: Request }) {
     take: 200,
     include: { shop: true },
   });
+  const jobPayloads = jobs.map(j => ({
+    id: j.id,
+    payload: j.payload,
+    result: j.result,
+    error: j.error,
+    attempts: j.attempts,
+    startedAt: j.startedAt?.toISOString() ?? null,
+    finishedAt: j.finishedAt?.toISOString() ?? null,
+  }));
 
   const liveJobs = jobs.filter(j => j.status === 'RUNNING' || j.status === 'QUEUED');
   const running = liveJobs.length;
@@ -64,6 +75,12 @@ export async function loader({ request }: { request: Request }) {
       status: j.status,
       shopDomain: j.shop?.shopDomain ?? null,
       createdAt: j.createdAt.toISOString(),
+      payload: j.payload,
+      result: j.result,
+      attempts: j.attempts,
+      startedAt: j.startedAt?.toISOString() ?? null,
+      finishedAt: j.finishedAt?.toISOString() ?? null,
+      error: j.error,
     })),
     jobs: sortedJobs.map(j => ({
       id: j.id,
@@ -72,6 +89,11 @@ export async function loader({ request }: { request: Request }) {
       error: j.error,
       shopDomain: j.shop?.shopDomain ?? null,
       createdAt: j.createdAt.toISOString(),
+      payload: j.payload,
+      result: j.result,
+      attempts: j.attempts,
+      startedAt: j.startedAt?.toISOString() ?? null,
+      finishedAt: j.finishedAt?.toISOString() ?? null,
     })),
     stepLogs: stepLogs.map(s => ({
       id: s.id,
@@ -98,12 +120,66 @@ const STATUS_OPTIONS = [
   { label: 'Failed', value: 'FAILED' },
 ];
 
+type JobDetail = {
+  id: string;
+  type: string;
+  status: string;
+  error: string | null;
+  shopDomain: string | null;
+  createdAt: string;
+  payload: string | null;
+  result: string | null;
+  attempts: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+};
+
+function JobDetailModal({ job, open, onClose }: { job: JobDetail | null; open: boolean; onClose: () => void }) {
+  if (!job) return null;
+  const preStyle = { margin: 0, padding: 12, background: 'var(--p-color-bg-surface-secondary)', borderRadius: 8, fontSize: 12, whiteSpace: 'pre-wrap' as const, wordBreak: 'break-all' as const, maxHeight: 200, overflow: 'auto' as const };
+  return (
+    <Modal open={open} onClose={onClose} title="Job details" large secondaryActions={[{ content: 'Close', onAction: onClose }]}>
+      <Modal.Section>
+        <BlockStack gap="300">
+          <Text as="p" variant="bodySm"><strong>ID</strong>: {job.id}</Text>
+          <Text as="p" variant="bodySm"><strong>Type</strong>: {job.type}</Text>
+          <Text as="p" variant="bodySm"><strong>Status</strong>: {job.status}</Text>
+          <Text as="p" variant="bodySm"><strong>Attempts</strong>: {job.attempts}</Text>
+          <Text as="p" variant="bodySm"><strong>Created</strong>: {new Date(job.createdAt).toLocaleString()}</Text>
+          {job.startedAt && <Text as="p" variant="bodySm"><strong>Started</strong>: {new Date(job.startedAt).toLocaleString()}</Text>}
+          {job.finishedAt && <Text as="p" variant="bodySm"><strong>Finished</strong>: {new Date(job.finishedAt).toLocaleString()}</Text>}
+          <Text as="p" variant="bodySm"><strong>Store</strong>: {job.shopDomain ?? '—'}</Text>
+          {job.error && (
+            <>
+              <Text as="p" variant="bodySm" fontWeight="semibold">Error</Text>
+              <pre style={preStyle}>{job.error}</pre>
+            </>
+          )}
+          {job.payload && (
+            <>
+              <Text as="p" variant="bodySm" fontWeight="semibold">Payload</Text>
+              <pre style={preStyle}>{job.payload}</pre>
+            </>
+          )}
+          {job.result && (
+            <>
+              <Text as="p" variant="bodySm" fontWeight="semibold">Result</Text>
+              <pre style={preStyle}>{job.result}</pre>
+            </>
+          )}
+        </BlockStack>
+      </Modal.Section>
+    </Modal>
+  );
+}
+
 export default function InternalJobs() {
   const { jobs, liveJobs, stepLogs, running, failed, distinctTypes, filters } = useLoaderData<typeof loader>();
   const nav = useNavigation();
   const revalidator = useRevalidator();
   const isLoading = nav.state === 'loading';
   const [params, setParams] = useSearchParams();
+  const [selectedJob, setSelectedJob] = useState<JobDetail | null>(null);
 
   const typeOptions = [
     { label: 'All types', value: '' },
@@ -152,13 +228,14 @@ export default function InternalJobs() {
               </InlineStack>
               <div className="internal-table-scroll">
                 <DataTable
-                  columnContentTypes={['text', 'text', 'text', 'text']}
-                  headings={['Time', 'Type', 'Status', 'Store']}
+                  columnContentTypes={['text', 'text', 'text', 'text', 'text']}
+                  headings={['Time', 'Type', 'Status', 'Store', '']}
                   rows={liveJobs.map(j => [
                     new Date(j.createdAt).toLocaleString(),
                     j.type,
                     <Badge key={j.id} tone="attention">{j.status}</Badge>,
-                    j.shopDomain ?? '—',
+                    <InternalTruncateCell key={`store-${j.id}`} value={j.shopDomain} maxLength={40} maxWidthPx={160} />,
+                    <Button key={`view-${j.id}`} size="slim" variant="secondary" onClick={() => setSelectedJob(j)}>View</Button>,
                   ])}
                 />
               </div>
@@ -180,14 +257,15 @@ export default function InternalJobs() {
             ) : (
               <div className="internal-table-scroll">
                 <DataTable
-                  columnContentTypes={['text', 'text', 'text', 'text', 'text']}
-                  headings={['Time', 'Type', 'Status', 'Store', 'Error']}
+                  columnContentTypes={['text', 'text', 'text', 'text', 'text', 'text']}
+                  headings={['Time', 'Type', 'Status', 'Store', 'Error', '']}
                   rows={jobs.map(j => [
                     new Date(j.createdAt).toLocaleString(),
                     j.type,
                     <Badge key={j.id} tone={j.status === 'FAILED' ? 'critical' : j.status === 'SUCCESS' ? 'success' : 'attention'}>{j.status}</Badge>,
-                    <span key={`store-${j.id}`} className="internal-truncate" title={j.shopDomain ?? ''}>{j.shopDomain ?? '—'}</span>,
-                    j.error ? <span key={j.id} className="internal-truncate-wide" title={j.error}><Text as="span" tone="critical">{j.error.length > 120 ? j.error.slice(0, 120) + '…' : j.error}</Text></span> : '—',
+                    <InternalTruncateCell key={`store-${j.id}`} value={j.shopDomain} maxLength={40} maxWidthPx={160} />,
+                    j.error ? <InternalTruncateCell key={`err-${j.id}`} value={j.error} maxLength={80} maxWidthPx={240} tone="critical" /> : '—',
+                    <Button key={`view-${j.id}`} size="slim" variant="secondary" onClick={() => setSelectedJob(j)}>View</Button>,
                   ])}
                 />
               </div>
@@ -222,6 +300,7 @@ export default function InternalJobs() {
           </BlockStack>
         </Card>
       </BlockStack>
+      <JobDetailModal job={selectedJob} open={selectedJob != null} onClose={() => setSelectedJob(null)} />
     </Page>
   );
 }

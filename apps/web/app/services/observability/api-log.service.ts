@@ -1,5 +1,6 @@
 import { getPrisma } from '~/db.server';
 import { getRequestId, runWithRequestContext, generateRequestId } from '~/services/observability/correlation.server';
+import { ErrorLogService } from '~/services/observability/error-log.service';
 
 export class ApiLogService {
   async write(params: {
@@ -83,32 +84,44 @@ export async function withApiLogging(
           // ignore
         }
       }
+      const success = res.status < 400;
       await logger.write({
         actor: input.actor,
         method: input.method,
         path: input.path,
         status: res.status,
         durationMs: Date.now() - start,
-        success: res.status < 400,
+        success,
         requestId,
         shopId: input.shopId,
         meta: Object.keys(meta).length > 0 ? meta : input.meta,
       });
+      if (!success) {
+        const errLog = new ErrorLogService();
+        await errLog.write('ERROR', `API ${input.method} ${input.path} → ${res.status}`, undefined, meta, `${input.method} ${input.path}`, input.shopId);
+      }
       const headers = new Headers(res.headers);
       headers.set('x-request-id', requestId);
       return new Response(res.body, { status: res.status, headers });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const status = (err as { status?: number })?.status ?? 500;
+      const meta = { ...(input.meta as Record<string, unknown>), error: err instanceof Error ? err.message : String(err) };
       await logger.write({
         actor: input.actor,
         method: input.method,
         path: input.path,
-        status: err?.status ?? 500,
+        status,
         durationMs: Date.now() - start,
         success: false,
         requestId,
         shopId: input.shopId,
-        meta: { ...(input.meta as Record<string, unknown>), error: String(err) },
+        meta,
       });
+      const errLog = new ErrorLogService();
+      const route = `${input.method} ${input.path}`;
+      const message = err instanceof Error ? err.message : String(err);
+      const stack = err instanceof Error ? err.stack : undefined;
+      await errLog.write('ERROR', message, stack, meta, route, input.shopId);
       throw err;
     }
   };

@@ -126,6 +126,15 @@ export async function loader({ request }: { request: Request }) {
         notes: 'spec.type must match the existing module type.',
       },
       {
+        id: 'hydrate_module',
+        method: 'POST',
+        path: '/api/agent/modules/:moduleId/hydrate',
+        description: 'Generate full config envelope (admin schema, defaults, theme editor settings, validation report) for the module draft version.',
+        body: '{ versionId?: string }',
+        returns: '{ ok, moduleId, versionId, validationReport, hydratedAt }',
+        notes: 'Uses latest DRAFT version if versionId omitted. Persists envelope to ModuleVersion; validationReport.overall is PASS or WARN.',
+      },
+      {
         id: 'list_connectors',
         method: 'GET',
         path: '/api/agent/connectors',

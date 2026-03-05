@@ -99,6 +99,13 @@ export default function InternalActivityDetail() {
                 <DetailCodeBlock value={d.detailsRaw} expanded={rawExpanded} onToggle={() => setRawExpanded(e => !e)} />
               </>
             )}
+            {d.details && !d.detailsJson && !d.detailsRaw && (
+              <>
+                <Divider />
+                <Text as="h3" variant="headingSm">Details</Text>
+                <pre className="internal-code-block">{d.details}</pre>
+              </>
+            )}
             <Divider />
             <InlineStack gap="200" blockAlign="start">
               <Button url="/internal/activity" variant="primary">Back to Activity log</Button>

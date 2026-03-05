@@ -31,7 +31,7 @@ function parseFixture(raw: unknown): RecipeSpec {
 
 function getTarget(spec: RecipeSpec): DeployTarget {
   return spec.type.startsWith('theme.')
-    ? { kind: 'THEME', themeId: 'golden-theme-id' }
+    ? { kind: 'THEME', themeId: 'golden-theme-id', moduleId: 'golden-module-id' }
     : { kind: 'PLATFORM' };
 }
 

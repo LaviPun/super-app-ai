@@ -287,7 +287,7 @@ Aligned with [ai-module-main-doc.md](./ai-module-main-doc.md). Single source of 
 | Deliverable | File | Notes |
 |---|---|---|
 | OpenAI Responses API client | `services/ai/clients/openai-responses.client.server.ts` | `json_schema` strict mode; extracts `output_text` |
-| Anthropic Messages API client | `services/ai/clients/anthropic-messages.client.server.ts` | Structured output; extracts `text` content block |
+| Anthropic Messages API client | `services/ai/clients/anthropic-messages.client.server.ts` | Structured output; extracts `text` content block; optional Claude Agent Skills (`container.skills`) and code execution tool (beta headers) via `skillsConfig` / `AiProvider.extraConfig` |
 | OpenAI-compatible client | `services/ai/clients/openai-compatible.client.server.ts` | Tries `/v1/responses` first; falls back to `/v1/chat/completions` |
 | Strict JSON enforcement | `services/ai/llm.server.ts` → `generateValidatedRecipe()` | Zod parse after each attempt; retry loop up to `maxAttempts` with previous error hint |
 | Root object schema wrapper | `services/ai/recipe-json-schema.server.ts` | RecipeSpec union wrapped in `{ recipe: <union> }` to satisfy OpenAI root `type: "object"` requirement |
@@ -297,6 +297,7 @@ Aligned with [ai-module-main-doc.md](./ai-module-main-doc.md). Single source of 
 | On-demand catalog context | `catalog-details.server.ts` | Filtered catalog subset (10-20 entries) appended on retry if Zod validation fails |
 | Propose + confirm API | `api.ai.create-module.tsx` + `api.ai.create-module-from-recipe.tsx` | Propose returns 3 options; confirm creates module from selected recipe |
 | Modify propose + confirm | `api.ai.modify-module.tsx` + `api.ai.modify-module-confirm.tsx` | Propose returns 3 modification options; confirm saves selected as new version |
+| **Hydrate step** | `api.ai.hydrate-module.tsx` + `hydrateRecipeSpec()` + `schemas/hydrate-envelope.server.ts` | After confirm: AI generates full config envelope (admin schema, defaults, theme editor settings, validation report) for the chosen recipe; persisted on `ModuleVersion`. RecipeSpec remains source of truth for compiler and Config/Style UI; hydrated data is additive. |
 | Prompt design (purpose + flow + tech + extras) | `prompt-expectations.server.ts` + `modules._index.tsx` | Purpose block, user-flow guidance, technical frame (schema), edge-case hints; UI placeholder nudges merchants to describe who/when/what |
 | Metadata logging | `services/ai/http/ai-http.server.ts` | Logs SHA-256 of request/response body (not raw); duration, model, provider request ID |
 | Non-retryable HTTP errors | `ai-http.server.ts` | 4xx client errors marked `nonRetryable: true` to skip retry loop |
@@ -319,6 +320,11 @@ We structure the AI prompt using four principles that improve success in real-wo
 4. **Edge cases / extras** — Mention responsive, accessibility, and one clear CTA; if the request mentions a coupon/code, note copyability. Nudges the first version toward usable. In the purpose/guidance block and in the UI help text.
 
 The modules page placeholder and help text nudge merchants to describe purpose + flow + extras (e.g. "who sees it, when, what they can do") so the user request we send is higher quality.
+
+### Three-step flow: Propose → Confirm → Hydrate
+1. **Propose** — `POST /api/ai/create-module`: merchant sends prompt + preferences; AI returns 3 RecipeSpec options. No persistence.
+2. **Confirm** — `POST /api/ai/create-module-from-recipe`: merchant picks one option; backend validates RecipeSpec and creates a draft module (version 1). No AI.
+3. **Hydrate** — `POST /api/ai/hydrate-module` (or `POST /api/agent/modules/:moduleId/hydrate`): for the chosen module’s draft version, AI generates the full config envelope (admin JSON schema + defaults, theme editor minimal settings, UI tokens, validation report). Result is stored on `ModuleVersion` (hydratedAt, adminConfigSchemaJson, adminDefaultsJson, themeEditorSettingsJson, uiTokensJson, validationReportJson, compiledRuntimePlanJson). RecipeSpec stays the source of truth for the compiler and existing Config/Style UI; hydrated data is additive and used for validation report display and future schema-driven admin UI.
 
 ---
 

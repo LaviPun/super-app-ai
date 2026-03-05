@@ -5,6 +5,7 @@ import {
   TextField, Select, Button, SkeletonBodyText,
 } from '@shopify/polaris';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
+import { InternalTruncateCell } from '~/components/InternalTruncateCell';
 import { getPrisma } from '~/db.server';
 
 export async function loader({ request }: { request: Request }) {
@@ -131,9 +132,9 @@ export default function InternalLogs() {
                   rows={logs.map(l => [
                     new Date(l.createdAt).toLocaleString(),
                     <Badge key={l.id} tone={l.level === 'ERROR' ? 'critical' : l.level === 'WARN' ? 'warning' : 'info'}>{l.level}</Badge>,
-                    <span key={`msg-${l.id}`} className="internal-truncate-wide" title={l.message}>{l.message.length > 120 ? l.message.slice(0, 120) + '…' : l.message}</span>,
-                    <span key={`store-${l.id}`} className="internal-truncate" title={l.shopDomain ?? ''}>{l.shopDomain ?? '—'}</span>,
-                    <span key={`route-${l.id}`} className="internal-truncate-wide" title={l.route ?? ''}>{l.route ? (l.route.length > 80 ? l.route.slice(0, 80) + '…' : l.route) : '—'}</span>,
+                    <InternalTruncateCell key={`msg-${l.id}`} value={l.message} maxLength={100} maxWidthPx={320} />,
+                    <InternalTruncateCell key={`store-${l.id}`} value={l.shopDomain} maxLength={60} maxWidthPx={160} />,
+                    <InternalTruncateCell key={`route-${l.id}`} value={l.route} maxLength={80} maxWidthPx={240} />,
                   ])}
                 />
               </div>
