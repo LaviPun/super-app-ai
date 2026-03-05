@@ -119,4 +119,54 @@ export class DataStoreService {
       where: { id: recordId, dataStoreId },
     });
   }
+
+  async updateRecord(recordId: string, dataStoreId: string, data: { title?: string; payload?: unknown; externalId?: string }) {
+    const prisma = getPrisma();
+    const updateData: Record<string, unknown> = {};
+    if (data.title !== undefined) updateData.title = data.title;
+    if (data.externalId !== undefined) updateData.externalId = data.externalId;
+    if (data.payload !== undefined) updateData.payload = JSON.stringify(data.payload);
+    return prisma.dataStoreRecord.updateMany({
+      where: { id: recordId, dataStoreId },
+      data: updateData,
+    });
+  }
+
+  async deleteStore(shopId: string, storeId: string) {
+    const prisma = getPrisma();
+    const store = await prisma.dataStore.findFirst({ where: { id: storeId, shopId } });
+    if (!store) throw new Error('Data store not found');
+    return prisma.dataStore.delete({ where: { id: storeId } });
+  }
+
+  async listRecords(shopId: string, storeKey: string, options?: { limit?: number; offset?: number }) {
+    const prisma = getPrisma();
+    const store = await prisma.dataStore.findFirst({ where: { shopId, key: storeKey } });
+    if (!store) return null;
+    const take = Math.min(options?.limit ?? 50, 200);
+    const skip = options?.offset ?? 0;
+    const [records, total] = await Promise.all([
+      prisma.dataStoreRecord.findMany({
+        where: { dataStoreId: store.id },
+        orderBy: { createdAt: 'desc' },
+        take,
+        skip,
+      }),
+      prisma.dataStoreRecord.count({ where: { dataStoreId: store.id } }),
+    ]);
+    return {
+      storeId: store.id,
+      storeKey: store.key,
+      label: store.label,
+      total,
+      records: records.map(r => ({
+        id: r.id,
+        externalId: r.externalId,
+        title: r.title,
+        payload: r.payload ? JSON.parse(r.payload as string) : null,
+        createdAt: r.createdAt.toISOString(),
+        updatedAt: r.updatedAt.toISOString(),
+      })),
+    };
+  }
 }

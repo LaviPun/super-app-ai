@@ -182,18 +182,77 @@ Templates are curated and Zod-validated at build time. Adding a new template mea
 
 ---
 
-## 7c. Connector saved endpoints
+## 7c. Connector saved endpoints + update
 
 Each `Connector` can have multiple saved `ConnectorEndpoint` records, enabling a Postman-like workflow:
 
 ```
 GET  /api/connectors/:id/endpoints         — list saved endpoints
 POST /api/connectors/:id/endpoints          — create/update/delete endpoints
+POST /api/connectors/:id/update            — update name, baseUrl, allowlistDomains, auth
 ```
 
 The connector detail page (`/connectors/:connectorId`) provides:
 - **API Tester tab**: choose method, path, headers, body → send → view response (status, headers, body)
 - **Saved Endpoints tab**: list, load, delete saved requests
+- **Edit connector modal**: update name + base URL (primary action on the connector detail page)
+
+`ConnectorService.update()` validates connector ownership, sanitizes the new `baseUrl` (SSRF allowlist check), and re-encrypts auth secrets when provided. Connector full CRUD: create, read (detail + list), update (name/baseUrl/auth), delete.
+
+---
+
+## 7e. Agent API surface (`/api/agent/*`)
+
+A stable, JSON-only API surface for agent/MCP callers that mirrors every UI action merchants can take. All endpoints require Shopify admin auth and return `{ error: string }` on failure with appropriate HTTP status codes.
+
+```
+# Discovery & config (READ-ONLY)
+GET  /api/agent                                      — discovery index: all 23 endpoints + schemas
+GET  /api/agent/config                               — classification/routing config (CLEAN_INTENTS, ROUTING_TABLE, CONFIDENCE_THRESHOLDS)
+
+# Module lifecycle
+GET  /api/agent/modules                              — list modules
+POST /api/agent/modules                              — create module from RecipeSpec
+GET  /api/agent/modules/:id                          — get module with all versions + parsed specs
+GET  /api/agent/modules/:id/spec                     — read current active (or latest draft) spec (READ-ONLY)
+POST /api/agent/modules/:id/spec                     — update spec → new DRAFT version
+POST /api/agent/modules/:id/publish                  — publish (plan gate + pre-publish validation); body: { themeId?, version? }
+POST /api/agent/modules/:id/rollback                 — rollback; body: { version: number }
+POST /api/agent/modules/:id/delete                   — permanently delete module + all versions
+POST /api/agent/modules/:id/modify                   — propose 3 AI modification options (does NOT save)
+POST /api/agent/modules/:id/modify-confirm           — save selected modification as new DRAFT
+
+# AI primitives (all READ-ONLY except generate-options which uses quota)
+POST /api/agent/classify                             — classify prompt → intent/confidence/alternatives
+POST /api/agent/generate-options                     — generate 3 RecipeSpec options from prompt WITHOUT saving
+POST /api/agent/validate-spec                        — validate RecipeSpec (schema + plan gate + pre-publish, no save)
+
+# Connectors
+GET  /api/agent/connectors                           — list connectors
+POST /api/agent/connectors                           — create connector
+GET  /api/agent/connectors/:id                       — get connector with endpoints
+POST /api/agent/connectors/:id                       — delete connector; body: { intent: "delete" }
+POST /api/agent/connectors/:id/test                  — test connector path
+
+# Data stores (7 intents in one POST)
+GET  /api/agent/data-stores                          — list stores with record counts
+POST /api/agent/data-stores                          — enable | disable | create-custom | delete-store | add-record | update-record | delete-record
+
+# Schedules (3 intents)
+GET  /api/agent/schedules                            — list schedules
+POST /api/agent/schedules                            — create | toggle | delete
+
+# Flows
+GET  /api/agent/flows                                — list flow.automation modules
+POST /api/agent/flows                                — { intent: "run", trigger, payload? } — trigger flows
+```
+
+**Design principles:**
+- JSON only — no redirects, no form encoding.
+- Same backend services as the UI (`ModuleService`, `PublishService`, `CapabilityService`, `ConnectorService`, `DataStoreService`, `ScheduleService`, `FlowRunnerService`, etc.).
+- Every mutating action logged to `ActivityLog` with `actor: 'SYSTEM'` and `details.source: 'agent_api'`.
+- `GET /api/agent` discovery index lists all endpoints with input/output schemas; `GET /api/agent/config` exposes classification and routing config — agents can introspect without reading source code.
+- **AI primitives split from persistence:** `generate-options` generates 3 specs without saving; agent picks one then calls `POST /api/agent/modules` to save. Same split for `modify` (propose) + `modify-confirm` (save). `validate-spec` is fully read-only.
 
 ---
 

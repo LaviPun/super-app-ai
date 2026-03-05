@@ -1,3 +1,5 @@
+import { adminGraphqlUrl } from '~/shopify-api.server';
+
 /**
  * Shopify Flow Bridge — integration layer between SuperApp workflow engine
  * and Shopify Flow's native execution environment.
@@ -152,9 +154,8 @@ export async function emitFlowTrigger(
   `;
 
   try {
-    const apiVersion = process.env.SHOPIFY_API_VERSION ?? '2026-01';
     const res = await fetch(
-      `https://${shop}/admin/api/${apiVersion}/graphql.json`,
+      adminGraphqlUrl(shop),
       {
         method: 'POST',
         headers: {

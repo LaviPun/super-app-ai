@@ -76,12 +76,17 @@ Set `SHOPIFY_APP_URL` in `apps/web/.env` to the tunnel URL the CLI prints.
 The following scopes are configured in `shopify.app.toml` and `SCOPES` env var:
 
 ```
-write_themes
+read_themes
 read_products
 write_products
 read_orders
-write_discounts
+write_orders
+read_customers
+write_customers
+read_checkouts
 write_checkouts
+read_inventory
+write_discounts
 write_app_proxy
 write_payment_customizations
 write_delivery_customizations
@@ -89,6 +94,10 @@ write_cart_transforms
 ```
 
 If you add new functionality requiring additional scopes, update **both** `shopify.app.toml` and the `SCOPES` env var, then re-install the app on your dev store.
+
+### Theme modules (banner, popup, notification bar, effect)
+
+Theme modules deploy via **app extension + metafield** only (no direct theme file writes). When you publish a theme.banner, theme.popup, theme.notificationBar, or theme.effect module, the app writes its config to the shop metafield `superapp.theme.modules`. The **SuperApp Theme Modules** app embed (in `extensions/theme-app-extension`) reads that metafield and renders the modules on the storefront. Merchants must add the "SuperApp Theme Modules" app embed in the theme editor (Theme → Customize → App embeds) for published theme modules to appear.
 
 ## 8) Testing on dev store
 - Install app via CLI prompts.

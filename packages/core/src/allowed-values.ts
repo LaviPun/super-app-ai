@@ -491,9 +491,9 @@ export const THEME_EFFECT_INTENSITY = ['low', 'medium', 'high'] as const;
 /** theme.effect speed. */
 export const THEME_EFFECT_SPEED = ['slow', 'normal', 'fast'] as const;
 /** theme.effect start trigger — when the effect begins playing. */
-export const THEME_EFFECT_START_TRIGGERS = ['page_load', 'scroll_25', 'time_3s', 'time_5s', 'time_10s'] as const;
+export const THEME_EFFECT_START_TRIGGERS = ['page_load', 'scroll_25', 'exit_intent', 'time_3s', 'time_5s', 'time_10s'] as const;
 /** theme.effect placement — viewport region the overlay covers. */
-export const THEME_EFFECT_PLACEMENTS = ['full_screen', 'header_only', 'footer_only', 'above_fold'] as const;
+export const THEME_EFFECT_PLACEMENTS = ['full_screen', 'top_half', 'bottom_half'] as const;
 
 /** theme.floatingWidget variant — what kind of floating button/widget. */
 export const THEME_FLOATING_WIDGET_VARIANTS = ['whatsapp', 'chat', 'coupon', 'cart', 'scroll_top', 'custom'] as const;
@@ -570,6 +570,43 @@ export const RECIPE_SPEC_TYPES = [
 ] as const;
 
 export type ModuleType = (typeof RECIPE_SPEC_TYPES)[number];
+
+/** Preferred display order for module types (by category, then logical order). New types not listed fall at end. */
+const MODULE_TYPE_ORDER: ModuleType[] = [
+  'theme.banner',
+  'theme.popup',
+  'theme.notificationBar',
+  'theme.effect',
+  'theme.floatingWidget',
+  'proxy.widget',
+  'checkout.upsell',
+  'checkout.block',
+  'postPurchase.offer',
+  'functions.discountRules',
+  'functions.deliveryCustomization',
+  'functions.paymentCustomization',
+  'functions.cartAndCheckoutValidation',
+  'functions.cartTransform',
+  'functions.fulfillmentConstraints',
+  'functions.orderRoutingLocationRule',
+  'admin.block',
+  'pos.extension',
+  'platform.extensionBlueprint',
+  'analytics.pixel',
+  'integration.httpSync',
+  'flow.automation',
+  'customerAccount.blocks',
+];
+
+/**
+ * Full extended list of all module types in display order (by category, then logical order).
+ * Use this for UI dropdowns so every possible type is shown. Derived from RECIPE_SPEC_TYPES.
+ */
+export const MODULE_TYPES_DISPLAY_ORDER: ModuleType[] = (() => {
+  const orderSet = new Set(MODULE_TYPE_ORDER);
+  const rest = (RECIPE_SPEC_TYPES as readonly string[]).filter((t) => !orderSet.has(t as ModuleType));
+  return [...MODULE_TYPE_ORDER.filter((t) => RECIPE_SPEC_TYPES.includes(t)), ...rest] as ModuleType[];
+})();
 
 /** Module status (lifecycle). */
 export const MODULE_STATUSES = ['DRAFT', 'PUBLISHED'] as const;

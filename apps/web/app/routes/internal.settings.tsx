@@ -129,13 +129,12 @@ export default function InternalSettings() {
     .slice(0, 2) || 'SA';
 
   return (
-    <Page title="Settings">
-      <BlockStack gap="600">
-        {/* ─── Appearance ─── */}
+    <Page title="Settings" subtitle="Appearance, profile, contact, and app configuration.">
+      <BlockStack gap="500">
         <Card>
           <BlockStack gap="400">
             <Text as="h2" variant="headingMd">Appearance</Text>
-            <Text as="p" tone="subdued">
+            <Text as="p" variant="bodySm" tone="subdued">
               Customize how the internal dashboard looks — app name, header color, and logo.
             </Text>
             <Form method="post">
@@ -212,11 +211,10 @@ export default function InternalSettings() {
           </BlockStack>
         </Card>
 
-        {/* ─── Profile ─── */}
         <Card>
           <BlockStack gap="400">
             <Text as="h2" variant="headingMd">Profile</Text>
-            <Text as="p" tone="subdued">
+            <Text as="p" variant="bodySm" tone="subdued">
               Your identity in the dashboard — name, email, and profile picture.
             </Text>
             <Form method="post">
@@ -283,11 +281,10 @@ export default function InternalSettings() {
           </BlockStack>
         </Card>
 
-        {/* ─── Contact Info ─── */}
         <Card>
           <BlockStack gap="400">
             <Text as="h2" variant="headingMd">Contact & Legal</Text>
-            <Text as="p" tone="subdued">
+            <Text as="p" variant="bodySm" tone="subdued">
               Your company details, support channels, and legal links. These can be surfaced to merchants.
             </Text>
             <Form method="post">
@@ -345,11 +342,10 @@ export default function InternalSettings() {
           </BlockStack>
         </Card>
 
-        {/* ─── App Configuration ─── */}
         <Card>
           <BlockStack gap="400">
             <Text as="h2" variant="headingMd">App Configuration</Text>
-            <Text as="p" tone="subdued">
+            <Text as="p" variant="bodySm" tone="subdued">
               Global app behavior — timezone, date format, alerts, and maintenance mode.
             </Text>
             <Form method="post">
@@ -424,11 +420,10 @@ export default function InternalSettings() {
           </BlockStack>
         </Card>
 
-        {/* ─── Password & access ─── */}
         <Card>
           <BlockStack gap="300">
             <Text as="h2" variant="headingMd">Password management</Text>
-            <Text as="p" tone="subdued">
+            <Text as="p" variant="bodySm" tone="subdued">
               The internal admin password is set via <code>INTERNAL_ADMIN_PASSWORD</code> in your environment. To change it, update <code>.env</code> (or your deployment config) and restart the app. SSO (OIDC) can be used instead — see <code>INTERNAL_SSO_*</code> in docs.
             </Text>
             <Text as="p" variant="bodySm" tone="subdued">
@@ -437,21 +432,19 @@ export default function InternalSettings() {
           </BlockStack>
         </Card>
 
-        {/* ─── Environment variables ─── */}
         <Card>
           <BlockStack gap="300">
             <Text as="h2" variant="headingMd">Environment variables</Text>
-            <Text as="p" tone="subdued">
+            <Text as="p" variant="bodySm" tone="subdued">
               Sensitive config (API keys, secrets, database URL) is read from the environment. For a list of required and optional variables, see <code>.env.example</code> in the project root. Do not expose env values in the UI.
             </Text>
           </BlockStack>
         </Card>
 
-        {/* ─── Advanced ─── */}
         <Card>
           <BlockStack gap="400">
             <Text as="h2" variant="headingMd">Advanced</Text>
-            <Text as="p" tone="subdued">
+            <Text as="p" variant="bodySm" tone="subdued">
               Store and plan control, feature flags, and danger-zone actions.
             </Text>
             <BlockStack gap="300">

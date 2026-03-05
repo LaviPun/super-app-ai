@@ -3,6 +3,7 @@ import { getPrisma } from '~/db.server';
 export type ActivityAction =
   | 'MODULE_CREATED'
   | 'MODULE_PUBLISHED'
+  | 'MODULE_DELETED'
   | 'MODULE_ROLLED_BACK'
   | 'MODULE_STYLE_UPDATED'
   | 'CONNECTOR_CREATED'

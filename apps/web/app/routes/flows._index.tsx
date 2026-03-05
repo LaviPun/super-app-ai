@@ -1,10 +1,10 @@
 import { json, redirect, type ActionFunctionArgs } from '@remix-run/node';
-import { useLoaderData, Form, useNavigation, useActionData, Link } from '@remix-run/react';
+import { useLoaderData, Form, useNavigation, useActionData, Link, useRevalidator } from '@remix-run/react';
 import {
   Page, Card, BlockStack, Text, TextField, Button, DataTable, Badge,
   Banner, EmptyState, InlineStack, Modal, SkeletonBodyText, InlineGrid, Divider,
 } from '@shopify/polaris';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { shopify } from '~/shopify.server';
 import { ScheduleService } from '~/services/flows/schedule.service';
 import { getPrisma } from '~/db.server';
@@ -88,6 +88,17 @@ export default function FlowsIndex() {
   const isSaving = nav.state !== 'idle';
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const handleDeleteClose = useCallback(() => setDeleteTarget(null), []);
+  const { revalidate } = useRevalidator();
+
+  useEffect(() => {
+    // Reflect agent writes: poll every 30s + revalidate on window focus
+    const interval = setInterval(revalidate, 30_000);
+    window.addEventListener('focus', revalidate);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', revalidate);
+    };
+  }, [revalidate]);
   const [showSchedules, setShowSchedules] = useState(false);
   const [showCreateSchedule, setShowCreateSchedule] = useState(false);
 
@@ -109,9 +120,8 @@ export default function FlowsIndex() {
           </Banner>
         )}
 
-        {/* ─── Empty state (matches Shopify Flow) ─── */}
         {!hasWorkflows && (
-          <Card>
+          <Card padding="500">
             <div style={{ textAlign: 'center', padding: '60px 20px' }}>
               <div style={{ marginBottom: 24 }}>
                 <svg width="120" height="80" viewBox="0 0 120 80" fill="none">
@@ -139,10 +149,9 @@ export default function FlowsIndex() {
           </Card>
         )}
 
-        {/* ─── Workflow list ─── */}
         {hasWorkflows && (
-          <Card>
-            <BlockStack gap="300">
+          <Card padding="400">
+            <BlockStack gap="400">
               <DataTable
                 columnContentTypes={['text', 'text', 'text', 'text']}
                 headings={['Name', 'Status', 'Updated', '']}
@@ -157,12 +166,11 @@ export default function FlowsIndex() {
           </Card>
         )}
 
-        {/* ─── Schedules (collapsible) ─── */}
-        <Card>
-          <BlockStack gap="300">
+        <Card padding="400">
+          <BlockStack gap="400">
             <InlineStack align="space-between" blockAlign="center">
               <InlineStack gap="200" blockAlign="center">
-                <Text as="h2" variant="headingMd">Schedules</Text>
+                <Text as="h2" variant="headingMd" fontWeight="semibold">Schedules</Text>
                 <Badge>{String(stats.total)}</Badge>
               </InlineStack>
               <InlineStack gap="200">

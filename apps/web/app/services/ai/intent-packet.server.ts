@@ -4,8 +4,11 @@
  */
 
 import type { IntentPacket } from '@superapp/core';
-import { IntentPacketSchema, resolveRouting, MODULE_TYPE_TO_INTENT } from '@superapp/core';
+import { IntentPacketSchema, resolveRouting, MODULE_TYPE_TO_INTENT, CLEAN_INTENTS } from '@superapp/core';
 import type { ClassifyResult } from './classify.server';
+
+/** Set for O(1) membership checks. */
+const CLEAN_INTENT_SET = new Set<string>(CLEAN_INTENTS);
 
 export interface BuildIntentPacketOptions {
   requestId?: string;
@@ -30,10 +33,14 @@ export function buildIntentPacket(
   classification: ClassifyResult,
   options: BuildIntentPacketOptions = {},
 ): IntentPacket {
-  // Prefer canonical intent from classifier, then module-type mapping, then raw moduleType.
-  // resolveRouting() handles unknown values by falling back to platform.extensionBlueprint (not promo popup).
+  // Use classification.intent only if it is a validated CleanIntentId.
+  // If the classifier produced a bucket string or something unrecognized, fall through to module-type mapping.
+  // resolveRouting() handles all remaining unknowns via the blueprint fallback (not promo popup).
+  const cleanIntent = classification.intent && CLEAN_INTENT_SET.has(classification.intent)
+    ? classification.intent
+    : undefined;
   const intent =
-    classification.intent ??
+    cleanIntent ??
     MODULE_TYPE_TO_INTENT[classification.moduleType] ??
     classification.moduleType;
   const routing = resolveRouting(intent);

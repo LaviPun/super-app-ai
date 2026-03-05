@@ -8,7 +8,7 @@ import { requireInternalAdmin, commitInternal } from '~/internal-admin/session.s
 import { getPrisma } from '~/db.server';
 import { ModuleService } from '~/services/modules/module.service';
 import { RecipeSpecSchema, MODULE_TEMPLATES, findTemplate } from '@superapp/core';
-import { getTypeShortLabel } from '~/utils/type-label';
+import { getTypeDisplayLabel } from '~/utils/type-label';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { SettingsService } from '~/services/settings/settings.service';
 
@@ -236,11 +236,12 @@ export default function InternalRecipeEdit() {
   const errors = validationResult && !validationResult.valid && validationResult.errors;
 
   return (
-    <Page title="Recipe edit" subtitle="Edit module RecipeSpec JSON (validated on save)">
-      <BlockStack gap="400">
+    <Page title="Recipe edit" subtitle="Edit module RecipeSpec JSON (validated on save).">
+      <BlockStack gap="500">
         <Card>
-          <BlockStack gap="300">
+          <BlockStack gap="400">
             <Text as="h2" variant="headingMd">Select store and module</Text>
+            <Text as="p" variant="bodySm" tone="subdued">Choose a store or All recipes (templates), then a module to edit its spec.</Text>
             <InlineStack gap="300" wrap>
               <div style={{ minWidth: 280 }}>
                 <Select
@@ -293,8 +294,9 @@ export default function InternalRecipeEdit() {
             )}
 
             <Card>
-              <BlockStack gap="300">
+              <BlockStack gap="400">
                 <Text as="h2" variant="headingMd">RecipeSpec JSON</Text>
+                <Text as="p" variant="bodySm" tone="subdued">Edit the JSON below. Validate before saving. Saving creates a new version (store) or updates the template override (templates).</Text>
                 <textarea
                   aria-label="RecipeSpec JSON"
                   value={specText}
@@ -308,6 +310,8 @@ export default function InternalRecipeEdit() {
                     border: '1px solid var(--p-color-border)',
                     borderRadius: 8,
                     boxSizing: 'border-box',
+                    maxHeight: '60vh',
+                    overflowY: 'auto',
                   }}
                   spellCheck={false}
                 />
@@ -317,7 +321,7 @@ export default function InternalRecipeEdit() {
                     <input type="hidden" name="shopId" value={shopId} />
                     <input type="hidden" name="moduleId" value={moduleId} />
                     <input type="hidden" name="spec" value={specText} />
-                    <Button submit loading={isValidating}>
+                    <Button submit variant="secondary" loading={isValidating}>
                       Validate
                     </Button>
                   </Form>

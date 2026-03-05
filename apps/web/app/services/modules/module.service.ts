@@ -87,6 +87,15 @@ export class ModuleService {
     await prisma.module.update({ where: { id: moduleId }, data: { activeVersionId: mv.id, status: 'PUBLISHED' } });
     return mv;
   }
+
+  async deleteModule(shopDomain: string, moduleId: string) {
+    const prisma = getPrisma();
+    const module = await prisma.module.findFirst({
+      where: { id: moduleId, shop: { shopDomain } },
+    });
+    if (!module) throw new Error('Module not found');
+    await prisma.module.delete({ where: { id: moduleId } });
+  }
 }
 
 type int = number;

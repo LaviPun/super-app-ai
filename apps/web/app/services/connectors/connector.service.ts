@@ -14,6 +14,15 @@ export type CreateConnectorInput = {
   auth: ConnectorAuth;
 };
 
+export type UpdateConnectorInput = {
+  shopDomain: string;
+  connectorId: string;
+  name?: string;
+  baseUrl?: string;
+  allowlistDomains?: string[];
+  auth?: ConnectorAuth;
+};
+
 export type TestRequest = {
   connectorId: string;
   path: string;
@@ -43,6 +52,32 @@ export class ConnectorService {
         allowlistDomains: allowlist.join(','),
       },
     });
+  }
+
+  async update(input: UpdateConnectorInput) {
+    const prisma = getPrisma();
+    const connector = await prisma.connector.findFirst({
+      where: { id: input.connectorId, shop: { shopDomain: input.shopDomain } },
+    });
+    if (!connector) throw new Error('Connector not found');
+
+    const data: Record<string, unknown> = {};
+    if (input.name !== undefined) data.name = input.name;
+    if (input.baseUrl !== undefined) {
+      const url = normalizeBaseUrl(input.baseUrl);
+      data.baseUrl = url;
+      if (!input.allowlistDomains) data.allowlistDomains = new URL(url).hostname;
+    }
+    if (input.allowlistDomains !== undefined) {
+      validateAllowlist(input.allowlistDomains);
+      data.allowlistDomains = input.allowlistDomains.join(',');
+    }
+    if (input.auth !== undefined) {
+      data.authType = input.auth.type;
+      data.secretsEnc = encryptJson(input.auth);
+    }
+
+    return prisma.connector.update({ where: { id: connector.id }, data });
   }
 
   async test(shopDomain: string, req: TestRequest) {

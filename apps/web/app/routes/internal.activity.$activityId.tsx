@@ -1,5 +1,6 @@
 import { json } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
+import { useState } from 'react';
 import {
   Page, Card, BlockStack, Text, InlineStack, Button, Divider,
 } from '@shopify/polaris';
@@ -43,23 +44,40 @@ export async function loader({ request, params }: { request: Request; params: { 
   });
 }
 
+const DETAIL_TRUNCATE = 200;
+
+function DetailCodeBlock({ value, expanded, onToggle }: { value: string; expanded: boolean; onToggle: () => void }) {
+  const isLong = value.length > DETAIL_TRUNCATE;
+  const preview = isLong && !expanded ? value.slice(0, DETAIL_TRUNCATE) + '\n…' : value;
+  return (
+    <BlockStack gap="200">
+      <pre className={expanded ? 'internal-code-block internal-code-block-expanded' : 'internal-code-block'}>{preview}</pre>
+      {isLong && (
+        <Button size="slim" variant="plain" onClick={onToggle}>{expanded ? 'Collapse' : 'Expand'}</Button>
+      )}
+    </BlockStack>
+  );
+}
+
 export default function InternalActivityDetail() {
   const d = useLoaderData<typeof loader>();
+  const [jsonExpanded, setJsonExpanded] = useState(false);
+  const [rawExpanded, setRawExpanded] = useState(false);
 
   return (
     <Page
       title="Activity detail"
       backAction={{ content: 'Activity log', url: '/internal/activity' }}
     >
-      <BlockStack gap="400">
+      <BlockStack gap="500">
         <Card>
-          <BlockStack gap="300">
+          <BlockStack gap="400">
             <InlineStack gap="200" blockAlign="center">
               <Text as="h2" variant="headingMd">Entry</Text>
               <Text as="p" variant="bodySm" tone="subdued">ID: {d.id}</Text>
             </InlineStack>
             <Divider />
-            <BlockStack gap="200">
+            <BlockStack gap="300">
               <Text as="p" variant="bodySm"><strong>Time</strong>: {new Date(d.createdAt).toLocaleString()}</Text>
               <Text as="p" variant="bodySm"><strong>Actor</strong>: {d.actor}</Text>
               <Text as="p" variant="bodySm"><strong>Action</strong>: {d.action}</Text>
@@ -71,42 +89,19 @@ export default function InternalActivityDetail() {
               <>
                 <Divider />
                 <Text as="h3" variant="headingSm">Details (JSON)</Text>
-                <pre
-                  style={{
-                    margin: 0,
-                    padding: 12,
-                    background: 'var(--p-color-bg-surface-secondary)',
-                    borderRadius: 8,
-                    fontSize: 12,
-                    overflow: 'auto',
-                    maxHeight: 400,
-                  }}
-                >
-                  {d.detailsJson}
-                </pre>
+                <DetailCodeBlock value={d.detailsJson} expanded={jsonExpanded} onToggle={() => setJsonExpanded(e => !e)} />
               </>
             )}
             {d.detailsRaw && (
               <>
                 <Divider />
                 <Text as="h3" variant="headingSm">Details (raw)</Text>
-                <pre
-                  style={{
-                    margin: 0,
-                    padding: 12,
-                    background: 'var(--p-color-bg-surface-secondary)',
-                    borderRadius: 8,
-                    fontSize: 12,
-                    overflow: 'auto',
-                    maxHeight: 200,
-                  }}
-                >
-                  {d.detailsRaw}
-                </pre>
+                <DetailCodeBlock value={d.detailsRaw} expanded={rawExpanded} onToggle={() => setRawExpanded(e => !e)} />
               </>
             )}
+            <Divider />
             <InlineStack gap="200" blockAlign="start">
-              <Button url="/internal/activity">Back to Activity log</Button>
+              <Button url="/internal/activity" variant="primary">Back to Activity log</Button>
             </InlineStack>
           </BlockStack>
         </Card>

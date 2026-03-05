@@ -17,7 +17,9 @@ api_version = "2026-01"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_themes,read_products,write_products,read_orders,write_discounts,write_checkouts,write_app_proxy,write_payment_customizations,write_delivery_customizations,write_cart_transforms"
+# Themes (read only: theme list for UI; we do not modify theme files — app uses extensions + metafields only); Products; Orders; etc.
+# Note: read_metafields/write_metafields are not valid scopes; metafield access is per-resource.
+scopes = "read_themes,read_products,write_products,read_orders,write_orders,read_customers,write_customers,read_checkouts,write_checkouts,read_inventory,write_discounts,write_app_proxy,write_payment_customizations,write_delivery_customizations,write_cart_transforms"
 optional_scopes = [ ]
 use_legacy_install_flow = false
 

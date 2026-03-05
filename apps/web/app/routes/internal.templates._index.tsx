@@ -26,23 +26,23 @@ export default function InternalTemplates() {
 
   return (
     <Page title="Templates" subtitle="Manage module and flow templates shown to merchants.">
-      <BlockStack gap="500">
+      <BlockStack gap="400">
         <Card>
-          <BlockStack gap="300">
+          <BlockStack gap="400">
             <Text as="h2" variant="headingMd">Module templates</Text>
-            <Text as="p" tone="subdued">
+            <Text as="p" variant="bodySm" tone="subdued">
               Default recipe templates for AI modules. Edit specs in Recipe edit (All recipes). Changes are stored as overrides and used when merchants create from template.
             </Text>
-            <Button url="/internal/recipe-edit?shopId=__templates__">
+            <Button url="/internal/recipe-edit?shopId=__templates__" variant="primary">
               Edit module templates
             </Button>
             <Text as="p" variant="bodySm" tone="subdued">
               {moduleTemplates.length} templates: {moduleTemplates.map(t => t.name).join(', ')}
             </Text>
-            <InlineGrid columns={{ xs: 1, sm: 2, md: 3 }} gap="200">
+            <InlineGrid columns={{ xs: 1, sm: 2, md: 3 }} gap="300">
               {moduleTemplates.slice(0, 12).map(t => (
                 <Card key={t.id}>
-                  <BlockStack gap="100">
+                  <BlockStack gap="200">
                     <Text as="p" variant="headingSm">{t.name}</Text>
                     <Text as="p" variant="bodySm" tone="subdued">{t.type} · {t.category}</Text>
                   </BlockStack>
@@ -53,13 +53,13 @@ export default function InternalTemplates() {
         </Card>
 
         <Card>
-          <BlockStack gap="300">
+          <BlockStack gap="400">
             <Text as="h2" variant="headingMd">Flow templates</Text>
-            <Text as="p" tone="subdued">
+            <Text as="p" variant="bodySm" tone="subdued">
               Workflow and flow templates. Edit via the flow builder (JSON or interactive). Store-defined workflows: {workflowCount}.
             </Text>
             <InlineStack gap="200">
-              <Button url="/flows">Flow builder (merchant)</Button>
+              <Button url="/flows" variant="secondary">Flow builder (merchant)</Button>
             </InlineStack>
             <Text as="p" variant="bodySm" tone="subdued">
               Interactive flow creator and flow template editor can be added here to manage default flow templates from the admin dashboard.

@@ -89,15 +89,7 @@ type ApiLogDetailData = {
   metaRest: Record<string, unknown> | null;
 };
 
-const preStyle = {
-  margin: 0,
-  padding: 12,
-  background: 'var(--p-color-bg-surface-secondary)',
-  borderRadius: 8,
-  fontSize: 12,
-  whiteSpace: 'pre-wrap' as const,
-  wordBreak: 'break-all' as const,
-};
+const TRUNCATE_LENGTH = 200;
 
 const quadrantStyle: React.CSSProperties = {
   display: 'flex',
@@ -114,19 +106,30 @@ const quadrantScrollStyle: React.CSSProperties = {
   overflowY: 'auto',
 };
 
+function CodeBlockWithExpand({ value }: { value: string | Record<string, unknown> | null }) {
+  const [expanded, setExpanded] = useState(false);
+  if (value == null || value === '') return <Text as="p" variant="bodySm" tone="subdued">—</Text>;
+  const str = typeof value === 'object' ? JSON.stringify(value, null, 2) : value;
+  const isLong = str.length > TRUNCATE_LENGTH;
+  const preview = isLong && !expanded ? str.slice(0, TRUNCATE_LENGTH) + '\n…' : str;
+  return (
+    <BlockStack gap="200">
+      <pre className={expanded ? 'internal-code-block internal-code-block-expanded' : 'internal-code-block'}>{preview}</pre>
+      {isLong && (
+        <Button size="slim" variant="plain" onClick={() => setExpanded(e => !e)}>{expanded ? 'Collapse' : 'Expand'}</Button>
+      )}
+    </BlockStack>
+  );
+}
+
 function ApiLogDetailContent({ d }: { d: ApiLogDetailData }) {
-  const CodeBlock = ({ value }: { value: string | Record<string, unknown> | null }) => {
-    if (value == null || value === '') return <Text as="p" variant="bodySm" tone="subdued">—</Text>;
-    const str = typeof value === 'object' ? JSON.stringify(value, null, 2) : value;
-    return <pre style={preStyle}>{str}</pre>;
-  };
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: 16, height: 420, maxHeight: '55vh' }}>
       {/* Top left: Request body */}
       <div style={quadrantStyle}>
         <Text as="h3" variant="headingSm" fontWeight="semibold">Request body</Text>
         <div style={quadrantScrollStyle}>
-          <CodeBlock value={d.requestBody} />
+          <CodeBlockWithExpand value={d.requestBody} />
         </div>
       </div>
       {/* Right top: Details */}
@@ -146,7 +149,7 @@ function ApiLogDetailContent({ d }: { d: ApiLogDetailData }) {
             {d.requestHeaders != null && Object.keys(d.requestHeaders).length > 0 && (
               <details style={{ marginTop: 8 }}>
                 <summary style={{ cursor: 'pointer', fontSize: 12 }}>Request headers</summary>
-                <pre style={{ ...preStyle, marginTop: 4 }}>{JSON.stringify(d.requestHeaders, null, 2)}</pre>
+                <pre className="internal-code-block" style={{ marginTop: 4 }}>{JSON.stringify(d.requestHeaders, null, 2)}</pre>
               </details>
             )}
           </BlockStack>
@@ -156,7 +159,7 @@ function ApiLogDetailContent({ d }: { d: ApiLogDetailData }) {
       <div style={quadrantStyle}>
         <Text as="h3" variant="headingSm" fontWeight="semibold">Response body</Text>
         <div style={quadrantScrollStyle}>
-          <CodeBlock value={d.responseBody} />
+          <CodeBlockWithExpand value={d.responseBody} />
         </div>
       </div>
       {/* Right bottom: Additional meta */}
@@ -164,7 +167,7 @@ function ApiLogDetailContent({ d }: { d: ApiLogDetailData }) {
         <Text as="h3" variant="headingSm" fontWeight="semibold">Additional meta</Text>
         <div style={quadrantScrollStyle}>
           {d.metaRest && Object.keys(d.metaRest).length > 0 ? (
-            <pre style={preStyle}>{JSON.stringify(d.metaRest, null, 2)}</pre>
+            <CodeBlockWithExpand value={d.metaRest} />
           ) : (
             <Text as="p" variant="bodySm" tone="subdued">—</Text>
           )}
@@ -201,10 +204,11 @@ export default function InternalApiLogs() {
       subtitle={`${logs.length} entries · refreshes every 5s`}
       primaryAction={{ content: 'Refresh', onAction: () => revalidator.revalidate(), loading: revalidator.state === 'loading' }}
     >
-      <BlockStack gap="400">
+      <BlockStack gap="500">
         <Card>
           <BlockStack gap="300">
             <Text as="h2" variant="headingMd">Filters</Text>
+            <Text as="p" variant="bodySm" tone="subdued">Filter by actor, status, path search, and date range.</Text>
             <Form method="get">
               <InlineStack gap="300" wrap blockAlign="end">
                 <div style={{ minWidth: 140 }}>
@@ -222,22 +226,26 @@ export default function InternalApiLogs() {
                 <div style={{ minWidth: 160 }}>
                   <TextField label="To" name="dateTo" type="date" value={filters.dateTo?.split('T')[0] ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('dateTo', v); else p.delete('dateTo'); setParams(p); }} autoComplete="off" />
                 </div>
-                <Button submit loading={isLoading}>Apply</Button>
-                <Button url="/internal/api-logs" variant="plain">Clear</Button>
+                <Button submit variant="primary" loading={isLoading}>Apply</Button>
+                <Button url="/internal/api-logs" variant="secondary">Clear</Button>
               </InlineStack>
             </Form>
           </BlockStack>
         </Card>
 
         <Card>
-          <BlockStack gap="200">
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">API log entries</Text>
             {isLoading ? (
               <SkeletonBodyText lines={6} />
             ) : logs.length === 0 ? (
-              <Text as="p" tone="subdued">No API logs match your filters.</Text>
+              <BlockStack gap="200">
+                <Text as="p" tone="subdued">No API logs match your filters.</Text>
+                <Text as="p" variant="bodySm" tone="subdued">Widen the date range or clear filters to see more entries.</Text>
+              </BlockStack>
             ) : (
               <Box paddingBlockEnd="400">
-                <div style={{ overflowX: 'auto' }}>
+                <div className="internal-table-scroll" style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--p-color-border)', textAlign: 'left' }}>
@@ -251,19 +259,25 @@ export default function InternalApiLogs() {
                     </tr>
                   </thead>
                   <tbody>
-                    {logs.map(l => (
+                    {logs.map(l => {
+                      const methodPath = `${l.method} ${l.path}`;
+                      return (
                       <tr key={l.id} style={{ borderBottom: '1px solid var(--p-color-border-subdued)' }}>
                         <td style={{ padding: 12 }}>{new Date(l.createdAt).toLocaleString()}</td>
                         <td style={{ padding: 12 }}>{l.actor}</td>
-                        <td style={{ padding: 12, wordBreak: 'break-all' }}>{l.method} {l.path}</td>
+                        <td style={{ padding: 12 }} title={methodPath}>
+                          <span className="internal-truncate-wide">{methodPath}</span>
+                        </td>
                         <td style={{ padding: 12 }}><Badge tone={l.status >= 400 ? 'critical' : 'success'}>{String(l.status)}</Badge></td>
                         <td style={{ padding: 12 }}>{l.durationMs}</td>
-                        <td style={{ padding: 12 }}>{l.shopDomain ?? '—'}</td>
+                        <td style={{ padding: 12 }} title={l.shopDomain ?? ''}>
+                          <span className="internal-truncate">{l.shopDomain ?? '—'}</span>
+                        </td>
                         <td style={{ padding: 12 }}>
-                          <Button type="button" size="slim" variant="plain" onClick={() => setSelectedId(l.id)}>View</Button>
+                          <Button type="button" size="slim" variant="secondary" onClick={() => setSelectedId(l.id)}>View</Button>
                         </td>
                       </tr>
-                    ))}
+                    );})}
                   </tbody>
                 </table>
                 </div>
@@ -278,6 +292,7 @@ export default function InternalApiLogs() {
         onClose={() => setSelectedId(null)}
         title="API log detail"
         large
+        secondaryActions={[{ content: 'Close', onAction: () => setSelectedId(null) }]}
       >
         <Modal.Section>
           {fetcher.state === 'loading' && !detailData ? (

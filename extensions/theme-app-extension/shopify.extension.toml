@@ -1,0 +1,9 @@
+api_version = "2026-01"
+
+[[extensions]]
+type = "theme_app_extension"
+name = "SuperApp Theme Modules"
+handle = "superapp-theme-modules"
+
+[extensions.capabilities]
+# App embed block reads shop metafield superapp.theme.modules (set by app on publish)

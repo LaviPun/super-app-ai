@@ -71,7 +71,48 @@ Avoid adding `customer-account.page.render` to an extension that already registe
 
 ---
 
-## 3. `shopify app deploy` in CI / non-interactive
+## 3. Admin Order Summary / Admin Block not showing on the order page
+
+**Templates:** “Admin Block”, “Admin Order Support Card”, or any module with target `admin.order-details.block.render` (or other `admin.*` targets).
+
+### Symptoms
+
+- You create a module from an Admin template (e.g. “Admin Block” / “Order Details Block”) and publish it.
+- The module shows as **Published** in the app, but **nothing appears** on the Shopify Admin order page (Orders → [order] → no custom block/card).
+
+### Root cause (two parts)
+
+1. **No Admin UI extension is deployed**  
+   The app only has a **Customer Account UI** extension (`extensions/customer-account-ui`), which registers:
+   - `customer-account.order-index.block.render`
+   - `customer-account.order-status.block.render`
+   - `customer-account.profile.block.render`  
+   There is **no extension** that registers `admin.order-details.block.render` (or any `admin.*` target). So Shopify Admin has nowhere to render the block.
+
+2. **Compiler does not deploy admin blocks**  
+   For module type `admin.block` (and `pos.extension`, etc.), the compiler only returns an `AUDIT` op — it does **not** write any metafield or config that an Admin extension could read. So even if an Admin UI extension were added later, the app would still need a compiler path that writes admin-block config (e.g. to a metafield) and that extension would need to read it.
+
+### Where things *do* show
+
+- **Customer Account** (customer-facing):  
+  Use templates that target **Customer Account** (e.g. “Order status block”, “Order index block”, “Profile block”). Those are compiled to the `superapp.customer_account` / `blocks` metafield and **are** rendered by the existing Customer Account UI extension on:
+  - **Order status page** (customer view of a single order)
+  - **Order index page** (customer’s order list)
+  - **Profile page**
+
+So “order” in **Customer Account** = the **customer’s** order status/index pages. “Order” in **Admin** = the **merchant’s** order details page in Shopify Admin. Only the former is implemented today.
+
+### What would be needed for Admin order blocks to show
+
+1. Add an **Admin UI extension** (Polaris Admin Extensions) that registers e.g. `admin.order-details.block.render` in its `shopify.extension.toml`.
+2. Implement a **compiler path** for `admin.block` that writes config (e.g. shop metafield) that this extension reads.
+3. Build and deploy that extension with `shopify app deploy`.
+
+Until then, use **Customer Account** templates if you want blocks to appear on the **customer** order status/index pages.
+
+---
+
+## 4. `shopify app deploy` in CI / non-interactive
 
 ### Symptoms
 
@@ -90,7 +131,7 @@ Use the same in CI or when piping input. In an interactive terminal you can omit
 
 ---
 
-## 4. `/api/publish` silently fails — "Missing moduleId"
+## 5. `/api/publish` silently fails — "Missing moduleId"
 
 **Route:** `apps/web/app/routes/api.publish.tsx`
 
@@ -119,7 +160,7 @@ A second issue: only `theme.banner` was routed to `{ kind: 'THEME' }` deploy tar
 
 ---
 
-## 5. Customer Account UI extension — script exceeds 64 KB limit
+## 6. Customer Account UI extension — script exceeds 64 KB limit
 
 **Extension:** `extensions/customer-account-ui`
 
@@ -160,7 +201,7 @@ After migration, the bundle stays under 64 KB and deploy/dev succeed.
 
 ---
 
-## 6. Embedded app: "This content is blocked. Contact the site owner to fix the issue."
+## 7. Embedded app: "This content is blocked. Contact the site owner to fix the issue."
 
 **Context:** Opening the app from Shopify Admin (Apps → Super App AI) shows a blank iframe with this message.
 
@@ -330,7 +371,80 @@ The server has no viewport, so Polaris Page/Header renders without `mobileView`.
 
 ---
 
-## 11. Adding new bugs to this doc
+## 11. Module detail page: `ReferenceError: Cannot access 'isPublishing' before initialization`
+
+**Route:** `apps/web/app/routes/modules.$moduleId.tsx`
+
+### Symptoms
+
+- Opening any module detail page crashes the embedded app with **"Application Error"**.
+- Server log: `ReferenceError: Cannot access 'isPublishing' before initialization at ModuleDetail (modules.$moduleId.tsx:107:...)`.
+
+### Root cause
+
+JavaScript `const` declarations are in the Temporal Dead Zone (TDZ) — they cannot be referenced before their declaration line, even within the same function body. The file had:
+
+```ts
+const isSaving = nav.state !== 'idle' || isPublishing;  // line 107 — reads isPublishing
+// ...many lines later...
+const publishFetcher = useFetcher();
+const isPublishing = publishFetcher.state !== 'idle';    // line 122 — too late
+```
+
+`isPublishing` is declared after `isSaving`, so `isSaving` throws a TDZ error at runtime.
+
+React hooks have the added constraint that their **call order must be stable** — reordering hooks changes the call order, which is safe as long as no hooks are added or removed conditionally. Reordering `const`-derivations of hook results is always safe.
+
+### Fix
+
+Move all `useFetcher` calls and their derived booleans **above** any code that references them:
+
+```ts
+const nav = useNavigation();
+const modifyFetcher = useFetcher<...>();
+const modifyConfirmFetcher = useFetcher<...>();
+const publishFetcher = useFetcher<{ error?: string }>();
+const PublishForm = publishFetcher.Form;
+const isPublishing = publishFetcher.state !== 'idle';
+const isModifying = modifyFetcher.state !== 'idle';
+const isModifyConfirming = modifyConfirmFetcher.state !== 'idle';
+const isSaving = nav.state !== 'idle' || publishFetcher.state !== 'idle';
+```
+
+Also: after changing a Remix file, **restart the dev server** — HMR does not always recompile cleanly and may serve stale compiled output that still contains the error.
+
+---
+
+## 12. Publish 500 — "Theme not found" (REST API deprecated)
+
+**Route:** `apps/web/app/services/shopify/theme.service.ts`
+
+### Symptoms
+
+- Publish returns HTTP 500 with `{"error":"Theme 133507481791 not found. Please check the theme ID."}`
+- Theme validation passes (theme exists in `listThemes()`), but asset upsert fails
+- Preview shows only a text label for `theme.effect` modules — no particles or animations
+
+### Root cause
+
+1. **REST API deprecated:** `ThemeService.upsertAsset()` and `deleteAsset()` used `this.admin.rest.post/delete` with path `themes/{id}/assets.json`. Shopify REST theme asset endpoints are deprecated in API version `2026-01` and return 404. The `normalizeThemeApiError` mapped 404 → "Theme not found".
+
+2. **Preview text-only:** The `PreviewService.effect()` method rendered a text description (`"Effect: snowfall (medium, normal)"`) instead of actual CSS particle animations.
+
+### Fix
+
+1. **Migrated ThemeService to GraphQL:** `upsertAsset` now uses `themeFilesUpsert` mutation; `deleteAsset` uses `themeFilesDelete`. Numeric theme IDs are converted to GID format (`gid://shopify/OnlineStoreTheme/{id}`) via `toGid()` helper. GraphQL `userErrors` are checked and thrown as `Error`.
+
+2. **Effect preview with animations:** `PreviewService.effect()` now renders actual particle `<div>` elements with CSS `@keyframes superapp-effect-fall` animation matching the compiled Liquid/CSS output (particle count from intensity, animation speed from speed config, snowfall vs confetti particle styles).
+
+### Reference
+
+- Shopify GraphQL Admin API: `themeFilesUpsert` / `themeFilesDelete` mutations
+- GID format: `gid://shopify/OnlineStoreTheme/{numeric_id}`
+
+---
+
+## 13. Adding new bugs to this doc
 
 When you hit a new recurring or non-obvious bug:
 

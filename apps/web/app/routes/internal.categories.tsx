@@ -107,8 +107,8 @@ export default function InternalCategories() {
   const isSaving = navigation.state !== 'idle';
 
   return (
-    <Page title="Type categories" subtitle="Configure display names, visibility, and add new categories.">
-      <BlockStack gap="400">
+    <Page title="Categories" subtitle="Configure display names, visibility, and add new categories.">
+      <BlockStack gap="500">
         {actionData && 'toast' in actionData && (
           <Banner tone="success">{(actionData as { toast: { message: string } }).toast.message}</Banner>
         )}
@@ -154,7 +154,7 @@ export default function InternalCategories() {
                   <input type="hidden" name="enabled" value={newEnabled ? 'true' : 'false'} />
                 </div>
                 <div style={{ paddingTop: 24 }}>
-                  <Button submit size="slim">Add category</Button>
+                  <Button submit size="slim" variant="secondary">Add category</Button>
                 </div>
               </InlineStack>
             </Form>
@@ -205,6 +205,8 @@ export default function InternalCategories() {
                   border: '1px solid var(--p-color-border)',
                   borderRadius: 6,
                   boxSizing: 'border-box',
+                  maxHeight: 320,
+                  overflowY: 'auto',
                 }}
                 spellCheck={false}
                 aria-label="Category overrides JSON"

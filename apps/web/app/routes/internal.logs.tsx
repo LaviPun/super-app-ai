@@ -66,10 +66,11 @@ export default function InternalLogs() {
 
   return (
     <Page title="Error logs" subtitle={`${logs.length} entries`}>
-      <BlockStack gap="400">
+      <BlockStack gap="500">
         <Card>
           <BlockStack gap="300">
             <Text as="h2" variant="headingMd">Filters</Text>
+            <Text as="p" variant="bodySm" tone="subdued">Filter by level, message/route search, and date range.</Text>
             <Form method="get">
               <InlineStack gap="300" wrap blockAlign="end">
                 <div style={{ minWidth: 140 }}>
@@ -105,15 +106,16 @@ export default function InternalLogs() {
                 <div style={{ minWidth: 160 }}>
                   <TextField label="To" name="dateTo" type="date" value={filters.dateTo?.split('T')[0] ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('dateTo', v); else p.delete('dateTo'); setParams(p); }} autoComplete="off" />
                 </div>
-                <Button submit loading={isLoading}>Apply</Button>
-                <Button url="/internal/logs" variant="plain">Clear</Button>
+                <Button submit variant="primary" loading={isLoading}>Apply</Button>
+                <Button url="/internal/logs" variant="secondary">Clear</Button>
               </InlineStack>
             </Form>
           </BlockStack>
         </Card>
 
         <Card>
-          <BlockStack gap="200">
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">Error log entries</Text>
             {isLoading ? (
               <SkeletonBodyText lines={6} />
             ) : logs.length === 0 ? (
@@ -122,17 +124,19 @@ export default function InternalLogs() {
                 <Text as="p" variant="bodySm" tone="subdued">Errors appear here when the app writes to the error log service (e.g. ErrorLogService.error/warn/info). If you never see entries, no errors have been recorded in the selected range. Widen the date range or clear filters to check.</Text>
               </BlockStack>
             ) : (
-              <DataTable
-                columnContentTypes={['text', 'text', 'text', 'text', 'text']}
-                headings={['Time', 'Level', 'Message', 'Store', 'Route']}
-                rows={logs.map(l => [
-                  new Date(l.createdAt).toLocaleString(),
-                  <Badge key={l.id} tone={l.level === 'ERROR' ? 'critical' : l.level === 'WARN' ? 'warning' : 'info'}>{l.level}</Badge>,
-                  l.message,
-                  l.shopDomain ?? '—',
-                  l.route ?? '—',
-                ])}
-              />
+              <div className="internal-table-scroll">
+                <DataTable
+                  columnContentTypes={['text', 'text', 'text', 'text', 'text']}
+                  headings={['Time', 'Level', 'Message', 'Store', 'Route']}
+                  rows={logs.map(l => [
+                    new Date(l.createdAt).toLocaleString(),
+                    <Badge key={l.id} tone={l.level === 'ERROR' ? 'critical' : l.level === 'WARN' ? 'warning' : 'info'}>{l.level}</Badge>,
+                    <span key={`msg-${l.id}`} className="internal-truncate-wide" title={l.message}>{l.message.length > 120 ? l.message.slice(0, 120) + '…' : l.message}</span>,
+                    <span key={`store-${l.id}`} className="internal-truncate" title={l.shopDomain ?? ''}>{l.shopDomain ?? '—'}</span>,
+                    <span key={`route-${l.id}`} className="internal-truncate-wide" title={l.route ?? ''}>{l.route ? (l.route.length > 80 ? l.route.slice(0, 80) + '…' : l.route) : '—'}</span>,
+                  ])}
+                />
+              </div>
             )}
           </BlockStack>
         </Card>

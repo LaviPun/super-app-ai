@@ -1,10 +1,10 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, useFetcher, Link } from '@remix-run/react';
+import { useLoaderData, useFetcher, Link, useRevalidator } from '@remix-run/react';
 import {
   Page, Card, BlockStack, Text, Button, Badge, InlineStack,
   InlineGrid, Banner, TextField, Modal, EmptyState, DataTable, Divider,
 } from '@shopify/polaris';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { DataStoreService, PREDEFINED_STORES } from '~/services/data/data-store.service';
@@ -24,7 +24,18 @@ export async function loader({ request }: { request: Request }) {
 export default function DataIndex() {
   const { stores, predefined } = useLoaderData<typeof loader>();
   const fetcher = useFetcher();
+  const { revalidate } = useRevalidator();
   const [customModalOpen, setCustomModalOpen] = useState(false);
+
+  useEffect(() => {
+    // Reflect agent writes: poll every 30s + revalidate on window focus
+    const interval = setInterval(revalidate, 30_000);
+    window.addEventListener('focus', revalidate);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', revalidate);
+    };
+  }, [revalidate]);
   const [customKey, setCustomKey] = useState('');
   const [customLabel, setCustomLabel] = useState('');
   const [customDesc, setCustomDesc] = useState('');
@@ -73,10 +84,9 @@ export default function DataIndex() {
           </Text>
         </Banner>
 
-        {/* ─── Predefined stores ─── */}
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Suggested Data Stores</Text>
+        <Card padding="400">
+          <BlockStack gap="400">
+            <Text as="h2" variant="headingMd" fontWeight="semibold">Suggested data stores</Text>
             <Text as="p" tone="subdued">
               Enable predefined data stores to start collecting data. Each store can be used by flows and modules.
             </Text>
@@ -122,7 +132,7 @@ export default function DataIndex() {
             </InlineStack>
             {customStores.length === 0 ? (
               <EmptyState heading="No custom stores" image="">
-                <p>Create a custom data store for any data your app needs.</p>
+                <Text as="p" tone="subdued">Create a custom data store for any data your app needs.</Text>
               </EmptyState>
             ) : (
               <DataTable

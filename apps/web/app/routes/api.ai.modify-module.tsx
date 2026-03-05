@@ -8,9 +8,10 @@ import { getPrisma } from '~/db.server';
 import { JobService } from '~/services/jobs/job.service';
 import { withApiLogging } from '~/services/observability/api-log.service';
 import { QuotaService } from '~/services/billing/quota.service';
+import { CapabilityService } from '~/services/shopify/capability.service';
 
 export async function action({ request }: { request: Request }) {
-  const { session } = await shopify.authenticate.admin(request);
+  const { session, admin } = await shopify.authenticate.admin(request);
 
   return withApiLogging(
     { actor: 'MERCHANT', method: request.method, path: '/api/ai/modify-module', request, captureRequestBody: true, captureResponseBody: true },
@@ -34,6 +35,18 @@ export async function action({ request }: { request: Request }) {
       const quotaService = new QuotaService();
       await quotaService.enforce(shopRow.id, 'aiRequest');
 
+      // Inject plan tier + workspace context so AI respects plan capabilities
+      const caps = new CapabilityService();
+      let planTier = shopRow.planTier ?? 'UNKNOWN';
+      if (planTier === 'UNKNOWN') planTier = await caps.refreshPlanTier(session.shop, admin);
+      const [totalModules, publishedModules] = await Promise.all([
+        prisma.module.count({ where: { shopId: shopRow.id } }),
+        prisma.module.count({ where: { shopId: shopRow.id, status: 'PUBLISHED' } }),
+      ]);
+      const workspaceContext = planTier !== 'UNKNOWN'
+        ? `Plan tier: ${planTier}. Workspace: ${totalModules} module(s) (${publishedModules} published). Keep module type unchanged.`
+        : `Workspace: ${totalModules} module(s) (${publishedModules} published). Keep module type unchanged.`;
+
       const moduleService = new ModuleService();
       const mod = await moduleService.getModule(session.shop, moduleId);
       if (!mod) return json({ error: 'Module not found' }, { status: 404 });
@@ -48,7 +61,7 @@ export async function action({ request }: { request: Request }) {
       await jobs.start(job.id);
 
       try {
-        const recipeOptions = await modifyRecipeSpecOptions(currentSpec, instruction, {
+        const recipeOptions = await modifyRecipeSpecOptions(currentSpec, `${workspaceContext}\n\nInstruction: ${instruction}`, {
           shopId: shopRow.id,
           maxAttempts: 2,
         });

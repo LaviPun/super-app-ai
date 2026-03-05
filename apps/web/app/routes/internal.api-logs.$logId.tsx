@@ -1,5 +1,6 @@
 import { json } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
+import { useState } from 'react';
 import {
   Page, Card, BlockStack, Text, InlineStack, Button, Divider,
 } from '@shopify/polaris';
@@ -53,28 +54,22 @@ export async function loader({ request, params }: { request: Request; params: { 
   });
 }
 
+const CODE_TRUNCATE = 200;
+
 function CodeBlock({ title, value }: { title: string; value: string | Record<string, unknown> | null }) {
+  const [expanded, setExpanded] = useState(false);
   if (value == null || value === '') return null;
   const str = typeof value === 'object' ? JSON.stringify(value, null, 2) : value;
+  const isLong = str.length > CODE_TRUNCATE;
+  const preview = isLong && !expanded ? str.slice(0, CODE_TRUNCATE) + '\n…' : str;
   return (
-    <>
+    <BlockStack gap="200">
       <Text as="h3" variant="headingSm">{title}</Text>
-      <pre
-        style={{
-          margin: 0,
-          padding: 12,
-          background: 'var(--p-color-bg-surface-secondary)',
-          borderRadius: 8,
-          fontSize: 12,
-          overflow: 'auto',
-          maxHeight: 300,
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-all',
-        }}
-      >
-        {str}
-      </pre>
-    </>
+      <pre className={expanded ? 'internal-code-block internal-code-block-expanded' : 'internal-code-block'}>{preview}</pre>
+      {isLong && (
+        <Button size="slim" variant="plain" onClick={() => setExpanded(e => !e)}>{expanded ? 'Collapse' : 'Expand'}</Button>
+      )}
+    </BlockStack>
   );
 }
 
@@ -86,15 +81,15 @@ export default function InternalApiLogDetail() {
       title="API log detail"
       backAction={{ content: 'API logs', url: '/internal/api-logs' }}
     >
-      <BlockStack gap="400">
+      <BlockStack gap="500">
         <Card>
-          <BlockStack gap="300">
+          <BlockStack gap="400">
             <InlineStack gap="200" blockAlign="center">
               <Text as="h2" variant="headingMd">Request</Text>
               <Text as="p" variant="bodySm" tone="subdued">ID: {d.id}</Text>
             </InlineStack>
             <Divider />
-            <BlockStack gap="200">
+            <BlockStack gap="300">
               <Text as="p" variant="bodySm"><strong>Time</strong>: {new Date(d.createdAt).toLocaleString()}</Text>
               <Text as="p" variant="bodySm"><strong>Method</strong>: {d.method}</Text>
               <Text as="p" variant="bodySm"><strong>Path</strong>: {d.path}</Text>
@@ -115,24 +110,12 @@ export default function InternalApiLogDetail() {
             {d.metaRest && (
               <>
                 <Divider />
-                <Text as="h3" variant="headingSm">Additional meta</Text>
-                <pre
-                  style={{
-                    margin: 0,
-                    padding: 12,
-                    background: 'var(--p-color-bg-surface-secondary)',
-                    borderRadius: 8,
-                    fontSize: 12,
-                    overflow: 'auto',
-                    maxHeight: 200,
-                  }}
-                >
-                  {JSON.stringify(d.metaRest, null, 2)}
-                </pre>
+                <CodeBlock title="Additional meta" value={d.metaRest} />
               </>
             )}
+            <Divider />
             <InlineStack gap="200" blockAlign="start">
-              <Button url="/internal/api-logs">Back to API logs</Button>
+              <Button url="/internal/api-logs" variant="primary">Back to API logs</Button>
             </InlineStack>
           </BlockStack>
         </Card>

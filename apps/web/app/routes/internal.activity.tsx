@@ -70,15 +70,7 @@ type ActivityDetailData = {
   createdAt: string;
 };
 
-const activityPreStyle = {
-  margin: 0,
-  padding: 12,
-  background: 'var(--p-color-bg-surface-secondary)',
-  borderRadius: 8,
-  fontSize: 12,
-  whiteSpace: 'pre-wrap' as const,
-  wordBreak: 'break-all' as const,
-};
+const ACTIVITY_TRUNCATE = 200;
 
 const activityQuadrantStyle: React.CSSProperties = {
   display: 'flex',
@@ -95,17 +87,30 @@ const activityQuadrantScrollStyle: React.CSSProperties = {
   overflowY: 'auto',
 };
 
+function ActivityCodeWithExpand({ value }: { value: string | null }) {
+  const [expanded, setExpanded] = useState(false);
+  if (value == null || value === '') return <Text as="p" variant="bodySm" tone="subdued">—</Text>;
+  const isLong = value.length > ACTIVITY_TRUNCATE;
+  const preview = isLong && !expanded ? value.slice(0, ACTIVITY_TRUNCATE) + '\n…' : value;
+  return (
+    <BlockStack gap="200">
+      <pre className={expanded ? 'internal-code-block internal-code-block-expanded' : 'internal-code-block'}>{preview}</pre>
+      {isLong && (
+        <Button size="slim" variant="plain" onClick={() => setExpanded(e => !e)}>{expanded ? 'Collapse' : 'Expand'}</Button>
+      )}
+    </BlockStack>
+  );
+}
+
 function ActivityDetailContent({ d }: { d: ActivityDetailData }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: 16, height: 420, maxHeight: '55vh' }}>
-      {/* Top left: Body / Details (JSON) */}
       <div style={activityQuadrantStyle}>
         <Text as="h3" variant="headingSm" fontWeight="semibold">Request / Body (JSON)</Text>
         <div style={activityQuadrantScrollStyle}>
-          {d.detailsJson ? <pre style={activityPreStyle}>{d.detailsJson}</pre> : <Text as="p" variant="bodySm" tone="subdued">—</Text>}
+          <ActivityCodeWithExpand value={d.detailsJson} />
         </div>
       </div>
-      {/* Right top: Details */}
       <div style={activityQuadrantStyle}>
         <Text as="h3" variant="headingSm" fontWeight="semibold">Details</Text>
         <div style={activityQuadrantScrollStyle}>
@@ -119,14 +124,12 @@ function ActivityDetailContent({ d }: { d: ActivityDetailData }) {
           </BlockStack>
         </div>
       </div>
-      {/* Left bottom: Response / Details (raw) */}
       <div style={activityQuadrantStyle}>
         <Text as="h3" variant="headingSm" fontWeight="semibold">Response / Details (raw)</Text>
         <div style={activityQuadrantScrollStyle}>
-          {d.detailsRaw ? <pre style={activityPreStyle}>{d.detailsRaw}</pre> : <Text as="p" variant="bodySm" tone="subdued">—</Text>}
+          <ActivityCodeWithExpand value={d.detailsRaw} />
         </div>
       </div>
-      {/* Right bottom: Additional meta */}
       <div style={activityQuadrantStyle}>
         <Text as="h3" variant="headingSm" fontWeight="semibold">Additional meta</Text>
         <div style={activityQuadrantScrollStyle}>
@@ -169,10 +172,11 @@ export default function InternalActivity() {
       subtitle={`${logs.length} entries · refreshes every 5s`}
       primaryAction={{ content: 'Refresh', onAction: () => revalidator.revalidate(), loading: revalidator.state === 'loading' }}
     >
-      <BlockStack gap="400">
+      <BlockStack gap="500">
         <Card>
           <BlockStack gap="300">
             <Text as="h2" variant="headingMd">Filters</Text>
+            <Text as="p" variant="bodySm" tone="subdued">Filter by actor, action, search, and date range.</Text>
             <Form method="get">
               <InlineStack gap="300" wrap blockAlign="end">
                 <div style={{ minWidth: 160 }}>
@@ -243,23 +247,26 @@ export default function InternalActivity() {
                     autoComplete="off"
                   />
                 </div>
-                <Button submit loading={isLoading}>Apply filters</Button>
-                <Button url="/internal/activity" variant="plain">Clear</Button>
+                <Button submit variant="primary" loading={isLoading}>Apply filters</Button>
+                <Button url="/internal/activity" variant="secondary">Clear</Button>
               </InlineStack>
             </Form>
           </BlockStack>
         </Card>
 
         <Card>
-          <BlockStack gap="200">
-            <Text as="h2" variant="headingMd">Activity entries ({logs.length})</Text>
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">Activity entries</Text>
             {isLoading ? (
               <SkeletonBodyText lines={8} />
             ) : logs.length === 0 ? (
-              <Text as="p" tone="subdued">No activity recorded yet. Actions will appear here as users interact with the app.</Text>
+              <BlockStack gap="200">
+                <Text as="p" tone="subdued">No activity recorded yet.</Text>
+                <Text as="p" variant="bodySm" tone="subdued">Actions will appear here as users interact with the app. Widen the date range or clear filters to see more.</Text>
+              </BlockStack>
             ) : (
               <Box paddingBlockEnd="400">
-                <div style={{ overflowX: 'auto' }}>
+                <div className="internal-table-scroll" style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--p-color-border)', textAlign: 'left' }}>
@@ -278,17 +285,23 @@ export default function InternalActivity() {
                         <td style={{ padding: 12 }}>{new Date(l.createdAt).toLocaleString()}</td>
                         <td style={{ padding: 12 }}><Badge tone={toneForActor(l.actor)}>{l.actor}</Badge></td>
                         <td style={{ padding: 12 }}>{l.action}</td>
-                        <td style={{ padding: 12, wordBreak: 'break-all' }}>{l.resource ?? '—'}</td>
-                        <td style={{ padding: 12 }}>{l.shopDomain ?? '—'}</td>
-                        <td style={{ padding: 12 }}>
+                        <td style={{ padding: 12 }} title={l.resource ?? ''}>
+                          <span className="internal-truncate-wide">{l.resource ?? '—'}</span>
+                        </td>
+                        <td style={{ padding: 12 }} title={l.shopDomain ?? ''}>
+                          <span className="internal-truncate">{l.shopDomain ?? '—'}</span>
+                        </td>
+                        <td style={{ padding: 12 }} title={l.details ?? ''}>
                           {l.details ? (
-                            <Text as="span" variant="bodySm" tone="subdued">
-                              {l.details.length > 80 ? l.details.slice(0, 80) + '...' : l.details}
-                            </Text>
+                            <span className="internal-truncate-wide">
+                              <Text as="span" variant="bodySm" tone="subdued">
+                                {l.details.length > 80 ? l.details.slice(0, 80) + '…' : l.details}
+                              </Text>
+                            </span>
                           ) : '—'}
                         </td>
                         <td style={{ padding: 12 }}>
-                          <Button type="button" size="slim" variant="plain" onClick={() => setSelectedId(l.id)}>View</Button>
+                          <Button type="button" size="slim" variant="secondary" onClick={() => setSelectedId(l.id)}>View</Button>
                         </td>
                       </tr>
                     ))}
@@ -306,6 +319,7 @@ export default function InternalActivity() {
         onClose={() => setSelectedId(null)}
         title="Activity detail"
         large
+        secondaryActions={[{ content: 'Close', onAction: () => setSelectedId(null) }]}
       >
         <Modal.Section>
           {fetcher.state === 'loading' && !detailData ? (

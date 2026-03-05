@@ -7,6 +7,7 @@ import type {
   ValidationResult,
 } from '@superapp/core';
 import { connectorError, connectorSuccess } from '@superapp/core';
+import { adminGraphqlUrl } from '~/shopify-api.server';
 
 /**
  * Built-in Shopify connector — executes Shopify Admin API operations.
@@ -134,7 +135,7 @@ export class ShopifyConnector implements Connector {
       'Content-Type': 'application/json',
       'X-Shopify-Access-Token': auth.accessToken,
     };
-    const apiUrl = `https://${auth.shop}/admin/api/2025-01/graphql.json`;
+    const apiUrl = adminGraphqlUrl(auth.shop);
 
     switch (req.operation) {
       case 'order.addTags': {
@@ -145,7 +146,7 @@ export class ShopifyConnector implements Connector {
 
       case 'order.addNote': {
         const { orderId, note } = req.inputs;
-        const mutation = `mutation { orderUpdate(input: { id: "${orderId}", note: "${String(note).replace(/"/g, '\\"')}" }) { order { id } userErrors { field message } } }`;
+        const mutation = `mutation { orderUpdate(input: { id: "${orderId}", note: ${JSON.stringify(note)} }) { order { id } userErrors { field message } } }`;
         return this.graphql(apiUrl, headers, mutation, req.timeoutMs);
       }
 
@@ -157,8 +158,18 @@ export class ShopifyConnector implements Connector {
 
       case 'metafield.set': {
         const { namespace, key, value, type } = req.inputs;
-        const mutation = `mutation { metafieldsSet(metafields: [{ ownerId: "gid://shopify/Shop/1", namespace: "${namespace}", key: "${key}", value: "${String(value).replace(/"/g, '\\"')}", type: "${type}" }]) { metafields { id } userErrors { field message } } }`;
-        return this.graphql(apiUrl, headers, mutation, req.timeoutMs);
+        const shopGid = await this.getShopGid(apiUrl, headers, req.timeoutMs);
+        if (!shopGid) return connectorError('UPSTREAM', 'Failed to resolve shop ID');
+        const mutation = `#graphql
+          mutation MetafieldsSet($metafields: [MetafieldsSetInput!]!) {
+            metafieldsSet(metafields: $metafields) {
+              userErrors { field message }
+            }
+          }
+        `;
+        return this.graphql(apiUrl, headers, mutation, req.timeoutMs, {
+          metafields: [{ ownerId: shopGid, namespace, key, type, value }],
+        });
       }
 
       default:
@@ -166,12 +177,46 @@ export class ShopifyConnector implements Connector {
     }
   }
 
+  private async getShopGid(
+    url: string,
+    headers: Record<string, string>,
+    timeoutMs: number,
+  ): Promise<string | null> {
+    const query = `#graphql query ShopId { shop { id } }`;
+    const out = await this.graphqlInternal(url, headers, query, timeoutMs, undefined);
+    if (!out.ok || !out.body) return null;
+    const data = out.body as { data?: { shop?: { id?: string } } };
+    return data?.data?.shop?.id ?? null;
+  }
+
   private async graphql(
     url: string,
     headers: Record<string, string>,
     query: string,
     timeoutMs: number,
+    variables?: Record<string, unknown>,
   ): Promise<InvokeResult> {
+    const start = Date.now();
+    const res = await this.graphqlInternal(url, headers, query, timeoutMs, variables);
+    if (!res.ok) return res.result;
+    return connectorSuccess(res.body as Record<string, unknown>, {
+      statusCode: 200,
+      meta: { durationMs: res.durationMs },
+    });
+  }
+
+  private async graphqlInternal(
+    url: string,
+    headers: Record<string, string>,
+    query: string,
+    timeoutMs: number,
+    variables?: Record<string, unknown>,
+  ): Promise<{
+    ok: boolean;
+    result: InvokeResult;
+    body?: Record<string, unknown>;
+    durationMs: number;
+  }> {
     const start = Date.now();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -180,37 +225,49 @@ export class ShopifyConnector implements Connector {
       const res = await fetch(url, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ query }),
+        body: JSON.stringify(variables ? { query, variables } : { query }),
         signal: controller.signal,
       });
 
       const body = await res.json() as Record<string, unknown>;
+      const durationMs = Date.now() - start;
 
       if (res.status === 429) {
         const retryAfter = res.headers.get('Retry-After');
-        return connectorError('RATE_LIMIT', 'Shopify rate limited', {
-          retryable: true,
-          retryAfterMs: retryAfter ? parseInt(retryAfter, 10) * 1000 : 2000,
-        });
+        return {
+          ok: false,
+          result: connectorError('RATE_LIMIT', 'Shopify rate limited', {
+            retryable: true,
+            retryAfterMs: retryAfter ? parseInt(retryAfter, 10) * 1000 : 2000,
+          }),
+          durationMs,
+        };
       }
 
       if (res.status >= 500) {
-        return connectorError('UPSTREAM', `Shopify returned ${res.status}`, { retryable: true });
+        return {
+          ok: false,
+          result: connectorError('UPSTREAM', `Shopify returned ${res.status}`, { retryable: true }),
+          durationMs,
+        };
       }
 
       if (!res.ok) {
-        return connectorError('UPSTREAM', `Shopify returned ${res.status}: ${JSON.stringify(body)}`);
+        return {
+          ok: false,
+          result: connectorError('UPSTREAM', `Shopify returned ${res.status}: ${JSON.stringify(body)}`),
+          durationMs,
+        };
       }
 
-      return connectorSuccess(body as Record<string, unknown>, {
-        statusCode: res.status,
-        meta: { durationMs: Date.now() - start },
-      });
+      return { ok: true, result: connectorSuccess(body as Record<string, unknown>, { statusCode: res.status, meta: { durationMs } }), body, durationMs };
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        return connectorError('TIMEOUT', 'Request timed out', { retryable: true });
-      }
-      return connectorError('NETWORK', err instanceof Error ? err.message : String(err), { retryable: true });
+      const durationMs = Date.now() - start;
+      const result =
+        err instanceof DOMException && err.name === 'AbortError'
+          ? connectorError('TIMEOUT', 'Request timed out', { retryable: true })
+          : connectorError('NETWORK', err instanceof Error ? err.message : String(err), { retryable: true });
+      return { ok: false, result, durationMs };
     } finally {
       clearTimeout(timer);
     }

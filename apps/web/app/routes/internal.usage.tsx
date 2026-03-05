@@ -63,8 +63,10 @@ export default function InternalUsage() {
 
   return (
     <Page title="AI Usage & Costs" subtitle="Filterable by date range and action">
-      <BlockStack gap="400">
-        <InlineGrid columns={{ xs: 1, sm: 2, md: 4 }} gap="400">
+      <BlockStack gap="500">
+        <BlockStack gap="300">
+          <Text as="h2" variant="headingMd">Summary</Text>
+          <InlineGrid columns={{ xs: 1, sm: 2, md: 4 }} gap="400">
           <Card>
             <BlockStack gap="100">
               <Text as="p" tone="subdued" variant="bodySm">Total requests</Text>
@@ -90,10 +92,12 @@ export default function InternalUsage() {
             </BlockStack>
           </Card>
         </InlineGrid>
+        </BlockStack>
 
         <Card>
           <BlockStack gap="300">
             <Text as="h2" variant="headingMd">Filters</Text>
+            <Text as="p" variant="bodySm" tone="subdued">Filter by action search and date range.</Text>
             <Form method="get">
               <InlineStack gap="300" wrap blockAlign="end">
                 <div style={{ minWidth: 200 }}>
@@ -105,37 +109,39 @@ export default function InternalUsage() {
                 <div style={{ minWidth: 160 }}>
                   <TextField label="To" name="dateTo" type="date" value={filters.dateTo?.split('T')[0] ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('dateTo', v); else p.delete('dateTo'); setParams(p); }} autoComplete="off" />
                 </div>
-                <Button submit loading={isLoading}>Apply</Button>
-                <Button url="/internal/usage" variant="plain">Clear</Button>
+                <Button submit variant="primary" loading={isLoading}>Apply</Button>
+                <Button url="/internal/usage" variant="secondary">Clear</Button>
               </InlineStack>
             </Form>
           </BlockStack>
         </Card>
 
         <Card>
-          <BlockStack gap="200">
-            <Text as="h2" variant="headingMd">Usage log ({rows.length})</Text>
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">Usage log</Text>
             {isLoading ? (
               <SkeletonBodyText lines={6} />
             ) : rows.length === 0 ? (
               <BlockStack gap="200">
                 <Text as="p" tone="subdued">No AI usage in the selected range.</Text>
-                <Text as="p" variant="bodySm" tone="subdued">Usage is recorded when AI generation, mapping suggestions, or other AI actions run. Default range is last 30 days. Widen the date range or clear filters. Ensure at least one AI provider is active and that merchants (or you) have triggered AI calls.</Text>
+                <Text as="p" variant="bodySm" tone="subdued">Usage is recorded when AI actions run. Default range is last 30 days. Widen the date range or ensure an AI provider is active and that AI calls have been triggered.</Text>
               </BlockStack>
             ) : (
-              <DataTable
-                columnContentTypes={['text', 'text', 'text', 'numeric', 'numeric', 'numeric', 'text']}
-                headings={['Time', 'Action', 'Provider', 'Requests', 'Tokens in', 'Tokens out', 'Cost']}
-                rows={rows.map(r => [
-                  new Date(r.createdAt).toLocaleString(),
-                  r.action,
-                  r.providerName,
-                  r.requestCount,
-                  r.tokensIn,
-                  r.tokensOut,
-                  `$${(r.costCents / 100).toFixed(3)}`,
-                ])}
-              />
+              <div className="internal-table-scroll">
+                <DataTable
+                  columnContentTypes={['text', 'text', 'text', 'numeric', 'numeric', 'numeric', 'text']}
+                  headings={['Time', 'Action', 'Provider', 'Requests', 'Tokens in', 'Tokens out', 'Cost']}
+                  rows={rows.map(r => [
+                    new Date(r.createdAt).toLocaleString(),
+                    r.action,
+                    r.providerName,
+                    r.requestCount,
+                    r.tokensIn,
+                    r.tokensOut,
+                    `$${(r.costCents / 100).toFixed(3)}`,
+                  ])}
+                />
+              </div>
             )}
           </BlockStack>
         </Card>

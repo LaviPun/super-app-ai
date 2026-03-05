@@ -118,16 +118,61 @@ export class PreviewService {
 
   private effect(spec: Extract<RecipeSpec, { type: 'theme.effect' }>): string {
     const c = spec.config;
-    const styleBlock = this.styleCss(spec, '.superapp-effect');
+    const effectKind = c.effectKind;
+    const intensity = c.intensity ?? 'medium';
+    const speed = c.speed ?? 'normal';
+    const particleCount = intensity === 'low' ? 30 : intensity === 'high' ? 80 : 50;
+    const durationSec = speed === 'slow' ? 12 : speed === 'fast' ? 6 : 9;
+
+    let particlesHtml = '';
+    for (let i = 1; i <= particleCount; i++) {
+      particlesHtml += `<div class="superapp-effect__particle superapp-effect__particle--${esc(effectKind)}" style="--i: ${i}; --total: ${particleCount};"></div>\n`;
+    }
+
+    const fallAnimation =
+      effectKind === 'snowfall'
+        ? `@keyframes superapp-effect-fall {
+  0% { transform: translateY(-10vh) translateX(0); opacity: 0.9; }
+  100% { transform: translateY(100vh) translateX(5vw); opacity: 0.7; }
+}`
+        : `@keyframes superapp-effect-fall {
+  0% { transform: translateY(-10vh) translateX(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(100vh) translateX(15vw) rotate(720deg); opacity: 0.8; }
+}`;
+
+    const particleCss =
+      effectKind === 'snowfall'
+        ? `width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, 0.9); box-shadow: 0 0 6px rgba(255,255,255,0.8);`
+        : `width: 10px; height: 10px; border-radius: 2px; background: hsl(calc(var(--i) * 37), 80%, 60%);`;
+
     return pageHtml(`
       <div class="superapp-effect" role="presentation" aria-hidden="true">
-        <div class="superapp-effect__preview">Effect: ${esc(c.effectKind)} (${c.intensity ?? 'medium'}, ${c.speed ?? 'normal'})</div>
+        <div class="superapp-effect__overlay">
+          ${particlesHtml}
+        </div>
+        <div class="superapp-effect__label">${esc(effectKind)} &middot; ${esc(intensity)} &middot; ${esc(speed)}</div>
       </div>
     `, `
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-      ${styleBlock}
-      .superapp-effect { position: fixed; inset: 0; pointer-events: none; z-index: var(--sa-z, 1000); display: flex; align-items: center; justify-content: center; }
-      .superapp-effect__preview { padding: 12px 20px; background: rgba(0,0,0,0.6); color: #fff; border-radius: 8px; font-size: 14px; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: ${effectKind === 'snowfall' ? '#1a2a3a' : '#222'}; min-height: 100vh; }
+      .superapp-effect { position: fixed; inset: 0; pointer-events: none; z-index: 1000; overflow: hidden; }
+      .superapp-effect__overlay { position: absolute; inset: 0; overflow: hidden; }
+      .superapp-effect__particle {
+        position: absolute;
+        left: calc((var(--i) / var(--total)) * 100%);
+        top: -20px;
+        ${particleCss}
+        animation: superapp-effect-fall ${durationSec}s linear infinite;
+        animation-delay: calc(-1s * (var(--i) / var(--total)) * ${durationSec});
+      }
+      ${fallAnimation}
+      .superapp-effect__label {
+        position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+        padding: 8px 16px; background: rgba(0,0,0,0.6); color: #fff; border-radius: 6px;
+        font-size: 13px; text-transform: capitalize; pointer-events: none; z-index: 1001;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .superapp-effect__particle { animation: none !important; opacity: 0.25; }
+      }
     `);
   }
 

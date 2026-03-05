@@ -146,12 +146,20 @@ export class BillingService {
     });
 
     const data = await res.json();
+    const topLevelErrors = data?.errors ?? [];
+    if (topLevelErrors.length) {
+      const msg = topLevelErrors.map((e: { message?: string }) => e.message).filter(Boolean).join('; ');
+      throw new Error(msg || 'Billing API request failed.');
+    }
     const result = data?.data?.appSubscriptionCreate;
     const errs = result?.userErrors ?? [];
-    if (errs.length) throw new Error(`Billing error: ${errs[0].message}`);
+    if (errs.length) throw new Error(errs.map((e: { message: string }) => e.message).join('; '));
 
     const shopifySubId: string = result?.appSubscription?.id;
     const confirmationUrl: string = result?.confirmationUrl;
+    if (!confirmationUrl && !shopifySubId) {
+      throw new Error('Billing API did not return a confirmation URL or subscription.');
+    }
 
     await this.recordSubscription(shopId, plan, shopifySubId);
 

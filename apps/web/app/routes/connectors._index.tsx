@@ -1,10 +1,10 @@
 import { json, redirect } from '@remix-run/node';
-import { useLoaderData, Form, useNavigation, useActionData, Link } from '@remix-run/react';
+import { useLoaderData, Form, useNavigation, useActionData, Link, useRevalidator } from '@remix-run/react';
 import {
   Page, Card, BlockStack, Text, DataTable, Button, TextField,
   InlineStack, Badge, Banner, EmptyState, Modal, SkeletonBodyText, InlineGrid,
 } from '@shopify/polaris';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { ConnectorService } from '~/services/connectors/connector.service';
@@ -87,6 +87,17 @@ export default function ConnectorsIndex() {
   const isSaving = nav.state !== 'idle';
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const handleDeleteClose = useCallback(() => setDeleteTarget(null), []);
+  const { revalidate } = useRevalidator();
+
+  useEffect(() => {
+    // Reflect agent writes: poll every 30s + revalidate on window focus
+    const interval = setInterval(revalidate, 30_000);
+    window.addEventListener('focus', revalidate);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', revalidate);
+    };
+  }, [revalidate]);
 
   return (
     <Page
@@ -101,32 +112,33 @@ export default function ConnectorsIndex() {
           </Banner>
         )}
 
-        {/* ─── Stats ─── */}
-        <InlineGrid columns={{ xs: 2, sm: 3 }} gap="300">
-          <Card>
-            <BlockStack gap="100">
-              <Text as="p" variant="bodySm" tone="subdued">Total</Text>
-              <Text as="p" variant="headingLg">{stats.total}</Text>
+        <BlockStack gap="200">
+          <Text as="h2" variant="headingMd" fontWeight="semibold">Overview</Text>
+          <InlineGrid columns={{ xs: 2, sm: 3 }} gap="400">
+            <Card padding="400">
+              <BlockStack gap="200">
+                <Text as="p" variant="bodySm" tone="subdued">Total</Text>
+                <Text as="p" variant="headingXl">{stats.total}</Text>
             </BlockStack>
           </Card>
-          <Card>
-            <BlockStack gap="100">
+          <Card padding="400">
+            <BlockStack gap="200">
               <Text as="p" variant="bodySm" tone="subdued">Tested</Text>
-              <Text as="p" variant="headingLg" tone="success">{stats.tested}</Text>
+              <Text as="p" variant="headingXl" tone="success">{stats.tested}</Text>
             </BlockStack>
           </Card>
-          <Card>
-            <BlockStack gap="100">
+          <Card padding="400">
+            <BlockStack gap="200">
               <Text as="p" variant="bodySm" tone="subdued">Untested</Text>
-              <Text as="p" variant="headingLg" tone={stats.total - stats.tested > 0 ? 'caution' : undefined}>
+              <Text as="p" variant="headingXl" tone={stats.total - stats.tested > 0 ? 'caution' : undefined}>
                 {stats.total - stats.tested}
               </Text>
             </BlockStack>
           </Card>
         </InlineGrid>
+        </BlockStack>
 
-        {/* ─── Add connector ─── */}
-        <Card>
+        <Card padding="400">
           <BlockStack gap="300">
             <InlineStack align="space-between" blockAlign="center">
               <Text as="h2" variant="headingMd">Add connector</Text>
@@ -154,15 +166,14 @@ export default function ConnectorsIndex() {
           </BlockStack>
         </Card>
 
-        {/* ─── List ─── */}
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Configured connectors</Text>
+        <Card padding="400">
+          <BlockStack gap="400">
+            <Text as="h2" variant="headingMd" fontWeight="semibold">Configured connectors</Text>
             {isSaving ? (
               <SkeletonBodyText lines={3} />
             ) : connectors.length === 0 ? (
               <EmptyState heading="No connectors yet" image="">
-                <p>Connect external APIs to power your automation flows. Add your first connector above.</p>
+                <Text as="p" tone="subdued">Connect external APIs to power your automation flows. Add your first connector above.</Text>
               </EmptyState>
             ) : (
               <DataTable

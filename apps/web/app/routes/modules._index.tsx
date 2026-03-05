@@ -1,14 +1,15 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, Form, Link, useNavigation, useSearchParams, useFetcher, useNavigate } from '@remix-run/react';
+import { useLoaderData, Form, Link, useNavigation, useSearchParams, useFetcher, useRevalidator } from '@remix-run/react';
 import {
   Page, Card, TextField, Button, BlockStack, Text, Badge,
   DataTable, InlineStack, EmptyState, SkeletonBodyText, Banner,
-  InlineGrid, Divider, Tabs, Select, Spinner,
+  InlineGrid, Divider, Tabs, Select, Spinner, Box,
 } from '@shopify/polaris';
 import { useState, useCallback, useEffect } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
-import { MODULE_TEMPLATES, TEMPLATE_CATEGORIES, ALL_MODULE_TYPES } from '@superapp/core';
+import { MODULE_TEMPLATES, TEMPLATE_CATEGORIES, MODULE_TYPES_DISPLAY_ORDER } from '@superapp/core';
+import { INTENT_EXAMPLES } from '~/services/ai/intent-examples';
 import { getTypeDisplayLabel, getTypeTone } from '~/utils/type-label';
 
 type RecipeOption = {
@@ -16,6 +17,18 @@ type RecipeOption = {
   explanation: string;
   recipe: Record<string, unknown>;
 };
+
+/** Curated example prompts shown as "Try:" chips in the AI builder. */
+const EXAMPLE_PROMPTS: string[] = [
+  INTENT_EXAMPLES['promo.popup']?.[0] ?? 'Add a popup with 10% off for new visitors',
+  INTENT_EXAMPLES['utility.announcement']?.[0] ?? 'Announcement bar at the top of every page',
+  INTENT_EXAMPLES['utility.floating_widget']?.[0] ?? 'Floating WhatsApp chat button',
+  INTENT_EXAMPLES['utility.effect']?.[0] ?? 'Add falling snow for Christmas',
+  INTENT_EXAMPLES['upsell.cart_upsell']?.[0] ?? 'Show related products at checkout',
+  INTENT_EXAMPLES['engage.newsletter_capture']?.[0] ?? 'Email capture popup for newsletter signup',
+  INTENT_EXAMPLES['functions.discountRules']?.[0] ?? 'Give 20% off to VIP customers',
+  INTENT_EXAMPLES['flow.create_workflow']?.[0] ?? 'Send email when an order is tagged',
+];
 
 const EMPTY_LOADER_DATA = {
   modules: [] as { id: string; name: string; type: string; category: string; status: string; latestVersion: number; updatedAt: string }[],
@@ -80,7 +93,7 @@ export async function loader({ request }: { request: Request }) {
       typeCounts,
       templates,
       categories: TEMPLATE_CATEGORIES as unknown as string[],
-      types: [...ALL_MODULE_TYPES].sort(),
+      types: [...MODULE_TYPES_DISPLAY_ORDER],
       loaderError: undefined,
     });
   } catch (err) {
@@ -105,16 +118,25 @@ export default function ModulesIndex() {
   const { modules, stats, typeCounts, templates, categories, types, loaderError } = useLoaderData<typeof loader>();
   const [searchParams, setSearchParams] = useSearchParams();
   const nav = useNavigation();
-  const navigate = useNavigate();
   const isSubmitting = nav.state === 'submitting';
   const isLoading = nav.state === 'loading';
   const [filterTab, setFilterTab] = useState(0);
   const [createMode, setCreateMode] = useState<'ai' | 'template'>('ai');
 
   const [mounted, setMounted] = useState(false);
+  const [loaderErrorDismissed, setLoaderErrorDismissed] = useState(false);
+  const { revalidate } = useRevalidator();
+
   useEffect(() => {
     setMounted(true);
-  }, []);
+    // Reflect agent writes: poll every 30s + revalidate on window focus
+    const interval = setInterval(revalidate, 30_000);
+    window.addEventListener('focus', revalidate);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', revalidate);
+    };
+  }, [revalidate]);
 
   const typeFilter = searchParams.get('type') ?? null;
 
@@ -130,20 +152,23 @@ export default function ModulesIndex() {
   const proposeFetcher = useFetcher<{ options?: RecipeOption[]; error?: string }>();
   const confirmFetcher = useFetcher<{ moduleId?: string; error?: string }>();
   const [aiOptions, setAiOptions] = useState<RecipeOption[] | null>(null);
+  const [builderOpen, setBuilderOpen] = useState(true);
   const isGenerating = proposeFetcher.state !== 'idle';
   const isConfirming = confirmFetcher.state !== 'idle';
 
   useEffect(() => {
-    if (proposeFetcher.data?.options) {
+    if (proposeFetcher.data?.options && proposeFetcher.state === 'idle') {
       setAiOptions(proposeFetcher.data.options);
+      setBuilderOpen(false);
     }
-  }, [proposeFetcher.data]);
+  }, [proposeFetcher.data, proposeFetcher.state]);
 
   useEffect(() => {
     if (confirmFetcher.data?.moduleId) {
-      navigate(`/modules/${confirmFetcher.data.moduleId}`);
+      // Use full-page navigation to avoid Shopify App Bridge iframe blank page race condition
+      window.location.href = `/modules/${confirmFetcher.data.moduleId}`;
     }
-  }, [confirmFetcher.data, navigate]);
+  }, [confirmFetcher.data]);
 
   const handleGenerate = useCallback(() => {
     setAiOptions(null);
@@ -160,6 +185,15 @@ export default function ModulesIndex() {
     formData.set('spec', JSON.stringify(recipe));
     confirmFetcher.submit(formData, { method: 'post', action: '/api/ai/create-module-from-recipe' });
   }, [confirmFetcher]);
+
+  const handleStartFresh = useCallback(() => {
+    setAiOptions(null);
+    setPrompt('');
+    setAiPreferredType('Auto');
+    setAiPreferredCategory('Auto');
+    setAiPreferredBlockType('Auto');
+    setBuilderOpen(true);
+  }, []);
 
   let filteredModules = filterTab === 0
     ? modules
@@ -217,120 +251,150 @@ export default function ModulesIndex() {
   return (
     <Page title="Modules" backAction={{ content: 'Dashboard', url: '/' }}>
       <BlockStack gap="500">
-        {loaderError && (
-          <Banner tone="critical" title="Could not load modules" onDismiss={() => {}}>
+        {loaderError && !loaderErrorDismissed && (
+          <Banner tone="critical" title="Could not load modules" onDismiss={() => setLoaderErrorDismissed(true)}>
             {loaderError}
           </Banner>
         )}
         {/* ─── Create mode toggle ─── */}
-        <InlineStack gap="200">
-          <Button
-            variant={createMode === 'ai' ? 'primary' : 'secondary'}
-            onClick={() => setCreateMode('ai')}
-          >
-            Generate with AI
-          </Button>
-          <Button
-            variant={createMode === 'template' ? 'primary' : 'secondary'}
-            onClick={() => setCreateMode('template')}
-          >
-            From Template
-          </Button>
-        </InlineStack>
+        <BlockStack gap="200">
+          <Text as="h2" variant="headingMd" fontWeight="semibold">Create a module</Text>
+          <Tabs
+            tabs={[
+              { id: 'ai', content: 'Generate with AI' },
+              { id: 'template', content: 'From template' },
+            ]}
+            selected={createMode === 'ai' ? 0 : 1}
+            onSelect={(i) => setCreateMode(i === 0 ? 'ai' : 'template')}
+          />
+        </BlockStack>
 
         {/* ─── AI Builder ─── */}
         {createMode === 'ai' && (
           <BlockStack gap="400">
-            <Card>
+            <style>{`
+              @keyframes sa-option-glow {
+                0%, 100% { filter: drop-shadow(0 0 0px rgba(44,110,203,0)); }
+                50% { filter: drop-shadow(0 0 14px rgba(44,110,203,0.45)); }
+              }
+              @keyframes sa-shimmer {
+                0% { background-position: -600px 0; }
+                100% { background-position: 600px 0; }
+              }
+              .sa-option-glow { animation: sa-option-glow 2.8s ease-in-out infinite; border-radius: 12px; }
+              .sa-shimmer {
+                background: linear-gradient(90deg, #f4f5f7 25%, #e8eaed 50%, #f4f5f7 75%);
+                background-size: 600px 100%;
+                animation: sa-shimmer 1.5s ease-in-out infinite;
+                border-radius: 6px;
+              }
+            `}</style>
+
+            <Card padding="400">
               <BlockStack gap="400">
                 <InlineStack align="space-between" blockAlign="center">
-                  <Text as="h2" variant="headingMd">AI Module Builder</Text>
-                  <Badge tone="magic">AI-powered</Badge>
-                </InlineStack>
-                <Text as="p" tone="subdued">
-                  Describe what you want and AI will generate 3 options for you to choose from. Each option has unique settings, controls, and styling.
-                </Text>
-                <BlockStack gap="300">
-                  <div>
-                    <Text as="label" variant="bodyMd" fontWeight="medium">
-                      What do you want to build?
-                    </Text>
-                    <div style={{ marginTop: 4 }}>
-                      <textarea
-                        value={prompt}
-                        onChange={(e) => setPrompt(e.target.value)}
-                        onInput={(e) => setPrompt((e.target as HTMLTextAreaElement).value)}
-                        placeholder='e.g. "Discount popup: shows 5s after load on product page, visitor can copy coupon code and click CTA. Mobile-friendly."'
-                        rows={3}
-                        autoComplete="off"
-                        style={{
-                          width: '100%',
-                          padding: '8px 12px',
-                          borderRadius: 8,
-                          border: '1px solid var(--p-color-border)',
-                          fontFamily: 'inherit',
-                          fontSize: 14,
-                          resize: 'vertical',
-                          minHeight: 80,
-                        }}
-                      />
-                    </div>
-                    <Text as="p" variant="bodySm" tone="subdued">
-                      Best results: say what it is, who sees it, when (e.g. after 5s, exit intent), and what they can do. Add any extras (coupon to copy, one CTA, mobile-friendly).
-                    </Text>
-                  </div>
-                  <InlineGrid columns={{ xs: 1, sm: 3 }} gap="300">
-                    <Select
-                      label="Module type"
-                      options={[
-                        { label: 'Auto', value: 'Auto' },
-                        ...types.map((t) => ({ label: getTypeDisplayLabel(t), value: t })),
-                      ]}
-                      value={aiPreferredType}
-                      onChange={setAiPreferredType}
-                      helpText="Let AI choose, or pick a specific type."
-                    />
-                    <Select
-                      label="Category"
-                      options={[
-                        { label: 'Auto', value: 'Auto' },
-                        ...categories.map((c) => ({ label: c.replace(/_/g, ' '), value: c })),
-                      ]}
-                      value={aiPreferredCategory}
-                      onChange={setAiPreferredCategory}
-                      helpText="e.g. Storefront UI, Function."
-                    />
-                    <Select
-                      label="Block type"
-                      options={[
-                        { label: 'Auto', value: 'Auto' },
-                        { label: 'Order status', value: 'customer-account.order-status.block.render' },
-                        { label: 'Order index', value: 'customer-account.order-index.block.render' },
-                        { label: 'Profile', value: 'customer-account.profile.block.render' },
-                        { label: 'Custom page', value: 'customer-account.page.render' },
-                      ]}
-                      value={aiPreferredBlockType}
-                      onChange={setAiPreferredBlockType}
-                      helpText="For customer account blocks only."
-                    />
-                  </InlineGrid>
-                  <InlineStack align="start" gap="200">
-                    <Button variant="primary" loading={isGenerating} disabled={!prompt.trim() || isGenerating} onClick={handleGenerate}>
-                      Generate 3 options
-                    </Button>
+                  <InlineStack gap="200" blockAlign="center">
+                    <Text as="h2" variant="headingMd" fontWeight="semibold">AI Module Builder</Text>
+                    <Badge tone="magic">AI-powered</Badge>
+                  </InlineStack>
+                  <InlineStack gap="200">
+                    {aiOptions && !builderOpen && (
+                      <Button size="slim" onClick={() => setBuilderOpen(true)}>Edit prompt</Button>
+                    )}
                     {aiOptions && (
-                      <Button onClick={() => setAiOptions(null)}>Clear results</Button>
+                      <Button size="slim" onClick={handleStartFresh}>Start fresh</Button>
                     )}
                   </InlineStack>
-                </BlockStack>
-                {isGenerating && (
-                  <Banner tone="info">
-                    <InlineStack gap="200" blockAlign="center">
-                      <Spinner size="small" />
-                      <Text as="p">AI is generating 3 options -- this typically takes 15-40 seconds...</Text>
-                    </InlineStack>
-                  </Banner>
+                </InlineStack>
+
+                {/* Compact prompt summary when collapsed */}
+                {aiOptions && !builderOpen && !isGenerating && (
+                  <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      <em>"{prompt.length > 100 ? prompt.slice(0, 100) + '…' : prompt}"</em>
+                    </Text>
+                  </Box>
                 )}
+
+                {/* Full form — shown when builder is open and not generating */}
+                {(builderOpen || !aiOptions) && !isGenerating && (
+                  <BlockStack gap="400">
+                    <Text as="p" tone="subdued" variant="bodyMd">
+                      Describe what you want — AI generates 3 distinct options with unique settings and styling.
+                    </Text>
+                    <BlockStack gap="200">
+                      <Text as="p" variant="bodySm" fontWeight="medium">Example prompts</Text>
+                      <InlineStack gap="200" wrap>
+                        {EXAMPLE_PROMPTS.map((ex) => (
+                          <Button key={ex} size="slim" variant="tertiary" onClick={() => setPrompt(ex)}>
+                            {ex.length > 42 ? ex.slice(0, 42) + '…' : ex}
+                          </Button>
+                        ))}
+                      </InlineStack>
+                    </BlockStack>
+                    <TextField
+                      label="What do you want to build?"
+                      labelHidden
+                      value={prompt}
+                      onChange={setPrompt}
+                      placeholder='e.g. "Discount popup: shows 5s after load on product page, visitor can copy coupon code and click CTA. Mobile-friendly."'
+                      autoComplete="off"
+                      multiline={3}
+                      helpText="Tip: include who sees it, when (5s delay, exit intent), and what they can do (copy coupon, click CTA)."
+                    />
+                    <InlineGrid columns={{ xs: 1, sm: aiPreferredType === 'Auto' || aiPreferredType === 'customerAccount.blocks' ? 3 : 2 }} gap="300">
+                      <Select
+                        label="Module type"
+                        options={[
+                          { label: 'Auto', value: 'Auto' },
+                          ...types.map((t) => ({ label: getTypeDisplayLabel(t), value: t })),
+                        ]}
+                        value={aiPreferredType}
+                        onChange={(v) => { setAiPreferredType(v); if (v !== 'Auto' && v !== 'customerAccount.blocks') setAiPreferredBlockType('Auto'); }}
+                        helpText="Let AI choose (Auto) or lock to a specific type."
+                      />
+                      <Select
+                        label="Category"
+                        options={[
+                          { label: 'Auto', value: 'Auto' },
+                          ...categories.map((c) => ({ label: c.replace(/_/g, ' '), value: c })),
+                        ]}
+                        value={aiPreferredCategory}
+                        onChange={setAiPreferredCategory}
+                        helpText="e.g. Storefront UI, Function."
+                      />
+                      {(aiPreferredType === 'Auto' || aiPreferredType === 'customerAccount.blocks') && (
+                        <Select
+                          label="Block target"
+                          options={[
+                            { label: 'Auto', value: 'Auto' },
+                            { label: 'Order status', value: 'customer-account.order-status.block.render' },
+                            { label: 'Order index', value: 'customer-account.order-index.block.render' },
+                            { label: 'Profile', value: 'customer-account.profile.block.render' },
+                            { label: 'Custom page', value: 'customer-account.page.render' },
+                          ]}
+                          value={aiPreferredBlockType}
+                          onChange={setAiPreferredBlockType}
+                          helpText="Only for customer account blocks."
+                        />
+                      )}
+                    </InlineGrid>
+                    <InlineStack gap="200">
+                      <Button variant="primary" loading={isGenerating} disabled={!prompt.trim() || isGenerating} onClick={handleGenerate}>
+                        {aiOptions ? 'Regenerate options' : 'Generate 3 options'}
+                      </Button>
+                    </InlineStack>
+                  </BlockStack>
+                )}
+
+                {/* Generating banner */}
+                {isGenerating && (
+                  <InlineStack gap="200" blockAlign="center">
+                    <Spinner size="small" />
+                    <Text as="p" variant="bodySm" tone="subdued">AI is thinking… this takes 15–40 seconds.</Text>
+                  </InlineStack>
+                )}
+
                 {proposeFetcher.data?.error && !isGenerating && (
                   <Banner tone="critical">
                     <Text as="p">{proposeFetcher.data.error}</Text>
@@ -344,64 +408,98 @@ export default function ModulesIndex() {
               </BlockStack>
             </Card>
 
-            {/* ─── AI Options Cards ─── */}
-            {aiOptions && aiOptions.length > 0 && (
+            {/* Skeleton loading cards */}
+            {isGenerating && (
               <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">Choose an option</Text>
-                <Text as="p" variant="bodySm" tone="subdued">
-                  AI generated {aiOptions.length} option{aiOptions.length !== 1 ? 's' : ''}. Each has different settings, controls, and styling. Pick the one that best fits your needs.
-                </Text>
+                <Text as="h2" variant="headingMd" tone="subdued">Generating options…</Text>
+                <InlineGrid columns={{ xs: 1, md: 3 }} gap="400">
+                  {[0, 1, 2].map((i) => (
+                    <div key={i} style={{ borderRadius: 12, border: '1px solid #e1e3e5', padding: 16, background: '#fff' }}>
+                      <div className="sa-shimmer" style={{ height: 14, width: '45%', marginBottom: 10 }} />
+                      <div className="sa-shimmer" style={{ height: 1, marginBottom: 14, background: '#e1e3e5', animation: 'none' }} />
+                      <div className="sa-shimmer" style={{ height: 12, width: '95%', marginBottom: 8 }} />
+                      <div className="sa-shimmer" style={{ height: 12, width: '80%', marginBottom: 8 }} />
+                      <div className="sa-shimmer" style={{ height: 12, width: '60%', marginBottom: 20 }} />
+                      <div className="sa-shimmer" style={{ height: 12, width: '40%', marginBottom: 8 }} />
+                      <div className="sa-shimmer" style={{ height: 12, width: '55%', marginBottom: 8 }} />
+                      <div className="sa-shimmer" style={{ height: 12, width: '48%', marginBottom: 20 }} />
+                      <div className="sa-shimmer" style={{ height: 36, width: '100%', borderRadius: 8 }} />
+                    </div>
+                  ))}
+                </InlineGrid>
+              </BlockStack>
+            )}
+
+            {/* ─── AI Options Cards ─── */}
+            {!isGenerating && aiOptions && aiOptions.length > 0 && (
+              <BlockStack gap="300">
+                <InlineStack align="space-between" blockAlign="center">
+                  <BlockStack gap="050">
+                    <Text as="h2" variant="headingMd">Choose an option</Text>
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      {aiOptions.length} option{aiOptions.length !== 1 ? 's' : ''} generated — each has different settings and styling.
+                    </Text>
+                  </BlockStack>
+                  <InlineStack gap="200">
+                    <Button size="slim" loading={isGenerating} disabled={!prompt.trim() || isGenerating} onClick={handleGenerate}>
+                      Regenerate
+                    </Button>
+                    <Button size="slim" onClick={handleStartFresh}>Start fresh</Button>
+                  </InlineStack>
+                </InlineStack>
                 <InlineGrid columns={{ xs: 1, md: aiOptions.length >= 3 ? 3 : aiOptions.length }} gap="400">
                   {aiOptions.map((opt, i) => {
                     const r = opt.recipe as Record<string, unknown>;
                     const config = r.config as Record<string, unknown> | undefined;
                     const hasStyle = !!r.style;
                     return (
-                      <Card key={i}>
-                        <BlockStack gap="300">
-                          <InlineStack align="space-between" blockAlign="center">
-                            <Text as="h3" variant="headingSm">Option {i + 1}</Text>
-                            <Badge tone={getTypeTone(String(r.type ?? ''))}>{getTypeDisplayLabel(String(r.type ?? ''))}</Badge>
-                          </InlineStack>
-                          <Divider />
-                          <Text as="p" variant="bodyMd">{opt.explanation}</Text>
-                          <Divider />
-                          <BlockStack gap="100">
-                            <Text as="p" variant="bodySm" fontWeight="semibold">Name</Text>
-                            <Text as="p" variant="bodySm">{String(r.name ?? '—')}</Text>
-                          </BlockStack>
-                          {config && (
+                      <div key={i} className="sa-option-glow">
+                        <Card>
+                          <BlockStack gap="300">
+                            <InlineStack align="space-between" blockAlign="center">
+                              <Text as="h3" variant="headingSm">Option {i + 1}</Text>
+                              <Badge tone={getTypeTone(String(r.type ?? ''))}>{getTypeDisplayLabel(String(r.type ?? ''))}</Badge>
+                            </InlineStack>
+                            <Divider />
+                            <Text as="p" variant="bodyMd">{opt.explanation}</Text>
+                            <Divider />
                             <BlockStack gap="100">
-                              <Text as="p" variant="bodySm" fontWeight="semibold">Settings</Text>
-                              <BlockStack gap="050">
-                                {Object.entries(config).slice(0, 6).map(([k, v]) => (
-                                  <Text key={k} as="p" variant="bodySm" tone="subdued">
-                                    {k}: {typeof v === 'object' ? JSON.stringify(v).slice(0, 60) : String(v).slice(0, 60)}
-                                  </Text>
-                                ))}
-                                {Object.keys(config).length > 6 && (
-                                  <Text as="p" variant="bodySm" tone="subdued">+{Object.keys(config).length - 6} more...</Text>
-                                )}
+                              <Text as="p" variant="bodySm" fontWeight="semibold">Name</Text>
+                              <Text as="p" variant="bodySm">{String(r.name ?? '—')}</Text>
+                            </BlockStack>
+                            {config && (
+                              <BlockStack gap="100">
+                                <Text as="p" variant="bodySm" fontWeight="semibold">Settings</Text>
+                                <BlockStack gap="050">
+                                  {Object.entries(config).slice(0, 6).map(([k, v]) => (
+                                    <Text key={k} as="p" variant="bodySm" tone="subdued">
+                                      {k}: {typeof v === 'object' ? JSON.stringify(v).slice(0, 60) : String(v).slice(0, 60)}
+                                    </Text>
+                                  ))}
+                                  {Object.keys(config).length > 6 && (
+                                    <Text as="p" variant="bodySm" tone="subdued">+{Object.keys(config).length - 6} more…</Text>
+                                  )}
+                                </BlockStack>
                               </BlockStack>
-                            </BlockStack>
-                          )}
-                          {hasStyle && (
-                            <BlockStack gap="100">
-                              <Text as="p" variant="bodySm" fontWeight="semibold">Styling</Text>
-                              <Text as="p" variant="bodySm" tone="subdued">Custom layout, colors, spacing, and typography included</Text>
-                            </BlockStack>
-                          )}
-                          <Button
-                            variant="primary"
-                            fullWidth
-                            loading={isConfirming}
-                            disabled={isConfirming}
-                            onClick={() => handleSelectOption(r)}
-                          >
-                            Use this option
-                          </Button>
-                        </BlockStack>
-                      </Card>
+                            )}
+                            {hasStyle && (
+                              <BlockStack gap="100">
+                                <Text as="p" variant="bodySm" fontWeight="semibold">Styling</Text>
+                                <Text as="p" variant="bodySm" tone="subdued">Custom layout, colors, spacing, and typography included</Text>
+                              </BlockStack>
+                            )}
+                            <Button
+                              variant="primary"
+                              fullWidth
+                              loading={isConfirming}
+                              disabled={isConfirming}
+                              onClick={() => handleSelectOption(r)}
+                            >
+                              Use this option
+                            </Button>
+                          </BlockStack>
+                        </Card>
+                      </div>
                     );
                   })}
                 </InlineGrid>
@@ -410,24 +508,17 @@ export default function ModulesIndex() {
           </BlockStack>
         )}
 
-        {/* ─── Template browser (Shopify Flow style) ─── */}
+        {/* Template browser */}
         {createMode === 'template' && (
           <BlockStack gap="500">
-            <div style={{
-              background: 'linear-gradient(135deg, #1a3052 0%, #2d4a8f 100%)',
-              borderRadius: 16,
-              padding: '32px 28px',
-              color: '#fff',
-            }}>
-              <BlockStack gap="200">
-                <Text as="h2" variant="headingXl"><span style={{ color: '#fff' }}>Module templates</span></Text>
-                <Text as="p" variant="bodyMd">
-                  <span style={{ color: 'rgba(255,255,255,0.85)' }}>
-                    Pick a pre-built module template to get started instantly. Customize everything after creation.
-                  </span>
+            <Card padding="500">
+              <BlockStack gap="300">
+                <Text as="h2" variant="headingLg" fontWeight="semibold">Module templates</Text>
+                <Text as="p" variant="bodyMd" tone="subdued">
+                  Pick a pre-built template to get started. You can customize everything after creation.
                 </Text>
               </BlockStack>
-            </div>
+            </Card>
 
             <InlineGrid columns={{ xs: 1, sm: 4 }} gap="300">
               <TextField
@@ -470,7 +561,7 @@ export default function ModulesIndex() {
             {filteredTemplates.length > 0 ? (
               <InlineGrid columns={{ xs: 1, sm: 2, md: 3 }} gap="400">
                 {filteredTemplates.map(t => (
-                  <Card key={t.id}>
+                  <Card key={t.id} padding="400">
                     <BlockStack gap="300">
                       <Text as="h3" variant="headingSm">{t.name}</Text>
                       <Text as="p" variant="bodySm" tone="subdued">{t.description}</Text>
@@ -496,36 +587,39 @@ export default function ModulesIndex() {
                 ))}
               </InlineGrid>
             ) : (
-              <Card>
+              <Card padding="400">
                 <EmptyState heading="No templates match your filters" image="">
-                  <p>Try a different search term, category, or type filter.</p>
+                  <Text as="p" tone="subdued">Try a different search term, category, or type filter.</Text>
                 </EmptyState>
               </Card>
             )}
           </BlockStack>
         )}
 
-        {/* ─── Stats row ─── */}
-        <InlineGrid columns={{ xs: 3, sm: 3 }} gap="300">
-          <Card>
-            <BlockStack gap="100">
-              <Text as="p" variant="bodySm" tone="subdued">Total</Text>
-              <Text as="p" variant="headingLg">{stats.total}</Text>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="100">
-              <Text as="p" variant="bodySm" tone="subdued">Published</Text>
-              <Text as="p" variant="headingLg" tone="success">{stats.published}</Text>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="100">
-              <Text as="p" variant="bodySm" tone="subdued">Drafts</Text>
-              <Text as="p" variant="headingLg">{stats.drafts}</Text>
-            </BlockStack>
-          </Card>
-        </InlineGrid>
+        {/* Stats row */}
+        <BlockStack gap="200">
+          <Text as="h2" variant="headingMd" fontWeight="semibold">Your modules</Text>
+          <InlineGrid columns={{ xs: 3, sm: 3 }} gap="400">
+            <Card padding="400">
+              <BlockStack gap="200">
+                <Text as="p" variant="bodySm" tone="subdued">Total</Text>
+                <Text as="p" variant="headingXl">{stats.total}</Text>
+              </BlockStack>
+            </Card>
+            <Card padding="400">
+              <BlockStack gap="200">
+                <Text as="p" variant="bodySm" tone="subdued">Published</Text>
+                <Text as="p" variant="headingXl" tone="success">{stats.published}</Text>
+              </BlockStack>
+            </Card>
+            <Card padding="400">
+              <BlockStack gap="200">
+                <Text as="p" variant="bodySm" tone="subdued">Drafts</Text>
+                <Text as="p" variant="headingXl">{stats.drafts}</Text>
+              </BlockStack>
+            </Card>
+          </InlineGrid>
+        </BlockStack>
 
         {/* ─── Type breakdown ─── */}
         {Object.keys(typeCounts).length > 0 && (
@@ -543,15 +637,28 @@ export default function ModulesIndex() {
           </Card>
         )}
 
-        {/* ─── Modules table with filter tabs ─── */}
-        <Card>
-          <BlockStack gap="300">
-            <Tabs tabs={tabs} selected={filterTab} onSelect={setFilterTab} />
+        {/* Modules table */}
+        <Card padding="0">
+          <BlockStack gap="0">
+            <Box padding="400">
+              <Tabs tabs={tabs} selected={filterTab} onSelect={setFilterTab} />
+            </Box>
+            <Box paddingBlockStart="0" paddingInlineStart="400" paddingInlineEnd="400" paddingBlockEnd="400">
             {isLoading ? (
               <SkeletonBodyText lines={6} />
             ) : filteredModules.length === 0 ? (
-              <EmptyState heading={filterTab === 0 ? 'No modules yet' : 'No modules in this category'} image="">
-                <p>{filterTab === 0 ? 'Use the AI builder or pick a template to create your first module.' : 'Try a different filter or create a new module.'}</p>
+              <EmptyState
+                heading={filterTab === 0 ? 'No modules yet' : 'No modules in this category'}
+                image=""
+                action={{ content: 'Create a module', url: '/modules' }}
+              >
+                <BlockStack gap="200">
+                  <Text as="p" tone="subdued">
+                    {filterTab === 0
+                      ? 'Create your first module with AI or from a template above.'
+                      : 'Try a different filter or create a new module.'}
+                  </Text>
+                </BlockStack>
               </EmptyState>
             ) : (
               <DataTable
@@ -565,13 +672,14 @@ export default function ModulesIndex() {
                     {m.status}
                   </Badge>,
                   m.latestVersion,
-                  new Date(m.updatedAt).toLocaleDateString(),
+                  new Date(m.updatedAt).toLocaleDateString('en-US'),
                   <Link key={m.id} to={`/modules/${m.id}`}>
-                    <Button size="slim">View</Button>
+                    <Button size="slim" variant="plain">View</Button>
                   </Link>,
                 ])}
               />
             )}
+            </Box>
           </BlockStack>
         </Card>
       </BlockStack>

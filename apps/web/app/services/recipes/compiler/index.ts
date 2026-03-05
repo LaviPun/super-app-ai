@@ -17,16 +17,16 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
   switch (spec.type) {
     case 'theme.banner':
       if (target.kind !== 'THEME') throw new Error('theme.banner requires THEME target');
-      return compileThemeBanner(spec, target.themeId);
+      return compileThemeBanner(spec, target);
     case 'theme.popup':
       if (target.kind !== 'THEME') throw new Error('theme.popup requires THEME target');
-      return compileThemePopup(spec, target.themeId);
+      return compileThemePopup(spec, target);
     case 'theme.notificationBar':
       if (target.kind !== 'THEME') throw new Error('theme.notificationBar requires THEME target');
-      return compileNotificationBar(spec, target.themeId);
+      return compileNotificationBar(spec, target);
     case 'theme.effect':
       if (target.kind !== 'THEME') throw new Error('theme.effect requires THEME target');
-      return compileThemeEffect(spec, target.themeId);
+      return compileThemeEffect(spec, target);
     case 'proxy.widget':
       return compileProxyWidget(spec);
     case 'functions.discountRules':

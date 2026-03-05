@@ -99,8 +99,8 @@ export default function InternalAiProviders() {
   const providerOptions = providers.map(p => ({ label: `${p.name} (${p.provider})`, value: p.id }));
 
   return (
-    <Page title="AI Providers">
-      <BlockStack gap="400">
+    <Page title="AI Providers" subtitle="Configure AI providers, API keys, and model pricing.">
+      <BlockStack gap="500">
         {data?.error ? (
           <Banner tone="critical" title="Error">
             <Text as="p">{data.error}</Text>
@@ -108,8 +108,9 @@ export default function InternalAiProviders() {
         ) : null}
 
         <Card>
-          <BlockStack gap="300">
+          <BlockStack gap="400">
             <Text as="h2" variant="headingMd">Add provider</Text>
+            <Text as="p" variant="bodySm" tone="subdued">Add a new AI provider with name, type, and API key.</Text>
             <Form method="post">
               <BlockStack gap="200">
                 <TextField label="Name" name="name" autoComplete="off" helpText="A friendly label for this provider." />
@@ -126,14 +127,17 @@ export default function InternalAiProviders() {
         </Card>
 
         <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Configured providers ({providers.length})</Text>
+          <BlockStack gap="400">
+            <Text as="h2" variant="headingMd">Configured providers</Text>
             {providers.length === 0 ? (
-              <Text as="p" tone="subdued">No providers configured yet. Add one above.</Text>
+              <BlockStack gap="200">
+                <Text as="p" tone="subdued">No providers configured yet.</Text>
+                <Text as="p" variant="bodySm" tone="subdued">Add a provider above to get started.</Text>
+              </BlockStack>
             ) : (
               providers.map(p => (
                 <Card key={p.id}>
-                  <BlockStack gap="200">
+                  <BlockStack gap="300">
                     <InlineStack gap="200" align="space-between" blockAlign="center">
                       <InlineStack gap="200" blockAlign="center">
                         <Text as="p" variant="headingSm">{p.name}</Text>
@@ -157,9 +161,9 @@ export default function InternalAiProviders() {
         </Card>
 
         <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Model pricing (cents per 1M tokens)</Text>
-            <Text as="p" tone="subdued">Add pricing per model so costs are computed accurately.</Text>
+          <BlockStack gap="400">
+            <Text as="h2" variant="headingMd">Model pricing</Text>
+            <Text as="p" variant="bodySm" tone="subdued">Add pricing per model (cents per 1M tokens) so costs are computed accurately.</Text>
             <Form method="post">
               <input type="hidden" name="intent" value="addPrice" />
               <BlockStack gap="200">
@@ -173,7 +177,7 @@ export default function InternalAiProviders() {
                 <TextField label="Output (cents / 1M)" name="outputCents" type="number" autoComplete="off" />
                 <TextField label="Cached input (cents / 1M, optional)" name="cachedCents" type="number" autoComplete="off" />
                 <InlineStack align="start">
-                  <Button submit loading={isSaving}>Save model pricing</Button>
+                  <Button submit variant="secondary" loading={isSaving}>Save model pricing</Button>
                 </InlineStack>
               </BlockStack>
             </Form>

@@ -77,31 +77,44 @@ function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
     .toUpperCase()
     .slice(0, 2) || 'SA';
 
-  const navItems = [
+  const mainItems = [
     { url: '/internal', label: 'Dashboard', icon: AppsIcon, exactMatch: true },
-    { url: '/internal/ai-providers', label: 'AI Providers', icon: SettingsIcon },
-    { url: '/internal/usage', label: 'Usage & Costs', icon: CashDollarIcon },
+  ];
+
+  const monitoringItems = [
     { url: '/internal/activity', label: 'Activity Log', icon: AutomationIcon },
     { url: '/internal/logs', label: 'Error Logs', icon: BugIcon },
     { url: '/internal/api-logs', label: 'API Logs', icon: NoteIcon },
+  ];
+
+  const dataItems = [
     { url: '/internal/stores', label: 'Stores', icon: StoreIcon },
-    { url: '/internal/plan-tiers', label: 'Plan Tiers', icon: CashDollarIcon },
-    { url: '/internal/categories', label: 'Categories', icon: StoreIcon },
-    { url: '/internal/recipe-edit', label: 'Recipe edit', icon: CodeIcon },
-    { url: '/internal/templates', label: 'Templates', icon: StoreIcon },
+    { url: '/internal/usage', label: 'Usage & Costs', icon: CashDollarIcon },
     { url: '/internal/jobs', label: 'Jobs', icon: ClockIcon },
   ];
 
+  const configItems = [
+    { url: '/internal/ai-providers', label: 'AI Providers', icon: SettingsIcon },
+    { url: '/internal/plan-tiers', label: 'Plan Tiers', icon: CashDollarIcon },
+    { url: '/internal/categories', label: 'Categories', icon: StoreIcon },
+    { url: '/internal/templates', label: 'Templates', icon: StoreIcon },
+    { url: '/internal/recipe-edit', label: 'Recipe edit', icon: CodeIcon },
+  ];
+
+  const toNavItems = (items: typeof mainItems) =>
+    items.map(item => ({
+      ...item,
+      selected: 'exactMatch' in item && item.exactMatch
+        ? location.pathname === item.url
+        : location.pathname.startsWith(item.url),
+    }));
+
   const navigation = (
     <Navigation location={location.pathname}>
-      <Navigation.Section
-        items={navItems.map(item => ({
-          ...item,
-          selected: item.exactMatch
-            ? location.pathname === item.url
-            : location.pathname.startsWith(item.url),
-        }))}
-      />
+      <Navigation.Section title="Overview" items={toNavItems(mainItems)} />
+      <Navigation.Section title="Monitoring" items={toNavItems(monitoringItems)} />
+      <Navigation.Section title="Data" items={toNavItems(dataItems)} />
+      <Navigation.Section title="Configuration" items={toNavItems(configItems)} />
       <Navigation.Section
         separator
         items={[
@@ -149,6 +162,15 @@ function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
     <>
       <style>{`
         .Polaris-TopBar { background: ${headerColor} !important; }
+        /* Internal admin: truncate long text with ellipsis; full value on hover via title */
+        .internal-truncate { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .internal-truncate-wide { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        /* Scrollable table container; use thead th { position: sticky; top: 0; background: ... } for sticky header */
+        .internal-table-scroll { overflow: auto; max-height: min(70vh, 520px); }
+        .internal-table-scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--p-color-bg-surface); box-shadow: 0 1px 0 var(--p-color-border); }
+        /* Code / JSON block: capped height, scroll, optional expand */
+        .internal-code-block { margin: 0; padding: 12px; background: var(--p-color-bg-surface-secondary); border-radius: 8px; font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 280px; overflow-y: auto; }
+        .internal-code-block-expanded { max-height: none; }
       `}</style>
       <Frame
         topBar={topBar}

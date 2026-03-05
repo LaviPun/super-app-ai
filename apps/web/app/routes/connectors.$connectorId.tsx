@@ -53,8 +53,21 @@ export default function ConnectorDetail() {
   const { connector, endpoints } = useLoaderData<typeof loader>();
   const testFetcher = useFetcher();
   const endpointFetcher = useFetcher();
+  const updateFetcher = useFetcher<{ ok?: boolean; error?: string }>();
 
   const [selectedTab, setSelectedTab] = useState(0);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editName, setEditName] = useState(connector.name);
+  const [editBaseUrl, setEditBaseUrl] = useState(connector.baseUrl);
+  const isUpdating = updateFetcher.state !== 'idle';
+
+  const handleUpdate = useCallback(() => {
+    updateFetcher.submit(
+      { name: editName, baseUrl: editBaseUrl },
+      { method: 'POST', action: `/api/connectors/${connector.id}/update`, encType: 'application/json' },
+    );
+    setEditModalOpen(false);
+  }, [editName, editBaseUrl, connector.id, updateFetcher]);
   const [method, setMethod] = useState('GET');
   const [path, setPath] = useState('/');
   const [headersText, setHeadersText] = useState('{}');
@@ -171,6 +184,7 @@ export default function ConnectorDetail() {
           {connector.lastTestedAt && <Badge tone="success">Tested</Badge>}
         </InlineStack>
       }
+      primaryAction={{ content: 'Edit connector', onAction: () => setEditModalOpen(true) }}
     >
       <BlockStack gap="500">
         <Tabs tabs={tabs} selected={selectedTab} onSelect={setSelectedTab} />
@@ -328,6 +342,23 @@ export default function ConnectorDetail() {
         >
           <Modal.Section>
             <Text as="p">Delete <strong>{deleteTarget.name}</strong>? This cannot be undone.</Text>
+          </Modal.Section>
+        </Modal>
+      )}
+
+      {editModalOpen && (
+        <Modal
+          open
+          onClose={() => setEditModalOpen(false)}
+          title="Edit connector"
+          primaryAction={{ content: 'Save', onAction: handleUpdate, loading: isUpdating, disabled: !editName.trim() || !editBaseUrl.trim() }}
+          secondaryActions={[{ content: 'Cancel', onAction: () => setEditModalOpen(false) }]}
+        >
+          <Modal.Section>
+            <BlockStack gap="300">
+              <TextField label="Name" value={editName} onChange={setEditName} autoComplete="off" />
+              <TextField label="Base URL" value={editBaseUrl} onChange={setEditBaseUrl} autoComplete="off" helpText="Must be https://" />
+            </BlockStack>
           </Modal.Section>
         </Modal>
       )}

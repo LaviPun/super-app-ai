@@ -119,10 +119,11 @@ export default function InternalStores() {
 
   return (
     <Page title="Stores" subtitle={`${shops.length} stores`}>
-      <BlockStack gap="400">
+      <BlockStack gap="500">
         <Card>
           <BlockStack gap="300">
             <Text as="h2" variant="headingMd">Filters</Text>
+            <Text as="p" variant="bodySm" tone="subdued">Filter by plan or search store domain.</Text>
             <Form method="get">
               <InlineStack gap="300" wrap blockAlign="end">
                 <div style={{ minWidth: 160 }}>
@@ -131,8 +132,8 @@ export default function InternalStores() {
                 <div style={{ minWidth: 200 }}>
                   <TextField label="Search domain" name="q" value={filters.search ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('q', v); else p.delete('q'); setParams(p); }} autoComplete="off" placeholder="mystore.myshopify.com" />
                 </div>
-                <Button submit loading={isLoading}>Apply</Button>
-                <Button url="/internal/stores" variant="plain">Clear</Button>
+                <Button submit variant="primary" loading={isLoading}>Apply</Button>
+                <Button url="/internal/stores" variant="secondary">Clear</Button>
               </InlineStack>
             </Form>
           </BlockStack>
@@ -142,16 +143,21 @@ export default function InternalStores() {
           <Card><SkeletonBodyText lines={6} /></Card>
         ) : shops.length === 0 ? (
           <Card>
-            <Text as="p" tone="subdued">No stores match your filters.</Text>
+            <BlockStack gap="200">
+              <Text as="p" tone="subdued">No stores match your filters.</Text>
+              <Text as="p" variant="bodySm" tone="subdued">Clear filters or adjust your search to see stores.</Text>
+            </BlockStack>
           </Card>
         ) : (
           shops.map(s => {
-            const publishedCount = s.modules.filter((m: any) => m.status === 'PUBLISHED').length;
+            const publishedCount = s.modules.filter((m: { status: string }) => m.status === 'PUBLISHED').length;
             return (
               <Card key={s.id}>
-                <BlockStack gap="300">
+                <BlockStack gap="400">
                   <InlineStack gap="200" align="start" blockAlign="center">
-                    <Text as="p" variant="headingSm">{s.shopDomain}</Text>
+                    <Text as="p" variant="headingSm">
+                      <span className="internal-truncate-wide" title={s.shopDomain}>{s.shopDomain}</span>
+                    </Text>
                     <Badge tone="info">{s.planTier}</Badge>
                     <Text as="span" tone="subdued" variant="bodySm">
                       {s.modules.length} modules ({publishedCount} published)
@@ -171,7 +177,7 @@ export default function InternalStores() {
                         <Select label="AI provider override" name="providerId" options={providerOptions} value={(s.aiProviderOverrideId as string | null) ?? ''} onChange={() => {}} />
                       </div>
                       <div style={{ paddingTop: 24 }}>
-                        <Button submit size="slim">Save</Button>
+                        <Button submit size="slim" variant="primary">Save</Button>
                       </div>
                     </InlineStack>
                   </Form>
@@ -196,7 +202,7 @@ export default function InternalStores() {
                         </select>
                       </div>
                       <div style={{ paddingTop: 24 }}>
-                        <Button submit size="slim">Set plan</Button>
+                        <Button submit size="slim" variant="secondary">Set plan</Button>
                       </div>
                     </InlineStack>
                   </Form>
@@ -211,7 +217,7 @@ export default function InternalStores() {
                       <TextField label="API logs" name="retentionDaysApi" type="number" autoComplete="off" value={String(s.retentionDaysApi ?? '')} onChange={() => {}} placeholder="inherit" />
                       <TextField label="Error logs" name="retentionDaysErrors" type="number" autoComplete="off" value={String(s.retentionDaysErrors ?? '')} onChange={() => {}} placeholder="inherit" />
                       <div style={{ paddingTop: 24 }}>
-                        <Button submit size="slim">Save</Button>
+                        <Button submit size="slim" variant="primary">Save</Button>
                       </div>
                     </InlineStack>
                   </Form>

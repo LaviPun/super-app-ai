@@ -1,0 +1,84 @@
+{% comment %}
+  SuperApp Theme Modules (App Embed)
+  Reads shop metafield superapp.theme.modules (JSON: moduleId -> { type, name, config, style })
+  Renders banner, notification bar, popup, and effect modules. No direct theme file writes.
+{% endcomment %}
+{% assign modules_metafield = shop.metafields['superapp.theme'].modules %}
+{% if modules_metafield.value %}
+  {% assign modules = modules_metafield.value %}
+  <div class="superapp-theme-modules" data-superapp-embed>
+    {% for module_id in modules %}
+      {% assign mod = modules[module_id] %}
+      {% if mod.type == 'theme.banner' %}
+        <section class="superapp-banner superapp-banner--embed" role="region" aria-label="{{ mod.config.heading | escape }}" data-module-id="{{ module_id | escape }}">
+          <div class="superapp-banner__inner">
+            <div class="superapp-banner__content">
+              <h2 class="superapp-banner__heading">{{ mod.config.heading | escape }}</h2>
+              {% if mod.config.subheading != blank %}
+                <p class="superapp-banner__subheading">{{ mod.config.subheading | escape }}</p>
+              {% endif %}
+              {% if mod.config.ctaText != blank and mod.config.ctaUrl != blank %}
+                <a class="superapp-banner__cta" href="{{ mod.config.ctaUrl | escape }}">{{ mod.config.ctaText | escape }}</a>
+              {% endif %}
+            </div>
+            {% if mod.config.imageUrl != blank %}
+              <img class="superapp-banner__image" src="{{ mod.config.imageUrl | escape }}" alt="" loading="lazy" width="800" height="400">
+            {% endif %}
+          </div>
+        </section>
+      {% elsif mod.type == 'theme.notificationBar' %}
+        <div class="superapp-note superapp-note--embed" data-module-id="{{ module_id | escape }}">
+          <div class="superapp-note__inner">
+            <span class="superapp-note__msg">{{ mod.config.message | escape }}</span>
+            {% if mod.config.linkText != blank and mod.config.linkUrl != blank %}
+              <a class="superapp-note__link" href="{{ mod.config.linkUrl | escape }}">{{ mod.config.linkText | escape }}</a>
+            {% endif %}
+          </div>
+        </div>
+      {% elsif mod.type == 'theme.popup' %}
+        <div class="superapp-popup superapp-popup--embed" data-module-id="{{ module_id | escape }}" data-trigger="{{ mod.config.trigger | escape }}" data-frequency="{{ mod.config.frequency | escape }}" hidden>
+          <div class="superapp-popup__backdrop" data-superapp-close></div>
+          <div class="superapp-popup__panel" role="dialog" aria-modal="true" aria-label="{{ mod.config.title | escape }}">
+            <button class="superapp-popup__close" type="button" data-superapp-close aria-label="Close">&times;</button>
+            <h3 class="superapp-popup__title">{{ mod.config.title | escape }}</h3>
+            {% if mod.config.body != blank %}
+              <p class="superapp-popup__body">{{ mod.config.body | escape }}</p>
+            {% endif %}
+            {% if mod.config.ctaText != blank and mod.config.ctaUrl != blank %}
+              <a class="superapp-popup__cta" href="{{ mod.config.ctaUrl | escape }}">{{ mod.config.ctaText | escape }}</a>
+            {% endif %}
+          </div>
+        </div>
+      {% elsif mod.type == 'theme.effect' %}
+        <div class="superapp-effect superapp-effect--embed" data-module-id="{{ module_id | escape }}" data-trigger="{{ mod.config.startTrigger | default: 'page_load' | escape }}" role="presentation" aria-hidden="true">
+          <div class="superapp-effect__overlay superapp-effect--{{ mod.config.effectKind | default: 'snowfall' }}">
+            {% for i in (1..50) %}
+              <div class="superapp-effect__particle"></div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+  <style>
+    .superapp-banner--embed .superapp-banner__inner { display: flex; gap: 1rem; align-items: center; max-width: 1200px; margin: 0 auto; padding: 1rem; }
+    .superapp-banner__heading { margin: 0 0 0.5rem; font-size: 1.25rem; }
+    .superapp-banner__cta { display: inline-block; padding: 0.5rem 1rem; border: 1px solid currentColor; text-decoration: none; border-radius: 6px; }
+    .superapp-note--embed { position: sticky; top: 0; z-index: 999; text-align: center; padding: 0.5rem 1rem; background: #f5f5f5; }
+    .superapp-popup--embed { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; }
+    .superapp-popup--embed[hidden] { display: none !important; }
+    .superapp-popup__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.4); }
+    .superapp-popup__panel { position: relative; background: #fff; padding: 1.5rem; border-radius: 12px; max-width: 400px; }
+    .superapp-effect--embed { pointer-events: none; position: fixed; inset: 0; z-index: 9998; overflow: hidden; }
+    .superapp-effect__particle { position: absolute; width: 4px; height: 4px; background: rgba(255,255,255,0.8); border-radius: 50%; animation: superapp-fall 8s linear infinite; }
+    @keyframes superapp-fall { 0% { transform: translateY(-10px); opacity: 0; } 10% { opacity: 0.8; } 90% { opacity: 0.8; } 100% { transform: translateY(100vh); opacity: 0; } }
+  </style>
+{% endif %}
+
+{% schema %}
+{
+  "name": "SuperApp Theme Modules",
+  "target": "body",
+  "settings": []
+}
+{% endschema %}

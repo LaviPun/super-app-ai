@@ -6,6 +6,7 @@ import { getPrisma } from '~/db.server';
 import { JobService } from '~/services/jobs/job.service';
 import { withApiLogging } from '~/services/observability/api-log.service';
 import { QuotaService } from '~/services/billing/quota.service';
+import { CapabilityService } from '~/services/shopify/capability.service';
 import { classifyUserIntent, CONFIDENCE_THRESHOLDS } from '~/services/ai/classify.server';
 import { augmentWithCheapClassifier } from '~/services/ai/cheap-classifier.server';
 import { buildIntentPacket } from '~/services/ai/intent-packet.server';
@@ -16,7 +17,7 @@ export async function loader() {
 }
 
 export async function action({ request }: { request: Request }) {
-  const { session } = await shopify.authenticate.admin(request);
+  const { session, admin } = await shopify.authenticate.admin(request);
 
   return withApiLogging(
     { actor: 'MERCHANT', method: request.method, path: '/api/ai/create-module', request, captureRequestBody: true, captureResponseBody: true },
@@ -41,9 +42,6 @@ export async function action({ request }: { request: Request }) {
       if (preferredBlockType && preferredBlockType !== 'Auto') {
         constraints.push(`For customer account blocks, target must be: ${preferredBlockType}.`);
       }
-      if (constraints.length > 0) {
-        prompt = `Constraints: ${constraints.join(' ')}\n\nUser request: ${prompt}`;
-      }
 
       const prisma = getPrisma();
       const shopRow = await prisma.shop.upsert({
@@ -54,6 +52,26 @@ export async function action({ request }: { request: Request }) {
 
       const quotaService = new QuotaService();
       await quotaService.enforce(shopRow.id, 'aiRequest');
+
+      // Resolve plan tier so AI only proposes publishable module types
+      const caps = new CapabilityService();
+      let planTier = shopRow.planTier ?? 'UNKNOWN';
+      if (planTier === 'UNKNOWN') planTier = await caps.refreshPlanTier(session.shop, admin);
+      if (planTier && planTier !== 'UNKNOWN') {
+        constraints.push(`Merchant plan tier: ${planTier}. Only suggest module types the merchant can publish on this plan. For FREE tier, avoid types that require premium capabilities (e.g. checkout.upsell, checkout.block, postPurchase.offer, proxy.widget, customerAccount.blocks).`);
+      }
+
+      // Inject workspace context so AI can avoid name clashes and be aware of existing work
+      const [totalModules, publishedModules] = await Promise.all([
+        prisma.module.count({ where: { shopId: shopRow.id } }),
+        prisma.module.count({ where: { shopId: shopRow.id, status: 'PUBLISHED' } }),
+      ]);
+      const drafts = totalModules - publishedModules;
+      constraints.push(`Workspace: ${totalModules} module(s) total (${publishedModules} published, ${drafts} draft). Avoid names that are likely already in use.`);
+
+      if (constraints.length > 0) {
+        prompt = `Constraints: ${constraints.join(' ')}\n\nUser request: ${prompt}`;
+      }
 
       // Tier A + B: keyword + embedding classifier
       let classification = await classifyUserIntent(prompt, preferredType);
@@ -75,7 +93,7 @@ export async function action({ request }: { request: Request }) {
       try {
         const recipeOptions = await generateValidatedRecipeOptions(prompt, classification, {
           shopId: shopRow.id,
-          maxAttempts: 2,
+          maxAttempts: 3,
           intentPacketJson: JSON.stringify(intentPacket, null, 2),
           confidenceScore: intentPacket.classification.confidence,
           promptProfile: intentPacket.routing.prompt_profile,

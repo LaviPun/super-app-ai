@@ -112,10 +112,11 @@ export default function InternalJobs() {
 
   return (
     <Page title="Jobs" subtitle={`${running} running · ${failed} failed`}>
-      <BlockStack gap="400">
+      <BlockStack gap="500">
         <Card>
           <BlockStack gap="300">
             <Text as="h2" variant="headingMd">Filters</Text>
+            <Text as="p" variant="bodySm" tone="subdued">Filter by status, type, search, and date range.</Text>
             <Form method="get">
               <InlineStack gap="300" wrap blockAlign="end">
                 <div style={{ minWidth: 140 }}>
@@ -133,8 +134,8 @@ export default function InternalJobs() {
                 <div style={{ minWidth: 160 }}>
                   <TextField label="To" name="dateTo" type="date" value={filters.dateTo?.split('T')[0] ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('dateTo', v); else p.delete('dateTo'); setParams(p); }} autoComplete="off" />
                 </div>
-                <Button submit loading={isLoading}>Apply</Button>
-                <Button url="/internal/jobs" variant="plain">Clear</Button>
+                <Button submit variant="primary" loading={isLoading}>Apply</Button>
+                <Button url="/internal/jobs" variant="secondary">Clear</Button>
               </InlineStack>
             </Form>
           </BlockStack>
@@ -142,68 +143,81 @@ export default function InternalJobs() {
 
         {liveJobs.length > 0 && (
           <Card>
-            <BlockStack gap="200">
-              <Text as="h2" variant="headingMd">Live (RUNNING / QUEUED) — {liveJobs.length} job(s)</Text>
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">Live jobs</Text>
+              <Text as="p" variant="bodySm" tone="subdued">RUNNING or QUEUED — {liveJobs.length} job(s).</Text>
               <InlineStack gap="200" blockAlign="center">
                 <Text as="p" variant="bodySm" tone="subdued">These jobs are in progress.</Text>
-                <Button size="slim" onClick={() => revalidator.revalidate()} loading={revalidator.state === 'loading'}>Refresh</Button>
+                <Button size="slim" variant="primary" onClick={() => revalidator.revalidate()} loading={revalidator.state === 'loading'}>Refresh</Button>
               </InlineStack>
-              <DataTable
-                columnContentTypes={['text', 'text', 'text', 'text']}
-                headings={['Time', 'Type', 'Status', 'Store']}
-                rows={liveJobs.map(j => [
-                  new Date(j.createdAt).toLocaleString(),
-                  j.type,
-                  <Badge key={j.id} tone="attention">{j.status}</Badge>,
-                  j.shopDomain ?? '—',
-                ])}
-              />
+              <div className="internal-table-scroll">
+                <DataTable
+                  columnContentTypes={['text', 'text', 'text', 'text']}
+                  headings={['Time', 'Type', 'Status', 'Store']}
+                  rows={liveJobs.map(j => [
+                    new Date(j.createdAt).toLocaleString(),
+                    j.type,
+                    <Badge key={j.id} tone="attention">{j.status}</Badge>,
+                    j.shopDomain ?? '—',
+                  ])}
+                />
+              </div>
             </BlockStack>
           </Card>
         )}
 
         <Card>
-          <BlockStack gap="200">
-            <Text as="h2" variant="headingMd">All jobs ({jobs.length})</Text>
-            <Text as="p" variant="bodySm" tone="subdued">Showing all statuses. Use filters to narrow by status or type.</Text>
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">All jobs</Text>
+            <Text as="p" variant="bodySm" tone="subdued">Use filters to narrow by status or type.</Text>
             {isLoading ? (
               <SkeletonBodyText lines={6} />
             ) : jobs.length === 0 ? (
-              <Text as="p" tone="subdued">No jobs match your filters.</Text>
+              <BlockStack gap="200">
+                <Text as="p" tone="subdued">No jobs match your filters.</Text>
+                <Text as="p" variant="bodySm" tone="subdued">Widen the date range or clear filters to see more.</Text>
+              </BlockStack>
             ) : (
-              <DataTable
-                columnContentTypes={['text', 'text', 'text', 'text', 'text']}
-                headings={['Time', 'Type', 'Status', 'Store', 'Error']}
-                rows={jobs.map(j => [
-                  new Date(j.createdAt).toLocaleString(),
-                  j.type,
-                  <Badge key={j.id} tone={j.status === 'FAILED' ? 'critical' : j.status === 'SUCCESS' ? 'success' : 'attention'}>{j.status}</Badge>,
-                  j.shopDomain ?? '—',
-                  j.error ? <Text key={j.id} as="span" tone="critical">{j.error}</Text> : '—',
-                ])}
-              />
+              <div className="internal-table-scroll">
+                <DataTable
+                  columnContentTypes={['text', 'text', 'text', 'text', 'text']}
+                  headings={['Time', 'Type', 'Status', 'Store', 'Error']}
+                  rows={jobs.map(j => [
+                    new Date(j.createdAt).toLocaleString(),
+                    j.type,
+                    <Badge key={j.id} tone={j.status === 'FAILED' ? 'critical' : j.status === 'SUCCESS' ? 'success' : 'attention'}>{j.status}</Badge>,
+                    <span key={`store-${j.id}`} className="internal-truncate" title={j.shopDomain ?? ''}>{j.shopDomain ?? '—'}</span>,
+                    j.error ? <span key={j.id} className="internal-truncate-wide" title={j.error}><Text as="span" tone="critical">{j.error.length > 120 ? j.error.slice(0, 120) + '…' : j.error}</Text></span> : '—',
+                  ])}
+                />
+              </div>
             )}
           </BlockStack>
         </Card>
 
         <Card>
-          <BlockStack gap="200">
-            <Text as="h2" variant="headingMd">Flow step logs ({stepLogs.length})</Text>
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">Flow step logs</Text>
             {stepLogs.length === 0 ? (
-              <Text as="p" tone="subdued">No step logs yet.</Text>
+              <BlockStack gap="200">
+                <Text as="p" tone="subdued">No step logs yet.</Text>
+                <Text as="p" variant="bodySm" tone="subdued">Step logs appear when flows run.</Text>
+              </BlockStack>
             ) : (
-              <DataTable
-                columnContentTypes={['text', 'text', 'text', 'text', 'numeric', 'text']}
-                headings={['Time', 'Step', 'Kind', 'Status', 'Duration (ms)', 'Store']}
-                rows={stepLogs.map(s => [
-                  new Date(s.createdAt).toLocaleString(),
-                  String(s.step),
-                  s.kind,
-                  <Badge key={s.id} tone={s.status === 'SUCCESS' ? 'success' : 'critical'}>{s.status}</Badge>,
-                  s.durationMs ?? '—',
-                  s.shopDomain ?? '—',
-                ])}
-              />
+              <div className="internal-table-scroll">
+                <DataTable
+                  columnContentTypes={['text', 'text', 'text', 'text', 'numeric', 'text']}
+                  headings={['Time', 'Step', 'Kind', 'Status', 'Duration (ms)', 'Store']}
+                  rows={stepLogs.map(s => [
+                    new Date(s.createdAt).toLocaleString(),
+                    String(s.step),
+                    s.kind,
+                    <Badge key={s.id} tone={s.status === 'SUCCESS' ? 'success' : 'critical'}>{s.status}</Badge>,
+                    s.durationMs ?? '—',
+                    <span key={`store-${s.id}`} className="internal-truncate" title={s.shopDomain ?? ''}>{s.shopDomain ?? '—'}</span>,
+                  ])}
+                />
+              </div>
             )}
           </BlockStack>
         </Card>

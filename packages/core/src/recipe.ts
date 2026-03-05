@@ -60,9 +60,9 @@ export {
 /** All RecipeSpec types as array (for prompt-expectations and UI). */
 export const ALL_MODULE_TYPES: ModuleType[] = [...RECIPE_SPEC_TYPES];
 
-/** Where to deploy: theme app extension (with themeId) or platform extensions (checkout/admin/pos/flow/pixel). Doc-aligned. */
+/** Where to deploy: theme app extension via metafields (themeId + moduleId) or platform extensions. Doc-aligned. */
 export type DeployTarget =
-  | { kind: (typeof DEPLOY_TARGET_KINDS)[0]; themeId: string }
+  | { kind: (typeof DEPLOY_TARGET_KINDS)[0]; themeId: string; moduleId?: string }
   | { kind: (typeof DEPLOY_TARGET_KINDS)[1] };
 
 /** Theme placement: only one of enabled_on or disabled_on (doc 4.2.2B, 4.2.3). */

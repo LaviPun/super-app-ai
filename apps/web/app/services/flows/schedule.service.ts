@@ -45,6 +45,24 @@ export class ScheduleService {
     });
   }
 
+  async update(scheduleId: string, shopId: string, data: { name?: string; cronExpr?: string; eventJson?: string }) {
+    if (data.cronExpr) validateCronExpr(data.cronExpr);
+    const prisma = getPrisma();
+    const existing = await prisma.flowSchedule.findFirst({ where: { id: scheduleId, shopId } });
+    if (!existing) throw new Error('Schedule not found');
+    const cronExpr = data.cronExpr ?? existing.cronExpr;
+    const nextRunAt = existing.isActive ? computeNextRun(cronExpr) : existing.nextRunAt;
+    return prisma.flowSchedule.updateMany({
+      where: { id: scheduleId, shopId },
+      data: {
+        ...(data.name !== undefined ? { name: data.name } : {}),
+        ...(data.cronExpr !== undefined ? { cronExpr: data.cronExpr } : {}),
+        ...(data.eventJson !== undefined ? { eventJson: data.eventJson } : {}),
+        nextRunAt,
+      },
+    });
+  }
+
   async remove(scheduleId: string, shopId: string) {
     const prisma = getPrisma();
     return prisma.flowSchedule.deleteMany({ where: { id: scheduleId, shopId } });

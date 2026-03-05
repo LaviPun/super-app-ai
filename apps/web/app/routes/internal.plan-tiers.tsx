@@ -90,7 +90,7 @@ export default function InternalPlanTiers() {
 
   return (
     <Page title="Plan tiers" subtitle="View and edit billing plan definitions (quotas, display name, trial).">
-      <BlockStack gap="400">
+      <BlockStack gap="500">
         {actionData && 'toast' in actionData && (
           <Banner tone="success">{(actionData as { toast: { message: string } }).toast.message}</Banner>
         )}
@@ -101,7 +101,7 @@ export default function InternalPlanTiers() {
         {plans.map((plan: PlanConfig) => (
           <Card key={plan.name}>
             <BlockStack gap="400">
-              <InlineStack gap="200" blockAlign="center">
+              <InlineStack gap="300" blockAlign="center">
                 <Text as="h2" variant="headingMd">{plan.name}</Text>
                 {plan.price === -1 && (
                   <span style={{ fontSize: 14, color: 'var(--p-color-text-secondary)' }}>— Contact us</span>
@@ -151,6 +151,8 @@ export default function InternalPlanTiers() {
                       border: '1px solid var(--p-color-border)',
                       borderRadius: 6,
                       boxSizing: 'border-box',
+                      maxHeight: 240,
+                      overflowY: 'auto',
                     }}
                     spellCheck={false}
                     aria-label="Quotas JSON"

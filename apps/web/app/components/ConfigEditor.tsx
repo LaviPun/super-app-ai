@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { useFetcher } from '@remix-run/react';
+import { useState, useCallback, useEffect } from 'react';
+import { useFetcher, useRevalidator } from '@remix-run/react';
 import {
   Card, BlockStack, Text, InlineStack, Button, TextField, Select,
   Checkbox, Banner, Divider, Badge,
@@ -243,6 +243,7 @@ export function ConfigEditor({
   moduleId: string;
 }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string; version?: number }>();
+  const { revalidate } = useRevalidator();
   const fields = CONFIG_FIELDS[spec.type] ?? [];
 
   const [name, setName] = useState(spec.name);
@@ -265,6 +266,12 @@ export function ConfigEditor({
       { method: 'post', action: `/api/modules/${moduleId}/spec` },
     );
   }, [spec, name, config, moduleId, fetcher]);
+
+  useEffect(() => {
+    if (fetcher.data?.ok && fetcher.state === 'idle') {
+      revalidate();
+    }
+  }, [fetcher.data, fetcher.state, revalidate]);
 
   const isSaving = fetcher.state !== 'idle';
   const hasChanges = name !== spec.name ||

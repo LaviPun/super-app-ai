@@ -3,7 +3,7 @@ import { useLoaderData, Link } from '@remix-run/react';
 import {
   Page, Card, BlockStack, Text, Badge,
   InlineStack, InlineGrid, Divider, Button,
-  DataTable, Banner,
+  DataTable, Banner, Box,
 } from '@shopify/polaris';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
@@ -111,156 +111,226 @@ export default function Dashboard() {
   const dayLabels = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() - (6 - i));
-    return d.toLocaleDateString('en', { weekday: 'short' });
+    return d.toLocaleDateString('en-US', { weekday: 'short' });
   });
 
   return (
     <Page title="Dashboard">
       <BlockStack gap="500">
         {/* ─── Welcome ─── */}
-        <Banner tone="info" title={`Welcome back, ${storeName}`}>
-          <Text as="p">
-            You're on the <strong>{stats.planName}</strong> plan.{' '}
-            {stats.modules === 0
-              ? 'Head to Modules to create your first one!'
-              : `You have ${stats.modules} module${stats.modules !== 1 ? 's' : ''} - ${stats.published} live.`}
-          </Text>
+        <Banner tone="info" title={`Welcome back, ${storeName}`} action={{ content: 'Create a module', url: '/modules' }}>
+          <BlockStack gap="200">
+            <Text as="p">
+              You're on the <strong>{stats.planName}</strong> plan.{' '}
+              {stats.modules === 0
+                ? 'Create your first module with AI or from a template.'
+                : `You have ${stats.modules} module${stats.modules !== 1 ? 's' : ''} — ${stats.published} live on your store.`}
+            </Text>
+          </BlockStack>
         </Banner>
 
         {/* ─── Key metrics ─── */}
-        <InlineGrid columns={{ xs: 2, sm: 3, md: 6 }} gap="300">
-          <Card>
-            <BlockStack gap="100">
-              <Text as="p" variant="bodySm" tone="subdued">Modules</Text>
-              <Text as="p" variant="headingLg">{stats.modules}</Text>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="100">
-              <Text as="p" variant="bodySm" tone="subdued">Published</Text>
-              <Text as="p" variant="headingLg" tone="success">{stats.published}</Text>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="100">
-              <Text as="p" variant="bodySm" tone="subdued">Drafts</Text>
-              <Text as="p" variant="headingLg">{stats.drafts}</Text>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="100">
-              <Text as="p" variant="bodySm" tone="subdued">Connectors</Text>
-              <Text as="p" variant="headingLg">{stats.connectors}</Text>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="100">
-              <Text as="p" variant="bodySm" tone="subdued">Schedules</Text>
-              <Text as="p" variant="headingLg">{stats.schedules}</Text>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="100">
-              <Text as="p" variant="bodySm" tone="subdued">Plan</Text>
-              <Badge tone={stats.planName === 'Free' ? 'attention' : 'success'}>{stats.planName}</Badge>
-            </BlockStack>
-          </Card>
-        </InlineGrid>
+        <BlockStack gap="200">
+          <Text as="h2" variant="headingMd" fontWeight="semibold">Overview</Text>
+          <InlineGrid columns={{ xs: 2, sm: 3, md: 6 }} gap="400">
+            <Card padding="400">
+              <BlockStack gap="200">
+                <Text as="p" variant="bodySm" tone="subdued">Modules</Text>
+                <Text as="p" variant="headingXl">{stats.modules}</Text>
+              </BlockStack>
+            </Card>
+            <Card padding="400">
+              <BlockStack gap="200">
+                <Text as="p" variant="bodySm" tone="subdued">Published</Text>
+                <Text as="p" variant="headingXl" tone="success">{stats.published}</Text>
+              </BlockStack>
+            </Card>
+            <Card padding="400">
+              <BlockStack gap="200">
+                <Text as="p" variant="bodySm" tone="subdued">Drafts</Text>
+                <Text as="p" variant="headingXl">{stats.drafts}</Text>
+              </BlockStack>
+            </Card>
+            <Card padding="400">
+              <BlockStack gap="200">
+                <Text as="p" variant="bodySm" tone="subdued">Connectors</Text>
+                <Text as="p" variant="headingXl">{stats.connectors}</Text>
+              </BlockStack>
+            </Card>
+            <Card padding="400">
+              <BlockStack gap="200">
+                <Text as="p" variant="bodySm" tone="subdued">Schedules</Text>
+                <Text as="p" variant="headingXl">{stats.schedules}</Text>
+              </BlockStack>
+            </Card>
+            <Card padding="400">
+              <BlockStack gap="200">
+                <Text as="p" variant="bodySm" tone="subdued">Plan</Text>
+                <Badge tone={stats.planName === 'Free' ? 'attention' : 'success'}>{stats.planName}</Badge>
+              </BlockStack>
+            </Card>
+          </InlineGrid>
+        </BlockStack>
 
         {/* ─── Charts ─── */}
-        <InlineGrid columns={{ xs: 1, sm: 2 }} gap="400">
-          <Card>
-            <BlockStack gap="300">
-              <Text as="h2" variant="headingMd">Modules created (7 days)</Text>
-              <MiniBarChart data={dailyCounts} maxHeight={56} />
-              <InlineStack gap="200">
-                {dayLabels.map((l, i) => (
-                  <Text key={i} as="span" variant="bodySm" tone="subdued">{l}</Text>
-                ))}
-              </InlineStack>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="300">
-              <InlineStack align="space-between" blockAlign="center">
-                <Text as="h2" variant="headingMd">Job success (30d)</Text>
-                <Badge tone={stats.successRate >= 90 ? 'success' : stats.successRate >= 70 ? 'attention' : 'critical'}>
-                  {stats.successRate}%
-                </Badge>
-              </InlineStack>
-              <div className="Dashboard-jobSuccessBar" role="progressbar" aria-valuenow={stats.successRate} aria-valuemin={0} aria-valuemax={100}>
-                <div
-                  className="Dashboard-jobSuccessBar-fill"
-                  style={{
-                    width: `${Math.min(100, Math.max(0, stats.successRate))}%`,
-                    backgroundColor: stats.successRate >= 90 ? 'var(--p-color-bg-fill-success, #008060)' : stats.successRate >= 70 ? 'var(--p-color-bg-fill-caution, #ffc453)' : 'var(--p-color-bg-fill-critical, #d72c0d)',
-                  }}
-                />
-              </div>
-              <InlineStack gap="300">
-                <Text as="p" variant="bodySm" tone="subdued">
-                  {stats.totalJobs30d} total | {stats.failedJobs30d} failed
-                </Text>
-                <Button url="/logs" variant="plain" size="slim">View details</Button>
-              </InlineStack>
-            </BlockStack>
-          </Card>
-        </InlineGrid>
+        <BlockStack gap="400">
+          <Text as="h2" variant="headingMd" fontWeight="semibold">Activity</Text>
+          <InlineGrid columns={{ xs: 1, sm: 2 }} gap="400">
+            <Card padding="400">
+              <BlockStack gap="400">
+                <Text as="h3" variant="headingSm">Modules created (7 days)</Text>
+                <Box paddingBlockEnd="200">
+                  <MiniBarChart data={dailyCounts} maxHeight={56} />
+                </Box>
+                <InlineStack gap="100" wrap>
+                  {dayLabels.map((l, i) => (
+                    <Box key={i} minWidth="28px">
+                      <Text as="span" variant="bodySm" tone="subdued">{l}</Text>
+                    </Box>
+                  ))}
+                </InlineStack>
+              </BlockStack>
+            </Card>
+            <Card padding="400">
+              <BlockStack gap="400">
+                <InlineStack align="space-between" blockAlign="center">
+                  <Text as="h3" variant="headingSm">Job success (30d)</Text>
+                  <Badge tone={stats.successRate >= 90 ? 'success' : stats.successRate >= 70 ? 'attention' : 'critical'}>
+                    {stats.successRate}%
+                  </Badge>
+                </InlineStack>
+                <div className="Dashboard-jobSuccessBar" role="progressbar" aria-valuenow={stats.successRate} aria-valuemin={0} aria-valuemax={100}>
+                  <div
+                    className="Dashboard-jobSuccessBar-fill"
+                    style={{
+                      width: `${Math.min(100, Math.max(0, stats.successRate))}%`,
+                      backgroundColor: stats.successRate >= 90 ? 'var(--p-color-bg-fill-success, #008060)' : stats.successRate >= 70 ? 'var(--p-color-bg-fill-caution, #ffc453)' : 'var(--p-color-bg-fill-critical, #d72c0d)',
+                    }}
+                  />
+                </div>
+                <InlineStack gap="300" blockAlign="center">
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    {stats.totalJobs30d} total · {stats.failedJobs30d} failed
+                  </Text>
+                  <Button url="/logs" variant="plain" size="slim">View logs</Button>
+                </InlineStack>
+              </BlockStack>
+            </Card>
+          </InlineGrid>
+        </BlockStack>
 
         {/* ─── Recent jobs ─── */}
-        {recentJobs.length > 0 && (
-          <Card>
-            <BlockStack gap="300">
+        <Card padding="0">
+          <BlockStack gap="0">
+            <Box padding="400">
               <InlineStack align="space-between" blockAlign="center">
-                <Text as="h2" variant="headingMd">Recent activity</Text>
-                <Button url="/logs" variant="plain" size="slim">View all</Button>
+                <Text as="h2" variant="headingMd" fontWeight="semibold">Recent activity</Text>
+                <Button url="/logs" variant="plain" size="slim">View all logs</Button>
               </InlineStack>
+            </Box>
+            {recentJobs.length > 0 ? (
               <DataTable
                 columnContentTypes={['text', 'text', 'text']}
                 headings={['Time', 'Type', 'Status']}
                 rows={recentJobs.map(j => [
-                  new Date(j.createdAt).toLocaleString(),
+                  new Date(j.createdAt).toLocaleString('en-US'),
                   j.type.replace(/_/g, ' '),
                   <Badge key={j.id} tone={j.status === 'SUCCESS' ? 'success' : j.status === 'FAILED' ? 'critical' : 'attention'}>{j.status}</Badge>,
                 ])}
               />
-            </BlockStack>
-          </Card>
-        )}
+            ) : (
+              <Box padding="400" paddingBlockStart="0">
+                <BlockStack gap="200">
+                  <Text as="p" variant="bodySm" tone="subdued">No recent activity. Jobs will appear here after you run flows or publish modules.</Text>
+                  <Button url="/flows" variant="plain" size="slim">Set up flows</Button>
+                </BlockStack>
+              </Box>
+            )}
+          </BlockStack>
+        </Card>
+
+        <Divider />
+
+        {/* ─── What you can build ─── */}
+        <Card padding="400">
+          <BlockStack gap="400">
+            <InlineStack align="space-between" blockAlign="center">
+              <Text as="h2" variant="headingMd" fontWeight="semibold">What you can build</Text>
+              <Badge tone="magic">AI-powered</Badge>
+            </InlineStack>
+            <Text as="p" variant="bodyMd" tone="subdued">
+              Describe what you want in plain English — the AI generates ready-to-publish Shopify modules.
+            </Text>
+            <InlineGrid columns={{ xs: 2, sm: 3, md: 4 }} gap="300">
+              {[
+                { label: 'Popup', desc: 'Discount / exit-intent / newsletter', icon: '🪟' },
+                { label: 'Banner', desc: 'Hero banners with CTA', icon: '🖼️' },
+                { label: 'Announcement bar', desc: 'Sticky top-of-page notices', icon: '📢' },
+                { label: 'Floating widget', desc: 'WhatsApp, chat, scroll-to-top', icon: '💬' },
+                { label: 'Seasonal effect', desc: 'Snowfall, confetti overlay', icon: '❄️' },
+                { label: 'Checkout upsell', desc: 'Add-on blocks at checkout', icon: '🛒' },
+                { label: 'Discount function', desc: 'VIP, tiered, BOGO rules', icon: '🏷️' },
+                { label: 'Automation flow', desc: 'Tag orders, send emails', icon: '⚡' },
+              ].map(({ label, desc, icon }) => (
+                <Box
+                  key={label}
+                  padding="300"
+                  background="bg-surface-secondary"
+                  borderRadius="200"
+                >
+                  <InlineStack gap="200" blockAlign="center">
+                    <Text as="span" variant="bodyLg">{icon}</Text>
+                    <BlockStack gap="050">
+                      <Text as="p" variant="bodySm" fontWeight="semibold">{label}</Text>
+                      <Text as="p" variant="bodySm" tone="subdued">{desc}</Text>
+                    </BlockStack>
+                  </InlineStack>
+                </Box>
+              ))}
+            </InlineGrid>
+            <InlineStack gap="300">
+              <Button url="/modules" variant="primary">Create a module</Button>
+              <Button url="https://shopify.dev/docs/apps/build" variant="plain" external>Shopify docs</Button>
+            </InlineStack>
+          </BlockStack>
+        </Card>
 
         <Divider />
 
         {/* ─── Quick navigation ─── */}
-        <InlineGrid columns={{ xs: 2, sm: 4 }} gap="300">
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h3" variant="headingSm">Modules</Text>
-              <Text as="p" variant="bodySm" tone="subdued">Create and manage AI modules.</Text>
-              <Button url="/modules" variant="plain">Go to modules</Button>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h3" variant="headingSm">Connectors</Text>
-              <Text as="p" variant="bodySm" tone="subdued">External API integrations.</Text>
-              <Button url="/connectors" variant="plain">Manage</Button>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h3" variant="headingSm">Flows</Text>
-              <Text as="p" variant="bodySm" tone="subdued">Automation schedules.</Text>
-              <Button url="/flows" variant="plain">Manage</Button>
-            </BlockStack>
-          </Card>
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h3" variant="headingSm">Logs & Usage</Text>
-              <Text as="p" variant="bodySm" tone="subdued">Activity, limits, success rates.</Text>
-              <Button url="/logs" variant="plain">View logs</Button>
-            </BlockStack>
-          </Card>
-        </InlineGrid>
+        <BlockStack gap="400">
+          <Text as="h2" variant="headingMd" fontWeight="semibold">Quick links</Text>
+          <InlineGrid columns={{ xs: 2, sm: 4 }} gap="400">
+            <Card padding="400">
+              <BlockStack gap="300">
+                <Text as="h3" variant="headingSm">Modules</Text>
+                <Text as="p" variant="bodySm" tone="subdued">Create and manage AI modules.</Text>
+                <Button url="/modules" variant="primary" size="slim">Go to modules</Button>
+              </BlockStack>
+            </Card>
+            <Card padding="400">
+              <BlockStack gap="300">
+                <Text as="h3" variant="headingSm">Connectors</Text>
+                <Text as="p" variant="bodySm" tone="subdued">External API integrations.</Text>
+                <Button url="/connectors" variant="secondary" size="slim">Manage connectors</Button>
+              </BlockStack>
+            </Card>
+            <Card padding="400">
+              <BlockStack gap="300">
+                <Text as="h3" variant="headingSm">Flows</Text>
+                <Text as="p" variant="bodySm" tone="subdued">Automation schedules.</Text>
+                <Button url="/flows" variant="secondary" size="slim">Manage flows</Button>
+              </BlockStack>
+            </Card>
+            <Card padding="400">
+              <BlockStack gap="300">
+                <Text as="h3" variant="headingSm">Logs &amp; usage</Text>
+                <Text as="p" variant="bodySm" tone="subdued">Activity, limits, success rates.</Text>
+                <Button url="/logs" variant="secondary" size="slim">View logs</Button>
+              </BlockStack>
+            </Card>
+          </InlineGrid>
+        </BlockStack>
       </BlockStack>
     </Page>
   );

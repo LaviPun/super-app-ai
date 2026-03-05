@@ -13,7 +13,7 @@ Merchants can create modules like:
 - **Module Templates**: 30 pre-built templates covering all 14 RecipeSpec types — merchants can generate with AI or start from a template
 - **Module Settings Editor**: per-type config/copy editor (heading, body, trigger, frequency, etc.) on the module detail page
 - **Modify with AI**: rework/regenerate modules using AI instructions without creating a new module
-- **Theme Dropdown**: publish section fetches themes from Shopify and shows a Select dropdown with theme name + role
+- **Theme Dropdown**: publish section fetches themes from Shopify and shows a single Select dropdown with theme name and "(Live)" for the live theme; only valid store themes are listed. Theme ID is validated server-side before publish (400 if not found). "Refresh themes" re-syncs the list; no manual theme ID input
 - **Data Stores**: predefined (Product, Inventory, Order, Analytics, Marketing, Customer) and custom databases for app-owned data
 - **Workflow Engine**: graph-based DAG workflow engine with typed expressions, 5 built-in connectors (Shopify, HTTP, Slack, Email, Storage), dual-mode execution (local + Shopify Flow delegation), workflow templates with approval checklist
 - **Shopify Flow Integration**: 5 Flow trigger extensions (module published, connector synced, data record created, workflow completed/failed) + 4 Flow action extensions (tag order, write to store, send HTTP, email notification). Send HTTP Request step with URL/method/headers/body/auth (mirrors Flow's native action). Comprehensive flow catalog (50+ triggers, 40+ actions, 15 operators, 18+ connectors)
@@ -39,7 +39,7 @@ Instead we use:
 1) Prompt → AI returns **RecipeSpec** JSON
 2) Validate RecipeSpec with Zod (strict)
 3) Compile into deploy operations:
-   - theme asset upsert/delete
+   - no theme file writes — app uses extensions + metafields only; theme.* modules that would write to the theme are not supported for publish
    - shop metafields set/delete (configuration)
    - app proxy config
 4) Merchant previews + publishes, with versioning + rollback
@@ -69,11 +69,24 @@ This yields:
 
 > Hosting: use Postgres + Redis in production; SQLite is for local development only.
 
+## Agent API
+
+A full `/api/agent/*` surface lets MCP/agent callers do everything the merchant UI can do.
+
+- **`GET /api/agent`** — discovery index listing **28 endpoints** with schemas, descriptions, body params, and return shapes
+- **`GET /api/agent/config`** — machine-readable classification config (`CLEAN_INTENTS`, `ROUTING_TABLE`, `CONFIDENCE_THRESHOLDS`) for agents that need to understand routing without reading source code
+
+Covered surfaces: module lifecycle (create, get-spec, update-spec, modify, modify-confirm, publish, rollback, delete), AI primitives (classify, generate-options, validate-spec), connectors (list, get, create, update, delete, test, endpoint CRUD), data stores (enable/disable, custom stores, record CRUD, records list with pagination), schedules (list, create, update, toggle, delete), flows (list, run).
+
+All agent routes use Shopify admin auth. Every mutating action is logged to `ActivityLog` with `actor: SYSTEM, source: agent_api`.
+
+**UI integration:** All 4 merchant-facing list pages (`/modules`, `/connectors`, `/data`, `/flows`) poll every 30s and revalidate on window focus — agent writes appear automatically without a manual refresh.
+
 ## Docs
 - **AI Module reference:** `docs/ai-module-main-doc.md` — canonical allowed values, RecipeSpec, catalog, capabilities, placement, GDPR, analytics (single source of truth; code uses `packages/core/src/allowed-values.ts`).
 - Technical: `docs/technical.md`
 - Merchant guide: `docs/app.md`
-- Implementation status: `docs/implementation-status.md` (includes **AI Module doc alignment**, **AI Patch Plan — Remove Generic Outputs**, Storefront UI Style System, API Tester, Templates, Flow Builder, Data Stores, **Admin app stack & UI fixes**)
+- Implementation status: `docs/implementation-status.md` (includes **AI Module doc alignment**, **AI Patch Plan — Remove Generic Outputs**, Storefront UI Style System, API Tester, Templates, Flow Builder, Data Stores, **Admin app stack & UI fixes**, **Agent-Native Audit + Remediation**)
 - **AI Patch Plan Phases 1–5 ✅:** All phases complete — 3-tier classifier (Tier A keywords + Tier B embedding similarity + Tier C cheap LLM), `theme.floatingWidget` new type, settings packs per module type, profile-driven prompt composition, schema/catalog on attempt 0 for non-direct confidence, drift-check CI. Deferred: multi-intent, Behavior DSL, theme.composed. See `docs/implementation-status.md` § “AI Patch Plan”.
 - Phase plan: `docs/phase-plan.md`
 - Debug notes (extension bundle, deploy, 64 KB limit, embedded auth, **card corners**, known issues): `docs/debug.md`

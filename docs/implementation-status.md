@@ -3,6 +3,7 @@
 > Last updated: 2026-03-05
 > All 163 automated tests pass (145 apps/web + 17 packages/core + 1 packages/rate-limit). See [phase-plan.md](./phase-plan.md) for the original plan.
 > **AI Module doc alignment:** Single source of truth from [ai-module-main-doc.md](./ai-module-main-doc.md); see section below.
+> **Change propagation:** All code changes follow [codechange-behave.md](../codechange-behave.md) (impact map, propagation pass, docs/README updates).
 
 ---
 
@@ -29,6 +30,84 @@
 | — | Workflow Engine Spec (Graph-based) | ✅ Complete |
 | — | Admin Dashboard: Categories, Plan Tiers, Recipe Edit, Store Plan | ✅ Complete |
 | — | **AI Patch Plan — Remove Generic Outputs** | ✅ Phases 1–5 Complete |
+| — | **Agent-Native Architecture Audit + Remediation** | ✅ P1–P10+ Complete + Fresh Audit Gaps Resolved (28 agent routes, UI polling, ConnectorEndpoint agent CRUD, DataStoreRecord list, FlowSchedule full update) |
+
+---
+
+## Agent-Native Architecture Audit + Remediation ✅ P1–P10+ Complete
+
+Full audit in [agent-native-audit-report.md](./agent-native-audit-report.md). All Top 10 recommendations implemented plus extended agent API surface (connectors, data stores, schedules, flows, AI primitives, config introspection).
+
+| Priority | Recommendation | Status | Deliverables |
+|----------|---------------|--------|--------------|
+| P1 | Agent API surface | ✅ Done | 28 agent routes across modules, connectors (incl. endpoints), data stores (incl. records list), schedules, flows, AI primitives, config; `api.agent.tsx` discovery index |
+| P2 | Plan/capabilities in AI prompts | ✅ Done | `api.ai.create-module.tsx` + `api.ai.modify-module.tsx` — plan tier + workspace summary injected into constraints |
+| P3 | Module delete | ✅ Done | `api.modules.$moduleId.delete.tsx`; `ModuleService.deleteModule()`; Danger zone UI on module detail; activity log `MODULE_DELETED` |
+| P4 | Suggested prompts in UI | ✅ Done | `EXAMPLE_PROMPTS` chips from `INTENT_EXAMPLES` in `modules._index.tsx` |
+| P5 | Primitive read routes | ✅ Done | `GET /api/agent/modules/:id/spec` (read-only spec); `POST /api/agent/classify` (classify-only); `POST /api/agent/generate-options` (AI without saving); `POST /api/agent/validate-spec` (validate only) |
+| P6 | Workspace context in prompts | ✅ Done | Total/published/draft counts + plan tier injected in create-module and modify-module |
+| P7 | UI refresh after spec save | ✅ Done | `useRevalidator()` called in `StyleBuilder.tsx` and `ConfigEditor.tsx` after successful fetcher save |
+| P8 | Connector full update | ✅ Done | `ConnectorService.update()`; `api.connectors.$connectorId.update.tsx`; Edit modal on connector detail page |
+| P9 | Routing/classification configurable | ✅ Done | `GET /api/agent/config` exposes `CLEAN_INTENTS`, `ROUTING_TABLE`, `MODULE_TYPE_TO_INTENT`, `CONFIDENCE_THRESHOLDS` as JSON. Full config-file extraction deferred. |
+| P10 | Help/capability discovery | ✅ Done | "What you can build" 8-tile grid on dashboard (`_index.tsx`); suggested prompt chips on Modules page; `GET /api/agent` + `GET /api/agent/config` for programmatic discovery |
+
+### Key new files (agent API surface — full listing)
+
+**Module lifecycle**
+
+| File | Route | Purpose |
+|------|-------|---------|
+| `routes/api.agent.tsx` | `GET /api/agent` | Discovery index — 28 endpoints + schemas |
+| `routes/api.agent.modules.tsx` | `GET/POST /api/agent/modules` | List + create |
+| `routes/api.agent.modules.$moduleId.tsx` | `GET /api/agent/modules/:id` | Get with versions + specs |
+| `routes/api.agent.modules.$moduleId.spec.tsx` | `GET/POST /api/agent/modules/:id/spec` | Read (primitive) or update spec |
+| `routes/api.agent.modules.$moduleId.publish.tsx` | `POST /api/agent/modules/:id/publish` | Publish (plan gate + validation) |
+| `routes/api.agent.modules.$moduleId.rollback.tsx` | `POST /api/agent/modules/:id/rollback` | Rollback to version |
+| `routes/api.agent.modules.$moduleId.delete.tsx` | `POST /api/agent/modules/:id/delete` | Delete module |
+| `routes/api.agent.modules.$moduleId.modify.tsx` | `POST /api/agent/modules/:id/modify` | Propose 3 AI modification options (read-like) |
+| `routes/api.agent.modules.$moduleId.modify-confirm.tsx` | `POST /api/agent/modules/:id/modify-confirm` | Save selected modification as new DRAFT |
+
+**AI primitives**
+
+| File | Route | Purpose |
+|------|-------|---------|
+| `routes/api.agent.classify.tsx` | `POST /api/agent/classify` | Classify prompt → intent (read-only, no LLM) |
+| `routes/api.agent.generate-options.tsx` | `POST /api/agent/generate-options` | AI → 3 RecipeSpec options (no save) |
+| `routes/api.agent.validate-spec.tsx` | `POST /api/agent/validate-spec` | Schema + plan gate + pre-publish (read-only) |
+| `routes/api.agent.config.tsx` | `GET /api/agent/config` | Classification/routing config introspection |
+
+**Connectors, data stores, schedules, flows**
+
+| File | Route | Purpose |
+|------|-------|---------|
+| `routes/api.agent.connectors.tsx` | `GET/POST /api/agent/connectors` | List + create |
+| `routes/api.agent.connectors.$connectorId.tsx` | `GET/POST /api/agent/connectors/:id` | Get + update (intent=update) + delete (intent=delete) |
+| `routes/api.agent.connectors.$connectorId.endpoints.tsx` | `GET/POST /api/agent/connectors/:id/endpoints` | List + create/update/delete saved endpoints |
+| `routes/api.agent.connectors.$connectorId.test.tsx` | `POST /api/agent/connectors/:id/test` | Test connector path |
+| `routes/api.agent.data-stores.tsx` | `GET/POST /api/agent/data-stores` | Full CRUD (7 intents) |
+| `routes/api.agent.data-stores.$storeKey.records.tsx` | `GET /api/agent/data-stores/:storeKey/records` | List records with pagination (limit max 200, offset) |
+| `routes/api.agent.schedules.tsx` | `GET/POST /api/agent/schedules` | List + create/toggle/update/delete |
+| `routes/api.agent.flows.tsx` | `GET/POST /api/agent/flows` | List + trigger run |
+
+**UI Integration (merchant-facing pages)**
+
+| File | Change |
+|------|--------|
+| `routes/modules._index.tsx` | `useRevalidator` + 30s poll + window focus revalidation |
+| `routes/connectors._index.tsx` | `useRevalidator` + 30s poll + window focus revalidation |
+| `routes/data._index.tsx` | `useRevalidator` + 30s poll + window focus revalidation |
+| `routes/flows._index.tsx` | `useRevalidator` + 30s poll + window focus revalidation |
+
+**Service additions**
+
+| File | Change |
+|------|--------|
+| `services/data/data-store.service.ts` | Added `updateRecord()`, `deleteStore()`, `listRecords()` (paginated) |
+| `services/flows/schedule.service.ts` | Added `update()` (name, cronExpr, eventJson + recomputes nextRunAt) |
+
+### Auth and logging
+
+All `/api/agent/*` routes use `shopify.authenticate.admin(request)` (same auth as UI routes). Every mutating action logs to `ActivityLog` with `actor: 'SYSTEM'` and `details.source: 'agent_api'` for unified audit trail.
 
 ---
 
@@ -101,6 +180,7 @@ Aligned with [ai-module-main-doc.md](./ai-module-main-doc.md). Single source of 
 | Routing table + resolver | `packages/core/src/intent-packet.ts` | ROUTING_TABLE, MODULE_TYPE_TO_INTENT, resolveRouting(intentOrModuleType); doc 15.15 |
 | IntentPacket builder | `apps/web/app/services/ai/intent-packet.server.ts` | buildIntentPacket(text, classification, options); used in create-module API |
 | Create-module uses IntentPacket | `apps/web/app/routes/api.ai.create-module.tsx` | Builds packet, passes intentPacketJson to LLM prompt; returns intentPacket (intent, confidence, routing, band, alternatives) |
+| Plan tier + workspace in create-module | Same | Injects plan tier (publishable types) and workspace summary (N modules, X published, Y draft) into prompt constraints; no PII. Suggested prompts (EXAMPLE_PROMPTS from INTENT_EXAMPLES) as chips on Modules page. |
 | **Phase 3** Validator + repair loop | `apps/web/app/services/ai/llm.server.ts` | compileRepairPrompt(), validateAndRepairRecipe(); on option validation failure, one repair attempt per option (doc 15.9) |
 | **Phase 2** Confidence scoring | `apps/web/app/services/ai/classify.server.ts` | confidenceScore 0–1 (S1 keyword + S3/S4 placeholders), alternatives[], reasons[]; CONFIDENCE_THRESHOLDS (0.8, 0.55) |
 | Confidence band in API | `api.ai.create-module` response | confidenceBand: direct \| with_alternatives \| fallback; alternatives and reasons for UI |
@@ -392,9 +472,27 @@ Positioning: inline modules use Theme Editor block placement; overlay (popup) us
 |-----|------|---------|
 | `/api/publish` accepts form posts | `routes/api.publish.tsx` | Module detail page posts `<Form method="post">` (form-encoded), but the route only called `request.json()` — publish silently failed. Now detects `Content-Type` and parses JSON or FormData. |
 | `/api/publish` routes all `theme.*` types to THEME target | Same | Previously only `theme.banner` was routed to `{ kind: 'THEME' }`; `theme.popup` and `theme.notificationBar` were incorrectly sent as `PLATFORM`. Now uses `spec.type.startsWith('theme.')`. |
+| **Theme ID validation before publish** | `routes/api.publish.tsx` | For theme modules, `themeId` is validated against `ThemeService.listThemes()` before calling `PublishService.publish()`. If the theme is not in the store's theme list, returns **400** with message "Theme not found or not accessible for this store. Please choose a theme from the list." — avoids 500 from invalid/stale theme IDs. |
+| **Publish error extraction** | `routes/api.publish.tsx`, `services/shopify/theme.service.ts` | `toErrorMessage()` extracts messages from API-style errors (body.errors, body.error, response). ThemeService `upsertAsset`/`deleteAsset` wrap GraphQL calls in try/catch and throw normalized `Error` (userErrors → message, 404 → "Theme not found", 422 → asset message). Publish returns clear error text instead of generic "Publish failed. Please try again or check the theme ID." |
+| **ThemeService migrated from REST to GraphQL** | `services/shopify/theme.service.ts` | Shopify REST theme asset API deprecated in API 2026-01+. `upsertAsset` now uses `themeFilesUpsert` GraphQL mutation; `deleteAsset` uses `themeFilesDelete`. Numeric theme IDs converted to GID format (`gid://shopify/OnlineStoreTheme/{id}`) automatically. Fixes 500 "Theme not found" errors on publish. |
+| **Effect preview renders actual animations** | `services/preview/preview.service.ts` | Previously showed only text label ("Effect: snowfall (medium, normal)"). Now renders full particle animation with CSS keyframes, matching the compiled theme output (particle count based on intensity, animation speed based on speed config, snowfall vs confetti styles). |
+| **Theme selection: dropdown only, valid IDs, Live label, Refresh** | `routes/modules.$moduleId.tsx` | Theme selection is a single **Polaris Select** dropdown (no radio/card list). Options show theme name with "(Live)" for the main theme. Loader normalizes themes (numeric id, lowercased role) and filters to valid IDs only. Default selection: published theme if still in list, else main theme, else first. **Refresh themes** button revalidates loader to re-fetch theme list. When themes fail to load, manual theme ID input removed — only "Refresh themes" is shown so only API-valid themes can be submitted. `publishedThemeId` from loader used to preselect last-published theme. |
 | Proxy widget renders `_styleCss` | `routes/proxy.$widgetId.tsx` | The compiler writes `_styleCss` into the metafield, but the proxy route returned raw HTML with no `<style>`. Now extracts `_styleCss` from the metafield value and injects it into a proper HTML document. |
 | Proxy widget preview uses style | `services/preview/preview.service.ts` | `proxyWidget()` had hardcoded CSS. Now calls `styleCss()` like the other storefront renderers. |
 | Overlay/backdrop controls for all layout modes | `components/StyleBuilder.tsx` | Backdrop color/opacity and anchor/offset controls were gated to `theme.popup` only. Now shown whenever `layout.mode` is `overlay`, `sticky`, or `floating` — so a notification bar set to sticky mode gets the same controls. |
+
+### Change impact map (theme publish + theme dropdown)
+
+Per [codechange-behave.md](../codechange-behave.md) §1, for the theme publish 500 fix and theme dropdown/refresh work:
+
+| Item | Content |
+|------|---------|
+| **What changed** | (1) POST /api/publish: validate themeId against store themes before publish; improve error extraction from Theme API. (2) Module detail: theme selection as single Select dropdown; "(Live)" label for main theme; only valid themes from API; default from published or main; "Refresh themes" button; remove manual theme ID when themes fail. |
+| **Why** | Prevent 500 when theme ID missing/invalid; ensure UI only shows and submits theme IDs that exist for the store; give merchants a way to re-sync theme list. |
+| **Risk level** | Low (no breaking API contract; additive validation and UI change). |
+| **Feature surface** | Admin (module detail publish section). |
+| **Affected contracts** | API: same POST /api/publish body; response now 400 with clear message when theme not in list. UI: themeId from dropdown only (hidden input); no manual themeId field. |
+| **Data flow** | Loader → listThemes() (GraphQL) → themes + publishedThemeId → Select options (value=id) → form submit themeId → api.publish validates themeId in listThemes() → PublishService.publish() → ThemeService.upsertAsset() (GraphQL `themeFilesUpsert` with GID) or 400. |
 
 ### Remaining backlog (post-launch hardening)
 
@@ -414,7 +512,8 @@ Positioning: inline modules use Theme Editor block placement; overlay (popup) us
 1. Check Job table: status=FAILED, type=PUBLISH, for shop
 2. Check ApiLog: path=/api/publish, success=false
 3. Common causes:
-   - themeId missing or wrong → merchant must provide correct theme ID
+   - themeId not in store's theme list → API returns 400 "Theme not found or not accessible"; merchant should use the dropdown (only valid themes shown) or click "Refresh themes"
+   - Shopify Theme API error (404/422) → error message is now surfaced in response.error
    - Shopify API rate limit → Job will be retried; wait 60s
    - Plan capability mismatch → check shop planTier vs module requires
 4. Manual fix: update module.activeVersionId to previous working version
@@ -467,13 +566,27 @@ Browser
         │   ├── /api/rollback → switch activeVersionId
         │   ├── /api/connectors/create|test → ConnectorService (SSRF-protected)
         │   ├── /api/connectors/:id/endpoints → ConnectorEndpoint CRUD (saved endpoints)
+        │   ├── /api/connectors/:id/update → update name/baseUrl/auth (full CRUD)
         │   ├── /api/connectors/suggest-mapping → AI-assisted field mapping
         │   ├── /api/data-stores → enable/disable/create-custom/add-record/delete-record
         │   ├── /api/theme/analyze → ThemeAnalyzerService → ThemeProfile
-        │   ├── /api/modules/:id/spec → update draft spec (Style Builder + Flow Builder)
+        │   ├── /api/modules/:id/spec → update draft spec (Style Builder + Flow Builder); revalidate() after success
+        │   ├── /api/modules/:id/delete → delete module and cascade versions (Danger zone on module detail)
         │   ├── /api/flow/run → FlowRunnerService (manual trigger)
         │   ├── /api/customer-account/config → read CA blocks metafield
-        │   └── /proxy/:widgetId → App Proxy; reads styled metafield + renders HTML with _styleCss
+        │   ├── /proxy/:widgetId → App Proxy; reads styled metafield + renders HTML with _styleCss
+        │   │
+        │   └── Agent API (/api/agent/*) — JSON-only surface for agent/MCP callers
+        │       ├── GET  /api/agent → capability discovery index
+        │       ├── GET  /api/agent/modules → list modules
+        │       ├── POST /api/agent/modules → create from RecipeSpec
+        │       ├── GET  /api/agent/modules/:id → get module + all versions + specs
+        │       ├── GET  /api/agent/modules/:id/spec → read current spec (active or draft)
+        │       ├── POST /api/agent/modules/:id/spec → update spec (new DRAFT version)
+        │       ├── POST /api/agent/modules/:id/publish → publish (plan gate + validation)
+        │       ├── POST /api/agent/modules/:id/rollback → rollback to version
+        │       ├── POST /api/agent/modules/:id/delete → delete module
+        │       └── POST /api/agent/classify → classify prompt → intent + confidence (read-only)
         │
         ├── Webhooks
         │   ├── /webhooks/orders/create → idempotency → FlowRunnerService
@@ -504,17 +617,18 @@ Browser
               ├── Security: SSRF guard + AES-256-GCM encryption + rate limiting
               └── Scheduling: ScheduleService (DB-based cron) + FlowRunnerService + idempotency
 
-Shopify Admin API
-  ├── Theme Assets (REST) — for theme.* modules
-  ├── Metafields (GraphQL) — for functions/proxy/customer-account config
+Shopify Admin API (latest version via SHOPIFY_API_VERSION, default 2026-01; no deprecated operations)
+  ├── Theme Assets (GraphQL themeFilesUpsert/themeFilesDelete) — for theme.* modules
+  ├── Metafields (GraphQL metafieldsSet/metafieldsDelete by identifier) — for functions/proxy/customer-account config
   ├── App Subscriptions (GraphQL) — for billing
-  └── Shop Plan query (GraphQL) — for capability gating
+  └── Shop Plan (GraphQL publicDisplayName) — for capability gating
 
 Extensions (read config from metafields)
   ├── Theme App Extension (blocks/banner.liquid, notification-bar.liquid)
-  ├── Customer Account UI Extension (Preact + Polaris 2026-01; 64 KB limit; generic, config-driven)
+  ├── Customer Account UI Extension (Preact + Polaris 2026-01; 64 KB limit; generic, config-driven) — order-index, order-status, profile blocks
   ├── Checkout UI Extension (generic renderer)
-  └── Functions (Rust — discount-rules reads metafield config)
+  ├── Functions (Rust — discount-rules reads metafield config)
+  └── Admin UI Extension — not deployed; admin.block / admin.order-details.block etc. compile but do not render in Admin. See docs/debug.md §3.
 ```
 
 ---
@@ -1116,7 +1230,7 @@ Runtime endpoint: `POST /api/flow/action` — verifies HMAC (`x-shopify-hmac-sha
 | theme.effect type + compiler | `packages/core/src/recipe.ts`, `allowed-values.ts`, `apps/web/.../compiler/theme.effect.ts` | New storefront type for decoration overlays (snowfall, confetti); classification keywords; full-viewport overlay compiler with reducedMotion and prefers-reduced-motion support |
 | Template integrity tests | `packages/core/src/__tests__/templates.test.ts` | 8 tests: type matching, category matching, unique IDs, Zod validation, full type coverage, findTemplate |
 | Technical details modal | `routes/modules.$moduleId.tsx` | Replaced inline Compiled Ops + RecipeSpec cards with a single "Technical details" button opening a tabbed modal |
-| Theme dropdown | `routes/modules.$moduleId.tsx`, `services/shopify/theme.service.ts` | `ThemeService.listThemes()` fetches themes from Shopify REST API; publish section shows Select dropdown with theme name + role instead of manual ID input |
+| Theme dropdown | `routes/modules.$moduleId.tsx`, `services/shopify/theme.service.ts` | `ThemeService.listThemes()` fetches themes from Shopify; publish section shows a **single Select dropdown** with theme name and "(Live)" for main theme. Only themes from the API are shown (valid IDs); default is published theme or main. **Refresh themes** button revalidates; no manual theme ID input (avoids invalid IDs). API validates `themeId` against store themes before publish (400 if not found). |
 | Config/Copy editor | `components/ConfigEditor.tsx`, `routes/modules.$moduleId.tsx` | Dynamic per `spec.type` editor for module name + config fields (heading, body, trigger, frequency, etc.) using same spec update API |
 | Modify with AI | `routes/api.ai.modify-module.tsx`, `services/ai/llm.server.ts` | `modifyRecipeSpec()` sends current spec + instruction to AI; enforces same type; creates new version. Modal UI on module detail page |
 | Dynamic style builder | `components/StyleBuilder.tsx` | `STYLE_CONFIG` per-type map controls which Basic/Advanced sections render; text role labels, conditional backdrop/overlay/layout/spacing/border controls |

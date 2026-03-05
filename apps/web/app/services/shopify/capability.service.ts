@@ -42,7 +42,7 @@ export class CapabilityService {
       query ShopPlan {
         shop {
           plan {
-            displayName
+            publicDisplayName
           }
         }
       }
@@ -50,7 +50,7 @@ export class CapabilityService {
     const res = await admin.graphql(query);
     const json = await res.json();
 
-    const displayName: string | undefined = json?.data?.shop?.plan?.displayName;
+    const displayName: string | undefined = json?.data?.shop?.plan?.publicDisplayName;
     if (!displayName) return 'UNKNOWN';
     const normalized = displayName.toLowerCase();
     if (normalized.includes('plus')) return 'PLUS';

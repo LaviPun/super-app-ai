@@ -1,6 +1,6 @@
 import { json, redirect } from '@remix-run/node';
 import { Form, useActionData, useSearchParams } from '@remix-run/react';
-import { Page, Card, Button, BlockStack, Text } from '@shopify/polaris';
+import { Page, Card, Button, BlockStack, Text, TextField } from '@shopify/polaris';
 import { internalSessionStorage, commitInternal } from '~/internal-admin/session.server';
 
 export async function action({ request }: { request: Request }) {
@@ -26,31 +26,28 @@ export default function InternalLogin() {
   return (
     <Page title="Internal Admin Login">
       <Card>
-        <BlockStack gap="300">
-          <Text as="p">This area is for the app owner / developers.</Text>
-          {data?.error ? <Text as="p" tone="critical">{data.error}</Text> : null}
+        <BlockStack gap="400">
+          <Text as="p" variant="bodyMd" tone="subdued">This area is for the app owner and developers. Sign in to access the internal dashboard.</Text>
+          {data?.error ? (
+            <Text as="p" tone="critical" variant="bodySm">{data.error}</Text>
+          ) : null}
           <Form method="post">
             <input type="hidden" name="to" value={to} />
-            <BlockStack gap="200">
-              <label htmlFor="password" style={{ fontWeight: 600, fontSize: 14 }}>Password</label>
-              <input
-                id="password"
+            <BlockStack gap="300">
+              <TextField
+                label="Password"
                 name="password"
                 type="password"
                 autoComplete="off"
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  fontSize: 14,
-                  borderRadius: 8,
-                  border: '1px solid #8c9196',
-                }}
+                placeholder="Enter internal admin password"
               />
+              <BlockStack gap="200">
+                <Button submit variant="primary">Sign in</Button>
+                <Text as="p" variant="bodySm" tone="subdued">
+                  <a href="/internal/sso/start">Continue with SSO</a>
+                </Text>
+              </BlockStack>
             </BlockStack>
-            <div style={{ height: 12 }} />
-            <Button submit variant="primary">Sign in</Button>
-            <div style={{ height: 12 }} />
-            <a href="/internal/sso/start">Continue with SSO</a>
           </Form>
         </BlockStack>
       </Card>

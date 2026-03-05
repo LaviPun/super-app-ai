@@ -14,7 +14,9 @@ HARD RULES
 - Add new “templates” only as:
   - catalogId + schema + compiler + tests
 - Prefer config-driven generic extensions/functions; avoid per-store compiled code
-- Add any changes in implement doc and  update readme. and any doc which is relevent.
+- Add any changes in implement doc and  update readme. and any doc which is relevent
+- Always follow codechange-behave.md whenever code is changed
+- Always follow global-audit.md for audit of the code.
 
 
 PROJECT STRUCTURE

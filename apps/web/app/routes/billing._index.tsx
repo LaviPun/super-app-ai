@@ -1,5 +1,6 @@
 import { json, redirect } from '@remix-run/node';
-import { useLoaderData, Form, useNavigation } from '@remix-run/react';
+import { useLoaderData, useActionData, Form, useNavigation } from '@remix-run/react';
+import { useEffect } from 'react';
 import {
   Page, Card, BlockStack, Text, Button, InlineStack, Banner, DataTable,
   SkeletonBodyText, InlineGrid, Badge, ProgressBar, Divider,
@@ -48,7 +49,7 @@ export async function action({ request }: { request: Request }) {
     const { confirmationUrl } = await billing.createSubscription(admin, shopRow.id, plan, returnUrl);
     await new ActivityLogService().log({ actor: 'MERCHANT', action: 'BILLING_PLAN_CHANGED', shopId: shopRow.id, details: { plan } });
     if (confirmationUrl && confirmationUrl !== returnUrl) {
-      return redirect(confirmationUrl);
+      return json({ confirmationUrl });
     }
     return redirect('/billing');
   } catch (e) {
@@ -64,8 +65,15 @@ function usagePct(used: number, limit: number): number {
 
 export default function BillingPage() {
   const { sub, usage, plans } = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>();
   const nav = useNavigation();
   const isSaving = nav.state !== 'idle';
+
+  useEffect(() => {
+    if (actionData?.confirmationUrl) {
+      window.top.location.href = actionData.confirmationUrl;
+    }
+  }, [actionData?.confirmationUrl]);
 
   const formatQuota = (v: number) => v === -1 ? 'Unlimited' : v.toLocaleString();
   const currentPlan = sub?.planName ?? 'Free';
@@ -80,6 +88,11 @@ export default function BillingPage() {
   return (
     <Page title="Billing & Plan" backAction={{ content: 'Dashboard', url: '/' }}>
       <BlockStack gap="500">
+        {actionData?.error && (
+          <Banner tone="critical" title="Upgrade failed" onDismiss={() => {}}>
+            <Text as="p">{actionData.error}</Text>
+          </Banner>
+        )}
         {/* ─── Plan banner ─── */}
         {sub ? (
           <Banner tone="success" title={`${sub.planName} plan`}>

@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { useFetcher } from '@remix-run/react';
+import { useState, useCallback, useEffect } from 'react';
+import { useFetcher, useRevalidator } from '@remix-run/react';
 import {
   Card,
   BlockStack,
@@ -791,10 +791,17 @@ export function StyleBuilder({
   moduleId: string;
 }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string; version?: number }>();
+  const { revalidate } = useRevalidator();
   const [style, setStyle] = useState<StorefrontStyle>(() =>
     normalizeStyle(isSpecWithStyle(spec) ? spec.style : undefined),
   );
   const [activeTab, setActiveTab] = useState(0);
+
+  useEffect(() => {
+    if (fetcher.data?.ok && fetcher.state === 'idle') {
+      revalidate();
+    }
+  }, [fetcher.data, fetcher.state, revalidate]);
 
   const update = useCallback((patch: Partial<StorefrontStyle>) => {
     setStyle((prev) => deepMerge(prev, patch));
