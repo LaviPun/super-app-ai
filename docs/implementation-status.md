@@ -1,7 +1,8 @@
 # Implementation Status — AI Shopify SuperApp
 
-> Last updated: 2026-03-03
+> Last updated: 2026-03-05
 > All 163 automated tests pass (145 apps/web + 17 packages/core + 1 packages/rate-limit). See [phase-plan.md](./phase-plan.md) for the original plan.
+> **AI Module doc alignment:** Single source of truth from [ai-module-main-doc.md](./ai-module-main-doc.md); see section below.
 
 ---
 
@@ -9,6 +10,7 @@
 
 | Phase | Title | Status |
 |-------|-------|--------|
+| — | AI Module — Full Doc Alignment | ✅ Complete |
 | 0 | Engineering Baseline | ✅ Complete |
 | 1 | Merchant MVP Loop | ✅ Complete |
 | 2 | Theme Compatibility Engine | ✅ Complete |
@@ -26,6 +28,38 @@
 | — | Data Stores + Custom Pages | ✅ Complete |
 | — | Workflow Engine Spec (Graph-based) | ✅ Complete |
 | — | Admin Dashboard: Categories, Plan Tiers, Recipe Edit, Store Plan | ✅ Complete |
+
+---
+
+## AI Module — Full Doc Alignment ✅
+
+Aligned with [ai-module-main-doc.md](./ai-module-main-doc.md). Single source of truth for allowed values; DB and features match doc 24.4 and related sections.
+
+| Deliverable | File | Notes |
+|-------------|------|-------|
+| Allowed Values Manifest | `packages/core/src/allowed-values.ts` | Full doc §4+§14+§18: THEME_LIQUID_TEMPLATE_NAMES, THEME_SECTION_SCHEMA_ATTRIBUTES, POST_PURCHASE_TARGETS, ADMIN_SURFACE_KINDS, RECIPE_BLOCK_TYPES, RECIPE_INTENTS, RECIPE_SURFACES, CUSTOMER_ACCOUNT_BLOCK_TARGETS; LIMITS extended (bundles, offerTitle, label, goal, suggestedFiles, checkoutBlockMessage, integration path min); STOREFRONT_* style enums; single source for recipe + storefront-style |
+| Catalog generator from manifest | `packages/core/src/catalog.generator.ts` | Surfaces, intents, components, triggers from manifest; no static lists |
+| RecipeSpec placement + limits | `packages/core/src/recipe.ts` | `placement` (enabled_on/disabled_on), LIMITS, manifest enums for customer/checkout/admin/POS/pixel |
+| New RecipeSpec types | `packages/core/src/recipe.ts` | checkout.block, postPurchase.offer, admin.block, pos.extension, analytics.pixel |
+| Theme compilers placement | `theme.banner.ts`, `theme.popup.ts`, `theme.notificationBar.ts` | Section schema emits enabled_on/disabled_on from spec.placement |
+| Classify + prompts from manifest | `classify.server.ts`, `prompt-expectations.server.ts` | CLASSIFICATION_RULES, INTENT_KEYWORDS, SURFACE_KEYWORDS, LIMITS from core |
+| Prisma schema doc 24.4 | `apps/web/prisma/schema.prisma` | Recipe, ModuleAsset, ImageIngestionJob, ModuleInstance, ModuleSettingsValues, DataCapture, FunctionRuleSet, FlowAsset, ModuleEvent, ModuleMetricsDaily, AttributionLink; Shop.timezone; Module/ModuleVersion extended |
+| Pre-publish validator | `apps/web/app/services/publish/pre-publish-validator.server.ts` | Theme placement, checkout target + Plus, bundle size (doc §27.2); used in api.publish |
+| Picker UI (Screens 1–6) | `apps/web/app/routes/picker._index.tsx` | Goal, placement (template + section group) from manifest; step flow skeleton |
+| GDPR webhooks | `webhooks.customers.data-request`, `webhooks.customers.redact`, `webhooks.shop.redact` | HMAC via authenticate.webhook; data request log; customer/shop redact (doc §2.4) |
+| Analytics ingestion + read | `apps/web/app/services/analytics/module-events.server.ts` | ingestModuleEvent(), getModuleMetricsDaily(), getRecentModuleEvents() for doc 24.4.2 |
+
+### Doc Additions: IntentPacket, Routing, Validator+Repair, Confidence (doc §15)
+
+| Deliverable | File | Notes |
+|-------------|------|-------|
+| **Phase 1** IntentPacket schema + Clean Intent List | `packages/core/src/intent-packet.ts` | Zod IntentPacketSchema; CLEAN_INTENTS, SURFACES, MODULE_ARCHETYPES; doc 15.5, 15.11, 15.13 |
+| Routing table + resolver | `packages/core/src/intent-packet.ts` | ROUTING_TABLE, MODULE_TYPE_TO_INTENT, resolveRouting(intentOrModuleType); doc 15.15 |
+| IntentPacket builder | `apps/web/app/services/ai/intent-packet.server.ts` | buildIntentPacket(text, classification, options); used in create-module API |
+| Create-module uses IntentPacket | `apps/web/app/routes/api.ai.create-module.tsx` | Builds packet, passes intentPacketJson to LLM prompt; returns intentPacket (intent, confidence, routing, band, alternatives) |
+| **Phase 3** Validator + repair loop | `apps/web/app/services/ai/llm.server.ts` | compileRepairPrompt(), validateAndRepairRecipe(); on option validation failure, one repair attempt per option (doc 15.9) |
+| **Phase 2** Confidence scoring | `apps/web/app/services/ai/classify.server.ts` | confidenceScore 0–1 (S1 keyword + S3/S4 placeholders), alternatives[], reasons[]; CONFIDENCE_THRESHOLDS (0.8, 0.55) |
+| Confidence band in API | `api.ai.create-module` response | confidenceBand: direct \| with_alternatives \| fallback; alternatives and reasons for UI |
 
 ---
 
@@ -1034,7 +1068,8 @@ Runtime endpoint: `POST /api/flow/action` — verifies HMAC (`x-shopify-hmac-sha
 
 | Deliverable | File | Notes |
 |---|---|---|
-| Template type audit + 3 new templates | `packages/core/src/templates.ts` | Added `functions.cartTransform`, `integration.httpSync`, `platform.extensionBlueprint` templates; all 30 templates now cover every RecipeSpec type |
+| Template type audit + 3 new templates | `packages/core/src/templates.ts` | Added `functions.cartTransform`, `integration.httpSync`, `platform.extensionBlueprint` templates; all 31 templates now cover every RecipeSpec type (including theme.effect) |
+| theme.effect type + compiler | `packages/core/src/recipe.ts`, `allowed-values.ts`, `apps/web/.../compiler/theme.effect.ts` | New storefront type for decoration overlays (snowfall, confetti); classification keywords; full-viewport overlay compiler with reducedMotion and prefers-reduced-motion support |
 | Template integrity tests | `packages/core/src/__tests__/templates.test.ts` | 8 tests: type matching, category matching, unique IDs, Zod validation, full type coverage, findTemplate |
 | Technical details modal | `routes/modules.$moduleId.tsx` | Replaced inline Compiled Ops + RecipeSpec cards with a single "Technical details" button opening a tabbed modal |
 | Theme dropdown | `routes/modules.$moduleId.tsx`, `services/shopify/theme.service.ts` | `ThemeService.listThemes()` fetches themes from Shopify REST API; publish section shows Select dropdown with theme name + role instead of manual ID input |

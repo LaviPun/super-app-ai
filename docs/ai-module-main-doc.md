@@ -20,7 +20,7 @@
 12. [Cart vs Checkout vs Post-checkout distinction](#12-cart-vs-checkout-vs-post-checkout-distinction)
 13. [Thank you / Order status migration](#13-thank-you--order-status-migration)
 14. [SuperApp AI Allowed Values Catalog (structured)](#14-superapp-ai-allowed-values-catalog-structured)
-15. [Generator rule (order of picking)](#15-generator-rule-order-of-picking)
+15. [Generator rule (order of picking)](#15-generator-rule-order-of-picking) — includes [Intent Packet](#155-structuring-layer-intent-packet-local-layer-is-structuring-not-smart), [3-tier classifier](#156-three-tier-classifier-cheap--smarter--fallback), [Intent examples](#157-intent-examples-like-shopify-flow-templates), [deterministic prompt](#158-deterministic-heavy-ai-prompt), [validator + repair](#159-validator-and-repair-loop), [minimal setup](#1510-practical-minimal-setup-ship-fast); [Clean Intent List](#1511-clean-intent-list), [request patterns](#1512-universal-user-request-patterns-prompt-catalog), [IntentPacket JSON Schema v1](#1513-intentpacket-json-schema-v1), [confidence scoring](#1514-confidence-scoring-method), [routing table](#1515-routing-table-intent--prompttemplate--output-schema), [AI API prompts](#1516-ai-api-prompts-minimum-set), [implement first](#1517-implement-first-fast-path), [AI API output schemas (strict, versioned)](#1518-ai-api-output-schemas-strict-versioned) — BaseSchemasV1, StorefrontModuleSpecV1, AdminUISpecV1, WorkflowSpecV1, TroubleshootPlanV1, CopyPackV1, AnalyticsSpecV1, AssetPackV1, ExperimentSpecV1, ImageToUISpecV1, SettingsPackSpecV1, ComponentLibrarySpecV1, component library v1 whitelist
 16. [SuperApp AI Picker UI spec](#16-superapp-ai-picker-ui-spec) — includes [Example recipes](#167-example-recipes-how-blocks-combine) and [Glossary](#168-glossary)
 17. [Adding new surfaces or RecipeSpec types](#17-adding-new-surfaces-or-recipespec-types)
 18. [RecipeSpec config enums (reference)](#18-recipespec-config-enums-reference)
@@ -167,23 +167,33 @@ type ModuleCategory =
 | `theme.banner` | STOREFRONT_UI | THEME_ASSETS |
 | `theme.popup` | STOREFRONT_UI | THEME_ASSETS |
 | `theme.notificationBar` | STOREFRONT_UI | THEME_ASSETS |
+| `theme.effect` | STOREFRONT_UI | THEME_ASSETS |
 | `proxy.widget` | STOREFRONT_UI | APP_PROXY (see scope note below) |
 | `functions.discountRules` | FUNCTION | DISCOUNT_FUNCTION |
 | `functions.deliveryCustomization` | FUNCTION | SHIPPING_FUNCTION |
 | `functions.paymentCustomization` | FUNCTION | PAYMENT_CUSTOMIZATION_FUNCTION |
 | `functions.cartAndCheckoutValidation` | FUNCTION | VALIDATION_FUNCTION |
 | `functions.cartTransform` | FUNCTION | CART_TRANSFORM_FUNCTION_UPDATE |
+| `functions.fulfillmentConstraints` | FUNCTION | (none) |
+| `functions.orderRoutingLocationRule` | FUNCTION | (none) |
 | `checkout.upsell` | STOREFRONT_UI | CHECKOUT_UI_INFO_SHIP_PAY |
+| `checkout.block` | STOREFRONT_UI | CHECKOUT_UI_INFO_SHIP_PAY |
+| `postPurchase.offer` | STOREFRONT_UI | CHECKOUT_UI_INFO_SHIP_PAY |
+| `admin.block` | ADMIN_UI | (none) |
+| `pos.extension` | ADMIN_UI | (none) |
+| `analytics.pixel` | INTEGRATION | (none) |
 | `integration.httpSync` | INTEGRATION | (connector-based) |
 | `flow.automation` | FLOW | (trigger/steps) |
 | `platform.extensionBlueprint` | ADMIN_UI | (blueprint) |
 | `customerAccount.blocks` | CUSTOMER_ACCOUNT | CUSTOMER_ACCOUNT_UI |
 
+**theme.effect:** Full-viewport decoration overlay (e.g. snowfall, confetti). No Shopify backend or data interaction; config-driven only (effectKind, intensity, speed, placement, style). Respects reduced motion.
+
 **proxy.widget / APP_PROXY scope:** RecipeSpec includes `proxy.widget` (APP_PROXY), which is not deprecated but expands the storefront surface beyond “Theme App Extensions only.” If the product goal is **Theme App Extensions only for storefront UI**, either remove `proxy.widget` from the public module library or mark it **internal/optional** and not part of the default catalog. Document the decision so the generator and UI do not expose it unless intended.
 
 ### 3.4 Storefront style (storefront UI types)
 
-For `theme.banner`, `theme.popup`, `theme.notificationBar`, `proxy.widget`, an optional `style` object conforms to `StorefrontStyleSchema` (`packages/core/src/storefront-style.ts`):
+For `theme.banner`, `theme.popup`, `theme.notificationBar`, `theme.effect`, `proxy.widget`, an optional `style` object conforms to `StorefrontStyleSchema` (`packages/core/src/storefront-style.ts`):
 
 - **layout:** mode, anchor, offsetX/Y, width, zIndex (all enums).
 - **spacing:** padding, margin, gap.
@@ -327,6 +337,9 @@ Every numeric, size, and count limit the generator and runtime must respect.
 | theme.popup countdownSeconds | 0–86400 | config |
 | theme.popup countdownLabel | max 40 chars | config |
 | theme.notificationBar message | 1–140 chars | config |
+| theme.effect effectKind | snowfall \| confetti | config, required |
+| theme.effect intensity | low \| medium \| high | config, default medium |
+| theme.effect speed | slow \| normal \| fast | config, default normal |
 | StorefrontStyleSchema customCss | max 2000 chars | Sanitized/scoped at compile |
 | **Functions** | | |
 | Discount functions | max **25 active** per store | Run concurrently |
@@ -1035,6 +1048,523 @@ When SuperApp AI generates anything, it must pick values in this order:
 5. **settings types** — Theme: one of the 32; others: internal config schema.
 6. **constraints badges** — Plus-only, protected data, review-required, migration deadline.
 
+### 15.5 Structuring layer: Intent Packet (local layer is “structuring,” not “smart”)
+
+The **local layer** should not “be smart” — it should be **structuring**. Turn messy user input into a **predictable JSON shape** so the heavy AI API receives a stable input and acts as a “render engine + copy engine,” not “figure out what user meant.” The only thing the heavy AI sees (plus images/context) is a strict **Intent Packet**.
+
+**IntentPacket (strict schema)**
+
+| Field | Description |
+|-------|-------------|
+| **intent** | One of known intents (popup, upsell, survey, badge, announcement_bar, support_form, admin_card, …). |
+| **surface** | theme \| admin \| checkout \| accounts \| pos \| flow \| pixel (what you support). |
+| **module_archetype** | popup, inline_block, banner, drawer, embed, admin_card, pos_tile, … |
+| **entities** | Structured fields extracted: discount (percent/amount), product handles, collection, audience, dates, copy snippets, etc. |
+| **constraints** | OS2-only, no deprecated APIs, brand tone, languages, plan (Plus/non-Plus). |
+| **confidence** | 0–1 (classification confidence). |
+| **routing** | Which heavy prompt/template to use (deterministic by intent + archetype). |
+
+If the local layer produces this reliably, the AI API only fills layout, copy, and settings within a fixed OutputSchema.
+
+### 15.6 Three-tier classifier (cheap → smarter → fallback)
+
+Use a 3-tier pipeline so cost and output are predictable.
+
+| Tier | Method | Use |
+|------|--------|-----|
+| **A — Fast rules + heuristics** | Keyword/phrase match; surface hints (“checkout”, “admin”, “theme”, “popup”, “cart”); entity extraction with regex (percent off, ₹, dates, “BOGO”, product/collection mentions). | First pass; high confidence → emit IntentPacket; else continue. |
+| **B — Embeddings similarity** | Embed user request; compare to embeddings of intent examples + template descriptions; pick top intent, top archetype, top surface. | When Tier A is ambiguous; map user text → closest example set → JSON fields. |
+| **C — AI API fallback** | Call API **only for classification** into your schema (small prompt, cheap). | Only if confidence is low or conflict detected. |
+
+Result: predictable cost and predictable IntentPacket shape. Heavy AI is never used for “what did the user mean?” — only for generating the final module JSON + copy + layout.
+
+### 15.7 Intent examples (like Shopify Flow templates)
+
+For each **intent** and **archetype**, maintain:
+
+- **20–100 canonical example prompts** (user utterances that map to that intent).
+- **Required/optional fields** (entities) for that intent.
+- **Allowed surfaces/components** (so local layer never suggests invalid combos).
+- **Default settings pack** (Section 26) to merge with extracted entities.
+
+The local layer maps user text → closest example set → populated IntentPacket fields. This keeps the heavy AI prompt deterministic by intent.
+
+### 15.8 Deterministic heavy AI prompt
+
+The heavy AI receives **fixed inputs** and must output **only your schema**:
+
+| Input | Role |
+|-------|------|
+| **IntentPacket** (JSON) | What to build (intent, surface, archetype, entities, constraints). |
+| **DesignTokens / brand tokens** | Optional: colors, typography, tone. |
+| **ComponentLibrarySpec** | What components exist + props + surface limits (Section 29). |
+| **SettingsSchema** for that module archetype | From Section 26 (Standard Settings Packs). |
+| **OutputSchema** | Strict JSON (e.g. ModuleDefinition or RecipeSpec). |
+
+Require the model to **output only** the defined OutputSchema. No free-form “write a popup” — only “fill this schema from IntentPacket + tokens.”
+
+### 15.9 Validator and repair loop
+
+After the AI API responds:
+
+1. **Validate** — JSON schema (Zod/OutputSchema).
+2. **Validate** — Surface/component compatibility (Section 25).
+3. **Validate** — OS2-only, no deprecated surfaces/targets (Sections 2.3, 2.5).
+
+If **invalid:** run a **repair prompt** that only fixes schema violations (e.g. “Fix these fields to match the schema: …”). Do not re-run full generation. This keeps the system stable when the model drifts.
+
+### 15.10 Practical minimal setup (ship fast)
+
+A minimal implementation that works:
+
+- **Rules** for surface + obvious intent (keyword/heuristic Tier A).
+- **Embeddings** for intent/archetype selection when rules are ambiguous (Tier B).
+- **Regex** entity extraction (discount, dates, product/collection mentions).
+- **Heavy AI** only for: final module JSON + copy + layout (never for classification once IntentPacket exists).
+
+### 15.11 Clean Intent List
+
+Canonical intents the local classifier maps to. Use these in `classification.intent` and for routing.
+
+**A. Storefront modules (Theme App Extension / OS 2.0)**
+
+| Group | Intent ID | Description |
+|-------|-----------|-------------|
+| **Core promotional** | promo.popup | Modal |
+| | promo.banner | Top/bottom bar |
+| | promo.slideout | Drawer |
+| | promo.inline_block | Section/block embed |
+| | promo.countdown | Timer bar / inline |
+| | promo.free_shipping_bar | Free shipping progress |
+| | promo.discount_reveal | Spin wheel / scratch / reveal |
+| **Upsell & conversion** | upsell.product_reco | PDP/Cart recommendations |
+| | upsell.cart_upsell | Cart drawer/page |
+| | upsell.bundle_builder | Simple bundle UI |
+| | upsell.cross_sell_addon | Checkbox add-ons |
+| | upsell.post_purchase | Post-purchase (only if surface supported; else skip) |
+| **Trust & info** | trust.badges | Icons + text |
+| | trust.reviews_snippet | Lightweight teaser (not full reviews platform) |
+| | info.faq_accordion | FAQ accordion |
+| | info.size_guide | Popup/inline |
+| | info.shipping_returns | Inline/popup |
+| **Engagement** | engage.newsletter_capture | Newsletter capture |
+| | engage.exit_intent | Exit intent |
+| | engage.quiz | Product finder mini-quiz |
+| | engage.survey | 1–3 questions |
+| | engage.social_proof | Recent purchase toast |
+| **Merchandising** | merch.collection_grid | Collection grid |
+| | merch.product_grid | Product grid |
+| | merch.before_after | Image comparison |
+| | merch.video_block | Video block |
+| **Utility** | utility.announcement | Simple text |
+| | utility.localization_prompt | Language/currency suggestion |
+| | utility.age_gate | Age gate (ensure compatibility with existing store solutions) |
+
+**B. Admin modules (embedded admin UI)** — admin.dashboard_card, admin.campaign_builder, admin.analytics_report, admin.settings_editor, admin.workflow_builder (Flow-like, if shipped).
+
+**C. Automation / workflow** — flow.create_workflow, flow.edit_workflow, flow.debug_workflow, flow.import_template.
+
+**D. Support / ops (inside app)** — support.troubleshoot, support.how_to, support.generate_copy_only, support.generate_assets (icons/images prompts; NOT actual image generation unless integrated).
+
+### 15.12 Universal user request patterns (prompt catalog)
+
+Pattern-based coverage so the local layer handles “every possible variation” without infinite prompts.
+
+| Pattern | Example |
+|---------|--------|
+| Make X | “Create a popup for 10% off” |
+| Make X on surface Y | “Add an announcement bar on product pages” |
+| Make X targeting Z | “Only for returning customers” |
+| Make X with rules | “Show after 8 seconds, 1 per day” |
+| Make X with design direction | “Minimal, black/white, rounded” |
+| Make X from image | “Use this screenshot style” |
+| Modify existing | “Change colors / spacing / copy” |
+| Fix issue | “Popup won’t close on mobile” |
+| Optimize | “Increase conversion, A/B test variants” |
+| Integrate | “Send events to GA4 / Meta / Klaviyo” |
+| Compliance | “Avoid collecting PII / add consent” |
+| Multi-language | “English + Hindi” |
+| Constraints | “OS 2.0 only, no deprecated” |
+| Template | “Use template like Nike-style promo bar” |
+| Explain | “How to set this up?” |
+
+The local classifier turns any of these into the same IntentPacket shape.
+
+### 15.13 IntentPacket JSON Schema (v1)
+
+Single contract between local “identification” layer and “real” AI API.
+
+```json
+{
+  "schema_version": "1.0",
+  "request_id": "uuid",
+  "timestamp": "2026-03-05T00:00:00Z",
+  "input": {
+    "text": "raw user text",
+    "language_hint": "auto",
+    "images": [
+      {
+        "image_id": "upload_id",
+        "purpose": "style_reference | layout_reference | content_reference | unknown",
+        "notes": "optional short note"
+      }
+    ],
+    "store_context": {
+      "shop_domain": "example.myshopify.com",
+      "currency": "INR",
+      "primary_language": "en",
+      "theme_os2": true
+    }
+  },
+  "classification": {
+    "intent": "promo.popup",
+    "surface": "storefront_theme",
+    "module_archetype": "modal",
+    "mode": "create | update | troubleshoot | explain | optimize",
+    "confidence": 0.0,
+    "alternatives": [{ "intent": "engage.newsletter_capture", "confidence": 0.0 }],
+    "reasons": ["keyword: popup", "discount pattern: 10%"]
+  },
+  "entities": {
+    "offer": {
+      "type": "percent_discount | fixed_discount | free_shipping | bogo | gift | none",
+      "value": 10,
+      "code": "WELCOME10",
+      "min_purchase": null,
+      "applies_to": { "scope": "all | collection | product | cart", "handles": [] }
+    },
+    "audience": {
+      "segment": "all | new_visitors | returning_visitors | logged_in | not_logged_in",
+      "geo": [],
+      "device": "all | mobile | desktop",
+      "customer_tags": [],
+      "exclusions": []
+    },
+    "placement": {
+      "pages": "all | home | product | collection | cart | checkout | custom",
+      "selectors": [],
+      "position": "center | top | bottom | inline"
+    },
+    "behavior": {
+      "trigger": "on_load | after_delay | exit_intent | scroll_percent | add_to_cart | time_on_page",
+      "delay_seconds": 0,
+      "scroll_percent": null,
+      "frequency_cap": { "type": "none | per_session | per_day | per_week", "max_impressions": 1 },
+      "dismiss": { "show_close": true, "close_on_overlay": true, "close_on_esc": true }
+    },
+    "content": {
+      "headline": null,
+      "subheadline": null,
+      "body": null,
+      "cta": {
+        "label": null,
+        "action": "apply_discount | go_to_url | add_to_cart | open_chat | submit_form",
+        "url": null
+      },
+      "fields": [{ "type": "email | phone | text | none", "required": false, "consent": false }]
+    },
+    "style": {
+      "brand_tone": "minimal | bold | playful | luxury | friendly | auto",
+      "colors": { "primary": null, "background": null, "text": null },
+      "typography": { "scale": "auto", "font": "inherit" },
+      "radius": "auto",
+      "shadow": "auto",
+      "spacing": "auto",
+      "animation": "none | subtle | lively"
+    }
+  },
+  "constraints": {
+    "platform": {
+      "shopify_os2_only": true,
+      "no_deprecated_features": true,
+      "allowed_surfaces": ["storefront_theme", "admin"]
+    },
+    "privacy": {
+      "pii_allowed": false,
+      "collect_email": "optional | required | disallowed",
+      "collect_phone": "disallowed"
+    },
+    "performance": { "max_js_kb": 60, "no_blocking_render": true },
+    "accessibility": { "wcag_min": "AA" }
+  },
+  "routing": {
+    "template_id": "tpl_promo_popup_v1",
+    "prompt_profile": "storefront_ui_v1",
+    "output_schema": "StorefrontModuleSpecV1",
+    "model_tier": "cheap | standard | premium"
+  }
+}
+```
+
+### 15.14 Confidence scoring method
+
+Weighted score 0 → 1.
+
+| Signal | Weight | Description |
+|--------|--------|-------------|
+| **S1** Keyword/phrase hit | 0–0.30 | popup, banner, cart, upsell, survey, admin, workflow |
+| **S2** Embedding similarity to intent examples | 0–0.40 | Match to canonical examples |
+| **S3** Entity coverage | 0–0.15 | Core fields required for that intent extracted |
+| **S4** Surface consistency | 0–0.10 | Intent matches surface (e.g. admin.* not storefront) |
+| **S5** Conflict penalties | −0.25 to 0 | Checkout mentioned but checkout UI not supported; disallowed PII; multiple intents |
+
+**Formula:** `confidence = clamp(0.30*S1 + 0.40*S2 + 0.15*S3 + 0.10*S4 + penalty, 0, 1)`.
+
+**Thresholds**
+
+| Range | Action |
+|-------|--------|
+| ≥ 0.80 | Route directly to heavy AI generation template |
+| 0.55–0.79 | Route; include alternatives and enable “repair/clarify” fallback |
+| &lt; 0.55 | Fallback to AI API classifier (cheap prompt) OR ask one clarifying question |
+
+### 15.15 Routing table (intent → prompt/template → output schema)
+
+| Intent group | Template ID | Prompt profile | Output schema |
+|--------------|-------------|----------------|---------------|
+| promo.* | tpl_promo_*_v1 | storefront_ui_v1 | StorefrontModuleSpecV1 |
+| upsell.* | tpl_upsell_*_v1 | storefront_ui_v1 | StorefrontModuleSpecV1 |
+| trust.*, info.*, merch.*, utility.* | tpl_content_*_v1 | storefront_ui_v1 | StorefrontModuleSpecV1 |
+| engage.survey, engage.quiz | tpl_engage_form_v1 | storefront_ui_v1 | StorefrontModuleSpecV1 |
+| admin.* | tpl_admin_*_v1 | admin_ui_v1 | AdminUISpecV1 |
+| flow.* | tpl_flow_*_v1 | workflow_v1 | WorkflowSpecV1 |
+| support.troubleshoot | tpl_support_debug_v1 | support_v1 | TroubleshootPlanV1 |
+| support.generate_copy_only | tpl_copy_pack_v1 | copy_v1 | CopyPackV1 |
+| integrations/analytics | tpl_analytics_v1 | analytics_v1 | AnalyticsSpecV1 |
+
+**Output schemas:** StorefrontModuleSpecV1 (theme app extension), AdminUISpecV1 (embedded admin), WorkflowSpecV1 (Flow-like), TroubleshootPlanV1 (diagnostic steps), CopyPackV1 (copy-only), AnalyticsSpecV1 (events + destinations).
+
+### 15.16 AI API prompts (minimum set)
+
+Only **4 heavy prompts + 1 classifier fallback** needed.
+
+| Prompt | Profile | Input | Output |
+|--------|---------|------|--------|
+| **A** Storefront UI generator | storefront_ui_v1 | IntentPacket | StorefrontModuleSpecV1 |
+| **B** Admin UI generator | admin_ui_v1 | IntentPacket | AdminUISpecV1 |
+| **C** Workflow generator | workflow_v1 | IntentPacket | WorkflowSpecV1 |
+| **D** Support/troubleshoot | support_v1 | IntentPacket + logs/snippet | TroubleshootPlanV1 |
+| **E** Classifier fallback (cheap) | — | Raw text + optional image notes | Minimal classification + entities to fill IntentPacket |
+
+### 15.17 Implement first (fast path)
+
+1. **Intent examples** — 10 examples per intent (generate internally).
+2. **Rules + embeddings** — Fill IntentPacket from user input.
+3. **Routing table** — Hardcode intent → template_id, prompt_profile, output_schema.
+4. **Heavy AI** — Output strict schema only (StorefrontModuleSpecV1 etc.).
+5. **Validator + repair prompt** — Validate response; if invalid, repair prompt only (Section 15.9).
+
+### 15.18 AI API output schemas (strict, versioned)
+
+The AI API must produce only these strict, versioned JSON shapes. They align with: internal component library (sa.* / sa_admin.*), settings packs, OS 2.0 only, no deprecated surfaces, and validate + repair–friendly flows. Store schemas in the repo and run AJV (or equivalent) validation on all AI outputs; use a repair prompt on validation errors (Section 15.9).
+
+#### 15.18.1 BaseSchemasV1 (common building blocks)
+
+Shared `$defs` used across output schemas (JSON Schema draft-2020-12).
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://superapp.ai/schemas/BaseSchemasV1.json",
+  "title": "BaseSchemasV1",
+  "type": "object",
+  "$defs": {
+    "SemVer": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "UUID": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$" },
+    "NonEmptyString": { "type": "string", "minLength": 1 },
+    "ISODateTime": { "type": "string", "format": "date-time" },
+    "Surface": { "type": "string", "enum": ["storefront_theme", "admin", "workflow_engine", "support"] },
+    "Locale": { "type": "string", "pattern": "^[a-z]{2}(-[A-Z]{2})?$" },
+    "TokenRef": { "type": "string", "pattern": "^token\\.[a-zA-Z0-9_\\-.]+$" },
+    "ColorValue": { "type": "string", "pattern": "^(#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|rgba?\\([^)]+\\)|token\\.[a-zA-Z0-9_\\-.]+)$" },
+    "SpacingValue": { "type": "string", "pattern": "^(0|[0-9]+(\\.[0-9]+)?(px|rem|em|%)|token\\.[a-zA-Z0-9_\\-.]+)$" },
+    "RadiusValue": { "type": "string", "pattern": "^(0|[0-9]+(\\.[0-9]+)?(px|rem|em)|token\\.[a-zA-Z0-9_\\-.]+)$" },
+    "FontValue": { "type": "string", "pattern": "^(inherit|system|token\\.[a-zA-Z0-9_\\-.]+)$" },
+    "EventName": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$" },
+    "AnalyticsEvent": { "type": "object", "additionalProperties": false, "required": ["name", "payload"], "properties": { "name": { "$ref": "#/$defs/EventName" }, "payload": { "type": "object", "additionalProperties": true } } },
+    "ValidationRule": { "type": "object", "additionalProperties": false, "required": ["rule", "severity"], "properties": { "rule": { "$ref": "#/$defs/NonEmptyString" }, "severity": { "type": "string", "enum": ["error", "warn", "info"] }, "path": { "type": "string" }, "message": { "type": "string" } } },
+    "SettingsPackRef": { "type": "object", "additionalProperties": false, "required": ["pack_id", "version"], "properties": { "pack_id": { "$ref": "#/$defs/NonEmptyString" }, "version": { "$ref": "#/$defs/SemVer" } } }
+  }
+}
+```
+
+#### 15.18.2 StorefrontModuleSpecV1 (Theme App Extension / OS 2.0)
+
+**Design goals:** AI outputs only what the renderer needs. Components are internal (`sa.*`) to avoid model hallucinating random HTML. Settings packs define extensive defaults; module references pack + overrides.
+
+**Required top-level:** `schema_version` (const "1.0"), `module_id` (pattern `^mod_[a-z0-9]{10,}$`), `surface` (const "storefront_theme"), `meta` (name, intent, created_at, description, locales), `placement` (archetype: modal|banner|drawer|inline_block|floating_toast|section_embed; pages.scope: all|home|product|collection|cart|custom; position, z_index), `settings` (settings_pack: pack_id, version; overrides), `ui_tree` (root: ComponentNode), `behaviors` (visibility.audience, triggers[], dismiss, frequency_cap), `analytics` (events[]), `compatibility` (os2_only: true, no_deprecated: true, component_whitelist: sa.* ids), `validation` (rules[]).
+
+**ComponentNode:** id (pattern `^node_[a-z0-9]{8,}$`), type (pattern `^sa\\.[a-z0-9_]+$`), props, children[]. **Trigger:** type (on_load|after_delay|scroll_percent|exit_intent|add_to_cart|view_product|cart_value_min), delay_seconds, scroll_percent, cart_value_min with conditionals. **AnalyticsBinding:** event, when (impression|open|close|cta_click|form_submit|add_to_cart), payload_template.
+
+**Component whitelist (storefront):** Define a fixed set e.g. `sa.container`, `sa.card`, `sa.stack`, `sa.text`, `sa.button`, `sa.image`, `sa.modal`, `sa.product_grid`, etc. Renderer maps these to theme extension Liquid/JS (OS2-safe). AI never outputs raw HTML/Liquid.
+
+#### 15.18.3 AdminUISpecV1 (embedded admin UI)
+
+**Required:** `schema_version`, `ui_id` (pattern `^adminui_[a-z0-9]{10,}$`), `surface` (const "admin"), `meta`, `navigation` (items: id, label, icon, page_id), `pages[]` (AdminPage: id, title, layout, actions), `data_contracts` (resources: id, type, operations), `analytics` (events[]), `validation` (rules[]). **AdminPage layout:** root = AdminComponentNode. **AdminComponentNode:** id, type (pattern `^sa_admin\\.[a-z0-9_]+$`), props, children[].
+
+#### 15.18.4 WorkflowSpecV1 (Flow-like engine)
+
+**Required:** `schema_version`, `workflow_id` (pattern `^wf_[a-z0-9]{10,}$`), `meta`, `nodes[]` (id, kind: trigger|condition|action, name, config), `edges[]` (from, to, condition), `inputs`, `outputs`, `run_policy` (retries, timeout_seconds, concurrency, idempotency_key), `validation`. Connector contract lives inside action node config (connector, operation, auth, inputs).
+
+#### 15.18.5 Other output schemas
+
+| Schema | Purpose |
+|--------|---------|
+| **TroubleshootPlanV1** | issue_summary, hypotheses[], steps[], fixes[], validation.checks |
+| **CopyPackV1** | purpose, variants[] (id, tone, headline, body, cta, fine_print); 3–12 variants |
+| **AnalyticsSpecV1** | destinations[] (type, mode, config), events[] (name, fields), privacy (pii_allowed, redact_fields) |
+| **AssetPackV1** | assets[] (id, type: icon_svg\|image_prompt\|brand_token_patch, content, meta) |
+| **ExperimentSpecV1** | experiment_id, goal, variants[] (id, label, module_patch), allocation (type, weights) |
+| **ImageToUISpecV1** | image_id, detected_layout (archetype, regions[] with bbox), style_tokens (colors, typography, radius, spacing), suggested_components[] (component: sa.*, role, notes). Bridge output from vision model before final module spec. |
+
+**TroubleshootPlanV1** (full):
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://superapp.ai/schemas/TroubleshootPlanV1.json",
+  "title": "TroubleshootPlanV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "issue_summary", "hypotheses", "steps", "fixes", "validation"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "issue_summary": { "type": "string", "minLength": 1 },
+    "hypotheses": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": false, "required": ["cause", "likelihood"], "properties": { "cause": { "type": "string", "minLength": 1 }, "likelihood": { "type": "string", "enum": ["high", "medium", "low"] } }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "object", "additionalProperties": false, "required": ["step", "action"], "properties": { "step": { "type": "integer", "minimum": 1 }, "action": { "type": "string", "minLength": 1 }, "expected": { "type": "string" }, "if_not": { "type": "string" } }
+    },
+    "fixes": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": false, "required": ["title", "changes"], "properties": { "title": { "type": "string", "minLength": 1 }, "changes": { "type": "array", "items": { "type": "string" } }, "risk": { "type": "string", "enum": ["low", "medium", "high"] } }
+    },
+    "validation": { "type": "object", "additionalProperties": false, "required": ["checks"], "properties": { "checks": { "type": "array", "items": { "type": "string" } } }
+  }
+}
+```
+
+**CopyPackV1** (full):
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://superapp.ai/schemas/CopyPackV1.json",
+  "title": "CopyPackV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "purpose", "variants"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "purpose": { "type": "string", "minLength": 1 },
+    "variants": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "tone", "headline", "body", "cta"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^copy_[a-z0-9]{6,}$" },
+          "tone": { "type": "string", "enum": ["minimal", "bold", "playful", "luxury", "friendly", "urgent"] },
+          "headline": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "body": { "type": "string", "minLength": 1, "maxLength": 220 },
+          "cta": { "type": "string", "minLength": 1, "maxLength": 30 },
+          "fine_print": { "type": "string", "maxLength": 160 }
+        }
+      }
+    }
+  }
+}
+```
+
+**AnalyticsSpecV1** (full): destinations[] (type: shopify_customer_events|ga4|meta|klaviyo|webhook; mode: client|server|hybrid; config), events[] (name, fields with required/pii/example), privacy (pii_allowed: false, redact_fields[]).
+
+**AssetPackV1** (full): schema_version, assets[] (id, type: icon_svg|image_prompt|brand_token_patch, content, meta).
+
+**ExperimentSpecV1** (full): schema_version, experiment_id, goal, variants[] (id, label, module_patch), allocation (type: random|rules_based, weights).
+
+**ImageToUISpecV1** (full): schema_version, image_id, detected_layout (archetype: modal|banner|drawer|inline_block, regions[] name+bbox x,y,w,h 0–1), style_tokens (colors, typography, radius, spacing), suggested_components[] (component: sa.*, role, notes).
+
+#### 15.18.6 SettingsPackSpecV1
+
+**Required:** schema_version, pack_id (pattern `^pack_[a-z0-9_-]+$`), applies_to (surface, archetype), defaults (object), schema (object for admin settings UI). AI references pack + overrides only.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://superapp.ai/schemas/SettingsPackSpecV1.json",
+  "title": "SettingsPackSpecV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "pack_id", "applies_to", "defaults", "schema"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "pack_id": { "type": "string", "pattern": "^pack_[a-z0-9_\\-]+$" },
+    "applies_to": { "type": "object", "additionalProperties": false, "required": ["surface", "archetype"], "properties": { "surface": { "type": "string", "enum": ["storefront_theme", "admin"] }, "archetype": { "type": "string", "minLength": 1 } } },
+    "defaults": { "type": "object", "additionalProperties": true },
+    "schema": { "type": "object", "additionalProperties": true }
+  }
+}
+```
+
+#### 15.18.7 ComponentLibrarySpecV1
+
+**Required:** schema_version, surface (storefront_theme|admin), components[] (id: sa.* or sa_admin.*, props_schema, events[], notes). Pass this to the AI so it cannot hallucinate component IDs.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://superapp.ai/schemas/ComponentLibrarySpecV1.json",
+  "title": "ComponentLibrarySpecV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "surface", "components"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "surface": { "type": "string", "enum": ["storefront_theme", "admin"] },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "props_schema", "events"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^(sa|sa_admin)\\.[a-z0-9_]+$" },
+          "props_schema": { "type": "object", "additionalProperties": true },
+          "events": { "type": "array", "items": { "type": "string" } },
+          "notes": { "type": "string" }
+        }
+      }
+    }
+  }
+}
+```
+
+#### 15.18.8 Component library v1 (full whitelist)
+
+Storefront components use `sa.*`; admin use `sa_admin.*`. Each has purpose, props_schema, events; renderer maps to HTML/Liquid/Polaris. **Storefront (sa.*):** sa.root, sa.container, sa.card, sa.stack, sa.inline, sa.grid, sa.spacer, sa.divider, sa.text, sa.heading, sa.badge, sa.richtext, sa.image, sa.icon, sa.video, sa.button, sa.link, sa.form, sa.input_email, sa.input_text, sa.input_select, sa.input_checkbox, sa.input_radio_group, sa.rating, sa.modal, sa.drawer, sa.banner, sa.toast, sa.product_card, sa.product_row, sa.product_grid, sa.collection_grid, sa.bundle_builder, sa.discount_reveal, sa.faq_accordion, sa.countdown, sa.progress_bar, sa.trust_badges, sa.social_proof_toast, sa.before_after, sa.consent_notice, sa.close_button, sa.custom_css_hook (preset_id only; no raw CSS). **Admin (sa_admin.*):** sa_admin.page, sa_admin.card, sa_admin.stack, sa_admin.inline, sa_admin.divider, sa_admin.text, sa_admin.heading, sa_admin.badge, sa_admin.form, sa_admin.input_text, sa_admin.input_number, sa_admin.input_select, sa_admin.toggle, sa_admin.color_picker, sa_admin.table, sa_admin.banner, sa_admin.toast, sa_admin.workflow_canvas. Full props_schema and events per component are defined in a separate `component-library.v1.json`; the AI must only output these ids + valid props.
+
+#### 15.18.9 What to do next
+
+- Put these schemas in the repo and run **AJV** (or equivalent) validation on all AI outputs.
+- Add a **repair prompt** that takes (schema + output + validation errors) and returns fixed JSON.
+- Define initial **component whitelist** (20–40 components) and **settings packs** (popup, banner, inline, admin card, workflow editor).
+
+#### 15.18.10 What this gives you
+
+Full v1 set to build: popups, banners, drawers, inline blocks; upsells, product grids, bundle builder, discount reveal; surveys/newsletter capture; trust badges, FAQ, countdown, progress bar, free-shipping meter; admin dashboard, settings forms, tables, workflow canvas. Add more components later without breaking old AI outputs (bump schema version; keep old ids working).
+
+#### 15.18.11 File layout (recommended)
+
+Store full JSON schemas in the repo for AJV (or equivalent) validation. Suggested paths: `packages/core/schemas/BaseSchemasV1.json`, `StorefrontModuleSpecV1.json`, `AdminUISpecV1.json`, `WorkflowSpecV1.json`, `TroubleshootPlanV1.json`, `CopyPackV1.json`, `AnalyticsSpecV1.json`, `AssetPackV1.json`, `ExperimentSpecV1.json`, `ImageToUISpecV1.json`, `SettingsPackSpecV1.json`, `ComponentLibrarySpecV1.json`, and `component-library.v1.json` (full whitelist with props_schema and events per component). Single-bundle option: one `schemas-bundle.json` that references or embeds these.
+
 ---
 
 ## 16. SuperApp AI Picker UI spec
@@ -1315,7 +1845,7 @@ Exhaustive “what it’s used for” so the generator and UI can map intent to 
 
 | Shopify surface | Extension kind | Current RecipeSpec type(s) | Gap |
 |-----------------|----------------|----------------------------|-----|
-| **Online store (Theme)** | App block, App embed | theme.banner, theme.popup, theme.notificationBar, proxy.widget | Generic “theme.block” with target + placement + 32 setting types not yet in schema; embed not explicit. |
+| **Online store (Theme)** | App block, App embed | theme.banner, theme.popup, theme.notificationBar, theme.effect, proxy.widget | Generic “theme.block” with target + placement + 32 setting types not yet in schema; embed not explicit. |
 | **Checkout UI** | Checkout UI extension | checkout.upsell | Single type; other targets (address, header, footer, order summary, shipping, payments, etc.) could be additional types or one generic with `target` enum. |
 | **Post-purchase** | Post-purchase | — | **None.** Possible: postPurchase.offer (ShouldRender + Render). |
 | **Customer account** | Customer account UI | customerAccount.blocks | Covers 4 targets + blocks[]; full target list in doc for reference. |
@@ -3026,7 +3556,7 @@ Schema validator with per-event requirements:
 - **Purpose:** No merchant-uploaded arbitrary code; Theme modules may use AI-generated Liquid/JS/CSS from Module DSL subject to validation (Section 1 opening). The AI module generator outputs **RecipeSpec** only; all deployable behaviour is defined there and compiled by the app.
 - **Hard rules** (Section 2): Output contract, schema validation, catalog-driven targets, capability gating, **telemetry/consent** (no tracking if Customer Privacy consent disallows). **Supported platforms** (2.5): OS 2.0 only; Theme App Extensions only; no vintage themes, ScriptTag, checkout.liquid, or additional scripts. **Theme compatibility** (2.3): App blocks require JSON + section supports @app; placement picker only exposes placeable templates; validation pipeline (theme OS 2.0, template JSON, section @app). **Compliance** (2.4): Mandatory webhooks, HMAC, redact/delete support, retention and delete-on-uninstall.
 - **Allowed values** for surfaces, targets, placement, and settings are in the Canonical value sets (Section 4) and the Allowed Values Catalog (Section 14); the generator must not invent new Shopify-facing identifiers. **Template placement:** Use Section 4.2.2B for Theme App Block placement only; exclude customers/*, gift_card; do not list robots.txt (Section 4.2.2A–4.2.2B). **Hard rule:** No ScriptTag, checkout.liquid, or additional scripts (Section 2.2). **Optional:** module_instances placement identifiers (theme_id, theme_section_id, etc.) for deep links and analytics (Section 24.4.1). **proxy.widget:** Mark internal/optional if storefront UI is Theme App Extensions only (Section 3.3).
-- **Business outcome categories** (Section 6) and **Generator rule** (Section 15) define merchant-facing goals and the order of picking (type → extension kind → target → filters → settings → constraints badges).
+- **Business outcome categories** (Section 6) and **Generator rule** (Section 15) define merchant-facing goals and the order of picking. **Structuring layer** (15.5–15.17): **Intent Packet** (v1 schema): input (text, images, store_context), classification (intent, surface, module_archetype, mode, confidence, alternatives, reasons), entities (offer, audience, placement, behavior, content, style), constraints (platform, privacy, performance, accessibility), routing (template_id, prompt_profile, output_schema, model_tier). **Clean Intent List** (15.11): Storefront (promo.*, upsell.*, trust.*, info.*, engage.*, merch.*, utility.*), Admin (admin.*), Flow (flow.*), Support (support.*). **Universal request patterns** (15.12); **confidence scoring** (15.14): S1–S5 weighted formula, thresholds (≥0.80 direct, 0.55–0.79 with fallback, &lt;0.55 classifier or one question). **Routing table** (15.15): intent group → template_id, prompt_profile, output_schema (StorefrontModuleSpecV1, AdminUISpecV1, WorkflowSpecV1, etc.). **AI API prompts** (15.16): 4 heavy (Storefront, Admin, Workflow, Support/troubleshoot) + 1 cheap classifier fallback. **Implement first** (15.17): 10 examples per intent, rules+embeddings, hardcode routing, strict schema output, validator+repair. **AI API output schemas** (15.18): Strict versioned JSON (draft-2020-12): BaseSchemasV1, StorefrontModuleSpecV1, AdminUISpecV1, WorkflowSpecV1; TroubleshootPlanV1, CopyPackV1, AnalyticsSpecV1, AssetPackV1, ExperimentSpecV1, ImageToUISpecV1; SettingsPackSpecV1, ComponentLibrarySpecV1; component library v1 whitelist (sa.* storefront, sa_admin.* admin); file layout in repo for AJV validation and repair prompt.
 - **Capabilities** and **plan gating** (Section 8) determine what can be enabled per store.
 - **Complete surface map** (Section 5.7) and **what surfaces can/can’t do** (Section 5.8) give a single reference for all surfaces and their limits.
 - **Store-facing feature matrix** (Section 11) and **Cart vs Checkout vs Post-checkout** (Section 12) keep messaging and placement unambiguous.

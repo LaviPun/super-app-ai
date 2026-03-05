@@ -12,6 +12,46 @@ describe('RecipeSpecSchema', () => {
     expect(spec.type).toBe('theme.banner');
   });
 
+  it('validates a theme.effect recipe', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'theme.effect',
+      name: 'Winter Snowfall',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: { effectKind: 'snowfall', intensity: 'medium', speed: 'normal' },
+      style: { accessibility: { reducedMotion: true } },
+    });
+    expect(spec.type).toBe('theme.effect');
+    if (spec.type === 'theme.effect') {
+      expect(spec.config.effectKind).toBe('snowfall');
+      expect(spec.config.intensity).toBe('medium');
+      expect(spec.config.speed).toBe('normal');
+    }
+  });
+
+  it('theme.effect accepts optional placement and defaults intensity/speed', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'theme.effect',
+      name: 'Holiday Confetti',
+      category: 'STOREFRONT_UI',
+      config: { effectKind: 'confetti' },
+    });
+    expect(spec.type).toBe('theme.effect');
+    if (spec.type === 'theme.effect') {
+      expect(spec.config.intensity).toBe('medium');
+      expect(spec.config.speed).toBe('normal');
+    }
+  });
+
+  it('rejects theme.effect with invalid effectKind', () => {
+    expect(() => RecipeSpecSchema.parse({
+      type: 'theme.effect',
+      name: 'Bad',
+      category: 'STOREFRONT_UI',
+      config: { effectKind: 'rain' },
+    })).toThrow();
+  });
+
   it('rejects proxy.widget with invalid widgetId', () => {
     expect(() => RecipeSpecSchema.parse({
       type: 'proxy.widget',

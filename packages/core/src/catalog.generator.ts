@@ -1,66 +1,95 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  CATALOG_SURFACES,
+  CATALOG_INTENTS,
+  CATALOG_COMPONENTS,
+  CATALOG_TRIGGERS,
+  RECIPE_SPEC_TYPES,
+  MODULE_TYPE_TO_CATEGORY,
+  MODULE_TYPE_DEFAULT_REQUIRES,
+  MODULE_TYPE_TO_SURFACE,
+} from './allowed-values.js';
+import type { ModuleType } from './allowed-values.js';
 
-type Entry = Record<string, unknown> & { catalogId: string };
+export type CatalogEntry = {
+  catalogId: string;
+  category: string;
+  requires: string[];
+  description: string;
+  moduleType?: ModuleType;
+  templateKind?: string;
+  surface?: string;
+  intent?: string;
+  trigger?: string;
+  defaults?: Record<string, unknown>;
+};
 
-const surfaces = [
-  'home','collection','product','cart','mini_cart','search','account','blog','page','footer','header','policy'
-] as const;
+function makeId(...parts: string[]) {
+  return parts.join('.');
+}
 
-const intents = [
-  'promo','capture','upsell','cross_sell','trust','urgency','info','support','compliance','localization'
-] as const;
+/**
+ * Generates catalog from Allowed Values Manifest (doc 9.2, Section 14).
+ * 1) Storefront: surfaces × components × intents; trigger variants for popup/modal/drawer/toast.
+ * 2) By type: one entry per RecipeSpec type (admin/function/integration/flow/checkout/etc.) for filterCatalog.
+ */
+export function generateCatalog(limit = 5000): CatalogEntry[] {
+  const out: CatalogEntry[] = [];
 
-const components = [
-  'banner','announcement_bar','notification_bar','popup','modal','drawer','toast','badge',
-  'progress_bar','tabs','accordion','sticky_cta','coupon_reveal'
-] as const;
-
-const triggers = [
-  'page_load','time_3s','time_10s','scroll_25','scroll_75','exit_intent','add_to_cart','cart_value_x','product_view_2','returning_visitor'
-] as const;
-
-function makeId(...parts: string[]) { return parts.join('.'); }
-
-export function generateCatalog(limit = 2400): Entry[] {
-  const out: Entry[] = [];
-
-  for (const s of surfaces) for (const c of components) for (const i of intents) {
+  for (const moduleType of RECIPE_SPEC_TYPES) {
+    const category = MODULE_TYPE_TO_CATEGORY[moduleType];
+    const requires = [...MODULE_TYPE_DEFAULT_REQUIRES[moduleType]];
+    const surface = MODULE_TYPE_TO_SURFACE[moduleType];
     out.push({
-      catalogId: makeId('storefront', c, i, s),
-      category: 'STOREFRONT_UI',
-      templateKind: c,
-      surface: s,
-      intent: i,
-      requires: ['THEME_ASSETS'],
-      description: `${c} for ${i} on ${s}`,
-      defaults: { placement: s, intent: i },
+      catalogId: makeId('type', moduleType),
+      category,
+      requires,
+      description: `${moduleType} — ${category} on ${surface}`,
+      moduleType,
+      defaults: { type: moduleType, surface },
     });
   }
 
-  for (const s of surfaces) for (const i of intents) for (const t of triggers) {
-    for (const c of ['popup','modal','drawer','toast']) {
-      out.push({
-        catalogId: makeId('storefront', c, i, s, 'trigger', t),
-        category: 'STOREFRONT_UI',
-        templateKind: c,
-        surface: s,
-        intent: i,
-        trigger: t,
-        requires: ['THEME_ASSETS'],
-        description: `${c} (${t}) for ${i} on ${s}`,
-        defaults: { placement: s, intent: i, trigger: t },
-      });
-    }
-  }
+  for (const s of CATALOG_SURFACES)
+    for (const c of CATALOG_COMPONENTS)
+      for (const i of CATALOG_INTENTS) {
+        out.push({
+          catalogId: makeId('storefront', c, i, s),
+          category: 'STOREFRONT_UI',
+          requires: ['THEME_ASSETS'],
+          description: `${c} for ${i} on ${s}`,
+          templateKind: c,
+          surface: s,
+          intent: i,
+          defaults: { placement: s, intent: i },
+        });
+      }
 
-  // Add other categories here similarly (admin/function/integration/flow)
-  // For Day-1, keep the list small enough for humans; for AI, you can ship larger lists.
+  for (const s of CATALOG_SURFACES)
+    for (const i of CATALOG_INTENTS)
+      for (const t of CATALOG_TRIGGERS) {
+        for (const c of ['popup', 'modal', 'drawer', 'toast'] as const) {
+          if (!CATALOG_COMPONENTS.includes(c)) continue;
+          out.push({
+            catalogId: makeId('storefront', c, i, s, 'trigger', t),
+            category: 'STOREFRONT_UI',
+            requires: ['THEME_ASSETS'],
+            description: `${c} (${t}) for ${i} on ${s}`,
+            templateKind: c,
+            surface: s,
+            intent: i,
+            trigger: t,
+            defaults: { placement: s, intent: i, trigger: t },
+          });
+        }
+      }
+
   return out.slice(0, limit);
 }
 
 if (process.argv[1]?.includes('catalog.generator')) {
-  const generated = generateCatalog(2400);
+  const generated = generateCatalog(5000);
   const fp = path.resolve(process.cwd(), 'src/catalog.generated.json');
   fs.writeFileSync(fp, JSON.stringify(generated, null, 2));
   // eslint-disable-next-line no-console

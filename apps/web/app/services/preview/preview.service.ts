@@ -19,6 +19,8 @@ export class PreviewService {
         return { kind: 'HTML', html: this.popup(spec) };
       case 'theme.notificationBar':
         return { kind: 'HTML', html: this.notificationBar(spec) };
+      case 'theme.effect':
+        return { kind: 'HTML', html: this.effect(spec) };
       case 'proxy.widget':
         return { kind: 'HTML', html: this.proxyWidget(spec) };
       default:
@@ -111,6 +113,21 @@ export class PreviewService {
       .superapp-popup__title { margin: 0 0 10px; font-size: 1.25em; font-weight: var(--sa-fw); }
       .superapp-popup__body { margin: 0 0 12px; opacity: .85; }
       .superapp-popup__cta { display:inline-block; padding: 10px 14px; border: 1px solid currentColor; text-decoration:none; border-radius: var(--sa-radius); background: var(--sa-btn-bg, transparent); color: var(--sa-btn-text, var(--sa-text)); }
+    `);
+  }
+
+  private effect(spec: Extract<RecipeSpec, { type: 'theme.effect' }>): string {
+    const c = spec.config;
+    const styleBlock = this.styleCss(spec, '.superapp-effect');
+    return pageHtml(`
+      <div class="superapp-effect" role="presentation" aria-hidden="true">
+        <div class="superapp-effect__preview">Effect: ${esc(c.effectKind)} (${c.intensity ?? 'medium'}, ${c.speed ?? 'normal'})</div>
+      </div>
+    `, `
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      ${styleBlock}
+      .superapp-effect { position: fixed; inset: 0; pointer-events: none; z-index: var(--sa-z, 1000); display: flex; align-items: center; justify-content: center; }
+      .superapp-effect__preview { padding: 12px 20px; background: rgba(0,0,0,0.6); color: #fff; border-radius: 8px; font-size: 14px; }
     `);
   }
 

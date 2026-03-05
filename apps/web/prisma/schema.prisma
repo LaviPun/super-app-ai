@@ -12,6 +12,7 @@ model Shop {
   shopDomain   String   @unique
   accessToken  String
   planTier     String   @default("UNKNOWN")
+  timezone     String?  // doc 24.4.1: plan_type (plus/non_plus) aligned via planTier
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -37,33 +38,74 @@ model Shop {
   dataStores    DataStore[]
   workflowDefs  WorkflowDef[]
   connectorTokens ConnectorToken[]
+  recipes      Recipe[]
+  moduleAssets ModuleAsset[]
+  imageIngestionJobs ImageIngestionJob[]
+  moduleInstances ModuleInstance[]
+  dataCaptures DataCapture[]
+  functionRuleSets FunctionRuleSet[]
+  flowAssets   FlowAsset[]
+  moduleEvents ModuleEvent[]
+  moduleMetricsDaily ModuleMetricsDaily[]
+  attributionLinks AttributionLink[]
+}
+
+model Recipe {
+  id        String   @id @default(cuid())
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  category  String   // RECIPE_GOAL_CATEGORIES from manifest
+  title     String
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+
+  modules   Module[]
+
+  @@index([shopId])
+  @@index([shopId, category])
 }
 
 model Module {
   id         String   @id @default(cuid())
   shopId     String
-  shop       Shop     @relation(fields: [shopId], references: [id])
+  shop       Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  recipeId   String?
+  recipe     Recipe?  @relation(fields: [recipeId], references: [id])
   type       String
   category   String
   name       String
+  summary    String?  // doc 24.4.1 module_definitions
   status     String   @default("DRAFT")
   activeVersionId String? @unique
+  // Design from Image (doc 24.4.1)
+  sourceType String?  // template | recipe | scratch | image
+  sourceJobId String?
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   versions   ModuleVersion[]
   activeVersion ModuleVersion? @relation("ActiveVersion", fields: [activeVersionId], references: [id])
+  moduleAssets ModuleAsset[]
+  imageIngestionJobs ImageIngestionJob[]
+  moduleInstances ModuleInstance[]
+  dataCaptures DataCapture[]
+  functionRuleSets FunctionRuleSet[]
+  flowAssets  FlowAsset[]
 }
 
 model ModuleVersion {
   id         String   @id @default(cuid())
   moduleId   String
-  module     Module   @relation(fields: [moduleId], references: [id])
+  module     Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   version    Int
   status     String   @default("DRAFT")
   specJson   String   // RecipeSpec JSON
   compiledJson String? // optional compilation artifacts
+  // doc 24.4.1 module_revisions
+  diffSummary String?
+  compiledArtifactsRef String?
+  rollbackOfRevisionId String?
 
   publishedAt DateTime?
   targetThemeId String? // if theme-specific publish
@@ -74,6 +116,8 @@ model ModuleVersion {
   @@index([moduleId, status])
 
   activeFor   Module?  @relation("ActiveVersion")
+  moduleInstances ModuleInstance[]
+  moduleSettingsValues ModuleSettingsValues[]
 }
 
 model Connector {
@@ -504,4 +548,203 @@ model ConnectorToken {
 
   @@unique([tenantId, provider])
   @@index([tenantId])
+}
+
+// ─── Doc 24.4.1 Operational DB + 24.4.2 Analytics ─────────────────────────────
+
+model ModuleAsset {
+  id           String   @id @default(cuid())
+  shopId       String
+  shop         Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  moduleId     String
+  module       Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  revisionId   String?
+  assetType    String   // image_reference | generated_mock | exported_preview
+  storageRef   String   // S3/blob key
+  width        Int?
+  height       Int?
+  mime         String?
+  createdAt    DateTime @default(now())
+
+  @@index([shopId])
+  @@index([moduleId])
+}
+
+model ImageIngestionJob {
+  id                      String   @id @default(cuid())
+  shopId                  String
+  shop                    Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  moduleId                String
+  module                  Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  status                  String   // queued | processing | complete | failed
+  inputAssetIds           String   // JSON array
+  detectedSurfaceHint     String?  // theme | checkout | admin | pos
+  extractionResult        String?  // JSON
+  generatedUiTree         String?  // JSON
+  generatedSettingsSchema String?  // JSON
+  createdAt               DateTime @default(now())
+  completedAt             DateTime?
+
+  @@index([shopId])
+  @@index([moduleId])
+  @@index([status])
+}
+
+model ModuleInstance {
+  id                  String   @id @default(cuid())
+  shopId              String
+  shop                Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  moduleId            String
+  module              Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  revisionId          String
+  revision            ModuleVersion @relation(fields: [revisionId], references: [id])
+  surfaceType         String
+  target              String
+  filters             String?  // JSON
+  enabled             Boolean  @default(true)
+  themeId             String?
+  themeSectionId      String?
+  checkoutProfileId    String?
+  posLocationId       String?
+  createdAt           DateTime @default(now())
+
+  moduleSettingsValues ModuleSettingsValues[]
+  dataCaptures         DataCapture[]
+  moduleEvents         ModuleEvent[]
+  moduleMetricsDaily   ModuleMetricsDaily[]
+
+  @@index([shopId])
+  @@index([moduleId])
+  @@index([revisionId])
+}
+
+model ModuleSettingsValues {
+  instanceId      String
+  instance        ModuleInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  revisionId      String
+  revision        ModuleVersion @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  settingsValues  String   // JSON
+  updatedAt       DateTime @updatedAt
+
+  @@id([instanceId, revisionId])
+}
+
+model DataCapture {
+  id                   String   @id @default(cuid())
+  shopId               String
+  shop                 Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  instanceId           String
+  instance             ModuleInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  moduleId             String
+  module               Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  captureType          String   // survey_response | return_request | support_ticket | note | preference
+  payloadSchemaVersion String
+  payload              String   // JSON
+  piiFlags             String?  // JSON
+  createdAt            DateTime @default(now())
+
+  @@index([shopId])
+  @@index([instanceId])
+  @@index([moduleId])
+  @@index([createdAt])
+}
+
+model FunctionRuleSet {
+  id         String   @id @default(cuid())
+  shopId     String
+  shop       Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  functionApi String
+  moduleId   String
+  module     Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  config     String   // JSON
+  status     String   @default("active") // active | inactive
+  createdAt  DateTime @default(now())
+
+  @@index([shopId])
+  @@index([moduleId])
+}
+
+model FlowAsset {
+  id         String   @id @default(cuid())
+  shopId     String
+  shop       Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  moduleId   String
+  module     Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  kind       String   // trigger | action | template
+  status     String
+  createdAt  DateTime @default(now())
+
+  @@index([shopId])
+  @@index([moduleId])
+}
+
+model ModuleEvent {
+  id                String   @id @default(cuid())
+  timestamp         DateTime @default(now())
+  shopId            String
+  shop              Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  moduleId          String
+  instanceId        String?
+  instance          ModuleInstance? @relation(fields: [instanceId], references: [id], onDelete: SetNull)
+  revisionId        String?
+  recipeId          String?
+  category          String?
+  surfaceType       String?
+  target            String?
+  templateContext   String?
+  sessionId         String?
+  visitorId         String?
+  userType          String?  // buyer | merchant | staff
+  eventName         String
+  eventProperties   String?  // JSON
+  valueMetrics      String?  // JSON
+  piiFlags          String?  // JSON
+  correlationIds    String?  // JSON
+
+  @@index([shopId])
+  @@index([moduleId])
+  @@index([instanceId])
+  @@index([timestamp])
+  @@index([eventName])
+}
+
+model ModuleMetricsDaily {
+  id             String   @id @default(cuid())
+  date           DateTime // date-only for daily aggregate (SQLite: store as datetime)
+  shopId         String
+  shop           Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  moduleId      String
+  instanceId    String?
+  instance       ModuleInstance? @relation(fields: [instanceId], references: [id], onDelete: SetNull)
+  surfaceType   String?
+  target         String?
+  impressions   Int      @default(0)
+  interactions  Int      @default(0)
+  actions       Int      @default(0)
+  conversions   Int      @default(0)
+  errors        Int      @default(0)
+  dataCaptures  Int      @default(0)
+  updatedAt     DateTime @updatedAt
+
+  @@unique([date, shopId, moduleId, instanceId])
+  @@index([shopId])
+  @@index([moduleId])
+  @@index([date])
+}
+
+model AttributionLink {
+  id             String   @id @default(cuid())
+  shopId         String
+  shop           Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  sessionId      String
+  visitorId      String?
+  checkoutToken  String?
+  orderId        String?
+  firstSeenAt    DateTime @default(now())
+  lastSeenAt     DateTime @updatedAt
+  source         String?  // pixel | theme | checkout-ui
+
+  @@index([shopId])
+  @@index([sessionId])
+  @@index([orderId])
 }

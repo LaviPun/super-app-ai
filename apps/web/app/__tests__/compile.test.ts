@@ -16,6 +16,25 @@ describe('compileRecipe', () => {
     expect(out.ops.some(o => o.kind === 'THEME_ASSET_UPSERT')).toBe(true);
   });
 
+  it('compiles theme.effect to theme asset ops and respects reducedMotion', () => {
+    const spec: RecipeSpec = {
+      type: 'theme.effect',
+      name: 'Winter Snow',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: { effectKind: 'snowfall', intensity: 'medium', speed: 'normal' },
+      style: { accessibility: { reducedMotion: true } },
+    } as any;
+
+    const out = compileRecipe(spec, { kind: 'THEME', themeId: '456' });
+    expect(out.ops.some(o => o.kind === 'THEME_ASSET_UPSERT')).toBe(true);
+    const cssOp = out.ops.find(o => o.kind === 'THEME_ASSET_UPSERT' && (o as any).key?.endsWith('.css'));
+    expect(cssOp).toBeDefined();
+    const cssValue = (cssOp as { kind: string; value: string }).value;
+    expect(cssValue).toContain('superapp-effect');
+    expect(cssValue).toContain('animation: none');
+  });
+
   it('compiles proxy.widget to metafield set op', () => {
     const spec: RecipeSpec = {
       type: 'proxy.widget',

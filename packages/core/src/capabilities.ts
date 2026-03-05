@@ -8,20 +8,23 @@ export type PlanTier =
   | 'UNKNOWN';
 
 /**
- * Capabilities represent a Shopify platform surface. Each recipe declares what it needs.
+ * Capabilities represent a Shopify platform surface (doc 8.1). Each recipe declares what it needs.
  */
-export type Capability =
-  | 'THEME_ASSETS'
-  | 'THEME_APP_EXTENSION'
-  | 'APP_PROXY'
-  | 'DISCOUNT_FUNCTION'
-  | 'SHIPPING_FUNCTION'
-  | 'PAYMENT_CUSTOMIZATION_FUNCTION'
-  | 'VALIDATION_FUNCTION'
-  | 'CART_TRANSFORM_FUNCTION_UPDATE'
-  | 'CHECKOUT_UI_INFO_SHIP_PAY'
-    | 'CUSTOMER_ACCOUNT_UI'
-    | 'CUSTOMER_ACCOUNT_B2B_PROFILE';
+export const CAPABILITIES = [
+  'THEME_ASSETS',
+  'THEME_APP_EXTENSION',
+  'APP_PROXY',
+  'DISCOUNT_FUNCTION',
+  'SHIPPING_FUNCTION',
+  'PAYMENT_CUSTOMIZATION_FUNCTION',
+  'VALIDATION_FUNCTION',
+  'CART_TRANSFORM_FUNCTION_UPDATE',
+  'CHECKOUT_UI_INFO_SHIP_PAY',
+  'CUSTOMER_ACCOUNT_UI',
+  'CUSTOMER_ACCOUNT_B2B_PROFILE',
+] as const;
+
+export type Capability = (typeof CAPABILITIES)[number];
 
 /**
  * Minimum plan required for capabilities that are plan-gated.
@@ -46,8 +49,6 @@ const tierRank: Record<PlanTier, number> = {
 
 export function isCapabilityAllowed(plan: PlanTier, cap: Capability): boolean {
   const min = MIN_PLAN_FOR_CAPABILITY[cap];
-  if (!min) return True(); // allow by default (capability might be generally available)
+  if (!min) return true; // allow by default (capability might be generally available)
   return tierRank[plan] >= tierRank[min];
 }
-
-function True() { return true; }

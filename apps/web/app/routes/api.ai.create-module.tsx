@@ -6,7 +6,8 @@ import { getPrisma } from '~/db.server';
 import { JobService } from '~/services/jobs/job.service';
 import { withApiLogging } from '~/services/observability/api-log.service';
 import { QuotaService } from '~/services/billing/quota.service';
-import { classifyUserIntent } from '~/services/ai/classify.server';
+import { classifyUserIntent, CONFIDENCE_THRESHOLDS } from '~/services/ai/classify.server';
+import { buildIntentPacket } from '~/services/ai/intent-packet.server';
 
 /** POST only; GET (e.g. prefetch or redirect) returns 405. */
 export async function loader() {
@@ -54,20 +55,45 @@ export async function action({ request }: { request: Request }) {
       await quotaService.enforce(shopRow.id, 'aiRequest');
 
       const classification = classifyUserIntent(prompt, preferredType);
+      const intentPacket = buildIntentPacket(prompt, classification, {
+        storeContext: { shop_domain: session.shop, theme_os2: true },
+      });
 
       const jobs = new JobService();
-      const job = await jobs.create({ shopId: shopRow.id, type: 'AI_GENERATE', payload: { promptLen: prompt.length, classifiedType: classification.moduleType } });
+      const job = await jobs.create({
+        shopId: shopRow.id,
+        type: 'AI_GENERATE',
+        payload: { promptLen: prompt.length, classifiedType: classification.moduleType, intent: intentPacket.classification.intent },
+      });
       await jobs.start(job.id);
 
       try {
         const recipeOptions = await generateValidatedRecipeOptions(prompt, classification, {
           shopId: shopRow.id,
           maxAttempts: 2,
+          intentPacketJson: JSON.stringify(intentPacket, null, 2),
         });
 
         await jobs.succeed(job.id, { optionCount: recipeOptions.length, type: classification.moduleType });
 
+        const confidence = intentPacket.classification.confidence;
+        const band =
+          confidence >= CONFIDENCE_THRESHOLDS.DIRECT
+            ? 'direct'
+            : confidence >= CONFIDENCE_THRESHOLDS.WITH_ALTERNATIVES
+              ? 'with_alternatives'
+              : 'fallback';
+
         return json({
+          intentPacket: {
+            intent: intentPacket.classification.intent,
+            surface: intentPacket.classification.surface,
+            confidence,
+            confidenceBand: band,
+            alternatives: intentPacket.classification.alternatives ?? [],
+            reasons: intentPacket.classification.reasons ?? [],
+            routing: intentPacket.routing,
+          },
           options: recipeOptions.map((opt, i) => ({
             index: i,
             explanation: opt.explanation,

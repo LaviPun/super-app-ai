@@ -1,48 +1,61 @@
 import { z } from 'zod';
+import {
+  LIMITS,
+  STOREFRONT_LAYOUT_MODES,
+  STOREFRONT_ANCHORS,
+  STOREFRONT_WIDTHS,
+  STOREFRONT_Z_INDEX_LEVELS,
+  STOREFRONT_SPACING_OPTIONS,
+  STOREFRONT_TYPOGRAPHY_SIZES,
+  STOREFRONT_TYPOGRAPHY_WEIGHTS,
+  STOREFRONT_LINE_HEIGHTS,
+  STOREFRONT_ALIGN_OPTIONS,
+  STOREFRONT_SHAPE_RADIUS,
+  STOREFRONT_BORDER_WIDTHS,
+  STOREFRONT_SHADOW_LEVELS,
+  STOREFRONT_OFFSET_MIN,
+  STOREFRONT_OFFSET_MAX,
+} from './allowed-values.js';
 
 /**
  * Custom CSS is scoped and sanitized at compile time (see style-compiler.ts).
  * Merchant may write extra CSS using --sa-* vars. Block-level only (no @import,
- * no url(), no expression(), no <script>). Max 2000 chars.
+ * no url(), no expression(), no <script>). Max from Allowed Values Manifest (doc 4.2.8).
  */
 const CustomCssSchema = z
   .string()
-  .max(2000, 'Custom CSS must be under 2000 characters')
+  .max(LIMITS.customCssMax, `Custom CSS must be under ${LIMITS.customCssMax} characters`)
   .optional();
 
 /**
- * Theme-safe storefront UI style. All values are enums/presets so output stays
- * safe and stable. Used by theme.banner, theme.popup, theme.notificationBar,
- * proxy.widget.
- *
- * customCss is the only free-form field — it is sanitized and scoped to the
- * module root selector at compile time.
+ * Theme-safe storefront UI style. All values from Allowed Values Manifest (doc 3.4).
+ * Used by theme.banner, theme.popup, theme.notificationBar, proxy.widget.
  */
 export const StorefrontStyleSchema = z
   .object({
     layout: z
       .object({
-        mode: z.enum(['inline', 'overlay', 'sticky', 'floating']).default('inline'),
-        anchor: z.enum(['top', 'bottom', 'left', 'right', 'center']).default('top'),
-        offsetX: z.number().int().min(-100).max(100).default(0),
-        offsetY: z.number().int().min(-100).max(100).default(0),
-        width: z.enum(['auto', 'container', 'narrow', 'wide', 'full']).default('auto'),
-        zIndex: z.enum(['base', 'dropdown', 'sticky', 'overlay', 'modal']).default('sticky'),
+        mode: z.enum(STOREFRONT_LAYOUT_MODES).default('inline'),
+        anchor: z.enum(STOREFRONT_ANCHORS).default('top'),
+        offsetX: z.number().int().min(STOREFRONT_OFFSET_MIN).max(STOREFRONT_OFFSET_MAX).default(0),
+        offsetY: z.number().int().min(STOREFRONT_OFFSET_MIN).max(STOREFRONT_OFFSET_MAX).default(0),
+        width: z.enum(STOREFRONT_WIDTHS).default('auto'),
+        zIndex: z.enum(STOREFRONT_Z_INDEX_LEVELS).default('sticky'),
       })
       .default({}),
     spacing: z
       .object({
-        padding: z.enum(['none', 'tight', 'medium', 'loose']).default('medium'),
-        margin: z.enum(['none', 'tight', 'medium', 'loose']).default('none'),
-        gap: z.enum(['none', 'tight', 'medium', 'loose']).default('medium'),
+        padding: z.enum(STOREFRONT_SPACING_OPTIONS).default('medium'),
+        margin: z.enum(STOREFRONT_SPACING_OPTIONS).default('none'),
+        gap: z.enum(STOREFRONT_SPACING_OPTIONS).default('medium'),
       })
       .default({}),
     typography: z
       .object({
-        size: z.enum(['XS', 'SM', 'MD', 'LG', 'XL', '2XL']).default('MD'),
-        weight: z.enum(['normal', 'medium', 'bold']).default('normal'),
-        lineHeight: z.enum(['tight', 'normal', 'relaxed']).default('normal'),
-        align: z.enum(['left', 'center', 'right']).default('left'),
+        size: z.enum(STOREFRONT_TYPOGRAPHY_SIZES).default('MD'),
+        weight: z.enum(STOREFRONT_TYPOGRAPHY_WEIGHTS).default('normal'),
+        lineHeight: z.enum(STOREFRONT_LINE_HEIGHTS).default('normal'),
+        align: z.enum(STOREFRONT_ALIGN_OPTIONS).default('left'),
       })
       .default({}),
     colors: z
@@ -58,9 +71,9 @@ export const StorefrontStyleSchema = z
       .default({}),
     shape: z
       .object({
-        radius: z.enum(['none', 'sm', 'md', 'lg', 'xl', 'full']).default('md'),
-        borderWidth: z.enum(['none', 'thin', 'medium', 'thick']).default('none'),
-        shadow: z.enum(['none', 'sm', 'md', 'lg']).default('none'),
+        radius: z.enum(STOREFRONT_SHAPE_RADIUS).default('md'),
+        borderWidth: z.enum(STOREFRONT_BORDER_WIDTHS).default('none'),
+        shadow: z.enum(STOREFRONT_SHADOW_LEVELS).default('none'),
       })
       .default({}),
     responsive: z

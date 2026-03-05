@@ -1,92 +1,130 @@
-import type { ModuleType } from '@superapp/core';
+import type { ModuleType, ClassificationRule } from '@superapp/core';
+import { CLASSIFICATION_RULES, INTENT_KEYWORDS, SURFACE_KEYWORDS, MODULE_TYPE_TO_INTENT } from '@superapp/core';
+
+/** Confidence bands for UI (doc 15.14). */
+export const CONFIDENCE_THRESHOLDS = {
+  DIRECT: 0.8,       // ≥ 0.80 route directly
+  WITH_ALTERNATIVES: 0.55, // 0.55–0.79 include alternatives
+  // < 0.55 fallback / clarifying question
+} as const;
 
 export interface ClassifyResult {
   moduleType: ModuleType;
   intent?: string;
   surface?: string;
   confidence: 'high' | 'medium' | 'low';
+  /** Numeric confidence 0–1 (doc 15.14). Used for routing and UI. */
+  confidenceScore: number;
+  /** Alternative intents with scores (e.g. for 0.55–0.79 band). */
+  alternatives: Array<{ intent: string; confidence: number }>;
+  /** Short reasons for debugging/UI (e.g. "keyword: popup"). */
+  reasons: string[];
 }
 
-type Rule = { keywords: string[]; type: ModuleType; intent?: string; surface?: string };
+/** Valid module types from Allowed Values Manifest (classification rules). */
+const VALID_CLASSIFICATION_TYPES = CLASSIFICATION_RULES.map((r) => r.type) as string[];
 
-const RULES: Rule[] = [
-  { keywords: ['popup', 'pop-up', 'pop up', 'modal', 'overlay', 'lightbox'], type: 'theme.popup' },
-  { keywords: ['banner', 'hero', 'hero banner', 'announcement banner'], type: 'theme.banner' },
-  { keywords: ['notification bar', 'announcement bar', 'top bar', 'info bar', 'notice bar'], type: 'theme.notificationBar' },
-  { keywords: ['widget', 'store locator', 'proxy', 'app proxy'], type: 'proxy.widget' },
-  { keywords: ['discount', 'coupon', 'percentage off', 'percent off', 'discount rule', 'price rule'], type: 'functions.discountRules' },
-  { keywords: ['delivery', 'shipping', 'shipping method', 'hide shipping', 'delivery customization'], type: 'functions.deliveryCustomization' },
-  { keywords: ['payment', 'payment method', 'hide payment', 'payment customization'], type: 'functions.paymentCustomization' },
-  { keywords: ['validation', 'validate cart', 'checkout validation', 'block checkout', 'cart validation'], type: 'functions.cartAndCheckoutValidation' },
-  { keywords: ['bundle', 'cart transform', 'product bundle', 'unbundle'], type: 'functions.cartTransform' },
-  { keywords: ['upsell', 'checkout upsell', 'cross-sell at checkout', 'order bump'], type: 'checkout.upsell' },
-  { keywords: ['integration', 'http sync', 'api sync', 'webhook sync', 'connector'], type: 'integration.httpSync' },
-  { keywords: ['flow', 'automation', 'workflow', 'automate', 'trigger when'], type: 'flow.automation' },
-  { keywords: ['extension', 'blueprint', 'scaffolding', 'extension blueprint'], type: 'platform.extensionBlueprint' },
-  { keywords: ['customer account', 'account page', 'order status', 'order index', 'profile block', 'my account'], type: 'customerAccount.blocks' },
-];
-
-const INTENT_KEYWORDS: Record<string, string[]> = {
-  promo: ['sale', 'promo', 'promotion', 'discount', 'offer', 'deal', 'coupon', 'off'],
-  capture: ['email', 'subscribe', 'newsletter', 'sign up', 'signup', 'capture', 'lead'],
-  upsell: ['upsell', 'upgrade', 'add-on', 'addon', 'recommended'],
-  cross_sell: ['cross-sell', 'cross sell', 'also bought', 'similar', 'related'],
-  trust: ['trust', 'review', 'testimonial', 'guarantee', 'badge'],
-  urgency: ['urgent', 'countdown', 'limited', 'hurry', 'timer', 'expires', 'last chance'],
-  info: ['info', 'information', 'notice', 'announcement', 'update'],
-  support: ['support', 'help', 'contact', 'faq', 'chat'],
-};
-
-const SURFACE_KEYWORDS: Record<string, string[]> = {
-  home: ['homepage', 'home page', 'landing'],
-  product: ['product page', 'product detail', 'pdp'],
-  collection: ['collection', 'category', 'catalog'],
-  cart: ['cart', 'basket', 'checkout'],
-  search: ['search', 'search results'],
-  account: ['account', 'my account', 'customer account'],
-};
+/**
+ * Weighted confidence 0–1 (doc 15.14). S1 keyword, S2 embedding placeholder, S3 entity, S4 surface, S5 penalty.
+ */
+function computeConfidenceScore(params: {
+  s1KeywordHit: number; // 0–1 normalized
+  s2Embedding?: number; // 0–1, optional
+  s3EntityCoverage?: number; // 0–1
+  s4SurfaceConsistency?: number; // 0–1
+  s5Penalty?: number; // 0 to -0.25
+}): number {
+  const s1 = Math.min(1, Math.max(0, params.s1KeywordHit));
+  const s2 = params.s2Embedding ?? 0;
+  const s3 = params.s3EntityCoverage ?? 0;
+  const s4 = params.s4SurfaceConsistency ?? 0;
+  const penalty = params.s5Penalty ?? 0;
+  return Math.min(1, Math.max(0, 0.3 * s1 + 0.4 * s2 + 0.15 * s3 + 0.1 * s4 + penalty));
+}
 
 /**
  * Classify user intent using keyword matching (zero LLM cost).
  * If preferredType is already set by the user, use that directly.
+ * Returns numeric confidence and alternatives for UI (Phase 2).
  */
 export function classifyUserIntent(
   prompt: string,
   preferredType?: string,
 ): ClassifyResult {
   if (preferredType && preferredType !== 'Auto') {
-    const validTypes = RULES.map(r => r.type);
-    if (validTypes.includes(preferredType as ModuleType)) {
+    if (VALID_CLASSIFICATION_TYPES.includes(preferredType)) {
+      const intent = matchKeywords(prompt, INTENT_KEYWORDS);
+      const surface = matchKeywords(prompt, SURFACE_KEYWORDS);
+      const reasons = ['preferred_type_set'];
+      const confidenceScore = 0.9;
       return {
         moduleType: preferredType as ModuleType,
-        intent: matchKeywords(prompt, INTENT_KEYWORDS),
-        surface: matchKeywords(prompt, SURFACE_KEYWORDS),
+        intent,
+        surface,
         confidence: 'high',
+        confidenceScore,
+        alternatives: [],
+        reasons,
       };
     }
   }
 
   const lower = prompt.toLowerCase();
-  let bestMatch: Rule | null = null;
-  let bestScore = 0;
+  const scored: Array<{ rule: ClassificationRule; score: number; reasons: string[] }> = [];
 
-  for (const rule of RULES) {
+  for (const rule of CLASSIFICATION_RULES) {
     let score = 0;
+    const reasons: string[] = [];
     for (const kw of rule.keywords) {
-      if (lower.includes(kw)) score += kw.split(' ').length;
+      if (lower.includes(kw)) {
+        score += kw.split(' ').length;
+        reasons.push(`keyword: ${kw}`);
+      }
     }
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = rule;
-    }
+    if (score > 0) scored.push({ rule, score, reasons });
   }
 
+  scored.sort((a, b) => b.score - a.score);
+  const best = scored[0];
+  const bestMatch = best?.rule ?? null;
+  const bestScore = best?.score ?? 0;
+
+  const intent = matchKeywords(prompt, INTENT_KEYWORDS);
+  const surface = matchKeywords(prompt, SURFACE_KEYWORDS);
+  const intentId = bestMatch ? (MODULE_TYPE_TO_INTENT[bestMatch.type] ?? bestMatch.type) : 'promo.popup';
+
+  const s1Norm = bestScore >= 3 ? 1 : bestScore >= 2 ? 0.85 : bestScore >= 1 ? 0.5 : 0;
+  const s3Entity = /\d+%|percent|discount|₹|\$|bogo|free shipping|collection|product/i.test(prompt) ? 1 : 0;
+  const s4Surface = surfaceAndIntentConsistent(bestMatch?.type, surface) ? 1 : 0;
+  const confidenceScore = computeConfidenceScore({
+    s1KeywordHit: s1Norm,
+    s3EntityCoverage: s3Entity * 0.5,
+    s4SurfaceConsistency: s4Surface,
+  });
+
+  const alternatives = scored.slice(1, 4).map(({ rule, score }) => ({
+    intent: MODULE_TYPE_TO_INTENT[rule.type] ?? rule.type,
+    confidence: computeConfidenceScore({
+      s1KeywordHit: score >= 2 ? 0.6 : score >= 1 ? 0.3 : 0.1,
+    }),
+  }));
+
   return {
-    moduleType: bestMatch?.type ?? 'theme.banner',
-    intent: matchKeywords(prompt, INTENT_KEYWORDS),
-    surface: matchKeywords(prompt, SURFACE_KEYWORDS),
+    moduleType: (bestMatch?.type ?? 'theme.banner') as ModuleType,
+    intent,
+    surface,
     confidence: bestScore >= 2 ? 'high' : bestScore >= 1 ? 'medium' : 'low',
+    confidenceScore,
+    alternatives,
+    reasons: best?.reasons ?? [],
   };
+}
+
+function surfaceAndIntentConsistent(moduleType?: string, surface?: string): boolean {
+  if (!moduleType || !surface) return true;
+  if (moduleType.startsWith('admin.') && surface === 'account') return false;
+  if (moduleType.startsWith('theme.') && (surface === 'home' || surface === 'product' || surface === 'collection')) return true;
+  return true;
 }
 
 function matchKeywords(prompt: string, map: Record<string, string[]>): string | undefined {

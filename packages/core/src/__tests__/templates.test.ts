@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { MODULE_TEMPLATES, findTemplate, TEMPLATE_CATEGORIES } from '../templates.js';
 import { RecipeSpecSchema } from '../recipe.js';
+import { RECIPE_SPEC_TYPES } from '../allowed-values.js';
 
 describe('MODULE_TEMPLATES integrity', () => {
   it('every template has matching type and spec.type', () => {
@@ -29,23 +30,7 @@ describe('MODULE_TEMPLATES integrity', () => {
 
   it('covers all RecipeSpec type variants', () => {
     const coveredTypes = new Set(MODULE_TEMPLATES.map(t => t.type));
-    const expectedTypes = [
-      'theme.banner',
-      'theme.popup',
-      'theme.notificationBar',
-      'proxy.widget',
-      'functions.discountRules',
-      'functions.deliveryCustomization',
-      'functions.paymentCustomization',
-      'functions.cartAndCheckoutValidation',
-      'functions.cartTransform',
-      'checkout.upsell',
-      'integration.httpSync',
-      'flow.automation',
-      'platform.extensionBlueprint',
-      'customerAccount.blocks',
-    ];
-    for (const t of expectedTypes) {
+    for (const t of RECIPE_SPEC_TYPES) {
       expect(coveredTypes.has(t), `Missing template for type: ${t}`).toBe(true);
     }
   });

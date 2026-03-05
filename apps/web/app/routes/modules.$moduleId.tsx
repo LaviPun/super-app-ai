@@ -20,7 +20,7 @@ import { ThemeService } from '~/services/shopify/theme.service';
 import type { RecipeSpec } from '@superapp/core';
 
 function isThemeStorefrontUi(spec: RecipeSpec): boolean {
-  return ['theme.banner', 'theme.popup', 'theme.notificationBar', 'proxy.widget'].includes(spec.type);
+  return ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'proxy.widget'].includes(spec.type);
 }
 
 export async function loader({ request, params }: { request: Request; params: { moduleId?: string } }) {

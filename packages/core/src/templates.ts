@@ -1,4 +1,10 @@
-import type { RecipeSpec, ModuleCategory } from './recipe.js';
+import type { RecipeSpec } from './recipe.js';
+import type { ModuleCategory } from './allowed-values.js';
+import {
+  MODULE_CATEGORIES,
+  THEME_PLACEABLE_TEMPLATES,
+  PIXEL_STANDARD_EVENTS,
+} from './allowed-values.js';
 
 export type TemplateEntry = {
   id: string;
@@ -11,9 +17,8 @@ export type TemplateEntry = {
   spec: RecipeSpec;
 };
 
-export const TEMPLATE_CATEGORIES = [
-  'STOREFRONT_UI', 'FUNCTION', 'FLOW', 'INTEGRATION', 'CUSTOMER_ACCOUNT', 'ADMIN_UI',
-] as const;
+/** Categories that have templates; from Allowed Values Manifest (doc Section 4 + 9). */
+export const TEMPLATE_CATEGORIES = MODULE_CATEGORIES;
 
 export const MODULE_TEMPLATES: TemplateEntry[] = [
   {
@@ -36,6 +41,7 @@ export const MODULE_TEMPLATES: TemplateEntry[] = [
         ctaUrl: 'https://example.com/collections/sale',
         enableAnimation: false,
       },
+      placement: { enabled_on: { templates: ['index', 'product'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
       style: {
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium' },
@@ -154,6 +160,32 @@ export const MODULE_TEMPLATES: TemplateEntry[] = [
         typography: { size: 'SM', weight: 'medium', lineHeight: 'normal', align: 'center' },
         colors: { text: '#ffffff', background: '#0f3460' },
         shape: { radius: 'none', borderWidth: 'none', shadow: 'none' },
+        responsive: { hideOnMobile: false, hideOnDesktop: false },
+        accessibility: { focusVisible: true, reducedMotion: true },
+      },
+    } as RecipeSpec,
+  },
+  {
+    id: 'tpl-theme-effect-snowfall',
+    name: 'Winter Snowfall Effect',
+    description: 'Full-viewport snowfall overlay for seasonal or winter theme. Decoration only; no Shopify data.',
+    category: 'STOREFRONT_UI',
+    type: 'theme.effect',
+    icon: 'banner',
+    tags: ['effect', 'snowfall', 'winter', 'christmas', 'decoration'],
+    spec: {
+      type: 'theme.effect',
+      name: 'Winter Snowfall Effect',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        effectKind: 'snowfall',
+        intensity: 'medium',
+        speed: 'normal',
+      },
+      placement: { enabled_on: { templates: ['index', 'product', 'collection'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
+      style: {
+        layout: { mode: 'overlay', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'overlay' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
       },
@@ -848,6 +880,146 @@ export const MODULE_TEMPLATES: TemplateEntry[] = [
         surface: 'THEME_APP_EXTENSION',
         goal: 'Create a reusable theme app extension block for product badges.',
         suggestedFiles: ['blocks/product-badge.liquid', 'assets/badge.css', 'locales/en.default.json'],
+      },
+    } as RecipeSpec,
+  },
+  {
+    id: 'tpl-checkout-block',
+    name: 'Checkout Block',
+    description: 'Merchant-placeable block in checkout or thank-you page (Plus-only for checkout steps).',
+    category: 'STOREFRONT_UI',
+    type: 'checkout.block',
+    icon: 'checkout',
+    tags: ['checkout', 'block', 'plus'],
+    spec: {
+      type: 'checkout.block',
+      name: 'Checkout Message Block',
+      category: 'STOREFRONT_UI',
+      requires: ['CHECKOUT_UI_INFO_SHIP_PAY'],
+      config: {
+        target: 'purchase.thank-you.announcement.render',
+        title: 'Thank you for your order',
+        message: 'We appreciate your business.',
+      },
+    } as RecipeSpec,
+  },
+  {
+    id: 'tpl-post-purchase-offer',
+    name: 'Post-Purchase Offer',
+    description: 'One-click upsell offer after payment (post-purchase page).',
+    category: 'STOREFRONT_UI',
+    type: 'postPurchase.offer',
+    icon: 'checkout',
+    tags: ['post-purchase', 'upsell', 'offer'],
+    spec: {
+      type: 'postPurchase.offer',
+      name: 'Post-Purchase Upsell',
+      category: 'STOREFRONT_UI',
+      requires: ['CHECKOUT_UI_INFO_SHIP_PAY'],
+      config: {
+        offerTitle: 'Add this to your order',
+        message: 'One more thing — get 15% off this popular add-on.',
+      },
+    } as RecipeSpec,
+  },
+  {
+    id: 'tpl-admin-block',
+    name: 'Admin Block',
+    description: 'Custom block on a resource page in Shopify Admin.',
+    category: 'ADMIN_UI',
+    type: 'admin.block',
+    icon: 'admin',
+    tags: ['admin', 'block', 'resource'],
+    spec: {
+      type: 'admin.block',
+      name: 'Order Details Block',
+      category: 'ADMIN_UI',
+      requires: [],
+      config: {
+        target: 'admin.order-details.block.render',
+        label: 'SuperApp summary',
+      },
+    } as RecipeSpec,
+  },
+  {
+    id: 'tpl-pos-extension',
+    name: 'POS Extension',
+    description: 'Tile or block in Shopify POS (home, cart, receipt, etc.).',
+    category: 'ADMIN_UI',
+    type: 'pos.extension',
+    icon: 'pos',
+    tags: ['pos', 'tile', 'block'],
+    spec: {
+      type: 'pos.extension',
+      name: 'POS Quick Action',
+      category: 'ADMIN_UI',
+      requires: [],
+      config: {
+        target: 'pos.home.tile.render',
+        label: 'SuperApp',
+        blockKind: 'tile',
+      },
+    } as RecipeSpec,
+  },
+  {
+    id: 'tpl-fulfillment-constraints',
+    name: 'Fulfillment Constraints',
+    description: 'Split fragile items or force ship-alone rules (Functions).',
+    category: 'FUNCTION',
+    type: 'functions.fulfillmentConstraints',
+    icon: 'shipping',
+    tags: ['fulfillment', 'shipping', 'constraints'],
+    spec: {
+      type: 'functions.fulfillmentConstraints',
+      name: 'Ship Alone Rule',
+      category: 'FUNCTION',
+      requires: [],
+      config: {
+        rules: [
+          { when: { productTagIn: ['fragile'] }, apply: { shipAlone: true } },
+        ],
+      },
+    } as RecipeSpec,
+  },
+  {
+    id: 'tpl-order-routing-rule',
+    name: 'Order Routing Location Rule',
+    description: 'Prefer warehouse or location by stock/country (Functions).',
+    category: 'FUNCTION',
+    type: 'functions.orderRoutingLocationRule',
+    icon: 'shipping',
+    tags: ['order', 'routing', 'fulfillment'],
+    spec: {
+      type: 'functions.orderRoutingLocationRule',
+      name: 'Prefer Nearest Location',
+      category: 'FUNCTION',
+      requires: [],
+      config: {
+        rules: [
+          { when: {}, apply: { priority: 10 } },
+        ],
+      },
+    } as RecipeSpec,
+  },
+  {
+    id: 'tpl-analytics-pixel',
+    name: 'Web Pixel Events',
+    description: 'Track standard events (page_viewed, product_viewed, checkout_completed) via Web Pixel.',
+    category: 'INTEGRATION',
+    type: 'analytics.pixel',
+    icon: 'analytics',
+    tags: ['pixel', 'analytics', 'tracking'],
+    spec: {
+      type: 'analytics.pixel',
+      name: 'Standard Event Tracking',
+      category: 'INTEGRATION',
+      requires: [],
+      config: {
+        events: [
+          PIXEL_STANDARD_EVENTS[8],  // page_viewed
+          PIXEL_STANDARD_EVENTS[12], // product_viewed
+          PIXEL_STANDARD_EVENTS[3],  // checkout_completed
+        ],
       },
     } as RecipeSpec,
   },

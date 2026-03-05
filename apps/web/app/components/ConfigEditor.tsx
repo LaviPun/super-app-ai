@@ -70,6 +70,22 @@ const CONFIG_FIELDS: Record<string, FieldDef[]> = {
     { key: 'linkUrl', label: 'Link URL', type: 'url' },
     { key: 'dismissible', label: 'Dismissible', type: 'boolean' },
   ],
+  'theme.effect': [
+    { key: 'effectKind', label: 'Effect kind', type: 'select', options: [
+      { label: 'Snowfall', value: 'snowfall' },
+      { label: 'Confetti', value: 'confetti' },
+    ], helpText: 'Full-viewport decoration overlay' },
+    { key: 'intensity', label: 'Intensity', type: 'select', options: [
+      { label: 'Low', value: 'low' },
+      { label: 'Medium', value: 'medium' },
+      { label: 'High', value: 'high' },
+    ]},
+    { key: 'speed', label: 'Speed', type: 'select', options: [
+      { label: 'Slow', value: 'slow' },
+      { label: 'Normal', value: 'normal' },
+      { label: 'Fast', value: 'fast' },
+    ]},
+  ],
   'proxy.widget': [
     { key: 'widgetId', label: 'Widget ID', type: 'text', helpText: 'Lowercase alphanumeric + hyphens, 3-40 chars' },
     { key: 'mode', label: 'Output mode', type: 'select', options: [

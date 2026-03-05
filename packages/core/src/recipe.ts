@@ -1,43 +1,93 @@
+/**
+ * RecipeSpec schema and deploy types. All type/category/status/deploy enums
+ * come from the Allowed Values Manifest (allowed-values.ts) per doc 3.2, 3.3, 4.1.
+ */
 import { z } from 'zod';
 import type { Capability } from './capabilities.js';
 import { StorefrontStyleSchema } from './storefront-style.js';
+import type { ModuleCategory, ModuleType } from './allowed-values.js';
+import {
+  LIMITS,
+  THEME_PLACEABLE_TEMPLATES,
+  THEME_SECTION_GROUPS,
+  CUSTOMER_ACCOUNT_TARGETS,
+  CHECKOUT_UI_TARGETS,
+  ADMIN_TARGETS,
+  POS_TARGETS,
+  PIXEL_STANDARD_EVENTS,
+  MODULE_CATEGORIES,
+  RECIPE_SPEC_TYPES,
+  POPUP_TRIGGERS,
+  POPUP_FREQUENCY,
+  POPUP_SHOW_ON_PAGES,
+  INTEGRATION_HTTP_SYNC_TRIGGERS,
+  FLOW_AUTOMATION_TRIGGERS,
+  FLOW_STEP_KINDS,
+  CONDITION_OPERATORS,
+  CUSTOMER_ACCOUNT_BLOCK_KINDS,
+  CUSTOMER_ACCOUNT_BLOCK_TONES,
+  BLUEPRINT_SURFACES,
+  PROXY_WIDGET_MODES,
+  CART_TRANSFORM_MODES,
+  THEME_EFFECT_KINDS,
+  THEME_EFFECT_INTENSITY,
+  THEME_EFFECT_SPEED,
+  POS_BLOCK_KINDS,
+  HTTP_METHODS,
+  HTTP_METHODS_EXTENDED,
+  HTTP_AUTH_TYPES,
+  DEPLOY_TARGET_KINDS,
+} from './allowed-values.js';
 
-export type ModuleStatus = 'DRAFT' | 'PUBLISHED';
+// Re-export doc-aligned types and enums from manifest (doc 3.2, 3.3, 4.1).
+export type { ModuleCategory, ModuleType, ModuleStatus, DeployTargetKind, ShopifySurface } from './allowed-values.js';
+export {
+  MODULE_CATEGORIES,
+  RECIPE_SPEC_TYPES,
+  MODULE_STATUSES,
+  DEPLOY_TARGET_KINDS,
+  SHOPIFY_SURFACES,
+  MODULE_TYPE_TO_CATEGORY,
+  MODULE_TYPE_DEFAULT_REQUIRES,
+  MODULE_TYPE_TO_SURFACE,
+} from './allowed-values.js';
 
-export type ModuleCategory =
-  | 'STOREFRONT_UI'
-  | 'ADMIN_UI'
-  | 'FUNCTION'
-  | 'INTEGRATION'
-  | 'FLOW'
-  | 'CUSTOMER_ACCOUNT';
+/** All RecipeSpec types as array (for prompt-expectations and UI). */
+export const ALL_MODULE_TYPES: ModuleType[] = [...RECIPE_SPEC_TYPES];
 
-export type ModuleType =
-  | 'theme.banner'
-  | 'theme.popup'
-  | 'theme.notificationBar'
-  | 'proxy.widget'
-  | 'functions.discountRules'
-  | 'functions.deliveryCustomization'
-  | 'functions.paymentCustomization'
-  | 'functions.cartAndCheckoutValidation'
-  | 'functions.cartTransform'
-  | 'checkout.upsell'
-  | 'integration.httpSync'
-  | 'flow.automation'
-  | 'platform.extensionBlueprint'
-  | 'customerAccount.blocks';
-
+/** Where to deploy: theme app extension (with themeId) or platform extensions (checkout/admin/pos/flow/pixel). Doc-aligned. */
 export type DeployTarget =
-  | { kind: 'THEME'; themeId: string }
-  | { kind: 'PLATFORM' };
+  | { kind: (typeof DEPLOY_TARGET_KINDS)[0]; themeId: string }
+  | { kind: (typeof DEPLOY_TARGET_KINDS)[1] };
+
+/** Theme placement: only one of enabled_on or disabled_on (doc 4.2.2B, 4.2.3). */
+const PlacementSchema = z
+  .object({
+    enabled_on: z
+      .object({
+        templates: z.array(z.enum(THEME_PLACEABLE_TEMPLATES)).optional(),
+        groups: z.array(z.enum(THEME_SECTION_GROUPS)).optional(),
+      })
+      .optional(),
+    disabled_on: z
+      .object({
+        templates: z.array(z.enum(THEME_PLACEABLE_TEMPLATES)).optional(),
+        groups: z.array(z.enum(THEME_SECTION_GROUPS)).optional(),
+      })
+      .optional(),
+  })
+  .refine((data) => !(data.enabled_on && data.disabled_on), {
+    message: 'Use only one of enabled_on or disabled_on (Allowed Values Manifest).',
+  })
+  .optional();
 
 /**
  * RecipeSpec is the only thing the AI is allowed to generate.
  * It is validated, versioned, and compiled to safe deploy operations.
+ * Limits and enums from Allowed Values Manifest (doc Section 4).
  */
 const Base = z.object({
-  name: z.string().min(3).max(80),
+  name: z.string().min(LIMITS.nameMin).max(LIMITS.nameMax),
   category: z.custom<ModuleCategory>(),
   requires: z.array(z.custom<Capability>()).default([]),
 });
@@ -48,13 +98,14 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     category: z.literal('STOREFRONT_UI').default('STOREFRONT_UI'),
     requires: z.array(z.custom<Capability>()).default(['THEME_ASSETS']),
     config: z.object({
-      heading: z.string().min(1).max(80),
-      subheading: z.string().min(0).max(200).optional(),
+      heading: z.string().min(LIMITS.headingMin).max(LIMITS.headingMax),
+      subheading: z.string().min(0).max(LIMITS.subheadingMax).optional(),
       ctaText: z.string().min(0).max(40).optional(),
       ctaUrl: z.string().url().optional(),
       imageUrl: z.string().url().optional(),
       enableAnimation: z.boolean().default(false),
     }),
+    placement: PlacementSchema,
     style: StorefrontStyleSchema.optional(),
   }),
 
@@ -63,24 +114,25 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     category: z.literal('STOREFRONT_UI').default('STOREFRONT_UI'),
     requires: z.array(z.custom<Capability>()).default(['THEME_ASSETS']),
     config: z.object({
-      title: z.string().min(1).max(60),
-      body: z.string().min(0).max(240).optional(),
-      trigger: z.enum(['ON_LOAD', 'ON_EXIT_INTENT', 'ON_SCROLL_50', 'ON_SCROLL_25', 'ON_SCROLL_75', 'ON_CLICK', 'TIMED']).default('ON_LOAD'),
-      delaySeconds: z.number().int().min(0).max(300).default(0),
-      frequency: z.enum(['EVERY_VISIT', 'ONCE_PER_SESSION', 'ONCE_PER_DAY', 'ONCE_PER_WEEK', 'ONCE_EVER']).default('ONCE_PER_DAY'),
-      maxShowsPerDay: z.number().int().min(0).max(100).default(0),
-      showOnPages: z.enum(['ALL', 'HOMEPAGE', 'COLLECTION', 'PRODUCT', 'CART', 'CUSTOM']).default('ALL'),
-      customPageUrls: z.array(z.string().max(200)).max(20).default([]),
-      autoCloseSeconds: z.number().int().min(0).max(300).default(0),
+      title: z.string().min(LIMITS.popupTitleMin).max(LIMITS.popupTitleMax),
+      body: z.string().min(0).max(LIMITS.popupBodyMax).optional(),
+      trigger: z.enum(POPUP_TRIGGERS).default('ON_LOAD'),
+      delaySeconds: z.number().int().min(0).max(LIMITS.popupDelaySecondsMax).default(0),
+      frequency: z.enum(POPUP_FREQUENCY).default('ONCE_PER_DAY'),
+      maxShowsPerDay: z.number().int().min(0).max(LIMITS.popupMaxShowsPerDayMax).default(0),
+      showOnPages: z.enum(POPUP_SHOW_ON_PAGES).default('ALL'),
+      customPageUrls: z.array(z.string().max(LIMITS.popupCustomPageUrlMax)).max(LIMITS.popupCustomPageUrlsMax).default([]),
+      autoCloseSeconds: z.number().int().min(0).max(LIMITS.popupDelaySecondsMax).default(0),
       showCloseButton: z.boolean().default(true),
       countdownEnabled: z.boolean().default(false),
-      countdownSeconds: z.number().int().min(0).max(86400).default(0),
-      countdownLabel: z.string().max(40).default(''),
+      countdownSeconds: z.number().int().min(0).max(LIMITS.popupCountdownSecondsMax).default(0),
+      countdownLabel: z.string().max(LIMITS.popupCountdownLabelMax).default(''),
       ctaText: z.string().min(0).max(40).optional(),
       ctaUrl: z.string().url().optional(),
       secondaryCtaText: z.string().max(40).optional(),
       secondaryCtaUrl: z.string().url().optional(),
     }),
+    placement: PlacementSchema,
     style: StorefrontStyleSchema.optional(),
   }),
 
@@ -89,11 +141,25 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     category: z.literal('STOREFRONT_UI').default('STOREFRONT_UI'),
     requires: z.array(z.custom<Capability>()).default(['THEME_ASSETS']),
     config: z.object({
-      message: z.string().min(1).max(140),
+      message: z.string().min(LIMITS.notificationBarMessageMin).max(LIMITS.notificationBarMessageMax),
       linkText: z.string().min(0).max(40).optional(),
       linkUrl: z.string().url().optional(),
       dismissible: z.boolean().default(true),
     }),
+    placement: PlacementSchema,
+    style: StorefrontStyleSchema.optional(),
+  }),
+
+  Base.extend({
+    type: z.literal('theme.effect'),
+    category: z.literal('STOREFRONT_UI').default('STOREFRONT_UI'),
+    requires: z.array(z.custom<Capability>()).default(['THEME_ASSETS']),
+    config: z.object({
+      effectKind: z.enum(THEME_EFFECT_KINDS),
+      intensity: z.enum(THEME_EFFECT_INTENSITY).default('medium'),
+      speed: z.enum(THEME_EFFECT_SPEED).default('normal'),
+    }),
+    placement: PlacementSchema,
     style: StorefrontStyleSchema.optional(),
   }),
 
@@ -103,10 +169,11 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     requires: z.array(z.custom<Capability>()).default(['APP_PROXY']),
     config: z.object({
       widgetId: z.string().regex(/^[a-z0-9\-]{3,40}$/),
-      mode: z.enum(['JSON', 'HTML']).default('HTML'),
-      title: z.string().min(1).max(80),
-      message: z.string().min(0).max(240).optional(),
+      mode: z.enum(PROXY_WIDGET_MODES).default('HTML'),
+      title: z.string().min(LIMITS.headingMin).max(LIMITS.nameMax),
+      message: z.string().min(0).max(LIMITS.popupBodyMax).optional(),
     }),
+    placement: PlacementSchema,
     style: StorefrontStyleSchema.optional(),
   }),
 
@@ -125,7 +192,7 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
           percentageOff: z.number().min(0).max(100).optional(),
           fixedAmountOff: z.number().nonnegative().optional(),
         }),
-      })).min(1).max(50),
+      })).min(LIMITS.rulesMin).max(LIMITS.rulesMax),
       combineWithOtherDiscounts: z.boolean().default(true),
     }),
   }),
@@ -145,7 +212,7 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
           renameMethod: z.object({ contains: z.string().min(1), to: z.string().min(1).max(60) }).optional(),
           reorderPriority: z.number().int().min(0).max(100).optional(),
         }),
-      })).min(1).max(50),
+      })).min(LIMITS.rulesMin).max(LIMITS.rulesMax),
     }),
   }),
 
@@ -165,7 +232,7 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
           reorderPriority: z.number().int().min(0).max(100).optional(),
           requireReview: z.boolean().optional(),
         }),
-      })).min(1).max(50),
+      })).min(LIMITS.rulesMin).max(LIMITS.rulesMax),
     }),
   }),
 
@@ -180,7 +247,7 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
           blockCountryCodes: z.array(z.string().min(2).max(2)).optional(),
         }),
         errorMessage: z.string().min(1).max(120),
-      })).min(1).max(50),
+      })).min(LIMITS.rulesMin).max(LIMITS.rulesMax),
     }),
   }),
 
@@ -189,12 +256,12 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     category: z.literal('FUNCTION').default('FUNCTION'),
     requires: z.array(z.custom<Capability>()).default(['CART_TRANSFORM_FUNCTION_UPDATE']),
     config: z.object({
-      mode: z.enum(['BUNDLE', 'UNBUNDLE']).default('BUNDLE'),
+      mode: z.enum(CART_TRANSFORM_MODES).default('BUNDLE'),
       bundles: z.array(z.object({
         title: z.string().min(1).max(60),
         componentSkus: z.array(z.string()).min(2).max(20),
         bundleSku: z.string().min(1),
-      })).min(1).max(50),
+      })).min(LIMITS.bundlesMin).max(LIMITS.bundlesMax),
       // If the store is not Plus, we can optionally publish a *theme-only* fallback
       // to provide UI guidance (not true cart transforms).
       fallbackTheme: z.object({
@@ -205,32 +272,116 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
   }),
 
   Base.extend({
+    type: z.literal('functions.fulfillmentConstraints'),
+    category: z.literal('FUNCTION').default('FUNCTION'),
+    requires: z.array(z.custom<Capability>()).default([]),
+    config: z.object({
+      rules: z.array(z.object({
+        when: z.object({
+          productTagIn: z.array(z.string()).optional(),
+          skuIn: z.array(z.string()).optional(),
+        }),
+        apply: z.object({
+          shipAlone: z.boolean().optional(),
+          groupWithTag: z.string().optional(),
+        }),
+      })).min(LIMITS.rulesMin).max(LIMITS.rulesMax),
+    }),
+  }),
+
+  Base.extend({
+    type: z.literal('functions.orderRoutingLocationRule'),
+    category: z.literal('FUNCTION').default('FUNCTION'),
+    requires: z.array(z.custom<Capability>()).default([]),
+    config: z.object({
+      rules: z.array(z.object({
+        when: z.object({
+          inventoryLocationIds: z.array(z.string()).optional(),
+          countryCode: z.string().min(2).max(2).optional(),
+        }),
+        apply: z.object({
+          preferLocationId: z.string().optional(),
+          priority: z.number().int().min(0).max(100).optional(),
+        }),
+      })).min(LIMITS.rulesMin).max(LIMITS.rulesMax),
+    }),
+  }),
+
+  Base.extend({
     type: z.literal('checkout.upsell'),
     category: z.literal('STOREFRONT_UI').default('STOREFRONT_UI'),
     requires: z.array(z.custom<Capability>()).default(['CHECKOUT_UI_INFO_SHIP_PAY']),
     config: z.object({
-      offerTitle: z.string().min(1).max(60),
+      offerTitle: z.string().min(LIMITS.offerTitleMin).max(60),
       productVariantGid: z.string().min(10),
       discountPercent: z.number().min(0).max(100).default(0),
     }),
   }),
 
   Base.extend({
+    type: z.literal('checkout.block'),
+    category: z.literal('STOREFRONT_UI').default('STOREFRONT_UI'),
+    requires: z.array(z.custom<Capability>()).default(['CHECKOUT_UI_INFO_SHIP_PAY']),
+    config: z.object({
+      target: z.enum(CHECKOUT_UI_TARGETS),
+      title: z.string().min(LIMITS.headingMin).max(LIMITS.nameMax),
+      message: z.string().max(LIMITS.checkoutBlockMessageMax).optional(),
+      productVariantGid: z.string().min(10).optional(),
+    }),
+  }),
+
+  Base.extend({
+    type: z.literal('postPurchase.offer'),
+    category: z.literal('STOREFRONT_UI').default('STOREFRONT_UI'),
+    requires: z.array(z.custom<Capability>()).default(['CHECKOUT_UI_INFO_SHIP_PAY']),
+    config: z.object({
+      offerTitle: z.string().min(LIMITS.offerTitleMin).max(LIMITS.offerTitleMax),
+      productVariantGid: z.string().min(10).optional(),
+      message: z.string().max(LIMITS.offerMessageMax).optional(),
+    }),
+  }),
+
+  Base.extend({
+    type: z.literal('admin.block'),
+    category: z.literal('ADMIN_UI').default('ADMIN_UI'),
+    requires: z.array(z.custom<Capability>()).default([]),
+    config: z.object({
+      target: z.enum(ADMIN_TARGETS),
+      label: z.string().min(LIMITS.labelMin).max(LIMITS.labelMax),
+      shouldRender: z.boolean().optional(),
+    }),
+  }),
+
+  Base.extend({
+    type: z.literal('pos.extension'),
+    category: z.literal('ADMIN_UI').default('ADMIN_UI'),
+    requires: z.array(z.custom<Capability>()).default([]),
+    config: z.object({
+      target: z.enum(POS_TARGETS),
+      label: z.string().min(LIMITS.labelMin).max(LIMITS.labelMax),
+      blockKind: z.enum(POS_BLOCK_KINDS).optional(),
+    }),
+  }),
+
+  Base.extend({
+    type: z.literal('analytics.pixel'),
+    category: z.literal('INTEGRATION').default('INTEGRATION'),
+    requires: z.array(z.custom<Capability>()).default([]),
+    config: z.object({
+      events: z.array(z.enum(PIXEL_STANDARD_EVENTS)).min(1),
+      pixelId: z.string().max(80).optional(),
+      mapping: z.record(z.string(), z.string()).optional(),
+    }),
+  }),
+
+  Base.extend({
     type: z.literal('integration.httpSync'),
     category: z.literal('INTEGRATION').default('INTEGRATION'),
+    requires: z.array(z.custom<Capability>()).default([]),
     config: z.object({
       connectorId: z.string().min(1),
-      endpointPath: z.string().regex(/^\/[a-z0-9\-\/]{1,200}$/),
-      trigger: z.enum([
-        'MANUAL',
-        'SHOPIFY_WEBHOOK_ORDER_CREATED',
-        'SHOPIFY_WEBHOOK_PRODUCT_UPDATED',
-        'SHOPIFY_WEBHOOK_CUSTOMER_CREATED',
-        'SHOPIFY_WEBHOOK_FULFILLMENT_CREATED',
-        'SHOPIFY_WEBHOOK_DRAFT_ORDER_CREATED',
-        'SHOPIFY_WEBHOOK_COLLECTION_CREATED',
-        'SCHEDULED',
-      ]),
+      endpointPath: z.string().regex(new RegExp(`^/[a-z0-9\\-/]{${LIMITS.integrationEndpointPathMin},${LIMITS.integrationEndpointPathMax}}$`)),
+      trigger: z.enum(INTEGRATION_HTTP_SYNC_TRIGGERS),
       payloadMapping: z.record(z.string(), z.string()).default({}),
     }),
   }),
@@ -238,37 +389,24 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
   Base.extend({
     type: z.literal('flow.automation'),
     category: z.literal('FLOW').default('FLOW'),
+    requires: z.array(z.custom<Capability>()).default([]),
     config: z.object({
-      trigger: z.enum([
-        'MANUAL',
-        'SHOPIFY_WEBHOOK_ORDER_CREATED',
-        'SHOPIFY_WEBHOOK_PRODUCT_UPDATED',
-        'SHOPIFY_WEBHOOK_CUSTOMER_CREATED',
-        'SHOPIFY_WEBHOOK_FULFILLMENT_CREATED',
-        'SHOPIFY_WEBHOOK_DRAFT_ORDER_CREATED',
-        'SHOPIFY_WEBHOOK_COLLECTION_CREATED',
-        'SCHEDULED',
-        'SUPERAPP_MODULE_PUBLISHED',
-        'SUPERAPP_CONNECTOR_SYNCED',
-        'SUPERAPP_DATA_RECORD_CREATED',
-        'SUPERAPP_WORKFLOW_COMPLETED',
-        'SUPERAPP_WORKFLOW_FAILED',
-      ]),
+      trigger: z.enum(FLOW_AUTOMATION_TRIGGERS),
       steps: z.array(z.discriminatedUnion('kind', [
         z.object({
           kind: z.literal('HTTP_REQUEST'),
           connectorId: z.string().min(1),
           path: z.string().regex(/^\/[a-z0-9\-\/]{1,200}$/),
-          method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('POST'),
+          method: z.enum(HTTP_METHODS).default('POST'),
           bodyMapping: z.record(z.string(), z.string()).default({}),
         }),
         z.object({
           kind: z.literal('SEND_HTTP_REQUEST'),
           url: z.string().url().refine(u => u.startsWith('https://'), { message: 'Only HTTPS URLs allowed' }),
-          method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD']).default('POST'),
+          method: z.enum(HTTP_METHODS_EXTENDED).default('POST'),
           headers: z.record(z.string(), z.string()).default({}),
           body: z.string().max(50_000).optional(),
-          authType: z.enum(['none', 'basic', 'bearer', 'custom_header']).default('none'),
+          authType: z.enum(HTTP_AUTH_TYPES).default('none'),
           authConfig: z.object({
             username: z.string().optional(),
             password: z.string().optional(),
@@ -309,22 +447,23 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
         z.object({
           kind: z.literal('CONDITION'),
           field: z.string().min(1),
-          operator: z.enum(['equal_to', 'not_equal_to', 'greater_than', 'less_than', 'greater_than_or_equal', 'less_than_or_equal', 'contains', 'not_contains', 'starts_with', 'ends_with', 'is_set', 'is_not_set']),
+          operator: z.enum(CONDITION_OPERATORS),
           value: z.union([z.string(), z.number(), z.boolean()]).optional(),
           thenSteps: z.array(z.lazy(() => z.any())).optional(),
           elseSteps: z.array(z.lazy(() => z.any())).optional(),
         }),
-      ])).min(1).max(40),
+      ])).min(LIMITS.flowStepsMin).max(LIMITS.flowStepsMax),
     }),
   }),
 
   Base.extend({
     type: z.literal('platform.extensionBlueprint'),
     category: z.literal('ADMIN_UI').default('ADMIN_UI'),
+    requires: z.array(z.custom<Capability>()).default([]),
     config: z.object({
-      surface: z.enum(['CHECKOUT_UI', 'THEME_APP_EXTENSION', 'FUNCTION']),
-      goal: z.string().min(5).max(240),
-      suggestedFiles: z.array(z.string()).min(1).max(50),
+      surface: z.enum(BLUEPRINT_SURFACES),
+      goal: z.string().min(LIMITS.goalMin).max(LIMITS.goalMax),
+      suggestedFiles: z.array(z.string()).min(LIMITS.suggestedFilesMin).max(LIMITS.suggestedFilesMax),
     }),
   }),
 
@@ -333,19 +472,19 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     category: z.literal('CUSTOMER_ACCOUNT').default('CUSTOMER_ACCOUNT'),
     requires: z.array(z.custom<Capability>()).default(['CUSTOMER_ACCOUNT_UI']),
     config: z.object({
-      target: z.enum([
-        'customer-account.order-status.block.render',
-        'customer-account.order-index.block.render',
-        'customer-account.profile.block.render',
-        'customer-account.page.render',
-      ]),
-      title: z.string().min(1).max(80),
-      blocks: z.array(z.object({
-        kind: z.enum(['TEXT', 'LINK', 'BADGE', 'DIVIDER']),
-        content: z.string().min(0).max(240).optional(),
-        url: z.string().url().optional(),
-        tone: z.enum(['info', 'success', 'warning', 'critical']).optional(),
-      })).min(1).max(20),
+      target: z.enum(CUSTOMER_ACCOUNT_TARGETS),
+      title: z.string().min(LIMITS.headingMin).max(LIMITS.nameMax),
+      blocks: z
+        .array(
+          z.object({
+            kind: z.enum(CUSTOMER_ACCOUNT_BLOCK_KINDS),
+            content: z.string().min(0).max(240).optional(),
+            url: z.string().url().optional(),
+            tone: z.enum(CUSTOMER_ACCOUNT_BLOCK_TONES).optional(),
+          }),
+        )
+        .min(LIMITS.customerAccountBlocksMin)
+        .max(LIMITS.customerAccountBlocksMax),
       b2bOnly: z.boolean().default(false),
     }),
   }),

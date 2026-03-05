@@ -3,6 +3,7 @@ import { shopify } from '~/shopify.server';
 import { ModuleService } from '~/services/modules/module.service';
 import { RecipeService } from '~/services/recipes/recipe.service';
 import { PublishService } from '~/services/publish/publish.service';
+import { validateBeforePublish } from '~/services/publish/pre-publish-validator.server';
 import { CapabilityService } from '~/services/shopify/capability.service';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
 import type { DeployTarget } from '@superapp/core';
@@ -65,6 +66,14 @@ export async function action({ request }: { request: Request }) {
 
       if (target.kind === 'THEME' && !target.themeId) {
         return json({ error: 'themeId is required for theme module publish' }, { status: 400 });
+      }
+
+      const validationErrors = validateBeforePublish(spec, { planTier: tier });
+      if (validationErrors.length > 0) {
+        return json(
+          { error: 'Pre-publish validation failed', errors: validationErrors },
+          { status: 400 }
+        );
       }
 
       const jobs = new JobService();

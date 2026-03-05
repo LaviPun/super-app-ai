@@ -34,17 +34,7 @@ export function compileThemeBanner(spec: Extract<RecipeSpec, { type: 'theme.bann
 </section>
 
 {% schema %}
-{
-  "name": "${escapeJson(spec.name)}",
-  "settings": [
-    { "type": "text", "id": "heading", "label": "Heading", "default": "${escapeJson(spec.config.heading)}" },
-    { "type": "text", "id": "subheading", "label": "Subheading", "default": "${escapeJson(spec.config.subheading ?? '')}" },
-    { "type": "text", "id": "cta_text", "label": "CTA text", "default": "${escapeJson(spec.config.ctaText ?? '')}" },
-    { "type": "url", "id": "cta_url", "label": "CTA link", "default": "${escapeJson(spec.config.ctaUrl ?? '')}" },
-    { "type": "text", "id": "image_url", "label": "Image URL", "default": "${escapeJson(spec.config.imageUrl ?? '')}" }
-  ],
-  "presets": [{ "name": "${escapeJson(spec.name)}" }]
-}
+${schemaJson(spec)}
 {% endschema %}
 `.trim();
 
@@ -81,4 +71,24 @@ function slug(input: string) {
 
 function escapeJson(input: string) {
   return input.replace(/\\/g, '\\\\').replace(/"/g, '\"');
+}
+
+function schemaJson(spec: Extract<RecipeSpec, { type: 'theme.banner' }>): string {
+  const schema: Record<string, unknown> = {
+    name: spec.name,
+    settings: [
+      { type: 'text', id: 'heading', label: 'Heading', default: spec.config.heading },
+      { type: 'text', id: 'subheading', label: 'Subheading', default: spec.config.subheading ?? '' },
+      { type: 'text', id: 'cta_text', label: 'CTA text', default: spec.config.ctaText ?? '' },
+      { type: 'url', id: 'cta_url', label: 'CTA link', default: spec.config.ctaUrl ?? '' },
+      { type: 'text', id: 'image_url', label: 'Image URL', default: spec.config.imageUrl ?? '' },
+    ],
+    presets: [{ name: spec.name }],
+  };
+  if (spec.placement?.enabled_on) {
+    schema.enabled_on = spec.placement.enabled_on;
+  } else if (spec.placement?.disabled_on) {
+    schema.disabled_on = spec.placement.disabled_on;
+  }
+  return JSON.stringify(schema);
 }

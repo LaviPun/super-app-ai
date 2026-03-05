@@ -23,6 +23,11 @@ Settings: message(str 1-140), linkText(str 0-40, opt), linkUrl(url, opt).
 Controls: dismissible(bool, default true).
 ${STYLE_SUMMARY}`,
 
+  'theme.effect': `Module: theme.effect | Category: STOREFRONT_UI | Requires: THEME_ASSETS
+Settings: effectKind(snowfall|confetti, required), intensity(low|medium|high, default medium), speed(slow|normal|fast, default normal).
+Controls: full-viewport decoration overlay; no Shopify data. Use for seasonal effects (snowfall, confetti).
+${STYLE_SUMMARY}`,
+
   'proxy.widget': `Module: proxy.widget | Category: STOREFRONT_UI | Requires: APP_PROXY
 Settings: widgetId(str, regex [a-z0-9-] 3-40), title(str 1-80), message(str 0-240, opt).
 Controls: mode(JSON|HTML, default HTML).
@@ -50,8 +55,36 @@ Settings: bundles (array 1-50), each: title(str 1-60), componentSkus(str[] 2-20)
 Controls: mode(BUNDLE|UNBUNDLE), fallbackTheme.enabled(bool), fallbackTheme.notificationMessage(str 1-140).
 No style.`,
 
+  'functions.fulfillmentConstraints': `Module: functions.fulfillmentConstraints | Category: FUNCTION
+Settings: rules (array 1-50), each: when(productTagIn:str[], skuIn:str[]), apply(shipAlone:bool, groupWithTag:str). Split fragile items or force ship-alone.
+No style.`,
+
+  'functions.orderRoutingLocationRule': `Module: functions.orderRoutingLocationRule | Category: FUNCTION
+Settings: rules (array 1-50), each: when(inventoryLocationIds:str[], countryCode:str[2]), apply(preferLocationId:str, priority:int 0-100). Prefer warehouse by location/stock.
+No style.`,
+
   'checkout.upsell': `Module: checkout.upsell | Category: STOREFRONT_UI | Requires: CHECKOUT_UI_INFO_SHIP_PAY
 Settings: offerTitle(str 1-60), productVariantGid(str min 10, e.g. gid://shopify/ProductVariant/123), discountPercent(0-100, default 0).
+No style.`,
+
+  'checkout.block': `Module: checkout.block | Category: STOREFRONT_UI | Requires: CHECKOUT_UI_INFO_SHIP_PAY
+Settings: target(enum from CHECKOUT_UI_TARGETS), title(str 1-80), message(str 0-240, opt), productVariantGid(str, opt). Merchant-placeable block in checkout.
+No style.`,
+
+  'postPurchase.offer': `Module: postPurchase.offer | Category: STOREFRONT_UI | Requires: CHECKOUT_UI_INFO_SHIP_PAY
+Settings: offerTitle(str 1-80), productVariantGid(str, opt), message(str 0-240, opt). One-click upsell after payment.
+No style.`,
+
+  'admin.block': `Module: admin.block | Category: ADMIN_UI
+Settings: target(enum from ADMIN_TARGETS), label(str 1-80), shouldRender(bool, opt). Admin block on resource pages.
+No style.`,
+
+  'pos.extension': `Module: pos.extension | Category: ADMIN_UI
+Settings: target(enum from POS_TARGETS), label(str 1-80), blockKind(tile|modal|block|action, opt). POS UI extension.
+No style.`,
+
+  'analytics.pixel': `Module: analytics.pixel | Category: INTEGRATION
+Settings: events(array of PIXEL_STANDARD_EVENTS, min 1), pixelId(str max 80, opt), mapping(record, opt). Web pixel event subscriptions.
 No style.`,
 
   'integration.httpSync': `Module: integration.httpSync | Category: INTEGRATION

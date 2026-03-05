@@ -70,9 +70,10 @@ This yields:
 > Hosting: use Postgres + Redis in production; SQLite is for local development only.
 
 ## Docs
+- **AI Module reference:** `docs/ai-module-main-doc.md` — canonical allowed values, RecipeSpec, catalog, capabilities, placement, GDPR, analytics (single source of truth; code uses `packages/core/src/allowed-values.ts`).
 - Technical: `docs/technical.md`
 - Merchant guide: `docs/app.md`
-- Implementation status: `docs/implementation-status.md` (includes Storefront UI Style System, API Tester, Templates, Flow Builder, Data Stores, **Admin app stack & UI fixes**)
+- Implementation status: `docs/implementation-status.md` (includes **AI Module doc alignment**, Storefront UI Style System, API Tester, Templates, Flow Builder, Data Stores, **Admin app stack & UI fixes**)
 - Phase plan: `docs/phase-plan.md`
 - Debug notes (extension bundle, deploy, 64 KB limit, embedded auth, **card corners**, known issues): `docs/debug.md`
 - Catalog: `docs/catalog.md`

@@ -32,14 +32,17 @@ describe('getProposalSetSchema', () => {
 
 describe('MODULE_SUMMARIES', () => {
   const ALL_TYPES = [
-    'theme.banner', 'theme.popup', 'theme.notificationBar', 'proxy.widget',
+    'theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'proxy.widget',
     'functions.discountRules', 'functions.deliveryCustomization', 'functions.paymentCustomization',
     'functions.cartAndCheckoutValidation', 'functions.cartTransform',
-    'checkout.upsell', 'integration.httpSync', 'flow.automation',
+    'functions.fulfillmentConstraints', 'functions.orderRoutingLocationRule',
+    'checkout.upsell', 'checkout.block', 'postPurchase.offer',
+    'admin.block', 'pos.extension', 'analytics.pixel',
+    'integration.httpSync', 'flow.automation',
     'platform.extensionBlueprint', 'customerAccount.blocks',
   ];
 
-  it('covers all 14 module types', () => {
+  it('covers all module types', () => {
     for (const type of ALL_TYPES) {
       expect(MODULE_SUMMARIES[type as keyof typeof MODULE_SUMMARIES], `Missing summary for ${type}`).toBeDefined();
       expect(MODULE_SUMMARIES[type as keyof typeof MODULE_SUMMARIES].length).toBeGreaterThan(50);
@@ -102,5 +105,14 @@ describe('classifyUserIntent', () => {
     const result = classifyUserIntent('do something cool');
     expect(result.moduleType).toBe('theme.banner');
     expect(result.confidence).toBe('low');
+  });
+
+  it('classifies snowfall and winter effect as theme.effect', () => {
+    const snowfall = classifyUserIntent('Add snowfall effect on my store');
+    expect(snowfall.moduleType).toBe('theme.effect');
+    const winter = classifyUserIntent('I want a winter christmas effect');
+    expect(winter.moduleType).toBe('theme.effect');
+    const confetti = classifyUserIntent('Show confetti on the homepage');
+    expect(confetti.moduleType).toBe('theme.effect');
   });
 });

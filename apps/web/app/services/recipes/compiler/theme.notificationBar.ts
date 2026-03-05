@@ -48,11 +48,7 @@ export function compileNotificationBar(spec: Extract<RecipeSpec, { type: 'theme.
 </script>
 
 {% schema %}
-{
-  "name": "${escapeJson(spec.name)}",
-  "settings": [],
-  "presets": [{ "name": "${escapeJson(spec.name)}" }]
-}
+${schemaJson(spec)}
 {% endschema %}
 `.trim();
 
@@ -95,4 +91,15 @@ function escapeHtml(input: string) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function schemaJson(spec: Extract<RecipeSpec, { type: 'theme.notificationBar' }>): string {
+  const schema: Record<string, unknown> = {
+    name: spec.name,
+    settings: [],
+    presets: [{ name: spec.name }],
+  };
+  if (spec.placement?.enabled_on) schema.enabled_on = spec.placement.enabled_on;
+  else if (spec.placement?.disabled_on) schema.disabled_on = spec.placement.disabled_on;
+  return JSON.stringify(schema);
 }

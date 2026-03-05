@@ -3,6 +3,7 @@ import type { CompileResult } from './types';
 import { compileThemeBanner } from './theme.banner';
 import { compileThemePopup } from './theme.popup';
 import { compileNotificationBar } from './theme.notificationBar';
+import { compileThemeEffect } from './theme.effect';
 import { compileProxyWidget } from './proxy.widget';
 import { compileDiscountRules } from './functions.discountRules';
 import { compileDeliveryCustomization } from './functions.deliveryCustomization';
@@ -23,6 +24,9 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
     case 'theme.notificationBar':
       if (target.kind !== 'THEME') throw new Error('theme.notificationBar requires THEME target');
       return compileNotificationBar(spec, target.themeId);
+    case 'theme.effect':
+      if (target.kind !== 'THEME') throw new Error('theme.effect requires THEME target');
+      return compileThemeEffect(spec, target.themeId);
     case 'proxy.widget':
       return compileProxyWidget(spec);
     case 'functions.discountRules':
@@ -39,9 +43,16 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
       return compileCheckoutUpsell(spec);
     case 'customerAccount.blocks':
       return compileCustomerAccountBlocks(spec);
+    case 'checkout.block':
+    case 'postPurchase.offer':
+    case 'admin.block':
+    case 'pos.extension':
+    case 'analytics.pixel':
     case 'integration.httpSync':
     case 'flow.automation':
     case 'platform.extensionBlueprint':
+    case 'functions.fulfillmentConstraints':
+    case 'functions.orderRoutingLocationRule':
       return { ops: [{ kind: 'AUDIT', action: `compile.${spec.type}` }] };
     default: {
       const _exhaustive: never = spec;

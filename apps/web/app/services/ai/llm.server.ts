@@ -136,6 +136,8 @@ export function compileCreateModulePrompt(params: {
   styleSchemaSpec?: string;
   catalogDetails?: string;
   previousError?: string;
+  /** IntentPacket JSON (doc 15.8): structured intent so heavy AI only fills layout/copy/settings. */
+  intentPacketJson?: string;
 }): string {
   const parts: string[] = [
     params.purposeAndGuidance,
@@ -151,6 +153,9 @@ export function compileCreateModulePrompt(params: {
     '',
     `User request: ${params.userRequest}`,
   ];
+  if (params.intentPacketJson) {
+    parts.push('', 'Structured intent (output only the schema requested; do not change intent):', params.intentPacketJson);
+  }
   if (params.fullSchemaSpec) {
     parts.push('', 'Full recipe schema (Zod validation — every field must match):', params.fullSchemaSpec);
   }
@@ -201,6 +206,19 @@ function unwrapRecipe(raw: unknown): unknown {
   return raw;
 }
 
+/** Build a repair-only prompt (doc 15.9): fix schema violations without re-running full generation. */
+function compileRepairPrompt(invalidRecipeJson: string, validationError: string): string {
+  return `You are fixing a RecipeSpec JSON that failed schema validation. Do NOT change the intent or add new features — only fix the listed errors so the output is valid.
+
+Validation errors:
+${validationError}
+
+Invalid RecipeSpec (fix only the fields mentioned above):
+${invalidRecipeJson}
+
+Respond with a JSON object containing a single key "recipe" whose value is the corrected RecipeSpec. Output nothing else.`;
+}
+
 const TYPE_CATEGORY_REQUIRES: Record<string, { category: string; requires: string[] }> = {
   'theme.banner': { category: 'STOREFRONT_UI', requires: ['THEME_ASSETS'] },
   'theme.popup': { category: 'STOREFRONT_UI', requires: ['THEME_ASSETS'] },
@@ -211,6 +229,8 @@ const TYPE_CATEGORY_REQUIRES: Record<string, { category: string; requires: strin
   'functions.paymentCustomization': { category: 'FUNCTION', requires: ['PAYMENT_CUSTOMIZATION_FUNCTION'] },
   'functions.cartAndCheckoutValidation': { category: 'FUNCTION', requires: ['VALIDATION_FUNCTION'] },
   'functions.cartTransform': { category: 'FUNCTION', requires: ['CART_TRANSFORM_FUNCTION_UPDATE'] },
+  'functions.fulfillmentConstraints': { category: 'FUNCTION', requires: [] },
+  'functions.orderRoutingLocationRule': { category: 'FUNCTION', requires: [] },
   'checkout.upsell': { category: 'STOREFRONT_UI', requires: ['CHECKOUT_UI_INFO_SHIP_PAY'] },
   'integration.httpSync': { category: 'INTEGRATION', requires: [] },
   'flow.automation': { category: 'FLOW', requires: [] },
@@ -351,6 +371,38 @@ function repairRecipeForValidation(raw: unknown): unknown {
   return o;
 }
 
+const MAX_REPAIR_ATTEMPTS = 2;
+
+/**
+ * Validate with RecipeSpecSchema; if invalid, run repair prompt (doc 15.9) and re-validate.
+ * Caps at MAX_REPAIR_ATTEMPTS to keep cost predictable.
+ */
+async function validateAndRepairRecipe(
+  raw: unknown,
+  client: LlmClient,
+  options?: { shopId?: string },
+): Promise<{ recipe: RecipeSpec; repaired: boolean }> {
+  let current = repairRecipeForValidation(raw);
+  let lastError: string | undefined;
+  for (let i = 0; i <= MAX_REPAIR_ATTEMPTS; i++) {
+    const result = RecipeSpecSchema.safeParse(current);
+    if (result.success) {
+      return { recipe: result.data, repaired: i > 0 };
+    }
+    lastError = result.error.message;
+    if (i === MAX_REPAIR_ATTEMPTS) break;
+    const repairPrompt = compileRepairPrompt(JSON.stringify(current, null, 2), lastError);
+    const { rawJson } = await client.generateRecipe(repairPrompt);
+    try {
+      const parsed = JSON.parse(rawJson);
+      current = repairRecipeForValidation(unwrapRecipe(parsed));
+    } catch {
+      break;
+    }
+  }
+  throw new Error(lastError ?? 'Validation failed');
+}
+
 export async function generateValidatedRecipe(
   prompt: string,
   options?: { shopId?: string; action?: string; maxAttempts?: number }
@@ -424,11 +476,12 @@ Output a JSON object with a single key "recipe" whose value is the complete upda
 
 /**
  * Generate 3 recipe options for a given prompt. Compiles all prompt parts into a single string, then sends that to the AI.
+ * Optional intentPacket (doc 15.5) provides a clear contract so heavy AI only fills layout/copy/settings.
  */
 export async function generateValidatedRecipeOptions(
   prompt: string,
   classification: { moduleType: ModuleType; intent?: string; surface?: string },
-  options?: { shopId?: string; maxAttempts?: number },
+  options?: { shopId?: string; maxAttempts?: number; intentPacketJson?: string },
 ): Promise<RecipeOption[]> {
   const maxAttempts = options?.maxAttempts ?? 3;
   const { client, providerId } = await getLlmClient(options?.shopId ?? null);
@@ -443,7 +496,7 @@ export async function generateValidatedRecipeOptions(
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const isRetry = attempt > 0;
     const fullSchemaSpec = isRetry ? getFullRecipeSchemaSpec(classification.moduleType) : undefined;
-    const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'proxy.widget'];
+    const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'proxy.widget'];
     const styleSchemaSpec = isRetry && storefrontTypes.includes(classification.moduleType) ? getStorefrontStyleSchemaSpec() : undefined;
     const catalogDetails = isRetry ? getCatalogDetailsForType(classification.moduleType, classification.intent, classification.surface) : undefined;
 
@@ -458,6 +511,7 @@ export async function generateValidatedRecipeOptions(
       styleSchemaSpec,
       catalogDetails,
       previousError: lastErr ? String(lastErr) : undefined,
+      intentPacketJson: options?.intentPacketJson,
     });
 
     const { rawJson, tokensIn, tokensOut, model } = await client.generateRecipe(compiledPrompt);
@@ -472,16 +526,25 @@ export async function generateValidatedRecipeOptions(
       const validated: RecipeOption[] = [];
       let firstValidationError: string | undefined;
       for (const opt of optionsArr) {
-        try {
-          const raw = unwrapRecipe(opt?.recipe ?? opt);
-          const repaired = repairRecipeForValidation(raw);
-          const recipe = RecipeSpecSchema.parse(repaired);
+        const raw = unwrapRecipe(opt?.recipe ?? opt);
+        const repaired = repairRecipeForValidation(raw);
+        const parsed = RecipeSpecSchema.safeParse(repaired);
+        if (parsed.success) {
           validated.push({
             explanation: typeof opt?.explanation === 'string' ? opt.explanation : `Option ${validated.length + 1}`,
+            recipe: parsed.data,
+          });
+          continue;
+        }
+        if (!firstValidationError) firstValidationError = parsed.error.message;
+        try {
+          const { recipe } = await validateAndRepairRecipe(raw, client, { shopId: options?.shopId });
+          validated.push({
+            explanation: typeof opt?.explanation === 'string' ? opt.explanation : `Option ${validated.length + 1} (repaired)`,
             recipe,
           });
-        } catch (err) {
-          if (!firstValidationError) firstValidationError = err instanceof Error ? err.message : String(err);
+        } catch (repairErr) {
+          if (!firstValidationError) firstValidationError = repairErr instanceof Error ? repairErr.message : String(repairErr);
         }
       }
 

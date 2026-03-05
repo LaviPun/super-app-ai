@@ -8,7 +8,7 @@ import {
 import { useState, useCallback, useEffect } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
-import { MODULE_TEMPLATES, TEMPLATE_CATEGORIES } from '@superapp/core';
+import { MODULE_TEMPLATES, TEMPLATE_CATEGORIES, ALL_MODULE_TYPES } from '@superapp/core';
 import { getTypeDisplayLabel, getTypeTone } from '~/utils/type-label';
 
 type RecipeOption = {
@@ -57,9 +57,6 @@ export async function loader({ request }: { request: Request }) {
       typeCounts[m.type] = (typeCounts[m.type] ?? 0) + 1;
     }
 
-    const typeSet = new Set<string>();
-    for (const t of MODULE_TEMPLATES) typeSet.add(t.type);
-
     const templates = MODULE_TEMPLATES.map(t => ({
       id: t.id,
       name: t.name,
@@ -83,7 +80,7 @@ export async function loader({ request }: { request: Request }) {
       typeCounts,
       templates,
       categories: TEMPLATE_CATEGORIES as unknown as string[],
-      types: Array.from(typeSet).sort(),
+      types: [...ALL_MODULE_TYPES].sort(),
       loaderError: undefined,
     });
   } catch (err) {

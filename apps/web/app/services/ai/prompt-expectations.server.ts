@@ -1,4 +1,5 @@
 import type { ModuleType } from '@superapp/core';
+import { LIMITS } from '@superapp/core';
 
 /**
  * Prompt design principles (from real-world successful AI app prompts):
@@ -22,7 +23,7 @@ Extras to consider when relevant: responsive (mobile vs desktop), accessibility 
 const EXPECTED_SHAPE_EXAMPLES: Partial<Record<ModuleType, string>> = {
   'theme.popup': `{
   "type": "theme.popup",
-  "name": "string, 3-80 chars",
+  "name": "string, ${LIMITS.nameMin}-${LIMITS.nameMax} chars",
   "category": "STOREFRONT_UI",
   "requires": ["THEME_ASSETS"],
   "config": {
@@ -49,7 +50,7 @@ const EXPECTED_SHAPE_EXAMPLES: Partial<Record<ModuleType, string>> = {
 
   'theme.banner': `{
   "type": "theme.banner",
-  "name": "string, 3-80 chars",
+  "name": "string, ${LIMITS.nameMin}-${LIMITS.nameMax} chars",
   "category": "STOREFRONT_UI",
   "requires": ["THEME_ASSETS"],
   "config": {
@@ -65,7 +66,7 @@ const EXPECTED_SHAPE_EXAMPLES: Partial<Record<ModuleType, string>> = {
 
   'theme.notificationBar': `{
   "type": "theme.notificationBar",
-  "name": "string, 3-80 chars",
+  "name": "string, ${LIMITS.nameMin}-${LIMITS.nameMax} chars",
   "category": "STOREFRONT_UI",
   "requires": ["THEME_ASSETS"],
   "config": {
@@ -77,9 +78,23 @@ const EXPECTED_SHAPE_EXAMPLES: Partial<Record<ModuleType, string>> = {
   "style": {}
 }`,
 
+  'theme.effect': `{
+  "type": "theme.effect",
+  "name": "string, ${LIMITS.nameMin}-${LIMITS.nameMax} chars",
+  "category": "STOREFRONT_UI",
+  "requires": ["THEME_ASSETS"],
+  "config": {
+    "effectKind": "snowfall | confetti",
+    "intensity": "low | medium | high",
+    "speed": "slow | normal | fast"
+  },
+  "placement": { "enabled_on": { "templates": ["index", "product"] } },
+  "style": { "layout": { "zIndex": "overlay" }, "accessibility": { "reducedMotion": true } }
+}`,
+
   'proxy.widget': `{
   "type": "proxy.widget",
-  "name": "string, 3-80 chars",
+  "name": "string, ${LIMITS.nameMin}-${LIMITS.nameMax} chars",
   "category": "STOREFRONT_UI",
   "requires": ["APP_PROXY"],
   "config": {
@@ -129,7 +144,7 @@ export const STOREFRONT_STYLE_SCHEMA_SPEC = `Storefront style (optional object).
 - shape: radius = "none"|"sm"|"md"|"lg"|"xl"|"full"; borderWidth = "none"|"thin"|"medium"|"thick"; shadow = "none"|"sm"|"md"|"lg".
 - responsive: hideOnMobile, hideOnDesktop = boolean.
 - accessibility: focusVisible, reducedMotion = boolean.
-- customCss: optional string, max 2000 chars (sanitized at compile).`;
+- customCss: optional string, max ${LIMITS.customCssMax} chars (sanitized at compile).`;
 
 /**
  * Full recipe config schema per type (Zod-level: every field, type, min/max, enums).
@@ -137,45 +152,51 @@ export const STOREFRONT_STYLE_SCHEMA_SPEC = `Storefront style (optional object).
  */
 const FULL_RECIPE_SCHEMA_SPECS: Partial<Record<ModuleType, string>> = {
   'theme.popup': `theme.popup — full config schema (Zod validation; every field must match):
-Top-level: type="theme.popup", name=string 3-80 chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, style=optional.
-config.title: string, required, 1-60 chars.
-config.body: string, optional, 0-240 chars.
+Top-level: type="theme.popup", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, style=optional.
+config.title: string, required, ${LIMITS.popupTitleMin}-${LIMITS.popupTitleMax} chars.
+config.body: string, optional, 0-${LIMITS.popupBodyMax} chars.
 config.trigger: enum exactly one of: ON_LOAD, ON_EXIT_INTENT, ON_SCROLL_25, ON_SCROLL_50, ON_SCROLL_75, ON_CLICK, TIMED.
-config.delaySeconds: number, int, 0-300, default 0.
+config.delaySeconds: number, int, 0-${LIMITS.popupDelaySecondsMax}, default 0.
 config.frequency: enum exactly: EVERY_VISIT, ONCE_PER_SESSION, ONCE_PER_DAY, ONCE_PER_WEEK, ONCE_EVER.
-config.maxShowsPerDay: number, int, 0-100, default 0.
+config.maxShowsPerDay: number, int, 0-${LIMITS.popupMaxShowsPerDayMax}, default 0.
 config.showOnPages: enum exactly: ALL, HOMEPAGE, COLLECTION, PRODUCT, CART, CUSTOM.
-config.customPageUrls: array of strings, max 20 items, each max 200 chars.
-config.autoCloseSeconds: number, int, 0-300, default 0.
+config.customPageUrls: array of strings, max ${LIMITS.popupCustomPageUrlsMax} items, each max ${LIMITS.popupCustomPageUrlMax} chars.
+config.autoCloseSeconds: number, int, 0-${LIMITS.popupDelaySecondsMax}, default 0.
 config.showCloseButton: boolean, default true.
 config.countdownEnabled: boolean, default false.
-config.countdownSeconds: number, int, 0-86400, default 0.
-config.countdownLabel: string, max 40 chars, default "".
+config.countdownSeconds: number, int, 0-${LIMITS.popupCountdownSecondsMax}, default 0.
+config.countdownLabel: string, max ${LIMITS.popupCountdownLabelMax} chars, default "".
 config.ctaText, config.secondaryCtaText: string, optional, max 40 chars.
 config.ctaUrl, config.secondaryCtaUrl: optional; if present must be valid URL (https), empty string invalid.`,
 
   'theme.banner': `theme.banner — full config schema (Zod validation):
-Top-level: type="theme.banner", name=string 3-80 chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, style=optional.
-config.heading: string, required, 1-80 chars.
-config.subheading: string, optional, 0-200 chars.
+Top-level: type="theme.banner", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, style=optional.
+config.heading: string, required, ${LIMITS.headingMin}-${LIMITS.headingMax} chars.
+config.subheading: string, optional, 0-${LIMITS.subheadingMax} chars.
 config.ctaText: string, optional, 0-40 chars.
 config.ctaUrl: optional; if present valid URL (https), empty string invalid.
 config.imageUrl: optional; if present valid URL (https), empty string invalid.
 config.enableAnimation: boolean, default false.`,
 
   'theme.notificationBar': `theme.notificationBar — full config schema (Zod validation):
-Top-level: type="theme.notificationBar", name=string 3-80 chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, style=optional.
-config.message: string, required, 1-140 chars.
+Top-level: type="theme.notificationBar", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, style=optional.
+config.message: string, required, ${LIMITS.notificationBarMessageMin}-${LIMITS.notificationBarMessageMax} chars.
 config.linkText: string, optional, 0-40 chars.
 config.linkUrl: optional; if present valid URL (https), empty string invalid.
 config.dismissible: boolean, default true.`,
 
+  'theme.effect': `theme.effect — full config schema (Zod validation):
+Top-level: type="theme.effect", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, placement=optional, style=optional.
+config.effectKind: enum exactly "snowfall" or "confetti", required.
+config.intensity: enum exactly "low" | "medium" | "high", default "medium".
+config.speed: enum exactly "slow" | "normal" | "fast", default "normal".`,
+
   'proxy.widget': `proxy.widget — full config schema (Zod validation):
-Top-level: type="proxy.widget", name=string 3-80 chars, category="STOREFRONT_UI", requires=["APP_PROXY"], config={...}, style=optional.
+Top-level: type="proxy.widget", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["APP_PROXY"], config={...}, style=optional.
 config.widgetId: string, required, regex [a-z0-9-] only, length 3-40.
 config.mode: enum exactly: "JSON" or "HTML", default "HTML".
-config.title: string, required, 1-80 chars.
-config.message: string, optional, 0-240 chars.`,
+config.title: string, required, ${LIMITS.headingMin}-${LIMITS.nameMax} chars.
+config.message: string, optional, 0-${LIMITS.popupBodyMax} chars.`,
 };
 
 /** Returns the full recipe schema spec for the given type (all Zod-level constraints as a string). */

@@ -1,14 +1,15 @@
 import generated from './catalog.generated.json';
 import type { Capability } from './capabilities.js';
-import type { ModuleCategory } from './recipe.js';
+import type { ModuleCategory, ModuleType } from './allowed-values.js';
 
+/** Catalog entry (doc 9.1). Loaded from catalog.generated.json. */
 export type ModuleCatalogEntry = {
   catalogId: string;
   category: ModuleCategory;
   requires: Capability[];
   description: string;
-
-  // optional metadata fields used for filtering
+  /** RecipeSpec type for filtering by module type. */
+  moduleType?: ModuleType;
   templateKind?: string;
   surface?: string;
   intent?: string;
@@ -29,7 +30,7 @@ export function findCatalogEntry(catalogId: string): ModuleCatalogEntry | undefi
 }
 
 export function filterCatalog(query: Partial<Pick<ModuleCatalogEntry,
-  'category'|'templateKind'|'surface'|'intent'|'trigger'|'resource'|'pattern'|'condition'|'action'|'direction'|'complexity'
+  'category'|'moduleType'|'templateKind'|'surface'|'intent'|'trigger'|'resource'|'pattern'|'condition'|'action'|'direction'|'complexity'
 >>): ModuleCatalogEntry[] {
   return MODULE_CATALOG.filter(e => {
     for (const [k, v] of Object.entries(query)) {
