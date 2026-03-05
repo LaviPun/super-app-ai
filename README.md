@@ -74,7 +74,7 @@ This yields:
 - Technical: `docs/technical.md`
 - Merchant guide: `docs/app.md`
 - Implementation status: `docs/implementation-status.md` (includes **AI Module doc alignment**, **AI Patch Plan — Remove Generic Outputs**, Storefront UI Style System, API Tester, Templates, Flow Builder, Data Stores, **Admin app stack & UI fixes**)
-- **AI Patch Plan Phase 1 ✅:** All Phase 1 fixes complete — classifier returns canonical intent ID, `theme.effect`/`proxy.widget` route correctly via `utility.effect`/`utility.floating_widget`, unknown intents fall back to `platform.extensionBlueprint` (not promo popup), `theme.effect` schema expanded to 7 fields, full schema+catalog injected on attempt 0 for low-confidence prompts. See `docs/implementation-status.md` § “AI Patch Plan”.
+- **AI Patch Plan Phases 1–5 ✅:** All phases complete — 3-tier classifier (Tier A keywords + Tier B embedding similarity + Tier C cheap LLM), `theme.floatingWidget` new type, settings packs per module type, profile-driven prompt composition, schema/catalog on attempt 0 for non-direct confidence, drift-check CI. Deferred: multi-intent, Behavior DSL, theme.composed. See `docs/implementation-status.md` § “AI Patch Plan”.
 - Phase plan: `docs/phase-plan.md`
 - Debug notes (extension bundle, deploy, 64 KB limit, embedded auth, **card corners**, known issues): `docs/debug.md`
 - Catalog: `docs/catalog.md` (generated catalog, curated templates, **templateKind mapping for AI retries**)

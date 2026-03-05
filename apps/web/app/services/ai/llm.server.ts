@@ -15,6 +15,7 @@ import {
   PROMPT_PURPOSE_AND_GUIDANCE,
   getFullRecipeSchemaSpec,
   getStorefrontStyleSchemaSpec,
+  getSettingsPack,
 } from '~/services/ai/prompt-expectations.server';
 
 import { getPrisma } from '~/db.server';
@@ -131,6 +132,15 @@ export async function getLlmClient(shopId?: string | null): Promise<{ client: Ll
   throw new AiProviderNotConfiguredError();
 }
 
+/** Surface-specific guidance per prompt_profile from ROUTING_TABLE (Phase 4.2). */
+const PROFILE_GUIDANCE: Record<string, string> = {
+  storefront_ui_v1: 'Surface context: STOREFRONT module — deploys as Theme App Extension (OS 2.0 only). Output RecipeSpec JSON. No raw Liquid, JS, or CSS in config fields.',
+  admin_ui_v1: 'Surface context: ADMIN UI module or plan — targets Shopify admin surfaces and actions. Output RecipeSpec JSON.',
+  workflow_v1: 'Surface context: WORKFLOW automation — targets Shopify Flow triggers, conditions, and steps. Output RecipeSpec JSON.',
+  support_v1: 'Surface context: SUPPORT plan or how-to — focus on troubleshooting steps and merchant guidance. Output RecipeSpec JSON.',
+  copy_v1: 'Surface context: COPY only — focus on headline, body, and CTA text. Output RecipeSpec JSON.',
+};
+
 /**
  * All inputs are strings. Compiles into a single prompt to send to the AI.
  * Optional sections (fullSchemaSpec, styleSchemaSpec, catalogDetails) are omitted on first attempt to keep cost low; add on retry when needed.
@@ -145,10 +155,15 @@ export function compileCreateModulePrompt(params: {
   fullSchemaSpec?: string;
   styleSchemaSpec?: string;
   catalogDetails?: string;
+  settingsPack?: string;
   previousError?: string;
   /** IntentPacket JSON (doc 15.8): structured intent so heavy AI only fills layout/copy/settings. */
   intentPacketJson?: string;
+  /** Prompt profile from ROUTING_TABLE (e.g. storefront_ui_v1). Drives surface-specific guidance. */
+  promptProfile?: string;
 }): string {
+  const profileGuidance = params.promptProfile ? PROFILE_GUIDANCE[params.promptProfile] : undefined;
+
   const parts: string[] = [
     params.purposeAndGuidance,
     '',
@@ -163,6 +178,12 @@ export function compileCreateModulePrompt(params: {
     '',
     `User request: ${params.userRequest}`,
   ];
+  if (profileGuidance) {
+    parts.push('', profileGuidance);
+  }
+  if (params.settingsPack) {
+    parts.push('', params.settingsPack);
+  }
   if (params.intentPacketJson) {
     parts.push('', 'Structured intent (output only the schema requested; do not change intent):', params.intentPacketJson);
   }
@@ -491,7 +512,7 @@ Output a JSON object with a single key "recipe" whose value is the complete upda
 export async function generateValidatedRecipeOptions(
   prompt: string,
   classification: { moduleType: ModuleType; intent?: string; surface?: string },
-  options?: { shopId?: string; maxAttempts?: number; intentPacketJson?: string; confidenceScore?: number },
+  options?: { shopId?: string; maxAttempts?: number; intentPacketJson?: string; confidenceScore?: number; promptProfile?: string },
 ): Promise<RecipeOption[]> {
   const maxAttempts = options?.maxAttempts ?? 3;
   const { client, providerId } = await getLlmClient(options?.shopId ?? null);
@@ -505,7 +526,9 @@ export async function generateValidatedRecipeOptions(
   // Include full schema+style+catalog on attempt 0 when confidence is below the DIRECT threshold (0.8).
   // This front-loads context for ambiguous prompts rather than waiting for a retry.
   const isLowConfidence = (options?.confidenceScore ?? 1) < CONFIDENCE_THRESHOLDS.DIRECT;
-  const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'proxy.widget'];
+  const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'theme.floatingWidget', 'proxy.widget'];
+  // Settings pack is always injected — it's lightweight and ensures the AI populates all relevant fields.
+  const settingsPack = getSettingsPack(classification.moduleType);
 
   let lastErr: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -522,11 +545,13 @@ export async function generateValidatedRecipeOptions(
       summary,
       expectations,
       userRequest: prompt,
+      settingsPack,
       fullSchemaSpec,
       styleSchemaSpec,
       catalogDetails,
       previousError: lastErr ? String(lastErr) : undefined,
       intentPacketJson: options?.intentPacketJson,
+      promptProfile: options?.promptProfile,
     });
 
     const { rawJson, tokensIn, tokensOut, model } = await client.generateRecipe(compiledPrompt);

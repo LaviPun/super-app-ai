@@ -30,10 +30,12 @@ export function buildIntentPacket(
   classification: ClassifyResult,
   options: BuildIntentPacketOptions = {},
 ): IntentPacket {
+  // Prefer canonical intent from classifier, then module-type mapping, then raw moduleType.
+  // resolveRouting() handles unknown values by falling back to platform.extensionBlueprint (not promo popup).
   const intent =
     classification.intent ??
     MODULE_TYPE_TO_INTENT[classification.moduleType] ??
-    'promo.popup';
+    classification.moduleType;
   const routing = resolveRouting(intent);
   const confidenceScore =
     options.confidenceScore ??
@@ -88,8 +90,14 @@ function mapSurface(surface?: string): string {
 function mapArchetype(moduleType: string): string {
   if (moduleType === 'theme.popup') return 'modal';
   if (moduleType === 'theme.banner') return 'banner';
-  if (moduleType === 'theme.notificationBar') return 'banner';
+  if (moduleType === 'theme.notificationBar') return 'notification_bar';
+  if (moduleType === 'theme.effect') return 'embed';
+  if (moduleType === 'theme.floatingWidget') return 'drawer';
+  if (moduleType === 'proxy.widget') return 'embed';
+  if (moduleType === 'checkout.upsell' || moduleType === 'checkout.block') return 'inline_block';
+  if (moduleType === 'postPurchase.offer') return 'modal';
   if (moduleType === 'admin.block') return 'admin_card';
   if (moduleType === 'pos.extension') return 'pos_tile';
+  if (moduleType === 'customerAccount.blocks') return 'inline_block';
   return 'inline_block';
 }

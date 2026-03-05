@@ -495,6 +495,13 @@ export const THEME_EFFECT_START_TRIGGERS = ['page_load', 'scroll_25', 'time_3s',
 /** theme.effect placement — viewport region the overlay covers. */
 export const THEME_EFFECT_PLACEMENTS = ['full_screen', 'header_only', 'footer_only', 'above_fold'] as const;
 
+/** theme.floatingWidget variant — what kind of floating button/widget. */
+export const THEME_FLOATING_WIDGET_VARIANTS = ['whatsapp', 'chat', 'coupon', 'cart', 'scroll_top', 'custom'] as const;
+/** theme.floatingWidget on-click action. */
+export const THEME_FLOATING_WIDGET_ACTIONS = ['open_whatsapp', 'open_url', 'open_popup', 'open_drawer', 'scroll_top'] as const;
+/** theme.floatingWidget anchor position. */
+export const THEME_FLOATING_WIDGET_ANCHORS = ['bottom_right', 'bottom_left', 'top_right', 'top_left', 'bottom_center'] as const;
+
 /** POS block kind. */
 export const POS_BLOCK_KINDS = ['tile', 'modal', 'block', 'action'] as const;
 
@@ -541,6 +548,7 @@ export const RECIPE_SPEC_TYPES = [
   'theme.popup',
   'theme.notificationBar',
   'theme.effect',
+  'theme.floatingWidget',
   'proxy.widget',
   'functions.discountRules',
   'functions.deliveryCustomization',
@@ -590,6 +598,7 @@ export const MODULE_TYPE_TO_CATEGORY: Record<ModuleType, ModuleCategory> = {
   'theme.popup': 'STOREFRONT_UI',
   'theme.notificationBar': 'STOREFRONT_UI',
   'theme.effect': 'STOREFRONT_UI',
+  'theme.floatingWidget': 'STOREFRONT_UI',
   'proxy.widget': 'STOREFRONT_UI',
   'functions.discountRules': 'FUNCTION',
   'functions.deliveryCustomization': 'FUNCTION',
@@ -616,6 +625,7 @@ export const MODULE_TYPE_DEFAULT_REQUIRES: Record<ModuleType, readonly string[]>
   'theme.popup': ['THEME_ASSETS'],
   'theme.notificationBar': ['THEME_ASSETS'],
   'theme.effect': ['THEME_ASSETS'],
+  'theme.floatingWidget': ['THEME_ASSETS'],
   'proxy.widget': ['APP_PROXY'],
   'functions.discountRules': ['DISCOUNT_FUNCTION'],
   'functions.deliveryCustomization': ['SHIPPING_FUNCTION'],
@@ -642,6 +652,7 @@ export const MODULE_TYPE_TO_SURFACE: Record<ModuleType, ShopifySurface> = {
   'theme.popup': 'online_store',
   'theme.notificationBar': 'online_store',
   'theme.effect': 'online_store',
+  'theme.floatingWidget': 'online_store',
   'proxy.widget': 'online_store',
   'functions.discountRules': 'checkout',
   'functions.deliveryCustomization': 'checkout',
@@ -738,6 +749,10 @@ export const CLASSIFICATION_RULES: ClassificationRule[] = [
   {
     keywords: ['snowfall', 'snow', 'confetti', 'winter effect', 'christmas effect', 'decoration', 'seasonal effect', 'full screen effect', 'holiday effect'],
     type: 'theme.effect',
+  },
+  {
+    keywords: ['floating button', 'floating widget', 'whatsapp button', 'chat button', 'scroll to top', 'sticky button', 'chat widget', 'whatsapp chat', 'floating chat'],
+    type: 'theme.floatingWidget',
   },
   { keywords: ['widget', 'store locator', 'proxy', 'app proxy'], type: 'proxy.widget' },
   {

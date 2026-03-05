@@ -28,11 +28,11 @@
 | — | Data Stores + Custom Pages | ✅ Complete |
 | — | Workflow Engine Spec (Graph-based) | ✅ Complete |
 | — | Admin Dashboard: Categories, Plan Tiers, Recipe Edit, Store Plan | ✅ Complete |
-| — | **AI Patch Plan — Remove Generic Outputs** | ✅ Phase 1 Complete |
+| — | **AI Patch Plan — Remove Generic Outputs** | ✅ Phases 1–5 Complete |
 
 ---
 
-## AI Patch Plan — Remove Generic Outputs ✅ Phase 1 Complete
+## AI Patch Plan — Remove Generic Outputs ✅ Phases 1–5 Complete
 
 Audit and fixes so the AI produces **no generic outputs** unless truly the best safe fallback, with **maximum creativity** (UI, config, behavior/animations) within documented restrictions (OS 2.0 only, no deprecated injection, no arbitrary merchant code, strict RecipeSpec validation). See also [technical.md](./technical.md) § 7a.
 
@@ -43,20 +43,35 @@ Audit and fixes so the AI produces **no generic outputs** unless truly the best 
 | Classifier returns keyword bucket instead of clean intent ID | `classify.server.ts` | ✅ Fixed — `intent` = `intentId` (canonical); `intentGroup` = keyword bucket for analytics |
 | Effect/widget map to non-routed intents | `intent-packet.ts` | ✅ Fixed — `theme.effect → utility.effect`, `proxy.widget → utility.floating_widget`; both in CLEAN_INTENTS + ROUTING_TABLE |
 | Unknown intent always → promo popup | `resolveRouting()` | ✅ Fixed — fallback is `platform.extensionBlueprint` (not promo popup) |
+| Routing fallback in intent-packet.server.ts | `intent-packet.server.ts` | ✅ Fixed — falls back to `classification.moduleType` not hardcoded 'promo.popup' |
 | Schema/catalog only on retry | `llm.server.ts` | ✅ Fixed — when `confidenceScore < 0.8` (not direct), full schema + style + catalog included on attempt 0 |
 | Stub client when no provider | `getLlmClient()` | ✅ Fixed — throws `AiProviderNotConfiguredError`; setup CTA surfaced in API response |
 | Routing output_schema vs validator | ROUTING_TABLE | ✅ Documented — `StorefrontModuleSpecV1` is implemented as RecipeSpec (see technical.md) |
 | theme.effect schema too small | `recipe.ts`, `allowed-values.ts` | ✅ Fixed — expanded to 7 fields: effectKind, intensity, speed, startTrigger, durationSeconds, overlayPlacement, reducedMotion |
-| Catalog mapping missing effect | `catalog-details.server.ts` | ✅ Fixed — `theme.effect: 'effect'` and `proxy.widget: 'widget'` added to TYPE_TO_TEMPLATE_KIND |
+| Catalog mapping missing effect | `catalog-details.server.ts` | ✅ Fixed — `theme.effect: 'effect'`, `proxy.widget: 'widget'`, `theme.floatingWidget: 'widget'` in TYPE_TO_TEMPLATE_KIND |
 | No invariant tests | `packages/core/src/__tests__/intent-packet.test.ts` | ✅ Added — covers CLEAN_INTENTS completeness, ROUTING_TABLE completeness, blueprint fallback, utility.effect + utility.floating_widget |
+| No theme.floatingWidget module type | `allowed-values.ts`, `recipe.ts`, summaries, expectations | ✅ Added — full `theme.floatingWidget` type (variant, anchor, onClick, message, url, hideOnMobile/Desktop) |
+| AI produces minimal configs (no settings packs) | `prompt-expectations.server.ts`, `llm.server.ts` | ✅ Fixed — `getSettingsPack()` per module type always injected; covers popup/banner/bar/effect/floatingWidget/widget |
+| Confidence scoring only Tier A | `classify.server.ts` | ✅ Fixed — Tier B (embedding similarity via `embedding-classifier.server.ts` + `intent-examples.ts`) integrated into S2 weight; Tier C (cheap LLM) in `cheap-classifier.server.ts` |
+| No profile-driven prompt | `llm.server.ts` | ✅ Fixed — `PROFILE_GUIDANCE` map per `prompt_profile`; routing profile passed from IntentPacket → prompt |
+| No drift-check CI | `apps/web/app/__tests__/ai-drift-check.test.ts` | ✅ Added — all types have summaries, expectations, full schema specs; routing invariants; theme.floatingWidget coverage |
 
 ### Phase summary
 
-- **Phase 1 (must-do):** ✅ Complete — classifier intent ID, effect/widget mapping+routing, blueprint fallback, catalog mapping, theme.effect schema expansion, schema/catalog on first attempt for low confidence, invariant tests.
-- **Phase 2:** Tier B (embeddings), Tier C (cheap classifier for < 0.55), multi-intent handling.
-- **Phase 3:** Settings packs, expanded theme.floatingWidget schema, Behavior/Animation DSL (safe, validated).
-- **Phase 4:** Routing/profile-driven prompt variants (storefront vs admin vs workflow); coverage checklist per type.
-- **Phase 5:** Autogenerate doc fragments from code; drift-check CI.
+- **Phase 1:** ✅ Complete — classifier intent ID, effect/widget mapping+routing, blueprint fallback, catalog mapping, theme.effect schema expansion, schema/catalog on first attempt for low confidence, invariant tests.
+- **Phase 2:** ✅ Complete — Tier B (embedding similarity; `embedding-classifier.server.ts` + `intent-examples.ts`; requires `OPENAI_API_KEY`), Tier C (cheap LLM classifier; `cheap-classifier.server.ts`; fires when confidence < 0.55). Multi-intent detection deferred (Phase 2.3).
+- **Phase 3:** ✅ Complete — Settings packs injected per type (`getSettingsPack()`); `theme.floatingWidget` new type; Behavior/Animation DSL deferred (Phase 3.3 — very large, tracked separately).
+- **Phase 4:** ✅ Complete — Profile-driven prompt guidance per `prompt_profile`; schema/catalog on attempt 0 for non-direct confidence; settings pack always injected.
+- **Phase 5:** ✅ Complete (drift-check CI test at `ai-drift-check.test.ts`). Doc auto-generation deferred (Phase 5.1 — build script).
+
+### Remaining deferred items (tracked separately)
+
+| Item | Why deferred |
+|------|-------------|
+| Phase 2.3 multi-intent prompts | Requires planner step + multi-option grouping — medium feature |
+| Phase 3.3 Behavior/Animation DSL | Very large — requires new schema types and safe execution sandbox |
+| Phase 3.2.3 theme.composed | Very large — requires component primitive library |
+| Phase 5.1 autogenerate doc fragments | Build script — low priority |
 
 ---
 

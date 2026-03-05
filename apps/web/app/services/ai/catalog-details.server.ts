@@ -43,6 +43,7 @@ const TYPE_TO_TEMPLATE_KIND: Record<string, string> = {
   'theme.popup': 'popup',
   'theme.notificationBar': 'notification_bar',
   'theme.effect': 'effect',
+  'theme.floatingWidget': 'widget',
   'proxy.widget': 'widget',
   'checkout.upsell': 'sticky_cta',
 };

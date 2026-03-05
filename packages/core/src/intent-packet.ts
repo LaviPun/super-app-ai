@@ -360,6 +360,7 @@ export const MODULE_TYPE_TO_INTENT: Record<string, string> = {
   'theme.banner': 'promo.banner',
   'theme.notificationBar': 'utility.announcement',
   'theme.effect': 'utility.effect',
+  'theme.floatingWidget': 'utility.floating_widget',
   'proxy.widget': 'utility.floating_widget',
   'checkout.upsell': 'upsell.cart_upsell',
   'checkout.block': 'upsell.cross_sell_addon',

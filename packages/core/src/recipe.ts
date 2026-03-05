@@ -34,6 +34,9 @@ import {
   THEME_EFFECT_SPEED,
   THEME_EFFECT_START_TRIGGERS,
   THEME_EFFECT_PLACEMENTS,
+  THEME_FLOATING_WIDGET_VARIANTS,
+  THEME_FLOATING_WIDGET_ACTIONS,
+  THEME_FLOATING_WIDGET_ANCHORS,
   POS_BLOCK_KINDS,
   HTTP_METHODS,
   HTTP_METHODS_EXTENDED,
@@ -168,6 +171,38 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       overlayPlacement: z.enum(THEME_EFFECT_PLACEMENTS).default('full_screen'),
       /** Disable effect when user prefers reduced motion. Recommended true. */
       reducedMotion: z.boolean().default(true),
+    }),
+    placement: PlacementSchema,
+    style: StorefrontStyleSchema.optional(),
+  }),
+
+  Base.extend({
+    type: z.literal('theme.floatingWidget'),
+    category: z.literal('STOREFRONT_UI').default('STOREFRONT_UI'),
+    requires: z.array(z.custom<Capability>()).default(['THEME_ASSETS']),
+    config: z.object({
+      /** What kind of floating widget to render. */
+      variant: z.enum(THEME_FLOATING_WIDGET_VARIANTS).default('custom'),
+      /** Visible label next to the icon. Optional. */
+      label: z.string().min(0).max(60).optional(),
+      /** Icon image URL or a named icon. Optional — themes use a default per variant. */
+      iconUrl: z.string().url().optional(),
+      /** Corner anchor for the widget. */
+      anchor: z.enum(THEME_FLOATING_WIDGET_ANCHORS).default('bottom_right'),
+      /** Horizontal offset from anchor edge in pixels, -200..200. */
+      offsetX: z.number().int().min(-200).max(200).default(24),
+      /** Vertical offset from anchor edge in pixels, -200..200. */
+      offsetY: z.number().int().min(-200).max(200).default(24),
+      /** What happens when the widget is clicked. */
+      onClick: z.enum(THEME_FLOATING_WIDGET_ACTIONS).default('open_url'),
+      /** Pre-filled message for WhatsApp or chat variants. Optional. */
+      message: z.string().min(0).max(500).optional(),
+      /** Destination URL for open_url / open_whatsapp onClick. Must be valid URL when provided. */
+      url: z.string().url().optional(),
+      /** Hide on mobile. */
+      hideOnMobile: z.boolean().default(false),
+      /** Hide on desktop. */
+      hideOnDesktop: z.boolean().default(false),
     }),
     placement: PlacementSchema,
     style: StorefrontStyleSchema.optional(),

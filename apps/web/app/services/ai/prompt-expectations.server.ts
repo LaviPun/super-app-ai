@@ -96,6 +96,27 @@ const EXPECTED_SHAPE_EXAMPLES: Partial<Record<ModuleType, string>> = {
   "style": { "layout": { "zIndex": "overlay" }, "accessibility": { "reducedMotion": true } }
 }`,
 
+  'theme.floatingWidget': `{
+  "type": "theme.floatingWidget",
+  "name": "string, ${LIMITS.nameMin}-${LIMITS.nameMax} chars",
+  "category": "STOREFRONT_UI",
+  "requires": ["THEME_ASSETS"],
+  "config": {
+    "variant": "whatsapp | chat | coupon | cart | scroll_top | custom",
+    "label": "optional string, 0-60 chars",
+    "iconUrl": "optional, valid https URL or omit",
+    "anchor": "bottom_right | bottom_left | top_right | top_left | bottom_center",
+    "offsetX": 24,
+    "offsetY": 24,
+    "onClick": "open_whatsapp | open_url | open_popup | open_drawer | scroll_top",
+    "message": "optional, 0-500 chars (prefilled WhatsApp/chat text)",
+    "url": "optional, valid https URL or omit",
+    "hideOnMobile": false,
+    "hideOnDesktop": false
+  },
+  "style": { "layout": { "mode": "floating", "zIndex": "overlay" } }
+}`,
+
   'proxy.widget': `{
   "type": "proxy.widget",
   "name": "string, ${LIMITS.nameMin}-${LIMITS.nameMax} chars",
@@ -199,6 +220,21 @@ config.durationSeconds: integer 0-300, default 0 (0 = play indefinitely).
 config.overlayPlacement: enum exactly "full_screen" | "header_only" | "footer_only" | "above_fold", default "full_screen".
 config.reducedMotion: boolean, default true (disable effect when user prefers reduced motion — always set true unless explicit creative reason).`,
 
+  'theme.floatingWidget': `theme.floatingWidget — full config schema (Zod validation):
+Top-level: type="theme.floatingWidget", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, placement=optional, style=optional.
+config.variant: enum exactly "whatsapp" | "chat" | "coupon" | "cart" | "scroll_top" | "custom", required.
+config.label: string, optional, 0-60 chars.
+config.iconUrl: optional URL (https); omit if not needed.
+config.anchor: enum exactly "bottom_right" | "bottom_left" | "top_right" | "top_left" | "bottom_center", default "bottom_right".
+config.offsetX: integer -200..200, default 24.
+config.offsetY: integer -200..200, default 24.
+config.onClick: enum exactly "open_whatsapp" | "open_url" | "open_popup" | "open_drawer" | "scroll_top", default "open_url".
+config.message: string, optional, 0-500 chars (pre-filled text for WhatsApp or chat on click).
+config.url: optional URL (https); required when onClick is open_url or open_whatsapp (wa.me/... format); omit otherwise.
+config.hideOnMobile: boolean, default false.
+config.hideOnDesktop: boolean, default false.
+Style tip: use layout.mode="floating" and layout.zIndex="overlay" so the widget floats over page content.`,
+
   'proxy.widget': `proxy.widget — full config schema (Zod validation):
 Top-level: type="proxy.widget", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["APP_PROXY"], config={...}, style=optional.
 config.widgetId: string, required, regex [a-z0-9-] only, length 3-40.
@@ -225,6 +261,59 @@ export function getModifyPromptExpectations(): string {
     INVALID_DO_NOT.trim(),
     'Return JSON: { "options": [ { "explanation": "...", "recipe": { <full updated recipe, same shape as current> } }, ... ] } with exactly 3 options. Each recipe must keep the same top-level keys (type, name, category, requires, config, style) and no extra keys (no settings, controls, assets, meta).',
   ].join('\n\n');
+}
+
+/**
+ * Settings pack defaults per module type (Phase 3.1).
+ * Injected into the prompt so the AI starts from known-good defaults and fills all relevant fields,
+ * rather than producing minimal "safe" configs. Each pack lists the fields the AI MUST populate.
+ */
+const SETTINGS_PACKS: Partial<Record<ModuleType, string>> = {
+  'theme.popup': `Settings pack — theme.popup MUST include all of these:
+CONTENT: title (clear value proposition), body (optional supporting copy, empty string OK), ctaText (primary action label).
+TRIGGER: trigger (choose based on intent: ON_LOAD for immediate, ON_EXIT_INTENT for cart/engagement, TIMED for delay), delaySeconds (0 unless TIMED), frequency (ONCE_PER_SESSION for most), showOnPages (specific page or ALL).
+CLOSE: showCloseButton (true), autoCloseSeconds (0 unless auto-dismiss is appropriate).
+OPTIONAL but valuable: countdownEnabled + countdownSeconds for urgency; secondaryCtaText for a dismiss link.
+STYLE: set colors, typography, shape, and layout anchor so each of the 3 options looks visually distinct.`,
+
+  'theme.banner': `Settings pack — theme.banner MUST include all of these:
+CONTENT: heading (concise, action-oriented), subheading (supporting detail or empty string), ctaText + ctaUrl (clear destination).
+LAYOUT: style.layout.mode (inline for in-page, sticky for persistent), style.layout.anchor (top or bottom for sticky).
+STYLE: differentiate the 3 options with distinct colors, typography.size, and shape.radius.
+OPTIONAL: imageUrl for a visual banner; enableAnimation for entrance effect.`,
+
+  'theme.notificationBar': `Settings pack — theme.notificationBar MUST include all of these:
+CONTENT: message (concise, 1 sentence, max 140 chars), linkText + linkUrl (optional CTA).
+CONTROLS: dismissible (true by default; set false for critical messages).
+STYLE: sticky top, high-contrast colors. Vary the 3 options by message tone (urgent / friendly / informational) and color scheme.`,
+
+  'theme.effect': `Settings pack — theme.effect MUST include all of these:
+REQUIRED: effectKind (snowfall or confetti based on context), intensity, speed.
+TIMING: startTrigger (page_load for immediate, time_3s/time_5s for delay, scroll_25 for scroll-based), durationSeconds (0 for continuous or 5-30s for burst).
+PLACEMENT: overlayPlacement (full_screen default, header_only for subtle, above_fold for hero-only).
+ACCESSIBILITY: reducedMotion must be true unless merchant explicitly asks otherwise.
+VARY 3 options by: effectKind + intensity + startTrigger + overlayPlacement (e.g. subtle snow header / medium confetti scroll / high confetti full burst).`,
+
+  'theme.floatingWidget': `Settings pack — theme.floatingWidget MUST include all of these:
+VARIANT: variant (choose from whatsapp/chat/coupon/cart/scroll_top/custom based on intent), anchor (default bottom_right), onClick action.
+LABEL: label (short, clear — e.g. "Chat with us", "Get 10% off", "WhatsApp us").
+URL/MESSAGE: url (required for open_url / open_whatsapp variants — use wa.me/... for WhatsApp), message (pre-filled chat text for WhatsApp).
+POSITIONING: offsetX/offsetY (default 24px from corner; adjust for non-default).
+VISIBILITY: hideOnMobile/hideOnDesktop (usually both false unless device-specific UX).
+STYLE: layout.mode="floating", layout.zIndex="overlay"; vary colors and shape across the 3 options.`,
+
+  'proxy.widget': `Settings pack — proxy.widget MUST include all of these:
+REQUIRED: widgetId (unique lowercase-with-hyphens ID, descriptive — e.g. "loyalty-points-widget"), mode (HTML for rich content, JSON for data), title.
+OPTIONAL: message (introductory text shown above the proxy-rendered content).
+NOTE: proxy.widget uses APP_PROXY — content is rendered server-side; use theme.floatingWidget instead for floating buttons.`,
+};
+
+/**
+ * Returns the settings pack for the given module type.
+ * Injected into the prompt to ensure the AI always populates all relevant fields.
+ */
+export function getSettingsPack(moduleType: ModuleType): string | undefined {
+  return SETTINGS_PACKS[moduleType];
 }
 
 /**

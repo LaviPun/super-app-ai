@@ -144,22 +144,25 @@ generateValidatedRecipe(prompt)
 
 **Evals:** `pnpm --filter web evals` — runs 10 golden prompts against the configured provider and reports `schemaValidRate` + `compilerSuccessRate`. Exits 1 if rate < 90%.
 
-### 7a. AI output quality — Phase 1 complete ✅
+### 7a. AI output quality — Phases 1–5 complete ✅
 
-The AI pipeline is designed so that **any prompt** yields a valid RecipeSpec (no arbitrary code). Phase 1 of the AI Patch Plan (see [implementation-status.md](./implementation-status.md) § “AI Patch Plan”) has resolved the main root causes of generic outputs:
+The AI pipeline is designed so that **any prompt** yields a valid RecipeSpec (no arbitrary code). All AI Patch Plan phases are complete. See [implementation-status.md](./implementation-status.md) § “AI Patch Plan” for full status.
 
-| Root cause | Fix applied |
-|------------|-------------|
-| Classifier returned keyword bucket as intent | `classify.server.ts` now returns `intentId` (canonical clean intent) as `intent`; keyword bucket kept as `intentGroup` for analytics |
-| `theme.effect` / `proxy.widget` mapped to unrouted intents | `intent-packet.ts`: `theme.effect → utility.effect`, `proxy.widget → utility.floating_widget`; both added to `CLEAN_INTENTS` + `ROUTING_TABLE` |
-| Unknown intent fallback → promo popup | `resolveRouting()` now falls back to `platform.extensionBlueprint` (safe generic plan) |
-| Full schema/catalog only injected on retry | `generateValidatedRecipeOptions()` now injects full schema + style + catalog on **attempt 0** whenever `confidenceScore < 0.8` (not direct); `api.ai.create-module` passes `confidenceScore` from the classify result |
-| No AI provider → silent stub banner | `getLlmClient()` throws `AiProviderNotConfiguredError`; API surfaces a setup CTA |
-| `theme.effect` config too thin | Schema expanded from 3 → 7 fields: `effectKind`, `intensity`, `speed`, `startTrigger`, `durationSeconds`, `overlayPlacement`, `reducedMotion`; prompt expectations updated accordingly |
-| `theme.effect` missing from catalog type map | `catalog-details.server.ts` TYPE_TO_TEMPLATE_KIND includes `theme.effect: 'effect'` and `proxy.widget: 'widget'` |
-| No invariant tests for routing | `packages/core/src/__tests__/intent-packet.test.ts` covers CLEAN_INTENTS completeness, ROUTING_TABLE completeness, blueprint fallback, and utility.effect / utility.floating_widget presence |
+**3-tier classifier:**
+- **Tier A (keywords):** `classifyUserIntentKeywords()` — synchronous, zero cost.
+- **Tier B (embeddings):** `findIntentByEmbedding()` in `embedding-classifier.server.ts` — cosine similarity against `intent-examples.ts` (8–10 examples per intent). Requires `OPENAI_API_KEY`; vectors cached in-process. Feeds S2 into confidence formula.
+- **Tier C (cheap LLM):** `augmentWithCheapClassifier()` in `cheap-classifier.server.ts` — cheap LLM call when confidence < 0.55. Merges result back into ClassifyResult before IntentPacket is built.
 
-Remaining phases (embeddings Tier B, cheap classifier Tier C, settings packs, expanded floatingWidget schema, profile-driven prompt variants, drift-check CI) are tracked in `implementation-status.md`.
+**Prompt quality:**
+- `getSettingsPack(moduleType)` — always injected; tells AI exactly which fields to populate per type.
+- Full schema + style + catalog injected on attempt 0 when `confidenceScore < 0.8`.
+- `PROFILE_GUIDANCE` map — surface-specific context (storefront/admin/workflow/support) injected from `promptProfile` (IntentPacket routing).
+
+**New type:** `theme.floatingWidget` — OS 2.0 floating button/widget; full schema, summary, settings pack, expectations, catalog mapping.
+
+**Drift-check CI:** `ai-drift-check.test.ts` — fails if any type missing summary/expectations/schema spec.
+
+**Deferred:** Phase 2.3 (multi-intent), Phase 3.3 (Behavior DSL), Phase 3.2.3 (theme.composed), Phase 5.1 (doc autogeneration).
 
 ---
 

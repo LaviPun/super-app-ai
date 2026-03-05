@@ -7,6 +7,7 @@ import { JobService } from '~/services/jobs/job.service';
 import { withApiLogging } from '~/services/observability/api-log.service';
 import { QuotaService } from '~/services/billing/quota.service';
 import { classifyUserIntent, CONFIDENCE_THRESHOLDS } from '~/services/ai/classify.server';
+import { augmentWithCheapClassifier } from '~/services/ai/cheap-classifier.server';
 import { buildIntentPacket } from '~/services/ai/intent-packet.server';
 
 /** POST only; GET (e.g. prefetch or redirect) returns 405. */
@@ -54,7 +55,11 @@ export async function action({ request }: { request: Request }) {
       const quotaService = new QuotaService();
       await quotaService.enforce(shopRow.id, 'aiRequest');
 
-      const classification = classifyUserIntent(prompt, preferredType);
+      // Tier A + B: keyword + embedding classifier
+      let classification = await classifyUserIntent(prompt, preferredType);
+      // Tier C: cheap LLM classifier for very low confidence prompts (< 0.55)
+      // Augments the keyword result with a structured intent before building the IntentPacket.
+      classification = await augmentWithCheapClassifier(classification, prompt, shopRow.id);
       const intentPacket = buildIntentPacket(prompt, classification, {
         storeContext: { shop_domain: session.shop, theme_os2: true },
       });
@@ -73,6 +78,7 @@ export async function action({ request }: { request: Request }) {
           maxAttempts: 2,
           intentPacketJson: JSON.stringify(intentPacket, null, 2),
           confidenceScore: intentPacket.classification.confidence,
+          promptProfile: intentPacket.routing.prompt_profile,
         });
 
         await jobs.succeed(job.id, { optionCount: recipeOptions.length, type: classification.moduleType });

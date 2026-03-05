@@ -24,8 +24,13 @@ Controls: dismissible(bool, default true).
 ${STYLE_SUMMARY}`,
 
   'theme.effect': `Module: theme.effect | Category: STOREFRONT_UI | Requires: THEME_ASSETS
-Settings: effectKind(snowfall|confetti, required), intensity(low|medium|high, default medium), speed(slow|normal|fast, default normal).
-Controls: full-viewport decoration overlay; no Shopify data. Use for seasonal effects (snowfall, confetti).
+Settings: effectKind(snowfall|confetti, required), intensity(low|medium|high, default medium), speed(slow|normal|fast, default normal), startTrigger(page_load|scroll_25|time_3s|time_5s|time_10s, default page_load), durationSeconds(int 0-300, 0=indefinite, default 0), overlayPlacement(full_screen|header_only|footer_only|above_fold, default full_screen), reducedMotion(bool, default true — always set true unless creative reason).
+Controls: full-viewport decoration overlay; no Shopify data. Use for seasonal effects (snowfall, confetti). Always set reducedMotion:true unless merchant explicitly asks for it off.
+${STYLE_SUMMARY}`,
+
+  'theme.floatingWidget': `Module: theme.floatingWidget | Category: STOREFRONT_UI | Requires: THEME_ASSETS
+Settings: variant(whatsapp|chat|coupon|cart|scroll_top|custom, required), label(str 0-60, opt), iconUrl(url, opt), anchor(bottom_right|bottom_left|top_right|top_left|bottom_center, default bottom_right), offsetX(int -200..200, default 24), offsetY(int -200..200, default 24), onClick(open_whatsapp|open_url|open_popup|open_drawer|scroll_top, default open_url), message(str 0-500, opt — prefilled text for WhatsApp/chat), url(url, opt — destination for open_url/open_whatsapp), hideOnMobile(bool, default false), hideOnDesktop(bool, default false).
+Controls: floating button/icon anchored to a corner. WhatsApp variant opens wa.me link; chat opens drawer; scroll_top scrolls to top.
 ${STYLE_SUMMARY}`,
 
   'proxy.widget': `Module: proxy.widget | Category: STOREFRONT_UI | Requires: APP_PROXY

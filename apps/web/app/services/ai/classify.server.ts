@@ -1,5 +1,6 @@
 import type { ModuleType, ClassificationRule } from '@superapp/core';
 import { CLASSIFICATION_RULES, INTENT_KEYWORDS, SURFACE_KEYWORDS, MODULE_TYPE_TO_INTENT } from '@superapp/core';
+import { findIntentByEmbedding } from '~/services/ai/embedding-classifier.server';
 
 /** Confidence bands for UI (doc 15.14). */
 export const CONFIDENCE_THRESHOLDS = {
@@ -46,11 +47,10 @@ function computeConfidenceScore(params: {
 }
 
 /**
- * Classify user intent using keyword matching (zero LLM cost).
- * If preferredType is already set by the user, use that directly.
- * Returns numeric confidence and alternatives for UI (Phase 2).
+ * Tier A keyword classification — zero LLM cost, synchronous.
+ * Returns a ClassifyResult from keyword matching only (no embeddings).
  */
-export function classifyUserIntent(
+export function classifyUserIntentKeywords(
   prompt: string,
   preferredType?: string,
 ): ClassifyResult {
@@ -59,17 +59,15 @@ export function classifyUserIntent(
       const intentGroup = matchKeywords(prompt, INTENT_KEYWORDS);
       const surface = matchKeywords(prompt, SURFACE_KEYWORDS);
       const intent = MODULE_TYPE_TO_INTENT[preferredType] ?? preferredType;
-      const reasons = ['preferred_type_set'];
-      const confidenceScore = 0.9;
       return {
         moduleType: preferredType as ModuleType,
         intent,
         intentGroup,
         surface,
         confidence: 'high',
-        confidenceScore,
+        confidenceScore: 0.9,
         alternatives: [],
-        reasons,
+        reasons: ['preferred_type_set'],
       };
     }
   }
@@ -123,6 +121,59 @@ export function classifyUserIntent(
     confidenceScore,
     alternatives,
     reasons: best?.reasons ?? [],
+  };
+}
+
+/**
+ * Classify user intent using Tier A (keywords) + Tier B (embedding similarity if available).
+ * If preferredType is already set by the user, use that directly.
+ * Returns numeric confidence and alternatives for UI.
+ */
+export async function classifyUserIntent(
+  prompt: string,
+  preferredType?: string,
+): Promise<ClassifyResult> {
+  const keywordResult = classifyUserIntentKeywords(prompt, preferredType);
+
+  // If user explicitly set a type, skip embeddings — confidence is already high.
+  if (preferredType && preferredType !== 'Auto') return keywordResult;
+
+  // Tier B: embedding similarity (async, non-blocking on failure).
+  // Only attempt if keyword confidence is not already high enough to be direct.
+  if (keywordResult.confidenceScore >= CONFIDENCE_THRESHOLDS.DIRECT) return keywordResult;
+
+  const embeddingMatch = await findIntentByEmbedding(prompt);
+  if (!embeddingMatch) return keywordResult; // Embeddings unavailable — use keyword result
+
+  // Merge S2 into confidence score. Formula: 0.3*S1 + 0.4*S2 + 0.15*S3 + 0.1*S4
+  const s1Norm = keywordResult.confidenceScore / 0.55; // Approximate reverse
+  const s3Entity = /\d+%|percent|discount|₹|\$|bogo|free shipping|collection|product/i.test(prompt) ? 0.5 : 0;
+  const mergedConfidence = computeConfidenceScore({
+    s1KeywordHit: s1Norm,
+    s2Embedding: embeddingMatch.score,
+    s3EntityCoverage: s3Entity,
+  });
+
+  // If embedding strongly agrees with keyword result, keep keyword result's moduleType.
+  // If embedding found something different and has higher confidence, use embedding's intent.
+  const embeddingIntent = embeddingMatch.intent;
+  const keywordIntent = keywordResult.intent;
+  const shouldPreferEmbedding = embeddingMatch.score > 0.75 && embeddingIntent !== keywordIntent;
+
+  const embeddingAlternatives = embeddingMatch.alternatives.map(a => ({
+    intent: a.intent,
+    confidence: a.score,
+  }));
+
+  return {
+    ...keywordResult,
+    ...(shouldPreferEmbedding ? { intent: embeddingIntent } : {}),
+    confidenceScore: mergedConfidence,
+    confidence: mergedConfidence >= CONFIDENCE_THRESHOLDS.DIRECT ? 'high' : mergedConfidence >= CONFIDENCE_THRESHOLDS.WITH_ALTERNATIVES ? 'medium' : 'low',
+    alternatives: shouldPreferEmbedding
+      ? embeddingAlternatives
+      : [...keywordResult.alternatives, ...embeddingAlternatives].slice(0, 4),
+    reasons: [...keywordResult.reasons, `s2_embedding: ${embeddingMatch.score.toFixed(2)} → ${embeddingIntent}`],
   };
 }
 

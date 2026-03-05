@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { getRecipeJsonSchema, getProposalSetSchema } from '~/services/ai/recipe-json-schema.server';
 import { MODULE_SUMMARIES, getModuleSummary, getAllTypesSummary } from '~/services/ai/module-summaries.server';
-import { classifyUserIntent } from '~/services/ai/classify.server';
+import { classifyUserIntentKeywords as classifyUserIntent } from '~/services/ai/classify.server';
 import { getCatalogDetailsForType } from '~/services/ai/catalog-details.server';
 import { getPromptExpectations } from '~/services/ai/prompt-expectations.server';
 
@@ -34,7 +34,7 @@ describe('getProposalSetSchema', () => {
 
 describe('MODULE_SUMMARIES', () => {
   const ALL_TYPES = [
-    'theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'proxy.widget',
+    'theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'theme.floatingWidget', 'proxy.widget',
     'functions.discountRules', 'functions.deliveryCustomization', 'functions.paymentCustomization',
     'functions.cartAndCheckoutValidation', 'functions.cartTransform',
     'functions.fulfillmentConstraints', 'functions.orderRoutingLocationRule',
@@ -122,7 +122,7 @@ describe('classifyUserIntent', () => {
 });
 
 describe('AI patch plan invariants', () => {
-  const STOREFRONT_TYPES = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'proxy.widget'];
+  const STOREFRONT_TYPES = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'theme.floatingWidget', 'proxy.widget'];
 
   it('getPromptExpectations returns non-empty for every storefront type', () => {
     for (const type of STOREFRONT_TYPES) {
