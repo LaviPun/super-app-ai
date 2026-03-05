@@ -4,7 +4,7 @@ A single Shopify app that lets non-developers generate **safe “modules”** (t
 The AI **never ships arbitrary code** to a merchant store. Instead it produces a **validated RecipeSpec JSON**, compiled into **known-safe deploy operations**.
 
 Merchants can create modules like:
-- Storefront UI: banners, popups, notification bars, proxy widgets (theme-safe patterns). **Style Builder** (3-tab Polaris UI) lets merchants control colors, typography, spacing, positioning, and responsive options — including overlay/backdrop controls — without code. Styles compile to CSS variables (`--sa-*`) for CWV-friendly output. Proxy widgets also render styled HTML via the `_styleCss` metafield.
+- Storefront UI: banners, popups, notification bars, proxy widgets (theme-safe patterns). Theme placement can use **universal slot blocks**: merchants add app blocks (slots) in the Theme Editor; in the app they assign which generated module appears in each slot (dropdown in app UI; the Theme Editor cannot show dynamic module lists). **Style Builder** (3-tab Polaris UI) lets merchants control colors, typography, spacing, positioning, and responsive options — including overlay/backdrop controls — without code. Styles compile to CSS variables (`--sa-*`) for CWV-friendly output. Proxy widgets also render styled HTML via the `_styleCss` metafield.
 - Shopify Functions: discount rules, delivery customization, payment customization, validation, cart transform (Plus-gated where required)
 - App proxy widgets: store-served styled widgets injected into storefront with signed app proxy requests
 - Integrations: ERP/3rd-party API connectors + mapping, with **Postman-like API tester** and **saved endpoints** per connector
@@ -59,7 +59,7 @@ This yields:
 - `apps/web` — Remix embedded app (Admin UI + server routes). **Stack:** Remix 2, Vite 6, React Router v7 future flags, Polaris 12 (Card = ShadowBevel; rounded corners enforced in `app.css` + root inline style). See [docs/debug.md](docs/debug.md) for auth, card corners, and other known issues.
 - `packages/core` — shared types, recipe schema, workflow engine spec, connector SDK
 - `packages/rate-limit` — rate limiting utilities
-- `extensions/*` — Shopify extensions (theme app extension, **customer account UI** [Preact + Polaris, 64 KB], checkout UI extension, functions, **Flow trigger extensions**, **Flow action extensions**) as *generic renderers* reading config
+- `extensions/*` — Shopify extensions per **extension plan**: Theme (Universal Slot, Product Slot, Cart Slot, App Embed), **customer account UI** [Preact + Polaris, 64 KB], Checkout UI, Cart Transform, other Functions, Post-purchase, Admin UI — generic renderers reading config (metafields/DB)
 - `docs/*` - Technical docs, merchant docs, internal docs, phase plan
 
 ## Local dev
@@ -84,7 +84,7 @@ All agent routes use Shopify admin auth. Every mutating action is logged to `Act
 
 ## Docs
 - **AI Module reference:** `docs/ai-module-main-doc.md` — canonical allowed values, RecipeSpec, catalog, capabilities, placement, GDPR, analytics (single source of truth; code uses `packages/core/src/allowed-values.ts`).
-- Technical: `docs/technical.md`
+- Technical: `docs/technical.md` — Extension architecture (slots, target map, config sources): see §15 Universal Module Slot & extension architecture.
 - Merchant guide: `docs/app.md`
 - Implementation status: `docs/implementation-status.md` (includes **AI Module doc alignment**, **AI Patch Plan — Remove Generic Outputs**, Storefront UI Style System, API Tester, Templates, Flow Builder, Data Stores, **Admin app stack & UI fixes**, **Agent-Native Audit + Remediation**)
 - **AI Patch Plan Phases 1–5 ✅:** All phases complete — 3-tier classifier (Tier A keywords + Tier B embedding similarity + Tier C cheap LLM), `theme.floatingWidget` new type, settings packs per module type, profile-driven prompt composition, schema/catalog on attempt 0 for non-direct confidence, drift-check CI. Deferred: multi-intent, Behavior DSL, theme.composed. See `docs/implementation-status.md` § “AI Patch Plan”.

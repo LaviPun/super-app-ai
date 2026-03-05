@@ -15,6 +15,8 @@ SuperApp replaces multiple single-purpose apps with one app where you can **gene
 4. You Preview it on a theme you choose.
 5. If you like it, Publish. You can rollback any time.
 
+For theme blocks, you add app blocks where you want content; in the app you choose which module appears in each slot.
+
 ## Plan differences
 Some modules require Shopify Plus (for example, Checkout UI extensions on key checkout steps). If you try to publish a Plus-only module on a non-Plus store, SuperApp will explain why and won’t publish.
 

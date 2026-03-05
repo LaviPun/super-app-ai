@@ -225,6 +225,7 @@ AI must verify **all** references are live and connected:
 - [ ] Checkout extension points valid (no deprecated patterns)
 - [ ] Customer accounts extensions registered correctly (if used)
 - [ ] No “declared but not built” extension entrypoints
+- [ ] Extension plan alignment: Theme slots (Universal/Product/Cart/Embed), Checkout UI, Cart Transform, Functions, Post-purchase, Admin UI documented and target map / config sources consistent with [technical.md](docs/technical.md) §15
 
 ---
 

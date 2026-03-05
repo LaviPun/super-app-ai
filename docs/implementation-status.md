@@ -31,6 +31,33 @@
 | — | Admin Dashboard: Categories, Plan Tiers, Recipe Edit, Store Plan | ✅ Complete |
 | — | **AI Patch Plan — Remove Generic Outputs** | ✅ Phases 1–5 Complete |
 | — | **Agent-Native Architecture Audit + Remediation** | ✅ P1–P10+ Complete + Fresh Audit Gaps Resolved (28 agent routes, UI polling, ConnectorEndpoint agent CRUD, DataStoreRecord list, FlowSchedule full update) |
+| — | **Universal Module Slot & extension plan** | Planned |
+
+---
+
+## Universal Module Slot & extension plan (planned)
+
+**Status:** Planned. Full design in [technical.md](./technical.md) §15 Universal Module Slot & extension architecture. Plan changes verified per [codechange-behave.md](../codechange-behave.md) in [plan-changes-codechange-verification.md](./plan-changes-codechange-verification.md).
+
+The **Universal Module Slot** model: one app block = one slot; a setting or app-side mapping selects which generated module renders there. Theme Editor cannot show a dynamic dropdown of "your generated modules" (block schema options are static). Recommended approach: **slot_key** (or implicit block ID); app detects slots (theme JSON or convention); app UI shows dropdown of generated modules and merchant assigns module → slot; store mapping in metafields/DB; enable/disable/schedule in app without touching theme. Block set: Universal Slot, Product Slot (product template, autofill), Cart Slot (cart template), App Embed (runtime loader). Config lives in app/DB; compiler continues to write metafields where appropriate. Checkout UI, Cart Transform, other Functions, Post-purchase, and Admin UI follow the same config-driven pattern (see technical doc).
+
+**Implementation order:**
+
+1. Theme app extension: Universal slot block → Product slot block → Cart slot block → App embed runtime loader
+2. Admin UI extension: order-details block target(s); config-driven rendering
+3. Checkout UI extension: upsell/block targets; config via `$app:` metafields; &lt;64 KB bundle
+4. Cart Transform Function: `cart.transform.run`; config via `$app:` metafields in input query
+5. Other Functions (discount, delivery, payment, validation): same compile → config → function reads pattern
+6. Post-purchase: ShouldRender/Render config-based
+
+| Surface | Status | Config source |
+|---------|--------|---------------|
+| Theme slots (Universal, Product, Cart, Embed) | Planned | Metafields/DB, app UI mapping |
+| Admin UI extension | Not deployed | Metafields/DB |
+| Checkout UI extension | Partial | `$app:` metafields, target map |
+| Cart Transform Function | Partial | `$app:` metafields in input |
+| Other Functions | Partial | `$app:` / shop metafields |
+| Post-purchase | Planned | Config-based ShouldRender/Render |
 
 ---
 

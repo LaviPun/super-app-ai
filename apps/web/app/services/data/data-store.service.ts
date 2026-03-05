@@ -74,7 +74,7 @@ export class DataStoreService {
     return prisma.dataStore.findUnique({ where: { shopId_key: { shopId, key } } });
   }
 
-  async listRecords(dataStoreId: string, { page = 1, pageSize = 50 }: { page?: number; pageSize?: number } = {}) {
+  async listRecordsByDataStoreId(dataStoreId: string, { page = 1, pageSize = 50 }: { page?: number; pageSize?: number } = {}) {
     const prisma = getPrisma();
     const skip = (page - 1) * pageSize;
     const [records, total] = await Promise.all([

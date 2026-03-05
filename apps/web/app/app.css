@@ -1,3 +1,20 @@
+/*
+ * Internal admin: lock layout to viewport so top bar and nav don't move on page change.
+ * Only the main content area scrolls; document and frame stay fixed.
+ */
+html:has(.internal-admin-viewport),
+body:has(.internal-admin-viewport) {
+  height: 100%;
+  overflow: hidden;
+  margin: 0;
+}
+.internal-admin-viewport {
+  height: 100vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
 /* Prevent Banner icon from flashing large before Polaris styles load (CLS fix) */
 .Polaris-Banner svg {
   width: 20px;

@@ -72,7 +72,13 @@ export default function App() {
           </AppProvider>
         ) : (
           <PolarisProvider i18n={enTranslations}>
-            <Outlet />
+            {isInternal ? (
+              <div className="internal-admin-viewport">
+                <Outlet />
+              </div>
+            ) : (
+              <Outlet />
+            )}
           </PolarisProvider>
         )}
         <ScrollRestoration />

@@ -38,6 +38,7 @@ Before (or immediately after) editing files, write a 1–3 minute “impact map�
 - [ ] Permissions / scopes
 - [ ] Background jobs / queues
 - [ ] Webhooks / retries
+- [ ] Docs (technical.md, implementation-status.md, README) — when changing slot→module binding, Theme/Checkout/Function config source, or extension block set, update these per impact map.
 
 ### 1.3 Data flow trace (write the path)
 Example format:

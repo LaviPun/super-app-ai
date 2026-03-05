@@ -162,6 +162,11 @@ function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
     <>
       <style>{`
         .Polaris-TopBar { background: ${headerColor} !important; }
+        /* Internal admin: frame fills viewport; only main content scrolls so nav/top bar stay fixed */
+        .internal-admin-frame-wrapper { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+        .internal-admin-frame-wrapper > * { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+        .internal-admin-frame-wrapper :has(> .internal-admin-content) { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+        .internal-admin-content { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
         /* Internal admin: truncate long text with ellipsis; full value on hover via title */
         .internal-truncate { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .internal-truncate-wide { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -172,27 +177,31 @@ function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
         .internal-code-block { margin: 0; padding: 12px; background: var(--p-color-bg-surface-secondary); border-radius: 8px; font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 280px; overflow-y: auto; }
         .internal-code-block-expanded { max-height: none; }
       `}</style>
-      <Frame
-        topBar={topBar}
-        navigation={navigation}
-        showMobileNavigation={mobileNavActive}
-        onNavigationDismiss={toggleMobileNav}
-        logo={logo}
-      >
-        <Outlet context={{ showToast: (msg: string, error?: boolean) => {
-          setToastMsg(msg);
-          setToastError(!!error);
-          setToastActive(true);
-        }}} />
-        {toastActive && (
-          <Toast
-            content={toastMsg}
-            error={toastError}
-            onDismiss={dismissToast}
-            duration={4000}
-          />
-        )}
-      </Frame>
+      <div className="internal-admin-frame-wrapper">
+        <Frame
+          topBar={topBar}
+          navigation={navigation}
+          showMobileNavigation={mobileNavActive}
+          onNavigationDismiss={toggleMobileNav}
+          logo={logo}
+        >
+          <div className="internal-admin-content">
+            <Outlet context={{ showToast: (msg: string, error?: boolean) => {
+              setToastMsg(msg);
+              setToastError(!!error);
+              setToastActive(true);
+            }}} />
+          </div>
+          {toastActive && (
+            <Toast
+              content={toastMsg}
+              error={toastError}
+              onDismiss={dismissToast}
+              duration={4000}
+            />
+          )}
+        </Frame>
+      </div>
     </>
   );
 }

@@ -99,6 +99,26 @@ If any check fails, show: **“Cannot place here — theme doesn’t support app
 
 **Theme app extension bundle contents:** App blocks, app embed blocks, assets (JS/CSS), and snippets. Compilers must emit only valid bundle structure for the Theme app extension.
 
+#### Universal Module Slot (theme) and slot→module binding
+
+**What the Universal Slot is:** One app block = one slot. A setting or app-side mapping selects which generated module renders in that slot.
+
+**Theme Editor limitation:** Block schema options are **static**. Shopify does not allow populating select options from an API or metafield at runtime. So you cannot have a Theme Editor dropdown that lists “Module A, Module B, Module C” from the app. Three options for slot→module binding:
+
+- **Option A:** `module_id` text field in Theme Editor; merchant pastes module ID; runtime reads it and renders that module.
+- **Option B (recommended):** `slot_key` (or implicit block instance ID); app detects slots (theme JSON or convention); app UI shows list of generated modules and list of slots; merchant assigns module → slot via dropdown in the app; store mapping in metafields/DB; enable/disable/schedule in app without touching theme.
+- **Option C:** Static Theme Editor dropdown of module *types* (e.g. Hero, Banner, FAQ); runtime picks the active module of that type for the store. Not “select from generated modules”.
+
+**Slot block + module registry:** App detects slots (e.g. by reading theme JSON via Admin API or slot_key conventions). App UI: list of generated modules, list of detected slots, assign module → slot (dropdown). Store mapping in metafields/DB. Runtime reads mapping and renders the assigned module.
+
+**Section-with-blocks:** App blocks cannot contain Theme-Editor-managed nested blocks. Two patterns: (1) **Multiple slot blocks in one section** — merchant adds Slot #1, Slot #2, Slot #3 and reorders in Theme Editor (native drag/drop). (2) **Container module** — one slot points to a container module whose config lists children (e.g. hero, grid, faq, cta); runtime renders as “section with blocks”; reorder in app UI only.
+
+**Unified data model (shared by Theme, Admin, Checkout, Post-purchase):** **Module registry** — id, type, version, status, renderTree, settings, conditions. **Target map** (per surface+target) — enabledModules, order, rules (schedule, segments, device). **Draft / Published** — draft for preview, published for live rendering.
+
+**Where module config lives:** DB + cache preferred; metaobjects for many modules; metafields for small configs. Compiler still writes metafields where appropriate. Checkout/Functions use `$app:` app-owned metafields where applicable.
+
+For the extension-by-extension plan (Theme blocks, Checkout UI, Cart Transform, Functions, Post-purchase, Admin UI) and implementation order, see [technical.md](./technical.md) §15 Universal Module Slot & extension architecture.
+
 ### 2.4 Compliance (privacy webhooks and data)
 
 For a public app that stores “what data it saved” and handles customer/shop data, Shopify expects mandatory compliance handling.

@@ -441,7 +441,7 @@ Quota enforcement runs **before** any consuming action (`aiRequest` before AI ge
 
 ## 10. Performance (storefront)
 
-- Prefer Theme App Extension app blocks (config from metafields, no extra HTTP calls on storefront).
+- Prefer Theme App Extension app blocks (config from metafields, no extra HTTP calls on storefront). For slot-based placement and extension strategy (Universal Slot, Product/Cart slots, target map, config sources), see [§15. Universal Module Slot & extension architecture](#15-universal-module-slot--extension-architecture).
 - App proxy responses are small and have `cache-control: public, max-age=60`.
 - No third-party JS injected by default.
 - Theme asset uploads use minimal Liquid; lazy-load images.
@@ -483,6 +483,111 @@ spec.style
 8. Add at least one curated template in `packages/core/src/templates.ts` (the templates test enforces full type coverage).
 9. Add config fields for the new type in `components/ConfigEditor.tsx` (`CONFIG_FIELDS` map).
 10. If the type is storefront UI with style, add a `STYLE_CONFIG` entry in `components/StyleBuilder.tsx`.
+
+---
+
+## 15. Universal Module Slot & extension architecture
+
+This section describes the **Universal Module Slot** model for theme placement, Theme Editor constraints, the planned block set, and the extension strategy for Checkout UI, Cart Transform, Functions, Post-purchase, and Admin UI. Implementation order and unified data model are at the end.
+
+### Theme – Universal Slot
+
+One “universal section/app block” can be placed in any section; a setting or app-side mapping selects which generated module renders in that slot.
+
+**Theme Editor limitation:** Block schema options in `{% schema %}` are **static**. Shopify does not allow populating select options from an API or metafield at runtime — options must be a hard-coded array. So you cannot have a Theme Editor dropdown that automatically lists “Module A, Module B, Module C” created in the app.
+
+**Slot→module binding (three options):**
+
+| Option | Description | Pros / cons |
+|--------|-------------|-------------|
+| **A** | Block setting: `module_id` (text). Merchant copies module ID from the app and pastes it in the Theme Editor. Runtime reads `block.settings.module_id` and renders that module. | Easy to build. Not a dropdown; manual. |
+| **B (recommended)** | Block setting: `slot_key` (text) or use block instance ID implicitly. App detects all slots (e.g. via theme JSON from Admin API or slot_key convention). App UI shows a dropdown of generated modules; merchant assigns module → slot. Store mapping in metafields/DB. Runtime reads mapping and renders the assigned module. | Merchant gets a real dropdown in the app UI. No Theme Editor limits. Enable/disable/schedule in app without touching theme. Best for “AI-generated page builder” feel. |
+| **C** | Static Theme Editor dropdown of module *types* (e.g. “Hero”, “Banner”, “FAQ”, “Upsell”, “Popup”). Runtime chooses “the active module of that type” for the store. | Easy. Not “select from generated modules”. |
+
+**Section-with-blocks:** App blocks cannot contain Theme-Editor-managed nested blocks. Two patterns:
+
+1. **Multiple slots in one section:** Merchant adds Slot Block #1 (e.g. Hero), Slot Block #2 (Grid), Slot Block #3 (Testimonials); reorders them in the Theme Editor. Native drag/drop.
+2. **Container module:** One slot block points to a container module whose config lists children (e.g. hero, grid, faq, cta). Runtime renders it as a “section with blocks”. Reordering happens in the app UI only.
+
+### Theme app extension block set
+
+- **Universal Slot** — Used across templates; renders most modules.
+- **Product Slot** — Restricted to product templates via `enabled_on`; has product resource setting with `autofill: true` so it tracks the product on the page (product-aware modules).
+- **Cart Slot** — Restricted to cart template; cart-aware modules (shipping bars, upsells, free-gift prompts).
+- **App Embed: Runtime loader** — Loads JS once; handles popups, floating widgets, analytics, global behaviors. Can be limited to pages; app embeds cannot use dynamic sources (global scope only).
+
+Shopify allows up to 30 app blocks per theme app extension (as of Feb 2026). Keep block settings **minimal** (Theme blocks have an “interactive settings” ceiling, commonly ~25): e.g. `slot_key` or implicit, optional `mode` (published/draft), optional `variant` (presentation preset), optional toggles (hide on mobile). Everything else lives in module config managed by the app UI + AI.
+
+### Module config location
+
+- **Preferred:** DB + caching.
+- **Alternatively:** Metaobjects (for many modules); metafields (for small configs).
+- Compiler continues to write metafields where appropriate; avoid shoving huge configs into a single field.
+
+### Checkout UI extension
+
+- One Checkout UI extension “runtime renderer” per app; register desired checkout targets in `shopify.extension.toml`.
+- **64 KB** compiled bundle limit (Shopify-enforced).
+- Config via `[[extensions.metafields]]`; app-owned metafields use `$app:` namespace. Per-store target map (e.g. `superapp.checkout.targets.purchase.checkout.block.render` → enabled modules + order). Extension renders nothing if no modules enabled for that target. Optional: cart metafield updates via `applyMetafieldsChange` / `updateCartMetafield` for lightweight state (e.g. selected upsell).
+
+### Cart Transform (Function extension)
+
+- Cart transforms are Shopify Functions (`cart.transform.run`), not UI extensions. Keep logic deterministic and fast.
+- Config via `$app:` metafields in the function input query. Store “transform rules” (bundles, add-ons, conditional expansions) in metafields; function reads and applies. If disabled, function returns no changes.
+
+### Checkout Functions (discount, delivery, payment, validation)
+
+- Same pattern: one Function extension per type (discount, delivery customization, payment customization, validation). Each reads config from `$app:` metafields or shop metafields (or metaobjects/DB mirrored via metafield pointers). Compiler validates AI spec → writes minimal FunctionConfig. Versioning: schemaVersion, publishedAt, enabled.
+
+### Post-purchase
+
+- Post-purchase extension: ShouldRender (read config → decide render or not) and Render (render the offer module). Use the same runtime-config model. **Known gotchas:** Community reports “ShouldRender not working / not called” in some contexts. Keep ShouldRender simple, add fallbacks, avoid unnecessary network in ShouldRender.
+
+### Admin UI extension
+
+- One Admin UI extension per app; targets registered in `shopify.extension.toml`. Config decides which module(s) are enabled per target, in what order, with what settings. Render Polaris UI (cards, sections); if disabled, render nothing or minimal placeholder. **Caveat:** Admin blocks have had “stale / alternating visibility” when navigating between orders; re-key state on context change and offer a manual refresh action.
+
+### Unified data model
+
+Used by Theme, Admin, Checkout, and Post-purchase:
+
+- **Module registry:** What exists — `{ id, type, version, status, renderTree, settings, conditions }`.
+- **Target map (per surface+target):** Where it shows — `enabledModules: [moduleId...]`, `order: [moduleId...]`, `rules: { schedule, segments, device }`.
+- **Draft / Published:** Draft for preview; published for live rendering.
+
+### Implementation order
+
+1. Theme app extension: Universal slot block → Product slot block (autofill product) → Cart slot block → App embed runtime loader.
+2. Admin UI extension: order-details block target(s); config-driven rendering.
+3. Checkout UI extension: upsell/block targets; config via `$app:` metafields; keep under 64 KB.
+4. Cart Transform Function: `cart.transform.run`; config via `$app:` metafields in input query.
+5. Other Functions (discount, delivery, payment, validation): same compile → config → function reads pattern.
+6. Post-purchase: ShouldRender/Render config-based.
+
+```mermaid
+flowchart LR
+  subgraph theme [Theme]
+    SlotBlock[Slot block in section]
+    Mapping[App: module to slot mapping]
+    Registry[Module registry]
+    SlotBlock --> Mapping
+    Mapping --> Registry
+  end
+  subgraph app [App UI]
+    ListModules[List generated modules]
+    ListSlots[Detect slots]
+    Assign[Assign module to slot]
+    ListModules --> Assign
+    ListSlots --> Assign
+  end
+  subgraph runtime [Runtime]
+    ReadMap[Read target map]
+    Render[Render assigned module]
+    ReadMap --> Render
+  end
+  Assign --> Mapping
+  Mapping --> ReadMap
+```
 
 ---
 

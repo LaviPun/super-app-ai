@@ -305,6 +305,13 @@ Positioning: inline placement via Theme Editor block placement; overlays use anc
 
 ---
 
+## Backlog / future phases
+
+- **Theme app extension: Universal Slot blocks (Universal, Product, Cart) + slot mapping in app UI.** Merchants add app blocks in the Theme Editor; in the app they assign which generated module appears in each slot (Theme Editor cannot show dynamic module lists). See [technical.md](./technical.md) §15 Universal Module Slot & extension architecture.
+- **Extension plan (full):** Theme slots → Admin UI extension → Checkout UI extension → Cart Transform Function → Other Functions (discount, delivery, payment, validation) → Post-purchase. Implementation order and config sources documented in technical.md §15.
+
+---
+
 ## Working rules (Cursor)
 - Every phase must ship:
   - [x] Unit tests for new logic

@@ -325,3 +325,116 @@ After implementing recommendations #2, #3, #4, #6, and #7, the codebase was veri
 ---
 
 *Report from 8 parallel explore sub-agent audits. Scores updated after full P1–P10+ remediation (2026-03-05): Action Parity 100%, Tools as Primitives 100%, CRUD Completeness 85%, Capability Discovery 100%, Prompt-Native 58%. For follow-up, focus on Prompt-Native Features: extract classification keywords and confidence scoring to a config file to eliminate the need for code changes when adding new intents.*
+
+---
+
+## Audit of Recent Changes (2026-03-05)
+
+**Scope:** Documentation updates for Universal Module Slot & extension plan (technical.md §15, README, implementation-status, ai-module-main-doc, shopify-dev-setup, theme-app-extension README, phase-plan, app.md, global-audit, codechange-behave). No new UI or agent API was added; changes were doc-only.
+
+### Agent-Native Impact of Recent Changes
+
+| Principle | Impact | Notes |
+|-----------|--------|--------|
+| **Action Parity** | No change | Slot blocks and module→slot assignment are **planned**; no new user actions in code. When implemented: merchant will "assign module to slot" in app UI → agent will need equivalent (e.g. list slots, assign module→slot or target map update). Document in technical.md §15. |
+| **Tools as Primitives** | No change | No new agent endpoints. Future: slot/target-map APIs should be primitive (e.g. list_slots, get_target_map, set_module_for_slot). |
+| **Context Injection** | No change | — |
+| **Shared Workspace** | No change | Docs state module config and target map live in DB/metafields; when built, agent and user must share same target map and slot mapping. |
+| **CRUD Completeness** | Forward-looking | When "target map" and "slot mapping" exist as data, agents need read/update (and possibly list slots). No entity yet. |
+| **UI Integration** | No change | — |
+| **Capability Discovery** | No change | GET /api/agent still lists 28 endpoints; extension plan is documented for implementers. |
+| **Prompt-Native Features** | No change | — |
+
+### Forward-Looking Recommendations (when slot/target map are implemented)
+
+1. **Agent parity for slot mapping:** Add agent API: list slots (or detect from theme JSON), get target map per surface, assign module to slot (or update target map). Same auth and ActivityLog as other agent routes.
+2. **Single source of truth:** Target map and slot→module mapping should live in DB/metafields and be read/written by both UI and agent API (shared workspace).
+3. **Discovery:** Extend `GET /api/agent` with new endpoints when added; document in technical.md and implementation-status.
+
+### Conclusion (Recent Changes)
+
+Recent changes were documentation only. Agent-native scores remain as in the main report. No new gaps introduced. When Theme slot blocks and target map are implemented, add the above agent surface and re-audit Action Parity and CRUD Completeness for the new entities.
+
+---
+
+## Global Audit (per global-audit.md)
+
+**Date:** 2026-03-05. Audit executed according to [global-audit.md](../global-audit.md) structure (connection graph, static/runtime/E2E checks, link/route validation, Issue Ledger, verification matrix).
+
+### 1) Connection Graph Summary
+
+| Layer | Entrypoints / Contracts | Notes |
+|-------|--------------------------|--------|
+| **Frontend** | Remix app (apps/web), routes under `app/routes/`, root.tsx, Polaris | Admin embedded UI; merchant and internal dashboards |
+| **Backend** | Remix loaders/actions, API routes under `api.*`, webhooks under `webhooks.*` | Same server; Shopify admin auth |
+| **Extensions** | Theme App Extension (blocks + embed), Customer Account UI, Checkout UI, Functions, Flow triggers/actions | Config from metafields/DB; extension plan in technical.md §15 |
+| **Contracts** | RecipeSpec (Zod in packages/core), StorefrontStyleSchema, API request/response shapes | SSOT: recipe.ts, allowed-values.ts, storefront-style.ts |
+| **Runtime wiring** | Remix router, shopify.authenticate.admin/webhook/public.appProxy, ModuleService, PublishService, etc. | No duplicate registries; extensions read shop metafields |
+| **Integrations** | Shopify Admin API (GraphQL), Theme API, Metafields, App Proxy, Billing, Flow trigger/action endpoints | HMAC for webhooks; SSRF guard on connectors |
+
+### 2) Static Audit Checklist (4.1–4.4)
+
+| Check | Status | Notes |
+|-------|--------|--------|
+| 4.1 Global reference propagation | ✅ | No renamed identifiers in recent doc-only change. |
+| 4.2 Duplicate/drift detection | ✅ | Single schema source (core); single agent discovery (api.agent.tsx). **Fixed:** Duplicate `listRecords` in DataStoreService (renamed first to `listRecordsByDataStoreId`). |
+| 4.3 Module/export boundary | ✅ | Imports use canonical paths; no legacy duplicate entrypoints. |
+| 4.4 Types/schemas/validators alignment | ✅ | Zod schemas in core; runtime validation at API boundaries. |
+
+### 3) Runtime Audit Checklist (5.1–5.4)
+
+| Check | Status | Notes |
+|-------|--------|--------|
+| 5.1 Build artifact sanity | ✅ | `pnpm run build` succeeds (apps/web). No stale dist; single artifact path. |
+| 5.2 Dependency integrity | ✅ | pnpm workspace; single lockfile. |
+| 5.3 Env parity | — | Not run per-environment; env validation at boot (env.server.ts). |
+| 5.4 Cache + invalidation | — | Theme/metafield config read at runtime; no app-level cache layer audited. |
+
+### 4) End-to-End Smoke Matrix (6.1–6.2)
+
+| Surface | Create → Edit → Persist → Reload → Render | Notes |
+|---------|--------------------------------------------|--------|
+| Admin embedded UI | Documented in implementation-status; not re-run in this audit | Data flow: UI → API → DB → loader → render |
+| Theme App Extension | Embed reads superapp.theme.modules | Slot blocks planned; not yet deployed |
+| Checkout UI / Customer Account / Functions | Config-driven; documented | See technical.md §15 |
+| API routes | Agent API 28 routes; same services as UI | Auth + ActivityLog consistent |
+| Webhooks | orders/create, products/update; idempotency + HMAC | See runbooks |
+
+### 5) Link/Route/Extension Validation (7.1–7.4)
+
+| Check | Status |
+|-------|--------|
+| 7.1 UI links & navigation | ✅ Routes exist; s-app-nav in root.tsx; internal admin sidebar in internal-admin.md |
+| 7.2 API endpoints | ✅ Frontend calls map to mounted routes; agent routes under /api/agent/* |
+| 7.3 Webhooks | ✅ Registered; HMAC; idempotency (WebhookEvent) |
+| 7.4 Extension registrations | ✅ Theme blocks referenced; extension plan alignment item in global-audit §7.4; technical.md §15 |
+
+### 6) Shopify No-Deprecated Gate (8)
+
+- OS 2.0 only; no vintage theme paths. Theme App Extension primary storefront mechanism. Checkout extensibility patterns. API version (e.g. 2026-01) in use. Scopes documented in shopify-dev-setup.
+
+### 7) Issue Ledger (per global-audit §12)
+
+| ID | Severity | Layer | Surface | Symptom | Root Cause | Fix | Files | Verification |
+|----|----------|-------|---------|---------|------------|-----|-------|--------------|
+| 001 | High | Backend | Data stores | Duplicate `listRecords` in DataStoreService; second definition overwrote first; UI route passed (storeId, options) interpreted as (shopId, storeKey) | Two methods with same name | Rename first to `listRecordsByDataStoreId`; call it from data.$storeKey.tsx | data-store.service.ts, data.$storeKey.tsx | Build + tests |
+| 002 | Medium | packages/core | Tests | templates.test.ts fails: missing template for type theme.floatingWidget | MODULE_TEMPLATES does not include theme.floatingWidget | Add template for theme.floatingWidget in packages/core/src/templates.ts | templates.ts, templates.test.ts | pnpm test |
+
+### 8) Verification Matrix (Acceptance Gates 2.1)
+
+| Gate | Status |
+|------|--------|
+| App builds cleanly | ✅ (after fix 001) |
+| Typecheck + lint | ✅ |
+| Unit tests pass | ❌ 002 — one failing test (theme.floatingWidget template) |
+| Schema validation | ✅ |
+| E2E smoke (all surfaces) | Not re-run in this pass |
+| No Critical/High in ledger | ⚠️ 001 fixed; 002 remains Medium |
+| Observability | ✅ Logs, ApiLog, ErrorLog, ActivityLog |
+| Security baseline | ✅ OAuth, HMAC, rate limiting, SSRF guard |
+
+### 9) Remaining Risks & Next Steps
+
+- **002:** Add a MODULE_TEMPLATES entry for `theme.floatingWidget` so templates.test.ts passes (or temporarily skip that assertion for that type if template is deferred).
+- **Extension plan:** When implementing Universal Slot and target map, add agent API for list_slots / get_target_map / assign_module_to_slot and update this report.
+- **Global audit loop:** For "Start Global Audit" full loop, re-run E2E smoke on all surfaces and fix 002; then re-verify until Issue Ledger has no Critical/High.

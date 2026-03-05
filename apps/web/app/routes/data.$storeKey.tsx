@@ -25,7 +25,7 @@ export async function loader({ request, params }: { request: Request; params: { 
   const url = new URL(request.url);
   const page = Math.max(1, Number(url.searchParams.get('page') ?? '1'));
 
-  const result = await svc.listRecords(store.id, { page, pageSize: 50 });
+  const result = await svc.listRecordsByDataStoreId(store.id, { page, pageSize: 50 });
 
   return json({
     storeKey,
