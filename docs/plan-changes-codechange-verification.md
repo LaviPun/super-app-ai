@@ -43,10 +43,10 @@
 
 | Changed identifier | Exact string | Variants | Old removed / mapped | Magic strings (templates/JSON/liquid) |
 |--------------------|--------------|-----------|----------------------|---------------------------------------|
-| Universal Module Slot, §15, slot_key, target map | ✅ Grep: technical.md, README, implementation-status, ai-module-main-doc, shopify-dev-setup, theme-app-extension README, phase-plan, app.md, global-audit, agent-native-audit-report | N/A (doc terms) | N/A | No code/templates reference these yet (planned) |
+| Universal Module Slot, §15, slot_key, target map | ✅ Grep: technical.md, README, implementation-status, ai-module-main-doc, shopify-dev-setup, theme-app-extension README, phase-plan, app.md, global-audit | N/A (doc terms) | N/A | No code/templates reference these yet (planned) |
 | listRecords → listRecordsByDataStoreId | ✅ Only definition in data-store.service.ts; call site in data.$storeKey.tsx updated | — | Old name (first method) removed; second method remains `listRecords` for agent | — |
 
-**Result:** No orphan references. Agent route and crud-completeness-audit.md correctly refer to `listRecords(shopId, storeKey)` (the remaining method).
+**Result:** No orphan references. Agent route and `DataStoreService.listRecords(shopId, storeKey, …)` remain aligned for record listing by store key.
 
 ### 2.2 Contract alignment check
 
@@ -181,7 +181,7 @@ Verified that all docs that should point to technical.md §15 do so with consist
 | ai-module-main-doc.md | “see technical.md §15 Universal Module Slot & extension architecture” |
 | phase-plan.md | “See technical.md §15”; backlog items |
 | global-audit.md | “consistent with technical.md §15” in checklist |
-| agent-native-audit-report.md | “technical.md §15” in recent-changes and global-audit sections |
+| implementation-status.md (agent-native section) | “technical.md §15” aligned with extension plan |
 | shopify-dev-setup.md | Planned slot blocks; no §15 link (optional) |
 | theme-app-extension/README.md | Planned blocks; no §15 link (optional) |
 | app.md | One sentence on slot placement; no §15 link (merchant-facing) |

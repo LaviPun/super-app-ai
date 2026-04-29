@@ -84,15 +84,22 @@ All agent routes use Shopify admin auth. Every mutating action is logged to `Act
 **UI integration:** All 4 merchant-facing list pages (`/modules`, `/connectors`, `/data`, `/flows`) poll every 30s and revalidate on window focus — agent writes appear automatically without a manual refresh.
 
 ## Docs
-- **AI Module reference:** `docs/ai-module-main-doc.md` — canonical allowed values, RecipeSpec, catalog, capabilities, placement, GDPR, analytics (single source of truth; code uses `packages/core/src/allowed-values.ts`).
-- Technical: `docs/technical.md` — Extension architecture (slots, target map, config sources): see §15 Universal Module Slot & extension architecture.
-- Merchant guide: `docs/app.md`
-- GitBook docs (structured backend/modules/flows/dashboard logic): `docs/gitbook/README.md` with nav in `docs/gitbook/SUMMARY.md`
-- Implementation status: `docs/implementation-status.md` (includes **AI Module doc alignment**, **AI Patch Plan — Remove Generic Outputs**, Storefront UI Style System, API Tester, Templates, Flow Builder, Data Stores, **Admin app stack & UI fixes**, **Agent-Native Audit + Remediation**)
-- **AI Patch Plan Phases 1–5 ✅:** All phases complete — 3-tier classifier (Tier A keywords + Tier B embedding similarity + Tier C cheap LLM), `theme.floatingWidget` new type, settings packs per module type, profile-driven prompt composition, schema/catalog on attempt 0 for non-direct confidence, drift-check CI. Deferred: multi-intent, Behavior DSL, theme.composed. See `docs/implementation-status.md` § “AI Patch Plan”.
-- Phase plan: `docs/phase-plan.md`
-- Debug notes (extension bundle, deploy, 64 KB limit, embedded auth, **card corners**, known issues): `docs/debug.md`
-- Catalog: `docs/catalog.md` (generated catalog, curated templates, **templateKind mapping for AI retries**)
+
+| Doc | Purpose |
+|-----|---------|
+| [`docs/gitbook/README.md`](docs/gitbook/README.md) + [`docs/gitbook/SUMMARY.md`](docs/gitbook/SUMMARY.md) | GitBook-style outline (welcome, guides, architecture, reference, ops, planning) |
+| [`docs/ai-module-main-doc.md`](docs/ai-module-main-doc.md) | RecipeSpec and capabilities — primary spec for modules |
+| [`docs/technical.md`](docs/technical.md) | Architecture, security, §15 Universal Module Slot & extensions |
+| [`docs/app.md`](docs/app.md) | Merchant guide |
+| [`docs/internal-admin.md`](docs/internal-admin.md) | Internal admin dashboard |
+| [`docs/module-settings-modernization.md`](docs/module-settings-modernization.md) | Module settings patterns (defaults, popups, contact flows) |
+| [`docs/implementation-status.md`](docs/implementation-status.md) | Shipped work and stabilization (includes AI Patch Plan status) |
+| [`docs/phase-plan.md`](docs/phase-plan.md) | Roadmap and backlog |
+| [`docs/debug.md`](docs/debug.md) | Extension limits, embedded auth, known issues |
+| [`docs/catalog.md`](docs/catalog.md) | Template catalog and AI retry mapping |
+| [`docs/archive/README.md`](docs/archive/README.md) | Archived artifacts and notes |
+
+Standalone audit-only markdown files were removed; narrative audit history stays in [`implementation-status.md`](docs/implementation-status.md).
 
 
 ## Auth/session storage

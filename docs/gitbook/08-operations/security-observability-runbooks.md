@@ -26,13 +26,9 @@
 
 ## SLOs and incident response
 
-- SLO reference: `docs/slos.md`
-- runbooks index: `docs/runbooks/index.md`
-- major runbooks:
-  - provider outage
-  - webhook storm
-  - connector failure
-  - publish failure
+- **SLOs:** [`slos.md`](../../slos.md)
+- **Runbooks hub:** [`runbooks/index.md`](../../runbooks/index.md)
+- **Typical incidents:** provider outage, webhook storm, connector failure, publish failure (see index for paths)
 
 ## Operational checklist
 

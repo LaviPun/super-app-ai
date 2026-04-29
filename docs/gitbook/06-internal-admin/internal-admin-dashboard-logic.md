@@ -1,4 +1,10 @@
-# Internal Admin Dashboard Logic
+# Internal admin dashboard
+
+**Full guide:** [`internal-admin.md`](../../internal-admin.md) (auth, ports, routes, jobs, providers).
+
+Below is a **logic summary** aligned with that doc.
+
+---
 
 ## Purpose
 

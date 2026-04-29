@@ -1,34 +1,29 @@
-# Platform Overview
+# Platform overview
 
-## What the app is
+## What this product is
 
-AI Shopify SuperApp is a single Shopify app that lets merchants generate and run modules across storefront, checkout, customer account, integrations, and automation.
+AI Shopify SuperApp is one Shopify app that replaces many single-purpose apps. Merchants describe outcomes in plain language (or pick templates); the system produces **validated `RecipeSpec` JSON**, never arbitrary storefront code. The compiler turns specs into **known-safe** deploy operations (metaobjects, functions, extensions, connectors, flows).
 
-The platform does not deploy arbitrary AI-generated code. AI outputs a validated `RecipeSpec` JSON that the backend compiles into known-safe operations.
+## Surfaces
 
-## Core product surfaces
+| Surface | Location | Role |
+|---------|-----------|------|
+| Merchant app | `apps/web` (embedded admin) | Create modules, connectors, flows, data stores, billing |
+| Internal admin | `/internal/*` | Providers, plans, stores, logs, templates, jobs |
+| Extensions | `extensions/*` | Theme, checkout, customer account, Flow triggers/actions, functions |
+| Core package | `packages/core` | Recipe schema, capabilities, catalog, shared contracts |
 
-- Merchant embedded app (`apps/web`)
-- Internal admin dashboard (`/internal/*`)
-- Shopify extensions (`extensions/*`)
-- Shared core package (`packages/core`)
+## Capabilities (summary)
 
-## Key capabilities
+- Draft → preview → publish → rollback with immutable versions
+- Plan and capability gating (Basic vs Plus, etc.)
+- Integrations with SSRF-safe outbound HTTP
+- Automations: linear flows + graph workflows + Shopify Flow
+- App-owned **data stores** for structured records
+- Full **Agent API** parity with key merchant actions
 
-- AI-generated module drafts with strict schema validation
-- Publish and rollback with immutable versioning
-- Connectors for external APIs with SSRF protections
-- Visual flow builder and graph-based workflow engine
-- Data stores for app-owned structured records
-- Internal admin controls for plans, providers, categories, stores, logs, and jobs
+## Where to read next
 
-## Documentation map
-
-This GitBook is structured around:
-
-1. architecture and data model
-2. backend processes and service ownership
-3. flows and execution logic
-4. merchant dashboard logic
-5. internal admin dashboard logic
-6. API and operations
+- **Full index:** [Documentation map](../00-welcome/documentation-map.md)
+- **Architecture depth:** [Technical reference](../../technical.md) §15 (extensions & slots)
+- **Specs:** [Reference library](../09-reference/reference-library.md)

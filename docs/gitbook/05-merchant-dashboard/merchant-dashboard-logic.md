@@ -1,4 +1,10 @@
-# Merchant Dashboard Logic
+# Merchant dashboard
+
+**Full merchant-facing guide:** [`app.md`](../../app.md) (features, billing, flows, data stores, Style Builder).
+
+This page is a **compact route map** for navigation inside GitBook.
+
+---
 
 ## Primary merchant journey
 

@@ -1,6 +1,6 @@
 # Implementation Status — AI Shopify SuperApp
 
-> Last updated: 2026-04-29 (post `app-audit-and-rebuild` plan: token/JSON-schema/parallel/streaming AI pipeline, internal admin polish + cursor pagination, end-to-end correlationId/requestId tracing + SSE live tail, Audit/Webhooks pages, replay actions, real Sentry SDK + redaction, env-gated AI debug capture, doc nav sync, CEO safety backlog migrated to phase-plan.md).
+> Last updated: 2026-04-30 (template/recipe modernization pass: centralized advanced defaults by module type + module settings modernization guide with popup and contact-form flow coverage).
 > Current automated test baseline: 179 total (per latest phase plan checkpoint). See [phase-plan.md](./phase-plan.md) for the original plan and latest scope decisions.
 > **AI Module doc alignment:** Single source of truth from [ai-module-main-doc.md](./ai-module-main-doc.md); see section below.
 > **Change propagation:** All code changes follow [codechange-behave.md](../codechange-behave.md) (impact map, propagation pass, docs/README updates).
@@ -34,6 +34,11 @@
 | — | **Universal Module Slot & extension plan** | ✅ Complete (metaobject-only, API 2026-04+) |
 | — | **CEO Review Controls Sync (2026-04-29)** | ✅ Decisions captured; implementation pending |
 
+### Documentation hygiene (2026-04-30)
+
+- Removed redundant standalone **audit** markdown files under `docs/` (parity, agent-native report spin-offs, UI audit summaries, etc.). **Single narrative** for shipped work + remediation remains in this file; GitBook navigation lives in [`docs/gitbook/SUMMARY.md`](./gitbook/SUMMARY.md).
+- Moved static design HTML previews to [`docs/archive/design-artifacts/`](./archive/design-artifacts/).
+
 ### Latest UI System Update (2026-04-29)
 
 - Added a dedicated GitBook-style documentation tree under `docs/gitbook/` with `README.md` + `SUMMARY.md` and focused chapters for architecture, backend processes, services/modules, flows, merchant dashboard logic, internal admin dashboard logic, API surfaces, and operations.
@@ -41,7 +46,7 @@
 - Added root-level `DESIGN.md` with a Polaris-first policy and approved typography/color/layout/motion tokens for cross-surface consistency.
 - Applied design token bridge in `apps/web/app/app.css` so custom shell surfaces align with the approved system while keeping Polaris as the primary component/styling source.
 - Updated internal admin frame styling in `apps/web/app/routes/internal.tsx` to consume approved background/text tokens and align logo typography with the selected font system.
-- Added `docs/design-consultation-preview.html` as the current visual design artifact produced from the approved design direction.
+- Added design preview artifacts under [`docs/archive/design-artifacts/`](./archive/design-artifacts/) from the approved design direction.
 - Refined existing internal dashboard in `apps/web/app/routes/internal._index.tsx` in place: removed futuristic visual effects, switched to cleaner Polaris-style cards/sections, and replaced decorative pie visuals with simpler status bars + table fallback.
 - Refined merchant dashboard in `apps/web/app/routes/_index.tsx` in place: removed decorative hero grid treatment and replaced pie visualization with Shopify-style status bars + table fallback while preserving the same underlying metrics.
 - Refined modules creation UI in `apps/web/app/routes/modules._index.tsx` in place: replaced the animated neural-network generator visual with a clean Polaris loading card and removed glowing option-card effects to reduce visual noise.
@@ -88,9 +93,26 @@
 - Publish now checks granted Shopify scopes before execution and returns actionable `403` payload (`missingScopes`, `requiredScopes`, `grantedScopes`) instead of opaque `500` failures when access is insufficient.
 - Added explicit tests for preflight scope behavior in `apps/web/app/__tests__/publish-preflight.test.ts`.
 - Added merchant-facing Jobs page at `apps/web/app/routes/jobs._index.tsx` and navigation link in `apps/web/app/root.tsx`.
+
+### Latest Template/Recipe Modernization Update (2026-04-30)
+
+- Added centralized template modernization in `packages/core/src/templates.ts` so all recipes/templates inherit advanced defaults per type at read time (without hand-editing 140+ entries).
+- Modernization currently enriches:
+  - `theme.popup` with complete trigger/frequency/page-targeting/CTA/countdown defaults.
+  - `theme.banner` and `theme.notificationBar` with stronger conversion-safe defaults.
+  - `theme.floatingWidget` with anchor/click/device defaults.
+  - `integration.httpSync` and `analytics.pixel` with correlation-friendly payload/mapping defaults.
+  - `flow.automation` HTTP/store step defaults for safer end-to-end data flow.
+  - `functions.deliveryCustomization`, `functions.paymentCustomization`, `functions.discountRules`, `functions.cartTransform` with baseline operational defaults.
+- Added `docs/module-settings-modernization.md`:
+  - per-module advanced settings checklist
+  - popup-specific accuracy checklist
+  - contact-form implementation pack (UI capture + storage + external sync + notifications + admin access) with explicit data access/storage paths.
 - Jobs page now shows:
   - live and historical execution jobs with status, trigger source, module link, target details, duration, and correlation trace link
   - operational activity stream (save/status/publish/generation related actions) to complement queued job rows.
+  - AI usage attribution per job (via correlationId) including provider, token usage, and cost.
+  - Store-level AI usage summary (30-day + all-time) with provider/model breakdown for token and cost visibility.
     - `apps/web/app/__tests__/style-compiler.test.ts`
   - Updated `apps/web/package.json` lint command threshold from `0` to `250` to keep CI/dev workflow unblocked while warning debt is burned down in batches.
   - Completed a focused warning burn-down in top offenders:
@@ -205,7 +227,7 @@ The **Universal Module Slot** model: one app block = one slot; `module_id` block
 
 ## Agent-Native Architecture Audit + Remediation ✅ P1–P10+ Complete
 
-Full audit in [agent-native-audit-report.md](./agent-native-audit-report.md). All Top 10 recommendations implemented plus extended agent API surface (connectors, data stores, schedules, flows, AI primitives, config introspection).
+Agent-native audit findings and remediation status live **only in this section** (standalone audit markdown files were removed to avoid duplication). All Top 10 recommendations were implemented plus extended agent API surface (connectors, data stores, schedules, flows, AI primitives, config introspection).
 
 | Priority | Recommendation | Status | Deliverables |
 |----------|---------------|--------|--------------|
