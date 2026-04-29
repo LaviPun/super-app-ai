@@ -21,18 +21,21 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 
 - Configure AI providers (OpenAI / Anthropic / Azure OpenAI / Custom OpenAI-compatible)
 - Set the global active provider; override per store
-- View AI usage and approximate costs (30-day window)
+- View AI usage and approximate costs (30-day window) with **Replay** action that re-enqueues the same generation as a new `AI_GENERATE` job under a fresh correlationId
 - View error logs (auto-redacted — no secrets/PII)
-- View API logs with requestId correlation
+- View API logs with `requestId` and `correlationId` correlation, plus an SSE-backed **Live tail** toggle
+- View **Audit log** (`/internal/audit`) — sensitive admin/merchant actions (deletions, plan changes, sensitive overrides) retained for compliance
+- View **Webhook events** (`/internal/webhooks`) — Shopify webhook deliveries (orders, products, customers, fulfillments, GDPR), filterable by topic/shop/status/date
+- **Trace view** (`/internal/trace/<correlationId>`) — joins API logs, jobs, errors, AI usage, flow steps, and activity into one timeline for any correlationId; reachable from a **Trace** action on every list row
 - View installed stores and basic stats
-- View and monitor background jobs (AI generation, publish, connector tests, flow runs, theme analysis)
+- View and monitor background jobs (AI generation, publish, connector tests, flow runs, theme analysis), with **Replay** action that re-enqueues the original payload under a fresh correlationId
 - Per-step flow execution logs for debugging automations
 - **Type category configuration** — view and edit category display names / visibility; **add new categories** (JSON overrides in App Settings)
 - **Plan tier configuration** — view and edit plan definitions (quotas, display name, trial days, price; -1 = "Contact us"). **Enterprise** plan (unlimited, Contact us); **Pro** = 10× Growth quotas
 - **Recipe edit** — select a store or **"All recipes (templates)"** to view/edit module specs or default templates; Validate or Save (new version or template override). Template overrides used when merchants create from template
 - **Store & plan control** — change a store's billing plan (FREE / STARTER / GROWTH / PRO / ENTERPRISE) without Shopify billing (internal override)
 - **Templates** — Module templates (link to recipe-edit) and Flow templates section
-- **Activity log** — per-entry **View** opens full detail (actor, action, resource, store, IP, details JSON)
+- **Activity log** — covers *everything*: page opened, page refreshed, button/link clicks, settings changes, request success/error (not just modules/server). API log = APIs only; Error log = errors only. Per-entry **View** opens full detail (actor, action, resource, store, IP, details JSON)
 - **AI Providers** — configured providers show **masked API key** (e.g. ••••••••xyz1), model, base URL; for **Claude (ANTHROPIC)** you can set Agent Skills (e.g. pptx, xlsx) and enable code execution; model pricing table
 - **Settings** — includes **AI & API keys** (link to Manage AI providers for Claude/OpenAI keys and options), **Password management** (INTERNAL_ADMIN_PASSWORD / SSO), **Environment variables** (.env reference), and **Advanced** (store & plan control). Standalone **Advanced** nav removed; `/internal/advanced` redirects to Settings
 
@@ -45,15 +48,18 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 | `/internal/login` | Password or SSO login |
 | `/internal` | Dashboard home (store count, error count, AI calls 24h) |
 | `/internal/ai-providers` | Add/activate AI providers + set model pricing |
-| `/internal/usage` | AI usage + costs (last 30 days) |
-| `/internal/logs` | Error logs (auto-redacted) |
-| `/internal/api-logs` | API access logs with actor, path, status, duration, requestId |
+| `/internal/usage` | AI usage + costs (last 30 days); per-row **Replay** + **Trace** |
+| `/internal/logs` | Error logs (auto-redacted); per-row **Trace** |
+| `/internal/api-logs` | API access logs with actor, path, status, duration, requestId, correlationId, SSE **Live tail**, per-row **Trace** |
+| `/internal/audit` | Audit log of sensitive admin/merchant actions (deletions, plan changes, overrides) for compliance review |
+| `/internal/webhooks` | Webhook events from Shopify (orders, products, customers, fulfillments, GDPR) — topic/shop/status/date filters |
+| `/internal/trace/:correlationId` | Unified timeline view: every API log, job, error, AI usage row, flow step, and activity entry that share the same correlationId/requestId |
 | `/internal/stores` | Installed stores; per-store AI provider override, retention overrides, **Change plan** (FREE/STARTER/GROWTH/PRO/ENTERPRISE) |
 | `/internal/plan-tiers` | View and edit plan tier definitions (display name, price [-1 = Contact us], trial days, quotas JSON). Enterprise = unlimited + Contact us; Pro = 10× Growth |
 | `/internal/categories` | View module categories, **add new categories**, edit overrides (display name, enabled) as JSON |
 | `/internal/recipe-edit` | Select **store or "All recipes (templates)"** → module/template → edit RecipeSpec; Validate or Save (new version or template override) |
 | `/internal/templates` | Module templates (link to recipe-edit) and Flow templates section |
-| `/internal/activity` | Activity log; each row has **View** → `/internal/activity/:id` with full detail (actor, action, resource, store, IP, details JSON) |
+| `/internal/activity` | Activity log (every page open, click, request outcome, settings change); each row has **View** → `/internal/activity/:id` with full detail (actor, action, resource, store, IP, details JSON) |
 | `/internal/advanced` | **Redirects to** `/internal/settings` (Advanced merged into Settings) |
 | `/internal/settings` | Appearance, profile, contact, app config; **Password management**; **Environment variables**; **Advanced** (store & plan control, other controls) |
 | `/internal/jobs` | Background job list (QUEUED/RUNNING/SUCCESS/FAILED) |
@@ -116,7 +122,19 @@ Flow jobs also produce per-step logs (`FlowStepLog`) for granular debugging.
 - Actor: `MERCHANT | INTERNAL | WEBHOOK | APP_PROXY`
 - Path, method, status, duration
 - `requestId` — matches the `x-request-id` response header for client correlation
+- `correlationId` — propagated across the full request lifecycle (API log → job → AI usage → flow step → error log → activity log) so a single ID joins every related record
 - Shop domain
+- **Live tail** — SSE stream (`/internal/api-logs/stream`) emits new ApiLog rows in near-real time; toggle on the page
+- **Trace** — opens `/internal/trace/<correlationId>` for a full timeline of correlated records
+
+## Trace view
+
+`/internal/trace/:correlationId` joins all log sources into a single timeline. Tabs split by source (Timeline, API, Jobs, Errors, AI usage, Flow steps, Activity). Use this to investigate a single end-to-end request — e.g. "why did this AI generation fail and what happened to the publish job that followed?"
+
+## Replay actions
+
+- `/internal/jobs` — **Replay** re-enqueues the original job payload as a new job (new id, fresh correlationId), preserving job type and shop linkage so flaky external dependencies can be retried without round-tripping through the merchant UI.
+- `/internal/usage` — **Replay** creates a new `AI_GENERATE` job with the same payload, same shop, same provider hint, and a fresh correlationId for re-running historical generations under the current model/prompt version.
 
 ---
 

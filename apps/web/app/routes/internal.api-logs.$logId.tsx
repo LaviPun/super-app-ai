@@ -44,6 +44,7 @@ export async function loader({ request, params }: { request: Request; params: { 
     status: log.status,
     durationMs: log.durationMs,
     requestId: log.requestId,
+    correlationId: log.correlationId ?? null,
     success: log.success,
     shopDomain: log.shop?.shopDomain ?? null,
     createdAt: log.createdAt.toISOString(),

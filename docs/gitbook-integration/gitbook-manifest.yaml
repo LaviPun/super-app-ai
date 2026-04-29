@@ -1,0 +1,13 @@
+name: ai-shopify-superapp-docs
+title: AI Shopify SuperApp Docs
+organization: UdVLpeu6Zz2JyWdVFGlW
+visibility: private
+description: GitBook integration for AI Shopify SuperApp documentation.
+script: src/index.tsx
+scopes:
+  - space:content:read
+blocks:
+  - id: ai-shopify-superapp-docs
+    title: AI Shopify SuperApp Docs
+    description: Embedded block for SuperApp documentation integration.
+secrets: {}

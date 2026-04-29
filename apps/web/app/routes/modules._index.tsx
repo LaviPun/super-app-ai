@@ -1,5 +1,5 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, Form, Link, useNavigation, useSearchParams, useFetcher, useRevalidator } from '@remix-run/react';
+import { useLoaderData, Form, Link, useNavigation, useNavigate, useSearchParams, useFetcher, useRevalidator } from '@remix-run/react';
 import {
   Page, Card, TextField, Button, BlockStack, Text, Badge,
   DataTable, InlineStack, EmptyState, SkeletonBodyText, Banner,
@@ -10,13 +10,51 @@ import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { MODULE_TEMPLATES, TEMPLATE_CATEGORIES, MODULE_TYPES_DISPLAY_ORDER } from '@superapp/core';
 import { INTENT_EXAMPLES } from '~/services/ai/intent-examples';
-import { getTypeDisplayLabel, getTypeTone } from '~/utils/type-label';
+import { getTypeDisplayLabel, getTypeTone, getCategoryDisplayLabel } from '~/utils/type-label';
 
 type RecipeOption = {
   index: number;
   explanation: string;
   recipe: Record<string, unknown>;
 };
+
+const DB_MESSAGES = [
+  'Classifying request...',
+  'Building validated RecipeSpec...',
+  'Preparing options...',
+];
+
+function AIGeneratingAnimation({ label }: { label?: string }) {
+  const [msgIdx, setMsgIdx] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => setMsgIdx(i => (i + 1) % DB_MESSAGES.length), 1700);
+    return () => clearInterval(t);
+  }, []);
+
+  return (
+    <Card>
+      <BlockStack gap="300">
+        <InlineStack align="space-between" blockAlign="center">
+          <InlineStack gap="200" blockAlign="center">
+            <Spinner size="small" accessibilityLabel="Generating module options" />
+            <Text as="p" variant="bodyMd" fontWeight="medium">
+              {DB_MESSAGES[msgIdx]}
+            </Text>
+          </InlineStack>
+          {label && (
+            <Text as="p" variant="bodySm" tone="subdued">
+              {label}
+            </Text>
+          )}
+        </InlineStack>
+        <Text as="p" variant="bodySm" tone="subdued">
+          We are validating output against your module schema and preparing three safe options.
+        </Text>
+      </BlockStack>
+    </Card>
+  );
+}
 
 /** Curated example prompts shown as "Try:" chips in the AI builder. */
 const EXAMPLE_PROMPTS: string[] = [
@@ -94,7 +132,7 @@ export async function loader({ request }: { request: Request }) {
       templates,
       categories: TEMPLATE_CATEGORIES as unknown as string[],
       types: [...MODULE_TYPES_DISPLAY_ORDER],
-      loaderError: undefined,
+      loaderError: undefined as string | undefined,
     });
   } catch (err) {
     let message: string;
@@ -114,10 +152,35 @@ export async function loader({ request }: { request: Request }) {
   }
 }
 
+function CopyIdButton({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        navigator.clipboard.writeText(id).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }).catch(() => {});
+      }}
+      title={id}
+      style={{
+        background: 'none', border: 'none', cursor: 'pointer',
+        fontFamily: 'var(--p-font-mono, monospace)', fontSize: 11,
+        color: copied ? '#008060' : '#6d7175', padding: '2px 4px',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {copied ? '✓ Copied' : `${id.slice(0, 8)}… ⎘`}
+    </button>
+  );
+}
+
 export default function ModulesIndex() {
   const { modules, stats, typeCounts, templates, categories, types, loaderError } = useLoaderData<typeof loader>();
   const [searchParams, setSearchParams] = useSearchParams();
   const nav = useNavigation();
+  const navigate = useNavigate();
   const isSubmitting = nav.state === 'submitting';
   const isLoading = nav.state === 'loading';
   const [filterTab, setFilterTab] = useState(0);
@@ -149,7 +212,7 @@ export default function ModulesIndex() {
   const [tplType, setTplType] = useState('All');
   const [tplSort, setTplSort] = useState('popular');
 
-  const proposeFetcher = useFetcher<{ options?: RecipeOption[]; error?: string }>();
+  const proposeFetcher = useFetcher<{ options?: RecipeOption[]; error?: string; message?: string }>();
   const confirmFetcher = useFetcher<{ moduleId?: string; error?: string }>();
   const [aiOptions, setAiOptions] = useState<RecipeOption[] | null>(null);
   const [builderOpen, setBuilderOpen] = useState(true);
@@ -164,11 +227,10 @@ export default function ModulesIndex() {
   }, [proposeFetcher.data, proposeFetcher.state]);
 
   useEffect(() => {
-    if (confirmFetcher.data?.moduleId) {
-      // Use full-page navigation to avoid Shopify App Bridge iframe blank page race condition
-      window.location.href = `/modules/${confirmFetcher.data.moduleId}`;
+    if (confirmFetcher.data?.moduleId && confirmFetcher.state === 'idle') {
+      navigate(`/modules/${confirmFetcher.data.moduleId}`);
     }
-  }, [confirmFetcher.data]);
+  }, [confirmFetcher.data, confirmFetcher.state, navigate]);
 
   const handleGenerate = useCallback(() => {
     setAiOptions(null);
@@ -251,6 +313,46 @@ export default function ModulesIndex() {
   return (
     <Page title="Modules" backAction={{ content: 'Dashboard', url: '/' }}>
       <BlockStack gap="500">
+        <style>{`
+          .Modules-templateCard {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+          }
+          .Modules-templateCardBody {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+          }
+          .Modules-templateAction {
+            margin-top: auto;
+            padding-top: 8px;
+          }
+          .Modules-tableHeader {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+          }
+          .Modules-rowName {
+            max-width: 280px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-weight: 500;
+          }
+          .Modules-rowUpdated {
+            white-space: nowrap;
+            color: var(--p-color-text-subdued);
+            font-size: 0.8125rem;
+          }
+          .Modules-rowAction {
+            min-width: 70px;
+            display: inline-flex;
+            justify-content: flex-end;
+          }
+        `}</style>
         {loaderError && !loaderErrorDismissed && (
           <Banner tone="critical" title="Could not load modules" onDismiss={() => setLoaderErrorDismissed(true)}>
             {loaderError}
@@ -272,24 +374,6 @@ export default function ModulesIndex() {
         {/* ─── AI Builder ─── */}
         {createMode === 'ai' && (
           <BlockStack gap="400">
-            <style>{`
-              @keyframes sa-option-glow {
-                0%, 100% { filter: drop-shadow(0 0 0px rgba(44,110,203,0)); }
-                50% { filter: drop-shadow(0 0 14px rgba(44,110,203,0.45)); }
-              }
-              @keyframes sa-shimmer {
-                0% { background-position: -600px 0; }
-                100% { background-position: 600px 0; }
-              }
-              .sa-option-glow { animation: sa-option-glow 2.8s ease-in-out infinite; border-radius: 12px; }
-              .sa-shimmer {
-                background: linear-gradient(90deg, #f4f5f7 25%, #e8eaed 50%, #f4f5f7 75%);
-                background-size: 600px 100%;
-                animation: sa-shimmer 1.5s ease-in-out infinite;
-                border-radius: 6px;
-              }
-            `}</style>
-
             <Card padding="400">
               <BlockStack gap="400">
                 <InlineStack align="space-between" blockAlign="center">
@@ -389,15 +473,18 @@ export default function ModulesIndex() {
 
                 {/* Generating banner */}
                 {isGenerating && (
-                  <InlineStack gap="200" blockAlign="center">
-                    <Spinner size="small" />
-                    <Text as="p" variant="bodySm" tone="subdued">AI is thinking… this takes 15–40 seconds.</Text>
-                  </InlineStack>
+                  <AIGeneratingAnimation label="This takes 15–40 seconds" />
                 )}
 
                 {proposeFetcher.data?.error && !isGenerating && (
-                  <Banner tone="critical">
-                    <Text as="p">{proposeFetcher.data.error}</Text>
+                  <Banner
+                    tone={proposeFetcher.data.error === 'RATE_LIMITED' ? 'warning' : 'critical'}
+                    title={proposeFetcher.data.error === 'RATE_LIMITED' ? 'AI is busy right now' : 'Generation failed'}
+                    action={proposeFetcher.data.error === 'RATE_LIMITED' ? { content: 'Try again', onAction: handleGenerate } : undefined}
+                  >
+                    <Text as="p">
+                      {proposeFetcher.data.message ?? proposeFetcher.data.error}
+                    </Text>
                   </Banner>
                 )}
                 {confirmFetcher.data?.error && !isConfirming && (
@@ -408,27 +495,7 @@ export default function ModulesIndex() {
               </BlockStack>
             </Card>
 
-            {/* Skeleton loading cards */}
-            {isGenerating && (
-              <BlockStack gap="300">
-                <Text as="h2" variant="headingMd" tone="subdued">Generating options…</Text>
-                <InlineGrid columns={{ xs: 1, md: 3 }} gap="400">
-                  {[0, 1, 2].map((i) => (
-                    <div key={i} style={{ borderRadius: 12, border: '1px solid #e1e3e5', padding: 16, background: '#fff' }}>
-                      <div className="sa-shimmer" style={{ height: 14, width: '45%', marginBottom: 10 }} />
-                      <div className="sa-shimmer" style={{ height: 1, marginBottom: 14, background: '#e1e3e5', animation: 'none' }} />
-                      <div className="sa-shimmer" style={{ height: 12, width: '95%', marginBottom: 8 }} />
-                      <div className="sa-shimmer" style={{ height: 12, width: '80%', marginBottom: 8 }} />
-                      <div className="sa-shimmer" style={{ height: 12, width: '60%', marginBottom: 20 }} />
-                      <div className="sa-shimmer" style={{ height: 12, width: '40%', marginBottom: 8 }} />
-                      <div className="sa-shimmer" style={{ height: 12, width: '55%', marginBottom: 8 }} />
-                      <div className="sa-shimmer" style={{ height: 12, width: '48%', marginBottom: 20 }} />
-                      <div className="sa-shimmer" style={{ height: 36, width: '100%', borderRadius: 8 }} />
-                    </div>
-                  ))}
-                </InlineGrid>
-              </BlockStack>
-            )}
+            {/* Skeleton loading cards — replaced by animated loader above */}
 
             {/* ─── AI Options Cards ─── */}
             {!isGenerating && aiOptions && aiOptions.length > 0 && (
@@ -453,7 +520,7 @@ export default function ModulesIndex() {
                     const config = r.config as Record<string, unknown> | undefined;
                     const hasStyle = !!r.style;
                     return (
-                      <div key={i} className="sa-option-glow">
+                      <div key={i}>
                         <Card>
                           <BlockStack gap="300">
                             <InlineStack align="space-between" blockAlign="center">
@@ -562,27 +629,31 @@ export default function ModulesIndex() {
               <InlineGrid columns={{ xs: 1, sm: 2, md: 3 }} gap="400">
                 {filteredTemplates.map(t => (
                   <Card key={t.id} padding="400">
-                    <BlockStack gap="300">
-                      <Text as="h3" variant="headingSm">{t.name}</Text>
-                      <Text as="p" variant="bodySm" tone="subdued">{t.description}</Text>
-                      <InlineStack gap="200" wrap>
-                        <Badge>{t.category.replace(/_/g, ' ')}</Badge>
-                        <Badge tone={getTypeTone(t.type)}>{getTypeDisplayLabel(t.type)}</Badge>
-                      </InlineStack>
-                      {t.tags.length > 0 && (
+                    <div className="Modules-templateCard">
+                      <BlockStack gap="300" {...{ className: 'Modules-templateCardBody' } as any}>
+                        <Text as="h3" variant="headingSm">{t.name}</Text>
+                        <Text as="p" variant="bodySm" tone="subdued">{t.description}</Text>
                         <InlineStack gap="200" wrap>
-                          {t.tags.slice(0, 4).map((tag: string) => (
-                            <Text key={tag} as="span" variant="bodySm" tone="subdued">#{tag}</Text>
-                          ))}
+                          <Badge>{getCategoryDisplayLabel(t.category)}</Badge>
+                          <Badge tone={getTypeTone(t.type)}>{getTypeDisplayLabel(t.type)}</Badge>
                         </InlineStack>
-                      )}
-                      <Form method="post" action="/api/modules/from-template">
-                        <input type="hidden" name="templateId" value={t.id} />
-                        <Button submit size="slim" variant="primary" loading={isSubmitting}>
-                          Use template
-                        </Button>
-                      </Form>
-                    </BlockStack>
+                        {t.tags.length > 0 && (
+                          <InlineStack gap="200" wrap>
+                            {t.tags.slice(0, 4).map((tag: string) => (
+                              <Text key={tag} as="span" variant="bodySm" tone="subdued">#{tag}</Text>
+                            ))}
+                          </InlineStack>
+                        )}
+                        <div className="Modules-templateAction">
+                          <Form method="post" action="/api/modules/from-template">
+                            <input type="hidden" name="templateId" value={t.id} />
+                            <Button submit size="slim" variant="primary" loading={isSubmitting}>
+                              Use template
+                            </Button>
+                          </Form>
+                        </div>
+                      </BlockStack>
+                    </div>
                   </Card>
                 ))}
               </InlineGrid>
@@ -641,7 +712,17 @@ export default function ModulesIndex() {
         <Card padding="0">
           <BlockStack gap="0">
             <Box padding="400">
-              <Tabs tabs={tabs} selected={filterTab} onSelect={setFilterTab} />
+              <div className="Modules-tableHeader">
+                <Text as="h2" variant="headingMd">
+                  Module list
+                </Text>
+                <Text as="p" variant="bodySm" tone="subdued">
+                  {filteredModules.length} shown
+                </Text>
+              </div>
+              <Box paddingBlockStart="200">
+                <Tabs tabs={tabs} selected={filterTab} onSelect={setFilterTab} />
+              </Box>
             </Box>
             <Box paddingBlockStart="0" paddingInlineStart="400" paddingInlineEnd="400" paddingBlockEnd="400">
             {isLoading ? (
@@ -662,20 +743,23 @@ export default function ModulesIndex() {
               </EmptyState>
             ) : (
               <DataTable
-                columnContentTypes={['text', 'text', 'text', 'text', 'numeric', 'text', 'text']}
-                headings={['Name', 'Type', 'Category', 'Status', 'Version', 'Updated', '']}
+                columnContentTypes={['text', 'text', 'text', 'text', 'numeric', 'text', 'text', 'text']}
+                headings={['Name', 'Type', 'Category', 'Status', 'Version', 'Updated', 'ID', '']}
                 rows={filteredModules.map(m => [
-                  m.name,
+                  <div className="Modules-rowName" title={m.name}>{m.name}</div>,
                   <Badge key={`t-${m.id}`} tone={getTypeTone(m.type)}>{getTypeDisplayLabel(m.type)}</Badge>,
-                  m.category,
+                  getCategoryDisplayLabel(m.category),
                   <Badge key={`s-${m.id}`} tone={m.status === 'PUBLISHED' ? 'success' : 'attention'}>
                     {m.status}
                   </Badge>,
                   m.latestVersion,
-                  new Date(m.updatedAt).toLocaleDateString('en-US'),
-                  <Link key={m.id} to={`/modules/${m.id}`}>
-                    <Button size="slim" variant="plain">View</Button>
-                  </Link>,
+                  <span className="Modules-rowUpdated">{new Date(m.updatedAt).toLocaleDateString('en-US')}</span>,
+                  <CopyIdButton key={`copy-${m.id}`} id={m.id} />,
+                  <div className="Modules-rowAction">
+                    <Link key={m.id} to={`/modules/${m.id}`}>
+                      <Button size="slim" variant="plain">View</Button>
+                    </Link>
+                  </div>,
                 ])}
               />
             )}

@@ -11,20 +11,29 @@ export async function action({ request }: { request: Request }) {
   return withApiLogging(
     { actor: 'MERCHANT', method: request.method, path: '/api/connectors/test', request, captureRequestBody: true, captureResponseBody: true },
     async () => {
-      const body = await request.json().catch(() => null) as any;
-      if (!body?.connectorId || !body?.path) {
+      const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!body || typeof body.connectorId !== 'string' || typeof body.path !== 'string') {
         return json({ error: 'Missing fields: connectorId, path' }, { status: 400 });
       }
 
+      const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+      type Method = (typeof ALLOWED_METHODS)[number];
+      const method: Method | undefined =
+        typeof body.method === 'string' && (ALLOWED_METHODS as readonly string[]).includes(body.method)
+          ? (body.method as Method)
+          : undefined;
+
+      const headers =
+        body.headers && typeof body.headers === 'object' && !Array.isArray(body.headers)
+          ? (body.headers as Record<string, string>)
+          : undefined;
+
       const svc = new ConnectorService();
-      // enforceSsrf inside svc.test() throws on blocked attempts — withApiLogging
-      // catches the error, records it as success=false, then re-throws so the caller
-      // gets a proper 500. This satisfies "SSRF attempts blocked and logged".
       const result = await svc.test(session.shop, {
-        connectorId: String(body.connectorId),
-        path: String(body.path),
-        method: body.method,
-        headers: body.headers,
+        connectorId: body.connectorId,
+        path: body.path,
+        method,
+        headers,
         body: body.body,
       });
 

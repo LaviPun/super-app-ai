@@ -10,7 +10,7 @@ This system uses a **Recipes architecture**:
 1. Merchant describes what they want.
 2. AI produces a **RecipeSpec JSON** (no raw code).
 3. Server validates RecipeSpec with Zod (strict schema).
-4. Compiler produces **DeployOperations** (assets/metafields/etc).
+4. Compiler produces **DeployOperations** (assets/metaobjects/etc).
 5. Merchant previews on a selected theme, then publishes.
 6. Every publish creates an immutable version; rollback switches active version.
 
@@ -20,7 +20,10 @@ This system uses a **Recipes architecture**:
 
 ### Admin UI (Embedded)
 - Remix + React + Polaris (Vite 6, React Router v7 future flags). Polaris 12’s **Card** uses ShadowBevel (`.Polaris-ShadowBevel`); rounded corners are enforced in `apps/web/app/app.css` and an inline style in `root.tsx` so cards stay round on all viewports. See [debug.md](./debug.md) §8 and [implementation-status.md](./implementation-status.md) (Admin app — stack, tooling & UI fixes).
-- Merchant can: generate module (AI or template) → preview → publish → rollback → manage connectors (with API tester) → build flows visually → manage data stores → manage billing
+- Merchant can: generate module (AI or template) → preview → publish → rollback → manage connectors → build flows → manage data models → manage billing
+- **Embedded app nav order**: Home → AI modules (`/modules`) → Advanced features (`/advanced`) → Data models (`/data`) → Billing (`/billing`) → Settings (`/settings`)
+- **Advanced features** (`/advanced`): hub page with cards linking to Connectors (`/connectors`) and Workflows (`/flows`); Connectors and Flows are no longer top-level nav items.
+- **Data models** (`/data`): three-tab layout — "All data models" (unified list with status + record counts), "Suggested & custom" (enable predefined stores, manage custom stores), "Settings" (explains how data enters stores via flows/manual/agent API and how scheduling works via FlowSchedule).
 
 ### API / Services
 | Service | File | Responsibility |
@@ -37,8 +40,8 @@ This system uses a **Recipes architecture**:
 | `QuotaService` | `services/billing/quota.service.ts` | Monthly quota enforcement per kind |
 | `ThemeAnalyzerService` | `services/theme/theme-analyzer.service.ts` | Fetch theme assets; detect patterns; suggest mount strategy |
 | Style compiler | `services/recipes/compiler/style-compiler.ts` | `compileStyleVars` / `compileStyleCss` / `compileOverlayPositionCss` / `sanitizeCustomCss` / `compileCustomCss` — storefront UI style → `--sa-*` CSS vars (theme-safe presets + scoped custom CSS) |
-| `PreviewService` | `services/preview/preview.service.ts` | HTML preview for all storefront modules (banner, popup, notification bar, proxy widget); applies style vars |
-| Proxy widget route | `routes/proxy.$widgetId.tsx` | App Proxy endpoint; reads `_styleCss` from metafield and renders styled HTML |
+| `PreviewService` | `services/preview/preview.service.ts` | HTML preview for all storefront modules (banner, popup, notification bar, floating widget, proxy widget, effect); applies style vars. Primary preview source — deterministic, no AI call needed |
+| Proxy widget route | `routes/proxy.$widgetId.tsx` | App Proxy endpoint; reads `$app:superapp_proxy_widget` metaobject by handle and renders styled HTML |
 | `DataStoreService` | `services/data/data-store.service.ts` | Manage predefined/custom data stores and records |
 | `AiUsageService` | `services/observability/ai-usage.service.ts` | Track tokens, cost, model per shop |
 
@@ -78,7 +81,7 @@ Gated capabilities (Shopify Plus only):
 
 Keep gating centralized in `packages/core/src/capabilities.ts`.
 
-**Customer account UI extension:** The `customerAccount.blocks` module type is rendered by the extension in `extensions/customer-account-ui/`. That extension uses **Preact + Polaris web components** (2026-01) and reads config from the shop metafield via `shopify.query()`. Shopify enforces a **64 KB** compiled script limit; see [debug.md](./debug.md) and [implementation-status.md](./implementation-status.md) (Phase 6) for stack details and troubleshooting.
+**Customer account UI extension:** The `customerAccount.blocks` module type is rendered by the extension in `extensions/customer-account-ui/`. That extension uses **Preact + Polaris web components** (2026-01) and reads config from `$app:superapp_customer_account_block` metaobject references via `shopify.query()` (Storefront API — `storefront=public_read`). Shopify enforces a **64 KB** compiled script limit; see [debug.md](./debug.md) and [implementation-status.md](./implementation-status.md) (Phase 6) for stack details and troubleshooting.
 
 ---
 
@@ -153,6 +156,12 @@ The AI pipeline is designed so that **any prompt** yields a valid RecipeSpec (no
 - **Tier B (embeddings):** `findIntentByEmbedding()` in `embedding-classifier.server.ts` — cosine similarity against `intent-examples.ts` (8–10 examples per intent). Requires `OPENAI_API_KEY`; vectors cached in-process. Feeds S2 into confidence formula.
 - **Tier C (cheap LLM):** `augmentWithCheapClassifier()` in `cheap-classifier.server.ts` — cheap LLM call when confidence < 0.55. Merges result back into ClassifyResult before IntentPacket is built.
 
+**Token efficiency:**
+- Per-type `maxTokens` budgets in `token-budget.server.ts` prevent over-allocation.
+- Compact JSON serialization (`JSON.stringify(spec)` — no pretty-print whitespace) for modify prompts saves ~30% prompt tokens.
+- High-confidence paths skip the full types list and intent packet, shaving ~2K tokens.
+- `AiUsageService.record()` runs on **every** attempt (success and failure) across all paths: `generateValidatedRecipeOptions`, `generateValidatedRecipeOptionsParallel`, `generateValidatedRecipeOptionsStream`, `modifyRecipeSpec`, and `modifyRecipeSpecOptions`.
+
 **Prompt quality:**
 - `getSettingsPack(moduleType)` — always injected; tells AI exactly which fields to populate per type.
 - Full schema + style + catalog injected on attempt 0 when `confidenceScore < 0.8`.
@@ -168,7 +177,7 @@ The AI pipeline is designed so that **any prompt** yields a valid RecipeSpec (no
 
 ## 7b. Module templates
 
-In addition to AI generation, merchants can create modules from **pre-built templates** defined in `packages/core/src/templates.ts`. Each template includes a complete `RecipeSpec` and metadata (name, description, category, tags).
+In addition to AI generation, merchants can create modules from **pre-built templates** defined across four files: `packages/core/src/_templates_part1.ts` (UAO, DAP, BCT, CUX), `_templates_part2.ts` (CHK, TYO, ACC, SHP), `_templates_part3.ts` (PAY, TRU, SUP), and `_templates_part4.ts` (LOY, ANA, OPS + coverage extras). There are 144 templates total (14 categories × 9 = 126 base + 16 coverage extras = 142 unique IDs, 144 entries) using IDs like UAO-001 through ORT-142. Each template includes a complete `RecipeSpec` and metadata (name, description, category, tags). All 23 RecipeSpec types are covered.
 
 ```
 POST /api/modules/from-template   { templateId }
@@ -178,7 +187,7 @@ POST /api/modules/from-template   { templateId }
   └── ActivityLog(MODULE_CREATED_FROM_TEMPLATE)
 ```
 
-Templates are curated and Zod-validated at build time. Adding a new template means appending to the `MODULE_TEMPLATES` array with a valid `RecipeSpec`. Internal admin can override default template specs via **AppSettings.templateSpecOverrides** (edited at `/internal/recipe-edit` with store "All recipes (templates)"); `from-template` uses the override when present.
+Templates are curated and Zod-validated at build time (all 83 tests pass). Adding a new template means appending to the `MODULE_TEMPLATES` array (in the appropriate `_templates_partN.ts` file) with a valid `RecipeSpec`. Internal admin can override default template specs via **AppSettings.templateSpecOverrides** (edited at `/internal/recipe-edit` with store "All recipes (templates)"); `from-template` uses the override when present.
 
 ---
 
@@ -441,7 +450,7 @@ Quota enforcement runs **before** any consuming action (`aiRequest` before AI ge
 
 ## 10. Performance (storefront)
 
-- Prefer Theme App Extension app blocks (config from metafields, no extra HTTP calls on storefront). For slot-based placement and extension strategy (Universal Slot, Product/Cart slots, target map, config sources), see [§15. Universal Module Slot & extension architecture](#15-universal-module-slot--extension-architecture).
+- Prefer Theme App Extension app blocks (config from metaobject references, no extra HTTP calls on storefront). For slot-based placement and extension strategy (Universal Slot, Product/Cart slots, target map, config sources), see [§15. Universal Module Slot & extension architecture](#15-universal-module-slot--extension-architecture).
 - App proxy responses are small and have `cache-control: public, max-age=60`.
 - No third-party JS injected by default.
 - Theme asset uploads use minimal Liquid; lazy-load images.
@@ -465,7 +474,7 @@ spec.style
 
 **Publish route (`/api/publish`):** Accepts both `application/json` and `application/x-www-form-urlencoded` (form posts from the module detail page). All `theme.*` modules are routed to `{ kind: 'THEME' }` deploy target.
 
-**Proxy widget route (`/proxy/:widgetId`):** Reads the compiled `_styleCss` from the shop metafield and injects it into a `<style>` block in the returned HTML document.
+**Proxy widget route (`/proxy/:widgetId`):** Reads the `$app:superapp_proxy_widget` metaobject by handle (`superapp-proxy-{widgetId}`) via Admin API and injects the stored `style_css` into a `<style>` block in the returned HTML document.
 
 **Overlay/backdrop controls:** The Style Builder shows backdrop color, backdrop opacity, anchor, and offset controls whenever the layout mode is `overlay`, `sticky`, or `floating` — not just for `theme.popup`.
 
@@ -480,7 +489,7 @@ spec.style
 5. (Optionally) add preview rendering in `PreviewService`.
 6. Rebuild core: `pnpm --filter @superapp/core build`.
 7. Add golden prompt to `services/ai/evals.server.ts` → `GOLDEN_PROMPTS`.
-8. Add at least one curated template in `packages/core/src/templates.ts` (the templates test enforces full type coverage).
+8. Add at least one curated template in the appropriate `packages/core/src/_templates_partN.ts` file (the templates test enforces full type coverage across all 144 templates).
 9. Add config fields for the new type in `components/ConfigEditor.tsx` (`CONFIG_FIELDS` map).
 10. If the type is storefront UI with style, add a `STYLE_CONFIG` entry in `components/StyleBuilder.tsx`.
 
@@ -518,11 +527,42 @@ One “universal section/app block” can be placed in any section; a setting or
 
 Shopify allows up to 30 app blocks per theme app extension (as of Feb 2026). Keep block settings **minimal** (Theme blocks have an “interactive settings” ceiling, commonly ~25): e.g. `slot_key` or implicit, optional `mode` (published/draft), optional `variant` (presentation preset), optional toggles (hide on mobile). Everything else lives in module config managed by the app UI + AI.
 
-### Module config location
+### Module config location — Metaobjects only (API 2026-04+ compliant)
 
-- **Preferred:** DB + caching.
-- **Alternatively:** Metaobjects (for many modules); metafields (for small configs).
-- Compiler continues to write metafields where appropriate; avoid shoving huge configs into a single field.
+All published module configs are stored as **Shopify metaobject entries** — one per published module per shop. No large JSON metafield blobs anywhere. Every surface reads from metaobject references.
+
+| What | Metaobject type | Reference metafield | Access |
+|------|----------------|---------------------|--------|
+| Theme modules (banner, popup, bar, widget, effect) | `$app:superapp_module` | `superapp.theme/module_refs` (list, max 128) | `storefront=public_read` (Liquid) |
+| Admin UI blocks | `$app:superapp_admin_block` | `superapp.admin/block_refs` (list, max 128) | Admin API |
+| Admin UI actions | `$app:superapp_admin_action` | `superapp.admin/action_refs` (list, max 128) | Admin API |
+| Checkout upsell | `$app:superapp_checkout_upsell` | `superapp.checkout/upsell_refs` (list, max 128) | `storefront=public_read` (Storefront API) |
+| Customer account blocks | `$app:superapp_customer_account_block` | `superapp.customer_account/block_refs` (list, max 128) | `storefront=public_read` (Storefront API) |
+| Proxy widget | `$app:superapp_proxy_widget` | handle lookup `superapp-proxy-{widgetId}` | Admin API (App Proxy route) |
+| Shopify Functions config | `$app:superapp_function_config` | `superapp.functions/fn_{key}` (single ref) | Admin API (Function input query) |
+
+**Why metaobjects:**
+- Shopify's 16KB metafield value write limit (API 2026-04+) makes large JSON blobs unsafe at scale. GROWTH plan (100 modules) was exceeding this with the old approach.
+- Metaobjects support up to **1,000,000 entries per definition** — each module is its own entry; no sharding needed until PRO tier (1000 modules) which would require `module_refs_2` list sharding (documented in `MetaobjectService.setModuleGidList`).
+- Each `config_json` / `style_json` field on a metaobject is independently validated against the 16KB limit.
+- All GraphQL operations MCP-validated ✅ against the Shopify Admin API schema (2026-01+).
+
+**Handle conventions:**
+- Theme: `superapp-module-{moduleId}`
+- Admin block: `superapp-block-{moduleId}`
+- Admin action: `superapp-action-{moduleId}`
+- Checkout upsell: `superapp-checkout-upsell-{moduleId}`
+- Customer account block: `superapp-ca-block-{moduleId}`
+- Proxy widget: `superapp-proxy-{widgetId}`
+- Functions: `superapp-fn-{functionKey}`
+
+**Liquid access:** `$app:superapp_module` has `storefront = "public_read"` so Liquid traverses references via `shop.metafields['superapp.theme']['module_refs'].value`. Each `mod_ref.fields.config_json.value` returns the parsed config object.
+
+**Key files:**
+- `MetaobjectService` — `apps/web/app/services/shopify/metaobject.service.ts`
+- `PublishService` — `apps/web/app/services/publish/publish.service.ts`
+- Definitions — `shopify.app.toml` `[[metaobjects]]` blocks (7 types)
+- Backfill — `apps/web/app/routes/internal.metaobject-backfill.tsx`
 
 ### Checkout UI extension
 
@@ -559,8 +599,8 @@ Used by Theme, Admin, Checkout, and Post-purchase:
 
 1. Theme app extension: Universal slot block → Product slot block (autofill product) → Cart slot block → App embed runtime loader.
 2. Admin UI extension: order-details block target(s); config-driven rendering.
-3. Checkout UI extension: upsell/block targets; config via `$app:` metafields; keep under 64 KB.
-4. Cart Transform Function: `cart.transform.run`; config via `$app:` metafields in input query.
+3. Checkout UI extension: upsell/block targets; config via `$app:superapp_checkout_upsell` metaobjects; keep under 64 KB.
+4. Cart Transform Function: `cart.transform.run`; config via `$app:superapp_function_config` metaobject.
 5. Other Functions (discount, delivery, payment, validation): same compile → config → function reads pattern.
 6. Post-purchase: ShouldRender/Render config-based.
 
@@ -596,12 +636,14 @@ flowchart LR
 - [ ] Move to Postgres + Prisma migrations (`prisma migrate deploy`)
 - [ ] Add Redis rate limiting (Upstash) to replace `InMemoryRateLimiter`
 - [x] ~~Add BullMQ/Inngest for scheduled flow triggers~~ — Implemented with lightweight DB-based scheduler (`ScheduleService` + `FlowSchedule` model + `GET /api/cron`)
-- [x] Sentry integration — `sentry.server.ts` provides `captureException`/`captureMessage` interface; env-gated on `SENTRY_DSN` (install `@sentry/node` to activate)
+- [x] Sentry integration — `sentry.server.ts` calls the real `@sentry/node` SDK when `SENTRY_DSN` is set; `redact.server.ts` is wired into `beforeSend` to scrub PII/secrets before events leave the process. `flushSentry()` exposed for graceful shutdowns.
 - [ ] Add CSP headers on embedded UI and app proxy HTML responses
-- [ ] Implement GDPR webhooks (`customers/data_request`, `customers/redact`, `shop/redact`)
+- [x] Implement GDPR webhooks — `webhooks.customers.data-request.tsx`, `webhooks.customers.redact.tsx`, `webhooks.shop.redact.tsx` are registered handlers that delete personal data and acknowledge data-request notifications.
 - [ ] KMS-backed envelope encryption for secrets (AWS KMS / GCP KMS)
 - [x] Define SLOs and build dashboards — `docs/slos.md` (6 SLOs with SQL measurement queries + OTel panel recommendations)
 - [x] Write incident runbooks — `docs/runbooks/` (4 runbooks + severity ladder + first-responder checklist)
+- [x] Cross-record correlation — `correlationId` + `requestId` on `ApiLog` / `Job` / `ErrorLog` / `AiUsage` / `FlowStepLog` / `ActivityLog`; `/internal/trace/<correlationId>` UI joins them into one timeline.
+- [x] Optional raw prompt/response capture for AI calls — gated by `DEBUG_AI_CAPTURE=1`, off by default; outputs go to `DEBUG_AI_CAPTURE_DIR` (default `./tmp/ai-debug`) after redaction.
 
 ---
 
@@ -625,7 +667,24 @@ pnpm --filter web evals                      # run AI evals harness
 | Errors | `ErrorLog` | Per `RetentionPolicy` |
 | AI token usage | `AiUsage` | Per `RetentionPolicy` |
 | Jobs | `Job` + `FlowStepLog` | Per `RetentionPolicy` |
+| Activity | `ActivityLog` | Per `RetentionPolicy` |
+| Audit | `AuditLog` | Long-lived (compliance) |
+| Webhooks | `WebhookEvent` | Long-lived (idempotency) |
 
 Run purge script: `pnpm --filter web retention:run`
 
-All writes to `ErrorLog` are automatically redacted (`redact.server.ts`). `ApiLog` stores no request/response bodies — only path, status, duration, requestId, and SHA-256 hashes for AI calls.
+### Cross-record correlation
+
+Every request runs inside an `AsyncLocalStorage` context (`correlation.server.ts`) that carries a `requestId` (always generated, also returned in the `x-request-id` response header) and a `correlationId` (echoed from / written to the `x-correlation-id` header; defaults to the `requestId` when no inbound value is present). Both fields are persisted on `ApiLog`, `Job`, `ErrorLog`, `AiUsage`, `FlowStepLog`, and `ActivityLog`, so any of those records can be joined back into one timeline. The internal admin UI exposes the timeline at `/internal/trace/<correlationId>`. Replay actions on `Job` and `AiUsage` rows re-enqueue work under a fresh correlationId so the original timeline stays intact.
+
+### Sentry integration
+
+`sentry.server.ts` lazily initializes `@sentry/node` when `SENTRY_DSN` is set. `tracesSampleRate` defaults to `0.1` and is overridable via `SENTRY_TRACES_SAMPLE_RATE`. Every event/transaction passes through a `beforeSend` hook that runs `redact()` from `redact.server.ts` so secrets and PII are scrubbed before leaving the process. `flushSentry(timeoutMs)` is exported for graceful shutdowns. When `SENTRY_DSN` is unset, `captureException`/`captureMessage` become no-ops.
+
+### Optional raw AI capture
+
+Setting `DEBUG_AI_CAPTURE=1` (off in production by default) makes every successful and failing AI client call write a redacted JSON file containing the raw prompt, raw response, model, provider, tokensIn/tokensOut, durationMs, and correlationId/requestId. Output directory defaults to `./tmp/ai-debug` and is overridable via `DEBUG_AI_CAPTURE_DIR`. Useful when investigating regressions where structured logs alone are not enough; never enable in production.
+
+### Redaction guarantees
+
+All writes to `ErrorLog` are automatically redacted (`redact.server.ts`). `ApiLog` stores no request/response bodies — only path, status, duration, requestId, correlationId, and SHA-256 hashes for AI calls. Sentry events are redacted before send. AI debug captures are redacted before disk write.

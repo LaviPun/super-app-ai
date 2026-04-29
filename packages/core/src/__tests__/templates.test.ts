@@ -4,6 +4,10 @@ import { RecipeSpecSchema } from '../recipe.js';
 import { RECIPE_SPEC_TYPES } from '../allowed-values.js';
 
 describe('MODULE_TEMPLATES integrity', () => {
+  it('has at least 126 templates', () => {
+    expect(MODULE_TEMPLATES.length).toBeGreaterThanOrEqual(126);
+  });
+
   it('every template has matching type and spec.type', () => {
     for (const t of MODULE_TEMPLATES) {
       expect(t.type).toBe(t.spec.type);
@@ -41,21 +45,30 @@ describe('MODULE_TEMPLATES integrity', () => {
     }
   });
 
-  it('findTemplate returns the correct template', () => {
-    const banner = findTemplate('tpl-banner-promo');
-    expect(banner).toBeDefined();
-    expect(banner!.spec.type).toBe('theme.banner');
+  it('findTemplate returns the correct template by ID', () => {
+    const uao = findTemplate('UAO-001');
+    expect(uao).toBeDefined();
+    expect(uao!.spec.type).toBe('theme.banner');
 
-    const popup = findTemplate('tpl-popup-exit');
-    expect(popup).toBeDefined();
-    expect(popup!.spec.type).toBe('theme.popup');
+    const chk = findTemplate('CHK-037');
+    expect(chk).toBeDefined();
+    expect(chk!.spec.type).toBe('checkout.block');
 
-    const flow = findTemplate('tpl-flow-order-tag');
-    expect(flow).toBeDefined();
-    expect(flow!.spec.type).toBe('flow.automation');
+    const ana = findTemplate('ANA-109');
+    expect(ana).toBeDefined();
+    expect(ana!.spec.type).toBe('analytics.pixel');
   });
 
   it('findTemplate returns undefined for unknown id', () => {
     expect(findTemplate('nonexistent')).toBeUndefined();
+  });
+
+  it('covers all 14 recipe library categories', () => {
+    const ids = MODULE_TEMPLATES.map(t => t.id);
+    const prefixes = ['UAO', 'DAP', 'BCT', 'CUX', 'CHK', 'TYO', 'ACC', 'SHP', 'PAY', 'TRU', 'SUP', 'LOY', 'ANA', 'OPS'];
+    for (const prefix of prefixes) {
+      const count = ids.filter(id => id.startsWith(prefix)).length;
+      expect(count, `Category ${prefix} should have at least 9 templates`).toBeGreaterThanOrEqual(9);
+    }
   });
 });

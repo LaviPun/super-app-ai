@@ -13,6 +13,8 @@ import {
   CUSTOMER_ACCOUNT_TARGETS,
   CHECKOUT_UI_TARGETS,
   ADMIN_TARGETS,
+  ADMIN_BLOCK_TARGETS,
+  ADMIN_ACTION_TARGETS,
   POS_TARGETS,
   PIXEL_STANDARD_EVENTS,
   MODULE_CATEGORIES,
@@ -63,7 +65,7 @@ export const ALL_MODULE_TYPES: ModuleType[] = [...RECIPE_SPEC_TYPES];
 /** Where to deploy: theme app extension via metafields (themeId + moduleId) or platform extensions. Doc-aligned. */
 export type DeployTarget =
   | { kind: (typeof DEPLOY_TARGET_KINDS)[0]; themeId: string; moduleId?: string }
-  | { kind: (typeof DEPLOY_TARGET_KINDS)[1] };
+  | { kind: (typeof DEPLOY_TARGET_KINDS)[1]; moduleId?: string };
 
 /** Theme placement: only one of enabled_on or disabled_on (doc 4.2.2B, 4.2.3). */
 const PlacementSchema = z
@@ -391,9 +393,23 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     category: z.literal('ADMIN_UI').default('ADMIN_UI'),
     requires: z.array(z.custom<Capability>()).default([]),
     config: z.object({
-      target: z.enum(ADMIN_TARGETS),
+      target: z.enum(ADMIN_BLOCK_TARGETS),
       label: z.string().min(LIMITS.labelMin).max(LIMITS.labelMax),
       shouldRender: z.boolean().optional(),
+    }),
+  }),
+
+  Base.extend({
+    type: z.literal('admin.action'),
+    category: z.literal('ADMIN_UI').default('ADMIN_UI'),
+    requires: z.array(z.custom<Capability>()).default([]),
+    config: z.object({
+      /** Shopify admin surface target, e.g. 'admin.order-details.action.render' */
+      target: z.enum(ADMIN_ACTION_TARGETS),
+      /** Text shown in the "More actions" menu entry. */
+      label: z.string().min(LIMITS.labelMin).max(LIMITS.labelMax),
+      /** Optional heading displayed inside the action modal. Defaults to label if omitted. */
+      title: z.string().min(1).max(60).optional(),
     }),
   }),
 

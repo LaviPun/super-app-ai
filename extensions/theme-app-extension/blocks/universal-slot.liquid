@@ -1,0 +1,151 @@
+{% comment %}
+  SuperApp Universal Slot (App Block)
+  Merchant pastes a module ID; this block finds and renders that module from
+  superapp.theme/module_refs (list.metaobject_reference) — API 2026-04+ compliant.
+  See technical.md §15.
+{% endcomment %}
+{% assign module_id = block.settings.module_id | strip %}
+{% if module_id != blank %}
+  {% assign mod_refs = shop.metafields['superapp.theme']['module_refs'].value %}
+  {% assign mod_ref = nil %}
+  {% for ref in mod_refs %}
+    {% if ref.fields.module_id.value == module_id %}
+      {% assign mod_ref = ref %}
+      {% break %}
+    {% endif %}
+  {% endfor %}
+
+  {% if mod_ref %}
+    {% assign mod_type  = mod_ref.fields.module_type.value %}
+    {% assign mod_cfg   = mod_ref.fields.config_json.value %}
+    {% assign mod_sty   = mod_ref.fields.style_json.value %}
+    <div class="superapp-slot" data-superapp-slot data-module-id="{{ module_id | escape }}">
+
+      {% if mod_type == 'theme.banner' %}
+        <section class="superapp-banner superapp-banner--embed" role="region" aria-label="{{ mod_cfg.heading | escape }}" data-module-id="{{ module_id | escape }}">
+          <div class="superapp-banner__inner">
+            <div class="superapp-banner__content">
+              <h2 class="superapp-banner__heading">{{ mod_cfg.heading | escape }}</h2>
+              {% if mod_cfg.subheading != blank %}
+                <p class="superapp-banner__subheading">{{ mod_cfg.subheading | escape }}</p>
+              {% endif %}
+              {% if mod_cfg.ctaText != blank and mod_cfg.ctaUrl != blank %}
+                <a class="superapp-banner__cta" href="{{ mod_cfg.ctaUrl | escape }}">{{ mod_cfg.ctaText | escape }}</a>
+              {% endif %}
+            </div>
+            {% if mod_cfg.imageUrl != blank %}
+              {% # theme-check-disable RemoteAsset %}
+              <img class="superapp-banner__image" src="{{ mod_cfg.imageUrl | escape }}" alt="" loading="lazy" width="800" height="400">
+              {% # theme-check-enable RemoteAsset %}
+            {% endif %}
+          </div>
+        </section>
+
+      {% elsif mod_type == 'theme.notificationBar' %}
+        <div class="superapp-note superapp-note--embed" data-module-id="{{ module_id | escape }}">
+          <div class="superapp-note__inner">
+            <span class="superapp-note__msg">{{ mod_cfg.message | escape }}</span>
+            {% if mod_cfg.linkText != blank and mod_cfg.linkUrl != blank %}
+              <a class="superapp-note__link" href="{{ mod_cfg.linkUrl | escape }}">{{ mod_cfg.linkText | escape }}</a>
+            {% endif %}
+          </div>
+        </div>
+
+      {% elsif mod_type == 'theme.popup' %}
+        <div class="superapp-popup superapp-popup--embed" data-module-id="{{ module_id | escape }}" data-trigger="{{ mod_cfg.trigger | escape }}" data-frequency="{{ mod_cfg.frequency | escape }}" hidden>
+          <div class="superapp-popup__backdrop" data-superapp-close></div>
+          <div class="superapp-popup__panel" role="dialog" aria-modal="true" aria-label="{{ mod_cfg.title | escape }}">
+            <button class="superapp-popup__close" type="button" data-superapp-close aria-label="Close">&times;</button>
+            <h3 class="superapp-popup__title">{{ mod_cfg.title | escape }}</h3>
+            {% if mod_cfg.body != blank %}
+              <p class="superapp-popup__body">{{ mod_cfg.body | escape }}</p>
+            {% endif %}
+            {% if mod_cfg.ctaText != blank and mod_cfg.ctaUrl != blank %}
+              <a class="superapp-popup__cta" href="{{ mod_cfg.ctaUrl | escape }}">{{ mod_cfg.ctaText | escape }}</a>
+            {% endif %}
+          </div>
+        </div>
+
+      {% elsif mod_type == 'theme.effect' %}
+        <div class="superapp-effect superapp-effect--embed" data-module-id="{{ module_id | escape }}" data-trigger="{{ mod_cfg.startTrigger | default: 'page_load' | escape }}" role="presentation" aria-hidden="true">
+          <div class="superapp-effect__overlay superapp-effect--{{ mod_cfg.effectKind | default: 'snowfall' }}">
+            {% for i in (1..50) %}
+              <div class="superapp-effect__particle"></div>
+            {% endfor %}
+          </div>
+        </div>
+
+      {% elsif mod_type == 'theme.floatingWidget' %}
+        {% assign fw_anchor        = mod_cfg.anchor | default: 'bottom_right' %}
+        {% assign fw_variant       = mod_cfg.variant | default: 'custom' %}
+        {% assign fw_label         = mod_cfg.label | default: '' %}
+        {% assign fw_action_url    = mod_cfg.actionUrl | default: mod_cfg.url | default: '' %}
+        {% assign fw_action_target = mod_cfg.actionTarget | default: '_blank' %}
+        {% if mod_sty.responsive.hideOnMobile != nil %}{% assign fw_hide_mobile = mod_sty.responsive.hideOnMobile %}{% else %}{% assign fw_hide_mobile = mod_cfg.hideOnMobile %}{% endif %}
+        {% if mod_sty.responsive.hideOnDesktop != nil %}{% assign fw_hide_desktop = mod_sty.responsive.hideOnDesktop %}{% else %}{% assign fw_hide_desktop = mod_cfg.hideOnDesktop %}{% endif %}
+        {% case fw_variant %}
+          {% when 'whatsapp' %}{% assign fw_icon = '💬' %}
+          {% when 'chat' %}{% assign fw_icon = '💬' %}
+          {% when 'coupon' %}{% assign fw_icon = '🏷️' %}
+          {% when 'cart' %}{% assign fw_icon = '🛒' %}
+          {% when 'scroll_top' %}{% assign fw_icon = '↑' %}
+          {% else %}{% assign fw_icon = '⭐' %}
+        {% endcase %}
+        <div class="superapp-fw-wrap superapp-fw-wrap--{{ fw_anchor | replace: '_', '-' }}{% if fw_hide_mobile %} superapp-fw-wrap--hide-mobile{% endif %}{% if fw_hide_desktop %} superapp-fw-wrap--hide-desktop{% endif %}" data-module-id="{{ module_id | escape }}" data-anchor="{{ fw_anchor | escape }}">
+          {% if fw_action_url != blank %}
+            <a class="superapp-fw" href="{{ fw_action_url | escape }}" target="{{ fw_action_target | escape }}" aria-label="{{ fw_label | default: fw_variant | escape }}">
+          {% else %}
+            <button class="superapp-fw" type="button" aria-label="{{ fw_label | default: fw_variant | escape }}">
+          {% endif %}
+            <span class="superapp-fw__icon" aria-hidden="true">{{ fw_icon }}</span>
+            {% if fw_label != blank %}<span class="superapp-fw__label">{{ fw_label | escape }}</span>{% endif %}
+          {% if fw_action_url != blank %}
+            </a>
+          {% else %}
+            </button>
+          {% endif %}
+        </div>
+      {% endif %}
+
+    </div>
+    <style>
+      .superapp-slot .superapp-banner--embed .superapp-banner__inner { display: flex; gap: 1rem; align-items: center; max-width: 1200px; margin: 0 auto; padding: 1rem; }
+      .superapp-slot .superapp-banner__heading { margin: 0 0 0.5rem; font-size: 1.25rem; }
+      .superapp-slot .superapp-banner__cta { display: inline-block; padding: 0.5rem 1rem; border: 1px solid currentColor; text-decoration: none; border-radius: 6px; }
+      .superapp-slot .superapp-note--embed { position: sticky; top: 0; z-index: 999; text-align: center; padding: 0.5rem 1rem; background: #f5f5f5; }
+      .superapp-slot .superapp-popup--embed { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; }
+      .superapp-slot .superapp-popup--embed[hidden] { display: none !important; }
+      .superapp-slot .superapp-popup__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.4); }
+      .superapp-slot .superapp-popup__panel { position: relative; background: #fff; padding: 1.5rem; border-radius: 12px; max-width: 400px; }
+      .superapp-slot .superapp-effect--embed { pointer-events: none; position: fixed; inset: 0; z-index: 9998; overflow: hidden; }
+      .superapp-slot .superapp-effect__particle { position: absolute; width: 4px; height: 4px; background: rgba(255,255,255,0.8); border-radius: 50%; animation: superapp-fall 8s linear infinite; }
+      @keyframes superapp-fall { 0% { transform: translateY(-10px); opacity: 0; } 10% { opacity: 0.8; } 90% { opacity: 0.8; } 100% { transform: translateY(100vh); opacity: 0; } }
+      .superapp-fw-wrap { position: fixed; z-index: 9990; }
+      .superapp-fw-wrap--bottom-right { bottom: 24px; right: 24px; }
+      .superapp-fw-wrap--bottom-left  { bottom: 24px; left: 24px; }
+      .superapp-fw-wrap--top-right    { top: 24px; right: 24px; }
+      .superapp-fw-wrap--top-left     { top: 24px; left: 24px; }
+      .superapp-fw-wrap--bottom-center{ bottom: 24px; left: 50%; transform: translateX(-50%); }
+      .superapp-fw { display: inline-flex; align-items: center; gap: 8px; background: #111; color: #fff; border: none; border-radius: 999px; padding: 14px 18px; cursor: pointer; box-shadow: 0 4px 20px rgba(0,0,0,0.22); font-size: 15px; white-space: nowrap; text-decoration: none; }
+      .superapp-fw__icon { font-size: 22px; line-height: 1; }
+      .superapp-fw__label { font-size: 14px; font-weight: 500; }
+      @media (max-width: 749px) { .superapp-fw-wrap--hide-mobile { display: none !important; } }
+      @media (min-width: 750px) { .superapp-fw-wrap--hide-desktop { display: none !important; } }
+    </style>
+  {% endif %}
+{% endif %}
+
+{% schema %}
+{
+  "name": "SuperApp Module Slot",
+  "target": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "module_id",
+      "label": "Module ID",
+      "info": "Paste the module ID from the app (e.g. from the module detail page). The block will render that published module here."
+    }
+  ]
+}
+{% endschema %}

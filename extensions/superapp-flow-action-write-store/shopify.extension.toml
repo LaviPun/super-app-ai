@@ -6,7 +6,7 @@ uid = "550c1a1a-04c7-10d4-c0b7-ceb52295b0f13e5fcc24"
 type = "flow_action"
 handle = "superapp-write-to-store"
 description = "Save data to a SuperApp data store."
-runtime_url = "https://superapp.example.com/api/flow/action"
+runtime_url = "https://example.com/api/flow/action"
 
 [settings]
 

@@ -1,0 +1,16 @@
+{
+  "name": "ai-shopify-superapp-docs",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "publish": "gitbook publish ."
+  },
+  "dependencies": {
+    "@gitbook/runtime": "*"
+  },
+  "devDependencies": {
+    "@gitbook/cli": "^0.27.2",
+    "@gitbook/tsconfig": "*",
+    "@cloudflare/workers-types": "*"
+  }
+}

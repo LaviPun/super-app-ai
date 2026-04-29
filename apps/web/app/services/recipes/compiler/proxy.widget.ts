@@ -3,8 +3,7 @@ import type { RecipeSpec } from '@superapp/core';
 import { compileStyleVars, compileStyleCss, compileCustomCss, normalizeStyle } from './style-compiler';
 
 export function compileProxyWidget(spec: Extract<RecipeSpec, { type: 'proxy.widget' }>): CompileResult {
-  const namespace = 'superapp.proxy';
-  const key = spec.config.widgetId;
+  const { widgetId } = spec.config;
   const style = normalizeStyle(spec.style);
   const styleVars = compileStyleVars(style);
   const styleCss = compileStyleCss(style, '.superapp-widget');
@@ -20,15 +19,14 @@ export function compileProxyWidget(spec: Extract<RecipeSpec, { type: 'proxy.widg
 
   return {
     ops: [
-      {
-        kind: 'SHOP_METAFIELD_SET',
-        namespace,
-        key,
-        type: 'json',
-        value: JSON.stringify({ ...spec.config, _styleCss: inlineCss }),
-      },
-      { kind: 'AUDIT', action: 'compile.proxy.widget', details: JSON.stringify({ namespace, key }) },
+      { kind: 'AUDIT', action: 'compile.proxy.widget', details: JSON.stringify({ widgetId }) },
     ],
-    compiledJson: JSON.stringify({ namespace, key }),
+    compiledJson: JSON.stringify({ metaobjectHandle: `superapp-proxy-${widgetId}` }),
+    proxyWidgetPayload: {
+      widgetId,
+      name: spec.name,
+      config: spec.config as Record<string, unknown>,
+      styleCss: inlineCss,
+    },
   };
 }

@@ -4,27 +4,33 @@ import {
   Page, Card, BlockStack, Text, Select, InlineStack, Button, TextField, Badge,
   SkeletonBodyText,
 } from '@shopify/polaris';
+import type { Prisma } from '@prisma/client';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
+import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagination.server';
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
   const url = new URL(request.url);
   const planFilter = url.searchParams.get('plan') || undefined;
   const search = url.searchParams.get('q') || undefined;
+  const { cursor, take, skip } = parseCursorParams(url);
 
   const prisma = getPrisma();
-  const where: Record<string, unknown> = {};
+  const where: Prisma.ShopWhereInput = {};
   if (planFilter) where.planTier = planFilter;
   if (search) where.shopDomain = { contains: search };
 
   const shops = await prisma.shop.findMany({
-    where: where as any,
+    where,
     orderBy: { createdAt: 'desc' },
-    take: 200,
+    take,
+    skip,
+    cursor,
     include: { modules: true, subscription: true },
   });
 
+  const nextCursor = buildNextCursorUrl(url, shops, take);
   const distinctPlans = [...new Set(shops.map(s => s.planTier))].sort();
 
   return json({
@@ -38,11 +44,12 @@ export async function loader({ request }: { request: Request }) {
     })),
     distinctPlans,
     filters: { plan: planFilter, search },
+    nextCursor,
   });
 }
 
 export default function InternalStoresIndex() {
-  const { shops, distinctPlans, filters } = useLoaderData<typeof loader>();
+  const { shops, distinctPlans, filters, nextCursor } = useLoaderData<typeof loader>();
   const nav = useNavigation();
   const isLoading = nav.state === 'loading';
   const [params, setParams] = useSearchParams();
@@ -109,6 +116,11 @@ export default function InternalStoresIndex() {
               </BlockStack>
             </Card>
           ))
+        )}
+        {nextCursor && (
+          <div style={{ textAlign: 'center' }}>
+            <Button url={nextCursor}>Load more</Button>
+          </div>
         )}
       </BlockStack>
     </Page>

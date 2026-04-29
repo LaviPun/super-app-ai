@@ -33,13 +33,13 @@ describe('style-compiler – defaults & normalise', () => {
   });
 
   it('normalizeStyle(partial) merges with defaults', () => {
-    const s = normalizeStyle({ colors: { text: '#000' } } as any);
+    const s = normalizeStyle({ colors: { text: '#000' } } as never as never);
     expect(s.colors.text).toBe('#000');
     expect(s.colors.background).toBe('#ffffff');
   });
 
   it('normalizeStyle preserves customCss', () => {
-    const s = normalizeStyle({ customCss: '.foo { color: red; }' } as any);
+    const s = normalizeStyle({ customCss: '.foo { color: red; }' } as never as never);
     expect(s.customCss).toBe('.foo { color: red; }');
   });
 });
@@ -245,7 +245,7 @@ describe('theme compilers — style integration', () => {
       requires: ['THEME_ASSETS'],
       config: { heading: 'Hi', enableAnimation: false },
     } as RecipeSpec;
-    const out = compileThemeBanner(spec as any, themeTarget);
+    const out = compileThemeBanner(spec as Parameters<typeof compileThemeBanner>[0], themeTarget);
     expect(out.ops.length).toBeGreaterThan(0);
     expect(out.ops.some((o) => o.kind === 'AUDIT')).toBe(true);
     expect(out.themeModulePayload).toBeDefined();
@@ -265,9 +265,9 @@ describe('theme compilers — style integration', () => {
         customCss: '.superapp-banner__heading { letter-spacing: 0.05em; }',
       },
     } as RecipeSpec;
-    const out = compileThemeBanner(spec as any, themeTarget);
+    const out = compileThemeBanner(spec as Parameters<typeof compileThemeBanner>[0], themeTarget);
     expect(out.themeModulePayload).toBeDefined();
-    expect(out.themeModulePayload?.style).toEqual(spec.style);
+    expect(out.themeModulePayload?.style).toEqual((spec as { style?: unknown }).style);
   });
 
   it('theme.banner custom CSS is passed through in payload', () => {
@@ -279,8 +279,8 @@ describe('theme compilers — style integration', () => {
       config: { heading: 'Hi', enableAnimation: false },
       style: { customCss: '@import url("bad.css"); .foo { color: red; }' },
     } as RecipeSpec;
-    const out = compileThemeBanner(spec as any, themeTarget);
-    expect(out.themeModulePayload?.style?.customCss).toBe(spec.style?.customCss);
+    const out = compileThemeBanner(spec as Parameters<typeof compileThemeBanner>[0], themeTarget);
+    expect(out.themeModulePayload?.style?.customCss).toBe((spec as { style?: { customCss?: string } }).style?.customCss);
   });
 
   it('theme.popup compiles with target and returns themeModulePayload', () => {
@@ -291,7 +291,7 @@ describe('theme compilers — style integration', () => {
       requires: ['THEME_ASSETS'],
       config: { title: 'Hi', trigger: 'ON_LOAD', frequency: 'ONCE_PER_DAY' },
     } as RecipeSpec;
-    const out = compileThemePopup(spec as any, themeTarget);
+    const out = compileThemePopup(spec as Parameters<typeof compileThemePopup>[0], themeTarget);
     expect(out.ops.length).toBeGreaterThan(0);
     expect(out.themeModulePayload).toBeDefined();
     expect(out.themeModulePayload?.type).toBe('theme.popup');
@@ -305,7 +305,7 @@ describe('theme compilers — style integration', () => {
       requires: ['THEME_ASSETS'],
       config: { message: 'Hello', dismissible: true },
     } as RecipeSpec;
-    const out = compileNotificationBar(spec as any, themeTarget);
+    const out = compileNotificationBar(spec as Parameters<typeof compileNotificationBar>[0], themeTarget);
     expect(out.themeModulePayload).toBeDefined();
     expect(out.themeModulePayload?.type).toBe('theme.notificationBar');
     expect(out.themeModulePayload?.config).toEqual(spec.config);
@@ -325,11 +325,9 @@ describe('proxy.widget — style integration', () => {
       requires: ['APP_PROXY'],
       config: { widgetId: 'widget-abc', title: 'Hello', mode: 'HTML' },
     } as RecipeSpec;
-    const out = compileProxyWidget(spec as any);
-    const metaOp = out.ops.find((o) => o.kind === 'SHOP_METAFIELD_SET') as any;
-    expect(metaOp).toBeDefined();
-    const value = JSON.parse(metaOp.value);
-    expect(value._styleCss).toContain('--sa-text');
+    const out = compileProxyWidget(spec as Parameters<typeof compileProxyWidget>[0]);
+    expect(out.proxyWidgetPayload).toBeDefined();
+    expect(out.proxyWidgetPayload?.styleCss).toContain('--sa-text');
   });
 
   it('compiles with custom colors', () => {
@@ -341,11 +339,9 @@ describe('proxy.widget — style integration', () => {
       config: { widgetId: 'widget-abc', title: 'Hello', mode: 'HTML' },
       style: { colors: { text: '#ff0000', background: '#000000' } },
     } as RecipeSpec;
-    const out = compileProxyWidget(spec as any);
-    const metaOp = out.ops.find((o) => o.kind === 'SHOP_METAFIELD_SET') as any;
-    const value = JSON.parse(metaOp.value);
-    expect(value._styleCss).toContain('--sa-text: #ff0000;');
-    expect(value._styleCss).toContain('--sa-bg: #000000;');
+    const out = compileProxyWidget(spec as Parameters<typeof compileProxyWidget>[0]);
+    expect(out.proxyWidgetPayload?.styleCss).toContain('--sa-text: #ff0000;');
+    expect(out.proxyWidgetPayload?.styleCss).toContain('--sa-bg: #000000;');
   });
 
   it('compiles customCss scoped to widget selector', () => {
@@ -357,8 +353,7 @@ describe('proxy.widget — style integration', () => {
       config: { widgetId: 'widget-abc', title: 'Hello', mode: 'HTML' },
       style: { customCss: '.inner { font-style: italic; }' },
     } as RecipeSpec;
-    const out = compileProxyWidget(spec as any);
-    const value = JSON.parse((out.ops.find((o) => o.kind === 'SHOP_METAFIELD_SET') as any).value);
-    expect(value._styleCss).toContain('.superapp-widget .inner');
+    const out = compileProxyWidget(spec as Parameters<typeof compileProxyWidget>[0]);
+    expect(out.proxyWidgetPayload?.styleCss).toContain('.superapp-widget .inner');
   });
 });

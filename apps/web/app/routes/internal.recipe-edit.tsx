@@ -1,5 +1,5 @@
 import { json, redirect } from '@remix-run/node';
-import { Form, useLoaderData, useSearchParams, useNavigation, useActionData } from '@remix-run/react';
+import { useLoaderData, useSearchParams, useFetcher } from '@remix-run/react';
 import {
   Page, Card, BlockStack, Text, Select, InlineStack, Button, Banner,
 } from '@shopify/polaris';
@@ -103,21 +103,61 @@ export async function loader({ request }: { request: Request }) {
 
 export async function action({ request }: { request: Request }) {
   const session = await requireInternalAdmin(request);
-  const form = await request.formData();
-  const intent = String(form.get('intent') ?? 'validate');
+  const contentType = request.headers.get('content-type') ?? '';
 
-  const specRaw = form.get('spec');
-  const specJson = typeof specRaw === 'string' ? specRaw : specRaw ? String(specRaw) : '';
-  if (!specJson.trim()) return json({ error: 'Missing spec', validationResult: null }, { status: 400 });
+  let intent = 'validate';
+  let specJson = '';
+  let shopIdField = '';
+  let moduleIdField = '';
+  let parsedSpecFromBody: unknown = undefined;
+
+  if (contentType.includes('application/json')) {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: 'Invalid JSON body', validationResult: null }, { status: 400 });
+    }
+    if (!body || typeof body !== 'object') {
+      return json({ error: 'Body must be an object', validationResult: null }, { status: 400 });
+    }
+    const b = body as Record<string, unknown>;
+    intent = typeof b.intent === 'string' ? b.intent : 'validate';
+    shopIdField = typeof b.shopId === 'string' ? b.shopId : '';
+    moduleIdField = typeof b.moduleId === 'string' ? b.moduleId : '';
+    if (typeof b.spec === 'string') {
+      specJson = b.spec;
+    } else if (b.spec && typeof b.spec === 'object') {
+      parsedSpecFromBody = b.spec;
+      specJson = JSON.stringify(b.spec);
+    } else {
+      return json({ error: 'Missing spec', validationResult: null }, { status: 400 });
+    }
+  } else {
+    const form = await request.formData();
+    intent = String(form.get('intent') ?? 'validate');
+    shopIdField = String(form.get('shopId') ?? '');
+    moduleIdField = String(form.get('moduleId') ?? '');
+    const specRaw = form.get('spec');
+    specJson = typeof specRaw === 'string' ? specRaw : specRaw ? String(specRaw) : '';
+  }
+
+  if (!specJson.trim() && parsedSpecFromBody === undefined) {
+    return json({ error: 'Missing spec', validationResult: null }, { status: 400 });
+  }
 
   let spec: unknown;
-  try {
-    spec = JSON.parse(specJson);
-  } catch {
-    return json({
-      error: 'Invalid JSON',
-      validationResult: { valid: false, errors: { formErrors: ['Invalid JSON'], fieldErrors: {} } },
-    });
+  if (parsedSpecFromBody !== undefined) {
+    spec = parsedSpecFromBody;
+  } else {
+    try {
+      spec = JSON.parse(specJson);
+    } catch {
+      return json({
+        error: 'Invalid JSON',
+        validationResult: { valid: false, errors: { formErrors: ['Invalid JSON'], fieldErrors: {} } },
+      });
+    }
   }
 
   const parsed = RecipeSpecSchema.safeParse(spec);
@@ -134,8 +174,8 @@ export async function action({ request }: { request: Request }) {
     if (!parsed.success) {
       return json({ error: 'Validation failed', validationResult }, { status: 400 });
     }
-    const shopId = String(form.get('shopId') ?? '');
-    const moduleId = String(form.get('moduleId') ?? '');
+    const shopId = shopIdField;
+    const moduleId = moduleIdField;
     if (!shopId || !moduleId) return json({ error: 'Missing shopId or moduleId' }, { status: 400 });
 
     if (shopId === TEMPLATES_SHOP_ID) {
@@ -190,8 +230,8 @@ export async function action({ request }: { request: Request }) {
 
 export default function InternalRecipeEdit() {
   const { shops, modules, shopId, moduleId, currentSpec, moduleName } = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
-  const navigation = useNavigation();
+  const fetcher = useFetcher<typeof action>();
+  const actionData = fetcher.data;
   const [searchParams, setSearchParams] = useSearchParams();
   const [specText, setSpecText] = useState(currentSpec ?? '');
 
@@ -229,11 +269,25 @@ export default function InternalRecipeEdit() {
     [searchParams, setSearchParams]
   );
 
-  const isSaving = navigation.state !== 'idle' && navigation.formData?.get('intent') === 'save';
-  const isValidating = navigation.state !== 'idle' && navigation.formData?.get('intent') === 'validate';
+  const submittingIntent =
+    fetcher.state !== 'idle' && fetcher.formData
+      ? String(fetcher.formData.get('intent') ?? '')
+      : null;
+  const isSaving = submittingIntent === 'save';
+  const isValidating = submittingIntent === 'validate';
 
   const validationResult = actionData && 'validationResult' in actionData ? actionData.validationResult : null;
   const errors = validationResult && !validationResult.valid && validationResult.errors;
+
+  const submitJson = useCallback(
+    (intent: 'validate' | 'save') => {
+      fetcher.submit(
+        { intent, shopId, moduleId, spec: specText },
+        { method: 'post', encType: 'application/json' },
+      );
+    },
+    [fetcher, shopId, moduleId, specText],
+  );
 
   return (
     <Page title="Recipe edit" subtitle="Edit module RecipeSpec JSON (validated on save).">
@@ -316,24 +370,22 @@ export default function InternalRecipeEdit() {
                   spellCheck={false}
                 />
                 <InlineStack gap="200" blockAlign="start">
-                  <Form method="post">
-                    <input type="hidden" name="intent" value="validate" />
-                    <input type="hidden" name="shopId" value={shopId} />
-                    <input type="hidden" name="moduleId" value={moduleId} />
-                    <input type="hidden" name="spec" value={specText} />
-                    <Button submit variant="secondary" loading={isValidating}>
-                      Validate
-                    </Button>
-                  </Form>
-                  <Form method="post">
-                    <input type="hidden" name="intent" value="save" />
-                    <input type="hidden" name="shopId" value={shopId} />
-                    <input type="hidden" name="moduleId" value={moduleId} />
-                    <input type="hidden" name="spec" value={specText} />
-                    <Button submit variant="primary" loading={isSaving}>
-                      {shopId === TEMPLATES_SHOP_ID ? 'Save template override' : 'Save as new version'}
-                    </Button>
-                  </Form>
+                  <Button
+                    variant="secondary"
+                    loading={isValidating}
+                    disabled={isSaving || isValidating}
+                    onClick={() => submitJson('validate')}
+                  >
+                    Validate
+                  </Button>
+                  <Button
+                    variant="primary"
+                    loading={isSaving}
+                    disabled={isSaving || isValidating || !shopId || !moduleId}
+                    onClick={() => submitJson('save')}
+                  >
+                    {shopId === TEMPLATES_SHOP_ID ? 'Save template override' : 'Save as new version'}
+                  </Button>
                 </InlineStack>
               </BlockStack>
             </Card>

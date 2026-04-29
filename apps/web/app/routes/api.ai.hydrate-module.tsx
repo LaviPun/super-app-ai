@@ -18,12 +18,20 @@ export async function action({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
 
   return withApiLogging(
-    { actor: 'MERCHANT', method: request.method, path: '/api/ai/hydrate-module', request, captureRequestBody: true, captureResponseBody: true },
+    {
+      actor: 'MERCHANT',
+      method: request.method,
+      path: '/api/ai/hydrate-module',
+      request,
+      captureRequestBody: true,
+      captureResponseBody: true,
+    },
     async () => {
       enforceRateLimit(`ai:${session.shop}`);
 
       const form = await request.formData();
       const moduleId = String(form.get('moduleId') ?? '').trim();
+      const force = String(form.get('force') ?? '').trim() === '1';
       if (!moduleId) return json({ error: 'Missing moduleId' }, { status: 400 });
 
       const prisma = getPrisma();
@@ -43,6 +51,22 @@ export async function action({ request }: { request: Request }) {
         : mod.versions.find((v: { status: string }) => v.status === 'DRAFT') ?? mod.activeVersion ?? mod.versions[0];
       if (!targetVersion) return json({ error: 'No version to hydrate' }, { status: 400 });
 
+      if (targetVersion.hydratedAt && !force) {
+        let validationReport: { overall: string; checks: { id: string; severity: string; status: string; description: string; howToFix?: string }[] } | null = null;
+        if (targetVersion.validationReportJson) {
+          try {
+            validationReport = JSON.parse(targetVersion.validationReportJson) as typeof validationReport;
+          } catch {
+            // ignore
+          }
+        }
+        return json({
+          ok: true,
+          validationReport: validationReport ?? { overall: 'PASS', checks: [] },
+          hydratedAt: targetVersion.hydratedAt.toISOString(),
+        });
+      }
+
       let recipeSpec;
       try {
         recipeSpec = RecipeSpecSchema.parse(JSON.parse(targetVersion.specJson));
@@ -61,7 +85,10 @@ export async function action({ request }: { request: Request }) {
       try {
         const envelope = await hydrateRecipeSpec(recipeSpec, {
           shopId: shopRow.id,
-          merchantContext: { planTier: shopRow.planTier ?? undefined },
+          merchantContext: {
+            planTier: shopRow.planTier ?? undefined,
+            locale: (session as { locale?: string }).locale ?? undefined,
+          },
         });
 
         const hydratedAt = new Date();
@@ -69,12 +96,13 @@ export async function action({ request }: { request: Request }) {
           where: { id: targetVersion.id },
           data: {
             hydratedAt,
-            adminConfigSchemaJson: JSON.stringify(envelope.adminConfigSchema),
-            adminDefaultsJson: JSON.stringify(envelope.adminConfigSchema.defaults),
+            adminConfigSchemaJson: JSON.stringify(envelope.adminConfig),
+            adminDefaultsJson: JSON.stringify(envelope.adminConfig.defaults),
             themeEditorSettingsJson: JSON.stringify(envelope.themeEditorSettings),
             uiTokensJson: envelope.uiTokens ? JSON.stringify(envelope.uiTokens) : null,
             validationReportJson: JSON.stringify(envelope.validationReport),
-            compiledRuntimePlanJson: envelope.implementationPlan ? JSON.stringify(envelope.implementationPlan) : null,
+            implementationPlanJson: envelope.implementationPlan ? JSON.stringify(envelope.implementationPlan) : null,
+            previewHtmlJson: envelope.previewHtml ?? null,
           },
         });
 

@@ -25,8 +25,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
   });
 }
 
-type LoaderData = Awaited<ReturnType<typeof loader>>;
-
 const STEP_LABELS = [
   'What do you want to achieve?',
   'Recommended implementation plan',
@@ -37,7 +35,7 @@ const STEP_LABELS = [
 ];
 
 export default function PickerIndex() {
-  const data = useLoaderData<LoaderData>();
+  const data = useLoaderData<typeof loader>();
   const [step, setStep] = useState(0);
   const [goal, setGoal] = useState<string>('');
   const [placementTemplate, setPlacementTemplate] = useState<string>('');

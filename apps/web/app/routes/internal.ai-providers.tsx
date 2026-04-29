@@ -6,7 +6,7 @@ import {
 } from '@shopify/polaris';
 import { useState, useRef, useEffect } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
-import { AiProviderService } from '~/services/internal/ai-provider.service';
+import { AiProviderService, type ProviderKind } from '~/services/internal/ai-provider.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { getPrisma } from '~/db.server';
 
@@ -50,11 +50,25 @@ export async function action({ request }: { request: Request }) {
   if (intent === 'addPrice') {
     const providerId = String(form.get('providerId') ?? '');
     const model = String(form.get('model') ?? '').trim();
-    const input = Number(form.get('inputCents') ?? '0');
-    const output = Number(form.get('outputCents') ?? '0');
-    const cached = String(form.get('cachedCents') ?? '').trim();
-    if (!providerId || !model || !input || !output) {
-      return json({ error: 'Provider, model, and input/output cents are required.' }, { status: 400 });
+    const inputRaw = String(form.get('inputCents') ?? '').trim();
+    const outputRaw = String(form.get('outputCents') ?? '').trim();
+    const cachedRaw = String(form.get('cachedCents') ?? '').trim();
+    const input = Number(inputRaw);
+    const output = Number(outputRaw);
+    if (!providerId || !model || inputRaw === '' || outputRaw === '' ||
+        !Number.isFinite(input) || !Number.isFinite(output) || input < 0 || output < 0) {
+      return json(
+        { error: 'Provider, model, and non-negative input/output cents are required (0 is allowed for free tiers).' },
+        { status: 400 },
+      );
+    }
+    let cached: number | null = null;
+    if (cachedRaw !== '') {
+      const c = Number(cachedRaw);
+      if (!Number.isFinite(c) || c < 0) {
+        return json({ error: 'Cached cents must be a non-negative number.' }, { status: 400 });
+      }
+      cached = c;
     }
 
     await prisma.aiModelPrice.create({
@@ -63,7 +77,7 @@ export async function action({ request }: { request: Request }) {
         model,
         inputPer1MTokensCents: input,
         outputPer1MTokensCents: output,
-        cachedInputPer1MTokensCents: cached ? Number(cached) : null,
+        cachedInputPer1MTokensCents: cached,
         isActive: true,
       },
     });
@@ -111,7 +125,7 @@ export async function action({ request }: { request: Request }) {
   }
 
   const name = String(form.get('name') ?? '').trim();
-  const provider = String(form.get('provider') ?? 'OPENAI');
+  const providerRaw = String(form.get('provider') ?? 'OPENAI');
   const apiKey = String(form.get('apiKey') ?? '').trim();
   const model = String(form.get('defaultModel') ?? '').trim();
   const baseUrl = String(form.get('baseUrl') ?? '').trim();
@@ -119,6 +133,12 @@ export async function action({ request }: { request: Request }) {
   const claudeCodeExecution = form.get('claudeCodeExecution') === 'true';
 
   if (!name || !apiKey) return json({ error: 'Name and API key are required.' }, { status: 400 });
+
+  const ALLOWED_PROVIDERS: readonly ProviderKind[] = ['OPENAI', 'ANTHROPIC', 'AZURE_OPENAI', 'CUSTOM'];
+  if (!ALLOWED_PROVIDERS.includes(providerRaw as ProviderKind)) {
+    return json({ error: `Unknown provider kind: ${providerRaw}` }, { status: 400 });
+  }
+  const provider = providerRaw as ProviderKind;
 
   const extraConfig =
     provider === 'ANTHROPIC' && (claudeSkillsRaw || claudeCodeExecution)
@@ -128,9 +148,9 @@ export async function action({ request }: { request: Request }) {
         }
       : undefined;
 
-  const created = await service.create({
+  await service.create({
     name,
-    provider: provider as any,
+    provider,
     apiKey,
     model: model || undefined,
     baseUrl: baseUrl || undefined,
@@ -237,7 +257,7 @@ export default function InternalAiProviders() {
     }
   }, [defaultProviders?.openai?.model, defaultProviders?.claude?.model, defaultProviders?.claude?.extraConfig]);
   useEffect(() => {
-    if (providers.length && !priceProviderId) setPriceProviderId(providers[0].id);
+    if (providers.length && !priceProviderId) setPriceProviderId(providers[0]!.id);
   }, [providers, priceProviderId]);
 
   const providerOptions = providers.map(p => ({ label: `${p.name} (${p.provider})`, value: p.id }));

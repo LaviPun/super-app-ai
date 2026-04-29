@@ -57,9 +57,14 @@ export async function action({ request }: { request: Request }) {
     const payload = body.payload ?? {};
 
     const runner = new FlowRunnerService();
-    let jobIds: string[] = [];
+    const jobIds: string[] = [];
     try {
-      await runner.runForTrigger(session.shop, admin, trigger as any, payload);
+      await runner.runForTrigger(
+        session.shop,
+        admin,
+        trigger as Parameters<FlowRunnerService['runForTrigger']>[2],
+        payload
+      );
     } catch (e) {
       return json({ error: e instanceof Error ? e.message : 'Run failed' }, { status: 500 });
     }

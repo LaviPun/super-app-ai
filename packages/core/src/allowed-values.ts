@@ -243,7 +243,7 @@ export const CUSTOMER_ACCOUNT_TARGETS = [
 ] as const;
 
 // ─── 4.6.2 Admin target enum (Actions, Blocks, Print, Segmentation, etc.) ──────
-const ADMIN_ACTION_TARGETS = [
+export const ADMIN_ACTION_TARGETS = [
   'admin.abandoned-checkout-details.action.render',
   'admin.catalog-details.action.render',
   'admin.collection-details.action.render',
@@ -270,7 +270,7 @@ const ADMIN_ACTION_TARGETS = [
   'admin.product-purchase-option.action.render',
   'admin.product-variant-purchase-option.action.render',
 ] as const;
-const ADMIN_BLOCK_TARGETS = [
+export const ADMIN_BLOCK_TARGETS = [
   'admin.abandoned-checkout-details.block.render',
   'admin.catalog-details.block.render',
   'admin.collection-details.block.render',
@@ -561,6 +561,7 @@ export const RECIPE_SPEC_TYPES = [
   'checkout.block',
   'postPurchase.offer',
   'admin.block',
+  'admin.action',
   'pos.extension',
   'analytics.pixel',
   'integration.httpSync',
@@ -590,6 +591,7 @@ const MODULE_TYPE_ORDER: ModuleType[] = [
   'functions.fulfillmentConstraints',
   'functions.orderRoutingLocationRule',
   'admin.block',
+  'admin.action',
   'pos.extension',
   'platform.extensionBlueprint',
   'analytics.pixel',
@@ -648,6 +650,7 @@ export const MODULE_TYPE_TO_CATEGORY: Record<ModuleType, ModuleCategory> = {
   'checkout.block': 'STOREFRONT_UI',
   'postPurchase.offer': 'STOREFRONT_UI',
   'admin.block': 'ADMIN_UI',
+  'admin.action': 'ADMIN_UI',
   'pos.extension': 'ADMIN_UI',
   'analytics.pixel': 'INTEGRATION',
   'integration.httpSync': 'INTEGRATION',
@@ -675,6 +678,7 @@ export const MODULE_TYPE_DEFAULT_REQUIRES: Record<ModuleType, readonly string[]>
   'checkout.block': ['CHECKOUT_UI_INFO_SHIP_PAY'],
   'postPurchase.offer': ['CHECKOUT_UI_INFO_SHIP_PAY'],
   'admin.block': [],
+  'admin.action': [],
   'pos.extension': [],
   'analytics.pixel': [],
   'integration.httpSync': [],
@@ -702,6 +706,7 @@ export const MODULE_TYPE_TO_SURFACE: Record<ModuleType, ShopifySurface> = {
   'checkout.block': 'checkout',
   'postPurchase.offer': 'checkout',
   'admin.block': 'admin',
+  'admin.action': 'admin',
   'pos.extension': 'pos',
   'analytics.pixel': 'marketing_analytics',
   'integration.httpSync': 'online_store',
@@ -812,7 +817,8 @@ export const CLASSIFICATION_RULES: ClassificationRule[] = [
   { keywords: ['upsell', 'checkout upsell', 'cross-sell at checkout', 'order bump'], type: 'checkout.upsell' },
   { keywords: ['checkout block', 'checkout block render'], type: 'checkout.block' },
   { keywords: ['post purchase', 'post-purchase', 'one-click upsell'], type: 'postPurchase.offer' },
-  { keywords: ['admin action', 'admin block', 'admin extension'], type: 'admin.block' },
+  { keywords: ['admin block', 'admin card', 'admin panel', 'admin extension'], type: 'admin.block' },
+  { keywords: ['admin action', 'more actions', 'action modal', 'action button'], type: 'admin.action' },
   { keywords: ['pos', 'point of sale', 'pos extension', 'receipt'], type: 'pos.extension' },
   { keywords: ['pixel', 'analytics', 'tracking', 'web pixel', 'event tracking'], type: 'analytics.pixel' },
   { keywords: ['integration', 'http sync', 'api sync', 'webhook sync', 'connector'], type: 'integration.httpSync' },

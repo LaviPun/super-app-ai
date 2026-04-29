@@ -1,4 +1,5 @@
 import { postJsonWithRetries } from '~/services/ai/http/ai-http.server';
+import { captureAiDebug, isAiDebugCaptureEnabled } from '~/services/ai/debug-capture.server';
 
 export async function openAiCompatibleGenerateRecipe(opts: {
   apiKey: string;
@@ -6,22 +7,78 @@ export async function openAiCompatibleGenerateRecipe(opts: {
   model: string;
   prompt: string;
   shopId?: string;
+  /** Override default max output tokens (default 8192). */
+  maxTokens?: number;
+  /** Optional JSON Schema for structured output. */
+  responseSchema?: { name?: string; schema: Record<string, unknown> };
 }) {
+  const start = Date.now();
+  type CompatResult = { rawJson: string; tokensIn: number; tokensOut: number; model: string };
+  const state: { result: CompatResult | null } = { result: null };
   try {
-    return await tryResponses(opts);
-  } catch {
-    return await tryChatCompletions(opts);
+    try {
+      state.result = await tryResponses(opts);
+    } catch {
+      state.result = await tryChatCompletions(opts);
+    }
+    if (isAiDebugCaptureEnabled() && state.result) {
+      await captureAiDebug({
+        provider: 'CUSTOM',
+        model: state.result.model,
+        prompt: opts.prompt,
+        response: state.result.rawJson,
+        tokensIn: state.result.tokensIn,
+        tokensOut: state.result.tokensOut,
+        shopId: opts.shopId,
+        durationMs: Date.now() - start,
+      });
+    }
+    return state.result;
+  } catch (err) {
+    if (isAiDebugCaptureEnabled()) {
+      const captured = state.result;
+      await captureAiDebug({
+        provider: 'CUSTOM',
+        model: captured?.model ?? opts.model,
+        prompt: opts.prompt,
+        response: captured?.rawJson ?? '',
+        tokensIn: captured?.tokensIn,
+        tokensOut: captured?.tokensOut,
+        shopId: opts.shopId,
+        durationMs: Date.now() - start,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
+    }
+    throw err;
   }
 }
 
-async function tryResponses(opts: any) {
+async function tryResponses(opts: {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  prompt: string;
+  shopId?: string;
+  maxTokens?: number;
+  responseSchema?: { name?: string; schema: Record<string, unknown> };
+}) {
   const base = opts.baseUrl.replace(/\/$/, '');
   const url = `${base}/v1/responses`;
+
+  const format = opts.responseSchema
+    ? {
+        type: 'json_schema' as const,
+        name: opts.responseSchema.name ?? 'RecipeSpec',
+        schema: opts.responseSchema.schema,
+        strict: true,
+      }
+    : { type: 'json_object' as const };
 
   const body = {
     model: opts.model,
     input: [{ role: 'user', content: [{ type: 'input_text', text: opts.prompt }] }],
-    text: { format: { type: 'json_object' } },
+    text: { format },
+    max_output_tokens: opts.maxTokens ?? 8192,
   };
 
   const { json } = await postJsonWithRetries({
@@ -40,14 +97,34 @@ async function tryResponses(opts: any) {
   };
 }
 
-async function tryChatCompletions(opts: any) {
+async function tryChatCompletions(opts: {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  prompt: string;
+  shopId?: string;
+  maxTokens?: number;
+  responseSchema?: { name?: string; schema: Record<string, unknown> };
+}) {
   const base = opts.baseUrl.replace(/\/$/, '');
   const url = `${base}/v1/chat/completions`;
+
+  const responseFormat = opts.responseSchema
+    ? {
+        type: 'json_schema' as const,
+        json_schema: {
+          name: opts.responseSchema.name ?? 'RecipeSpec',
+          schema: opts.responseSchema.schema,
+          strict: true,
+        },
+      }
+    : { type: 'json_object' as const };
 
   const body = {
     model: opts.model,
     messages: [{ role: 'user', content: opts.prompt }],
-    response_format: { type: 'json_object' },
+    response_format: responseFormat,
+    max_tokens: opts.maxTokens ?? 8192,
   };
 
   const { json } = await postJsonWithRetries({

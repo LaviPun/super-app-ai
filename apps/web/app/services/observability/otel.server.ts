@@ -78,7 +78,8 @@ export function initOtel(): void {
         : undefined;
 
       const sdk = new NodeSDK({
-        ...(resource && { resource }),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ...(resource && { resource: resource as any }),
         traceExporter: exporter,
         sampler: new TraceIdRatioBasedSampler(sampleRate),
         instrumentations: [

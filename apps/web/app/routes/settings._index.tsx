@@ -7,7 +7,7 @@ import {
 import { useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
-import { ActivityLogService } from '~/services/activity/activity.service';
+import { ActivityLogService, logRequestOutcome } from '~/services/activity/activity.service';
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -75,9 +75,11 @@ export async function action({ request }: { request: Request }) {
       actor: 'MERCHANT', action: 'STORE_SETTINGS_UPDATED',
       shopId: shopRow.id, details: { section: 'retention' },
     });
+    await logRequestOutcome({ shopId: shopRow.id, pathOrIntent: 'settings/retention', success: true });
     return json({ success: true, message: 'Data retention settings saved.' });
   }
 
+  await logRequestOutcome({ shopId: shopRow.id, pathOrIntent: 'settings/action', success: false, details: { intent } });
   return json({ error: 'Unknown action' }, { status: 400 });
 }
 
@@ -95,9 +97,9 @@ export default function SettingsPage() {
   return (
     <Page title="Settings" backAction={{ content: 'Home', url: '/' }}>
       <BlockStack gap="500">
-        {actionData?.success && (
+        {'success' in (actionData ?? {}) && (actionData as { success: boolean; message: string } | undefined)?.success && (
           <Banner tone="success" title="Saved">
-            <Text as="p">{actionData.message}</Text>
+            <Text as="p">{(actionData as { success: boolean; message: string }).message}</Text>
           </Banner>
         )}
 

@@ -1,49 +1,53 @@
 /**
  * Prompt builder for the hydrate step: given a RecipeSpec, produce a full
- * config envelope (admin schema, defaults, theme editor settings, validation report).
+ * config envelope. Token-optimized to stay within provider rate limits (e.g. 10k input/min).
  */
 import type { RecipeSpec } from '@superapp/core';
 
-const ENVELOPE_GROUPS = `
-Your adminConfigSchema.jsonSchema MUST include, at minimum, these property groups (as top-level or nested properties):
-1) content: headline, body, images, icons, cta label/url, rich text rules
-2) layout: position, alignment, width, maxWidth, spacing, grid, responsive rules
-3) style: colors, typography, borders, radius, shadow, background, gradients, overlay
-4) behavior: open/close logic, frequency capping, persistence, close actions, delays
-5) animation: type, duration, easing, entrance/exit, reduced motion support
-6) visibility_targeting: pages, products/collections, customer segments/tags, geo, device
-7) rules_scheduling: start/end time, timezone, days, inventory/order conditions if relevant
-8) localization: multi-locale strings, fallback rules
-9) accessibility: aria labels, focus trap, keyboard navigation, contrast notes
-10) performance: lazy load, defer, throttle, cache, network strategy
-11) analytics: event toggles, sampling, debug mode, event property allowlist
-`;
+/** Compact group list to reduce prompt tokens; full semantics in schema. */
+const REQUIRED_GROUPS = 'content, layout, style, behavior, animation, visibility_targeting, rules_scheduling, localization, accessibility, performance, analytics';
+const ENVELOPE_GROUPS =
+  `adminConfig RULES — BOTH of these are REQUIRED:\n` +
+  `1. adminConfig.jsonSchema.properties MUST include ALL 11 groups as top-level keys: ${REQUIRED_GROUPS}.\n` +
+  `2. adminConfig.defaults MUST include ALL 11 groups as top-level keys (same names) with REAL, non-empty objects containing meaningful field defaults — NOT empty {} objects. Every group key in jsonSchema must have a corresponding populated defaults entry.`;
 
-export function buildHydratePrompt(recipeSpec: RecipeSpec, _merchantContext?: { planTier?: string; locale?: string }): string {
+function getTypeSpecificGuidance(type: string): string {
+  if (type === 'theme.popup') {
+    return ' Popup: add mobile fallback trigger; behavior: focus trap, escape-to-close, scroll lock, return focus; style: CTA bg/text/hover/focus.';
+  }
+  if (type === 'theme.banner') {
+    return ' Banner: block vs embed; add dismiss/persistence defaults.';
+  }
+  return '';
+}
+
+export function buildHydratePrompt(recipeSpec: RecipeSpec, merchantContext?: { planTier?: string; locale?: string }): string {
+  const planTier = merchantContext?.planTier ?? 'STANDARD';
+  const locale = merchantContext?.locale ?? 'en';
+
   const parts: string[] = [
-    'You are SuperApp AI: a senior Shopify Solutions Architect + Staff UI/UX Designer + QA Lead.',
-    'Goal: Convert the given RecipeSpec into a production-ready HydrateEnvelope (single JSON object).',
-    '',
-    'HARD RULES:',
-    '1) Output MUST be a single valid JSON object. No markdown, no code fences, no extra text.',
-    '2) Do NOT ask questions. If something is ambiguous, make explicit assumptions and proceed.',
-    '3) OS 2.0 only. Shopify-feasible: never propose a surface capability that does not exist.',
-    '4) validationReport.overall must be PASS or WARN only. If you detect FAIL, revise the spec and set WARN with howToFix.',
-    '',
-    'REQUIRED OUTPUT SHAPE (HydrateEnvelope):',
-    '- version: "2.0"',
-    '- adminConfigSchema: { schemaVersion: "1.0", jsonSchema: {...}, uiSchema: {...}, defaults: {...} }',
-    '- themeEditorSettings: { fields: [{ id, type, label, default?, options? }], limitsNotes?: [] }',
-    '  Theme Editor must be minimal: e.g. enabled (boolean), module_variant (select), config_id (text).',
-    '- uiTokens: { colors?, typography?, spacing?, radius?, shadow? } — each array of { token, default, themeAware? }',
-    '- validationReport: { overall: "PASS"|"WARN", checks: [{ id, severity, status, description, howToFix? }], notes?: [] }',
-    '',
-    ENVELOPE_GROUPS,
-    '',
-    'RecipeSpec to materialize:',
-    JSON.stringify(recipeSpec, null, 2),
-    '',
-    'Respond with ONLY the JSON object. No explanation before or after.',
+    'Convert RecipeSpec → HydrateEnvelopeV1 (single JSON). Context: plan=' + planTier + ', locale=' + locale + '. Advanced toggles only for GROWTH+.',
+    'Envelope version MUST be exactly "1.0".',
+    'Rules: JSON only, no markdown.',
+
+    // ── surfacePlan ── must be an OBJECT, not an array
+    'surfacePlan: OBJECT (NOT array). Shape: { selectedSurfaces?: string[], compatibility?: [{ surface: string, status: "SUPPORTED"|"LIMITED"|"NOT_SUPPORTED", notes?: string[] }] }',
+
+    // ── themeEditorSettings ──
+    'themeEditorSettings.fields: array of OBJECTS. Each item MUST have "id" (string) and "label" (string). Shape: { id: string, type: string, label: string, default?: any, options?: [{ value: string, label: string }] }. options items MUST be objects {value,label} — NOT plain strings.',
+
+    // ── uiTokens ──
+    'uiTokens: each category (colors, typography, spacing, radius, shadow) is an ARRAY of token objects. Shape: [{ token: string, default: string|number, themeAware?: boolean }]. Example: colors:[{ token:"--color-text", default:"#111" }]. Do NOT output a plain object.',
+
+    // ── validationReport ──
+    'validationReport.overall: "PASS" or "WARN" only. validationReport.checks: array of { id: string, severity: "blocker"|"high"|"medium"|"low", status: "PASS"|"WARN"|"FAIL", description: string, howToFix?: string }. ALL four fields (id, severity, status, description) are required on every check.',
+
+    // ── adminConfig ──
+    ENVELOPE_GROUPS + getTypeSpecificGuidance(recipeSpec.type),
+
+    'RecipeSpec:',
+    JSON.stringify(recipeSpec),
+    'Output ONLY the JSON object.',
   ];
   return parts.join('\n');
 }

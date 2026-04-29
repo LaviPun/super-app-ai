@@ -21,6 +21,8 @@ export class PreviewService {
         return { kind: 'HTML', html: this.notificationBar(spec) };
       case 'theme.effect':
         return { kind: 'HTML', html: this.effect(spec) };
+      case 'theme.floatingWidget':
+        return { kind: 'HTML', html: this.floatingWidget(spec) };
       case 'proxy.widget':
         return { kind: 'HTML', html: this.proxyWidget(spec) };
       default:
@@ -176,6 +178,81 @@ export class PreviewService {
     `);
   }
 
+  private floatingWidget(spec: Extract<RecipeSpec, { type: 'theme.floatingWidget' }>): string {
+    const c = spec.config;
+    const anchor = c.anchor ?? 'bottom_right';
+    const offsetX = c.offsetX ?? 24;
+    const offsetY = c.offsetY ?? 24;
+
+    const variantIcons: Record<string, string> = {
+      whatsapp: '💬',
+      chat: '💬',
+      coupon: '🏷️',
+      cart: '🛒',
+      scroll_top: '↑',
+      custom: '⭐',
+    };
+    const icon = variantIcons[c.variant ?? 'custom'] ?? '⭐';
+    const label = c.label ?? '';
+
+    let posX = '';
+    let posY = '';
+    let extraTransform = '';
+    switch (anchor) {
+      case 'bottom_right': posX = `right: ${offsetX}px;`; posY = `bottom: ${offsetY}px;`; break;
+      case 'bottom_left':  posX = `left: ${offsetX}px;`;  posY = `bottom: ${offsetY}px;`; break;
+      case 'top_right':    posX = `right: ${offsetX}px;`; posY = `top: ${offsetY}px;`;    break;
+      case 'top_left':     posX = `left: ${offsetX}px;`;  posY = `top: ${offsetY}px;`;    break;
+      case 'bottom_center': posX = `left: 50%;`; posY = `bottom: ${offsetY}px;`; extraTransform = 'transform: translateX(-50%);'; break;
+      default: posX = `right: ${offsetX}px;`; posY = `bottom: ${offsetY}px;`; break;
+    }
+
+    return pageHtml(`
+      <div class="preview-stage">
+        <div class="preview-label">Floating widget · ${esc(anchor.replace(/_/g, ' '))} · ${esc(c.variant ?? 'custom')}</div>
+        <div class="superapp-fw" style="${posX} ${posY} ${extraTransform}">
+          <span class="superapp-fw__icon">${icon}</span>
+          ${label ? `<span class="superapp-fw__label">${esc(label)}</span>` : ''}
+        </div>
+      </div>
+    `, `
+      body { font-family: system-ui, -apple-system, sans-serif; margin: 0; }
+      .preview-stage {
+        position: relative;
+        min-height: 320px;
+        background: linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 100%);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .preview-label {
+        position: absolute;
+        top: 16px;
+        left: 16px;
+        font-size: 12px;
+        color: #888;
+        text-transform: capitalize;
+      }
+      .superapp-fw {
+        position: absolute;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: #111;
+        color: #fff;
+        border-radius: 999px;
+        padding: 14px 18px;
+        cursor: pointer;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.22);
+        font-size: 15px;
+        white-space: nowrap;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+      .superapp-fw:hover { transform: scale(1.06); box-shadow: 0 8px 28px rgba(0,0,0,0.28); }
+      .superapp-fw__icon { font-size: 22px; line-height: 1; }
+      .superapp-fw__label { font-size: 14px; font-weight: 500; }
+    `);
+  }
+
   private proxyWidget(spec: Extract<RecipeSpec, { type: 'proxy.widget' }>): string {
     const c = spec.config;
     const styleBlock = this.styleCss(spec, '.superapp-widget');
@@ -192,6 +269,21 @@ export class PreviewService {
   }
 }
 
+const LINK_INTERCEPT_SCRIPT = `
+<script>
+document.addEventListener('click', function(e) {
+  var el = e.target && e.target.closest('a');
+  if (!el) return;
+  e.preventDefault();
+  window.parent.postMessage({
+    type: 'preview-link-click',
+    href: el.href || el.getAttribute('href') || '',
+    target: el.getAttribute('target') || '_self',
+    text: (el.textContent || '').trim().slice(0, 80)
+  }, '*');
+}, true);
+</script>`;
+
 function pageHtml(body: string, css: string) {
   return `
     <!doctype html>
@@ -204,6 +296,7 @@ function pageHtml(body: string, css: string) {
       </head>
       <body>
         <div style="padding:16px">${body}</div>
+        ${LINK_INTERCEPT_SCRIPT}
       </body>
     </html>
   `.trim();

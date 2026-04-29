@@ -1,4 +1,4 @@
-import type { AdminApiContext } from '@shopify/shopify-app-remix/server';
+import type { AdminApiContext } from '~/types/shopify';
 import { getPrisma } from '~/db.server';
 import { getPlanConfig as getPlanConfigFromDb } from './plan-config.service';
 
@@ -145,7 +145,7 @@ export class BillingService {
       },
     });
 
-    const data = await res.json();
+    const data = await res.json() as any;
     const topLevelErrors = data?.errors ?? [];
     if (topLevelErrors.length) {
       const msg = topLevelErrors.map((e: { message?: string }) => e.message).filter(Boolean).join('; ');

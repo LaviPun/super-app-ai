@@ -14,7 +14,7 @@ export async function action({ request }: { request: Request }) {
   }
 
   const runner = new FlowRunnerService();
-  await runner.runForTrigger(shop, admin, 'SHOPIFY_WEBHOOK_ORDER_CREATED', payload);
+  await runner.runForTrigger(shop, admin as any, 'SHOPIFY_WEBHOOK_ORDER_CREATED', payload);
 
   return new Response(undefined, { status: 200 });
 }

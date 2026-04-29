@@ -80,6 +80,10 @@ No style.`,
 Settings: offerTitle(str 1-80), productVariantGid(str, opt), message(str 0-240, opt). One-click upsell after payment.
 No style.`,
 
+  'admin.action': `Module: admin.action | Category: ADMIN_UI
+Settings: target(enum from ADMIN_TARGETS), label(str 1-80), shouldRender(bool, opt). Admin action modal on resource pages.
+No style.`,
+
   'admin.block': `Module: admin.block | Category: ADMIN_UI
 Settings: target(enum from ADMIN_TARGETS), label(str 1-80), shouldRender(bool, opt). Admin block on resource pages.
 No style.`,
@@ -121,7 +125,7 @@ export function getModuleSummary(type: ModuleType): string {
 export function getAllTypesSummary(): string {
   const lines = Object.entries(MODULE_SUMMARIES).map(
     ([type, summary]) => {
-      const firstLine = summary.split('\n')[0];
+      const firstLine = summary.split('\n')[0] ?? '';
       return `- ${type}: ${firstLine.replace(/^Module:\s*\S+\s*\|\s*/, '')}`;
     },
   );

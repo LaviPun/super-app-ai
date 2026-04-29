@@ -34,13 +34,21 @@ export async function action({
 
   if (!body?.path) return json({ error: 'Missing path' }, { status: 400 });
 
+  const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+  type Method = (typeof ALLOWED_METHODS)[number];
+  const requestedMethod = body.method ?? 'GET';
+  if (!(ALLOWED_METHODS as readonly string[]).includes(requestedMethod)) {
+    return json({ error: `Unsupported method: ${requestedMethod}` }, { status: 400 });
+  }
+  const method = requestedMethod as Method;
+
   const svc = new ConnectorService();
   let result;
   try {
     result = await svc.test(session.shop, {
       connectorId,
       path: body.path,
-      method: (body.method ?? 'GET') as any,
+      method,
       headers: body.headers,
       body: body.body,
     });

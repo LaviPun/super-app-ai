@@ -10,7 +10,7 @@ Merchants can create modules like:
 - Integrations: ERP/3rd-party API connectors + mapping, with **Postman-like API tester** and **saved endpoints** per connector
 - Automation: visual flow builder (Zapier/Make-style) + cron schedules + webhooks. Flows can write to app-owned **Data Stores**.
 - Customer account UI: modules rendered on customer account pages (Order index, Order status, Profile) via a **Preact + Polaris** UI extension; 64 KB script limit (see [docs/debug.md](docs/debug.md))
-- **Module Templates**: 30 pre-built templates covering all 14 RecipeSpec types — merchants can generate with AI or start from a template
+- **Module Templates**: 100 pre-built templates covering all 14 RecipeSpec types — merchants can generate with AI or start from a template
 - **Module Settings Editor**: per-type config/copy editor (heading, body, trigger, frequency, etc.) on the module detail page
 - **Modify with AI**: rework/regenerate modules using AI instructions without creating a new module
 - **Theme Dropdown**: publish section fetches themes from Shopify and shows a single Select dropdown with theme name and "(Live)" for the live theme; only valid store themes are listed. Theme ID is validated server-side before publish (400 if not found). "Refresh themes" re-syncs the list; no manual theme ID input
@@ -22,7 +22,8 @@ You (the app owner/dev team) get:
 - Internal developer dashboard with sidebar navigation (Polaris Frame + TopBar + Navigation)
   - **Dashboard**: Stat cards (stores, AI calls 24h, API cost 24h, providers), errors/jobs/activities, job success rate, quick links to Plan tiers, Categories, Recipe edit, Settings
   - **AI Providers**: Add/activate providers, model pricing; per-provider display of masked API key (••••xyz1), model, base URL; for Claude (ANTHROPIC): optional Agent Skills (e.g. pptx, xlsx) and code execution
-  - **Usage & Costs**, **Activity Log** (with per-entry View → full detail: actor, action, resource, store, details JSON), **Error Logs**, **API Logs**
+  - **Usage & Costs** (now includes prompt preview + account/limit audit context), **Activity Log** (with per-entry View → full detail: actor, action, resource, store, details JSON), **Error Logs**, **API Logs**
+  - **AI Accounts & Limits**: per-provider account owner metadata, account ID/email, daily limit, alert limit, current balance, and live spend vs limits
   - **Stores**: Per-store AI provider override, retention overrides, **Change plan** (FREE / STARTER / GROWTH / PRO / ENTERPRISE) without Shopify billing
   - **Plan Tiers**: View/edit plan definitions (display name, price, trial days, quotas); Enterprise = "Contact us" (unlimited); Pro = 10× Growth
   - **Categories**: View/edit type category overrides (JSON) and **add new categories**
@@ -73,7 +74,7 @@ This yields:
 
 A full `/api/agent/*` surface lets MCP/agent callers do everything the merchant UI can do.
 
-- **`GET /api/agent`** — discovery index listing **28 endpoints** with schemas, descriptions, body params, and return shapes
+- **`GET /api/agent`** — discovery index listing **31 endpoints** with schemas, descriptions, body params, and return shapes
 - **`GET /api/agent/config`** — machine-readable classification config (`CLEAN_INTENTS`, `ROUTING_TABLE`, `CONFIDENCE_THRESHOLDS`) for agents that need to understand routing without reading source code
 
 Covered surfaces: module lifecycle (create, get-spec, update-spec, modify, modify-confirm, publish, rollback, delete), AI primitives (classify, generate-options, validate-spec), connectors (list, get, create, update, delete, test, endpoint CRUD), data stores (enable/disable, custom stores, record CRUD, records list with pagination), schedules (list, create, update, toggle, delete), flows (list, run).
@@ -86,6 +87,7 @@ All agent routes use Shopify admin auth. Every mutating action is logged to `Act
 - **AI Module reference:** `docs/ai-module-main-doc.md` — canonical allowed values, RecipeSpec, catalog, capabilities, placement, GDPR, analytics (single source of truth; code uses `packages/core/src/allowed-values.ts`).
 - Technical: `docs/technical.md` — Extension architecture (slots, target map, config sources): see §15 Universal Module Slot & extension architecture.
 - Merchant guide: `docs/app.md`
+- GitBook docs (structured backend/modules/flows/dashboard logic): `docs/gitbook/README.md` with nav in `docs/gitbook/SUMMARY.md`
 - Implementation status: `docs/implementation-status.md` (includes **AI Module doc alignment**, **AI Patch Plan — Remove Generic Outputs**, Storefront UI Style System, API Tester, Templates, Flow Builder, Data Stores, **Admin app stack & UI fixes**, **Agent-Native Audit + Remediation**)
 - **AI Patch Plan Phases 1–5 ✅:** All phases complete — 3-tier classifier (Tier A keywords + Tier B embedding similarity + Tier C cheap LLM), `theme.floatingWidget` new type, settings packs per module type, profile-driven prompt composition, schema/catalog on attempt 0 for non-direct confidence, drift-check CI. Deferred: multi-intent, Behavior DSL, theme.composed. See `docs/implementation-status.md` § “AI Patch Plan”.
 - Phase plan: `docs/phase-plan.md`
@@ -113,12 +115,22 @@ Run `pnpm --filter web seed:ai-pricing` to add default model pricing rows (then 
 See `docs/shopify-dev-setup.md`.
 
 ## App navigation
-Static app navigation in the Partner Dashboard is deprecated (removed after December 2026). This app uses **App Bridge** navigation via the `s-app-nav` web component in `apps/web/app/root.tsx`. You can delete any existing static menus in **Partner Dashboard → Your app → App setup → Navigation**. The sidebar is driven by the links inside `<s-app-nav>` (Home, Connectors, Flows, Data Stores, Billing).
+Static app navigation in the Partner Dashboard is deprecated (removed after December 2026). This app uses **App Bridge** navigation via the `s-app-nav` web component in `apps/web/app/root.tsx`. You can delete any existing static menus in **Partner Dashboard → Your app → App setup → Navigation**. The sidebar is driven by the links inside `<s-app-nav>`:
+- **Home**
+- **AI modules**
+- **Advanced features** (hub for Connectors, Flows, Schedules, Workflows, API tester)
+- **Data models** (data stores)
+- **Billing**
+- **Settings**
 
 ## Internal admin navigation
 The internal admin dashboard (`/internal`) uses a Polaris `Frame` layout with:
-- **Left sidebar**: Dashboard, AI Providers, Usage & Costs, Activity Log, Error Logs, API Logs, Stores, Plan Tiers, Categories, Recipe edit, Templates, Jobs; Settings and Logout (separator)
-- **Top header**: Branded logo + Admin user menu
-- **Toast notifications**: Success/error feedback on all mutations
-- **Settings** includes Password management, Environment variables, and Advanced (store & plan control). `/internal/advanced` redirects to Settings.
-- Full route list and behavior: see `docs/internal-admin.md`
+- **Overview**: Dashboard
+- **Monitoring**: Activity Log, Error Logs, API Logs, **Audit Log**, **Webhooks**
+- **Data**: Stores, Usage & Costs, AI Accounts, Jobs
+- **Configuration**: AI Providers, Plan Tiers, Categories, Templates, Recipe edit
+- **Footer**: Settings, Logout
+
+Cross-record tracing: every API request, job, error log, AI usage row, flow step log, and activity log is tagged with the same `correlationId`/`requestId`. Click "Trace" on any list row to open `/internal/trace/<correlationId>` and see the full request lifecycle as a single timeline with per-source tabs. The API Logs page also exposes an SSE-based **Live tail** toggle.
+
+`/internal/advanced` redirects to Settings. Full route list and behavior: see `docs/internal-admin.md`.

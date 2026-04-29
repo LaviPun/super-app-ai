@@ -1,0 +1,79 @@
+api_version = "2026-01"
+
+[[extensions]]
+uid = "a3f7c2d1-b4e8-4f1a-9c6d-2e5b8a0f3c7e"
+type = "ui_extension"
+name = "SuperApp Order Block"
+handle = "superapp-admin-order-block"
+
+[extensions.capabilities]
+api_access = true
+
+[[extensions.targeting]]
+module = "./src/blocks/OrderDetails.tsx"
+target = "admin.order-details.block.render"
+
+[[extensions]]
+uid = "b5e9d4c2-a7f1-4b2e-8d3a-9c6f0e1b5a4d"
+type = "ui_extension"
+name = "SuperApp Customer Block"
+handle = "superapp-admin-customer-block"
+
+[extensions.capabilities]
+api_access = true
+
+[[extensions.targeting]]
+module = "./src/blocks/CustomerDetails.tsx"
+target = "admin.customer-details.block.render"
+
+[[extensions]]
+uid = "c6f0e5d3-b8a2-5c3f-9e4b-0d7a1f2c6b5e"
+type = "ui_extension"
+name = "SuperApp Product Block"
+handle = "superapp-admin-product-block"
+
+[extensions.capabilities]
+api_access = true
+
+[[extensions.targeting]]
+module = "./src/blocks/ProductDetails.tsx"
+target = "admin.product-details.block.render"
+
+[[extensions]]
+uid = "d7a2b1c3-e5f4-4a6b-8c9d-1e2f0a3b4c5d"
+type = "ui_extension"
+name = "SuperApp Order Action"
+handle = "superapp-admin-order-action"
+
+[extensions.capabilities]
+api_access = true
+
+[[extensions.targeting]]
+module = "./src/actions/OrderDetailsAction.tsx"
+target = "admin.order-details.action.render"
+
+[[extensions]]
+uid = "e8b3c2d4-f6a5-4b7c-9d0e-2f3a1b4c5d6e"
+type = "ui_extension"
+name = "SuperApp Customer Action"
+handle = "superapp-admin-customer-action"
+
+[extensions.capabilities]
+api_access = true
+
+[[extensions.targeting]]
+module = "./src/actions/CustomerDetailsAction.tsx"
+target = "admin.customer-details.action.render"
+
+[[extensions]]
+uid = "f9c4d3e5-a7b6-4c8d-0e1f-3a4b2c5d6e7f"
+type = "ui_extension"
+name = "SuperApp Product Action"
+handle = "superapp-admin-product-action"
+
+[extensions.capabilities]
+api_access = true
+
+[[extensions.targeting]]
+module = "./src/actions/ProductDetailsAction.tsx"
+target = "admin.product-details.action.render"

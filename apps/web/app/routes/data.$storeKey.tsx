@@ -77,7 +77,7 @@ export default function DataStoreDetail() {
     <Page
       title={store.label}
       subtitle={store.description ?? `Data store: ${store.key}`}
-      backAction={{ content: 'Data Stores', url: '/data' }}
+      backAction={{ content: 'Data models', url: '/data' }}
       titleMetadata={
         <InlineStack gap="200">
           <Badge tone="info">{store.key}</Badge>

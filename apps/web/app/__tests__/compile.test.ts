@@ -10,7 +10,7 @@ describe('compileRecipe', () => {
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: { heading: 'Hi', enableAnimation: false },
-    } as any;
+    } as unknown as RecipeSpec;
 
     const out = compileRecipe(spec, { kind: 'THEME', themeId: '123', moduleId: 'test-module-123' });
     expect(out.ops.length).toBeGreaterThan(0);
@@ -24,36 +24,38 @@ describe('compileRecipe', () => {
       requires: ['THEME_ASSETS'],
       config: { effectKind: 'snowfall', intensity: 'medium', speed: 'normal' },
       style: { accessibility: { reducedMotion: true } },
-    } as any;
+    } as unknown as RecipeSpec;
 
     const out = compileRecipe(spec, { kind: 'THEME', themeId: '456', moduleId: 'test-module-456' });
     expect(out.ops.length).toBeGreaterThan(0);
     expect(out.themeModulePayload).toBeDefined();
   });
 
-  it('compiles proxy.widget to metafield set op', () => {
+  it('compiles proxy.widget to proxy widget payload', () => {
     const spec: RecipeSpec = {
       type: 'proxy.widget',
       name: 'Widget',
       category: 'STOREFRONT_UI',
       requires: ['APP_PROXY'],
       config: { widgetId: 'abc-123', title: 'Hello', mode: 'HTML' },
-    } as any;
+    } as unknown as RecipeSpec;
 
     const out = compileRecipe(spec, { kind: 'PLATFORM' });
-    expect(out.ops.some(o => o.kind === 'SHOP_METAFIELD_SET')).toBe(true);
+    expect(out.proxyWidgetPayload).toBeDefined();
+    expect(out.proxyWidgetPayload?.widgetId).toBe('abc-123');
+    expect(out.proxyWidgetPayload?.styleCss).toContain('--sa-text');
   });
 
-  it('compiles functions.paymentCustomization to metafield set op', () => {
+  it('compiles functions.paymentCustomization to function config upsert op', () => {
     const spec: RecipeSpec = {
       type: 'functions.paymentCustomization',
       name: 'Hide COD',
       category: 'FUNCTION',
       requires: ['PAYMENT_CUSTOMIZATION_FUNCTION'],
       config: { rules: [{ when: { minSubtotal: 1000 }, actions: { hideMethodsContaining: ['Cash'] } }] },
-    } as any;
+    } as unknown as RecipeSpec;
 
     const out = compileRecipe(spec, { kind: 'PLATFORM' });
-    expect(out.ops.some(o => o.kind === 'SHOP_METAFIELD_SET')).toBe(true);
+    expect(out.ops.some(o => o.kind === 'FUNCTION_CONFIG_UPSERT')).toBe(true);
   });
 });

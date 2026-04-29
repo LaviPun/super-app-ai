@@ -12,6 +12,9 @@ import { compileCartAndCheckoutValidation } from './functions.cartAndCheckoutVal
 import { compileCartTransform } from './functions.cartTransform';
 import { compileCheckoutUpsell } from './checkout.upsell';
 import { compileCustomerAccountBlocks } from './customerAccount.blocks';
+import { compileThemeFloatingWidget } from './theme.floatingWidget';
+import { compileAdminBlock } from './admin.block';
+import { compileAdminAction } from './admin.action';
 
 export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileResult {
   switch (spec.type) {
@@ -27,6 +30,9 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
     case 'theme.effect':
       if (target.kind !== 'THEME') throw new Error('theme.effect requires THEME target');
       return compileThemeEffect(spec, target);
+    case 'theme.floatingWidget':
+      if (target.kind !== 'THEME') throw new Error('theme.floatingWidget requires THEME target');
+      return compileThemeFloatingWidget(spec, target);
     case 'proxy.widget':
       return compileProxyWidget(spec);
     case 'functions.discountRules':
@@ -43,9 +49,12 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
       return compileCheckoutUpsell(spec);
     case 'customerAccount.blocks':
       return compileCustomerAccountBlocks(spec);
+    case 'admin.block':
+      return compileAdminBlock(spec);
+    case 'admin.action':
+      return compileAdminAction(spec);
     case 'checkout.block':
     case 'postPurchase.offer':
-    case 'admin.block':
     case 'pos.extension':
     case 'analytics.pixel':
     case 'integration.httpSync':

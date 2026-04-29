@@ -6,7 +6,7 @@ uid = "d7d1d1db-0591-e3c7-6225-3965bd7ba28edd6794b2"
 type = "flow_action"
 handle = "superapp-send-http"
 description = "Send an HTTP request via SuperApp with SSRF protection."
-runtime_url = "https://superapp.example.com/api/flow/action"
+runtime_url = "https://example.com/api/flow/action"
 
 [settings]
 

@@ -81,9 +81,9 @@ export async function runEvals(client: LlmClient = new StubLlmClient(), maxAttem
         // Try compilation
         try {
           const target = String(parsed.type).startsWith('theme.')
-            ? { kind: 'THEME' as const, themeId: 'eval-theme-id' }
+            ? { kind: 'THEME' as const, themeId: 'eval-theme-id', moduleId: 'eval-module-id' }
             : { kind: 'PLATFORM' as const };
-          const { ops } = compileRecipe(parsed as any, target);
+          const { ops } = compileRecipe(parsed, target);
           compilerSuccess = true;
 
           // Check non-destructive invariants

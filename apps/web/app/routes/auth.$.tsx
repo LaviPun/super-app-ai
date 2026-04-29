@@ -1,9 +1,9 @@
-import type { LoaderArgs, HeadersFunction } from '@remix-run/node';
+import type { LoaderFunctionArgs, HeadersFunction } from '@remix-run/node';
 import { redirect } from '@remix-run/node';
 import { boundary } from '@shopify/shopify-app-remix/server';
 import { authenticate } from '~/shopify.server';
 
-export async function loader({ request }: LoaderArgs) {
+export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   const port = url.port || (url.protocol === 'https:' ? '443' : '80');
 

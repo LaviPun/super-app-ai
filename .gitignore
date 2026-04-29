@@ -50,3 +50,6 @@ pnpm-debug.log*
 # Test coverage
 coverage/
 .nyc_output/
+
+# Vendored gstack (nested git repo; do not commit)
+.gstack-tools/

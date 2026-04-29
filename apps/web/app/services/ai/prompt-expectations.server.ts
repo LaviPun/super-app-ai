@@ -146,7 +146,7 @@ Invalid / do NOT do:
 - Do NOT include "assets", "meta", "settings", or "controls" as keys on the recipe. Only type, name, category, requires, config, and optionally style.
 - Do NOT use lowercase or kebab-case for enums (e.g. use ON_EXIT_INTENT not on_exit_intent or exit-intent).`;
 
-const RESPONSE_FORMAT = `
+const RESPONSE_FORMAT_MULTI = `
 Exact response format we expect (your reply must be valid JSON in this shape only):
 {
   "options": [
@@ -156,6 +156,11 @@ Exact response format we expect (your reply must be valid JSON in this shape onl
   ]
 }
 You must return exactly 3 options. Each "recipe" must follow the expected shape for the module type with no extra keys.`;
+
+const RESPONSE_FORMAT_SINGLE = `
+Exact response format we expect (your reply must be valid JSON in this shape only):
+{ "explanation": "1-2 sentences describing this option", "recipe": { <one full recipe object as above> } }
+Return exactly 1 recipe. The "recipe" must follow the expected shape for the module type with no extra keys.`;
 
 /**
  * Full StorefrontStyle schema as a string (Zod-level constraints).
@@ -318,18 +323,21 @@ export function getSettingsPack(moduleType: ModuleType): string | undefined {
 
 /**
  * Returns a single block to inject into the AI prompt: expected shape, validation rules, invalid examples, and response format.
+ * @param mode - 'multi' (default, legacy 3-option call) or 'single' (parallel path: 1 recipe per call)
  */
-export function getPromptExpectations(moduleType: ModuleType): string {
+export function getPromptExpectations(moduleType: ModuleType, mode: 'multi' | 'single' = 'multi'): string {
   const example = EXPECTED_SHAPE_EXAMPLES[moduleType];
   const shapeBlock = example
     ? `Expected recipe shape for "${moduleType}" (use this structure exactly; all config fields in one "config" object):\n${example}`
     : `Use type, name, category, requires, config (single object with all settings and controls), and optionally style. No "settings", "controls", "assets", or "meta" at top level.`;
+
+  const responseFormat = mode === 'single' ? RESPONSE_FORMAT_SINGLE : RESPONSE_FORMAT_MULTI;
 
   return [
     'Technical frame (use this structure so the module deploys without errors):',
     shapeBlock,
     VALIDATION_RULES.trim(),
     INVALID_DO_NOT.trim(),
-    RESPONSE_FORMAT.trim(),
+    responseFormat.trim(),
   ].join('\n\n');
 }

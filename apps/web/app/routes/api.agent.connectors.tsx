@@ -1,6 +1,6 @@
 import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
-import { ConnectorService } from '~/services/connectors/connector.service';
+import { ConnectorService, parseConnectorAuth } from '~/services/connectors/connector.service';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
 
@@ -52,6 +52,10 @@ export async function action({ request }: { request: Request }) {
   if (!body?.name || !body?.baseUrl || !body?.auth) {
     return json({ error: 'Missing required fields: name, baseUrl, auth' }, { status: 400 });
   }
+  const auth = parseConnectorAuth(body.auth);
+  if (!auth) {
+    return json({ error: 'Invalid auth: expected API_KEY, BASIC, or OAUTH2 shape.' }, { status: 400 });
+  }
 
   const svc = new ConnectorService();
   let connector;
@@ -61,7 +65,7 @@ export async function action({ request }: { request: Request }) {
       name: body.name,
       baseUrl: body.baseUrl,
       allowlistDomains: body.allowlistDomains ?? [],
-      auth: body.auth as any,
+      auth,
     });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : 'Create failed' }, { status: 400 });

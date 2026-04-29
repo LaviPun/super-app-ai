@@ -201,6 +201,35 @@ After migration, the bundle stays under 64 KB and deploy/dev succeed.
 
 ---
 
+## 6a. Admin UI extension (order/customer/product block) — script exceeds 64 KB limit
+
+**Extension:** `extensions/admin-ui` (SuperApp Order Block, SuperApp Customer Block, SuperApp Product Block)
+
+### Symptoms
+
+- `shopify app dev` or deploy: **"Your script size is 71 KB which exceeds the 64 KB limit"** for one or more of `superapp-admin-order-block`, `superapp-admin-customer-block`, `superapp-admin-product-block`.
+- App preview fails to start.
+
+### Root cause
+
+Same as §6: the **64 KB** compiled script limit. Using **React** + `@shopify/ui-extensions-react/admin` pushes each admin block bundle over the limit.
+
+### Fix
+
+**Migrate to Preact + Polaris web components** (same approach as Customer Account UI in §6):
+
+1. **Dependencies** (`extensions/admin-ui/package.json`): Use `preact`, `@preact/signals`, and `@shopify/ui-extensions` at **2026.1.0** only. Remove `react`, `react-reconciler`, and `@shopify/ui-extensions-react`.
+
+2. **Entry and UI:** Each block entry (e.g. `OrderDetails.tsx`) uses `import '@shopify/ui-extensions/preact'`, `import { render } from 'preact'`, and default export `export default async function extension() { render(<Block />, document.body); }`. Replace React components with Polaris web components: `<s-admin-block>`, `<s-stack>`, `<s-text>`, `<s-link>`, `<s-badge>`.
+
+3. **API:** Use `fetch('shopify:admin/api/graphql.json', { method: 'POST', body: JSON.stringify({ query: '...' }) })` for the shop metafield query instead of `useApi().query()`. Ensure `[extensions.capabilities]` has `api_access = true` in `shopify.extension.toml`.
+
+4. **TypeScript:** In the extension's `tsconfig.json`, set `"jsxImportSource": "preact"`.
+
+After migration, all three admin block bundles stay under 64 KB and deploy/dev succeed.
+
+---
+
 ## 7. Embedded app: "This content is blocked. Contact the site owner to fix the issue."
 
 **Context:** Opening the app from Shopify Admin (Apps → Super App AI) shows a blank iframe with this message.
@@ -238,17 +267,17 @@ The app loads inside an iframe. The browser or Shopify blocks the content when:
 This means the CLI found **no web component to tunnel**. The fix is `apps/web/shopify.web.toml` (already in the repo):
 
 ```toml
-type = "backend"
-[dev]
-command = "pnpm dev"
-port = 3000
-[build]
-command = "pnpm build"
+roles = ["frontend", "backend"]
+[commands]
+dev = "pnpm dev"
+build = "pnpm build"
 ```
+
+Port is not hard-coded: the CLI assigns a port and sets `PORT` when running `shopify app dev` (avoids "port 3000 is not available"). Vite uses `process.env.PORT` or defaults to 3000 when you run `pnpm dev` directly.
 
 With this file and `web_directories = ["apps/web"]` in root `shopify.app.toml`, the CLI will:
 - Auto-start `pnpm dev` in `apps/web/`
-- Create a tunnel to port 3000
+- Assign a port and create a tunnel to it
 - Update the app URL to `https://xxxx.trycloudflare.com`
 
 After ensuring the file is present, **press q to quit `shopify app dev`** and re-run from the repo root:
@@ -444,7 +473,248 @@ Also: after changing a Remix file, **restart the dev server** — HMR does not a
 
 ---
 
-## 13. Adding new bugs to this doc
+## 13. Anthropic 429 causes `Unable to decode turbo-stream response` (blank page, no error shown)
+
+**Route:** `apps/web/app/routes/api.ai.create-module.tsx`
+**Date:** 2026-03-06
+
+### Symptoms
+
+- UI shows the AI generating animation indefinitely, then shows a blank Application Error page.
+- Browser console: `Unable to decode turbo-stream response from URL: /api/ai/create-module.data`
+- API log shows attempt 0 → HTTP 429 → duration ~400ms, then nothing.
+
+### Root cause
+
+On a 429 from Anthropic, the old retry logic used 15s–30s backoffs (3 attempts). Total wait time exceeded the Cloudflare tunnel request timeout. The server never finished sending a response body, so Remix's turbo-stream client threw a decode error on the client — resulting in a blank page with no user-facing message.
+
+### Fix
+
+1. **`ai-http.server.ts`:** 429 retries exactly once with `min(retry-after, 10s)` delay. After one retry it throws immediately with `{ statusCode: 429 }` on the error object. This keeps total wait under 10s.
+2. **`api.ai.create-module.tsx`:** Catches `e?.statusCode === 429` and returns `json({ error: 'RATE_LIMITED', message: '...' }, { status: 429 })` — a decodable JSON response (not a server timeout).
+3. **`modules._index.tsx`:** Renders a warning banner with "Try again" button for `RATE_LIMITED` errors instead of critical red.
+
+### Rule
+
+Never use long backoffs (>10s) in request handlers that go through Cloudflare tunnels or any proxy with a timeout. Fail fast, surface a clean error, let the client retry.
+
+---
+
+## 14. Anthropic org rate limit (10K tokens/min) — all requests fail with 429
+
+**Route:** `apps/web/app/routes/api.ai.create-module.tsx`
+**Date:** 2026-03-06
+
+### Symptoms
+
+- Error: `"This request would exceed your organization's rate limit of 10,000 input tokens per minute (org: ..., model: claude-sonnet-4-6)"`
+- Happens consistently after 1–2 requests within a 60-second window.
+
+### Root cause
+
+Anthropic free/starter tier has a 10K input tokens/min org-wide limit. The compiled prompt is ~1,400 tokens. Back-to-back requests from multiple test users (or rapid testing) exhausts the quota.
+
+### Fix
+
+1. **`llm.server.ts`:** Added `FallbackLlmClient` class. If Anthropic throws 429, it transparently retries the same prompt with OpenAI (`gpt-4o-mini`). No change needed in callers.
+2. **Token reduction for high-confidence:** Skip full types list (~2K tokens) and intent packet on first attempt when classifier confidence ≥ 0.8 (type already known).
+3. **`openai-responses.client.server.ts`:** Added system prompt + `max_output_tokens: 4096` to match Anthropic output quality. Fixed default model typo: `gpt-5-mini` → `gpt-4o-mini`.
+
+### Setup
+
+Set `OPENAI_API_KEY` in `.env`. Fallback activates automatically when both keys are present.
+
+### Rule
+
+Always have a fallback AI provider configured. Org-level rate limits are shared across all users of the Anthropic account, not per-shop.
+
+---
+
+## 15. "Redirected you too many times" after clicking "Use this option"
+
+**Route:** `apps/web/app/routes/modules._index.tsx`
+**Date:** 2026-03-06
+
+### Symptoms
+
+- After clicking "Use this option", browser shows `ERR_TOO_MANY_REDIRECTS` (blank page with redirect error).
+- Module **is** created successfully — it appears in the table after a manual page refresh.
+- Only happens with Cloudflare tunnel URLs, not necessarily in production.
+
+### Root cause
+
+`confirmFetcher` returned `{ moduleId }`. The `useEffect` navigated with:
+
+```ts
+window.location.href = `/modules/${confirmFetcher.data.moduleId}`;
+```
+
+`window.location.href` in a Shopify embedded app (running inside an iframe) bypasses App Bridge's router and forces a raw browser navigation. Shopify's `authenticate.admin()` in the loader detects the missing auth context and issues a redirect to add `host`/HMAC params. That redirect goes through the Cloudflare tunnel → triggers another auth check → infinite loop.
+
+### Fix
+
+```ts
+// WRONG — causes redirect loop in embedded Shopify app
+window.location.href = `/modules/${confirmFetcher.data.moduleId}`;
+
+// CORRECT — stays inside App Bridge iframe context, auth already satisfied
+navigate(`/modules/${confirmFetcher.data.moduleId}`);
+```
+
+Use Remix's `useNavigate()` from `@remix-run/react` for all intra-app navigation.
+
+### Rule
+
+**Never use `window.location.href` for navigation inside embedded Shopify apps.** Always use `useNavigate()` or Remix `<Link>`. `window.location.href` bypasses App Bridge and causes auth redirect loops — especially visible with Cloudflare tunnel URLs.
+
+---
+
+## 16. Anthropic `server_tool_use` blocks → 422 hydration failure
+
+**Route:** `apps/web/app/routes/api.agent.modules.$moduleId.hydrate.tsx` / `api.ai.hydrate-module.tsx`
+**Date:** 2026-03-06
+
+### Symptoms
+
+- Hydration returns HTTP 422 with error: `Anthropic response missing text (content had N block(s), types: server_tool_use)`.
+- API log shows Anthropic returned HTTP 200 but no usable text content.
+
+### Root cause
+
+On certain Anthropic API tiers, Anthropic's built-in server-side tools are automatically invoked when the request matches a trigger pattern. The response contains only `server_tool_use` content blocks — no `text` blocks. `extractText()` found nothing and threw.
+
+`FallbackLlmClient` only caught `statusCode === 429` at the time, so it did not retry with OpenAI.
+
+### Fix
+
+Broadened `FallbackLlmClient.generateRecipe()` to catch **any** error from the primary client (not just 429) and retry with OpenAI fallback. If both fail, the primary error is re-thrown.
+
+```ts
+// llm.server.ts — FallbackLlmClient
+async generateRecipe(prompt, hints) {
+  try {
+    return await this.primary.generateRecipe(prompt, hints);
+  } catch (primaryErr) {
+    try {
+      return await this.fallback.generateRecipe(prompt, hints);
+    } catch {
+      throw primaryErr; // both failed — most informative error
+    }
+  }
+}
+```
+
+### Rule
+
+Any Anthropic-specific error (tool-use blocks, model refusals, unexpected content types) should silently fall back to OpenAI. Never gate `FallbackLlmClient` on a specific error code.
+
+---
+
+## 17. OpenAI `max_output_tokens: 4096` causes JSON truncation on hydration
+
+**File:** `apps/web/app/services/ai/clients/openai-responses.client.server.ts`
+**Date:** 2026-03-07
+
+### Symptoms
+
+- Hydration returns: `Hydrate envelope validation failed after 2 attempts: SyntaxError: Unterminated string in JSON at position 8604`
+- API log: OpenAI returned HTTP 200 but the JSON ends mid-string.
+- Happens only when Anthropic is rate-limited and OpenAI fallback is used.
+
+### Root cause
+
+`openAiGenerateRecipe` had `max_output_tokens: 4096` hardcoded. The hydration envelope (with `adminConfig.jsonSchema`, `themeEditorSettings`, `implementationPlan`, etc.) easily exceeds 4096 output tokens. OpenAI truncates at the token limit, producing invalid JSON.
+
+The Anthropic client already defaulted to `maxTokens: 8192`. OpenAI had no equivalent parameter — the cap was hardcoded with no way to override it per call site.
+
+### Fix
+
+1. Added `maxTokens?: number` parameter to `openAiGenerateRecipe` (same pattern as Anthropic client).
+2. Changed default from `4096` → `8192`: `max_output_tokens: opts.maxTokens ?? 8192`.
+3. Propagated `maxTokens` through `LlmClient.generateRecipe(prompt, hints)` interface (added `maxTokens` to hints).
+4. `hydrateRecipeSpec` in `llm.server.ts` now passes `maxTokens: 16000` to give hydration ample headroom.
+5. `FallbackLlmClient`, `EnvOpenAiClient`, `EnvClaudeClient`, `ConfiguredLlmClient` all propagate `hints.maxTokens`.
+
+### Rule
+
+Never hardcode `max_output_tokens` in a client function. Always accept it as an override parameter. Callers that need large responses (like hydration) must explicitly request higher token limits.
+
+---
+
+## 18. Hydration 200s+ duration exceeds Cloudflare timeout → turbo-stream decode error
+
+**Route:** `apps/web/app/routes/api.ai.hydrate-module.tsx`
+**Date:** 2026-03-07
+
+### Symptoms
+
+- Client shows: `Unable to decode turbo-stream response from URL: .../api/ai/hydrate-module.data`
+- API log shows: hydrate-module HTTP 422 after 200,000+ ms.
+- OpenAI fallback (triggered by Anthropic 429) took 71s+ for hydration, total request ~200s.
+- Same root cause as BUG-001 (§13): request exceeds Cloudflare tunnel timeout → server never sends response body → client decode fails.
+
+### Root cause
+
+The hydration prompt included a `previewHtml` instruction asking the AI to generate a full self-contained HTML document as part of the same JSON response. This instruction:
+
+1. Roughly doubled the output token count (HTML preview is large).
+2. Combined with the already-large hydration envelope, pushed OpenAI well past 4096 tokens (hitting the truncation bug in §17).
+3. Made the overall AI response time 3–4× longer than without `previewHtml`, exceeding the Cloudflare tunnel timeout (~90-100s).
+
+### Fix
+
+Removed `previewHtml` from the hydration prompt (`hydrate-prompt.server.ts`). The `PreviewService` already generates accurate, interactive, type-specific HTML previews deterministically — no AI generation needed. The module detail page continues to use `PreviewService` as the preview source.
+
+The `previewHtml` field remains in `HydrateEnvelopeSchema` as `optional()` for future use (e.g. a separate dedicated call), but is no longer requested in the prompt.
+
+### Rule
+
+Do not bundle large generative tasks (HTML generation, multi-section reports) in the same AI call as structured JSON output. Each call must stay well under the timeout budget. Deterministic alternatives (like `PreviewService`) are always preferable for UI previews.
+
+---
+
+## 19. `PrismaClientValidationError: Unknown argument 'shopId'` on ApiLog / ErrorLog / Job / AiUsage / FlowStepLog create
+
+**Files:** `api-log.service.ts`, `error-log.service.ts`, `ai-usage.service.ts`, `job.service.ts`, `flow-runner.service.ts`
+**Date:** 2026-03-07
+
+### Symptoms
+
+- App throws `PrismaClientValidationError: Unknown argument 'shopId'. Did you mean 'shop'?` when any route that uses observability logging is opened.
+- Error appears immediately on page load (e.g. opening a module detail page triggers the hydrate route → `ApiLogService.start()` → crash).
+
+### Root cause
+
+The Prisma client was generated from an older schema snapshot where `shopId` was not yet a scalar field on these models. The current schema defines:
+
+```prisma
+shopId String?
+shop   Shop?   @relation(fields: [shopId], references: [id])
+```
+
+When the Prisma client is stale (not regenerated after schema changes), Prisma exposes only the relation name (`shop`) in the create input — not the underlying scalar (`shopId`). Passing `shopId: value` directly throws `Unknown argument`.
+
+### Fix
+
+Changed all affected `prisma.*.create()` calls to use the Prisma relation connect syntax instead of the scalar:
+
+```ts
+// WRONG — fails if Prisma client is stale
+shopId: params.shopId ?? null
+
+// CORRECT — works regardless of Prisma client generation state
+shop: params.shopId ? { connect: { id: params.shopId } } : undefined
+```
+
+Fixed in: `ApiLogService.start()`, `ApiLogService.write()`, `ErrorLogService.write()`, `AiUsageService.record()`, `JobService.create()`, `FlowStepLog` create in `flow-runner.service.ts`.
+
+### Rule
+
+After modifying `schema.prisma`, always run `pnpm prisma generate` in `apps/web/` before restarting the dev server. If it's not clear whether the client is up to date, prefer the relation connect syntax over scalar assignment — it works in both cases.
+
+---
+
+## 21. Adding new bugs to this doc
 
 When you hit a new recurring or non-obvious bug:
 
@@ -455,3 +725,104 @@ When you hit a new recurring or non-obvious bug:
 5. Add **references** (docs, forum, tickets) if useful.
 
 Keep entries short and copy-paste friendly so the next person can fix without re-debugging.
+
+---
+
+## Quick reference: Cloudflare tunnel timeout rules
+
+Cloudflare tunnels (trycloudflare.com) have a hard request timeout of ~90–100 seconds. Any server handler that takes longer will drop the connection mid-response — the client sees `Unable to decode turbo-stream response` (Remix) or a generic network error.
+
+**Budget per handler:**
+- AI create-module: ≤ 60s (3 attempts × ~20s each)
+- AI hydrate-module: ≤ 60s (envelope only, no extra generative tasks)
+- Publish: ≤ 30s (Shopify GraphQL calls)
+- Connector test: ≤ 20s
+
+**Never do in a single handler:**
+- Long AI backoff retries (>10s per retry — see §13)
+- Bundled large generative tasks in the same AI call (see §18)
+- Synchronous polling loops waiting for external state
+
+---
+
+## 22. Admin block metafield never written — `PLATFORM` target missing `moduleId`
+
+### Symptoms
+- Admin block module publishes successfully (status shows PUBLISHED)
+- `superapp.admin/blocks` shop metafield is never created/updated
+- Admin UI extension always shows "No admin blocks configured" placeholder
+- Block content never appears in Shopify Admin order/product/customer pages
+
+### Root cause
+`api.publish.tsx` built the `DeployTarget` as:
+```ts
+// WRONG — no moduleId for non-theme modules
+const target: DeployTarget = isThemeModule
+  ? { kind: 'THEME', themeId: ..., moduleId: module.id }
+  : { kind: 'PLATFORM' };  // ← moduleId missing
+```
+`PublishService.publish()` gates the metafield write on `target.moduleId`:
+```ts
+if (adminBlockPayload && target.moduleId) { ... } // always false for PLATFORM
+```
+So the metafield was never set for `admin.block` (or any non-theme module type).
+
+### Fix
+1. Added `moduleId?: string` to the `PLATFORM` variant of `DeployTarget` in `packages/core/src/recipe.ts`
+2. Passed `moduleId: module.id` in the PLATFORM target in `api.publish.tsx`
+3. Rebuilt `@superapp/core` (`npm run build` in `packages/core/`)
+
+### Rule
+Any new non-theme module type that needs to write a metafield on publish must ensure `target.moduleId` is set. The publish service uses `target.moduleId` as the key for all platform-side metafield writes (`admin.block`, `admin.action`, future types).
+
+---
+
+## 23. Preact UI extensions — `s-*` component prop mismatches between admin and checkout contexts
+
+### Symptoms
+TypeScript errors like:
+- `Property 'appearance' does not exist on type 'TextProps & BaseElementPropsWithChildren<TextElement>'`
+- `Property 'fontWeight' does not exist on type 'TextProps'`
+- `Property 's-inline' does not exist on type 'JSX.IntrinsicElements'`
+- `Property 'title' does not exist on type 'BannerProps'`
+
+### Root cause
+Checkout UI extensions (`purchase.checkout.block.render`, `purchase.thank-you.block.render`) import `@shopify/ui-extensions` which applies strict, target-specific prop types to `s-*` components. These are different from the generic `s-*` web component declarations used in admin/customer-account extensions.
+
+Specifically:
+- Checkout `s-text` has no `appearance` or `fontWeight` prop
+- Checkout `s-banner` has no `title` prop
+- `s-inline` does not exist in checkout context
+- `s-badge` only accepts `'critical' | 'auto' | 'neutral'` tones (not `'success'`)
+- `gap="tight"` is not a valid spacing value in checkout
+
+### Fix
+In `checkout-ui` components:
+- Use `<s-text>` without `appearance`/`fontWeight`
+- Use `<s-banner tone={...}>` without `title`
+- Replace `s-inline` with `s-stack` for layout
+- Only use spacing values valid in checkout (`"base"`, `"none"` etc.)
+- For `s-badge` tones use only `'critical' | 'auto' | 'neutral'`
+
+Admin and customer-account extensions have custom `s-*` declarations (via `shopify.d.ts`) that accept arbitrary props — checkout uses the real API types.
+
+---
+
+## 24. Admin block renderer shows nothing — config fields not matching hardcoded keys
+
+### Symptoms
+- Admin block renders only the module label (bold heading) but no content below it
+- Module has config fields but none appear in Shopify Admin
+
+### Root cause
+`AdminBlockRenderer` originally looked for specific hardcoded config keys (`message`, `description`, `body`, `ctaText`, `ctaUrl`, `status`, `linkText`, `linkUrl`). AI-generated modules use different field names (`shouldRender`, `printInstructions`, etc.) that didn't match.
+
+### Fix
+Replaced the hardcoded field renderer with a fully generic renderer that iterates `Object.entries(block.config)` and renders all fields dynamically:
+- Strings with URL-like key names → `<s-link>`
+- Booleans → `<s-badge tone="success|critical">`
+- Arrays → bullet list of `<s-text>`
+- Objects → expanded key-value rows
+- All other values → `<s-text>` with label prefix
+
+**Rule:** Never hardcode expected field names in UI extension renderers. AI generates arbitrary config schemas — the renderer must be schema-agnostic.

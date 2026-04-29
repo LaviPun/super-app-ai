@@ -33,11 +33,11 @@ export async function action({ request }: { request: Request }) {
 
   // Classify intent
   const classifyResult = await classifyUserIntent(prompt);
-  const augmented = augmentWithCheapClassifier(prompt, classifyResult);
+  const augmented = await augmentWithCheapClassifier(classifyResult, prompt);
 
   // Build intent packet (store context + catalog metadata)
-  const packet = await buildIntentPacket(session.shop, augmented.moduleType, {
-    preferredCategory: augmented.intentGroup,
+  const packet = buildIntentPacket(prompt, augmented, {
+    storeContext: { shop_domain: session.shop },
   });
 
   const band =

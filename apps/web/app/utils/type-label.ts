@@ -56,6 +56,21 @@ export function getTypeDisplayLabel(fullType: string): string {
   return (namespace + suffixLabel).trim() || trimmed;
 }
 
+const CATEGORY_LABEL: Record<string, string> = {
+  STOREFRONT_UI: 'Storefront UI',
+  ADMIN_UI: 'Admin UI',
+  FUNCTION: 'Function',
+  INTEGRATION: 'Integration',
+  FLOW: 'Flow',
+  CUSTOMER_ACCOUNT: 'Customer Account',
+};
+
+/** Returns a human-readable label for a category constant. e.g. "STOREFRONT_UI" -> "Storefront UI" */
+export function getCategoryDisplayLabel(category: string): string {
+  if (!category || typeof category !== 'string') return category ?? '';
+  return CATEGORY_LABEL[category] ?? category.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
 /** Returns the last segment only (kept for URL/keys). e.g. "theme.banner" -> "banner" */
 export function getTypeShortLabel(fullType: string): string {
   if (!fullType || typeof fullType !== 'string') return fullType ?? '';

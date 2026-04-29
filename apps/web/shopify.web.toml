@@ -1,5 +1,6 @@
 roles = ["frontend", "backend"]
-port = 3000
+# Port omitted: CLI assigns a port and sets PORT when running `shopify app dev`.
+# When running `pnpm dev` directly, Vite uses PORT from env or defaults to 3000.
 
 [commands]
 dev = "pnpm dev"

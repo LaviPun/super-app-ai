@@ -2,6 +2,15 @@ import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { withApiLogging } from '~/services/observability/api-log.service';
 
+const PROXY_WIDGET_QUERY = `#graphql
+  query ReadProxyWidget($handle: MetaobjectHandleInput!) {
+    metaobjectByHandle(handle: $handle) {
+      configJson: field(key: "config_json") { value }
+      styleCss:   field(key: "style_css")   { value }
+    }
+  }
+`;
+
 export async function loader({ request, params }: { request: Request; params: { widgetId?: string } }) {
   const { widgetId } = params;
   return withApiLogging(
@@ -9,30 +18,26 @@ export async function loader({ request, params }: { request: Request; params: { 
     async () => {
       if (!widgetId) return json({ error: 'Missing widgetId' }, { status: 400 });
 
-      const { admin } = await shopify.authenticate.public.appProxy(request);
+      const { admin: adminMaybe } = await shopify.authenticate.public.appProxy(request);
+      if (!adminMaybe) return json({ error: 'Admin context unavailable' }, { status: 503 });
+      const admin = adminMaybe;
 
-      const query = `#graphql
-        query ReadProxyConfig($namespace: String!, $key: String!) {
-          shop {
-            metafield(namespace: $namespace, key: $key) { value }
-          }
-        }
-      `;
-      const res = await admin.graphql(query, { variables: { namespace: 'superapp.proxy', key: widgetId }});
+      const res = await admin.graphql(PROXY_WIDGET_QUERY, {
+        variables: { handle: { type: '$app:superapp_proxy_widget', handle: `superapp-proxy-${widgetId}` } },
+      });
       const data = await res.json();
-      const value = data?.data?.shop?.metafield?.value;
-      if (!value) return new Response('', { status: 204 });
+      const obj = data?.data?.metaobjectByHandle;
+      if (!obj) return new Response('', { status: 204 });
 
-      const cfg = JSON.parse(value) as {
-        mode: 'JSON' | 'HTML';
-        title: string;
+      const cfg = JSON.parse(obj.configJson?.value ?? '{}') as {
+        mode?: 'JSON' | 'HTML';
+        title?: string;
         message?: string;
-        _styleCss?: string;
       };
+      const styleCss: string = obj.styleCss?.value ?? '';
 
-      if (cfg.mode === 'JSON') return json({ title: cfg.title, message: cfg.message ?? '' });
+      if (cfg.mode === 'JSON') return json({ title: cfg.title ?? '', message: cfg.message ?? '' });
 
-      const styleCss = cfg._styleCss ?? '';
       const html = `
         <!doctype html>
         <html>
@@ -46,7 +51,7 @@ export async function loader({ request, params }: { request: Request; params: { 
         </head>
         <body>
           <div class="superapp-widget">
-            <strong>${escapeHtml(cfg.title)}</strong>
+            <strong>${escapeHtml(cfg.title ?? '')}</strong>
             ${cfg.message ? `<div>${escapeHtml(cfg.message)}</div>` : ''}
           </div>
         </body>

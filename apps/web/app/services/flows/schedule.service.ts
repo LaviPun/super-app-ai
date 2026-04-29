@@ -111,7 +111,8 @@ function computeNextRun(expr: string): Date {
   const parts = expr.trim().split(/\s+/);
   if (parts.length !== 5) throw new Error(`Invalid cron expression: "${expr}"`);
 
-  const [minPart, hourPart] = parts;
+  const minPart = parts[0]!;
+  const hourPart = parts[1]!;
 
   const now = new Date();
   const candidate = new Date(now);

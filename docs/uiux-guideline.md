@@ -25,15 +25,22 @@
 ## 2) Core IA (Information Architecture)
 
 ### Primary nav (current)
+Driven by `<s-app-nav>` in `apps/web/app/root.tsx`:
 - **Home** (AI Builder / Template picker + Module list)
-- **Connectors** (Integrations + API Tester + Saved Endpoints)
-- **Flows** (Visual Flow Builder + Automation schedules)
-- **Data Stores** (Predefined + Custom databases)
+- **AI modules** (module library, drafts, published modules)
+- **Advanced features** (Connectors, Flows, Schedules, Workflows, API tester)
+- **Data models** (Predefined + Custom data stores)
 - **Billing** (Plan & usage)
+- **Settings** (App-level preferences)
 
 ### Internal admin nav
-- **Dashboard** (stats overview)
-- **AI Providers** / **Usage & Costs** / **Error Logs** / **API Logs** / **Stores** / **Jobs**
+- **Overview**: Dashboard
+- **Monitoring**: Activity Log, Error Logs, API Logs, Audit Log, Webhooks
+- **Data**: Stores, Usage & Costs, Jobs
+- **Configuration**: AI Providers, Plan Tiers, Categories, Templates, Recipe edit
+- **Footer**: Settings, Logout
+
+> Cross-record `correlationId` traces are reachable from API Logs / Jobs / Errors / Activity / AI Usage rows via the **Trace** action; the unified timeline lives at `/internal/trace/<correlationId>`.
 
 ### Rules
 - Keep top-level items **≤ 7**.

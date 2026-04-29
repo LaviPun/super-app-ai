@@ -27,9 +27,9 @@ function cosineSimilarity(a: number[], b: number[]): number {
   let magA = 0;
   let magB = 0;
   for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    magA += a[i] * a[i];
-    magB += b[i] * b[i];
+    dot += a[i]! * b[i]!;
+    magA += a[i]! * a[i]!;
+    magB += b[i]! * b[i]!;
   }
   const denom = Math.sqrt(magA) * Math.sqrt(magB);
   return denom === 0 ? 0 : dot / denom;
@@ -38,10 +38,10 @@ function cosineSimilarity(a: number[], b: number[]): number {
 /** Average a list of equal-length vectors. */
 function averageVectors(vectors: number[][]): number[] {
   if (vectors.length === 0) return [];
-  const len = vectors[0].length;
+  const len = vectors[0]!.length;
   const result = new Array<number>(len).fill(0);
   for (const v of vectors) {
-    for (let i = 0; i < len; i++) result[i] += v[i];
+    for (let i = 0; i < len; i++) result[i] = (result[i] ?? 0) + (v[i] ?? 0);
   }
   return result.map(x => x / vectors.length);
 }
@@ -125,7 +125,7 @@ export async function findIntentByEmbedding(prompt: string): Promise<EmbeddingMa
 
   const promptEmbeddings = await embedTexts([prompt], apiKey);
   if (!promptEmbeddings || promptEmbeddings.length === 0) return null;
-  const promptVector = promptEmbeddings[0];
+  const promptVector = promptEmbeddings[0]!;
 
   const scored = intentVectors
     .map(({ intent, vector }) => ({ intent, score: cosineSimilarity(promptVector, vector) }))

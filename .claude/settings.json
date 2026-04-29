@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs -I{} head -5 {})",
+      "Bash(xxd /Users/lavipun/Work/ai-shopify-superapp/extensions/customer-account-ui/node_modules/@shopify/ui-extensions/build/esnext/surfaces/admin.esnext)",
+      "Bash(npm install)",
+      "Bash(npm info @shopify/ui-extensions-react versions --json)",
+      "Bash(python3 -c \"import sys, json; v=json.load\\(sys.stdin\\); print\\(''\\\\n''.join\\(sorted\\([x for x in v if ''2024'' in x or ''2025'' in x or ''2026'' in x], reverse=True\\)[:15]\\)\\)\")",
+      "Bash(npm info @shopify/ui-extensions versions --json)",
+      "Bash(python3 -c \"import sys, json; v=json.load\\(sys.stdin\\); print\\(''\\\\n''.join\\(sorted\\([x for x in v if ''2026'' in x], reverse=True\\)[:10]\\)\\)\")",
+      "Bash(npm info @shopify/ui-extensions-react@2026.0.0 peerDependencies)",
+      "Bash(npm pack @shopify/ui-extensions-react@2026.0.0 --dry-run)",
+      "Bash(npm info @shopify/ui-extensions-react@2026.0.0 dependencies)",
+      "Bash(npm pack @shopify/ui-extensions-react@2026.0.0)",
+      "Bash(tar -tzf shopify-ui-extensions-react-2026.0.0.tgz)",
+      "Bash(tar -xf shopify-ui-extensions-react-2026.0.0.tgz package/build/ts/surfaces/admin.d.ts)",
+      "Read(//tmp/package/build/ts/surfaces/**)",
+      "Bash(npm pack @shopify/ui-extensions@2025.8.0)",
+      "Bash(tar -tzf shopify-ui-extensions-2025.8.0.tgz)",
+      "Bash(tar -xf shopify-ui-extensions-2025.8.0.tgz package/build/ts/surfaces/admin/extension-targets.d.ts)",
+      "Bash(node -e \"const p = require\\(''/Users/lavipun/Work/ai-shopify-superapp/extensions/admin-ui/node_modules/@shopify/ui-extensions-react/build/cjs/surfaces/admin.js''\\); console.log\\(''reactExtension:'', typeof p.reactExtension, ''| useApi:'', typeof p.useApi, ''| AdminBlock:'', typeof p.AdminBlock, ''| BlockStack:'', typeof p.BlockStack, ''| Spinner:'', typeof p.Spinner\\)\")",
+      "Bash(node -e \"const p = require\\(''/Users/lavipun/Work/ai-shopify-superapp/extensions/admin-ui/node_modules/@shopify/ui-extensions-react/build/cjs/surfaces/admin.js''\\); console.log\\(Object.keys\\(p\\).filter\\(k => [''reactExtension'',''useApi'',''AdminBlock'',''BlockStack'',''Spinner'',''Link'',''Badge'',''Text''].includes\\(k\\)\\).join\\('', ''\\)\\)\")",
+      "Bash(node -e \"const p = require\\(''./node_modules/@shopify/ui-extensions-react/build/cjs/surfaces/admin.js''\\); const keys = Object.keys\\(p\\).filter\\(k => [''reactExtension'',''useApi'',''AdminBlock'',''BlockStack'',''Spinner'',''Link'',''Badge'',''Text''].includes\\(k\\)\\); console.log\\(''Found:'', keys.join\\('', ''\\)\\)\")",
+      "Bash(node -e \"const p = require\\(''./node_modules/@shopify/ui-extensions-react/build/cjs/surfaces/admin.js''\\); console.log\\(Object.keys\\(p\\).filter\\(k => k.toLowerCase\\(\\).includes\\(''spin''\\) || k.toLowerCase\\(\\).includes\\(''load''\\)\\).join\\('', ''\\)\\)\")",
+      "Bash(find /Users/lavipun/Work/ai-shopify-superapp/extensions/admin-ui/node_modules/@shopify/ui-extensions/build/ts/surfaces/admin/components/Text* -name \"*.d.ts\")",
+      "Bash(grep -r \"fontWeight\\\\|FontWeight\" /Users/lavipun/Work/ai-shopify-superapp/extensions/admin-ui/node_modules/@shopify/ui-extensions/build/ts/surfaces/admin/components/Text*)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(python3 -c \"import sys,json; p=json.load\\(sys.stdin\\); print\\(''version:'', p[''version'']\\)\")",
+      "Bash(python3 -c \"import sys,json; p=json.load\\(sys.stdin\\); print\\(json.dumps\\(p.get\\(''dependencies'',{}\\), indent=2\\)\\)\")",
+      "Bash(npx esbuild src/blocks/OrderDetails.tsx --bundle --format=esm --platform=browser)",
+      "Bash(grep -n \"activationType\" /Users/lavipun/Work/ai-shopify-superapp/apps/web/app/services/recipes/compiler/*.ts)",
+      "Bash(npx tsc --project extensions/admin-ui/tsconfig.json --noEmit)",
+      "Read(//Users/lavipun/Work/**)",
+      "Bash(npm run build)",
+      "Read(//tmp/**)"
+    ]
+  }
+}

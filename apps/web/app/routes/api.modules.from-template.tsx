@@ -40,6 +40,7 @@ export async function action({ request }: { request: Request }) {
 
       const settings = await new SettingsService().get();
       const spec = getTemplateSpec(templateId, settings.templateSpecOverrides);
+      if (!spec) return json({ error: 'Template spec not found' }, { status: 404 });
 
       const prisma = getPrisma();
       const shopRow = await prisma.shop.upsert({

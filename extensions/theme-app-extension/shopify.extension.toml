@@ -1,6 +1,7 @@
 api_version = "2026-01"
 
 [[extensions]]
+uid = "d3ad1d42-2618-f168-8448-6c378dc545d26badd1d7"
 type = "theme_app_extension"
 name = "SuperApp Theme Modules"
 handle = "superapp-theme-modules"

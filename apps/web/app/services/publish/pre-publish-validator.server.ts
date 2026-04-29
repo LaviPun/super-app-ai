@@ -71,8 +71,9 @@ function validateThemeModule(
     });
   }
 
-  if (spec.type !== 'proxy.widget' && spec.placement) {
-    const placement = spec.placement as { enabled_on?: { templates?: string[]; groups?: string[] }; disabled_on?: { templates?: string[]; groups?: string[] } };
+  const specAny = spec as { type: string; placement?: { enabled_on?: { templates?: string[]; groups?: string[] }; disabled_on?: { templates?: string[]; groups?: string[] } } };
+  if (spec.type !== 'proxy.widget' && specAny.placement) {
+    const placement = specAny.placement;
     const templates = placement.enabled_on?.templates ?? placement.disabled_on?.templates ?? [];
     const allowed = new Set(THEME_PLACEABLE_TEMPLATES);
     for (const t of templates) {

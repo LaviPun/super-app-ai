@@ -1,12 +1,12 @@
 import { json, redirect } from '@remix-run/node';
 import { useLoaderData, useActionData, Form, useNavigation } from '@remix-run/react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Page, Card, BlockStack, Text, Button, InlineStack, Banner, DataTable,
+  Page, Card, BlockStack, Text, Button, InlineStack, Banner,
   SkeletonBodyText, InlineGrid, Badge, ProgressBar, Divider,
 } from '@shopify/polaris';
 import { shopify } from '~/shopify.server';
-import { BillingService } from '~/services/billing/billing.service';
+import { BillingService, type BillingPlan } from '~/services/billing/billing.service';
 import { getAllPlanConfigs } from '~/services/billing/plan-config.service';
 import { QuotaService } from '~/services/billing/quota.service';
 import { getPrisma } from '~/db.server';
@@ -40,7 +40,12 @@ export async function action({ request }: { request: Request }) {
   if (!shopRow) throw new Response('Shop not found', { status: 404 });
 
   const form = await request.formData();
-  const plan = String(form.get('plan') ?? 'STARTER') as any;
+  const planRaw = String(form.get('plan') ?? 'STARTER');
+  const ALLOWED_PLANS: BillingPlan[] = ['FREE', 'STARTER', 'GROWTH', 'PRO', 'ENTERPRISE'];
+  if (!ALLOWED_PLANS.includes(planRaw as BillingPlan)) {
+    return json({ error: `Unknown plan: ${planRaw}` }, { status: 400 });
+  }
+  const plan = planRaw as BillingPlan;
 
   const billing = new BillingService();
   const returnUrl = `${process.env.SHOPIFY_APP_URL}/billing`;
@@ -68,12 +73,18 @@ export default function BillingPage() {
   const actionData = useActionData<typeof action>();
   const nav = useNavigation();
   const isSaving = nav.state !== 'idle';
+  const [errorDismissed, setErrorDismissed] = useState(false);
+
+  const confirmationUrl = actionData && 'confirmationUrl' in actionData ? actionData.confirmationUrl : undefined;
+  useEffect(() => {
+    if (confirmationUrl) {
+      if (window.top) window.top.location.href = confirmationUrl;
+    }
+  }, [confirmationUrl]);
 
   useEffect(() => {
-    if (actionData?.confirmationUrl) {
-      window.top.location.href = actionData.confirmationUrl;
-    }
-  }, [actionData?.confirmationUrl]);
+    setErrorDismissed(false);
+  }, [actionData]);
 
   const formatQuota = (v: number) => v === -1 ? 'Unlimited' : v.toLocaleString();
   const currentPlan = sub?.planName ?? 'Free';
@@ -88,8 +99,8 @@ export default function BillingPage() {
   return (
     <Page title="Billing & Plan" backAction={{ content: 'Dashboard', url: '/' }}>
       <BlockStack gap="500">
-        {actionData?.error && (
-          <Banner tone="critical" title="Upgrade failed" onDismiss={() => {}}>
+        {!errorDismissed && actionData && 'error' in actionData && actionData.error && (
+          <Banner tone="critical" title="Upgrade failed" onDismiss={() => setErrorDismissed(true)}>
             <Text as="p">{actionData.error}</Text>
           </Banner>
         )}
@@ -99,7 +110,7 @@ export default function BillingPage() {
             <Text as="p">Status: <strong>{sub.status}</strong>. Thank you for your subscription!</Text>
           </Banner>
         ) : (
-          <Banner tone="highlight" title="You're on the Free plan">
+          <Banner tone="info" title="You're on the Free plan">
             <Text as="p">Upgrade to unlock more AI requests, modules, connectors, and automation workflows.</Text>
           </Banner>
         )}

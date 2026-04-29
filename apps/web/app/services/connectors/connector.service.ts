@@ -6,6 +6,27 @@ export type ConnectorAuth =
   | { type: 'BASIC'; username: string; password: string }
   | { type: 'OAUTH2'; bearerToken: string };
 
+export function parseConnectorAuth(input: unknown): ConnectorAuth | null {
+  if (!input || typeof input !== 'object') return null;
+  const a = input as Record<string, unknown>;
+  switch (a.type) {
+    case 'API_KEY':
+      return typeof a.headerName === 'string' && typeof a.apiKey === 'string'
+        ? { type: 'API_KEY', headerName: a.headerName, apiKey: a.apiKey }
+        : null;
+    case 'BASIC':
+      return typeof a.username === 'string' && typeof a.password === 'string'
+        ? { type: 'BASIC', username: a.username, password: a.password }
+        : null;
+    case 'OAUTH2':
+      return typeof a.bearerToken === 'string'
+        ? { type: 'OAUTH2', bearerToken: a.bearerToken }
+        : null;
+    default:
+      return null;
+  }
+}
+
 export type CreateConnectorInput = {
   shopDomain: string;
   name: string;
@@ -166,11 +187,13 @@ function isPrivateHost(host: string) {
   if (host === 'localhost') return true;
   if (host.endsWith('.local')) return true;
   if (/^(\d+\.){3}\d+$/.test(host)) {
-    const [a, b] = host.split('.').map(n => parseInt(n, 10));
+    const parts = host.split('.').map(n => parseInt(n, 10));
+    const a = parts[0];
+    const b = parts[1];
     if (a === 10) return true;
     if (a === 127) return true;
     if (a === 192 && b === 168) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 172 && b !== undefined && b >= 16 && b <= 31) return true;
   }
   return false;
 }

@@ -70,9 +70,9 @@ export async function loader({ request }: { request: Request }) {
   const jobsByType: Record<string, { total: number; success: number; failed: number }> = {};
   for (const j of jobs) {
     if (!jobsByType[j.type]) jobsByType[j.type] = { total: 0, success: 0, failed: 0 };
-    jobsByType[j.type].total++;
-    if (j.status === 'SUCCESS') jobsByType[j.type].success++;
-    if (j.status === 'FAILED') jobsByType[j.type].failed++;
+    jobsByType[j.type]!.total++;
+    if (j.status === 'SUCCESS') jobsByType[j.type]!.success++;
+    if (j.status === 'FAILED') jobsByType[j.type]!.failed++;
   }
 
   // Job success over last 7 days for chart
@@ -282,7 +282,7 @@ export default function MerchantLogs() {
               <BlockStack gap="400">
                 <InlineStack align="space-between" blockAlign="center">
                   <Text as="h2" variant="headingMd">Plan usage & limits</Text>
-                  <Badge tone={usage.plan === 'FREE' ? 'attention' : 'success'}>{usage.plan} plan</Badge>
+                  <Badge tone={usage.plan === 'FREE' ? 'attention' : 'success'}>{`${usage.plan} plan`}</Badge>
                 </InlineStack>
                 <Text as="p" tone="subdued">Current billing period usage against your plan limits.</Text>
                 <InlineGrid columns={{ xs: 1, sm: 2 }} gap="400">

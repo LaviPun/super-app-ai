@@ -1,4 +1,4 @@
-import type { AdminApiContext } from '@shopify/shopify-app-remix/server';
+import type { AdminApiContext } from '~/types/shopify';
 
 /** Minimal shop query — single field for GID. */
 const SHOP_ID_QUERY = `#graphql

@@ -1,15 +1,12 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "675f836397310b8c66a6ca2b5a49923c"
+web_directories = [ "apps/web" ]
 name = "Super App AI"
 application_url = "http://localhost:3000"
 embedded = true
 
-# Monorepo: web app lives in apps/web; CLI uses this when you run `shopify app dev` from repo root
-web_directories = ["apps/web"]
-
 [build]
-# So dev uses the tunnel URL (HTTPS) and the admin iframe can load the app
 automatically_update_urls_on_dev = true
 
 [webhooks]
@@ -17,11 +14,235 @@ api_version = "2026-01"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-# Themes (read only: theme list for UI; we do not modify theme files — app uses extensions + metafields only); Products; Orders; etc.
-# Note: read_metafields/write_metafields are not valid scopes; metafield access is per-resource.
-scopes = "read_themes,read_products,write_products,read_orders,write_orders,read_customers,write_customers,read_checkouts,write_checkouts,read_inventory,write_discounts,write_app_proxy,write_payment_customizations,write_delivery_customizations,write_cart_transforms"
+scopes = "read_checkouts,read_customers,read_inventory,read_metaobjects,read_orders,read_products,read_themes,write_app_proxy,write_cart_transforms,write_checkouts,write_customers,write_delivery_customizations,write_discounts,write_metaobjects,write_orders,write_payment_customizations,write_products"
 optional_scopes = [ ]
 use_legacy_install_flow = false
 
 [auth]
 redirect_urls = [ ]
+
+[metaobjects.app.superapp_module]
+name = "SuperApp Module"
+display_name_field = "name"
+
+  [metaobjects.app.superapp_module.access]
+  admin = "merchant_read_write"
+  storefront = "public_read"
+
+[metaobjects.app.superapp_module.fields.module_id]
+name = "Module ID"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_module.fields.module_type]
+name = "Module Type"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_module.fields.name]
+name = "Name"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_module.fields.activation_type]
+name = "Activation Type"
+type = "single_line_text_field"
+required = false
+
+[metaobjects.app.superapp_module.fields.config_json]
+name = "Config JSON"
+type = "json"
+required = true
+
+[metaobjects.app.superapp_module.fields.style_json]
+name = "Style JSON"
+type = "json"
+required = false
+
+[metaobjects.app.superapp_admin_block]
+name = "SuperApp Admin Block"
+display_name_field = "name"
+
+  [metaobjects.app.superapp_admin_block.access]
+  admin = "merchant_read_write"
+  storefront = "none"
+
+[metaobjects.app.superapp_admin_block.fields.module_id]
+name = "Module ID"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_block.fields.module_type]
+name = "Module Type"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_block.fields.name]
+name = "Name"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_block.fields.target]
+name = "Target"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_block.fields.label]
+name = "Label"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_block.fields.config_json]
+name = "Config JSON"
+type = "json"
+required = true
+
+[metaobjects.app.superapp_admin_action]
+name = "SuperApp Admin Action"
+display_name_field = "name"
+
+  [metaobjects.app.superapp_admin_action.access]
+  admin = "merchant_read_write"
+  storefront = "none"
+
+[metaobjects.app.superapp_admin_action.fields.module_id]
+name = "Module ID"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_action.fields.module_type]
+name = "Module Type"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_action.fields.name]
+name = "Name"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_action.fields.target]
+name = "Target"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_action.fields.label]
+name = "Label"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_action.fields.title]
+name = "Title"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_action.fields.config_json]
+name = "Config JSON"
+type = "json"
+required = true
+
+[metaobjects.app.superapp_function_config]
+name = "SuperApp Function Config"
+display_name_field = "function_key"
+
+  [metaobjects.app.superapp_function_config.access]
+  admin = "merchant_read_write"
+  storefront = "none"
+
+[metaobjects.app.superapp_function_config.fields.function_key]
+name = "Function Key"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_function_config.fields.config_json]
+name = "Config JSON"
+type = "json"
+required = true
+
+[metaobjects.app.superapp_checkout_upsell]
+name = "SuperApp Checkout Upsell"
+display_name_field = "name"
+
+  [metaobjects.app.superapp_checkout_upsell.access]
+  admin = "merchant_read_write"
+  storefront = "public_read"
+
+[metaobjects.app.superapp_checkout_upsell.fields.module_id]
+name = "Module ID"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_checkout_upsell.fields.module_type]
+name = "Module Type"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_checkout_upsell.fields.name]
+name = "Name"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_checkout_upsell.fields.config_json]
+name = "Config JSON"
+type = "json"
+required = true
+
+[metaobjects.app.superapp_customer_account_block]
+name = "SuperApp Customer Account Block"
+display_name_field = "name"
+
+  [metaobjects.app.superapp_customer_account_block.access]
+  admin = "merchant_read_write"
+  storefront = "public_read"
+
+[metaobjects.app.superapp_customer_account_block.fields.module_id]
+name = "Module ID"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_customer_account_block.fields.module_type]
+name = "Module Type"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_customer_account_block.fields.name]
+name = "Name"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_customer_account_block.fields.target]
+name = "Target"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_customer_account_block.fields.config_json]
+name = "Config JSON"
+type = "json"
+required = true
+
+[metaobjects.app.superapp_proxy_widget]
+name = "SuperApp Proxy Widget"
+display_name_field = "name"
+
+  [metaobjects.app.superapp_proxy_widget.access]
+  admin = "merchant_read_write"
+  storefront = "none"
+
+[metaobjects.app.superapp_proxy_widget.fields.widget_id]
+name = "Widget ID"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_proxy_widget.fields.name]
+name = "Name"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_proxy_widget.fields.config_json]
+name = "Config JSON"
+type = "json"
+required = true
+
+[metaobjects.app.superapp_proxy_widget.fields.style_css]
+name = "Style CSS"
+type = "multi_line_text_field"
+required = false

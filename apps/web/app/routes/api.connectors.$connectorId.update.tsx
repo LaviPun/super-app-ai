@@ -1,7 +1,7 @@
 import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
-import { ConnectorService } from '~/services/connectors/connector.service';
+import { ConnectorService, parseConnectorAuth } from '~/services/connectors/connector.service';
 import { withApiLogging } from '~/services/observability/api-log.service';
 
 export async function loader() {
@@ -31,6 +31,14 @@ export async function action({
       const body = await request.json().catch(() => null) as Record<string, unknown> | null;
       if (!body) return json({ error: 'Invalid JSON body' }, { status: 400 });
 
+      let auth: ReturnType<typeof parseConnectorAuth> | undefined;
+      if (body.auth !== undefined) {
+        auth = parseConnectorAuth(body.auth);
+        if (!auth) {
+          return json({ error: 'Invalid auth: expected API_KEY, BASIC, or OAUTH2 shape.' }, { status: 400 });
+        }
+      }
+
       const svc = new ConnectorService();
       await svc.update({
         shopDomain: session.shop,
@@ -38,7 +46,7 @@ export async function action({
         name: typeof body.name === 'string' ? body.name : undefined,
         baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl : undefined,
         allowlistDomains: Array.isArray(body.allowlistDomains) ? body.allowlistDomains.map(String) : undefined,
-        auth: body.auth as any,
+        auth: auth ?? undefined,
       });
 
       return json({ ok: true });

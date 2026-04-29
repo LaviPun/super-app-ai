@@ -1,7 +1,7 @@
 import { json } from '@remix-run/node';
 import { Outlet, useLoaderData, useLocation, useMatches } from '@remix-run/react';
 import {
-  Frame, Navigation, TopBar, Toast,
+  Frame, Navigation, TopBar, Toast, type IconSource,
 } from '@shopify/polaris';
 import {
   AppsIcon, ClockIcon, CodeIcon,
@@ -85,11 +85,14 @@ function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
     { url: '/internal/activity', label: 'Activity Log', icon: AutomationIcon },
     { url: '/internal/logs', label: 'Error Logs', icon: BugIcon },
     { url: '/internal/api-logs', label: 'API Logs', icon: NoteIcon },
+    { url: '/internal/audit', label: 'Audit Log', icon: NoteIcon },
+    { url: '/internal/webhooks', label: 'Webhooks', icon: AutomationIcon },
   ];
 
   const dataItems = [
     { url: '/internal/stores', label: 'Stores', icon: StoreIcon },
     { url: '/internal/usage', label: 'Usage & Costs', icon: CashDollarIcon },
+    { url: '/internal/ai-accounts', label: 'AI Accounts', icon: CashDollarIcon },
     { url: '/internal/jobs', label: 'Jobs', icon: ClockIcon },
   ];
 
@@ -101,10 +104,10 @@ function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
     { url: '/internal/recipe-edit', label: 'Recipe edit', icon: CodeIcon },
   ];
 
-  const toNavItems = (items: typeof mainItems) =>
+  const toNavItems = (items: Array<{ url: string; label: string; icon: IconSource; exactMatch?: boolean }>) =>
     items.map(item => ({
       ...item,
-      selected: 'exactMatch' in item && item.exactMatch
+      selected: item.exactMatch
         ? location.pathname === item.url
         : location.pathname.startsWith(item.url),
     }));
@@ -149,7 +152,7 @@ function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
     />
   );
 
-  const logoSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36"><rect width="36" height="36" rx="8" fill="${headerColor.replace('#', '%23')}"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="system-ui" font-size="14" font-weight="700" fill="%23fff">${encodeURIComponent(appName.slice(0, 2).toUpperCase())}</text></svg>`;
+  const logoSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36"><rect width="36" height="36" rx="8" fill="${headerColor.replace('#', '%23')}"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="Instrument Sans,Arial,sans-serif" font-size="14" font-weight="700" fill="%23fff">${encodeURIComponent(appName.slice(0, 2).toUpperCase())}</text></svg>`;
 
   const logo = {
     width: 36,
@@ -162,6 +165,12 @@ function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
     <>
       <style>{`
         .Polaris-TopBar { background: ${headerColor} !important; }
+        /* Internal admin: full width – no max-width on frame main or page */
+        .internal-admin-frame-wrapper .Polaris-Frame__Main,
+        .internal-admin-content .Polaris-Page,
+        .internal-admin-content .Polaris-Page__Content { max-width: none !important; width: 100% !important; }
+        .internal-admin-content .Polaris-Page-MainContent { max-width: none !important; }
+        .internal-admin-content { background: var(--sa-color-bg, #f6f8fb); color: var(--sa-color-text, #111827); }
         /* Internal admin: frame fills viewport; only main content scrolls so nav/top bar stay fixed */
         .internal-admin-frame-wrapper { flex: 1; min-height: 0; height: 100%; display: flex; flex-direction: column; }
         .internal-admin-frame-wrapper > * { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
@@ -176,6 +185,9 @@ function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
         /* Code / JSON block: capped height, scroll, optional expand */
         .internal-code-block { margin: 0; padding: 12px; background: var(--p-color-bg-surface-secondary); border-radius: 8px; font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 280px; overflow-y: auto; }
         .internal-code-block-expanded { max-height: none; }
+        /* Store detail: table column widths so Name is readable */
+        .internal-store-modules-table .Polaris-DataTable__Cell:first-child { min-width: 140px; max-width: 280px; }
+        .internal-store-modules-table .Polaris-DataTable__Cell:nth-child(8) { width: 72px; }
       `}</style>
       <div className="internal-admin-frame-wrapper">
         <Frame
@@ -185,12 +197,13 @@ function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
           onNavigationDismiss={toggleMobileNav}
           logo={logo}
         >
-          <div className="internal-admin-content">
+          <div className={`internal-admin-content${location.pathname === '/internal' ? ' internal-dashboard-page' : ''}`}>
             <Outlet context={{ showToast: (msg: string, error?: boolean) => {
               setToastMsg(msg);
               setToastError(!!error);
               setToastActive(true);
             }}} />
+            <footer className="app-footer">Made with ❤️ by Lavi</footer>
           </div>
           {toastActive && (
             <Toast

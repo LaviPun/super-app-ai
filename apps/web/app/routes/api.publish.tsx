@@ -13,11 +13,12 @@ import { ThemeService } from '~/services/shopify/theme.service';
 import { CapabilityService } from '~/services/shopify/capability.service';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
 import type { DeployTarget } from '@superapp/core';
-import { isCapabilityAllowed } from '@superapp/core';
 import { withApiLogging } from '~/services/observability/api-log.service';
 import { getPrisma } from '~/db.server';
 import { JobService } from '~/services/jobs/job.service';
-import { ActivityLogService } from '~/services/activity/activity.service';
+import { ActivityLogService, logRequestOutcome } from '~/services/activity/activity.service';
+import { PublishPolicyService } from '~/services/publish/publish-policy.service';
+import { runPublishPreflight } from '~/services/publish/publish-preflight.server';
 
 /** Turn thrown value into a string suitable for UI (avoids "[object Object]"). */
 function toErrorMessage(e: unknown): string {
@@ -63,7 +64,10 @@ export async function action({ request }: { request: Request }) {
           };
         }
       }
-      if (!body?.moduleId) return json({ error: 'Missing moduleId' }, { status: 400 });
+      if (!body?.moduleId) {
+        await logRequestOutcome({ shopId: undefined, pathOrIntent: '/api/publish', success: false, details: { error: 'Missing moduleId' } });
+        return json({ error: 'Missing moduleId' }, { status: 400 });
+      }
 
       const prisma = getPrisma();
       const shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
@@ -81,16 +85,59 @@ export async function action({ request }: { request: Request }) {
       let tier = await caps.getPlanTier(session.shop);
       if (tier === 'UNKNOWN') tier = await caps.refreshPlanTier(session.shop, admin);
 
-      const blocked = (spec.requires ?? []).filter((c: any) => !isCapabilityAllowed(tier, c));
-      if (blocked.length) {
-        const reasons = blocked.map((c: any) => caps.explainCapabilityGate(c) ?? String(c));
-        return json({ error: 'Plan does not allow this module', blocked, reasons, planTier: tier }, { status: 403 });
-      }
-
       const isThemeModule = spec.type.startsWith('theme.');
       const target: DeployTarget = isThemeModule
         ? { kind: 'THEME', themeId: body.themeId ?? '', moduleId: module.id }
-        : { kind: 'PLATFORM' };
+        : { kind: 'PLATFORM', moduleId: module.id };
+
+      const preflight = await runPublishPreflight(admin, { isThemeModule });
+      if (!preflight.ok) {
+        const error = preflight.error
+          ? `Publish preflight failed: ${preflight.error}`
+          : `Missing required Shopify access scopes: ${preflight.missingScopes.join(', ')}`;
+        await logRequestOutcome({
+          shopId: shopRow?.id,
+          pathOrIntent: '/api/publish',
+          success: false,
+          details: {
+            error,
+            missingScopes: preflight.missingScopes,
+            requiredScopes: preflight.requiredScopes,
+            grantedScopes: preflight.grantedScopes,
+          },
+        });
+        return json(
+          {
+            error,
+            missingScopes: preflight.missingScopes,
+            requiredScopes: preflight.requiredScopes,
+            grantedScopes: preflight.grantedScopes,
+          },
+          { status: 403 },
+        );
+      }
+
+      const policy = new PublishPolicyService().evaluate({
+        shopDomain: session.shop,
+        versionId: draft.id,
+        planTier: tier,
+        requires: spec.requires ?? [],
+        specType: spec.type,
+        targetKind: target.kind,
+      });
+      if (!policy.allowed) {
+        const capabilityReasons = policy.blocked.map((c: any) => caps.explainCapabilityGate(c) ?? String(c));
+        return json(
+          {
+            error: 'Plan does not allow this module',
+            blocked: policy.blocked,
+            reasons: [...capabilityReasons, ...policy.reasons],
+            planTier: tier,
+            snapshotKey: policy.snapshotKey,
+          },
+          { status: 403 }
+        );
+      }
 
       if (target.kind === 'THEME' && !target.themeId) {
         return json({ error: 'themeId is required for theme module publish' }, { status: 400 });
@@ -118,23 +165,34 @@ export async function action({ request }: { request: Request }) {
       }
 
       const jobs = new JobService();
-      const job = await jobs.create({ shopId: shopRow?.id, type: 'PUBLISH', payload: { moduleId: module.id, target } });
+      const job = await jobs.create({
+        shopId: shopRow?.id,
+        type: 'PUBLISH',
+        payload: { moduleId: module.id, target, source: 'merchant_api' },
+      });
       await jobs.start(job.id);
 
       try {
         const publisher = new PublishService(admin);
         await publisher.publish(spec, target);
 
-        await moduleService.markPublished(module.id, draft.id, target.kind === 'THEME' ? target.themeId : undefined);
+        await moduleService.markPublishedWithTransition({
+          shopId: shopRow?.id,
+          moduleId: module.id,
+          versionId: draft.id,
+          targetThemeId: target.kind === 'THEME' ? target.themeId : undefined,
+          source: 'merchant_api',
+          idempotencyKey: `publish:${session.shop}:${module.id}:${draft.id}:${target.kind === 'THEME' ? target.themeId : 'platform'}`,
+        });
         await jobs.succeed(job.id, { ok: true });
         await new ActivityLogService().log({ actor: 'MERCHANT', action: 'MODULE_PUBLISHED', resource: `module:${module.id}`, shopId: shopRow?.id, details: { target: target.kind, versionId: draft.id } });
+        await logRequestOutcome({ shopId: shopRow?.id, pathOrIntent: '/api/publish', success: true, details: { moduleId: module.id } });
 
-        const noExtension = (spec.type === 'admin.block' || spec.type === 'pos.extension') ? 'admin' : undefined;
-        const q = noExtension ? `?published=1&noExtension=${noExtension}` : '?published=1';
-        return redirect(`/modules/${module.id}${q}`);
+        return redirect(`/modules/${module.id}?published=1`);
       } catch (e) {
         await jobs.fail(job.id, e);
         const message = toErrorMessage(e);
+        await logRequestOutcome({ shopId: shopRow?.id, pathOrIntent: '/api/publish', success: false, details: { error: message } });
         return json({ error: message }, { status: 500 });
       }
     }

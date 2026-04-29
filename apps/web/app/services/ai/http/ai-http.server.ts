@@ -69,17 +69,38 @@ export async function postJsonWithRetries(opts: {
           provider: opts.logMeta.provider,
           model: opts.logMeta.model,
           attempt,
+          maxOutputTokensRequested: (opts.body as any)?.max_output_tokens ?? null,
+          outputTokens: json?.usage?.output_tokens ?? json?.usage?.completion_tokens ?? null,
+          inputTokens: json?.usage?.input_tokens ?? json?.usage?.prompt_tokens ?? null,
+          responseStatus: json?.status ?? null,
+          outputMessageStatus: json?.output?.[0]?.status ?? null,
           requestBodySha256: sha256(JSON.stringify(opts.body)),
           responseBodySha256: sha256(text),
           responseBytes: Buffer.byteLength(text, 'utf8'),
         },
       });
 
-      if (res.status === 429 || (res.status >= 500 && res.status <= 599)) {
+      if (res.status >= 500 && res.status <= 599) {
         if (attempt < maxRetries) {
           await sleep(backoffMs(attempt));
           continue;
         }
+      }
+
+      // Rate limits: retry once with a short delay, then fail fast.
+      // Long backoffs cause upstream timeouts (Cloudflare, proxies).
+      if (res.status === 429) {
+        if (attempt === 0) {
+          const retryAfter = parseRetryAfterMs(res.headers);
+          await sleep(retryAfter ? Math.min(retryAfter, 10_000) : 5_000);
+          continue;
+        }
+        // After one retry, fail immediately with a descriptive error
+        const err = Object.assign(
+          new Error(`AI provider rate limited (HTTP 429). ${truncate(text, 400)}`),
+          { nonRetryable: true, statusCode: 429 },
+        );
+        throw err;
       }
 
       if (res.status >= 400) {
@@ -131,6 +152,20 @@ function backoffMs(attempt: number) {
   const base = 400 * Math.pow(2, attempt);
   const jitter = Math.floor(Math.random() * 250);
   return base + jitter;
+}
+
+/** Parse retry-after header (seconds or HTTP-date) into ms. Returns undefined if missing/invalid. */
+function parseRetryAfterMs(headers: Headers): number | undefined {
+  const val = headers.get('retry-after');
+  if (!val) return undefined;
+  const secs = Number(val);
+  if (!Number.isNaN(secs) && secs > 0) return Math.min(secs * 1000, 120_000);
+  const date = Date.parse(val);
+  if (!Number.isNaN(date)) {
+    const ms = date - Date.now();
+    return ms > 0 ? Math.min(ms, 120_000) : undefined;
+  }
+  return undefined;
 }
 
 function sleep(ms: number) {

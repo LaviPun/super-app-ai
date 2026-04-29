@@ -1,4 +1,4 @@
-import type { AdminApiContext } from '@shopify/shopify-app-remix/server';
+import type { AdminApiContext } from '~/types/shopify';
 
 export type ShopifyTheme = {
   id: number;
@@ -23,7 +23,7 @@ export class ThemeService {
 
   async listThemes(): Promise<ShopifyTheme[]> {
     const res = await this.admin.graphql(THEMES_QUERY);
-    const json = await res.json();
+    const json = await res.json() as any;
     if (json?.errors?.length) {
       throw new Error(json.errors.map((e: { message?: string }) => e.message).join('; '));
     }

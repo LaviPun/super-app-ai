@@ -8,6 +8,7 @@ import {
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { InternalTruncateCell } from '~/components/InternalTruncateCell';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
+import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagination.server';
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
@@ -15,14 +16,17 @@ export async function loader({ request }: { request: Request }) {
   const actor = url.searchParams.get('actor') || undefined;
   const action = url.searchParams.get('action') || undefined;
   const search = url.searchParams.get('q') || undefined;
+  const correlationId = url.searchParams.get('correlationId') || undefined;
   const dateFrom = url.searchParams.get('dateFrom') ? new Date(url.searchParams.get('dateFrom')!) : undefined;
   const dateTo = url.searchParams.get('dateTo') ? new Date(url.searchParams.get('dateTo')!) : undefined;
+  const page = parseCursorParams(url, 150);
 
   const service = new ActivityLogService();
   const [logs, distinctActions] = await Promise.all([
-    service.list({ actor, action, search, dateFrom, dateTo, take: 300 }),
+    service.list({ actor, action, search, dateFrom, dateTo, take: page.take, cursorId: page.cursor?.id, correlationId }),
     service.getDistinctActions(),
   ]);
+  const nextCursorHref = buildNextCursorUrl(url, logs, page.take);
 
   return json({
     logs: logs.map(l => ({
@@ -34,9 +38,13 @@ export async function loader({ request }: { request: Request }) {
       details: l.details,
       ip: l.ip,
       createdAt: l.createdAt.toISOString(),
+      correlationId: l.correlationId ?? null,
+      requestId: l.requestId ?? null,
     })),
     distinctActions,
-    filters: { actor, action, search, dateFrom: dateFrom?.toISOString(), dateTo: dateTo?.toISOString() },
+    filters: { actor, action, search, correlationId, dateFrom: dateFrom?.toISOString(), dateTo: dateTo?.toISOString() },
+    nextCursorHref,
+    pageSize: page.take,
   });
 }
 
@@ -65,6 +73,7 @@ type ActivityDetailData = {
   action: string;
   resource: string | null;
   shopDomain: string | null;
+  details: string | null;
   detailsJson: string | null;
   detailsRaw: string | null;
   ip: string | null;
@@ -104,45 +113,66 @@ function ActivityCodeWithExpand({ value }: { value: string | null }) {
 }
 
 function ActivityDetailContent({ d }: { d: ActivityDetailData }) {
+  const detailSections: { label: string; value: string }[] = [];
+  if (d.detailsJson) {
+    try {
+      const parsed = JSON.parse(d.detailsJson) as Record<string, unknown>;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        for (const [key, val] of Object.entries(parsed)) {
+          detailSections.push({
+            label: key,
+            value: typeof val === 'string' ? val : JSON.stringify(val, null, 2),
+          });
+        }
+      } else {
+        detailSections.push({ label: 'Details (JSON)', value: d.detailsJson });
+      }
+    } catch {
+      detailSections.push({ label: 'Details (JSON)', value: d.detailsJson });
+    }
+  } else if (d.detailsRaw) {
+    detailSections.push({ label: 'Details (raw)', value: d.detailsRaw });
+  }
+
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: 16, height: 420, maxHeight: '55vh' }}>
-      <div style={activityQuadrantStyle}>
-        <Text as="h3" variant="headingSm" fontWeight="semibold">Request / Body (JSON)</Text>
-        <div style={activityQuadrantScrollStyle}>
-          <ActivityCodeWithExpand value={d.detailsJson} />
-        </div>
+    <BlockStack gap="400">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+        <div><Text as="p" variant="bodySm" fontWeight="semibold">Time</Text><Text as="p" variant="bodySm" tone="subdued">{new Date(d.createdAt).toLocaleString()}</Text></div>
+        <div><Text as="p" variant="bodySm" fontWeight="semibold">Actor</Text><Text as="p" variant="bodySm" tone="subdued">{d.actor}</Text></div>
+        <div><Text as="p" variant="bodySm" fontWeight="semibold">Action</Text><Text as="p" variant="bodySm" tone="subdued">{d.action}</Text></div>
+        <div><Text as="p" variant="bodySm" fontWeight="semibold">Resource</Text><Text as="p" variant="bodySm" tone="subdued">{d.resource ?? '—'}</Text></div>
+        <div><Text as="p" variant="bodySm" fontWeight="semibold">Store</Text><Text as="p" variant="bodySm" tone="subdued">{d.shopDomain ?? '—'}</Text></div>
+        {d.ip && <div><Text as="p" variant="bodySm" fontWeight="semibold">IP</Text><Text as="p" variant="bodySm" tone="subdued">{d.ip}</Text></div>}
       </div>
-      <div style={activityQuadrantStyle}>
-        <Text as="h3" variant="headingSm" fontWeight="semibold">Details</Text>
-        <div style={activityQuadrantScrollStyle}>
-          <BlockStack gap="100">
-            <Text as="p" variant="bodySm"><strong>Time</strong>: {new Date(d.createdAt).toLocaleString()}</Text>
-            <Text as="p" variant="bodySm"><strong>Actor</strong>: {d.actor}</Text>
-            <Text as="p" variant="bodySm"><strong>Action</strong>: {d.action}</Text>
-            <Text as="p" variant="bodySm"><strong>Resource</strong>: {d.resource ?? '—'}</Text>
-            <Text as="p" variant="bodySm"><strong>Store</strong>: {d.shopDomain ?? '—'}</Text>
-            {d.ip && <Text as="p" variant="bodySm"><strong>IP</strong>: {d.ip}</Text>}
-          </BlockStack>
-        </div>
-      </div>
-      <div style={activityQuadrantStyle}>
-        <Text as="h3" variant="headingSm" fontWeight="semibold">Response / Details (raw)</Text>
-        <div style={activityQuadrantScrollStyle}>
-          <ActivityCodeWithExpand value={d.detailsRaw} />
-        </div>
-      </div>
-      <div style={activityQuadrantStyle}>
-        <Text as="h3" variant="headingSm" fontWeight="semibold">Additional meta</Text>
-        <div style={activityQuadrantScrollStyle}>
-          <Text as="p" variant="bodySm" tone="subdued">—</Text>
-        </div>
-      </div>
-    </div>
+      {detailSections.length > 0 && (
+        <BlockStack gap="200">
+          <Text as="h3" variant="headingSm" fontWeight="semibold">Payload / details</Text>
+          {detailSections.map(({ label, value }) => (
+            <div key={label} style={activityQuadrantStyle}>
+              <Text as="p" variant="bodySm" fontWeight="semibold">{label}</Text>
+              <div style={activityQuadrantScrollStyle}>
+                <ActivityCodeWithExpand value={value} />
+              </div>
+            </div>
+          ))}
+        </BlockStack>
+      )}
+      {d.details != null && d.details !== '' && (
+        <BlockStack gap="200">
+          <Text as="h3" variant="headingSm" fontWeight="semibold">Raw JSON</Text>
+          <div style={activityQuadrantStyle}>
+            <div style={activityQuadrantScrollStyle}>
+              <ActivityCodeWithExpand value={d.details} />
+            </div>
+          </div>
+        </BlockStack>
+      )}
+    </BlockStack>
   );
 }
 
 export default function InternalActivity() {
-  const { logs, distinctActions, filters } = useLoaderData<typeof loader>();
+  const { logs, distinctActions, filters, nextCursorHref, pageSize } = useLoaderData<typeof loader>();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const fetcher = useFetcher<ActivityDetailData>();
   const revalidator = useRevalidator();
@@ -170,14 +200,16 @@ export default function InternalActivity() {
   return (
     <Page
       title="Activity log"
-      subtitle={`${logs.length} entries · refreshes every 5s`}
+      subtitle={`${logs.length} entries · every page open, click, request outcome, settings change · refreshes every 5s`}
       primaryAction={{ content: 'Refresh', onAction: () => revalidator.revalidate(), loading: revalidator.state === 'loading' }}
+      fullWidth
     >
-      <BlockStack gap="500">
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Filters</Text>
-            <Text as="p" variant="bodySm" tone="subdued">Filter by actor, action, search, and date range.</Text>
+      <div style={{ width: '100%', maxWidth: '100%' }}>
+        <BlockStack gap="300">
+          <Card>
+            <BlockStack gap="200">
+              <Text as="h2" variant="headingMd">Filters</Text>
+            <Text as="p" variant="bodySm" tone="subdued">Activity log covers everything: page opened, button/link clicks, settings changes, request success/error. Filter by actor, action, search, and date range.</Text>
             <Form method="get">
               <InlineStack gap="300" wrap blockAlign="end">
                 <div style={{ minWidth: 160 }}>
@@ -220,6 +252,20 @@ export default function InternalActivity() {
                     placeholder="Search resource, details..."
                   />
                 </div>
+                <div style={{ minWidth: 220 }}>
+                  <TextField
+                    label="Correlation ID"
+                    name="correlationId"
+                    value={filters.correlationId ?? ''}
+                    onChange={(v) => {
+                      const p = new URLSearchParams(params);
+                      if (v) p.set('correlationId', v); else p.delete('correlationId');
+                      setParams(p);
+                    }}
+                    autoComplete="off"
+                    placeholder="req_… / corr_…"
+                  />
+                </div>
                 <div style={{ minWidth: 160 }}>
                   <TextField
                     label="Date from"
@@ -256,7 +302,7 @@ export default function InternalActivity() {
         </Card>
 
         <Card>
-          <BlockStack gap="300">
+          <BlockStack gap="200">
             <Text as="h2" variant="headingMd">Activity entries</Text>
             {isLoading ? (
               <SkeletonBodyText lines={8} />
@@ -266,39 +312,45 @@ export default function InternalActivity() {
                 <Text as="p" variant="bodySm" tone="subdued">Actions will appear here as users interact with the app. Widen the date range or clear filters to see more.</Text>
               </BlockStack>
             ) : (
-              <Box paddingBlockEnd="400">
+              <Box paddingBlockEnd="200">
                 <div className="internal-table-scroll" style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
                   <thead>
-                    <tr style={{ borderBottom: '1px solid var(--p-color-border)', textAlign: 'left' }}>
-                      <th style={{ padding: 12, fontWeight: 600 }}>Time</th>
-                      <th style={{ padding: 12, fontWeight: 600 }}>Actor</th>
-                      <th style={{ padding: 12, fontWeight: 600 }}>Action</th>
-                      <th style={{ padding: 12, fontWeight: 600 }}>Resource</th>
-                      <th style={{ padding: 12, fontWeight: 600 }}>Store</th>
-                      <th style={{ padding: 12, fontWeight: 600 }}>Details</th>
-                      <th style={{ padding: 12, fontWeight: 600, width: 80 }}></th>
+                    <tr style={{ borderBottom: '1px solid #e0e0e0', textAlign: 'left' }}>
+                      <th style={{ padding: '6px 12px', fontWeight: 600 }}>Time</th>
+                      <th style={{ padding: '6px 12px', fontWeight: 600 }}>Actor</th>
+                      <th style={{ padding: '6px 12px', fontWeight: 600 }}>Action</th>
+                      <th style={{ padding: '6px 12px', fontWeight: 600 }}>Resource</th>
+                      <th style={{ padding: '6px 12px', fontWeight: 600 }}>Store</th>
+                      <th style={{ padding: '6px 12px', fontWeight: 600 }}>Details</th>
+                      <th style={{ padding: '6px 12px', fontWeight: 600 }}>Correlation</th>
+                      <th style={{ padding: '6px 12px', fontWeight: 600, width: 140 }}></th>
                     </tr>
                   </thead>
                   <tbody>
                     {logs.map(l => (
-                      <tr key={l.id} style={{ borderBottom: '1px solid var(--p-color-border-subdued)' }}>
-                        <td style={{ padding: 12 }}>{new Date(l.createdAt).toLocaleString()}</td>
-                        <td style={{ padding: 12 }}><Badge tone={toneForActor(l.actor)}>{l.actor}</Badge></td>
-                        <td style={{ padding: 12 }}>{l.action}</td>
-                        <td style={{ padding: 12 }}>
+                      <tr key={l.id} style={{ borderBottom: '1px solid #eee' }}>
+                        <td style={{ padding: '6px 12px' }}>{new Date(l.createdAt).toLocaleString()}</td>
+                        <td style={{ padding: '6px 12px' }}><Badge tone={toneForActor(l.actor)}>{l.actor}</Badge></td>
+                        <td style={{ padding: '6px 12px' }}>{l.action}</td>
+                        <td style={{ padding: '6px 12px' }}>
                           <InternalTruncateCell value={l.resource} maxLength={60} maxWidthPx={200} />
                         </td>
-                        <td style={{ padding: 12 }}>
+                        <td style={{ padding: '6px 12px' }}>
                           <InternalTruncateCell value={l.shopDomain} maxLength={40} maxWidthPx={160} />
                         </td>
-                        <td style={{ padding: 12 }}>
+                        <td style={{ padding: '6px 12px' }}>
                           <InternalTruncateCell value={l.details} maxLength={80} maxWidthPx={240} tone="subdued" />
                         </td>
-                        <td style={{ padding: 12 }}>
-                          <InlineStack gap="200">
-                            <Button type="button" size="slim" variant="secondary" onClick={() => setSelectedId(l.id)}>View</Button>
-                            <Button url={`/internal/activity/${l.id}`} size="slim" variant="plain" target="_blank" rel="noopener noreferrer">Open in tab</Button>
+                        <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 11 }}>
+                          <InternalTruncateCell value={l.correlationId ?? '—'} maxLength={20} maxWidthPx={140} />
+                        </td>
+                        <td style={{ padding: '6px 12px' }}>
+                          <InlineStack gap="100">
+                            <Button size="slim" variant="secondary" onClick={() => setSelectedId(l.id)}>View</Button>
+                            {l.correlationId ? (
+                              <Button size="slim" variant="plain" url={`/internal/trace/${encodeURIComponent(l.correlationId)}`}>Trace</Button>
+                            ) : null}
                           </InlineStack>
                         </td>
                       </tr>
@@ -308,15 +360,23 @@ export default function InternalActivity() {
                 </div>
               </Box>
             )}
+            <InlineStack gap="200" align="space-between" blockAlign="center">
+              <Text as="p" variant="bodySm" tone="subdued">
+                Showing {logs.length} of up to {pageSize} per page.
+              </Text>
+              {nextCursorHref ? (
+                <Button url={nextCursorHref} variant="secondary">Load more</Button>
+              ) : null}
+            </InlineStack>
           </BlockStack>
         </Card>
-      </BlockStack>
+        </BlockStack>
+      </div>
 
       <Modal
         open={selectedId != null}
         onClose={() => setSelectedId(null)}
         title="Activity detail"
-        large
         secondaryActions={[{ content: 'Close', onAction: () => setSelectedId(null) }]}
       >
         <Modal.Section>
@@ -326,9 +386,9 @@ export default function InternalActivity() {
               <Text as="span" tone="subdued">Loading…</Text>
             </InlineStack>
           ) : detailData ? (
-            <Box maxHeight="70vh" overflowY="auto">
+            <div style={{ maxHeight: '70vh', overflow: 'auto' }}>
               <ActivityDetailContent d={detailData} />
-            </Box>
+            </div>
           ) : fetcher.data === undefined && fetcher.state === 'idle' ? null : (
             <Text as="p" tone="critical">Failed to load activity.</Text>
           )}

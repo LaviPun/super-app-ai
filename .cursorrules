@@ -17,6 +17,15 @@ HARD RULES
 - Add any changes in implement doc and  update readme. and any doc which is relevent
 - Always follow codechange-behave.md whenever code is changed
 - Always follow global-audit.md for audit of the code.
+- gstack maintenance rule: after any `git pull` inside `.gstack-tools/gstack`, verify Cursor host support still exists in `setup`; if `--host cursor` is missing, re-add the Cursor host block and rerun `./setup --host cursor`.
+
+Post-pull checklist for gstack (Cursor):
+1) `cd /Users/lavipun/Work/ai-shopify-superapp/.gstack-tools/gstack`
+2) `git pull --ff-only`
+3) `rg "expected claude, codex, cursor" setup || echo "cursor host missing"`
+4) If missing, patch `setup` to add `cursor` host support.
+5) `export PATH="$HOME/.bun/bin:$PATH" && ./setup --host cursor`
+6) `ls -la "$HOME/.cursor/skills"`
 
 
 PROJECT STRUCTURE

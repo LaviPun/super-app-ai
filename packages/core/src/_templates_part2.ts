@@ -482,7 +482,10 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         target: 'customer-account.order.action.menu-item.render',
         title: 'Download Invoice',
         blocks: [
-          { kind: 'LINK', content: 'Download PDF invoice', url: 'https://example.com/invoice' },
+          { kind: 'TEXT', content: 'Download a PDF copy of your order invoice for your records.' },
+          { kind: 'LINK', content: 'Download PDF Invoice', url: 'https://example.com/invoice' },
+          { kind: 'DIVIDER' },
+          { kind: 'TEXT', content: 'Need a custom invoice? Contact our support team.' },
         ],
         b2bOnly: false,
       },
@@ -762,6 +765,15 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         enableAnimation: false,
       },
       placement: { enabled_on: { templates: ['cart'] as any } },
+      style: {
+        layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
+        spacing: { padding: 'medium', margin: 'none', gap: 'medium' },
+        typography: { size: 'SM', weight: 'medium', lineHeight: 'normal', align: 'center' },
+        colors: { text: '#1e293b', background: '#f0fdf4', buttonBg: '#16a34a', buttonText: '#ffffff' },
+        shape: { radius: 'md', borderWidth: 'thin', shadow: 'none' },
+        responsive: { hideOnMobile: false, hideOnDesktop: false },
+        accessibility: { focusVisible: true, reducedMotion: true },
+      },
     } as RecipeSpec,
   },
   {

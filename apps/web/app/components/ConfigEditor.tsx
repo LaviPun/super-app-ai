@@ -149,6 +149,78 @@ const CONFIG_FIELDS: Record<string, FieldDef[]> = {
 
 const NAME_FIELD: FieldDef = { key: '__name', label: 'Module name', type: 'text', maxLength: 80 };
 
+// Groups from the AI-generated admin config schema to skip in ConfigEditor
+// (style is handled by StyleBuilder; analytics/performance are read-only)
+const SKIP_GROUPS = new Set(['style', 'analytics', 'performance']);
+
+const GROUP_LABELS: Record<string, string> = {
+  content: 'Content',
+  layout: 'Layout',
+  behavior: 'Behavior',
+  animation: 'Animation',
+  visibility_targeting: 'Visibility & Targeting',
+  rules_scheduling: 'Rules & Scheduling',
+  localization: 'Localization',
+  accessibility: 'Accessibility',
+};
+
+function toGroupLabel(key: string): string {
+  return GROUP_LABELS[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function toFieldLabel(key: string): string {
+  return key.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()).replace(/_/g, ' ').trim();
+}
+
+function inferDynamicFieldType(def: Record<string, unknown>, uiHint?: Record<string, unknown>): FieldDef['type'] {
+  const widget = uiHint?.['ui:widget'];
+  if (widget === 'textarea') return 'textarea';
+  if (widget === 'uri') return 'url';
+  if (widget === 'select') return 'select';
+  if (Array.isArray(def.enum)) return 'select';
+  if (def.format === 'uri') return 'url';
+  if (def.type === 'boolean') return 'boolean';
+  if (def.type === 'number' || def.type === 'integer') return 'number';
+  if (def.type === 'string' && typeof def.maxLength === 'number' && def.maxLength > 100) return 'textarea';
+  return 'text';
+}
+
+type DynamicFieldDef = FieldDef & { group: string };
+
+function extractDynamicFields(
+  jsonSchema: Record<string, unknown>,
+  uiSchema?: Record<string, unknown>,
+): DynamicFieldDef[] {
+  const fields: DynamicFieldDef[] = [];
+  const topProps = (jsonSchema.properties ?? {}) as Record<string, Record<string, unknown>>;
+
+  for (const [groupKey, groupDef] of Object.entries(topProps)) {
+    if (SKIP_GROUPS.has(groupKey)) continue;
+    const groupLabel = toGroupLabel(groupKey);
+    const groupUi = (uiSchema?.[groupKey] ?? {}) as Record<string, Record<string, unknown>>;
+
+    const groupProps = groupDef.properties as Record<string, Record<string, unknown>> | undefined;
+    if (!groupProps) continue;
+
+    for (const [fieldKey, fieldDef] of Object.entries(groupProps)) {
+      const fieldUi = groupUi[fieldKey] ?? {};
+      const enumValues = Array.isArray(fieldDef.enum) ? (fieldDef.enum as string[]) : undefined;
+      const enumNames = Array.isArray(fieldDef.enumNames) ? (fieldDef.enumNames as string[]) : undefined;
+
+      fields.push({
+        key: fieldKey,
+        label: String(fieldDef.title ?? fieldUi['ui:title'] ?? toFieldLabel(fieldKey)),
+        type: inferDynamicFieldType(fieldDef, fieldUi),
+        options: enumValues?.map((v, i) => ({ value: v, label: enumNames?.[i] ?? v })),
+        helpText: String(fieldDef.description ?? fieldUi['ui:help'] ?? '').trim() || undefined,
+        maxLength: typeof fieldDef.maxLength === 'number' ? fieldDef.maxLength : undefined,
+        group: groupLabel,
+      });
+    }
+  }
+  return fields;
+}
+
 function getConfigValue(config: Record<string, unknown>, key: string): unknown {
   return config[key];
 }
@@ -238,13 +310,26 @@ function renderField(
 export function ConfigEditor({
   spec,
   moduleId,
+  adminConfig,
+  onSpecChange,
 }: {
   spec: RecipeSpec;
   moduleId: string;
+  adminConfig?: { jsonSchema: Record<string, unknown>; uiSchema?: Record<string, unknown>; defaults: Record<string, unknown> } | null;
+  onSpecChange?: (spec: RecipeSpec) => void;
 }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string; version?: number }>();
   const { revalidate } = useRevalidator();
-  const fields = CONFIG_FIELDS[spec.type] ?? [];
+
+  // Use AI-generated dynamic fields when available (module has been hydrated)
+  const dynamicFields = adminConfig?.jsonSchema
+    ? extractDynamicFields(adminConfig.jsonSchema, adminConfig.uiSchema)
+    : null;
+
+  // Fall back to static per-type fields when not hydrated
+  const staticFields = CONFIG_FIELDS[spec.type] ?? [];
+  const fields = dynamicFields ?? staticFields;
+  const isDynamic = dynamicFields !== null;
 
   const [name, setName] = useState(spec.name);
   const [config, setConfig] = useState<Record<string, unknown>>(
@@ -252,17 +337,21 @@ export function ConfigEditor({
   );
 
   const handleConfigChange = useCallback((key: string, val: unknown) => {
-    setConfig(prev => ({ ...prev, [key]: val }));
-  }, []);
+    setConfig(prev => {
+      const next = { ...prev, [key]: val };
+      onSpecChange?.({ ...spec, config: next } as RecipeSpec);
+      return next;
+    });
+  }, [spec, onSpecChange]);
+
+  const handleNameChange = useCallback((val: string) => {
+    setName(val);
+    onSpecChange?.({ ...spec, name: val, config } as RecipeSpec);
+  }, [spec, config, onSpecChange]);
 
   const handleSave = useCallback(() => {
-    const updatedSpec = {
-      ...spec,
-      name,
-      config,
-    };
     fetcher.submit(
-      { spec: JSON.stringify(updatedSpec) },
+      { spec: JSON.stringify({ ...spec, name, config }) },
       { method: 'post', action: `/api/modules/${moduleId}/spec` },
     );
   }, [spec, name, config, moduleId, fetcher]);
@@ -277,8 +366,33 @@ export function ConfigEditor({
   const hasChanges = name !== spec.name ||
     JSON.stringify(config) !== JSON.stringify((spec as any).config);
 
+  // No fields at all and not hydrated → prompt to hydrate
   if (fields.length === 0 && spec.type !== 'flow.automation') {
-    return null;
+    return (
+      <Card>
+        <BlockStack gap="300">
+          <Text as="h2" variant="headingMd">Module settings</Text>
+          <Banner tone="info">
+            <Text as="p">
+              Run <strong>Generate full settings</strong> below to unlock an AI-powered config editor for this module type.
+            </Text>
+          </Banner>
+        </BlockStack>
+      </Card>
+    );
+  }
+
+  // Group dynamic fields by their group label
+  const groups: { label: string; fields: DynamicFieldDef[] }[] = [];
+  if (isDynamic) {
+    const seen = new Map<string, DynamicFieldDef[]>();
+    for (const f of fields as DynamicFieldDef[]) {
+      if (!seen.has(f.group)) seen.set(f.group, []);
+      seen.get(f.group)!.push(f);
+    }
+    for (const [label, grpFields] of seen) {
+      groups.push({ label, fields: grpFields });
+    }
   }
 
   return (
@@ -287,6 +401,7 @@ export function ConfigEditor({
         <InlineStack align="space-between" blockAlign="center">
           <Text as="h2" variant="headingMd">Module settings</Text>
           <InlineStack gap="200">
+            {isDynamic && <Badge tone="magic">AI-generated</Badge>}
             {fetcher.data?.ok && <Badge tone="success">Saved</Badge>}
             {fetcher.data?.error && <Badge tone="critical">Error</Badge>}
           </InlineStack>
@@ -295,17 +410,27 @@ export function ConfigEditor({
         <TextField
           label="Module name"
           value={name}
-          onChange={setName}
+          onChange={handleNameChange}
           autoComplete="off"
           maxLength={80}
         />
 
-        {fields.length > 0 && <Divider />}
+        <Divider />
 
-        {fields.length > 0 && (
+        {/* Dynamic groups from AI schema */}
+        {isDynamic && groups.map((group, gi) => (
+          <BlockStack key={group.label} gap="300">
+            <Text as="p" variant="headingSm">{group.label}</Text>
+            {group.fields.map(f => renderField(f, getConfigValue(config, f.key), handleConfigChange))}
+            {gi < groups.length - 1 && <Divider />}
+          </BlockStack>
+        ))}
+
+        {/* Static fallback fields (for standard types before hydration) */}
+        {!isDynamic && (fields as FieldDef[]).length > 0 && (
           <BlockStack gap="300">
             <Text as="p" variant="headingSm">Content &amp; configuration</Text>
-            {fields.map(f => renderField(f, getConfigValue(config, f.key), handleConfigChange))}
+            {(fields as FieldDef[]).map(f => renderField(f, getConfigValue(config, f.key), handleConfigChange))}
           </BlockStack>
         )}
 

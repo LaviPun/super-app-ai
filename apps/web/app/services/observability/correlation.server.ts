@@ -3,6 +3,13 @@ import crypto from 'node:crypto';
 
 export type RequestContext = {
   requestId: string;
+  /**
+   * Cross-request correlation id. Lives longer than `requestId` (defaults to it,
+   * but can be overridden via the `x-correlation-id` header so a cron retry can
+   * point back at the original request). Recorded on ApiLog/Job/ErrorLog/AiUsage/
+   * FlowStepLog rows so the entire trace assembles from any single record.
+   */
+  correlationId: string;
   shopDomain?: string;
   actor?: string;
   startedAt: number;
@@ -10,11 +17,12 @@ export type RequestContext = {
 
 const storage = new AsyncLocalStorage<RequestContext>();
 
-/**
- * Generate a new request ID.
- */
 export function generateRequestId(): string {
   return `req_${crypto.randomBytes(8).toString('hex')}`;
+}
+
+export function generateCorrelationId(): string {
+  return `corr_${crypto.randomBytes(8).toString('hex')}`;
 }
 
 /**
@@ -22,11 +30,13 @@ export function generateRequestId(): string {
  * can access the requestId without explicit threading.
  */
 export function runWithRequestContext<T>(
-  ctx: Partial<RequestContext> & { requestId?: string },
+  ctx: Partial<RequestContext> & { requestId?: string; correlationId?: string },
   fn: () => T
 ): T {
+  const requestId = ctx.requestId ?? generateRequestId();
   const fullCtx: RequestContext = {
-    requestId: ctx.requestId ?? generateRequestId(),
+    requestId,
+    correlationId: ctx.correlationId ?? requestId,
     shopDomain: ctx.shopDomain,
     actor: ctx.actor,
     startedAt: ctx.startedAt ?? Date.now(),
@@ -34,28 +44,25 @@ export function runWithRequestContext<T>(
   return storage.run(fullCtx, fn);
 }
 
-/**
- * Get the current request context (if any).
- */
 export function getRequestContext(): RequestContext | undefined {
   return storage.getStore();
 }
 
-/**
- * Get just the current requestId, generating a transient one if called outside a context.
- */
 export function getRequestId(): string {
   return storage.getStore()?.requestId ?? generateRequestId();
+}
+
+/** Returns the current correlationId, or a fresh one when called outside a context. */
+export function getCorrelationId(): string {
+  return storage.getStore()?.correlationId ?? generateCorrelationId();
 }
 
 /**
  * Remix-compatible middleware helper.
  * Call this at the top of every loader/action to establish request context.
  *
- * Usage:
- *   export async function loader({ request }) {
- *     return withRequestContext(request, 'MERCHANT', async () => { ... });
- *   }
+ * Reads `x-correlation-id` so an upstream caller (cron, agent, retry) can keep
+ * the same correlation across multiple requests.
  */
 export async function withRequestContext<T>(
   request: Request,
@@ -66,6 +73,7 @@ export async function withRequestContext<T>(
     request.headers.get('x-request-id') ??
     request.headers.get('x-shopify-request-id') ??
     generateRequestId();
+  const correlationId = request.headers.get('x-correlation-id') ?? requestId;
 
-  return runWithRequestContext({ requestId, actor, startedAt: Date.now() }, fn);
+  return runWithRequestContext({ requestId, correlationId, actor, startedAt: Date.now() }, fn);
 }

@@ -7,8 +7,8 @@ export async function action({ request }: { request: Request }) {
   const { session, admin } = await shopify.authenticate.admin(request);
   enforceRateLimit(`flow:run:${session.shop}`);
 
-  const body = await request.json().catch(() => null) as any;
-  const event = body?.event ?? { kind: 'manual' };
+  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  const event = (body?.event as Record<string, unknown>) ?? { kind: 'manual' };
 
   const runner = new FlowRunnerService();
   await runner.runForTrigger(session.shop, admin, 'MANUAL', event);

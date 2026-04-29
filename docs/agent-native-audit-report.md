@@ -418,7 +418,7 @@ Recent changes were documentation only. Agent-native scores remain as in the mai
 | ID | Severity | Layer | Surface | Symptom | Root Cause | Fix | Files | Verification |
 |----|----------|-------|---------|---------|------------|-----|-------|--------------|
 | 001 | High | Backend | Data stores | Duplicate `listRecords` in DataStoreService; second definition overwrote first; UI route passed (storeId, options) interpreted as (shopId, storeKey) | Two methods with same name | Rename first to `listRecordsByDataStoreId`; call it from data.$storeKey.tsx | data-store.service.ts, data.$storeKey.tsx | Build + tests |
-| 002 | Medium | packages/core | Tests | templates.test.ts fails: missing template for type theme.floatingWidget | MODULE_TEMPLATES does not include theme.floatingWidget | Add template for theme.floatingWidget in packages/core/src/templates.ts | templates.ts, templates.test.ts | pnpm test |
+| 002 | Medium | packages/core | Tests | templates.test.ts fails: missing template for type theme.floatingWidget | MODULE_TEMPLATES does not include theme.floatingWidget | **Resolved:** Templates rewritten to 144 entries (UAO-001–ORT-142) across `_templates_part{1..4}.ts`; all 23 RecipeSpec types now covered; all 83 tests pass | _templates_part{1..4}.ts, templates.test.ts | pnpm test |
 
 ### 8) Verification Matrix (Acceptance Gates 2.1)
 

@@ -1,6 +1,6 @@
 import type { PlanTier, Capability } from '@superapp/core';
 import { MIN_PLAN_FOR_CAPABILITY } from '@superapp/core';
-import type { AdminApiContext } from '@shopify/shopify-app-remix/server';
+import type { AdminApiContext } from '~/types/shopify';
 import { getPrisma } from '~/db.server';
 
 export class CapabilityService {

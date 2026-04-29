@@ -114,13 +114,13 @@ export default function InternalPlanTiers() {
                   <InlineGrid columns={{ xs: 1, sm: 3 }} gap="300">
                     <TextField
                       label="Display name"
-                      name="displayName"
+                      {...{ name: 'displayName' } as any}
                       defaultValue={plan.displayName}
                       autoComplete="off"
                     />
                     <TextField
                       label="Price (USD/month)"
-                      name="price"
+                      {...{ name: 'price' } as any}
                       type="number"
                       min={-1}
                       defaultValue={String(plan.price)}
@@ -129,7 +129,7 @@ export default function InternalPlanTiers() {
                     />
                     <TextField
                       label="Trial days"
-                      name="trialDays"
+                      {...{ name: 'trialDays' } as any}
                       type="number"
                       min={0}
                       defaultValue={String(plan.trialDays)}

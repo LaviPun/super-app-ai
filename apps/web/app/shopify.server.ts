@@ -4,19 +4,30 @@ import { LATEST_API_VERSION } from '@shopify/shopify-api';
 import { getSessionStorage } from '~/session.server';
 import { validateEnv } from '~/env.server';
 import { initOtel } from '~/services/observability/otel.server';
+import { ActivityLogService } from '~/services/activity/activity.service';
 
 initOtel();
 
 if (process.env.NODE_ENV !== 'test') validateEnv();
 
+let serverStartLogged = false;
+if (process.env.NODE_ENV !== 'test' && !serverStartLogged) {
+  serverStartLogged = true;
+  void new ActivityLogService()
+    .log({ actor: 'SYSTEM', action: 'SERVER_STARTED', details: { at: new Date().toISOString() } })
+    .catch(() => {});
+}
+
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY!,
   apiSecretKey: process.env.SHOPIFY_API_SECRET || '',
-  apiVersion: LATEST_API_VERSION,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  apiVersion: LATEST_API_VERSION as any,
   scopes: process.env.SCOPES?.split(','),
   appUrl: process.env.SHOPIFY_APP_URL || '',
   authPathPrefix: '/auth',
-  sessionStorage: getSessionStorage(),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sessionStorage: getSessionStorage() as any,
   distribution: AppDistribution.AppStore,
   future: {
     unstable_newEmbeddedAuthStrategy: true,

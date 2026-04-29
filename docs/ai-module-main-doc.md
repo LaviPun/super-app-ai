@@ -50,7 +50,7 @@
 | Module catalog (generated) | `packages/core/src/catalog.generated.json` |
 | Catalog loader & filter | `packages/core/src/catalog.ts` |
 | Catalog generator script | `packages/core/src/catalog.generator.ts` |
-| Template definitions (specs) | `packages/core/src/templates.ts` |
+| Template definitions (specs) | `packages/core/src/_templates_part{1..4}.ts` (144 templates, IDs UAO-001–ORT-142) |
 | Workflow validator | `packages/core/src/workflow-validator.ts` |
 
 ---
@@ -822,8 +822,8 @@ type TemplateEntry = {
 };
 ```
 
-- **MODULE_TEMPLATES:** Array of TemplateEntry in `templates.ts`. Each `spec` must parse with `RecipeSpecSchema`.
-- **Adding a new template:** Add catalogId (or map to existing), schema-compliant spec, compiler support if needed, and tests. Prefer config-driven generic extensions; avoid per-store compiled code.
+- **MODULE_TEMPLATES:** Array of 144 TemplateEntry objects assembled from `_templates_part{1..4}.ts` (14 categories × 9 + 16 coverage extras, IDs UAO-001–ORT-142). Each `spec` must parse with `RecipeSpecSchema`. All 23 RecipeSpec types are covered.
+- **Adding a new template:** Append to the appropriate `_templates_partN.ts` file with a catalogId (or map to existing), schema-compliant spec, compiler support if needed, and tests. Prefer config-driven generic extensions; avoid per-store compiled code.
 
 ---
 
@@ -1732,7 +1732,7 @@ Every block card should display:
 
 1. **Schema:** Add a new variant to `RecipeSpecSchema` in `recipe.ts` (discriminated union by `type`).
 2. **Capability:** If the surface requires a new platform capability, add it to `Capability` in `capabilities.ts` and set `MIN_PLAN_FOR_CAPABILITY` if plan-gated.
-3. **Templates:** Add one or more `TemplateEntry` in `templates.ts` with a valid `spec` for the new type.
+3. **Templates:** Add one or more `TemplateEntry` in the appropriate `_templates_partN.ts` file with a valid `spec` for the new type.
 4. **Catalog:** Extend `catalog.generator.ts` (and regenerate `catalog.generated.json`) if the new type should be discoverable via catalogId/filter.
 5. **Compiler:** Implement or extend the compiler that turns RecipeSpec into deployable artifacts (theme blocks, extensions, function config, etc.).
 6. **Tests:** Unit tests for new logic; happy-path and edge-case tests; ensure no secrets/PII in logs.

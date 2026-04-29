@@ -1,4 +1,29 @@
 /*
+ * Design-system tokens (Polaris-first)
+ * These vars align local custom surfaces with DESIGN.md while leaving Polaris
+ * components as the primary source of UI styling and interaction patterns.
+ */
+:root {
+  --sa-color-primary: #1f3a5f;
+  --sa-color-accent: #0e9f6e;
+  --sa-color-focus: #2f80ed;
+  --sa-color-bg: #f6f8fb;
+  --sa-color-surface: #ffffff;
+  --sa-color-text: #111827;
+  --sa-color-muted: #6b7280;
+  --sa-color-border: #dce3ec;
+  --sa-radius-sm: 8px;
+  --sa-radius-md: 12px;
+  --sa-radius-lg: 16px;
+  --sa-space-page: 24px;
+}
+
+body {
+  background: var(--sa-color-bg);
+  color: var(--sa-color-text);
+}
+
+/*
  * Internal admin: lock layout to viewport so top bar and nav don't move on page change.
  * Only the main content area scrolls; document and frame stay fixed.
  */
@@ -15,6 +40,22 @@ body:has(.internal-admin-viewport) {
   flex-direction: column;
 }
 
+/* Full width for dashboard and app content areas */
+.app-content,
+.internal-admin-content {
+  width: 100%;
+  max-width: 100%;
+  background: var(--sa-color-bg);
+}
+
+/* At least 50px padding at bottom for all pages (internal and app) */
+.internal-admin-content {
+  padding-bottom: 50px;
+}
+.app-content {
+  padding-bottom: 50px;
+}
+
 /* Prevent Banner icon from flashing large before Polaris styles load (CLS fix) */
 .Polaris-Banner svg {
   width: 20px;
@@ -29,12 +70,12 @@ body:has(.internal-admin-viewport) {
 .Polaris-ShadowBevel,
 .Polaris-Banner,
 .Polaris-LegacyCard {
-  border-radius: 12px !important;
+  border-radius: var(--sa-radius-md) !important;
   overflow: hidden;
 }
 
 .Polaris-LegacyCard::before {
-  border-radius: 12px !important;
+  border-radius: var(--sa-radius-md) !important;
 }
 
 .Polaris-Banner__Content,
@@ -43,22 +84,51 @@ body:has(.internal-admin-viewport) {
 }
 
 .Polaris-LegacyCard .Polaris-LegacyCard__Section:first-child {
-  border-top-left-radius: 12px !important;
-  border-top-right-radius: 12px !important;
+  border-top-left-radius: var(--sa-radius-md) !important;
+  border-top-right-radius: var(--sa-radius-md) !important;
 }
 
 .Polaris-LegacyCard .Polaris-LegacyCard__Section:last-child {
-  border-bottom-left-radius: 12px !important;
-  border-bottom-right-radius: 12px !important;
+  border-bottom-left-radius: var(--sa-radius-md) !important;
+  border-bottom-right-radius: var(--sa-radius-md) !important;
 }
 
 /* TextField and Button – ensure default round when Polaris vars load late */
 .Polaris-TextField__Backdrop {
-  border-radius: var(--p-border-radius-200, 0.5rem);
+  border-radius: var(--sa-radius-sm);
 }
 
 .Polaris-Button {
-  border-radius: var(--p-border-radius-200, 0.5rem);
+  border-radius: var(--sa-radius-sm);
+}
+
+/* Global Polaris readability polish */
+.Polaris-Page {
+  padding-inline: var(--sa-space-page);
+}
+
+.Polaris-Page-Header,
+.Polaris-Page__Content {
+  max-width: 100%;
+}
+
+.Polaris-DataTable th {
+  font-size: 0.75rem;
+  color: var(--sa-color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.Polaris-DataTable td {
+  vertical-align: middle;
+}
+
+.Polaris-Tabs__Wrapper {
+  border-bottom: 1px solid var(--sa-color-border);
+}
+
+.Polaris-Badge {
+  border-radius: 999px;
 }
 
 
@@ -76,4 +146,15 @@ body:has(.internal-admin-viewport) {
   transition: width 0.2s ease;
   /* Fallback when Polaris CSS vars not yet loaded */
   background-color: var(--p-color-bg-fill-success, #008060);
+}
+
+/* Footer on every page */
+.app-footer {
+  padding: 16px 24px;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--sa-color-muted);
+}
+.app-footer a {
+  color: var(--sa-color-primary);
 }

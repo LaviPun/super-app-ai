@@ -10,6 +10,7 @@ import { CapabilityService } from '~/services/shopify/capability.service';
 import { classifyUserIntent, CONFIDENCE_THRESHOLDS } from '~/services/ai/classify.server';
 import { augmentWithCheapClassifier } from '~/services/ai/cheap-classifier.server';
 import { buildIntentPacket } from '~/services/ai/intent-packet.server';
+import { serializeIntentPacketForPrompt } from '~/services/ai/token-budget.server';
 
 /** POST only; GET (e.g. prefetch or redirect) returns 405. */
 export async function loader() {
@@ -93,8 +94,11 @@ export async function action({ request }: { request: Request }) {
       try {
         const recipeOptions = await generateValidatedRecipeOptions(prompt, classification, {
           shopId: shopRow.id,
-          maxAttempts: 3,
-          intentPacketJson: JSON.stringify(intentPacket, null, 2),
+          // Parallel single-recipe path manages its own per-call repair; we only
+          // need ONE outer attempt of the legacy path as a safety net for types
+          // that don't yet have a per-type JSON Schema.
+          maxAttempts: 2,
+          intentPacketJson: serializeIntentPacketForPrompt(intentPacket),
           confidenceScore: intentPacket.classification.confidence,
           promptProfile: intentPacket.routing.prompt_profile,
         });
@@ -125,7 +129,7 @@ export async function action({ request }: { request: Request }) {
             recipe: opt.recipe,
           })),
         });
-      } catch (e) {
+      } catch (e: any) {
         await jobs.fail(job.id, e);
         if (e instanceof AiProviderNotConfiguredError) {
           return json(
@@ -135,6 +139,16 @@ export async function action({ request }: { request: Request }) {
               setupUrl: '/internal/ai-providers',
             },
             { status: 503 }
+          );
+        }
+        // Surface rate limit errors with a 429 so the client can show a retry message
+        if (e?.statusCode === 429 || (e instanceof Error && e.message.includes('rate_limit'))) {
+          return json(
+            {
+              error: 'RATE_LIMITED',
+              message: 'AI providers are currently busy. Please wait a moment and try again.',
+            },
+            { status: 429 }
           );
         }
         return json(

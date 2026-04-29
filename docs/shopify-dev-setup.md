@@ -86,6 +86,8 @@ write_customers
 read_checkouts
 write_checkouts
 read_inventory
+read_metaobjects
+write_metaobjects
 write_discounts
 write_app_proxy
 write_payment_customizations
@@ -97,7 +99,11 @@ If you add new functionality requiring additional scopes, update **both** `shopi
 
 ### Theme modules (banner, popup, notification bar, effect)
 
-Theme modules deploy via **app extension + metafield** only (no direct theme file writes). When you publish a theme.banner, theme.popup, theme.notificationBar, or theme.effect module, the app writes its config to the shop metafield `superapp.theme.modules`. The **SuperApp Theme Modules** app embed (in `extensions/theme-app-extension`) reads that metafield and renders the modules on the storefront. Merchants must add the "SuperApp Theme Modules" app embed in the theme editor (Theme → Customize → App embeds) for published theme modules to appear. **Planned:** The theme app extension will also support **slot blocks** (Universal Slot, Product Slot, Cart Slot); merchants add these blocks in the Theme Editor; **slot→module assignment is done in the app UI** (dropdown of modules → slot), not in the Theme Editor, because the Theme Editor cannot show dynamic module lists. An App Embed runtime loader for global behaviors may be added when in scope.
+Theme modules deploy via **app extension + Shopify metaobjects** only (no direct theme file writes). When you publish a theme.banner, theme.popup, theme.notificationBar, or theme.effect module, the app upserts a **`superapp_module` metaobject** per module (one entry per active module) and removes the metaobject when the module is unpublished or deleted. The **SuperApp Theme Modules** app embed (in `extensions/theme-app-extension`) lists active `superapp_module` metaobjects via Liquid and renders them on the storefront. Merchants must add the "SuperApp Theme Modules" app embed in the theme editor (Theme → Customize → App embeds) for published theme modules to appear.
+
+A one-time backfill route at `/internal/metaobject-backfill` migrates legacy `superapp.theme.modules` metafield blobs into the new metaobject layout for stores that were on the previous architecture.
+
+**Planned:** The theme app extension will also support **slot blocks** (Universal Slot, Product Slot, Cart Slot); merchants add these blocks in the Theme Editor; **slot→module assignment is done in the app UI** (dropdown of modules → slot), not in the Theme Editor, because the Theme Editor cannot show dynamic module lists. An App Embed runtime loader for global behaviors may be added when in scope.
 
 ## 8) Testing on dev store
 - Install app via CLI prompts.

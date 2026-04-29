@@ -130,9 +130,9 @@ export async function loader({ request }: { request: Request }) {
         method: 'POST',
         path: '/api/agent/modules/:moduleId/hydrate',
         description: 'Generate full config envelope (admin schema, defaults, theme editor settings, validation report) for the module draft version.',
-        body: '{ versionId?: string }',
+        body: '{ versionId?: string, force?: boolean }',
         returns: '{ ok, moduleId, versionId, validationReport, hydratedAt }',
-        notes: 'Uses latest DRAFT version if versionId omitted. Persists envelope to ModuleVersion; validationReport.overall is PASS or WARN.',
+        notes: 'Uses latest DRAFT if versionId omitted. If already hydrated and force is not true, returns existing report without re-running AI. Set force: true to regenerate.',
       },
       {
         id: 'list_connectors',

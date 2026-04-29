@@ -9,7 +9,6 @@ import {
   TextField,
   Select,
   Checkbox,
-  Tabs,
   Banner,
   Box,
   Divider,
@@ -27,6 +26,7 @@ const STOREFRONT_UI_WITH_STYLE = [
   'theme.popup',
   'theme.notificationBar',
   'theme.effect',
+  'theme.floatingWidget',
   'proxy.widget',
 ] as const;
 
@@ -137,6 +137,23 @@ const STYLE_CONFIG: Record<StyleableType, TypeStyleConfig> = {
     showGap: false,
     showMargin: false,
     showBorderShadow: false,
+    showLineHeight: false,
+    showAccessibility: true,
+    showResponsive: true,
+  },
+  'theme.floatingWidget': {
+    showButtonColors: false,
+    showBackdrop: false,
+    textRoles: [{ key: 'label', label: 'Label text' }],
+    showLayoutMode: false,
+    forceOverlay: false,
+    showAnchor: false,
+    showOffset: false,
+    showWidth: false,
+    showZIndex: true,
+    showGap: false,
+    showMargin: false,
+    showBorderShadow: true,
     showLineHeight: false,
     showAccessibility: true,
     showResponsive: true,
@@ -277,8 +294,8 @@ function deepMerge<T extends object>(a: T, b: Partial<T>): T {
       typeof (a as Record<string, unknown>)[k as string] === 'object'
     ) {
       (out as Record<string, unknown>)[k as string] = deepMerge(
-        (a as Record<string, unknown>)[k as string] as T[keyof T],
-        vb as Partial<T[keyof T]>,
+        (a as Record<string, unknown>)[k as string] as object,
+        vb as Partial<object>,
       );
     } else if (vb !== undefined) {
       (out as Record<string, unknown>)[k as string] = vb;
@@ -299,30 +316,64 @@ function HexField({
   helpText?: string;
 }) {
   const isValid = !value || /^#[0-9A-Fa-f]{6}$/.test(value);
+  // Normalize value for the native color input (must be a valid 6-digit hex or fallback to white)
+  const colorInputValue = isValid && value ? value : '#ffffff';
+
   return (
-    <InlineStack gap="100" blockAlign="end" wrap={false}>
-      <div
-        style={{
-          width: 20,
-          height: 20,
-          borderRadius: 4,
-          border: '1px solid #e5e5e5',
-          backgroundColor: isValid && value ? value : 'transparent',
-          flexShrink: 0,
-          alignSelf: 'flex-end',
-          marginBottom: 6,
-        }}
-      />
-      <TextField
-        label={label}
-        value={value}
-        onChange={(v) => onChange(v)}
-        autoComplete="off"
-        error={!isValid ? 'Must be a 6-digit hex, e.g. #ff0000' : undefined}
-        helpText={helpText}
-        placeholder="#111111"
-      />
-    </InlineStack>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 160 }}>
+      <Text as="p" variant="bodySm">{label}</Text>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        {/* Native color picker — clicking the swatch opens the OS picker */}
+        <label style={{ display: 'block', cursor: 'pointer', flexShrink: 0 }}>
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 6,
+              border: '1px solid #c9cccf',
+              backgroundColor: isValid && value ? value : '#f1f2f3',
+              overflow: 'hidden',
+              position: 'relative',
+            }}
+          >
+            <input
+              type="color"
+              value={colorInputValue}
+              onChange={(e) => onChange(e.target.value)}
+              style={{
+                position: 'absolute',
+                opacity: 0,
+                width: '200%',
+                height: '200%',
+                top: '-50%',
+                left: '-50%',
+                cursor: 'pointer',
+              }}
+            />
+          </div>
+        </label>
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="#111111"
+          maxLength={7}
+          style={{
+            flex: 1,
+            padding: '4px 8px',
+            border: `1px solid ${isValid ? '#c9cccf' : '#d82c0d'}`,
+            borderRadius: 6,
+            fontSize: 13,
+            fontFamily: 'var(--p-font-mono, monospace)',
+            outline: 'none',
+            background: '#fff',
+            minWidth: 0,
+          }}
+        />
+      </div>
+      {!isValid && <Text as="p" variant="bodySm" tone="critical">Must be #rrggbb</Text>}
+      {helpText && <Text as="p" variant="bodySm" tone="subdued">{helpText}</Text>}
+    </div>
   );
 }
 
@@ -777,18 +828,16 @@ function CustomCssTab({
 // Main component
 // ----------------------------------------------------------------------------
 
-const TABS = [
-  { id: 'basic', content: 'Basic' },
-  { id: 'advanced', content: 'Advanced' },
-  { id: 'custom-css', content: 'Custom CSS' },
-];
+const TAB_LABELS = ['Basic', 'Advanced', 'Custom CSS'];
 
 export function StyleBuilder({
   spec,
   moduleId,
+  onSpecChange,
 }: {
   spec: RecipeSpec;
   moduleId: string;
+  onSpecChange?: (spec: RecipeSpec) => void;
 }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string; version?: number }>();
   const { revalidate } = useRevalidator();
@@ -804,8 +853,12 @@ export function StyleBuilder({
   }, [fetcher.data, fetcher.state, revalidate]);
 
   const update = useCallback((patch: Partial<StorefrontStyle>) => {
-    setStyle((prev) => deepMerge(prev, patch));
-  }, []);
+    setStyle((prev) => {
+      const next = deepMerge(prev, patch);
+      onSpecChange?.({ ...spec, style: next } as RecipeSpec);
+      return next;
+    });
+  }, [spec, onSpecChange]);
 
   const handleSave = useCallback(() => {
     const nextSpec = { ...spec, style };
@@ -832,19 +885,41 @@ export function StyleBuilder({
           </Text>
         </InlineStack>
 
-        <Tabs tabs={TABS} selected={activeTab} onSelect={setActiveTab} fitted>
-          <Box paddingBlockStart="400">
-            {activeTab === 0 && (
-              <BasicTab style={style} specType={specType} update={update} />
-            )}
-            {activeTab === 1 && (
-              <AdvancedTab style={style} specType={specType} update={update} />
-            )}
-            {activeTab === 2 && (
-              <CustomCssTab style={style} update={update} />
-            )}
-          </Box>
-        </Tabs>
+        {/* Tab selector — plain buttons to avoid Polaris "More" overflow issue */}
+        <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid #e3e3e3', paddingBottom: 0 }}>
+          {TAB_LABELS.map((label, i) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => setActiveTab(i)}
+              style={{
+                padding: '6px 14px',
+                border: 'none',
+                borderBottom: activeTab === i ? '2px solid #303030' : '2px solid transparent',
+                background: 'transparent',
+                fontWeight: activeTab === i ? 600 : 400,
+                fontSize: 14,
+                cursor: 'pointer',
+                color: activeTab === i ? '#303030' : '#6d7175',
+                marginBottom: -1,
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <Box paddingBlockStart="400">
+          {activeTab === 0 && (
+            <BasicTab style={style} specType={specType} update={update} />
+          )}
+          {activeTab === 1 && (
+            <AdvancedTab style={style} specType={specType} update={update} />
+          )}
+          {activeTab === 2 && (
+            <CustomCssTab style={style} update={update} />
+          )}
+        </Box>
 
         <InlineStack gap="200" blockAlign="center">
           <Button onClick={handleSave} loading={busy} variant="primary">

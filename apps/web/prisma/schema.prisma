@@ -119,7 +119,9 @@ model ModuleVersion {
   themeEditorSettingsJson String?
   uiTokensJson String?
   validationReportJson String?
-  compiledRuntimePlanJson String?
+  implementationPlanJson String?  // AI hydrate output (implementation plan)
+  previewHtmlJson String?         // AI-generated self-contained HTML preview
+  compiledRuntimePlanJson String? // reserved for actual compiler output
 
   @@unique([moduleId, version])
   @@index([moduleId, status])
@@ -225,26 +227,38 @@ model AiUsage {
   tokensOut   Int
   costCents   Int
   meta        String?   // JSON
+  /// Optional cross-request correlation id (set by ApiLog/Job/AiUsage) so a single
+  /// merchant-facing operation can be reconstructed from any starting point.
+  correlationId String?
   createdAt   DateTime @default(now())
 
   @@index([createdAt])
   @@index([shopId, createdAt])
+  @@index([correlationId])
   requestCount Int @default(1)
 }
 
 model ErrorLog {
-  id          String   @id @default(cuid())
-  level       String   // INFO | WARN | ERROR
-  message     String
-  stack       String?
-  route       String?
-  shopId      String?
-  shop        Shop?     @relation(fields: [shopId], references: [id])
-  meta        String?
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  level     String   // INFO | WARN | ERROR
+  message   String
+  stack     String?
+  route     String?
+  source    String?  // API | ERROR_BOUNDARY | CLIENT | SERVER
+  shopId    String?
+  shop      Shop?    @relation(fields: [shopId], references: [id])
+  meta      String?
+  /// Server-side request id (matches ApiLog.requestId for the originating request).
+  requestId     String?
+  /// Cross-request correlation id; mirrors ApiLog/Job/AiUsage for full trace assembly.
+  correlationId String?
+  createdAt DateTime @default(now())
 
   @@index([createdAt])
   @@index([level, createdAt])
+  @@index([source, createdAt])
+  @@index([requestId])
+  @@index([correlationId])
 }
 
 model AiModelPrice {
@@ -264,22 +278,30 @@ model AiModelPrice {
 }
 
 model ApiLog {
-  id        String   @id @default(cuid())
-  shopId    String?
-  shop      Shop?    @relation(fields: [shopId], references: [id])
-  actor     String   // INTERNAL | MERCHANT | WEBHOOK | APP_PROXY
-  method    String
-  path      String
-  status    Int
+  id         String    @id @default(cuid())
+  shopId     String?
+  shop       Shop?     @relation(fields: [shopId], references: [id])
+  actor      String    // INTERNAL | MERCHANT | WEBHOOK | APP_PROXY
+  method     String
+  path       String
+  status     Int      // 0 = in progress, else HTTP status
   durationMs Int
-  requestId String?
-  success   Boolean
-  meta      String?
-  createdAt DateTime @default(now())
+  requestId  String?
+  /// Cross-request correlation id; same id is propagated to Job/ErrorLog/AiUsage/FlowStepLog
+  /// for any work spawned by this request, so the operator can reconstruct an entire trace
+  /// from any single record.
+  correlationId String?
+  success    Boolean
+  meta       String?
+  createdAt  DateTime  @default(now())
+  finishedAt DateTime? // null = request still running
 
   @@index([createdAt])
   @@index([shopId, createdAt])
   @@index([path, createdAt])
+  @@index([finishedAt])
+  @@index([correlationId])
+  @@index([requestId])
 }
 
 model Job {
@@ -292,12 +314,20 @@ model Job {
   payload   String?
   result    String?
   error     String?
+  /// Inherits the originating request's requestId (if any) so we can chain a job back
+  /// to the API call that scheduled it.
+  requestId     String?
+  /// Inherits the originating request's correlationId; child FlowStepLogs and AiUsage
+  /// records share this id for end-to-end trace assembly.
+  correlationId String?
   startedAt DateTime?
   finishedAt DateTime?
   createdAt DateTime @default(now())
 
   @@index([status, createdAt])
   @@index([shopId, createdAt])
+  @@index([requestId])
+  @@index([correlationId])
 }
 
 model WebhookEvent {
@@ -324,10 +354,14 @@ model FlowStepLog {
   durationMs Int
   output     String?
   error      String?
+  /// Cross-request correlation id; mirrors the parent Job.correlationId so step logs
+  /// can be joined to the originating ApiLog/AiUsage chain without a Job join.
+  correlationId String?
   createdAt  DateTime @default(now())
 
   @@index([jobId])
   @@index([shopId])
+  @@index([correlationId])
 }
 
 model PlanTierConfig {
@@ -416,20 +450,24 @@ model AppSettings {
 }
 
 model ActivityLog {
-  id        String   @id @default(cuid())
-  actor     String   // SYSTEM | MERCHANT | INTERNAL_ADMIN | WEBHOOK | CRON
-  action    String   // e.g. MODULE_CREATED, MODULE_PUBLISHED, CONNECTOR_CREATED, SCHEDULE_CREATED, LOGIN, etc.
-  resource  String?  // e.g. "module:clxxx", "connector:clxxx"
-  shopId    String?
-  shop      Shop?    @relation(fields: [shopId], references: [id])
-  details   String?  // JSON metadata
-  ip        String?
-  createdAt DateTime @default(now())
+  id            String   @id @default(cuid())
+  actor         String   // SYSTEM | MERCHANT | INTERNAL_ADMIN | WEBHOOK | CRON
+  action        String   // e.g. MODULE_CREATED, MODULE_PUBLISHED, CONNECTOR_CREATED, SCHEDULE_CREATED, LOGIN, etc.
+  resource      String?  // e.g. "module:clxxx", "connector:clxxx"
+  shopId        String?
+  shop          Shop?    @relation(fields: [shopId], references: [id])
+  details       String?  // JSON metadata
+  ip            String?
+  requestId     String?
+  correlationId String?
+  createdAt     DateTime @default(now())
 
   @@index([createdAt])
   @@index([actor, createdAt])
   @@index([action, createdAt])
   @@index([shopId, createdAt])
+  @@index([requestId])
+  @@index([correlationId])
 }
 
 model FlowSchedule {

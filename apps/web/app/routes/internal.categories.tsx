@@ -12,8 +12,6 @@ import { ActivityLogService } from '~/services/activity/activity.service';
 
 export type CategoryOverride = { displayName?: string; enabled?: boolean };
 
-const DEFAULT_OVERRIDES: Record<string, CategoryOverride> = {};
-
 function parseOverrides(raw: string | null): Record<string, CategoryOverride> {
   if (!raw || !raw.trim()) return {};
   try {
@@ -34,12 +32,63 @@ function parseOverrides(raw: string | null): Record<string, CategoryOverride> {
   }
 }
 
+const CATEGORY_ID_RE = /^[A-Z][A-Z0-9_]*$/;
+const ALLOWED_FIELDS = new Set(['displayName', 'enabled']);
+
+type StrictParseResult =
+  | { ok: true; value: Record<string, CategoryOverride> }
+  | { ok: false; error: string };
+
+function strictParseOverrides(raw: string): StrictParseResult {
+  if (!raw.trim()) return { ok: true, value: {} };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Could not parse JSON';
+    return { ok: false, error: `Invalid JSON: ${msg}` };
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, error: 'Root must be a JSON object mapping category IDs to override objects.' };
+  }
+  const out: Record<string, CategoryOverride> = {};
+  for (const [key, val] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!CATEGORY_ID_RE.test(key)) {
+      return { ok: false, error: `Invalid category ID "${key}". Use UPPER_SNAKE_CASE (e.g. CUSTOM_REPORTS).` };
+    }
+    if (!val || typeof val !== 'object' || Array.isArray(val)) {
+      return { ok: false, error: `Override for "${key}" must be an object.` };
+    }
+    const v = val as Record<string, unknown>;
+    for (const field of Object.keys(v)) {
+      if (!ALLOWED_FIELDS.has(field)) {
+        return { ok: false, error: `Override for "${key}" has unknown field "${field}". Allowed: displayName, enabled.` };
+      }
+    }
+    if (v.displayName !== undefined && typeof v.displayName !== 'string') {
+      return { ok: false, error: `Override for "${key}".displayName must be a string.` };
+    }
+    if (typeof v.displayName === 'string' && v.displayName.length > 80) {
+      return { ok: false, error: `Override for "${key}".displayName is too long (max 80 chars).` };
+    }
+    if (v.enabled !== undefined && typeof v.enabled !== 'boolean') {
+      return { ok: false, error: `Override for "${key}".enabled must be a boolean.` };
+    }
+    out[key] = {
+      displayName: typeof v.displayName === 'string' ? v.displayName : undefined,
+      enabled: typeof v.enabled === 'boolean' ? v.enabled : undefined,
+    };
+  }
+  return { ok: true, value: out };
+}
+
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
   const settings = await new SettingsService().get();
   const overrides = parseOverrides(settings.categoryOverrides);
   const codeCategories = [...TEMPLATE_CATEGORIES];
-  const customIds = Object.keys(overrides).filter(k => !codeCategories.includes(k as any));
+  const codeCategoryIds = codeCategories as readonly string[];
+  const customIds = Object.keys(overrides).filter(k => !codeCategoryIds.includes(k));
   const allCategoryIds = [...new Set([...codeCategories, ...customIds])];
   return json({
     categories: codeCategories,
@@ -61,7 +110,16 @@ export async function action({ request }: { request: Request }) {
   if (intent === 'add_category') {
     const categoryId = String(form.get('categoryId') ?? '').trim().toUpperCase().replace(/\s+/g, '_');
     if (!categoryId) return json({ error: 'Category ID is required' }, { status: 400 });
+    if (!CATEGORY_ID_RE.test(categoryId)) {
+      return json(
+        { error: `Invalid category ID "${categoryId}". Use UPPER_SNAKE_CASE (letters, digits, underscores; must start with a letter).` },
+        { status: 400 },
+      );
+    }
     const displayName = String(form.get('displayName') ?? '').trim() || categoryId;
+    if (displayName.length > 80) {
+      return json({ error: 'Display name is too long (max 80 chars).' }, { status: 400 });
+    }
     const enabled = form.get('enabled') === 'true';
     overrides[categoryId] = { displayName, enabled };
     const str = JSON.stringify(overrides, null, 2);
@@ -77,18 +135,20 @@ export async function action({ request }: { request: Request }) {
   if (intent === 'save') {
     const raw = form.get('categoryOverrides');
     const str = typeof raw === 'string' ? raw : '';
+    let normalized: string | null = null;
     if (str.trim()) {
-      try {
-        overrides = parseOverrides(str);
-      } catch {
-        return json({ error: 'Invalid JSON for category overrides' }, { status: 400 });
+      const result = strictParseOverrides(str);
+      if (!result.ok) {
+        return json({ error: result.error }, { status: 400 });
       }
+      overrides = result.value;
+      normalized = JSON.stringify(overrides, null, 2);
     }
-    await service.update({ categoryOverrides: str.trim() || null });
+    await service.update({ categoryOverrides: normalized });
     await new ActivityLogService().log({
       actor: 'INTERNAL_ADMIN',
       action: 'STORE_SETTINGS_UPDATED',
-      details: { section: 'categoryOverrides' },
+      details: { section: 'categoryOverrides', count: Object.keys(overrides).length },
     });
     return json({ toast: { message: 'Category overrides saved' } });
   }
@@ -176,7 +236,7 @@ export default function InternalCategories() {
                   <Text key={cat} as="p" variant="bodySm">
                     {label}
                     {!enabled && ' (disabled)'}
-                    {!categories.includes(cat as any) && ' [custom]'}
+                    {!(categories as readonly string[]).includes(cat) && ' [custom]'}
                   </Text>
                 );
               })}

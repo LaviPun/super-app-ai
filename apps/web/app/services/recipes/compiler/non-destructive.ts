@@ -66,6 +66,20 @@ export function checkNonDestructive(ops: DeployOperation[]): NonDestructiveResul
         break;
       }
 
+      case 'FUNCTION_CONFIG_UPSERT':
+        // Function config is written only to SuperApp-owned $app: metaobjects.
+        break;
+
+      case 'METAOBJECT_ENSURE_DEF': {
+        if (!op.namespace.startsWith(SUPERAPP_METAFIELD_NAMESPACE_PREFIX)) {
+          violations.push(
+            `METAOBJECT_ENSURE_DEF namespace "${op.namespace}" is outside SuperApp-owned ` +
+            `namespace (expected prefix: "${SUPERAPP_METAFIELD_NAMESPACE_PREFIX}")`
+          );
+        }
+        break;
+      }
+
       case 'AUDIT':
         // Audit ops have no side effects — always safe.
         break;

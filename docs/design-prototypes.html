@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Shopify SuperApp - Prototype Set</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=General+Sans:wght@500;600;700&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    body { margin: 0; font-family: "Instrument Sans", sans-serif; background: #eef2f7; color: #0f172a; }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 20px; }
+    h1, h2, h3 { font-family: "General Sans", sans-serif; margin: 0; }
+    .intro { margin-bottom: 16px; }
+    .intro p { margin: 8px 0 0; color: #475467; }
+    .proto { margin-top: 16px; border: 1px solid #d0d5dd; border-radius: 12px; overflow: hidden; background: #fff; }
+    .proto-head { padding: 12px 14px; border-bottom: 1px solid #e4e7ec; background: #f9fafb; }
+    .proto-title { font-size: 15px; }
+    .proto-sub { margin-top: 4px; font-size: 13px; color: #667085; }
+    .shell { display: grid; grid-template-columns: 220px 1fr; min-height: 300px; }
+    .nav { border-right: 1px solid #eaecf0; padding: 12px; }
+    .nav a { display: block; text-decoration: none; color: #344054; padding: 8px 10px; border-radius: 8px; margin-bottom: 4px; font-size: 14px; }
+    .main { padding: 14px; }
+    .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .grid { display: grid; gap: 10px; }
+    .g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .card { border: 1px solid #eaecf0; border-radius: 10px; background: #fff; padding: 12px; }
+    .k { color: #667085; font-size: 12px; }
+    .v { font-weight: 700; margin-top: 4px; }
+    .mono { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+    .btn { border: 1px solid #d0d5dd; background: #fff; color: #111827; border-radius: 8px; padding: 7px 10px; }
+
+    .p1 {
+      --p1-bg: #f8fafc;
+      --p1-surface: #ffffff;
+      --p1-primary: #1f3a5f;
+      --p1-accent: #0e9f6e;
+      --p1-focus: #2f80ed;
+      --p1-nav-active: #eef4ff;
+      --p1-chart-a: #2f80ed;
+      --p1-chart-b: #0e9f6e;
+      --p1-chart-c: #f59e0b;
+      --p1-chart-d: #8b5cf6;
+    }
+    .p1[data-palette="emerald"] {
+      --p1-primary: #14532d;
+      --p1-accent: #059669;
+      --p1-focus: #0ea5e9;
+      --p1-nav-active: #ecfdf3;
+      --p1-chart-a: #059669;
+      --p1-chart-b: #0ea5e9;
+      --p1-chart-c: #f59e0b;
+      --p1-chart-d: #7c3aed;
+    }
+    .p1[data-palette="violet"] {
+      --p1-primary: #312e81;
+      --p1-accent: #7c3aed;
+      --p1-focus: #2563eb;
+      --p1-nav-active: #f3f0ff;
+      --p1-chart-a: #7c3aed;
+      --p1-chart-b: #2563eb;
+      --p1-chart-c: #06b6d4;
+      --p1-chart-d: #f59e0b;
+    }
+    .p1 .shell { background: var(--p1-bg); }
+    .p1 .nav, .p1 .card { background: var(--p1-surface); }
+    .p1 .nav a.active { background: var(--p1-nav-active); color: var(--p1-primary); font-weight: 600; }
+    .p1 .top h3 { color: var(--p1-primary); }
+    .p1 .btn.primary { background: var(--p1-primary); color: #fff; border-color: var(--p1-primary); }
+    .palette-row { display: flex; gap: 8px; align-items: center; }
+    .palette-chip {
+      border: 1px solid #d0d5dd;
+      border-radius: 999px;
+      padding: 5px 10px;
+      background: #fff;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .palette-chip.active { border-color: #98a2b3; font-weight: 600; }
+    .chart-grid { margin-top: 10px; display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+    .legend { margin-top: 8px; display: grid; gap: 6px; font-size: 12px; color: #475467; }
+    .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+    .bars { display: grid; gap: 8px; margin-top: 8px; }
+    .bar { height: 9px; border-radius: 999px; background: #e5e7eb; overflow: hidden; }
+    .bar > span { display: block; height: 100%; border-radius: 999px; }
+    .viz {
+      margin-top: 8px;
+      border: 1px solid #eaecf0;
+      border-radius: 8px;
+      padding: 8px;
+      background: #fff;
+    }
+    .axis-labels {
+      display: flex;
+      justify-content: space-between;
+      color: #98a2b3;
+      font-size: 11px;
+      margin-top: 4px;
+    }
+
+    .p2 .shell { grid-template-columns: 64px 1fr; }
+    .p2 .nav { background: #0f172a; border-right: 0; }
+    .p2 .nav a { text-align: center; color: #cbd5e1; font-size: 12px; padding: 10px 0; }
+    .p2 .nav a.active { background: #1e293b; color: #fff; }
+    .p2 .main { background: #f8fafc; }
+    .p2 .top h3 { color: #0f172a; }
+    .p2 .card { border-color: #dbe3ef; }
+    .p2 .btn.primary { background: #0e9f6e; color: #fff; border-color: #0e9f6e; }
+
+    .p3 .shell { grid-template-columns: 250px 1fr; }
+    .p3 .nav { background: #f9fafb; }
+    .p3 .nav-group { margin-top: 12px; }
+    .p3 .nav-group-title { font-size: 11px; color: #98a2b3; text-transform: uppercase; margin: 8px 10px; }
+    .p3 .nav a.active { background: #f2f4f7; color: #101828; font-weight: 600; border: 1px solid #eaecf0; }
+    .p3 .top h3 { color: #101828; }
+    .p3 .btn.primary { background: #111827; color: #fff; border-color: #111827; }
+
+    @media (max-width: 920px) { .shell, .p2 .shell, .p3 .shell, .g3 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="intro">
+      <h1>Prototype Set</h1>
+      <p>Three different directions with the same app content. Pick one, or mix parts (e.g., nav from B + cards from A).</p>
+    </div>
+
+    <section class="proto p1">
+      <div class="proto-head">
+        <div class="proto-title">Prototype A - Classic Clean (sidebar + single header)</div>
+        <div class="proto-sub">Closest to traditional admin UI, neutral and familiar, now with Polaris-style analytics conventions.</div>
+      </div>
+      <div class="shell">
+        <aside class="nav">
+          <a class="active" href="#">Dashboard</a><a href="#">Modules</a><a href="#">Connectors</a><a href="#">Flows</a><a href="#">Data</a><a href="#">Settings</a>
+        </aside>
+        <main class="main">
+          <div class="top">
+            <h3>Merchant Admin</h3>
+            <div class="palette-row">
+              <span class="k">Color options:</span>
+              <button class="palette-chip active" data-palette="classic">Classic</button>
+              <button class="palette-chip" data-palette="emerald">Emerald</button>
+              <button class="palette-chip" data-palette="violet">Violet</button>
+              <button class="btn primary">Create Module</button>
+            </div>
+          </div>
+          <div class="grid g3">
+            <div class="card"><div class="k">AI Calls</div><div class="v">4,812</div></div>
+            <div class="card"><div class="k">Active Modules</div><div class="v">71</div></div>
+            <div class="card"><div class="k">Success Rate</div><div class="v">99.2%</div></div>
+          </div>
+          <div class="chart-grid">
+            <div class="card">
+              <div class="k">Publishes over time (single question)</div>
+              <div class="viz">
+                <svg viewBox="0 0 360 150" width="100%" height="150" aria-hidden="true">
+                  <line x1="28" y1="20" x2="28" y2="126" stroke="#e4e7ec" />
+                  <line x1="28" y1="126" x2="342" y2="126" stroke="#e4e7ec" />
+                  <line x1="28" y1="96" x2="342" y2="96" stroke="#f2f4f7" />
+                  <line x1="28" y1="66" x2="342" y2="66" stroke="#f2f4f7" />
+                  <line x1="28" y1="36" x2="342" y2="36" stroke="#f2f4f7" />
+                  <polyline fill="none" stroke="#98a2b3" stroke-width="2" points="34,94 78,88 122,96 166,74 210,70 254,84 298,72 338,78" />
+                  <polyline fill="none" stroke="var(--p1-chart-a)" stroke-width="3" points="34,86 78,80 122,90 166,58 210,50 254,64 298,52 338,44" />
+                </svg>
+                <div class="axis-labels"><span>Mon</span><span>Wed</span><span>Fri</span><span>Sun</span></div>
+              </div>
+              <div class="legend" style="grid-template-columns:1fr 1fr; margin-top:10px;">
+                <div><i style="background:var(--p1-chart-a)"></i>Current period</div>
+                <div><i style="background:#98a2b3"></i>Past period</div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="k">Top module categories (horizontal bars)</div>
+              <div class="bars">
+                <div class="bar"><span style="width:86%; background:var(--p1-chart-a)"></span></div>
+                <div class="bar"><span style="width:72%; background:var(--p1-chart-a)"></span></div>
+                <div class="bar"><span style="width:58%; background:var(--p1-chart-a)"></span></div>
+                <div class="bar"><span style="width:41%; background:var(--p1-chart-a)"></span></div>
+              </div>
+              <div class="legend">
+                <div>Storefront widgets</div>
+                <div>Discount rules</div>
+                <div>Flow automations</div>
+                <div>Checkout UI</div>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="margin-top:10px;">
+            <div class="k">Accessible data table fallback</div>
+            <table style="margin-top:8px;">
+              <thead><tr><th>Day</th><th>Publishes</th><th>Past period</th></tr></thead>
+              <tbody>
+                <tr><td>Mon</td><td class="mono">72</td><td class="mono">65</td></tr>
+                <tr><td>Tue</td><td class="mono">84</td><td class="mono">79</td></tr>
+                <tr><td>Wed</td><td class="mono">61</td><td class="mono">58</td></tr>
+                <tr><td>Thu</td><td class="mono">90</td><td class="mono">81</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <section class="proto p2">
+      <div class="proto-head">
+        <div class="proto-title">Prototype B - Compact Ops</div>
+        <div class="proto-sub">More dense, icon-rail style navigation, efficient workspace feel.</div>
+      </div>
+      <div class="shell">
+        <aside class="nav">
+          <a class="active" href="#">Home</a><a href="#">Mods</a><a href="#">Conn</a><a href="#">Flow</a><a href="#">Data</a>
+        </aside>
+        <main class="main">
+          <div class="top"><h3>Operations Dashboard</h3><button class="btn primary">Run Flow</button></div>
+          <div class="grid g3">
+            <div class="card"><div class="k">Queue</div><div class="v">17 jobs</div></div>
+            <div class="card"><div class="k">P95</div><div class="v mono">124ms</div></div>
+            <div class="card"><div class="k">Errors</div><div class="v">0.4%</div></div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <section class="proto p3">
+      <div class="proto-head">
+        <div class="proto-title">Prototype C - Structured Enterprise</div>
+        <div class="proto-sub">Grouped navigation, very minimal contrast, conservative modern.</div>
+      </div>
+      <div class="shell">
+        <aside class="nav">
+          <div class="nav-group">
+            <div class="nav-group-title">Overview</div>
+            <a class="active" href="#">Dashboard</a><a href="#">Activity</a>
+          </div>
+          <div class="nav-group">
+            <div class="nav-group-title">Build</div>
+            <a href="#">Modules</a><a href="#">Flows</a><a href="#">Templates</a>
+          </div>
+          <div class="nav-group">
+            <div class="nav-group-title">Config</div>
+            <a href="#">Stores</a><a href="#">Billing</a><a href="#">Settings</a>
+          </div>
+        </aside>
+        <main class="main">
+          <div class="top"><h3>Control Panel</h3><button class="btn primary">Save Changes</button></div>
+          <div class="grid g3">
+            <div class="card"><div class="k">Published Today</div><div class="v">12</div></div>
+            <div class="card"><div class="k">Rollback Events</div><div class="v">1</div></div>
+            <div class="card"><div class="k">Cost Today</div><div class="v">$42.18</div></div>
+          </div>
+        </main>
+      </div>
+    </section>
+  </div>
+  <script>
+    const p1 = document.querySelector(".p1");
+    const chips = document.querySelectorAll(".palette-chip");
+    chips.forEach((chip) => {
+      chip.addEventListener("click", () => {
+        chips.forEach((c) => c.classList.remove("active"));
+        chip.classList.add("active");
+        p1.setAttribute("data-palette", chip.getAttribute("data-palette"));
+      });
+    });
+  </script>
+</body>
+</html>

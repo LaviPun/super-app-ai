@@ -32,7 +32,7 @@ function parseFixture(raw: unknown): RecipeSpec {
 function getTarget(spec: RecipeSpec): DeployTarget {
   return spec.type.startsWith('theme.')
     ? { kind: 'THEME', themeId: 'golden-theme-id', moduleId: 'golden-module-id' }
-    : { kind: 'PLATFORM' };
+    : { kind: 'PLATFORM', moduleId: 'golden-module-id' };
 }
 
 function runGolden(raw: unknown) {
@@ -351,6 +351,39 @@ describe('checkNonDestructive', () => {
       { kind: 'SHOP_METAFIELD_SET', namespace: 'superapp.functions', key: 'discountRules', type: 'json', value: '{}' },
     ]);
     expect(result.ok).toBe(true);
+  });
+
+  it('allows FUNCTION_CONFIG_UPSERT', () => {
+    const result = checkNonDestructive([
+      { kind: 'FUNCTION_CONFIG_UPSERT', functionKey: 'discountRules', config: { rules: [] } },
+    ]);
+    expect(result.ok).toBe(true);
+  });
+
+  it('allows METAOBJECT_ENSURE_DEF with superapp namespace', () => {
+    const result = checkNonDestructive([
+      {
+        kind: 'METAOBJECT_ENSURE_DEF',
+        namespace: 'superapp.functions',
+        key: 'fn_discountRules',
+        metaobjectType: '$app:superapp_function_config',
+        isList: false,
+      },
+    ]);
+    expect(result.ok).toBe(true);
+  });
+
+  it('flags METAOBJECT_ENSURE_DEF with non-superapp namespace', () => {
+    const result = checkNonDestructive([
+      {
+        kind: 'METAOBJECT_ENSURE_DEF',
+        namespace: 'global',
+        key: 'fn_discountRules',
+        metaobjectType: '$app:superapp_function_config',
+        isList: false,
+      },
+    ]);
+    expect(result.ok).toBe(false);
   });
 
   it('allows AUDIT ops unconditionally', () => {

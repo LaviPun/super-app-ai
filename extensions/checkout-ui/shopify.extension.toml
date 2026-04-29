@@ -1,0 +1,27 @@
+api_version = "2026-01"
+
+[[extensions]]
+uid = "d7a1f2c6-c8b3-6d4a-af5c-1e8b2a3d7c6f"
+type = "ui_extension"
+name = "SuperApp Checkout Block"
+handle = "superapp-checkout-block"
+
+[extensions.capabilities]
+api_access = true
+
+[[extensions.targeting]]
+module = "./src/blocks/Checkout.tsx"
+target = "purchase.checkout.block.render"
+
+[[extensions]]
+uid = "e8b2a3d7-d9c4-7e5b-ba6d-2f9c3b4e8d7a"
+type = "ui_extension"
+name = "SuperApp Thank You Block"
+handle = "superapp-thank-you-block"
+
+[extensions.capabilities]
+api_access = true
+
+[[extensions.targeting]]
+module = "./src/blocks/ThankYou.tsx"
+target = "purchase.thank-you.block.render"

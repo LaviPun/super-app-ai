@@ -1,8 +1,8 @@
-import { json, redirect } from '@remix-run/node';
+import { json } from '@remix-run/node';
 import { Form, useLoaderData, useNavigation, useActionData, useOutletContext } from '@remix-run/react';
 import {
   Page, Card, BlockStack, TextField, Button, Text, InlineStack,
-  Banner, Checkbox, Divider, InlineGrid, Avatar, Select,
+  Banner, Checkbox, Divider, InlineGrid, Select,
 } from '@shopify/polaris';
 import { useState, useEffect } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
@@ -218,6 +218,10 @@ export default function InternalSettings() {
     return v === 'openai' || v === 'claude' ? v : null;
   });
   const [mainApiProviderId, setMainApiProviderId] = useState(activeProviderId ?? '');
+  const [errorDismissed, setErrorDismissed] = useState(false);
+  useEffect(() => {
+    setErrorDismissed(false);
+  }, [actionData]);
 
   useEffect(() => {
     setOpenaiModel((prev) => defaultProviders?.openai?.model ?? prev);
@@ -261,13 +265,13 @@ export default function InternalSettings() {
   useEffect(() => {
     const toast = actionData && 'toast' in actionData ? (actionData as { toast?: { message: string; error?: boolean } }).toast : undefined;
     if (toast?.message && outletContext?.showToast) outletContext.showToast(toast.message, toast.error);
-  }, [actionData, outletContext?.showToast]);
+  }, [actionData, outletContext]);
 
   return (
     <Page title="Settings" subtitle="Appearance, profile, contact, and app configuration.">
       <BlockStack gap="500">
-        {actionData?.error ? (
-          <Banner tone="critical" title="Error" onDismiss={() => {}}>
+        {!errorDismissed && actionData && 'error' in actionData && actionData.error ? (
+          <Banner tone="critical" title="Error" onDismiss={() => setErrorDismissed(true)}>
             <Text as="p">{actionData.error}</Text>
           </Banner>
         ) : null}
@@ -712,7 +716,7 @@ export default function InternalSettings() {
           <BlockStack gap="300">
             <Text as="h2" variant="headingMd">Environment variables</Text>
             <Text as="p" variant="bodySm" tone="subdued">
-              Sensitive config (API keys, secrets, database URL) is read from the environment. For a list of required and optional variables, see <code>.env.example</code> in the project root. Do not expose env values in the UI.
+              Sensitive config (API keys, secrets, database URL) is read from the environment. Configure required and optional variables in <code>.env</code>. Do not expose env values in the UI.
             </Text>
           </BlockStack>
         </Card>

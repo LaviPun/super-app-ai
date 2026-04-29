@@ -1,9 +1,11 @@
-import type { AdminApiContext } from '@shopify/shopify-app-remix/server';
+import type { AdminApiContext } from '~/types/shopify';
+import type { RecipeSpec } from '@superapp/core';
 import { getPrisma } from '~/db.server';
 import { RecipeService } from '~/services/recipes/recipe.service';
 import { ConnectorService } from '~/services/connectors/connector.service';
 import { JobService } from '~/services/jobs/job.service';
 import { DataStoreService } from '~/services/data/data-store.service';
+import { getRequestContext } from '~/services/observability/correlation.server';
 
 type Trigger =
   | 'MANUAL'
@@ -22,6 +24,51 @@ type Trigger =
 
 const MAX_STEP_RETRIES = 2;
 const STEP_BACKOFF_BASE_MS = 500;
+
+type FlowEvent = {
+  kind?: string;
+  admin_graphql_api_id?: string;
+  customer?: {
+    admin_graphql_api_id?: string;
+  };
+  [key: string]: unknown;
+};
+
+type FlowStep = {
+  kind: string;
+  connectorId?: string;
+  path?: string;
+  method?: string;
+  bodyMapping?: Record<string, unknown>;
+  tags?: string;
+  to?: string;
+  subject?: string;
+  channel?: string;
+  tag?: string;
+  note?: string;
+  storeKey?: string;
+  titleExpr?: string;
+  payloadMapping?: Record<string, unknown>;
+  url?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  authType?: 'basic' | 'bearer' | 'custom_header';
+  authConfig?: {
+    username?: string;
+    password?: string;
+    token?: string;
+    headerName?: string;
+    headerValue?: string;
+  };
+};
+
+type FlowAutomationSpec = RecipeSpec & {
+  type: 'flow.automation';
+  config: {
+    trigger: Trigger;
+    steps: FlowStep[];
+  };
+};
 
 export class FlowRunnerService {
   async runForTrigger(shopDomain: string, admin: AdminApiContext['admin'], trigger: Trigger, event: unknown) {
@@ -43,13 +90,13 @@ export class FlowRunnerService {
       const job = await jobs.create({
         shopId: shopRow?.id,
         type: 'FLOW_RUN',
-        payload: { flowId: flow.id, trigger, eventKind: (event as any)?.kind ?? 'webhook' },
+        payload: { flowId: flow.id, trigger, eventKind: (event as FlowEvent)?.kind ?? 'webhook' },
       });
       await jobs.start(job.id);
 
       try {
-        await this.executeFlow(shopDomain, admin, job.id, spec, event, shopRow?.id);
-        await jobs.succeed(job.id, { trigger, steps: (spec.config.steps as any[]).length });
+        await this.executeFlow(shopDomain, admin, job.id, spec as FlowAutomationSpec, event, shopRow?.id);
+        await jobs.succeed(job.id, { trigger, steps: spec.config.steps.length });
       } catch (err) {
         await jobs.fail(job.id, err);
         // DLQ: mark the job so it can be replayed; no automatic re-schedule here.
@@ -62,7 +109,7 @@ export class FlowRunnerService {
     shopDomain: string,
     admin: AdminApiContext['admin'],
     jobId: string,
-    spec: any,
+    spec: FlowAutomationSpec,
     event: unknown,
     shopId?: string
   ) {
@@ -70,6 +117,7 @@ export class FlowRunnerService {
 
     for (let stepIdx = 0; stepIdx < spec.config.steps.length; stepIdx++) {
       const step = spec.config.steps[stepIdx];
+      if (!step) continue;
       const start = Date.now();
       let output: unknown;
       let stepError: string | undefined;
@@ -89,7 +137,7 @@ export class FlowRunnerService {
   private async executeStepWithRetry(
     shopDomain: string,
     admin: AdminApiContext['admin'],
-    step: any,
+    step: FlowStep,
     event: unknown
   ): Promise<unknown> {
     let lastErr: unknown;
@@ -108,13 +156,21 @@ export class FlowRunnerService {
     throw lastErr;
   }
 
-  private async executeStep(shopDomain: string, admin: AdminApiContext['admin'], step: any, event: unknown): Promise<unknown> {
+  private async executeStep(shopDomain: string, admin: AdminApiContext['admin'], step: FlowStep, event: unknown): Promise<unknown> {
+    const flowEvent = (event ?? {}) as FlowEvent;
     if (step.kind === 'HTTP_REQUEST') {
+      if (!step.connectorId || !step.path) {
+        return { skipped: true, reason: 'missing connectorId or path' };
+      }
+      const validMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+      const method = (validMethods as readonly string[]).includes(String(step.method).toUpperCase())
+        ? (String(step.method).toUpperCase() as (typeof validMethods)[number])
+        : 'GET';
       const connectors = new ConnectorService();
       const result = await connectors.test(shopDomain, {
         connectorId: step.connectorId,
         path: step.path,
-        method: step.method,
+        method,
         body: { event, mapping: step.bodyMapping },
       });
       return result;
@@ -125,7 +181,7 @@ export class FlowRunnerService {
     }
 
     if (step.kind === 'TAG_ORDER') {
-      const orderGid = (event as any)?.admin_graphql_api_id;
+      const orderGid = flowEvent.admin_graphql_api_id;
       if (orderGid) {
         const tags = typeof step.tags === 'string' ? step.tags.split(',').map((t: string) => t.trim()) : [];
         await tagOrder(admin, orderGid, tags);
@@ -142,47 +198,53 @@ export class FlowRunnerService {
     }
 
     if (step.kind === 'TAG_CUSTOMER') {
-      const customerGid = (event as any)?.customer?.admin_graphql_api_id;
-      if (customerGid) await tagCustomer(admin, customerGid, step.tag);
-      return { tagged: Boolean(customerGid) };
+      const customerGid = flowEvent.customer?.admin_graphql_api_id;
+      if (customerGid && step.tag) await tagCustomer(admin, customerGid, step.tag);
+      return { tagged: Boolean(customerGid && step.tag) };
     }
 
     if (step.kind === 'ADD_ORDER_NOTE') {
-      const orderGid = (event as any)?.admin_graphql_api_id;
-      if (orderGid) await addOrderNote(admin, orderGid, step.note);
-      return { noted: Boolean(orderGid) };
+      const orderGid = flowEvent.admin_graphql_api_id;
+      if (orderGid && step.note) await addOrderNote(admin, orderGid, step.note);
+      return { noted: Boolean(orderGid && step.note) };
     }
 
     if (step.kind === 'WRITE_TO_STORE') {
+      if (!step.storeKey) return { written: false, reason: 'missing storeKey' };
+      const storeKey = step.storeKey;
       const prisma = getPrisma();
       const shopRow = await prisma.shop.findFirst({ where: { shopDomain } });
       if (!shopRow) return { written: false, reason: 'shop not found' };
 
       const dss = new DataStoreService();
-      let store = await dss.getStoreByKey(shopRow.id, step.storeKey);
+      let store = await dss.getStoreByKey(shopRow.id, storeKey);
       if (!store) {
-        await dss.enableStore(shopRow.id, step.storeKey);
-        store = await dss.getStoreByKey(shopRow.id, step.storeKey);
+        await dss.enableStore(shopRow.id, storeKey);
+        store = await dss.getStoreByKey(shopRow.id, storeKey);
       }
       if (!store) return { written: false, reason: 'store not found' };
 
+      const readPath = (root: unknown, dotted: string): unknown => {
+        const parts = dotted.split('.');
+        let val: unknown = root;
+        for (const p of parts) {
+          if (val == null || typeof val !== 'object') return undefined;
+          val = (val as Record<string, unknown>)[p];
+        }
+        return val;
+      };
+
       const title = step.titleExpr
         ? String(step.titleExpr).replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (_, path: string) => {
-            const parts = path.split('.');
-            let val: any = event;
-            for (const p of parts) { val = val?.[p]; }
+            const val = readPath(event, path);
             return val != null ? String(val) : '';
           })
         : undefined;
 
-      const payload = Object.keys(step.payloadMapping ?? {}).length > 0
+      const mapping = step.payloadMapping ?? {};
+      const payload = Object.keys(mapping).length > 0
         ? Object.fromEntries(
-            Object.entries(step.payloadMapping).map(([k, expr]) => {
-              const parts = String(expr).split('.');
-              let val: any = event;
-              for (const p of parts) { val = val?.[p]; }
-              return [k, val];
-            }),
+            Object.entries(mapping).map(([k, expr]) => [k, readPath(event, String(expr))]),
           )
         : event;
 
@@ -206,16 +268,18 @@ async function writeStepLog(
   error?: string
 ) {
   if (process.env.NODE_ENV === 'test') return;
+  const ctx = getRequestContext();
   await prisma.flowStepLog.create({
     data: {
       jobId,
-      shopId: shopId ?? null,
+      shop: shopId ? { connect: { id: shopId } } : undefined,
       step,
       kind,
       status,
       durationMs,
       output: output ? JSON.stringify(output).slice(0, 10_000) : null,
       error: error?.slice(0, 2000) ?? null,
+      correlationId: ctx?.correlationId ?? ctx?.requestId ?? null,
     },
   });
 }
@@ -265,8 +329,9 @@ function isBlockedHost(hostname: string): boolean {
   return false;
 }
 
-async function executeSendHttpRequest(step: any): Promise<unknown> {
+async function executeSendHttpRequest(step: FlowStep): Promise<unknown> {
   const { url, method, headers: customHeaders, body, authType, authConfig } = step;
+  if (!url) throw new Error('SEND_HTTP_REQUEST step missing url');
 
   let parsed: URL;
   try { parsed = new URL(url); } catch { throw new Error(`Invalid URL: ${url}`); }

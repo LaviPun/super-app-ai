@@ -23,27 +23,38 @@ Add server-side pagination + search endpoints; only fetch what the merchant need
 
 ---
 
-## Curated module templates (12 ready-to-use)
+## Curated module templates (144 ready-to-use)
 
-In addition to the generated catalog IDs, the app ships **12 curated templates** with complete `RecipeSpec` JSON in `packages/core/src/templates.ts`. These are available to merchants via the "From Template" tab on the Home page.
+In addition to the generated catalog IDs, the app ships **144 curated templates** (IDs UAO-001 through ORT-142) with complete `RecipeSpec` JSON, split across four files in `packages/core/src/`. These are available to merchants via the "From Template" tab on the Home page.
 
 ### How it works
-1. `MODULE_TEMPLATES` array in `packages/core/src/templates.ts` holds `TemplateEntry` objects.
+1. `MODULE_TEMPLATES` array is assembled from four part files: `_templates_part1.ts` (UAO, DAP, BCT, CUX), `_templates_part2.ts` (CHK, TYO, ACC, SHP), `_templates_part3.ts` (PAY, TRU, SUP), `_templates_part4.ts` (LOY, ANA, OPS + coverage extras).
 2. Each entry includes: `id`, `name`, `description`, `category`, `tags`, and a full `spec` (RecipeSpec).
 3. `POST /api/modules/from-template` accepts `{ templateId }`, looks up the template, enforces quota, and creates a draft module.
 
-### Current templates
-| Category | Templates |
-|---|---|
-| STOREFRONT_UI | Promotional Banner, Exit Intent Popup, Free Shipping Bar, Styled Proxy Widget |
-| FUNCTION | VIP Customer Discount, Free Shipping Threshold, Block PO Box Addresses |
-| INTEGRATION | ERP Order Sync |
-| FLOW | Tag Customer on Order, Low Stock Alert |
-| CUSTOMER_ACCOUNT | Customer Profile Block |
-| ADMIN_UI | Extension Blueprint |
+### Template structure: 14 categories × 9 + 16 extras = 144
+| Category prefix | Category name | Count |
+|---|---|---|
+| UAO | Upsell & AOV | 9 |
+| DAP | Discounts & Pricing | 9 |
+| BCT | Bundles & Cart Transform | 9 |
+| CUX | Cart UX & Conversion | 9 |
+| CHK | Checkout UX Plus | 9 |
+| TYO | Thank you & Order status | 9 |
+| ACC | Customer account | 9 |
+| SHP | Shipping & Delivery | 9 |
+| PAY | Payments & COD | 9 |
+| TRU | Trust & Messaging | 9 |
+| SUP | Support & Returns | 9 |
+| LOY | Loyalty & Referrals | 9 |
+| ANA | Analytics & Attribution | 9 |
+| OPS | Automation & Ops | 9 |
+| EFF/PRX/PPO/CKU/INT/VAL/FUL/ORT | Coverage extras (IDs 127–142) | 16 |
+
+All 23 RecipeSpec types are covered. All templates validate against RecipeSpecSchema. All 83 tests pass.
 
 ### Adding a new template
-1. Append a `TemplateEntry` to `MODULE_TEMPLATES` in `packages/core/src/templates.ts`.
+1. Append a `TemplateEntry` to `MODULE_TEMPLATES` in the appropriate `packages/core/src/_templates_partN.ts` file.
 2. Ensure the `spec` is a valid `RecipeSpec` (Zod-validated at build).
 3. Rebuild core: `pnpm --filter @superapp/core build`.
 

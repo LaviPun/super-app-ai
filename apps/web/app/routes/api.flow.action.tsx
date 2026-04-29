@@ -4,6 +4,7 @@ import {
   resolveFlowActionId,
   verifyFlowActionHmac,
 } from '~/services/workflows/shopify-flow-bridge';
+import { checkAndMarkWebhookEvent } from '~/services/flows/idempotency.server';
 
 /**
  * POST /api/flow/action
@@ -30,11 +31,17 @@ export async function action({ request }: { request: Request }) {
 
   const secret = process.env.SHOPIFY_API_SECRET ?? '';
 
-  if (secret && hmacHeader) {
-    const valid = await verifyFlowActionHmac(rawBody, hmacHeader, secret);
-    if (!valid) {
-      return json({ error: 'Invalid HMAC signature' }, { status: 401 });
-    }
+  if (!secret) {
+    return json({ error: 'Server misconfiguration: missing API secret' }, { status: 500 });
+  }
+
+  if (!hmacHeader) {
+    return json({ error: 'Missing HMAC signature' }, { status: 401 });
+  }
+
+  const valid = await verifyFlowActionHmac(rawBody, hmacHeader, secret);
+  if (!valid) {
+    return json({ error: 'Invalid HMAC signature' }, { status: 401 });
   }
 
   let body: Record<string, unknown>;
@@ -50,13 +57,27 @@ export async function action({ request }: { request: Request }) {
     return json({ error: `Unknown action handle: ${handle}` }, { status: 400 });
   }
 
+  // Shopify sends `shopify_domain` (snake_case) in the action payload
   const shopDomain =
-    typeof body.shopDomain === 'string'
-      ? body.shopDomain
+    typeof body.shopify_domain === 'string'
+      ? body.shopify_domain
       : (request.headers.get('x-shopify-shop-domain') ?? '');
 
   if (!shopDomain) {
     return json({ error: 'Missing shop domain' }, { status: 400 });
+  }
+
+  // Idempotency: Shopify Flow may retry on timeout/5xx. Skip duplicate action_run_ids.
+  const actionRunId = typeof body.action_run_id === 'string' ? body.action_run_id : '';
+  if (actionRunId) {
+    const isNew = await checkAndMarkWebhookEvent({
+      shopDomain,
+      topic: 'flow_action',
+      eventId: actionRunId,
+    });
+    if (!isNew) {
+      return json({ ok: true, output: null });
+    }
   }
 
   const payload = (typeof body.properties === 'object' && body.properties !== null)

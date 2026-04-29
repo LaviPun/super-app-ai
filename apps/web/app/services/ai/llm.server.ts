@@ -1,4 +1,5 @@
 import type { RecipeSpec, ModuleType } from '@superapp/core';
+import crypto from 'node:crypto';
 import { RecipeSpecSchema } from '@superapp/core';
 import { AiUsageService } from '~/services/observability/ai-usage.service';
 import { resolveProviderIdForShop } from '~/services/ai/provider-routing.server';
@@ -18,26 +19,119 @@ import {
   getSettingsPack,
 } from '~/services/ai/prompt-expectations.server';
 import { buildHydratePrompt } from '~/services/ai/hydrate-prompt.server';
-import { HydrateEnvelopeSchema, type HydrateEnvelope } from '~/schemas/hydrate-envelope.server';
+import { HydrateEnvelopeSchema, type HydrateEnvelope, validatePerfectConfig } from '~/schemas/hydrate-envelope.server';
+import {
+  getRecipeTokenBudget,
+  getRecipeOptionsTokenBudget,
+  getRepairTokenBudget,
+} from '~/services/ai/token-budget.server';
+import {
+  getRecipeOptionsJsonSchemaForType,
+  getRecipeSingleJsonSchemaForType,
+} from '~/services/ai/recipe-json-schema.server';
 
 import { getPrisma } from '~/db.server';
 
 export type RecipeOption = { explanation: string; recipe: RecipeSpec };
 
+/** JSON Schema hint passed to providers that support structured output. */
+export interface ResponseSchemaHint {
+  name?: string;
+  schema: Record<string, unknown>;
+}
+
+export interface GenerateHints {
+  previousError?: string;
+  maxTokens?: number;
+  responseSchema?: ResponseSchemaHint;
+}
+
 export interface LlmClient {
-  generateRecipe(prompt: string, hints?: { previousError?: string }): Promise<{ rawJson: string; tokensIn: number; tokensOut: number; model?: string }>;
+  generateRecipe(prompt: string, hints?: GenerateHints): Promise<{ rawJson: string; tokensIn: number; tokensOut: number; model?: string }>;
 }
 
 export class StubLlmClient implements LlmClient {
-  async generateRecipe(prompt: string): Promise<{ rawJson: string; tokensIn: number; tokensOut: number; model?: string }> {
-    const rawJson = JSON.stringify({
-      recipe: {
+  async generateRecipe(prompt: string, _hints?: GenerateHints): Promise<{ rawJson: string; tokensIn: number; tokensOut: number; model?: string }> {
+    const lower = prompt.toLowerCase();
+    const make = (spec: RecipeSpec): string => JSON.stringify(spec);
+
+    let rawJson: string;
+    if (lower.includes('exit-intent') || lower.includes('popup')) {
+      rawJson = make({
+        type: 'theme.popup',
+        name: 'Stub Popup',
+        category: 'STOREFRONT_UI',
+        requires: ['THEME_ASSETS'],
+        config: { title: 'Get 10% Off', trigger: 'ON_EXIT_INTENT', frequency: 'ONCE_PER_DAY' },
+      } as RecipeSpec);
+    } else if (lower.includes('notification bar') || lower.includes('dismissible')) {
+      rawJson = make({
+        type: 'theme.notificationBar',
+        name: 'Stub Notification Bar',
+        category: 'STOREFRONT_UI',
+        requires: ['THEME_ASSETS'],
+        config: { message: 'Free shipping on orders over $50', dismissible: true },
+      } as RecipeSpec);
+    } else if (lower.includes('store locator') || lower.includes('widget')) {
+      rawJson = make({
+        type: 'proxy.widget',
+        name: 'Stub Widget',
+        category: 'STOREFRONT_UI',
+        requires: ['APP_PROXY'],
+        config: { widgetId: 'store-finder', title: 'Find a Store', mode: 'HTML' },
+      } as RecipeSpec);
+    } else if (lower.includes('discount') || lower.includes('vip')) {
+      rawJson = make({
+        type: 'functions.discountRules',
+        name: 'Stub Discount Rules',
+        category: 'FUNCTION',
+        requires: ['DISCOUNT_FUNCTION'],
+        config: { rules: [{ when: { customerTags: ['VIP'], minSubtotal: 100 }, apply: { percentageOff: 15 } }], combineWithOtherDiscounts: true },
+      } as RecipeSpec);
+    } else if (lower.includes('shipping method') || lower.includes('cash on delivery')) {
+      rawJson = make({
+        type: 'functions.deliveryCustomization',
+        name: 'Stub Delivery Customization',
+        category: 'FUNCTION',
+        requires: ['SHIPPING_FUNCTION'],
+        config: { rules: [{ when: {}, actions: { hideMethodsContaining: ['Cash on Delivery'] } }] },
+      } as RecipeSpec);
+    } else if (lower.includes('payment method') || lower.includes('pay later')) {
+      rawJson = make({
+        type: 'functions.paymentCustomization',
+        name: 'Stub Payment Customization',
+        category: 'FUNCTION',
+        requires: ['PAYMENT_CUSTOMIZATION_FUNCTION'],
+        config: { rules: [{ when: { minSubtotal: 50 }, actions: { hideMethodsContaining: ['Pay Later'] } }] },
+      } as RecipeSpec);
+    } else if (lower.includes('block checkout') || lower.includes('quantity exceeds')) {
+      rawJson = make({
+        type: 'functions.cartAndCheckoutValidation',
+        name: 'Stub Cart Validation',
+        category: 'FUNCTION',
+        requires: ['VALIDATION_FUNCTION'],
+        config: { rules: [{ when: { maxQuantityPerSku: 10 }, errorMessage: 'Max 10 per item' }] },
+      } as RecipeSpec);
+    } else if (lower.includes('automation') || lower.includes('order is created')) {
+      rawJson = make({
+        type: 'flow.automation',
+        name: 'Stub Flow Automation',
+        category: 'FLOW',
+        requires: [],
+        config: {
+          trigger: 'SHOPIFY_WEBHOOK_ORDER_CREATED',
+          steps: [{ kind: 'HTTP_REQUEST', connectorId: 'test-connector-id', path: '/api/orders', method: 'POST', bodyMapping: {} }],
+        },
+      } as RecipeSpec);
+    } else {
+      rawJson = make({
         type: 'theme.banner',
-        name: 'AI Banner',
+        name: 'Stub Banner',
+        category: 'STOREFRONT_UI',
         requires: ['THEME_ASSETS'],
         config: { heading: prompt.slice(0, 40) || 'Hello', enableAnimation: false },
-      },
-    });
+      } as RecipeSpec);
+    }
     return { rawJson, tokensIn: Math.min(200, prompt.length), tokensOut: 300, model: 'stub' };
   }
 }
@@ -45,7 +139,7 @@ export class StubLlmClient implements LlmClient {
 export class ConfiguredLlmClient implements LlmClient {
   constructor(private readonly providerId: string, private readonly shopId?: string) {}
 
-  async generateRecipe(prompt: string, hints?: { previousError?: string }) {
+  async generateRecipe(prompt: string, hints?: GenerateHints) {
     const prisma = getPrisma();
     const provider = await prisma.aiProvider.findUnique({ where: { id: this.providerId } });
     if (!provider) throw new Error('AI provider not found');
@@ -67,6 +161,8 @@ export class ConfiguredLlmClient implements LlmClient {
         model,
         prompt: augmentedPrompt,
         shopId: this.shopId,
+        maxTokens: hints?.maxTokens,
+        responseSchema: hints?.responseSchema,
       });
     }
 
@@ -89,6 +185,8 @@ export class ConfiguredLlmClient implements LlmClient {
         prompt: augmentedPrompt,
         shopId: this.shopId,
         skillsConfig,
+        maxTokens: hints?.maxTokens,
+        responseSchema: hints?.responseSchema,
       });
     }
 
@@ -99,6 +197,8 @@ export class ConfiguredLlmClient implements LlmClient {
       model,
       prompt: augmentedPrompt,
       shopId: this.shopId,
+      maxTokens: hints?.maxTokens,
+      responseSchema: hints?.responseSchema,
     });
   }
 }
@@ -111,7 +211,7 @@ class EnvOpenAiClient implements LlmClient {
     private readonly shopId?: string,
   ) {}
 
-  async generateRecipe(prompt: string, hints?: { previousError?: string }) {
+  async generateRecipe(prompt: string, hints?: GenerateHints) {
     const augmentedPrompt = hints?.previousError
       ? `${prompt}\n\n(Previous validation error: ${hints.previousError})`
       : prompt;
@@ -120,19 +220,22 @@ class EnvOpenAiClient implements LlmClient {
       model: this.model,
       prompt: augmentedPrompt,
       shopId: this.shopId,
+      maxTokens: hints?.maxTokens,
+      responseSchema: hints?.responseSchema,
     });
   }
 }
 
-/** Uses ANTHROPIC_API_KEY (and optional ANTHROPIC_DEFAULT_MODEL) from env. */
+/** Uses ANTHROPIC_API_KEY (and optional ANTHROPIC_DEFAULT_MODEL, ANTHROPIC_SKILLS, ANTHROPIC_CODE_EXECUTION) from env. */
 class EnvClaudeClient implements LlmClient {
   constructor(
     private readonly apiKey: string,
     private readonly model: string,
     private readonly shopId?: string,
+    private readonly skillsConfig?: { skills?: string[]; codeExecution?: boolean },
   ) {}
 
-  async generateRecipe(prompt: string, hints?: { previousError?: string }) {
+  async generateRecipe(prompt: string, hints?: GenerateHints) {
     const augmentedPrompt = hints?.previousError
       ? `${prompt}\n\n(Previous validation error: ${hints.previousError})`
       : prompt;
@@ -141,6 +244,9 @@ class EnvClaudeClient implements LlmClient {
       model: this.model,
       prompt: augmentedPrompt,
       shopId: this.shopId,
+      skillsConfig: this.skillsConfig,
+      maxTokens: hints?.maxTokens,
+      responseSchema: hints?.responseSchema,
     });
   }
 }
@@ -151,6 +257,32 @@ export class AiProviderNotConfiguredError extends Error {
   constructor() {
     super('AI provider not configured');
     this.name = 'AiProviderNotConfiguredError';
+  }
+}
+
+/**
+ * Wraps a primary and fallback LlmClient.
+ * If the primary fails for any reason (rate limit, tool-use blocks, model error, etc.),
+ * transparently retries with the fallback. If fallback also fails, throws the primary error.
+ */
+class FallbackLlmClient implements LlmClient {
+  constructor(
+    private readonly primary: LlmClient,
+    private readonly fallback: LlmClient,
+  ) {}
+
+  async generateRecipe(prompt: string, hints?: GenerateHints) {
+    try {
+      return await this.primary.generateRecipe(prompt, hints);
+    } catch (primaryErr: unknown) {
+      // Primary failed (rate limit, server tool-use response, model error, etc.) — try fallback
+      try {
+        return await this.fallback.generateRecipe(prompt, hints);
+      } catch {
+        // Both failed — throw primary error (more informative for debugging)
+        throw primaryErr;
+      }
+    }
   }
 }
 
@@ -165,17 +297,31 @@ export async function getLlmClient(shopId?: string | null): Promise<{ client: Ll
   const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
   const openaiKey = process.env.OPENAI_API_KEY?.trim();
 
-  if (defaultAi === 'claude' && anthropicKey) {
+  const anthropicSkillsRaw = process.env.ANTHROPIC_SKILLS?.trim();
+  const anthropicSkills = anthropicSkillsRaw
+    ? anthropicSkillsRaw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean).slice(0, 8)
+    : undefined;
+  const anthropicCodeExecution = process.env.ANTHROPIC_CODE_EXECUTION?.toLowerCase() === 'true' || process.env.ANTHROPIC_CODE_EXECUTION === '1';
+  const envClaudeSkillsConfig =
+    anthropicSkills?.length || anthropicCodeExecution
+      ? { skills: anthropicSkills, codeExecution: anthropicCodeExecution }
+      : undefined;
+
+  // When no DB provider: use Claude by default if configured (defaultAi is claude or unset), else OpenAI
+  if ((defaultAi === 'claude' || defaultAi === null) && anthropicKey) {
     const model = process.env.ANTHROPIC_DEFAULT_MODEL?.trim() || 'claude-sonnet-4-20250514';
-    return { client: new EnvClaudeClient(anthropicKey, model, shopId ?? undefined), providerId: null };
+    const primary = new EnvClaudeClient(anthropicKey, model, shopId ?? undefined, envClaudeSkillsConfig);
+    // Wrap with OpenAI fallback when both keys are available
+    if (openaiKey) {
+      const fallbackModel = process.env.OPENAI_DEFAULT_MODEL?.trim() || 'gpt-4o-mini';
+      const fallback = new EnvOpenAiClient(openaiKey, fallbackModel, shopId ?? undefined);
+      return { client: new FallbackLlmClient(primary, fallback), providerId: null };
+    }
+    return { client: primary, providerId: null };
   }
-  if ((defaultAi === 'openai' || !defaultAi) && openaiKey) {
-    const model = process.env.OPENAI_DEFAULT_MODEL?.trim() || 'gpt-5-mini';
+  if ((defaultAi === 'openai' || defaultAi === null) && openaiKey) {
+    const model = process.env.OPENAI_DEFAULT_MODEL?.trim() || 'gpt-4o-mini';
     return { client: new EnvOpenAiClient(openaiKey, model, shopId ?? undefined), providerId: null };
-  }
-  if (anthropicKey && !openaiKey) {
-    const model = process.env.ANTHROPIC_DEFAULT_MODEL?.trim() || 'claude-sonnet-4-20250514';
-    return { client: new EnvClaudeClient(anthropicKey, model, shopId ?? undefined), providerId: null };
   }
 
   throw new AiProviderNotConfiguredError();
@@ -251,6 +397,87 @@ export function compileCreateModulePrompt(params: {
   return parts.join('\n');
 }
 
+/**
+ * Approach hints for parallel single-recipe generation. Each call gets a
+ * different hint so the 3 options vary by behavior, not by random sampling.
+ */
+export const APPROACH_HINTS: ReadonlyArray<{ label: string; hint: string }> = [
+  {
+    label: 'Conservative',
+    hint:
+      'Approach: take the most conservative interpretation of the request. Prefer safe defaults, mainstream patterns, and a single clear primary CTA. This option should feel "safe to ship to any store."',
+  },
+  {
+    label: 'High-conversion',
+    hint:
+      'Approach: optimize for conversion. Use stronger triggers (e.g. exit intent / scroll), urgency cues if appropriate, and tighter copy. This option should feel "aggressive but on-brand."',
+  },
+  {
+    label: 'Targeted',
+    hint:
+      'Approach: target a specific audience or page. Narrow the trigger and showOnPages, lean on personalization, and write copy for the target visitor. This option should feel "precision-aimed."',
+  },
+];
+
+/**
+ * Compile the prompt for a single-recipe generation call. Used by the parallel
+ * path that fires N independent calls (one per approach hint), each with the
+ * full per-type token budget.
+ */
+export function compileCreateSingleRecipePrompt(params: {
+  purposeAndGuidance: string;
+  moduleType: string;
+  summary: string;
+  expectations: string;
+  userRequest: string;
+  approachHint?: string;
+  approachLabel?: string;
+  fullSchemaSpec?: string;
+  styleSchemaSpec?: string;
+  catalogDetails?: string;
+  settingsPack?: string;
+  previousError?: string;
+  intentPacketJson?: string;
+  promptProfile?: string;
+}): string {
+  const profileGuidance = params.promptProfile ? PROFILE_GUIDANCE[params.promptProfile] : undefined;
+  const parts: string[] = [
+    params.purposeAndGuidance,
+    '',
+    `Task: Generate exactly 1 module of type "${params.moduleType}" for the merchant's request. Output a JSON object: { "explanation": "1-2 sentences", "recipe": { ...one full RecipeSpec... } }.`,
+  ];
+  if (params.approachHint) {
+    parts.push('', params.approachHint);
+  }
+  parts.push(
+    '',
+    `Recommended type for this request: ${params.moduleType}`,
+    params.summary,
+    '',
+    params.expectations,
+    '',
+    `User request: ${params.userRequest}`,
+  );
+  if (profileGuidance) parts.push('', profileGuidance);
+  if (params.settingsPack) parts.push('', params.settingsPack);
+  if (params.intentPacketJson) {
+    parts.push('', 'Structured intent (output only the schema requested; do not change intent):', params.intentPacketJson);
+  }
+  if (params.fullSchemaSpec) {
+    parts.push('', 'Full recipe schema (Zod validation — every field must match):', params.fullSchemaSpec);
+  }
+  if (params.styleSchemaSpec) {
+    parts.push('', 'Style schema (storefront only):', params.styleSchemaSpec);
+  }
+  if (params.catalogDetails) {
+    parts.push('', 'Catalog (examples for inspiration):', params.catalogDetails);
+  }
+  if (params.previousError) {
+    parts.push('', '(Previous validation error — fix in next response):', params.previousError);
+  }
+  return parts.join('\n');
+}
+
 /** All inputs are strings; returns a single compiled prompt string to send to the AI. */
 export function compileModifyModulePrompt(params: {
   summary: string;
@@ -282,7 +509,9 @@ export function compileModifyModulePrompt(params: {
  * Falls back to treating the whole object as a recipe for backward compatibility.
  */
 function unwrapRecipe(raw: unknown): unknown {
-  if (raw && typeof raw === 'object' && 'recipe' in raw) return (raw as any).recipe;
+  if (raw && typeof raw === 'object' && 'recipe' in raw) {
+    return (raw as { recipe?: unknown }).recipe;
+  }
   return raw;
 }
 
@@ -397,7 +626,7 @@ function repairRecipeForValidation(raw: unknown): unknown {
   }
 
   if (typeof o.name !== 'string') o.name = 'Unnamed module';
-  let name = o.name.trim();
+  let name = (o.name as string).trim();
   if (name.length < 3) name = name.padEnd(3, ' ');
   if (name.length > 80) name = name.slice(0, 80);
   o.name = name;
@@ -460,10 +689,12 @@ const MAX_REPAIR_ATTEMPTS = 2;
 async function validateAndRepairRecipe(
   raw: unknown,
   client: LlmClient,
-  options?: { shopId?: string },
+  _options?: { shopId?: string; moduleType?: ModuleType },
 ): Promise<{ recipe: RecipeSpec; repaired: boolean }> {
   let current = repairRecipeForValidation(raw);
   let lastError: string | undefined;
+  const repairBudget = _options?.moduleType ? getRepairTokenBudget(_options.moduleType) : 2000;
+  const singleSchema = _options?.moduleType ? getRecipeSingleJsonSchemaForType(_options.moduleType) : undefined;
   for (let i = 0; i <= MAX_REPAIR_ATTEMPTS; i++) {
     const result = RecipeSpecSchema.safeParse(current);
     if (result.success) {
@@ -471,8 +702,14 @@ async function validateAndRepairRecipe(
     }
     lastError = result.error.message;
     if (i === MAX_REPAIR_ATTEMPTS) break;
-    const repairPrompt = compileRepairPrompt(JSON.stringify(current, null, 2), lastError);
-    const { rawJson } = await client.generateRecipe(repairPrompt);
+    if (isFatalValidationError(lastError)) break;
+    const repairPrompt = compileRepairPrompt(JSON.stringify(current), lastError);
+    const { rawJson } = await client.generateRecipe(repairPrompt, {
+      maxTokens: repairBudget,
+      responseSchema: singleSchema && _options?.moduleType
+        ? { name: `RecipeSingle_${_options.moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}`, schema: singleSchema }
+        : undefined,
+    });
     try {
       const parsed = JSON.parse(rawJson);
       current = repairRecipeForValidation(unwrapRecipe(parsed));
@@ -483,9 +720,22 @@ async function validateAndRepairRecipe(
   throw new Error(lastError ?? 'Validation failed');
 }
 
+/**
+ * Patterns that indicate the model can't recover via repair. Skip repair attempts
+ * and fall through to outer-loop retry (or hard fail) instead of wasting tokens.
+ */
+function isFatalValidationError(message: string): boolean {
+  if (!message) return false;
+  // Wrong discriminator (type field) — repair can't fix without re-classifying.
+  if (/Invalid discriminator value/i.test(message)) return true;
+  // Schema branch chosen by the caller doesn't exist in the union at all.
+  if (/Invalid literal value/i.test(message) && /type/i.test(message)) return true;
+  return false;
+}
+
 export async function generateValidatedRecipe(
   prompt: string,
-  options?: { shopId?: string; action?: string; maxAttempts?: number }
+  options?: { shopId?: string; action?: string; maxAttempts?: number; maxTokens?: number }
 ): Promise<RecipeSpec> {
   const maxAttempts = options?.maxAttempts ?? 3;
   const action = options?.action ?? 'RECIPE_GENERATION';
@@ -496,13 +746,26 @@ export async function generateValidatedRecipe(
 
   let lastErr: unknown;
   for (let i = 0; i < maxAttempts; i++) {
-    const { rawJson, tokensIn, tokensOut, model } = await client.generateRecipe(wrappedPrompt, { previousError: lastErr ? String(lastErr) : undefined });
+    const { rawJson, tokensIn, tokensOut, model } = await client.generateRecipe(wrappedPrompt, {
+      previousError: lastErr ? String(lastErr) : undefined,
+      maxTokens: options?.maxTokens,
+    });
     try {
       const parsed = RecipeSpecSchema.parse(unwrapRecipe(JSON.parse(rawJson)));
-      if (providerId) {
-        const costCents = await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut);
-        await usage.record({ providerId, shopId: options?.shopId, action, tokensIn, tokensOut, costCents, meta: { attempts: i + 1, model }, requestCount: 1 });
-      }
+      const costCents = providerId
+        ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut)
+        : 0;
+      await recordAiUsage(usage, {
+        providerId,
+        shopId: options?.shopId,
+        action,
+        tokensIn,
+        tokensOut,
+        costCents,
+        meta: { attempts: i + 1, model },
+        requestCount: 1,
+        prompt: wrappedPrompt,
+      });
       return parsed;
     } catch (err) {
       lastErr = err;
@@ -524,68 +787,454 @@ export async function modifyRecipeSpec(
   const { client, providerId } = await getLlmClient(options?.shopId ?? null);
   const usage = new AiUsageService();
 
+  const compactSpecJson = JSON.stringify(currentSpec);
+
   const modifyPrompt = `You are modifying an existing Shopify module. Here is the current RecipeSpec JSON:
 
-${JSON.stringify(currentSpec, null, 2)}
+${compactSpecJson}
 
 User requested change: ${instruction}
 
 Output a JSON object with a single key "recipe" whose value is the complete updated RecipeSpec. Keep the same "type" field ("${currentSpec.type}") unless the user explicitly asks to change module type. Preserve all existing fields that the user did not ask to change.`;
 
+  const modifyBudget = getRecipeTokenBudget(currentSpec.type);
   let lastErr: unknown;
   for (let i = 0; i < maxAttempts; i++) {
-    const { rawJson, tokensIn, tokensOut, model } = await client.generateRecipe(modifyPrompt, {
-      previousError: lastErr ? String(lastErr) : undefined,
-    });
+    let tokensIn = 0;
+    let tokensOut = 0;
+    let model: string | undefined;
     try {
-      const parsed = RecipeSpecSchema.parse(unwrapRecipe(JSON.parse(rawJson)));
+      const result = await client.generateRecipe(modifyPrompt, {
+        previousError: lastErr ? String(lastErr) : undefined,
+        maxTokens: modifyBudget,
+      });
+      tokensIn = result.tokensIn;
+      tokensOut = result.tokensOut;
+      model = result.model;
+      const parsed = RecipeSpecSchema.parse(unwrapRecipe(JSON.parse(result.rawJson)));
       if (!options?.allowTypeChange && parsed.type !== currentSpec.type) {
         throw new Error(`AI changed module type from "${currentSpec.type}" to "${parsed.type}". Type changes are not allowed in modify mode.`);
       }
-      if (providerId) {
-        const costCents = await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut);
-        await usage.record({ providerId, shopId: options?.shopId, action: 'RECIPE_MODIFY', tokensIn, tokensOut, costCents, meta: { attempts: i + 1, model }, requestCount: 1 });
-      }
+      const costCents = providerId
+        ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut)
+        : 0;
+      await recordAiUsage(usage, {
+        providerId,
+        shopId: options?.shopId,
+        action: 'RECIPE_MODIFY',
+        tokensIn,
+        tokensOut,
+        costCents,
+        meta: { attempts: i + 1, model },
+        requestCount: 1,
+        prompt: modifyPrompt,
+      });
       return parsed;
     } catch (err) {
       lastErr = err;
+      const failCost = providerId
+        ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut)
+        : 0;
+      await recordAiUsage(usage, {
+        providerId,
+        shopId: options?.shopId,
+        action: 'RECIPE_MODIFY_FAILED',
+        tokensIn,
+        tokensOut,
+        costCents: failCost,
+        meta: { attempts: i + 1, model, error: String(err).slice(0, 500) },
+        requestCount: 1,
+        prompt: modifyPrompt,
+      });
     }
   }
   throw new Error(`AI recipe modification failed after ${maxAttempts} attempts: ${String(lastErr)}`);
 }
 
 /**
- * Generate 3 recipe options for a given prompt. Compiles all prompt parts into a single string, then sends that to the AI.
- * Optional intentPacket (doc 15.5) provides a clear contract so heavy AI only fills layout/copy/settings.
+ * Yielded by the streaming generator so the UI can show "Option 1 ready" as
+ * soon as the first parallel call finishes — without waiting for the slowest.
+ */
+export type RecipeOptionStreamEvent =
+  | { kind: 'started'; index: number; approach: string; total: number }
+  | { kind: 'option'; index: number; approach: string; option: RecipeOption; durationMs: number }
+  | { kind: 'option_failed'; index: number; approach: string; error: string; durationMs: number }
+  | { kind: 'done'; valid: number; total: number };
+
+/**
+ * Streams parallel single-recipe generation. Internally identical to
+ * `generateValidatedRecipeOptionsParallel` but yields events as each call
+ * resolves, so the SSE route can emit progressive "ready / failed / done"
+ * frames to the merchant UI instead of blocking until all 3 finish.
+ *
+ * Yields events in arrival order, not call order — the fastest call wins.
+ */
+export async function* generateValidatedRecipeOptionsStream(
+  prompt: string,
+  classification: { moduleType: ModuleType; intent?: string; surface?: string },
+  options?: {
+    shopId?: string;
+    intentPacketJson?: string;
+    confidenceScore?: number;
+    promptProfile?: string;
+    optionCount?: number;
+  },
+): AsyncGenerator<RecipeOptionStreamEvent, void, void> {
+  const optionCount = Math.max(1, Math.min(3, options?.optionCount ?? 3));
+  const { client, providerId } = await getLlmClient(options?.shopId ?? null);
+  const usage = new AiUsageService();
+  const singleSchema = getRecipeSingleJsonSchemaForType(classification.moduleType);
+  const perBudget = getRecipeTokenBudget(classification.moduleType);
+
+  const purposeAndGuidance = PROMPT_PURPOSE_AND_GUIDANCE;
+  const summary = getModuleSummary(classification.moduleType);
+  const expectations = getPromptExpectations(classification.moduleType, 'single');
+  const settingsPack = getSettingsPack(classification.moduleType);
+  const isLowConfidence = (options?.confidenceScore ?? 1) < CONFIDENCE_THRESHOLDS.DIRECT;
+  const fullSchemaSpec = !singleSchema && isLowConfidence ? getFullRecipeSchemaSpec(classification.moduleType) : undefined;
+  const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'theme.floatingWidget', 'proxy.widget'];
+  const styleSchemaSpec = isLowConfidence && storefrontTypes.includes(classification.moduleType)
+    ? getStorefrontStyleSchemaSpec()
+    : undefined;
+  const catalogDetails = isLowConfidence
+    ? getCatalogDetailsForType(classification.moduleType, classification.intent, classification.surface)
+    : undefined;
+
+  type OneResult =
+    | { kind: 'ok'; index: number; approach: string; option: RecipeOption; durationMs: number }
+    | { kind: 'err'; index: number; approach: string; error: string; durationMs: number };
+
+  const tasks: Promise<OneResult>[] = APPROACH_HINTS.slice(0, optionCount).map(async (approach, idx) => {
+    const startedAt = Date.now();
+    const compiledPrompt = compileCreateSingleRecipePrompt({
+      purposeAndGuidance,
+      moduleType: classification.moduleType,
+      summary,
+      expectations,
+      userRequest: prompt,
+      approachHint: approach.hint,
+      approachLabel: approach.label,
+      fullSchemaSpec,
+      styleSchemaSpec,
+      catalogDetails,
+      settingsPack,
+      intentPacketJson: options?.intentPacketJson,
+      promptProfile: options?.promptProfile,
+    });
+
+    let tokensIn = 0;
+    let tokensOut = 0;
+    let model: string | undefined;
+    let costCents = 0;
+    try {
+      const result = await client.generateRecipe(compiledPrompt, {
+        maxTokens: perBudget,
+        responseSchema: singleSchema
+          ? { name: `RecipeSingle_${classification.moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}`, schema: singleSchema }
+          : undefined,
+      });
+      tokensIn = result.tokensIn;
+      tokensOut = result.tokensOut;
+      model = result.model;
+      costCents = providerId ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut) : 0;
+
+      const parsed = JSON.parse(result.rawJson);
+      const raw = unwrapRecipe(parsed);
+      const repaired = repairRecipeForValidation(raw);
+      const safe = RecipeSpecSchema.safeParse(repaired);
+      let recipe: RecipeSpec;
+      let repairedFlag = false;
+      if (safe.success) {
+        recipe = safe.data;
+      } else {
+        const fix = await validateAndRepairRecipe(raw, client, {
+          shopId: options?.shopId,
+          moduleType: classification.moduleType,
+        });
+        recipe = fix.recipe;
+        repairedFlag = fix.repaired;
+      }
+
+      const explanation = typeof (parsed as { explanation?: unknown })?.explanation === 'string'
+        ? (parsed as { explanation: string }).explanation
+        : `${approach.label} option`;
+
+      await recordAiUsage(usage, {
+        providerId,
+        shopId: options?.shopId,
+        action: 'RECIPE_GENERATION_OPTION',
+        tokensIn,
+        tokensOut,
+        costCents,
+        meta: { approach: approach.label, model, repaired: repairedFlag, durationMs: Date.now() - startedAt },
+        requestCount: 1,
+        prompt: compiledPrompt,
+      });
+      return {
+        kind: 'ok' as const,
+        index: idx,
+        approach: approach.label,
+        option: { explanation, recipe },
+        durationMs: Date.now() - startedAt,
+      };
+    } catch (err) {
+      await recordAiUsage(usage, {
+        providerId,
+        shopId: options?.shopId,
+        action: 'RECIPE_GENERATION_OPTION_FAILED',
+        tokensIn,
+        tokensOut,
+        costCents,
+        meta: { approach: approach.label, model, error: String(err).slice(0, 500), durationMs: Date.now() - startedAt },
+        requestCount: 1,
+        prompt: compiledPrompt,
+      });
+      return {
+        kind: 'err' as const,
+        index: idx,
+        approach: approach.label,
+        error: err instanceof Error ? err.message : String(err),
+        durationMs: Date.now() - startedAt,
+      };
+    }
+  });
+
+  for (let i = 0; i < APPROACH_HINTS.slice(0, optionCount).length; i++) {
+    const a = APPROACH_HINTS[i];
+    if (!a) continue;
+    yield { kind: 'started', index: i, approach: a.label, total: optionCount };
+  }
+
+  let valid = 0;
+  // Race tasks one-at-a-time so we yield in arrival order.
+  const remaining = new Map<number, Promise<OneResult>>();
+  tasks.forEach((p, i) => remaining.set(i, p));
+  while (remaining.size > 0) {
+    const next = await Promise.race(
+      Array.from(remaining.entries()).map(async ([key, p]) => {
+        const r = await p;
+        return [key, r] as const;
+      }),
+    );
+    remaining.delete(next[0]);
+    const r = next[1];
+    if (r.kind === 'ok') {
+      valid++;
+      yield {
+        kind: 'option',
+        index: r.index,
+        approach: r.approach,
+        option: r.option,
+        durationMs: r.durationMs,
+      };
+    } else {
+      yield {
+        kind: 'option_failed',
+        index: r.index,
+        approach: r.approach,
+        error: r.error,
+        durationMs: r.durationMs,
+      };
+    }
+  }
+
+  yield { kind: 'done', valid, total: optionCount };
+}
+
+/**
+ * Generate N recipe options in parallel — one independent LLM call per approach.
+ * This is the preferred path when a per-type structured-output JSON Schema is
+ * available: each call has the full per-recipe token budget (no truncation),
+ * and validation/repair is per-option without blocking siblings.
+ *
+ * When a per-type schema is NOT available, callers should fall back to
+ * `generateValidatedRecipeOptions` (legacy "ask for 3 in one call").
+ *
+ * Returns whichever options validated. Caller decides whether < N is acceptable.
+ */
+export async function generateValidatedRecipeOptionsParallel(
+  prompt: string,
+  classification: { moduleType: ModuleType; intent?: string; surface?: string },
+  options?: {
+    shopId?: string;
+    intentPacketJson?: string;
+    confidenceScore?: number;
+    promptProfile?: string;
+    /** Number of parallel option calls (default 3). */
+    optionCount?: number;
+  },
+): Promise<RecipeOption[]> {
+  const optionCount = Math.max(1, Math.min(3, options?.optionCount ?? 3));
+  const { client, providerId } = await getLlmClient(options?.shopId ?? null);
+  const usage = new AiUsageService();
+  const singleSchema = getRecipeSingleJsonSchemaForType(classification.moduleType);
+  const perBudget = getRecipeTokenBudget(classification.moduleType);
+
+  const purposeAndGuidance = PROMPT_PURPOSE_AND_GUIDANCE;
+  const summary = getModuleSummary(classification.moduleType);
+  const expectations = getPromptExpectations(classification.moduleType, 'single');
+  const settingsPack = getSettingsPack(classification.moduleType);
+  const isLowConfidence = (options?.confidenceScore ?? 1) < CONFIDENCE_THRESHOLDS.DIRECT;
+  const fullSchemaSpec = !singleSchema && isLowConfidence ? getFullRecipeSchemaSpec(classification.moduleType) : undefined;
+  const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'theme.floatingWidget', 'proxy.widget'];
+  const styleSchemaSpec = isLowConfidence && storefrontTypes.includes(classification.moduleType)
+    ? getStorefrontStyleSchemaSpec()
+    : undefined;
+  const catalogDetails = isLowConfidence
+    ? getCatalogDetailsForType(classification.moduleType, classification.intent, classification.surface)
+    : undefined;
+
+  const calls = APPROACH_HINTS.slice(0, optionCount).map(async (approach, idx) => {
+    const compiledPrompt = compileCreateSingleRecipePrompt({
+      purposeAndGuidance,
+      moduleType: classification.moduleType,
+      summary,
+      expectations,
+      userRequest: prompt,
+      approachHint: approach.hint,
+      approachLabel: approach.label,
+      fullSchemaSpec,
+      styleSchemaSpec,
+      catalogDetails,
+      settingsPack,
+      intentPacketJson: options?.intentPacketJson,
+      promptProfile: options?.promptProfile,
+    });
+
+    let tokensIn = 0;
+    let tokensOut = 0;
+    let model: string | undefined;
+    let costCents = 0;
+
+    try {
+      const result = await client.generateRecipe(compiledPrompt, {
+        maxTokens: perBudget,
+        responseSchema: singleSchema
+          ? { name: `RecipeSingle_${classification.moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}`, schema: singleSchema }
+          : undefined,
+      });
+      tokensIn = result.tokensIn;
+      tokensOut = result.tokensOut;
+      model = result.model;
+      costCents = providerId ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut) : 0;
+
+      const parsed = JSON.parse(result.rawJson);
+      const raw = unwrapRecipe(parsed);
+      const repaired = repairRecipeForValidation(raw);
+      const safe = RecipeSpecSchema.safeParse(repaired);
+      let recipe: RecipeSpec;
+      let repairedFlag = false;
+      if (safe.success) {
+        recipe = safe.data;
+      } else {
+        const fix = await validateAndRepairRecipe(raw, client, {
+          shopId: options?.shopId,
+          moduleType: classification.moduleType,
+        });
+        recipe = fix.recipe;
+        repairedFlag = fix.repaired;
+      }
+
+      const explanation = typeof (parsed as { explanation?: unknown })?.explanation === 'string'
+        ? (parsed as { explanation: string }).explanation
+        : `${approach.label} option`;
+
+      await recordAiUsage(usage, {
+        providerId,
+        shopId: options?.shopId,
+        action: 'RECIPE_GENERATION_OPTION',
+        tokensIn,
+        tokensOut,
+        costCents,
+        meta: { approach: approach.label, model, repaired: repairedFlag },
+        requestCount: 1,
+        prompt: compiledPrompt,
+      });
+      return { ok: true as const, option: { explanation, recipe } };
+    } catch (err) {
+      await recordAiUsage(usage, {
+        providerId,
+        shopId: options?.shopId,
+        action: 'RECIPE_GENERATION_OPTION_FAILED',
+        tokensIn,
+        tokensOut,
+        costCents,
+        meta: { approach: approach.label, model, error: String(err).slice(0, 500) },
+        requestCount: 1,
+        prompt: compiledPrompt,
+      });
+      return { ok: false as const, error: err };
+    }
+  });
+
+  const settled = await Promise.all(calls);
+  const validated = settled.filter((s): s is { ok: true; option: RecipeOption } => s.ok).map((s) => s.option);
+  if (validated.length === 0) {
+    const firstErr = settled.find((s): s is { ok: false; error: unknown } => !s.ok)?.error;
+    throw new Error(
+      `AI recipe options generation failed: ${firstErr instanceof Error ? firstErr.message : String(firstErr)}`,
+    );
+  }
+  return validated;
+}
+
+/**
+ * Generate 3 recipe options for a given prompt. When the module type has a
+ * per-type structured-output JSON Schema available (most types do), delegates
+ * to `generateValidatedRecipeOptionsParallel`: 3 independent LLM calls each
+ * with the full per-type token budget. This kills truncation and dramatically
+ * reduces the per-call prompt size.
+ *
+ * For types that don't yet have a JSON Schema (rare), falls back to the legacy
+ * "ask for 3 in one call" path.
  */
 export async function generateValidatedRecipeOptions(
   prompt: string,
   classification: { moduleType: ModuleType; intent?: string; surface?: string },
   options?: { shopId?: string; maxAttempts?: number; intentPacketJson?: string; confidenceScore?: number; promptProfile?: string },
 ): Promise<RecipeOption[]> {
+  if (getRecipeSingleJsonSchemaForType(classification.moduleType)) {
+    return generateValidatedRecipeOptionsParallel(prompt, classification, {
+      shopId: options?.shopId,
+      intentPacketJson: options?.intentPacketJson,
+      confidenceScore: options?.confidenceScore,
+      promptProfile: options?.promptProfile,
+      optionCount: 3,
+    });
+  }
   const maxAttempts = options?.maxAttempts ?? 3;
   const { client, providerId } = await getLlmClient(options?.shopId ?? null);
   const usage = new AiUsageService();
 
   const purposeAndGuidance = PROMPT_PURPOSE_AND_GUIDANCE;
-  const typesList = getAllTypesSummary();
   const summary = getModuleSummary(classification.moduleType);
   const expectations = getPromptExpectations(classification.moduleType);
 
   // Include full schema+style+catalog on attempt 0 when confidence is below the DIRECT threshold (0.8).
   // This front-loads context for ambiguous prompts rather than waiting for a retry.
   const isLowConfidence = (options?.confidenceScore ?? 1) < CONFIDENCE_THRESHOLDS.DIRECT;
+  const isHighConfidence = (options?.confidenceScore ?? 1) >= CONFIDENCE_THRESHOLDS.DIRECT;
   const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'theme.floatingWidget', 'proxy.widget'];
   // Settings pack is always injected — it's lightweight and ensures the AI populates all relevant fields.
   const settingsPack = getSettingsPack(classification.moduleType);
+  // Skip full types list when confidence is high — the type is already known, saves ~2K tokens.
+  const typesList = isHighConfidence ? `Available type: ${classification.moduleType}` : getAllTypesSummary();
+
+  // When a per-type JSON Schema is available, structured-output guarantees the
+  // shape — so we don't need to spend tokens on the prose `fullSchemaSpec`.
+  const optionsJsonSchema = getRecipeOptionsJsonSchemaForType(classification.moduleType);
+  const hasStructuredSchema = Boolean(optionsJsonSchema);
 
   let lastErr: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const isRetry = attempt > 0;
     const includeFullContext = isRetry || isLowConfidence;
-    const fullSchemaSpec = includeFullContext ? getFullRecipeSchemaSpec(classification.moduleType) : undefined;
+    const fullSchemaSpec = includeFullContext && !hasStructuredSchema ? getFullRecipeSchemaSpec(classification.moduleType) : undefined;
     const styleSchemaSpec = includeFullContext && storefrontTypes.includes(classification.moduleType) ? getStorefrontStyleSchemaSpec() : undefined;
     const catalogDetails = includeFullContext ? getCatalogDetailsForType(classification.moduleType, classification.intent, classification.surface) : undefined;
+
+    // Skip intent packet on first attempt for high-confidence to reduce token count
+    const includeIntentPacket = !isHighConfidence || isRetry;
 
     const compiledPrompt = compileCreateModulePrompt({
       purposeAndGuidance,
@@ -599,13 +1248,23 @@ export async function generateValidatedRecipeOptions(
       styleSchemaSpec,
       catalogDetails,
       previousError: lastErr ? String(lastErr) : undefined,
-      intentPacketJson: options?.intentPacketJson,
+      intentPacketJson: includeIntentPacket ? options?.intentPacketJson : undefined,
       promptProfile: options?.promptProfile,
     });
 
-    const { rawJson, tokensIn, tokensOut, model } = await client.generateRecipe(compiledPrompt);
+    const optionsBudget = getRecipeOptionsTokenBudget(classification.moduleType, 3);
+    let rawJson = '';
+    let tokensIn = 0;
+    let tokensOut = 0;
+    let model: string | undefined;
 
     try {
+      ({ rawJson, tokensIn, tokensOut, model } = await client.generateRecipe(compiledPrompt, {
+        maxTokens: optionsBudget,
+        responseSchema: optionsJsonSchema
+          ? { name: `RecipeOptions_${classification.moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}`, schema: optionsJsonSchema }
+          : undefined,
+      }));
       const parsed = JSON.parse(rawJson);
       const optionsArr = parsed?.options ?? (Array.isArray(parsed) ? parsed : null);
       if (!Array.isArray(optionsArr) || optionsArr.length === 0) {
@@ -627,7 +1286,10 @@ export async function generateValidatedRecipeOptions(
         }
         if (!firstValidationError) firstValidationError = parsed.error.message;
         try {
-          const { recipe } = await validateAndRepairRecipe(raw, client, { shopId: options?.shopId });
+          const { recipe } = await validateAndRepairRecipe(raw, client, {
+            shopId: options?.shopId,
+            moduleType: classification.moduleType,
+          });
           validated.push({
             explanation: typeof opt?.explanation === 'string' ? opt.explanation : `Option ${validated.length + 1} (repaired)`,
             recipe,
@@ -641,19 +1303,50 @@ export async function generateValidatedRecipeOptions(
         throw new Error(firstValidationError ?? 'All 3 options failed Zod validation');
       }
 
-      if (providerId) {
-        const costCents = await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut);
-        await usage.record({
-          providerId, shopId: options?.shopId, action: 'RECIPE_GENERATION_OPTIONS',
-          tokensIn, tokensOut, costCents,
-          meta: { attempts: attempt + 1, model, validOptions: validated.length },
-          requestCount: 1,
-        });
-      }
+      const costCents = providerId
+        ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut)
+        : 0;
+      await recordAiUsage(usage, {
+        providerId,
+        shopId: options?.shopId,
+        action: 'RECIPE_GENERATION_OPTIONS',
+        tokensIn,
+        tokensOut,
+        costCents,
+        meta: { attempts: attempt + 1, model, validOptions: validated.length },
+        requestCount: 1,
+        prompt: compiledPrompt,
+      });
 
       return validated;
     } catch (err) {
       lastErr = err;
+      if (providerId) {
+        const failCost = await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut);
+        await recordAiUsage(usage, {
+          providerId,
+          shopId: options?.shopId,
+          action: 'RECIPE_GENERATION_OPTIONS_FAILED',
+          tokensIn,
+          tokensOut,
+          costCents: failCost,
+          meta: { attempts: attempt + 1, model, error: String(err).slice(0, 500) },
+          requestCount: 1,
+          prompt: compiledPrompt,
+        });
+      } else {
+        await recordAiUsage(usage, {
+          providerId: null,
+          shopId: options?.shopId,
+          action: 'RECIPE_GENERATION_OPTIONS_FAILED',
+          tokensIn,
+          tokensOut,
+          costCents: 0,
+          meta: { attempts: attempt + 1, model, error: String(err).slice(0, 500) },
+          requestCount: 1,
+          prompt: compiledPrompt,
+        });
+      }
     }
   }
 
@@ -675,7 +1368,7 @@ export async function modifyRecipeSpecOptions(
 
   const summary = getModuleSummary(currentSpec.type);
   const expectations = getModifyPromptExpectations();
-  const currentSpecJson = JSON.stringify(currentSpec, null, 2);
+  const currentSpecJson = JSON.stringify(currentSpec);
 
   let lastErr: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -687,10 +1380,20 @@ export async function modifyRecipeSpecOptions(
       previousError: lastErr ? String(lastErr) : undefined,
     });
 
-    const { rawJson, tokensIn, tokensOut, model } = await client.generateRecipe(compiledPrompt);
+    const modifyOptionsBudget = getRecipeOptionsTokenBudget(currentSpec.type, 3);
+    let tokensIn = 0;
+    let tokensOut = 0;
+    let model: string | undefined;
 
     try {
-      const parsed = JSON.parse(rawJson);
+      const result = await client.generateRecipe(compiledPrompt, {
+        maxTokens: modifyOptionsBudget,
+      });
+      tokensIn = result.tokensIn;
+      tokensOut = result.tokensOut;
+      model = result.model;
+
+      const parsed = JSON.parse(result.rawJson);
       const optionsArr = parsed?.options ?? (Array.isArray(parsed) ? parsed : null);
       if (!Array.isArray(optionsArr) || optionsArr.length === 0) {
         throw new Error('Response missing "options" array');
@@ -717,23 +1420,118 @@ export async function modifyRecipeSpecOptions(
         throw new Error(firstValidationError ?? 'All modification options failed validation');
       }
 
-      if (providerId) {
-        const costCents = await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut);
-        await usage.record({
-          providerId, shopId: options?.shopId, action: 'RECIPE_MODIFY_OPTIONS',
-          tokensIn, tokensOut, costCents,
-          meta: { attempts: attempt + 1, model, validOptions: validated.length },
-          requestCount: 1,
-        });
-      }
+      const costCents = providerId
+        ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut)
+        : 0;
+      await recordAiUsage(usage, {
+        providerId,
+        shopId: options?.shopId,
+        action: 'RECIPE_MODIFY_OPTIONS',
+        tokensIn,
+        tokensOut,
+        costCents,
+        meta: { attempts: attempt + 1, model, validOptions: validated.length },
+        requestCount: 1,
+        prompt: compiledPrompt,
+      });
 
       return validated;
     } catch (err) {
       lastErr = err;
+      const failCost = providerId
+        ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut)
+        : 0;
+      await recordAiUsage(usage, {
+        providerId,
+        shopId: options?.shopId,
+        action: 'RECIPE_MODIFY_OPTIONS_FAILED',
+        tokensIn,
+        tokensOut,
+        costCents: failCost,
+        meta: { attempts: attempt + 1, model, error: String(err).slice(0, 500) },
+        requestCount: 1,
+        prompt: compiledPrompt,
+      });
     }
   }
 
   throw new Error(`AI recipe modify options failed after ${maxAttempts} attempts: ${String(lastErr)}`);
+}
+
+/**
+ * Coerce common LLM output mistakes in the hydrate envelope before Zod validation.
+ * Mirrors repairRecipeForValidation but for HydrateEnvelopeV1 shape issues.
+ */
+function repairHydrateEnvelope(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object') return raw;
+  const o = JSON.parse(JSON.stringify(raw)) as Record<string, unknown>;
+
+  // surfacePlan: LLM sometimes returns an array instead of { selectedSurfaces, compatibility }
+  if (Array.isArray(o.surfacePlan)) {
+    o.surfacePlan = { compatibility: o.surfacePlan };
+  }
+
+  // themeEditorSettings.fields: repair individual field objects
+  const tes = o.themeEditorSettings as Record<string, unknown> | undefined;
+  if (tes && Array.isArray(tes.fields)) {
+    tes.fields = (tes.fields as unknown[]).map((f: unknown) => {
+      if (!f || typeof f !== 'object') return f;
+      const field = f as Record<string, unknown>;
+      // id: fall back to common alternative keys
+      if (!field.id) field.id = field.name ?? field.key ?? field.field ?? 'field';
+      // label: fall back to common alternative keys
+      if (!field.label) field.label = field.title ?? field.displayName ?? String(field.id);
+      // options: coerce string[] → { value, label }[]
+      if (Array.isArray(field.options)) {
+        field.options = (field.options as unknown[]).map((opt: unknown) =>
+          typeof opt === 'string' ? { value: opt, label: opt } : opt,
+        );
+      }
+      return field;
+    });
+  }
+
+  // uiTokens: each category may be a plain object {key: value} instead of [{token, default}]
+  const ut = o.uiTokens as Record<string, unknown> | undefined;
+  if (ut && typeof ut === 'object') {
+    for (const cat of ['colors', 'typography', 'spacing', 'radius', 'shadow'] as const) {
+      const val = ut[cat];
+      if (val && !Array.isArray(val) && typeof val === 'object') {
+        ut[cat] = Object.entries(val as Record<string, unknown>).map(([token, def]) => ({
+          token,
+          default: def ?? '',
+        }));
+      }
+      // If it's already an array, repair items that are missing token/default
+      if (Array.isArray(ut[cat])) {
+        ut[cat] = (ut[cat] as unknown[]).map((item: unknown) => {
+          if (!item || typeof item !== 'object') return item;
+          const t = item as Record<string, unknown>;
+          if (!t.token) t.token = 'unknown';
+          if (t.default === undefined) t.default = '';
+          return t;
+        });
+      }
+    }
+  }
+
+  // validationReport.checks: fill required fields if missing
+  const vr = o.validationReport as Record<string, unknown> | undefined;
+  if (vr && Array.isArray(vr.checks)) {
+    vr.checks = (vr.checks as unknown[]).map((c: unknown, i: number) => {
+      if (!c || typeof c !== 'object') return c;
+      const check = c as Record<string, unknown>;
+      if (!check.id) check.id = `check_${i}`;
+      if (!check.severity) check.severity = 'low';
+      if (!check.status) check.status = 'PASS';
+      if (!check.description) check.description = String(check.id);
+      return check;
+    });
+    // Ensure overall is valid
+    if (vr.overall !== 'PASS' && vr.overall !== 'WARN') vr.overall = 'PASS';
+  }
+
+  return o;
 }
 
 const MAX_HYDRATE_ATTEMPTS = 2;
@@ -757,27 +1555,44 @@ export async function hydrateRecipeSpec(
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const { rawJson, tokensIn, tokensOut, model } = await client.generateRecipe(
       wrappedPrompt,
-      lastErr ? { previousError: String(lastErr) } : undefined,
+      { previousError: lastErr ? String(lastErr) : undefined, maxTokens: 16000 },
     );
     try {
-      const parsed = JSON.parse(rawJson);
+      const parsed = repairHydrateEnvelope(JSON.parse(rawJson));
       const envelope = HydrateEnvelopeSchema.parse(parsed);
-      if (providerId) {
-        const costCents = await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut);
-        await usage.record({
-          providerId,
-          shopId: options?.shopId,
-          action: 'RECIPE_HYDRATE',
-          tokensIn,
-          tokensOut,
-          costCents,
-          meta: { attempts: attempt + 1, model, moduleType: recipeSpec.type },
-          requestCount: 1,
-        });
-      }
-      return envelope;
+      const perfect = validatePerfectConfig(envelope);
+      const envelopeToUse = perfect.envelope ?? envelope;
+      const costCents = providerId
+        ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut)
+        : 0;
+      await recordAiUsage(usage, {
+        providerId,
+        shopId: options?.shopId,
+        action: 'RECIPE_HYDRATE',
+        tokensIn,
+        tokensOut,
+        costCents,
+        meta: { attempts: attempt + 1, model, moduleType: recipeSpec.type },
+        requestCount: 1,
+        prompt: wrappedPrompt,
+      });
+      return envelopeToUse;
     } catch (err) {
       lastErr = err;
+      const failCost = providerId
+        ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut)
+        : 0;
+      await recordAiUsage(usage, {
+        providerId,
+        shopId: options?.shopId,
+        action: 'RECIPE_HYDRATE_FAILED',
+        tokensIn,
+        tokensOut,
+        costCents: failCost,
+        meta: { attempt: attempt + 1, model, moduleType: recipeSpec.type, error: String(err) },
+        requestCount: 1,
+        prompt: wrappedPrompt,
+      });
     }
   }
   throw new Error(`Hydrate envelope validation failed after ${maxAttempts} attempts: ${String(lastErr)}`);
@@ -793,4 +1608,96 @@ async function estimateCostCentsFromDb(providerId: string, model: string, tokens
   const inCents = (tokensIn / 1_000_000) * price.inputPer1MTokensCents;
   const outCents = (tokensOut / 1_000_000) * price.outputPer1MTokensCents;
   return Math.round(inCents + outCents);
+}
+
+/**
+ * Records AI usage even when there is no DB-configured provider — env-only keys
+ * land on a synthetic provider row so quota counts stay accurate.
+ */
+async function recordAiUsage(
+  usage: AiUsageService,
+  params: {
+    providerId: string | null;
+    shopId?: string;
+    action: string;
+    tokensIn: number;
+    tokensOut: number;
+    costCents: number;
+    requestCount?: number;
+    meta?: unknown;
+    prompt?: string;
+  },
+) {
+  try {
+    const accountAudit = await getProviderAccountAudit(params.providerId);
+    const promptAudit = buildPromptAudit(params.prompt);
+    const mergedMeta = {
+      ...(params.meta && typeof params.meta === 'object' ? (params.meta as Record<string, unknown>) : { value: params.meta }),
+      promptAudit,
+      accountAudit,
+    };
+    await usage.record({
+      ...params,
+      meta: mergedMeta,
+      envSource: params.providerId ? undefined : inferEnvSource(),
+    });
+  } catch {
+    // Never let usage logging fail the generation flow.
+  }
+}
+
+function inferEnvSource(): 'env:openai' | 'env:anthropic' | 'env:custom' | 'env:unknown' {
+  if (process.env.ANTHROPIC_API_KEY) return 'env:anthropic';
+  if (process.env.OPENAI_API_KEY) return 'env:openai';
+  return 'env:unknown';
+}
+
+function buildPromptAudit(prompt?: string): { sha256: string; chars: number; preview: string } | null {
+  if (!prompt) return null;
+  return {
+    sha256: crypto.createHash('sha256').update(prompt).digest('hex'),
+    chars: prompt.length,
+    preview: prompt.slice(0, 500),
+  };
+}
+
+async function getProviderAccountAudit(providerId: string | null): Promise<Record<string, unknown>> {
+  if (!providerId) {
+    return {
+      source: inferEnvSource(),
+      accountId: null,
+      accountEmail: null,
+      dailyLimitUsd: null,
+      alertLimitUsd: null,
+      currentBalanceUsd: null,
+    };
+  }
+  const prisma = getPrisma();
+  const provider = await prisma.aiProvider.findUnique({ where: { id: providerId } });
+  if (!provider) return { source: 'db', providerId };
+
+  let parsed: {
+    account?: { accountId?: string; accountEmail?: string; accountName?: string };
+    billing?: { dailyLimitUsd?: number; alertLimitUsd?: number; currentBalanceUsd?: number; currency?: string };
+  } = {};
+  if (provider.extraConfig) {
+    try {
+      parsed = JSON.parse(provider.extraConfig) as typeof parsed;
+    } catch {
+      parsed = {};
+    }
+  }
+  return {
+    source: 'db',
+    providerId,
+    providerName: provider.name,
+    providerKind: provider.provider,
+    accountId: parsed.account?.accountId ?? null,
+    accountEmail: parsed.account?.accountEmail ?? null,
+    accountName: parsed.account?.accountName ?? null,
+    dailyLimitUsd: parsed.billing?.dailyLimitUsd ?? null,
+    alertLimitUsd: parsed.billing?.alertLimitUsd ?? null,
+    currentBalanceUsd: parsed.billing?.currentBalanceUsd ?? null,
+    currency: parsed.billing?.currency ?? 'USD',
+  };
 }
