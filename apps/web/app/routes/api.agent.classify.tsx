@@ -3,6 +3,7 @@ import { shopify } from '~/shopify.server';
 import { classifyUserIntent, CONFIDENCE_THRESHOLDS } from '~/services/ai/classify.server';
 import { augmentWithCheapClassifier } from '~/services/ai/cheap-classifier.server';
 import { buildIntentPacket } from '~/services/ai/intent-packet.server';
+import { buildPromptRouterDecision } from '~/services/ai/prompt-router.server';
 
 /**
  * Agent API Primitive: Classify a user prompt into a module intent.
@@ -39,6 +40,13 @@ export async function action({ request }: { request: Request }) {
   const packet = buildIntentPacket(prompt, augmented, {
     storeContext: { shop_domain: session.shop },
   });
+  const routerDecision = await buildPromptRouterDecision({
+    prompt,
+    classification: augmented,
+    intentPacket: packet,
+    shopDomain: session.shop,
+    operationClass: 'P0_CREATE',
+  });
 
   const band =
     augmented.confidenceScore >= CONFIDENCE_THRESHOLDS.DIRECT
@@ -62,6 +70,7 @@ export async function action({ request }: { request: Request }) {
       reasons: augmented.reasons,
     },
     intentPacket: packet,
+    routerDecision,
     routing: {
       shouldProceed: augmented.confidenceScore >= CONFIDENCE_THRESHOLDS.WITH_ALTERNATIVES,
       needsClarification: augmented.confidenceScore < CONFIDENCE_THRESHOLDS.WITH_ALTERNATIVES,

@@ -4,7 +4,7 @@ This extension renders **theme modules** (banner, popup, notification bar, effec
 
 ## How it works
 
-1. In the app, when you **publish** a theme.banner, theme.popup, theme.notificationBar, or theme.effect module, the app merges its config into the shop metafield `superapp.theme.modules` (JSON: moduleId → { type, name, config, style }).
+1. In the app, when you **publish** a theme.banner, theme.popup, theme.notificationBar, theme.contactForm, theme.effect, or theme.floatingWidget module, the app merges its config into the shop metafield `superapp.theme.modules` (JSON: moduleId → { type, name, config, style }).
 2. The **SuperApp Theme Modules** app embed block (`blocks/superapp-theme-modules.liquid`) reads that metafield and renders each module on the storefront.
 3. Merchants must **enable the app embed** in the theme editor: Theme → Customize → App embeds → enable "SuperApp Theme Modules".
 
@@ -17,7 +17,7 @@ You can also add the **SuperApp Module Slot** section block to any section: set 
 
 **Shipped:**
 
-- **Universal Slot block** (`blocks/universal-slot.liquid`) — Section block; one slot per block. Option A: `module_id` (text) setting; merchant pastes module ID from the app; block renders that module from `superapp.theme.modules`. Supports theme.banner, theme.notificationBar, theme.popup, theme.effect.
+- **Universal Slot block** (`blocks/universal-slot.liquid`) — Section block; one slot per block. Option A: `module_id` (text) setting; merchant pastes module ID from the app; block renders that module from `superapp.theme.modules`. Supports theme.banner, theme.notificationBar, theme.popup, theme.contactForm, theme.effect, theme.floatingWidget.
 
 **Planned:**
 

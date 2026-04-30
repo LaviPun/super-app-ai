@@ -1,0 +1,21 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+RUN corepack enable
+
+# Install workspace dependencies first for better layer caching.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/web/package.json apps/web/package.json
+COPY packages/core/package.json packages/core/package.json
+
+RUN pnpm install --frozen-lockfile --filter web...
+
+# Copy only what the router runtime needs.
+COPY apps/web apps/web
+COPY packages/core packages/core
+COPY tsconfig.base.json tsconfig.base.json
+
+EXPOSE 8787
+
+CMD ["pnpm", "--filter", "web", "router:internal"]

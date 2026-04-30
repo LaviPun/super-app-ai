@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: internal-ai-router-config
+data:
+  ROUTER_HOST: "0.0.0.0"
+  ROUTER_PORT: "8787"
+  ROUTER_BACKEND: "ollama"
+  ROUTER_OLLAMA_BASE_URL: "http://ollama.ollama.svc.cluster.local:11434"
+  ROUTER_OLLAMA_MODEL: "qwen2.5:3b-instruct-q4_K_M"
+  ROUTER_OPENAI_BASE_URL: "http://vllm.vllm.svc.cluster.local:8000/v1"
+  ROUTER_OPENAI_MODEL: "Qwen/Qwen2.5-3B-Instruct"
+  ROUTER_MODEL_TIMEOUT_MS: "2500"
+  ROUTER_BODY_MAX_BYTES: "8192"
+  ROUTER_RATE_WINDOW_MS: "60000"
+  ROUTER_RATE_MAX_REQUESTS: "90"

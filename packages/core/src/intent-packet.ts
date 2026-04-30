@@ -357,6 +357,7 @@ export const ROUTING_TABLE: Record<string, RoutingEntry> = {
 /** Map module type (e.g. theme.popup) to intent for routing when intent is not from Clean Intent List. */
 export const MODULE_TYPE_TO_INTENT: Record<string, string> = {
   'theme.popup': 'promo.popup',
+  'theme.contactForm': 'engage.newsletter_capture',
   'theme.banner': 'promo.banner',
   'theme.notificationBar': 'utility.announcement',
   'theme.effect': 'utility.effect',

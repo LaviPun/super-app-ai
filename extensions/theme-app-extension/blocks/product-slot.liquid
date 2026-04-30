@@ -66,6 +66,50 @@
           </div>
         </div>
 
+      {% elsif mod_type == 'theme.contactForm' %}
+        <section class="superapp-contact" id="superapp-contact-{{ module_id | escape }}" data-module-id="{{ module_id | escape }}">
+          <div class="superapp-contact__inner">
+            <h2 class="superapp-contact__title">{{ mod_cfg.title | escape }}</h2>
+            {% if mod_cfg.subtitle != blank %}
+              <p class="superapp-contact__subtitle">{{ mod_cfg.subtitle | escape }}</p>
+            {% endif %}
+            <form
+              class="superapp-contact__form"
+              method="post"
+              action="{% if mod_cfg.submissionMode == 'APP_PROXY' %}{{ mod_cfg.proxyEndpointPath | default: '/apps/superapp/capture' | escape }}{% else %}/contact#superapp-contact-{{ module_id | escape }}{% endif %}"
+            >
+              {% if mod_cfg.submissionMode != 'APP_PROXY' %}
+                <input type="hidden" name="form_type" value="contact">
+                <input type="hidden" name="utf8" value="✓">
+              {% else %}
+                <input type="hidden" name="moduleId" value="{{ module_id | escape }}">
+                <input type="hidden" name="captureType" value="contact_form_submission">
+                <input type="hidden" name="storeKey" value="customer">
+                <input type="hidden" name="honeypotFieldName" value="{{ mod_cfg.honeypotFieldName | default: 'website' | escape }}">
+              {% endif %}
+              {% if mod_cfg.tags != blank %}
+                <input type="hidden" name="contact[tags]" value="{{ mod_cfg.tags | join: ',' | escape }}">
+              {% endif %}
+              {% if mod_cfg.includeCustomerContext and customer %}
+                <input type="hidden" name="contact[shop_domain]" value="{{ shop.permanent_domain | escape }}">
+                <input type="hidden" name="contact[customer_id]" value="{{ customer.id | escape }}">
+                <input type="hidden" name="contact[customer_email]" value="{{ customer.email | escape }}">
+              {% endif %}
+              {% if mod_cfg.showName %}<label class="superapp-contact__field">Name<input type="text" name="contact[name]" {% if mod_cfg.nameRequired %}required{% endif %}></label>{% endif %}
+              {% if mod_cfg.showEmail %}<label class="superapp-contact__field">Email<input type="email" name="contact[email]" {% if mod_cfg.emailRequired %}required{% endif %}></label>{% endif %}
+              {% if mod_cfg.showPhone %}<label class="superapp-contact__field">Phone<input type="tel" name="contact[phone]" {% if mod_cfg.phoneRequired %}required{% endif %}></label>{% endif %}
+              {% if mod_cfg.showCompany %}<label class="superapp-contact__field">Company<input type="text" name="contact[company]" {% if mod_cfg.companyRequired %}required{% endif %}></label>{% endif %}
+              {% if mod_cfg.showOrderNumber %}<label class="superapp-contact__field">Order number<input type="text" name="contact[order_number]" {% if mod_cfg.orderNumberRequired %}required{% endif %}></label>{% endif %}
+              {% if mod_cfg.showSubject %}<label class="superapp-contact__field">Subject<input type="text" name="contact[subject]" {% if mod_cfg.subjectRequired %}required{% endif %}></label>{% endif %}
+              {% if mod_cfg.showMessage %}<label class="superapp-contact__field">Message<textarea name="contact[body]" rows="5" {% if mod_cfg.messageRequired %}required{% endif %}></textarea></label>{% endif %}
+              {% if mod_cfg.spamProtection == 'HONEYPOT' %}<label class="superapp-contact__honeypot" aria-hidden="true">Leave this field empty<input type="text" name="{{ mod_cfg.honeypotFieldName | default: 'website' | escape }}" tabindex="-1" autocomplete="off"></label>{% endif %}
+              {% if mod_cfg.consentRequired %}<label class="superapp-contact__consent"><input type="checkbox" required><span>{{ mod_cfg.consentLabel | default: 'I agree to be contacted about my request.' | escape }}</span></label>{% endif %}
+              <button class="superapp-contact__submit" type="submit">{{ mod_cfg.submitLabel | default: 'Send message' | escape }}</button>
+              <p class="superapp-contact__help">{% if mod_cfg.submissionMode == 'APP_PROXY' %}{{ mod_cfg.successMessage | default: 'Your message was submitted.' | escape }}{% else %}Submission is handled by Shopify contact processing.{% endif %}</p>
+            </form>
+          </div>
+        </section>
+
       {% elsif mod_type == 'theme.effect' %}
         <div class="superapp-effect superapp-effect--embed" data-module-id="{{ module_id | escape }}" data-trigger="{{ mod_cfg.startTrigger | default: 'page_load' | escape }}" role="presentation" aria-hidden="true">
           <div class="superapp-effect__overlay superapp-effect--{{ mod_cfg.effectKind | default: 'snowfall' }}">
@@ -117,6 +161,17 @@
       .superapp-slot .superapp-popup--embed[hidden] { display: none !important; }
       .superapp-slot .superapp-popup__backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.4); }
       .superapp-slot .superapp-popup__panel { position: relative; background: #fff; padding: 1.5rem; border-radius: 12px; max-width: 400px; }
+      .superapp-slot .superapp-contact__inner { max-width: 760px; margin: 0 auto; padding: 1rem; }
+      .superapp-slot .superapp-contact__title { margin: 0 0 .5rem; font-size: 1.4rem; }
+      .superapp-slot .superapp-contact__subtitle { margin: 0 0 1rem; opacity: .8; }
+      .superapp-slot .superapp-contact__form { display: grid; gap: .75rem; }
+      .superapp-slot .superapp-contact__field { display: grid; gap: .35rem; font-size: .95rem; }
+      .superapp-slot .superapp-contact__field input,
+      .superapp-slot .superapp-contact__field textarea { width: 100%; border: 1px solid #d1d5db; border-radius: 8px; padding: .625rem .75rem; font: inherit; }
+      .superapp-slot .superapp-contact__consent { display: flex; align-items: center; gap: .5rem; font-size: .9rem; }
+      .superapp-slot .superapp-contact__submit { justify-self: start; border: 1px solid #111827; background: #111827; color: #fff; border-radius: 8px; padding: .625rem .95rem; cursor: pointer; }
+      .superapp-slot .superapp-contact__help { margin: 0; font-size: .85rem; opacity: .75; }
+      .superapp-slot .superapp-contact__honeypot { position: absolute !important; left: -9999px !important; width: 1px; height: 1px; overflow: hidden; }
       .superapp-slot .superapp-effect--embed { pointer-events: none; position: fixed; inset: 0; z-index: 9998; overflow: hidden; }
       .superapp-slot .superapp-effect__particle { position: absolute; width: 4px; height: 4px; background: rgba(255,255,255,0.8); border-radius: 50%; animation: superapp-fall 8s linear infinite; }
       @keyframes superapp-fall { 0% { transform: translateY(-10px); opacity: 0; } 10% { opacity: 0.8; } 90% { opacity: 0.8; } 100% { transform: translateY(100vh); opacity: 0; } }
@@ -138,7 +193,6 @@
 {% schema %}
 {
   "name": "SuperApp Product Block",
-  "target": "section",
   "settings": [
     {
       "type": "text",

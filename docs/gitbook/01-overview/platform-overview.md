@@ -27,3 +27,9 @@ AI Shopify SuperApp is one Shopify app that replaces many single-purpose apps. M
 - **Full index:** [Documentation map](../00-welcome/documentation-map.md)
 - **Architecture depth:** [Technical reference](../../technical.md) §15 (extensions & slots)
 - **Specs:** [Reference library](../09-reference/reference-library.md)
+
+## Canonical references
+
+- Product source overview: `README.md` (repo root)
+- Architecture source: `docs/technical.md`
+- Delivery progress: `docs/implementation-status.md`

@@ -50,6 +50,7 @@
 | Module catalog (generated) | `packages/core/src/catalog.generated.json` |
 | Catalog loader & filter | `packages/core/src/catalog.ts` |
 | Catalog generator script | `packages/core/src/catalog.generator.ts` |
+| Surface inventory & boundaries | `docs/superapp-surface-inventory.md` |
 | Template definitions (specs) | `packages/core/src/_templates_part{1..4}.ts` (144 templates, IDs UAO-001–ORT-142) |
 | Workflow validator | `packages/core/src/workflow-validator.ts` |
 
@@ -776,9 +777,12 @@ Use `isCapabilityAllowed(plan, cap)` before enabling a recipe that requires a gi
 ```ts
 type ModuleCatalogEntry = {
   catalogId: string;
+  family: 'type' | 'storefront';
   category: ModuleCategory;
   requires: Capability[];
   description: string;
+  tags: string[];
+  moduleType?: ModuleType;
   templateKind?: string;
   surface?: string;
   intent?: string;
@@ -795,13 +799,20 @@ type ModuleCatalogEntry = {
 
 - **MODULE_CATALOG:** Loaded from `catalog.generated.json`.
 - **findCatalogEntry(catalogId):** Returns one entry by ID.
-- **filterCatalog(query):** Filters by category, templateKind, surface, intent, trigger, etc.
+- **findTypeEntry(moduleType):** Returns the canonical `type.<moduleType>` row.
+- **filterCatalog(query):** Filters by `family`, `category`, `templateKind`, `surface`, `intent`, `trigger`, plus `tags` (entry must contain every listed tag). All exact-match.
+- **MODULE_TYPE_TO_TEMPLATE_KIND:** Single source of truth mapping every RecipeSpec type to its templateKind. Imported by the AI catalog-details service to keep retry inspiration aligned with the catalog.
 
 ### 9.2 Catalog generator
 
 - **Script:** `packages/core/src/catalog.generator.ts`.
-- **Output:** `packages/core/src/catalog.generated.json`.
-- **Logic:** Builds entries from Cartesian product of surfaces × components × intents (and trigger variants for popup/modal/drawer/toast). Extend with admin/function/integration/flow in the same pattern.
+- **Output:** `packages/core/src/catalog.generated.json` (one JSON entry per line — small diffs).
+- **Cap:** `DEFAULT_MAX_ENTRIES = 12000`, with `strictNoTruncate: true` by default — generation throws if the manifest produces more than the cap, so silent truncation cannot ship.
+- **Sections (deterministic order, each sorted by `catalogId`):**
+  1. `type.*` — one per `RECIPE_SPEC_TYPES` entry, with canonical `templateKind` and tags.
+  2. `storefront.*` — `CATALOG_SURFACES × CATALOG_COMPONENTS × CATALOG_INTENTS`.
+  3. `storefront.*.trigger.*` — `CATALOG_SURFACES × CATALOG_INTENTS × CATALOG_TRIGGERS × {popup, modal, drawer, toast}`.
+- **Run:** `pnpm --filter @superapp/core build && node packages/core/dist/catalog.generator.js`.
 - **Surfaces (current):** home, collection, product, cart, mini_cart, search, account, blog, page, footer, header, policy.
 - **Intents (current):** promo, capture, upsell, cross_sell, trust, urgency, info, support, compliance, localization.
 - **Components (current):** banner, announcement_bar, notification_bar, popup, modal, drawer, toast, badge, progress_bar, tabs, accordion, sticky_cta, coupon_reveal.

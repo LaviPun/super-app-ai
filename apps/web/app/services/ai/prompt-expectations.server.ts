@@ -78,6 +78,31 @@ const EXPECTED_SHAPE_EXAMPLES: Partial<Record<ModuleType, string>> = {
   "style": {}
 }`,
 
+  'theme.contactForm': `{
+  "type": "theme.contactForm",
+  "name": "string, ${LIMITS.nameMin}-${LIMITS.nameMax} chars",
+  "category": "STOREFRONT_UI",
+  "requires": ["THEME_ASSETS"],
+  "config": {
+    "title": "string, 1-80, required",
+    "subtitle": "optional, max 200",
+    "submitLabel": "string, 1-40",
+    "successMessage": "string, 1-200",
+    "errorMessage": "string, 1-200",
+    "submissionMode": "SHOPIFY_CONTACT | APP_PROXY",
+    "proxyEndpointPath": "/apps/superapp/capture",
+    "recipientEmail": "optional email",
+    "showName": true, "showEmail": true, "showPhone": false, "showCompany": false, "showOrderNumber": false, "showSubject": true, "showMessage": true,
+    "nameRequired": true, "emailRequired": true, "phoneRequired": false, "companyRequired": false, "orderNumberRequired": false, "subjectRequired": false, "messageRequired": true,
+    "consentRequired": false, "consentLabel": "optional text",
+    "sendCopyToCustomer": false, "includeCustomerContext": true,
+    "spamProtection": "NONE | HONEYPOT", "honeypotFieldName": "website",
+    "tags": [],
+    "successRedirectUrl": "optional valid URL"
+  },
+  "style": { "layout": { "mode": "inline", "anchor": "top" } }
+}`,
+
   'theme.effect': `{
   "type": "theme.effect",
   "name": "string, ${LIMITS.nameMin}-${LIMITS.nameMax} chars",
@@ -215,6 +240,25 @@ config.linkText: string, optional, 0-40 chars.
 config.linkUrl: optional; if present valid URL (https), empty string invalid.
 config.dismissible: boolean, default true.`,
 
+  'theme.contactForm': `theme.contactForm — full config schema (Zod validation):
+Top-level: type="theme.contactForm", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, placement=optional, style=optional.
+config.title: string, required, ${LIMITS.headingMin}-${LIMITS.headingMax} chars.
+config.subtitle: string, optional, 0-${LIMITS.subheadingMax} chars.
+config.submitLabel: string, required, 1-40 chars.
+config.successMessage: string, required, 1-${LIMITS.subheadingMax} chars.
+config.errorMessage: string, required, 1-${LIMITS.subheadingMax} chars.
+config.showName/showEmail/showPhone/showCompany/showOrderNumber/showSubject/showMessage: boolean controls for field visibility.
+config.nameRequired/emailRequired/phoneRequired/companyRequired/orderNumberRequired/subjectRequired/messageRequired: boolean required toggles.
+config.consentRequired: boolean. config.consentLabel: string max 120.
+config.submissionMode: enum exactly SHOPIFY_CONTACT | APP_PROXY.
+config.proxyEndpointPath: string path regex ^/[a-z0-9-/]{1,200}$.
+config.recipientEmail: optional valid email.
+config.sendCopyToCustomer: boolean. config.includeCustomerContext: boolean.
+config.spamProtection: enum exactly NONE | HONEYPOT.
+config.honeypotFieldName: string 1-40 chars.
+config.tags: string[] max 20 items, each 1-40 chars.
+config.successRedirectUrl: optional valid URL.`,
+
   'theme.effect': `theme.effect — full config schema (Zod validation):
 Top-level: type="theme.effect", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, placement=optional, style=optional.
 config.effectKind: enum exactly "snowfall" or "confetti", required.
@@ -291,6 +335,15 @@ OPTIONAL: imageUrl for a visual banner; enableAnimation for entrance effect.`,
 CONTENT: message (concise, 1 sentence, max 140 chars), linkText + linkUrl (optional CTA).
 CONTROLS: dismissible (true by default; set false for critical messages).
 STYLE: sticky top, high-contrast colors. Vary the 3 options by message tone (urgent / friendly / informational) and color scheme.`,
+
+  'theme.contactForm': `Settings pack — theme.contactForm MUST include all of these:
+CONTENT: title, subtitle (optional), submitLabel, successMessage, errorMessage.
+FIELDS: choose visibility + required toggles for name/email/phone/company/orderNumber/subject/message.
+PRIVACY: consentRequired + consentLabel when lead/contact capture is involved.
+SUBMISSION: submissionMode (SHOPIFY_CONTACT for native contact route, APP_PROXY for custom processing), proxyEndpointPath when APP_PROXY.
+ANTI-SPAM: spamProtection + honeypotFieldName (recommended HONEYPOT).
+OPS: tags, includeCustomerContext, sendCopyToCustomer based on merchant needs.
+STYLE: inline layout, readable field spacing, clear primary button contrast.`,
 
   'theme.effect': `Settings pack — theme.effect MUST include all of these:
 REQUIRED: effectKind (snowfall or confetti based on context), intensity, speed.

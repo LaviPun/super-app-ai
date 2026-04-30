@@ -9,7 +9,7 @@ import { anthropicGenerateRecipe } from '~/services/ai/clients/anthropic-message
 import { openAiCompatibleGenerateRecipe } from '~/services/ai/clients/openai-compatible.client.server';
 import { getModuleSummary, getAllTypesSummary } from '~/services/ai/module-summaries.server';
 import { CONFIDENCE_THRESHOLDS } from '~/services/ai/classify.server';
-import { getCatalogDetailsForType } from '~/services/ai/catalog-details.server';
+import { getCatalogDetails, getCatalogDetailsForType } from '~/services/ai/catalog-details.server';
 import {
   getPromptExpectations,
   getModifyPromptExpectations,
@@ -29,6 +29,7 @@ import {
   getRecipeOptionsJsonSchemaForType,
   getRecipeSingleJsonSchemaForType,
 } from '~/services/ai/recipe-json-schema.server';
+import type { PromptRouterDecision } from '~/schemas/prompt-router.server';
 
 import { getPrisma } from '~/db.server';
 
@@ -155,6 +156,19 @@ export class ConfiguredLlmClient implements LlmClient {
       : prompt;
 
     if (provider.provider === 'OPENAI') {
+      let openaiFeatures:
+        | { reasoningEffort?: 'low' | 'medium' | 'high'; verbosity?: 'low' | 'medium' | 'high'; webSearch?: boolean }
+        | undefined;
+      if (provider.extraConfig) {
+        try {
+          const parsed = JSON.parse(provider.extraConfig) as {
+            openaiFeatures?: { reasoningEffort?: 'low' | 'medium' | 'high'; verbosity?: 'low' | 'medium' | 'high'; webSearch?: boolean };
+          };
+          if (parsed.openaiFeatures) openaiFeatures = parsed.openaiFeatures;
+        } catch {
+          // ignore invalid extraConfig
+        }
+      }
       return openAiGenerateRecipe({
         apiKey,
         baseUrl: provider.baseUrl ?? undefined,
@@ -163,6 +177,7 @@ export class ConfiguredLlmClient implements LlmClient {
         shopId: this.shopId,
         maxTokens: hints?.maxTokens,
         responseSchema: hints?.responseSchema,
+        openaiFeatures,
       });
     }
 
@@ -170,9 +185,15 @@ export class ConfiguredLlmClient implements LlmClient {
       let skillsConfig: { skills?: string[]; codeExecution?: boolean } | undefined;
       if (provider.extraConfig) {
         try {
-          const parsed = JSON.parse(provider.extraConfig) as { skills?: string[]; codeExecution?: boolean };
-          if (parsed.skills?.length || parsed.codeExecution) {
-            skillsConfig = { skills: parsed.skills, codeExecution: parsed.codeExecution };
+          const parsed = JSON.parse(provider.extraConfig) as {
+            skills?: string[];
+            codeExecution?: boolean;
+            anthropicFeatures?: { skills?: string[]; codeExecution?: boolean };
+          };
+          const skills = parsed.anthropicFeatures?.skills ?? parsed.skills;
+          const codeExecution = parsed.anthropicFeatures?.codeExecution ?? parsed.codeExecution;
+          if (skills?.length || codeExecution) {
+            skillsConfig = { skills, codeExecution };
           }
         } catch {
           // ignore invalid extraConfig
@@ -199,6 +220,17 @@ export class ConfiguredLlmClient implements LlmClient {
       shopId: this.shopId,
       maxTokens: hints?.maxTokens,
       responseSchema: hints?.responseSchema,
+      openaiFeatures: (() => {
+        if (!provider.extraConfig) return undefined;
+        try {
+          const parsed = JSON.parse(provider.extraConfig) as {
+            openaiFeatures?: { reasoningEffort?: 'low' | 'medium' | 'high'; verbosity?: 'low' | 'medium' | 'high'; webSearch?: boolean };
+          };
+          return parsed.openaiFeatures;
+        } catch {
+          return undefined;
+        }
+      })(),
     });
   }
 }
@@ -336,6 +368,23 @@ const PROFILE_GUIDANCE: Record<string, string> = {
   copy_v1: 'Surface context: COPY only — focus on headline, body, and CTA text. Output RecipeSpec JSON.',
 };
 
+function buildCatalogDetailsFromRouter(
+  classification: { moduleType: ModuleType; intent?: string; surface?: string },
+  routerDecision?: PromptRouterDecision,
+): string | undefined {
+  if (!routerDecision?.includeFlags.includeCatalog) return undefined;
+  const filters = routerDecision.catalogFilters;
+  if (!filters) {
+    return getCatalogDetailsForType(classification.moduleType, classification.intent, classification.surface);
+  }
+  return getCatalogDetails({
+    templateKind: filters.templateKind,
+    intent: filters.intent,
+    surface: filters.surface,
+    limit: filters.limit,
+  });
+}
+
 /**
  * All inputs are strings. Compiles into a single prompt to send to the AI.
  * Optional sections (fullSchemaSpec, styleSchemaSpec, catalogDetails) are omitted on first attempt to keep cost low; add on retry when needed.
@@ -380,7 +429,7 @@ export function compileCreateModulePrompt(params: {
     parts.push('', params.settingsPack);
   }
   if (params.intentPacketJson) {
-    parts.push('', 'Structured intent (output only the schema requested; do not change intent):', params.intentPacketJson);
+    parts.push('', 'PromptIntentSeedV1 (compact intent+routing context; do not change it):', params.intentPacketJson);
   }
   if (params.fullSchemaSpec) {
     parts.push('', 'Full recipe schema (Zod validation — every field must match):', params.fullSchemaSpec);
@@ -461,7 +510,7 @@ export function compileCreateSingleRecipePrompt(params: {
   if (profileGuidance) parts.push('', profileGuidance);
   if (params.settingsPack) parts.push('', params.settingsPack);
   if (params.intentPacketJson) {
-    parts.push('', 'Structured intent (output only the schema requested; do not change intent):', params.intentPacketJson);
+    parts.push('', 'PromptIntentSeedV1 (compact intent+routing context; do not change it):', params.intentPacketJson);
   }
   if (params.fullSchemaSpec) {
     parts.push('', 'Full recipe schema (Zod validation — every field must match):', params.fullSchemaSpec);
@@ -877,6 +926,7 @@ export async function* generateValidatedRecipeOptionsStream(
     intentPacketJson?: string;
     confidenceScore?: number;
     promptProfile?: string;
+    routerDecision?: PromptRouterDecision;
     optionCount?: number;
   },
 ): AsyncGenerator<RecipeOptionStreamEvent, void, void> {
@@ -889,16 +939,29 @@ export async function* generateValidatedRecipeOptionsStream(
   const purposeAndGuidance = PROMPT_PURPOSE_AND_GUIDANCE;
   const summary = getModuleSummary(classification.moduleType);
   const expectations = getPromptExpectations(classification.moduleType, 'single');
-  const settingsPack = getSettingsPack(classification.moduleType);
+  const settingsPack = options?.routerDecision?.includeFlags.includeSettingsPack === false
+    ? undefined
+    : getSettingsPack(classification.moduleType);
   const isLowConfidence = (options?.confidenceScore ?? 1) < CONFIDENCE_THRESHOLDS.DIRECT;
-  const fullSchemaSpec = !singleSchema && isLowConfidence ? getFullRecipeSchemaSpec(classification.moduleType) : undefined;
+  const includeFullSchema = options?.routerDecision
+    ? options.routerDecision.includeFlags.includeFullSchema
+    : isLowConfidence;
+  const fullSchemaSpec = !singleSchema && includeFullSchema ? getFullRecipeSchemaSpec(classification.moduleType) : undefined;
   const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'theme.floatingWidget', 'proxy.widget'];
-  const styleSchemaSpec = isLowConfidence && storefrontTypes.includes(classification.moduleType)
+  const includeStyleSchema = options?.routerDecision
+    ? options.routerDecision.includeFlags.includeStyleSchema
+    : isLowConfidence;
+  const styleSchemaSpec = includeStyleSchema && storefrontTypes.includes(classification.moduleType)
     ? getStorefrontStyleSchemaSpec()
     : undefined;
-  const catalogDetails = isLowConfidence
-    ? getCatalogDetailsForType(classification.moduleType, classification.intent, classification.surface)
-    : undefined;
+  const catalogDetails = options?.routerDecision
+    ? buildCatalogDetailsFromRouter(classification, options.routerDecision)
+    : (isLowConfidence
+      ? getCatalogDetailsForType(classification.moduleType, classification.intent, classification.surface)
+      : undefined);
+  const intentPacketJson = options?.routerDecision?.includeFlags.includeIntentPacket === false
+    ? undefined
+    : options?.intentPacketJson;
 
   type OneResult =
     | { kind: 'ok'; index: number; approach: string; option: RecipeOption; durationMs: number }
@@ -918,7 +981,7 @@ export async function* generateValidatedRecipeOptionsStream(
       styleSchemaSpec,
       catalogDetails,
       settingsPack,
-      intentPacketJson: options?.intentPacketJson,
+      intentPacketJson,
       promptProfile: options?.promptProfile,
     });
 
@@ -1060,6 +1123,7 @@ export async function generateValidatedRecipeOptionsParallel(
     intentPacketJson?: string;
     confidenceScore?: number;
     promptProfile?: string;
+    routerDecision?: PromptRouterDecision;
     /** Number of parallel option calls (default 3). */
     optionCount?: number;
   },
@@ -1073,16 +1137,29 @@ export async function generateValidatedRecipeOptionsParallel(
   const purposeAndGuidance = PROMPT_PURPOSE_AND_GUIDANCE;
   const summary = getModuleSummary(classification.moduleType);
   const expectations = getPromptExpectations(classification.moduleType, 'single');
-  const settingsPack = getSettingsPack(classification.moduleType);
+  const settingsPack = options?.routerDecision?.includeFlags.includeSettingsPack === false
+    ? undefined
+    : getSettingsPack(classification.moduleType);
   const isLowConfidence = (options?.confidenceScore ?? 1) < CONFIDENCE_THRESHOLDS.DIRECT;
-  const fullSchemaSpec = !singleSchema && isLowConfidence ? getFullRecipeSchemaSpec(classification.moduleType) : undefined;
+  const includeFullSchema = options?.routerDecision
+    ? options.routerDecision.includeFlags.includeFullSchema
+    : isLowConfidence;
+  const fullSchemaSpec = !singleSchema && includeFullSchema ? getFullRecipeSchemaSpec(classification.moduleType) : undefined;
   const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'theme.floatingWidget', 'proxy.widget'];
-  const styleSchemaSpec = isLowConfidence && storefrontTypes.includes(classification.moduleType)
+  const includeStyleSchema = options?.routerDecision
+    ? options.routerDecision.includeFlags.includeStyleSchema
+    : isLowConfidence;
+  const styleSchemaSpec = includeStyleSchema && storefrontTypes.includes(classification.moduleType)
     ? getStorefrontStyleSchemaSpec()
     : undefined;
-  const catalogDetails = isLowConfidence
-    ? getCatalogDetailsForType(classification.moduleType, classification.intent, classification.surface)
-    : undefined;
+  const catalogDetails = options?.routerDecision
+    ? buildCatalogDetailsFromRouter(classification, options.routerDecision)
+    : (isLowConfidence
+      ? getCatalogDetailsForType(classification.moduleType, classification.intent, classification.surface)
+      : undefined);
+  const intentPacketJson = options?.routerDecision?.includeFlags.includeIntentPacket === false
+    ? undefined
+    : options?.intentPacketJson;
 
   const calls = APPROACH_HINTS.slice(0, optionCount).map(async (approach, idx) => {
     const compiledPrompt = compileCreateSingleRecipePrompt({
@@ -1097,7 +1174,7 @@ export async function generateValidatedRecipeOptionsParallel(
       styleSchemaSpec,
       catalogDetails,
       settingsPack,
-      intentPacketJson: options?.intentPacketJson,
+      intentPacketJson,
       promptProfile: options?.promptProfile,
     });
 
@@ -1191,7 +1268,14 @@ export async function generateValidatedRecipeOptionsParallel(
 export async function generateValidatedRecipeOptions(
   prompt: string,
   classification: { moduleType: ModuleType; intent?: string; surface?: string },
-  options?: { shopId?: string; maxAttempts?: number; intentPacketJson?: string; confidenceScore?: number; promptProfile?: string },
+  options?: {
+    shopId?: string;
+    maxAttempts?: number;
+    intentPacketJson?: string;
+    confidenceScore?: number;
+    promptProfile?: string;
+    routerDecision?: PromptRouterDecision;
+  },
 ): Promise<RecipeOption[]> {
   if (getRecipeSingleJsonSchemaForType(classification.moduleType)) {
     return generateValidatedRecipeOptionsParallel(prompt, classification, {
@@ -1199,6 +1283,7 @@ export async function generateValidatedRecipeOptions(
       intentPacketJson: options?.intentPacketJson,
       confidenceScore: options?.confidenceScore,
       promptProfile: options?.promptProfile,
+      routerDecision: options?.routerDecision,
       optionCount: 3,
     });
   }
@@ -1212,11 +1297,14 @@ export async function generateValidatedRecipeOptions(
 
   // Include full schema+style+catalog on attempt 0 when confidence is below the DIRECT threshold (0.8).
   // This front-loads context for ambiguous prompts rather than waiting for a retry.
-  const isLowConfidence = (options?.confidenceScore ?? 1) < CONFIDENCE_THRESHOLDS.DIRECT;
-  const isHighConfidence = (options?.confidenceScore ?? 1) >= CONFIDENCE_THRESHOLDS.DIRECT;
+  const routerConfidence = options?.routerDecision?.confidence ?? options?.confidenceScore ?? 1;
+  const isLowConfidence = routerConfidence < CONFIDENCE_THRESHOLDS.DIRECT;
+  const isHighConfidence = routerConfidence >= CONFIDENCE_THRESHOLDS.DIRECT;
   const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'theme.floatingWidget', 'proxy.widget'];
   // Settings pack is always injected — it's lightweight and ensures the AI populates all relevant fields.
-  const settingsPack = getSettingsPack(classification.moduleType);
+  const settingsPack = options?.routerDecision?.includeFlags.includeSettingsPack === false
+    ? undefined
+    : getSettingsPack(classification.moduleType);
   // Skip full types list when confidence is high — the type is already known, saves ~2K tokens.
   const typesList = isHighConfidence ? `Available type: ${classification.moduleType}` : getAllTypesSummary();
 
@@ -1228,13 +1316,27 @@ export async function generateValidatedRecipeOptions(
   let lastErr: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const isRetry = attempt > 0;
-    const includeFullContext = isRetry || isLowConfidence;
-    const fullSchemaSpec = includeFullContext && !hasStructuredSchema ? getFullRecipeSchemaSpec(classification.moduleType) : undefined;
-    const styleSchemaSpec = includeFullContext && storefrontTypes.includes(classification.moduleType) ? getStorefrontStyleSchemaSpec() : undefined;
-    const catalogDetails = includeFullContext ? getCatalogDetailsForType(classification.moduleType, classification.intent, classification.surface) : undefined;
+    const includeFullSchema = options?.routerDecision
+      ? options.routerDecision.includeFlags.includeFullSchema
+      : (isRetry || isLowConfidence);
+    const includeStyleSchema = options?.routerDecision
+      ? options.routerDecision.includeFlags.includeStyleSchema
+      : (isRetry || isLowConfidence);
+    const includeCatalog = options?.routerDecision
+      ? options.routerDecision.includeFlags.includeCatalog
+      : (isRetry || isLowConfidence);
+    const fullSchemaSpec = includeFullSchema && !hasStructuredSchema ? getFullRecipeSchemaSpec(classification.moduleType) : undefined;
+    const styleSchemaSpec = includeStyleSchema && storefrontTypes.includes(classification.moduleType) ? getStorefrontStyleSchemaSpec() : undefined;
+    const catalogDetails = includeCatalog
+      ? (options?.routerDecision
+        ? buildCatalogDetailsFromRouter(classification, options.routerDecision)
+        : getCatalogDetailsForType(classification.moduleType, classification.intent, classification.surface))
+      : undefined;
 
     // Skip intent packet on first attempt for high-confidence to reduce token count
-    const includeIntentPacket = !isHighConfidence || isRetry;
+    const includeIntentPacket = options?.routerDecision
+      ? options.routerDecision.includeFlags.includeIntentPacket
+      : (!isHighConfidence || isRetry);
 
     const compiledPrompt = compileCreateModulePrompt({
       purposeAndGuidance,

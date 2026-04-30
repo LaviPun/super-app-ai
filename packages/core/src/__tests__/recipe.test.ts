@@ -29,6 +29,23 @@ describe('RecipeSpecSchema', () => {
     }
   });
 
+  it('validates a theme.contactForm recipe', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'theme.contactForm',
+      name: 'Contact Us',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        title: 'Get in touch',
+        submitLabel: 'Send message',
+        successMessage: 'Thanks! We received your message.',
+        errorMessage: 'Please try again.',
+        submissionMode: 'SHOPIFY_CONTACT',
+      },
+    });
+    expect(spec.type).toBe('theme.contactForm');
+  });
+
   it('theme.effect accepts optional placement and defaults intensity/speed', () => {
     const spec = RecipeSpecSchema.parse({
       type: 'theme.effect',

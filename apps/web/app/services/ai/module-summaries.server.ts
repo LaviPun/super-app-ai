@@ -23,6 +23,11 @@ Settings: message(str 1-140), linkText(str 0-40, opt), linkUrl(url, opt).
 Controls: dismissible(bool, default true).
 ${STYLE_SUMMARY}`,
 
+  'theme.contactForm': `Module: theme.contactForm | Category: STOREFRONT_UI | Requires: THEME_ASSETS
+Settings: title(str 1-80), subtitle(str 0-200, opt), submitLabel(str 1-40), successMessage(str 1-200), errorMessage(str 1-200), recipientEmail(email, opt), tags(str[] max 20, opt), successRedirectUrl(url, opt).
+Controls: field visibility(showName/showEmail/showPhone/showCompany/showOrderNumber/showSubject/showMessage), required flags(nameRequired/emailRequired/phoneRequired/companyRequired/orderNumberRequired/subjectRequired/messageRequired), consentRequired + consentLabel(max 120), submissionMode(SHOPIFY_CONTACT|APP_PROXY), proxyEndpointPath(path), sendCopyToCustomer(bool), includeCustomerContext(bool), spamProtection(NONE|HONEYPOT), honeypotFieldName(str 1-40).
+${STYLE_SUMMARY}`,
+
   'theme.effect': `Module: theme.effect | Category: STOREFRONT_UI | Requires: THEME_ASSETS
 Settings: effectKind(snowfall|confetti, required), intensity(low|medium|high, default medium), speed(slow|normal|fast, default normal), startTrigger(page_load|scroll_25|time_3s|time_5s|time_10s, default page_load), durationSeconds(int 0-300, 0=indefinite, default 0), overlayPlacement(full_screen|header_only|footer_only|above_fold, default full_screen), reducedMotion(bool, default true — always set true unless creative reason).
 Controls: full-viewport decoration overlay; no Shopify data. Use for seasonal effects (snowfall, confetti). Always set reducedMotion:true unless merchant explicitly asks for it off.

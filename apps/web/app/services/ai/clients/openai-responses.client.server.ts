@@ -15,6 +15,11 @@ export async function openAiGenerateRecipe(opts: {
    * Caller must pass a `name` for the schema; we generate one if missing.
    */
   responseSchema?: { name?: string; schema: Record<string, unknown> };
+  openaiFeatures?: {
+    reasoningEffort?: 'low' | 'medium' | 'high';
+    verbosity?: 'low' | 'medium' | 'high';
+    webSearch?: boolean;
+  };
 }) {
   const base = (opts.baseUrl ?? 'https://api.openai.com').replace(/\/$/, '');
   const url = `${base}/v1/responses`;
@@ -28,7 +33,10 @@ export async function openAiGenerateRecipe(opts: {
       }
     : ({ type: 'json_object' as const });
 
-  const body = {
+  const textPayload: Record<string, unknown> = { format };
+  if (opts.openaiFeatures?.verbosity) textPayload.verbosity = opts.openaiFeatures.verbosity;
+
+  const body: Record<string, unknown> = {
     model: opts.model,
     instructions: 'You are a JSON generator. Always respond with valid JSON only. No markdown, no explanation outside the JSON.',
     input: [
@@ -37,9 +45,15 @@ export async function openAiGenerateRecipe(opts: {
         content: [{ type: 'input_text', text: opts.prompt }],
       },
     ],
-    text: { format },
+    text: textPayload,
     max_output_tokens: opts.maxTokens ?? 8192,
   };
+  if (opts.openaiFeatures?.reasoningEffort) {
+    body.reasoning = { effort: opts.openaiFeatures.reasoningEffort };
+  }
+  if (opts.openaiFeatures?.webSearch) {
+    body.tools = [{ type: 'web_search_preview' }];
+  }
 
   const start = Date.now();
   let rawJson = '';

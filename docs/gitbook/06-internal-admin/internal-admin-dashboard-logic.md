@@ -59,3 +59,9 @@ The internal admin dashboard is for the app owner team. It controls global platf
 - plan/category updates validate input shapes
 - store plan change is constrained to allowed tiers
 - advanced settings consolidated under `/internal/settings`
+
+## Canonical references
+
+- Internal admin guide: `docs/internal-admin.md`
+- Operations controls and runbooks: `docs/runbooks/index.md`
+- Current implementation status: `docs/implementation-status.md`

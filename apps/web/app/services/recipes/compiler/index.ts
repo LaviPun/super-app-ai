@@ -3,6 +3,7 @@ import type { CompileResult } from './types';
 import { compileThemeBanner } from './theme.banner';
 import { compileThemePopup } from './theme.popup';
 import { compileNotificationBar } from './theme.notificationBar';
+import { compileThemeContactForm } from './theme.contactForm';
 import { compileThemeEffect } from './theme.effect';
 import { compileProxyWidget } from './proxy.widget';
 import { compileDiscountRules } from './functions.discountRules';
@@ -27,6 +28,9 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
     case 'theme.notificationBar':
       if (target.kind !== 'THEME') throw new Error('theme.notificationBar requires THEME target');
       return compileNotificationBar(spec, target);
+    case 'theme.contactForm':
+      if (target.kind !== 'THEME') throw new Error('theme.contactForm requires THEME target');
+      return compileThemeContactForm(spec, target);
     case 'theme.effect':
       if (target.kind !== 'THEME') throw new Error('theme.effect requires THEME target');
       return compileThemeEffect(spec, target);

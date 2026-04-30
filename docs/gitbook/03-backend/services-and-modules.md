@@ -1,4 +1,4 @@
-# Backend Services and Modules
+# Backend services and modules
 
 ## Core domain services
 
@@ -51,3 +51,9 @@ Compiler modules map recipe types to deployment logic for:
 - Shopify Functions
 - admin extension blocks/actions
 - automation and integration modules
+
+## Canonical references
+
+- Architecture reference: `docs/technical.md`
+- Recipe and capability source: `docs/ai-module-main-doc.md`
+- Runtime delivery status: `docs/implementation-status.md`

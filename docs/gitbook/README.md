@@ -9,6 +9,7 @@ Welcome. This tree is optimized for **GitBook** (left nav from `SUMMARY.md`) and
 | I need to… | Open |
 |------------|------|
 | Understand the product in one pass | [Documentation map](00-welcome/documentation-map.md) |
+| See exactly what is completed right now | [Progress till now](10-progress/progress-till-now.md) |
 | Ship or operate the app | [Implementation status](../implementation-status.md) · [Phase plan](../phase-plan.md) |
 | Integrate or extend (RecipeSpec, compiler, API) | [AI module spec](../ai-module-main-doc.md) · [Technical reference](../technical.md) |
 | Support a merchant | [Merchant guide](../app.md) |
@@ -21,7 +22,7 @@ Welcome. This tree is optimized for **GitBook** (left nav from `SUMMARY.md`) and
 
 ## How this book is organized
 
-1. **Welcome** — map and reading order.
+1. **Welcome** — map, reading order, and progress snapshot.
 2. **Product & guides** — merchant and app-owner experiences (source files in `docs/`).
 3. **Architecture** — high-level system and data; links to full technical doc.
 4. **Backend & platform** — processes, services, modules, flows.

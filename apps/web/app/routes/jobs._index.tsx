@@ -65,6 +65,10 @@ function durationSeconds(startedAt: string | null, finishedAt: string | null, cr
   return `${sec.toFixed(1)}s`;
 }
 
+function formatCents(cents: number): string {
+  return `$${(cents / 100).toFixed(4)}`;
+}
+
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
   const prisma = getPrisma();
@@ -122,12 +126,14 @@ export async function loader({ request }: { request: Request }) {
   ]);
 
   const moduleIds = new Set<string>();
+  const correlations = new Set<string>();
   const parsedById = new Map<string, ParsedPayload>();
   for (const job of jobs) {
     const parsed = safeParseJson(job.payload);
     parsedById.set(job.id, parsed);
     const moduleId = asString(parsed?.moduleId);
     if (moduleId) moduleIds.add(moduleId);
+    if (job.correlationId) correlations.add(job.correlationId);
   }
 
   const modules = moduleIds.size
@@ -137,6 +143,79 @@ export async function loader({ request }: { request: Request }) {
       })
     : [];
   const moduleById = new Map(modules.map((m) => [m.id, m]));
+
+  const aiUsageRows = correlations.size
+    ? await prisma.aiUsage.findMany({
+        where: { shopId: shopRow.id, correlationId: { in: Array.from(correlations) } },
+        include: { provider: true },
+      })
+    : [];
+  const aiUsageByCorrelation = new Map<
+    string,
+    { tokensIn: number; tokensOut: number; costCents: number; providers: string[]; models: string[]; requests: number }
+  >();
+  for (const row of aiUsageRows) {
+    const corr = row.correlationId;
+    if (!corr) continue;
+    const current = aiUsageByCorrelation.get(corr) ?? {
+      tokensIn: 0,
+      tokensOut: 0,
+      costCents: 0,
+      providers: [],
+      models: [],
+      requests: 0,
+    };
+    current.tokensIn += row.tokensIn;
+    current.tokensOut += row.tokensOut;
+    current.costCents += row.costCents;
+    current.requests += row.requestCount;
+    if (row.provider?.name && !current.providers.includes(row.provider.name)) current.providers.push(row.provider.name);
+    if (row.provider?.model && !current.models.includes(row.provider.model)) current.models.push(row.provider.model);
+    aiUsageByCorrelation.set(corr, current);
+  }
+
+  const since30d = new Date(Date.now() - 30 * 86400000);
+  const aiStoreRows = await prisma.aiUsage.findMany({
+    where: { shopId: shopRow.id },
+    include: { provider: true },
+  });
+  const aiStoreRows30d = aiStoreRows.filter((r) => r.createdAt >= since30d);
+  const summarizeAiRows = (rows: typeof aiStoreRows) => {
+    const byProvider = new Map<string, { provider: string; model: string; requests: number; tokensIn: number; tokensOut: number; costCents: number }>();
+    let totalRequests = 0;
+    let totalTokensIn = 0;
+    let totalTokensOut = 0;
+    let totalCostCents = 0;
+    for (const row of rows) {
+      totalRequests += row.requestCount;
+      totalTokensIn += row.tokensIn;
+      totalTokensOut += row.tokensOut;
+      totalCostCents += row.costCents;
+      const providerName = row.provider?.name ?? row.provider?.provider ?? 'Unknown provider';
+      const model = row.provider?.model ?? '—';
+      const key = `${providerName}::${model}`;
+      const cur = byProvider.get(key) ?? {
+        provider: providerName,
+        model,
+        requests: 0,
+        tokensIn: 0,
+        tokensOut: 0,
+        costCents: 0,
+      };
+      cur.requests += row.requestCount;
+      cur.tokensIn += row.tokensIn;
+      cur.tokensOut += row.tokensOut;
+      cur.costCents += row.costCents;
+      byProvider.set(key, cur);
+    }
+    return {
+      totalRequests,
+      totalTokensIn,
+      totalTokensOut,
+      totalCostCents,
+      byProvider: Array.from(byProvider.values()).sort((a, b) => b.costCents - a.costCents),
+    };
+  };
 
   const distinctTypes = [...new Set(jobs.map((j) => j.type))].sort();
   const running = jobs.filter((j) => j.status === 'RUNNING' || j.status === 'QUEUED').length;
@@ -172,6 +251,7 @@ export async function loader({ request }: { request: Request }) {
       triggerSource,
       payloadText: job.payload,
       resultText: job.result,
+      aiUsage: job.correlationId ? aiUsageByCorrelation.get(job.correlationId) ?? null : null,
     };
   });
 
@@ -197,11 +277,13 @@ export async function loader({ request }: { request: Request }) {
     distinctTypes,
     jobs: jobsData,
     events: eventsData,
+    aiSummary30d: summarizeAiRows(aiStoreRows30d),
+    aiSummaryAllTime: summarizeAiRows(aiStoreRows),
   });
 }
 
 export default function JobsPage() {
-  const { shopDomain, stats, filters, distinctTypes, jobs, events } = useLoaderData<typeof loader>();
+  const { shopDomain, stats, filters, distinctTypes, jobs, events, aiSummary30d, aiSummaryAllTime } = useLoaderData<typeof loader>();
   const [params, setParams] = useSearchParams();
   const nav = useNavigation();
   const isLoading = nav.state === 'loading';
@@ -219,6 +301,34 @@ export default function JobsPage() {
           <Card><Text as="p" variant="headingMd">Success: {stats.success}</Text></Card>
           <Card><Text as="p" variant="headingMd">Failed: {stats.failed}</Text></Card>
         </InlineGrid>
+
+        <Card>
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">Store AI usage and cost</Text>
+            <InlineGrid columns={{ xs: 2, sm: 4 }} gap="300">
+              <Card><Text as="p" variant="bodySm">30d requests: {aiSummary30d.totalRequests}</Text></Card>
+              <Card><Text as="p" variant="bodySm">30d tokens in/out: {aiSummary30d.totalTokensIn} / {aiSummary30d.totalTokensOut}</Text></Card>
+              <Card><Text as="p" variant="bodySm">30d cost: {formatCents(aiSummary30d.totalCostCents)}</Text></Card>
+              <Card><Text as="p" variant="bodySm">All-time cost: {formatCents(aiSummaryAllTime.totalCostCents)}</Text></Card>
+            </InlineGrid>
+            {aiSummaryAllTime.byProvider.length > 0 ? (
+              <DataTable
+                columnContentTypes={['text', 'text', 'numeric', 'numeric', 'numeric', 'text']}
+                headings={['Provider', 'Model', 'Requests', 'Tokens in', 'Tokens out', 'Cost']}
+                rows={aiSummaryAllTime.byProvider.map((row) => [
+                  row.provider,
+                  row.model,
+                  row.requests,
+                  row.tokensIn,
+                  row.tokensOut,
+                  formatCents(row.costCents),
+                ])}
+              />
+            ) : (
+              <Text as="p" tone="subdued">No AI usage recorded for this store yet.</Text>
+            )}
+          </BlockStack>
+        </Card>
 
         <Card>
           <BlockStack gap="300">
@@ -278,8 +388,8 @@ export default function JobsPage() {
               <Text as="p" tone="subdued">No jobs for current filters.</Text>
             ) : (
               <DataTable
-                columnContentTypes={['text', 'text', 'text', 'text', 'text', 'text', 'text', 'text', 'text']}
-                headings={['Time', 'Type', 'Status', 'Trigger', 'Module', 'Target', 'Duration', 'Correlation', 'Actions']}
+                columnContentTypes={['text', 'text', 'text', 'text', 'text', 'text', 'text', 'text', 'text', 'text']}
+                headings={['Time', 'Type', 'Status', 'Trigger', 'Module', 'Target', 'AI usage', 'Duration', 'Correlation', 'Actions']}
                 rows={jobs.map((j) => [
                   new Date(j.createdAt).toLocaleString(),
                   j.typeLabel,
@@ -294,6 +404,17 @@ export default function JobsPage() {
                     </InlineStack>
                   ) : '—',
                   j.targetKind ? `${j.targetKind}${j.themeId ? ` · theme ${j.themeId}` : ''}` : '—',
+                  j.aiUsage ? (
+                    <InlineStack key={`ai-${j.id}`} gap="100" wrap>
+                      <Text as="span" variant="bodySm">{formatCents(j.aiUsage.costCents)}</Text>
+                      <Text as="span" variant="bodySm" tone="subdued">
+                        {j.aiUsage.tokensIn}/{j.aiUsage.tokensOut} tokens
+                      </Text>
+                      {j.aiUsage.providers.length > 0 ? <Badge>{j.aiUsage.providers[0]}</Badge> : null}
+                    </InlineStack>
+                  ) : (
+                    <Text as="span" variant="bodySm" tone="subdued">No AI usage</Text>
+                  ),
                   durationSeconds(j.startedAt, j.finishedAt, j.createdAt),
                   j.correlationId ? (
                     <code key={`c-${j.id}`} style={{ fontSize: 11 }}>{j.correlationId.slice(0, 18)}…</code>

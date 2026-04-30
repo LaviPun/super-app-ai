@@ -45,7 +45,7 @@ jobs:
         run: pnpm --filter web lint
 
       - name: Typecheck (web)
-        run: pnpm --filter web exec tsc --noEmit
+        run: pnpm --filter web typecheck
 
       - name: Typecheck (core)
         run: pnpm --filter @superapp/core typecheck

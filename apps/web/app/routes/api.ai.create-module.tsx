@@ -11,6 +11,7 @@ import { classifyUserIntent, CONFIDENCE_THRESHOLDS } from '~/services/ai/classif
 import { augmentWithCheapClassifier } from '~/services/ai/cheap-classifier.server';
 import { buildIntentPacket } from '~/services/ai/intent-packet.server';
 import { serializeIntentPacketForPrompt } from '~/services/ai/token-budget.server';
+import { buildPromptRouterDecision } from '~/services/ai/prompt-router.server';
 
 /** POST only; GET (e.g. prefetch or redirect) returns 405. */
 export async function loader() {
@@ -82,6 +83,13 @@ export async function action({ request }: { request: Request }) {
       const intentPacket = buildIntentPacket(prompt, classification, {
         storeContext: { shop_domain: session.shop, theme_os2: true },
       });
+      const routerDecision = await buildPromptRouterDecision({
+        prompt,
+        classification,
+        intentPacket,
+        shopDomain: session.shop,
+        operationClass: 'P0_CREATE',
+      });
 
       const jobs = new JobService();
       const job = await jobs.create({
@@ -101,6 +109,7 @@ export async function action({ request }: { request: Request }) {
           intentPacketJson: serializeIntentPacketForPrompt(intentPacket),
           confidenceScore: intentPacket.classification.confidence,
           promptProfile: intentPacket.routing.prompt_profile,
+          routerDecision,
         });
 
         await jobs.succeed(job.id, { optionCount: recipeOptions.length, type: classification.moduleType });
@@ -123,6 +132,7 @@ export async function action({ request }: { request: Request }) {
             reasons: intentPacket.classification.reasons ?? [],
             routing: intentPacket.routing,
           },
+          routerDecision,
           options: recipeOptions.map((opt, i) => ({
             index: i,
             explanation: opt.explanation,

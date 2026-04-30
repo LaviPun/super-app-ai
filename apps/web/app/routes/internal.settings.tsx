@@ -708,7 +708,10 @@ export default function InternalSettings() {
             <Text as="p" variant="bodySm" tone="subdued">
               To set the active provider or add Azure OpenAI / custom endpoints, go to AI Providers.
             </Text>
-            <Button url="/internal/ai-providers">Manage AI providers</Button>
+            <InlineStack gap="200">
+              <Button url="/internal/ai-providers">Manage AI providers</Button>
+              <Button url="/internal/model-setup">Setup the Model</Button>
+            </InlineStack>
           </BlockStack>
         </Card>
 

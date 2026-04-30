@@ -150,6 +150,48 @@ export async function loader({ request, params }: { request: Request; params: { 
   ];
 
   const publishedModulesMeta = buildPublishedModulesMeta(shop);
+  const aiUsageRows = await prisma.aiUsage.findMany({
+    where: { shopId: shop.id },
+    include: { provider: true },
+  });
+  const since30d = new Date(Date.now() - 30 * 86400000);
+  const aiUsageRows30d = aiUsageRows.filter((r) => r.createdAt >= since30d);
+  const summarizeAiRows = (rows: typeof aiUsageRows) => {
+    const byProvider = new Map<string, { provider: string; model: string; requests: number; tokensIn: number; tokensOut: number; costCents: number }>();
+    let totalRequests = 0;
+    let totalTokensIn = 0;
+    let totalTokensOut = 0;
+    let totalCostCents = 0;
+    for (const row of rows) {
+      totalRequests += row.requestCount;
+      totalTokensIn += row.tokensIn;
+      totalTokensOut += row.tokensOut;
+      totalCostCents += row.costCents;
+      const providerName = row.provider?.name ?? row.provider?.provider ?? 'Unknown provider';
+      const model = row.provider?.model ?? '—';
+      const key = `${providerName}::${model}`;
+      const cur = byProvider.get(key) ?? {
+        provider: providerName,
+        model,
+        requests: 0,
+        tokensIn: 0,
+        tokensOut: 0,
+        costCents: 0,
+      };
+      cur.requests += row.requestCount;
+      cur.tokensIn += row.tokensIn;
+      cur.tokensOut += row.tokensOut;
+      cur.costCents += row.costCents;
+      byProvider.set(key, cur);
+    }
+    return {
+      totalRequests,
+      totalTokensIn,
+      totalTokensOut,
+      totalCostCents,
+      byProvider: Array.from(byProvider.values()).sort((a, b) => b.costCents - a.costCents),
+    };
+  };
 
   return json({
     shop: {
@@ -168,6 +210,8 @@ export async function loader({ request, params }: { request: Request; params: { 
     providerOptions,
     billingPlanOptions,
     publishedModulesMeta,
+    aiUsage30d: summarizeAiRows(aiUsageRows30d),
+    aiUsageAllTime: summarizeAiRows(aiUsageRows),
   });
 }
 
@@ -284,7 +328,7 @@ function ModuleDetailsModal({ row, open, onClose }: { row: ModuleMetaRow; open: 
 }
 
 export default function InternalStoreDetail() {
-  const { shop, providerOptions, billingPlanOptions, publishedModulesMeta } = useLoaderData<typeof loader>();
+  const { shop, providerOptions, billingPlanOptions, publishedModulesMeta, aiUsage30d, aiUsageAllTime } = useLoaderData<typeof loader>();
   const [modalRow, setModalRow] = useState<ModuleMetaRow | null>(null);
   const [providerId, setProviderId] = useState<string>(shop.aiProviderOverrideId ?? '');
   const [retentionDefault, setRetentionDefault] = useState<string>(String(shop.retentionDaysDefault ?? ''));
@@ -422,6 +466,34 @@ export default function InternalStoreDetail() {
                   rows={moduleTableRows}
                 />
               </div>
+            )}
+          </BlockStack>
+        </Card>
+
+        <Card>
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">AI usage and cost (store)</Text>
+            <InlineStack gap="300" wrap>
+              <Badge tone="info">{`30d requests: ${aiUsage30d.totalRequests}`}</Badge>
+              <Badge tone="info">{`30d tokens in/out: ${aiUsage30d.totalTokensIn}/${aiUsage30d.totalTokensOut}`}</Badge>
+              <Badge tone="success">{`30d cost: $${(aiUsage30d.totalCostCents / 100).toFixed(4)}`}</Badge>
+              <Badge tone="success">{`All-time cost: $${(aiUsageAllTime.totalCostCents / 100).toFixed(4)}`}</Badge>
+            </InlineStack>
+            {aiUsageAllTime.byProvider.length === 0 ? (
+              <Text as="p" tone="subdued">No AI usage recorded for this store yet.</Text>
+            ) : (
+              <DataTable
+                columnContentTypes={['text', 'text', 'numeric', 'numeric', 'numeric', 'text']}
+                headings={['Provider', 'Model', 'Requests', 'Tokens in', 'Tokens out', 'Cost']}
+                rows={aiUsageAllTime.byProvider.map((row) => [
+                  row.provider,
+                  row.model,
+                  row.requests,
+                  row.tokensIn,
+                  row.tokensOut,
+                  `$${(row.costCents / 100).toFixed(4)}`,
+                ])}
+              />
             )}
           </BlockStack>
         </Card>

@@ -117,6 +117,117 @@ See `docs/internal-admin.md`.
 ## Seeding AI model pricing
 Run `pnpm --filter web seed:ai-pricing` to add default model pricing rows (then set real API keys and activate a provider).
 
+## Internal Prompt Router (reference service)
+
+To run a lightweight internal `/route` service for prompt-context gating:
+
+1. Start the router:
+   - `pnpm --filter web router:internal`
+2. Configure app env to call it:
+   - `INTERNAL_AI_ROUTER_URL=http://127.0.0.1:8787`
+   - `INTERNAL_AI_ROUTER_TOKEN=<long-random-token>`
+
+Optional Remix-side controls (prompt router client):
+
+| Variable | Purpose |
+|----------|---------|
+| `ROUTER_CONFIDENCE_MAX_DELTA` | Max deviation from deterministic baseline confidence after internal router parse (default `0.15`). |
+| `INTERNAL_AI_ROUTER_TIMEOUT_MS` | Client timeout calling `/route` (default `1200`). |
+| `INTERNAL_AI_ROUTER_SHADOW` | If `1`/`true`/`yes`, still calls `/route` for metrics but **uses deterministic decision** for prompts. |
+| `INTERNAL_AI_ROUTER_CANARY_SHOPS` | Comma-separated `shop.myshopify.com` values; when set, **only** those shops use the router (others stay deterministic). Requires routes to pass `shopDomain`. |
+| `INTERNAL_AI_ROUTER_CIRCUIT_FAILURE_THRESHOLD` | Consecutive failures before opening circuit (default `5`). |
+| `INTERNAL_AI_ROUTER_CIRCUIT_COOLDOWN_MS` | Cooldown while circuit stays open (default `30000`). |
+| `INTERNAL_AI_ROUTER_DEBUG_LOG` | If `1`, logs sparse JSON debug lines for router events (avoid in prod). |
+
+Optional internal-router service tenant controls (`apps/web/scripts/internal-ai-router.ts`):
+
+| Variable | Purpose |
+|----------|---------|
+| `ROUTER_TENANT_MAX_ACTIVE_REQUESTS` | Max in-flight requests per `shopDomain` in router service (default `1`). |
+| `ROUTER_TENANT_RATE_MAX_REQUESTS` | Max requests per tenant per window (default `30`). |
+| `ROUTER_TENANT_RATE_WINDOW_MS` | Window for tenant rate cap (default `60000`). |
+
+Modal edge proxy (optional): see [`deploy/modal-qwen-router/README.md`](deploy/modal-qwen-router/README.md).
+
+Router script: `apps/web/scripts/internal-ai-router.ts`
+
+### Dual-target switching (Internal Admin)
+
+Internal Admin now includes **Setup the Model** at `/internal/model-setup` for runtime switching:
+
+- Runtime targets: `localMachine` and `modalRemote`
+- Active target + optional fallback target selector
+- Target-specific endpoint/token/backend/model/timeout settings
+- Probe actions: `/healthz` and `/route` schema-contract check
+- Safe controls: shadow mode, canary shops, circuit settings
+- Rollback: one-click restore to previous target (re-enters shadow mode)
+
+Backward compatibility remains: if no DB-backed setup exists yet, the app still respects `INTERNAL_AI_ROUTER_*` env vars.
+
+### Router backends
+
+Default model IDs target **Qwen3-4B-class** first-layer routing; adjust tags to match what you pulled locally.
+
+- **Ollama** (default):
+  - `ROUTER_BACKEND=ollama`
+  - `ROUTER_OLLAMA_BASE_URL=http://127.0.0.1:11434`
+  - `ROUTER_OLLAMA_MODEL=qwen3:4b-instruct-q4_K_M` (example tag — use `ollama list` / library names you actually installed)
+- **vLLM / OpenAI-compatible**:
+  - `ROUTER_BACKEND=openai`
+  - `ROUTER_OPENAI_BASE_URL=http://127.0.0.1:8000/v1`
+  - `ROUTER_OPENAI_MODEL=Qwen/Qwen3-4B-Instruct`
+  - `ROUTER_OPENAI_API_KEY=<optional>`
+
+### Security defaults
+
+- Bearer token auth (`INTERNAL_AI_ROUTER_TOKEN`)
+- Production-safe auth default: when `NODE_ENV=production`, `/route` requires bearer auth.
+  - Optional override: `ROUTER_REQUIRE_AUTH=1|0` (default auto: on in prod, optional in local).
+- strict JSON schema validation
+- max request body limit (default 8KB)
+- per-IP in-memory rate limiting
+- short model timeout and deterministic fallback
+- prompt-injection guardrails (suspicious prompts are downgraded to safe `needsClarification` decisions)
+
+### Production SLO starter targets (first-layer router)
+
+- Route success rate (2xx from `/route`): `>= 99.5%` over 30-day window.
+- Router p95 latency: `< 1.5s` (including model call + guard merge).
+- Fallback rate (`modelDecision == null`): `< 5%` sustained; alert if above for 15m.
+- Circuit-open events (Remix-side breaker): alert on repeated opens within 10m.
+- Auth failures (401) and rate limits (429): monitor for abuse spikes; page only on sustained anomalies.
+
+### Health check + Docker
+
+- Health endpoint: `GET /healthz` (returns `{ ok: true, service, backend }`)
+- Reference Dockerfile: `apps/web/Dockerfile.internal-router`
+
+Build and run:
+
+- `docker build -f apps/web/Dockerfile.internal-router -t internal-ai-router .`
+- `docker run --rm -p 8787:8787 -e INTERNAL_AI_ROUTER_TOKEN=<token> -e ROUTER_BACKEND=ollama -e ROUTER_OLLAMA_BASE_URL=http://host.docker.internal:11434 internal-ai-router`
+
+### Kubernetes one-command deploy
+
+Manifests are provided under `deploy/internal-ai-router/`:
+
+- `Deployment` + `Service`
+- `readiness/liveness/startup` probes on `/healthz`
+- `ConfigMap` defaults
+- `Secret` template for auth token/API key
+
+Steps:
+
+1. Build + push your image and update `deploy/internal-ai-router/deployment.yaml` image.
+2. Set `INTERNAL_AI_ROUTER_TOKEN` in `deploy/internal-ai-router/secret.template.yaml`.
+3. Deploy:
+   - `kubectl apply -k deploy/internal-ai-router`
+
+Point app traffic to the in-cluster service:
+
+- `INTERNAL_AI_ROUTER_URL=http://internal-ai-router.internal-ai-router.svc.cluster.local:8787`
+- `INTERNAL_AI_ROUTER_TOKEN=<same token from secret>`
+
 
 ## Shopify dev setup
 See `docs/shopify-dev-setup.md`.

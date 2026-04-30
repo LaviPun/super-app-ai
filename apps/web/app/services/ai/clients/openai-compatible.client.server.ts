@@ -11,6 +11,11 @@ export async function openAiCompatibleGenerateRecipe(opts: {
   maxTokens?: number;
   /** Optional JSON Schema for structured output. */
   responseSchema?: { name?: string; schema: Record<string, unknown> };
+  openaiFeatures?: {
+    reasoningEffort?: 'low' | 'medium' | 'high';
+    verbosity?: 'low' | 'medium' | 'high';
+    webSearch?: boolean;
+  };
 }) {
   const start = Date.now();
   type CompatResult = { rawJson: string; tokensIn: number; tokensOut: number; model: string };
@@ -61,6 +66,11 @@ async function tryResponses(opts: {
   shopId?: string;
   maxTokens?: number;
   responseSchema?: { name?: string; schema: Record<string, unknown> };
+  openaiFeatures?: {
+    reasoningEffort?: 'low' | 'medium' | 'high';
+    verbosity?: 'low' | 'medium' | 'high';
+    webSearch?: boolean;
+  };
 }) {
   const base = opts.baseUrl.replace(/\/$/, '');
   const url = `${base}/v1/responses`;
@@ -74,12 +84,17 @@ async function tryResponses(opts: {
       }
     : { type: 'json_object' as const };
 
-  const body = {
+  const textPayload: Record<string, unknown> = { format };
+  if (opts.openaiFeatures?.verbosity) textPayload.verbosity = opts.openaiFeatures.verbosity;
+
+  const body: Record<string, unknown> = {
     model: opts.model,
     input: [{ role: 'user', content: [{ type: 'input_text', text: opts.prompt }] }],
-    text: { format },
+    text: textPayload,
     max_output_tokens: opts.maxTokens ?? 8192,
   };
+  if (opts.openaiFeatures?.reasoningEffort) body.reasoning = { effort: opts.openaiFeatures.reasoningEffort };
+  if (opts.openaiFeatures?.webSearch) body.tools = [{ type: 'web_search_preview' }];
 
   const { json } = await postJsonWithRetries({
     url,
@@ -105,6 +120,11 @@ async function tryChatCompletions(opts: {
   shopId?: string;
   maxTokens?: number;
   responseSchema?: { name?: string; schema: Record<string, unknown> };
+  openaiFeatures?: {
+    reasoningEffort?: 'low' | 'medium' | 'high';
+    verbosity?: 'low' | 'medium' | 'high';
+    webSearch?: boolean;
+  };
 }) {
   const base = opts.baseUrl.replace(/\/$/, '');
   const url = `${base}/v1/chat/completions`;
@@ -120,9 +140,25 @@ async function tryChatCompletions(opts: {
       }
     : { type: 'json_object' as const };
 
-  const body = {
+  const instructions: string[] = [
+    'You are a JSON generator. Always respond with valid JSON only. No markdown, no explanation outside the JSON.',
+  ];
+  if (opts.openaiFeatures?.verbosity) {
+    instructions.push(`Verbosity preference: ${opts.openaiFeatures.verbosity}.`);
+  }
+  if (opts.openaiFeatures?.reasoningEffort) {
+    instructions.push(`Reasoning effort preference: ${opts.openaiFeatures.reasoningEffort}.`);
+  }
+  if (opts.openaiFeatures?.webSearch) {
+    instructions.push('Web search is enabled when supported by provider.');
+  }
+
+  const body: Record<string, unknown> = {
     model: opts.model,
-    messages: [{ role: 'user', content: opts.prompt }],
+    messages: [
+      { role: 'system', content: instructions.join(' ') },
+      { role: 'user', content: opts.prompt },
+    ],
     response_format: responseFormat,
     max_tokens: opts.maxTokens ?? 8192,
   };

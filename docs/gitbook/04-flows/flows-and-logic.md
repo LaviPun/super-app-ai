@@ -1,4 +1,4 @@
-# Flows and Logic
+# Flows and logic
 
 ## Flow types
 
@@ -55,3 +55,9 @@ Common step kinds:
 
 - webhook event -> flow run -> connector call -> store write -> step/job logs
 - module publish event -> Flow trigger emit -> Shopify Flow action callback -> execution route
+
+## Canonical references
+
+- Full workflow architecture: `docs/technical.md`
+- Incident handling: `docs/runbooks/index.md`
+- Delivery progression: `docs/implementation-status.md`

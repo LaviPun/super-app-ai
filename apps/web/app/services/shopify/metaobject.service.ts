@@ -303,7 +303,7 @@ export class MetaobjectService {
     let lastErr: { message: string } | null = null;
 
     for (let i = 0; i < accessCandidates.length; i += 1) {
-      const access = accessCandidates[i];
+      const access = accessCandidates[i]!;
       const firstErr = await this.tryCreateMetafieldDefinition({
         namespace,
         key,
@@ -384,7 +384,10 @@ export class MetaobjectService {
       const res = await this.admin.graphql(METAFIELD_DEFINITION_CREATE, {
         variables: { definition },
       });
-      const json = await res.json();
+      const json = (await res.json()) as {
+        errors?: Array<{ message?: string }>;
+        data?: { metafieldDefinitionCreate?: { userErrors?: Array<{ code?: string; message: string }> } };
+      };
       const graphqlErr = (json?.errors?.[0]?.message ?? null) as string | null;
       if (graphqlErr) return { message: graphqlErr };
 

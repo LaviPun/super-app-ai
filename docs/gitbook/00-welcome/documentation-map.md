@@ -2,6 +2,14 @@
 
 Single source of truth by topic. Prefer these files; avoid duplicating content in new markdown.
 
+## Read order
+
+1. Product & status
+2. Experiences
+3. Engineering depth
+4. Operations
+5. Extra reference
+
 ## Product & status
 
 | Document | Role |
@@ -48,3 +56,9 @@ Single source of truth by topic. Prefer these files; avoid duplicating content i
 ## GitBook-only synthesis
 
 Pages under `docs/gitbook/**` (except this map and `README`) summarize or structure navigation; they defer detail to the table above.
+
+## Canonical references
+
+- Delivery timeline: `docs/implementation-status.md`
+- Roadmap: `docs/phase-plan.md`
+- Architecture baseline: `docs/technical.md`

@@ -1,4 +1,4 @@
-# Security, Observability, and Runbooks
+# Security, observability, and runbooks
 
 ## Security controls
 
@@ -39,3 +39,9 @@ Before production releases:
 - run tests and smoke scenarios
 - verify log redaction and request tracing
 - review runbook readiness for current release changes
+
+## Canonical references
+
+- Reliability targets: `docs/slos.md`
+- Incident procedures: `docs/runbooks/index.md`
+- Troubleshooting details: `docs/debug.md`

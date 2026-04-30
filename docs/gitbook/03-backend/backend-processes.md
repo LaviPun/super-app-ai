@@ -1,4 +1,4 @@
-# Backend Processes
+# Backend processes
 
 ## Process 1: AI generate module
 
@@ -53,3 +53,9 @@
 - flows write via `WRITE_TO_STORE` step
 - agent API writes using data-store intents
 - records are scoped to shop and paginated on read
+
+## Canonical references
+
+- Technical deep dive: `docs/technical.md`
+- Module schema/contracts: `docs/ai-module-main-doc.md`
+- Current release notes: `docs/implementation-status.md`

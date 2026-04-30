@@ -98,6 +98,7 @@ function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
 
   const configItems = [
     { url: '/internal/ai-providers', label: 'AI Providers', icon: SettingsIcon },
+    { url: '/internal/model-setup', label: 'Setup the Model', icon: AutomationIcon },
     { url: '/internal/plan-tiers', label: 'Plan Tiers', icon: CashDollarIcon },
     { url: '/internal/categories', label: 'Categories', icon: StoreIcon },
     { url: '/internal/templates', label: 'Templates', icon: StoreIcon },
@@ -163,9 +164,11 @@ function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
 
   return (
     <>
-      <style>{`
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
         .Polaris-TopBar { background: ${headerColor} !important; }
-        /* Internal admin: full width – no max-width on frame main or page */
+        /* Internal admin: full width - no max-width on frame main or page */
         .internal-admin-frame-wrapper .Polaris-Frame__Main,
         .internal-admin-content .Polaris-Page,
         .internal-admin-content .Polaris-Page__Content { max-width: none !important; width: 100% !important; }
@@ -174,7 +177,6 @@ function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
         /* Internal admin: frame fills viewport; only main content scrolls so nav/top bar stay fixed */
         .internal-admin-frame-wrapper { flex: 1; min-height: 0; height: 100%; display: flex; flex-direction: column; }
         .internal-admin-frame-wrapper > * { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-        .internal-admin-frame-wrapper :has(> .internal-admin-content) { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
         .internal-admin-content { flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; display: block; }
         /* Internal admin: truncate long text with ellipsis; full value on hover via title */
         .internal-truncate { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -188,7 +190,9 @@ function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
         /* Store detail: table column widths so Name is readable */
         .internal-store-modules-table .Polaris-DataTable__Cell:first-child { min-width: 140px; max-width: 280px; }
         .internal-store-modules-table .Polaris-DataTable__Cell:nth-child(8) { width: 72px; }
-      `}</style>
+      `,
+        }}
+      />
       <div className="internal-admin-frame-wrapper">
         <Frame
           topBar={topBar}

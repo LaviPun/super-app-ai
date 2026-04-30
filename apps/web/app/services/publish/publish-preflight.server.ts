@@ -29,7 +29,10 @@ export async function runPublishPreflight(
 
   try {
     const response = await admin.graphql(ACCESS_SCOPES_QUERY);
-    const json = await response.json();
+    const json = (await response.json()) as {
+      errors?: Array<{ message?: string }>;
+      data?: { currentAppInstallation?: { accessScopes?: Array<{ handle?: string }> } };
+    };
     const graphqlError = json?.errors?.[0]?.message as string | undefined;
     if (graphqlError) {
       return {

@@ -105,7 +105,23 @@ A one-time backfill route at `/internal/metaobject-backfill` migrates legacy `su
 
 **Planned:** The theme app extension will also support **slot blocks** (Universal Slot, Product Slot, Cart Slot); merchants add these blocks in the Theme Editor; **slot→module assignment is done in the app UI** (dropdown of modules → slot), not in the Theme Editor, because the Theme Editor cannot show dynamic module lists. An App Embed runtime loader for global behaviors may be added when in scope.
 
-## 8) Testing on dev store
+## 8) Testing on dev store (browser login)
+
+After `shopify app dev` is running:
+
+1. Note the **preview URL** the CLI prints (HTTPS tunnel).
+2. In your browser, open your **development store admin**: `https://your-store.myshopify.com/admin`.
+3. Go to **Apps** → select your app (or use the CLI “Preview URL” link when offered).
+4. Complete **OAuth / install** on first launch; subsequent loads open the embedded app in the Shopify admin iframe.
+
+The embedded app must load over **HTTPS** (the CLI tunnel). If the iframe stays blank, see [docs/debug.md](./debug.md) §6 (mixed content, cookie/session issues).
+
+### Optional: Cursor IDE browser tools
+
+If you use Cursor’s browser MCP for QA, point automation at the same **tunnel URL** after you have logged in through Shopify admin once (sessions are cookie-bound). Do not paste API secrets into browser automation prompts.
+
+## 9) Testing on dev store (manual QA checklist)
+
 - Install app via CLI prompts.
 - In the app:
   - Generate a draft module
@@ -113,19 +129,20 @@ A one-time backfill route at `/internal/metaobject-backfill` migrates legacy `su
   - Verify in Theme Editor or storefront
   - Test billing: navigate to `/billing` inside the app
 
-## 9) Running tests
+## 10) Running tests and typecheck
 ```bash
+pnpm --filter web typecheck
 pnpm --filter web test
 ```
 
-## 10) Running AI evals
+## 11) Running AI evals
 ```bash
 pnpm --filter web evals
 ```
 
 Pass rate must be ≥ 90% for schema validity (default `EVAL_THRESHOLD_SCHEMA=0.9`, enforced in CI). Override via env var for staged rollout.
 
-## 11) Deploy (CI / non-interactive)
+## 12) Deploy (CI / non-interactive)
 
 For CI or non-interactive terminals, use:
 

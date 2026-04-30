@@ -5,7 +5,7 @@ import { getPrisma } from '~/db.server';
 import { QuotaService } from '~/services/billing/quota.service';
 import { withApiLogging } from '~/services/observability/api-log.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
-import { findTemplate, RecipeSpecSchema } from '@superapp/core';
+import { findTemplate, RecipeSpecSchema, getTemplateInstallability } from '@superapp/core';
 import { SettingsService } from '~/services/settings/settings.service';
 
 function getTemplateSpec(templateId: string, overridesJson: string | null) {
@@ -37,6 +37,17 @@ export async function action({ request }: { request: Request }) {
 
       const template = findTemplate(templateId);
       if (!template) return json({ error: 'Template not found' }, { status: 404 });
+      const installability = getTemplateInstallability(template);
+      if (!installability.ok) {
+        return json(
+          {
+            error: 'Template is not installable yet',
+            reasons: installability.reasons,
+            templateId,
+          },
+          { status: 422 },
+        );
+      }
 
       const settings = await new SettingsService().get();
       const spec = getTemplateSpec(templateId, settings.templateSpecOverrides);

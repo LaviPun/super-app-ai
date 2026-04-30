@@ -40,6 +40,7 @@ export function validateBeforePublish(
     case 'theme.banner':
     case 'theme.popup':
     case 'theme.notificationBar':
+    case 'theme.contactForm':
     case 'theme.effect':
     case 'proxy.widget':
       errors.push(...validateThemeModule(spec, ctx));
@@ -87,7 +88,14 @@ function validateThemeModule(
     }
   }
 
-  if (spec.type === 'theme.banner' || spec.type === 'theme.popup' || spec.type === 'theme.notificationBar' || spec.type === 'theme.effect' || spec.type === 'proxy.widget') {
+  if (
+    spec.type === 'theme.banner' ||
+    spec.type === 'theme.popup' ||
+    spec.type === 'theme.notificationBar' ||
+    spec.type === 'theme.contactForm' ||
+    spec.type === 'theme.effect' ||
+    spec.type === 'proxy.widget'
+  ) {
     const s = (spec as { style?: { customCss?: string } }).style;
     if (s?.customCss && s.customCss.length > LIMITS.customCssMax) {
       errors.push({

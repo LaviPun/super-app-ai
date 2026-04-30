@@ -1,6 +1,6 @@
 # Implementation Status — AI Shopify SuperApp
 
-> Last updated: 2026-04-30 (template/recipe modernization pass: centralized advanced defaults by module type + module settings modernization guide with popup and contact-form flow coverage).
+> Last updated: 2026-04-30 (first-class `theme.contactForm` shipped end-to-end: schema, compiler, template, UI settings editor, storefront runtime, and tests).
 > Current automated test baseline: 179 total (per latest phase plan checkpoint). See [phase-plan.md](./phase-plan.md) for the original plan and latest scope decisions.
 > **AI Module doc alignment:** Single source of truth from [ai-module-main-doc.md](./ai-module-main-doc.md); see section below.
 > **Change propagation:** All code changes follow [codechange-behave.md](../codechange-behave.md) (impact map, propagation pass, docs/README updates).
@@ -33,6 +33,13 @@
 | — | **Agent-Native Architecture Audit + Remediation** | ✅ P1–P10+ Complete + Fresh Audit Gaps Resolved (28 agent routes, UI polling, ConnectorEndpoint agent CRUD, DataStoreRecord list, FlowSchedule full update) |
 | — | **Universal Module Slot & extension plan** | ✅ Complete (metaobject-only, API 2026-04+) |
 | — | **CEO Review Controls Sync (2026-04-29)** | ✅ Decisions captured; implementation pending |
+
+### Current progress snapshot (2026-04-30)
+
+- Platform delivery is in a **mature shipped state** across generation, publish/rollback, connectors, flows, billing, observability, and internal admin tooling.
+- Safety and reliability controls are active (schema gates, plan/capability checks, publish preflight scope checks, structured logs, request correlation, runbooks, and SLO definitions).
+- Recent velocity focused on **quality hardening + UX polish + documentation cleanup**: jobs visibility, template modernization, first-class `theme.contactForm`, and GitBook restructuring.
+- Open work is primarily **planned expansion and control-system follow-through** (tracked in `phase-plan.md`), not missing core product foundations.
 
 ### Documentation hygiene (2026-04-30)
 
@@ -107,7 +114,7 @@
 - Added `docs/module-settings-modernization.md`:
   - per-module advanced settings checklist
   - popup-specific accuracy checklist
-  - contact-form implementation pack (UI capture + storage + external sync + notifications + admin access) with explicit data access/storage paths.
+  - updated contact-form section to reflect first-class `theme.contactForm` + recommended deployment pattern.
 - Jobs page now shows:
   - live and historical execution jobs with status, trigger source, module link, target details, duration, and correlation trace link
   - operational activity stream (save/status/publish/generation related actions) to complement queued job rows.
@@ -119,6 +126,38 @@
     - `apps/web/app/routes/modules.$moduleId.tsx`
     - `apps/web/app/services/flows/flow-runner.service.ts`
   - Current warning baseline reduced from **154 → 129** (25 warnings removed) while keeping tests and lint green under the active threshold.
+
+### First-Class `theme.contactForm` Implementation (2026-04-30)
+
+- Added new module type contract in `packages/core/src/allowed-values.ts` and `packages/core/src/recipe.ts` with:
+  - submission routing (`SHOPIFY_CONTACT` / `APP_PROXY`)
+  - advanced field visibility + required toggles
+  - consent/privacy controls
+  - anti-spam controls (honeypot)
+  - operational metadata fields (`tags`, customer context toggles, redirect target)
+- Added compiler support in:
+  - `apps/web/app/services/recipes/compiler/theme.contactForm.ts`
+  - `apps/web/app/services/recipes/compiler/index.ts`
+- Added runtime rendering support in all theme extension slot blocks:
+  - `extensions/theme-app-extension/blocks/universal-slot.liquid`
+  - `extensions/theme-app-extension/blocks/superapp-theme-modules.liquid`
+  - `extensions/theme-app-extension/blocks/product-slot.liquid`
+  - `extensions/theme-app-extension/blocks/collection-slot.liquid`
+- Added first-class UI editing + previews:
+  - static settings fallback fields in `apps/web/app/components/ConfigEditor.tsx`
+  - live preview renderer in `apps/web/app/services/preview/preview.service.ts`
+  - storefront theme module style-editor eligibility in `apps/web/app/routes/modules.$moduleId.tsx`
+- Added AI generation/hydration awareness:
+  - prompt expectations + settings packs in `apps/web/app/services/ai/prompt-expectations.server.ts`
+  - compact summary in `apps/web/app/services/ai/module-summaries.server.ts`
+  - hydrate prompt guidance in `apps/web/app/services/ai/hydrate-prompt.server.ts`
+  - classifier/canonical mappings in `packages/core/src/allowed-values.ts` and `packages/core/src/intent-packet.ts`
+- Added template + tests:
+  - template entry `CNT-143` in `packages/core/src/_templates_part4.ts`
+  - schema/default/compile coverage updates in:
+    - `packages/core/src/__tests__/recipe.test.ts`
+    - `packages/core/src/__tests__/templates.test.ts`
+    - `apps/web/app/__tests__/compile.test.ts`
 
 ---
 
@@ -371,6 +410,12 @@ Aligned with [ai-module-main-doc.md](./ai-module-main-doc.md). Single source of 
 | Routing table + resolver | `packages/core/src/intent-packet.ts` | ROUTING_TABLE, MODULE_TYPE_TO_INTENT, resolveRouting(intentOrModuleType); doc 15.15 |
 | IntentPacket builder | `apps/web/app/services/ai/intent-packet.server.ts` | buildIntentPacket(text, classification, options); used in create-module API |
 | Create-module uses IntentPacket | `apps/web/app/routes/api.ai.create-module.tsx` | Builds packet, passes intentPacketJson to LLM prompt; returns intentPacket (intent, confidence, routing, band, alternatives) |
+| Prompt router contract + gating | `apps/web/app/schemas/prompt-router.server.ts`, `apps/web/app/services/ai/prompt-router.server.ts`, `apps/web/app/services/ai/llm.server.ts` | Added `PromptRouterDecision` JSON contract and dedicated router service (internal endpoint + deterministic fallback). Main compiler now obeys router `includeFlags` (catalog/full schema/style schema/intent packet/settings pack) so only allowed prompt context is sent. |
+| Internal `/route` reference service | `apps/web/scripts/internal-ai-router.ts`, `apps/web/package.json`, `README.md` | Added deployable reference router service (Ollama + vLLM/OpenAI-compatible) with hard limits, bearer auth, schema validation, rate limiting, timeout fallback, and prompt-injection safety gating. |
+| Router health + containerization | `apps/web/scripts/internal-ai-router.ts`, `apps/web/Dockerfile.internal-router`, `README.md` | Added `GET /healthz`, graceful shutdown (`SIGINT`/`SIGTERM`), and a dedicated Dockerfile for fast deploy on container platforms. |
+| Router Kubernetes manifests | `deploy/internal-ai-router/*`, `README.md` | Added `kustomization` bundle (Namespace, ConfigMap, Secret template, Deployment, Service) with startup/readiness/liveness probes for one-command deploy via `kubectl apply -k deploy/internal-ai-router`. |
+| Qwen3 first-layer router hardening | `apps/web/app/schemas/prompt-router*.ts`, `apps/web/app/services/ai/prompt-router.server.ts`, `apps/web/scripts/internal-ai-router.ts`, `deploy/modal-qwen-router/*`, `README.md`, `docs/ai-providers.md` | Stable `reasonCode` enum + short `reasoning`; Remix client applies confidence/moduleType harness vs deterministic baseline, optional circuit breaker, shadow mode (call `/route` but keep deterministic decision), canary shop allowlist, in-memory metrics snapshot for tests; reference router merges model output with the same guards; default model IDs documented for Qwen3-4B-class routing; optional Modal HTTPS proxy for upstream `/route`. |
+| Qwen3 dual-target runtime switching | `apps/web/app/schemas/router-runtime-config.server.ts`, `apps/web/app/services/ai/router-runtime-config.server.ts`, `apps/web/app/routes/internal.model-setup.tsx`, `apps/web/app/services/ai/prompt-router.server.ts`, `README.md`, `docs/ai-providers.md` | Added encrypted dual-target config (`localMachine` / `modalRemote`), Internal Admin **Setup the Model** session, target-specific token rotation fields, health + route probes, guarded switch/rollback workflow, and prompt-router resolution by active target while preserving deterministic fallback guarantees and env fallback compatibility. |
 | Plan tier + workspace in create-module | Same | Injects plan tier (publishable types) and workspace summary (N modules, X published, Y draft) into prompt constraints; no PII. Suggested prompts (EXAMPLE_PROMPTS from INTENT_EXAMPLES) as chips on Modules page. |
 | **Phase 3** Validator + repair loop | `apps/web/app/services/ai/llm.server.ts` | compileRepairPrompt(), validateAndRepairRecipe(); on option validation failure, one repair attempt per option (doc 15.9) |
 | **Phase 2** Confidence scoring | `apps/web/app/services/ai/classify.server.ts` | confidenceScore 0–1 (S1 keyword + S3/S4 placeholders), alternatives[], reasons[]; CONFIDENCE_THRESHOLDS (0.8, 0.55) |
@@ -810,7 +855,8 @@ Browser
               ├── Observability: OTel traces + Sentry + JSON logger + correlation IDs + redaction
               ├── Flows: FlowRunnerService (4 step kinds + retries + per-step logs + idempotency)
               ├── Data: DataStoreService (predefined + custom stores, records CRUD)
-              ├── Templates: MODULE_TEMPLATES (144 curated, IDs UAO-001–ORT-142) + catalog.generated.json (12k IDs)
+              ├── Templates: MODULE_TEMPLATES (144 curated, IDs UAO-001–ORT-142) + catalog.generated.json (~6.5k IDs, deterministic, cap 12k)
+              ├── Surface inventory reference: docs/superapp-surface-inventory.md (mental model, boundaries, enum-backed catalog math, PASS/GAP audit)
               ├── Security: SSRF guard + AES-256-GCM encryption + rate limiting
               └── Scheduling: ScheduleService (DB-based cron) + FlowRunnerService + idempotency
 

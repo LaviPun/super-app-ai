@@ -9,6 +9,12 @@ export type AnthropicExtraConfig = {
   codeExecution?: boolean;
 };
 
+export type OpenAiExtraConfig = {
+  reasoningEffort?: 'low' | 'medium' | 'high';
+  verbosity?: 'low' | 'medium' | 'high';
+  webSearch?: boolean;
+};
+
 export type AiProviderInput = {
   name: string;
   provider: ProviderKind;
@@ -47,11 +53,24 @@ export class AiProviderService {
     return prisma.aiProvider.create({ data });
   }
 
-  async updateExtraConfig(id: string, extraConfig: AnthropicExtraConfig | null) {
+  async updateExtraConfig(id: string, extraConfig: Record<string, unknown> | null) {
     const prisma = getPrisma();
+    const existing = await prisma.aiProvider.findUnique({ where: { id } });
+    if (!existing) throw new Error('Provider not found');
+
+    let current: Record<string, unknown> = {};
+    if (existing.extraConfig) {
+      try {
+        current = JSON.parse(existing.extraConfig) as Record<string, unknown>;
+      } catch {
+        current = {};
+      }
+    }
+
+    const merged = extraConfig ? { ...current, ...extraConfig } : null;
     return prisma.aiProvider.update({
       where: { id },
-      data: { extraConfig: extraConfig ? JSON.stringify(extraConfig) : null },
+      data: { extraConfig: merged ? JSON.stringify(merged) : null },
     });
   }
 

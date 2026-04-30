@@ -19,6 +19,8 @@ export class PreviewService {
         return { kind: 'HTML', html: this.popup(spec) };
       case 'theme.notificationBar':
         return { kind: 'HTML', html: this.notificationBar(spec) };
+      case 'theme.contactForm':
+        return { kind: 'HTML', html: this.contactForm(spec) };
       case 'theme.effect':
         return { kind: 'HTML', html: this.effect(spec) };
       case 'theme.floatingWidget':
@@ -118,6 +120,60 @@ export class PreviewService {
     `);
   }
 
+  private contactForm(spec: Extract<RecipeSpec, { type: 'theme.contactForm' }>): string {
+    const c = spec.config;
+    const styleBlock = this.styleCss(spec, '.superapp-contact-form');
+    const required = (enabled: boolean, isRequired: boolean) => (enabled && isRequired ? 'required' : '');
+
+    return pageHtml(`
+      <section class="superapp-contact-form" aria-label="${escAttr(c.title)}">
+        <h2 class="superapp-contact-form__title">${esc(c.title)}</h2>
+        ${c.subtitle ? `<p class="superapp-contact-form__subtitle">${esc(c.subtitle)}</p>` : ''}
+
+        <form class="superapp-contact-form__form" onsubmit="event.preventDefault(); document.querySelector('.superapp-contact-form__status').textContent='${escAttr(c.successMessage)}';">
+          ${c.showName ? `<label>Name <input type="text" name="name" ${required(c.showName, c.nameRequired)} /></label>` : ''}
+          ${c.showEmail ? `<label>Email <input type="email" name="email" ${required(c.showEmail, c.emailRequired)} /></label>` : ''}
+          ${c.showPhone ? `<label>Phone <input type="tel" name="phone" ${required(c.showPhone, c.phoneRequired)} /></label>` : ''}
+          ${c.showCompany ? `<label>Company <input type="text" name="company" ${required(c.showCompany, c.companyRequired)} /></label>` : ''}
+          ${c.showOrderNumber ? `<label>Order number <input type="text" name="orderNumber" ${required(c.showOrderNumber, c.orderNumberRequired)} /></label>` : ''}
+          ${c.showSubject ? `<label>Subject <input type="text" name="subject" ${required(c.showSubject, c.subjectRequired)} /></label>` : ''}
+          ${c.showMessage ? `<label>Message <textarea name="message" rows="5" ${required(c.showMessage, c.messageRequired)}></textarea></label>` : ''}
+          ${c.consentRequired ? `<label class="superapp-contact-form__consent"><input type="checkbox" required /> ${esc(c.consentLabel)}</label>` : ''}
+          <button type="submit" class="superapp-contact-form__submit">${esc(c.submitLabel)}</button>
+          <p class="superapp-contact-form__status" aria-live="polite"></p>
+        </form>
+      </section>
+    `, `
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      ${styleBlock}
+      .superapp-contact-form { max-width: 680px; margin: 0 auto; }
+      .superapp-contact-form__title { margin: 0 0 8px; }
+      .superapp-contact-form__subtitle { margin: 0 0 14px; opacity: 0.85; }
+      .superapp-contact-form__form { display: grid; gap: 10px; }
+      .superapp-contact-form__form label { display: grid; gap: 6px; font-size: 14px; }
+      .superapp-contact-form__form input,
+      .superapp-contact-form__form textarea {
+        width: 100%;
+        border: 1px solid var(--sa-border, #d1d5db);
+        border-radius: var(--sa-radius, 8px);
+        padding: 10px 12px;
+        font: inherit;
+      }
+      .superapp-contact-form__submit {
+        justify-self: start;
+        border-radius: var(--sa-radius, 8px);
+        padding: 10px 14px;
+        border: 1px solid currentColor;
+        background: var(--sa-btn-bg, #111827);
+        color: var(--sa-btn-text, #ffffff);
+        cursor: pointer;
+      }
+      .superapp-contact-form__status { min-height: 20px; margin: 0; color: #065f46; }
+      .superapp-contact-form__consent { display: flex !important; align-items: center; gap: 8px; }
+      .superapp-contact-form__consent input { width: auto; }
+    `);
+  }
+
   private effect(spec: Extract<RecipeSpec, { type: 'theme.effect' }>): string {
     const c = spec.config;
     const effectKind = c.effectKind;
@@ -210,6 +266,11 @@ export class PreviewService {
     return pageHtml(`
       <div class="preview-stage">
         <div class="preview-label">Floating widget · ${esc(anchor.replace(/_/g, ' '))} · ${esc(c.variant ?? 'custom')}</div>
+        <div class="preview-products">
+          <div class="preview-product"><span>Product A</span><span>$29</span></div>
+          <div class="preview-product"><span>Product B</span><span>$49</span></div>
+          <div class="preview-product"><span>Product C</span><span>$19</span></div>
+        </div>
         <div class="superapp-fw" style="${posX} ${posY} ${extraTransform}">
           <span class="superapp-fw__icon">${icon}</span>
           ${label ? `<span class="superapp-fw__label">${esc(label)}</span>` : ''}
@@ -223,6 +284,7 @@ export class PreviewService {
         background: linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 100%);
         border-radius: 8px;
         overflow: hidden;
+        padding: 56px 16px 16px;
       }
       .preview-label {
         position: absolute;
@@ -231,6 +293,21 @@ export class PreviewService {
         font-size: 12px;
         color: #888;
         text-transform: capitalize;
+      }
+      .preview-products {
+        display: grid;
+        gap: 8px;
+        max-width: 320px;
+      }
+      .preview-product {
+        display: flex;
+        justify-content: space-between;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: #fff;
+        padding: 10px 12px;
+        font-size: 13px;
+        color: #374151;
       }
       .superapp-fw {
         position: absolute;
@@ -271,16 +348,96 @@ export class PreviewService {
 
 const LINK_INTERCEPT_SCRIPT = `
 <script>
+function ensureActionPanel() {
+  var panel = document.getElementById('superapp-preview-actions');
+  if (panel) return panel;
+  panel = document.createElement('div');
+  panel.id = 'superapp-preview-actions';
+  panel.style.position = 'fixed';
+  panel.style.right = '12px';
+  panel.style.bottom = '12px';
+  panel.style.maxWidth = '420px';
+  panel.style.maxHeight = '38vh';
+  panel.style.overflow = 'auto';
+  panel.style.background = 'rgba(17,24,39,0.92)';
+  panel.style.color = '#fff';
+  panel.style.padding = '10px 12px';
+  panel.style.borderRadius = '10px';
+  panel.style.font = '12px/1.4 ui-monospace, Menlo, Consolas, monospace';
+  panel.style.zIndex = '2147483647';
+  panel.style.boxShadow = '0 4px 14px rgba(0,0,0,.35)';
+  panel.innerHTML = '<div style="font-weight:700;margin-bottom:4px">Preview action log</div>';
+  document.body.appendChild(panel);
+  return panel;
+}
+
+function logAction(message) {
+  var panel = ensureActionPanel();
+  var line = document.createElement('div');
+  line.textContent = new Date().toLocaleTimeString() + ' - ' + message;
+  line.style.whiteSpace = 'pre-wrap';
+  line.style.wordBreak = 'break-word';
+  panel.appendChild(line);
+  panel.scrollTop = panel.scrollHeight;
+}
+
+function showInlineState(title, subtitle) {
+  var existing = document.getElementById('superapp-preview-state');
+  if (!existing) {
+    existing = document.createElement('div');
+    existing.id = 'superapp-preview-state';
+    existing.style.position = 'fixed';
+    existing.style.left = '12px';
+    existing.style.bottom = '12px';
+    existing.style.background = '#fff';
+    existing.style.color = '#111827';
+    existing.style.border = '1px solid #e5e7eb';
+    existing.style.borderRadius = '8px';
+    existing.style.padding = '10px 12px';
+    existing.style.font = '13px/1.4 system-ui, -apple-system, Segoe UI, sans-serif';
+    existing.style.zIndex = '2147483647';
+    existing.style.boxShadow = '0 4px 14px rgba(0,0,0,.12)';
+    document.body.appendChild(existing);
+  }
+  existing.innerHTML = '<strong>' + title + '</strong><div style="margin-top:4px;color:#6b7280">' + subtitle + '</div>';
+}
+
 document.addEventListener('click', function(e) {
-  var el = e.target && e.target.closest('a');
-  if (!el) return;
+  var anchor = e.target && e.target.closest('a');
+  if (!anchor) return;
   e.preventDefault();
+  var href = anchor.getAttribute('href') || anchor.href || '';
+  logAction('CTA click -> ' + href);
+  showInlineState('CTA clicked', href || 'No destination');
   window.parent.postMessage({
     type: 'preview-link-click',
-    href: el.href || el.getAttribute('href') || '',
-    target: el.getAttribute('target') || '_self',
-    text: (el.textContent || '').trim().slice(0, 80)
+    href: href,
+    target: anchor.getAttribute('target') || '_self',
+    text: (anchor.textContent || '').trim().slice(0, 80)
   }, '*');
+}, true);
+
+document.addEventListener('submit', function(e) {
+  var form = e.target;
+  if (!form || !(form instanceof HTMLFormElement)) return;
+  e.preventDefault();
+  var formData = new FormData(form);
+  var summary = [];
+  formData.forEach(function(value, key) {
+    summary.push(key + '=' + String(value).slice(0, 60));
+  });
+  logAction('Form submit -> ' + (summary.join(', ') || '[no fields]'));
+  showInlineState('Form submitted', 'Simulated submit in preview sandbox');
+}, true);
+
+document.addEventListener('change', function(e) {
+  var input = e.target;
+  if (!input || !(input instanceof HTMLInputElement)) return;
+  if (input.type === 'file') {
+    var count = (input.files && input.files.length) || 0;
+    logAction('File input changed -> ' + count + ' file(s) selected');
+    showInlineState('Upload simulated', count + ' file(s) selected in preview');
+  }
 }, true);
 </script>`;
 

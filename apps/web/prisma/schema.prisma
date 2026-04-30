@@ -445,6 +445,8 @@ model AppSettings {
   templateSpecOverrides String?
   // Default AI provider when using .env keys: openai | claude (null = use DB active, then OpenAI env fallback)
   defaultAiProvider String?
+  // Encrypted JSON runtime settings for first-layer router target switching (localMachine/modalRemote)
+  routerRuntimeConfigEnc String?
   // Meta
   updatedAt DateTime @updatedAt
 }

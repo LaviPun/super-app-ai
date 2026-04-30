@@ -29,6 +29,13 @@ This document defines the minimum advanced settings expected for recipes/templat
   - Surface behavior: `variant`, `onClick`, `url`, `message`.
   - Placement: `anchor`, `offsetX`, `offsetY`.
   - Device targeting: `hideOnMobile`, `hideOnDesktop`.
+- `theme.contactForm`
+  - Content: `title`, `subtitle`, `submitLabel`, `successMessage`, `errorMessage`.
+  - Field controls: visibility + required toggles for `name`, `email`, `phone`, `company`, `orderNumber`, `subject`, `message`.
+  - Privacy controls: `consentRequired`, `consentLabel`.
+  - Submission controls: `submissionMode` (`SHOPIFY_CONTACT` or `APP_PROXY`), `proxyEndpointPath`, optional `recipientEmail`, `successRedirectUrl`.
+  - Ops controls: `tags`, `sendCopyToCustomer`, `includeCustomerContext`.
+  - Anti-spam controls: `spamProtection`, `honeypotFieldName`.
 - `proxy.widget`
   - Widget identity: `widgetId`, `mode`.
   - Render payload: `title`, `message`.
@@ -108,15 +115,17 @@ Use this checklist for all popup recipes/templates:
 - CTA strategy includes primary CTA and an optional secondary dismiss action.
 - Countdown is either fully configured or fully disabled.
 
-## Contact Form: Recommended Module Pack (Current System)
+## Contact Form Deployment Pattern (First-Class Type)
 
-There is no dedicated `theme.contactForm` module type yet. Use this production-safe pack:
+`theme.contactForm` is now a first-class module type for storefront deployment. Recommended production pattern:
 
-1. UI capture: `proxy.widget` (`widgetId: contact-form`, mode `HTML`) for the form front-end.
-2. Persistence: `flow.automation` with `WRITE_TO_STORE` to save normalized submissions.
-3. External sync (optional): `integration.httpSync` to CRM/helpdesk endpoint.
-4. Notifications: `flow.automation` step `SEND_EMAIL_NOTIFICATION` or `SEND_SLACK_MESSAGE`.
-5. Admin visibility: `admin.block` to surface status/links for support teams.
+1. Storefront UI: deploy `theme.contactForm` in a theme slot (`section` activation).
+2. Submission path:
+   - `SHOPIFY_CONTACT`: post to Shopify `/contact` handling.
+   - `APP_PROXY`: post to app proxy endpoint (for custom processing/workflows).
+3. Persistence/automation (recommended): pair with `flow.automation` + `WRITE_TO_STORE`.
+4. External sync (optional): add `integration.httpSync` for CRM/helpdesk ingestion.
+5. Internal visibility (optional): add `admin.block` for support operations.
 
 ### Contact Form Data Access & Storage
 
@@ -127,6 +136,30 @@ There is no dedicated `theme.contactForm` module type yet. Use this production-s
 - Retrieval path:
   - Merchant/internal UI reads from SuperApp store records.
   - Optional mirrored records in external CRM/helpdesk.
+
+### Capture Endpoints (Theme + Extension + API)
+
+- App proxy capture (storefront/theme-safe): `POST /proxy/capture`
+  - Intended for `submissionMode = APP_PROXY`.
+  - Writes `DataCapture`, emits `ModuleEvent`, and can mirror into `DataStoreRecord`.
+- Admin/API capture (authenticated): `POST /api/module-captures`
+  - For internal tools, agents, or server-side extension bridges.
+  - Same persistence behavior as proxy capture.
+
+Recommended `theme.contactForm` APP_PROXY default path: `proxyEndpointPath = "/apps/superapp/capture"`.
+
+## Template Installability Gates
+
+Templates are now quality-gated before installation:
+
+- Global gate: template must pass advanced-settings readiness for its module type.
+- Data-save gate (type-specific): these types must expose a concrete data-save path:
+  - `theme.contactForm`
+  - `flow.automation`
+  - `integration.httpSync`
+  - `analytics.pixel`
+
+Installability is computed by `getTemplateInstallability()` in `packages/core/src/templates.ts` and enforced by `POST /api/modules/from-template`.
 
 ## Modernization Status
 

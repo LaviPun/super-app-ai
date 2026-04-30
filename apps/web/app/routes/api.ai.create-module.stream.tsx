@@ -13,6 +13,7 @@ import { classifyUserIntent, CONFIDENCE_THRESHOLDS } from '~/services/ai/classif
 import { augmentWithCheapClassifier } from '~/services/ai/cheap-classifier.server';
 import { buildIntentPacket } from '~/services/ai/intent-packet.server';
 import { serializeIntentPacketForPrompt } from '~/services/ai/token-budget.server';
+import { buildPromptRouterDecision } from '~/services/ai/prompt-router.server';
 
 /** GET disallowed; this is a streaming POST endpoint. */
 export async function loader() {
@@ -79,6 +80,13 @@ export async function action({ request }: { request: Request }) {
   const intentPacket = buildIntentPacket(finalPrompt, classification, {
     storeContext: { shop_domain: session.shop, theme_os2: true },
   });
+  const routerDecision = await buildPromptRouterDecision({
+    prompt: finalPrompt,
+    classification,
+    intentPacket,
+    shopDomain: session.shop,
+    operationClass: 'P0_CREATE',
+  });
 
   const confidence = intentPacket.classification.confidence;
   const band =
@@ -117,6 +125,7 @@ export async function action({ request }: { request: Request }) {
         reasons: intentPacket.classification.reasons ?? [],
         routing: intentPacket.routing,
         moduleType: classification.moduleType,
+        routerDecision,
       });
 
       let validCount = 0;
@@ -126,6 +135,7 @@ export async function action({ request }: { request: Request }) {
           intentPacketJson: serializeIntentPacketForPrompt(intentPacket),
           confidenceScore: confidence,
           promptProfile: intentPacket.routing.prompt_profile,
+          routerDecision,
           optionCount: 3,
         })) {
           if (event.kind === 'option') validCount++;

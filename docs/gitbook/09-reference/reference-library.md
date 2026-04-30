@@ -15,3 +15,9 @@ Use this page as a **card index** into the long-form sources. Do not duplicate s
 | Optional: exhaustive platform lists | [`superai-doc.md`](../../superai-doc.md) | Rare deep dives |
 
 **Status and releases:** [`implementation-status.md`](../../implementation-status.md) and [`phase-plan.md`](../../phase-plan.md).
+
+## Canonical references
+
+- Delivery ledger: `docs/implementation-status.md`
+- Roadmap and backlog: `docs/phase-plan.md`
+- Architectural source of truth: `docs/technical.md`

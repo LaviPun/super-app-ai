@@ -31,6 +31,26 @@ describe('compileRecipe', () => {
     expect(out.themeModulePayload).toBeDefined();
   });
 
+  it('compiles theme.contactForm to theme module payload', () => {
+    const spec: RecipeSpec = {
+      type: 'theme.contactForm',
+      name: 'Contact',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        title: 'Contact us',
+        submitLabel: 'Send',
+        successMessage: 'Thanks',
+        errorMessage: 'Please retry',
+      },
+    } as unknown as RecipeSpec;
+
+    const out = compileRecipe(spec, { kind: 'THEME', themeId: '789', moduleId: 'test-module-789' });
+    expect(out.ops.length).toBeGreaterThan(0);
+    expect(out.themeModulePayload?.type).toBe('theme.contactForm');
+    expect(out.themeModulePayload?.activationType).toBe('section');
+  });
+
   it('compiles proxy.widget to proxy widget payload', () => {
     const spec: RecipeSpec = {
       type: 'proxy.widget',

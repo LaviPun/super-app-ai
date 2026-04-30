@@ -1,5 +1,5 @@
-import { MODULE_CATALOG, filterCatalog } from '@superapp/core';
-import type { ModuleCategory } from '@superapp/core';
+import { MODULE_CATALOG, filterCatalog, MODULE_TYPE_TO_TEMPLATE_KIND } from '@superapp/core';
+import type { ModuleCategory, ModuleType, CatalogQuery } from '@superapp/core';
 
 /**
  * Returns a token-safe subset of catalog entries matching the given criteria.
@@ -13,16 +13,14 @@ export function getCatalogDetails(opts: {
   surface?: string;
   limit?: number;
 }): string {
-  const limit = opts.limit ?? 20;
-  const query: Record<string, string | undefined> = {};
+  const limit = Math.max(1, Math.min(10, opts.limit ?? 8));
+  const query: CatalogQuery = {};
   if (opts.category) query.category = opts.category;
   if (opts.templateKind) query.templateKind = opts.templateKind;
   if (opts.intent) query.intent = opts.intent;
   if (opts.surface) query.surface = opts.surface;
 
-  let entries = Object.keys(query).length > 0
-    ? filterCatalog(query as any)
-    : MODULE_CATALOG;
+  let entries = Object.keys(query).length > 0 ? filterCatalog(query) : MODULE_CATALOG;
 
   entries = entries.slice(0, limit);
 
@@ -30,34 +28,25 @@ export function getCatalogDetails(opts: {
     return 'No matching catalog entries found.';
   }
 
-  const lines = entries.map(e =>
-    `${e.catalogId}: ${e.description} (kind=${e.templateKind ?? '-'}, surface=${e.surface ?? '-'}, intent=${e.intent ?? '-'})`,
-  );
+  const lines = entries.map((e) => {
+    const shortDescription =
+      e.description.length > 110 ? `${e.description.slice(0, 107)}...` : e.description;
+    return `${e.catalogId}: ${shortDescription} (kind=${e.templateKind ?? '-'}, surface=${e.surface ?? '-'}, intent=${e.intent ?? '-'})`;
+  });
 
   return `Relevant catalog entries for inspiration (${entries.length}):\n${lines.join('\n')}`;
 }
-
-/** Maps module type to its templateKind in the catalog for filtering (AI retry inspiration). */
-const TYPE_TO_TEMPLATE_KIND: Record<string, string> = {
-  'theme.banner': 'banner',
-  'theme.popup': 'popup',
-  'theme.notificationBar': 'notification_bar',
-  'theme.effect': 'effect',
-  'theme.floatingWidget': 'widget',
-  'proxy.widget': 'widget',
-  'checkout.upsell': 'sticky_cta',
-};
 
 export function getCatalogDetailsForType(
   moduleType: string,
   intent?: string,
   surface?: string,
 ): string {
-  const templateKind = TYPE_TO_TEMPLATE_KIND[moduleType];
+  const templateKind = MODULE_TYPE_TO_TEMPLATE_KIND[moduleType as ModuleType];
   return getCatalogDetails({
     templateKind,
     intent,
     surface,
-    limit: 15,
+    limit: 8,
   });
 }

@@ -8,7 +8,13 @@ import {
 import { useState, useCallback, useEffect } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
-import { MODULE_TEMPLATES, TEMPLATE_CATEGORIES, MODULE_TYPES_DISPLAY_ORDER } from '@superapp/core';
+import {
+  MODULE_TEMPLATES,
+  TEMPLATE_CATEGORIES,
+  MODULE_TYPES_DISPLAY_ORDER,
+  getTemplateReadiness,
+  getTemplateInstallability,
+} from '@superapp/core';
 import { INTENT_EXAMPLES } from '~/services/ai/intent-examples';
 import { getTypeDisplayLabel, getTypeTone, getCategoryDisplayLabel } from '~/utils/type-label';
 
@@ -17,6 +23,8 @@ type RecipeOption = {
   explanation: string;
   recipe: Record<string, unknown>;
 };
+
+type TemplateQualityFilter = 'All' | 'Advanced ready' | 'Data-save ready' | 'DB-backed';
 
 const DB_MESSAGES = [
   'Classifying request...',
@@ -72,7 +80,20 @@ const EMPTY_LOADER_DATA = {
   modules: [] as { id: string; name: string; type: string; category: string; status: string; latestVersion: number; updatedAt: string }[],
   stats: { total: 0, published: 0, drafts: 0 },
   typeCounts: {} as Record<string, number>,
-  templates: [] as { id: string; name: string; description: string; category: string; type: string; tags: string[] }[],
+  templates: [] as {
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    type: string;
+    tags: string[];
+    hasAdvancedSettings: boolean;
+    dataSaveReady: boolean;
+    storageMode: string;
+    dbModels: string[];
+    installable: boolean;
+    installReasons: string[];
+  }[],
   categories: [] as string[],
   types: [] as string[],
   loaderError: undefined as string | undefined,
@@ -108,14 +129,24 @@ export async function loader({ request }: { request: Request }) {
       typeCounts[m.type] = (typeCounts[m.type] ?? 0) + 1;
     }
 
-    const templates = MODULE_TEMPLATES.map(t => ({
+    const templates = MODULE_TEMPLATES.map(t => {
+      const readiness = getTemplateReadiness(t);
+      const installability = getTemplateInstallability(t);
+      return {
       id: t.id,
       name: t.name,
       description: t.description,
       category: t.category,
       type: t.type,
       tags: t.tags ?? [],
-    }));
+      hasAdvancedSettings: readiness.hasAdvancedSettings,
+      dataSaveReady: readiness.dataSaveReady,
+      storageMode: readiness.storageMode,
+      dbModels: readiness.dbModels,
+      installable: installability.ok,
+      installReasons: installability.reasons,
+    };
+    });
 
     return json({
       modules: modules.map(m => ({
@@ -211,6 +242,7 @@ export default function ModulesIndex() {
   const [tplCategory, setTplCategory] = useState('All');
   const [tplType, setTplType] = useState('All');
   const [tplSort, setTplSort] = useState('popular');
+  const [tplQuality, setTplQuality] = useState<TemplateQualityFilter>('All');
 
   const proposeFetcher = useFetcher<{ options?: RecipeOption[]; error?: string; message?: string }>();
   const confirmFetcher = useFetcher<{ moduleId?: string; error?: string }>();
@@ -282,6 +314,13 @@ export default function ModulesIndex() {
     { label: 'Z → A', value: 'za' },
   ];
 
+  const qualityOptions = [
+    { label: 'All quality levels', value: 'All' },
+    { label: 'Advanced settings ready', value: 'Advanced ready' },
+    { label: 'Data-save ready', value: 'Data-save ready' },
+    { label: 'DB-backed templates', value: 'DB-backed' },
+  ];
+
   let filteredTemplates = templates.filter(t => {
     const q = tplSearch.toLowerCase();
     const matchesSearch = !q ||
@@ -290,7 +329,12 @@ export default function ModulesIndex() {
       t.tags.some((tag: string) => tag.toLowerCase().includes(q));
     const matchesCategory = tplCategory === 'All' || t.category === tplCategory;
     const matchesType = tplType === 'All' || t.type === tplType;
-    return matchesSearch && matchesCategory && matchesType;
+    const matchesQuality =
+      tplQuality === 'All'
+      || (tplQuality === 'Advanced ready' && t.hasAdvancedSettings)
+      || (tplQuality === 'Data-save ready' && t.dataSaveReady)
+      || (tplQuality === 'DB-backed' && t.dbModels.length > 0);
+    return matchesSearch && matchesCategory && matchesType && matchesQuality;
   });
 
   if (tplSort === 'az') filteredTemplates = [...filteredTemplates].sort((a, b) => a.name.localeCompare(b.name));
@@ -587,7 +631,7 @@ export default function ModulesIndex() {
               </BlockStack>
             </Card>
 
-            <InlineGrid columns={{ xs: 1, sm: 4 }} gap="300">
+            <InlineGrid columns={{ xs: 1, sm: 5 }} gap="300">
               <TextField
                 label="Search"
                 labelHidden
@@ -619,6 +663,13 @@ export default function ModulesIndex() {
                 value={tplSort}
                 onChange={setTplSort}
               />
+              <Select
+                label="Quality"
+                labelHidden
+                options={qualityOptions}
+                value={tplQuality}
+                onChange={(v) => setTplQuality(v as TemplateQualityFilter)}
+              />
             </InlineGrid>
 
             <Text as="p" variant="bodySm" tone="subdued">
@@ -628,33 +679,82 @@ export default function ModulesIndex() {
             {filteredTemplates.length > 0 ? (
               <InlineGrid columns={{ xs: 1, sm: 2, md: 3 }} gap="400">
                 {filteredTemplates.map(t => (
-                  <Card key={t.id} padding="400">
-                    <div className="Modules-templateCard">
+                  <div
+                    key={t.id}
+                    style={{ display: 'block', height: '100%' }}
+                  >
+                    <Card padding="400">
+                      <div className="Modules-templateCard">
                       <BlockStack gap="300" {...{ className: 'Modules-templateCardBody' } as any}>
-                        <Text as="h3" variant="headingSm">{t.name}</Text>
-                        <Text as="p" variant="bodySm" tone="subdued">{t.description}</Text>
-                        <InlineStack gap="200" wrap>
-                          <Badge>{getCategoryDisplayLabel(t.category)}</Badge>
-                          <Badge tone={getTypeTone(t.type)}>{getTypeDisplayLabel(t.type)}</Badge>
-                        </InlineStack>
-                        {t.tags.length > 0 && (
+                        <Link
+                          to={`/internal/templates/${encodeURIComponent(t.id)}`}
+                          style={{ display: 'block', textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}
+                        >
+                          <BlockStack gap="300">
+                            <Text as="h3" variant="headingSm">{t.name}</Text>
+                            <Text as="p" variant="bodySm" tone="subdued">{t.description}</Text>
+                            <InlineStack gap="200" wrap>
+                              <Badge>{getCategoryDisplayLabel(t.category)}</Badge>
+                              <Badge tone={getTypeTone(t.type)}>{getTypeDisplayLabel(t.type)}</Badge>
+                              {t.hasAdvancedSettings && <Badge tone="success">Advanced</Badge>}
+                              {t.dataSaveReady && <Badge tone="attention">Data-save</Badge>}
+                              {!t.installable && <Badge tone="critical">Needs fixes</Badge>}
+                            </InlineStack>
+                            {t.dbModels.length > 0 && (
+                              <Text as="p" variant="bodySm" tone="subdued">
+                                DB: {t.dbModels.join(', ')}
+                              </Text>
+                            )}
+                            {!t.installable && t.installReasons.length > 0 && (
+                              <Text as="p" variant="bodySm" tone="critical">
+                                {t.installReasons[0]}
+                              </Text>
+                            )}
+                            {t.tags.length > 0 && (
+                              <InlineStack gap="200" wrap>
+                                {t.tags.slice(0, 4).map((tag: string) => (
+                                  <Text key={tag} as="span" variant="bodySm" tone="subdued">#{tag}</Text>
+                                ))}
+                              </InlineStack>
+                            )}
+                          </BlockStack>
+                        </Link>
+                        <div
+                          className="Modules-templateAction"
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
+                        >
                           <InlineStack gap="200" wrap>
-                            {t.tags.slice(0, 4).map((tag: string) => (
-                              <Text key={tag} as="span" variant="bodySm" tone="subdued">#{tag}</Text>
-                            ))}
-                          </InlineStack>
-                        )}
-                        <div className="Modules-templateAction">
-                          <Form method="post" action="/api/modules/from-template">
-                            <input type="hidden" name="templateId" value={t.id} />
-                            <Button submit size="slim" variant="primary" loading={isSubmitting}>
-                              Use template
+                            <Button
+                              size="slim"
+                              variant="secondary"
+                              onClick={() => navigate(`/internal/templates/${encodeURIComponent(t.id)}`)}
+                            >
+                              Open template
                             </Button>
-                          </Form>
+                            <Form method="post" action="/api/modules/from-template">
+                              <input type="hidden" name="templateId" value={t.id} />
+                              <Button
+                                submit
+                                size="slim"
+                                variant="primary"
+                                loading={isSubmitting}
+                                disabled={!t.installable || isSubmitting}
+                              >
+                                Use template
+                              </Button>
+                            </Form>
+                          </InlineStack>
+                          {!t.installable && (
+                            <Text as="p" variant="bodySm" tone="critical">
+                              Temporarily blocked: fix readiness in template definitions.
+                            </Text>
+                          )}
                         </div>
                       </BlockStack>
-                    </div>
-                  </Card>
+                      </div>
+                    </Card>
+                  </div>
                 ))}
               </InlineGrid>
             ) : (

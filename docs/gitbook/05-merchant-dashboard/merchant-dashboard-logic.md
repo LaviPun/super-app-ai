@@ -56,3 +56,9 @@ This page is a **compact route map** for navigation inside GitBook.
 ## Polling and consistency behavior
 
 Merchant list pages are designed to revalidate periodically and on focus so external writes (like agent actions) appear without manual hard refresh.
+
+## Canonical references
+
+- Merchant guide: `docs/app.md`
+- Settings and config model: `docs/module-settings-modernization.md`
+- Current delivery status: `docs/implementation-status.md`

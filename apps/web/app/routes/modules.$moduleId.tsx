@@ -20,7 +20,7 @@ import { ThemeService } from '~/services/shopify/theme.service';
 import type { Capability, DeployTarget, RecipeSpec } from '@superapp/core';
 
 function isThemeStorefrontUi(spec: RecipeSpec): boolean {
-  return ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'theme.floatingWidget', 'proxy.widget'].includes(spec.type);
+  return ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.contactForm', 'theme.effect', 'theme.floatingWidget', 'proxy.widget'].includes(spec.type);
 }
 
 const DB_STYLES = `

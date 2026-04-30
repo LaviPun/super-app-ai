@@ -72,9 +72,48 @@ export function getRepairTokenBudget(type: ModuleType): number {
 export function serializeIntentPacketForPrompt(packet: unknown): string | undefined {
   if (!packet || typeof packet !== 'object') return undefined;
   const clone = JSON.parse(JSON.stringify(packet)) as Record<string, unknown>;
+
   const input = clone.input as Record<string, unknown> | undefined;
-  if (input && typeof input === 'object') {
-    delete input.text;
-  }
-  return JSON.stringify(clone);
+  const classification = clone.classification as Record<string, unknown> | undefined;
+  const routing = clone.routing as Record<string, unknown> | undefined;
+
+  const storeContext = input && typeof input === 'object' && input.store_context && typeof input.store_context === 'object'
+    ? (input.store_context as Record<string, unknown>)
+    : undefined;
+  const alternatives = classification && Array.isArray(classification.alternatives)
+    ? (classification.alternatives as unknown[]).slice(0, 2).map((alt) => {
+        if (!alt || typeof alt !== 'object') return null;
+        const a = alt as Record<string, unknown>;
+        return {
+          intent: typeof a.intent === 'string' ? a.intent : undefined,
+          confidence: typeof a.confidence === 'number' ? a.confidence : undefined,
+        };
+      }).filter(Boolean)
+    : [];
+
+  // PromptIntentSeedV1: minimal payload for heavy AI. Keep only routing/classification
+  // data that materially changes generation, and drop verbose raw-input fields.
+  const compact = {
+    schema_version: '1.0',
+    classification: {
+      intent: classification?.intent,
+      surface: classification?.surface,
+      module_archetype: classification?.module_archetype,
+      mode: classification?.mode,
+      confidence: classification?.confidence,
+      alternatives,
+    },
+    routing: {
+      prompt_profile: routing?.prompt_profile,
+      output_schema: routing?.output_schema,
+      model_tier: routing?.model_tier,
+    },
+    store_context: {
+      theme_os2: storeContext?.theme_os2,
+      primary_language: storeContext?.primary_language,
+      currency: storeContext?.currency,
+    },
+  };
+
+  return JSON.stringify(compact);
 }

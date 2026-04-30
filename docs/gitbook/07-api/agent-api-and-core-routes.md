@@ -1,4 +1,4 @@
-# Agent API and Core Routes
+# Agent API and core routes
 
 ## API layers
 
@@ -39,3 +39,9 @@
 
 - Shopify webhooks validate authenticity and deduplicate events
 - Flow action callbacks verify HMAC and route to correct executors
+
+## Canonical references
+
+- API architecture and contracts: `docs/technical.md`
+- Data store/API model detail: `docs/data-models.md`
+- Current status and API additions: `docs/implementation-status.md`

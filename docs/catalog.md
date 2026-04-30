@@ -1,25 +1,62 @@
 # Module Catalog
 
-## Generated catalog (12,000 IDs)
+## Three files, one purpose
 
-The project ships a **generated catalog** (`packages/core/src/catalog.generated.json`) with ~12,000 template IDs.
-This covers storefront UI, admin UI, function rules, integrations, and automations.
+The catalog lives in `packages/core/src/` and is split across three files for separation of concerns:
+
+| File | Role |
+|---|---|
+| `catalog.generator.ts` | Build script: expands the Allowed Values Manifest axes into typed catalog entries. Owns `MODULE_TYPE_TO_TEMPLATE_KIND` (canonical templateKind per module type), tags, families, and the deterministic ordering policy. |
+| `catalog.generated.json` | Snapshot output of the generator. Committed to the repo so consumers don't pay generation cost at runtime. Format: one JSON entry per line for small diffs. |
+| `catalog.ts` | Runtime API: typed `MODULE_CATALOG`, `findCatalogEntry`, `findTypeEntry`, `filterCatalog`, plus re-exports of generator constants (`CATALOG_FAMILIES`, `MODULE_TYPE_TO_TEMPLATE_KIND`). |
+
+To regenerate the snapshot after changing the manifest:
+
+```bash
+pnpm --filter @superapp/core build
+node packages/core/dist/catalog.generator.js
+```
+
+The generator is **strict by default**: it throws if total entries would exceed the cap (`DEFAULT_MAX_ENTRIES = 12000`), so silent truncation cannot ship.
+
+## Generated catalog (~6.5k entries today)
+
+Current snapshot size is driven by the Allowed Values Manifest:
+
+- **type.\*** rows: one per `RECIPE_SPEC_TYPES` entry (currently 26). Canonical row for every module type, with the right `templateKind`, `requires`, surface, tags.
+- **storefront.\*** base rows: `CATALOG_SURFACES × CATALOG_COMPONENTS × CATALOG_INTENTS` (currently 12 × 14 × 10 = 1,680).
+- **storefront.\*.trigger.\*** rows: `CATALOG_SURFACES × CATALOG_INTENTS × CATALOG_TRIGGERS × {popup, modal, drawer, toast}` (currently 12 × 10 × 10 × 4 = 4,800).
+
+Every entry includes:
+
+- `catalogId`, `family` (`'type'` or `'storefront'`), `category`, `requires`, `description`, `tags`.
+- Optional discriminators: `moduleType`, `templateKind`, `surface`, `intent`, `trigger`.
+- `defaults` bag for downstream pre-fills.
 
 ### Why generated
-Instead of hand-writing thousands of templates, we define **axes** (surface, intent, trigger, etc.) and generate combinations.
+
+Instead of hand-writing thousands of templates, we define **axes** (surface, intent, trigger, component, type) in `allowed-values.ts` and generate combinations. Adding a new module type or trigger is a single-line manifest change followed by a regeneration.
 
 ### Template ID format
+
+```
+type.<moduleType>                                        # canonical per-type row
+storefront.<component>.<intent>.<surface>                # base storefront row
+storefront.<component>.<intent>.<surface>.trigger.<trg>  # storefront row with explicit trigger
+```
+
 Examples:
+- `type.theme.popup`
+- `storefront.popup.capture.product`
 - `storefront.popup.capture.product.trigger.exit_intent`
-- `storefront.search_facets.performance.search_results`
-- `admin.analytics.dashboard.anomaly_detection`
-- `function.payment_customization.country.hide_method`
-- `integration.ai_enrichment.order_paid.two_way`
-- `flow.order_paid.enrich_with_ai.advanced`
+
+### Filtering
+
+Use `filterCatalog({ family, category, moduleType, templateKind, surface, intent, trigger, tags })`. All fields are exact-match; `tags` requires every listed tag to be present on the entry.
 
 ### UI performance
-The admin UI should not load all templates into memory at once.
-Add server-side pagination + search endpoints; only fetch what the merchant needs.
+
+The admin UI should not load all templates into memory at once. The `/api/catalog/search` route does server-side pagination + text search; only fetch what the merchant needs.
 
 ---
 
@@ -51,7 +88,7 @@ In addition to the generated catalog IDs, the app ships **144 curated templates*
 | OPS | Automation & Ops | 9 |
 | EFF/PRX/PPO/CKU/INT/VAL/FUL/ORT | Coverage extras (IDs 127–142) | 16 |
 
-All 23 RecipeSpec types are covered. All templates validate against RecipeSpecSchema. All 83 tests pass.
+All 26 RecipeSpec types are covered. Template validity is enforced by automated tests against `RecipeSpecSchema`.
 
 ### Adding a new template
 1. Append a `TemplateEntry` to `MODULE_TEMPLATES` in the appropriate `packages/core/src/_templates_partN.ts` file.
@@ -62,17 +99,13 @@ All 23 RecipeSpec types are covered. All templates validate against RecipeSpecSc
 
 ## AI retry context (catalog details)
 
-When the AI generate flow retries after a validation failure, it requests **catalog details** filtered by module type to give the model relevant examples. The mapping from module type to catalog filter is in `apps/web/app/services/ai/catalog-details.server.ts`:
+When the AI generate flow retries after a validation failure, it requests **catalog details** filtered by module type to give the model relevant examples. `apps/web/app/services/ai/catalog-details.server.ts` no longer maintains a local module-type → templateKind table; it imports `MODULE_TYPE_TO_TEMPLATE_KIND` directly from `@superapp/core` so the AI mapping cannot drift from the generator.
 
-| Module type    | templateKind (for filter) | Notes |
-|----------------|---------------------------|--------|
-| theme.banner   | banner                    | |
-| theme.popup    | popup                     | |
-| theme.notificationBar | notification_bar | |
-| proxy.widget   | quick_view (or widget)    | Planned: use `widget` when catalog entries use that templateKind |
-| theme.effect   | *(none today)*            | **Planned:** Add `effect`; ensure `catalog.generated.json` / generator includes effect templateKind so effect prompts get relevant examples. See [implementation-status.md](./implementation-status.md) § “AI Patch Plan — Remove Generic Outputs”. |
+This means: every `RECIPE_SPEC_TYPES` entry has a guaranteed `type.<moduleType>` catalog row with a deterministic `templateKind` (`banner`, `popup`, `notification_bar`, `effect`, `floating_widget`, `widget`, `discount_rules`, `cart_transform`, `upsell`, `flow_automation`, etc.). Adding a new module type and its templateKind in `catalog.generator.ts` automatically lights up AI inspiration for that type — no separate mapping table to keep in sync.
 
-Keeping this mapping in sync with the catalog generator and with intent/routing (e.g. `utility.effect`, `utility.floating_widget`) ensures retries and low-confidence prompts receive the right inspiration and reduces generic fallback outputs.
+---
+
+See also: [`docs/superapp-surface-inventory.md`](/Users/lavipun/Work/ai-shopify-superapp/docs/superapp-surface-inventory.md) for the full surface/capability inventory, operational boundaries, and PASS/GAP audit matrix.
 
 ---
 

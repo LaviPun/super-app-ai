@@ -419,6 +419,10 @@ export const POPUP_FREQUENCY = [
 ] as const;
 /** theme.popup showOnPages (doc 18.1). */
 export const POPUP_SHOW_ON_PAGES = ['ALL', 'HOMEPAGE', 'COLLECTION', 'PRODUCT', 'CART', 'CUSTOM'] as const;
+/** theme.contactForm submission destination. */
+export const CONTACT_FORM_SUBMISSION_MODES = ['SHOPIFY_CONTACT', 'APP_PROXY'] as const;
+/** theme.contactForm spam protection mode. */
+export const CONTACT_FORM_SPAM_PROTECTION = ['NONE', 'HONEYPOT'] as const;
 
 /** integration.httpSync + flow.automation base triggers (doc 18.2, 18.3). */
 export const INTEGRATION_HTTP_SYNC_TRIGGERS = [
@@ -547,6 +551,7 @@ export const RECIPE_SPEC_TYPES = [
   'theme.banner',
   'theme.popup',
   'theme.notificationBar',
+  'theme.contactForm',
   'theme.effect',
   'theme.floatingWidget',
   'proxy.widget',
@@ -577,6 +582,7 @@ const MODULE_TYPE_ORDER: ModuleType[] = [
   'theme.banner',
   'theme.popup',
   'theme.notificationBar',
+  'theme.contactForm',
   'theme.effect',
   'theme.floatingWidget',
   'proxy.widget',
@@ -636,6 +642,7 @@ export const MODULE_TYPE_TO_CATEGORY: Record<ModuleType, ModuleCategory> = {
   'theme.banner': 'STOREFRONT_UI',
   'theme.popup': 'STOREFRONT_UI',
   'theme.notificationBar': 'STOREFRONT_UI',
+  'theme.contactForm': 'STOREFRONT_UI',
   'theme.effect': 'STOREFRONT_UI',
   'theme.floatingWidget': 'STOREFRONT_UI',
   'proxy.widget': 'STOREFRONT_UI',
@@ -664,6 +671,7 @@ export const MODULE_TYPE_DEFAULT_REQUIRES: Record<ModuleType, readonly string[]>
   'theme.banner': ['THEME_ASSETS'],
   'theme.popup': ['THEME_ASSETS'],
   'theme.notificationBar': ['THEME_ASSETS'],
+  'theme.contactForm': ['THEME_ASSETS'],
   'theme.effect': ['THEME_ASSETS'],
   'theme.floatingWidget': ['THEME_ASSETS'],
   'proxy.widget': ['APP_PROXY'],
@@ -692,6 +700,7 @@ export const MODULE_TYPE_TO_SURFACE: Record<ModuleType, ShopifySurface> = {
   'theme.banner': 'online_store',
   'theme.popup': 'online_store',
   'theme.notificationBar': 'online_store',
+  'theme.contactForm': 'online_store',
   'theme.effect': 'online_store',
   'theme.floatingWidget': 'online_store',
   'proxy.widget': 'online_store',
@@ -749,6 +758,7 @@ export const CATALOG_COMPONENTS = [
   'banner',
   'announcement_bar',
   'notification_bar',
+  'contact_form',
   'popup',
   'modal',
   'drawer',
@@ -783,6 +793,10 @@ export interface ClassificationRule {
 }
 export const CLASSIFICATION_RULES: ClassificationRule[] = [
   { keywords: ['popup', 'pop-up', 'pop up', 'modal', 'overlay', 'lightbox'], type: 'theme.popup' },
+  {
+    keywords: ['contact form', 'contact us', 'support form', 'inquiry form', 'lead form'],
+    type: 'theme.contactForm',
+  },
   { keywords: ['banner', 'hero', 'hero banner', 'announcement banner'], type: 'theme.banner' },
   {
     keywords: ['notification bar', 'announcement bar', 'top bar', 'info bar', 'notice bar'],

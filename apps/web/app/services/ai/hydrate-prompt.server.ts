@@ -18,6 +18,9 @@ function getTypeSpecificGuidance(type: string): string {
   if (type === 'theme.banner') {
     return ' Banner: block vs embed; add dismiss/persistence defaults.';
   }
+  if (type === 'theme.contactForm') {
+    return ' Contact form: include field-visibility and required toggles, consent/privacy controls, anti-spam defaults (honeypot), and submission routing (SHOPIFY_CONTACT vs APP_PROXY) with endpoint fallback.';
+  }
   return '';
 }
 
