@@ -74,6 +74,8 @@ const MAX_LIST_ITEMS = 128;
  * @see docs/debug.md for migration context
  */
 export class MetaobjectService {
+  private readonly maxGraphqlAttempts = 4;
+  private readonly baseRetryDelayMs = 200;
   private shopGidPromise: Promise<string> | null = null;
   /** Track which definition keys have already been ensured in this request. */
   private ensuredDefs = new Set<string>();
@@ -213,10 +215,10 @@ export class MetaobjectService {
 
   /** Read the current GID array from a list.metaobject_reference shop metafield. */
   async getModuleGidList(namespace: string, key: string): Promise<string[]> {
-    const res = await this.admin.graphql(SHOP_MODULE_REFS_QUERY, {
-      variables: { namespace, key },
-    });
-    const json = await res.json();
+    const json = (await this.graphqlJson(SHOP_MODULE_REFS_QUERY, {
+      namespace,
+      key,
+    })) as { data?: { shop?: { metafield?: { value?: string | null } | null } } };
     const raw: string | null = json?.data?.shop?.metafield?.value ?? null;
     if (!raw) return [];
     try {
@@ -242,39 +244,35 @@ export class MetaobjectService {
       );
     }
     const shopGid = await this.getShopGid();
-    const res = await this.admin.graphql(METAFIELDS_SET, {
-      variables: {
-        metafields: [{
-          ownerId: shopGid,
-          namespace,
-          key,
-          type: 'list.metaobject_reference',
-          value: JSON.stringify(gids),
-        }],
-      },
-    });
-    const json = await res.json();
+    const json = (await this.graphqlJson(METAFIELDS_SET, {
+      metafields: [{
+        ownerId: shopGid,
+        namespace,
+        key,
+        type: 'list.metaobject_reference',
+        value: JSON.stringify(gids),
+      }],
+    })) as { data?: { metafieldsSet?: { userErrors?: Array<{ message: string }> } } };
     const errs = json?.data?.metafieldsSet?.userErrors ?? [];
-    if (errs.length) throw new Error(`setModuleGidList error: ${errs[0].message}`);
+    const firstErr = errs[0];
+    if (firstErr) throw new Error(`setModuleGidList error: ${firstErr.message}`);
   }
 
   /** Write a single GID to a metaobject_reference shop metafield (used for function configs). */
   async setModuleRef(namespace: string, key: string, gid: string): Promise<void> {
     const shopGid = await this.getShopGid();
-    const res = await this.admin.graphql(METAFIELDS_SET, {
-      variables: {
-        metafields: [{
-          ownerId: shopGid,
-          namespace,
-          key,
-          type: 'metaobject_reference',
-          value: gid,
-        }],
-      },
-    });
-    const json = await res.json();
+    const json = (await this.graphqlJson(METAFIELDS_SET, {
+      metafields: [{
+        ownerId: shopGid,
+        namespace,
+        key,
+        type: 'metaobject_reference',
+        value: gid,
+      }],
+    })) as { data?: { metafieldsSet?: { userErrors?: Array<{ message: string }> } } };
     const errs = json?.data?.metafieldsSet?.userErrors ?? [];
-    if (errs.length) throw new Error(`setModuleRef error: ${errs[0].message}`);
+    const firstErr = errs[0];
+    if (firstErr) throw new Error(`setModuleRef error: ${firstErr.message}`);
   }
 
   // ─── Metafield definition ──────────────────────────────────────────────────
@@ -297,8 +295,6 @@ export class MetaobjectService {
     const accessCandidates: Array<Record<string, string>> = [
       { admin: 'MERCHANT_READ_WRITE', storefront: 'PUBLIC_READ' },
       { admin: 'MERCHANT_READ_WRITE' },
-      { admin: 'PUBLIC_READ_WRITE', storefront: 'PUBLIC_READ' },
-      { admin: 'PUBLIC_READ_WRITE' },
     ];
     let lastErr: { message: string } | null = null;
 
@@ -381,10 +377,9 @@ export class MetaobjectService {
     validations: Array<{ name: string; value: string }>;
   }): Promise<{ code?: string; message: string } | null> {
     try {
-      const res = await this.admin.graphql(METAFIELD_DEFINITION_CREATE, {
-        variables: { definition },
-      });
-      const json = (await res.json()) as {
+      const json = (await this.graphqlJson(METAFIELD_DEFINITION_CREATE, {
+        definition,
+      })) as {
         errors?: Array<{ message?: string }>;
         data?: { metafieldDefinitionCreate?: { userErrors?: Array<{ code?: string; message: string }> } };
       };
@@ -403,10 +398,12 @@ export class MetaobjectService {
 
   /** Delete a metaobject by its GID (used on module unpublish/delete). */
   async deleteMetaobject(gid: string): Promise<void> {
-    const res = await this.admin.graphql(METAOBJECT_DELETE, { variables: { id: gid } });
-    const json = await res.json();
+    const json = (await this.graphqlJson(METAOBJECT_DELETE, { id: gid })) as {
+      data?: { metaobjectDelete?: { userErrors?: Array<{ message: string }> } };
+    };
     const errs = json?.data?.metaobjectDelete?.userErrors ?? [];
-    if (errs.length) throw new Error(`metaobjectDelete error: ${errs[0].message}`);
+    const firstErr = errs[0];
+    if (firstErr) throw new Error(`metaobjectDelete error: ${firstErr.message}`);
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -415,12 +412,20 @@ export class MetaobjectService {
     handle: { type: string; handle: string },
     fields: Array<{ key: string; value: string }>,
   ): Promise<string> {
-    const res = await this.admin.graphql(METAOBJECT_UPSERT, {
-      variables: { handle, metaobject: { fields } },
-    });
-    const json = await res.json();
+    const json = (await this.graphqlJson(METAOBJECT_UPSERT, {
+      handle,
+      metaobject: { fields },
+    })) as {
+      data?: {
+        metaobjectUpsert?: {
+          userErrors?: Array<{ message: string }>;
+          metaobject?: { id?: string };
+        };
+      };
+    };
     const errs = json?.data?.metaobjectUpsert?.userErrors ?? [];
-    if (errs.length) throw new Error(`metaobjectUpsert error: ${errs[0].message}`);
+    const firstErr = errs[0];
+    if (firstErr) throw new Error(`metaobjectUpsert error: ${firstErr.message}`);
     const id: string | undefined = json?.data?.metaobjectUpsert?.metaobject?.id;
     if (!id) throw new Error('metaobjectUpsert returned no id');
     return id;
@@ -429,13 +434,65 @@ export class MetaobjectService {
   private getShopGid(): Promise<string> {
     if (!this.shopGidPromise) {
       this.shopGidPromise = (async () => {
-        const res = await this.admin.graphql(SHOP_ID_QUERY);
-        const json = await res.json();
+        const json = (await this.graphqlJson(SHOP_ID_QUERY)) as {
+          data?: { shop?: { id?: string } };
+        };
         const id: string | undefined = json?.data?.shop?.id;
         if (!id) throw new Error('Unable to fetch shop id');
         return id;
       })();
     }
     return this.shopGidPromise;
+  }
+
+  private async graphqlJson(query: string, variables?: Record<string, unknown>): Promise<unknown> {
+    for (let attempt = 1; attempt <= this.maxGraphqlAttempts; attempt += 1) {
+      const response = await this.admin.graphql(
+        query,
+        variables ? { variables } : undefined,
+      );
+      const json = (await response.json()) as unknown;
+      const retryDelayMs = this.getRetryDelayMs(json, attempt);
+      if (retryDelayMs == null || attempt === this.maxGraphqlAttempts) return json;
+      await this.sleep(retryDelayMs);
+    }
+    throw new Error('GraphQL request retry loop exhausted');
+  }
+
+  private getRetryDelayMs(json: unknown, attempt: number): number | null {
+    const payload = json as {
+      errors?: Array<{ message?: string }>;
+      extensions?: {
+        cost?: {
+          requestedQueryCost?: number;
+          throttleStatus?: {
+            currentlyAvailable?: number;
+            restoreRate?: number;
+          };
+        };
+      };
+    };
+    const graphqlErrors = Array.isArray(payload?.errors) ? payload.errors : [];
+    const throttledError = graphqlErrors.some((err: { message?: string }) =>
+      String(err?.message ?? '').toLowerCase().includes('throttled'),
+    );
+
+    const throttleStatus = payload?.extensions?.cost?.throttleStatus;
+    const requestedCost = Number(payload?.extensions?.cost?.requestedQueryCost ?? 0);
+    const available = Number(throttleStatus?.currentlyAvailable ?? 0);
+    const restoreRate = Number(throttleStatus?.restoreRate ?? 0);
+    const costLimited = requestedCost > 0 && restoreRate > 0 && available < requestedCost;
+
+    if (!throttledError && !costLimited) return null;
+    if (costLimited) {
+      const deficit = requestedCost - available;
+      const refillMs = Math.ceil((deficit / restoreRate) * 1000);
+      return Math.max(refillMs, this.baseRetryDelayMs * attempt);
+    }
+    return this.baseRetryDelayMs * attempt;
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

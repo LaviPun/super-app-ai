@@ -1,6 +1,12 @@
+## 2026-05-01 Shopify hardening follow-up
+
+- Pinned app runtime API version to `2026-01` in `apps/web/app/shopify.server.ts` to match `shopify.app.toml`.
+- Removed `future.unstable_newEmbeddedAuthStrategy` from the `shopifyApp` config to avoid reliance on unstable flags.
+- Added a v3 migration prep note: keep `@shopify/shopify-app-remix` on the upgrade queue and validate auth/webhook/type changes before bumping package versions.
+
 # Implementation Status — AI Shopify SuperApp
 
-> Last updated: 2026-04-30 (first-class `theme.contactForm` shipped end-to-end: schema, compiler, template, UI settings editor, storefront runtime, and tests).
+> Last updated: 2026-04-30 (template readiness + flagship settings rollout: data-surface flags, strict installability checks, full-schema editor controls, and surface-aware preview fixtures).
 > Current automated test baseline: 179 total (per latest phase plan checkpoint). See [phase-plan.md](./phase-plan.md) for the original plan and latest scope decisions.
 > **AI Module doc alignment:** Single source of truth from [ai-module-main-doc.md](./ai-module-main-doc.md); see section below.
 > **Change propagation:** All code changes follow [codechange-behave.md](../codechange-behave.md) (impact map, propagation pass, docs/README updates).
@@ -126,6 +132,28 @@
     - `apps/web/app/routes/modules.$moduleId.tsx`
     - `apps/web/app/services/flows/flow-runner.service.ts`
   - Current warning baseline reduced from **154 → 129** (25 warnings removed) while keeping tests and lint green under the active threshold.
+
+### Latest Template Readiness + Flagship Settings Update (2026-04-30)
+
+- Added explicit Shopify data-surface capability flags in `packages/core/src/capabilities.ts`:
+  - `CUSTOMER_DATA`, `PRODUCT_DATA`, `COLLECTION_DATA`, `METAFIELD_DATA`, `METAOBJECT_DATA`, `ORDER_DATA`, `CART_DATA`, `CHECKOUT_DATA`, `FUNCTION_DATA`.
+- Extended template modernization in `packages/core/src/templates.ts` to auto-enrich each template `requires` list with the required data-surface flags by module type.
+- Tightened readiness/installability enforcement in `packages/core/src/templates.ts`:
+  - new readiness check `data.flags` with explicit missing-flag detail.
+  - `data.persistence` is now type-aware (required types stay strict; optional types are marked ready with a clear optional reason).
+  - installability now blocks templates with missing required data-surface flags.
+- Upgraded internal template detail settings UI in `apps/web/app/routes/internal.templates.$templateId.tsx`:
+  - full-access flagship editor for `requires`, `config`, `style`, and `placement`.
+  - added a capability flag selector that includes all platform + data-surface flags.
+  - preserved advanced JSON mode as fallback.
+- Upgraded preview pipeline to include surface-aware product/workflow fixtures:
+  - `apps/web/app/services/preview/preview.service.ts`
+  - `apps/web/app/routes/internal.templates.$templateId.preview.tsx`
+  - Added preview surface modes: `generic`, `product`, `collection`, `cart`, `checkout`, `postPurchase`, `customer`.
+  - Non-theme templates now render structured merchant-like preview cards (workflow context, entities, fixture products, config snapshot) instead of raw JSON-only output.
+- Added/updated tests:
+  - `packages/core/src/__tests__/templates.test.ts` (data flags + persistence policy assertions).
+  - `apps/web/app/__tests__/preview-service.test.ts` (surface-aware structured preview coverage).
 
 ### First-Class `theme.contactForm` Implementation (2026-04-30)
 
@@ -415,11 +443,33 @@ Aligned with [ai-module-main-doc.md](./ai-module-main-doc.md). Single source of 
 | Router health + containerization | `apps/web/scripts/internal-ai-router.ts`, `apps/web/Dockerfile.internal-router`, `README.md` | Added `GET /healthz`, graceful shutdown (`SIGINT`/`SIGTERM`), and a dedicated Dockerfile for fast deploy on container platforms. |
 | Router Kubernetes manifests | `deploy/internal-ai-router/*`, `README.md` | Added `kustomization` bundle (Namespace, ConfigMap, Secret template, Deployment, Service) with startup/readiness/liveness probes for one-command deploy via `kubectl apply -k deploy/internal-ai-router`. |
 | Qwen3 first-layer router hardening | `apps/web/app/schemas/prompt-router*.ts`, `apps/web/app/services/ai/prompt-router.server.ts`, `apps/web/scripts/internal-ai-router.ts`, `deploy/modal-qwen-router/*`, `README.md`, `docs/ai-providers.md` | Stable `reasonCode` enum + short `reasoning`; Remix client applies confidence/moduleType harness vs deterministic baseline, optional circuit breaker, shadow mode (call `/route` but keep deterministic decision), canary shop allowlist, in-memory metrics snapshot for tests; reference router merges model output with the same guards; default model IDs documented for Qwen3-4B-class routing; optional Modal HTTPS proxy for upstream `/route`. |
-| Qwen3 dual-target runtime switching | `apps/web/app/schemas/router-runtime-config.server.ts`, `apps/web/app/services/ai/router-runtime-config.server.ts`, `apps/web/app/routes/internal.model-setup.tsx`, `apps/web/app/services/ai/prompt-router.server.ts`, `README.md`, `docs/ai-providers.md` | Added encrypted dual-target config (`localMachine` / `modalRemote`), Internal Admin **Setup the Model** session, target-specific token rotation fields, health + route probes, guarded switch/rollback workflow, and prompt-router resolution by active target while preserving deterministic fallback guarantees and env fallback compatibility. |
+| Qwen3 dual-target runtime switching | `apps/web/app/schemas/router-runtime-config.server.ts`, `apps/web/app/services/ai/router-runtime-config.server.ts`, `apps/web/app/routes/internal.model-setup.tsx`, `apps/web/app/services/ai/prompt-router.server.ts`, `README.md`, `docs/ai-providers.md` | Added encrypted dual-target config (`localMachine` / `modalRemote`), Internal Admin **Setup the Model** session, target-specific token rotation fields, health + route probes, guarded switch/rollback workflow, per-target observability gates (schema-fail/fallback/p95), and feature-flagged router resolution (`INTERNAL_AI_ROUTER_DUAL_TARGET_ENABLED`) with deterministic fallback guarantees preserved. |
+| Internal Quin assistant test dashboard | `apps/web/app/routes/internal.ai-assistant.tsx`, `apps/web/app/routes/internal.ai-assistant.chat.stream.tsx`, `apps/web/app/services/ai/internal-assistant.server.ts`, `apps/web/app/services/ai/internal-assistant-store.server.ts`, `apps/web/prisma/schema.prisma`, `apps/web/prisma/migrations/20260501004000_add_retry_count_to_internal_ai_message/migration.sql`, `apps/web/prisma/migrations/20260501005500_add_stream_resume_fields_to_internal_ai_message/migration.sql`, `apps/web/app/routes/internal.tsx`, `apps/web/app/__tests__/internal-assistant.service.test.ts`, `README.md`, `docs/internal-admin.md` | Added Internal Admin **AI Assistant** with DB-backed multi-chat persistence, memory controls, internal tool snapshots/audits, local/cloud mode routing with failover metadata, retry/error message chips, JSON export/import, request-id based SSE resume semantics to prevent duplicate turns during reconnects, and observability timeline diagnostics (attempt status, timestamps, reconnect count, resumed markers). |
+| Premium storefront prompt quality uplift | `apps/web/app/services/ai/design-reference.server.ts`, `apps/web/app/services/ai/prompt-expectations.server.ts`, `apps/web/app/services/ai/llm.server.ts`, `apps/web/app/routes/internal.model-setup.tsx`, `apps/web/app/services/settings/settings.service.ts`, `README.md` | Added `DesignReferenceV1` prompt block with fallback reference (`bummer.in`), UI-designer/frontend-developer refinement passes, premium output guardrails, and configurable `designReferenceUrl` in Internal Admin setup. |
 | Plan tier + workspace in create-module | Same | Injects plan tier (publishable types) and workspace summary (N modules, X published, Y draft) into prompt constraints; no PII. Suggested prompts (EXAMPLE_PROMPTS from INTENT_EXAMPLES) as chips on Modules page. |
 | **Phase 3** Validator + repair loop | `apps/web/app/services/ai/llm.server.ts` | compileRepairPrompt(), validateAndRepairRecipe(); on option validation failure, one repair attempt per option (doc 15.9) |
 | **Phase 2** Confidence scoring | `apps/web/app/services/ai/classify.server.ts` | confidenceScore 0–1 (S1 keyword + S3/S4 placeholders), alternatives[], reasons[]; CONFIDENCE_THRESHOLDS (0.8, 0.55) |
 | Confidence band in API | `api.ai.create-module` response | confidenceBand: direct \| with_alternatives \| fallback; alternatives and reasons for UI |
+
+### Flow + Data-Type Touchpoints (Create Module)
+
+1. **Input capture** (`api.ai.create-module`):
+   - form inputs: `prompt`, optional `preferredType`, `preferredCategory`, `preferredBlockType`
+   - inferred constraints: plan tier + workspace counts
+2. **Classification + intent packet**:
+   - typed `ClassifyResult` + `IntentPacket` built before prompt assembly
+3. **Router decision contract**:
+   - `PromptRouterDecision` decides include-flags (`settingsPack`, `intentPacket`, `catalog`, `fullSchema`, `styleSchema`)
+4. **Provider prompt assembly**:
+   - sections: purpose/guidance, type summary, expectations, `DesignReferenceV1`, refinement passes, premium guardrails, settings pack, optional intent/catalog/schema blocks
+5. **Generation + validation/repair**:
+   - structured-output schema path when available
+   - fallback validation and repair loop if schema validation fails
+6. **Database save touchpoints**:
+   - usage/account/prompt audit via `AiUsageService` (`AiUsage.meta.promptAudit`)
+   - job lifecycle via `JobService` (`AI_GENERATE` queued/started/succeeded/failed)
+7. **Sync/publish surfaces**:
+   - generated RecipeSpec feeds storefront-theme/proxy compiler + publish flow surfaces already tracked by existing module/publish services
 
 ---
 
@@ -1552,3 +1602,38 @@ The app embed Liquid (`superapp-theme-modules.liquid`) only renders modules wher
 
 ### Key bug fixed: PLATFORM target missing moduleId
 See `debug.md §22`. Non-theme modules (`admin.block`, etc.) were published with `{ kind: 'PLATFORM' }` (no `moduleId`), so `PublishService` never wrote the metaobject. Fixed by adding `moduleId?: string` to `PLATFORM` DeployTarget and passing `module.id` in `api.publish.tsx`.
+
+---
+
+## Internal Admin QA Sweep (2026-05-01) ✅
+
+Executed strict pass/fail QA for internal admin flows with emphasis on:
+- props integrity
+- handler wiring
+- router transitions
+- form submissions
+- CTA/button actions
+- UI/UX consistency and accessibility basics
+
+### Runtime note discovered
+
+During QA, `/internal/ai-assistant` initially appeared blank in one stale local dev session. Root trigger was a stale server process state; restarting internal admin with a fresh `prisma generate` and valid `SCOPES` restored normal rendering.
+
+### Verified commands (web)
+
+- `pnpm --filter web typecheck`
+- `pnpm --filter web lint` (warnings only; no blocking errors)
+- `pnpm --filter web test -- app/__tests__/internal-assistant.service.test.ts app/__tests__/internal-assistant-tools.test.ts app/__tests__/router-runtime-config-schema.test.ts app/__tests__/design-reference.test.ts app/__tests__/internal-ai-router.test.ts app/__tests__/prompt-router.test.ts app/__tests__/preview-service.test.ts app/__tests__/internal-admin-route-closure.test.ts`
+- `pnpm --filter web build`
+- `pnpm --filter web exec prisma validate`
+
+### Route sweep result (authenticated)
+
+All core internal routes rendered and were interactable after restart:
+`/internal`, `/internal/settings`, `/internal/ai-providers`, `/internal/ai-accounts`, `/internal/model-setup`, `/internal/ai-assistant`, `/internal/usage`, `/internal/logs`, `/internal/api-logs`, `/internal/audit`, `/internal/webhooks`, `/internal/stores`, `/internal/jobs`, `/internal/categories`, `/internal/plan-tiers`, `/internal/recipe-edit`, `/internal/templates`.
+
+No P0/P1 regressions remained at sweep completion.
+
+### Scorecard closure (2026-05-01)
+
+Strict route scorecard `docs/internal-admin-qa-scorecard-2026-05-01.md` was brought to **35/35 CERTIFIED** using `apps/web/app/__tests__/internal-admin-route-closure.test.ts` (mocked OIDC callback, SSE smoke, parameterized loaders). Vitest sets `INTERNAL_ADMIN_SESSION_SECRET` in `apps/web/vitest.config.ts` for that harness.

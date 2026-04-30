@@ -1,7 +1,7 @@
 import { json } from '@remix-run/node';
 import { findTemplate, RecipeSpecSchema } from '@superapp/core';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
-import { PreviewService } from '~/services/preview/preview.service';
+import { PreviewService, type PreviewSurface } from '~/services/preview/preview.service';
 import { SettingsService } from '~/services/settings/settings.service';
 
 function getTemplateSpec(templateId: string, overridesJson: string | null) {
@@ -49,6 +49,7 @@ export async function loader({ request, params }: { request: Request; params: { 
   await requireInternalAdmin(request);
   const url = new URL(request.url);
   const mode = url.searchParams.get('mode');
+  const surface = (url.searchParams.get('surface') ?? 'generic') as PreviewSurface;
   const templateId = String(params.templateId ?? '').trim();
   if (!templateId) return json({ error: 'Missing template ID' }, { status: 400 });
 
@@ -59,7 +60,7 @@ export async function loader({ request, params }: { request: Request; params: { 
   const spec = getTemplateSpec(templateId, settings.templateSpecOverrides);
   if (!spec) return json({ error: 'Template spec unavailable' }, { status: 404 });
 
-  const preview = new PreviewService().render(spec);
+  const preview = new PreviewService().render(spec, { surface });
   if (preview.kind === 'JSON') {
     return new Response(jsonPreviewPage(preview.json, `${template.name} Preview`), {
       headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
@@ -87,10 +88,10 @@ export async function loader({ request, params }: { request: Request; params: { 
     <div class="top">Merchant storefront simulation</div>
     <div class="hero">
       <h1>Sample storefront page</h1>
-      <p>Template: ${template.name} · Type: ${template.type}</p>
+      <p>Template: ${template.name} · Type: ${template.type} · Surface: ${surface}</p>
     </div>
     <div class="canvas">
-      <iframe src="/internal/templates/${encodeURIComponent(templateId)}/preview"></iframe>
+      <iframe src="/internal/templates/${encodeURIComponent(templateId)}/preview?surface=${encodeURIComponent(surface)}"></iframe>
     </div>
   </body>
 </html>`;

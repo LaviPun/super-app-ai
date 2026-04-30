@@ -14,6 +14,9 @@ import {
   getPromptExpectations,
   getModifyPromptExpectations,
   PROMPT_PURPOSE_AND_GUIDANCE,
+  UI_DESIGNER_REFINEMENT_PASS,
+  FRONTEND_DEVELOPER_REFINEMENT_PASS,
+  PREMIUM_OUTPUT_GUARDRAILS,
   getFullRecipeSchemaSpec,
   getStorefrontStyleSchemaSpec,
   getSettingsPack,
@@ -30,6 +33,7 @@ import {
   getRecipeSingleJsonSchemaForType,
 } from '~/services/ai/recipe-json-schema.server';
 import type { PromptRouterDecision } from '~/schemas/prompt-router.server';
+import { buildDesignReferencePromptBlock, resolveDesignReferencePack } from '~/services/ai/design-reference.server';
 
 import { getPrisma } from '~/db.server';
 
@@ -405,10 +409,18 @@ export function compileCreateModulePrompt(params: {
   intentPacketJson?: string;
   /** Prompt profile from ROUTING_TABLE (e.g. storefront_ui_v1). Drives surface-specific guidance. */
   promptProfile?: string;
+  designReferenceBlock?: string;
+  uiDesignerPass?: string;
+  frontendDeveloperPass?: string;
+  premiumGuardrails?: string;
 }): string {
   const profileGuidance = params.promptProfile ? PROFILE_GUIDANCE[params.promptProfile] : undefined;
 
-  const parts: string[] = [
+  const parts: string[] = [];
+  if (params.designReferenceBlock) {
+    parts.push(params.designReferenceBlock, '');
+  }
+  parts.push(
     params.purposeAndGuidance,
     '',
     'Task: Generate exactly 3 different module options for the merchant\'s request. Vary by approach (content, trigger, when/where it shows, or styling).',
@@ -421,9 +433,18 @@ export function compileCreateModulePrompt(params: {
     params.expectations,
     '',
     `User request: ${params.userRequest}`,
-  ];
+  );
   if (profileGuidance) {
     parts.push('', profileGuidance);
+  }
+  if (params.uiDesignerPass) {
+    parts.push('', params.uiDesignerPass);
+  }
+  if (params.frontendDeveloperPass) {
+    parts.push('', params.frontendDeveloperPass);
+  }
+  if (params.premiumGuardrails) {
+    parts.push('', params.premiumGuardrails);
   }
   if (params.settingsPack) {
     parts.push('', params.settingsPack);
@@ -454,17 +475,17 @@ export const APPROACH_HINTS: ReadonlyArray<{ label: string; hint: string }> = [
   {
     label: 'Conservative',
     hint:
-      'Approach: take the most conservative interpretation of the request. Prefer safe defaults, mainstream patterns, and a single clear primary CTA. This option should feel "safe to ship to any store."',
+      'Approach: prioritize trust and clarity. Use low-friction trigger behavior, calm visual hierarchy, high readability, and one obvious CTA. Include subtle but clear interaction states. This should feel safe and premium for broad storefront audiences.',
   },
   {
     label: 'High-conversion',
     hint:
-      'Approach: optimize for conversion. Use stronger triggers (e.g. exit intent / scroll), urgency cues if appropriate, and tighter copy. This option should feel "aggressive but on-brand."',
+      'Approach: optimize for action. Use stronger trigger timing and placement, sharper value framing, and stronger CTA prominence while preserving accessibility and brand credibility. Include urgency only when contextually justified.',
   },
   {
     label: 'Targeted',
     hint:
-      'Approach: target a specific audience or page. Narrow the trigger and showOnPages, lean on personalization, and write copy for the target visitor. This option should feel "precision-aimed."',
+      'Approach: optimize for a specific shopper segment or page context. Narrow audience, placement, and message fit, then adapt hierarchy and emphasis to that context. This should feel precise and non-generic.',
   },
 ];
 
@@ -488,13 +509,21 @@ export function compileCreateSingleRecipePrompt(params: {
   previousError?: string;
   intentPacketJson?: string;
   promptProfile?: string;
+  designReferenceBlock?: string;
+  uiDesignerPass?: string;
+  frontendDeveloperPass?: string;
+  premiumGuardrails?: string;
 }): string {
   const profileGuidance = params.promptProfile ? PROFILE_GUIDANCE[params.promptProfile] : undefined;
-  const parts: string[] = [
+  const parts: string[] = [];
+  if (params.designReferenceBlock) {
+    parts.push(params.designReferenceBlock, '');
+  }
+  parts.push(
     params.purposeAndGuidance,
     '',
     `Task: Generate exactly 1 module of type "${params.moduleType}" for the merchant's request. Output a JSON object: { "explanation": "1-2 sentences", "recipe": { ...one full RecipeSpec... } }.`,
-  ];
+  );
   if (params.approachHint) {
     parts.push('', params.approachHint);
   }
@@ -508,6 +537,9 @@ export function compileCreateSingleRecipePrompt(params: {
     `User request: ${params.userRequest}`,
   );
   if (profileGuidance) parts.push('', profileGuidance);
+  if (params.uiDesignerPass) parts.push('', params.uiDesignerPass);
+  if (params.frontendDeveloperPass) parts.push('', params.frontendDeveloperPass);
+  if (params.premiumGuardrails) parts.push('', params.premiumGuardrails);
   if (params.settingsPack) parts.push('', params.settingsPack);
   if (params.intentPacketJson) {
     parts.push('', 'PromptIntentSeedV1 (compact intent+routing context; do not change it):', params.intentPacketJson);
@@ -712,6 +744,15 @@ function repairRecipeForValidation(raw: unknown): unknown {
   }
 
   const style = o.style as Record<string, unknown> | undefined;
+  const placement = o.placement as Record<string, unknown> | undefined;
+  if (placement && typeof placement === 'object') {
+    const hasEnabled = placement.enabled_on && typeof placement.enabled_on === 'object';
+    const hasDisabled = placement.disabled_on && typeof placement.disabled_on === 'object';
+    if (hasEnabled && hasDisabled) {
+      // Keep the positive directive and drop the conflicting exclusion branch.
+      delete placement.disabled_on;
+    }
+  }
   if (style?.layout && typeof style.layout === 'object') {
     const layout = style.layout as Record<string, unknown>;
     const anchor = layout.anchor;
@@ -948,6 +989,7 @@ export async function* generateValidatedRecipeOptionsStream(
     : isLowConfidence;
   const fullSchemaSpec = !singleSchema && includeFullSchema ? getFullRecipeSchemaSpec(classification.moduleType) : undefined;
   const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'theme.floatingWidget', 'proxy.widget'];
+  const isStorefront = storefrontTypes.includes(classification.moduleType);
   const includeStyleSchema = options?.routerDecision
     ? options.routerDecision.includeFlags.includeStyleSchema
     : isLowConfidence;
@@ -962,6 +1004,12 @@ export async function* generateValidatedRecipeOptionsStream(
   const intentPacketJson = options?.routerDecision?.includeFlags.includeIntentPacket === false
     ? undefined
     : options?.intentPacketJson;
+  const designReferenceBlock = isStorefront
+    ? buildDesignReferencePromptBlock(await resolveDesignReferencePack())
+    : undefined;
+  const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
+  const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
+  const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
 
   type OneResult =
     | { kind: 'ok'; index: number; approach: string; option: RecipeOption; durationMs: number }
@@ -983,6 +1031,10 @@ export async function* generateValidatedRecipeOptionsStream(
       settingsPack,
       intentPacketJson,
       promptProfile: options?.promptProfile,
+      designReferenceBlock,
+      uiDesignerPass,
+      frontendDeveloperPass,
+      premiumGuardrails,
     });
 
     let tokensIn = 0;
@@ -1146,6 +1198,7 @@ export async function generateValidatedRecipeOptionsParallel(
     : isLowConfidence;
   const fullSchemaSpec = !singleSchema && includeFullSchema ? getFullRecipeSchemaSpec(classification.moduleType) : undefined;
   const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'theme.floatingWidget', 'proxy.widget'];
+  const isStorefront = storefrontTypes.includes(classification.moduleType);
   const includeStyleSchema = options?.routerDecision
     ? options.routerDecision.includeFlags.includeStyleSchema
     : isLowConfidence;
@@ -1160,6 +1213,12 @@ export async function generateValidatedRecipeOptionsParallel(
   const intentPacketJson = options?.routerDecision?.includeFlags.includeIntentPacket === false
     ? undefined
     : options?.intentPacketJson;
+  const designReferenceBlock = isStorefront
+    ? buildDesignReferencePromptBlock(await resolveDesignReferencePack())
+    : undefined;
+  const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
+  const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
+  const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
 
   const calls = APPROACH_HINTS.slice(0, optionCount).map(async (approach, idx) => {
     const compiledPrompt = compileCreateSingleRecipePrompt({
@@ -1176,6 +1235,10 @@ export async function generateValidatedRecipeOptionsParallel(
       settingsPack,
       intentPacketJson,
       promptProfile: options?.promptProfile,
+      designReferenceBlock,
+      uiDesignerPass,
+      frontendDeveloperPass,
+      premiumGuardrails,
     });
 
     let tokensIn = 0;
@@ -1301,10 +1364,17 @@ export async function generateValidatedRecipeOptions(
   const isLowConfidence = routerConfidence < CONFIDENCE_THRESHOLDS.DIRECT;
   const isHighConfidence = routerConfidence >= CONFIDENCE_THRESHOLDS.DIRECT;
   const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'theme.floatingWidget', 'proxy.widget'];
+  const isStorefront = storefrontTypes.includes(classification.moduleType);
   // Settings pack is always injected — it's lightweight and ensures the AI populates all relevant fields.
   const settingsPack = options?.routerDecision?.includeFlags.includeSettingsPack === false
     ? undefined
     : getSettingsPack(classification.moduleType);
+  const designReferenceBlock = isStorefront
+    ? buildDesignReferencePromptBlock(await resolveDesignReferencePack())
+    : undefined;
+  const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
+  const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
+  const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
   // Skip full types list when confidence is high — the type is already known, saves ~2K tokens.
   const typesList = isHighConfidence ? `Available type: ${classification.moduleType}` : getAllTypesSummary();
 
@@ -1352,6 +1422,10 @@ export async function generateValidatedRecipeOptions(
       previousError: lastErr ? String(lastErr) : undefined,
       intentPacketJson: includeIntentPacket ? options?.intentPacketJson : undefined,
       promptProfile: options?.promptProfile,
+      designReferenceBlock,
+      uiDesignerPass,
+      frontendDeveloperPass,
+      premiumGuardrails,
     });
 
     const optionsBudget = getRecipeOptionsTokenBudget(classification.moduleType, 3);
@@ -1759,7 +1833,8 @@ function buildPromptAudit(prompt?: string): { sha256: string; chars: number; pre
   return {
     sha256: crypto.createHash('sha256').update(prompt).digest('hex'),
     chars: prompt.length,
-    preview: prompt.slice(0, 500),
+    // Include enough context to surface DesignReferenceV1 and premium guidance blocks in audits.
+    preview: prompt.slice(0, 1200),
   };
 }
 

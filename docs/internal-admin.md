@@ -37,6 +37,7 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 - **Templates** — Module templates (link to recipe-edit) and Flow templates section
 - **Activity log** — covers *everything*: page opened, page refreshed, button/link clicks, settings changes, request success/error (not just modules/server). API log = APIs only; Error log = errors only. Per-entry **View** opens full detail (actor, action, resource, store, IP, details JSON)
 - **AI Providers** — configured providers show **masked API key** (e.g. ••••••••xyz1), model, base URL; for **Claude (ANTHROPIC)** you can set Agent Skills (e.g. pptx, xlsx) and enable code execution; model pricing table
+- **AI Assistant** — `/internal/ai-assistant` personal Quin 3 test console with local/cloud mode switch, DB-backed multi-chat history, memory controls, tool audits, and resumable SSE chat streaming for internal capability checks
 - **Settings** — includes **AI & API keys** (link to Manage AI providers for Claude/OpenAI keys and options), **Password management** (INTERNAL_ADMIN_PASSWORD / SSO), **Environment variables** (.env reference), and **Advanced** (store & plan control). Standalone **Advanced** nav removed; `/internal/advanced` redirects to Settings
 
 ---
@@ -48,6 +49,7 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 | `/internal/login` | Password or SSO login |
 | `/internal` | Dashboard home (store count, error count, AI calls 24h) |
 | `/internal/ai-providers` | Add/activate AI providers + set model pricing |
+| `/internal/ai-assistant` | Quin 3 internal dashboard (local/cloud mode switch, DB-backed sessions/history, memory/tools, observability) |
 | `/internal/usage` | AI usage + costs (last 30 days); per-row **Replay** + **Trace** |
 | `/internal/logs` | Error logs (auto-redacted); per-row **Trace** |
 | `/internal/api-logs` | API access logs with actor, path, status, duration, requestId, correlationId, SSE **Live tail**, per-row **Trace** |
@@ -105,6 +107,59 @@ Use `/internal/ai-providers` to:
 - `CUSTOM` — any OpenAI-compatible endpoint (tries `/v1/responses`, falls back to `/v1/chat/completions`)
 
 ---
+
+## Internal AI Assistant setup
+
+The AI Assistant lives at `/internal/ai-assistant` and uses the same runtime target configuration as **Setup the Model** (`/internal/model-setup`).
+
+### 1) Configure local Quin (LOCAL mode)
+
+Set the local target URL/model in **Setup the Model**:
+
+- `localMachine.url` e.g. `http://127.0.0.1:11434`
+- `localMachine.backend` = `ollama` (or `qwen3/custom` if your local server is OpenAI-compatible)
+- `localMachine.model` e.g. `qwen3:latest`
+
+For Ollama local chat, ensure:
+
+```bash
+ollama serve
+ollama pull qwen3:latest
+```
+
+### 2) Configure cloud Quin (CLOUD mode)
+
+Set the remote target in **Setup the Model**:
+
+- `modalRemote.url` e.g. your HTTPS inference endpoint
+- `modalRemote.backend` = `qwen3` / `openai` / `custom`
+- `modalRemote.model` = cloud model id
+- token field (optional/required based on provider)
+
+### 3) Runtime behavior
+
+- Session mode controls which target is preferred per chat.
+- If preferred target fails and fallback is available, assistant attempts failover.
+- Tool snapshots are sanitized and injected as context when user intent asks for health/errors/logs.
+- Every tool execution is written to `InternalAiToolAudit` and activity logs.
+- Chat streaming uses SSE with request-id idempotency, so reconnect attempts resume from persisted assistant state instead of creating duplicate turns.
+- Observability panel includes request-id diagnostics, per-attempt status timeline, reconnect counts, and resume markers for operator debugging.
+
+---
+
+## AI Assistant deployment notes
+
+- Run Prisma migration and regenerate client:
+
+```bash
+cd apps/web
+pnpm prisma migrate deploy
+pnpm prisma generate
+```
+
+- Ensure internal admin env vars are present (password/SSO/session secret).
+- Ensure both local/cloud model target URLs and tokens are configured in `/internal/model-setup`.
+- Verify SSE compatibility at proxy/load-balancer (no response buffering for `text/event-stream`).
 
 ## Jobs and DLQ
 

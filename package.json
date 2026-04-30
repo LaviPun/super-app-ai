@@ -4,6 +4,8 @@
   "packageManager": "pnpm@9.12.2",
   "scripts": {
     "dev": "pnpm -r dev",
+    "dev:web": "pnpm --filter web dev",
+    "shopify:dev": "shopify app dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",

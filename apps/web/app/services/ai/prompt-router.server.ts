@@ -340,9 +340,7 @@ async function fetchAndMergeRouterDecision(
   if (!baseUrl) return null;
   const endpoint = `${baseUrl.replace(/\/+$/, '')}/route`;
   const authToken = runtime.token?.trim();
-  const timeoutMs = runtime.target === 'localMachine'
-    ? Number(process.env.INTERNAL_AI_ROUTER_TIMEOUT_MS?.trim() || '1200')
-    : 2000;
+  const timeoutMs = runtime.timeoutMs;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const started = Date.now();

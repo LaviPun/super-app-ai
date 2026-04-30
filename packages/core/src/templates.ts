@@ -1,6 +1,7 @@
-import type { RecipeSpec } from './recipe.js';
+import { RecipeSpecSchema, type RecipeSpec } from './recipe.js';
 import type { ModuleCategory } from './allowed-values.js';
 import { MODULE_CATEGORIES } from './allowed-values.js';
+import type { Capability } from './capabilities.js';
 import { PART1_TEMPLATES } from './_templates_part1.js';
 import { PART2_TEMPLATES } from './_templates_part2.js';
 import { PART3_TEMPLATES } from './_templates_part3.js';
@@ -29,6 +30,8 @@ export type TemplateReadiness = {
   type: string;
   hasAdvancedSettings: boolean;
   dataSaveReady: boolean;
+  requiredDataFlags: Capability[];
+  missingDataFlags: Capability[];
   storageMode: TemplateStorageMode;
   dbModels: string[];
   checks: {
@@ -64,6 +67,65 @@ const TEMPLATE_SOURCE: TemplateEntry[] = [
   ...PART3_TEMPLATES,
   ...PART4_TEMPLATES,
 ];
+
+function uniqCapabilities(flags: Capability[]): Capability[] {
+  return Array.from(new Set(flags));
+}
+
+function getRequiredDataFlagsForType(type: string): Capability[] {
+  switch (type) {
+    case 'theme.banner':
+    case 'theme.popup':
+    case 'theme.notificationBar':
+    case 'theme.floatingWidget':
+    case 'theme.effect':
+      return ['PRODUCT_DATA', 'COLLECTION_DATA', 'METAFIELD_DATA'];
+    case 'theme.contactForm':
+      return ['CUSTOMER_DATA', 'PRODUCT_DATA', 'COLLECTION_DATA', 'METAFIELD_DATA'];
+    case 'proxy.widget':
+      return ['PRODUCT_DATA', 'COLLECTION_DATA', 'CART_DATA', 'CUSTOMER_DATA'];
+    case 'functions.discountRules':
+    case 'functions.deliveryCustomization':
+    case 'functions.paymentCustomization':
+    case 'functions.cartAndCheckoutValidation':
+    case 'functions.cartTransform':
+    case 'functions.fulfillmentConstraints':
+    case 'functions.orderRoutingLocationRule':
+      return ['FUNCTION_DATA', 'PRODUCT_DATA', 'ORDER_DATA', 'CART_DATA', 'CHECKOUT_DATA', 'METAFIELD_DATA', 'METAOBJECT_DATA'];
+    case 'checkout.upsell':
+    case 'checkout.block':
+      return ['CHECKOUT_DATA', 'CART_DATA', 'PRODUCT_DATA', 'CUSTOMER_DATA', 'ORDER_DATA'];
+    case 'postPurchase.offer':
+      return ['ORDER_DATA', 'PRODUCT_DATA', 'CUSTOMER_DATA', 'CHECKOUT_DATA'];
+    case 'admin.block':
+    case 'admin.action':
+      return ['PRODUCT_DATA', 'COLLECTION_DATA', 'ORDER_DATA', 'CUSTOMER_DATA', 'METAFIELD_DATA', 'METAOBJECT_DATA'];
+    case 'pos.extension':
+      return ['ORDER_DATA', 'PRODUCT_DATA', 'CUSTOMER_DATA', 'CART_DATA'];
+    case 'analytics.pixel':
+      return ['CUSTOMER_DATA', 'PRODUCT_DATA', 'COLLECTION_DATA', 'CART_DATA', 'CHECKOUT_DATA', 'ORDER_DATA'];
+    case 'integration.httpSync':
+      return ['CUSTOMER_DATA', 'PRODUCT_DATA', 'COLLECTION_DATA', 'ORDER_DATA', 'CART_DATA', 'CHECKOUT_DATA', 'METAFIELD_DATA', 'METAOBJECT_DATA'];
+    case 'flow.automation':
+      return ['FUNCTION_DATA', 'CUSTOMER_DATA', 'PRODUCT_DATA', 'COLLECTION_DATA', 'ORDER_DATA', 'CART_DATA', 'CHECKOUT_DATA', 'METAFIELD_DATA', 'METAOBJECT_DATA'];
+    case 'platform.extensionBlueprint':
+      return ['METAFIELD_DATA', 'METAOBJECT_DATA'];
+    case 'customerAccount.blocks':
+      return ['CUSTOMER_DATA', 'ORDER_DATA', 'METAFIELD_DATA', 'METAOBJECT_DATA'];
+    default:
+      return [];
+  }
+}
+
+function withDataSurfaceRequires(spec: RecipeSpec): RecipeSpec {
+  const existing = Array.isArray(spec.requires) ? [...spec.requires] as Capability[] : [];
+  const requiredFlags = getRequiredDataFlagsForType(spec.type);
+  if (requiredFlags.length === 0) return spec;
+  return {
+    ...spec,
+    requires: uniqCapabilities([...existing, ...requiredFlags]),
+  };
+}
 
 function withFlowDefaults(spec: RecipeSpec): RecipeSpec {
   if (spec.type !== 'flow.automation') return spec;
@@ -287,7 +349,7 @@ function withTypeDefaults(spec: RecipeSpec): RecipeSpec {
 
 function modernizeTemplateEntry(template: TemplateEntry): TemplateEntry {
   const typed = template.spec;
-  const withDefaults = withTypeDefaults(withFlowDefaults(typed));
+  const withDefaults = withDataSurfaceRequires(withTypeDefaults(withFlowDefaults(typed)));
   return {
     ...template,
     spec: withDefaults,
@@ -305,12 +367,6 @@ export function getTemplatesByCategory(category?: string): TemplateEntry[] {
   return MODULE_TEMPLATES.filter(t => t.category === category);
 }
 
-function hasKeys(value: unknown, requiredKeys: string[]): boolean {
-  if (!value || typeof value !== 'object') return false;
-  const obj = value as Record<string, unknown>;
-  return requiredKeys.every((k) => obj[k] !== undefined);
-}
-
 export function getTemplateReadiness(template: TemplateEntry): TemplateReadiness {
   const cfg = template.spec.config as Record<string, unknown>;
   const specMeta = template.spec as Record<string, unknown>;
@@ -324,31 +380,8 @@ export function getTemplateReadiness(template: TemplateEntry): TemplateReadiness
     detail: hasStyle && hasPlacement ? 'Has style + placement metadata' : 'Missing style or placement metadata',
   });
 
-  const typeSpecificAdvanced =
-    (template.type === 'theme.popup' && hasKeys(cfg, ['trigger', 'frequency', 'maxShowsPerDay', 'showOnPages'])) ||
-    (template.type === 'theme.contactForm' && hasKeys(cfg, ['submissionMode', 'spamProtection', 'showName', 'showEmail', 'showMessage'])) ||
-    (template.type === 'theme.banner' && hasKeys(cfg, ['heading', 'subheading', 'ctaText'])) ||
-    (template.type === 'theme.notificationBar' && hasKeys(cfg, ['message', 'linkText', 'dismissible'])) ||
-    (template.type === 'theme.floatingWidget' && hasKeys(cfg, ['variant', 'onClick', 'anchor'])) ||
-    (template.type === 'integration.httpSync' && hasKeys(cfg, ['connectorId', 'endpointPath', 'payloadMapping'])) ||
-    (template.type === 'flow.automation' && Array.isArray(cfg.steps) && cfg.steps.length > 0) ||
-    (template.type === 'functions.discountRules' && Array.isArray((cfg.rules as unknown[] | undefined) ?? []) && (cfg.rules as unknown[]).length > 0) ||
-    (template.type === 'functions.deliveryCustomization' && Array.isArray((cfg.rules as unknown[] | undefined) ?? []) && (cfg.rules as unknown[]).length > 0) ||
-    (template.type === 'functions.paymentCustomization' && Array.isArray((cfg.rules as unknown[] | undefined) ?? []) && (cfg.rules as unknown[]).length > 0) ||
-    (template.type === 'functions.cartAndCheckoutValidation' && hasKeys(cfg, ['errorMessage'])) ||
-    (template.type === 'functions.cartTransform' && hasKeys(cfg, ['mode', 'bundles'])) ||
-    (template.type === 'functions.fulfillmentConstraints' && Array.isArray((cfg.rules as unknown[] | undefined) ?? [])) ||
-    (template.type === 'functions.orderRoutingLocationRule' && Array.isArray((cfg.rules as unknown[] | undefined) ?? [])) ||
-    (template.type === 'checkout.block' && hasKeys(cfg, ['target', 'title', 'message'])) ||
-    (template.type === 'checkout.upsell' && hasKeys(cfg, ['offerTitle', 'productVariantGid'])) ||
-    (template.type === 'postPurchase.offer' && hasKeys(cfg, ['offerTitle', 'message'])) ||
-    (template.type === 'analytics.pixel' && hasKeys(cfg, ['events', 'mapping'])) ||
-    (template.type === 'customerAccount.blocks' && hasKeys(cfg, ['target', 'blocks'])) ||
-    (template.type === 'admin.block' && hasKeys(cfg, ['target', 'title'])) ||
-    (template.type === 'admin.action' && hasKeys(cfg, ['target', 'label'])) ||
-    (template.type === 'pos.extension' && hasKeys(cfg, ['target', 'blockKind'])) ||
-    (template.type === 'platform.extensionBlueprint' && hasKeys(cfg, ['surface', 'goal', 'suggestedFiles'])) ||
-    (template.type === 'proxy.widget' && hasKeys(cfg, ['widgetId', 'mode']));
+  const advancedValidation = RecipeSpecSchema.safeParse(template.spec);
+  const typeSpecificAdvanced = advancedValidation.success;
 
   checks.push({
     id: 'advanced.settings',
@@ -370,11 +403,25 @@ export function getTemplateReadiness(template: TemplateEntry): TemplateReadiness
   else if (hasContactCapture || hasAnalyticsCapture) storageMode = 'DATA_CAPTURE';
   else if (hasExternalSync) storageMode = 'EXTERNAL_SYNC';
 
-  const dataSaveReady = storageMode !== 'NONE';
+  const dataSaveRequired = TEMPLATE_TYPES_REQUIRING_DATA_SAVE.has(template.type);
+  const dataSaveReady = dataSaveRequired ? storageMode !== 'NONE' : true;
   checks.push({
     id: 'data.persistence',
     ok: dataSaveReady,
-    detail: dataSaveReady ? `Data persistence mode: ${storageMode}` : 'No direct data persistence path in this template',
+    detail: dataSaveReady
+      ? (dataSaveRequired ? `Data persistence mode: ${storageMode}` : 'Persistence not required for this template type')
+      : 'No direct data persistence path in this template',
+  });
+
+  const requiredDataFlags = getRequiredDataFlagsForType(template.type);
+  const presentFlags = new Set((template.spec.requires ?? []) as Capability[]);
+  const missingDataFlags = requiredDataFlags.filter((flag) => !presentFlags.has(flag));
+  checks.push({
+    id: 'data.flags',
+    ok: missingDataFlags.length === 0,
+    detail: missingDataFlags.length === 0
+      ? 'All required Shopify data-surface flags are declared'
+      : `Missing required data flags: ${missingDataFlags.join(', ')}`,
   });
 
   const dbModels: string[] = [];
@@ -387,6 +434,8 @@ export function getTemplateReadiness(template: TemplateEntry): TemplateReadiness
     type: template.type,
     hasAdvancedSettings: typeSpecificAdvanced,
     dataSaveReady,
+    requiredDataFlags,
+    missingDataFlags,
     storageMode,
     dbModels,
     checks,
@@ -403,6 +452,10 @@ export function getTemplateInstallability(template: TemplateEntry): TemplateInst
 
   if (TEMPLATE_TYPES_REQUIRING_DATA_SAVE.has(template.type) && !readiness.dataSaveReady) {
     reasons.push('Template must provide a data-save path (DataCapture, DataStore, or external sync).');
+  }
+
+  if (readiness.missingDataFlags.length > 0) {
+    reasons.push(`Template must declare required Shopify data flags: ${readiness.missingDataFlags.join(', ')}.`);
   }
 
   return {

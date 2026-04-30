@@ -710,7 +710,7 @@ export default function InternalSettings() {
             </Text>
             <InlineStack gap="200">
               <Button url="/internal/ai-providers">Manage AI providers</Button>
-              <Button url="/internal/model-setup">Setup the Model</Button>
+              <Button url="/internal/model-setup">Local AI Setting</Button>
             </InlineStack>
           </BlockStack>
         </Card>

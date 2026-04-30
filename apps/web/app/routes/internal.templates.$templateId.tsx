@@ -1,15 +1,14 @@
 import { json, redirect } from '@remix-run/node';
 import { Form, useActionData, useLoaderData, useNavigation, useSearchParams } from '@remix-run/react';
-import { Badge, Banner, BlockStack, Button, Card, DataTable, InlineGrid, InlineStack, Page, Select, Text, TextField } from '@shopify/polaris';
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+import { Badge, Banner, BlockStack, Button, Card, ChoiceList, DataTable, InlineGrid, InlineStack, Page, Select, Text, TextField } from '@shopify/polaris';
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import {
+  CAPABILITIES,
   findTemplate,
   getTemplateInstallability,
   getTemplateReadiness,
-  POPUP_FREQUENCY,
-  POPUP_SHOW_ON_PAGES,
-  POPUP_TRIGGERS,
   RecipeSpecSchema,
+  type Capability,
   type TemplateEntry,
 } from '@superapp/core';
 import { getPrisma } from '~/db.server';
@@ -169,6 +168,7 @@ export default function InternalTemplateDetailRoute() {
   const [storeId, setStoreId] = useState(stores[0]?.id ?? '');
   const [previewViewport, setPreviewViewport] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   const [previewMode, setPreviewMode] = useState<'merchant' | 'raw'>('merchant');
+  const [previewSurface, setPreviewSurface] = useState<'generic' | 'product' | 'collection' | 'cart' | 'checkout' | 'postPurchase' | 'customer'>('generic');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [specEditorText, setSpecEditorText] = useState('');
   const [editableSpec, setEditableSpec] = useState<Record<string, unknown> | null>(null);
@@ -194,15 +194,11 @@ export default function InternalTemplateDetailRoute() {
     return [key, valueType, raw.length > 120 ? `${raw.slice(0, 120)}...` : raw];
   });
   const viewportWidth = previewViewport === 'desktop' ? '100%' : previewViewport === 'tablet' ? '820px' : '430px';
-  const effectivePreviewUrl = `${previewUrl}${previewMode === 'merchant' ? '?mode=merchant' : ''}`;
+  const effectivePreviewUrl = `${previewUrl}?surface=${encodeURIComponent(previewSurface)}${previewMode === 'merchant' ? '&mode=merchant' : ''}`;
   const isSubmittingOverride = navigation.state === 'submitting' && navigation.formData?.get('intent') === 'saveTemplateOverride';
-  const isPopup = template.type === 'theme.popup';
-  const isBanner = template.type === 'theme.banner';
-  const isNotificationBar = template.type === 'theme.notificationBar';
-  const isContactForm = template.type === 'theme.contactForm';
-  const isFloatingWidget = template.type === 'theme.floatingWidget';
   const previewModeOptions = ['merchant', 'raw'] as const;
   const previewViewportOptions = ['desktop', 'tablet', 'mobile'] as const;
+  const capabilityChoices = CAPABILITIES.map((capability) => ({ label: capability, value: capability }));
 
   const updateEditableSpec = (updater: (current: Record<string, unknown>) => Record<string, unknown>) => {
     setEditableSpec((current) => {
@@ -211,14 +207,148 @@ export default function InternalTemplateDetailRoute() {
     });
   };
 
-  const updateConfigField = (key: string, value: unknown) => {
-    updateEditableSpec((current) => {
-      const config = (current.config && typeof current.config === 'object'
-        ? current.config
-        : {}) as Record<string, unknown>;
-      return { ...current, config: { ...config, [key]: value } };
-    });
-  };
+  const updateSpecPath = useCallback((path: Array<string | number>, nextValue: unknown) => {
+    const applyPath = (currentValue: unknown, pathIndex: number): unknown => {
+      const pathKey = path[pathIndex];
+      if (pathKey === undefined) return nextValue;
+
+      if (Array.isArray(currentValue)) {
+        const nextArray = [...currentValue];
+        const index = Number(pathKey);
+        nextArray[index] = applyPath(nextArray[index], pathIndex + 1);
+        return nextArray;
+      }
+
+      const sourceObj = (currentValue && typeof currentValue === 'object')
+        ? (currentValue as Record<string, unknown>)
+        : {};
+      const nextObj: Record<string, unknown> = { ...sourceObj };
+      nextObj[String(pathKey)] = applyPath(sourceObj[String(pathKey)], pathIndex + 1);
+      return nextObj;
+    };
+
+    updateEditableSpec((current) => applyPath(current, 0) as Record<string, unknown>);
+  }, []);
+
+  const renderDynamicField = useCallback((fieldPath: Array<string | number>, value: unknown, depth = 0) => {
+    const key = fieldPath.join('.');
+    const label = fieldPath[fieldPath.length - 1] ? String(fieldPath[fieldPath.length - 1]) : 'value';
+    const spacing = depth > 0 ? { marginLeft: Math.min(depth * 12, 48) } : undefined;
+
+    if (typeof value === 'string') {
+      return (
+        <div key={key} style={spacing}>
+          <TextField
+            label={label}
+            value={value}
+            onChange={(next) => updateSpecPath(fieldPath, next)}
+            autoComplete="off"
+          />
+        </div>
+      );
+    }
+
+    if (typeof value === 'number') {
+      return (
+        <div key={key} style={spacing}>
+          <TextField
+            label={label}
+            type="number"
+            value={String(value)}
+            onChange={(next) => {
+              const parsed = Number(next);
+              updateSpecPath(fieldPath, Number.isFinite(parsed) ? parsed : 0);
+            }}
+            autoComplete="off"
+          />
+        </div>
+      );
+    }
+
+    if (typeof value === 'boolean') {
+      return (
+        <div key={key} style={spacing}>
+          <Select
+            label={label}
+            options={[
+              { label: 'true', value: 'true' },
+              { label: 'false', value: 'false' },
+            ]}
+            value={value ? 'true' : 'false'}
+            onChange={(next) => updateSpecPath(fieldPath, next === 'true')}
+          />
+        </div>
+      );
+    }
+
+    if (Array.isArray(value)) {
+      const scalarArray = value.every((item) => item == null || ['string', 'number', 'boolean'].includes(typeof item));
+      return (
+        <BlockStack key={key} gap="100">
+          <Text as="p" variant="bodySm" fontWeight="medium" tone="subdued">{label}</Text>
+          {scalarArray ? (
+            <TextField
+              label={`${label} values`}
+              value={value.map((item) => String(item ?? '')).join('\n')}
+              onChange={(next) => {
+                const split = next.split('\n').map((entry) => entry.trim()).filter(Boolean);
+                updateSpecPath(fieldPath, split);
+              }}
+              multiline={4}
+              autoComplete="off"
+            />
+          ) : (
+            <textarea
+              aria-label={`${label} JSON`}
+              value={JSON.stringify(value, null, 2)}
+              onChange={(event) => {
+                try {
+                  updateSpecPath(fieldPath, JSON.parse(event.currentTarget.value));
+                } catch {
+                  // allow typing incomplete JSON
+                }
+              }}
+              rows={8}
+              style={{
+                width: '100%',
+                fontFamily: 'ui-monospace, monospace',
+                fontSize: 13,
+                padding: 10,
+                border: '1px solid var(--p-color-border)',
+                borderRadius: 8,
+                boxSizing: 'border-box',
+              }}
+            />
+          )}
+        </BlockStack>
+      );
+    }
+
+    if (value && typeof value === 'object') {
+      return (
+        <Card key={key}>
+          <BlockStack gap="200">
+            <Text as="h4" variant="headingSm">{label}</Text>
+            <BlockStack gap="200">
+              {Object.entries(value as Record<string, unknown>).map(([childKey, childValue]) =>
+                renderDynamicField([...fieldPath, childKey], childValue, depth + 1))}
+            </BlockStack>
+          </BlockStack>
+        </Card>
+      );
+    }
+
+    return (
+      <div key={key} style={spacing}>
+        <TextField
+          label={label}
+          value={value == null ? '' : String(value)}
+          onChange={(next) => updateSpecPath(fieldPath, next)}
+          autoComplete="off"
+        />
+      </div>
+    );
+  }, [updateSpecPath]);
 
   const config = useMemo(
     () => ((editableSpec?.config && typeof editableSpec.config === 'object'
@@ -279,6 +409,13 @@ export default function InternalTemplateDetailRoute() {
     }
   };
 
+  const scrollToSection = useCallback((sectionId: string) => {
+    const element = document.getElementById(sectionId);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
+
   useEffect(() => {
     const fullSpec = {
       ...templateSpec,
@@ -311,7 +448,9 @@ export default function InternalTemplateDetailRoute() {
       subtitle="Internal sandbox and merchant-like live preview"
       backAction={{ content: 'Templates', url: '/internal/templates' }}
       secondaryActions={[
-        { content: 'Open raw preview', url: previewUrl, external: true },
+        { content: 'Jump to editor', onAction: () => scrollToSection('template-edit-settings') },
+        { content: 'Jump to preview', onAction: () => scrollToSection('template-live-preview') },
+        { content: 'Open raw preview', url: `${previewUrl}?surface=${encodeURIComponent(previewSurface)}`, external: true },
       ]}
     >
       <BlockStack gap="400">
@@ -346,12 +485,12 @@ export default function InternalTemplateDetailRoute() {
         ) : null}
 
         <Card>
-          <BlockStack gap="300">
+          <BlockStack gap="400">
             <InlineStack gap="200" wrap>
               <Badge>{template.type}</Badge>
               <Badge>{template.category}</Badge>
               {readiness.hasAdvancedSettings ? <Badge tone="success">Advanced-ready</Badge> : <Badge tone="critical">Advanced missing</Badge>}
-              {readiness.dataSaveReady ? <Badge tone="attention">Data-save ready</Badge> : <Badge>Data-save optional</Badge>}
+              {readiness.storageMode === 'NONE' ? <Badge>Data-save optional</Badge> : <Badge tone="attention">Data-save ready</Badge>}
               {installability.ok ? <Badge tone="success">Installable</Badge> : <Badge tone="critical">Blocked</Badge>}
             </InlineStack>
             <Text as="p" variant="bodyMd">{template.description}</Text>
@@ -375,18 +514,22 @@ export default function InternalTemplateDetailRoute() {
           </BlockStack>
         </Card>
 
-        <Card>
-          <BlockStack gap="300">
+        <div id="template-edit-settings" style={{ scrollMarginTop: 80 }}>
+          <Card>
+          <BlockStack gap="400">
             <Text as="h2" variant="headingMd">Edit template settings</Text>
             <Text as="p" variant="bodySm" tone="subdued">
               Edit the full template spec JSON. This updates template overrides used by internal preview and merchant template creation.
             </Text>
             <Form method="post">
               <input type="hidden" name="intent" value="saveTemplateOverride" />
-              <BlockStack gap="300">
+              <BlockStack gap="400">
                 <Card>
-                  <BlockStack gap="300">
-                    <Text as="h3" variant="headingSm">Common settings</Text>
+                  <BlockStack gap="400">
+                    <Text as="h3" variant="headingSm">Flagship settings (full access)</Text>
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      Every template field is editable here, including capabilities (`requires`), config, style, and placement.
+                    </Text>
                     <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
                       <TextField
                         label="Template name"
@@ -400,112 +543,41 @@ export default function InternalTemplateDetailRoute() {
                         onChange={(value) => updateEditableSpec((current) => ({ ...current, description: value }))}
                         autoComplete="off"
                       />
-                      {(isPopup || isBanner || isContactForm) ? (
-                        <TextField
-                          label={isBanner ? 'Heading' : 'Title'}
-                          value={String(config.title ?? config.heading ?? '')}
-                          onChange={(value) => {
-                            if (isBanner) updateConfigField('heading', value);
-                            else updateConfigField('title', value);
-                          }}
-                          autoComplete="off"
-                        />
-                      ) : null}
-                      {(isPopup || isBanner || isNotificationBar || isContactForm) ? (
-                        <TextField
-                          label={isBanner ? 'Subheading' : isNotificationBar ? 'Message' : 'Body'}
-                          value={String(config.body ?? config.subheading ?? config.message ?? '')}
-                          onChange={(value) => {
-                            if (isBanner) updateConfigField('subheading', value);
-                            else if (isNotificationBar) updateConfigField('message', value);
-                            else updateConfigField('body', value);
-                          }}
-                          autoComplete="off"
-                        />
-                      ) : null}
-                      {(isPopup || isBanner || isContactForm || isFloatingWidget) ? (
-                        <TextField
-                          label={isContactForm ? 'Submit label' : isFloatingWidget ? 'Widget label' : 'CTA text'}
-                          value={String(config.submitLabel ?? config.label ?? config.ctaText ?? '')}
-                          onChange={(value) => {
-                            if (isContactForm) updateConfigField('submitLabel', value);
-                            else if (isFloatingWidget) updateConfigField('label', value);
-                            else updateConfigField('ctaText', value);
-                          }}
-                          autoComplete="off"
-                        />
-                      ) : null}
-                      {(isPopup || isBanner || isNotificationBar) ? (
-                        <TextField
-                          label={isNotificationBar ? 'Link URL' : 'CTA URL'}
-                          value={String(config.linkUrl ?? config.ctaUrl ?? '')}
-                          onChange={(value) => {
-                            if (isNotificationBar) updateConfigField('linkUrl', value);
-                            else updateConfigField('ctaUrl', value);
-                          }}
-                          autoComplete="off"
-                        />
-                      ) : null}
-                      {isPopup ? (
-                        <Select
-                          label="Trigger"
-                          options={POPUP_TRIGGERS.map((value) => ({ label: value, value }))}
-                          value={String(config.trigger ?? POPUP_TRIGGERS[0])}
-                          onChange={(value) => updateConfigField('trigger', value)}
-                        />
-                      ) : null}
-                      {isPopup ? (
-                        <Select
-                          label="Frequency"
-                          options={POPUP_FREQUENCY.map((value) => ({ label: value, value }))}
-                          value={String(config.frequency ?? POPUP_FREQUENCY[0])}
-                          onChange={(value) => updateConfigField('frequency', value)}
-                        />
-                      ) : null}
-                      {isPopup ? (
-                        <Select
-                          label="Show on pages"
-                          options={POPUP_SHOW_ON_PAGES.map((value) => ({ label: value, value }))}
-                          value={String(config.showOnPages ?? POPUP_SHOW_ON_PAGES[0])}
-                          onChange={(value) => updateConfigField('showOnPages', value)}
-                        />
-                      ) : null}
-                      {isPopup ? (
-                        <TextField
-                          label="Delay seconds"
-                          type="number"
-                          value={String(config.delaySeconds ?? 0)}
-                          onChange={(value) => updateConfigField('delaySeconds', Number(value || 0))}
-                          autoComplete="off"
-                        />
-                      ) : null}
-                      {isContactForm ? (
-                        <TextField
-                          label="Success message"
-                          value={String(config.successMessage ?? '')}
-                          onChange={(value) => updateConfigField('successMessage', value)}
-                          autoComplete="off"
-                        />
-                      ) : null}
-                      {isFloatingWidget ? (
-                        <Select
-                          label="Anchor"
-                          options={[
-                            { label: 'Bottom right', value: 'bottom_right' },
-                            { label: 'Bottom left', value: 'bottom_left' },
-                            { label: 'Top right', value: 'top_right' },
-                            { label: 'Top left', value: 'top_left' },
-                            { label: 'Bottom center', value: 'bottom_center' },
-                          ]}
-                          value={String(config.anchor ?? 'bottom_right')}
-                          onChange={(value) => updateConfigField('anchor', value)}
-                        />
-                      ) : null}
                     </InlineGrid>
-                    {!(isPopup || isBanner || isNotificationBar || isContactForm || isFloatingWidget) ? (
-                      <Text as="p" variant="bodySm" tone="subdued">
-                        No type-specific quick controls available for this template type yet. Use Advanced JSON mode below.
-                      </Text>
+
+                    <ChoiceList
+                      title="Requires (capability and data-surface flags)"
+                      allowMultiple
+                      choices={capabilityChoices}
+                      selected={Array.isArray(editableSpec?.requires) ? (editableSpec?.requires as string[]) : []}
+                      onChange={(selected) => updateSpecPath(['requires'], selected as Capability[])}
+                    />
+
+                    <BlockStack gap="300">
+                      <Text as="h4" variant="headingSm">Config</Text>
+                      <BlockStack gap="200">
+                        {Object.entries(config).map(([key, value]) => renderDynamicField(['config', key], value))}
+                      </BlockStack>
+                    </BlockStack>
+
+                    {editableSpec?.style && typeof editableSpec.style === 'object' ? (
+                      <BlockStack gap="300">
+                        <Text as="h4" variant="headingSm">Style</Text>
+                        <BlockStack gap="200">
+                          {Object.entries(editableSpec.style as Record<string, unknown>).map(([key, value]) =>
+                            renderDynamicField(['style', key], value))}
+                        </BlockStack>
+                      </BlockStack>
+                    ) : null}
+
+                    {editableSpec?.placement && typeof editableSpec.placement === 'object' ? (
+                      <BlockStack gap="300">
+                        <Text as="h4" variant="headingSm">Placement</Text>
+                        <BlockStack gap="200">
+                          {Object.entries(editableSpec.placement as Record<string, unknown>).map(([key, value]) =>
+                            renderDynamicField(['placement', key], value))}
+                        </BlockStack>
+                      </BlockStack>
                     ) : null}
                   </BlockStack>
                 </Card>
@@ -548,10 +620,11 @@ export default function InternalTemplateDetailRoute() {
               </InlineStack>
             </Form>
           </BlockStack>
-        </Card>
+          </Card>
+        </div>
 
         <Card>
-          <BlockStack gap="300">
+          <BlockStack gap="400">
             <Text as="h2" variant="headingMd">Readiness checks and available options</Text>
             <Text as="p" variant="bodySm" tone="subdued">
               This shows what the template already supports and where it may be blocked before rollout.
@@ -571,7 +644,7 @@ export default function InternalTemplateDetailRoute() {
         </Card>
 
         <Card>
-          <BlockStack gap="300">
+          <BlockStack gap="400">
             <Text as="h2" variant="headingMd">Template settings (current defaults)</Text>
             <Text as="p" variant="bodySm" tone="subdued">
               These are the exact defaults (including override values, if configured) used for preview and sandbox creation.
@@ -594,115 +667,129 @@ export default function InternalTemplateDetailRoute() {
           </BlockStack>
         </Card>
 
-        <Card>
-          <BlockStack gap="300">
+        <div id="template-live-preview" style={{ scrollMarginTop: 80 }}>
+          <Card>
+          <BlockStack gap="400">
             <Text as="h2" variant="headingMd">Live preview (merchant-like renderer)</Text>
             <Text as="p" variant="bodySm" tone="subdued">
               This uses the same preview rendering pipeline used for merchant modules, including template overrides.
             </Text>
-            <InlineGrid columns={{ xs: 1, md: 2 }} gap="200">
-              <div style={{ padding: 12, border: '1px solid var(--p-color-border-secondary)', borderRadius: 10, background: 'var(--p-color-bg-surface-secondary)' }}>
-                <BlockStack gap="150">
-                  <Text as="p" variant="bodySm" tone="subdued">Preview mode</Text>
-                  <div
-                    style={{
-                      display: 'inline-flex',
-                      border: '1px solid var(--p-color-border)',
-                      borderRadius: 10,
-                      overflow: 'hidden',
-                      background: 'var(--p-color-bg-surface)',
-                    }}
-                    role="radiogroup"
-                    aria-label="Preview mode switcher"
-                  >
-                    {[
-                      { value: 'merchant' as const, label: 'Merchant-like' },
-                      { value: 'raw' as const, label: 'Raw' },
-                    ].map((option, index) => {
-                      const active = previewMode === option.value;
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          aria-pressed={active}
-                          role="radio"
-                          aria-checked={active}
-                          tabIndex={active ? 0 : -1}
-                          onClick={() => setPreviewMode(option.value)}
-                          onKeyDown={(event) => handleModeKeyDown(event, option.value)}
-                          style={{
-                            border: 0,
-                            borderLeft: index === 0 ? '0' : '1px solid var(--p-color-border)',
-                            background: active ? 'var(--p-color-bg-fill-brand)' : 'transparent',
-                            color: active ? 'var(--p-color-text-on-color)' : 'var(--p-color-text)',
-                            fontSize: 12,
-                            fontWeight: 600,
-                            lineHeight: '16px',
-                            padding: '8px 12px',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          {option.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </BlockStack>
-              </div>
-              <div style={{ padding: 12, border: '1px solid var(--p-color-border-secondary)', borderRadius: 10, background: 'var(--p-color-bg-surface-secondary)' }}>
-                <BlockStack gap="150">
-                  <Text as="p" variant="bodySm" tone="subdued">Viewport</Text>
-                  <div
-                    style={{
-                      display: 'inline-flex',
-                      border: '1px solid var(--p-color-border)',
-                      borderRadius: 10,
-                      overflow: 'hidden',
-                      background: 'var(--p-color-bg-surface)',
-                    }}
-                    role="radiogroup"
-                    aria-label="Viewport switcher"
-                  >
-                    {[
-                      { value: 'desktop' as const, label: 'Desktop' },
-                      { value: 'tablet' as const, label: 'Tablet' },
-                      { value: 'mobile' as const, label: 'Mobile' },
-                    ].map((option, index) => {
-                      const active = previewViewport === option.value;
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          aria-pressed={active}
-                          role="radio"
-                          aria-checked={active}
-                          tabIndex={active ? 0 : -1}
-                          onClick={() => setPreviewViewport(option.value)}
-                          onKeyDown={(event) => handleViewportKeyDown(event, option.value)}
-                          style={{
-                            border: 0,
-                            borderLeft: index === 0 ? '0' : '1px solid var(--p-color-border)',
-                            background: active ? 'var(--p-color-bg-fill-brand)' : 'transparent',
-                            color: active ? 'var(--p-color-text-on-color)' : 'var(--p-color-text)',
-                            fontSize: 12,
-                            fontWeight: 600,
-                            lineHeight: '16px',
-                            padding: '8px 12px',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          {option.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </BlockStack>
-              </div>
-            </InlineGrid>
-            <InlineStack align="space-between" blockAlign="center">
-              <Text as="p" variant="bodySm" tone="subdued">Current mode: {previewMode === 'merchant' ? 'Merchant-like shell' : 'Raw renderer'}</Text>
-              <Text as="p" variant="bodySm" tone="subdued">Viewport width: {viewportWidth}</Text>
-            </InlineStack>
+            <div style={{ padding: 12, border: '1px solid var(--p-color-border-secondary)', borderRadius: 10, background: 'var(--p-color-bg-surface-secondary)' }}>
+              <InlineStack align="space-between" blockAlign="center" wrap>
+                <InlineStack gap="300" blockAlign="center" wrap>
+                  <Select
+                    label="Surface"
+                    options={[
+                      { label: 'Generic', value: 'generic' },
+                      { label: 'Product', value: 'product' },
+                      { label: 'Collection', value: 'collection' },
+                      { label: 'Cart', value: 'cart' },
+                      { label: 'Checkout', value: 'checkout' },
+                      { label: 'Post-purchase', value: 'postPurchase' },
+                      { label: 'Customer account', value: 'customer' },
+                    ]}
+                    value={previewSurface}
+                    onChange={(value) => setPreviewSurface(value as typeof previewSurface)}
+                  />
+                  <InlineStack gap="100" blockAlign="center" wrap={false}>
+                    <Text as="p" variant="bodySm" tone="subdued">Preview mode</Text>
+                    <div
+                      style={{
+                        display: 'inline-flex',
+                        border: '1px solid var(--p-color-border)',
+                        borderRadius: 10,
+                        overflow: 'hidden',
+                        background: 'var(--p-color-bg-surface)',
+                      }}
+                      role="radiogroup"
+                      aria-label="Preview mode switcher"
+                    >
+                      {[
+                        { value: 'merchant' as const, label: 'Merchant-like' },
+                        { value: 'raw' as const, label: 'Raw' },
+                      ].map((option, index) => {
+                        const active = previewMode === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            aria-pressed={active}
+                            role="radio"
+                            aria-checked={active}
+                            tabIndex={active ? 0 : -1}
+                            onClick={() => setPreviewMode(option.value)}
+                            onKeyDown={(event) => handleModeKeyDown(event, option.value)}
+                            style={{
+                              border: 0,
+                              borderLeft: index === 0 ? '0' : '1px solid var(--p-color-border)',
+                              background: active ? 'var(--p-color-bg-fill-brand)' : 'transparent',
+                              color: active ? 'var(--p-color-text-on-color)' : 'var(--p-color-text)',
+                              fontSize: 12,
+                              fontWeight: 600,
+                              lineHeight: '16px',
+                              padding: '8px 12px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </InlineStack>
+                  <InlineStack gap="100" blockAlign="center" wrap={false}>
+                    <Text as="p" variant="bodySm" tone="subdued">Viewport</Text>
+                    <div
+                      style={{
+                        display: 'inline-flex',
+                        border: '1px solid var(--p-color-border)',
+                        borderRadius: 10,
+                        overflow: 'hidden',
+                        background: 'var(--p-color-bg-surface)',
+                      }}
+                      role="radiogroup"
+                      aria-label="Viewport switcher"
+                    >
+                      {[
+                        { value: 'desktop' as const, label: 'Desktop' },
+                        { value: 'tablet' as const, label: 'Tablet' },
+                        { value: 'mobile' as const, label: 'Mobile' },
+                      ].map((option, index) => {
+                        const active = previewViewport === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            aria-pressed={active}
+                            role="radio"
+                            aria-checked={active}
+                            tabIndex={active ? 0 : -1}
+                            onClick={() => setPreviewViewport(option.value)}
+                            onKeyDown={(event) => handleViewportKeyDown(event, option.value)}
+                            style={{
+                              border: 0,
+                              borderLeft: index === 0 ? '0' : '1px solid var(--p-color-border)',
+                              background: active ? 'var(--p-color-bg-fill-brand)' : 'transparent',
+                              color: active ? 'var(--p-color-text-on-color)' : 'var(--p-color-text)',
+                              fontSize: 12,
+                              fontWeight: 600,
+                              lineHeight: '16px',
+                              padding: '8px 12px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </InlineStack>
+                </InlineStack>
+                <Text as="p" variant="bodySm" tone="subdued">
+                  {previewMode === 'merchant' ? 'Merchant-like shell' : 'Raw renderer'} · {viewportWidth}
+                </Text>
+              </InlineStack>
+            </div>
             <div
               style={{
                 border: '1px solid var(--p-color-border)',
@@ -725,11 +812,12 @@ export default function InternalTemplateDetailRoute() {
               </div>
             </div>
           </BlockStack>
-        </Card>
+          </Card>
+        </div>
 
         <InlineGrid columns={{ xs: 1 }} gap="400">
           <Card>
-            <BlockStack gap="300">
+            <BlockStack gap="400">
               <Text as="h2" variant="headingMd">Sandbox create (real module draft)</Text>
               <Text as="p" variant="bodySm" tone="subdued">
                 Create a real draft in any store so you can inspect merchant-side behavior and file precise issues.

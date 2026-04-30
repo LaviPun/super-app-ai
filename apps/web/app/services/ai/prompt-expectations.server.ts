@@ -10,11 +10,42 @@ import { LIMITS } from '@superapp/core';
  */
 
 /** Purpose + guidance block: anchors the AI on goal, flow, and extras. */
-export const PROMPT_PURPOSE_AND_GUIDANCE = `Purpose: You are generating Shopify storefront modules (popups, banners, notification bars, etc.) that merchants add to their theme. Each module is a single, deployable unit. Your output must be valid RecipeSpec JSON so it can be saved and deployed without errors. The audience is the store's visitors (shoppers).
+export const PROMPT_PURPOSE_AND_GUIDANCE = `Purpose: You are generating Shopify storefront modules (popups, banners, notification bars, etc.) that merchants add to their theme. Each module must be a single deployable RecipeSpec JSON object that validates and can ship without manual cleanup. The end user is the shopper.
 
-User flow: When the merchant's request is vague or short, infer a clear visitor flow and reflect it in your options: who sees it (e.g. all visitors, or only on product page), when (e.g. after 5 seconds, on exit intent), and what they can do (e.g. copy a code, click CTA, close). Vary the 3 options by flow (e.g. different triggers, different pages, different frequency). In your "explanation" for each option, describe the flow in one line (e.g. "Shows 5s after load on homepage, once per session, with one primary CTA").
+Design quality bar: produce premium, conversion-aware UI decisions that are still implementable in RecipeSpec fields. Premium means clear hierarchy, intentional typography, role-based color usage, consistent spacing rhythm, and polished interaction behavior.
 
-Extras to consider when relevant: responsive (mobile vs desktop), accessibility (focus, reduced motion), and one clear primary CTA. If the request mentions a coupon/code, ensure the content makes it easy to copy. Mention these in your explanation when they drive the design.`;
+User flow: If the merchant request is vague, infer a concrete shopper journey and encode it in each option: who sees it, when it appears, where it appears, what action is expected, and what happens after action/close. Vary options by strategy, not just wording.
+
+Interaction states (when relevant): include behavior for default, hover/focus, pressed, dismiss/close, success, and error/invalid states. For timed or trigger-based modules, include first exposure vs repeat exposure behavior.
+
+Responsive + accessibility: specify mobile vs desktop behavior, focus visibility, reduced motion handling, and readable content density.
+
+CTA quality: each option should have one dominant primary action with clear value framing.
+
+If the request mentions a coupon/code, optimize for effortless copy and confirmation feedback. In each explanation, include one concise line describing audience, trigger, placement, primary CTA, and key interaction behavior.`;
+
+export const UI_DESIGNER_REFINEMENT_PASS = `UI_DESIGNER_PASS:
+- Premium visual target: distinctive and product-appropriate storefront UI, not generic templates.
+- Hierarchy rules: headline communicates value quickly, supporting copy clarifies benefit, CTA is the most visually dominant action.
+- Typography rules: strong heading/body contrast with high readability.
+- Spacing rhythm: tight within groups, looser between groups, with scan-friendly section cadence.
+- Color system: role-based colors (surface, text, accent, semantic) and strong contrast.
+- Interaction polish: include hover/focus/pressed and dismiss behavior; motion is subtle and reduced-motion safe.
+- Option differentiation: each option must differ in both UX strategy and visual strategy.`;
+
+export const FRONTEND_DEVELOPER_REFINEMENT_PASS = `FRONTEND_DEVELOPER_PASS:
+- Output must map cleanly to RecipeSpec fields with no speculative keys.
+- Keep config values practical for rendering (valid enums, valid URLs, realistic copy lengths).
+- Keep styling decisions implementable in storefront extension surfaces.
+- Prefer deterministic, maintainable settings over fragile gimmicks.`;
+
+export const PREMIUM_OUTPUT_GUARDRAILS = `Premium output guardrails:
+- Avoid generic filler copy and weak CTA labels.
+- Require conversion clarity: value-forward headline, hesitation-reducing support copy, outcome-focused CTA.
+- Require visual intent: deliberate hierarchy, spacing rhythm, role-based color choices.
+- Require interaction intent: include at least one meaningful state behavior per option.
+- Require implementability: valid RecipeSpec fields/enums only.
+- Distinguish options by strategy depth, not superficial wording swaps.`;
 
 /**
  * Minimal valid JSON examples per type. Shown to the AI so it knows the EXACT shape we expect.

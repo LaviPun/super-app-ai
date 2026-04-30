@@ -1,7 +1,10 @@
 roles = ["frontend", "backend"]
 # Port omitted: CLI assigns a port and sets PORT when running `shopify app dev`.
-# When running `pnpm dev` directly, Vite uses PORT from env or defaults to 3000.
+# When running the dev script directly, Vite uses PORT from env or defaults to 3000.
+#
+# Use npm to run package.json scripts here so Shopify CLI does not spawn another
+# `pnpm` process on top of the CLI’s own graph (reduces macOS EAGAIN / spawn failures).
 
 [commands]
-dev = "pnpm dev"
-build = "pnpm build"
+dev = "npm run dev"
+build = "npm run build"

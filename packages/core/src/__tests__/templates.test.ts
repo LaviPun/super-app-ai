@@ -134,6 +134,8 @@ describe('MODULE_TEMPLATES integrity', () => {
       expect(readiness.checks.length).toBeGreaterThan(0);
       expect(typeof readiness.hasAdvancedSettings).toBe('boolean');
       expect(typeof readiness.dataSaveReady).toBe('boolean');
+      expect(Array.isArray(readiness.requiredDataFlags)).toBe(true);
+      expect(Array.isArray(readiness.missingDataFlags)).toBe(true);
     }
   });
 
@@ -167,6 +169,18 @@ describe('MODULE_TEMPLATES integrity', () => {
           expect(installability.ok).toBe(false);
           expect(installability.reasons.join(' ')).toContain('data-save path');
         }
+      } else {
+        expect(installability.readiness.dataSaveReady).toBe(true);
+      }
+    }
+  });
+
+  it('declares and enforces Shopify data-surface flags for each template', () => {
+    for (const t of MODULE_TEMPLATES) {
+      const readiness = getTemplateReadiness(t);
+      expect(readiness.missingDataFlags).toEqual([]);
+      for (const requiredFlag of readiness.requiredDataFlags) {
+        expect(t.spec.requires).toContain(requiredFlag);
       }
     }
   });

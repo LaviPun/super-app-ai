@@ -687,7 +687,7 @@ export default function ModulesIndex() {
                       <div className="Modules-templateCard">
                       <BlockStack gap="300" {...{ className: 'Modules-templateCardBody' } as any}>
                         <Link
-                          to={`/internal/templates/${encodeURIComponent(t.id)}`}
+                          to={`/templates/${encodeURIComponent(t.id)}`}
                           style={{ display: 'block', textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}
                         >
                           <BlockStack gap="300">
@@ -728,7 +728,7 @@ export default function ModulesIndex() {
                             <Button
                               size="slim"
                               variant="secondary"
-                              onClick={() => navigate(`/internal/templates/${encodeURIComponent(t.id)}`)}
+                              onClick={() => navigate(`/templates/${encodeURIComponent(t.id)}`)}
                             >
                               Open template
                             </Button>

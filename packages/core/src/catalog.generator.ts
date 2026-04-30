@@ -260,7 +260,7 @@ export function summarizeCatalog(entries: CatalogEntry[]): {
   return { total: entries.length, byFamily, byCategory, byTemplateKind };
 }
 
-if (process.argv[1]?.includes('catalog.generator')) {
+if (typeof process !== 'undefined' && process.argv[1]?.includes('catalog.generator')) {
   const generated = generateCatalog();
   const fp = path.resolve(process.cwd(), 'src/catalog.generated.json');
   // Compact one-entry-per-line layout: small file, line-based diffs.

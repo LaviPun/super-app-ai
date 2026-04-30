@@ -13,5 +13,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['app/**/*.test.ts', 'app/**/__tests__/**/*.ts'],
+    env: {
+      INTERNAL_ADMIN_SESSION_SECRET: 'vitest-internal-admin-session-secret-32',
+    },
   },
 });

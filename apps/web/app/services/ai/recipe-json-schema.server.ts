@@ -28,6 +28,46 @@ interface CompiledRecipeSchema {
 
 const REGISTRY = new Map<ModuleType, CompiledRecipeSchema>();
 
+function normalizeForStructuredOutput(value: unknown, path: string[] = []): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry, index) =>
+      normalizeForStructuredOutput(entry, [...path, String(index)]),
+    );
+  }
+  if (!value || typeof value !== 'object') return value;
+  const obj = value as Record<string, unknown>;
+  const normalized: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(obj)) {
+    normalized[key] = normalizeForStructuredOutput(entry, [...path, key]);
+  }
+  if (typeof normalized.format === 'string') {
+    // Provider structured-output validators reject several JSON Schema formats (e.g. uri).
+    delete normalized.format;
+  }
+  if (
+    normalized.type === 'object' &&
+    normalized.properties &&
+    typeof normalized.properties === 'object' &&
+    !Array.isArray(normalized.properties)
+  ) {
+    const propertyKeys = Object.keys(normalized.properties as Record<string, unknown>);
+    const required = Array.isArray(normalized.required)
+      ? normalized.required.filter((v): v is string => typeof v === 'string')
+      : [];
+    for (const key of propertyKeys) {
+      if (!required.includes(key)) required.push(key);
+    }
+    normalized.required = required;
+  }
+  if (normalized.type === 'array' && normalized.items == null) {
+    // OpenAI structured outputs reject array schemas without explicit items.
+    normalized.items = path[path.length - 1] === 'requires'
+      ? { type: 'string' }
+      : { type: 'object', additionalProperties: true };
+  }
+  return normalized;
+}
+
 function buildRegistry() {
   if (REGISTRY.size > 0) return;
   for (const branch of RecipeSpecSchema.options) {
@@ -38,6 +78,9 @@ function buildRegistry() {
       $refStrategy: 'none',
       target: 'jsonSchema7',
     }) as JsonSchemaObject;
+    const recipeRoot = normalizeForStructuredOutput(
+      stripDefinitionsWrapper(recipeSchema),
+    ) as JsonSchemaObject;
 
     const optionsSchema: JsonSchemaObject = {
       type: 'object',
@@ -54,7 +97,7 @@ function buildRegistry() {
             required: ['recipe'],
             properties: {
               explanation: { type: 'string', maxLength: 500 },
-              recipe: stripDefinitionsWrapper(recipeSchema),
+              recipe: recipeRoot,
             },
           },
         },
@@ -67,14 +110,14 @@ function buildRegistry() {
       required: ['recipe'],
       properties: {
         explanation: { type: 'string', maxLength: 500 },
-        recipe: stripDefinitionsWrapper(recipeSchema),
+        recipe: recipeRoot,
       },
     };
 
     REGISTRY.set(moduleType, {
-      recipe: stripDefinitionsWrapper(recipeSchema),
-      options: optionsSchema,
-      single: singleSchema,
+      recipe: recipeRoot,
+      options: normalizeForStructuredOutput(optionsSchema) as JsonSchemaObject,
+      single: normalizeForStructuredOutput(singleSchema) as JsonSchemaObject,
     });
   }
 }

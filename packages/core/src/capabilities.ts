@@ -22,9 +22,31 @@ export const CAPABILITIES = [
   'CHECKOUT_UI_INFO_SHIP_PAY',
   'CUSTOMER_ACCOUNT_UI',
   'CUSTOMER_ACCOUNT_B2B_PROFILE',
+  // Shopify data-surface flags (used for template readiness and installability policy).
+  'CUSTOMER_DATA',
+  'PRODUCT_DATA',
+  'COLLECTION_DATA',
+  'METAFIELD_DATA',
+  'METAOBJECT_DATA',
+  'ORDER_DATA',
+  'CART_DATA',
+  'CHECKOUT_DATA',
+  'FUNCTION_DATA',
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
+
+export const SHOPIFY_DATA_SURFACE_CAPABILITIES = [
+  'CUSTOMER_DATA',
+  'PRODUCT_DATA',
+  'COLLECTION_DATA',
+  'METAFIELD_DATA',
+  'METAOBJECT_DATA',
+  'ORDER_DATA',
+  'CART_DATA',
+  'CHECKOUT_DATA',
+  'FUNCTION_DATA',
+] as const satisfies Capability[];
 
 /**
  * Minimum plan required for capabilities that are plan-gated.

@@ -3,7 +3,7 @@
 client_id = "675f836397310b8c66a6ca2b5a49923c"
 web_directories = [ "apps/web" ]
 name = "Super App AI"
-application_url = "http://localhost:3000"
+application_url = "https://distribution-episode-editors-ordinary.trycloudflare.com"
 embedded = true
 
 [build]
@@ -12,11 +12,44 @@ automatically_update_urls_on_dev = true
 [webhooks]
 api_version = "2026-01"
 
+[[webhooks.subscriptions]]
+uri = "/webhooks/customers/data_request"
+compliance_topics = [ "customers/data_request" ]
+
+[[webhooks.subscriptions]]
+uri = "/webhooks/customers/redact"
+compliance_topics = [ "customers/redact" ]
+
+[[webhooks.subscriptions]]
+uri = "/webhooks/shop/redact"
+compliance_topics = [ "shop/redact" ]
+
+[[webhooks.subscriptions]]
+topics = [ "app/uninstalled" ]
+uri = "/webhooks"
+
+[[webhooks.subscriptions]]
+topics = [ "app/scopes_update" ]
+uri = "/webhooks"
+
+[[webhooks.subscriptions]]
+topics = [ "orders/create" ]
+uri = "/webhooks"
+
+[[webhooks.subscriptions]]
+topics = [ "products/update" ]
+uri = "/webhooks"
+
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_checkouts,read_customers,read_inventory,read_metaobjects,read_orders,read_products,read_themes,write_app_proxy,write_cart_transforms,write_checkouts,write_customers,write_delivery_customizations,write_discounts,write_metaobjects,write_orders,write_payment_customizations,write_products"
+scopes = "read_customers,read_metaobjects,read_products,read_themes,write_app_proxy,write_customers,write_metaobjects,write_orders"
 optional_scopes = [ ]
 use_legacy_install_flow = false
+
+[app_proxy]
+url = "/proxy"
+prefix = "apps"
+subpath = "superapp"
 
 [auth]
 redirect_urls = [ ]

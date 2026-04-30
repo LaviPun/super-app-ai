@@ -11,9 +11,18 @@ export async function action({ request }: { request: Request }) {
 
   await shopify.authenticate.webhook(request);
 
-  const payload = await request.json() as { shop_id?: number; shop_domain?: string; customer?: { id: number; email?: string }; orders_requested?: number[] };
+  const payload = (await request.json()) as {
+    shop_id?: number;
+    shop_domain?: string;
+    customer?: { id: number; email?: string };
+    orders_requested?: number[];
+  };
   const shopDomain = payload.shop_domain ?? payload.shop_id?.toString();
-  if (!shopDomain) return new Response(JSON.stringify({ error: 'Missing shop identifier' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+  if (!shopDomain)
+    return new Response(JSON.stringify({ error: 'Missing shop identifier' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
 
   const prisma = getPrisma();
   const shop = await prisma.shop.findUnique({ where: { shopDomain } });

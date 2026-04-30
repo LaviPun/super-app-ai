@@ -6,7 +6,7 @@ uid = "75115279-439a-19ba-6507-34543ab48cb111266ccb"
 type = "flow_action"
 handle = "superapp-send-notification"
 description = "Send an email notification via SuperApp."
-runtime_url = "https://example.com/api/flow/action"
+runtime_url = "https://localhost:3000/api/flow/action"
 
 [settings]
 

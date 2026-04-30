@@ -54,6 +54,8 @@ The **prompt router** chooses how much structured context (catalog slices, full 
 - **Modal edge** (optional): `deploy/modal-qwen-router/` proxies HTTPS traffic to an upstream `/route` implementation.
 - **Production auth default**: router enforces bearer auth in production (`NODE_ENV=production`) even if `ROUTER_REQUIRE_AUTH` is unset. Set `INTERNAL_AI_ROUTER_TOKEN` everywhere. Optional explicit override: `ROUTER_REQUIRE_AUTH=1|0`.
 - **Internal Admin control plane**: `/internal/model-setup` persists encrypted dual-target runtime config (`localMachine` / `modalRemote`), target-specific tokens, health/route probe status, and guarded switch/rollback controls.
+- **Feature flag for rollout safety**: `INTERNAL_AI_ROUTER_DUAL_TARGET_ENABLED=1` enables DB-configured dual-target resolution. Keep unset/false to preserve legacy single-endpoint behavior while shipping UI/config first.
+- **Target env fallback keys**: `LOCAL_ROUTER_*` and `MODAL_ROUTER_*` keys can supply URL/token/timeout if not stored in DB for a target.
 
 Provider DB keys (`AiProvider`) are unrelated to this internal router token; keep `INTERNAL_AI_ROUTER_TOKEN` separate and rotate independently.
 

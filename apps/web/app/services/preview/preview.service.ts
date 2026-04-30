@@ -10,8 +10,22 @@ export type PreviewResult =
   | { kind: 'HTML'; html: string }
   | { kind: 'JSON'; json: unknown };
 
+export type PreviewSurface =
+  | 'generic'
+  | 'product'
+  | 'collection'
+  | 'cart'
+  | 'checkout'
+  | 'postPurchase'
+  | 'customer';
+
+export type PreviewContext = {
+  surface?: PreviewSurface;
+};
+
 export class PreviewService {
-  render(spec: RecipeSpec): PreviewResult {
+  render(spec: RecipeSpec, context?: PreviewContext): PreviewResult {
+    const surface = context?.surface ?? inferSurface(spec.type);
     switch (spec.type) {
       case 'theme.banner':
         return { kind: 'HTML', html: this.banner(spec) };
@@ -28,7 +42,7 @@ export class PreviewService {
       case 'proxy.widget':
         return { kind: 'HTML', html: this.proxyWidget(spec) };
       default:
-        return { kind: 'JSON', json: { type: spec.type, name: spec.name, category: spec.category, config: spec.config } };
+        return { kind: 'HTML', html: this.structuredWorkflowPreview(spec, surface) };
     }
   }
 
@@ -344,6 +358,68 @@ export class PreviewService {
       .superapp-widget strong{ display:block; margin-bottom: 6px; }
     `);
   }
+
+  private structuredWorkflowPreview(spec: RecipeSpec, surface: PreviewSurface): string {
+    const fixture = getSurfaceFixture(surface);
+    const configPreview = JSON.stringify(spec.config, null, 2);
+    return pageHtml(`
+      <section class="superapp-structured-preview">
+        <header class="superapp-structured-preview__header">
+          <h2>${esc(spec.name)} <span>${esc(spec.type)}</span></h2>
+          <p>Merchant-like structured preview for non-theme template types.</p>
+        </header>
+
+        <div class="superapp-structured-preview__grid">
+          <article class="superapp-preview-card">
+            <h3>Workflow context</h3>
+            <p><strong>Surface:</strong> ${esc(surface)}</p>
+            <p><strong>Scenario:</strong> ${esc(fixture.summary)}</p>
+            <ul>
+              ${fixture.steps.map((step) => `<li>${esc(step)}</li>`).join('')}
+            </ul>
+          </article>
+
+          <article class="superapp-preview-card">
+            <h3>Shopify entities</h3>
+            <ul>
+              ${fixture.entities.map((entity) => `<li>${esc(entity)}</li>`).join('')}
+            </ul>
+          </article>
+        </div>
+
+        <article class="superapp-preview-card">
+          <h3>Fixture products</h3>
+          <div class="superapp-products">
+            ${fixture.products.map((product) => `
+              <div class="superapp-product">
+                <strong>${esc(product.title)}</strong>
+                <span>${esc(product.price)}</span>
+              </div>
+            `).join('')}
+          </div>
+        </article>
+
+        <article class="superapp-preview-card">
+          <h3>Template config snapshot</h3>
+          <pre>${esc(configPreview)}</pre>
+        </article>
+      </section>
+    `, `
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #f8fafc; margin: 0; }
+      .superapp-structured-preview { display: grid; gap: 14px; }
+      .superapp-structured-preview__header h2 { margin: 0; font-size: 18px; }
+      .superapp-structured-preview__header h2 span { font-size: 12px; color: #64748b; margin-left: 6px; }
+      .superapp-structured-preview__header p { margin: 6px 0 0; color: #475569; font-size: 13px; }
+      .superapp-structured-preview__grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+      .superapp-preview-card { background: #fff; border: 1px solid #dbe3ef; border-radius: 10px; padding: 12px; }
+      .superapp-preview-card h3 { margin: 0 0 8px; font-size: 14px; color: #111827; }
+      .superapp-preview-card p { margin: 6px 0; color: #334155; font-size: 13px; }
+      .superapp-preview-card ul { margin: 8px 0 0; padding-left: 18px; color: #334155; font-size: 13px; display: grid; gap: 5px; }
+      .superapp-products { display: grid; gap: 8px; }
+      .superapp-product { display: flex; justify-content: space-between; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; background: #fff; }
+      .superapp-preview-card pre { margin: 0; white-space: pre-wrap; font-size: 12px; line-height: 1.35; color: #0f172a; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; }
+    `);
+  }
 }
 
 const LINK_INTERCEPT_SCRIPT = `
@@ -477,4 +553,99 @@ function esc(input: string) {
 
 function escAttr(input: string) {
   return esc(input);
+}
+
+function inferSurface(type: string): PreviewSurface {
+  if (type.startsWith('checkout.')) return 'checkout';
+  if (type.startsWith('postPurchase.')) return 'postPurchase';
+  if (type === 'customerAccount.blocks') return 'customer';
+  if (type.startsWith('functions.')) return 'cart';
+  if (type === 'flow.automation') return 'checkout';
+  if (type === 'analytics.pixel') return 'product';
+  return 'generic';
+}
+
+function getSurfaceFixture(surface: PreviewSurface) {
+  if (surface === 'product') {
+    return {
+      summary: 'Product detail page with recommendation and tracking context',
+      entities: ['product: gid://shopify/Product/1001', 'customer: gid://shopify/Customer/901', 'metafield namespace: custom'],
+      steps: ['Page loads product metadata', 'Module evaluates product conditions', 'CTA event tracked and surfaced to merchant'],
+      products: [
+        { title: 'Aurora Running Shoe', price: '$89.00' },
+        { title: 'Performance Socks', price: '$14.00' },
+        { title: 'Sport Bottle', price: '$19.00' },
+      ],
+    };
+  }
+  if (surface === 'collection') {
+    return {
+      summary: 'Collection listing context with merchandising workflows',
+      entities: ['collection: gid://shopify/Collection/77', 'products: 24 items', 'sort order: best-selling'],
+      steps: ['Collection is resolved', 'Template filters/sorts candidate products', 'Merchant action recommendations rendered'],
+      products: [
+        { title: 'Core Hoodie', price: '$64.00' },
+        { title: 'Trail Shorts', price: '$39.00' },
+        { title: 'Daily Tee', price: '$24.00' },
+      ],
+    };
+  }
+  if (surface === 'cart') {
+    return {
+      summary: 'Cart and function transformation context',
+      entities: ['cart: gid://shopify/Cart/551', 'lineItems: 3', 'currency: USD'],
+      steps: ['Cart lines loaded', 'Function rules evaluated', 'Suggested bundle/validation response produced'],
+      products: [
+        { title: 'Travel Backpack', price: '$120.00' },
+        { title: 'Packing Cube Set', price: '$32.00' },
+        { title: 'Luggage Tag', price: '$9.00' },
+      ],
+    };
+  }
+  if (surface === 'checkout') {
+    return {
+      summary: 'Checkout stage with order conversion workflow',
+      entities: ['checkout token: chk_9876', 'customer: returning', 'shipping country: US'],
+      steps: ['Checkout renders extension point', 'Offer/rule evaluated against cart + customer', 'Result emitted to checkout UI'],
+      products: [
+        { title: 'Starter Skin Kit', price: '$59.00' },
+        { title: 'Hydration Serum', price: '$18.00' },
+        { title: 'Sample Pack', price: '$0.00' },
+      ],
+    };
+  }
+  if (surface === 'postPurchase') {
+    return {
+      summary: 'Post-purchase offer workflow after payment',
+      entities: ['order: #1084', 'customer: gid://shopify/Customer/901', 'offer window: active'],
+      steps: ['Order completed', 'Post-purchase eligibility evaluated', 'Offer acceptance/rejection captured'],
+      products: [
+        { title: 'Premium Warranty', price: '$12.00' },
+        { title: 'Gift Wrap', price: '$6.00' },
+        { title: 'Accessory Add-on', price: '$15.00' },
+      ],
+    };
+  }
+  if (surface === 'customer') {
+    return {
+      summary: 'Customer account dashboard context',
+      entities: ['customer: gid://shopify/Customer/901', 'orders: 7', 'loyalty tier: Gold'],
+      steps: ['Customer account page loads', 'Template reads account-level data', 'Blocks/actions rendered with account context'],
+      products: [
+        { title: 'Reorder Favorite: Classic Jacket', price: '$110.00' },
+        { title: 'Recommended: Winter Gloves', price: '$28.00' },
+        { title: 'Reward Item: Branded Mug', price: '$0.00' },
+      ],
+    };
+  }
+  return {
+    summary: 'Generic merchant workflow context',
+    entities: ['shop: demo-shop.myshopify.com', 'module: internal-template-preview', 'dataset: deterministic fixture'],
+    steps: ['Template config parsed', 'Module output staged for surface', 'Preview action telemetry enabled'],
+    products: [
+      { title: 'Demo Product One', price: '$25.00' },
+      { title: 'Demo Product Two', price: '$40.00' },
+      { title: 'Demo Product Three', price: '$15.00' },
+    ],
+  };
 }

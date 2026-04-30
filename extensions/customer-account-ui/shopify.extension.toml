@@ -20,3 +20,4 @@ target = "customer-account.order-status.block.render"
 [[extensions.targeting]]
 module = "./src/blocks/Profile.tsx"
 target = "customer-account.profile.block.render"
+

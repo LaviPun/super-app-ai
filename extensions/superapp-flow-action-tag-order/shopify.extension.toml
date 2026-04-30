@@ -6,7 +6,7 @@ uid = "2583cb27-1e4d-36fc-aaee-632e1093b1310514e684"
 type = "flow_action"
 handle = "superapp-tag-order"
 description = "Add tags to an order via SuperApp."
-runtime_url = "https://example.com/api/flow/action"
+runtime_url = "https://localhost:3000/api/flow/action"
 
 [settings]
 

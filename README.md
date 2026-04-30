@@ -11,7 +11,10 @@ Merchants can create modules like:
 - Automation: visual flow builder (Zapier/Make-style) + cron schedules + webhooks. Flows can write to app-owned **Data Stores**.
 - Customer account UI: modules rendered on customer account pages (Order index, Order status, Profile) via a **Preact + Polaris** UI extension; 64 KB script limit (see [docs/debug.md](docs/debug.md))
 - **Module Templates**: 100 pre-built templates covering all 14 RecipeSpec types — merchants can generate with AI or start from a template
+- **Template Readiness + Data Flags**: template installability now enforces required Shopify data-surface flags (`CUSTOMER_DATA`, `PRODUCT_DATA`, `COLLECTION_DATA`, `METAFIELD_DATA`, `METAOBJECT_DATA`, `ORDER_DATA`, `CART_DATA`, `CHECKOUT_DATA`, `FUNCTION_DATA`) and reports precise readiness blockers
 - **Module Settings Editor**: per-type config/copy editor (heading, body, trigger, frequency, etc.) on the module detail page
+- **Flagship Template Settings**: internal template detail now exposes full-access editing for `requires`, `config`, `style`, and `placement` (advanced JSON remains available as fallback)
+- **Surface-Aware Preview**: internal template preview supports `generic`, `product`, `collection`, `cart`, `checkout`, `postPurchase`, and `customer` fixture contexts to validate product/workflow behavior
 - **Modify with AI**: rework/regenerate modules using AI instructions without creating a new module
 - **Theme Dropdown**: publish section fetches themes from Shopify and shows a single Select dropdown with theme name and "(Live)" for the live theme; only valid store themes are listed. Theme ID is validated server-side before publish (400 if not found). "Refresh themes" re-syncs the list; no manual theme ID input
 - **Data Stores**: predefined (Product, Inventory, Order, Analytics, Marketing, Customer) and custom databases for app-owned data
@@ -132,12 +135,13 @@ Optional Remix-side controls (prompt router client):
 | Variable | Purpose |
 |----------|---------|
 | `ROUTER_CONFIDENCE_MAX_DELTA` | Max deviation from deterministic baseline confidence after internal router parse (default `0.15`). |
-| `INTERNAL_AI_ROUTER_TIMEOUT_MS` | Client timeout calling `/route` (default `1200`). |
+| `INTERNAL_AI_ROUTER_TIMEOUT_MS` | Client timeout calling `/route` (default `3000`). |
 | `INTERNAL_AI_ROUTER_SHADOW` | If `1`/`true`/`yes`, still calls `/route` for metrics but **uses deterministic decision** for prompts. |
 | `INTERNAL_AI_ROUTER_CANARY_SHOPS` | Comma-separated `shop.myshopify.com` values; when set, **only** those shops use the router (others stay deterministic). Requires routes to pass `shopDomain`. |
 | `INTERNAL_AI_ROUTER_CIRCUIT_FAILURE_THRESHOLD` | Consecutive failures before opening circuit (default `5`). |
 | `INTERNAL_AI_ROUTER_CIRCUIT_COOLDOWN_MS` | Cooldown while circuit stays open (default `30000`). |
 | `INTERNAL_AI_ROUTER_DEBUG_LOG` | If `1`, logs sparse JSON debug lines for router events (avoid in prod). |
+| `INTERNAL_AI_ROUTER_DUAL_TARGET_ENABLED` | Enables DB-driven dual-target resolution (`/internal/model-setup`). Default off to keep legacy behavior unchanged. |
 
 Optional internal-router service tenant controls (`apps/web/scripts/internal-ai-router.ts`):
 
@@ -163,6 +167,27 @@ Internal Admin now includes **Setup the Model** at `/internal/model-setup` for r
 - Rollback: one-click restore to previous target (re-enters shadow mode)
 
 Backward compatibility remains: if no DB-backed setup exists yet, the app still respects `INTERNAL_AI_ROUTER_*` env vars.
+
+Optional target-specific env fallback keys (used when dual-target is enabled and target values are missing in DB):
+
+- `LOCAL_ROUTER_URL`, `LOCAL_ROUTER_TOKEN`, `LOCAL_ROUTER_TIMEOUT_MS`
+- `MODAL_ROUTER_URL`, `MODAL_ROUTER_TOKEN`, `MODAL_ROUTER_TIMEOUT_MS`
+
+### Premium storefront prompt quality (DesignReferenceV1)
+
+Storefront module generation now supports a premium UI/UX reference source:
+
+- Configure **Design reference URL** in Internal Admin `Setup the Model`.
+- Prompt resolution order:
+  1. configured `designReferenceUrl`
+  2. fallback `https://bummer.in`
+- The provider prompt gets:
+  - `DesignReferenceV1` block (tone, palette, typography, component style, UX principles)
+  - `UI_DESIGNER_PASS` refinement directives
+  - `FRONTEND_DEVELOPER_PASS` implementation-quality directives
+  - premium output guardrails (non-generic, conversion-focused, high-polish constraints)
+
+This only affects storefront module prompt quality guidance; schema validation and fallback behavior remain unchanged.
 
 ### Router backends
 
@@ -246,7 +271,7 @@ The internal admin dashboard (`/internal`) uses a Polaris `Frame` layout with:
 - **Overview**: Dashboard
 - **Monitoring**: Activity Log, Error Logs, API Logs, **Audit Log**, **Webhooks**
 - **Data**: Stores, Usage & Costs, AI Accounts, Jobs
-- **Configuration**: AI Providers, Plan Tiers, Categories, Templates, Recipe edit
+- **Configuration**: AI Providers, AI Assistant, Plan Tiers, Categories, Templates, Recipe edit
 - **Footer**: Settings, Logout
 
 Cross-record tracing: every API request, job, error log, AI usage row, flow step log, and activity log is tagged with the same `correlationId`/`requestId`. Click "Trace" on any list row to open `/internal/trace/<correlationId>` and see the full request lifecycle as a single timeline with per-source tabs. The API Logs page also exposes an SSE-based **Live tail** toggle.

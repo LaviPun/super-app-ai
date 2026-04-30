@@ -445,6 +445,8 @@ model AppSettings {
   templateSpecOverrides String?
   // Default AI provider when using .env keys: openai | claude (null = use DB active, then OpenAI env fallback)
   defaultAiProvider String?
+  // Optional URL used as premium UI/UX visual reference when compiling storefront AI prompts.
+  designReferenceUrl String?
   // Encrypted JSON runtime settings for first-layer router target switching (localMachine/modalRemote)
   routerRuntimeConfigEnc String?
   // Meta
@@ -800,4 +802,79 @@ model AttributionLink {
   @@index([shopId])
   @@index([sessionId])
   @@index([orderId])
+}
+
+model InternalAiSession {
+  id            String   @id @default(cuid())
+  title         String
+  mode          String   @default("localMachine") // localMachine | modalRemote
+  memoryEnabled Boolean  @default(true)
+  archivedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  messages      InternalAiMessage[]
+  toolAudits    InternalAiToolAudit[]
+
+  @@index([updatedAt])
+  @@index([createdAt])
+}
+
+model InternalAiMessage {
+  id             String   @id @default(cuid())
+  sessionId      String
+  session        InternalAiSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role           String   // user | assistant | system
+  content        String
+  mode           String?  // localMachine | modalRemote
+  backend        String?  // ollama | openai | qwen3 | custom
+  model          String?
+  latencyMs      Int?
+  tokensIn       Int?
+  tokensOut      Int?
+  estimatedCostCents Int? @default(0)
+  hadFallback    Boolean  @default(false)
+  retryCount     Int      @default(0)
+  status         String   @default("completed") // streaming | completed | error
+  clientRequestId String?
+  responseToMessageId String?
+  error          String?
+  createdAt      DateTime @default(now())
+
+  toolAudits     InternalAiToolAudit[]
+
+  @@index([sessionId, createdAt])
+  @@index([sessionId, clientRequestId])
+  @@index([responseToMessageId])
+  @@index([createdAt])
+}
+
+model InternalAiMemory {
+  id          String   @id @default(cuid())
+  title       String
+  content     String
+  tagsJson    String? // JSON string[]
+  isEnabled   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isEnabled, updatedAt])
+}
+
+model InternalAiToolAudit {
+  id          String   @id @default(cuid())
+  sessionId   String?
+  session     InternalAiSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  messageId   String?
+  message     InternalAiMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  toolName    String
+  argsJson    String?
+  resultJson  String?
+  success     Boolean  @default(true)
+  error       String?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([toolName, createdAt])
+  @@index([sessionId, createdAt])
 }

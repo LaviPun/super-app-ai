@@ -1,12 +1,12 @@
 import '@shopify/shopify-app-remix/server/adapters/node';
 import { AppDistribution, shopifyApp } from '@shopify/shopify-app-remix/server';
-import { LATEST_API_VERSION } from '@shopify/shopify-api';
 import { getSessionStorage } from '~/session.server';
 import { validateEnv } from '~/env.server';
 import { initOtel } from '~/services/observability/otel.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
 
 initOtel();
+const SHOPIFY_API_VERSION = '2026-01';
 
 if (process.env.NODE_ENV !== 'test') validateEnv();
 
@@ -22,16 +22,13 @@ const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY!,
   apiSecretKey: process.env.SHOPIFY_API_SECRET || '',
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  apiVersion: LATEST_API_VERSION as any,
+  apiVersion: SHOPIFY_API_VERSION as any,
   scopes: process.env.SCOPES?.split(','),
   appUrl: process.env.SHOPIFY_APP_URL || '',
   authPathPrefix: '/auth',
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   sessionStorage: getSessionStorage() as any,
   distribution: AppDistribution.AppStore,
-  future: {
-    unstable_newEmbeddedAuthStrategy: true,
-  },
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),
@@ -39,7 +36,8 @@ const shopify = shopifyApp({
 
 export default shopify;
 export { shopify };
-export const apiVersion = LATEST_API_VERSION;
+export const apiVersion = SHOPIFY_API_VERSION;
+// HTML document headers are emitted via boundary.headers in app/root.tsx.
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
 export const authenticate = shopify.authenticate;
 export const unauthenticated = shopify.unauthenticated;
