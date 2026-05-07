@@ -46,6 +46,7 @@ Open `apps/web/.env` and verify / fill in:
 
 Optional (SSO for internal dashboard):
 - `INTERNAL_SSO_ISSUER`, `INTERNAL_SSO_CLIENT_ID`, `INTERNAL_SSO_CLIENT_SECRET`, `INTERNAL_SSO_REDIRECT_URI`
+- `INTERNAL_SSO_ALLOWED_EMAILS`: comma-separated operator email allowlist; SSO logins fail closed when the IdP email claim is absent or not listed.
 
 ## 5) OAuth route and embedded auth
 The app includes an OAuth splat route at:

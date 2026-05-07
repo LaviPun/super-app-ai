@@ -44,6 +44,7 @@
 
 - Platform delivery is in a **mature shipped state** across generation, publish/rollback, connectors, flows, billing, observability, and internal admin tooling.
 - Safety and reliability controls are active (schema gates, plan/capability checks, publish preflight scope checks, structured logs, request correlation, runbooks, and SLO definitions).
+- Internal admin SSO now fails closed behind `INTERNAL_SSO_ALLOWED_EMAILS`, and password-login redirects are constrained to same-app `/internal` paths.
 - Recent velocity focused on **quality hardening + UX polish + documentation cleanup**: jobs visibility, template modernization, first-class `theme.contactForm`, and GitBook restructuring.
 - Open work is primarily **planned expansion and control-system follow-through** (tracked in `phase-plan.md`), not missing core product foundations.
 

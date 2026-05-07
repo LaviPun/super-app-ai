@@ -3,10 +3,22 @@ import { Form, useActionData, useSearchParams } from '@remix-run/react';
 import { useRef, useEffect, useCallback } from 'react';
 import { internalSessionStorage, commitInternal } from '~/internal-admin/session.server';
 
+function safeInternalRedirect(rawTo: string | null): string {
+  if (!rawTo) return '/internal';
+  try {
+    const parsed = new URL(rawTo.trim(), 'https://internal.superapp.local');
+    if (parsed.origin !== 'https://internal.superapp.local') return '/internal';
+    if (!parsed.pathname.startsWith('/internal')) return '/internal';
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return '/internal';
+  }
+}
+
 export async function action({ request }: { request: Request }) {
   const form = await request.formData();
   const password = String(form.get('password') ?? '');
-  const to = String(form.get('to') ?? '/internal');
+  const to = safeInternalRedirect(String(form.get('to') ?? '/internal'));
 
   const expected = process.env.INTERNAL_ADMIN_PASSWORD;
   if (!expected) return json({ error: 'Internal admin not configured' }, { status: 500 });

@@ -75,6 +75,7 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 
 - Protected via `INTERNAL_ADMIN_PASSWORD` + HttpOnly session cookie.
 - Supports OIDC SSO (Google OAuth, Okta, etc.) via `INTERNAL_SSO_*` env vars.
+- SSO is fail-closed: the callback only grants access when the IdP `email` claim matches `INTERNAL_SSO_ALLOWED_EMAILS`.
 - In production: add IP allowlist + MFA in front of `/internal/*`.
 
 ---
@@ -88,6 +89,7 @@ INTERNAL_SSO_ISSUER=https://accounts.google.com
 INTERNAL_SSO_CLIENT_ID=your-oauth-client-id
 INTERNAL_SSO_CLIENT_SECRET=your-oauth-client-secret
 INTERNAL_SSO_REDIRECT_URI=https://your-app.example.com/internal/sso/callback
+INTERNAL_SSO_ALLOWED_EMAILS=ops@example.com,admin@example.com
 ```
 
 ---
