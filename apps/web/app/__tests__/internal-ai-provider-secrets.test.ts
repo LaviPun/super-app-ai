@@ -89,8 +89,8 @@ describe('internal AI provider secret handling', () => {
 
     expect(serialized).not.toContain('apiKeyEnc');
     expect(serialized).not.toContain('encrypted-secret-blob');
-    expect(body.providers[0].apiKeyMasked).toBe('********mini');
-    expect(body.prices[0].provider).toEqual({
+    expect(body.providers.at(0)?.apiKeyMasked).toBe('********mini');
+    expect(body.prices.at(0)?.provider).toEqual({
       id: 'provider-1',
       name: 'OpenAI default',
       provider: 'OPENAI',
