@@ -28,6 +28,38 @@ type ProviderRating = {
   label: 'Recommended' | 'Good' | 'Watch' | 'Needs attention';
 };
 
+function serializeProviderForAdmin(
+  provider: {
+    id: string;
+    name: string;
+    provider: ProviderKind | string;
+    baseUrl: string | null;
+    model: string | null;
+    costInPer1kCents: number | null;
+    costOutPer1kCents: number | null;
+    isActive: boolean;
+    extraConfig: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  apiKeyMasked: string,
+) {
+  return {
+    id: provider.id,
+    name: provider.name,
+    provider: provider.provider,
+    baseUrl: provider.baseUrl,
+    model: provider.model,
+    costInPer1kCents: provider.costInPer1kCents,
+    costOutPer1kCents: provider.costOutPer1kCents,
+    isActive: provider.isActive,
+    extraConfig: provider.extraConfig,
+    createdAt: provider.createdAt,
+    updatedAt: provider.updatedAt,
+    apiKeyMasked,
+  };
+}
+
 function parseModelCatalog(extraConfig: string | null): ModelCatalogMeta[] {
   if (!extraConfig) return [];
   try {
@@ -101,16 +133,22 @@ export async function loader({ request }: { request: Request }) {
   }
 
   const providers = await Promise.all(
-    providersRaw.map(async (p) => ({
-      ...p,
-      apiKeyMasked: await service.getApiKeyMasked(p.id),
-    }))
+    providersRaw.map(async (p) => serializeProviderForAdmin(p, await service.getApiKeyMasked(p.id)))
   );
   const defaultProviders = await service.getDefaultProvidersForSettings();
   const prisma = getPrisma();
   const prices = await prisma.aiModelPrice.findMany({
     where: { isActive: true },
-    include: { provider: true },
+    include: {
+      provider: {
+        select: {
+          id: true,
+          name: true,
+          provider: true,
+          model: true,
+        },
+      },
+    },
     orderBy: [{ providerId: 'asc' }, { model: 'asc' }],
     take: 2000,
   });
@@ -219,8 +257,15 @@ export async function loader({ request }: { request: Request }) {
     const catalog = providerCatalogById.get(pr.providerId);
     const meta = catalog?.get(pr.model);
     const usage = usageByProviderModel.get(`${pr.providerId}:${pr.model}`) ?? null;
+    const { provider, ...price } = pr;
     return {
-      ...pr,
+      ...price,
+      provider: {
+        id: provider.id,
+        name: provider.name,
+        provider: provider.provider,
+        model: provider.model,
+      },
       displayName: meta?.displayName ?? pr.model,
       description: meta?.description ?? null,
       contextWindow: meta?.contextWindow ?? null,

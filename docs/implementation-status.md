@@ -4,6 +4,12 @@
 - Removed `future.unstable_newEmbeddedAuthStrategy` from the `shopifyApp` config to avoid reliance on unstable flags.
 - Added a v3 migration prep note: keep `@shopify/shopify-app-remix` on the upgrade queue and validate auth/webhook/type changes before bumping package versions.
 
+## 2026-05-09 Internal AI provider security hardening
+
+- Internal AI provider loaders now serialize explicit safe DTOs and omit encrypted API-key blobs from provider and pricing payloads.
+- AI usage prompt audit metadata now persists only prompt hash and length, not raw prompt previews.
+- Added regression coverage in `apps/web/app/__tests__/internal-ai-provider-secrets.test.ts`.
+
 # Implementation Status — AI Shopify SuperApp
 
 > Last updated: 2026-04-30 (template readiness + flagship settings rollout: data-surface flags, strict installability checks, full-schema editor controls, and surface-aware preview fixtures).
