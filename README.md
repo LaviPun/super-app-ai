@@ -25,7 +25,7 @@ You (the app owner/dev team) get:
 - Internal developer dashboard with sidebar navigation (Polaris Frame + TopBar + Navigation)
   - **Dashboard**: Stat cards (stores, AI calls 24h, API cost 24h, providers), errors/jobs/activities, job success rate, quick links to Plan tiers, Categories, Recipe edit, Settings
   - **AI Providers**: Add/activate providers, model pricing; per-provider display of masked API key (••••xyz1), model, base URL; for Claude (ANTHROPIC): optional Agent Skills (e.g. pptx, xlsx) and code execution
-  - **Usage & Costs** (now includes prompt preview + account/limit audit context), **Activity Log** (with per-entry View → full detail: actor, action, resource, store, details JSON), **Error Logs**, **API Logs**
+  - **Usage & Costs** (prompt hash/length audit context only; no raw prompt previews), **Activity Log** (with per-entry View → full detail: actor, action, resource, store, details JSON), **Error Logs**, **API Logs**
   - **AI Accounts & Limits**: per-provider account owner metadata, account ID/email, daily limit, alert limit, current balance, and live spend vs limits
   - **Stores**: Per-store AI provider override, retention overrides, **Change plan** (FREE / STARTER / GROWTH / PRO / ENTERPRISE) without Shopify billing
   - **Plan Tiers**: View/edit plan definitions (display name, price, trial days, quotas); Enterprise = "Contact us" (unlimited); Pro = 10× Growth
