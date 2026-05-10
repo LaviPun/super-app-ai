@@ -39,7 +39,7 @@ export async function loader({ request }: { request: Request }) {
       // FlowRunnerService requires an admin context for Shopify API calls.
       // For scheduled runs we pass a minimal stub — steps using Shopify APIs
       // will fail gracefully and get retried; purely connector/HTTP steps work fine.
-      await runner.runForTrigger(item.shopDomain, null as any, 'MANUAL', event);
+      await runner.runForTrigger(item.shopDomain, null as any, 'SCHEDULED', event);
       results.push({ scheduleId: item.id, shopDomain: item.shopDomain, ok: true });
     } catch (err) {
       results.push({ scheduleId: item.id, shopDomain: item.shopDomain, ok: false, error: String(err) });
