@@ -5,8 +5,23 @@ import { getPrisma } from '~/db.server';
 import { ErrorLogService } from '~/services/observability/error-log.service';
 import type { ErrorLogSource } from '~/services/observability/error-log.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import { enforceRateLimit } from '~/services/security/rate-limit.server';
+import { redact } from '~/services/observability/redact.server';
 
 const REPORT_SOURCE: ErrorLogSource[] = ['ERROR_BOUNDARY', 'CLIENT'];
+
+const MAX_MESSAGE_LEN = 4000;
+const MAX_STACK_LEN = 12000;
+const MAX_JSON_BYTES = 48_000;
+
+function clientIp(request: Request): string {
+  const xff = request.headers.get('x-forwarded-for');
+  if (xff) {
+    const first = xff.split(',')[0]?.trim();
+    if (first) return first;
+  }
+  return request.headers.get('fly-client-ip')?.trim() || 'unknown';
+}
 
 export async function action({ request }: ActionFunctionArgs) {
   if (request.method !== 'POST') {
@@ -23,20 +38,29 @@ export async function action({ request }: ActionFunctionArgs) {
     shopId = undefined;
   }
 
+  const ip = clientIp(request);
+  enforceRateLimit(shopId ? `report-error:shop:${shopId}` : `report-error:ip:${ip}`);
+
   let body: { message?: string; stack?: string; route?: string; source?: string; meta?: unknown };
   try {
-    body = (await request.json()) as typeof body;
+    const raw = await request.text();
+    if (raw.length > MAX_JSON_BYTES) {
+      return json({ error: 'Payload too large' }, { status: 413 });
+    }
+    body = JSON.parse(raw) as typeof body;
   } catch {
     return json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const message = typeof body.message === 'string' ? body.message : 'Unknown error';
-  const stack = typeof body.stack === 'string' ? body.stack : undefined;
+  const messageRaw = typeof body.message === 'string' ? body.message : 'Unknown error';
+  const message = messageRaw.slice(0, MAX_MESSAGE_LEN);
+  const stack =
+    typeof body.stack === 'string' ? body.stack.slice(0, MAX_STACK_LEN) : undefined;
   const route = typeof body.route === 'string' ? body.route : undefined;
   const source = body.source && REPORT_SOURCE.includes(body.source as ErrorLogSource)
     ? (body.source as ErrorLogSource)
     : 'CLIENT';
-  const meta = body.meta != null ? body.meta : undefined;
+  const meta = body.meta != null ? redact(body.meta) : undefined;
 
   const errLog = new ErrorLogService();
   await errLog.write('ERROR', message, stack, meta, route, shopId, source);

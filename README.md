@@ -277,3 +277,5 @@ The internal admin dashboard (`/internal`) uses a Polaris `Frame` layout with:
 Cross-record tracing: every API request, job, error log, AI usage row, flow step log, and activity log is tagged with the same `correlationId`/`requestId`. Click "Trace" on any list row to open `/internal/trace/<correlationId>` and see the full request lifecycle as a single timeline with per-source tabs. The API Logs page also exposes an SSE-based **Live tail** toggle.
 
 `/internal/advanced` redirects to Settings. Full route list and behavior: see `docs/internal-admin.md`.
+
+Internal SSO requires an explicit comma-separated `INTERNAL_SSO_ALLOWED_EMAILS` operator allowlist; password login redirects are constrained to `/internal` paths.

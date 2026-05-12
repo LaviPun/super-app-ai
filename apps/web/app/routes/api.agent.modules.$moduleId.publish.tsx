@@ -41,12 +41,23 @@ export async function action({
   const mod = await moduleService.getModule(session.shop, moduleId);
   if (!mod) return json({ error: 'Module not found' }, { status: 404 });
 
-  // Resolve the version to publish
-  const draft = body.version != null
-    ? mod.versions.find(v => v.version === body.version)
-    : (mod.versions.find(v => v.status === 'DRAFT') ?? mod.versions[0]);
+  // Resolve the version to publish (agent may not pass version; when it does, only DRAFT rows are allowed)
+  const draft =
+    body.version != null
+      ? mod.versions.find((v) => v.version === body.version && v.status === 'DRAFT')
+      : (mod.versions.find((v) => v.status === 'DRAFT') ?? mod.versions[0]);
 
-  if (!draft) return json({ error: 'No version found to publish' }, { status: 400 });
+  if (!draft) {
+    return json(
+      {
+        error:
+          body.version != null
+            ? 'No matching draft version to publish (version must exist and be in DRAFT status)'
+            : 'No version found to publish',
+      },
+      { status: 400 },
+    );
+  }
 
   const spec = new RecipeService().parse(draft.specJson);
 

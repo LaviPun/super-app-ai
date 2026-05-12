@@ -84,6 +84,7 @@ vi.mock('~/services/preview/preview.service', () => ({
 
 import { internalSessionStorage } from '~/internal-admin/session.server';
 import { loader as ssoCallbackLoader } from '../routes/internal.sso.callback';
+import { action as internalLoginAction } from '../routes/internal.login';
 import { loader as apiLogsStreamLoader } from '../routes/internal.api-logs.stream';
 import { action as aiChatStreamAction } from '../routes/internal.ai-assistant.chat.stream';
 import { loader as activityDetailLoader } from '../routes/internal.activity.$activityId';
@@ -123,6 +124,7 @@ describe('internal admin route closure (scorecard certification harness)', () =>
     mockAuthorizationCodeGrant.mockReset();
     mockGetById.mockReset();
     mockAiList.mockReset();
+    delete process.env.INTERNAL_SSO_ALLOWED_EMAILS;
     Object.values(storeMocks).forEach((fn) => {
       if (typeof (fn as { mockReset?: () => void }).mockReset === 'function') {
         (fn as { mockReset: () => void }).mockReset();
@@ -135,6 +137,7 @@ describe('internal admin route closure (scorecard certification harness)', () =>
     process.env.INTERNAL_SSO_CLIENT_ID = 'client';
     process.env.INTERNAL_SSO_CLIENT_SECRET = 'secret';
     process.env.INTERNAL_SSO_REDIRECT_URI = 'http://127.0.0.1:4000/internal/sso/callback';
+    process.env.INTERNAL_SSO_ALLOWED_EMAILS = 'ops@example.com';
 
     const session = await internalSessionStorage.getSession();
     session.set('oidc_state', 'state-abc');
@@ -159,6 +162,51 @@ describe('internal admin route closure (scorecard certification harness)', () =>
     const setCookie = res.headers.get('Set-Cookie');
     expect(setCookie).toBeTruthy();
     expect(setCookie).toContain('__superapp_internal');
+  });
+
+  it('internal.sso.callback: rejects identities outside the allowlist', async () => {
+    process.env.INTERNAL_SSO_ISSUER = 'https://accounts.example.com';
+    process.env.INTERNAL_SSO_CLIENT_ID = 'client';
+    process.env.INTERNAL_SSO_CLIENT_SECRET = 'secret';
+    process.env.INTERNAL_SSO_REDIRECT_URI = 'http://127.0.0.1:4000/internal/sso/callback';
+    process.env.INTERNAL_SSO_ALLOWED_EMAILS = 'ops@example.com';
+
+    const session = await internalSessionStorage.getSession();
+    session.set('oidc_state', 'state-abc');
+    session.set('oidc_verifier', 'verifier-xyz');
+    const cookieHeader = await internalSessionStorage.commitSession(session);
+    const cookiePair = cookieHeader.split(';')[0]?.trim() ?? '';
+
+    mockDiscovery.mockResolvedValue({});
+    mockAuthorizationCodeGrant.mockResolvedValue({
+      claims: () => ({ email: 'attacker@example.com', name: 'External User' }),
+    });
+
+    const req = new Request('http://127.0.0.1/internal/sso/callback?code=c1&state=state-abc', {
+      headers: { cookie: cookiePair },
+    });
+
+    await expect(ssoCallbackLoader({ request: req })).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('internal.login: never redirects password auth to an external URL', async () => {
+    process.env.INTERNAL_ADMIN_PASSWORD = 'correct-password';
+
+    const body = new URLSearchParams({
+      password: 'correct-password',
+      to: 'https://attacker.example/phish',
+    });
+
+    const res = await internalLoginAction({
+      request: new Request('http://127.0.0.1/internal/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body,
+      }),
+    });
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe('/internal');
   });
 
   it('internal.api-logs.stream: first SSE chunk is event ready', async () => {

@@ -1,5 +1,6 @@
 import { getPrisma } from '~/db.server';
 import { decryptJson, encryptJson } from '~/services/security/crypto.server';
+import { logger } from '~/services/observability/logger.server';
 import {
   DEFAULT_ROUTER_RUNTIME_CONFIG,
   RouterRuntimeConfigSchema,
@@ -27,26 +28,44 @@ function isMissingRouterConfigFieldError(error: unknown): boolean {
   return error instanceof Error && error.message.includes(PRISMA_MISSING_ROUTER_CONFIG_FIELD);
 }
 
-function parseConfig(ciphertext: string | null): RouterRuntimeConfig {
-  if (!ciphertext) return { ...DEFAULT_ROUTER_RUNTIME_CONFIG };
+/**
+ * Decrypt + validate stored router config.
+ * When ciphertext exists but cannot be decrypted/parsed, returns defaults and
+ * `storedConfigInvalid: true` so callers do not treat broken ciphertext as an
+ * intentional "empty" dual-target configuration.
+ */
+export function parseRouterRuntimeConfig(ciphertext: string | null): {
+  config: RouterRuntimeConfig;
+  storedConfigInvalid: boolean;
+} {
+  if (!ciphertext?.trim()) {
+    return { config: { ...DEFAULT_ROUTER_RUNTIME_CONFIG }, storedConfigInvalid: false };
+  }
   try {
     const decoded = decryptJson<unknown>(ciphertext);
     const parsed = RouterRuntimeConfigSchema.parse(decoded);
     return {
-      ...parsed,
-      targets: {
-        localMachine: {
-          ...parsed.targets.localMachine,
-          model: parsed.targets.localMachine.model?.trim() || 'qwen3:4b-instruct-q4_K_M',
-        },
-        modalRemote: {
-          ...parsed.targets.modalRemote,
-          model: parsed.targets.modalRemote.model?.trim() || 'Qwen/Qwen3-4B-Instruct',
+      config: {
+        ...parsed,
+        targets: {
+          localMachine: {
+            ...parsed.targets.localMachine,
+            model: parsed.targets.localMachine.model?.trim() || 'qwen3:4b-instruct-q4_K_M',
+          },
+          modalRemote: {
+            ...parsed.targets.modalRemote,
+            model: parsed.targets.modalRemote.model?.trim() || 'Qwen/Qwen3-4B-Instruct',
+          },
         },
       },
+      storedConfigInvalid: false,
     };
-  } catch {
-    return { ...DEFAULT_ROUTER_RUNTIME_CONFIG };
+  } catch (err) {
+    logger.warn('router_runtime_config_invalid', {
+      actor: 'system',
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return { config: { ...DEFAULT_ROUTER_RUNTIME_CONFIG }, storedConfigInvalid: true };
   }
 }
 
@@ -65,7 +84,7 @@ async function readRuntimeConfigCiphertext(): Promise<string | null> {
 
 export async function getRouterRuntimeConfig(): Promise<RouterRuntimeConfig> {
   const ciphertext = await readRuntimeConfigCiphertext();
-  return parseConfig(ciphertext);
+  return parseRouterRuntimeConfig(ciphertext).config;
 }
 
 export async function saveRouterRuntimeConfig(config: RouterRuntimeConfig): Promise<RouterRuntimeConfig> {
@@ -126,8 +145,8 @@ export async function resolveRouterTargetConfig(): Promise<ResolvedRouterTarget>
   }
 
   const ciphertext = await readRuntimeConfigCiphertext();
-  const cfg = parseConfig(ciphertext);
-  const hasStoredConfig = Boolean(ciphertext);
+  const { config: cfg, storedConfigInvalid } = parseRouterRuntimeConfig(ciphertext);
+  const hasStoredConfig = Boolean(ciphertext) && !storedConfigInvalid;
   if (!hasStoredConfig || !cfg.dualTargetEnabled) {
     return {
       target: 'localMachine',

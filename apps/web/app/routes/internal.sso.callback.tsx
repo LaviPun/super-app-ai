@@ -2,6 +2,21 @@ import { redirect } from '@remix-run/node';
 import * as oidc from 'openid-client';
 import { internalSessionStorage, commitInternal } from '~/internal-admin/session.server';
 
+function getAllowedInternalSsoEmails(): Set<string> {
+  return new Set(
+    (process.env.INTERNAL_SSO_ALLOWED_EMAILS ?? '')
+      .split(',')
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+function getClaimString(claims: unknown, key: string): string | null {
+  if (!claims || typeof claims !== 'object') return null;
+  const value = (claims as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : null;
+}
+
 export async function loader({ request }: { request: Request }) {
   const issuerUrl = process.env.INTERNAL_SSO_ISSUER;
   const clientId = process.env.INTERNAL_SSO_CLIENT_ID;
@@ -32,12 +47,23 @@ export async function loader({ request }: { request: Request }) {
   });
 
   const claims = tokens.claims();
+  const email = getClaimString(claims, 'email')?.trim().toLowerCase() ?? null;
+  const allowedEmails = getAllowedInternalSsoEmails();
+
+  if (!email || !allowedEmails.has(email)) {
+    session.unset('oidc_state');
+    session.unset('oidc_verifier');
+    throw new Response('SSO user not allowed', {
+      status: 403,
+      headers: { 'Set-Cookie': await commitInternal(session) },
+    });
+  }
 
   session.unset('oidc_state');
   session.unset('oidc_verifier');
   session.set('internal_admin', true);
-  session.set('internal_email', (claims as Record<string, unknown>).email ?? null);
-  session.set('internal_name', (claims as Record<string, unknown>).name ?? null);
+  session.set('internal_email', email);
+  session.set('internal_name', getClaimString(claims, 'name'));
 
   return redirect('/internal', { headers: { 'Set-Cookie': await commitInternal(session) } });
 }

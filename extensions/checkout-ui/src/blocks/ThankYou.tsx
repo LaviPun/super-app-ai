@@ -11,7 +11,13 @@ function ThankYouBlock() {
   if (result.status === 'loading') return <s-text>Loading...</s-text>;
   if (result.status !== 'ready') return null;
 
-  return <CheckoutBlockRenderer config={result.config} />;
+  return (
+    <s-stack gap="base">
+      {result.configs.map((config, i) => (
+        <CheckoutBlockRenderer key={i} config={config} />
+      ))}
+    </s-stack>
+  );
 }
 
 export default async function extension() {

@@ -34,6 +34,12 @@ export async function anthropicGenerateRecipe(opts: {
   const useCodeExecution = Boolean(opts.skillsConfig?.codeExecution);
   const useStructured = Boolean(opts.responseSchema) && !useSkills && !useCodeExecution;
 
+  if (opts.responseSchema && (useSkills || useCodeExecution)) {
+    throw new Error(
+      'Anthropic skills/code execution cannot be combined with JSON schema structured output for this call. Disable skills/code execution or omit responseSchema.',
+    );
+  }
+
   const betaParts: string[] = [];
   if (useSkills) betaParts.push('skills-2025-10-02', 'files-api-2025-04-14');
   if (useSkills || useCodeExecution) betaParts.push('code-execution-2025-08-25');

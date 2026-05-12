@@ -44,6 +44,8 @@
 
 - Platform delivery is in a **mature shipped state** across generation, publish/rollback, connectors, flows, billing, observability, and internal admin tooling.
 - Safety and reliability controls are active (schema gates, plan/capability checks, publish preflight scope checks, structured logs, request correlation, runbooks, and SLO definitions).
+- Internal admin SSO now fails closed behind `INTERNAL_SSO_ALLOWED_EMAILS`, and password-login redirects are constrained to same-app `/internal` paths.
+- Hardened `/api/report-error` (rate limit, payload cap, redacted meta), Claude default provider `extraConfig` merges on partial saves, invalid encrypted router runtime config no longer implies intentional dual-target mode, rollback re-syncs Shopify publish, agent publish rejects non-draft `version`, checkout upsell extension renders all published upsells deterministically, and AI usage prompt previews are redacted.
 - Recent velocity focused on **quality hardening + UX polish + documentation cleanup**: jobs visibility, template modernization, first-class `theme.contactForm`, and GitBook restructuring.
 - Open work is primarily **planned expansion and control-system follow-through** (tracked in `phase-plan.md`), not missing core product foundations.
 

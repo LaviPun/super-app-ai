@@ -115,6 +115,9 @@ export class ModuleService {
           uiTokensJson: publishedVersion.uiTokensJson,
           validationReportJson: publishedVersion.validationReportJson,
           hydratedAt: publishedVersion.hydratedAt,
+          implementationPlanJson: publishedVersion.implementationPlanJson,
+          previewHtmlJson: publishedVersion.previewHtmlJson,
+          compiledRuntimePlanJson: publishedVersion.compiledRuntimePlanJson,
         },
       });
     }

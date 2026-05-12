@@ -36,6 +36,7 @@ const EnvSchema = z.object({
   INTERNAL_SSO_CLIENT_ID: z.string().optional(),
   INTERNAL_SSO_CLIENT_SECRET: z.string().optional(),
   INTERNAL_SSO_REDIRECT_URI: z.string().url().optional(),
+  INTERNAL_SSO_ALLOWED_EMAILS: z.string().optional(),
 
   // Retention
   DEFAULT_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
