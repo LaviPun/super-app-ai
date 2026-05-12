@@ -36,6 +36,7 @@ import type { PromptRouterDecision } from '~/schemas/prompt-router.server';
 import { buildDesignReferencePromptBlock, resolveDesignReferencePack } from '~/services/ai/design-reference.server';
 
 import { getPrisma } from '~/db.server';
+import { redactString } from '~/services/observability/redact.server';
 
 export type RecipeOption = { explanation: string; recipe: RecipeSpec };
 
@@ -1833,8 +1834,7 @@ function buildPromptAudit(prompt?: string): { sha256: string; chars: number; pre
   return {
     sha256: crypto.createHash('sha256').update(prompt).digest('hex'),
     chars: prompt.length,
-    // Include enough context to surface DesignReferenceV1 and premium guidance blocks in audits.
-    preview: prompt.slice(0, 1200),
+    preview: redactString(prompt.slice(0, 400)),
   };
 }
 

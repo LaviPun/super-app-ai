@@ -312,7 +312,8 @@ export async function loader({ request, params }: { request: Request; params: { 
     }
   }
 
-  const publishedVersion = mod.versions.find(v => v.status === 'PUBLISHED') ?? mod.activeVersion ?? null;
+  const publishedVersion =
+    mod.activeVersion ?? mod.versions.find(v => v.status === 'PUBLISHED') ?? null;
   const publishedThemeId = publishedVersion?.targetThemeId ?? null;
 
   // everHydrated: true if any version has hydration data (used client-side to skip auto-trigger)

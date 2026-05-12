@@ -109,19 +109,34 @@ export class AiProviderService {
     const prisma = getPrisma();
     const existing = await prisma.aiProvider.findFirst({ where: { provider: 'ANTHROPIC' } });
     const model = data.model?.trim() || null;
-    const extraConfig = data.extraConfig ? JSON.stringify(data.extraConfig) : null;
     if (existing) {
       const update: Record<string, unknown> = {
         model,
         baseUrl: 'https://api.anthropic.com',
-        extraConfig,
         updatedAt: new Date(),
       };
       if (data.apiKey != null && data.apiKey.trim() !== '') {
         update.apiKeyEnc = encryptJson({ apiKey: data.apiKey.trim() });
       }
+      if (data.extraConfig !== undefined) {
+        if (data.extraConfig === null) {
+          update.extraConfig = null;
+        } else {
+          let current: Record<string, unknown> = {};
+          if (existing.extraConfig) {
+            try {
+              current = JSON.parse(existing.extraConfig) as Record<string, unknown>;
+            } catch {
+              current = {};
+            }
+          }
+          const merged = { ...current, ...data.extraConfig };
+          update.extraConfig = JSON.stringify(merged);
+        }
+      }
       return prisma.aiProvider.update({ where: { id: existing.id }, data: update });
     }
+    const extraConfig = data.extraConfig ? JSON.stringify(data.extraConfig) : null;
     const apiKey = (data.apiKey ?? '').trim();
     if (!apiKey) throw new Error('Claude API key is required when creating the default provider.');
     return prisma.aiProvider.create({

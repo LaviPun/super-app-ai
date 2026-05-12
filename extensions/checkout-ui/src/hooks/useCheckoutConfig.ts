@@ -17,7 +17,7 @@ export type UseCheckoutConfigResult =
   | { status: 'loading' }
   | { status: 'hidden' }
   | { status: 'error' }
-  | { status: 'ready'; config: CheckoutBlockConfig };
+  | { status: 'ready'; configs: CheckoutBlockConfig[] };
 
 const UPSELL_REFS_QUERY = `#graphql
   query SuperAppCheckoutUpsellRefs {
@@ -26,6 +26,7 @@ const UPSELL_REFS_QUERY = `#graphql
         references(first: 128) {
           nodes {
             ... on Metaobject {
+              moduleId: field(key: "module_id") { value }
               configJson: field(key: "config_json") { value }
             }
           }
@@ -35,7 +36,7 @@ const UPSELL_REFS_QUERY = `#graphql
   }
 `;
 
-type MetaobjectNode = { configJson?: { value?: string } };
+type MetaobjectNode = { moduleId?: { value?: string }; configJson?: { value?: string } };
 type QueryData = { shop: { upsellRefs?: { references?: { nodes?: MetaobjectNode[] } } | null } };
 
 export function useCheckoutConfig(target: string): UseCheckoutConfigResult {
@@ -52,17 +53,25 @@ export function useCheckoutConfig(target: string): UseCheckoutConfigResult {
       .then(({ data }: { data?: QueryData }) => {
         if (cancelled) return;
         const nodes = data?.shop?.upsellRefs?.references?.nodes ?? [];
+        const parsed: Array<{ sortKey: string; config: CheckoutBlockConfig }> = [];
         for (const node of nodes) {
           const raw = node?.configJson?.value;
           if (!raw) continue;
           try {
             const config = JSON.parse(raw) as CheckoutBlockConfig;
-            // checkout.upsell has no explicit target field — all published upsells show in checkout
-            setResult({ status: 'ready', config: { ...config, target } });
-            return;
-          } catch { /* malformed JSON, skip */ }
+            const mid = (node.moduleId?.value ?? '').trim();
+            parsed.push({ sortKey: mid || raw.slice(0, 32), config: { ...config, target } });
+          } catch {
+            /* malformed JSON, skip */
+          }
         }
-        setResult({ status: 'hidden' });
+        parsed.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+        const configs = parsed.map((p) => p.config);
+        if (configs.length === 0) {
+          setResult({ status: 'hidden' });
+          return;
+        }
+        setResult({ status: 'ready', configs });
       })
       .catch(() => {
         if (!cancelled) setResult({ status: 'error' });
