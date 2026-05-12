@@ -11,10 +11,9 @@ type AppScopesUpdatePayload = {
 export async function action({ request }: { request: Request }) {
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
 
-  await shopify.authenticate.webhook(request);
-
-  const payload = (await request.json()) as AppScopesUpdatePayload;
-  const shopDomain = String(payload.myshopify_domain ?? payload.domain ?? '').trim().toLowerCase();
+  const { payload } = await shopify.authenticate.webhook(request);
+  const webhookPayload = payload as AppScopesUpdatePayload;
+  const shopDomain = String(webhookPayload.myshopify_domain ?? webhookPayload.domain ?? '').trim().toLowerCase();
   if (!shopDomain) {
     return new Response(JSON.stringify({ error: 'Missing shop domain' }), {
       status: 400,
@@ -22,7 +21,7 @@ export async function action({ request }: { request: Request }) {
     });
   }
 
-  const scopes = Array.isArray(payload.app_scopes) ? payload.app_scopes : [];
+  const scopes = Array.isArray(webhookPayload.app_scopes) ? webhookPayload.app_scopes : [];
   const prisma = getPrisma();
   const shop = await prisma.shop.findUnique({ where: { shopDomain } });
 
