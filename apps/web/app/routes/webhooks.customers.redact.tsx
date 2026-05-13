@@ -9,15 +9,15 @@ import { getPrisma } from '~/db.server';
 export async function action({ request }: { request: Request }) {
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
 
-  await shopify.authenticate.webhook(request);
+  const { payload, shop: authenticatedShopDomain } = await shopify.authenticate.webhook(request);
 
-  const payload = (await request.json()) as {
+  const redactPayload = payload as {
     shop_id?: number;
     shop_domain?: string;
     customer?: { id: number };
     orders_to_redact?: number[];
   };
-  const shopDomain = payload.shop_domain ?? payload.shop_id?.toString();
+  const shopDomain = redactPayload.shop_domain ?? authenticatedShopDomain ?? redactPayload.shop_id?.toString();
   if (!shopDomain)
     return new Response(JSON.stringify({ error: 'Missing shop identifier' }), {
       status: 400,
@@ -28,7 +28,7 @@ export async function action({ request }: { request: Request }) {
   const shop = await prisma.shop.findUnique({ where: { shopDomain } });
   if (!shop) return new Response(undefined, { status: 200 });
 
-  const customerId = payload.customer?.id;
+  const customerId = redactPayload.customer?.id;
 
   if (customerId != null) {
     const deleted = await prisma.dataCapture.deleteMany({
