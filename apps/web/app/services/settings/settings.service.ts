@@ -132,10 +132,10 @@ export class SettingsService {
 
   async update(data: Partial<AppSettingsData>): Promise<AppSettingsData> {
     const prisma = getPrisma();
-    const next = {
-      ...data,
-      defaultAiProvider: coerceDefaultAiProvider(data.defaultAiProvider),
-    };
+    const next: Partial<AppSettingsData> = { ...data };
+    if (Object.prototype.hasOwnProperty.call(data, 'defaultAiProvider')) {
+      next.defaultAiProvider = coerceDefaultAiProvider(data.defaultAiProvider);
+    }
     let row;
     try {
       row = await prisma.appSettings.upsert({
