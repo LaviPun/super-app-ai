@@ -501,10 +501,7 @@ export default function InternalAiAssistantRoute() {
   }, [
     activeSessionId,
     data.activeSession.mode,
-    data.targets.localMachine.health.ok,
-    data.targets.localMachine.chatProbe.ok,
-    data.targets.modalRemote.health.ok,
-    data.targets.modalRemote.chatProbe.ok,
+    data.targets,
     draft,
     isStreaming,
     revalidator,

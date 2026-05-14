@@ -29,9 +29,9 @@ export async function checkAndMarkWebhookEvent(opts: {
       },
     });
     return true;
-  } catch (err: any) {
+  } catch (err) {
     // P2002 = unique constraint violation → duplicate event
-    if (err?.code === 'P2002') return false;
+    if ((err as { code?: string } | null)?.code === 'P2002') return false;
     throw err;
   }
 }

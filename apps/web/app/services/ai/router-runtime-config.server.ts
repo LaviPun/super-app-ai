@@ -93,7 +93,7 @@ export async function resolveRouterTargetConfig(): Promise<ResolvedRouterTarget>
   const envUrl = process.env.INTERNAL_AI_ROUTER_URL?.trim() || null;
   const envToken = process.env.INTERNAL_AI_ROUTER_TOKEN?.trim() || null;
   const envTimeoutMs = Number(process.env.INTERNAL_AI_ROUTER_TIMEOUT_MS?.trim() || '3000');
-  const envDualTargetEnabled = ['1', 'true', 'yes'].includes(
+  const _envDualTargetEnabled = ['1', 'true', 'yes'].includes(
     (process.env.INTERNAL_AI_ROUTER_DUAL_TARGET_ENABLED?.trim() || '').toLowerCase(),
   );
   const envShadow = (process.env.INTERNAL_AI_ROUTER_SHADOW?.trim() || '').toLowerCase();

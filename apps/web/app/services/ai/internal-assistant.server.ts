@@ -252,6 +252,15 @@ async function readNonStreamingResponse(response: Response, backend: ResolvedAss
   };
 }
 
+type AssistantStreamChunk = {
+  message?: { content?: string };
+  done?: boolean;
+  prompt_eval_count?: number;
+  eval_count?: number;
+  choices?: Array<{ delta?: { content?: string } }>;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+};
+
 async function* readStreamingResponse(response: Response, backend: ResolvedAssistantTargetConfig['backend']): AsyncGenerator<{ token?: string; tokensIn?: number; tokensOut?: number }> {
   if (!response.body) throw new Error('Streaming response body missing');
   const reader = response.body.getReader();
@@ -268,9 +277,9 @@ async function* readStreamingResponse(response: Response, backend: ResolvedAssis
         for (const line of lines) {
           const trimmed = line.trim();
           if (!trimmed) continue;
-          let json: any;
+          let json: AssistantStreamChunk | undefined;
           try {
-            json = JSON.parse(trimmed);
+            json = JSON.parse(trimmed) as AssistantStreamChunk;
           } catch {
             continue;
           }
@@ -292,9 +301,9 @@ async function* readStreamingResponse(response: Response, backend: ResolvedAssis
             if (!line.startsWith('data:')) continue;
             const data = line.slice(5).trim();
             if (!data || data === '[DONE]') continue;
-            let json: any;
+            let json: AssistantStreamChunk | undefined;
             try {
-              json = JSON.parse(data);
+              json = JSON.parse(data) as AssistantStreamChunk;
             } catch {
               continue;
             }
