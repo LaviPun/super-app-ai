@@ -16,8 +16,8 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const BACKEND = (process.env.ROUTER_BACKEND?.trim() || 'ollama').toLowerCase();
 
 const OLLAMA_BASE_URL = process.env.ROUTER_OLLAMA_BASE_URL?.trim() || 'http://127.0.0.1:11434';
-/** Default targets a small instruct model; use Qwen3-4B-class tags when available locally (e.g. `qwen3:4b-instruct-q4_K_M`). */
-const OLLAMA_MODEL = process.env.ROUTER_OLLAMA_MODEL?.trim() || 'qwen3:4b-instruct-q4_K_M';
+/** Default ~4B Qwen3 instruct Ollama tag; override via ROUTER_OLLAMA_MODEL / ollama.com/library/qwen3:4b-instruct. */
+const OLLAMA_MODEL = process.env.ROUTER_OLLAMA_MODEL?.trim() || 'qwen3:4b-instruct';
 
 const OPENAI_BASE_URL = process.env.ROUTER_OPENAI_BASE_URL?.trim() || 'http://127.0.0.1:8000/v1';
 const OPENAI_MODEL = process.env.ROUTER_OPENAI_MODEL?.trim() || 'Qwen/Qwen3-4B-Instruct';
@@ -159,7 +159,7 @@ function releaseTenantSlot(key: string): void {
   tenantActiveMap.set(key, current - 1);
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+async function readBodyBuffer(req: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
@@ -170,8 +170,135 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
     }
     chunks.push(part);
   }
-  if (chunks.length === 0) return {};
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  return chunks.length === 0 ? Buffer.alloc(0) : Buffer.concat(chunks);
+}
+
+async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const raw = await readBodyBuffer(req);
+  if (raw.length === 0) return {};
+  return JSON.parse(raw.toString('utf8'));
+}
+
+function requestPathname(req: IncomingMessage): string {
+  const url = req.url ?? '/';
+  const q = url.indexOf('?');
+  return q === -1 ? url : url.slice(0, q);
+}
+
+function denyUnlessAuthorized(req: IncomingMessage, res: ServerResponse): boolean {
+  if (!ENFORCE_AUTH) return true;
+  if (!AUTH_TOKEN) {
+    json(res, 503, { error: 'Router auth misconfigured: INTERNAL_AI_ROUTER_TOKEN missing' });
+    return false;
+  }
+  const auth = req.headers.authorization;
+  const provided = typeof auth === 'string' && auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!provided || !secureEquals(provided, AUTH_TOKEN)) {
+    json(res, 401, { error: 'Unauthorized' });
+    return false;
+  }
+  return true;
+}
+
+async function proxyOllamaApiTags(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!denyUnlessAuthorized(req, res)) return;
+  const upstream = `${OLLAMA_BASE_URL.replace(/\/+$/, '')}/api/tags`;
+  try {
+    const r = await fetch(upstream, { method: 'GET' });
+    const buf = Buffer.from(await r.arrayBuffer());
+    res.statusCode = r.status;
+    const ct = r.headers.get('content-type');
+    if (ct) res.setHeader('content-type', ct);
+    res.setHeader('cache-control', 'no-store');
+    res.setHeader('x-content-type-options', 'nosniff');
+    res.end(buf);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    json(res, 502, { error: 'Upstream unreachable', message });
+  }
+}
+
+async function proxyOllamaChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!denyUnlessAuthorized(req, res)) return;
+  let body: Buffer;
+  try {
+    body = await readBodyBuffer(req);
+  } catch {
+    json(res, 413, { error: 'Body too large' });
+    return;
+  }
+  const upstream = `${OLLAMA_BASE_URL.replace(/\/+$/, '')}/api/chat`;
+  try {
+    const r = await fetch(upstream, {
+      method: 'POST',
+      headers: { 'content-type': String(req.headers['content-type'] ?? 'application/json') },
+      body,
+    });
+    res.statusCode = r.status;
+    const ct = r.headers.get('content-type');
+    if (ct) res.setHeader('content-type', ct);
+    res.setHeader('cache-control', 'no-store');
+    res.setHeader('x-content-type-options', 'nosniff');
+    if (!r.body) {
+      res.end();
+      return;
+    }
+    const reader = r.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value?.byteLength) res.write(Buffer.from(value));
+    }
+    res.end();
+  } catch (error) {
+    if (!res.headersSent) {
+      const message = error instanceof Error ? error.message : String(error);
+      json(res, 502, { error: 'Upstream unreachable', message });
+    }
+  }
+}
+
+/** Passthrough to OpenAI-compatible `POST /v1/chat/completions` (internal assistant `qwen3` / `openai` backends). */
+async function proxyOpenAiChatCompletions(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!denyUnlessAuthorized(req, res)) return;
+  let body: Buffer;
+  try {
+    body = await readBodyBuffer(req);
+  } catch {
+    json(res, 413, { error: 'Body too large' });
+    return;
+  }
+  const upstream = `${OPENAI_BASE_URL.replace(/\/+$/, '')}/chat/completions`;
+  const headers: Record<string, string> = {
+    'content-type': String(req.headers['content-type'] ?? 'application/json'),
+  };
+  if (OPENAI_API_KEY) {
+    headers.authorization = `Bearer ${OPENAI_API_KEY}`;
+  }
+  try {
+    const r = await fetch(upstream, { method: 'POST', headers, body });
+    res.statusCode = r.status;
+    const ct = r.headers.get('content-type');
+    if (ct) res.setHeader('content-type', ct);
+    res.setHeader('cache-control', 'no-store');
+    res.setHeader('x-content-type-options', 'nosniff');
+    if (!r.body) {
+      res.end();
+      return;
+    }
+    const reader = r.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value?.byteLength) res.write(Buffer.from(value));
+    }
+    res.end();
+  } catch (error) {
+    if (!res.headersSent) {
+      const message = error instanceof Error ? error.message : String(error);
+      json(res, 502, { error: 'Upstream unreachable', message });
+    }
+  }
 }
 
 function sanitizePrompt(text: string): string {
@@ -425,7 +552,9 @@ async function callRouterModel(input: RouterInput, deterministic: PromptRouterDe
 }
 
 const server = createServer(async (req, res) => {
-  if (req.method === 'GET' && req.url === '/healthz') {
+  const pathname = requestPathname(req);
+
+  if (req.method === 'GET' && pathname === '/healthz') {
     return json(res, 200, {
       ok: true,
       service: 'internal-ai-router',
@@ -433,20 +562,23 @@ const server = createServer(async (req, res) => {
     });
   }
 
-  if (req.method !== 'POST' || req.url !== '/route') {
+  if (req.method === 'GET' && pathname === '/api/tags') {
+    return proxyOllamaApiTags(req, res);
+  }
+
+  if (req.method === 'POST' && pathname === '/api/chat') {
+    return proxyOllamaChat(req, res);
+  }
+
+  if (req.method === 'POST' && (pathname === '/v1/chat/completions' || pathname === '/chat/completions')) {
+    return proxyOpenAiChatCompletions(req, res);
+  }
+
+  if (req.method !== 'POST' || pathname !== '/route') {
     return json(res, 404, { error: 'Not found' });
   }
 
-  if (ENFORCE_AUTH) {
-    if (!AUTH_TOKEN) {
-      return json(res, 503, { error: 'Router auth misconfigured: INTERNAL_AI_ROUTER_TOKEN missing' });
-    }
-    const auth = req.headers.authorization;
-    const provided = typeof auth === 'string' && auth.startsWith('Bearer ') ? auth.slice(7) : '';
-    if (!provided || !secureEquals(provided, AUTH_TOKEN)) {
-      return json(res, 401, { error: 'Unauthorized' });
-    }
-  }
+  if (!denyUnlessAuthorized(req, res)) return;
 
   const ip = getClientIp(req);
   if (!enforceRateLimit(ip)) {

@@ -48,9 +48,9 @@ export const DEFAULT_ROUTER_RUNTIME_CONFIG: RouterRuntimeConfig = {
   releaseGateFallbackRateMax: 0.05,
   targets: {
     localMachine: {
-      url: 'http://127.0.0.1:8787',
-      backend: 'qwen3',
-      model: 'qwen3:4b-instruct-q4_K_M',
+      url: 'http://127.0.0.1:11434',
+      backend: 'ollama',
+      model: 'qwen3:4b-instruct',
       timeoutMs: 3000,
     },
     modalRemote: {

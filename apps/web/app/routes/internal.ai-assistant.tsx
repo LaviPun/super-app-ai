@@ -11,6 +11,10 @@ import { z } from 'zod';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getRouterRuntimeConfig } from '~/services/ai/router-runtime-config.server';
 import { DEFAULT_ROUTER_RUNTIME_CONFIG } from '~/schemas/router-runtime-config.server';
+import {
+  probeTargetLiveness,
+  validateAssistantChatTarget,
+} from '~/services/ai/assistant-chat-target-probe.server';
 import { InternalAssistantStoreService } from '~/services/ai/internal-assistant-store.server';
 
 const ActionSchema = z.object({
@@ -57,25 +61,12 @@ function formatTimeLabel(iso: string): string {
   return d.toISOString().slice(11, 16);
 }
 
-async function probeTargetHealth(url: string | undefined, timeoutMs = 2200): Promise<{ ok: boolean; message: string }> {
-  const trimmed = url?.trim();
-  if (!trimmed) return { ok: false, message: 'URL not configured' };
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(`${trimmed.replace(/\/+$/, '')}/healthz`, {
-      method: 'GET',
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      return { ok: false, message: `healthz ${response.status}` };
-    }
-    return { ok: true, message: 'healthy' };
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : 'unreachable' };
-  } finally {
-    clearTimeout(timeout);
-  }
+/** Reference dev router default port (see `pnpm --filter web router:internal`). */
+const REFERENCE_ROUTER_8787_HINT =
+  'Tip: start `pnpm --filter web router:internal` and keep Ollama (`ROUTER_OLLAMA_BASE_URL`) or an OpenAI-compatible upstream (`ROUTER_OPENAI_BASE_URL`) reachable for your backend.';
+
+function isReferenceInternalRouterUrl(url: string | undefined): boolean {
+  return typeof url === 'string' && /(^|[/:])8787(\/|$)/.test(url);
 }
 
 function parseMarkdown(content: string): MarkdownPart[] {
@@ -194,9 +185,33 @@ export async function loader({ request }: { request: Request }) {
     },
     { tokensIn: 0, tokensOut: 0, costCents: 0 },
   );
-  const [localHealth, modalHealth] = await Promise.all([
-    probeTargetHealth(runtime.targets.localMachine.url, 2200),
-    probeTargetHealth(runtime.targets.modalRemote.url, 2200),
+  const [localHealth, modalHealth, localChatProbe, modalChatProbe] = await Promise.all([
+    probeTargetLiveness({
+      backend: runtime.targets.localMachine.backend,
+      url: runtime.targets.localMachine.url,
+      token: runtime.targets.localMachine.token,
+      timeoutMs: runtime.targets.localMachine.timeoutMs,
+    }),
+    probeTargetLiveness({
+      backend: runtime.targets.modalRemote.backend,
+      url: runtime.targets.modalRemote.url,
+      token: runtime.targets.modalRemote.token,
+      timeoutMs: runtime.targets.modalRemote.timeoutMs,
+    }),
+    validateAssistantChatTarget({
+      target: 'localMachine',
+      backend: runtime.targets.localMachine.backend,
+      url: runtime.targets.localMachine.url,
+      token: runtime.targets.localMachine.token,
+      timeoutMs: runtime.targets.localMachine.timeoutMs,
+    }),
+    validateAssistantChatTarget({
+      target: 'modalRemote',
+      backend: runtime.targets.modalRemote.backend,
+      url: runtime.targets.modalRemote.url,
+      token: runtime.targets.modalRemote.token,
+      timeoutMs: runtime.targets.modalRemote.timeoutMs,
+    }),
   ]);
 
   return json({
@@ -208,15 +223,19 @@ export async function loader({ request }: { request: Request }) {
     targets: {
       localMachine: {
         configured: Boolean(runtime.targets.localMachine.url),
+        url: runtime.targets.localMachine.url ?? '',
         backend: runtime.targets.localMachine.backend,
         model: runtime.targets.localMachine.model ?? '',
         health: localHealth,
+        chatProbe: localChatProbe,
       },
       modalRemote: {
         configured: Boolean(runtime.targets.modalRemote.url),
+        url: runtime.targets.modalRemote.url ?? '',
         backend: runtime.targets.modalRemote.backend,
         model: runtime.targets.modalRemote.model ?? '',
         health: modalHealth,
+        chatProbe: modalChatProbe,
       },
     },
     overview: {
@@ -338,6 +357,7 @@ export default function InternalAiAssistantRoute() {
   const [toolEvents, setToolEvents] = useState<Array<{ name: string; ok: boolean; at: string }>>([]);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [searchDraft, setSearchDraft] = useState(data.query);
+  const [showTopInfoMore, setShowTopInfoMore] = useState(false);
 
   const activeSessionId = data.activeSession.id;
 
@@ -350,8 +370,21 @@ export default function InternalAiAssistantRoute() {
     const outgoing = (typeof overrideMessage === 'string' ? overrideMessage : draft).trim();
     if (!outgoing || isStreaming) return;
     const preferredTarget: 'localMachine' | 'modalRemote' = data.activeSession.mode;
-    if (preferredTarget === 'modalRemote' && !data.targets.modalRemote.health.ok) {
-      setStreamError('Cloud target is unhealthy. Fix modal target in /internal/model-setup.');
+    const preferred = data.targets[preferredTarget];
+    const referenceRouterHint =
+      preferredTarget === 'localMachine' && isReferenceInternalRouterUrl(preferred.url)
+        ? ` ${REFERENCE_ROUTER_8787_HINT}`
+        : '';
+    if (!preferred.health.ok) {
+      setStreamError(
+        `${preferredTarget === 'modalRemote' ? 'Cloud' : 'Local'} target failed health check (${preferred.health.message}). Fix target URL in /internal/model-setup.${referenceRouterHint}`,
+      );
+      return;
+    }
+    if (!preferred.chatProbe.ok) {
+      setStreamError(
+        `Assistant chat API not ready for ${preferredTarget === 'modalRemote' ? 'cloud' : 'local'} (${preferred.chatProbe.message}). Run “Validate assistant targets” or fix URLs in /internal/model-setup.${referenceRouterHint}`,
+      );
       return;
     }
     setIsStreaming(true);
@@ -468,7 +501,10 @@ export default function InternalAiAssistantRoute() {
   }, [
     activeSessionId,
     data.activeSession.mode,
+    data.targets.localMachine.health.ok,
+    data.targets.localMachine.chatProbe.ok,
     data.targets.modalRemote.health.ok,
+    data.targets.modalRemote.chatProbe.ok,
     draft,
     isStreaming,
     revalidator,
@@ -585,33 +621,66 @@ export default function InternalAiAssistantRoute() {
           background: #fafafa;
         }
         .AiAssistant-topInfoCard {
-          margin: 8px 12px 0;
+          margin: 0 0 10px;
           border: 1px solid #e5e7eb;
-          border-radius: 7px;
-          background: #ffffff;
-          padding: 8px 10px;
+          border-radius: 8px;
+          background: #fbfbfc;
+          padding: 7px 10px;
           display: flex;
-          gap: 10px;
+          gap: 8px;
           flex-wrap: wrap;
           align-items: center;
-          font-size: 11.5px;
+          font-size: 11px;
           color: #4b5563;
         }
         .AiAssistant-topInfoItem {
           display: inline-flex;
           align-items: center;
-          gap: 5px;
+          gap: 4px;
           padding-right: 8px;
-          border-right: 1px solid #eef1f4;
+          border-right: 1px solid #eceff3;
           white-space: nowrap;
         }
         .AiAssistant-topInfoItem:last-child { border-right: none; padding-right: 0; }
+        .AiAssistant-topInfoMoreBtn {
+          border: none;
+          background: transparent;
+          color: #6b7280;
+          font-size: 11px;
+          cursor: pointer;
+          padding: 0;
+          text-transform: lowercase;
+        }
+        .AiAssistant-referenceHint {
+          margin: 0 0 12px;
+          padding: 8px 12px;
+          border-radius: 8px;
+          border: 1px solid #fde68a;
+          background: #fffbeb;
+          font-size: 11.5px;
+          color: #78350f;
+          line-height: 1.45;
+        }
+        .AiAssistant-referenceHintLink {
+          color: #b45309;
+          font-weight: 600;
+          text-decoration: underline;
+        }
         .AiAssistant-select {
           border: 1px solid #dfe4ea;
           border-radius: 7px;
           background: #fff;
           font-size: 11.5px;
           padding: 4px 8px;
+        }
+        .AiAssistant-modelReadonly {
+          font-size: 11.5px;
+          color: #374151;
+          padding: 4px 0;
+          max-width: 220px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .AiAssistant-segmented {
           display: inline-flex;
@@ -645,6 +714,7 @@ export default function InternalAiAssistantRoute() {
           background: #6b7280;
         }
         .AiAssistant-dot.green { background: #10b981; }
+        .AiAssistant-dot.amber { background: #f59e0b; }
         .AiAssistant-dot.red { background: #ef4444; }
         .AiAssistant-conversationWrap {
           flex: 1;
@@ -794,6 +864,82 @@ export default function InternalAiAssistantRoute() {
         }
       `}</style>
 
+      <div className="AiAssistant-topInfoCard">
+        <span
+          className="AiAssistant-topInfoItem"
+          title={`healthz: ${data.targets.localMachine.health.message}\nchat: ${data.targets.localMachine.chatProbe.message}`}
+        >
+          <span
+            className={`AiAssistant-dot ${
+              !data.targets.localMachine.health.ok
+                ? 'red'
+                : data.targets.localMachine.chatProbe.ok
+                  ? 'green'
+                  : 'amber'
+            }`}
+          />
+          Local{' '}
+          {!data.targets.localMachine.health.ok
+            ? 'unhealthy'
+            : data.targets.localMachine.chatProbe.ok
+              ? 'ready'
+              : 'chat blocked'}
+        </span>
+        <span
+          className="AiAssistant-topInfoItem"
+          title={`healthz: ${data.targets.modalRemote.health.message}\nchat: ${data.targets.modalRemote.chatProbe.message}`}
+        >
+          <span
+            className={`AiAssistant-dot ${
+              !data.targets.modalRemote.health.ok
+                ? 'red'
+                : data.targets.modalRemote.chatProbe.ok
+                  ? 'green'
+                  : 'amber'
+            }`}
+          />
+          Cloud{' '}
+          {!data.targets.modalRemote.health.ok
+            ? 'unhealthy'
+            : data.targets.modalRemote.chatProbe.ok
+              ? 'ready'
+              : 'chat blocked'}
+        </span>
+        <span className="AiAssistant-topInfoItem">
+          Model {streamMeta?.model ?? (data.activeSession.mode === 'localMachine' ? data.targets.localMachine.model || 'local' : data.targets.modalRemote.model || 'cloud')}
+        </span>
+        <span className="AiAssistant-topInfoItem">Latency {streamMeta?.latencyMs ?? 0}ms</span>
+        <button
+          type="button"
+          className="AiAssistant-topInfoMoreBtn"
+          onClick={() => setShowTopInfoMore((prev) => !prev)}
+        >
+          {showTopInfoMore ? 'less' : 'more'}
+        </button>
+        {showTopInfoMore ? (
+          <>
+            <span className="AiAssistant-topInfoItem">Tokens {maxInsightsTokens}</span>
+            <span className="AiAssistant-topInfoItem">Memory {data.activeSession.memoryEnabled ? 'ON' : 'OFF'}</span>
+            {latestToolEvent ? (
+              <span className="AiAssistant-topInfoItem">
+                Tool {latestToolEvent.ok ? 'OK' : 'ERR'} {latestToolEvent.name}
+              </span>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+
+      {isReferenceInternalRouterUrl(data.targets.localMachine.url) &&
+      (!data.targets.localMachine.health.ok || !data.targets.localMachine.chatProbe.ok) ? (
+        <div className="AiAssistant-referenceHint" role="status">
+          {REFERENCE_ROUTER_8787_HINT}{' '}
+          <a className="AiAssistant-referenceHintLink" href="/internal/model-setup">
+            Local AI Setting
+          </a>
+          .
+        </div>
+      ) : null}
+
       <div className="AiAssistant-root">
         <aside className="AiAssistant-sidebar">
           <Button
@@ -843,9 +989,16 @@ export default function InternalAiAssistantRoute() {
         <section className="AiAssistant-main">
           <div className="AiAssistant-topbar">
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <select className="AiAssistant-select" defaultValue="quin-3" aria-label="Model">
-                <option value="quin-3">Quin 3</option>
-              </select>
+              <span
+                className="AiAssistant-modelReadonly"
+                title="Model comes from Setup the Model (runtime config)"
+              >
+                Model:{' '}
+                {streamMeta?.model ??
+                  (data.activeSession.mode === 'localMachine'
+                    ? data.targets.localMachine.model || '—'
+                    : data.targets.modalRemote.model || '—')}
+              </span>
               <div className="AiAssistant-segmented">
                 <button
                   type="button"
@@ -895,26 +1048,6 @@ export default function InternalAiAssistantRoute() {
               </div>
             </div>
           </div>
-          <div className="AiAssistant-topInfoCard">
-            <span className="AiAssistant-topInfoItem">
-              <span className={`AiAssistant-dot ${data.targets.localMachine.health.ok ? 'green' : 'red'}`} />
-              Local: {data.targets.localMachine.health.message}
-            </span>
-            <span className="AiAssistant-topInfoItem">
-              <span className={`AiAssistant-dot ${data.targets.modalRemote.health.ok ? 'green' : 'red'}`} />
-              Cloud: {data.targets.modalRemote.health.message}
-            </span>
-            <span className="AiAssistant-topInfoItem">Model: {streamMeta?.model ?? (data.activeSession.mode === 'localMachine' ? data.targets.localMachine.model || 'local' : data.targets.modalRemote.model || 'cloud')}</span>
-            <span className="AiAssistant-topInfoItem">Latency: {streamMeta?.latencyMs ?? 0} ms</span>
-            <span className="AiAssistant-topInfoItem">Tokens out: {maxInsightsTokens}</span>
-            <span className="AiAssistant-topInfoItem">Memory: {data.activeSession.memoryEnabled ? 'ON' : 'OFF'}</span>
-            {latestToolEvent ? (
-              <span className="AiAssistant-topInfoItem">
-                Last tool: {latestToolEvent.ok ? 'OK' : 'ERR'} {latestToolEvent.name}
-              </span>
-            ) : null}
-          </div>
-
           {streamError ? (
             <Banner tone="critical" title="Streaming failed">
               <Text as="p">{streamError}</Text>

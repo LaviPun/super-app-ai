@@ -1,5 +1,5 @@
 import { json } from '@remix-run/node';
-import { Form, useActionData, useLoaderData, useNavigation, useOutletContext } from '@remix-run/react';
+import { Form, useActionData, useLoaderData, useNavigation, useOutletContext, useSubmit } from '@remix-run/react';
 import { Banner, BlockStack, Button, Card, Checkbox, Divider, InlineGrid, InlineStack, Page, Select, Text, TextField } from '@shopify/polaris';
 import { useEffect, useMemo, useState } from 'react';
 import { z } from 'zod';
@@ -19,11 +19,14 @@ import {
   saveRouterRuntimeConfig,
 } from '~/services/ai/router-runtime-config.server';
 import { getPromptRouterMetricsSnapshot } from '~/services/ai/prompt-router.server';
+import {
+  fetchWithTimeout,
+  probeTargetLiveness,
+  validateAssistantChatTarget,
+  type AssistantChatProbeResult,
+} from '~/services/ai/assistant-chat-target-probe.server';
 
-type ProbeResult = {
-  ok: boolean;
-  message: string;
-};
+type ProbeResult = AssistantChatProbeResult;
 
 type RouterBackend = 'ollama' | 'openai' | 'qwen3' | 'custom';
 const RouterBackendSchema = z.enum(['ollama', 'openai', 'qwen3', 'custom']);
@@ -60,40 +63,16 @@ function isoNow(): string {
   return new Date().toISOString();
 }
 
-async function fetchWithTimeout(url: string, token: string | undefined, timeoutMs: number, init?: RequestInit): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, {
-      ...init,
-      headers: {
-        'content-type': 'application/json',
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
-        ...(init?.headers ?? {}),
-      },
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 async function runHealthProbe(config: RouterRuntimeConfig, target: RouterRuntimeTarget): Promise<ProbeResult> {
   const targetConfig = config.targets[target];
   const url = targetConfig.url?.trim();
   if (!url) return { ok: false, message: `${target} URL missing` };
-  try {
-    const response = await fetchWithTimeout(
-      `${url.replace(/\/+$/, '')}/healthz`,
-      targetConfig.token,
-      targetConfig.timeoutMs,
-      { method: 'GET' },
-    );
-    if (!response.ok) return { ok: false, message: `/healthz returned ${response.status}` };
-    return { ok: true, message: `/healthz ok (${response.status})` };
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : 'health check failed' };
-  }
+  return probeTargetLiveness({
+    backend: targetConfig.backend,
+    url,
+    token: targetConfig.token,
+    timeoutMs: targetConfig.timeoutMs,
+  });
 }
 
 async function runRouteProbe(config: RouterRuntimeConfig, target: RouterRuntimeTarget): Promise<ProbeResult> {
@@ -156,110 +135,6 @@ async function runRouteProbe(config: RouterRuntimeConfig, target: RouterRuntimeT
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : 'route probe failed' };
   }
-}
-
-function isChatEndpointStatus(status: number): boolean {
-  return status === 200 || status === 400 || status === 401 || status === 403 || status === 405 || status === 422;
-}
-
-async function looksLikeRouterOnlyUrl(
-  baseUrl: string,
-  token: string | undefined,
-  timeoutMs: number,
-): Promise<boolean> {
-  try {
-    const routeResponse = await fetchWithTimeout(
-      `${baseUrl}/route`,
-      token,
-      timeoutMs,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          prompt: 'health-check',
-          classification: { moduleType: 'theme.popup', intent: 'promo.popup', surface: 'home', confidence: 0.7, alternatives: [] },
-          intentPacket: { classification: { intent: 'promo.popup', confidence: 0.7, evidence: [], moduleTypeHint: 'theme.popup' }, routing: { needCatalog: true, needSettings: true, needSchema: false, styleRichness: 'medium' } },
-          fallback: { version: '1.0', moduleType: 'theme.popup', confidence: 0.7, includeFlags: { includeSettingsPack: true, includeIntentPacket: true, includeCatalog: true, includeFullSchema: false, includeStyleSchema: false }, settingsRequired: ['title'], needsClarification: false, reasonCode: 'probe', reasoning: 'probe' },
-          operationClass: 'P0_CREATE',
-        }),
-      },
-    );
-    return routeResponse.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function validateAssistantChatTarget(input: {
-  target: RouterRuntimeTarget;
-  backend: RouterBackend;
-  url?: string;
-  token?: string;
-  timeoutMs: number;
-}): Promise<ProbeResult> {
-  const rawUrl = input.url?.trim();
-  if (!rawUrl) {
-    return { ok: false, message: `${input.target} URL missing` };
-  }
-  const baseUrl = rawUrl.replace(/\/+$/, '');
-
-  if (input.backend === 'ollama') {
-    try {
-      const tags = await fetchWithTimeout(`${baseUrl}/api/tags`, input.token, input.timeoutMs, { method: 'GET' });
-      if (isChatEndpointStatus(tags.status)) {
-        return { ok: true, message: `${input.target} Ollama endpoint accepted (/api/tags ${tags.status})` };
-      }
-    } catch {
-      // continue to router-only detection
-    }
-    const routerOnly = await looksLikeRouterOnlyUrl(baseUrl, input.token, input.timeoutMs);
-    if (routerOnly) {
-      return {
-        ok: false,
-        message: `${input.target} points to a router-only service (/route) and not an Ollama chat API. Use an Ollama URL exposing /api/tags and /api/chat.`,
-      };
-    }
-    return {
-      ok: false,
-      message: `${input.target} is not reachable as Ollama chat API (expected /api/tags or /api/chat).`,
-    };
-  }
-
-  const chatCandidates = ['/v1/chat/completions', '/chat/completions', '/api/chat/completions'];
-  for (const endpoint of chatCandidates) {
-    try {
-      const response = await fetchWithTimeout(
-        `${baseUrl}${endpoint}`,
-        input.token,
-        input.timeoutMs,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            model: 'health-check',
-            messages: [{ role: 'user', content: 'ping' }],
-            stream: false,
-            max_tokens: 4,
-          }),
-        },
-      );
-      if (isChatEndpointStatus(response.status)) {
-        return { ok: true, message: `${input.target} chat endpoint accepted (${endpoint} ${response.status})` };
-      }
-    } catch {
-      // try next candidate
-    }
-  }
-
-  const routerOnly = await looksLikeRouterOnlyUrl(baseUrl, input.token, input.timeoutMs);
-  if (routerOnly) {
-    return {
-      ok: false,
-      message: `${input.target} points to a router-only service (/route) and not a chat completion API. Use an inference endpoint exposing /v1/chat/completions (or compatible).`,
-    };
-  }
-  return {
-    ok: false,
-    message: `${input.target} chat endpoint not detected. Tried /v1/chat/completions, /chat/completions, /api/chat/completions.`,
-  };
 }
 
 function normalizeHttpUrl(value: string): string | null {
@@ -326,7 +201,7 @@ export async function action({ request }: { request: Request }) {
         return json({ error: parsed.error.issues[0]?.message ?? 'Invalid Local AI setting input' }, { status: 400 });
       }
       const values = parsed.data;
-      const localModel = values.localModel?.trim() || 'qwen3:4b-instruct-q4_K_M';
+      const localModel = values.localModel?.trim() || 'qwen3:4b-instruct';
       const modalModel = values.modalModel?.trim() || 'Qwen/Qwen3-4B-Instruct';
       const next: RouterRuntimeConfig = {
         ...current,
@@ -404,6 +279,65 @@ export async function action({ request }: { request: Request }) {
         },
       });
       return json({ toast: { message: 'Local AI settings saved' } });
+    }
+
+    if (intent === 'validateAssistantTargets') {
+      const parsed = SaveConfigFormSchema.safeParse(Object.fromEntries(form));
+      if (!parsed.success) {
+        return json({ error: parsed.error.issues[0]?.message ?? 'Invalid Local AI setting input' }, { status: 400 });
+      }
+      const values = parsed.data;
+      const localModel = values.localModel?.trim() || 'qwen3:4b-instruct';
+      const modalModel = values.modalModel?.trim() || 'Qwen/Qwen3-4B-Instruct';
+      const nextTargets: RouterRuntimeConfig['targets'] = {
+        localMachine: {
+          ...current.targets.localMachine,
+          url: values.localUrl?.trim() || undefined,
+          backend: values.localBackend,
+          model: localModel,
+          timeoutMs: values.localTimeoutMs,
+          token: values.localToken?.trim() || current.targets.localMachine.token,
+        },
+        modalRemote: {
+          ...current.targets.modalRemote,
+          url: values.modalUrl?.trim() || undefined,
+          backend: values.modalBackend,
+          model: modalModel,
+          timeoutMs: values.modalTimeoutMs,
+          token: values.modalToken?.trim() || current.targets.modalRemote.token,
+        },
+      };
+
+      const [localChatValidation, modalChatValidation] = await Promise.all([
+        validateAssistantChatTarget({
+          target: 'localMachine',
+          backend: nextTargets.localMachine.backend,
+          url: nextTargets.localMachine.url,
+          token: nextTargets.localMachine.token,
+          timeoutMs: nextTargets.localMachine.timeoutMs,
+        }),
+        validateAssistantChatTarget({
+          target: 'modalRemote',
+          backend: nextTargets.modalRemote.backend,
+          url: nextTargets.modalRemote.url,
+          token: nextTargets.modalRemote.token,
+          timeoutMs: nextTargets.modalRemote.timeoutMs,
+        }),
+      ]);
+
+      const allOk = localChatValidation.ok && modalChatValidation.ok;
+      return json({
+        validation: {
+          localMachine: localChatValidation,
+          modalRemote: modalChatValidation,
+        },
+        toast: {
+          message: allOk
+            ? 'Assistant target validation passed for local and cloud.'
+            : 'Assistant target validation found issues — see details below.',
+          error: !allOk,
+        },
+      });
     }
 
     if (intent === 'saveDesignReference') {
@@ -506,11 +440,13 @@ export async function action({ request }: { request: Request }) {
 export default function InternalModelSetupRoute() {
   const { config, tokenMasked, resolved, metrics, gates, designReferenceUrl } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const submit = useSubmit();
   const nav = useNavigation();
   const outletContext = useOutletContext<{ showToast?: (msg: string, error?: boolean) => void }>();
   const navIntent = nav.formData?.get('intent');
   const isBusy = nav.state !== 'idle';
   const isSavingMain = isBusy && navIntent === 'save';
+  const isValidatingAssistant = isBusy && navIntent === 'validateAssistantTargets';
   const isSavingDesignRef = isBusy && navIntent === 'saveDesignReference';
   const isProbingHealth = isBusy && navIntent === 'probeHealth';
   const isProbingRoute = isBusy && navIntent === 'probeRoute';
@@ -566,12 +502,51 @@ export default function InternalModelSetupRoute() {
     [],
   );
 
+  const assistantTargetValidation =
+    actionData &&
+    'validation' in actionData &&
+    actionData.validation &&
+    typeof actionData.validation === 'object' &&
+    actionData.validation !== null &&
+    'localMachine' in actionData.validation &&
+    'modalRemote' in actionData.validation
+      ? (actionData.validation as { localMachine: ProbeResult; modalRemote: ProbeResult })
+      : null;
+
+  function submitAssistantTargetValidation() {
+    const form = document.getElementById('internal-model-setup-main-form');
+    if (!(form instanceof HTMLFormElement)) return;
+    const fd = new FormData(form);
+    fd.set('intent', 'validateAssistantTargets');
+    submit(fd, { method: 'post' });
+  }
+
   return (
     <Page title="Local AI Setting" subtitle="Control local vs modal router targets for first-layer prompt routing.">
       <BlockStack gap="500">
         {actionData && 'error' in actionData && actionData.error ? (
           <Banner tone="critical" title="Action failed">
             <Text as="p">{actionData.error}</Text>
+          </Banner>
+        ) : null}
+
+        {assistantTargetValidation ? (
+          <Banner
+            tone={
+              assistantTargetValidation.localMachine.ok && assistantTargetValidation.modalRemote.ok ? 'success' : 'warning'
+            }
+            title="Assistant chat target validation (not saved)"
+          >
+            <BlockStack gap="100">
+              <Text as="p" variant="bodySm">
+                localMachine: {assistantTargetValidation.localMachine.ok ? 'OK' : 'Failed'} —{' '}
+                {assistantTargetValidation.localMachine.message}
+              </Text>
+              <Text as="p" variant="bodySm">
+                modalRemote: {assistantTargetValidation.modalRemote.ok ? 'OK' : 'Failed'} —{' '}
+                {assistantTargetValidation.modalRemote.message}
+              </Text>
+            </BlockStack>
           </Banner>
         ) : null}
 
@@ -611,7 +586,7 @@ export default function InternalModelSetupRoute() {
             <Text as="p" variant="bodySm" tone="subdued">
               Resolved now: <code>{resolved.target}</code> ({resolved.url ?? 'no url'}) token {resolved.tokenMasked || 'not configured'}
             </Text>
-            <Form method="post">
+            <Form method="post" id="internal-model-setup-main-form">
               <input type="hidden" name="intent" value="save" />
               <input type="hidden" name="dualTargetEnabled" value={dualTargetEnabled ? 'true' : 'false'} />
               <input type="hidden" name="shadowMode" value={shadowMode ? 'true' : 'false'} />
@@ -691,7 +666,7 @@ export default function InternalModelSetupRoute() {
                   />
                 </InlineGrid>
                 <InlineGrid columns={{ xs: 1, sm: 2 }} gap="300">
-                  <TextField label="Model" name="localModel" value={localModel} onChange={setLocalModel} autoComplete="off" placeholder="qwen3:4b-instruct-q4_K_M" />
+                  <TextField label="Model" name="localModel" value={localModel} onChange={setLocalModel} autoComplete="off" placeholder="qwen3:4b-instruct" />
                   <TextField label="Timeout (ms)" name="localTimeoutMs" value={localTimeoutMs} onChange={setLocalTimeoutMs} autoComplete="off" />
                 </InlineGrid>
                 <Text as="p" variant="bodySm" tone="subdued">Token: {tokenMasked.localMachine || 'not set'}</Text>
@@ -737,11 +712,21 @@ export default function InternalModelSetupRoute() {
                   placeholder="Leave blank to keep existing"
                 />
 
-                <InlineStack align="start">
-                  <Button submit variant="primary" loading={isSavingMain}>Save local AI settings</Button>
+                <InlineStack align="start" gap="200">
+                  <Button submit variant="primary" loading={isSavingMain}>
+                    Save local AI settings
+                  </Button>
                 </InlineStack>
               </BlockStack>
             </Form>
+            <Text as="p" variant="bodySm" tone="subdued">
+              Use “Validate assistant targets” to run the same strict chat-endpoint checks as save, without writing settings.
+            </Text>
+            <InlineStack align="start" gap="200">
+              <Button loading={isValidatingAssistant} onClick={() => submitAssistantTargetValidation()}>
+                Validate assistant targets
+              </Button>
+            </InlineStack>
           </BlockStack>
         </Card>
 

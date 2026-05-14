@@ -37,7 +37,7 @@ function parseConfig(ciphertext: string | null): RouterRuntimeConfig {
       targets: {
         localMachine: {
           ...parsed.targets.localMachine,
-          model: parsed.targets.localMachine.model?.trim() || 'qwen3:4b-instruct-q4_K_M',
+          model: parsed.targets.localMachine.model?.trim() || 'qwen3:4b-instruct',
         },
         modalRemote: {
           ...parsed.targets.modalRemote,

@@ -2,7 +2,25 @@
 
 This folder hosts an optional **Modal** deployment that fronts your internal prompt router with a managed HTTPS endpoint and autoscaling workers.
 
-The shipped [`modal_app.py`](modal_app.py) is intentionally minimal: it proxies `POST /route` and `GET /healthz` to an upstream service that implements the same API as [`apps/web/scripts/internal-ai-router.ts`](../../apps/web/scripts/internal-ai-router.ts).
+The shipped [`modal_app.py`](modal_app.py) is intentionally minimal: it proxies `POST /route` and `GET /healthz` to an upstream service that implements the same API as [`apps/web/scripts/internal-ai-router.ts`](../../apps/web/scripts/internal-ai-router.ts). It does **not** proxy Ollama chat (`/api/tags`, `/api/chat`); those exist on the Node reference router’s passthrough to `ROUTER_OLLAMA_BASE_URL`, not on this Modal edge.
+
+## Proxy vs mock (two Modal apps in this folder)
+
+| App | Source | Use |
+|-----|--------|-----|
+| **`superapp-internal-ai-router-proxy`** | [`modal_app.py`](modal_app.py) | **Production:** HTTPS edge that proxies to your real upstream (`INTERNAL_ROUTER_UPSTREAM_URL`). Deploy with `modal deploy modal_app.py`. |
+| **`superapp-internal-ai-router-mock`** | [`mock_upstream_app.py`](mock_upstream_app.py) | **Optional contract testing** — canned `/healthz` + `/route` only. **Not** for production traffic or assistant chat URLs. Stop or delete this deployment in the Modal dashboard when unused. |
+
+For cloud operators: use **only** the **proxy** app for `INTERNAL_AI_ROUTER_URL` / router prompts. Point assistant/inference URLs at a real **chat** host (Ollama or OpenAI-compatible), not at the mock.
+
+### Stopping or removing the mock app (`superapp-internal-ai-router-mock`)
+
+Deploy this **only** for local contract testing of the proxy. When you no longer need it:
+
+1. **Modal dashboard** → **Apps** → select **`superapp-internal-ai-router-mock`** (from [`mock_upstream_app.py`](mock_upstream_app.py)) → **Stop** or **Delete** the deployment so it cannot receive traffic or confuse operators.
+2. **CLI** (with the same venv you use for Modal): run `modal app list`, identify the mock app, then stop or delete it from the dashboard (CLI lifecycle commands vary by Modal version; dashboard is the reliable kill switch).
+
+Do **not** point **`modalRemote`** assistant URLs or **`INTERNAL_ROUTER_UPSTREAM_URL`** at the mock in production.
 
 ## Why proxy instead of GPU inference here?
 

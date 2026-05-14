@@ -38,14 +38,14 @@ describe('sendInternalAssistantChat', () => {
           url: 'http://127.0.0.1:11434',
           token: undefined,
           backend: 'ollama',
-          model: 'qwen3:latest',
+          model: 'qwen3:4b-instruct',
           timeoutMs: 3000,
         },
         modalRemote: {
           url: 'https://example.modal.run',
           token: 'token-123',
           backend: 'qwen3',
-          model: 'qwen3',
+          model: 'Qwen/Qwen3-4B-Instruct',
           timeoutMs: 4000,
         },
       },
@@ -54,7 +54,7 @@ describe('sendInternalAssistantChat', () => {
 
   it('uses openai-compatible endpoint for qwen3 target', async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({
-      choices: [{ message: { content: 'Hello from cloud quin.' } }],
+      choices: [{ message: { content: 'Hello from cloud qwen.' } }],
       usage: { prompt_tokens: 10, completion_tokens: 20 },
     }), { status: 200 }));
 
@@ -63,7 +63,7 @@ describe('sendInternalAssistantChat', () => {
       messages: [{ role: 'user', content: 'hello' }],
     });
 
-    expect(result.reply).toBe('Hello from cloud quin.');
+    expect(result.reply).toBe('Hello from cloud qwen.');
     expect(result.backend).toBe('qwen3');
     expect(fetch).toHaveBeenCalledWith(
       'https://example.modal.run/v1/chat/completions',
@@ -73,7 +73,7 @@ describe('sendInternalAssistantChat', () => {
 
   it('uses ollama endpoint for local target', async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({
-        message: { content: 'Hello from local quin.' },
+        message: { content: 'Hello from local qwen.' },
         prompt_eval_count: 12,
         eval_count: 22,
     }), { status: 200 }));
@@ -83,7 +83,7 @@ describe('sendInternalAssistantChat', () => {
       messages: [{ role: 'user', content: 'ping' }],
     });
 
-    expect(result.reply).toBe('Hello from local quin.');
+    expect(result.reply).toBe('Hello from local qwen.');
     expect(result.backend).toBe('ollama');
     expect(fetch).toHaveBeenCalledWith(
       'http://127.0.0.1:11434/api/chat',
@@ -107,14 +107,14 @@ describe('sendInternalAssistantChat', () => {
           url: undefined,
           token: undefined,
           backend: 'ollama',
-          model: 'qwen3:latest',
+          model: 'qwen3:4b-instruct',
           timeoutMs: 3000,
         },
         modalRemote: {
           url: undefined,
           token: undefined,
           backend: 'qwen3',
-          model: 'qwen3',
+          model: 'Qwen/Qwen3-4B-Instruct',
           timeoutMs: 4000,
         },
       },

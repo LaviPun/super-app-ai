@@ -1,5 +1,14 @@
 # AI provider integration
 
+## Module generation vs internal (product split)
+
+| Layer | Models | Where |
+|-------|--------|--------|
+| **Merchant module generation** (RecipeSpec JSON, compiler, merchant-facing flows) | **OpenAI** and **Anthropic (Claude)** only | `getLlmClient` → `/internal/ai-providers`, store overrides, env fallbacks (`OPENAI_*`, `ANTHROPIC_*`). Uses Responses/Messages APIs with strict JSON. |
+| **Internal + first-layer** (prompt router, internal AI Assistant, operator tooling) | **Qwen3 ~4B** class | `INTERNAL_AI_ROUTER_*`, `/internal/model-setup` dual targets (`localMachine` / `modalRemote`), reference [`internal-ai-router.ts`](../apps/web/scripts/internal-ai-router.ts). |
+
+Other provider kinds in Internal Admin (e.g. Azure OpenAI, custom OpenAI-compatible) exist for integration flexibility; **RecipeSpec generation paths are intended to run on OpenAI or Anthropic** per this split.
+
 ## Goals
 - Strict JSON-only responses matching RecipeSpec JSON Schema
 - Bounded retries for transient errors (429/5xx)

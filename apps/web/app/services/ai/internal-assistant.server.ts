@@ -40,14 +40,14 @@ type ResolvedAssistantTargetConfig = {
 };
 
 const DEFAULT_MODEL_BY_BACKEND: Record<'ollama' | 'openai' | 'qwen3' | 'custom', string> = {
-  ollama: 'qwen3:latest',
+  ollama: 'qwen3:4b-instruct',
   openai: 'gpt-4o-mini',
-  qwen3: 'qwen3',
-  custom: 'qwen3',
+  qwen3: 'Qwen/Qwen3-4B-Instruct',
+  custom: 'qwen3:4b-instruct',
 };
 
 const SYSTEM_PROMPT = [
-  'You are Quin 3, an internal operations copilot.',
+  'You are Qwen3, an internal operations copilot.',
   'Priorities: accuracy, concise reasoning, actionable output, no secrets leakage.',
   'If tool snapshots are provided, use them as source-of-truth system state.',
 ].join(' ');

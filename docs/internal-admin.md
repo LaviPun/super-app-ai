@@ -14,6 +14,7 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 
 - **Shopify app** must run on **3000** so the CLI tunnel and Partner Dashboard point to the correct URL.
 - **Internal admin** runs on **4000** so you can use it without touching the Shopify app. Open **http://localhost:4000/internal/login**.
+- **Environment:** `apps/web/.env` must include all vars in `apps/web/.env.example`, including **`SCOPES`** (comma-separated, same list as `shopify.app.toml` `[access_scopes]`). If `SCOPES` is missing, SSR boot fails with `[env] Boot failed — invalid environment: SCOPES: Required`. See [Shopify dev setup](shopify-dev-setup.md), section 4 (Environment variables).
 
 ---
 
@@ -37,7 +38,7 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 - **Templates** — Module templates (link to recipe-edit) and Flow templates section
 - **Activity log** — covers *everything*: page opened, page refreshed, button/link clicks, settings changes, request success/error (not just modules/server). API log = APIs only; Error log = errors only. Per-entry **View** opens full detail (actor, action, resource, store, IP, details JSON)
 - **AI Providers** — configured providers show **masked API key** (e.g. ••••••••xyz1), model, base URL; for **Claude (ANTHROPIC)** you can set Agent Skills (e.g. pptx, xlsx) and enable code execution; model pricing table
-- **AI Assistant** — `/internal/ai-assistant` personal Quin 3 test console with local/cloud mode switch, DB-backed multi-chat history, memory controls, tool audits, and resumable SSE chat streaming for internal capability checks
+- **AI Assistant** — `/internal/ai-assistant` personal **Qwen3** test console with local/cloud mode switch, DB-backed multi-chat history, memory controls, tool audits, and resumable SSE chat streaming for internal capability checks
 - **Settings** — includes **AI & API keys** (link to Manage AI providers for Claude/OpenAI keys and options), **Password management** (INTERNAL_ADMIN_PASSWORD / SSO), **Environment variables** (.env reference), and **Advanced** (store & plan control). Standalone **Advanced** nav removed; `/internal/advanced` redirects to Settings
 
 ---
@@ -49,7 +50,7 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 | `/internal/login` | Password or SSO login |
 | `/internal` | Dashboard home (store count, error count, AI calls 24h) |
 | `/internal/ai-providers` | Add/activate AI providers + set model pricing |
-| `/internal/ai-assistant` | Quin 3 internal dashboard (local/cloud mode switch, DB-backed sessions/history, memory/tools, observability) |
+| `/internal/ai-assistant` | Qwen3 internal dashboard (local/cloud mode switch, DB-backed sessions/history, memory/tools, observability) |
 | `/internal/usage` | AI usage + costs (last 30 days); per-row **Replay** + **Trace** |
 | `/internal/logs` | Error logs (auto-redacted); per-row **Trace** |
 | `/internal/api-logs` | API access logs with actor, path, status, duration, requestId, correlationId, SSE **Live tail**, per-row **Trace** |
@@ -94,6 +95,8 @@ INTERNAL_SSO_REDIRECT_URI=https://your-app.example.com/internal/sso/callback
 
 ## AI provider management
 
+**Architecture:** **Merchant module generation** (RecipeSpec) uses **OpenAI** and **Anthropic (Claude)** only — configure those under AI Providers / Settings. **Internal** flows (prompt router first layer, **Setup the Model**, **AI Assistant**) use **Qwen3 ~4B** targets documented in [AI providers](./ai-providers.md) (module vs internal split).
+
 Use `/internal/ai-providers` to:
 1. Add a provider (name, type, API key, base URL, default model)
 2. Set it as the global active provider
@@ -112,29 +115,47 @@ Use `/internal/ai-providers` to:
 
 The AI Assistant lives at `/internal/ai-assistant` and uses the same runtime target configuration as **Setup the Model** (`/internal/model-setup`).
 
-### 1) Configure local Quin (LOCAL mode)
+When send is blocked because health/chat probes fail on a **local** URL that uses port **8787**, the error banner includes a short hint to run `pnpm --filter web router:internal` and check `ROUTER_OLLAMA_BASE_URL` / `ROUTER_OPENAI_BASE_URL`.
+
+**Health vs chat probes:** For **`ollama`** backend, liveness uses **`GET /api/tags`** (Ollama has no `/healthz`). For **qwen3** / **openai** / **custom**, liveness uses **`GET /healthz`** on the configured base URL. The default local target in code is **direct Ollama** at `http://127.0.0.1:11434` with backend **ollama** (no reference router required if Ollama is running). If you use the reference router on **8787** instead, set backend and URL accordingly in **Local AI Setting**.
+
+**Router vs inference:** Minimal router deployments may expose only `POST /route` and `GET /healthz`. The assistant needs **chat** APIs (`POST /api/chat` for Ollama, or OpenAI-compatible `/v1/chat/completions`). A base URL that answers `/route` but has no chat surface is **router-only** — the AI Assistant shows **chat blocked** until probes pass. Use **Validate assistant targets** on **Setup the Model** (same checks as save, without writing settings).
+
+The reference Node router [`apps/web/scripts/internal-ai-router.ts`](../apps/web/scripts/internal-ai-router.ts) adds **Ollama passthrough**: `GET /api/tags` and `POST /api/chat` forward to `ROUTER_OLLAMA_BASE_URL`, so **one local base** (e.g. `http://127.0.0.1:8787`) can satisfy prompt routing and assistant chat when `localMachine.backend` is `ollama`. The optional **Modal HTTPS proxy** still forwards only `/route` and `/healthz`; point assistant/inference URLs at a real chat host unless you use this passthrough pattern locally or on your own edge.
+
+### 1) Configure local Qwen3 (LOCAL mode)
 
 Set the local target URL/model in **Setup the Model**:
 
-- `localMachine.url` e.g. `http://127.0.0.1:11434`
-- `localMachine.backend` = `ollama` (or `qwen3/custom` if your local server is OpenAI-compatible)
-- `localMachine.model` e.g. `qwen3:latest`
+- `localMachine.url` — Ollama base (e.g. `http://127.0.0.1:11434`) **or** the reference router base (e.g. `http://127.0.0.1:8787`) if you use router passthrough to Ollama
+- `localMachine.backend` = `ollama` (or `qwen3` / `custom` if your server is OpenAI-compatible)
+- `localMachine.model` e.g. `qwen3:4b-instruct` (~4B)
 
-For Ollama local chat, ensure:
+For raw Ollama local chat, ensure:
 
 ```bash
 ollama serve
-ollama pull qwen3:latest
+ollama pull qwen3:4b-instruct
 ```
 
-### 2) Configure cloud Quin (CLOUD mode)
+### 2) Configure cloud Qwen3 (CLOUD mode)
 
 Set the remote target in **Setup the Model**:
 
-- `modalRemote.url` e.g. your HTTPS inference endpoint
+- `modalRemote.url` — must be a **chat inference** base URL (Ollama or OpenAI-compatible), **not** the Modal router-only proxy unless your upstream implements chat there
 - `modalRemote.backend` = `qwen3` / `openai` / `custom`
 - `modalRemote.model` = cloud model id
 - token field (optional/required based on provider)
+
+For **Modal**, deploy [`deploy/modal-qwen-router/modal_app.py`](../deploy/modal-qwen-router/modal_app.py) as the HTTPS **proxy** for router traffic only; use a separate inference URL for assistant chat when needed.
+
+**Cloud checklist (router vs assistant):**
+
+| Env / setting | Use |
+|---------------|-----|
+| **`INTERNAL_AI_ROUTER_URL`** (Remix `.env`) | HTTPS origin of **`superapp-internal-ai-router-proxy`** only (`modal deploy modal_app.py`). Secret **`INTERNAL_ROUTER_UPSTREAM_URL`** on Modal must target your **real** upstream router (Node/K8s), not the optional mock. |
+| **`modalRemote.url`** in **Setup the Model** | Real **chat** host only (inference). **Do not** use [`mock_upstream_app.py`](../deploy/modal-qwen-router/mock_upstream_app.py) URLs or any deployment that lacks `/api/chat` / OpenAI-compatible chat. |
+| Mock app | Stop/delete **`superapp-internal-ai-router-mock`** when unused — see [`deploy/modal-qwen-router/README.md`](../deploy/modal-qwen-router/README.md) § *Stopping or removing the mock app*. |
 
 ### 3) Runtime behavior
 

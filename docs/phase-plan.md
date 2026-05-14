@@ -1,5 +1,5 @@
 
-<!-- /autoplan restore point: /Users/lavipun/.gstack/projects/LaviPun-super-app-ai/master-autoplan-restore-20260429-184341.md -->
+<!-- /autoplan restore point: /Users/lavipun/.gstack/projects/LaviPun-super-app-ai/master-autoplan-restore-20260501-141829.md -->
 
 ---
 
@@ -422,13 +422,222 @@ The following strategic safety/release-engineering controls were captured during
 
 ---
 
-## /autoplan — Multi-phase Review (2026-04-29)
+## /autoplan — Multi-phase Review (2026-05-01)
+
+### Phase 0 intake
+
+- Base branch detected: `master` (via `origin/HEAD` → `master`)
+- Plan path: `docs/phase-plan.md`
+- Restore snapshot: `/Users/lavipun/.gstack/projects/LaviPun-super-app-ai/master-autoplan-restore-20260501-141829.md`
+- **Focus (git context):** internal AI assistant hardening — shared `assistant-chat-target-probe.server.ts`, `internal.ai-assistant` + `internal.model-setup` loader probes, `internal-ai-router.ts` Ollama passthrough, K8s configmap + deploy docs, `implementation-status` / `internal-admin` alignment
+- UI scope: **yes** (internal admin assistant + model setup surfaces)
+- DX scope: **yes** (router scripts, deploy READMEs, env conventions)
+- Codex CLI: **exec unavailable** this run (`codex exec` failed with `refresh_token_reused` / token refresh despite short-lived auth probe success). Dual-voice Codex sections tagged **N/A**; primary analysis Claude-only.
+
+### Premise gate (CEO) — 2026-05-01
+
+Explicit premises accepted for this automation run (aligned with repo intent and recent ship):
+
+1. **Probe-before-chat:** Validating chat endpoints before enabling send protects operators from confusing 502/timeout loops when base URLs are router-only or mis-typed.
+2. **Single module:** `validateAssistantChatTarget` shared between **Setup the Model** and **AI Assistant** prevents divergent health logic.
+3. **Passthrough is optional glue:** The Node reference router’s `/api/chat` → Ollama forwarding is a developer ergonomic; production charts should still aim explicit inference URLs where possible.
+
+### Phase 1 — CEO Review (strategy) — 2026-05-01
+
+#### Step 0A — Premise challenge
+
+- **P1 (support burden):** Better probes shift failures left but increase HTTP traffic on every loader visit — acceptable on internal routes only; ensure merchant surfaces do not inherit noisy probing.
+- **P2 (product story):** Internal tooling maturity does not directly raise merchant ARPU; keep messaging in `implementation-status` scoped as operator/developer productivity, not merchant-facing features.
+
+#### Step 0B — Leverage map (internal AI slice)
+
+| Sub-problem | Existing code |
+|-------------|---------------|
+| Chat URL validation, timeouts, router-only detection | `apps/web/app/services/ai/assistant-chat-target-probe.server.ts` |
+| Runtime target schema | `apps/web/app/schemas/router-runtime-config.server.ts` |
+| Assistant UI + loader guards | `apps/web/app/routes/internal.ai-assistant.tsx` |
+| Model setup + same probes | `apps/web/app/routes/internal.model-setup.tsx` |
+| Reference local router | `apps/web/scripts/internal-ai-router.ts` |
+| Internal assistant orchestration | `apps/web/app/services/ai/internal-assistant.server.ts` |
+
+#### Step 0C — Dream state (internal AI)
+
+```
+NOW:  Operators can see router-only vs chat-ready; send blocked with guidance to model setup.
+NEXT: Single dashboard card for “inference path health” across dev/stage/prod with the same probe contract.
+12-MO: Optional — none of this blocks merchant RecipeSpec safety work; keep internal tools decoupled from publish path.
+```
+
+#### Step 0C-bis — Alternatives
+
+| Approach | Tradeoff |
+|----------|----------|
+| A) Inline fetch in each route | Rejected (duplication) — current shared module is correct |
+| B) Only static URL validation (no live probe) | Fewer moving parts but false confidence when only `/route` works |
+| C) Shared probe module + explicit UX states | **Chosen** — matches shipped direction |
+
+#### CEO dual voices — 2026-05-01
+
+**CLAUDE SUBAGENT (CEO):** Treat internal AI as hygiene layer: ship small, testable increments; do not couple to progressive publish matrices until a concrete incident ties them.
+
+**CODEX SAYS (CEO):** Unavailable — `codex exec` auth refresh failed (`refresh_token_reused`).
+
+#### CEO consensus table — 2026-05-01
+
+```
+CEO DUAL VOICES — CONSENSUS TABLE (2026-05-01):
+═══════════════════════════════════════════════════════════════
+  Dimension                           Claude  Codex  Consensus
+  ──────────────────────────────────── ─────── ─────── ─────────
+  1. Premises valid?                   yes     N/A     partial
+  2. Right problem to solve?           yes     N/A     partial
+  3. Scope calibration correct?       yes     N/A     partial
+  4. Alternatives sufficiently explored? yes N/A     partial
+  5. Competitive/market risks covered? n/a (internal) N/A partial
+  6. 6-month trajectory sound?       yes     N/A     partial
+═══════════════════════════════════════════════════════════════
+```
+
+#### NOT in scope (CEO) — 2026-05-01
+
+- Merchant storefront AI generation pipeline changes (unless shared clients alter — not in current diff).
+- Replacing Modal edge proxy architecture — docs-only clarification sufficient.
+
+#### CEO completion — 2026-05-01
+
+| Item | Result |
+|------|--------|
+| Premise challenge | Probes + shared module justified; watch internal-only scope |
+| NOT in scope | Merchant core publish path, Modal rewrite |
+| Dual voices | Claude yes / Codex unavailable |
+
+**Phase 1 (2026-05-01) complete.**
+
+---
+
+### Phase 2 — Design Review — 2026-05-01
+
+- **Scope:** Internal admin **AI Assistant** and **Setup the Model** — health bar, router-only amber state, blocked send.
+- **DESIGN.md:** Polarisonly policy; internal shell already tokenized — new work should stay dense status + clear CTAs to `/internal/model-setup`.
+- **Interaction states:** Loading (probes in flight), success (chat ok), warning (router-only), error (unreachable / 401) — must stay explicit; current implementation aligns; document any new banner copy in `internal-admin.md` when behavior changes.
+
+#### Design litmus — 2026-05-01
+
+| Check | Score | Note |
+|-------|-------|------|
+| Scannable hierarchy | 7/10 | Health + model name + CTA to setup is correct order |
+| States | 8/10 | Blocked send + guidance is better than silent failure |
+| A11y | 6/10 | Ensure focus order when send disabled — re-verify if UI refactors |
+
+**CODEX (design):** N/A (auth)
+
+**Phase 2 (2026-05-01) complete.**
+
+---
+
+### Phase 3 — Eng Review — 2026-05-01
+
+#### Architecture (ASCII)
+
+```
+internal.model-setup / internal.ai-assistant (loaders)
+  -> validateAssistantChatTarget (fetch + classify router-only)
+       -> fetchWithTimeout (SSRF still bounded by URL from DB/config)
+  -> internal-assistant.server (chat orchestration)
+Reference: internal-ai-router.ts
+  -> POST /route (existing)
+  -> GET /api/tags, POST /api/chat -> ROUTER_OLLAMA_BASE_URL (passthrough)
+```
+
+#### Test review
+
+See artifact: `~/.gstack/projects/LaviPun-super-app-ai/lavipun-master-eng-review-test-plan-20260501-autoplan.md`
+
+#### Eng dual voices
+
+**CLAUDE SUBAGENT (eng):** Keep probe timeouts strict; add route-level tests if loader branching grows; router script stays thin — no business logic in the proxy.
+
+**CODEX SAYS (eng):** Unavailable (auth).
+
+#### Eng consensus table — 2026-05-01
+
+```
+ENG DUAL VOICES — CONSENSUS TABLE (2026-05-01):
+═══════════════════════════════════════════════════════════════
+  Dimension                           Claude  Codex  Consensus
+  ──────────────────────────────────── ─────── ─────── ─────────
+  1. Architecture sound?               yes     N/A     partial
+  2. Test coverage sufficient?         good unit gaps optional N/A partial
+  3. Performance risks addressed?        yes     N/A     partial
+  4. Security threats covered?         SSRF patterns unchanged N/A partial
+  5. Error paths handled?              yes     N/A     partial
+  6. Deployment risk manageable?       yes     N/A     partial
+═══════════════════════════════════════════════════════════════
+```
+
+**Phase 3 (2026-05-01) complete.**
+
+---
+
+### Phase 3.5 — DX Review — 2026-05-01
+
+- **Persona:** Platform maintainer wiring local Ollama + internal admin.
+- **TTHW:** Still dominated by Shopify CLI + DB + env — internal router passthrough reduces one failure mode (single port for route + chat).
+- **Docs anchor:** `docs/internal-admin.md` “Internal AI Assistant setup” + deploy READMEs for Modal vs K8s.
+
+#### DX scorecard — snapshot
+
+| Dimension | Score | Note |
+|-----------|-------|------|
+| Getting started | 6.5/10 | Router passthrough docs help; keep env tables in sync |
+| Error messages | 7/10 | Probe messages user-facing in UI — keep actionable |
+| Docs completeness | 7.5/10 | implementation-status changelog tracks ship |
+
+**CODEX (DX):** N/A (auth)
+
+**Phase 3.5 (2026-05-01) complete.**
+
+---
+
+### Cross-phase themes — 2026-05-01
+
+1. **Codex operational dependency:** Dual-voice review requires `codex login` repair when refresh tokens invalidate — track as tooling hygiene.
+2. **Truth in URLs:** Router-only vs full chat must stay visually obvious — regression tests + docs when defaults change (e.g. Qwen3 tags).
+
+### Decision Audit Trail — append rows (2026-05-01)
+
+| # | Phase | Decision | Classification | Principle | Rationale | Rejected |
+|---|-------|----------|----------------|-----------|----------|--------|
+| 8 | CEO | Keep internal AI decoupled from merchant publish critical path | Mechanical | P3 pragmatic | Avoids coupling risk | Merge internal state into rollout matrices |
+| 9 | Eng | Centralize chat probe in `assistant-chat-target-probe.server.ts` | Mechanical | P4 DRY | Single validation surface | Duplicate per route |
+| 10 | Eng | Document loader test gap as optional follow-up | Taste | P1 completeness vs effort | Unit tests cover core | Mandatory e2e now |
+| 11 | DX | Prefer `internal-admin.md` + deploy README for env topology | Mechanical | P5 explicit | Operators read runbooks | Hide Modal limitation |
+
+### Phase 4 — Final Approval Gate — 2026-05-01
+
+- **Summary:** Accept shared probe module, loader guards, and router passthrough documentation as the right incremental shape for internal AI; dual-voice Codex unavailable until CLI auth fixed.
+- **Auto-decision (6 principles):** **Approve as-is** — no user challenges; taste rows non-blocking.
+- **Gate:** **A) Approved** for the 2026-05-01 review slice.
+
+### GSTACK REVIEW REPORT — addendum (2026-05-01)
+
+| Review | Runs | Status | Findings |
+|--------|------|--------|----------|
+| CEO (2026-05-01) | 1 | clean for scope | Internal AI premises accepted; no merchant-scope creep |
+| Design (2026-05-01) | 1 | clean for scope | State hierarchy acceptable; a11y watch on disable-send |
+| Eng (2026-05-01) | 1 | clean | Test plan artifact written; optional loader integration tests |
+| DX (2026-05-01) | 1 | clean | Docs path aligned with implementation-status |
+| Codex dual voice | 0 | unavailable | `codex exec` refresh_token failure |
+
+---
+
+## /autoplan — Historical Multi-phase Review (2026-04-29)
 
 ### Phase 0 intake
 
 - Base branch detected: `master` (via `origin/HEAD`)
 - Plan path: `docs/phase-plan.md`
-- Restore snapshot: `/Users/lavipun/.gstack/projects/LaviPun-super-app-ai/master-autoplan-restore-20260429-184341.md`
+- Restore snapshot (historical): `/Users/lavipun/.gstack/projects/LaviPun-super-app-ai/master-autoplan-restore-20260429-184341.md`
 - UI scope detected: yes (many UI references across phases)
 - DX scope detected: yes (API/webhook/agent routes and developer-facing workflows)
 - Context reads: `CLAUDE.md`, recent `git log`, `git diff master --stat`

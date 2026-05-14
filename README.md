@@ -153,20 +153,23 @@ Optional internal-router service tenant controls (`apps/web/scripts/internal-ai-
 
 Modal edge proxy (optional): see [`deploy/modal-qwen-router/README.md`](deploy/modal-qwen-router/README.md).
 
-Router script: `apps/web/scripts/internal-ai-router.ts`
+Router script: `apps/web/scripts/internal-ai-router.ts` — serves `POST /route` for prompt routing and (for Ollama-backed setups) **passes through** `GET /api/tags` and `POST /api/chat` to `ROUTER_OLLAMA_BASE_URL` so a single `INTERNAL_AI_ROUTER_URL` can satisfy **Setup the Model** probes and the **AI Assistant** when `localMachine.backend` is `ollama`.
 
 ### Dual-target switching (Internal Admin)
 
 Internal Admin now includes **Setup the Model** at `/internal/model-setup` for runtime switching:
 
 - Runtime targets: `localMachine` and `modalRemote`
+- Default **local** preset when no saved runtime config exists: **Ollama** at `http://127.0.0.1:11434` (backend `ollama`). Use the reference router on `:8787` only when you want routing + passthrough; otherwise direct Ollama is enough for the internal AI Assistant.
 - Active target + optional fallback target selector
 - Target-specific endpoint/token/backend/model/timeout settings
-- Probe actions: `/healthz` and `/route` schema-contract check
+- Probe actions: `/healthz` (router/OpenAI-style) or `/api/tags` (Ollama liveness), plus `/route` schema-contract check where applicable
 - Safe controls: shadow mode, canary shops, circuit settings
 - Rollback: one-click restore to previous target (re-enters shadow mode)
 
-Backward compatibility remains: if no DB-backed setup exists yet, the app still respects `INTERNAL_AI_ROUTER_*` env vars.
+Backward compatibility remains: if no DB-backed setup yet, the app still respects `INTERNAL_AI_ROUTER_*` env vars.
+
+**Provider split:** **RecipeSpec / merchant module generation** runs on **OpenAI** and **Claude** only ([`docs/ai-providers.md`](docs/ai-providers.md)). **Internal** prompt router + assistant use **Qwen3 ~4B** via this section’s router / model-setup targets.
 
 Optional target-specific env fallback keys (used when dual-target is enabled and target values are missing in DB):
 
@@ -196,7 +199,7 @@ Default model IDs target **Qwen3-4B-class** first-layer routing; adjust tags to 
 - **Ollama** (default):
   - `ROUTER_BACKEND=ollama`
   - `ROUTER_OLLAMA_BASE_URL=http://127.0.0.1:11434`
-  - `ROUTER_OLLAMA_MODEL=qwen3:4b-instruct-q4_K_M` (example tag — use `ollama list` / library names you actually installed)
+  - `ROUTER_OLLAMA_MODEL=qwen3:4b-instruct` (~4B Qwen3 instruct — use `ollama list` / tags you pulled)
 - **vLLM / OpenAI-compatible**:
   - `ROUTER_BACKEND=openai`
   - `ROUTER_OPENAI_BASE_URL=http://127.0.0.1:8000/v1`
@@ -225,6 +228,7 @@ Default model IDs target **Qwen3-4B-class** first-layer routing; adjust tags to 
 ### Health check + Docker
 
 - Health endpoint: `GET /healthz` (returns `{ ok: true, service, backend }`)
+- Same process forwards **`GET /api/tags`** and **`POST /api/chat`** to Ollama when using `ROUTER_BACKEND=ollama` (same Bearer auth rules as `/route` when enabled).
 - Reference Dockerfile: `apps/web/Dockerfile.internal-router`
 
 Build and run:
@@ -253,6 +257,7 @@ Point app traffic to the in-cluster service:
 - `INTERNAL_AI_ROUTER_URL=http://internal-ai-router.internal-ai-router.svc.cluster.local:8787`
 - `INTERNAL_AI_ROUTER_TOKEN=<same token from secret>`
 
+After apply: `kubectl get pods -n internal-ai-router` should show Ready; curl `/healthz` via port-forward to confirm. For **Setup the Model** assistant URLs: use a host that exposes chat (`/api/chat` or OpenAI-compatible paths), or the **same** in-cluster router URL when passthrough to Ollama is enabled (`ROUTER_BACKEND=ollama` + `ROUTER_OLLAMA_BASE_URL`). Do not point cloud assistant URLs at Modal’s router proxy only or other router-only edges without chat.
 
 ## Shopify dev setup
 See `docs/shopify-dev-setup.md`.

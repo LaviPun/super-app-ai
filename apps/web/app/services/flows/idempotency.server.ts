@@ -1,4 +1,5 @@
 import { getPrisma } from '~/db.server';
+import { randomUUID } from 'node:crypto';
 
 /**
  * Webhook idempotency guard.
@@ -37,5 +38,7 @@ export async function checkAndMarkWebhookEvent(opts: {
 
 /** Extract the Shopify webhook event ID from request headers. */
 export function extractWebhookEventId(request: Request): string {
-  return request.headers.get('x-shopify-webhook-id') ?? `fallback-${Date.now()}`;
+  // Shopify normally provides X-Shopify-Webhook-Id. If it's missing (e.g. proxies or replay tools),
+  // a timestamp fallback can collide under bursty traffic and incorrectly dedupe distinct events.
+  return request.headers.get('x-shopify-webhook-id') ?? randomUUID();
 }

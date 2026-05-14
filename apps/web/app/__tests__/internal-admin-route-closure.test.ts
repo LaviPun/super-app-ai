@@ -193,7 +193,7 @@ describe('internal admin route closure (scorecard certification harness)', () =>
       content: 'Already answered.',
       mode: 'localMachine',
       backend: 'ollama',
-      model: 'qwen3:latest',
+      model: 'qwen3:4b-instruct',
       latencyMs: 12,
       tokensIn: 3,
       tokensOut: 4,
