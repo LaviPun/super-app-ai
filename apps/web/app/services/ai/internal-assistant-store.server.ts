@@ -2,6 +2,8 @@ import { getPrisma } from '~/db.server';
 
 export type AssistantMode = 'localMachine' | 'modalRemote';
 
+export const INTERNAL_AI_TOOL_AUDIT_RETENTION_DAYS_DEFAULT = 90;
+
 export type AssistantSessionSummary = {
   id: string;
   title: string;
@@ -42,7 +44,7 @@ export type AssistantMemoryRecord = {
   updatedAt: string;
 };
 
-function parseTags(raw: string | null): string[] {
+export function parseTags(raw: string | null): string[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
@@ -53,6 +55,20 @@ function parseTags(raw: string | null): string[] {
   }
 }
 
+function isNonSqliteSchemaError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = (error as { code?: unknown }).code;
+  if (code === 'P2010') return true;
+  const message = (error as { message?: unknown }).message;
+  if (typeof message !== 'string') return false;
+  return (
+    message.includes('PRAGMA') ||
+    message.includes('pragma') ||
+    /syntax error.*PRAGMA/i.test(message) ||
+    /does not support the table_info\(\)/i.test(message)
+  );
+}
+
 let internalAiMessageSchemaEnsured = false;
 let ensureInternalAiMessageSchemaPromise: Promise<void> | null = null;
 
@@ -60,23 +76,31 @@ async function ensureInternalAiMessageSchema() {
   if (internalAiMessageSchemaEnsured) return;
   if (ensureInternalAiMessageSchemaPromise) return ensureInternalAiMessageSchemaPromise;
   ensureInternalAiMessageSchemaPromise = (async () => {
-    const prisma = getPrisma();
-    const rows = await prisma.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("InternalAiMessage")');
-    const columns = new Set(rows.map((row) => row.name));
-    if (!columns.has('retryCount')) {
-      await prisma.$executeRawUnsafe('ALTER TABLE "InternalAiMessage" ADD COLUMN "retryCount" INTEGER NOT NULL DEFAULT 0');
+    try {
+      const prisma = getPrisma();
+      const rows = await prisma.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info("InternalAiMessage")');
+      const columns = new Set(rows.map((row) => row.name));
+      if (!columns.has('retryCount')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "InternalAiMessage" ADD COLUMN "retryCount" INTEGER NOT NULL DEFAULT 0');
+      }
+      if (!columns.has('status')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "InternalAiMessage" ADD COLUMN "status" TEXT NOT NULL DEFAULT \'completed\'');
+      }
+      if (!columns.has('clientRequestId')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "InternalAiMessage" ADD COLUMN "clientRequestId" TEXT');
+      }
+      if (!columns.has('responseToMessageId')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "InternalAiMessage" ADD COLUMN "responseToMessageId" TEXT');
+      }
+      await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "InternalAiMessage_sessionId_clientRequestId_idx" ON "InternalAiMessage"("sessionId", "clientRequestId")');
+      await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "InternalAiMessage_responseToMessageId_idx" ON "InternalAiMessage"("responseToMessageId")');
+    } catch (error) {
+      if (isNonSqliteSchemaError(error)) {
+        console.info('[internal-assistant-store] non-SQLite database detected; relying on Prisma migrations');
+      } else {
+        throw error;
+      }
     }
-    if (!columns.has('status')) {
-      await prisma.$executeRawUnsafe('ALTER TABLE "InternalAiMessage" ADD COLUMN "status" TEXT NOT NULL DEFAULT \'completed\'');
-    }
-    if (!columns.has('clientRequestId')) {
-      await prisma.$executeRawUnsafe('ALTER TABLE "InternalAiMessage" ADD COLUMN "clientRequestId" TEXT');
-    }
-    if (!columns.has('responseToMessageId')) {
-      await prisma.$executeRawUnsafe('ALTER TABLE "InternalAiMessage" ADD COLUMN "responseToMessageId" TEXT');
-    }
-    await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "InternalAiMessage_sessionId_clientRequestId_idx" ON "InternalAiMessage"("sessionId", "clientRequestId")');
-    await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "InternalAiMessage_responseToMessageId_idx" ON "InternalAiMessage"("responseToMessageId")');
     internalAiMessageSchemaEnsured = true;
   })().finally(() => {
     ensureInternalAiMessageSchemaPromise = null;
@@ -91,8 +115,9 @@ async function ensureInternalAiTables() {
   if (internalAiTablesEnsured) return;
   if (ensureInternalAiTablesPromise) return ensureInternalAiTablesPromise;
   ensureInternalAiTablesPromise = (async () => {
-    const prisma = getPrisma();
-    await prisma.$executeRawUnsafe(`
+    try {
+      const prisma = getPrisma();
+      await prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "InternalAiSession" (
         "id" TEXT NOT NULL PRIMARY KEY,
         "title" TEXT NOT NULL,
@@ -157,6 +182,13 @@ async function ensureInternalAiTables() {
     await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "InternalAiToolAudit_toolName_createdAt_idx" ON "InternalAiToolAudit"("toolName", "createdAt")');
     await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "InternalAiToolAudit_sessionId_createdAt_idx" ON "InternalAiToolAudit"("sessionId", "createdAt")');
     await ensureInternalAiMessageSchema();
+    } catch (error) {
+      if (isNonSqliteSchemaError(error)) {
+        console.info('[internal-assistant-store] non-SQLite database detected; relying on Prisma migrations');
+      } else {
+        throw error;
+      }
+    }
     internalAiTablesEnsured = true;
   })().finally(() => {
     ensureInternalAiTablesPromise = null;
@@ -246,6 +278,25 @@ export class InternalAssistantStoreService {
       where: { id: sessionId },
       data: { archivedAt: new Date() },
     });
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    await ensureInternalAiTables();
+    const prisma = getPrisma();
+    await prisma.internalAiSession.delete({ where: { id: sessionId } });
+  }
+
+  async purgeOldToolAudits(retentionDays: number): Promise<number> {
+    await ensureInternalAiTables();
+    const prisma = getPrisma();
+    const days = Number.isFinite(retentionDays) && retentionDays > 0
+      ? Math.floor(retentionDays)
+      : INTERNAL_AI_TOOL_AUDIT_RETENTION_DAYS_DEFAULT;
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const result = await prisma.internalAiToolAudit.deleteMany({
+      where: { createdAt: { lt: cutoff } },
+    });
+    return result.count;
   }
 
   async getSession(sessionId: string): Promise<AssistantSessionSummary | null> {
@@ -456,6 +507,7 @@ export class InternalAssistantStoreService {
         sessionId,
         role: 'assistant',
         responseToMessageId: userMessageId,
+        status: 'completed',
       },
       orderBy: [{ createdAt: 'desc' }],
     });

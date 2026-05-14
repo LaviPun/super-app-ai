@@ -613,6 +613,20 @@ ENG DUAL VOICES — CONSENSUS TABLE (2026-05-01):
 | 10 | Eng | Document loader test gap as optional follow-up | Taste | P1 completeness vs effort | Unit tests cover core | Mandatory e2e now |
 | 11 | DX | Prefer `internal-admin.md` + deploy README for env topology | Mechanical | P5 explicit | Operators read runbooks | Hide Modal limitation |
 
+### Decision Audit Trail — append rows (2026-05-14, admin AI chat hardening)
+
+| # | Phase | Decision | Classification | Principle | Rationale | Rejected |
+|---|-------|----------|----------------|-----------|----------|--------|
+| 12 | Eng | Enforce `releaseGateSchemaFailRateMax` / `releaseGateFallbackRateMax` with a 200-call in-memory rolling buffer per target; trip forces shadow mode in-memory and emits `ROUTER_RELEASE_GATE_TRIPPED` | Mechanical | P2 safety-by-default | Persisted gates that did nothing were a footgun; in-memory trip avoids writing under load | Persist trip state to DB on every route call |
+| 13 | Eng | Surface `parseError` from `getRouterRuntimeConfig` and render banner on `/internal/model-setup` + chip on `/internal/ai-assistant` | Mechanical | P5 explicit | Silent decryption fallback after `ENCRYPTION_KEY` rotation was masking outages | Auto-rewrite config on parse error |
+| 14 | Eng | Tighten `assertSafeTargetUrl` (exact-match `http://` localhosts; reject link-local + cloud metadata for `https://`); add `INTERNAL_AI_ALLOW_HOSTS` allowlist | Mechanical | P2 safety-by-default | Closes `http://localhost.attacker.example` and IMDS exfiltration paths; allowlist preserves K8s internal SSL use case | Permanently block all private-range hostnames with no escape hatch |
+| 15 | Eng | Ignore `ROUTER_REQUIRE_AUTH=0` in production with stderr WARN | Mechanical | P2 safety-by-default | Prevents a single env flip from disabling `/route` auth in prod | Honor the override unconditionally |
+| 16 | Eng | Hard-delete session via `intent: 'deleteSession'`; preserve `InternalAiToolAudit` rows via `ON DELETE SET NULL` | Mechanical | P4 audit integrity | Operator-requested cleanup must not erase compliance trail | Cascade audits with sessions |
+| 17 | Ops | Daily cron purge of `InternalAiToolAudit` older than `INTERNAL_AI_TOOL_AUDIT_RETENTION_DAYS` (default 90), guarded by 24h in-memory marker | Mechanical | P3 pragmatic | Bounded growth without a dedicated job scheduler; existing cron loader is sufficient | Stand up a new scheduler service |
+| 18 | UX | SSE `:keepalive` comment every 15s; empty model reply persists as `status='error'`; `AI_ASSISTANT_QUERY` fires on every attempt with `attempt: <n>` | Mechanical | P5 explicit | Proxies were closing idle streams; placeholder reply masked failures; retry counts were invisible | Keep placeholder "No response generated." reply text |
+| 19 | UX | `applyImportSession` dedupes by `clientRequestId` and returns `{ inserted, skipped }` | Mechanical | P4 idempotency | Re-importing the same JSON twice should be a no-op | Insert duplicates and let the operator clean up |
+| 20 | DX | Auto-reprobe `/internal/ai-assistant/probe` every 20s while chat is blocked + manual Recheck | Mechanical | P3 pragmatic | Manual page reload was the only recovery path for transient probe failures | Block-and-refresh-page UX |
+
 ### Phase 4 — Final Approval Gate — 2026-05-01
 
 - **Summary:** Accept shared probe module, loader guards, and router passthrough documentation as the right incremental shape for internal AI; dual-voice Codex unavailable until CLI auth fixed.

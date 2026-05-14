@@ -61,12 +61,53 @@ The **prompt router** chooses how much structured context (catalog slices, full 
 - **Remix client** (`INTERNAL_AI_ROUTER_URL`): calls `POST /route` with bearer auth when configured; otherwise uses deterministic confidence gating only. Tunables include `ROUTER_CONFIDENCE_MAX_DELTA`, shadow mode (`INTERNAL_AI_ROUTER_SHADOW`), canary shops (`INTERNAL_AI_ROUTER_CANARY_SHOPS`), circuit breaker thresholds, and `INTERNAL_AI_ROUTER_TIMEOUT_MS`. See root `README.md` → “Internal Prompt Router”.
 - **Reference service**: `pnpm --filter web router:internal` → `apps/web/scripts/internal-ai-router.ts` (Ollama or OpenAI-compatible backend). Defaults target **Qwen3-4B-class** routing models; point `ROUTER_OPENAI_BASE_URL` at vLLM/Ollama as needed.
 - **Modal edge** (optional): `deploy/modal-qwen-router/` proxies HTTPS traffic to an upstream `/route` implementation.
-- **Production auth default**: router enforces bearer auth in production (`NODE_ENV=production`) even if `ROUTER_REQUIRE_AUTH` is unset. Set `INTERNAL_AI_ROUTER_TOKEN` everywhere. Optional explicit override: `ROUTER_REQUIRE_AUTH=1|0`.
+- **Production auth default**: router enforces bearer auth in production (`NODE_ENV=production`) even if `ROUTER_REQUIRE_AUTH` is unset. Set `INTERNAL_AI_ROUTER_TOKEN` everywhere. Optional explicit override: `ROUTER_REQUIRE_AUTH=1` for non-prod. See **`ROUTER_REQUIRE_AUTH`** below for the production-ignore semantics.
 - **Internal Admin control plane**: `/internal/model-setup` persists encrypted dual-target runtime config (`localMachine` / `modalRemote`), target-specific tokens, health/route probe status, and guarded switch/rollback controls.
 - **Feature flag for rollout safety**: `INTERNAL_AI_ROUTER_DUAL_TARGET_ENABLED=1` enables DB-configured dual-target resolution. Keep unset/false to preserve legacy single-endpoint behavior while shipping UI/config first.
 - **Target env fallback keys**: `LOCAL_ROUTER_*` and `MODAL_ROUTER_*` keys can supply URL/token/timeout if not stored in DB for a target.
 
 Provider DB keys (`AiProvider`) are unrelated to this internal router token; keep `INTERNAL_AI_ROUTER_TOKEN` separate and rotate independently.
+
+### Release gate
+
+`releaseGateSchemaFailRateMax` and `releaseGateFallbackRateMax` (stored in the encrypted runtime config and editable from `/internal/model-setup`) are **enforcing**, not informational.
+
+- The prompt router (`apps/web/app/services/ai/prompt-router.server.ts`) tracks the most recent **200** `/route` outcomes per target (`localMachine`, `modalRemote`) as a rolling buffer.
+- After every routed call the router recomputes, for the **active** target, the rolling **schema-fail rate** (`schemaFail / calls`) and the rolling **fallback rate** (`fallbackCalls / calls`).
+- If either rate exceeds its configured gate for the active target, the router:
+  1. Forces `shadowMode = true` **in memory** for the rest of the process lifetime (the encrypted DB config is **not** rewritten — restart or save clears the in-memory trip).
+  2. Emits a single `ROUTER_RELEASE_GATE_TRIPPED` row to the activity log with the breached metric (`schemaFailRate` / `fallbackRate`), the observed value, the configured threshold, and the active target.
+- `getReleaseGateState()` is exported for UI use — `/internal/model-setup` reads it and renders a "Release gate tripped" banner with the breach reason.
+- Buffer state lives in process memory; horizontally scaled deployments evaluate the gate per pod. The buffer size constant is `RELEASE_GATE_BUFFER_SIZE = 200`.
+
+Operators should treat a tripped gate as "stop promoting this target": investigate the upstream schema validation failures or fallback churn before manually saving a fresh runtime config (which clears the in-memory trip on next route).
+
+### Safe target URLs
+
+`assertSafeTargetUrl` in [`internal-assistant.server.ts`](../apps/web/app/services/ai/internal-assistant.server.ts) is the SSRF guard for every assistant-chat target URL (used by both `/internal/ai-assistant` chat send and the `assistant-chat-target-probe` health check).
+
+- **`http://` is local-only**: the only allowed hostnames are exact-match `127.0.0.1`, `localhost`, and `::1`. Anything else (including `http://localhost.attacker.example`) is rejected with `Assistant target URL must be https or localhost http`.
+- **`https://` is general-purpose, with explicit rejections**:
+  - Link-local IPv4 (`169.254.0.0/16`, regex match) is rejected.
+  - IPv6 link-local (`fe80::/10`, prefix match) is rejected.
+  - Known cloud metadata hosts (`metadata.google.internal`; the AWS IMDS IP `169.254.169.254` is already caught by the IPv4 rule) are rejected.
+- **Opt-in allowlist**: set `INTERNAL_AI_ALLOW_HOSTS` to a comma-separated list of hostnames (case-insensitive, exact match) that should bypass the localhost/link-local/metadata checks. Use this for trusted internal HTTPS endpoints such as `internal.svc.cluster.local` or a service-mesh DNS name. Allowlisted hosts are accepted for both `http:` and `https:`.
+- Any other protocol (`file:`, `ftp:`, etc.) is rejected with the same "must be https or localhost http" error.
+
+### `ROUTER_REQUIRE_AUTH`
+
+The reference router (`apps/web/scripts/internal-ai-router.ts`) reads `ROUTER_REQUIRE_AUTH` to decide whether `/route` requires the bearer token in `INTERNAL_AI_ROUTER_TOKEN`.
+
+- In **non-production** (`NODE_ENV !== 'production'`): `ROUTER_REQUIRE_AUTH=0|false|no` disables auth, as before. Useful for local development against an unset `INTERNAL_AI_ROUTER_TOKEN`.
+- In **production** (`NODE_ENV === 'production'`): the explicit `0`/`false`/`no` override is **ignored**. The router logs `[internal-ai-router] WARN: ROUTER_REQUIRE_AUTH=0 ignored in production` on startup and keeps bearer auth on. There is no supported way to run the router without auth in production.
+
+### Auto-reprobe
+
+The internal AI Assistant page now auto-reprobes its target health when chat is blocked.
+
+- New resource route: [`/internal/ai-assistant/probe`](../apps/web/app/routes/internal.ai-assistant.probe.tsx) returns `{ localMachine, modalRemote, parseError? }` where each side has `health` (liveness) and `chatProbe` (chat-endpoint validation) results. Both `GET` and `POST` are admin-gated via `requireInternalAdmin`.
+- While the preferred target's chat probe reports `ok: false`, [`/internal/ai-assistant`](../apps/web/app/routes/internal.ai-assistant.tsx) polls `/internal/ai-assistant/probe` every **20 seconds** with an `AbortController`. Polling stops as soon as the probe returns success — the send button unblocks the moment the host recovers without a manual page refresh.
+- A manual "Recheck" button next to the status pill triggers an immediate probe call.
 
 ### Safe switching runbook
 

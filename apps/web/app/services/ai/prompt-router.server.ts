@@ -6,7 +6,11 @@ import {
   type PromptRouterDecision,
 } from '~/schemas/prompt-router.server';
 import type { PromptRouterReasonCode } from '~/schemas/prompt-router-reasons.server';
-import { resolveRouterTargetConfig } from '~/services/ai/router-runtime-config.server';
+import {
+  resolveRouterTargetConfig,
+  type ResolvedRouterTarget,
+} from '~/services/ai/router-runtime-config.server';
+import { ActivityLogService } from '~/services/activity/activity.service';
 
 /** Observability label for upstream budgeting (optional). */
 export type PromptRouterOperationClass = 'P0_CREATE' | 'P1_MODIFY' | 'P2_HYDRATE';
@@ -74,6 +78,24 @@ const latencyByTarget: Record<'localMachine' | 'modalRemote', number[]> = {
   modalRemote: [],
 };
 
+const RELEASE_GATE_BUFFER_SIZE = 200;
+type ReleaseGateSample = { schemaReject: boolean; fallback: boolean; at: number };
+const releaseGateBuffer: Record<'localMachine' | 'modalRemote', ReleaseGateSample[]> = {
+  localMachine: [],
+  modalRemote: [],
+};
+
+export type ReleaseGateState = {
+  tripped: boolean;
+  reason?: string;
+  metric?: 'schemaFailRate' | 'fallbackRate';
+  value?: number;
+  threshold?: number;
+  target?: 'localMachine' | 'modalRemote';
+};
+
+let releaseGateState: ReleaseGateState = { tripped: false };
+
 let consecutiveFailures = 0;
 let circuitOpenUntil = 0;
 
@@ -134,6 +156,9 @@ export function resetPromptRouterInternalsForTests(): void {
   metrics.byTarget.modalRemote = { attempts: 0, successes: 0, failures: 0, fallbacks: 0, schemaRejects: 0, timeoutsOrNetwork: 0, p95LatencyMs: 0 };
   latencyByTarget.localMachine = [];
   latencyByTarget.modalRemote = [];
+  releaseGateBuffer.localMachine = [];
+  releaseGateBuffer.modalRemote = [];
+  releaseGateState = { tripped: false };
 }
 
 export function getPromptRouterMetricsSnapshot(): PromptRouterMetricsSnapshot {
@@ -150,12 +175,87 @@ export function getPromptRouterMetricsSnapshot(): PromptRouterMetricsSnapshot {
   return { ...metrics };
 }
 
+/**
+ * Returns the current in-memory release gate state. When `tripped` is true,
+ * the prompt router forces shadow mode on every call until the rolling rate
+ * drops back under the configured threshold.
+ */
+export function getReleaseGateState(): ReleaseGateState {
+  return { ...releaseGateState };
+}
+
 function logRouterEvent(
   payload: Record<string, string | number | boolean | undefined>,
 ): void {
   if (!envTruthy('INTERNAL_AI_ROUTER_DEBUG_LOG')) return;
   // eslint-disable-next-line no-console
   console.log('[prompt-router]', JSON.stringify(payload));
+}
+
+type FetchOutcome =
+  | { decision: PromptRouterDecision; schemaReject: false; failed: false }
+  | { decision: null; schemaReject: boolean; failed: true };
+
+function pushReleaseGateSample(
+  target: 'localMachine' | 'modalRemote',
+  sample: ReleaseGateSample,
+): void {
+  const buf = releaseGateBuffer[target];
+  buf.push(sample);
+  if (buf.length > RELEASE_GATE_BUFFER_SIZE) buf.shift();
+}
+
+function evaluateReleaseGate(
+  target: 'localMachine' | 'modalRemote',
+  runtime: ResolvedRouterTarget,
+): void {
+  const buf = releaseGateBuffer[target];
+  if (buf.length === 0) return;
+  const schemaCount = buf.reduce((acc, s) => (s.schemaReject ? acc + 1 : acc), 0);
+  const fallbackCount = buf.reduce((acc, s) => (s.fallback ? acc + 1 : acc), 0);
+  const schemaRate = schemaCount / buf.length;
+  const fallbackRate = fallbackCount / buf.length;
+
+  const schemaTripped = schemaRate > runtime.releaseGateSchemaFailRateMax;
+  const fallbackTripped = fallbackRate > runtime.releaseGateFallbackRateMax;
+
+  if (schemaTripped || fallbackTripped) {
+    const metric: 'schemaFailRate' | 'fallbackRate' = schemaTripped
+      ? 'schemaFailRate'
+      : 'fallbackRate';
+    const value = schemaTripped ? schemaRate : fallbackRate;
+    const threshold = schemaTripped
+      ? runtime.releaseGateSchemaFailRateMax
+      : runtime.releaseGateFallbackRateMax;
+    const alreadyTripped =
+      releaseGateState.tripped &&
+      releaseGateState.metric === metric &&
+      releaseGateState.target === target;
+    releaseGateState = {
+      tripped: true,
+      metric,
+      value,
+      threshold,
+      target,
+      reason: `${metric} ${(value * 100).toFixed(2)}% exceeded ${(threshold * 100).toFixed(2)}% on ${target}`,
+    };
+    if (!alreadyTripped) {
+      void new ActivityLogService()
+        .log({
+          actor: 'SYSTEM',
+          action: 'ROUTER_RELEASE_GATE_TRIPPED',
+          details: { metric, value, threshold, target },
+        })
+        .catch(() => {});
+      logRouterEvent({ event: 'release_gate_tripped', metric, value, threshold, target });
+    }
+    return;
+  }
+
+  if (releaseGateState.tripped && releaseGateState.target === target) {
+    releaseGateState = { tripped: false };
+    logRouterEvent({ event: 'release_gate_reset', target });
+  }
 }
 
 /**
@@ -188,32 +288,76 @@ export async function buildPromptRouterDecision(
     return deterministic;
   }
 
-  const routed = await fetchAndMergeRouterDecision(params, deterministic, runtime);
+  const primary = await fetchAndMergeRouterDecision(
+    params,
+    deterministic,
+    runtime,
+    runtime.target,
+    baseUrl,
+    runtime.token,
+    runtime.timeoutMs,
+  );
 
-  if (!routed) {
+  let outcome: FetchOutcome = primary;
+  let attemptTarget: 'localMachine' | 'modalRemote' = runtime.target;
+  pushReleaseGateSample(runtime.target, {
+    schemaReject: primary.schemaReject,
+    fallback: primary.failed,
+    at: Date.now(),
+  });
+
+  if (primary.failed && runtime.dualTargetEnabled && runtime.fallback) {
+    metrics.byTarget[runtime.target].fallbacks += 1;
+    const secondary = await fetchAndMergeRouterDecision(
+      params,
+      deterministic,
+      runtime,
+      runtime.fallback.target,
+      runtime.fallback.url,
+      runtime.fallback.token,
+      runtime.fallback.timeoutMs,
+    );
+    pushReleaseGateSample(runtime.fallback.target, {
+      schemaReject: secondary.schemaReject,
+      fallback: secondary.failed,
+      at: Date.now(),
+    });
+    outcome = secondary;
+    attemptTarget = runtime.fallback.target;
+  }
+
+  if (outcome.failed) {
     recordRouterFailure(runtime.circuitFailureThreshold, runtime.circuitCooldownMs);
     metrics.failures += 1;
-    metrics.byTarget[runtime.target].failures += 1;
-    metrics.byTarget[runtime.target].fallbacks += 1;
+    metrics.byTarget[attemptTarget].failures += 1;
+    if (attemptTarget === runtime.target) {
+      metrics.byTarget[runtime.target].fallbacks += 1;
+    }
+    evaluateReleaseGate(runtime.target, runtime);
+    if (runtime.fallback) evaluateReleaseGate(runtime.fallback.target, runtime);
     return deterministic;
   }
 
   recordRouterSuccess();
   metrics.successes += 1;
-  metrics.byTarget[runtime.target].successes += 1;
+  metrics.byTarget[attemptTarget].successes += 1;
 
-  if (runtime.shadowMode) {
+  evaluateReleaseGate(runtime.target, runtime);
+  if (runtime.fallback) evaluateReleaseGate(runtime.fallback.target, runtime);
+
+  if (runtime.shadowMode || releaseGateState.tripped) {
     metrics.shadowsRecorded += 1;
     logRouterEvent({
       event: 'shadow',
-      reasonCode: routed.reasonCode,
+      reasonCode: outcome.decision.reasonCode,
       op: params.operationClass ?? 'P0_CREATE',
-      target: runtime.target,
+      target: attemptTarget,
+      forcedByReleaseGate: releaseGateState.tripped && !runtime.shadowMode,
     });
     return deterministic;
   }
 
-  return routed;
+  return outcome.decision;
 }
 
 function buildDeterministicDecision(
@@ -331,16 +475,17 @@ function applyHarness(
 async function fetchAndMergeRouterDecision(
   params: BuildPromptRouterDecisionParams,
   deterministic: PromptRouterDecision,
-  runtime: Awaited<ReturnType<typeof resolveRouterTargetConfig>>,
-): Promise<PromptRouterDecision | null> {
+  _runtime: ResolvedRouterTarget,
+  target: 'localMachine' | 'modalRemote',
+  baseUrl: string,
+  token: string | null | undefined,
+  timeoutMs: number,
+): Promise<FetchOutcome> {
   metrics.attempts += 1;
-  metrics.byTarget[runtime.target].attempts += 1;
+  metrics.byTarget[target].attempts += 1;
 
-  const baseUrl = runtime.url?.trim();
-  if (!baseUrl) return null;
   const endpoint = `${baseUrl.replace(/\/+$/, '')}/route`;
-  const authToken = runtime.token?.trim();
-  const timeoutMs = runtime.timeoutMs;
+  const authToken = token?.trim();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const started = Date.now();
@@ -372,23 +517,27 @@ async function fetchAndMergeRouterDecision(
     });
 
     if (!response.ok) {
-      logRouterEvent({ event: 'http_error', status: response.status, target: runtime.target });
-      return null;
+      logRouterEvent({ event: 'http_error', status: response.status, target });
+      return { decision: null, schemaReject: false, failed: true };
     }
 
     const json: unknown = await response.json();
     const parsed = PromptRouterDecisionSchema.safeParse(json);
     if (!parsed.success) {
-      metrics.byTarget[runtime.target].schemaRejects += 1;
-      logRouterEvent({ event: 'schema_reject', target: runtime.target });
-      return null;
+      metrics.byTarget[target].schemaRejects += 1;
+      logRouterEvent({ event: 'schema_reject', target });
+      return { decision: null, schemaReject: true, failed: true };
     }
-    latencyByTarget[runtime.target].push(Date.now() - started);
-    return applyHarness(parsed.data, deterministic, params.classification);
+    latencyByTarget[target].push(Date.now() - started);
+    return {
+      decision: applyHarness(parsed.data, deterministic, params.classification),
+      schemaReject: false,
+      failed: false,
+    };
   } catch {
-    metrics.byTarget[runtime.target].timeoutsOrNetwork += 1;
-    logRouterEvent({ event: 'timeout_or_network', target: runtime.target });
-    return null;
+    metrics.byTarget[target].timeoutsOrNetwork += 1;
+    logRouterEvent({ event: 'timeout_or_network', target });
+    return { decision: null, schemaReject: false, failed: true };
   } finally {
     clearTimeout(timeout);
   }

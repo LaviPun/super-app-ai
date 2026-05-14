@@ -32,7 +32,15 @@ const TENANT_RATE_MAX_REQUESTS = Number(process.env.ROUTER_TENANT_RATE_MAX_REQUE
 const TENANT_MAX_ACTIVE_REQUESTS = Number(process.env.ROUTER_TENANT_MAX_ACTIVE_REQUESTS?.trim() || '1');
 
 function shouldEnforceAuth(): boolean {
-  if (REQUIRE_AUTH === '0' || REQUIRE_AUTH === 'false' || REQUIRE_AUTH === 'no') return false;
+  const explicitOff = REQUIRE_AUTH === '0' || REQUIRE_AUTH === 'false' || REQUIRE_AUTH === 'no';
+  if (explicitOff) {
+    if (IS_PRODUCTION) {
+      // eslint-disable-next-line no-console
+      console.warn('[internal-ai-router] WARN: ROUTER_REQUIRE_AUTH=0 ignored in production');
+      return true;
+    }
+    return false;
+  }
   if (REQUIRE_AUTH === '1' || REQUIRE_AUTH === 'true' || REQUIRE_AUTH === 'yes') return true;
   // Default: keep local dev flexible, but always enforce in production.
   return IS_PRODUCTION || AUTH_TOKEN.length > 0;
@@ -585,13 +593,23 @@ const server = createServer(async (req, res) => {
     return json(res, 429, { error: 'Rate limit exceeded' });
   }
 
-  try {
-    const contentType = req.headers['content-type'] || '';
-    if (!String(contentType).includes('application/json')) {
-      return json(res, 415, { error: 'Content-Type must be application/json' });
-    }
+  const contentType = req.headers['content-type'] || '';
+  if (!String(contentType).includes('application/json')) {
+    return json(res, 415, { error: 'Content-Type must be application/json' });
+  }
 
-    const body = await readJsonBody(req);
+  let body: unknown;
+  try {
+    body = await readJsonBody(req);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Invalid request';
+    if (message === 'Body too large') {
+      return json(res, 413, { error: 'Body too large' });
+    }
+    return json(res, 400, { error: 'Bad request', message });
+  }
+
+  try {
     const input = RequestSchema.parse(body);
     const sanitizedPrompt = sanitizePrompt(input.prompt);
     const sanitizedInput: RouterInput = { ...input, prompt: sanitizedPrompt };

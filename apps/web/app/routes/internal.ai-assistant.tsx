@@ -42,6 +42,7 @@ const ImportSessionSchema = z.object({
   title: z.string().trim().min(1).max(120),
   mode: z.enum(['localMachine', 'modalRemote']).default('localMachine'),
   memoryEnabled: z.boolean().optional(),
+  sessionId: z.string().trim().min(1).max(120).optional(),
   messages: z.array(z.object({
     role: z.enum(['user', 'assistant', 'system']),
     content: z.string().trim().min(1).max(8000),
@@ -50,8 +51,52 @@ const ImportSessionSchema = z.object({
     model: z.string().optional(),
     error: z.string().optional(),
     retryCount: z.number().int().min(0).max(10).optional(),
+    clientRequestId: z.string().trim().min(1).max(120).optional(),
   })).max(400),
 });
+
+export type ImportSessionResult = { ok: true; sessionId: string; inserted: number; skipped: number };
+
+export async function applyImportSession(
+  store: InternalAssistantStoreService,
+  payload: z.infer<typeof ImportSessionSchema>,
+): Promise<ImportSessionResult> {
+  let session = null as Awaited<ReturnType<InternalAssistantStoreService['getSession']>> | null;
+  if (payload.sessionId) {
+    session = await store.getSession(payload.sessionId);
+  }
+  if (!session) {
+    session = await store.createSession({
+      title: payload.title,
+      mode: payload.mode,
+      memoryEnabled: payload.memoryEnabled ?? true,
+    });
+  }
+  let inserted = 0;
+  let skipped = 0;
+  for (const message of payload.messages) {
+    if (message.clientRequestId) {
+      const existing = await store.findUserMessageByRequest(session.id, message.clientRequestId);
+      if (existing) {
+        skipped += 1;
+        continue;
+      }
+    }
+    await store.createMessage({
+      sessionId: session.id,
+      role: message.role,
+      content: message.content,
+      mode: message.mode,
+      backend: message.backend,
+      model: message.model,
+      error: message.error,
+      retryCount: message.retryCount ?? 0,
+      clientRequestId: message.clientRequestId,
+    });
+    inserted += 1;
+  }
+  return { ok: true, sessionId: session.id, inserted, skipped };
+}
 
 type MarkdownPart = { type: 'text'; value: string } | { type: 'code'; value: string; language: string };
 
@@ -130,9 +175,19 @@ export async function loader({ request }: { request: Request }) {
   let messages: Awaited<ReturnType<InternalAssistantStoreService['listMessages']>> = [];
   let memories: Awaited<ReturnType<InternalAssistantStoreService['listMemories']>> = [];
   let loaderWarning: string | null = null;
+  let parseError: string | null = null;
 
   try {
-    runtime = await getRouterRuntimeConfig();
+    const raw = (await getRouterRuntimeConfig()) as unknown;
+    if (raw && typeof raw === 'object' && 'config' in raw) {
+      const wrapped = raw as { config: typeof DEFAULT_ROUTER_RUNTIME_CONFIG; parseError?: unknown };
+      runtime = wrapped.config;
+      if (typeof wrapped.parseError === 'string' && wrapped.parseError.trim() !== '') {
+        parseError = wrapped.parseError;
+      }
+    } else {
+      runtime = raw as typeof DEFAULT_ROUTER_RUNTIME_CONFIG;
+    }
   } catch (error) {
     loaderWarning = `Runtime config unavailable: ${error instanceof Error ? error.message : String(error)}`;
   }
@@ -244,6 +299,7 @@ export async function loader({ request }: { request: Request }) {
       estimatedCostCents: totalTokenStats.costCents,
     },
     loaderWarning,
+    parseError,
   });
 }
 
@@ -274,7 +330,7 @@ export async function action({ request }: { request: Request }) {
 
   if (parsed.intent === 'deleteSession') {
     if (!parsed.sessionId) return json({ ok: false, error: 'Missing sessionId' }, { status: 400 });
-    await store.archiveSession(parsed.sessionId);
+    await store.deleteSession(parsed.sessionId);
     return json({ ok: true });
   }
 
@@ -305,30 +361,19 @@ export async function action({ request }: { request: Request }) {
   if (parsed.intent === 'importSession') {
     if (!parsed.payload) return json({ ok: false, error: 'Missing import payload' }, { status: 400 });
     const imported = ImportSessionSchema.parse(JSON.parse(parsed.payload));
-    const session = await store.createSession({
-      title: imported.title,
-      mode: imported.mode,
-      memoryEnabled: imported.memoryEnabled ?? true,
-    });
-    for (const message of imported.messages) {
-      await store.createMessage({
-        sessionId: session.id,
-        role: message.role,
-        content: message.content,
-        mode: message.mode,
-        backend: message.backend,
-        model: message.model,
-        error: message.error,
-        retryCount: message.retryCount ?? 0,
-      });
-    }
-    return json({ ok: true, sessionId: session.id });
+    const result = await applyImportSession(store, imported);
+    return json(result);
   }
 
   if (!parsed.memoryId) return json({ ok: false, error: 'Missing memoryId' }, { status: 400 });
   await store.deleteMemory(parsed.memoryId);
   return json({ ok: true });
 }
+
+type LiveProbe = {
+  health: { ok: boolean; message: string };
+  chatProbe: { ok: boolean; message: string };
+};
 
 export default function InternalAiAssistantRoute() {
   const data = useLoaderData<typeof loader>();
@@ -339,6 +384,20 @@ export default function InternalAiAssistantRoute() {
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const [draft, setDraft] = useState('');
   const [streamingReply, setStreamingReply] = useState('');
+  const [liveProbes, setLiveProbes] = useState<{
+    localMachine: LiveProbe;
+    modalRemote: LiveProbe;
+  }>({
+    localMachine: {
+      health: data.targets.localMachine.health,
+      chatProbe: data.targets.localMachine.chatProbe,
+    },
+    modalRemote: {
+      health: data.targets.modalRemote.health,
+      chatProbe: data.targets.modalRemote.chatProbe,
+    },
+  });
+  const [probeStatus, setProbeStatus] = useState<'idle' | 'checking'>('idle');
   const [streamMeta, setStreamMeta] = useState<{
     target: 'localMachine' | 'modalRemote';
     backend: string;
@@ -366,24 +425,68 @@ export default function InternalAiAssistantRoute() {
     revalidator.revalidate();
   }, [revalidator]);
 
+  const fetchProbes = useCallback(async (signal?: AbortSignal) => {
+    setProbeStatus('checking');
+    try {
+      const response = await fetch('/internal/ai-assistant/probe', {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        signal,
+      });
+      if (!response.ok) return;
+      const body = (await response.json()) as {
+        localMachine: LiveProbe;
+        modalRemote: LiveProbe;
+      };
+      setLiveProbes({
+        localMachine: body.localMachine,
+        modalRemote: body.modalRemote,
+      });
+    } catch (error) {
+      if ((error as { name?: string }).name === 'AbortError') return;
+    } finally {
+      setProbeStatus('idle');
+    }
+  }, []);
+
+  const activeTargetKey: 'localMachine' | 'modalRemote' = data.activeSession.mode;
+  const preferredLive = liveProbes[activeTargetKey];
+  const preferredChatOk = preferredLive?.chatProbe?.ok ?? data.targets[activeTargetKey].chatProbe.ok;
+
+  useEffect(() => {
+    if (preferredChatOk) return;
+    const controller = new AbortController();
+    void fetchProbes(controller.signal);
+    const timer = window.setInterval(() => {
+      void fetchProbes(controller.signal);
+    }, 20_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [preferredChatOk, fetchProbes]);
+
   const sendMessage = useCallback(async (overrideMessage?: string, overrideRetryCount?: number) => {
     const outgoing = (typeof overrideMessage === 'string' ? overrideMessage : draft).trim();
     if (!outgoing || isStreaming) return;
     const preferredTarget: 'localMachine' | 'modalRemote' = data.activeSession.mode;
-    const preferred = data.targets[preferredTarget];
+    const preferredStatic = data.targets[preferredTarget];
+    const preferredLive = liveProbes[preferredTarget];
+    const liveHealth = preferredLive?.health ?? preferredStatic.health;
+    const liveChat = preferredLive?.chatProbe ?? preferredStatic.chatProbe;
     const referenceRouterHint =
-      preferredTarget === 'localMachine' && isReferenceInternalRouterUrl(preferred.url)
+      preferredTarget === 'localMachine' && isReferenceInternalRouterUrl(preferredStatic.url)
         ? ` ${REFERENCE_ROUTER_8787_HINT}`
         : '';
-    if (!preferred.health.ok) {
+    if (!liveHealth.ok) {
       setStreamError(
-        `${preferredTarget === 'modalRemote' ? 'Cloud' : 'Local'} target failed health check (${preferred.health.message}). Fix target URL in /internal/model-setup.${referenceRouterHint}`,
+        `${preferredTarget === 'modalRemote' ? 'Cloud' : 'Local'} target failed health check (${liveHealth.message}). Fix target URL in /internal/model-setup.${referenceRouterHint}`,
       );
       return;
     }
-    if (!preferred.chatProbe.ok) {
+    if (!liveChat.ok) {
       setStreamError(
-        `Assistant chat API not ready for ${preferredTarget === 'modalRemote' ? 'cloud' : 'local'} (${preferred.chatProbe.message}). Run “Validate assistant targets” or fix URLs in /internal/model-setup.${referenceRouterHint}`,
+        `Assistant chat API not ready for ${preferredTarget === 'modalRemote' ? 'cloud' : 'local'} (${liveChat.message}). Run “Validate assistant targets” or fix URLs in /internal/model-setup.${referenceRouterHint}`,
       );
       return;
     }
@@ -504,6 +607,7 @@ export default function InternalAiAssistantRoute() {
     data.targets,
     draft,
     isStreaming,
+    liveProbes,
     revalidator,
     streamError,
   ]);
@@ -864,44 +968,58 @@ export default function InternalAiAssistantRoute() {
       <div className="AiAssistant-topInfoCard">
         <span
           className="AiAssistant-topInfoItem"
-          title={`healthz: ${data.targets.localMachine.health.message}\nchat: ${data.targets.localMachine.chatProbe.message}`}
+          title={`healthz: ${liveProbes.localMachine.health.message}\nchat: ${liveProbes.localMachine.chatProbe.message}`}
+          data-testid="local-status-pill"
         >
           <span
             className={`AiAssistant-dot ${
-              !data.targets.localMachine.health.ok
+              !liveProbes.localMachine.health.ok
                 ? 'red'
-                : data.targets.localMachine.chatProbe.ok
+                : liveProbes.localMachine.chatProbe.ok
                   ? 'green'
                   : 'amber'
             }`}
           />
           Local{' '}
-          {!data.targets.localMachine.health.ok
+          {!liveProbes.localMachine.health.ok
             ? 'unhealthy'
-            : data.targets.localMachine.chatProbe.ok
+            : liveProbes.localMachine.chatProbe.ok
               ? 'ready'
               : 'chat blocked'}
         </span>
         <span
           className="AiAssistant-topInfoItem"
-          title={`healthz: ${data.targets.modalRemote.health.message}\nchat: ${data.targets.modalRemote.chatProbe.message}`}
+          title={`healthz: ${liveProbes.modalRemote.health.message}\nchat: ${liveProbes.modalRemote.chatProbe.message}`}
+          data-testid="cloud-status-pill"
         >
           <span
             className={`AiAssistant-dot ${
-              !data.targets.modalRemote.health.ok
+              !liveProbes.modalRemote.health.ok
                 ? 'red'
-                : data.targets.modalRemote.chatProbe.ok
+                : liveProbes.modalRemote.chatProbe.ok
                   ? 'green'
                   : 'amber'
             }`}
           />
           Cloud{' '}
-          {!data.targets.modalRemote.health.ok
+          {!liveProbes.modalRemote.health.ok
             ? 'unhealthy'
-            : data.targets.modalRemote.chatProbe.ok
+            : liveProbes.modalRemote.chatProbe.ok
               ? 'ready'
               : 'chat blocked'}
         </span>
+        <button
+          type="button"
+          className="AiAssistant-topInfoItem"
+          onClick={() => {
+            void fetchProbes();
+          }}
+          disabled={probeStatus === 'checking'}
+          data-testid="recheck-probes"
+          style={{ cursor: 'pointer' }}
+        >
+          {probeStatus === 'checking' ? 'Rechecking…' : 'Recheck'}
+        </button>
         <span className="AiAssistant-topInfoItem">
           Model {streamMeta?.model ?? (data.activeSession.mode === 'localMachine' ? data.targets.localMachine.model || 'local' : data.targets.modalRemote.model || 'cloud')}
         </span>
@@ -966,19 +1084,57 @@ export default function InternalAiAssistantRoute() {
           />
           <div className="AiAssistant-historyList">
             {data.sessions.map((session) => (
-              <button
-                type="button"
+              <div
                 key={session.id}
                 className={`AiAssistant-historyItem ${session.id === data.activeSession.id ? 'active' : ''}`}
-                onClick={() => {
-                  const params = new URLSearchParams(searchParams);
-                  params.set('sessionId', session.id);
-                  navigate(`/internal/ai-assistant?${params.toString()}`);
-                }}
+                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
               >
-                <div>{session.title}</div>
-                <div style={{ fontSize: 11, color: '#6b7280' }}>{session.messageCount} messages</div>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const params = new URLSearchParams(searchParams);
+                    params.set('sessionId', session.id);
+                    navigate(`/internal/ai-assistant?${params.toString()}`);
+                  }}
+                  style={{
+                    flex: 1,
+                    background: 'transparent',
+                    border: 'none',
+                    textAlign: 'left',
+                    padding: 0,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div>{session.title}</div>
+                  <div style={{ fontSize: 11, color: '#6b7280' }}>{session.messageCount} messages</div>
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Delete session ${session.title}`}
+                  data-testid={`delete-session-${session.id}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (typeof window !== 'undefined' && !window.confirm(`Delete session "${session.title}"? This cannot be undone.`)) {
+                      return;
+                    }
+                    const form = new FormData();
+                    form.set('intent', 'deleteSession');
+                    form.set('sessionId', session.id);
+                    void runSessionMutation(form);
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #e3e3e3',
+                    borderRadius: 4,
+                    padding: '2px 8px',
+                    cursor: 'pointer',
+                    fontSize: 11,
+                    color: '#a4321e',
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
             ))}
           </div>
         </aside>
@@ -1054,6 +1210,30 @@ export default function InternalAiAssistantRoute() {
             <Banner tone="critical" title="Assistant service unavailable">
               <Text as="p">{data.loaderWarning}</Text>
             </Banner>
+          ) : null}
+          {data.parseError ? (
+            <button
+              type="button"
+              onClick={() => navigate('/internal/model-setup')}
+              className="AiAssistant-routerConfigChip"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 12px',
+                borderRadius: 999,
+                background: '#fff4e5',
+                color: '#7a4d00',
+                border: '1px solid #f1c27d',
+                cursor: 'pointer',
+                fontSize: 13,
+                fontWeight: 500,
+              }}
+              title={data.parseError}
+              data-testid="router-config-chip"
+            >
+              Router config load error — re-save in /internal/model-setup.
+            </button>
           ) : null}
 
           <div className="AiAssistant-conversationWrap">

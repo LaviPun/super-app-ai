@@ -4,8 +4,10 @@ import { buildIntentPacket } from '~/services/ai/intent-packet.server';
 import {
   buildPromptRouterDecision,
   getPromptRouterMetricsSnapshot,
+  getReleaseGateState,
   resetPromptRouterInternalsForTests,
 } from '~/services/ai/prompt-router.server';
+import { ActivityLogService } from '~/services/activity/activity.service';
 
 function makeClassification(confidenceScore: number): ClassifyResult {
   return {
@@ -218,5 +220,94 @@ describe('internal router client', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(decision.reasonCode).toBe('deterministic_medium_confidence');
     expect(getPromptRouterMetricsSnapshot().canarySkips).toBe(1);
+  });
+
+  it('rolls to dual-target fallback when the primary target errors and increments modalRemote attempts', async () => {
+    vi.stubEnv('INTERNAL_AI_ROUTER_URL', 'http://primary.test');
+    vi.stubEnv('INTERNAL_AI_ROUTER_DUAL_TARGET_ENABLED', '1');
+    vi.stubEnv('MODAL_ROUTER_URL', 'http://fallback.test');
+    vi.stubEnv('INTERNAL_AI_ROUTER_SHADOW', '0');
+    vi.stubEnv('INTERNAL_AI_ROUTER_CIRCUIT_FAILURE_THRESHOLD', '99');
+    const classification = makeClassification(0.65);
+    const packet = buildIntentPacket('popup', classification, {
+      storeContext: { shop_domain: 'shop.myshopify.com', theme_os2: true },
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(async () => {
+        throw new Error('primary network error');
+      })
+      .mockImplementationOnce(
+        async () =>
+          new Response(JSON.stringify(routerPayload({ moduleType: 'theme.popup', confidence: 0.7 })), {
+            status: 200,
+          }),
+      );
+
+    const decision = await buildPromptRouterDecision({
+      prompt: 'popup',
+      classification,
+      intentPacket: packet,
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const snap = getPromptRouterMetricsSnapshot();
+    expect(snap.byTarget.localMachine.attempts).toBeGreaterThanOrEqual(1);
+    expect(snap.byTarget.modalRemote.attempts).toBeGreaterThanOrEqual(1);
+    expect(snap.byTarget.modalRemote.successes).toBeGreaterThanOrEqual(1);
+    expect(snap.byTarget.localMachine.fallbacks).toBeGreaterThanOrEqual(1);
+    // The fallback attempt itself may trip the release gate (one bad primary sample),
+    // forcing shadow mode; either path returns a usable PromptRouterDecision.
+    expect(decision.version).toBe('1.0');
+  });
+});
+
+describe('release gate', () => {
+  it('trips when schema-fail rate exceeds the configured max, emits the activity log event, and forces shadow on the next successful call', async () => {
+    vi.stubEnv('INTERNAL_AI_ROUTER_URL', 'http://router.test');
+    vi.stubEnv('INTERNAL_AI_ROUTER_SHADOW', '0');
+    vi.stubEnv('INTERNAL_AI_ROUTER_CIRCUIT_FAILURE_THRESHOLD', '9999');
+    const logSpy = vi
+      .spyOn(ActivityLogService.prototype, 'log')
+      .mockResolvedValue(undefined as unknown as void);
+    const classification = makeClassification(0.65);
+    const packet = buildIntentPacket('popup', classification, {
+      storeContext: { shop_domain: 'shop.myshopify.com', theme_os2: true },
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        new Response(JSON.stringify({ not: 'a valid decision' }), { status: 200 }),
+      );
+
+    for (let i = 0; i < 3; i += 1) {
+      await buildPromptRouterDecision({
+        prompt: 'popup',
+        classification,
+        intentPacket: packet,
+      });
+    }
+
+    const gate = getReleaseGateState();
+    expect(gate.tripped).toBe(true);
+    expect(gate.metric === 'schemaFailRate' || gate.metric === 'fallbackRate').toBe(true);
+    expect(gate.target).toBe('localMachine');
+    const tripped = logSpy.mock.calls.find(
+      ([entry]) => entry.action === 'ROUTER_RELEASE_GATE_TRIPPED',
+    );
+    expect(tripped).toBeDefined();
+
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify(routerPayload({ moduleType: 'theme.popup', confidence: 0.65 })), {
+        status: 200,
+      }),
+    );
+    const decision = await buildPromptRouterDecision({
+      prompt: 'popup',
+      classification,
+      intentPacket: packet,
+    });
+    expect(decision.reasonCode).toMatch(/^deterministic_/);
+    expect(getPromptRouterMetricsSnapshot().shadowsRecorded).toBeGreaterThanOrEqual(1);
   });
 });

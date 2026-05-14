@@ -10,6 +10,10 @@
 import { json } from '@remix-run/node';
 import { ScheduleService } from '~/services/flows/schedule.service';
 import { FlowRunnerService } from '~/services/flows/flow-runner.service';
+import { runInternalAiAuditRetention } from '~/services/jobs/internal-ai-audit-retention.job';
+
+let lastAuditRetentionRunAt: number | null = null;
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 export async function loader({ request }: { request: Request }) {
   const secret = process.env.CRON_SECRET;
@@ -46,5 +50,17 @@ export async function loader({ request }: { request: Request }) {
     }
   }
 
-  return json({ ran: results.length, results });
+  let auditRetention: { deleted: number; retentionDays: number; cutoff: string } | null = null;
+  const now = Date.now();
+  if (!lastAuditRetentionRunAt || now - lastAuditRetentionRunAt >= ONE_DAY_MS) {
+    try {
+      auditRetention = await runInternalAiAuditRetention();
+      lastAuditRetentionRunAt = now;
+    } catch (err) {
+      auditRetention = { deleted: 0, retentionDays: 0, cutoff: new Date().toISOString() };
+      console.warn('[api.cron] internal-ai-audit-retention failed', err);
+    }
+  }
+
+  return json({ ran: results.length, results, auditRetention });
 }

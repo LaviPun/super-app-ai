@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_ROUTER_RUNTIME_CONFIG,
   RouterRuntimeConfigSchema,
@@ -37,5 +37,53 @@ describe('RouterRuntimeConfigSchema', () => {
         },
       }),
     ).toThrow();
+  });
+});
+
+describe('getRouterRuntimeConfig parseError handling', () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  it('returns defaults with a parseError when ciphertext fails to decrypt or parse', async () => {
+    vi.stubEnv(
+      'ENCRYPTION_KEY',
+      Buffer.alloc(32, 7).toString('base64'),
+    );
+    vi.doMock('~/db.server', () => ({
+      getPrisma: () => ({
+        appSettings: {
+          findUnique: async () => ({ routerRuntimeConfigEnc: 'not-real-ciphertext' }),
+        },
+      }),
+    }));
+    const { getRouterRuntimeConfig } = await import(
+      '~/services/ai/router-runtime-config.server'
+    );
+    const result = await getRouterRuntimeConfig();
+    expect(typeof result.parseError).toBe('string');
+    expect(result.parseError && result.parseError.length).toBeGreaterThan(0);
+    expect(result.config).toEqual(DEFAULT_ROUTER_RUNTIME_CONFIG);
+  });
+
+  it('returns defaults without a parseError when no ciphertext is stored', async () => {
+    vi.stubEnv(
+      'ENCRYPTION_KEY',
+      Buffer.alloc(32, 7).toString('base64'),
+    );
+    vi.doMock('~/db.server', () => ({
+      getPrisma: () => ({
+        appSettings: {
+          findUnique: async () => null,
+        },
+      }),
+    }));
+    const { getRouterRuntimeConfig } = await import(
+      '~/services/ai/router-runtime-config.server'
+    );
+    const result = await getRouterRuntimeConfig();
+    expect(result.parseError).toBeUndefined();
+    expect(result.config).toEqual(DEFAULT_ROUTER_RUNTIME_CONFIG);
   });
 });

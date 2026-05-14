@@ -166,6 +166,46 @@ For **Modal**, deploy [`deploy/modal-qwen-router/modal_app.py`](../deploy/modal-
 - Chat streaming uses SSE with request-id idempotency, so reconnect attempts resume from persisted assistant state instead of creating duplicate turns.
 - Observability panel includes request-id diagnostics, per-attempt status timeline, reconnect counts, and resume markers for operator debugging.
 
+### Operator banners and warnings
+
+**Decryption failure banner** (`/internal/model-setup`). When the saved router runtime config row exists but cannot be decrypted or parsed (typical cause: `ENCRYPTION_KEY` rotation), [`getRouterRuntimeConfig`](../apps/web/app/services/ai/router-runtime-config.server.ts) returns `{ config: defaults, parseError: <reason> }`. The model-setup loader propagates `parseError` and the page renders a red banner: *"Saved router config could not be loaded (decryption/parse error). Re-save the config to restore."* `/internal/ai-assistant` (see [`internal.ai-assistant.tsx`](../apps/web/app/routes/internal.ai-assistant.tsx)) shows a matching warning chip linking to model-setup so operators do not chat against the silently-defaulted config.
+
+**Release gate banner** (`/internal/model-setup`). When `getReleaseGateState().tripped` is true, the page renders a "Release gate tripped" banner with the breached metric (`schemaFailRate` / `fallbackRate`), the observed value, the configured threshold, and the affected target. Shadow mode is **forced on in memory** by the prompt router; the encrypted runtime config is not rewritten. Operators should investigate the upstream cause (schema validation churn or upstream failures rolling to the fallback) before saving a new runtime config — the next save clears the in-memory trip. See [docs/ai-providers.md](./ai-providers.md) § *Release gate* for the rolling buffer (200) and event semantics.
+
+**Modal proxy URL warning** (`/internal/model-setup`). When the saved `modalRemote.url` host ends in `.modal.run` or matches the `INTERNAL_ROUTER_UPSTREAM_URL` env (i.e. the router-only Modal `/route` proxy from [`deploy/modal-qwen-router/`](../deploy/modal-qwen-router/)), the page renders an inline warning: *"This URL appears to be the Modal /route proxy. Assistant chat requires a real chat host; point this at vLLM/Ollama."* The router proxy only forwards `/route` and `/healthz`; chat (`/api/chat`, `/v1/chat/completions`) will 404 there.
+
+### Sessions: archive vs delete
+
+`/internal/ai-assistant` supports both **archive** and **delete** intents on a chat session (with a confirm dialog before delete).
+
+- **Archive** keeps the session row and message history but hides the thread from the active list (existing behavior).
+- **Delete** (`intent: 'deleteSession'`) hard-deletes the `InternalAiSession` row. Cascading rules:
+  - `InternalAiMessage` rows for the session are cascade-deleted.
+  - `InternalAiToolAudit` rows are **preserved** via `ON DELETE SET NULL` on `sessionId` and `messageId` (see [`internal-assistant-store.server.ts`](../apps/web/app/services/ai/internal-assistant-store.server.ts) and the `InternalAiToolAudit` table definition). Audit history remains available even after the originating session is gone.
+
+### Tool audit retention
+
+`InternalAiToolAudit` rows are pruned by a daily job invoked from [`api.cron.tsx`](../apps/web/app/routes/api.cron.tsx).
+
+- Implementation: [`internal-ai-audit-retention.job.ts`](../apps/web/app/services/jobs/internal-ai-audit-retention.job.ts) deletes rows whose `createdAt` is older than the configured retention window.
+- Retention window: `INTERNAL_AI_TOOL_AUDIT_RETENTION_DAYS` env var, default `90`. Non-finite or non-positive values fall back to the default.
+- The cron loader runs the purge at most once per **24 hours** per process via an in-memory `lastAuditRetentionRunAt` marker; calling `/api/cron` more frequently is harmless but a no-op after the first daily run.
+- The response of `/api/cron` includes `auditRetention: { deleted, retentionDays, cutoff }` on the day the purge runs and `null` on subsequent same-day calls.
+
+### Chat stream behavior
+
+- **SSE heartbeat.** [`internal.ai-assistant.chat.stream.tsx`](../apps/web/app/routes/internal.ai-assistant.chat.stream.tsx) emits a `:keepalive` SSE comment frame every **15 seconds** (`HEARTBEAT_INTERVAL_MS`) while waiting for model tokens. SSE comments are silently discarded by `EventSource` clients but keep idle proxy/CDN connections from being closed mid-stream.
+- **Empty model reply.** A response whose `fullReply.trim()` is empty is no longer stored as the placeholder content `"No response generated."`. The assistant message is updated with `status='error'` and `error='Empty model response'`, and an `error` SSE frame is pushed. The UI already renders the existing error chip for `status='error'`.
+- **Activity log.** `AI_ASSISTANT_QUERY` now fires on **every** attempt (not just the first), with `attempt: <number>` in the details. Retries are countable. The new event `ROUTER_RELEASE_GATE_TRIPPED` is emitted by the prompt router when the rolling release gate trips.
+
+### Import session dedupe
+
+`/internal/ai-assistant` `intent: 'importSession'` (see `applyImportSession` in [`internal.ai-assistant.tsx`](../apps/web/app/routes/internal.ai-assistant.tsx)) dedupes incoming messages by `clientRequestId`:
+
+- Each imported message is checked against `store.findUserMessageByRequest(sessionId, clientRequestId)` (when a `clientRequestId` is present) before insert.
+- Existing rows are skipped, not overwritten.
+- The action returns `{ ok: true, sessionId, inserted, skipped }`. The toast on the page surfaces both counts so re-importing the same JSON twice inserts zero rows the second time.
+
 ---
 
 ## AI Assistant deployment notes

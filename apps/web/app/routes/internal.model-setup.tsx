@@ -18,7 +18,7 @@ import {
   resolveRouterTargetConfig,
   saveRouterRuntimeConfig,
 } from '~/services/ai/router-runtime-config.server';
-import { getPromptRouterMetricsSnapshot } from '~/services/ai/prompt-router.server';
+import { getPromptRouterMetricsSnapshot, getReleaseGateState } from '~/services/ai/prompt-router.server';
 import {
   fetchWithTimeout,
   probeTargetLiveness,
@@ -149,12 +149,26 @@ function normalizeHttpUrl(value: string): string | null {
   }
 }
 
+function isModalProxyUrl(url: string | undefined | null): boolean {
+  const raw = url?.trim();
+  if (!raw) return false;
+  const upstream = process.env.INTERNAL_ROUTER_UPSTREAM_URL?.trim();
+  if (upstream && raw === upstream) return true;
+  try {
+    const parsed = new URL(raw);
+    return parsed.hostname.endsWith('.modal.run');
+  } catch {
+    return false;
+  }
+}
+
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
-  const config = await getRouterRuntimeConfig();
+  const { config, parseError } = await getRouterRuntimeConfig();
   const settings = await new SettingsService().get();
   const resolved = await resolveRouterTargetConfig();
   const metrics = getPromptRouterMetricsSnapshot();
+  const releaseGate = getReleaseGateState();
   const targetMetrics = metrics.byTarget[resolved.target];
   const schemaFailRate =
     targetMetrics.attempts > 0
@@ -173,6 +187,9 @@ export async function loader({ request }: { request: Request }) {
 
   return json({
     config,
+    parseError: parseError ?? null,
+    releaseGate,
+    modalProxyWarning: isModalProxyUrl(config.targets.modalRemote.url),
     resolved: {
       ...resolved,
       tokenMasked: maskToken(resolved.token),
@@ -187,13 +204,18 @@ export async function loader({ request }: { request: Request }) {
   });
 }
 
-export async function action({ request }: { request: Request }) {
-  await requireInternalAdmin(request);
+/**
+ * Pure action handler for /internal/model-setup. Exported so unit tests can
+ * exercise the intent branches (`save`, `switchTarget`, `rollback`, probe
+ * intents, design reference) without booting Remix or mocking session helpers.
+ * The route-level `action` below wraps this with `requireInternalAdmin`.
+ */
+export async function handleModelSetupAction(request: Request) {
   try {
     const form = await request.formData();
     const intent = String(form.get('intent') ?? 'save');
     const activity = new ActivityLogService();
-    const current = await getRouterRuntimeConfig();
+    const { config: current } = await getRouterRuntimeConfig();
 
     if (intent === 'save') {
       const parsed = SaveConfigFormSchema.safeParse(Object.fromEntries(form));
@@ -437,8 +459,23 @@ export async function action({ request }: { request: Request }) {
   }
 }
 
+export async function action({ request }: { request: Request }) {
+  await requireInternalAdmin(request);
+  return handleModelSetupAction(request);
+}
+
 export default function InternalModelSetupRoute() {
-  const { config, tokenMasked, resolved, metrics, gates, designReferenceUrl } = useLoaderData<typeof loader>();
+  const {
+    config,
+    parseError,
+    releaseGate,
+    modalProxyWarning,
+    tokenMasked,
+    resolved,
+    metrics,
+    gates,
+    designReferenceUrl,
+  } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const nav = useNavigation();
@@ -524,6 +561,25 @@ export default function InternalModelSetupRoute() {
   return (
     <Page title="Local AI Setting" subtitle="Control local vs modal router targets for first-layer prompt routing.">
       <BlockStack gap="500">
+        {parseError ? (
+          <Banner tone="critical" title="Saved router config could not be loaded">
+            <Text as="p">
+              Saved router config could not be loaded (decryption/parse error). Re-save the config to restore.
+            </Text>
+            <Text as="p" variant="bodySm" tone="subdued">
+              {parseError}
+            </Text>
+          </Banner>
+        ) : null}
+
+        {releaseGate.tripped ? (
+          <Banner tone="critical" title="Release gate tripped — shadow mode forced">
+            <Text as="p">
+              {releaseGate.reason ?? 'Rolling release-gate metric exceeded threshold; router calls now run in shadow mode until rates recover.'}
+            </Text>
+          </Banner>
+        ) : null}
+
         {actionData && 'error' in actionData && actionData.error ? (
           <Banner tone="critical" title="Action failed">
             <Text as="p">{actionData.error}</Text>
@@ -682,6 +738,13 @@ export default function InternalModelSetupRoute() {
 
                 <Divider />
                 <Text as="h3" variant="headingSm">modalRemote target</Text>
+                {modalProxyWarning ? (
+                  <Banner tone="warning" title="modalRemote URL looks like the Modal /route proxy">
+                    <Text as="p" variant="bodySm">
+                      This URL appears to be the Modal /route proxy. Assistant chat requires a real chat host; point this at vLLM/Ollama.
+                    </Text>
+                  </Banner>
+                ) : null}
                 <InlineGrid columns={{ xs: 1, sm: 2 }} gap="300">
                   <TextField label="URL" name="modalUrl" value={modalUrl} onChange={setModalUrl} autoComplete="off" />
                   <Select

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { getRouterRuntimeConfig } from '~/services/ai/router-runtime-config.server';
+import type { RouterRuntimeConfig } from '~/schemas/router-runtime-config.server';
 import type { AssistantMode } from '~/services/ai/internal-assistant-store.server';
 import { formatToolContext, runAssistantTool, selectToolsForPrompt, type AssistantToolRunResult } from '~/services/ai/internal-assistant-tools.server';
 
@@ -56,17 +57,81 @@ function getTargetPrefix(target: AssistantTarget): 'LOCAL_ROUTER' | 'MODAL_ROUTE
   return target === 'localMachine' ? 'LOCAL_ROUTER' : 'MODAL_ROUTER';
 }
 
-function assertSafeTargetUrl(rawUrl: string): URL {
+const LOCALHOST_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1']);
+const BLOCKED_METADATA_HOSTS = new Set(['metadata.google.internal']);
+
+function normalizeHostname(hostname: string): string {
+  let h = hostname.toLowerCase();
+  if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1);
+  return h;
+}
+
+function isLinkLocalIPv4(host: string): boolean {
+  return /^169\.254\.\d{1,3}\.\d{1,3}$/.test(host);
+}
+
+function isLinkLocalIPv6(host: string): boolean {
+  return host.startsWith('fe80:');
+}
+
+function getAllowedHosts(): Set<string> {
+  const raw = process.env.INTERNAL_AI_ALLOW_HOSTS?.trim();
+  if (!raw) return new Set();
+  return new Set(
+    raw
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter((entry) => entry.length > 0),
+  );
+}
+
+export function assertSafeTargetUrl(rawUrl: string): URL {
   const url = new URL(rawUrl);
-  const isLocalhost = ['127.0.0.1', 'localhost', '::1'].includes(url.hostname);
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLocalhost)) {
+  const hostname = normalizeHostname(url.hostname);
+  const allowed = getAllowedHosts();
+  const isAllowlisted = allowed.has(hostname);
+
+  if (url.protocol === 'http:') {
+    if (isAllowlisted) return url;
+    if (!LOCALHOST_HOSTNAMES.has(hostname)) {
+      throw new Error('Assistant target URL must be https or localhost http');
+    }
+    return url;
+  }
+
+  if (url.protocol !== 'https:') {
     throw new Error('Assistant target URL must be https or localhost http');
+  }
+
+  if (isAllowlisted) return url;
+  if (isLinkLocalIPv4(hostname)) {
+    throw new Error('Assistant target URL hostname is link-local and not allowlisted');
+  }
+  if (isLinkLocalIPv6(hostname)) {
+    throw new Error('Assistant target URL hostname is link-local IPv6 and not allowlisted');
+  }
+  if (BLOCKED_METADATA_HOSTS.has(hostname)) {
+    throw new Error('Assistant target URL hostname is a cloud metadata endpoint and not allowlisted');
   }
   return url;
 }
 
 async function resolveTargetConfig(target: AssistantTarget): Promise<ResolvedAssistantTargetConfig> {
-  const runtime = await getRouterRuntimeConfig();
+  const runtimeResult = await getRouterRuntimeConfig();
+  // Worker 2 changed getRouterRuntimeConfig to return { config, parseError? }.
+  // Tolerate the legacy flat shape too so any stale mock or older caller path
+  // still works during transition.
+  const runtime: RouterRuntimeConfig =
+    runtimeResult && typeof runtimeResult === 'object' && 'config' in runtimeResult
+      ? (runtimeResult as { config: RouterRuntimeConfig; parseError?: string }).config
+      : (runtimeResult as unknown as RouterRuntimeConfig);
+  const parseError =
+    runtimeResult && typeof runtimeResult === 'object' && 'parseError' in runtimeResult
+      ? (runtimeResult as { parseError?: string }).parseError
+      : undefined;
+  if (parseError) {
+    throw new Error(`Router runtime config unavailable: ${parseError}`);
+  }
   const targetConfig = runtime.targets[target];
   const prefix = getTargetPrefix(target);
   const envUrl = process.env[`${prefix}_URL`]?.trim() || process.env.INTERNAL_AI_ROUTER_URL?.trim() || '';
@@ -363,11 +428,15 @@ export async function sendInternalAssistantChat(input: {
   let response: Response;
   try {
     response = await trySend({ config: primary, messages: promptMessages, stream: false });
-  } catch (error) {
-    if (!fallback) throw error;
+  } catch (primaryError) {
+    if (!fallback) throw primaryError;
     used = fallback;
     hadFallback = true;
-    response = await trySend({ config: fallback, messages: promptMessages, stream: false });
+    try {
+      response = await trySend({ config: fallback, messages: promptMessages, stream: false });
+    } catch {
+      throw primaryError;
+    }
   }
   const parsed = await readNonStreamingResponse(response, used.backend);
   return {
@@ -411,11 +480,15 @@ export async function* streamInternalAssistantChat(input: {
   let response: Response;
   try {
     response = await trySend({ config: primary, messages: promptMessages, stream: true });
-  } catch (error) {
-    if (!fallback) throw error;
+  } catch (primaryError) {
+    if (!fallback) throw primaryError;
     used = fallback;
     hadFallback = true;
-    response = await trySend({ config: fallback, messages: promptMessages, stream: true });
+    try {
+      response = await trySend({ config: fallback, messages: promptMessages, stream: true });
+    } catch {
+      throw primaryError;
+    }
   }
 
   let tokensIn = 0;

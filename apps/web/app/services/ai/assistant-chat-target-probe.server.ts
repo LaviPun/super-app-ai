@@ -1,4 +1,5 @@
 import type { RouterRuntimeTarget } from '~/schemas/router-runtime-config.server';
+import { assertSafeTargetUrl } from '~/services/ai/internal-assistant.server';
 
 export type AssistantRouterBackend = 'ollama' | 'openai' | 'qwen3' | 'custom';
 
@@ -13,6 +14,7 @@ export async function fetchWithTimeout(
   timeoutMs: number,
   init?: RequestInit,
 ): Promise<Response> {
+  assertSafeTargetUrl(url);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
