@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const HOST = '127.0.0.1';
+
+/** `apps/web` — resolved from this file so tests run on any machine / CI. */
+const appsWebDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const tsxCli = path.join(appsWebDir, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 
 function pickPort(): number {
   return 19000 + Math.floor(Math.random() * 2000);
@@ -23,10 +29,10 @@ async function waitForHealth(port: number, timeoutMs = 5000): Promise<void> {
 
 function startRouter(port: number): ChildProcessWithoutNullStreams {
   return spawn(
-    'pnpm',
-    ['exec', 'tsx', '--tsconfig', 'tsconfig.scripts.json', 'scripts/internal-ai-router.ts'],
+    process.execPath,
+    [tsxCli, '--tsconfig', 'tsconfig.scripts.json', 'scripts/internal-ai-router.ts'],
     {
-      cwd: '/Users/lavipun/Work/ai-shopify-superapp/apps/web',
+      cwd: appsWebDir,
       env: {
         ...process.env,
         NODE_ENV: 'production',

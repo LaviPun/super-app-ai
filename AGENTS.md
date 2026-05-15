@@ -27,7 +27,6 @@ CI-safe placeholder values (from `.github/workflows/ci.yml`) work for tests and 
 The internal admin dashboard at `/internal/login` works without Shopify OAuth. Use the password from `INTERNAL_ADMIN_PASSWORD` env var to log in.
 
 ### Known test issues
-- `internal-ai-router.test.ts` may fail with `spawn pnpm ENOENT` if pnpm is not on the system PATH (nvm-managed installs). This is a pre-existing issue unrelated to code changes.
 - Live eval tests (`evals.live.test.ts`) are skipped unless `RUN_LIVE_EVALS=1` and a provider API key are set.
 
 ### Shopify CLI
