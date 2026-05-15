@@ -89,8 +89,8 @@ jobs:
   #
   # Runs the golden-fixture eval suite using StubLlmClient.
   # Three quality gates enforced:
-  #   • Schema-valid rate  ≥ 90%  (EVAL_THRESHOLD_SCHEMA)
-  #   • Compiler-success rate ≥ 90%  (EVAL_THRESHOLD_COMPILER)
+  #   • Schema-valid rate  ≥ 99%  (EVAL_THRESHOLD_SCHEMA)
+  #   • Compiler-success rate ≥ 99%  (EVAL_THRESHOLD_COMPILER)
   #   • Non-destructive rate = 100%  (EVAL_THRESHOLD_ND — hard requirement)
   #
   # For live LLM eval (nightly or manual):
@@ -120,13 +120,13 @@ jobs:
         working-directory: apps/web
         run: pnpm exec prisma generate
 
-      - name: Run AI regression suite (golden fixtures)
+      - name: Run AI regression suite (golden fixtures, strict gate)
         working-directory: apps/web
-        run: pnpm evals
+        run: pnpm evals --strict
         env:
           # No EVAL_PROVIDER_ID → uses StubLlmClient (deterministic, no API key)
-          EVAL_THRESHOLD_SCHEMA: '0.9'
-          EVAL_THRESHOLD_COMPILER: '0.9'
+          EVAL_THRESHOLD_SCHEMA: '0.99'
+          EVAL_THRESHOLD_COMPILER: '0.99'
           EVAL_THRESHOLD_ND: '1.0'
 
   # ─── Job 4: Build ───────────────────────────────────────────────────────

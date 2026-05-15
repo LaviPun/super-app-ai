@@ -10,3 +10,4 @@ export * from './connector-sdk.js';
 export * from './workflow-validator.js';
 export * from './workflow-templates.js';
 export * from './flow-catalog.js';
+export * from './capability-graph.js';

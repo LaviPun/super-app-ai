@@ -23,7 +23,7 @@ export async function action({
   const moduleId = params.moduleId;
   if (!moduleId) return json({ error: 'Missing moduleId' }, { status: 400 });
 
-  enforceRateLimit(`ai:${session.shop}`);
+  await enforceRateLimit(`ai:${session.shop}`);
 
   const contentType = request.headers.get('Content-Type') ?? '';
   if (!contentType.includes('application/json')) {

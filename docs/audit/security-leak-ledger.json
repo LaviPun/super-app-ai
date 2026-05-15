@@ -1,0 +1,205 @@
+[
+  {
+    "ID": "F-001",
+    "Sev": "Critical",
+    "File": "apps/web/app/services/observability/api-log.service.ts",
+    "Owner": "Observability",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-002",
+    "Sev": "Critical",
+    "File": "apps/web/app/routes/api.connectors.create.tsx",
+    "Owner": "Connectors",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-003",
+    "Sev": "Critical",
+    "File": "apps/web/app/routes/api.connectors.$connectorId.update.tsx",
+    "Owner": "Connectors",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-004",
+    "Sev": "Critical",
+    "File": "apps/web/app/routes/api.connectors.test.tsx",
+    "Owner": "Connectors",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-005",
+    "Sev": "Critical",
+    "File": "apps/web/app/routes/api.data-stores.tsx",
+    "Owner": "Data Platform",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-006",
+    "Sev": "Critical",
+    "File": "apps/web/app/routes/proxy.capture.tsx",
+    "Owner": "Data Platform",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-007",
+    "Sev": "Critical",
+    "File": "apps/web/app/routes/internal.api-logs.$logId.tsx",
+    "Owner": "Internal Admin",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-008",
+    "Sev": "Critical",
+    "File": "apps/web/app/routes/api.report-error.tsx",
+    "Owner": "Internal Admin",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-009",
+    "Sev": "Critical",
+    "File": "apps/web/app/routes/webhooks.customers.redact.tsx",
+    "Owner": "Compliance",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-010",
+    "Sev": "Critical",
+    "File": "apps/web/app/routes/webhooks.shop.redact.tsx",
+    "Owner": "Compliance",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-011",
+    "Sev": "High",
+    "File": "apps/web/app/services/ai/llm.server.ts",
+    "Owner": "AI Platform",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-012",
+    "Sev": "High",
+    "File": "apps/web/app/routes/internal.ai-assistant.chat.stream.tsx",
+    "Owner": "AI Platform",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-013",
+    "Sev": "Critical",
+    "File": "apps/web/app/services/data/data-store.service.ts",
+    "Owner": "Data Platform",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-014",
+    "Sev": "High",
+    "File": "apps/web/app/services/connectors/connector.service.ts",
+    "Owner": "Security",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-015",
+    "Sev": "High",
+    "File": "apps/web/app/services/flows/flow-runner.service.ts",
+    "Owner": "Security",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-016",
+    "Sev": "High",
+    "File": "apps/web/app/services/ai/prompt-router.server.ts",
+    "Owner": "Security",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-017",
+    "Sev": "High",
+    "File": "apps/web/app/services/ai/prompt-router.server.ts",
+    "Owner": "Observability",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-018",
+    "Sev": "High",
+    "File": "apps/web/app/routes/internal.login.tsx",
+    "Owner": "Internal Admin",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-019",
+    "Sev": "High",
+    "File": "apps/web/app/services/connectors/connector.service.ts",
+    "Owner": "Connectors",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-020",
+    "Sev": "Medium",
+    "File": "apps/web/app/services/observability/api-log.service.ts",
+    "Owner": "Observability",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-021",
+    "Sev": "Medium",
+    "File": "apps/web/app/routes/api.cron.tsx",
+    "Owner": "Observability",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-022",
+    "Sev": "Medium",
+    "File": "apps/web/app/internal-admin/session.server.ts",
+    "Owner": "Internal Admin",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-026",
+    "Sev": "Medium",
+    "File": "apps/web/app/routes/internal.tsx",
+    "Owner": "Internal Admin",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-027",
+    "Sev": "Medium",
+    "File": "apps/web/app/routes/connectors._index.tsx",
+    "Owner": "Connectors",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-028",
+    "Sev": "Low",
+    "File": "apps/web/app/services/ai/internal-assistant.server.ts",
+    "Owner": "Security",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-029",
+    "Sev": "Low",
+    "File": "apps/web/app/services/observability/api-log.service.ts",
+    "Owner": "Observability",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-030",
+    "Sev": "Low",
+    "File": "apps/web/app/services/observability/logger.server.ts",
+    "Owner": "Observability",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-031",
+    "Sev": "Low",
+    "File": "apps/web/app/routes/api.cron.tsx",
+    "Owner": "Security",
+    "Status": "Open"
+  },
+  {
+    "ID": "F-032",
+    "Sev": "Low",
+    "File": "apps/web/app/routes/internal.metaobject-backfill.tsx",
+    "Owner": "Internal Admin",
+    "Status": "Open"
+  }
+]

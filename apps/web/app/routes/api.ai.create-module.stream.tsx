@@ -35,7 +35,7 @@ export async function loader() {
  */
 export async function action({ request }: { request: Request }) {
   const { session, admin } = await shopify.authenticate.admin(request);
-  enforceRateLimit(`ai:${session.shop}`);
+  await enforceRateLimit(`ai:${session.shop}`);
 
   const form = await request.formData();
   const prompt = String(form.get('prompt') ?? '').trim();

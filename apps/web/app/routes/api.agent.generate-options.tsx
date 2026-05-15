@@ -35,7 +35,7 @@ export async function action({ request }: { request: Request }) {
       captureResponseBody: true,
     },
     async () => {
-      enforceRateLimit(`ai:${session.shop}`);
+      await enforceRateLimit(`ai:${session.shop}`);
 
       const contentType = request.headers.get('Content-Type') ?? '';
       if (!contentType.includes('application/json')) {

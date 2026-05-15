@@ -12,48 +12,42 @@ afterEach(() => {
 });
 
 describe('assertSafeTargetUrl', () => {
-  it('allows http://127.0.0.1 with port', () => {
-    expect(() => assertSafeTargetUrl('http://127.0.0.1:11434')).not.toThrow();
+  it('allows http://127.0.0.1 with port', async () => {
+    await expect(assertSafeTargetUrl('http://127.0.0.1:11434')).resolves.toBeInstanceOf(URL);
   });
 
-  it('allows http://localhost with port', () => {
-    expect(() => assertSafeTargetUrl('http://localhost:8787')).not.toThrow();
+  it('allows http://localhost with port', async () => {
+    await expect(assertSafeTargetUrl('http://localhost:8787')).resolves.toBeInstanceOf(URL);
   });
 
-  it('rejects http hostnames that masquerade as localhost', () => {
-    expect(() => assertSafeTargetUrl('http://localhost.attacker.com')).toThrow(
-      /must be https or localhost http/i,
+  it('rejects http hostnames that masquerade as localhost', async () => {
+    await expect(assertSafeTargetUrl('http://localhost.attacker.com')).rejects.toThrow(
+      /only allowed for localhost hosts/i,
     );
   });
 
-  it('rejects https://169.254.169.254 (AWS metadata IP)', () => {
-    expect(() => assertSafeTargetUrl('https://169.254.169.254')).toThrow(/link-local/i);
+  it('rejects https://169.254.169.254 (AWS metadata IP)', async () => {
+    await expect(assertSafeTargetUrl('https://169.254.169.254')).rejects.toThrow(/link-local/i);
   });
 
-  it('rejects https://metadata.google.internal', () => {
-    expect(() => assertSafeTargetUrl('https://metadata.google.internal')).toThrow(/metadata/i);
+  it('rejects https://metadata.google.internal', async () => {
+    await expect(assertSafeTargetUrl('https://metadata.google.internal')).rejects.toThrow(/metadata/i);
   });
 
-  it('rejects https://[fe80::1] link-local IPv6', () => {
-    expect(() => assertSafeTargetUrl('https://[fe80::1]')).toThrow(/link-local IPv6/i);
+  it('rejects https://[fe80::1] link-local IPv6', async () => {
+    await expect(assertSafeTargetUrl('https://[fe80::1]')).rejects.toThrow(/link-local IPv6/i);
   });
 
-  it('allows allowlisted internal host via INTERNAL_AI_ALLOW_HOSTS', () => {
-    process.env.INTERNAL_AI_ALLOW_HOSTS = 'internal.svc.cluster.local';
-    expect(() => assertSafeTargetUrl('https://internal.svc.cluster.local')).not.toThrow();
+  it('still allows arbitrary https hosts when they resolve to public addresses', async () => {
+    await expect(assertSafeTargetUrl('https://api.openai.com')).resolves.toBeInstanceOf(URL);
   });
 
-  it('still allows arbitrary https hosts (default permissive https)', () => {
-    expect(() => assertSafeTargetUrl('https://api.openai.com')).not.toThrow();
+  it('rejects ftp:// and other non-http(s) protocols', async () => {
+    await expect(assertSafeTargetUrl('ftp://example.com')).rejects.toThrow();
   });
 
-  it('rejects ftp:// and other non-http(s) protocols', () => {
-    expect(() => assertSafeTargetUrl('ftp://example.com')).toThrow();
-  });
-
-  it('allowlist override applies even to link-local hosts', () => {
-    process.env.INTERNAL_AI_ALLOW_HOSTS = '169.254.169.254, metadata.google.internal';
-    expect(() => assertSafeTargetUrl('https://169.254.169.254')).not.toThrow();
-    expect(() => assertSafeTargetUrl('https://metadata.google.internal')).not.toThrow();
+  it('supports explicit localhost http override entries', async () => {
+    process.env.INTERNAL_AI_ALLOW_HOSTS = 'devbox.localhost';
+    await expect(assertSafeTargetUrl('http://devbox.localhost:4010')).resolves.toBeInstanceOf(URL);
   });
 });

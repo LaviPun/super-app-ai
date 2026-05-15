@@ -6,7 +6,7 @@ import { getPrisma } from '~/db.server';
 
 export async function action({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
-  enforceRateLimit(`connectors:suggest-mapping:${session.shop}`);
+  await enforceRateLimit(`connectors:suggest-mapping:${session.shop}`);
 
   const body = await request.json().catch(() => null) as null | { connectorId: string };
   if (!body?.connectorId) return json({ error: 'Missing connectorId' }, { status: 400 });

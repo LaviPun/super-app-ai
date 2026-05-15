@@ -209,7 +209,7 @@ function CopyIdButton({ id }: { id: string }) {
 
 export default function ModulesIndex() {
   const { modules, stats, typeCounts, templates, categories, types, loaderError } = useLoaderData<typeof loader>();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const nav = useNavigation();
   const navigate = useNavigate();
   const isSubmitting = nav.state === 'submitting';
@@ -685,7 +685,8 @@ export default function ModulesIndex() {
                   >
                     <Card padding="400">
                       <div className="Modules-templateCard">
-                      <BlockStack gap="300" {...{ className: 'Modules-templateCardBody' } as any}>
+                      <div className="Modules-templateCardBody">
+                      <BlockStack gap="300">
                         <Link
                           to={`/templates/${encodeURIComponent(t.id)}`}
                           style={{ display: 'block', textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}
@@ -752,6 +753,7 @@ export default function ModulesIndex() {
                           )}
                         </div>
                       </BlockStack>
+                      </div>
                       </div>
                     </Card>
                   </div>

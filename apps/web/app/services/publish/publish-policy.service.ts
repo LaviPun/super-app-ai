@@ -1,5 +1,7 @@
-import type { Capability, PlanTier } from '@superapp/core';
+import type { Capability, ModuleType, PlanTier } from '@superapp/core';
 import { isCapabilityAllowed } from '@superapp/core';
+import { evaluateSurfaceCapabilityAllowlist } from '~/services/publish/capability-allowlist.server';
+import { compilePolicySnapshot } from '~/services/publish/policy-snapshot.server';
 
 type DeployKind = 'THEME' | 'PLATFORM';
 
@@ -20,54 +22,44 @@ export type PublishPolicyResult = {
   evaluatedAt: number;
 };
 
-const SNAPSHOT_TTL_MS = 60_000;
-const policySnapshotCache = new Map<string, PublishPolicyResult>();
-
-function buildSnapshotKey(input: PublishPolicyInput): string {
-  return [
-    input.shopDomain,
-    input.versionId,
-    input.planTier,
-    input.specType,
-    input.targetKind,
-    input.requires.slice().sort().join(','),
-  ].join('|');
-}
-
 export class PublishPolicyService {
   evaluate(input: PublishPolicyInput): PublishPolicyResult {
-    const snapshotKey = buildSnapshotKey(input);
-    const now = Date.now();
-    const cached = policySnapshotCache.get(snapshotKey);
-    if (cached && now - cached.evaluatedAt <= SNAPSHOT_TTL_MS) {
-      return cached;
-    }
+    const allowlist = evaluateSurfaceCapabilityAllowlist({
+      moduleType: input.specType as ModuleType,
+      targetKind: input.targetKind,
+      declaredCapabilities: input.requires,
+    });
 
-    const blocked = input.requires.filter((cap) => !isCapabilityAllowed(input.planTier, cap));
-    const reasons: string[] = [];
+    const snapshot = compilePolicySnapshot(
+      {
+        shopDomain: input.shopDomain,
+        surface: allowlist.surface,
+        revision: input.versionId,
+        targetKind: input.targetKind,
+        planTier: input.planTier,
+      },
+      () => {
+        const blocked = input.requires.filter((cap) => !isCapabilityAllowed(input.planTier, cap));
+        const reasons: string[] = [];
 
-    if (blocked.length > 0) {
-      reasons.push('One or more required capabilities are blocked by the current plan tier.');
-    }
+        if (blocked.length > 0) {
+          reasons.push('One or more required capabilities are blocked by the current plan tier.');
+        }
+        reasons.push(...allowlist.reasons);
 
-    // Surface capability allowlist boundary. Keep this explicit and centralized.
-    const expectsThemeTarget = input.specType.startsWith('theme.');
-    if (expectsThemeTarget && input.targetKind !== 'THEME') {
-      reasons.push('Theme modules must publish to THEME target.');
-    }
-    if (!expectsThemeTarget && input.targetKind === 'THEME') {
-      reasons.push('Non-theme modules cannot publish to THEME target.');
-    }
+        return {
+          allowed: blocked.length === 0 && reasons.length === 0,
+          blocked,
+          reasons,
+        };
+      }
+    );
 
-    const result: PublishPolicyResult = {
-      allowed: blocked.length === 0 && reasons.length === 0,
-      blocked,
-      reasons,
-      snapshotKey,
-      evaluatedAt: now,
+    return {
+      ...snapshot.value,
+      snapshotKey: snapshot.key,
+      evaluatedAt: snapshot.compiledAt,
     };
-    policySnapshotCache.set(snapshotKey, result);
-    return result;
   }
 }
 

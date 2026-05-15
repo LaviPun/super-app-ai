@@ -14,7 +14,7 @@ export async function action({ request }: { request: Request }) {
   return withApiLogging(
     { actor: 'MERCHANT', method: request.method, path: '/api/ai/create-module-from-recipe', request, captureRequestBody: true, captureResponseBody: true },
     async () => {
-      enforceRateLimit(`ai:${session.shop}`);
+      await enforceRateLimit(`ai:${session.shop}`);
 
       const form = await request.formData();
       const specJson = String(form.get('spec') ?? '').trim();

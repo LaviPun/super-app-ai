@@ -330,6 +330,7 @@ export default function InternalHome() {
             <Button url="/internal/ai-accounts" variant="secondary" size="slim">AI accounts</Button>
             <Button url="/internal/logs" variant="secondary" size="slim">Error logs</Button>
             <Button url="/internal/jobs" variant="secondary" size="slim">Jobs</Button>
+            <Button url="/internal/release-dashboard" variant="secondary" size="slim">Release dashboard</Button>
             <Button url="/internal/activity" variant="secondary" size="slim">Activity log</Button>
             <Button url="/internal/api-logs" variant="secondary" size="slim">API logs</Button>
             <Button url="/internal/ai-providers" variant="secondary" size="slim">AI providers</Button>

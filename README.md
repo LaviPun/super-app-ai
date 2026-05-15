@@ -424,7 +424,7 @@ The repo uses pnpm workspaces. Most commands are scoped per-package via `pnpm --
 | `pnpm --filter web build` | Production Remix build | Pre-deploy |
 | `pnpm --filter web start` | Run the production build | Production runtime |
 | `pnpm --filter web typecheck` | `tsc --noEmit` | Pre-commit (also enforced by lint-staged) |
-| `pnpm --filter web lint` | ESLint (max 250 warnings) | Pre-commit / CI |
+| `pnpm --filter web lint` | ESLint (max 100 warnings) | Pre-commit / CI |
 | `pnpm --filter web test` | Vitest run | Unit tests |
 | `pnpm --filter web prisma:migrate` | `prisma migrate dev` | After editing `schema.prisma` |
 | `pnpm --filter web seed:ai-pricing` | Seed default AI model pricing rows | First boot, or after pricing schema changes |
@@ -442,6 +442,8 @@ The repo uses pnpm workspaces. Most commands are scoped per-package via `pnpm --
 ## Testing
 
 All tests run via **Vitest 3**. Tests live next to the code they exercise; cross-cutting suites live in `apps/web/app/__tests__/`. Vitest config (`apps/web/vitest.config.ts`) sets `environment: 'node'`, aliases `~` to `app/`, and seeds `INTERNAL_ADMIN_SESSION_SECRET` so cookie session code can be exercised.
+
+Current automated baseline is **347 tests** (see [`docs/_glossary.md`](docs/_glossary.md) and `docs/audit/test-baseline.json`).
 
 ### Test categories
 
@@ -642,6 +644,8 @@ Note: `extensions/functions/` currently contains the `discount-rules` scaffold; 
 ## Agent API
 
 The full `/api/agent/*` surface mirrors what the merchant UI can do. Discovery index lives at `GET /api/agent` (returns JSON describing every endpoint), and routing config introspection lives at `GET /api/agent/config`. Every mutating action is logged to `ActivityLog` with `actor: SYSTEM, source: agent_api`.
+
+The current Agent API surface has **30 endpoints** (SSOT: [`docs/_glossary.md`](docs/_glossary.md)).
 
 **Auth:** every request requires Shopify admin authentication (session cookie or token). Bodies are `application/json`. Errors return `{ error: string }` with appropriate HTTP status codes.
 
@@ -943,6 +947,7 @@ Node 20 and pnpm 9 are pinned. No CI job has access to real Shopify or LLM crede
 
 - [`docs/phase-plan.md`](docs/phase-plan.md) — full phase plan and acceptance criteria (Phase 0 baseline through Phase 8 production hardening, plus stand-alone tracks for storefront UI styles, workflow engine, agent-native architecture, etc.).
 - [`docs/implementation-status.md`](docs/implementation-status.md) — shipped work, stabilization notes, AI Patch Plan progress, and audit history.
+- [`docs/_glossary.md`](docs/_glossary.md) — SSOT for shared numeric facts (test baseline, Agent API endpoint count, and canonical Phase 2 scope label).
 - [`docs/catalog.md`](docs/catalog.md) — template catalog and AI retry mapping.
 - [`docs/superapp-surface-inventory.md`](docs/superapp-surface-inventory.md) — exhaustive surface inventory.
 

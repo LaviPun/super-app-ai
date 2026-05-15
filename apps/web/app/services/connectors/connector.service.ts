@@ -1,5 +1,7 @@
 import { getPrisma } from '~/db.server';
+import { persistJsonSafely } from '~/services/observability/redact.server';
 import { encryptJson, decryptJson } from '~/services/security/crypto.server';
+import { assertSafeTargetUrl } from '~/services/security/ssrf.server';
 
 export type ConnectorAuth =
   | { type: 'API_KEY'; headerName: string; apiKey: string }
@@ -109,10 +111,16 @@ export class ConnectorService {
     if (!connector) throw new Error('Connector not found');
 
     const auth = decryptJson<ConnectorAuth>(connector.secretsEnc);
-    const allowlist = connector.allowlistDomains.split(',').map(s => s.trim()).filter(Boolean);
+    const allowlist = connector.allowlistDomains
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
 
-    const url = new URL(joinUrl(connector.baseUrl, req.path));
-    enforceSsrf(url, allowlist);
+    const rawUrl = joinUrl(connector.baseUrl, req.path);
+    const url = await assertSafeTargetUrl(rawUrl, {
+      allowedHostnames: allowlist,
+      context: 'Connector request URL',
+    });
 
     const headers: Record<string, string> = { ...(req.headers ?? {}) };
     applyAuth(headers, auth);
@@ -173,31 +181,6 @@ function validateAllowlist(domains: string[]) {
   }
 }
 
-function enforceSsrf(url: URL, allowlist: string[]) {
-  if (url.protocol !== 'https:') throw new Error('Only https is allowed');
-  const host = url.hostname.toLowerCase();
-  if (!allowlist.map(x => x.toLowerCase()).includes(host)) {
-    throw new Error('Host is not allowlisted');
-  }
-  if (isPrivateHost(host)) throw new Error('Private network hosts are blocked');
-}
-
-function isPrivateHost(host: string) {
-  // Minimal defense-in-depth. In production also block by DNS resolution + IP range checks.
-  if (host === 'localhost') return true;
-  if (host.endsWith('.local')) return true;
-  if (/^(\d+\.){3}\d+$/.test(host)) {
-    const parts = host.split('.').map(n => parseInt(n, 10));
-    const a = parts[0];
-    const b = parts[1];
-    if (a === 10) return true;
-    if (a === 127) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 172 && b !== undefined && b >= 16 && b <= 31) return true;
-  }
-  return false;
-}
-
 function applyAuth(headers: Record<string, string>, auth: ConnectorAuth) {
   if (auth.type === 'API_KEY') headers[auth.headerName] = auth.apiKey;
   if (auth.type === 'BASIC') headers.Authorization = `Basic ${Buffer.from(`${auth.username}:${auth.password}`).toString('base64')}`;
@@ -207,7 +190,7 @@ function applyAuth(headers: Record<string, string>, auth: ConnectorAuth) {
 
 function safeJsonOrNull(text: string): string | null {
   try {
-    return JSON.stringify(JSON.parse(text));
+    return persistJsonSafely(JSON.parse(text));
   } catch {
     return null;
   }

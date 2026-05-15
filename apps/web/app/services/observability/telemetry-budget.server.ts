@@ -11,9 +11,22 @@ const ALLOWED_DETAIL_KEYS = new Set([
 
 const MAX_STRING_LENGTH = 160;
 const MAX_BLOCKED_ITEMS = 8;
+const MAX_CARDINALITY_PER_KEY = 64;
+const CARDINALITY_BUDGET_KEYS = new Set(['moduleId', 'versionId', 'snapshotKey', 'error']);
+const cardinalityTracker = new Map<string, Set<string>>();
 
 function clampString(value: string): string {
   return value.length > MAX_STRING_LENGTH ? `${value.slice(0, MAX_STRING_LENGTH)}...` : value;
+}
+
+function enforceCardinalityBudget(key: string, value: string): string {
+  if (!CARDINALITY_BUDGET_KEYS.has(key)) return value;
+  const seen = cardinalityTracker.get(key) ?? new Set<string>();
+  if (seen.has(value)) return value;
+  if (seen.size >= MAX_CARDINALITY_PER_KEY) return '__cardinality_budget_exceeded__';
+  seen.add(value);
+  cardinalityTracker.set(key, seen);
+  return value;
 }
 
 export function applyTelemetryBudget(input?: Record<string, unknown>): Record<string, unknown> {
@@ -24,7 +37,7 @@ export function applyTelemetryBudget(input?: Record<string, unknown>): Record<st
     if (!ALLOWED_DETAIL_KEYS.has(key)) continue;
 
     if (typeof raw === 'string') {
-      output[key] = clampString(raw);
+      output[key] = enforceCardinalityBudget(key, clampString(raw));
       continue;
     }
 

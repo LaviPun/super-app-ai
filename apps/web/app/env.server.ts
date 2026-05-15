@@ -40,6 +40,19 @@ const EnvSchema = z.object({
   // Retention
   DEFAULT_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
 
+  // Persistence redaction hardening
+  STRICT_PII_REDACTION: z.string().optional(),
+  // Explicitly controls Shopify test billing mode. If unset, falls back to NODE_ENV for backward compatibility.
+  BILLING_TEST_MODE: z.string().optional(),
+
+  // Workflow email connector (optional)
+  EMAIL_CONNECTOR_PROVIDER: z.enum(['sendgrid', 'generic']).optional(),
+  EMAIL_API_URL: z.string().url().optional(),
+  EMAIL_API_KEY_HEADER: z.string().min(1).optional(),
+  EMAIL_API_KEY_PREFIX: z.string().optional(),
+  EMAIL_FROM: z.string().email().optional(),
+  ADMIN_EMAIL: z.string().email().optional(),
+
   // Cron endpoint protection (optional — endpoint disabled if not set)
   CRON_SECRET: z.string().optional(),
 
@@ -94,4 +107,22 @@ export function getEnv(): Env {
 /** Reset cached env (used in tests only). */
 export function _resetEnvForTest() {
   _env = undefined;
+}
+
+function parseBooleanEnv(raw: string | undefined, fallback: boolean): boolean {
+  if (raw === undefined) return fallback;
+  const normalized = raw.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+}
+
+export function isStrictPiiRedactionEnabled(): boolean {
+  const defaultValue = process.env.NODE_ENV === 'production';
+  return parseBooleanEnv(process.env.STRICT_PII_REDACTION, defaultValue);
+}
+
+export function isBillingTestModeEnabled(): boolean {
+  const defaultValue = process.env.NODE_ENV !== 'production';
+  return parseBooleanEnv(process.env.BILLING_TEST_MODE, defaultValue);
 }

@@ -7,13 +7,7 @@ import type {
   ValidationResult,
 } from '@superapp/core';
 import { connectorError, connectorSuccess } from '@superapp/core';
-
-const BLOCKED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0'];
-const PRIVATE_RANGES = [
-  /^10\./,
-  /^172\.(1[6-9]|2\d|3[01])\./,
-  /^192\.168\./,
-];
+import { assertSafeTargetUrl } from '~/services/security/ssrf.server';
 
 /**
  * Generic HTTP connector — sends HTTP requests to external endpoints.
@@ -97,17 +91,9 @@ export class HttpConnector implements Connector {
 
     let parsed: URL;
     try {
-      parsed = new URL(url);
-    } catch {
-      return connectorError('VALIDATION', `Invalid URL: ${url}`);
-    }
-
-    if (parsed.protocol !== 'https:') {
-      return connectorError('VALIDATION', 'Only HTTPS URLs are allowed (SSRF protection)');
-    }
-
-    if (isBlockedHost(parsed.hostname)) {
-      return connectorError('VALIDATION', 'Private/local hosts are blocked (SSRF protection)');
+      parsed = await assertSafeTargetUrl(url, { context: 'Workflow HTTP connector URL' });
+    } catch (error) {
+      return connectorError('VALIDATION', error instanceof Error ? error.message : String(error));
     }
 
     const headers: Record<string, string> = {
@@ -124,7 +110,7 @@ export class HttpConnector implements Connector {
     const timer = setTimeout(() => controller.abort(), req.timeoutMs);
 
     try {
-      const res = await fetch(url, {
+      const res = await fetch(parsed.toString(), {
         method: String(method ?? 'GET'),
         headers,
         body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
@@ -167,14 +153,4 @@ export class HttpConnector implements Connector {
       clearTimeout(timer);
     }
   }
-}
-
-function isBlockedHost(hostname: string): boolean {
-  const lower = hostname.toLowerCase();
-  if (BLOCKED_HOSTS.includes(lower)) return true;
-  if (lower.endsWith('.local')) return true;
-  for (const range of PRIVATE_RANGES) {
-    if (range.test(lower)) return true;
-  }
-  return false;
 }

@@ -23,7 +23,7 @@ export async function action({
   const connectorId = params.connectorId;
   if (!connectorId) return json({ error: 'Missing connectorId' }, { status: 400 });
 
-  enforceRateLimit(`connectors:update:${session.shop}`);
+  await enforceRateLimit(`connectors:update:${session.shop}`);
 
   return withApiLogging(
     { actor: 'MERCHANT', method: request.method, path: `/api/connectors/${connectorId}/update`, request, captureRequestBody: true, captureResponseBody: true },

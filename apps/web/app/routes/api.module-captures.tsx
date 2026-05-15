@@ -40,6 +40,7 @@ export async function action({ request }: { request: Request }) {
         moduleId,
         captureType,
         payload: asRecord(body.payload),
+        customerId: body.customerId ? String(body.customerId) : undefined,
         payloadSchemaVersion: body.payloadSchemaVersion ? String(body.payloadSchemaVersion) : undefined,
         piiFlags: body.piiFlags ? asRecord(body.piiFlags) : undefined,
         instanceId: body.instanceId ? String(body.instanceId) : undefined,

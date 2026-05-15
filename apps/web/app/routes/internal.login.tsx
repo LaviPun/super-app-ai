@@ -3,15 +3,36 @@ import { Form, useActionData, useSearchParams } from '@remix-run/react';
 import { useRef, useEffect, useCallback } from 'react';
 import { internalSessionStorage, commitInternal } from '~/internal-admin/session.server';
 
+function sanitizeInternalRedirect(rawTo: string): string {
+  if (!rawTo) return '/internal';
+  if (rawTo.startsWith('//')) return '/internal';
+  try {
+    const parsed = new URL(rawTo, 'http://internal.local');
+    if (parsed.origin !== 'http://internal.local') return '/internal';
+    const target = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    return target.startsWith('/internal') ? target : '/internal';
+  } catch {
+    return '/internal';
+  }
+}
+
+async function constantTimePasswordEquals(input: string, expected: string): Promise<boolean> {
+  const { createHash, timingSafeEqual } = await import('node:crypto');
+  const hash = (value: string) => createHash('sha256').update(value).digest();
+  return timingSafeEqual(hash(input), hash(expected));
+}
+
 export async function action({ request }: { request: Request }) {
   const form = await request.formData();
   const password = String(form.get('password') ?? '');
-  const to = String(form.get('to') ?? '/internal');
+  const to = sanitizeInternalRedirect(String(form.get('to') ?? '/internal'));
 
   const expected = process.env.INTERNAL_ADMIN_PASSWORD;
   if (!expected) return json({ error: 'Internal admin not configured' }, { status: 500 });
 
-  if (password !== expected) return json({ error: 'Invalid password' }, { status: 401 });
+  if (!(await constantTimePasswordEquals(password, expected))) {
+    return json({ error: 'Invalid password' }, { status: 401 });
+  }
 
   const session = await internalSessionStorage.getSession(request.headers.get('cookie'));
   session.set('internal_admin', true);
@@ -144,7 +165,7 @@ function useNeuralCanvas() {
 export default function InternalLogin() {
   const data = useActionData<typeof action>();
   const [params] = useSearchParams();
-  const to = params.get('to') ?? '/internal';
+  const to = sanitizeInternalRedirect(params.get('to') ?? '/internal');
   const canvasRef = useNeuralCanvas();
 
   return (

@@ -6,6 +6,7 @@ import { ConnectorService } from '~/services/connectors/connector.service';
 import { JobService } from '~/services/jobs/job.service';
 import { DataStoreService } from '~/services/data/data-store.service';
 import { getRequestContext } from '~/services/observability/correlation.server';
+import { assertSafeTargetUrl } from '~/services/security/ssrf.server';
 
 type Trigger =
   | 'MANUAL'
@@ -316,27 +317,11 @@ function sleep(ms: number) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-const BLOCKED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0'];
-const PRIVATE_RANGES = [/^10\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./];
-
-function isBlockedHost(hostname: string): boolean {
-  const lower = hostname.toLowerCase();
-  if (BLOCKED_HOSTS.includes(lower)) return true;
-  if (lower.endsWith('.local')) return true;
-  for (const range of PRIVATE_RANGES) {
-    if (range.test(lower)) return true;
-  }
-  return false;
-}
-
 async function executeSendHttpRequest(step: FlowStep): Promise<unknown> {
   const { url, method, headers: customHeaders, body, authType, authConfig } = step;
   if (!url) throw new Error('SEND_HTTP_REQUEST step missing url');
 
-  let parsed: URL;
-  try { parsed = new URL(url); } catch { throw new Error(`Invalid URL: ${url}`); }
-  if (parsed.protocol !== 'https:') throw new Error('Only HTTPS URLs are allowed');
-  if (isBlockedHost(parsed.hostname)) throw new Error('Private/local hosts are blocked (SSRF protection)');
+  const parsed = await assertSafeTargetUrl(url, { context: 'Flow HTTP step URL' });
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -355,7 +340,7 @@ async function executeSendHttpRequest(step: FlowStep): Promise<unknown> {
   const timer = setTimeout(() => controller.abort(), 30_000);
 
   try {
-    const res = await fetch(url, {
+    const res = await fetch(parsed.toString(), {
       method: String(method ?? 'POST'),
       headers,
       body: body && body.length > 0 ? body : undefined,

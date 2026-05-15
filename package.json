@@ -9,6 +9,8 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
+    "evals": "pnpm --filter web evals",
+    "evals:strict": "pnpm --filter web evals --strict",
     "prepare": "husky"
   },
   "devDependencies": {

@@ -18,6 +18,18 @@ export const DEFAULT_ROLLOUT_POLICY: RolloutPolicyDefaults = {
   maxP95LatencyMs: 1200,
 };
 
+export function readRollbackBudgetThresholdsFromEnv(
+  env: NodeJS.ProcessEnv = process.env
+): RolloutPolicyDefaults {
+  return {
+    minSampleSize: Number(env.RELEASE_MIN_SAMPLE_SIZE ?? DEFAULT_ROLLOUT_POLICY.minSampleSize),
+    maxErrorRate: Number(env.RELEASE_MAX_ERROR_RATE ?? DEFAULT_ROLLOUT_POLICY.maxErrorRate),
+    maxP95LatencyMs: Number(
+      env.RELEASE_MAX_P95_LATENCY_MS ?? DEFAULT_ROLLOUT_POLICY.maxP95LatencyMs
+    ),
+  };
+}
+
 export type RolloutEvaluation = {
   decision: RolloutDecision;
   reasons: string[];

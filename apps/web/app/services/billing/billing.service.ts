@@ -1,6 +1,7 @@
 import type { AdminApiContext } from '~/types/shopify';
 import { getPrisma } from '~/db.server';
 import { getPlanConfig as getPlanConfigFromDb } from './plan-config.service';
+import { isBillingTestModeEnabled } from '~/env.server';
 
 export type BillingPlan = 'FREE' | 'STARTER' | 'GROWTH' | 'PRO' | 'ENTERPRISE';
 
@@ -88,6 +89,18 @@ export const PLAN_CONFIGS: Record<BillingPlan, PlanConfig> = {
   },
 };
 
+type BillingUserError = { message: string };
+type BillingTopLevelError = { message?: string };
+type AppSubscriptionCreatePayload = {
+  appSubscription?: { id?: string };
+  confirmationUrl?: string;
+  userErrors?: BillingUserError[];
+};
+type BillingAppSubscriptionCreateResponse = {
+  data?: { appSubscriptionCreate?: AppSubscriptionCreatePayload };
+  errors?: BillingTopLevelError[];
+};
+
 export class BillingService {
   /**
    * Creates a Shopify App Subscription (recurring charge) via GraphQL.
@@ -141,11 +154,11 @@ export class BillingService {
         }],
         returnUrl,
         trialDays: config.trialDays > 0 ? config.trialDays : null,
-        test: process.env.NODE_ENV !== 'production',
+        test: isBillingTestModeEnabled(),
       },
     });
 
-    const data = await res.json() as any;
+    const data = (await res.json()) as BillingAppSubscriptionCreateResponse;
     const topLevelErrors = data?.errors ?? [];
     if (topLevelErrors.length) {
       const msg = topLevelErrors.map((e: { message?: string }) => e.message).filter(Boolean).join('; ');
@@ -155,15 +168,18 @@ export class BillingService {
     const errs = result?.userErrors ?? [];
     if (errs.length) throw new Error(errs.map((e: { message: string }) => e.message).join('; '));
 
-    const shopifySubId: string = result?.appSubscription?.id;
-    const confirmationUrl: string = result?.confirmationUrl;
+    const shopifySubId = result?.appSubscription?.id;
+    const confirmationUrl = result?.confirmationUrl;
     if (!confirmationUrl && !shopifySubId) {
       throw new Error('Billing API did not return a confirmation URL or subscription.');
     }
 
-    await this.recordSubscription(shopId, plan, shopifySubId);
+    await this.recordSubscription(shopId, plan, shopifySubId ?? null);
 
-    return { confirmationUrl, subscriptionId: shopifySubId };
+    return {
+      confirmationUrl: confirmationUrl ?? returnUrl,
+      subscriptionId: shopifySubId ?? 'pending',
+    };
   }
 
   async getActiveSubscription(shopId: string) {

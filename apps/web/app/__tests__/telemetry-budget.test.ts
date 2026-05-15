@@ -29,5 +29,14 @@ describe('applyTelemetryBudget', () => {
     const blocked = result.blocked as string[];
     expect(blocked.length).toBe(8);
   });
+
+  it('enforces per-key telemetry cardinality budget', () => {
+    let overflowValue = '';
+    for (let index = 0; index < 70; index += 1) {
+      const result = applyTelemetryBudget({ moduleId: `module-${index}` });
+      overflowValue = String(result.moduleId);
+    }
+    expect(overflowValue).toBe('__cardinality_budget_exceeded__');
+  });
 });
 

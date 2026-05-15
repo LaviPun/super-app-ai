@@ -1,0 +1,25 @@
+{
+  "phase": "Phase 1 - Audit Lockdown",
+  "generatedAt": "2026-05-15",
+  "baseline": {
+    "tests": {
+      "command": "pnpm --filter web exec vitest run --reporter=json --outputFile docs/audit/test-baseline.json",
+      "total": 347,
+      "passed": 331,
+      "status": "pass"
+    },
+    "lint": {
+      "command": "apps/web/node_modules/.bin/eslint app scripts --format json --max-warnings 100000",
+      "warnings": 96,
+      "errors": 1,
+      "status": "fail"
+    },
+    "evals": {
+      "command": "pnpm --filter web evals",
+      "schemaPassRate": "10/10 (100.0%)",
+      "compilerPassRate": "10/10 (100.0%)",
+      "nonDestructivePassRate": "10/10 (100.0%)",
+      "status": "pass"
+    }
+  }
+}

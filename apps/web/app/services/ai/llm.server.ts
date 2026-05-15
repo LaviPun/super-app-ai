@@ -1828,14 +1828,17 @@ function inferEnvSource(): 'env:openai' | 'env:anthropic' | 'env:custom' | 'env:
   return 'env:unknown';
 }
 
-function buildPromptAudit(prompt?: string): { sha256: string; chars: number; preview: string } | null {
+export function buildPromptAudit(prompt?: string): { sha256: string; chars: number; preview?: string } | null {
   if (!prompt) return null;
-  return {
+  const audit = {
     sha256: crypto.createHash('sha256').update(prompt).digest('hex'),
     chars: prompt.length,
-    // Include enough context to surface DesignReferenceV1 and premium guidance blocks in audits.
-    preview: prompt.slice(0, 1200),
   };
+  if (process.env.DEBUG_AI_CAPTURE === '1') {
+    // Include enough context to surface DesignReferenceV1 and premium guidance blocks in audits.
+    return { ...audit, preview: prompt.slice(0, 1200) };
+  }
+  return audit;
 }
 
 async function getProviderAccountAudit(providerId: string | null): Promise<Record<string, unknown>> {

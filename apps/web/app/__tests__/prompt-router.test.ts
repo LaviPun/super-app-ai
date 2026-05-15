@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { promises as dns } from 'node:dns';
 import type { ClassifyResult } from '~/services/ai/classify.server';
 import { buildIntentPacket } from '~/services/ai/intent-packet.server';
 import {
@@ -45,6 +46,9 @@ function routerPayload(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   resetPromptRouterInternalsForTests();
+  vi.spyOn(dns, 'lookup').mockResolvedValue(
+    [{ address: '8.8.8.8', family: 4 }] as unknown as Awaited<ReturnType<typeof dns.lookup>>,
+  );
 });
 
 afterEach(() => {
@@ -113,7 +117,7 @@ describe('buildPromptRouterDecision', () => {
 
 describe('internal router client', () => {
   it('clamps router confidence to the deterministic band', async () => {
-    vi.stubEnv('INTERNAL_AI_ROUTER_URL', 'http://router.test');
+    vi.stubEnv('INTERNAL_AI_ROUTER_URL', 'https://router.test');
     vi.stubEnv('INTERNAL_AI_ROUTER_SHADOW', '0');
     vi.stubEnv('ROUTER_CONFIDENCE_MAX_DELTA', '0.15');
     const classification = makeClassification(0.65);
@@ -135,7 +139,7 @@ describe('internal router client', () => {
   });
 
   it('forces moduleType to match classification when router disagrees', async () => {
-    vi.stubEnv('INTERNAL_AI_ROUTER_URL', 'http://router.test');
+    vi.stubEnv('INTERNAL_AI_ROUTER_URL', 'https://router.test');
     vi.stubEnv('INTERNAL_AI_ROUTER_SHADOW', '0');
     const classification = makeClassification(0.65);
     const packet = buildIntentPacket('popup', classification, {
@@ -157,7 +161,7 @@ describe('internal router client', () => {
   });
 
   it('opens the circuit after repeated failures and skips further calls', async () => {
-    vi.stubEnv('INTERNAL_AI_ROUTER_URL', 'http://router.test');
+    vi.stubEnv('INTERNAL_AI_ROUTER_URL', 'https://router.test');
     vi.stubEnv('INTERNAL_AI_ROUTER_CIRCUIT_FAILURE_THRESHOLD', '3');
     vi.stubEnv('INTERNAL_AI_ROUTER_CIRCUIT_COOLDOWN_MS', '60000');
     const classification = makeClassification(0.65);
@@ -177,7 +181,7 @@ describe('internal router client', () => {
   });
 
   it('shadow mode keeps deterministic flags while exercising the router', async () => {
-    vi.stubEnv('INTERNAL_AI_ROUTER_URL', 'http://router.test');
+    vi.stubEnv('INTERNAL_AI_ROUTER_URL', 'https://router.test');
     vi.stubEnv('INTERNAL_AI_ROUTER_SHADOW', '1');
     const classification = makeClassification(0.9);
     const packet = buildIntentPacket('popup', classification, {
@@ -202,7 +206,7 @@ describe('internal router client', () => {
   });
 
   it('canary allowlist skips the router for non-listed shops', async () => {
-    vi.stubEnv('INTERNAL_AI_ROUTER_URL', 'http://router.test');
+    vi.stubEnv('INTERNAL_AI_ROUTER_URL', 'https://router.test');
     vi.stubEnv('INTERNAL_AI_ROUTER_CANARY_SHOPS', 'allowed.myshopify.com');
     const classification = makeClassification(0.65);
     const packet = buildIntentPacket('popup', classification, {
@@ -223,9 +227,9 @@ describe('internal router client', () => {
   });
 
   it('rolls to dual-target fallback when the primary target errors and increments modalRemote attempts', async () => {
-    vi.stubEnv('INTERNAL_AI_ROUTER_URL', 'http://primary.test');
+    vi.stubEnv('INTERNAL_AI_ROUTER_URL', 'https://primary.test');
     vi.stubEnv('INTERNAL_AI_ROUTER_DUAL_TARGET_ENABLED', '1');
-    vi.stubEnv('MODAL_ROUTER_URL', 'http://fallback.test');
+    vi.stubEnv('MODAL_ROUTER_URL', 'https://fallback.test');
     vi.stubEnv('INTERNAL_AI_ROUTER_SHADOW', '0');
     vi.stubEnv('INTERNAL_AI_ROUTER_CIRCUIT_FAILURE_THRESHOLD', '99');
     const classification = makeClassification(0.65);
@@ -264,7 +268,7 @@ describe('internal router client', () => {
 
 describe('release gate', () => {
   it('trips when schema-fail rate exceeds the configured max, emits the activity log event, and forces shadow on the next successful call', async () => {
-    vi.stubEnv('INTERNAL_AI_ROUTER_URL', 'http://router.test');
+    vi.stubEnv('INTERNAL_AI_ROUTER_URL', 'https://router.test');
     vi.stubEnv('INTERNAL_AI_ROUTER_SHADOW', '0');
     vi.stubEnv('INTERNAL_AI_ROUTER_CIRCUIT_FAILURE_THRESHOLD', '9999');
     const logSpy = vi

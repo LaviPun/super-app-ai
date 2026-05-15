@@ -29,7 +29,7 @@ describe('PublishPolicyService', () => {
     });
 
     expect(result.allowed).toBe(false);
-    expect(result.reasons).toContain('Theme modules must publish to THEME target.');
+    expect(result.reasons.join(' ')).toMatch(/not allowed/i);
   });
 
   it('returns cached snapshot for same key', () => {

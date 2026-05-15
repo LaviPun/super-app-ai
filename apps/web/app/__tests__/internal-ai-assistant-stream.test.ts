@@ -223,8 +223,6 @@ describe('runAssistantStream', () => {
     const store = makeStore();
     const boom = vi.fn(async function* () {
       throw new Error('upstream blew up');
-      // eslint-disable-next-line @typescript-eslint/no-unreachable
-      yield { type: 'token', text: '' } as AssistantStreamEvent;
     });
     const frames = await collectFrames(
       runAssistantStream(

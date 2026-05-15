@@ -1,6 +1,6 @@
 import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
-import { RecipeSpecSchema } from '@superapp/core';
+import { CAPABILITIES, type Capability, RecipeSpecSchema } from '@superapp/core';
 import { RecipeService } from '~/services/recipes/recipe.service';
 import { validateBeforePublish } from '~/services/publish/pre-publish-validator.server';
 import { CapabilityService } from '~/services/shopify/capability.service';
@@ -55,11 +55,15 @@ export async function action({ request }: { request: Request }) {
   let tier = await caps.getPlanTier(session.shop);
   if (tier === 'UNKNOWN') tier = await caps.refreshPlanTier(session.shop, admin);
 
-  const blocked = (parsed.data.requires ?? []).filter((c: any) => !isCapabilityAllowed(tier, c));
+  const capabilitySet = new Set<string>(CAPABILITIES);
+  const requiredCapabilities = (parsed.data.requires ?? [])
+    .map((capability) => String(capability))
+    .filter((capability): capability is Capability => capabilitySet.has(capability));
+  const blocked = requiredCapabilities.filter((capability) => !isCapabilityAllowed(tier, capability));
   const planGate = {
     planTier: tier,
     blocked,
-    reasons: blocked.map((c: any) => caps.explainCapabilityGate(c) ?? String(c)),
+    reasons: blocked.map((capability) => caps.explainCapabilityGate(capability) ?? capability),
     allowed: blocked.length === 0,
   };
 

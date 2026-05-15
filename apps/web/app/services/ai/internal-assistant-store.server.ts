@@ -1,8 +1,10 @@
 import { getPrisma } from '~/db.server';
+import { redactString } from '~/services/observability/redact.server';
 
 export type AssistantMode = 'localMachine' | 'modalRemote';
 
 export const INTERNAL_AI_TOOL_AUDIT_RETENTION_DAYS_DEFAULT = 90;
+export const INTERNAL_AI_CHAT_MESSAGE_RETENTION_DAYS_DEFAULT = 30;
 
 export type AssistantSessionSummary = {
   id: string;
@@ -299,6 +301,19 @@ export class InternalAssistantStoreService {
     return result.count;
   }
 
+  async purgeOldMessages(retentionDays: number): Promise<number> {
+    await ensureInternalAiTables();
+    const prisma = getPrisma();
+    const days = Number.isFinite(retentionDays) && retentionDays > 0
+      ? Math.floor(retentionDays)
+      : INTERNAL_AI_CHAT_MESSAGE_RETENTION_DAYS_DEFAULT;
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const result = await prisma.internalAiMessage.deleteMany({
+      where: { createdAt: { lt: cutoff } },
+    });
+    return result.count;
+  }
+
   async getSession(sessionId: string): Promise<AssistantSessionSummary | null> {
     await ensureInternalAiTables();
     const prisma = getPrisma();
@@ -367,11 +382,12 @@ export class InternalAssistantStoreService {
   }): Promise<AssistantMessageRecord> {
     await ensureInternalAiTables();
     const prisma = getPrisma();
+    const redactedContent = redactString(input.content);
     const row = await prisma.internalAiMessage.create({
       data: {
         sessionId: input.sessionId,
         role: input.role,
-        content: input.content,
+        content: redactedContent,
         mode: input.mode,
         backend: input.backend,
         model: input.model,
@@ -428,10 +444,11 @@ export class InternalAssistantStoreService {
   }): Promise<AssistantMessageRecord> {
     await ensureInternalAiTables();
     const prisma = getPrisma();
+    const redactedContent = input.content !== undefined ? redactString(input.content) : undefined;
     const row = await prisma.internalAiMessage.update({
       where: { id: messageId },
       data: {
-        ...(input.content !== undefined ? { content: input.content } : {}),
+        ...(redactedContent !== undefined ? { content: redactedContent } : {}),
         ...(input.mode !== undefined ? { mode: input.mode } : {}),
         ...(input.backend !== undefined ? { backend: input.backend } : {}),
         ...(input.model !== undefined ? { model: input.model } : {}),

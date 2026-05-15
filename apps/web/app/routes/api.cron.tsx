@@ -7,13 +7,38 @@
  *
  * Fires all FlowSchedule records whose nextRunAt ≤ now.
  */
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { json } from '@remix-run/node';
 import { ScheduleService } from '~/services/flows/schedule.service';
 import { FlowRunnerService } from '~/services/flows/flow-runner.service';
 import { runInternalAiAuditRetention } from '~/services/jobs/internal-ai-audit-retention.job';
+import { runInternalAiChatRetention } from '~/services/jobs/internal-ai-chat-retention.job';
+import { logger } from '~/services/observability/logger.server';
+import { safeErrorMeta } from '~/services/observability/redact.server';
+import { enforceRateLimit } from '~/services/security/rate-limit.server';
+import { AppError } from '~/services/errors/app-error.server';
+import type { AdminApiContext } from '~/types/shopify';
 
 let lastAuditRetentionRunAt: number | null = null;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+function getClientIp(request: Request): string {
+  const forwardedFor = request.headers.get('x-forwarded-for');
+  if (forwardedFor) {
+    const first = forwardedFor.split(',')[0]?.trim();
+    if (first) return first;
+  }
+
+  const cfIp = request.headers.get('cf-connecting-ip');
+  if (cfIp) return cfIp.trim();
+
+  return 'unknown';
+}
+
+function constantTimeSecretMatch(provided: string, expected: string): boolean {
+  const hash = (value: string) => createHash('sha256').update(value).digest();
+  return timingSafeEqual(hash(provided), hash(expected));
+}
 
 export async function loader({ request }: { request: Request }) {
   const secret = process.env.CRON_SECRET;
@@ -21,8 +46,19 @@ export async function loader({ request }: { request: Request }) {
     return json({ error: 'CRON_SECRET not configured' }, { status: 503 });
   }
 
+  const clientIp = getClientIp(request);
+  try {
+    await enforceRateLimit(`cron:${clientIp}`);
+  } catch (err) {
+    if (err instanceof AppError && err.code === 'RATE_LIMITED') {
+      const retryAfterSec = Number(err.details?.retryAfterSec ?? 60);
+      return json({ error: err.message }, { status: 429, headers: { 'Retry-After': String(retryAfterSec) } });
+    }
+    throw err;
+  }
+
   const provided = request.headers.get('x-cron-secret');
-  if (provided !== secret) {
+  if (!provided || !constantTimeSecretMatch(provided, secret)) {
     return json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -43,7 +79,7 @@ export async function loader({ request }: { request: Request }) {
       // FlowRunnerService requires an admin context for Shopify API calls.
       // For scheduled runs we pass a minimal stub — steps using Shopify APIs
       // will fail gracefully and get retried; purely connector/HTTP steps work fine.
-      await runner.runForTrigger(item.shopDomain, null as any, 'MANUAL', event);
+      await runner.runForTrigger(item.shopDomain, null as unknown as AdminApiContext['admin'], 'MANUAL', event);
       results.push({ scheduleId: item.id, shopDomain: item.shopDomain, ok: true });
     } catch (err) {
       results.push({ scheduleId: item.id, shopDomain: item.shopDomain, ok: false, error: String(err) });
@@ -51,6 +87,7 @@ export async function loader({ request }: { request: Request }) {
   }
 
   let auditRetention: { deleted: number; retentionDays: number; cutoff: string } | null = null;
+  let chatRetention: { deleted: number; retentionDays: number; cutoff: string } | null = null;
   const now = Date.now();
   if (!lastAuditRetentionRunAt || now - lastAuditRetentionRunAt >= ONE_DAY_MS) {
     try {
@@ -58,9 +95,16 @@ export async function loader({ request }: { request: Request }) {
       lastAuditRetentionRunAt = now;
     } catch (err) {
       auditRetention = { deleted: 0, retentionDays: 0, cutoff: new Date().toISOString() };
-      console.warn('[api.cron] internal-ai-audit-retention failed', err);
+      logger.warn('[api.cron] internal-ai-audit-retention failed', safeErrorMeta(err));
+    }
+
+    try {
+      chatRetention = await runInternalAiChatRetention();
+    } catch (err) {
+      chatRetention = { deleted: 0, retentionDays: 0, cutoff: new Date().toISOString() };
+      logger.warn('[api.cron] internal-ai-chat-retention failed', safeErrorMeta(err));
     }
   }
 
-  return json({ ran: results.length, results, auditRetention });
+  return json({ ran: results.length, results, auditRetention, chatRetention });
 }

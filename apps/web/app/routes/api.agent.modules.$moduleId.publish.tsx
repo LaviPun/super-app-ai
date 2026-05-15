@@ -5,12 +5,16 @@ import { RecipeService } from '~/services/recipes/recipe.service';
 import { PublishService } from '~/services/publish/publish.service';
 import { validateBeforePublish } from '~/services/publish/pre-publish-validator.server';
 import { CapabilityService } from '~/services/shopify/capability.service';
-import type { Capability, DeployTarget } from '@superapp/core';
+import type { Capability, DeployTarget, ModuleType } from '@superapp/core';
+import { getCapabilityNode } from '@superapp/core';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { JobService } from '~/services/jobs/job.service';
 import { PublishPolicyService } from '~/services/publish/publish-policy.service';
 import { runPublishPreflight } from '~/services/publish/publish-preflight.server';
+import { evaluateFeatureFlag, type FeatureFlagTopology } from '~/services/releases/feature-flags.server';
+import { ProgressivePublishService } from '~/services/releases/progressive-publish.server';
+import { getRecentPublishMetrics } from '~/services/releases/release-metrics.server';
 
 /**
  * Agent API: Publish a module to a theme or platform.
@@ -32,7 +36,10 @@ export async function action({
   if (!moduleId) return json({ error: 'Missing moduleId' }, { status: 400 });
 
   const contentType = request.headers.get('Content-Type') ?? '';
-  let body: { themeId?: string; version?: number } = {};
+  let body: {
+    themeId?: string;
+    version?: number;
+  } = {};
   if (contentType.includes('application/json')) {
     body = await request.json().catch(() => ({}));
   }
@@ -98,6 +105,35 @@ export async function action({
     );
   }
 
+  const surface = getCapabilityNode(spec.type as ModuleType).surface;
+  const featureTopology: FeatureFlagTopology = {
+    globalKillSwitch: process.env.RELEASE_GLOBAL_KILL_SWITCH === '1',
+    globalSurfaceToggles: {
+      THEME: process.env.RELEASE_SURFACE_THEME_ENABLED !== '0',
+      ADMIN: process.env.RELEASE_SURFACE_ADMIN_ENABLED !== '0',
+      CHECKOUT: process.env.RELEASE_SURFACE_CHECKOUT_ENABLED !== '0',
+      FUNCTIONS: process.env.RELEASE_SURFACE_FUNCTIONS_ENABLED !== '0',
+      CUSTOMER_ACCOUNT: process.env.RELEASE_SURFACE_CUSTOMER_ACCOUNT_ENABLED !== '0',
+      POS: process.env.RELEASE_SURFACE_POS_ENABLED !== '0',
+      INTEGRATION: process.env.RELEASE_SURFACE_INTEGRATION_ENABLED !== '0',
+      FLOW: process.env.RELEASE_SURFACE_FLOW_ENABLED !== '0',
+    },
+  };
+  const featureFlagDecision = evaluateFeatureFlag({
+    topology: featureTopology,
+    shopDomain: session.shop,
+    surface,
+  });
+  if (!featureFlagDecision.enabled) {
+    return json(
+      {
+        error: `Release blocked by feature flag policy: ${featureFlagDecision.reason}`,
+        source: featureFlagDecision.source,
+      },
+      { status: 423 },
+    );
+  }
+
   if (target.kind === 'THEME' && !target.themeId) {
     return json({ error: 'themeId is required for theme.* module types' }, { status: 400 });
   }
@@ -111,14 +147,23 @@ export async function action({
   const prisma = getPrisma();
   const shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
   const jobs = new JobService();
+  const progressive = new ProgressivePublishService();
+  const canary = progressive.startCanary();
   const job = await jobs.create({
     shopId: shopRow?.id,
     type: 'PUBLISH',
-    payload: { moduleId, target, source: 'agent_api' },
+    payload: {
+      moduleId,
+      target,
+      source: 'agent_api',
+      progressiveStage: canary.stage,
+      progressiveDecision: canary.decision,
+    },
   });
   await jobs.start(job.id);
 
   try {
+    const previouslyPublishedVersion = mod.versions.find((v) => v.status === 'PUBLISHED');
     const publisher = new PublishService(admin);
     await publisher.publish(spec, target);
     await moduleService.markPublishedWithTransition({
@@ -137,6 +182,20 @@ export async function action({
       shopId: shopRow?.id,
       details: { target: target.kind, versionId: draft.id, source: 'agent_api' },
     }).catch(() => {/* non-fatal */});
+
+    const rolloutMetrics = await getRecentPublishMetrics({
+      shopId: shopRow?.id,
+      paths: ['/api/publish'],
+      windowMinutes: 30,
+    });
+    const progressiveDecision = progressive.evaluateRamp(rolloutMetrics);
+    if (progressiveDecision.decision === 'ABORT' && previouslyPublishedVersion) {
+      await moduleService.rollbackToVersion(
+        session.shop,
+        mod.id,
+        previouslyPublishedVersion.version
+      );
+    }
 
     return json({ ok: true, moduleId, versionId: draft.id, version: draft.version, target: target.kind });
   } catch (e) {

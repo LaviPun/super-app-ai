@@ -14,7 +14,7 @@ export async function fetchWithTimeout(
   timeoutMs: number,
   init?: RequestInit,
 ): Promise<Response> {
-  assertSafeTargetUrl(url);
+  await assertSafeTargetUrl(url);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {

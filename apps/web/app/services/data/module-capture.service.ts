@@ -1,4 +1,5 @@
 import { getPrisma } from '~/db.server';
+import { persistJsonSafely } from '~/services/observability/redact.server';
 import { DataStoreService } from './data-store.service';
 
 export type ModuleCaptureInput = {
@@ -6,6 +7,7 @@ export type ModuleCaptureInput = {
   moduleId: string;
   captureType: string;
   payload: Record<string, unknown>;
+  customerId?: string;
   payloadSchemaVersion?: string;
   piiFlags?: Record<string, unknown>;
   instanceId?: string;
@@ -30,10 +32,34 @@ function titleFromStoreKey(key: string): string {
     .join(' ');
 }
 
+function normalizeCustomerId(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+  return undefined;
+}
+
+function extractCustomerId(payload: Record<string, unknown>): string | undefined {
+  const direct = normalizeCustomerId(payload.customerId ?? payload.customer_id);
+  if (direct) return direct;
+
+  const customer = payload.customer;
+  if (customer && typeof customer === 'object' && !Array.isArray(customer)) {
+    return normalizeCustomerId((customer as Record<string, unknown>).id);
+  }
+
+  return undefined;
+}
+
 export class ModuleCaptureService {
   async capture(input: ModuleCaptureInput): Promise<{ captureId: string; dataStoreRecordId?: string }> {
     const prisma = getPrisma();
     const dataStoreService = new DataStoreService();
+    const customerId = normalizeCustomerId(input.customerId) ?? extractCustomerId(input.payload ?? {});
 
     const mod = await prisma.module.findFirst({
       where: {
@@ -66,10 +92,11 @@ export class ModuleCaptureService {
         shopId: input.shopId,
         moduleId: input.moduleId,
         instanceId: resolvedInstanceId,
+        customerId: customerId ?? null,
         captureType: input.captureType,
         payloadSchemaVersion: input.payloadSchemaVersion ?? 'v1',
-        payload: JSON.stringify(input.payload ?? {}),
-        piiFlags: input.piiFlags ? JSON.stringify(input.piiFlags) : null,
+        payload: persistJsonSafely(input.payload ?? {}, { piiFlags: input.piiFlags }),
+        piiFlags: input.piiFlags ? persistJsonSafely(input.piiFlags) : null,
       },
       select: { id: true },
     });
@@ -79,6 +106,7 @@ export class ModuleCaptureService {
         shopId: input.shopId,
         moduleId: input.moduleId,
         instanceId: resolvedInstanceId,
+        customerId: customerId ?? null,
         sessionId: input.sessionId ?? null,
         visitorId: input.visitorId ?? null,
         userType: input.userType ?? null,
@@ -112,6 +140,7 @@ export class ModuleCaptureService {
       if (!store) throw new Error('Could not initialize data store for capture');
 
       const record = await dataStoreService.createRecord(store.id, {
+        customerId,
         externalId: input.externalId,
         title: input.storeRecordTitle ?? `${input.captureType} capture`,
         payload: {
@@ -122,6 +151,7 @@ export class ModuleCaptureService {
           source: input.source ?? 'unknown',
           payload: input.payload ?? {},
         },
+        piiFlags: input.piiFlags,
       });
       dataStoreRecordId = record.id;
     }

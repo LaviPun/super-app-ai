@@ -1,4 +1,5 @@
 import { json } from '@remix-run/node';
+import type { HeadersFunction } from '@remix-run/node';
 import { Outlet, useLoaderData, useLocation, useMatches } from '@remix-run/react';
 import {
   Frame, Navigation, TopBar, Toast, type IconSource,
@@ -11,6 +12,12 @@ import {
 import { useState, useCallback, useEffect } from 'react';
 import { internalSessionStorage } from '~/internal-admin/session.server';
 import { SettingsService, type AppSettingsData } from '~/services/settings/settings.service';
+
+export const headers: HeadersFunction = () => ({
+  'Content-Security-Policy': "frame-ancestors 'none'",
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+});
 
 export async function loader({ request }: { request: Request }) {
   const cookie = request.headers.get('cookie');
@@ -82,6 +89,7 @@ function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
   ];
 
   const monitoringItems = [
+    { url: '/internal/release-dashboard', label: 'Release Dashboard', icon: ClockIcon },
     { url: '/internal/activity', label: 'Activity Log', icon: AutomationIcon },
     { url: '/internal/logs', label: 'Error Logs', icon: BugIcon },
     { url: '/internal/api-logs', label: 'API Logs', icon: NoteIcon },

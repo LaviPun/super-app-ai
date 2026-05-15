@@ -130,6 +130,12 @@ export class ModuleService {
   }) {
     const prisma = getPrisma();
     const transitions = new ReleaseTransitionService(prisma);
+    const actor =
+      params.source === 'merchant_api'
+        ? 'MERCHANT'
+        : params.source === 'agent_api'
+          ? 'SYSTEM'
+          : 'CRON';
 
     const moduleRow = await prisma.module.findUnique({
       where: { id: params.moduleId },
@@ -150,6 +156,7 @@ export class ModuleService {
       fromVersionStatus: versionRow.status,
       toVersionStatus: 'PUBLISHED',
       source: params.source,
+      actor,
       idempotencyKey: params.idempotencyKey,
       outcome: 'ATTEMPT',
       metadata: { targetThemeId: params.targetThemeId ?? null },
@@ -166,6 +173,7 @@ export class ModuleService {
         fromVersionStatus: versionRow.status,
         toVersionStatus: versionRow.status,
         source: params.source,
+        actor,
         idempotencyKey: params.idempotencyKey,
         outcome: 'IDEMPOTENT',
         metadata: { targetThemeId: params.targetThemeId ?? null },
@@ -184,6 +192,7 @@ export class ModuleService {
         fromVersionStatus: versionRow.status,
         toVersionStatus: 'PUBLISHED',
         source: params.source,
+        actor,
         idempotencyKey: params.idempotencyKey,
         outcome: 'SUCCEEDED',
         metadata: { targetThemeId: params.targetThemeId ?? null },
@@ -198,9 +207,11 @@ export class ModuleService {
         fromVersionStatus: versionRow.status,
         toVersionStatus: 'PUBLISHED',
         source: params.source,
+        actor,
         idempotencyKey: params.idempotencyKey,
         outcome: 'FAILED',
         error: error instanceof Error ? error.message : String(error),
+        errorClass: error instanceof Error ? error.name : 'UNKNOWN_ERROR',
         metadata: { targetThemeId: params.targetThemeId ?? null },
       });
       throw error;

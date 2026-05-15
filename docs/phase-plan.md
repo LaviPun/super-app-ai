@@ -17,6 +17,7 @@ This plan is structured for iterative development with strong quality gates:
 
 > Cursor guidance: keep each phase as a PR-sized chunk with tests.
 > See [implementation-status.md](./implementation-status.md) for detailed delivery notes.
+> Shared numeric facts are tracked in [`_glossary.md`](./_glossary.md).
 
 ---
 
@@ -68,7 +69,8 @@ This plan is structured for iterative development with strong quality gates:
 - [x] Mount strategies:
   - [x] Prefer Theme App Extension blocks/embeds
   - [x] Minimal reversible patch only when needed
-- [x] "Theme adapter profile" used during compilation/publish decisions
+- [x] Theme compatibility profile generated and stored (`ThemeAnalyzerService` + `/api/theme/analyze`)
+- [ ] Profile-driven compile/publish adapter wiring (deferred; current compile/publish paths do not read `services/theme/`)
 
 ### Acceptance criteria
 - ✅ Does not break Dawn-like themes
@@ -248,7 +250,7 @@ This plan is structured for iterative development with strong quality gates:
 - [x] Preview service uses style when rendering all storefront module types (banner, notification bar, popup, proxy widget).
 - [x] Proxy widget route (`/proxy/:widgetId`) renders `_styleCss` from metafield into a full HTML document.
 - [x] `/api/publish` accepts both JSON and form-data (the module page posts form-encoded); routes all `theme.*` types to THEME deploy target.
-- [x] Tests (163 total across monorepo): style schema validation; `customCss` limits and safety; sanitizer strips all injection patterns; overlay z-index; proxy.widget with style.
+- [x] Tests (repo baseline: 347 total; style coverage included in this baseline): style schema validation; `customCss` limits and safety; sanitizer strips all injection patterns; overlay z-index; proxy.widget with style.
 
 ### Phase B (Theme Editor integration) — future
 - [ ] Theme App Extension blocks/embeds for banner, notification bar, popup/toast overlay host.

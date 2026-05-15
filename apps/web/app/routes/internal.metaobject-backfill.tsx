@@ -5,6 +5,7 @@ import { MetafieldService } from '~/services/shopify/metafield.service';
 import { MetaobjectService } from '~/services/shopify/metaobject.service';
 import type { ThemeModulePayload, AdminBlockPayload, AdminActionPayload } from '~/services/recipes/compiler/types';
 import { ErrorLogService } from '~/services/observability/error-log.service';
+import { ActivityLogService } from '~/services/activity/activity.service';
 
 /**
  * POST /internal/metaobject-backfill
@@ -15,7 +16,7 @@ import { ErrorLogService } from '~/services/observability/error-log.service';
  * Protected behind internal admin auth. Run per-shop via the internal dashboard
  * or curl after verifying the shop has a valid session.
  *
- * Body: { shopDomain: string }
+ * Body: { shopDomain: string, confirmShopDomain: string }
  *
  * Returns: { modules: N, blocks: N, actions: N }
  *
@@ -32,7 +33,7 @@ export async function action({ request }: { request: Request }) {
     return json({ error: 'Method not allowed' }, { status: 405 });
   }
 
-  let body: { shopDomain?: string };
+  let body: { shopDomain?: string; confirmShopDomain?: string };
   try {
     body = await request.json();
   } catch {
@@ -40,9 +41,30 @@ export async function action({ request }: { request: Request }) {
   }
 
   const shopDomain = typeof body.shopDomain === 'string' ? body.shopDomain.trim() : '';
+  const confirmShopDomain = typeof body.confirmShopDomain === 'string'
+    ? body.confirmShopDomain.trim()
+    : '';
   if (!shopDomain) {
     return json({ error: 'shopDomain is required' }, { status: 400 });
   }
+  if (!confirmShopDomain) {
+    return json({ error: 'confirmShopDomain is required' }, { status: 400 });
+  }
+  if (confirmShopDomain !== shopDomain) {
+    return json({ error: 'confirmShopDomain must exactly match shopDomain' }, { status: 400 });
+  }
+
+  await new ActivityLogService()
+    .log({
+      actor: 'INTERNAL_ADMIN',
+      action: 'SETTINGS_CHANGE',
+      resource: 'internal.metaobject-backfill',
+      details: {
+        warning: 'Metaobject backfill mutates shop metafields and should be run deliberately.',
+        shopDomain,
+      },
+    })
+    .catch(() => {});
 
   let admin: Awaited<ReturnType<typeof shopify.authenticate.admin>>['admin'];
   try {
@@ -158,7 +180,7 @@ export default function MetaobjectBackfillPage() {
         Migrates a shop's module data from large JSON metafields → metaobject entries
         + <code>list.metaobject_reference</code> shop metafields.
       </p>
-      <p>Run via POST with <code>{'{"shopDomain":"store.myshopify.com"}'}</code></p>
+      <p>Run via POST with <code>{'{"shopDomain":"store.myshopify.com","confirmShopDomain":"store.myshopify.com"}'}</code></p>
       <p>
         <strong>Migration phases:</strong>
         <ol>

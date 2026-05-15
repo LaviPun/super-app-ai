@@ -1,4 +1,5 @@
 import { getPrisma } from '~/db.server';
+import { persistJsonSafely } from '~/services/observability/redact.server';
 
 export type PredefinedStore = {
   key: string;
@@ -101,14 +102,18 @@ export class DataStoreService {
     };
   }
 
-  async createRecord(dataStoreId: string, data: { externalId?: string; title?: string; payload: unknown }) {
+  async createRecord(
+    dataStoreId: string,
+    data: { externalId?: string; title?: string; payload: unknown; piiFlags?: unknown; customerId?: string },
+  ) {
     const prisma = getPrisma();
     return prisma.dataStoreRecord.create({
       data: {
         dataStoreId,
+        customerId: data.customerId ?? null,
         externalId: data.externalId ?? null,
         title: data.title ?? null,
-        payload: JSON.stringify(data.payload),
+        payload: persistJsonSafely(data.payload, { piiFlags: data.piiFlags }),
       },
     });
   }
@@ -120,12 +125,18 @@ export class DataStoreService {
     });
   }
 
-  async updateRecord(recordId: string, dataStoreId: string, data: { title?: string; payload?: unknown; externalId?: string }) {
+  async updateRecord(
+    recordId: string,
+    dataStoreId: string,
+    data: { title?: string; payload?: unknown; externalId?: string; piiFlags?: unknown },
+  ) {
     const prisma = getPrisma();
     const updateData: Record<string, unknown> = {};
     if (data.title !== undefined) updateData.title = data.title;
     if (data.externalId !== undefined) updateData.externalId = data.externalId;
-    if (data.payload !== undefined) updateData.payload = JSON.stringify(data.payload);
+    if (data.payload !== undefined) {
+      updateData.payload = persistJsonSafely(data.payload, { piiFlags: data.piiFlags });
+    }
     return prisma.dataStoreRecord.updateMany({
       where: { id: recordId, dataStoreId },
       data: updateData,

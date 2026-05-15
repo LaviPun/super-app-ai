@@ -1,6 +1,7 @@
 import { getPrisma } from '~/db.server';
 import { getRequestId, runWithRequestContext, getCorrelationId } from '~/services/observability/correlation.server';
 import { ErrorLogService } from '~/services/observability/error-log.service';
+import { isSensitiveHeader, redact, redactString, safeErrorMeta, safeMeta } from '~/services/observability/redact.server';
 
 export class ApiLogService {
   /** Create an in-progress API log entry (status 0, finishedAt null). Returns id for later complete(). */
@@ -101,7 +102,7 @@ export class ApiLogService {
   }
 }
 
-const META_BODY_MAX = 20000;
+const META_BODY_MAX = 4096;
 
 /** Conservative estimate: chars per token (JSON/mixed content). Used to cap logged body size by token limit. */
 const CHARS_PER_TOKEN_ESTIMATE = 3.5;
@@ -109,7 +110,29 @@ const CHARS_PER_TOKEN_ESTIMATE = 3.5;
 function truncateToTokenLimit(text: string, maxTokens: number): string {
   const maxChars = Math.floor(maxTokens * CHARS_PER_TOKEN_ESTIMATE);
   if (text.length <= maxChars) return text;
-  return text.slice(0, maxChars) + `\n...[truncated, total ${text.length} chars, ~${Math.ceil(text.length / CHARS_PER_TOKEN_ESTIMATE)} tokens]`;
+  return `${text.slice(0, maxChars)}\n...[TRUNCATED total=${text.length} chars ~${Math.ceil(text.length / CHARS_PER_TOKEN_ESTIMATE)} tokens]`;
+}
+
+function truncateWithMarker(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}\n...[TRUNCATED total=${text.length} chars]`;
+}
+
+function redactCapturedBody(
+  text: string,
+  maxChars: number,
+  maxTokens?: number,
+): string {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    const redactedJson = JSON.stringify(redact(parsed));
+    if (maxTokens != null) return truncateToTokenLimit(redactedJson, maxTokens);
+    return truncateWithMarker(redactedJson, maxChars);
+  } catch {
+    const redactedText = redactString(text);
+    if (maxTokens != null) return truncateToTokenLimit(redactedText, maxTokens);
+    return truncateWithMarker(redactedText, maxChars);
+  }
 }
 
 export async function withApiLogging(
@@ -146,19 +169,14 @@ export async function withApiLogging(
     if (input.request) {
       const headers: Record<string, string> = {};
       input.request.headers.forEach((v, k) => {
-        const lower = k.toLowerCase();
-        headers[k] = (lower === 'authorization' || lower === 'cookie') ? '[redacted]' : v;
+        headers[k] = isSensitiveHeader(k) ? '[redacted]' : redactString(v);
       });
       meta.requestHeaders = headers;
       if (input.captureRequestBody && input.request.body) {
         try {
           const text = await input.request.clone().text();
-          if (input.requestBodyMaxTokens != null) {
-            meta.requestBody = truncateToTokenLimit(text, input.requestBodyMaxTokens);
-          } else {
-            const max = input.requestBodyMax ?? META_BODY_MAX;
-            meta.requestBody = text.length <= max ? text : text.slice(0, max) + `\n...[truncated, total ${text.length} chars]`;
-          }
+          const max = input.requestBodyMax ?? META_BODY_MAX;
+          meta.requestBody = redactCapturedBody(text, max, input.requestBodyMaxTokens);
         } catch {
           // ignore
         }
@@ -171,19 +189,15 @@ export async function withApiLogging(
       requestId,
       correlationId,
       shopId: input.shopId,
-      meta: Object.keys(meta).length > 0 ? meta : undefined,
+      meta: safeMeta(Object.keys(meta).length > 0 ? meta : undefined),
     });
     try {
       const res = await fn();
       if (res?.body && input.captureResponseBody) {
         try {
           const text = await res.clone().text();
-          if (input.responseBodyMaxTokens != null) {
-            meta.responseBody = truncateToTokenLimit(text, input.responseBodyMaxTokens);
-          } else {
-            const max = input.responseBodyMax ?? META_BODY_MAX;
-            meta.responseBody = text.length <= max ? text : text.slice(0, max) + `\n...[truncated, total ${text.length} chars]`;
-          }
+          const max = input.responseBodyMax ?? META_BODY_MAX;
+          meta.responseBody = redactCapturedBody(text, max, input.responseBodyMaxTokens);
         } catch {
           // ignore
         }
@@ -193,11 +207,19 @@ export async function withApiLogging(
         status: res.status,
         durationMs: Date.now() - start,
         success,
-        meta: Object.keys(meta).length > 0 ? meta : input.meta,
+        meta: safeMeta(Object.keys(meta).length > 0 ? meta : input.meta),
       });
       if (!success) {
         const errLog = new ErrorLogService();
-        await errLog.write('ERROR', `API ${input.method} ${input.path} → ${res.status}`, undefined, meta, `${input.method} ${input.path}`, input.shopId, 'API');
+        await errLog.write(
+          'ERROR',
+          `API ${input.method} ${input.path} → ${res.status}`,
+          undefined,
+          safeMeta(meta),
+          `${input.method} ${input.path}`,
+          input.shopId,
+          'API',
+        );
       }
       const headers = new Headers(res.headers);
       headers.set('x-request-id', requestId);
@@ -205,7 +227,10 @@ export async function withApiLogging(
       return new Response(res.body, { status: res.status, headers });
     } catch (err: unknown) {
       const status = (err as { status?: number })?.status ?? 500;
-      const errorMeta = { ...(meta as Record<string, unknown>), error: err instanceof Error ? err.message : String(err) };
+      const errorMeta = safeMeta({
+        ...(meta as Record<string, unknown>),
+        error: safeErrorMeta(err),
+      });
       await logger.complete(apiLogId, {
         status,
         durationMs: Date.now() - start,

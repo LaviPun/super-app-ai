@@ -6,7 +6,7 @@ import { withApiLogging } from '~/services/observability/api-log.service';
 
 export async function action({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
-  enforceRateLimit(`connectors:test:${session.shop}`);
+  await enforceRateLimit(`connectors:test:${session.shop}`);
 
   return withApiLogging(
     { actor: 'MERCHANT', method: request.method, path: '/api/connectors/test', request, captureRequestBody: true, captureResponseBody: true },

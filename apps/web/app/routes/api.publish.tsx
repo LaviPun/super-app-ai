@@ -12,13 +12,17 @@ import { validateBeforePublish } from '~/services/publish/pre-publish-validator.
 import { ThemeService } from '~/services/shopify/theme.service';
 import { CapabilityService } from '~/services/shopify/capability.service';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
-import type { DeployTarget } from '@superapp/core';
+import type { DeployTarget, ModuleType } from '@superapp/core';
+import { getCapabilityNode } from '@superapp/core';
 import { withApiLogging } from '~/services/observability/api-log.service';
 import { getPrisma } from '~/db.server';
 import { JobService } from '~/services/jobs/job.service';
 import { ActivityLogService, logRequestOutcome } from '~/services/activity/activity.service';
 import { PublishPolicyService } from '~/services/publish/publish-policy.service';
 import { runPublishPreflight } from '~/services/publish/publish-preflight.server';
+import { evaluateFeatureFlag, type FeatureFlagTopology } from '~/services/releases/feature-flags.server';
+import { ProgressivePublishService } from '~/services/releases/progressive-publish.server';
+import { getRecentPublishMetrics } from '~/services/releases/release-metrics.server';
 
 /** Turn thrown value into a string suitable for UI (avoids "[object Object]"). */
 function toErrorMessage(e: unknown): string {
@@ -48,9 +52,15 @@ export async function action({ request }: { request: Request }) {
   return withApiLogging(
     { actor: 'MERCHANT', method: request.method, path: '/api/publish', request, captureRequestBody: true, captureResponseBody: true },
     async () => {
-      enforceRateLimit(`publish:${session.shop}`);
+      await enforceRateLimit(`publish:${session.shop}`);
 
-      let body: { moduleId?: string; version?: number; themeId?: string } | null = null;
+      let body:
+        | {
+            moduleId?: string;
+            version?: number;
+            themeId?: string;
+          }
+        | null = null;
       const contentType = request.headers.get('Content-Type') ?? '';
       if (contentType.includes('application/json')) {
         body = await request.json().catch(() => null);
@@ -139,6 +149,35 @@ export async function action({ request }: { request: Request }) {
         );
       }
 
+      const surface = getCapabilityNode(spec.type as ModuleType).surface;
+      const featureTopology: FeatureFlagTopology = {
+        globalKillSwitch: process.env.RELEASE_GLOBAL_KILL_SWITCH === '1',
+        globalSurfaceToggles: {
+          THEME: process.env.RELEASE_SURFACE_THEME_ENABLED !== '0',
+          ADMIN: process.env.RELEASE_SURFACE_ADMIN_ENABLED !== '0',
+          CHECKOUT: process.env.RELEASE_SURFACE_CHECKOUT_ENABLED !== '0',
+          FUNCTIONS: process.env.RELEASE_SURFACE_FUNCTIONS_ENABLED !== '0',
+          CUSTOMER_ACCOUNT: process.env.RELEASE_SURFACE_CUSTOMER_ACCOUNT_ENABLED !== '0',
+          POS: process.env.RELEASE_SURFACE_POS_ENABLED !== '0',
+          INTEGRATION: process.env.RELEASE_SURFACE_INTEGRATION_ENABLED !== '0',
+          FLOW: process.env.RELEASE_SURFACE_FLOW_ENABLED !== '0',
+        },
+      };
+      const featureFlagDecision = evaluateFeatureFlag({
+        topology: featureTopology,
+        shopDomain: session.shop,
+        surface,
+      });
+      if (!featureFlagDecision.enabled) {
+        return json(
+          {
+            error: `Release blocked by feature flag policy: ${featureFlagDecision.reason}`,
+            source: featureFlagDecision.source,
+          },
+          { status: 423 }
+        );
+      }
+
       if (target.kind === 'THEME' && !target.themeId) {
         return json({ error: 'themeId is required for theme module publish' }, { status: 400 });
       }
@@ -165,14 +204,23 @@ export async function action({ request }: { request: Request }) {
       }
 
       const jobs = new JobService();
+      const progressive = new ProgressivePublishService();
+      const canary = progressive.startCanary();
       const job = await jobs.create({
         shopId: shopRow?.id,
         type: 'PUBLISH',
-        payload: { moduleId: module.id, target, source: 'merchant_api' },
+        payload: {
+          moduleId: module.id,
+          target,
+          source: 'merchant_api',
+          progressiveStage: canary.stage,
+          progressiveDecision: canary.decision,
+        },
       });
       await jobs.start(job.id);
 
       try {
+        const previouslyPublishedVersion = module.versions.find((v) => v.status === 'PUBLISHED');
         const publisher = new PublishService(admin);
         await publisher.publish(spec, target);
 
@@ -186,6 +234,35 @@ export async function action({ request }: { request: Request }) {
         });
         await jobs.succeed(job.id, { ok: true });
         await new ActivityLogService().log({ actor: 'MERCHANT', action: 'MODULE_PUBLISHED', resource: `module:${module.id}`, shopId: shopRow?.id, details: { target: target.kind, versionId: draft.id } });
+
+        const rolloutMetrics = await getRecentPublishMetrics({
+          shopId: shopRow?.id,
+          paths: ['/api/publish'],
+          windowMinutes: 30,
+        });
+        const progressiveDecision = progressive.evaluateRamp(rolloutMetrics);
+        if (progressiveDecision.decision === 'ABORT' && previouslyPublishedVersion) {
+          await moduleService.rollbackToVersion(
+            session.shop,
+            module.id,
+            previouslyPublishedVersion.version
+          );
+          await new ActivityLogService().log({
+            actor: 'SYSTEM',
+            action: 'MODULE_ROLLED_BACK',
+            resource: `module:${module.id}`,
+            shopId: shopRow?.id,
+            details: {
+              reason: 'auto_rollback_progressive_publish',
+              moduleId: module.id,
+              fromVersion: draft.version,
+              toVersion: previouslyPublishedVersion.version,
+              rolloutMetrics,
+              progressiveDecision,
+            },
+          });
+        }
+
         await logRequestOutcome({ shopId: shopRow?.id, pathOrIntent: '/api/publish', success: true, details: { moduleId: module.id } });
 
         return redirect(`/modules/${module.id}?published=1`);

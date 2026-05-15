@@ -8,6 +8,7 @@ function makePrismaMock() {
     create: vi.fn(),
     update: vi.fn(),
     findMany: vi.fn(),
+    deleteMany: vi.fn(),
   };
   const internalAiSession = {
     delete: vi.fn(),
@@ -192,7 +193,9 @@ describe('purgeOldToolAudits', () => {
     const store = new InternalAssistantStoreService();
     const deleted = await store.purgeOldToolAudits(7);
     expect(deleted).toBe(17);
-    const call = prismaMock.internalAiToolAudit.deleteMany.mock.calls[0][0] as {
+    const firstCall = prismaMock.internalAiToolAudit.deleteMany.mock.calls[0];
+    if (!firstCall) throw new Error('Expected deleteMany to be called');
+    const call = firstCall[0] as {
       where: { createdAt: { lt: Date } };
     };
     const cutoff = call.where.createdAt.lt as Date;
@@ -205,11 +208,119 @@ describe('purgeOldToolAudits', () => {
     const { InternalAssistantStoreService } = await import('~/services/ai/internal-assistant-store.server');
     const store = new InternalAssistantStoreService();
     await store.purgeOldToolAudits(-1);
-    const call = prismaMock.internalAiToolAudit.deleteMany.mock.calls[0][0] as {
+    const firstCall = prismaMock.internalAiToolAudit.deleteMany.mock.calls[0];
+    if (!firstCall) throw new Error('Expected deleteMany to be called');
+    const call = firstCall[0] as {
       where: { createdAt: { lt: Date } };
     };
     const cutoff = call.where.createdAt.lt as Date;
     const expected = Date.now() - 90 * 24 * 60 * 60 * 1000;
+    expect(Math.abs(cutoff.getTime() - expected)).toBeLessThan(60_000);
+  });
+});
+
+describe('chat content redaction', () => {
+  it('redacts message content before create', async () => {
+    const now = new Date();
+    prismaMock.internalAiMessage.create.mockResolvedValueOnce({
+      id: 'msg-1',
+      role: 'user',
+      content: '[REDACTED_EMAIL]',
+      mode: 'localMachine',
+      backend: null,
+      model: null,
+      latencyMs: null,
+      tokensIn: null,
+      tokensOut: null,
+      estimatedCostCents: 0,
+      hadFallback: false,
+      retryCount: 0,
+      status: 'completed',
+      clientRequestId: null,
+      responseToMessageId: null,
+      error: null,
+      createdAt: now,
+    });
+    prismaMock.internalAiSession.update.mockResolvedValueOnce({ id: 'sess-1' });
+    const { InternalAssistantStoreService } = await import('~/services/ai/internal-assistant-store.server');
+    const store = new InternalAssistantStoreService();
+    await store.createMessage({
+      sessionId: 'sess-1',
+      role: 'user',
+      content: 'contact me at test@example.com',
+    });
+    expect(prismaMock.internalAiMessage.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          content: expect.not.stringContaining('test@example.com'),
+        }),
+      }),
+    );
+  });
+
+  it('redacts message content before update', async () => {
+    const now = new Date();
+    prismaMock.internalAiMessage.update.mockResolvedValueOnce({
+      id: 'msg-1',
+      role: 'assistant',
+      content: 'Bearer [REDACTED]',
+      mode: 'localMachine',
+      backend: null,
+      model: null,
+      latencyMs: null,
+      tokensIn: null,
+      tokensOut: null,
+      estimatedCostCents: 0,
+      hadFallback: false,
+      retryCount: 0,
+      status: 'completed',
+      clientRequestId: null,
+      responseToMessageId: null,
+      error: null,
+      createdAt: now,
+    });
+    const { InternalAssistantStoreService } = await import('~/services/ai/internal-assistant-store.server');
+    const store = new InternalAssistantStoreService();
+    await store.updateMessage('msg-1', { content: 'Bearer sk-secret-token' });
+    expect(prismaMock.internalAiMessage.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          content: expect.not.stringContaining('sk-secret-token'),
+        }),
+      }),
+    );
+  });
+});
+
+describe('purgeOldMessages', () => {
+  it('deletes chat messages older than retentionDays', async () => {
+    prismaMock.internalAiMessage.deleteMany.mockResolvedValueOnce({ count: 11 });
+    const { InternalAssistantStoreService } = await import('~/services/ai/internal-assistant-store.server');
+    const store = new InternalAssistantStoreService();
+    const deleted = await store.purgeOldMessages(7);
+    expect(deleted).toBe(11);
+    const firstCall = prismaMock.internalAiMessage.deleteMany.mock.calls[0];
+    if (!firstCall) throw new Error('Expected deleteMany to be called');
+    const call = firstCall[0] as {
+      where: { createdAt: { lt: Date } };
+    };
+    const cutoff = call.where.createdAt.lt as Date;
+    const expected = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    expect(Math.abs(cutoff.getTime() - expected)).toBeLessThan(60_000);
+  });
+
+  it('coerces invalid retention values to 30 days', async () => {
+    prismaMock.internalAiMessage.deleteMany.mockResolvedValueOnce({ count: 0 });
+    const { InternalAssistantStoreService } = await import('~/services/ai/internal-assistant-store.server');
+    const store = new InternalAssistantStoreService();
+    await store.purgeOldMessages(0);
+    const firstCall = prismaMock.internalAiMessage.deleteMany.mock.calls[0];
+    if (!firstCall) throw new Error('Expected deleteMany to be called');
+    const call = firstCall[0] as {
+      where: { createdAt: { lt: Date } };
+    };
+    const cutoff = call.where.createdAt.lt as Date;
+    const expected = Date.now() - 30 * 24 * 60 * 60 * 1000;
     expect(Math.abs(cutoff.getTime() - expected)).toBeLessThan(60_000);
   });
 });

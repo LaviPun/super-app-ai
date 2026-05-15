@@ -80,9 +80,9 @@ WHERE type = 'AI_GENERATE'
 
 **Measurement (regression suite, runs in CI):**
 ```bash
-pnpm --filter web evals
+pnpm --filter web evals --strict
 # Reports: schemaValidRate, compilerSuccessRate, nonDestructiveRate
-# Thresholds: EVAL_THRESHOLD_SCHEMA=0.90, EVAL_THRESHOLD_COMPILER=0.90, EVAL_THRESHOLD_ND=1.0
+# Thresholds: EVAL_THRESHOLD_SCHEMA=0.99, EVAL_THRESHOLD_COMPILER=0.99, EVAL_THRESHOLD_ND=1.0
 ```
 
 **Alert:** Page if live success rate drops below 90% over 1 hour.

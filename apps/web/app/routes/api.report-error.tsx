@@ -5,22 +5,62 @@ import { getPrisma } from '~/db.server';
 import { ErrorLogService } from '~/services/observability/error-log.service';
 import type { ErrorLogSource } from '~/services/observability/error-log.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import { enforceRateLimit } from '~/services/security/rate-limit.server';
+import { AppError } from '~/services/errors/app-error.server';
 
 const REPORT_SOURCE: ErrorLogSource[] = ['ERROR_BOUNDARY', 'CLIENT'];
+const MAX_META_SIZE = 4_096;
+
+function getClientIp(request: Request): string {
+  const forwardedFor = request.headers.get('x-forwarded-for');
+  if (forwardedFor) {
+    const first = forwardedFor.split(',')[0]?.trim();
+    if (first) return first;
+  }
+
+  const cfIp = request.headers.get('cf-connecting-ip');
+  if (cfIp) return cfIp.trim();
+
+  return 'unknown';
+}
+
+function sanitizeMeta(meta: unknown): unknown {
+  if (meta == null) return undefined;
+  try {
+    const serialized = JSON.stringify(meta);
+    if (serialized.length <= MAX_META_SIZE) return meta;
+    return {
+      _truncated: true,
+      _originalSize: serialized.length,
+      _maxSize: MAX_META_SIZE,
+    };
+  } catch {
+    return { _truncated: true, _invalid: true };
+  }
+}
 
 export async function action({ request }: ActionFunctionArgs) {
   if (request.method !== 'POST') {
     return json({ error: 'Method not allowed' }, { status: 405 });
   }
 
-  let shopId: string | undefined;
+  let session: { shop: string };
   try {
-    const { session } = await shopify.authenticate.admin(request);
-    const prisma = getPrisma();
-    const shop = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
-    shopId = shop?.id;
+    const auth = await shopify.authenticate.admin(request);
+    session = auth.session;
   } catch {
-    shopId = undefined;
+    return json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const clientIp = getClientIp(request);
+  try {
+    await enforceRateLimit(`report-error:${clientIp}`);
+  } catch (err) {
+    if (err instanceof AppError && err.code === 'RATE_LIMITED') {
+      const retryAfterSec = Number(err.details?.retryAfterSec ?? 60);
+      return json({ error: err.message }, { status: 429, headers: { 'Retry-After': String(retryAfterSec) } });
+    }
+    throw err;
   }
 
   let body: { message?: string; stack?: string; route?: string; source?: string; meta?: unknown };
@@ -36,7 +76,11 @@ export async function action({ request }: ActionFunctionArgs) {
   const source = body.source && REPORT_SOURCE.includes(body.source as ErrorLogSource)
     ? (body.source as ErrorLogSource)
     : 'CLIENT';
-  const meta = body.meta != null ? body.meta : undefined;
+  const meta = sanitizeMeta(body.meta);
+
+  const prisma = getPrisma();
+  const shop = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
+  const shopId = shop?.id;
 
   const errLog = new ErrorLogService();
   await errLog.write('ERROR', message, stack, meta, route, shopId, source);

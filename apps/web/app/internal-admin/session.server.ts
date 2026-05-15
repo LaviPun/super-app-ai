@@ -1,4 +1,5 @@
 import { createCookieSessionStorage } from '@remix-run/node';
+import type { Session } from '@remix-run/node';
 
 function mustGetSecret(): string {
   const s = process.env.INTERNAL_ADMIN_SESSION_SECRET;
@@ -6,13 +7,16 @@ function mustGetSecret(): string {
   return s;
 }
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 export const internalSessionStorage = createCookieSessionStorage({
   cookie: {
-    name: '__superapp_internal',
+    name: isProduction ? '__Host-superapp_internal' : '__superapp_internal',
     httpOnly: true,
     path: '/',
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: isProduction,
+    maxAge: 8 * 60 * 60,
     secrets: [mustGetSecret()],
   },
 });
@@ -29,10 +33,10 @@ export async function requireInternalAdmin(request: Request) {
   return session;
 }
 
-export async function commitInternal(session: any) {
+export async function commitInternal(session: Session) {
   return internalSessionStorage.commitSession(session);
 }
 
-export async function destroyInternal(session: any) {
+export async function destroyInternal(session: Session) {
   return internalSessionStorage.destroySession(session);
 }

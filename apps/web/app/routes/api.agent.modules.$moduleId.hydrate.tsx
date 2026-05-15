@@ -25,7 +25,7 @@ export async function action({
   const moduleId = params.moduleId;
   if (!moduleId) return json({ error: 'Missing moduleId' }, { status: 400 });
 
-  enforceRateLimit(`ai:${session.shop}`);
+  await enforceRateLimit(`ai:${session.shop}`);
 
   const prisma = getPrisma();
   const shopRow = await prisma.shop.findFirst({ where: { shopDomain: session.shop } });

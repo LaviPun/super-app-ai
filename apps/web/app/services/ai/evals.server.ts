@@ -1,4 +1,5 @@
-import { RecipeSpecSchema } from '@superapp/core';
+import { MODULE_CATEGORIES, RECIPE_SPEC_TYPES, RecipeSpecSchema, type DeployTarget } from '@superapp/core';
+import { isTargetAllowedForType } from '@superapp/core';
 import { compileRecipe } from '../recipes/compiler/index.js';
 import { checkNonDestructive } from '../recipes/compiler/non-destructive.js';
 import type { LlmClient } from './llm.server.js';
@@ -18,6 +19,8 @@ export type EvalResult = {
   compilerSuccess: boolean;
   nonDestructive: boolean;
   nonDestructiveViolations: string[];
+  allowedValuesCompliant: boolean;
+  forbiddenSurfaceRejected: boolean;
   matchedExpectedType: boolean;
   attempts: number;
   durationMs: number;
@@ -29,9 +32,13 @@ export type EvalSummary = {
   schemaValidCount: number;
   compilerSuccessCount: number;
   nonDestructiveCount: number;
+  allowedValuesCompliantCount: number;
+  forbiddenSurfaceRejectCount: number;
   schemaValidRate: number;
   compilerSuccessRate: number;
   nonDestructiveRate: number;
+  allowedValuesCompliantRate: number;
+  forbiddenSurfaceRejectRate: number;
   results: EvalResult[];
 };
 
@@ -61,6 +68,8 @@ export async function runEvals(client: LlmClient = new StubLlmClient(), maxAttem
     let compilerSuccess = false;
     let nonDestructive = false;
     let nonDestructiveViolations: string[] = [];
+    let allowedValuesCompliant = false;
+    let forbiddenSurfaceRejected = false;
     let matchedExpectedType = false;
     let error: string | undefined;
     let attempts = 0;
@@ -77,6 +86,23 @@ export async function runEvals(client: LlmClient = new StubLlmClient(), maxAttem
         const parsed = RecipeSpecSchema.parse(JSON.parse(rawJson));
         schemaValid = true;
         matchedExpectedType = !gp.expectedType || parsed.type === gp.expectedType;
+        allowedValuesCompliant =
+          RECIPE_SPEC_TYPES.includes(parsed.type) &&
+          MODULE_CATEGORIES.includes(parsed.category);
+
+        const forbiddenTarget = parsed.type.startsWith('theme.')
+          ? { kind: 'PLATFORM' as const }
+          : { kind: 'THEME' as const, themeId: 'forbidden-theme', moduleId: 'eval-module-id' };
+        if (!isTargetAllowedForType(parsed.type, forbiddenTarget.kind)) {
+          try {
+            compileRecipe(parsed, forbiddenTarget as DeployTarget);
+            forbiddenSurfaceRejected = false;
+          } catch {
+            forbiddenSurfaceRejected = true;
+          }
+        } else {
+          forbiddenSurfaceRejected = true;
+        }
 
         // Try compilation
         try {
@@ -110,6 +136,8 @@ export async function runEvals(client: LlmClient = new StubLlmClient(), maxAttem
       compilerSuccess,
       nonDestructive,
       nonDestructiveViolations,
+      allowedValuesCompliant,
+      forbiddenSurfaceRejected,
       matchedExpectedType,
       attempts,
       durationMs: Date.now() - start,
@@ -120,15 +148,23 @@ export async function runEvals(client: LlmClient = new StubLlmClient(), maxAttem
   const schemaValidCount = results.filter(r => r.schemaValid).length;
   const compilerSuccessCount = results.filter(r => r.compilerSuccess).length;
   const nonDestructiveCount = results.filter(r => r.nonDestructive).length;
+  const allowedValuesCompliantCount = results.filter(r => r.allowedValuesCompliant).length;
+  const forbiddenSurfaceRejectCount = results.filter(r => r.forbiddenSurfaceRejected).length;
 
   return {
     total: results.length,
     schemaValidCount,
     compilerSuccessCount,
     nonDestructiveCount,
+    allowedValuesCompliantCount,
+    forbiddenSurfaceRejectCount,
     schemaValidRate: results.length > 0 ? schemaValidCount / results.length : 0,
     compilerSuccessRate: results.length > 0 ? compilerSuccessCount / results.length : 0,
     nonDestructiveRate: results.length > 0 ? nonDestructiveCount / results.length : 0,
+    allowedValuesCompliantRate:
+      results.length > 0 ? allowedValuesCompliantCount / results.length : 0,
+    forbiddenSurfaceRejectRate:
+      results.length > 0 ? forbiddenSurfaceRejectCount / results.length : 0,
     results,
   };
 }

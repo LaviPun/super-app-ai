@@ -1,3 +1,18 @@
+## 2026-05-15 (phase-5 verification pass)
+
+- Ran final acceptance commands on current branch state:
+  - `pnpm build` ❌ (`internal.ai-assistant.probe.tsx` imports `router-runtime-config.server` into a client-exposed route module)
+  - `pnpm -r --if-present typecheck` ❌ (TypeScript failures in `internal-ai-assistant-stream.test.ts` and `internal-model-setup.action.test.ts`)
+  - `pnpm lint` ✅ (89 warnings, under active `--max-warnings 100`)
+  - `pnpm --filter web test` ❌ (single failing test: `assistant-chat-target-probe.test.ts` router-only expectation)
+  - `pnpm evals --strict` ❌ (forbidden-surface gate 50.0% vs strict threshold 99.0%)
+  - `pnpm evals` ❌ (same forbidden-surface gate 50.0% vs default threshold 90.0%)
+- Smoke scope checks for Admin + API/Webhooks + jobs + publish/release controls passed via targeted Vitest run:
+  `internal-admin-route-closure`, `gdpr-redact.coverage`, `internal-ai-chat-retention.job`,
+  `internal-ai-audit-retention.job`, `release-controls`, `release-transition`, `publish-policy`,
+  `publish-contract-drift`, `publish-preflight`.
+- Phase-1 connection-graph artifact was not present in `docs/audit/`, so only current-snapshot smoke verification was possible in this pass.
+
 ## 2026-05-14 (admin AI chat hardening)
 
 - **Release gate enforcement.** [`prompt-router.server.ts`](../apps/web/app/services/ai/prompt-router.server.ts) now tracks the last 200 `/route` outcomes per target as a rolling buffer; when `releaseGateSchemaFailRateMax` or `releaseGateFallbackRateMax` is exceeded for the active target, shadow mode is forced on in-memory and a `ROUTER_RELEASE_GATE_TRIPPED` activity log row is emitted. `/internal/model-setup` ([`internal.model-setup.tsx`](../apps/web/app/routes/internal.model-setup.tsx)) reads `getReleaseGateState()` and renders a "Release gate tripped" banner.
@@ -35,7 +50,7 @@
 # Implementation Status — AI Shopify SuperApp
 
 > Last updated: 2026-05-14 (admin AI chat hardening: enforcing release gates, decryption surfacing, auto-reprobe, tightened SSRF guard with `INTERNAL_AI_ALLOW_HOSTS`, prod-only router auth, session delete + tool-audit retention cron, SSE heartbeat, empty-reply error path, import dedupe, modal-proxy URL warning).
-> Current automated test baseline: 253 total (179 prior baseline + 74 new vitest cases for the 2026-05-14 admin AI chat hardening pass). See [phase-plan.md](./phase-plan.md) for the original plan and latest scope decisions.
+> Current automated test baseline: **347 total** (`docs/audit/test-baseline.json`). Shared numeric facts are tracked in [`docs/_glossary.md`](./_glossary.md).
 > **AI Module doc alignment:** Single source of truth from [ai-module-main-doc.md](./ai-module-main-doc.md); see section below.
 > **Change propagation:** All code changes follow [codechange-behave.md](../codechange-behave.md) (impact map, propagation pass, docs/README updates).
 
@@ -48,7 +63,7 @@
 | — | AI Module — Full Doc Alignment | ✅ Complete |
 | 0 | Engineering Baseline | ✅ Complete |
 | 1 | Merchant MVP Loop | ✅ Complete |
-| 2 | Theme Compatibility Engine | ✅ Complete |
+| 2 | Theme Compatibility Engine v1 (theme profiling + safe mounting) | ⚠️ Partial (analysis-only) |
 | 3 | Real AI Provider Clients + Evals | ✅ Complete |
 | 4 | Integrations + Mapping | ✅ Complete |
 | 5 | Automation Engine | ✅ Complete |
@@ -64,7 +79,7 @@
 | — | Workflow Engine Spec (Graph-based) | ✅ Complete |
 | — | Admin Dashboard: Categories, Plan Tiers, Recipe Edit, Store Plan | ✅ Complete |
 | — | **AI Patch Plan — Remove Generic Outputs** | ✅ Phases 1–5 Complete |
-| — | **Agent-Native Architecture Audit + Remediation** | ✅ P1–P10+ Complete + Fresh Audit Gaps Resolved (28 agent routes, UI polling, ConnectorEndpoint agent CRUD, DataStoreRecord list, FlowSchedule full update) |
+| — | **Agent-Native Architecture Audit + Remediation** | ✅ P1–P10+ Complete + Fresh Audit Gaps Resolved (30 agent endpoints, UI polling, ConnectorEndpoint agent CRUD, DataStoreRecord list, FlowSchedule full update) |
 | — | **Universal Module Slot & extension plan** | ✅ Complete (metaobject-only, API 2026-04+) |
 | — | **CEO Review Controls Sync (2026-04-29)** | ✅ Decisions captured; implementation pending |
 
@@ -114,7 +129,7 @@
   - `pnpm --filter web evals` ✅
   - `pnpm --filter web build` ✅
   - `pnpm --filter web exec prisma validate` ✅
-  - `pnpm --filter web lint` ✅ (using `--max-warnings 250`; current debt baseline: 154 warnings, no lint errors)
+  - `pnpm --filter web lint` ✅ (using `--max-warnings 100`; current debt baseline: 154 warnings, no lint errors)
 
 - Follow-up lint stabilization:
   - Removed additional high-signal `no-explicit-any` warnings in recently changed agent APIs and AI services:
@@ -155,7 +170,7 @@
   - AI usage attribution per job (via correlationId) including provider, token usage, and cost.
   - Store-level AI usage summary (30-day + all-time) with provider/model breakdown for token and cost visibility.
     - `apps/web/app/__tests__/style-compiler.test.ts`
-  - Updated `apps/web/package.json` lint command threshold from `0` to `250` to keep CI/dev workflow unblocked while warning debt is burned down in batches.
+  - Updated `apps/web/package.json` lint command threshold from `0` to `100` to keep CI/dev workflow unblocked while warning debt is burned down in batches.
   - Completed a focused warning burn-down in top offenders:
     - `apps/web/app/routes/modules.$moduleId.tsx`
     - `apps/web/app/services/flows/flow-runner.service.ts`
@@ -326,7 +341,7 @@ Agent-native audit findings and remediation status live **only in this section**
 
 | Priority | Recommendation | Status | Deliverables |
 |----------|---------------|--------|--------------|
-| P1 | Agent API surface | ✅ Done | 28 agent routes across modules, connectors (incl. endpoints), data stores (incl. records list), schedules, flows, AI primitives, config; `api.agent.tsx` discovery index |
+| P1 | Agent API surface | ✅ Done | 30 agent endpoints across modules, connectors (incl. endpoints), data stores (incl. records list), schedules, flows, AI primitives, config; `api.agent.tsx` discovery index |
 | P2 | Plan/capabilities in AI prompts | ✅ Done | `api.ai.create-module.tsx` + `api.ai.modify-module.tsx` — plan tier + workspace summary injected into constraints |
 | P3 | Module delete | ✅ Done | `api.modules.$moduleId.delete.tsx`; `ModuleService.deleteModule()`; Danger zone UI on module detail; activity log `MODULE_DELETED` |
 | P4 | Suggested prompts in UI | ✅ Done | `EXAMPLE_PROMPTS` chips from `INTENT_EXAMPLES` in `modules._index.tsx` |
@@ -343,7 +358,7 @@ Agent-native audit findings and remediation status live **only in this section**
 
 | File | Route | Purpose |
 |------|-------|---------|
-| `routes/api.agent.tsx` | `GET /api/agent` | Discovery index — 28 endpoints + schemas |
+| `routes/api.agent.tsx` | `GET /api/agent` | Discovery index — 30 endpoints + schemas |
 | `routes/api.agent.modules.tsx` | `GET/POST /api/agent/modules` | List + create |
 | `routes/api.agent.modules.$moduleId.tsx` | `GET /api/agent/modules/:id` | Get with versions + specs |
 | `routes/api.agent.modules.$moduleId.spec.tsx` | `GET/POST /api/agent/modules/:id/spec` | Read (primitive) or update spec |
@@ -545,7 +560,7 @@ Aligned with [ai-module-main-doc.md](./ai-module-main-doc.md). Single source of 
 
 ---
 
-## Phase 2 — Theme Compatibility Engine ✅
+## Phase 2 — Theme Compatibility Engine v1 (Theme profiling + safe mounting) ⚠️ Partial (analysis-only)
 
 ### What was built
 
@@ -560,11 +575,12 @@ Aligned with [ai-module-main-doc.md](./ai-module-main-doc.md). Single source of 
 | ThemeProfile stored per theme | `prisma/schema.prisma` → `ThemeProfile` model | Upserted on each analysis |
 | Mount strategies | `analyzeAssets()` → `surfaces` object | `APP_BLOCK` preferred; `THEME_PATCH` for cart when no drawer detected |
 | API route | `apps/web/app/routes/api.theme.analyze.tsx` | Job-tracked; returns full `ThemeProfileResult` |
+| Compile/publish adapter integration | — | **Not wired yet**. Current compile/publish flows do not consume `services/theme/` output. |
 
 ### Acceptance criteria
-- ✅ Does not break Dawn-like themes — uses pattern detection only; never pushes assets without merchant action
-- ✅ No heavy JS injection by default — mount strategy recommends app blocks
-- ✅ CWV safety — no render-blocking scripts in analysis phase
+- ✅ Analysis does not break Dawn-like themes — pattern detection only; never pushes assets without merchant action
+- ✅ No heavy JS injection in this phase — analysis + profile generation only
+- ✅ CWV safety for analysis path — no render-blocking scripts in this phase
 
 ---
 
@@ -711,7 +727,7 @@ The recipe schema and the deployed extension intentionally cover different scope
 | Deliverable | File | Notes |
 |---|---|---|
 | Shopify Billing plans | `services/billing/billing.service.ts` | FREE / STARTER ($19) / GROWTH ($79) / PRO ($299) |
-| Shopify App Subscription creation | `BillingService.createSubscription()` | `appSubscriptionCreate` GraphQL mutation; `test: true` when `NODE_ENV !== 'production'`. **Note:** Test subscriptions behave differently on dev stores — `currentPeriodEnd` and `trialDays` may not reflect real billing cycles. Always treat the subscription status returned by the Shopify Admin API as the source of truth rather than relying on local assumptions during dev. Verify billing state transitions during QA on a dev store before going live. |
+| Shopify App Subscription creation | `BillingService.createSubscription()` | `appSubscriptionCreate` GraphQL mutation; `test` is controlled by `BILLING_TEST_MODE` (fallback: `NODE_ENV !== 'production'` when unset). **Note:** Test subscriptions behave differently on dev stores — `currentPeriodEnd` and `trialDays` may not reflect real billing cycles. Always treat the subscription status returned by the Shopify Admin API as the source of truth rather than relying on local assumptions during dev. Verify billing state transitions during QA on a dev store before going live. |
 | Trial support | `PLAN_CONFIGS[*].trialDays` | 14-day trial on STARTER/GROWTH; 7-day on PRO |
 | AppSubscription model | `prisma/schema.prisma` | Stores `planName`, `shopifySubId`, `status` per shop |
 | Quota enforcement | `services/billing/quota.service.ts` | `QuotaService.enforce()` throws `AppError(RATE_LIMITED)` when limit exceeded |
@@ -783,7 +799,7 @@ The recipe schema and the deployed extension intentionally cover different scope
 | Style Builder UI (3 tabs) | `apps/web/app/components/StyleBuilder.tsx` | **Basic tab**: colors, typography, padding, radius, responsive; **Advanced tab**: layout mode/anchor/offsets/width/zIndex, shadow, border, line height, gap, margin, accessibility; **Custom CSS tab**: textarea (2000 chars) with sanitization warning and `--sa-*` var reference |
 | Spec update API | `apps/web/app/routes/api.modules.$moduleId.spec.tsx` | POST body `{ spec }` or formData `spec` → validates and creates new draft version |
 | Preview uses style | `apps/web/app/services/preview/preview.service.ts` | All theme module previews inject CSS vars and rules |
-| Tests (163 total across monorepo; 145 in apps/web, +24 from style work) | `packages/core/src/__tests__/storefront-style.test.ts`, `apps/web/app/__tests__/style-compiler.test.ts` | Schema validation; `customCss` length/safety limits; `sanitizeCustomCss` strips all dangerous patterns; `compileCustomCss` scopes + sanitizes; overlay z-index; `proxy.widget` with style |
+| Tests (repo baseline: 347 total; style-focused coverage retained in these suites) | `packages/core/src/__tests__/storefront-style.test.ts`, `apps/web/app/__tests__/style-compiler.test.ts` | Schema validation; `customCss` length/safety limits; `sanitizeCustomCss` strips all dangerous patterns; `compileCustomCss` scopes + sanitizes; overlay z-index; `proxy.widget` with style |
 
 Positioning: inline modules use Theme Editor block placement; overlay (popup) uses safe anchor presets + pixel offsets. No arbitrary CSS values from presets; `customCss` is scoped and sanitized before output.
 

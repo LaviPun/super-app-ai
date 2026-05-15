@@ -3,6 +3,7 @@ import { getRouterRuntimeConfig } from '~/services/ai/router-runtime-config.serv
 import type { RouterRuntimeConfig } from '~/schemas/router-runtime-config.server';
 import type { AssistantMode } from '~/services/ai/internal-assistant-store.server';
 import { formatToolContext, runAssistantTool, selectToolsForPrompt, type AssistantToolRunResult } from '~/services/ai/internal-assistant-tools.server';
+import { assertSafeTargetUrl as assertSafeUrl } from '~/services/security/ssrf.server';
 
 const AssistantTargetSchema = z.enum(['localMachine', 'modalRemote']);
 export type AssistantTarget = z.infer<typeof AssistantTargetSchema>;
@@ -57,63 +58,18 @@ function getTargetPrefix(target: AssistantTarget): 'LOCAL_ROUTER' | 'MODAL_ROUTE
   return target === 'localMachine' ? 'LOCAL_ROUTER' : 'MODAL_ROUTER';
 }
 
-const LOCALHOST_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1']);
-const BLOCKED_METADATA_HOSTS = new Set(['metadata.google.internal']);
-
-function normalizeHostname(hostname: string): string {
-  let h = hostname.toLowerCase();
-  if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1);
-  return h;
-}
-
-function isLinkLocalIPv4(host: string): boolean {
-  return /^169\.254\.\d{1,3}\.\d{1,3}$/.test(host);
-}
-
-function isLinkLocalIPv6(host: string): boolean {
-  return host.startsWith('fe80:');
-}
-
-function getAllowedHosts(): Set<string> {
+function getAllowedLocalHttpHosts(): string[] {
   const raw = process.env.INTERNAL_AI_ALLOW_HOSTS?.trim();
-  if (!raw) return new Set();
-  return new Set(
-    raw
-      .split(',')
-      .map((entry) => entry.trim().toLowerCase())
-      .filter((entry) => entry.length > 0),
-  );
+  if (!raw) return [];
+  return raw.split(',').map((entry) => entry.trim().toLowerCase()).filter((entry) => entry.length > 0);
 }
 
-export function assertSafeTargetUrl(rawUrl: string): URL {
-  const url = new URL(rawUrl);
-  const hostname = normalizeHostname(url.hostname);
-  const allowed = getAllowedHosts();
-  const isAllowlisted = allowed.has(hostname);
-
-  if (url.protocol === 'http:') {
-    if (isAllowlisted) return url;
-    if (!LOCALHOST_HOSTNAMES.has(hostname)) {
-      throw new Error('Assistant target URL must be https or localhost http');
-    }
-    return url;
-  }
-
-  if (url.protocol !== 'https:') {
-    throw new Error('Assistant target URL must be https or localhost http');
-  }
-
-  if (isAllowlisted) return url;
-  if (isLinkLocalIPv4(hostname)) {
-    throw new Error('Assistant target URL hostname is link-local and not allowlisted');
-  }
-  if (isLinkLocalIPv6(hostname)) {
-    throw new Error('Assistant target URL hostname is link-local IPv6 and not allowlisted');
-  }
-  if (BLOCKED_METADATA_HOSTS.has(hostname)) {
-    throw new Error('Assistant target URL hostname is a cloud metadata endpoint and not allowlisted');
-  }
-  return url;
+export async function assertSafeTargetUrl(rawUrl: string): Promise<URL> {
+  return assertSafeUrl(rawUrl, {
+    allowHttpLocalhost: true,
+    allowedHttpHostnames: getAllowedLocalHttpHosts(),
+    context: 'Assistant target URL',
+  });
 }
 
 async function resolveTargetConfig(target: AssistantTarget): Promise<ResolvedAssistantTargetConfig> {
@@ -139,7 +95,7 @@ async function resolveTargetConfig(target: AssistantTarget): Promise<ResolvedAss
   const envModel = process.env[`${prefix}_MODEL`]?.trim() || '';
   const url = targetConfig.url?.trim() || envUrl;
   if (!url) throw new Error(`Target "${target}" is not configured with a URL`);
-  assertSafeTargetUrl(url);
+  await assertSafeTargetUrl(url);
 
   const backend = targetConfig.backend;
   return {

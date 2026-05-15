@@ -25,11 +25,19 @@ export async function action({ request }: { request: Request }) {
 
   const counts = {
     dataCaptures: 0,
+    dataStoreRecords: 0,
+    dataStores: 0,
     moduleEvents: 0,
     moduleMetricsDaily: 0,
     attributionLinks: 0,
   };
 
+  counts.dataStoreRecords = (
+    await prisma.dataStoreRecord.deleteMany({
+      where: { dataStore: { shopId: shop.id } },
+    })
+  ).count;
+  counts.dataStores = (await prisma.dataStore.deleteMany({ where: { shopId: shop.id } })).count;
   counts.dataCaptures = (await prisma.dataCapture.deleteMany({ where: { shopId: shop.id } })).count;
   counts.moduleEvents = (await prisma.moduleEvent.deleteMany({ where: { shopId: shop.id } })).count;
   counts.moduleMetricsDaily = (await prisma.moduleMetricsDaily.deleteMany({ where: { shopId: shop.id } })).count;

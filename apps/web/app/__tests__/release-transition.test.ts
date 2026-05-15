@@ -43,6 +43,13 @@ describe('ReleaseTransitionService', () => {
     const firstCall = create.mock.calls[0];
     expect(firstCall).toBeTruthy();
     expect(firstCall?.[0]?.data?.action).toBe('RELEASE_TRANSITION');
+    const details = JSON.parse(String(firstCall?.[0]?.data?.details ?? '{}'));
+    expect(details).toMatchObject({
+      actor: 'SYSTEM',
+      source: 'merchant_api',
+      idempotency_key: 'publish:shop_1:module_1:ver_1:platform',
+      result: 'SUCCEEDED',
+    });
   });
 });
 

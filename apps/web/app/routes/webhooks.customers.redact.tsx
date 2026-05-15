@@ -31,19 +31,49 @@ export async function action({ request }: { request: Request }) {
   const customerId = payload.customer?.id;
 
   if (customerId != null) {
-    const deleted = await prisma.dataCapture.deleteMany({
-      where: {
-        shopId: shop.id,
-        payload: { contains: `"customer_id":${customerId}` },
-      },
-    });
+    const customerIdString = String(customerId);
+    const [dataCapturesDeleted, dataStoreRecordsDeleted, moduleEventsDeleted, attributionLinksDeleted] = await prisma.$transaction([
+      prisma.dataCapture.deleteMany({
+        where: {
+          shopId: shop.id,
+          customerId: customerIdString,
+        },
+      }),
+      prisma.dataStoreRecord.deleteMany({
+        where: {
+          customerId: customerIdString,
+          dataStore: { shopId: shop.id },
+        },
+      }),
+      prisma.moduleEvent.deleteMany({
+        where: {
+          shopId: shop.id,
+          customerId: customerIdString,
+        },
+      }),
+      prisma.attributionLink.deleteMany({
+        where: {
+          shopId: shop.id,
+          customerId: customerIdString,
+        },
+      }),
+    ]);
+
     await prisma.activityLog.create({
       data: {
         actor: 'WEBHOOK',
         action: 'GDPR_CUSTOMER_REDACT',
         resource: `customer:${customerId}`,
         shopId: shop.id,
-        details: JSON.stringify({ customerId, dataCapturesDeleted: deleted.count }),
+        details: JSON.stringify({
+          customerId: customerIdString,
+          counts: {
+            dataCaptures: dataCapturesDeleted.count,
+            dataStoreRecords: dataStoreRecordsDeleted.count,
+            moduleEvents: moduleEventsDeleted.count,
+            attributionLinks: attributionLinksDeleted.count,
+          },
+        }),
       },
     });
   }

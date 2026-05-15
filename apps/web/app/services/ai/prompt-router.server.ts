@@ -11,6 +11,8 @@ import {
   type ResolvedRouterTarget,
 } from '~/services/ai/router-runtime-config.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import { assertSafeTargetUrl } from '~/services/security/ssrf.server';
+import { safeMeta } from '~/services/observability/redact.server';
 
 /** Observability label for upstream budgeting (optional). */
 export type PromptRouterOperationClass = 'P0_CREATE' | 'P1_MODIFY' | 'P2_HYDRATE';
@@ -188,8 +190,9 @@ function logRouterEvent(
   payload: Record<string, string | number | boolean | undefined>,
 ): void {
   if (!envTruthy('INTERNAL_AI_ROUTER_DEBUG_LOG')) return;
+  const safePayload = safeMeta(payload) ?? {};
   // eslint-disable-next-line no-console
-  console.log('[prompt-router]', JSON.stringify(payload));
+  console.log('[prompt-router]', JSON.stringify(safePayload));
 }
 
 type FetchOutcome =
@@ -484,12 +487,16 @@ async function fetchAndMergeRouterDecision(
   metrics.attempts += 1;
   metrics.byTarget[target].attempts += 1;
 
-  const endpoint = `${baseUrl.replace(/\/+$/, '')}/route`;
   const authToken = token?.trim();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const started = Date.now();
   try {
+    const safeBaseUrl = await assertSafeTargetUrl(baseUrl, {
+      allowHttpLocalhost: true,
+      context: 'Prompt router target URL',
+    });
+    const endpoint = `${safeBaseUrl.toString().replace(/\/+$/, '')}/route`;
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {

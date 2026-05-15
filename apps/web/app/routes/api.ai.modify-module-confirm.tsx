@@ -13,7 +13,7 @@ export async function action({ request }: { request: Request }) {
   return withApiLogging(
     { actor: 'MERCHANT', method: request.method, path: '/api/ai/modify-module-confirm', request, captureRequestBody: true, captureResponseBody: true },
     async () => {
-      enforceRateLimit(`ai:${session.shop}`);
+      await enforceRateLimit(`ai:${session.shop}`);
 
       const form = await request.formData();
       const moduleId = String(form.get('moduleId') ?? '').trim();

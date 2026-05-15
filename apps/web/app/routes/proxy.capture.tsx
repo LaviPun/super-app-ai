@@ -81,6 +81,9 @@ export async function action({ request }: { request: Request }) {
         moduleId,
         captureType,
         payload,
+        customerId: typeof payload.customerId === 'string' || typeof payload.customerId === 'number'
+          ? String(payload.customerId)
+          : undefined,
         payloadSchemaVersion: 'v1',
         piiFlags,
         storeKey,

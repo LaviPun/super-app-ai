@@ -23,6 +23,8 @@
  * }
  */
 
+import { safeMeta } from '~/services/observability/redact.server';
+
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export type LogContext = {
@@ -53,6 +55,7 @@ function shouldLog(level: LogLevel): boolean {
 
 function emit(level: LogLevel, msg: string, ctx?: LogContext): void {
   if (!shouldLog(level)) return;
+  const safeCtx = safeMeta(ctx) as LogContext | undefined;
 
   if (IS_PRODUCTION) {
     // Single-line JSON for log aggregators
@@ -60,7 +63,7 @@ function emit(level: LogLevel, msg: string, ctx?: LogContext): void {
       ts: new Date().toISOString(),
       level,
       msg,
-      ...ctx,
+      ...safeCtx,
     });
     if (level === 'error' || level === 'warn') {
       process.stderr.write(line + '\n');
@@ -71,7 +74,7 @@ function emit(level: LogLevel, msg: string, ctx?: LogContext): void {
     // Human-friendly for local development
     const prefix = `[${level.toUpperCase()}]`;
     const parts = [prefix, msg];
-    if (ctx && Object.keys(ctx).length > 0) parts.push(JSON.stringify(ctx));
+    if (safeCtx && Object.keys(safeCtx).length > 0) parts.push(JSON.stringify(safeCtx));
     const out = parts.join(' ');
     if (level === 'error') console.error(out);
     else if (level === 'warn') console.warn(out);

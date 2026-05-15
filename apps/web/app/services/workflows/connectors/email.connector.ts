@@ -8,12 +8,10 @@ import type {
 } from '@superapp/core';
 import { connectorError, connectorSuccess } from '@superapp/core';
 
-/**
- * Email connector — sends emails via SMTP relay or HTTP-based email API.
- *
- * In production, wire to SendGrid, Postmark, AWS SES, or any SMTP relay.
- * This implementation uses a generic HTTP email API contract.
- */
+type EmailProvider = 'sendgrid' | 'generic';
+
+const DEFAULT_SENDGRID_API_URL = 'https://api.sendgrid.com/v3/mail/send';
+
 export class EmailConnector implements Connector {
   manifest(): ConnectorManifest {
     return {
@@ -94,61 +92,134 @@ export class EmailConnector implements Connector {
   }
 
   async invoke(auth: AuthContext, req: InvokeRequest): Promise<InvokeResult> {
-    /**
-     * Stub implementation — in production, call SendGrid / Postmark / SES API.
-     *
-     * ENV vars expected:
-     *   EMAIL_API_URL — e.g. https://api.sendgrid.com/v3/mail/send
-     *   EMAIL_FROM    — default sender
-     *
-     * The auth context provides the API key.
-     */
-    const apiUrl = process.env.EMAIL_API_URL;
-    if (!apiUrl) {
-      return connectorError('AUTH', 'EMAIL_API_URL not configured. Email connector requires an email service.');
-    }
-
     const apiKey = auth.type === 'api_key' ? auth.apiKey : undefined;
     if (!apiKey) {
       return connectorError('AUTH', 'Email connector requires api_key auth context');
     }
 
+    const provider = this.getProvider();
+    const apiUrl = this.getApiUrl(provider);
+    if (!apiUrl) {
+      return connectorError(
+        'AUTH',
+        'EMAIL_API_URL not configured for generic email provider. Set EMAIL_API_URL or use EMAIL_CONNECTOR_PROVIDER=sendgrid.',
+      );
+    }
+
     switch (req.operation) {
       case 'send':
-        return this.sendEmail(apiUrl, apiKey, req);
+        return this.sendEmail({ provider, apiUrl, apiKey, req });
       case 'sendInternal':
-        return this.sendInternalNotification(apiUrl, apiKey, req);
+        return this.sendInternalNotification({ provider, apiUrl, apiKey, req });
       default:
         return connectorError('VALIDATION', `Unknown operation: ${req.operation}`);
     }
   }
 
-  private async sendEmail(apiUrl: string, apiKey: string, req: InvokeRequest): Promise<InvokeResult> {
+  private getProvider(): EmailProvider {
+    const configured = process.env.EMAIL_CONNECTOR_PROVIDER;
+    if (configured === 'generic') return 'generic';
+    if (configured === 'sendgrid') return 'sendgrid';
+    return process.env.EMAIL_API_URL ? 'generic' : 'sendgrid';
+  }
+
+  private getApiUrl(provider: EmailProvider): string | undefined {
+    const configuredUrl = process.env.EMAIL_API_URL?.trim();
+    if (provider === 'sendgrid') return configuredUrl || DEFAULT_SENDGRID_API_URL;
+    return configuredUrl;
+  }
+
+  private buildApiKeyHeader(apiKey: string): Record<string, string> {
+    const keyHeader = process.env.EMAIL_API_KEY_HEADER?.trim() || 'Authorization';
+    const defaultPrefix = keyHeader.toLowerCase() === 'authorization' ? 'Bearer ' : '';
+    const keyPrefix = process.env.EMAIL_API_KEY_PREFIX ?? defaultPrefix;
+    return { [keyHeader]: `${keyPrefix}${apiKey}` };
+  }
+
+  private parseRetryAfterMs(value: string | null): number | undefined {
+    if (!value) return undefined;
+    const asNumber = Number(value);
+    if (!Number.isFinite(asNumber) || asNumber < 0) return undefined;
+    return Math.floor(asNumber * 1000);
+  }
+
+  private parseMessageId(responseText: string, headerMessageId: string | null): string {
+    if (headerMessageId && headerMessageId.trim()) return headerMessageId.trim();
+    if (!responseText) return `email-${Date.now()}`;
+    try {
+      const parsed = JSON.parse(responseText) as { messageId?: string; id?: string };
+      if (parsed.messageId && parsed.messageId.trim()) return parsed.messageId;
+      if (parsed.id && parsed.id.trim()) return parsed.id;
+    } catch {
+      // Ignore parse errors; message id falls back to synthetic id.
+    }
+    return `email-${Date.now()}`;
+  }
+
+  private buildPayload(provider: EmailProvider, inputs: Record<string, unknown>, fromEmail: string): Record<string, unknown> {
+    const { to, subject, body, replyTo } = inputs;
+    if (provider === 'sendgrid') {
+      return {
+        personalizations: [{ to: [{ email: to }] }],
+        from: { email: fromEmail },
+        reply_to: typeof replyTo === 'string' && replyTo.trim() ? { email: replyTo } : undefined,
+        subject,
+        content: [{ type: 'text/html', value: body }],
+      };
+    }
+
+    return {
+      to,
+      subject,
+      body,
+      from: fromEmail,
+      replyTo: typeof replyTo === 'string' && replyTo.trim() ? replyTo : undefined,
+      contentType: 'text/html',
+    };
+  }
+
+  private async sendEmail({
+    provider,
+    apiUrl,
+    apiKey,
+    req,
+  }: {
+    provider: EmailProvider;
+    apiUrl: string;
+    apiKey: string;
+    req: InvokeRequest;
+  }): Promise<InvokeResult> {
     const { to, subject, body, from, replyTo } = req.inputs;
-    const defaultFrom = process.env.EMAIL_FROM ?? 'noreply@superapp.ai';
+    const defaultFrom = process.env.EMAIL_FROM?.trim();
+    const selectedFrom = typeof from === 'string' && from.trim() ? from.trim() : defaultFrom;
+
+    if (!selectedFrom) {
+      return connectorError('AUTH', 'Email sender is not configured. Set EMAIL_FROM or provide "from" input.');
+    }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), req.timeoutMs);
+    const timeoutMs = Number.isFinite(req.timeoutMs) && req.timeoutMs > 0 ? req.timeoutMs : 15000;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const payload = this.buildPayload(provider, { to, subject, body, replyTo }, selectedFrom);
 
     try {
       const res = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
+          ...this.buildApiKeyHeader(apiKey),
         },
-        body: JSON.stringify({
-          personalizations: [{ to: [{ email: to }] }],
-          from: { email: from ?? defaultFrom },
-          reply_to: replyTo ? { email: replyTo } : undefined,
-          subject,
-          content: [{ type: 'text/html', value: body }],
-        }),
+        body: JSON.stringify(payload),
         signal: controller.signal,
       });
 
+      const responseText = await res.text();
+
       if (res.status === 429) {
-        return connectorError('RATE_LIMIT', 'Email API rate limited', { retryable: true, retryAfterMs: 5000 });
+        return connectorError('RATE_LIMIT', 'Email API rate limited', {
+          retryable: true,
+          retryAfterMs: this.parseRetryAfterMs(res.headers.get('Retry-After')) ?? 5000,
+        });
       }
 
       if (res.status >= 500) {
@@ -156,11 +227,11 @@ export class EmailConnector implements Connector {
       }
 
       if (!res.ok) {
-        const text = await res.text();
-        return connectorError('UPSTREAM', `Email API error: ${text}`);
+        const safeError = responseText.slice(0, 500);
+        return connectorError('UPSTREAM', `Email API returned ${res.status}: ${safeError || 'unknown error'}`);
       }
 
-      const messageId = res.headers.get('x-message-id') ?? `email-${Date.now()}`;
+      const messageId = this.parseMessageId(responseText, res.headers.get('x-message-id'));
       return connectorSuccess({ messageId, accepted: true });
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
@@ -172,15 +243,30 @@ export class EmailConnector implements Connector {
     }
   }
 
-  private async sendInternalNotification(apiUrl: string, apiKey: string, req: InvokeRequest): Promise<InvokeResult> {
-    const adminEmail = process.env.ADMIN_EMAIL;
+  private async sendInternalNotification({
+    provider,
+    apiUrl,
+    apiKey,
+    req,
+  }: {
+    provider: EmailProvider;
+    apiUrl: string;
+    apiKey: string;
+    req: InvokeRequest;
+  }): Promise<InvokeResult> {
+    const adminEmail = process.env.ADMIN_EMAIL?.trim();
     if (!adminEmail) {
       return connectorSuccess({ sent: false });
     }
 
-    return this.sendEmail(apiUrl, apiKey, {
-      ...req,
-      inputs: { ...req.inputs, to: adminEmail },
+    return this.sendEmail({
+      provider,
+      apiUrl,
+      apiKey,
+      req: {
+        ...req,
+        inputs: { ...req.inputs, to: adminEmail },
+      },
     });
   }
 }

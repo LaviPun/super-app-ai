@@ -9,13 +9,14 @@
     "start": "remix-serve build/server/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "eslint app scripts --format unix --max-warnings 250",
+    "lint": "eslint app scripts --format unix --max-warnings 100",
     "lint:fix": "eslint app scripts --fix",
     "prisma:migrate": "prisma migrate dev",
     "retention:run": "tsx --tsconfig tsconfig.scripts.json scripts/retention.ts",
     "seed:ai-pricing": "tsx --tsconfig tsconfig.scripts.json scripts/seed-ai-pricing.ts",
     "router:internal": "tsx --tsconfig tsconfig.scripts.json scripts/internal-ai-router.ts",
     "evals": "tsx --tsconfig tsconfig.scripts.json scripts/run-evals.ts",
+    "evals:strict": "pnpm evals --strict",
     "evals:live": "RUN_LIVE_EVALS=1 vitest run app/__tests__/evals.live.test.ts"
   },
   "dependencies": {

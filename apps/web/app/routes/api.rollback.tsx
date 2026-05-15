@@ -13,7 +13,7 @@ export async function action({ request }: { request: Request }) {
   return withApiLogging(
     { actor: 'MERCHANT', method: request.method, path: '/api/rollback', request, captureRequestBody: true, captureResponseBody: true },
     async () => {
-      enforceRateLimit(`rollback:${session.shop}`);
+      await enforceRateLimit(`rollback:${session.shop}`);
 
       const form = await request.formData();
       const moduleId = String(form.get('moduleId') ?? '').trim();
