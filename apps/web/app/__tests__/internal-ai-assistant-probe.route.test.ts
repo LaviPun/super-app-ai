@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LoaderFunctionArgs } from '@remix-run/node';
+import { AppError } from '~/services/errors/app-error.server';
 import { DEFAULT_ROUTER_RUNTIME_CONFIG } from '~/schemas/router-runtime-config.server';
 
 const probeTargetLivenessMock = vi.fn();
 const validateAssistantChatTargetMock = vi.fn();
 const getRouterRuntimeConfigMock = vi.fn();
 const requireInternalAdminMock = vi.fn();
+const isInternalAiLocalOnlyEnabledMock = vi.fn(() => false);
+const enforceInternalAiRateLimitMock = vi.fn();
 
 vi.mock('~/services/ai/assistant-chat-target-probe.server', () => ({
   probeTargetLiveness: probeTargetLivenessMock,
@@ -19,6 +23,14 @@ vi.mock('~/internal-admin/session.server', () => ({
   requireInternalAdmin: requireInternalAdminMock,
 }));
 
+vi.mock('~/env.server', () => ({
+  isInternalAiLocalOnlyEnabled: () => isInternalAiLocalOnlyEnabledMock(),
+}));
+
+vi.mock('~/services/security/rate-limit.server', () => ({
+  enforceInternalAiRateLimit: enforceInternalAiRateLimitMock,
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
   probeTargetLivenessMock.mockImplementation(async (input: { url?: string }) => ({
@@ -31,6 +43,8 @@ beforeEach(() => {
   }));
   requireInternalAdminMock.mockResolvedValue({ adminId: 'admin-1' });
   getRouterRuntimeConfigMock.mockResolvedValue({ config: DEFAULT_ROUTER_RUNTIME_CONFIG });
+  isInternalAiLocalOnlyEnabledMock.mockReturnValue(false);
+  enforceInternalAiRateLimitMock.mockResolvedValue(undefined);
 });
 
 describe('probeAssistantTargets', () => {
@@ -68,26 +82,55 @@ describe('probeAssistantTargets', () => {
     const result = await mod.probeAssistantTargets();
     expect(result.parseError).toContain('boom');
   });
+
+  it('skips modal probe calls while INTERNAL_AI_LOCAL_ONLY is enabled', async () => {
+    isInternalAiLocalOnlyEnabledMock.mockReturnValue(true);
+    const mod = await import('~/routes/internal.ai-assistant.probe');
+    const result = await mod.probeAssistantTargets();
+    expect(result.modalRemote.health.message).toContain('disabled');
+    expect(result.modalRemote.chatProbe.message).toContain('disabled');
+    expect(probeTargetLivenessMock).toHaveBeenCalledTimes(1);
+    expect(validateAssistantChatTargetMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('probe route loader', () => {
   it('requires internal admin', async () => {
     requireInternalAdminMock.mockRejectedValueOnce(new Response('Unauthorized', { status: 401 }));
     const mod = await import('~/routes/internal.ai-assistant.probe');
+    const args = { request: new Request('http://test/internal/ai-assistant/probe') } as LoaderFunctionArgs;
     await expect(
-      mod.loader({ request: new Request('http://test/internal/ai-assistant/probe') } as any),
+      mod.loader(args),
     ).rejects.toBeInstanceOf(Response);
   });
 
   it('returns JSON probe payload for an admin', async () => {
     const mod = await import('~/routes/internal.ai-assistant.probe');
-    const response = await mod.loader({
+    const args = {
       request: new Request('http://test/internal/ai-assistant/probe'),
-    } as any);
+    } as LoaderFunctionArgs;
+    const response = await mod.loader(args);
     expect(response).toBeInstanceOf(Response);
     expect(response.headers.get('Cache-Control')).toBe('no-store');
     const body = (await response.json()) as { localMachine?: unknown; modalRemote?: unknown };
     expect(body.localMachine).toBeDefined();
     expect(body.modalRemote).toBeDefined();
+  });
+
+  it('returns 429 when probe rate limit is exceeded', async () => {
+    enforceInternalAiRateLimitMock.mockRejectedValueOnce(
+      new AppError({
+        code: 'RATE_LIMITED',
+        message: 'Too many requests',
+        details: { retryAfterSec: '15' },
+      }),
+    );
+    const mod = await import('~/routes/internal.ai-assistant.probe');
+    const args = {
+      request: new Request('http://test/internal/ai-assistant/probe'),
+    } as LoaderFunctionArgs;
+    const response = await mod.loader(args);
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('15');
   });
 });

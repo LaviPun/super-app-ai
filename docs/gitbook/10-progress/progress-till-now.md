@@ -9,6 +9,7 @@ This page is the executive snapshot of delivery status. For line-by-line history
 - Agent-native remediation: complete (broad `/api/agent/*` parity and config/discovery support)
 - Universal module slot + metaobject-only architecture: complete
 - GitBook documentation restructuring and de-duplication: complete
+- Internal admin **AI Assistant** hardening (shared chat probes, release gate, SSRF tightening, audit retention, SSE keepalive): shipped — see `docs/implementation-status.md` (2026-05-14) and GitBook [`internal-ai-assistant.md`](../06-internal-admin/internal-ai-assistant.md)
 
 ## What is fully working
 
@@ -35,6 +36,7 @@ This page is the executive snapshot of delivery status. For line-by-line history
 
 ## Latest notable additions
 
+- Internal AI assistant: shared `validateAssistantChatTarget`, `/internal/ai-assistant/probe`, release-gate trip + banners, `INTERNAL_AI_ALLOW_HOSTS`, tool-audit retention cron, import dedupe by `clientRequestId`
 - Publish preflight scope guard with actionable `403` payloads
 - Merchant jobs page and traceability improvements
 - Template modernization defaults at scale
@@ -51,9 +53,4 @@ This page is the executive snapshot of delivery status. For line-by-line history
 - Delivery ledger: `docs/implementation-status.md`
 - Roadmap and backlog: `docs/phase-plan.md`
 - Architecture/spec: `docs/technical.md`, `docs/ai-module-main-doc.md`
-
-## Canonical references
-
-- Implementation history: `docs/implementation-status.md`
-- Forward plan: `docs/phase-plan.md`
-- Product and architecture baselines: `README.md`, `docs/technical.md`
+- Internal AI (navigation hub): `docs/gitbook/06-internal-admin/internal-ai-assistant.md` → `docs/internal-admin.md`, `docs/ai-providers.md`

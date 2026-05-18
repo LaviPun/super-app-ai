@@ -1,8 +1,10 @@
 import { z } from 'zod';
-import { getRouterRuntimeConfig } from '~/services/ai/router-runtime-config.server';
+import { isInternalAiLocalOnlyEnabled } from '~/env.server';
 import type { RouterRuntimeConfig } from '~/schemas/router-runtime-config.server';
+import { isReferenceLocalPromptRouterBaseUrl } from '~/services/ai/assistant-router-local.server';
 import type { AssistantMode } from '~/services/ai/internal-assistant-store.server';
 import { formatToolContext, runAssistantTool, selectToolsForPrompt, type AssistantToolRunResult } from '~/services/ai/internal-assistant-tools.server';
+import { getRouterRuntimeConfig } from '~/services/ai/router-runtime-config.server';
 import { assertSafeTargetUrl as assertSafeUrl } from '~/services/security/ssrf.server';
 
 const AssistantTargetSchema = z.enum(['localMachine', 'modalRemote']);
@@ -30,7 +32,7 @@ export type AssistantChatResult = {
 export type AssistantStreamEvent =
   | { type: 'token'; text: string }
   | { type: 'tool_result'; tool: string; ok: boolean; data: Record<string, unknown> }
-  | { type: 'done'; meta: Omit<AssistantChatResult, 'reply'> };
+  | { type: 'done'; meta: Omit<AssistantChatResult, 'reply' | 'toolResults'> };
 
 type ResolvedAssistantTargetConfig = {
   target: AssistantTarget;
@@ -52,6 +54,7 @@ const SYSTEM_PROMPT = [
   'You are Qwen3, an internal operations copilot.',
   'Priorities: accuracy, concise reasoning, actionable output, no secrets leakage.',
   'If tool snapshots are provided, use them as source-of-truth system state.',
+  'Tool safety: unscoped log/error tools only return aggregated redacted summaries. To get row-level details, include an explicit myshopify domain in the request.',
 ].join(' ');
 
 function getTargetPrefix(target: AssistantTarget): 'LOCAL_ROUTER' | 'MODAL_ROUTER' {
@@ -142,11 +145,13 @@ function buildPromptMessages(params: {
 }
 
 async function runToolsIfNeeded(prompt: string) {
+  const shopDomainMatch = prompt.match(/\b([a-z0-9][a-z0-9-]*\.myshopify\.com)\b/i);
+  const shopDomain = shopDomainMatch?.[1]?.toLowerCase();
   const tools = selectToolsForPrompt(prompt);
   const results: AssistantToolRunResult[] = [];
   for (const tool of tools) {
     try {
-      results.push(await runAssistantTool(tool));
+      results.push(await runAssistantTool(tool, { shopDomain }));
     } catch (error) {
       results.push({
         toolName: tool,
@@ -159,6 +164,29 @@ async function runToolsIfNeeded(prompt: string) {
   }
   return results;
 }
+
+export class AssistantUpstreamHttpError extends Error {
+  override readonly name = 'AssistantUpstreamHttpError';
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly endpoint: string,
+    public readonly bodySnippet: string,
+  ) {
+    super(message);
+  }
+}
+
+type OllamaModelSelection = {
+  requestedModel: string;
+  selectedModel: string;
+  availableModels: string[];
+};
+
+type OllamaSendResult = {
+  response: Response;
+  model: string;
+};
 
 async function sendViaOpenAiCompatible(params: {
   config: ResolvedAssistantTargetConfig;
@@ -200,21 +228,25 @@ async function sendViaOpenAiCompatible(params: {
 
       lastStatus = response.status;
       lastBody = (await response.text()).slice(0, 300);
-      if (response.status !== 404) {
-        break;
-      }
-    }
-    if (lastStatus === 404) {
-      throw new Error(
-        [
-          `Assistant upstream error 404: ${lastBody || 'Not Found'}`,
-          `Configured URL (${baseUrl}) does not expose a compatible chat endpoint.`,
-          `Tried: ${endpointCandidates.join(', ')}`,
-          `Update target URL/backend in /internal/model-setup.`,
-        ].join(' '),
+      if (response.status === 404) continue;
+      throw new AssistantUpstreamHttpError(
+        `Assistant upstream error ${response.status}: ${lastBody} (endpoint ${endpoint})`,
+        response.status,
+        endpoint,
+        lastBody,
       );
     }
-    throw new Error(`Assistant upstream error ${lastStatus}: ${lastBody} (endpoint ${lastEndpoint})`);
+    throw new AssistantUpstreamHttpError(
+      [
+        `Assistant upstream error 404: ${lastBody || 'Not Found'}`,
+        `Configured URL (${baseUrl}) does not expose a compatible chat endpoint.`,
+        `Tried: ${endpointCandidates.join(', ')}`,
+        `Update target URL/backend in /internal/model-setup.`,
+      ].join(' '),
+      404,
+      lastEndpoint ?? endpointCandidates[0]!,
+      lastBody,
+    );
   } finally {
     clearTimeout(timeout);
   }
@@ -224,29 +256,59 @@ async function sendViaOllama(params: {
   config: ResolvedAssistantTargetConfig;
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
   stream?: boolean;
-}) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), params.config.timeoutMs);
-  try {
-    const response = await fetch(`${params.config.url.replace(/\/+$/, '')}/api/chat`, {
+}): Promise<OllamaSendResult> {
+  const baseUrl = params.config.url.replace(/\/+$/, '');
+  const sendWithModel = async (model: string, controller: AbortController) =>
+    fetch(`${baseUrl}/api/chat`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         ...(params.config.token ? { authorization: `Bearer ${params.config.token}` } : {}),
       },
       body: JSON.stringify({
-        model: params.config.model,
+        model,
         messages: params.messages,
         stream: params.stream === true,
         options: { temperature: 0.2 },
       }),
       signal: controller.signal,
     });
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`Assistant upstream error ${response.status}: ${body.slice(0, 300)}`);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), params.config.timeoutMs);
+  try {
+    const initial = await sendWithModel(params.config.model, controller);
+    if (initial.ok) return { response: initial, model: params.config.model };
+
+    const body = (await initial.text()).slice(0, 400);
+    const fallbackModel = await resolveOllamaMissingModelFallback({
+      baseUrl,
+      token: params.config.token,
+      timeoutMs: params.config.timeoutMs,
+      status: initial.status,
+      body,
+      requestedModel: params.config.model,
+    });
+    if (fallbackModel) {
+      const retry = await sendWithModel(fallbackModel.selectedModel, controller);
+      if (retry.ok) return { response: retry, model: fallbackModel.selectedModel };
+      const retryBody = (await retry.text()).slice(0, 400);
+      throw new AssistantUpstreamHttpError(
+        `Assistant upstream error ${retry.status}: ${retryBody}`,
+        retry.status,
+        '/api/chat',
+        retryBody,
+      );
     }
-    return response;
+
+    throw buildOllamaMissingModelError({
+      status: initial.status,
+      body,
+      requestedModel: params.config.model,
+      localOnly: isInternalAiLocalOnlyEnabled(),
+      endpoint: '/api/chat',
+      baseUrl,
+    });
   } finally {
     clearTimeout(timeout);
   }
@@ -345,13 +407,59 @@ async function* readStreamingResponse(response: Response, backend: ResolvedAssis
   }
 }
 
+type ResolvedBackend = ResolvedAssistantTargetConfig['backend'];
+
+type TrySendResult = { response: Response; streamBackend: ResolvedBackend; resolvedModel: string };
+
+function isUseless422BodySnippet(snip: string): boolean {
+  const t = snip.trim();
+  if (t.length === 0) return true;
+  if (t.length >= 32) return false;
+  return true;
+}
+
+function shouldAttemptOllamaAfterOpenAiFailure(
+  config: ResolvedAssistantTargetConfig,
+  error: unknown,
+): boolean {
+  if (!isReferenceLocalPromptRouterBaseUrl(config.url)) return false;
+  if (config.backend !== 'qwen3' && config.backend !== 'openai') return false;
+  if (!(error instanceof AssistantUpstreamHttpError)) return false;
+  if (error.status === 404) return false;
+  if ([502, 503, 504, 401, 403].includes(error.status)) return true;
+  if (error.status === 422) return isUseless422BodySnippet(error.bodySnippet);
+  return false;
+}
+
+/**
+ * Reference `internal-ai-router`: try OpenAI-compatible paths first (`/v1/chat/completions`,
+ * `/chat/completions`, `/api/chat/completions`); on reference-local base only, if that fails with
+ * 502/503/504/401/403 or a 422 with a useless body, one attempt via Ollama `POST /api/chat` before
+ * surfacing the error. Remote hosts (e.g. Modal) never use this Ollama fallback.
+ */
 async function trySend(params: {
   config: ResolvedAssistantTargetConfig;
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
   stream?: boolean;
-}) {
-  if (params.config.backend === 'ollama') return sendViaOllama(params);
-  return sendViaOpenAiCompatible(params);
+}): Promise<TrySendResult> {
+  if (params.config.backend === 'ollama') {
+    const result = await sendViaOllama(params);
+    return { response: result.response, streamBackend: 'ollama', resolvedModel: result.model };
+  }
+  if (params.config.backend === 'custom') {
+    const response = await sendViaOpenAiCompatible(params);
+    return { response, streamBackend: 'custom', resolvedModel: params.config.model };
+  }
+  try {
+    const response = await sendViaOpenAiCompatible(params);
+    return { response, streamBackend: params.config.backend, resolvedModel: params.config.model };
+  } catch (error) {
+    if (shouldAttemptOllamaAfterOpenAiFailure(params.config, error)) {
+      const result = await sendViaOllama(params);
+      return { response: result.response, streamBackend: 'ollama', resolvedModel: result.model };
+    }
+    throw error;
+  }
 }
 
 async function resolveWithFailover(target: AssistantTarget, allowFallback: boolean) {
@@ -369,6 +477,12 @@ export async function sendInternalAssistantChat(input: {
   allowFallback?: boolean;
 }): Promise<AssistantChatResult> {
   const target = AssistantTargetSchema.parse(input.target);
+  if (isInternalAiLocalOnlyEnabled() && target === 'modalRemote') {
+    throw new Error(
+      'Cloud assistant target is disabled while INTERNAL_AI_LOCAL_ONLY is set. Switch the session to Local or unset INTERNAL_AI_LOCAL_ONLY.',
+    );
+  }
+  const allowCrossTargetFallback = (input.allowFallback ?? true) && !isInternalAiLocalOnlyEnabled();
   const prompt = input.messages[input.messages.length - 1]?.content ?? '';
   const toolResults = await runToolsIfNeeded(prompt);
   const promptMessages = buildPromptMessages({
@@ -378,27 +492,29 @@ export async function sendInternalAssistantChat(input: {
     toolResults,
   });
   const startedAt = Date.now();
-  const { primary, fallback } = await resolveWithFailover(target, input.allowFallback ?? true);
+  const { primary, fallback } = await resolveWithFailover(target, allowCrossTargetFallback);
   let used = primary;
   let hadFallback = false;
   let response: Response;
+  let streamBackend: ResolvedBackend = used.backend;
+  let resolvedModel = used.model;
   try {
-    response = await trySend({ config: primary, messages: promptMessages, stream: false });
+    ({ response, streamBackend, resolvedModel } = await trySend({ config: primary, messages: promptMessages, stream: false }));
   } catch (primaryError) {
     if (!fallback) throw primaryError;
     used = fallback;
     hadFallback = true;
     try {
-      response = await trySend({ config: fallback, messages: promptMessages, stream: false });
+      ({ response, streamBackend, resolvedModel } = await trySend({ config: fallback, messages: promptMessages, stream: false }));
     } catch {
       throw primaryError;
     }
   }
-  const parsed = await readNonStreamingResponse(response, used.backend);
+  const parsed = await readNonStreamingResponse(response, streamBackend);
   return {
     target: used.target,
-    backend: used.backend,
-    model: used.model,
+    backend: streamBackend,
+    model: resolvedModel,
     reply: parsed.reply,
     latencyMs: Date.now() - startedAt,
     tokensIn: parsed.tokensIn,
@@ -416,6 +532,12 @@ export async function* streamInternalAssistantChat(input: {
   allowFallback?: boolean;
 }): AsyncGenerator<AssistantStreamEvent, AssistantChatResult, void> {
   const target = AssistantTargetSchema.parse(input.target);
+  if (isInternalAiLocalOnlyEnabled() && target === 'modalRemote') {
+    throw new Error(
+      'Cloud assistant target is disabled while INTERNAL_AI_LOCAL_ONLY is set. Switch the session to Local or unset INTERNAL_AI_LOCAL_ONLY.',
+    );
+  }
+  const allowCrossTargetFallback = (input.allowFallback ?? true) && !isInternalAiLocalOnlyEnabled();
   const prompt = input.messages[input.messages.length - 1]?.content ?? '';
   const toolResults = await runToolsIfNeeded(prompt);
   for (const result of toolResults) {
@@ -430,18 +552,20 @@ export async function* streamInternalAssistantChat(input: {
   });
 
   const startedAt = Date.now();
-  const { primary, fallback } = await resolveWithFailover(target, input.allowFallback ?? true);
+  const { primary, fallback } = await resolveWithFailover(target, allowCrossTargetFallback);
   let used = primary;
   let hadFallback = false;
   let response: Response;
+  let streamBackend: ResolvedBackend = used.backend;
+  let resolvedModel = used.model;
   try {
-    response = await trySend({ config: primary, messages: promptMessages, stream: true });
+    ({ response, streamBackend, resolvedModel } = await trySend({ config: primary, messages: promptMessages, stream: true }));
   } catch (primaryError) {
     if (!fallback) throw primaryError;
     used = fallback;
     hadFallback = true;
     try {
-      response = await trySend({ config: fallback, messages: promptMessages, stream: true });
+      ({ response, streamBackend, resolvedModel } = await trySend({ config: fallback, messages: promptMessages, stream: true }));
     } catch {
       throw primaryError;
     }
@@ -450,7 +574,7 @@ export async function* streamInternalAssistantChat(input: {
   let tokensIn = 0;
   let tokensOut = 0;
   let reply = '';
-  for await (const part of readStreamingResponse(response, used.backend)) {
+  for await (const part of readStreamingResponse(response, streamBackend)) {
     if (typeof part.token === 'string' && part.token.length > 0) {
       reply += part.token;
       yield { type: 'token', text: part.token };
@@ -464,8 +588,8 @@ export async function* streamInternalAssistantChat(input: {
 
   const result: AssistantChatResult = {
     target: used.target,
-    backend: used.backend,
-    model: used.model,
+    backend: streamBackend,
+    model: resolvedModel,
     reply: reply.trim(),
     latencyMs: Date.now() - startedAt,
     tokensIn,
@@ -483,8 +607,115 @@ export async function* streamInternalAssistantChat(input: {
       tokensIn: result.tokensIn,
       tokensOut: result.tokensOut,
       hadFallback: result.hadFallback,
-      toolResults: result.toolResults,
     },
   };
   return result;
+}
+
+function parseOllamaModelNotFoundMessage(body: string): { requestedModel: string } | null {
+  const direct = body.match(/model\s+'([^']+)'\s+not found/i);
+  if (direct?.[1]) return { requestedModel: direct[1] };
+  const generic = body.match(/model\s+"([^"]+)"\s+not found/i);
+  if (generic?.[1]) return { requestedModel: generic[1] };
+  return null;
+}
+
+function chooseOllamaFallbackModel(requestedModel: string, availableModels: string[]): string | null {
+  if (availableModels.length === 0) return null;
+  const requested = requestedModel.trim().toLowerCase();
+  const exactDefault = availableModels.find((m) => m.toLowerCase() === 'qwen3:4b-instruct');
+  if (exactDefault && exactDefault.toLowerCase() !== requested) return exactDefault;
+  const qwenVariant = availableModels.find((m) => m.toLowerCase().startsWith('qwen3:'));
+  if (qwenVariant && qwenVariant.toLowerCase() !== requested) return qwenVariant;
+  const first = availableModels[0];
+  if (first && first.toLowerCase() !== requested) return first;
+  return null;
+}
+
+async function listOllamaModels(params: {
+  baseUrl: string;
+  token?: string;
+  timeoutMs: number;
+}): Promise<string[]> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.min(params.timeoutMs, 5000));
+  try {
+    const response = await fetch(`${params.baseUrl}/api/tags`, {
+      method: 'GET',
+      headers: {
+        accept: 'application/json',
+        ...(params.token ? { authorization: `Bearer ${params.token}` } : {}),
+      },
+      signal: controller.signal,
+    });
+    if (!response.ok) return [];
+    const json = (await response.json()) as { models?: Array<{ name?: string }> };
+    if (!Array.isArray(json.models)) return [];
+    return json.models
+      .map((entry) => (typeof entry?.name === 'string' ? entry.name.trim() : ''))
+      .filter((name) => name.length > 0);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function resolveOllamaMissingModelFallback(params: {
+  baseUrl: string;
+  token?: string;
+  timeoutMs: number;
+  status: number;
+  body: string;
+  requestedModel: string;
+}): Promise<OllamaModelSelection | null> {
+  if (params.status !== 404) return null;
+  const parsed = parseOllamaModelNotFoundMessage(params.body);
+  if (!parsed) return null;
+  const availableModels = await listOllamaModels({
+    baseUrl: params.baseUrl,
+    token: params.token,
+    timeoutMs: params.timeoutMs,
+  });
+  const selectedModel = chooseOllamaFallbackModel(parsed.requestedModel || params.requestedModel, availableModels);
+  if (!selectedModel) return null;
+  return {
+    requestedModel: parsed.requestedModel || params.requestedModel,
+    selectedModel,
+    availableModels,
+  };
+}
+
+function buildOllamaMissingModelError(params: {
+  status: number;
+  body: string;
+  requestedModel: string;
+  localOnly: boolean;
+  endpoint: string;
+  baseUrl: string;
+}): AssistantUpstreamHttpError {
+  const parsed = parseOllamaModelNotFoundMessage(params.body);
+  if (params.status === 404 && parsed) {
+    const requested = parsed.requestedModel || params.requestedModel;
+    const fallbackHint = params.localOnly
+      ? 'Cloud fallback is disabled while INTERNAL_AI_LOCAL_ONLY is set.'
+      : 'If cloud target is enabled, assistant can fail over to Cloud automatically.';
+    return new AssistantUpstreamHttpError(
+      [
+        `Local model "${requested}" is not installed on this Ollama host.`,
+        `Pull it with: ollama pull ${requested}`,
+        `Then retry, or change model in /internal/model-setup.`,
+        fallbackHint,
+      ].join(' '),
+      404,
+      params.endpoint,
+      params.body,
+    );
+  }
+  return new AssistantUpstreamHttpError(
+    `Assistant upstream error ${params.status}: ${params.body}`,
+    params.status,
+    params.endpoint,
+    params.body,
+  );
 }

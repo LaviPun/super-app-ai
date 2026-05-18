@@ -1,13 +1,20 @@
 import { requireInternalAdmin } from '~/internal-admin/session.server';
+import { isInternalAiLocalOnlyEnabled } from '~/env.server';
+import { AppError } from '~/services/errors/app-error.server';
 import {
   streamInternalAssistantChat,
   type AssistantStreamEvent,
 } from '~/services/ai/internal-assistant.server';
 import {
+  estimateCostCentsFromDbRates,
+  providerKindsForAssistantBackend,
+} from '~/services/ai/cost-estimate.server';
+import {
   InternalAssistantStoreService,
   type AssistantMessageRecord,
 } from '~/services/ai/internal-assistant-store.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import { enforceInternalAiRateLimit } from '~/services/security/rate-limit.server';
 import { z } from 'zod';
 
 const StreamRequestSchema = z.object({
@@ -42,6 +49,12 @@ export interface RunAssistantStreamDeps {
   >;
   activity: Pick<ActivityLogService, 'log'>;
   streamChat: typeof streamInternalAssistantChat;
+  estimateCostCents?: (meta: {
+    backend: 'ollama' | 'openai' | 'qwen3' | 'custom';
+    model: string;
+    tokensIn: number;
+    tokensOut: number;
+  }) => Promise<number>;
   heartbeatIntervalMs?: number;
 }
 
@@ -76,6 +89,7 @@ export async function* runAssistantStream(
   deps: RunAssistantStreamDeps,
 ): AsyncGenerator<SseFrame> {
   const { store, activity, streamChat } = deps;
+  const estimateCostCents = deps.estimateCostCents ?? (async () => 0);
   const heartbeatMs = deps.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS;
 
   const session = await store.getSession(input.sessionId);
@@ -294,6 +308,7 @@ export async function* runAssistantStream(
           continue;
         }
         if (event.type === 'done') {
+          const estimatedCostCents = await estimateCostCents(event.meta);
           // 3.16: empty model output is an error, not a synthetic placeholder.
           if (fullReply.trim() === '') {
             const failed = await store.updateMessage(assistantMessage.id, {
@@ -303,7 +318,7 @@ export async function* runAssistantStream(
               latencyMs: event.meta.latencyMs,
               tokensIn: event.meta.tokensIn,
               tokensOut: event.meta.tokensOut,
-              estimatedCostCents: 0,
+              estimatedCostCents,
               hadFallback: event.meta.hadFallback,
               retryCount,
               status: 'error',
@@ -330,7 +345,7 @@ export async function* runAssistantStream(
             latencyMs: event.meta.latencyMs,
             tokensIn: event.meta.tokensIn,
             tokensOut: event.meta.tokensOut,
-            estimatedCostCents: 0,
+            estimatedCostCents,
             hadFallback: event.meta.hadFallback,
             retryCount,
             status: 'completed',
@@ -403,6 +418,18 @@ export async function* runAssistantStream(
 
 export async function action({ request }: { request: Request }) {
   await requireInternalAdmin(request);
+  try {
+    await enforceInternalAiRateLimit(request, 'stream');
+  } catch (error) {
+    if (error instanceof AppError && error.code === 'RATE_LIMITED') {
+      const retryAfterSec = Number(error.details?.retryAfterSec ?? 60);
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json', 'Retry-After': String(retryAfterSec) },
+      });
+    }
+    throw error;
+  }
   const body = await request.json().catch(() => ({}));
   const input = StreamRequestSchema.parse(body);
 
@@ -417,6 +444,17 @@ export async function action({ request }: { request: Request }) {
     });
   }
 
+  const target = input.target ?? session.mode;
+  if (isInternalAiLocalOnlyEnabled() && target === 'modalRemote') {
+    return new Response(
+      JSON.stringify({
+        error:
+          'Cloud assistant target is disabled while INTERNAL_AI_LOCAL_ONLY is set. Switch the session to Local or unset INTERNAL_AI_LOCAL_ONLY.',
+      }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -424,6 +462,13 @@ export async function action({ request }: { request: Request }) {
         store,
         activity,
         streamChat: streamInternalAssistantChat,
+        estimateCostCents: (meta) =>
+          estimateCostCentsFromDbRates({
+            model: meta.model,
+            tokensIn: meta.tokensIn,
+            tokensOut: meta.tokensOut,
+            providerKinds: providerKindsForAssistantBackend(meta.backend),
+          }),
       });
       try {
         for await (const frame of generator) {

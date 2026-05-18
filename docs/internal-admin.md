@@ -10,10 +10,11 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 | Port | Use | How to run |
 |------|-----|------------|
 | **3000** | Shopify embedded app (merchant-facing) | `shopify app dev` from repo root |
-| **4000** | Internal admin only | From `apps/web`: `pnpm dev:internal` |
+| **4000** | Internal admin only | From `apps/web`: `pnpm dev:internal` (runs **Remix** on 4000 and the **internal-ai-router** on **8787** in parallel via `concurrently`; stop with Ctrl+C once to exit both) |
+| **8787** | Reference internal prompt router + Ollama passthrough | Started automatically with `pnpm dev:internal`; or run alone: `pnpm --filter web router:internal`. Requires **Ollama** (`ollama serve`) for inference or router calls to Ollama will fail (502/timeouts). |
 
 - **Shopify app** must run on **3000** so the CLI tunnel and Partner Dashboard point to the correct URL.
-- **Internal admin** runs on **4000** so you can use it without touching the Shopify app. Open **http://localhost:4000/internal/login**.
+- **Internal admin** runs on **4000** so you can use it without touching the Shopify app. Open **http://127.0.0.1:4000/internal/login** (`dev:internal` binds `--host 127.0.0.1` so smoke/Playwright match CI). When a Shopify Cloudflare tunnel URL in `shopify.app.toml` is expired (NXDOMAIN), use this local URL for staging-gate smoke and e2e instead of the tunnel.
 - **Environment:** `apps/web/.env` must include all vars in `apps/web/.env.example`, including **`SCOPES`** (comma-separated, same list as `shopify.app.toml` `[access_scopes]`). If `SCOPES` is missing, SSR boot fails with `[env] Boot failed — invalid environment: SCOPES: Required`. See [Shopify dev setup](shopify-dev-setup.md), section 4 (Environment variables).
 
 ---
@@ -159,8 +160,10 @@ For **Modal**, deploy [`deploy/modal-qwen-router/modal_app.py`](../deploy/modal-
 
 ### 3) Runtime behavior
 
+- New sessions default to **Local** mode (`localMachine`) unless an explicit cloud target is requested and local-only guardrails are off.
 - Session mode controls which target is preferred per chat.
 - If preferred target fails and fallback is available, assistant attempts failover.
+- Assistant status UI now shows one primary readiness summary (active target health + chat readiness) plus optional standby target detail, instead of duplicate mixed indicators.
 - Tool snapshots are sanitized and injected as context when user intent asks for health/errors/logs.
 - Every tool execution is written to `InternalAiToolAudit` and activity logs.
 - Chat streaming uses SSE with request-id idempotency, so reconnect attempts resume from persisted assistant state instead of creating duplicate turns.
@@ -189,6 +192,7 @@ For **Modal**, deploy [`deploy/modal-qwen-router/modal_app.py`](../deploy/modal-
 
 - Implementation: [`internal-ai-audit-retention.job.ts`](../apps/web/app/services/jobs/internal-ai-audit-retention.job.ts) deletes rows whose `createdAt` is older than the configured retention window.
 - Retention window: `INTERNAL_AI_TOOL_AUDIT_RETENTION_DAYS` env var, default `90`. Non-finite or non-positive values fall back to the default.
+- Chat message retention window: `INTERNAL_AI_CHAT_MESSAGE_RETENTION_DAYS` env var, default `30` (used by the internal assistant message retention job).
 - The cron loader runs the purge at most once per **24 hours** per process via an in-memory `lastAuditRetentionRunAt` marker; calling `/api/cron` more frequently is harmless but a no-op after the first daily run.
 - The response of `/api/cron` includes `auditRetention: { deleted, retentionDays, cutoff }` on the day the purge runs and `null` on subsequent same-day calls.
 
@@ -196,6 +200,8 @@ For **Modal**, deploy [`deploy/modal-qwen-router/modal_app.py`](../deploy/modal-
 
 - **SSE heartbeat.** [`internal.ai-assistant.chat.stream.tsx`](../apps/web/app/routes/internal.ai-assistant.chat.stream.tsx) emits a `:keepalive` SSE comment frame every **15 seconds** (`HEARTBEAT_INTERVAL_MS`) while waiting for model tokens. SSE comments are silently discarded by `EventSource` clients but keep idle proxy/CDN connections from being closed mid-stream.
 - **Empty model reply.** A response whose `fullReply.trim()` is empty is no longer stored as the placeholder content `"No response generated."`. The assistant message is updated with `status='error'` and `error='Empty model response'`, and an `error` SSE frame is pushed. The UI already renders the existing error chip for `status='error'`.
+- **Rate limiting.** Stream and probe endpoints enforce per-IP internal rate limits (`stream`: 10/min, `probe`: 30/min) and return HTTP `429` with `Retry-After` when exceeded.
+- **Estimated cost persistence.** Completed assistant messages persist server-side `estimatedCostCents` from model pricing rows (`AiModelPrice`) using backend→provider mapping.
 - **Activity log.** `AI_ASSISTANT_QUERY` now fires on **every** attempt (not just the first), with `attempt: <number>` in the details. Retries are countable. The new event `ROUTER_RELEASE_GATE_TRIPPED` is emitted by the prompt router when the rolling release gate trips.
 
 ### Import session dedupe
@@ -220,6 +226,7 @@ pnpm prisma generate
 
 - Ensure internal admin env vars are present (password/SSO/session secret).
 - Ensure both local/cloud model target URLs and tokens are configured in `/internal/model-setup`.
+- `ALLOW_MERCHANT_CODE_EXECUTION` should stay unset/false; merchant RecipeSpec generation paths hard-block Anthropic code execution regardless of provider `extraConfig`.
 - Verify SSE compatibility at proxy/load-balancer (no response buffering for `text/event-stream`).
 
 ## Jobs and DLQ

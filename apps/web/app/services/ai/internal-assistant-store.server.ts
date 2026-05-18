@@ -71,11 +71,32 @@ function isNonSqliteSchemaError(error: unknown): boolean {
   );
 }
 
+function isNonSqliteBootstrapError(error: unknown): boolean {
+  if (isNonSqliteSchemaError(error)) return true;
+  if (!error || typeof error !== 'object') return false;
+  const message = (error as { message?: unknown }).message;
+  if (typeof message !== 'string') return false;
+  return (
+    /type\s+"DATETIME"\s+does not exist/i.test(message) ||
+    /syntax error at or near/i.test(message)
+  );
+}
+
+function isRuntimeSqliteDatabase(): boolean {
+  const databaseUrl = process.env.DATABASE_URL?.trim().toLowerCase();
+  if (!databaseUrl) return false;
+  return databaseUrl.startsWith('file:') || databaseUrl.startsWith('sqlite:');
+}
+
 let internalAiMessageSchemaEnsured = false;
 let ensureInternalAiMessageSchemaPromise: Promise<void> | null = null;
 
 async function ensureInternalAiMessageSchema() {
   if (internalAiMessageSchemaEnsured) return;
+  if (!isRuntimeSqliteDatabase()) {
+    internalAiMessageSchemaEnsured = true;
+    return;
+  }
   if (ensureInternalAiMessageSchemaPromise) return ensureInternalAiMessageSchemaPromise;
   ensureInternalAiMessageSchemaPromise = (async () => {
     try {
@@ -97,7 +118,7 @@ async function ensureInternalAiMessageSchema() {
       await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "InternalAiMessage_sessionId_clientRequestId_idx" ON "InternalAiMessage"("sessionId", "clientRequestId")');
       await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "InternalAiMessage_responseToMessageId_idx" ON "InternalAiMessage"("responseToMessageId")');
     } catch (error) {
-      if (isNonSqliteSchemaError(error)) {
+      if (isNonSqliteBootstrapError(error)) {
         console.info('[internal-assistant-store] non-SQLite database detected; relying on Prisma migrations');
       } else {
         throw error;
@@ -117,6 +138,12 @@ async function ensureInternalAiTables() {
   if (internalAiTablesEnsured) return;
   if (ensureInternalAiTablesPromise) return ensureInternalAiTablesPromise;
   ensureInternalAiTablesPromise = (async () => {
+    if (!isRuntimeSqliteDatabase()) {
+      console.info('[internal-assistant-store] non-SQLite database detected; skipping SQLite bootstrap and relying on Prisma migrations');
+      internalAiMessageSchemaEnsured = true;
+      internalAiTablesEnsured = true;
+      return;
+    }
     try {
       const prisma = getPrisma();
       await prisma.$executeRawUnsafe(`
@@ -185,7 +212,7 @@ async function ensureInternalAiTables() {
     await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "InternalAiToolAudit_sessionId_createdAt_idx" ON "InternalAiToolAudit"("sessionId", "createdAt")');
     await ensureInternalAiMessageSchema();
     } catch (error) {
-      if (isNonSqliteSchemaError(error)) {
+      if (isNonSqliteBootstrapError(error)) {
         console.info('[internal-assistant-store] non-SQLite database detected; relying on Prisma migrations');
       } else {
         throw error;

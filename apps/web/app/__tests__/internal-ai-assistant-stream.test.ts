@@ -6,6 +6,12 @@ import {
 } from '~/routes/internal.ai-assistant.chat.stream';
 import type { AssistantStreamEvent } from '~/services/ai/internal-assistant.server';
 
+vi.mock('~/services/security/rate-limit.server', () => ({
+  enforceInternalAiRateLimit: vi.fn(),
+  enforceRateLimit: vi.fn(),
+  getClientIp: vi.fn(() => '127.0.0.1'),
+}));
+
 type StoreMock = {
   getSession: ReturnType<typeof vi.fn>;
   findUserMessageByRequest: ReturnType<typeof vi.fn>;
@@ -76,7 +82,7 @@ function makeStore(): StoreMock {
   };
 }
 
-const activity = { log: vi.fn(async () => undefined) };
+const activity = { log: vi.fn(async (_payload: unknown) => undefined) };
 
 function makeAsyncStream(events: AssistantStreamEvent[]) {
   return async function* () {
@@ -216,7 +222,7 @@ describe('runAssistantStream', () => {
       (call) => typeof call[1] === 'object' && call[1] && (call[1] as { content?: string }).content,
     );
     expect(updateCalls.length).toBeGreaterThanOrEqual(1);
-    expect((updateCalls[0][1] as { content: string }).content.length).toBeGreaterThanOrEqual(120);
+    expect((updateCalls[0]?.[1] as { content?: string } | undefined)?.content?.length ?? 0).toBeGreaterThanOrEqual(120);
   });
 
   it('emits error frame and persists status=error when streamChat throws', async () => {
@@ -307,11 +313,15 @@ describe('runAssistantStream', () => {
         { store, activity, streamChat: streamChat as never },
       ),
     );
-    const queryCalls = activity.log.mock.calls.filter(
-      (c) => (c[0] as { action?: string }).action === 'AI_ASSISTANT_QUERY',
-    );
+    const queryCalls = activity.log.mock.calls.filter((c) => {
+      const payload = c[0] as unknown as { action?: string } | undefined;
+      return payload?.action === 'AI_ASSISTANT_QUERY';
+    });
     expect(queryCalls.length).toBe(2);
-    const attempts = queryCalls.map((c) => (c[0] as { details: { attempt: number } }).details.attempt);
+    const attempts = queryCalls.map((c) => {
+      const payload = c[0] as unknown as { details?: { attempt?: number } } | undefined;
+      return payload?.details?.attempt ?? 0;
+    });
     expect(attempts).toEqual([1, 2]);
   });
 
@@ -344,6 +354,43 @@ describe('runAssistantStream', () => {
     );
     expect(errPatch).toBeDefined();
     expect((errPatch?.[1] as { error?: string }).error).toBe('Empty model response');
+  });
+
+  it('persists estimatedCostCents from server-side estimator', async () => {
+    const store = makeStore();
+    const streamChat = vi.fn(makeAsyncStream([
+      { type: 'token', text: 'hello' },
+      {
+        type: 'done',
+        meta: {
+          target: 'localMachine',
+          backend: 'openai',
+          model: 'gpt-4o-mini',
+          latencyMs: 5,
+          tokensIn: 1200,
+          tokensOut: 800,
+          hadFallback: false,
+        },
+      },
+    ]));
+
+    await collectFrames(
+      runAssistantStream(
+        { sessionId: 'sess-1', message: 'cost please' },
+        {
+          store,
+          activity,
+          streamChat: streamChat as never,
+          estimateCostCents: async () => 7,
+        },
+      ),
+    );
+
+    const completedPatch = store.updateMessage.mock.calls.find(
+      (call) => (call[1] as { status?: string }).status === 'completed',
+    );
+    expect(completedPatch).toBeDefined();
+    expect((completedPatch?.[1] as { estimatedCostCents?: number }).estimatedCostCents).toBe(7);
   });
 
   it('emits :keepalive comment frames while first token is delayed (3.15)', async () => {

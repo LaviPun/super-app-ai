@@ -95,8 +95,8 @@ class FallbackRateLimiter implements RateLimiter {
 const DEFAULT_LIMIT = 30;
 const DEFAULT_WINDOW_SEC = 60;
 
-function buildRateLimiter(): RateLimiter {
-  const fallback = new InMemoryRateLimiter(DEFAULT_LIMIT, DEFAULT_WINDOW_SEC);
+function buildRateLimiter(limit: number, windowSec: number): RateLimiter {
+  const fallback = new InMemoryRateLimiter(limit, windowSec);
   const redisUrl = process.env.REDIS_URL?.trim();
 
   if (!redisUrl) {
@@ -108,14 +108,35 @@ function buildRateLimiter(): RateLimiter {
     eval: (script, numKeys, key, windowSec) =>
       redis.eval(script, numKeys, key, windowSec) as Promise<RedisEvalResult>,
   };
-  const redisLimiter = new RedisRateLimiter(redisClient, DEFAULT_LIMIT, DEFAULT_WINDOW_SEC);
+  const redisLimiter = new RedisRateLimiter(redisClient, limit, windowSec);
   return new FallbackRateLimiter(redisLimiter, fallback);
 }
 
-const limiter = buildRateLimiter();
+const defaultLimiter = buildRateLimiter(DEFAULT_LIMIT, DEFAULT_WINDOW_SEC);
+const policyLimiters = new Map<string, RateLimiter>();
+
+function getPolicyLimiter(limit: number, windowSec: number): RateLimiter {
+  const key = `${limit}:${windowSec}`;
+  const cached = policyLimiters.get(key);
+  if (cached) return cached;
+  const limiter = buildRateLimiter(limit, windowSec);
+  policyLimiters.set(key, limiter);
+  return limiter;
+}
+
+export function getClientIp(request: Request): string {
+  const forwardedFor = request.headers.get('x-forwarded-for');
+  if (forwardedFor) {
+    const first = forwardedFor.split(',')[0]?.trim();
+    if (first) return first;
+  }
+  const cfIp = request.headers.get('cf-connecting-ip');
+  if (cfIp) return cfIp.trim();
+  return 'unknown';
+}
 
 export async function enforceRateLimit(key: string) {
-  const decision = await limiter.take(key);
+  const decision = await defaultLimiter.take(key);
   if (!decision.ok) {
     throw new AppError({
       code: 'RATE_LIMITED',
@@ -123,4 +144,37 @@ export async function enforceRateLimit(key: string) {
       details: { retryAfterSec: String(decision.retryAfterSec ?? 60) },
     });
   }
+}
+
+export async function enforceRateLimitWithPolicy(
+  key: string,
+  policy: { limit: number; windowSec: number },
+) {
+  const limit = Math.max(1, Math.floor(policy.limit));
+  const windowSec = Math.max(1, Math.floor(policy.windowSec));
+  const limiter = getPolicyLimiter(limit, windowSec);
+  const decision = await limiter.take(key);
+  if (!decision.ok) {
+    throw new AppError({
+      code: 'RATE_LIMITED',
+      message: `Too many requests. Retry in ${decision.retryAfterSec ?? windowSec} seconds.`,
+      details: { retryAfterSec: String(decision.retryAfterSec ?? windowSec) },
+    });
+  }
+}
+
+type InternalAiRateLimitScope = 'stream' | 'probe';
+
+const INTERNAL_AI_LIMITS: Record<InternalAiRateLimitScope, { limit: number; windowSec: number }> = {
+  stream: { limit: 10, windowSec: 60 },
+  probe: { limit: 30, windowSec: 60 },
+};
+
+export async function enforceInternalAiRateLimit(
+  request: Request,
+  scope: InternalAiRateLimitScope,
+) {
+  const ip = getClientIp(request);
+  const policy = INTERNAL_AI_LIMITS[scope];
+  await enforceRateLimitWithPolicy(`internal-ai:${scope}:${ip}`, policy);
 }

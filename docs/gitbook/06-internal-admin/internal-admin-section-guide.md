@@ -5,8 +5,9 @@ This section explains the app-owner control plane.
 ## Read order
 
 1. `internal-admin-dashboard-logic.md` — condensed behavior map
-2. `../../internal-admin.md` — full internal admin guide (security, routes, operations)
-3. `../08-operations/security-observability-runbooks.md` — operating controls and incident context
+2. `internal-ai-assistant.md` — internal Qwen3 assistant: routes, probes, release gate, retention (links to canonical guides)
+3. `../../internal-admin.md` — full internal admin guide (security, routes, operations)
+4. `../08-operations/security-observability-runbooks.md` — operating controls and incident context
 
 ## Focus points
 

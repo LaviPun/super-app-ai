@@ -1,34 +1,16 @@
 import { json } from '@remix-run/node';
 import { Form, useActionData, useLoaderData, useNavigation, useOutletContext, useSubmit } from '@remix-run/react';
 import { Banner, BlockStack, Button, Card, Checkbox, Divider, InlineGrid, InlineStack, Page, Select, Text, TextField } from '@shopify/polaris';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
-import { requireInternalAdmin } from '~/internal-admin/session.server';
-import { PromptRouterDecisionSchema } from '~/schemas/prompt-router.server';
-import {
-  RouterRuntimeTargetSchema,
-  type RouterRuntimeConfig,
-  type RouterRuntimeTarget,
-} from '~/schemas/router-runtime-config.server';
-import { ActivityLogService } from '~/services/activity/activity.service';
-import { SettingsService } from '~/services/settings/settings.service';
-import {
-  getRouterRuntimeConfig,
-  maskToken,
-  resolveRouterTargetConfig,
-  saveRouterRuntimeConfig,
-} from '~/services/ai/router-runtime-config.server';
-import { getPromptRouterMetricsSnapshot, getReleaseGateState } from '~/services/ai/prompt-router.server';
-import {
-  fetchWithTimeout,
-  probeTargetLiveness,
-  validateAssistantChatTarget,
-  type AssistantChatProbeResult,
-} from '~/services/ai/assistant-chat-target-probe.server';
+import type { RouterRuntimeConfig, RouterRuntimeTarget } from '~/schemas/router-runtime-config.server';
+import type { AssistantChatProbeResult } from '~/services/ai/assistant-chat-target-probe.server';
+import { isInternalAiLocalOnlyEnabledFromEnv } from '~/services/ai/internal-ai-local-only';
 
 type ProbeResult = AssistantChatProbeResult;
 
 type RouterBackend = 'ollama' | 'openai' | 'qwen3' | 'custom';
+const RouterRuntimeTargetSchema = z.enum(['localMachine', 'modalRemote']);
 const RouterBackendSchema = z.enum(['ollama', 'openai', 'qwen3', 'custom']);
 const SaveConfigFormSchema = z.object({
   activeTarget: RouterRuntimeTargetSchema,
@@ -63,80 +45,6 @@ function isoNow(): string {
   return new Date().toISOString();
 }
 
-async function runHealthProbe(config: RouterRuntimeConfig, target: RouterRuntimeTarget): Promise<ProbeResult> {
-  const targetConfig = config.targets[target];
-  const url = targetConfig.url?.trim();
-  if (!url) return { ok: false, message: `${target} URL missing` };
-  return probeTargetLiveness({
-    backend: targetConfig.backend,
-    url,
-    token: targetConfig.token,
-    timeoutMs: targetConfig.timeoutMs,
-  });
-}
-
-async function runRouteProbe(config: RouterRuntimeConfig, target: RouterRuntimeTarget): Promise<ProbeResult> {
-  const targetConfig = config.targets[target];
-  const url = targetConfig.url?.trim();
-  if (!url) return { ok: false, message: `${target} URL missing` };
-  try {
-    const payload = {
-      prompt: 'Create a popup with 10% discount.',
-      classification: {
-        moduleType: 'theme.popup',
-        intent: 'promo.popup',
-        surface: 'home',
-        confidence: 0.7,
-        alternatives: [],
-      },
-      intentPacket: {
-        classification: {
-          intent: 'promo.popup',
-          confidence: 0.7,
-          evidence: [],
-          moduleTypeHint: 'theme.popup',
-        },
-        routing: {
-          needCatalog: true,
-          needSettings: true,
-          needSchema: false,
-          styleRichness: 'medium',
-        },
-      },
-      fallback: {
-        version: '1.0',
-        moduleType: 'theme.popup',
-        confidence: 0.7,
-        includeFlags: {
-          includeSettingsPack: true,
-          includeIntentPacket: true,
-          includeCatalog: true,
-          includeFullSchema: false,
-          includeStyleSchema: false,
-        },
-        settingsRequired: ['title'],
-        needsClarification: false,
-        reasonCode: 'deterministic_medium_confidence',
-        reasoning: 'probe_fallback',
-      },
-      operationClass: 'P0_CREATE',
-    };
-    const response = await fetchWithTimeout(
-      `${url.replace(/\/+$/, '')}/route`,
-      targetConfig.token,
-      targetConfig.timeoutMs,
-      { method: 'POST', body: JSON.stringify(payload) },
-    );
-    if (!response.ok) return { ok: false, message: `/route returned ${response.status}` };
-    const data = await response.json();
-    const parsed = PromptRouterDecisionSchema.safeParse(data);
-    if (!parsed.success) return { ok: false, message: '/route JSON failed PromptRouterDecisionSchema' };
-    return { ok: true, message: `/route schema check passed (${parsed.data.reasonCode})` };
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : 'route probe failed' };
-  }
-}
-
 function normalizeHttpUrl(value: string): string | null {
   const raw = value.trim();
   if (!raw) return null;
@@ -147,6 +55,16 @@ function normalizeHttpUrl(value: string): string | null {
   } catch {
     return null;
   }
+}
+
+export function normalizeFallbackTarget(
+  activeTarget: RouterRuntimeTarget,
+  fallbackTarget: string | undefined | null,
+): RouterRuntimeTarget | undefined {
+  const parsed = RouterRuntimeTargetSchema.safeParse(fallbackTarget ?? '');
+  if (!parsed.success) return undefined;
+  if (parsed.data === activeTarget) return undefined;
+  return parsed.data;
 }
 
 function isModalProxyUrl(url: string | undefined | null): boolean {
@@ -163,8 +81,16 @@ function isModalProxyUrl(url: string | undefined | null): boolean {
 }
 
 export async function loader({ request }: { request: Request }) {
+  const { requireInternalAdmin } = await import('~/internal-admin/session.server');
+  const {
+    getRouterRuntimeConfig,
+    maskToken,
+    resolveRouterTargetConfig,
+  } = await import('~/services/ai/router-runtime-config.server');
+  const { getPromptRouterMetricsSnapshot, getReleaseGateState } = await import('~/services/ai/prompt-router.server');
   await requireInternalAdmin(request);
   const { config, parseError } = await getRouterRuntimeConfig();
+  const { SettingsService } = await import('~/services/settings/settings.service');
   const settings = await new SettingsService().get();
   const resolved = await resolveRouterTargetConfig();
   const metrics = getPromptRouterMetricsSnapshot();
@@ -189,6 +115,7 @@ export async function loader({ request }: { request: Request }) {
     config,
     parseError: parseError ?? null,
     releaseGate,
+    assistantLocalOnly: isInternalAiLocalOnlyEnabledFromEnv(),
     modalProxyWarning: isModalProxyUrl(config.targets.modalRemote.url),
     resolved: {
       ...resolved,
@@ -204,18 +131,18 @@ export async function loader({ request }: { request: Request }) {
   });
 }
 
-/**
- * Pure action handler for /internal/model-setup. Exported so unit tests can
- * exercise the intent branches (`save`, `switchTarget`, `rollback`, probe
- * intents, design reference) without booting Remix or mocking session helpers.
- * The route-level `action` below wraps this with `requireInternalAdmin`.
- */
-export async function handleModelSetupAction(request: Request) {
+async function handleModelSetupAction(request: Request) {
   try {
+    const { getRouterRuntimeConfig, saveRouterRuntimeConfig } = await import('~/services/ai/router-runtime-config.server');
+    const { runHealthProbe, runRouteProbe } = await import('~/services/ai/internal-model-setup-probes.server');
+    const { validateAssistantChatTarget } = await import('~/services/ai/assistant-chat-target-probe.server');
     const form = await request.formData();
     const intent = String(form.get('intent') ?? 'save');
+    const { ActivityLogService } = await import('~/services/activity/activity.service');
+    const { SettingsService } = await import('~/services/settings/settings.service');
     const activity = new ActivityLogService();
     const { config: current } = await getRouterRuntimeConfig();
+    const assistantLocalOnly = isInternalAiLocalOnlyEnabledFromEnv();
 
     if (intent === 'save') {
       const parsed = SaveConfigFormSchema.safeParse(Object.fromEntries(form));
@@ -223,14 +150,33 @@ export async function handleModelSetupAction(request: Request) {
         return json({ error: parsed.error.issues[0]?.message ?? 'Invalid Local AI setting input' }, { status: 400 });
       }
       const values = parsed.data;
+      if (assistantLocalOnly) {
+        if (values.activeTarget === 'modalRemote') {
+          return json(
+            { error: 'INTERNAL_AI_LOCAL_ONLY is set: active target cannot be modalRemote (assistant sends are local-only).' },
+            { status: 400 },
+          );
+        }
+        if (values.dualTargetEnabled === 'true') {
+          return json(
+            { error: 'INTERNAL_AI_LOCAL_ONLY is set: disable dual-target resolution (no Modal failover for the assistant).' },
+            { status: 400 },
+          );
+        }
+        const fb = values.fallbackTarget?.trim();
+        if (fb === 'modalRemote') {
+          return json(
+            { error: 'INTERNAL_AI_LOCAL_ONLY is set: fallback target cannot be modalRemote.' },
+            { status: 400 },
+          );
+        }
+      }
       const localModel = values.localModel?.trim() || 'qwen3:4b-instruct';
       const modalModel = values.modalModel?.trim() || 'Qwen/Qwen3-4B-Instruct';
       const next: RouterRuntimeConfig = {
         ...current,
         activeTarget: values.activeTarget,
-        fallbackTarget: RouterRuntimeTargetSchema.safeParse(values.fallbackTarget ?? '').success
-          ? RouterRuntimeTargetSchema.parse(values.fallbackTarget)
-          : undefined,
+        fallbackTarget: normalizeFallbackTarget(values.activeTarget, values.fallbackTarget),
         dualTargetEnabled: values.dualTargetEnabled === 'true',
         shadowMode: values.shadowMode === 'true',
         canaryShops: parseCsv(values.canaryShops ?? ''),
@@ -258,22 +204,22 @@ export async function handleModelSetupAction(request: Request) {
         },
       };
 
-      const [localChatValidation, modalChatValidation] = await Promise.all([
-        validateAssistantChatTarget({
-          target: 'localMachine',
-          backend: next.targets.localMachine.backend,
-          url: next.targets.localMachine.url,
-          token: next.targets.localMachine.token,
-          timeoutMs: next.targets.localMachine.timeoutMs,
-        }),
-        validateAssistantChatTarget({
-          target: 'modalRemote',
-          backend: next.targets.modalRemote.backend,
-          url: next.targets.modalRemote.url,
-          token: next.targets.modalRemote.token,
-          timeoutMs: next.targets.modalRemote.timeoutMs,
-        }),
-      ]);
+      const localChatValidation = await validateAssistantChatTarget({
+        target: 'localMachine',
+        backend: next.targets.localMachine.backend,
+        url: next.targets.localMachine.url,
+        token: next.targets.localMachine.token,
+        timeoutMs: next.targets.localMachine.timeoutMs,
+      });
+      const modalChatValidation = assistantLocalOnly
+        ? ({ ok: true as const, message: 'skipped (INTERNAL_AI_LOCAL_ONLY)' } satisfies AssistantChatProbeResult)
+        : await validateAssistantChatTarget({
+            target: 'modalRemote',
+            backend: next.targets.modalRemote.backend,
+            url: next.targets.modalRemote.url,
+            token: next.targets.modalRemote.token,
+            timeoutMs: next.targets.modalRemote.timeoutMs,
+          });
 
       if (!localChatValidation.ok || !modalChatValidation.ok) {
         const errors = [localChatValidation, modalChatValidation]
@@ -330,22 +276,22 @@ export async function handleModelSetupAction(request: Request) {
         },
       };
 
-      const [localChatValidation, modalChatValidation] = await Promise.all([
-        validateAssistantChatTarget({
-          target: 'localMachine',
-          backend: nextTargets.localMachine.backend,
-          url: nextTargets.localMachine.url,
-          token: nextTargets.localMachine.token,
-          timeoutMs: nextTargets.localMachine.timeoutMs,
-        }),
-        validateAssistantChatTarget({
-          target: 'modalRemote',
-          backend: nextTargets.modalRemote.backend,
-          url: nextTargets.modalRemote.url,
-          token: nextTargets.modalRemote.token,
-          timeoutMs: nextTargets.modalRemote.timeoutMs,
-        }),
-      ]);
+      const localChatValidation = await validateAssistantChatTarget({
+        target: 'localMachine',
+        backend: nextTargets.localMachine.backend,
+        url: nextTargets.localMachine.url,
+        token: nextTargets.localMachine.token,
+        timeoutMs: nextTargets.localMachine.timeoutMs,
+      });
+      const modalChatValidation = assistantLocalOnly
+        ? ({ ok: true as const, message: 'skipped (INTERNAL_AI_LOCAL_ONLY)' } satisfies AssistantChatProbeResult)
+        : await validateAssistantChatTarget({
+            target: 'modalRemote',
+            backend: nextTargets.modalRemote.backend,
+            url: nextTargets.modalRemote.url,
+            token: nextTargets.modalRemote.token,
+            timeoutMs: nextTargets.modalRemote.timeoutMs,
+          });
 
       const allOk = localChatValidation.ok && modalChatValidation.ok;
       return json({
@@ -355,7 +301,9 @@ export async function handleModelSetupAction(request: Request) {
         },
         toast: {
           message: allOk
-            ? 'Assistant target validation passed for local and cloud.'
+            ? assistantLocalOnly
+              ? 'Assistant target validation passed for localMachine (cloud target skipped: INTERNAL_AI_LOCAL_ONLY).'
+              : 'Assistant target validation passed for local and cloud.'
             : 'Assistant target validation found issues — see details below.',
           error: !allOk,
         },
@@ -408,6 +356,12 @@ export async function handleModelSetupAction(request: Request) {
 
     if (intent === 'switchTarget') {
       const target = RouterRuntimeTargetSchema.parse(String(form.get('target') ?? current.activeTarget));
+      if (assistantLocalOnly && target === 'modalRemote') {
+        return json(
+          { error: 'INTERNAL_AI_LOCAL_ONLY is set: cannot switch active router target to modalRemote.' },
+          { status: 400 },
+        );
+      }
       if (target === current.activeTarget) {
         return json({ error: `Selected target is already active (${target}). Choose the other target to switch.` }, { status: 400 });
       }
@@ -432,6 +386,12 @@ export async function handleModelSetupAction(request: Request) {
         return json({ error: 'No previous target available for rollback' }, { status: 400 });
       }
       const rollbackTo = current.previousTarget;
+      if (assistantLocalOnly && rollbackTo === 'modalRemote') {
+        return json(
+          { error: 'INTERNAL_AI_LOCAL_ONLY is set: cannot roll back to modalRemote.' },
+          { status: 400 },
+        );
+      }
       await saveRouterRuntimeConfig({
         ...current,
         activeTarget: rollbackTo,
@@ -460,6 +420,7 @@ export async function handleModelSetupAction(request: Request) {
 }
 
 export async function action({ request }: { request: Request }) {
+  const { requireInternalAdmin } = await import('~/internal-admin/session.server');
   await requireInternalAdmin(request);
   return handleModelSetupAction(request);
 }
@@ -475,6 +436,7 @@ export default function InternalModelSetupRoute() {
     metrics,
     gates,
     designReferenceUrl,
+    assistantLocalOnly,
   } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
@@ -521,6 +483,69 @@ export default function InternalModelSetupRoute() {
     activeTarget === 'localMachine' ? 'modalRemote' : 'localMachine',
   );
 
+  const configSyncFingerprint = useMemo(
+    () =>
+      JSON.stringify({
+        activeTarget: config.activeTarget,
+        fallbackTarget: config.fallbackTarget ?? null,
+        dualTargetEnabled: config.dualTargetEnabled,
+        shadowMode: config.shadowMode,
+        canaryShops: config.canaryShops,
+        circuitFailureThreshold: config.circuitFailureThreshold,
+        circuitCooldownMs: config.circuitCooldownMs,
+        releaseGateSchemaFailRateMax: config.releaseGateSchemaFailRateMax,
+        releaseGateFallbackRateMax: config.releaseGateFallbackRateMax,
+        localUrl: config.targets.localMachine.url ?? null,
+        localBackend: config.targets.localMachine.backend,
+        localModel: config.targets.localMachine.model ?? null,
+        localTimeoutMs: config.targets.localMachine.timeoutMs,
+        modalUrl: config.targets.modalRemote.url ?? null,
+        modalBackend: config.targets.modalRemote.backend,
+        modalModel: config.targets.modalRemote.model ?? null,
+        modalTimeoutMs: config.targets.modalRemote.timeoutMs,
+        previousTarget: config.previousTarget ?? null,
+        designReferenceUrl: designReferenceUrl ?? null,
+      }),
+    [config, designReferenceUrl],
+  );
+
+  const prevConfigFingerprintRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevConfigFingerprintRef.current === null) {
+      prevConfigFingerprintRef.current = configSyncFingerprint;
+      return;
+    }
+    if (prevConfigFingerprintRef.current === configSyncFingerprint) return;
+    prevConfigFingerprintRef.current = configSyncFingerprint;
+
+    setActiveTarget(config.activeTarget);
+    setFallbackTarget(config.fallbackTarget ?? '');
+    setShadowMode(config.shadowMode);
+    setDualTargetEnabled(config.dualTargetEnabled);
+    setCanaryShops(config.canaryShops.join(', '));
+    setCircuitFailureThreshold(String(config.circuitFailureThreshold));
+    setCircuitCooldownMs(String(config.circuitCooldownMs));
+    setReleaseGateSchemaFailRateMax(String(config.releaseGateSchemaFailRateMax));
+    setReleaseGateFallbackRateMax(String(config.releaseGateFallbackRateMax));
+
+    setLocalUrl(config.targets.localMachine.url ?? '');
+    setLocalBackend(config.targets.localMachine.backend);
+    setLocalModel(config.targets.localMachine.model ?? '');
+    setLocalTimeoutMs(String(config.targets.localMachine.timeoutMs));
+    setLocalToken('');
+
+    setModalUrl(config.targets.modalRemote.url ?? '');
+    setModalBackend(config.targets.modalRemote.backend);
+    setModalModel(config.targets.modalRemote.model ?? '');
+    setModalTimeoutMs(String(config.targets.modalRemote.timeoutMs));
+    setModalToken('');
+
+    setDesignReferenceInput(designReferenceUrl ?? '');
+
+    setOperatorTarget(config.activeTarget);
+    setSwitchTargetChoice(config.activeTarget === 'localMachine' ? 'modalRemote' : 'localMachine');
+  }, [configSyncFingerprint]);
+
   useEffect(() => {
     const toast = actionData && 'toast' in actionData ? (actionData as { toast?: { message: string; error?: boolean } }).toast : undefined;
     if (toast?.message && outletContext?.showToast) outletContext.showToast(toast.message, toast.error);
@@ -531,12 +556,35 @@ export default function InternalModelSetupRoute() {
     setSwitchTargetChoice(activeTarget === 'localMachine' ? 'modalRemote' : 'localMachine');
   }, [activeTarget]);
 
+  useEffect(() => {
+    if (!assistantLocalOnly) return;
+    setDualTargetEnabled(false);
+    setFallbackTarget((fb) => (fb === 'modalRemote' ? '' : fb));
+    setActiveTarget((a) => (a === 'modalRemote' ? 'localMachine' : a));
+    setSwitchTargetChoice((c) => (c === 'modalRemote' ? 'localMachine' : c));
+    setOperatorTarget((o) => (o === 'modalRemote' ? 'localMachine' : o));
+  }, [assistantLocalOnly]);
+
+  useEffect(() => {
+    setFallbackTarget((current) => (current === activeTarget ? '' : current));
+  }, [activeTarget]);
+
   const targetOptions = useMemo(
+    () =>
+      assistantLocalOnly
+        ? [{ label: 'localMachine (local developer machine)', value: 'localMachine' as const }]
+        : [
+            { label: 'localMachine (local developer machine)', value: 'localMachine' as const },
+            { label: 'modalRemote (fully hosted on Modal)', value: 'modalRemote' as const },
+          ],
+    [assistantLocalOnly],
+  );
+  const fallbackOptions = useMemo(
     () => [
-      { label: 'localMachine (local developer machine)', value: 'localMachine' },
-      { label: 'modalRemote (fully hosted on Modal)', value: 'modalRemote' },
+      { label: 'None', value: '' },
+      ...targetOptions.filter((option) => option.value !== activeTarget),
     ],
-    [],
+    [activeTarget, targetOptions],
   );
 
   const assistantTargetValidation =
@@ -583,6 +631,15 @@ export default function InternalModelSetupRoute() {
         {actionData && 'error' in actionData && actionData.error ? (
           <Banner tone="critical" title="Action failed">
             <Text as="p">{actionData.error}</Text>
+          </Banner>
+        ) : null}
+
+        {assistantLocalOnly ? (
+          <Banner tone="info" title="INTERNAL_AI_LOCAL_ONLY — assistant is local-only">
+            <Text as="p" variant="bodySm">
+              Dual-target / Modal failover and switching the active target to modalRemote are disabled for the internal AI
+              assistant. Save with localMachine as active target; cloud target validation is skipped on save.
+            </Text>
           </Banner>
         ) : null}
 
@@ -651,13 +708,14 @@ export default function InternalModelSetupRoute() {
                   label="Enable dual-target resolution (feature flag)"
                   checked={dualTargetEnabled}
                   onChange={setDualTargetEnabled}
+                  disabled={assistantLocalOnly}
                 />
                 <InlineGrid columns={{ xs: 1, sm: 2 }} gap="300">
                   <Select label="Active target" name="activeTarget" options={targetOptions} value={activeTarget} onChange={(v) => setActiveTarget(v as RouterRuntimeTarget)} />
                   <Select
                     label="Fallback target (optional)"
                     name="fallbackTarget"
-                    options={[{ label: 'None', value: '' }, ...targetOptions]}
+                    options={fallbackOptions}
                     value={fallbackTarget}
                     onChange={setFallbackTarget}
                   />
@@ -842,11 +900,28 @@ export default function InternalModelSetupRoute() {
               <Form method="post">
                 <input type="hidden" name="intent" value="switchTarget" />
                 <input type="hidden" name="target" value={switchTargetChoice} />
-                <Button submit variant="primary" loading={isSwitching}>Switch target (shadow)</Button>
+                <Button
+                  submit
+                  variant="primary"
+                  loading={isSwitching}
+                  disabled={activeTarget === switchTargetChoice}
+                >
+                  Switch target (shadow)
+                </Button>
               </Form>
               <Form method="post">
                 <input type="hidden" name="intent" value="rollback" />
-                <Button submit tone="critical" loading={isRollingBack}>Rollback to previous target</Button>
+                <Button
+                  submit
+                  tone="critical"
+                  loading={isRollingBack}
+                  disabled={
+                    !config.previousTarget ||
+                    (assistantLocalOnly && config.previousTarget === 'modalRemote')
+                  }
+                >
+                  Rollback to previous target
+                </Button>
               </Form>
             </InlineStack>
           </BlockStack>
@@ -856,7 +931,7 @@ export default function InternalModelSetupRoute() {
           <BlockStack gap="300">
             <Text as="h2" variant="headingMd">Observability and promotion gates</Text>
             <Text as="p" variant="bodySm" tone="subdued">
-              Active target `{resolved.target}` metrics: attempts {metrics.byTarget[resolved.target].attempts}, schema rejects {metrics.byTarget[resolved.target].schemaRejects}, fallbacks {metrics.byTarget[resolved.target].fallbacks}, timeouts {metrics.byTarget[resolved.target].timeoutsOrNetwork}, p95 {metrics.byTarget[resolved.target].p95LatencyMs}ms.
+              Active target `{resolved.target}` metrics: attempts {metrics.byTarget[resolved.target]?.attempts ?? 0}, schema rejects {metrics.byTarget[resolved.target]?.schemaRejects ?? 0}, fallbacks {metrics.byTarget[resolved.target]?.fallbacks ?? 0}, timeouts {metrics.byTarget[resolved.target]?.timeoutsOrNetwork ?? 0}, p95 {metrics.byTarget[resolved.target]?.p95LatencyMs ?? 0}ms.
             </Text>
             <Text as="p" variant="bodySm" tone={gates.schemaPass ? 'success' : 'critical'}>
               Schema-fail rate gate: {(gates.schemaFailRate * 100).toFixed(2)}% / max {(resolved.releaseGateSchemaFailRateMax * 100).toFixed(2)}% ({gates.schemaPass ? 'PASS' : 'FAIL'})

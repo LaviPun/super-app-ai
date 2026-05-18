@@ -1,6 +1,7 @@
 import type { RecipeSpec, ModuleType } from '@superapp/core';
 import crypto from 'node:crypto';
 import { RecipeSpecSchema } from '@superapp/core';
+import { isMerchantCodeExecutionAllowed } from '~/env.server';
 import { AiUsageService } from '~/services/observability/ai-usage.service';
 import { resolveProviderIdForShop } from '~/services/ai/provider-routing.server';
 import { AiProviderService } from '~/services/internal/ai-provider.service';
@@ -23,6 +24,7 @@ import {
 } from '~/services/ai/prompt-expectations.server';
 import { buildHydratePrompt } from '~/services/ai/hydrate-prompt.server';
 import { HydrateEnvelopeSchema, type HydrateEnvelope, validatePerfectConfig } from '~/schemas/hydrate-envelope.server';
+import { estimateCostCentsFromDbRates } from '~/services/ai/cost-estimate.server';
 import {
   getRecipeTokenBudget,
   getRecipeOptionsTokenBudget,
@@ -53,6 +55,18 @@ export interface GenerateHints {
 
 export interface LlmClient {
   generateRecipe(prompt: string, hints?: GenerateHints): Promise<{ rawJson: string; tokensIn: number; tokensOut: number; model?: string }>;
+}
+
+export function guardAnthropicSkillsConfig(
+  skillsConfig: { skills?: string[]; codeExecution?: boolean } | undefined,
+  options: { blockMerchantCodeExecution: boolean },
+): { skills?: string[]; codeExecution?: boolean } | undefined {
+  if (!skillsConfig) return undefined;
+  if (!skillsConfig.codeExecution) return skillsConfig;
+  return {
+    ...skillsConfig,
+    codeExecution: !options.blockMerchantCodeExecution && isMerchantCodeExecutionAllowed(),
+  };
 }
 
 export class StubLlmClient implements LlmClient {
@@ -142,7 +156,11 @@ export class StubLlmClient implements LlmClient {
 }
 
 export class ConfiguredLlmClient implements LlmClient {
-  constructor(private readonly providerId: string, private readonly shopId?: string) {}
+  constructor(
+    private readonly providerId: string,
+    private readonly shopId?: string,
+    private readonly blockMerchantCodeExecution = false,
+  ) {}
 
   async generateRecipe(prompt: string, hints?: GenerateHints) {
     const prisma = getPrisma();
@@ -196,13 +214,16 @@ export class ConfiguredLlmClient implements LlmClient {
           };
           const skills = parsed.anthropicFeatures?.skills ?? parsed.skills;
           const codeExecution = parsed.anthropicFeatures?.codeExecution ?? parsed.codeExecution;
-          if (skills?.length || codeExecution) {
+          if (skills?.length || codeExecution !== undefined) {
             skillsConfig = { skills, codeExecution };
           }
         } catch {
           // ignore invalid extraConfig
         }
       }
+      skillsConfig = guardAnthropicSkillsConfig(skillsConfig, {
+        blockMerchantCodeExecution: this.blockMerchantCodeExecution,
+      });
       return anthropicGenerateRecipe({
         apiKey,
         baseUrl: provider.baseUrl ?? undefined,
@@ -269,6 +290,7 @@ class EnvClaudeClient implements LlmClient {
     private readonly model: string,
     private readonly shopId?: string,
     private readonly skillsConfig?: { skills?: string[]; codeExecution?: boolean },
+    private readonly blockMerchantCodeExecution = false,
   ) {}
 
   async generateRecipe(prompt: string, hints?: GenerateHints) {
@@ -280,7 +302,9 @@ class EnvClaudeClient implements LlmClient {
       model: this.model,
       prompt: augmentedPrompt,
       shopId: this.shopId,
-      skillsConfig: this.skillsConfig,
+      skillsConfig: guardAnthropicSkillsConfig(this.skillsConfig, {
+        blockMerchantCodeExecution: this.blockMerchantCodeExecution,
+      }),
       maxTokens: hints?.maxTokens,
       responseSchema: hints?.responseSchema,
     });
@@ -322,9 +346,21 @@ class FallbackLlmClient implements LlmClient {
   }
 }
 
-export async function getLlmClient(shopId?: string | null): Promise<{ client: LlmClient; providerId: string | null }> {
+export async function getLlmClient(
+  shopId?: string | null,
+  options?: { blockMerchantCodeExecution?: boolean },
+): Promise<{ client: LlmClient; providerId: string | null }> {
   const providerId = await resolveProviderIdForShop(shopId);
-  if (providerId) return { client: new ConfiguredLlmClient(providerId, shopId ?? undefined), providerId };
+  if (providerId) {
+    return {
+      client: new ConfiguredLlmClient(
+        providerId,
+        shopId ?? undefined,
+        options?.blockMerchantCodeExecution === true,
+      ),
+      providerId,
+    };
+  }
 
   const prisma = getPrisma();
   const appSettings = await prisma.appSettings.findUnique({ where: { id: 'singleton' } });
@@ -346,7 +382,13 @@ export async function getLlmClient(shopId?: string | null): Promise<{ client: Ll
   // When no DB provider: use Claude by default if configured (defaultAi is claude or unset), else OpenAI
   if ((defaultAi === 'claude' || defaultAi === null) && anthropicKey) {
     const model = process.env.ANTHROPIC_DEFAULT_MODEL?.trim() || 'claude-sonnet-4-20250514';
-    const primary = new EnvClaudeClient(anthropicKey, model, shopId ?? undefined, envClaudeSkillsConfig);
+    const primary = new EnvClaudeClient(
+      anthropicKey,
+      model,
+      shopId ?? undefined,
+      envClaudeSkillsConfig,
+      options?.blockMerchantCodeExecution === true,
+    );
     // Wrap with OpenAI fallback when both keys are available
     if (openaiKey) {
       const fallbackModel = process.env.OPENAI_DEFAULT_MODEL?.trim() || 'gpt-4o-mini';
@@ -829,7 +871,9 @@ export async function generateValidatedRecipe(
 ): Promise<RecipeSpec> {
   const maxAttempts = options?.maxAttempts ?? 3;
   const action = options?.action ?? 'RECIPE_GENERATION';
-  const { client, providerId } = await getLlmClient(options?.shopId ?? null);
+  const { client, providerId } = await getLlmClient(options?.shopId ?? null, {
+    blockMerchantCodeExecution: true,
+  });
   const usage = new AiUsageService();
 
   const wrappedPrompt = prompt + '\n\nRespond with a JSON object containing a single key "recipe" whose value is the RecipeSpec.';
@@ -874,7 +918,9 @@ export async function modifyRecipeSpec(
   options?: { shopId?: string; maxAttempts?: number; allowTypeChange?: boolean },
 ): Promise<RecipeSpec> {
   const maxAttempts = options?.maxAttempts ?? 3;
-  const { client, providerId } = await getLlmClient(options?.shopId ?? null);
+  const { client, providerId } = await getLlmClient(options?.shopId ?? null, {
+    blockMerchantCodeExecution: true,
+  });
   const usage = new AiUsageService();
 
   const compactSpecJson = JSON.stringify(currentSpec);
@@ -972,7 +1018,9 @@ export async function* generateValidatedRecipeOptionsStream(
   },
 ): AsyncGenerator<RecipeOptionStreamEvent, void, void> {
   const optionCount = Math.max(1, Math.min(3, options?.optionCount ?? 3));
-  const { client, providerId } = await getLlmClient(options?.shopId ?? null);
+  const { client, providerId } = await getLlmClient(options?.shopId ?? null, {
+    blockMerchantCodeExecution: true,
+  });
   const usage = new AiUsageService();
   const singleSchema = getRecipeSingleJsonSchemaForType(classification.moduleType);
   const perBudget = getRecipeTokenBudget(classification.moduleType);
@@ -1181,7 +1229,9 @@ export async function generateValidatedRecipeOptionsParallel(
   },
 ): Promise<RecipeOption[]> {
   const optionCount = Math.max(1, Math.min(3, options?.optionCount ?? 3));
-  const { client, providerId } = await getLlmClient(options?.shopId ?? null);
+  const { client, providerId } = await getLlmClient(options?.shopId ?? null, {
+    blockMerchantCodeExecution: true,
+  });
   const usage = new AiUsageService();
   const singleSchema = getRecipeSingleJsonSchemaForType(classification.moduleType);
   const perBudget = getRecipeTokenBudget(classification.moduleType);
@@ -1351,7 +1401,9 @@ export async function generateValidatedRecipeOptions(
     });
   }
   const maxAttempts = options?.maxAttempts ?? 3;
-  const { client, providerId } = await getLlmClient(options?.shopId ?? null);
+  const { client, providerId } = await getLlmClient(options?.shopId ?? null, {
+    blockMerchantCodeExecution: true,
+  });
   const usage = new AiUsageService();
 
   const purposeAndGuidance = PROMPT_PURPOSE_AND_GUIDANCE;
@@ -1539,7 +1591,9 @@ export async function modifyRecipeSpecOptions(
   options?: { shopId?: string; maxAttempts?: number; allowTypeChange?: boolean },
 ): Promise<RecipeOption[]> {
   const maxAttempts = options?.maxAttempts ?? 3;
-  const { client, providerId } = await getLlmClient(options?.shopId ?? null);
+  const { client, providerId } = await getLlmClient(options?.shopId ?? null, {
+    blockMerchantCodeExecution: true,
+  });
   const usage = new AiUsageService();
 
   const summary = getModuleSummary(currentSpec.type);
@@ -1721,7 +1775,9 @@ export async function hydrateRecipeSpec(
   options?: { shopId?: string; merchantContext?: { planTier?: string; locale?: string }; maxAttempts?: number },
 ): Promise<HydrateEnvelope> {
   const maxAttempts = options?.maxAttempts ?? MAX_HYDRATE_ATTEMPTS;
-  const { client, providerId } = await getLlmClient(options?.shopId ?? null);
+  const { client, providerId } = await getLlmClient(options?.shopId ?? null, {
+    blockMerchantCodeExecution: true,
+  });
   const usage = new AiUsageService();
 
   const prompt = buildHydratePrompt(recipeSpec, options?.merchantContext);
@@ -1775,15 +1831,7 @@ export async function hydrateRecipeSpec(
 }
 
 async function estimateCostCentsFromDb(providerId: string, model: string, tokensIn: number, tokensOut: number) {
-  const prisma = getPrisma();
-  const price = await prisma.aiModelPrice.findFirst({
-    where: { providerId, model, isActive: true },
-    orderBy: { effectiveFrom: 'desc' },
-  });
-  if (!price) return 0;
-  const inCents = (tokensIn / 1_000_000) * price.inputPer1MTokensCents;
-  const outCents = (tokensOut / 1_000_000) * price.outputPer1MTokensCents;
-  return Math.round(inCents + outCents);
+  return estimateCostCentsFromDbRates({ providerId, model, tokensIn, tokensOut });
 }
 
 /**

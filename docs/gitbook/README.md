@@ -14,6 +14,7 @@ Welcome. This tree is optimized for **GitBook** (left nav from `SUMMARY.md`) and
 | Integrate or extend (RecipeSpec, compiler, API) | [AI module spec](../ai-module-main-doc.md) · [Technical reference](../technical.md) |
 | Support a merchant | [Merchant guide](../app.md) |
 | Run internal admin / providers / plans | [Internal admin](../internal-admin.md) |
+| Wire internal Qwen3 assistant + model setup | [Internal AI assistant (GitBook)](06-internal-admin/internal-ai-assistant.md) → [Internal admin](../internal-admin.md) § setup · [AI providers](../ai-providers.md) |
 | On-call / incidents | [Runbooks](../runbooks/index.md) · [SLOs](../slos.md) |
 
 > **Design system:** [`DESIGN.md`](../../DESIGN.md) (repo root) and [`uiux-guideline.md`](../uiux-guideline.md).
@@ -26,7 +27,7 @@ Welcome. This tree is optimized for **GitBook** (left nav from `SUMMARY.md`) and
 2. **Product & guides** — merchant and app-owner experiences (source files in `docs/`).
 3. **Architecture** — high-level system and data; links to full technical doc.
 4. **Backend & platform** — processes, services, modules, flows.
-5. **Dashboards** — merchant UI vs internal admin behavior.
+5. **Dashboards** — merchant UI vs internal admin behavior (internal AI hub: `06-internal-admin/internal-ai-assistant.md`).
 6. **API & agents** — route surfaces and patterns.
 7. **Reference library** — specifications, catalog, data models, providers, deep platform list.
 8. **Operations** — security, observability, runbooks, debug, dev setup, UI guidelines.

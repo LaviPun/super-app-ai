@@ -1,6 +1,7 @@
 import { getPrisma } from '~/db.server';
 import { decryptJson, encryptJson } from '~/services/security/crypto.server';
 import {
+  DEFAULT_LOCAL_PROMPT_ROUTER_BASE_URL,
   DEFAULT_ROUTER_RUNTIME_CONFIG,
   RouterRuntimeConfigSchema,
   type RouterRuntimeConfig,
@@ -57,6 +58,14 @@ function logDebug(message: string, payload?: Record<string, unknown>): void {
   if (!envTruthy('INTERNAL_AI_ROUTER_DEBUG_LOG')) return;
   // eslint-disable-next-line no-console
   console.log(message, payload ? JSON.stringify(payload) : '');
+}
+
+/** Prompt-router base URL when `INTERNAL_AI_ROUTER_URL` is empty (local-first dev only). */
+function resolvedPromptRouterBaseUrl(envUrl: string | null): string | null {
+  const trimmed = envUrl?.trim();
+  if (trimmed) return trimmed;
+  if (process.env.NODE_ENV === 'development') return DEFAULT_LOCAL_PROMPT_ROUTER_BASE_URL;
+  return null;
 }
 
 type ParseResult = {
@@ -239,16 +248,21 @@ export async function resolveRouterTargetConfig(): Promise<ResolvedRouterTarget>
     }
   }
   if (!cfg.dualTargetEnabled) {
+    const localCfg = cfg.targets.localMachine;
+    const localUrl = hasStoredConfig ? localCfg.url?.trim() : null;
+    const localToken = hasStoredConfig ? localCfg.token?.trim() || null : null;
     return {
       target: 'localMachine',
       dualTargetEnabled: false,
-      url: envUrl,
-      token: envToken,
-      timeoutMs: envTimeoutMs,
-      shadowMode: shadowFromEnv,
-      canaryShops: envCanary,
-      circuitFailureThreshold: envCircuitFailureThreshold,
-      circuitCooldownMs: envCircuitCooldownMs,
+      url: localUrl || resolvedPromptRouterBaseUrl(envUrl),
+      token: localToken || envToken,
+      timeoutMs: localCfg.timeoutMs || envTimeoutMs,
+      shadowMode: hasStoredConfig ? cfg.shadowMode : shadowFromEnv,
+      canaryShops: hasStoredConfig ? cfg.canaryShops : envCanary,
+      circuitFailureThreshold: hasStoredConfig
+        ? cfg.circuitFailureThreshold
+        : envCircuitFailureThreshold,
+      circuitCooldownMs: hasStoredConfig ? cfg.circuitCooldownMs : envCircuitCooldownMs,
       releaseGateSchemaFailRateMax: cfg.releaseGateSchemaFailRateMax,
       releaseGateFallbackRateMax: cfg.releaseGateFallbackRateMax,
     };
