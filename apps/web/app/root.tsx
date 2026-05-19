@@ -9,6 +9,7 @@ import { AppProvider as PolarisProvider } from '@shopify/polaris';
 import { AppProvider } from '@shopify/shopify-app-remix/react';
 import { boundary } from '@shopify/shopify-app-remix/server';
 import { ActivityLogger } from '~/components/ActivityLogger';
+import { getPlatformV2CutoverConfig } from '~/services/platform-v2/rollout-cutover.server';
 
 export const links: LinksFunction = () => [
   { rel: 'stylesheet', href: polarisCss },
@@ -28,6 +29,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return json({
     apiKey: process.env.SHOPIFY_API_KEY || '',
     embedded: !isInternal,
+    platformV2Cutover: getPlatformV2CutoverConfig(),
   });
 }
 

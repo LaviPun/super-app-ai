@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import { loadEnv, type ApiEnv } from './env.js';
 import { registerObservabilityPlugin } from './plugins/observability.js';
+import { registerRolloutCutoverPlugin } from './plugins/rollout-cutover.js';
 import { registerSecurityPlugin } from './plugins/security.js';
 import { registerInternalAssistantRoutes } from './routes/internal-assistant.js';
 import { registerHealthRoutes, registerJobRoutes } from './routes/index.js';
@@ -22,6 +23,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const jobs = options.jobs ?? createJobSystem(env);
 
   await registerObservabilityPlugin(app, env, jobs);
+  await registerRolloutCutoverPlugin(app);
   await registerSecurityPlugin(app);
   await registerHealthRoutes(app, env);
   await registerJobRoutes(app);

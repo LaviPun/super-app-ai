@@ -20,6 +20,8 @@ import {
   type ConnectorExecutionAdapter,
   type ConnectorHttpClient,
 } from './connector-execution.js';
+import { createPublishProcessor } from './publish-execution.js';
+import { parsePlatformV2RolloutFlags, shouldRunPublishWorker } from '@superapp/platform-contracts';
 import type { WorkerLogger } from './logger.js';
 
 export type WorkerJobEnvelope = {
@@ -102,6 +104,12 @@ export function createProcessorRegistry(options: WorkerLogger | ProcessorRegistr
   registry.FLOW_RUN = createFlowRunProcessor({ adapter: webhookFlowAdapter, logger });
   registry.CONNECTOR_TEST = createConnectorTestProcessor(connectorOptions);
   registry.CONNECTOR_CALL = createConnectorCallProcessor(connectorOptions);
+
+  const rolloutFlags = parsePlatformV2RolloutFlags();
+  if (shouldRunPublishWorker(rolloutFlags)) {
+    registry.PUBLISH = createPublishProcessor({ logger });
+  }
+
   return registry;
 }
 

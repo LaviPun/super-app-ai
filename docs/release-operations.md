@@ -29,6 +29,18 @@ CI stubs: `.github/workflows/v2-frontend-build.yml`, `v2-api-build.yml`, `v2-wor
 
 Rollback: promote the previous Vercel deployment; redeploy the prior Railway image for API/workers after queue drain; disable `FRONTEND_NEXT_ENABLED` / `FASTIFY_API_ENABLED` to keep traffic on Remix-only paths.
 
+### Platform V2 staged rollback (Phase 21)
+
+Use when a canary release of Next.js, Fastify, or BullMQ workers misbehaves. Full checklist: [`docs/gitbook/02-architecture/v2-migration/phase-21-rollout-cutover.md`](./gitbook/02-architecture/v2-migration/phase-21-rollout-cutover.md).
+
+1. **Traffic back to Remix:** unset or set to `false`: `FRONTEND_NEXT_ENABLED`, `SHOPIFY_EMBEDDED_NEXT_CUTOVER_ENABLED`, `FASTIFY_API_ENABLED`.
+2. **Stop async side effects:** unset worker flags (`AI_GENERATION_ASYNC_ENABLED`, `WEBHOOK_ASYNC_ENABLED`, `FLOW_ASYNC_ENABLED`, `CONNECTOR_WORKER_ENABLED`, `PUBLISH_WORKER_ENABLED`) and set `JOB_EXECUTION_MODE=inline` (or `disabled` to hard-stop enqueue).
+3. **Drain workers:** pause Railway worker service or scale to zero after in-flight jobs complete; do not delete queued rows from the job ledger.
+4. **Replay:** after fix, re-enable flags in the staging order from the migration plan; replay failed jobs from Internal Admin jobs view.
+5. **Publish safety:** keep progressive publish / rollout policy services on Remix (`rollout-policy.service.ts`) as the authority until V2 publish is fully cut over.
+
+Shared flag parser: `packages/platform-contracts/src/rollout-cutover.ts` (`parsePlatformV2RolloutFlags` — all flags default **off**).
+
 ## Release Safety Controls
 
 | Control                               | Purpose                                                                                              | Owner                |

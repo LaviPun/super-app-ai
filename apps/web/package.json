@@ -40,6 +40,7 @@
     "@shopify/shopify-app-remix": "^2.8.0",
     "@shopify/shopify-app-session-storage-prisma": "^5.0.4",
     "@superapp/core": "workspace:*",
+    "@superapp/platform-contracts": "workspace:*",
     "@superapp/rate-limit": "workspace:*",
     "@xyflow/react": "^12.10.1",
     "ioredis": "^5.10.1",
@@ -51,6 +52,7 @@
     "zod-to-json-schema": "^3.24.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.10.1",
     "@playwright/test": "^1.54.2",
     "@remix-run/dev": "^2.10.3",
     "@types/node": "^22.10.1",

@@ -20,6 +20,17 @@
 * [Data model](02-architecture/data-model.md)
 * [Technical reference (full)](../technical.md)
 
+### Platform V2 migration
+
+* [V2 migration plan (master)](02-architecture/platform-v2-migration-plan.md)
+* [ADR-001 Platform V2 architecture](02-architecture/v2-migration/ADR-001-platform-v2-architecture.md)
+* [Target monorepo layout](02-architecture/v2-migration/target-monorepo-layout.md)
+* [Phase 20 — Testing matrix](02-architecture/v2-migration/phase-20-testing-matrix.md)
+* [Phase 21 — Rollout and cutover](02-architecture/v2-migration/phase-21-rollout-cutover.md)
+* [Phase 11 — Publish worker](02-architecture/v2-migration/phase-11-publish-worker.md)
+* [Phase 13 — Preview sandbox](02-architecture/v2-migration/phase-13-preview-sandbox.md)
+* [Phase 14 — Intent graph](02-architecture/v2-migration/phase-14-intent-graph.md)
+
 ## Backend & platform
 
 * [Backend section guide](03-backend/backend-section-guide.md)

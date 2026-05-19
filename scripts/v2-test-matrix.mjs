@@ -182,7 +182,6 @@ const STEPS = [
     category: 'build',
     cmd: 'pnpm --filter web build',
     skipKey: 'web-build',
-    knownBaselineFailure: true,
   },
 ];
 

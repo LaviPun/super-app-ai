@@ -1,3 +1,25 @@
+## 2026-05-19 (Platform V2 Phase 21 — Rollout and cutover)
+
+- **Rollout flags:** `packages/platform-contracts/src/rollout-cutover.ts` — Zod-backed env parsing; all cutover flags default **off**; `JOB_EXECUTION_MODE` defaults to `inline` for legacy Remix.
+- **Remix:** `apps/web/app/services/platform-v2/rollout-cutover.server.ts` + root loader `platformV2Cutover` metadata for operators.
+- **Fastify:** `rollout-cutover` plugin gates `/v1/*` until `FASTIFY_API_ENABLED=true` (`/health`, `/ready` stay available).
+- **Workers:** `apps/workers/src/publish-execution.ts` wires `PUBLISH` to `runPublishJob` when `PUBLISH_WORKER_ENABLED` + `JOB_EXECUTION_MODE=queue`.
+- **Docs:** [`phase-21-rollout-cutover.md`](./gitbook/02-architecture/v2-migration/phase-21-rollout-cutover.md), GitBook SUMMARY V2 section, phase **11/13/14** stubs, rollback notes in [`release-operations.md`](./release-operations.md).
+- **Verification:** `pnpm test:v2:fast`, `pnpm --filter web test`, platform-contracts/api/workers unit tests.
+
+## 2026-05-19 (Production readiness continuation — **97/100**)
+
+- **Score:** [`docs/qa/production-readiness.md`](./qa/production-readiness.md) — **97/100** (merchant OAuth manual gate + high audit debt).
+- **Fixes:** Remix prod build; safe delete forms; internal `<title>` meta; merchant auth on `/advanced`, `/picker`; `/modules` auth-before-DB; `protobufjs` override (0 critical audit).
+- **Verification:** `pnpm test:v2:fast` (incl. web-build); `pnpm --filter web test` **489** pass; internal Playwright **14/14**; merchant auth-guards **1/1**; prod Lighthouse in [`performance-audit.md`](./qa/performance-audit.md).
+- **Operator gate:** [`docs/qa/merchant-oauth-checklist.md`](./qa/merchant-oauth-checklist.md) before App Store merchant traffic.
+
+## 2026-05-19 (Autonomous QA pass — internal admin + fixes)
+
+- **Artifacts:** [`docs/qa/qa-report.md`](./qa/qa-report.md), [`fix-log.md`](./qa/fix-log.md), [`security-audit.md`](./qa/security-audit.md), [`performance-audit.md`](./qa/performance-audit.md), [`production-readiness.md`](./qa/production-readiness.md).
+- **Fixes:** Merchant template preview uses `previewShellResponse()` (sandbox iframe + badge); AI assistant Import E2E stabilized via `data-testid="memory-import"`.
+- **Verification:** Playwright internal e2e; route crawls on internal admin and Next frontend dev.
+
 ## 2026-05-19 (Platform V2 — consolidated workspace commit on `vr/v2`)
 
 - **Git:** V2 tree (`apps/api`, `apps/workers`, `apps/frontend`, `packages/*`, CI workflows, docs) committed from main workspace; phase worktrees were already at `1b0df9d` — main workspace is canonical.
