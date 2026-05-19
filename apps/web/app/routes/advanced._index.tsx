@@ -1,6 +1,13 @@
+import type { LoaderFunctionArgs } from '@remix-run/node';
 import { Page, InlineGrid, Card, BlockStack, Text, Button, InlineStack, Icon } from '@shopify/polaris';
 import { ConnectIcon, AutomationIcon } from '@shopify/polaris-icons';
 import { useNavigate } from '@remix-run/react';
+import { shopify } from '~/shopify.server';
+
+export async function loader({ request }: LoaderFunctionArgs) {
+  await shopify.authenticate.admin(request);
+  return null;
+}
 
 export default function AdvancedIndex() {
   const navigate = useNavigate();

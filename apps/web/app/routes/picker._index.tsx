@@ -14,8 +14,10 @@ import {
   CHECKOUT_UI_TARGETS,
   MODULE_CATEGORIES,
 } from '@superapp/core';
+import { shopify } from '~/shopify.server';
 
 export async function loader({ request }: LoaderFunctionArgs) {
+  await shopify.authenticate.admin(request);
   return json({
     goals: RECIPE_GOAL_CATEGORIES as unknown as string[],
     themeTemplates: THEME_PLACEABLE_TEMPLATES as unknown as string[],

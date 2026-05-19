@@ -49,7 +49,7 @@ beforeEach(() => {
 
 describe('probeAssistantTargets', () => {
   it('returns probe results for both targets', async () => {
-    const mod = await import('~/routes/internal.ai-assistant.probe');
+    const mod = await import('~/services/ai/assistant-probe-route.server');
     const result = await mod.probeAssistantTargets();
     expect(result.localMachine).toBeDefined();
     expect(result.modalRemote).toBeDefined();
@@ -64,28 +64,28 @@ describe('probeAssistantTargets', () => {
       config: DEFAULT_ROUTER_RUNTIME_CONFIG,
       parseError: 'bad config: missing field foo',
     });
-    const mod = await import('~/routes/internal.ai-assistant.probe');
+    const mod = await import('~/services/ai/assistant-probe-route.server');
     const result = await mod.probeAssistantTargets();
     expect(result.parseError).toBe('bad config: missing field foo');
   });
 
   it('accepts unwrapped legacy config shape', async () => {
     getRouterRuntimeConfigMock.mockResolvedValueOnce(DEFAULT_ROUTER_RUNTIME_CONFIG);
-    const mod = await import('~/routes/internal.ai-assistant.probe');
+    const mod = await import('~/services/ai/assistant-probe-route.server');
     const result = await mod.probeAssistantTargets();
     expect(result.parseError).toBeUndefined();
   });
 
   it('records a parseError when loadConfig throws', async () => {
     getRouterRuntimeConfigMock.mockRejectedValueOnce(new Error('boom'));
-    const mod = await import('~/routes/internal.ai-assistant.probe');
+    const mod = await import('~/services/ai/assistant-probe-route.server');
     const result = await mod.probeAssistantTargets();
     expect(result.parseError).toContain('boom');
   });
 
   it('skips modal probe calls while INTERNAL_AI_LOCAL_ONLY is enabled', async () => {
     isInternalAiLocalOnlyEnabledMock.mockReturnValue(true);
-    const mod = await import('~/routes/internal.ai-assistant.probe');
+    const mod = await import('~/services/ai/assistant-probe-route.server');
     const result = await mod.probeAssistantTargets();
     expect(result.modalRemote.health.message).toContain('disabled');
     expect(result.modalRemote.chatProbe.message).toContain('disabled');

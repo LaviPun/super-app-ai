@@ -181,16 +181,14 @@ export default function MetaobjectBackfillPage() {
         + <code>list.metaobject_reference</code> shop metafields.
       </p>
       <p>Run via POST with <code>{'{"shopDomain":"store.myshopify.com","confirmShopDomain":"store.myshopify.com"}'}</code></p>
-      <p>
-        <strong>Migration phases:</strong>
-        <ol>
-          <li>Deploy dual-write (Phase 2) — done if metaobject.service.ts is live</li>
-          <li>Run this backfill per shop (Phase 3)</li>
-          <li>Verify: GID list count == legacy JSON key count (Phase 4)</li>
-          <li>Deploy Liquid + Admin UI cutover (Phase 5)</li>
-          <li>Remove legacy JSON writes from PublishService (Phase 6)</li>
-        </ol>
-      </p>
+      <p><strong>Migration phases:</strong></p>
+      <ol>
+        <li>Deploy dual-write (Phase 2) — done if metaobject.service.ts is live</li>
+        <li>Run this backfill per shop (Phase 3)</li>
+        <li>Verify: GID list count == legacy JSON key count (Phase 4)</li>
+        <li>Deploy Liquid + Admin UI cutover (Phase 5)</li>
+        <li>Remove legacy JSON writes from PublishService (Phase 6)</li>
+      </ol>
     </div>
   );
 }

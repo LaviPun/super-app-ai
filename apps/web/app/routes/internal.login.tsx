@@ -1,5 +1,11 @@
 import { json, redirect } from '@remix-run/node';
+import type { MetaFunction } from '@remix-run/node';
 import { Form, useActionData, useSearchParams } from '@remix-run/react';
+import { internalDocumentTitle } from '~/utils/internal-route-meta';
+
+export const meta: MetaFunction = ({ location }) => [
+  { title: internalDocumentTitle(location.pathname) },
+];
 import { useRef, useEffect, useCallback } from 'react';
 import { internalSessionStorage, commitInternal } from '~/internal-admin/session.server';
 
