@@ -8,7 +8,7 @@
 | Signing | `verifyShopifyWebhookHmac` / `signShopifyWebhookBody` | `signing.test.ts` |
 | Redaction | `redactString`, `redactValue`, `redactHeaders` | `redact.test.ts` |
 | GDPR boundaries | `SHOPIFY_GDPR_COMPLIANCE_TOPICS`, `assertGdprWebhookIngress` | `gdpr.test.ts` + API plugin |
-| API security plugin | HMAC on `/v1/webhooks/shopify`, SSRF on connector enqueue, rate-limit stub | `security.plugin.test.ts` |
+| API security plugin | HMAC on `/v1/webhooks/shopify`, SSRF on connector enqueue, rate-limit stub, baseline response headers (`X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`) | `security.plugin.test.ts` |
 | Package alias | `packages/security` → re-exports `@superapp/network-security` | build |
 
 ## Compliance checklist (addressable locally)

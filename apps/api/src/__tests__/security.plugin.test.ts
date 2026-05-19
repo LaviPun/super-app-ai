@@ -28,6 +28,18 @@ afterEach(() => {
 });
 
 describe('security plugin', () => {
+  it('sets baseline security headers on responses', async () => {
+    const app = await buildApp({ env: testEnv, logger: false });
+    const res = await app.inject({ method: 'GET', url: '/health' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['x-frame-options']).toBe('DENY');
+    expect(res.headers['referrer-policy']).toBe('no-referrer');
+    expect(res.headers['permissions-policy']).toContain('camera=()');
+    await app.close();
+  });
+
   it('rejects connector enqueue URLs that fail SSRF checks', async () => {
     const app = await buildApp({ env: testEnv, logger: false });
     const res = await app.inject({

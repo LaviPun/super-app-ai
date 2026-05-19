@@ -53,6 +53,9 @@ function readWebhookHmac(
 export async function registerSecurityPlugin(app: FastifyInstance): Promise<void> {
   app.addHook('onRequest', async (_request, reply) => {
     reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('X-Frame-Options', 'DENY');
+    reply.header('Referrer-Policy', 'no-referrer');
+    reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   });
 
   app.addHook('preHandler', async (request, reply) => {
