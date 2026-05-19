@@ -11,7 +11,13 @@
     "lint": "pnpm -r lint",
     "evals": "pnpm --filter web evals",
     "evals:strict": "pnpm --filter web evals --strict",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:v2": "node scripts/v2-test-matrix.mjs --continue",
+    "test:v2:fast": "node scripts/v2-test-matrix.mjs --skip=evals,evals-strict,e2e,web-build",
+    "test:v2:ci": "node scripts/v2-test-matrix.mjs --skip=web-build",
+    "test:v2:typecheck": "pnpm --filter @superapp/platform-contracts --filter @superapp/db --filter @superapp/network-security --filter @superapp/core --filter @superapp/rate-limit --filter @superapp/api --filter @superapp/workers --filter @superapp/frontend typecheck",
+    "test:v2:unit": "pnpm --filter @superapp/platform-contracts --filter @superapp/db --filter @superapp/network-security --filter @superapp/core --filter @superapp/rate-limit --filter @superapp/api --filter @superapp/workers --filter @superapp/frontend test",
+    "test:v2:build": "pnpm --filter @superapp/platform-contracts --filter @superapp/db --filter @superapp/network-security --filter @superapp/core --filter @superapp/api --filter @superapp/workers --filter @superapp/frontend build"
   },
   "devDependencies": {
     "husky": "^9.1.7",

@@ -1,0 +1,12 @@
+node_modules
+.git
+.next
+**/.next
+**/dist
+**/test-results
+**/playwright-report
+**/__tests__
+**/*.test.ts
+**/*.spec.ts
+apps/frontend/.next
+apps/web/node_modules

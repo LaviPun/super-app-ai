@@ -1,7 +1,7 @@
 import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
-import { ConnectorService } from '~/services/connectors/connector.service';
+import { enqueueConnectorTestJob } from '~/services/connectors/connector-test-job.server';
 import { withApiLogging } from '~/services/observability/api-log.service';
 
 export async function action({ request }: { request: Request }) {
@@ -16,28 +16,13 @@ export async function action({ request }: { request: Request }) {
         return json({ error: 'Missing fields: connectorId, path' }, { status: 400 });
       }
 
-      const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
-      type Method = (typeof ALLOWED_METHODS)[number];
-      const method: Method | undefined =
-        typeof body.method === 'string' && (ALLOWED_METHODS as readonly string[]).includes(body.method)
-          ? (body.method as Method)
-          : undefined;
-
-      const headers =
-        body.headers && typeof body.headers === 'object' && !Array.isArray(body.headers)
-          ? (body.headers as Record<string, string>)
-          : undefined;
-
-      const svc = new ConnectorService();
-      const result = await svc.test(session.shop, {
-        connectorId: body.connectorId,
-        path: body.path,
-        method,
-        headers,
-        body: body.body,
-      });
-
-      return json({ ok: true, result });
-    }
+      try {
+        const job = await enqueueConnectorTestJob(session.shop, body);
+        return json({ ok: true, queued: true, job }, { status: 202 });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Invalid connector test request';
+        return json({ error: message }, { status: 400 });
+      }
+    },
   );
 }

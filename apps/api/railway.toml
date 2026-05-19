@@ -1,0 +1,9 @@
+# Railway service config — set root directory to repo root in the Railway dashboard.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "apps/api/Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"

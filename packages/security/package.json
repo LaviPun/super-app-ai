@@ -1,0 +1,26 @@
+{
+  "name": "@superapp/security",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Platform V2 security facade — re-exports @superapp/network-security per migration plan.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json -w",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@superapp/network-security": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

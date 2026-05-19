@@ -1,0 +1,49 @@
+name: V2 API Build
+
+on:
+  pull_request:
+    paths:
+      - 'apps/api/**'
+      - 'packages/platform-contracts/**'
+      - 'packages/db/**'
+      - 'packages/network-security/**'
+      - 'scripts/deployment/**'
+      - '.github/workflows/v2-api-build.yml'
+  workflow_dispatch:
+
+env:
+  NODE_ENV: test
+
+jobs:
+  api:
+    name: Build · Test · Deploy config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace dependencies
+        run: |
+          pnpm --filter @superapp/platform-contracts build
+          pnpm --filter @superapp/db build
+          pnpm --filter @superapp/network-security build
+
+      - name: Build API
+        run: pnpm --filter @superapp/api build
+
+      - name: API unit tests
+        run: pnpm --filter @superapp/api test
+
+      - name: Validate deployment manifest
+        run: pnpm deploy:validate

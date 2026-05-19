@@ -69,6 +69,18 @@ export type DeployTarget =
   | { kind: (typeof DEPLOY_TARGET_KINDS)[0]; themeId: string; moduleId?: string }
   | { kind: (typeof DEPLOY_TARGET_KINDS)[1]; moduleId?: string };
 
+export const DeployTargetSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal(DEPLOY_TARGET_KINDS[0]),
+    themeId: z.string().min(1),
+    moduleId: z.string().min(1).optional(),
+  }),
+  z.object({
+    kind: z.literal(DEPLOY_TARGET_KINDS[1]),
+    moduleId: z.string().min(1).optional(),
+  }),
+]);
+
 /** Theme placement: only one of enabled_on or disabled_on (doc 4.2.2B, 4.2.3). */
 const PlacementSchema = z
   .object({

@@ -1,3 +1,31 @@
+## 2026-05-19 (Platform V2 — consolidated workspace commit on `vr/v2`)
+
+- **Git:** V2 tree (`apps/api`, `apps/workers`, `apps/frontend`, `packages/*`, CI workflows, docs) committed from main workspace; phase worktrees were already at `1b0df9d` — main workspace is canonical.
+- **Remix connectors (Phase 10):** `POST /api/connectors/test` and `POST /api/agent/connectors/:connectorId/test` enqueue `CONNECTOR_TEST` jobs via `connector-test-job.server.ts` and return **202** `{ ok, queued, job }` (no sync `ConnectorService.test` in routes).
+- **Frontend build:** `job-events-client` / `internal-assistant-api` imports use extensionless paths so `next build` resolves `sse-parse`.
+- **Verification:** `pnpm test:v2:fast` green (evals/e2e/Remix web build skipped per matrix); `pnpm --filter web test` connector route/worker slices green.
+- **Still skipped in fast matrix:** AI evals, Playwright e2e, Remix `web` production build (legacy baseline).
+
+## 2026-05-19 (Platform V2 Phase 20 — Testing Matrix)
+
+- **Worktree:** `platform-v2-phase-20-testing-matrix` @ `/Users/lavipun/Work/ai-shopify-superapp-phase20-testing-matrix` (no commit; local verification only).
+- **Root gate:** `pnpm test:v2` runs `scripts/v2-test-matrix.mjs --continue` — typecheck, lint, unit, integration slices, Playwright, evals, prisma validate, and per-V2-package builds; writes `test-results/v2-matrix.json`.
+- **Fast/CI variants:** `test:v2:fast` (skip evals/e2e/web build), `test:v2:ci` (skip web build), `test:v2:typecheck`, `test:v2:unit`, `test:v2:build`.
+- **GitHub Actions:** [`.github/workflows/v2-matrix.yml`](../.github/workflows/v2-matrix.yml) — parallel jobs for V2 quality, unit, integration, evals (`continue-on-error`), Playwright, and builds. Legacy [`ci.yml`](../.github/workflows/ci.yml) unchanged.
+- **Docs:** [`phase-20-testing-matrix.md`](./gitbook/02-architecture/v2-migration/phase-20-testing-matrix.md).
+- **Known baseline failures:** Remix `web` production build; stub/strict AI evals (forbidden-surface gate). V2 package typecheck/unit/integration/build slices targeted green.
+- **Merge risks:** `pnpm-lock.yaml` + shared `packages/core` script exports; dual CI evals/prisma until Remix cutover.
+
+## 2026-05-15 (internal AI assistant — chat UX, send guard, docs)
+
+## 2026-05-19 (Platform V2 Phase 19 — Async UX)
+
+- **Fastify:** Shared SSE helper for job events; added `GET /v1/jobs/:jobId/events`; generic job enqueue/status responses now include `links` and event backlog (parity with internal assistant routes).
+- **Next frontend:** `job-events-client` (SSE + polling fallback), `async-job-states` phase mapping, `AsyncJobProgressPanel` + simulated demos on `/internal/ai-assistant`, `/jobs`, and `/internal/data`.
+- **Tests:** Vitest coverage for SSE parsing, UX state resolution, and client fallback; Playwright `async-ux.spec.ts` exercises simulated progress timelines without a live API.
+- **Docs:** [`phase-19-async-ux.md`](./gitbook/02-architecture/v2-migration/phase-19-async-ux.md).
+- **Branch/worktree:** `platform-v2-phase-19-async-ux` at `/Users/lavipun/Work/ai-shopify-superapp-phase19-async-ux` (V2 apps remain uncommitted workspace files until prior phases land).
+
 ## 2026-05-15 (internal AI assistant — chat UX, send guard, docs)
 
 - **Composer:** `computeAssistantSendDisabledReason` is the single source for send disabled + operator copy (streaming, `sendInFlight`, session `useFetcher` busy, route navigation pending, `unavailable` session, empty draft). Subdued hint next to send; **warning** `Banner` for live probe text (send still allowed); **critical** `Banner` only for real stream/transport failures. `sendLockRef` blocks same-tick double submit before `isStreaming` paints.
