@@ -1,3 +1,12 @@
+## 2026-05-19 (Audit remediation — repo hygiene + docs + web hardening)
+
+- **Git hygiene:** `.gitignore` adds `**/.next/` and root `test-results/`; no conflict markers in tree.
+- **Web (Remix):** Internal `<title>` via `internal-route-meta.ts`; probe logic extracted to `assistant-probe-route.server.ts`; merchant auth guards on `/advanced`, `/picker`; unit + Playwright coverage (`merchant-auth-guards`, `internal-route-meta`, merchant e2e).
+- **API security:** Baseline response headers on Fastify (`X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`) — [`security.ts`](../apps/api/src/plugins/security.ts).
+- **Docs:** [`integrations/platform-hosting.md`](./integrations/platform-hosting.md) (Vercel / Railway / RunPod / legacy Remix); [`packages/db/.env.example`](../packages/db/.env.example) Postgres migration path; phase-plan V2 table; production-readiness **98/100**.
+- **Branch:** `vr/v2` pushed to origin after commits; phase worktrees documented as non-blocking at `1b0df9d`.
+- **Verification:** `pnpm --filter @superapp/api test`; `pnpm test:v2:fast`.
+
 ## 2026-05-19 (Platform V2 Phase 21 — Rollout and cutover)
 
 - **Rollout flags:** `packages/platform-contracts/src/rollout-cutover.ts` — Zod-backed env parsing; all cutover flags default **off**; `JOB_EXECUTION_MODE` defaults to `inline` for legacy Remix.
@@ -9,7 +18,7 @@
 
 ## 2026-05-19 (Production readiness continuation — **97/100**)
 
-- **Score:** [`docs/qa/production-readiness.md`](./qa/production-readiness.md) — **97/100** (merchant OAuth manual gate + high audit debt).
+- **Score:** [`docs/qa/production-readiness.md`](./qa/production-readiness.md) — **98/100** (merchant OAuth manual gate + high audit debt).
 - **Fixes:** Remix prod build; safe delete forms; internal `<title>` meta; merchant auth on `/advanced`, `/picker`; `/modules` auth-before-DB; `protobufjs` override (0 critical audit).
 - **Verification:** `pnpm test:v2:fast` (incl. web-build); `pnpm --filter web test` **489** pass; internal Playwright **14/14**; merchant auth-guards **1/1**; prod Lighthouse in [`performance-audit.md`](./qa/performance-audit.md).
 - **Operator gate:** [`docs/qa/merchant-oauth-checklist.md`](./qa/merchant-oauth-checklist.md) before App Store merchant traffic.

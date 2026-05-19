@@ -21,6 +21,32 @@ This plan is structured for iterative development with strong quality gates:
 
 ---
 
+## Platform V2 migration (Phases 0–21) — branch `vr/v2`
+
+Canonical architecture: [platform-v2-migration-plan.md](./gitbook/02-architecture/platform-v2-migration-plan.md) and [ADR-001](./gitbook/02-architecture/v2-migration/ADR-001-platform-v2-architecture.md).
+
+| Phase | Topic | Status on `vr/v2` |
+| ----- | ----- | ----------------- |
+| 0–9 | Contracts, API, workers, webhooks | ✅ Merged in workspace |
+| 10 | Connector worker | ✅ Remix routes enqueue `CONNECTOR_TEST` |
+| 11 | Publish worker | ✅ Wired; `PUBLISH_WORKER_ENABLED` defaults off |
+| 12 | Storage / image worker | ✅ In tree; flag-gated |
+| 13 | Preview sandbox | ✅ Local; script blocking deferred to hardening |
+| 14 | Intent graph / Recipe DSL | ✅ Foundation; deployable-code gate separate |
+| 15 | Data layer / Postgres | ✅ SQLite + repository; **Postgres driver deferred** — see [phase-15](./gitbook/02-architecture/v2-migration/phase-15-data-layer-productionization.md) + [`packages/db/.env.example`](../packages/db/.env.example) |
+| 16 | Observability | ✅ OTLP hooks; prod backends manual |
+| 17 | Security / compliance | ✅ SSRF, HMAC, GDPR ingress, rate-limit stub — [checklist](./gitbook/02-architecture/v2-migration/phase-17-security-compliance.md) |
+| 18 | Deployment | ✅ Vercel + Railway configs — [hosting guide](./integrations/platform-hosting.md) |
+| 19 | Async UX | ✅ SSE job events + Next panels |
+| 20 | Testing matrix | ✅ `pnpm test:v2*` + CI workflow |
+| 21 | Rollout / cutover | ✅ Flags default **off** — [phase-21](./gitbook/02-architecture/v2-migration/phase-21-rollout-cutover.md) |
+
+**Phase worktrees:** twelve `platform-v2-phase-*` / `vr/v2-phase10-*` worktrees remain at commit `1b0df9d` (pre-V2 land). They are **not blocking** — main workspace on `vr/v2` is canonical; worktrees can be removed after operators confirm no local-only patches.
+
+**Deferred (not cutover):** production flag flip, merchant traffic on Next/Fastify, Postgres `pg` driver, Redis-backed rate limits, RunPod credentials in prod, App Store OAuth sign-off.
+
+---
+
 ## Phase 0 — Engineering Baseline (CI + standards) ✅
 **Goal:** Make the repo safe to scale.
 
@@ -70,7 +96,7 @@ This plan is structured for iterative development with strong quality gates:
   - [x] Prefer Theme App Extension blocks/embeds
   - [x] Minimal reversible patch only when needed
 - [x] Theme compatibility profile generated and stored (`ThemeAnalyzerService` + `/api/theme/analyze`)
-- [ ] Profile-driven compile/publish adapter wiring (deferred; current compile/publish paths do not read `services/theme/`)
+- [ ] Profile-driven compile/publish adapter wiring (deferred; current compile/publish paths do not read `services/theme/`) — **still open on `vr/v2`**
 
 ### Acceptance criteria
 - ✅ Does not break Dawn-like themes
