@@ -150,6 +150,10 @@ The trust boundary is enforced by `packages/core/src/recipe.ts` (Zod schema) and
 
 Phase 12 of the Platform V2 migration adds generated-asset contracts in `packages/platform-contracts`, the platform job registry in `packages/platform-contracts/src/platform-jobs.ts`, job orchestration in `packages/job-orchestration`, the Fastify API skeleton in `apps/api`, the `ImageWorkerHandler` in `apps/workers`, and BullMQ worker runtime in `apps/workers/src/worker-runtime.ts`. Generated assets and preview exports are stored through a `StorageAdapter` (local filesystem in dev/test, Cloudflare R2 contract with injectable binding in production). Remix preview routes call `schedulePreviewExport()` when `PREVIEW_EXPORT_QUEUE_ENABLED=1`; jobs run inline by default or enqueue to BullMQ when `JOB_EXECUTION_MODE=queue` and Redis is configured. See [`docs/gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md`](docs/gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md).
 
+### Platform V2 Phase 13 (preview sandbox)
+
+Phase 13 adds a RecipeSpec-safe preview sandbox: envelope contracts in `packages/platform-contracts/src/preview.ts`, Fastify preview data routes in `apps/api` (`/v1/preview/:shopId/:moduleId/envelope` and `/content` with strict CSP), and a Next.js preview shell in `apps/frontend/app/preview/[shopId]/[moduleId]` that embeds exported artifacts in a sandboxed iframe. Preview HTML is served from storage written by Phase 12 `PREVIEW_EXPORT` jobs — no Liquid, no merchant scripts. See [`docs/gitbook/02-architecture/v2-migration/phase-13-preview-sandbox.md`](docs/gitbook/02-architecture/v2-migration/phase-13-preview-sandbox.md).
+
 ### Two AI layers
 
 | Layer | Models | Where it runs |

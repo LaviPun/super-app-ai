@@ -10,10 +10,17 @@ export type PutObjectInput = {
 
 export type PutObjectResult = StorageObjectRef;
 
+export type GetObjectResult = {
+  body: Uint8Array;
+  contentType: string;
+  sizeBytes: number;
+};
+
 export interface StorageAdapter {
   readonly provider: StorageObjectRef['provider'];
   readonly bucket: string;
   putObject(input: PutObjectInput): Promise<PutObjectResult>;
+  getObject(key: string): Promise<GetObjectResult>;
   deleteObject(key: string): Promise<void>;
   createSignedUrl(key: string, options: { expiresInSeconds: number }): Promise<string>;
 }

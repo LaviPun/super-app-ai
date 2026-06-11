@@ -27,6 +27,9 @@ export default async function HomePage() {
       <p>
         <a href={`${apiBase}/health`}>Open API health</a>
       </p>
+      <p>
+        <a href="/preview/shop_1/module_1?assetId=preview_module_1">Open preview sandbox (shop_1/module_1)</a>
+      </p>
     </main>
   );
 }

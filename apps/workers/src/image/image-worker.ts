@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 import {
+  assertPreviewContentIsRecipeSafe,
+  buildAssetStorageKey,
+  buildPreviewStorageKey,
   GeneratedAssetMetadataSchema,
   ImageWorkerPayloadSchema,
   ImageWorkerResultSchema,
@@ -100,7 +103,7 @@ export class ImageWorkerHandler {
     events: ImageWorkerEvent[],
   ): Promise<ImageWorkerResult> {
     const body = decodeBase64(payload.source.bytesBase64);
-    const key = buildStorageKey({
+    const key = buildAssetStorageKey({
       shopId: payload.shopId,
       moduleId: payload.moduleId,
       revisionId: payload.revisionId,
@@ -151,16 +154,15 @@ export class ImageWorkerHandler {
     payload: Extract<ImageWorkerPayload, { type: 'PREVIEW_EXPORT' }>,
     events: ImageWorkerEvent[],
   ): Promise<ImageWorkerResult> {
-    assertPreviewIsRecipeSafe(payload.preview.body);
+    assertPreviewContentIsRecipeSafe(payload.preview.body);
 
     const body = new TextEncoder().encode(payload.preview.body);
-    const key = buildStorageKey({
+    const key = buildPreviewStorageKey({
       shopId: payload.shopId,
       moduleId: payload.moduleId,
       revisionId: payload.revisionId,
-      folder: 'previews',
       assetId: payload.assetId,
-      extension: payload.preview.contentType === 'text/html' ? 'html' : 'json',
+      contentType: payload.preview.contentType,
     });
     const storage = await this.storage.putObject({
       key,
@@ -240,28 +242,6 @@ export class ImageWorkerHandler {
   }
 }
 
-function buildStorageKey(input: {
-  shopId: string;
-  moduleId: string;
-  revisionId?: string;
-  folder: 'images' | 'previews';
-  assetId: string;
-  extension: string;
-}): string {
-  const revisionSegment = input.revisionId ? `/revisions/${safePathSegment(input.revisionId)}` : '';
-  return [
-    'shops',
-    safePathSegment(input.shopId),
-    'modules',
-    safePathSegment(input.moduleId),
-    `${revisionSegment}/${input.folder}/${safePathSegment(input.assetId)}.${input.extension}`.replace(/^\//, ''),
-  ].join('/');
-}
-
-function safePathSegment(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]/g, '_');
-}
-
 function extensionForContentType(contentType: string): string {
   const subtype = contentType.split('/')[1]?.toLowerCase() ?? 'bin';
   if (subtype === 'jpeg') return 'jpg';
@@ -277,21 +257,15 @@ function sha256(body: Uint8Array): string {
   return createHash('sha256').update(body).digest('hex');
 }
 
-function assertPreviewIsRecipeSafe(body: string): void {
-  if (/<script[\s>]/i.test(body) || /\son[a-z]+\s*=/i.test(body) || /javascript:/i.test(body)) {
-    throw new StorageAdapterError(
-      'UNSAFE_PREVIEW_ARTIFACT',
-      'Preview artifacts must be RecipeSpec/config-safe and cannot include scripts or inline event handlers.',
-    );
-  }
-}
-
 function normalizeError(error: unknown): { code: string; message: string } {
   if (error instanceof StorageAdapterError) {
     return { code: error.code, message: error.message };
   }
 
   if (error instanceof Error) {
+    if (error.message.includes('RecipeSpec/config-safe')) {
+      return { code: 'UNSAFE_PREVIEW_ARTIFACT', message: error.message };
+    }
     return { code: 'IMAGE_WORKER_FAILED', message: error.message };
   }
 

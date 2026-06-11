@@ -44,7 +44,7 @@ Single index for the **Platform V2** migration (Next.js + Fastify + BullMQ worke
 | 10 | Connector worker | `010-connector-worker` | Partial | Scaffold handler on `connector` queue |
 | 11 | Publish worker | `011-publish-worker` | Partial | Scaffold handler on `publish` queue |
 | 12 | Storage & image worker | `012-storage-image-worker` | **Shipped** | Full handler + inline/queue enqueue |
-| 13 | Preview sandbox | `013-preview-sandbox` | Partial | Preview export enqueue wired; sandbox UI pending |
+| 13 | Preview sandbox | `013-preview-sandbox` | **Shipped** | Envelope contracts, Fastify preview API, Next.js sandbox shell |
 | 14 | Intent graph & Recipe DSL | `014-intent-graph` | Not started | WIP specs only |
 | 15 | Data layer productionization | `015-data-layer` | Not started | Postgres cutover pending |
 | 16 | Observability & analytics | `016-observability` | Partial | Worker events schema; cross-service OTel pending |

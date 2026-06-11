@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import { loadApiEnv } from './env.js';
 import { registerJobRoutes } from './routes/jobs.js';
 import { registerInternalAssistantRoutes } from './routes/internal-assistant.js';
+import { registerPreviewRoutes } from './routes/preview.js';
 
 export async function buildApp() {
   const env = loadApiEnv();
@@ -20,6 +21,7 @@ export async function buildApp() {
 
   await registerJobRoutes(app);
   await registerInternalAssistantRoutes(app);
+  await registerPreviewRoutes(app);
 
   return { app, env };
 }

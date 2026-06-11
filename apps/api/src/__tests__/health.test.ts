@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../index.js';
 import { resetJobOrchestratorForTests } from '../routes/jobs.js';
+import { resetPreviewSandboxServiceForTests } from '../routes/preview.js';
 
 describe('api health', () => {
   afterEach(() => {
     resetJobOrchestratorForTests();
+    resetPreviewSandboxServiceForTests();
   });
 
   it('returns ok from /health', async () => {

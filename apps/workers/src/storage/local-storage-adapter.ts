@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize } from 'node:path';
-import type { PutObjectInput, PutObjectResult, StorageAdapter } from './storage-adapter';
+import type { GetObjectResult, PutObjectInput, PutObjectResult, StorageAdapter } from './storage-adapter';
 import { StorageAdapterError } from './storage-adapter';
 
 export type LocalStorageAdapterOptions = {
@@ -41,6 +41,22 @@ export class LocalStorageAdapter implements StorageAdapter {
     await rm(this.resolveKey(key), { force: true });
   }
 
+  async getObject(key: string): Promise<GetObjectResult> {
+    const filePath = this.resolveKey(key);
+    let body: Buffer;
+    try {
+      body = await readFile(filePath);
+    } catch (error) {
+      throw new StorageAdapterError('OBJECT_NOT_FOUND', 'Storage object was not found.', { cause: error });
+    }
+
+    return {
+      body: new Uint8Array(body),
+      contentType: contentTypeForKey(key),
+      sizeBytes: body.byteLength,
+    };
+  }
+
   async createSignedUrl(key: string, options: { expiresInSeconds: number }): Promise<string> {
     if (options.expiresInSeconds <= 0) {
       throw new StorageAdapterError('INVALID_SIGNED_URL_TTL', 'Signed URL TTL must be positive.');
@@ -61,4 +77,15 @@ export class LocalStorageAdapter implements StorageAdapter {
 
     return join(this.rootDir, normalized);
   }
+}
+
+function contentTypeForKey(key: string): string {
+  const lower = key.toLowerCase();
+  if (lower.endsWith('.html')) return 'text/html; charset=utf-8';
+  if (lower.endsWith('.json')) return 'application/json; charset=utf-8';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.svg')) return 'image/svg+xml';
+  return 'application/octet-stream';
 }
