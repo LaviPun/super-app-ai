@@ -9,7 +9,17 @@ import {
 import type { PromptRouterReasonCode } from '~/schemas/prompt-router-reasons.server';
 
 const HOST = process.env.ROUTER_HOST?.trim() || '0.0.0.0';
-const PORT = Number(process.env.ROUTER_PORT?.trim() || '8787');
+
+function resolveListenPort(): number {
+  const explicit = process.env.ROUTER_PORT?.trim();
+  if (explicit) return Number(explicit);
+  // Railway and other PaaS inject PORT; prefer it when ROUTER_PORT is unset.
+  const platform = process.env.PORT?.trim();
+  if (platform) return Number(platform);
+  return 8787;
+}
+
+const PORT = resolveListenPort();
 const AUTH_TOKEN = process.env.INTERNAL_AI_ROUTER_TOKEN?.trim() || '';
 const REQUIRE_AUTH = (process.env.ROUTER_REQUIRE_AUTH?.trim() || '').toLowerCase();
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';

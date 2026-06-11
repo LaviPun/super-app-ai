@@ -457,7 +457,7 @@ The following strategic safety/release-engineering controls were captured during
 - Base branch detected: `master` (via `origin/HEAD` → `master`)
 - Plan path: `docs/phase-plan.md`
 - Restore snapshot: `/Users/lavipun/.gstack/projects/LaviPun-super-app-ai/master-autoplan-restore-20260501-141829.md`
-- **Focus (git context):** internal AI assistant hardening — shared `assistant-chat-target-probe.server.ts`, `internal.ai-assistant` + `internal.model-setup` loader probes, `internal-ai-router.ts` Ollama passthrough, K8s configmap + deploy docs, `implementation-status` / `internal-admin` alignment
+- **Focus (git context):** internal AI assistant hardening — shared `assistant-chat-target-probe.server.ts`, `internal.ai-assistant` + `internal.model-setup` loader probes, `internal-ai-router.ts` Ollama passthrough, Railway router runbook + deploy docs, `implementation-status` / `internal-admin` alignment
 - UI scope: **yes** (internal admin assistant + model setup surfaces)
 - DX scope: **yes** (router scripts, deploy READMEs, env conventions)
 - Codex CLI: **exec unavailable** this run (`codex exec` failed with `refresh_token_reused` / token refresh despite short-lived auth probe success). Dual-voice Codex sections tagged **N/A**; primary analysis Claude-only.
@@ -611,7 +611,7 @@ ENG DUAL VOICES — CONSENSUS TABLE (2026-05-01):
 
 - **Persona:** Platform maintainer wiring local Ollama + internal admin.
 - **TTHW:** Still dominated by Shopify CLI + DB + env — internal router passthrough reduces one failure mode (single port for route + chat).
-- **Docs anchor:** `docs/internal-admin.md` “Internal AI Assistant setup” + deploy READMEs for Modal vs K8s.
+- **Docs anchor:** `docs/internal-admin.md` “Internal AI Assistant setup” + deploy READMEs for Modal vs Railway.
 
 #### DX scorecard — snapshot
 
@@ -647,7 +647,7 @@ ENG DUAL VOICES — CONSENSUS TABLE (2026-05-01):
 |---|-------|----------|----------------|-----------|----------|--------|
 | 12 | Eng | Enforce `releaseGateSchemaFailRateMax` / `releaseGateFallbackRateMax` with a 200-call in-memory rolling buffer per target; trip forces shadow mode in-memory and emits `ROUTER_RELEASE_GATE_TRIPPED` | Mechanical | P2 safety-by-default | Persisted gates that did nothing were a footgun; in-memory trip avoids writing under load | Persist trip state to DB on every route call |
 | 13 | Eng | Surface `parseError` from `getRouterRuntimeConfig` and render banner on `/internal/model-setup` + chip on `/internal/ai-assistant` | Mechanical | P5 explicit | Silent decryption fallback after `ENCRYPTION_KEY` rotation was masking outages | Auto-rewrite config on parse error |
-| 14 | Eng | Tighten `assertSafeTargetUrl` (exact-match `http://` localhosts; reject link-local + cloud metadata for `https://`); add `INTERNAL_AI_ALLOW_HOSTS` allowlist | Mechanical | P2 safety-by-default | Closes `http://localhost.attacker.example` and IMDS exfiltration paths; allowlist preserves K8s internal SSL use case | Permanently block all private-range hostnames with no escape hatch |
+| 14 | Eng | Tighten `assertSafeTargetUrl` (exact-match `http://` localhosts; reject link-local + cloud metadata for `https://`); add `INTERNAL_AI_ALLOW_HOSTS` allowlist | Mechanical | P2 safety-by-default | Closes `http://localhost.attacker.example` and IMDS exfiltration paths; allowlist preserves trusted internal HTTPS hostnames (e.g. Railway private networking) | Permanently block all private-range hostnames with no escape hatch |
 | 15 | Eng | Ignore `ROUTER_REQUIRE_AUTH=0` in production with stderr WARN | Mechanical | P2 safety-by-default | Prevents a single env flip from disabling `/route` auth in prod | Honor the override unconditionally |
 | 16 | Eng | Hard-delete session via `intent: 'deleteSession'`; preserve `InternalAiToolAudit` rows via `ON DELETE SET NULL` | Mechanical | P4 audit integrity | Operator-requested cleanup must not erase compliance trail | Cascade audits with sessions |
 | 17 | Ops | Daily cron purge of `InternalAiToolAudit` older than `INTERNAL_AI_TOOL_AUDIT_RETENTION_DAYS` (default 90), guarded by 24h in-memory marker | Mechanical | P3 pragmatic | Bounded growth without a dedicated job scheduler; existing cron loader is sufficient | Stand up a new scheduler service |

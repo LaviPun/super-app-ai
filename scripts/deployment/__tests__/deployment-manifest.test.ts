@@ -12,6 +12,7 @@ describe('deployment manifest', () => {
       'frontend',
       'api',
       'workers',
+      'internal-router',
       'legacy-remix',
     ]);
 

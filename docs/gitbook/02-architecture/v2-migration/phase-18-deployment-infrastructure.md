@@ -10,7 +10,8 @@
 | `apps/frontend` | Vercel | Next build + `NEXT_PUBLIC_API_BASE_URL` probe via home page |
 | `apps/api` | Railway (Docker) | `GET /health`, `GET /ready` |
 | `apps/workers` | Railway (Docker) | `GET /health`, `GET /ready` on `WORKER_HEALTH_PORT` |
-| `apps/web` (legacy) | Fly / existing | Unchanged during migration |
+| `apps/web` (legacy Remix) | Fly / existing | Unchanged during migration |
+| Internal AI router | Railway (Docker) | `GET /healthz` on port 8787 |
 | Redis | Railway Redis or Redis Cloud | Shared queue transport |
 | Postgres | Managed | Job ledger + Remix |
 | R2 / RunPod / observability | Per provider | Documented in env matrix |
@@ -22,6 +23,8 @@
 | `apps/frontend/vercel.json` | Vercel monorepo install/build commands |
 | `apps/api/Dockerfile`, `apps/api/railway.toml` | API container + Railway health check |
 | `apps/workers/Dockerfile`, `apps/workers/railway.toml` | Worker container + health server |
+| `apps/web/Dockerfile.internal-router`, `apps/web/railway.internal-router.toml` | Internal AI router (Railway) |
+| `deploy/railway-internal-router/README.md` | Router operator runbook |
 | `docs/deployment/env-matrix.md` | Environment variable matrices |
 | `scripts/deployment/deployment-manifest.ts` | Machine-readable manifest for validation |
 | `scripts/deployment/validate-config.ts` | CI/local config gate |

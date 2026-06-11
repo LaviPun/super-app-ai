@@ -4,14 +4,14 @@ Canonical variable lists for staging and production. Secrets belong in Vercel / 
 
 ## Shared infrastructure
 
-| Variable | Frontend | API | Workers | Legacy Remix | Notes |
-| -------- | -------- | --- | ------- | ------------ | ----- |
-| `DATABASE_URL` | — | required | — | required | Managed Postgres (job ledger + Remix during migration). |
-| `QUEUE_REDIS_URL` | — | required (bullmq) | required (bullmq) | optional | Railway Redis or Redis Cloud; prefix must match. |
-| `QUEUE_PREFIX` | — | required | required | — | Default `superapp-v2`. |
-| `SENTRY_DSN` | optional | optional | optional | optional | Error monitoring. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | optional | optional | optional | optional | Traces/metrics backend. |
-| `POSTHOG_API_KEY` | optional | — | — | optional | Product analytics (no PII in events). |
+| Variable | Frontend | API | Workers | Internal router | Legacy Remix | Notes |
+| -------- | -------- | --- | ------- | --------------- | ------------ | ----- |
+| `DATABASE_URL` | — | required | — | — | required | Managed Postgres (job ledger + Remix during migration). |
+| `QUEUE_REDIS_URL` | — | required (bullmq) | required (bullmq) | — | optional | Railway Redis or Redis Cloud; prefix must match. |
+| `QUEUE_PREFIX` | — | required | required | — | — | Default `superapp-v2`. |
+| `SENTRY_DSN` | optional | optional | optional | optional | optional | Error monitoring. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | optional | optional | optional | optional | optional | Traces/metrics backend. |
+| `POSTHOG_API_KEY` | optional | — | — | — | optional | Product analytics (no PII in events). |
 
 ## Frontend (`apps/frontend` → Vercel)
 
@@ -50,6 +50,23 @@ Health: `GET /health` (liveness), `GET /ready` (config gate).
 | `WORKER_SHUTDOWN_TIMEOUT_MS` | no | no | Graceful drain window. |
 
 Health: `GET /health` (liveness), `GET /ready` (runtime started).
+
+## Internal AI router (`apps/web` router image → Railway)
+
+| Variable | Required | Secret | Purpose |
+| -------- | -------- | ------ | ------- |
+| `ROUTER_HOST` | yes | no | `0.0.0.0` |
+| `ROUTER_PORT` | no | no | Optional; listens on Railway `PORT` when unset, else `8787` locally |
+| `ROUTER_BACKEND` | yes | no | `ollama` or `openai` |
+| `ROUTER_OLLAMA_BASE_URL` | yes | no | Ollama/vLLM origin for `/route` + passthrough |
+| `ROUTER_OLLAMA_MODEL` | yes | no | e.g. `qwen3:4b-instruct` |
+| `INTERNAL_AI_ROUTER_TOKEN` | yes | yes | Bearer auth on `/route` and passthrough |
+| `ROUTER_OPENAI_BASE_URL` | no | no | OpenAI-compatible backend when `ROUTER_BACKEND=openai` |
+| `ROUTER_OPENAI_API_KEY` | no | yes | Key for OpenAI-compatible backend |
+
+Health: `GET /healthz`. Operator runbook: [`deploy/railway-internal-router/README.md`](../../deploy/railway-internal-router/README.md).
+
+Remix consumes the router via `INTERNAL_AI_ROUTER_URL` + `INTERNAL_AI_ROUTER_TOKEN` (set on the Remix host, not on the router service).
 
 ## AI / GPU (RunPod — separate service)
 

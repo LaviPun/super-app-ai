@@ -28,7 +28,7 @@ function main(): void {
       assertFile(file);
     }
     if (target.platform === 'railway' && target.healthPath) {
-      const railwayToml = target.configFiles.find((f) => f.endsWith('railway.toml'));
+      const railwayToml = target.configFiles.find((f) => /railway(\.[^/]+)?\.toml$/.test(f));
       if (!railwayToml) {
         throw new Error(`Railway target ${target.service} is missing railway.toml`);
       }

@@ -17,7 +17,9 @@
     "test:v2:ci": "node scripts/v2-test-matrix.mjs",
     "test:v2:typecheck": "pnpm --filter @superapp/platform-contracts --filter @superapp/db --filter @superapp/network-security --filter @superapp/core --filter @superapp/rate-limit --filter @superapp/api --filter @superapp/workers --filter @superapp/frontend typecheck",
     "test:v2:unit": "pnpm --filter @superapp/platform-contracts --filter @superapp/db --filter @superapp/network-security --filter @superapp/core --filter @superapp/rate-limit --filter @superapp/api --filter @superapp/workers --filter @superapp/frontend test",
-    "test:v2:build": "pnpm --filter @superapp/platform-contracts --filter @superapp/db --filter @superapp/network-security --filter @superapp/core --filter @superapp/api --filter @superapp/workers --filter @superapp/frontend build"
+    "test:v2:build": "pnpm --filter @superapp/platform-contracts --filter @superapp/db --filter @superapp/network-security --filter @superapp/core --filter @superapp/api --filter @superapp/workers --filter @superapp/frontend build",
+    "deploy:validate": "pnpm --filter web exec tsx ../../scripts/deployment/validate-config.ts",
+    "test:deployment": "pnpm --filter web exec vitest run --config ../../scripts/deployment/vitest.config.ts"
   },
   "devDependencies": {
     "husky": "^9.1.7",

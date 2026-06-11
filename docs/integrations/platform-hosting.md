@@ -9,7 +9,8 @@ Where each Platform V2 surface runs, which config files to use, and how they con
 | Next.js merchant + internal shell | **Vercel** | `apps/frontend` | [`apps/frontend/vercel.json`](../../apps/frontend/vercel.json), [`apps/frontend/.env.example`](../../apps/frontend/.env.example) |
 | Fastify API gateway | **Railway** (Docker) | `apps/api` | [`apps/api/Dockerfile`](../../apps/api/Dockerfile), [`apps/api/railway.toml`](../../apps/api/railway.toml), [`apps/api/.env.example`](../../apps/api/.env.example) |
 | BullMQ workers | **Railway** (Docker) | `apps/workers` | [`apps/workers/Dockerfile`](../../apps/workers/Dockerfile), [`apps/workers/railway.toml`](../../apps/workers/railway.toml), [`apps/workers/.env.example`](../../apps/workers/.env.example) |
-| Legacy embedded Remix app | Existing host (Fly / Railway / custom) | `apps/web` | [`apps/web/Dockerfile.internal-router`](../../apps/web/Dockerfile.internal-router), [`apps/web/.env.example`](../../apps/web/.env.example) |
+| Internal AI router (Qwen3 `/route`) | **Railway** (Docker) | `apps/web` router image | [`apps/web/Dockerfile.internal-router`](../../apps/web/Dockerfile.internal-router), [`apps/web/railway.internal-router.toml`](../../apps/web/railway.internal-router.toml), [`deploy/railway-internal-router/README.md`](../../deploy/railway-internal-router/README.md) |
+| Legacy embedded Remix app | Existing host (Fly / Railway / custom) | `apps/web` | [`apps/web/.env.example`](../../apps/web/.env.example) |
 | Queue / cache | **Railway Redis** or Redis Cloud | — | `QUEUE_REDIS_URL` in env matrix |
 | Job ledger DB | Managed **Postgres** (when cut over) | `packages/db` | [`packages/db/.env.example`](../../packages/db/.env.example), [`packages/db/migrations/`](../../packages/db/migrations/) |
 | GPU inference | **RunPod** (external) | adapters in workers/API | See [AI / GPU](#runpod-gpu-inference) |
@@ -116,6 +117,27 @@ pnpm --filter @superapp/workers dev
 
 ---
 
+## Railway — Internal AI router (`apps/web` router image)
+
+### What it does
+
+Small Node HTTP service for **prompt routing** (`POST /route`) and optional Ollama/OpenAI-compatible passthrough. Remix and the optional Modal proxy call this service — it does **not** run GPU inference itself; point `ROUTER_OLLAMA_BASE_URL` / `ROUTER_OPENAI_BASE_URL` at your inference host.
+
+### Setup
+
+1. New Railway service in the same project as API/workers → **Root Directory**: repository root.
+2. Builder: [`apps/web/railway.internal-router.toml`](../../apps/web/railway.internal-router.toml) → [`apps/web/Dockerfile.internal-router`](../../apps/web/Dockerfile.internal-router).
+3. Health check: `GET /healthz` (configured in the TOML).
+4. Env from [`deploy/railway-internal-router/env.example`](../../deploy/railway-internal-router/env.example) — set `INTERNAL_AI_ROUTER_TOKEN` and `ROUTER_*` in the dashboard (never commit secrets).
+5. Railway injects `PORT`; leave `ROUTER_PORT` unset unless you need a fixed local port. The router binds to `PORT` automatically.
+6. Wire Remix: `INTERNAL_AI_ROUTER_URL` + matching `INTERNAL_AI_ROUTER_TOKEN` on the Remix host.
+
+Optional Modal HTTPS edge: [`deploy/modal-qwen-router/README.md`](../../deploy/modal-qwen-router/README.md) with `INTERNAL_ROUTER_UPSTREAM_URL` pointing at this Railway URL.
+
+Operator runbook: [`deploy/railway-internal-router/README.md`](../../deploy/railway-internal-router/README.md).
+
+---
+
 ## RunPod — GPU inference
 
 RunPod is an **external** inference endpoint, not hosted in this repo.
@@ -135,7 +157,7 @@ Remix internal AI routing may use Modal or local Ollama (`INTERNAL_AI_*` env in 
 
 Until cutover flags flip, **merchant OAuth and embedded admin remain on Remix**.
 
-- Deploy per existing host (Fly.io pattern in [`apps/web/Dockerfile.internal-router`](../../apps/web/Dockerfile.internal-router)).
+- Deploy per existing host (Fly.io or Railway for the main Remix app). The **internal AI router** uses [`apps/web/Dockerfile.internal-router`](../../apps/web/Dockerfile.internal-router) as a **separate** Railway service — see [Railway — Internal AI router](#railway--internal-ai-router-appsweb-router-image) above.
 - Shopify CLI: `pnpm shopify:dev` from repo root.
 - Operator gate: [`docs/qa/merchant-oauth-checklist.md`](../qa/merchant-oauth-checklist.md).
 

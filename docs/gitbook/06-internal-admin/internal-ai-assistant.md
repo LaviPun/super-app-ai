@@ -8,7 +8,7 @@ Synthesis page for **Setup the Model**, **AI Assistant**, and the shared **Qwen3
 2. [`../../internal-admin.md`](../../internal-admin.md) § *Internal AI Assistant setup* — full behavior (probes, banners, delete/import, SSE, activity log)
 3. [`../../ai-providers.md`](../../ai-providers.md) — module-gen vs internal split, release gate, safe URLs, `ROUTER_REQUIRE_AUTH`
 4. [`../../implementation-status.md`](../../implementation-status.md) — dated delivery notes (2026-05-01, 2026-05-14 entries)
-5. Deploy: [`../../../deploy/internal-ai-router/README.md`](../../../deploy/internal-ai-router/README.md) · [`../../../deploy/modal-qwen-router/README.md`](../../../deploy/modal-qwen-router/README.md)
+5. Deploy: [`../../../deploy/railway-internal-router/README.md`](../../../deploy/railway-internal-router/README.md) · [`../../../deploy/modal-qwen-router/README.md`](../../../deploy/modal-qwen-router/README.md)
 
 ## Routes and artifacts
 

@@ -24,7 +24,7 @@ Do **not** point **`modalRemote`** assistant URLs or **`INTERNAL_ROUTER_UPSTREAM
 
 ## Why proxy instead of GPU inference here?
 
-Running **Qwen3-class** models efficiently usually means **vLLM**, **llama.cpp**, or **Ollama** on GPU elsewhere (Fly Machines, Kubernetes, Modal GPU containers, RunPod). The reference router stays a small HTTP service that calls an OpenAI-compatible inference URL (`ROUTER_OPENAI_BASE_URL`, `ROUTER_BACKEND=openai`). This Modal app scales **HTTP ingress** while inference stays pinned to whatever backend you operate.
+Running **Qwen3-class** models efficiently usually means **vLLM**, **llama.cpp**, or **Ollama** on GPU elsewhere (Railway router + external inference, Fly Machines, RunPod, Modal GPU containers). The reference router stays a small HTTP service that calls an OpenAI-compatible inference URL (`ROUTER_OPENAI_BASE_URL`, `ROUTER_BACKEND=openai`). This Modal app scales **HTTP ingress** while inference stays pinned to whatever backend you operate.
 
 To colocate inference on Modal, deploy vLLM (or similar) separately and point `ROUTER_OPENAI_BASE_URL` at that endpoint from your upstream Node router container.
 
