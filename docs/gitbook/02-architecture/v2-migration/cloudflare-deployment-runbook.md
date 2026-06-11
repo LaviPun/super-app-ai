@@ -129,11 +129,14 @@ Set in `wrangler.jsonc` `vars` or via `wrangler secret put`:
 
 ## Internal AI router
 
-The reference Qwen3 router is **not** deployed to Kubernetes. Options:
+The reference Qwen3 router is **not** on Kubernetes. V2 API/workers stay on Cloudflare; the router is a separate Node service (local, Docker, optional Railway, optional Modal edge):
 
-- **Local:** `pnpm --filter web router:internal`
+- **Local:** `pnpm --filter web router:internal` or `pnpm --filter web dev:internal` (Remix :4000 + router :8787)
 - **Docker:** `apps/web/Dockerfile.internal-router`
-- **Modal edge:** `deploy/modal-qwen-router/`
+- **Railway (production self-host):** [`deploy/railway-internal-router/README.md`](../../../../deploy/railway-internal-router/README.md) + [`apps/web/railway.internal-router.toml`](../../../../apps/web/railway.internal-router.toml). Railway injects `PORT`; the router binds to it when `ROUTER_PORT` is unset.
+- **Modal edge (optional):** [`deploy/modal-qwen-router/`](../../../../deploy/modal-qwen-router/) — HTTPS proxy to upstream `/route`; set `INTERNAL_ROUTER_UPSTREAM_URL` to your Railway or Docker router URL.
+
+Wire Remix with `INTERNAL_AI_ROUTER_URL` + `INTERNAL_AI_ROUTER_TOKEN` on the Remix host (not on the router service).
 
 ## Verification
 

@@ -1009,7 +1009,9 @@ Node 20 and pnpm 9 are pinned. No CI job has access to real Shopify or LLM crede
     internal-ai-router
   ```
 
-- **Modal edge (optional)** — HTTPS proxy in [`deploy/modal-qwen-router/`](deploy/modal-qwen-router/). Two apps live in the folder: the **proxy** (`modal_app.py`) and a **mock upstream** (`mock_upstream_app.py`, contract testing only — never route production traffic to it). Modal secrets used by the proxy: `INTERNAL_ROUTER_UPSTREAM_URL`, `INTERNAL_AI_ROUTER_TOKEN`, `ROUTER_PROXY_TIMEOUT_S`. The Modal layer scales HTTP ingress; it does **not** run GPU inference itself.
+- **Railway (recommended production self-host)** — operator runbook [`deploy/railway-internal-router/`](deploy/railway-internal-router/), builder config [`apps/web/railway.internal-router.toml`](apps/web/railway.internal-router.toml). Health: `GET /healthz`. On Railway, leave `ROUTER_PORT` unset so the process listens on the platform-injected `PORT`.
+
+- **Modal edge (optional)** — HTTPS proxy in [`deploy/modal-qwen-router/`](deploy/modal-qwen-router/). Two apps live in the folder: the **proxy** (`modal_app.py`) and a **mock upstream** (`mock_upstream_app.py`, contract testing only — never route production traffic to it). Modal secrets used by the proxy: `INTERNAL_ROUTER_UPSTREAM_URL`, `INTERNAL_AI_ROUTER_TOKEN`, `ROUTER_PROXY_TIMEOUT_S`. Point `INTERNAL_ROUTER_UPSTREAM_URL` at the Railway or Docker router URL, not the mock app.
 
 ### Platform V2 (Cloudflare)
 

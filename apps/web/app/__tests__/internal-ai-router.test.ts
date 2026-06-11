@@ -226,6 +226,31 @@ describe('internal-ai-router OpenAI-compatible passthrough', () => {
   });
 });
 
+describe('internal-ai-router listen port', () => {
+  it('binds to process.env.PORT when ROUTER_PORT is unset (Railway PaaS)', async () => {
+    const port = pickPort();
+    routerProcess = spawn(
+      'pnpm',
+      ['exec', 'tsx', '--tsconfig', 'tsconfig.scripts.json', 'scripts/internal-ai-router.ts'],
+      {
+        cwd: appsWebRoot,
+        env: {
+          ...process.env,
+          NODE_ENV: 'development',
+          ROUTER_HOST: HOST,
+          PORT: String(port),
+          ROUTER_BACKEND: 'ollama',
+          INTERNAL_AI_ROUTER_TOKEN: '',
+        },
+        stdio: 'pipe',
+      },
+    );
+    await waitForHealth(port);
+    const res = await fetch(`http://${HOST}:${port}/healthz`);
+    expect(res.ok).toBe(true);
+  });
+});
+
 describe('internal-ai-router production auth gating', () => {
   it('forces auth on in production even when ROUTER_REQUIRE_AUTH=0', async () => {
     const port = pickPort();
