@@ -4,7 +4,9 @@
 
 **Created**: 2026-06-12
 
-**Status**: Stub — Not started on `master`
+**Last updated**: 2026-06-12
+
+**Status**: **Partial** — `PLATFORM_V2_ENABLED` flag shipped on `master`
 
 **Master index**: [`specs/000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md)
 
@@ -18,9 +20,9 @@ Feature flags; traffic cutover; Remix retirement plan.
 
 | Field | Value |
 |-------|-------|
-| Implementation | **Not started** |
-| Spec Kit | Stub spec + plan + tasks (expand via `/speckit-plan` when work starts) |
-| Sibling worktree | May exist under `ai-shopify-superapp-phase21-*` — not merged until PR lands |
+| Implementation | **Partial** |
+| Shipped | `PLATFORM_V2_ENABLED` gate in `packages/job-orchestration` (config + orchestrator skip), `GET /v1/jobs/mode` endpoint, default `true` in `fly.api.toml`, and unit tests |
+| Pending | Traffic cutover plan, Remix retirement, feature flag UI and ops runbooks |
 
 ## Acceptance (from migration plan)
 
@@ -35,4 +37,4 @@ See Phase 21 in [`platform-v2-migration-plan.md`](../../docs/gitbook/02-architec
 ## Deferred / out of scope (this stub)
 
 - Full user-story elaboration — run `/speckit-specify` or `/speckit-clarify` when phase becomes active.
-- Implementation — tracked in `tasks.md` with `[ ]` until `/speckit-implement`.
+- Remaining implementation — tracked in migration plan pending items above.

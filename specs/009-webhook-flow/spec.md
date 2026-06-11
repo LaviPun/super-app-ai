@@ -6,7 +6,7 @@
 
 **Last updated**: 2026-06-12
 
-**Status**: **Partial** — scaffold handlers on `master`
+**Status**: **Partial** — minimal functional handlers shipped on `master`
 
 **Master index**: [`specs/000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md)
 
@@ -21,7 +21,7 @@ Fastify webhook ingress; flow worker; dedupe; fast Shopify ack; replayable flows
 | Field | Value |
 |-------|-------|
 | Implementation | **Partial** |
-| Shipped | Scaffold handlers on `flow` + `webhook` queues |
+| Shipped | Functional `webhook` and `flow` handlers (`apps/workers/src/handlers/webhook-handler.ts`, `flow-handler.ts`) with Zod payload validation, structured results, and unit tests |
 | Pending | Fastify webhook ingress, dedupe, replayable flows |
 
 ## Acceptance (from migration plan)
@@ -37,4 +37,4 @@ See Phase 9 in [`platform-v2-migration-plan.md`](../../docs/gitbook/02-architect
 ## Deferred / out of scope (this stub)
 
 - Full user-story elaboration — run `/speckit-specify` or `/speckit-clarify` when phase becomes active.
-- Implementation — tracked in `tasks.md` with `[ ]` until `/speckit-implement`.
+- Remaining implementation — tracked in migration plan pending items above.

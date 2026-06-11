@@ -4,7 +4,9 @@
 
 **Created**: 2026-06-12
 
-**Status**: Stub — Not started on `master`
+**Last updated**: 2026-06-12
+
+**Status**: **Partial** — Next.js scaffold shipped on `master`
 
 **Master index**: [`specs/000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md)
 
@@ -18,9 +20,9 @@ apps/frontend App Router, Shopify shell, Polaris, typed Fastify client; no backe
 
 | Field | Value |
 |-------|-------|
-| Implementation | **Not started** |
-| Spec Kit | Stub spec + plan + tasks (expand via `/speckit-plan` when work starts) |
-| Sibling worktree | May exist under `ai-shopify-superapp-phase4-*` — not merged until PR lands |
+| Implementation | **Partial** |
+| Shipped | `apps/frontend` Next.js App Router scaffold (`layout.tsx`, `page.tsx`, `next.config.mjs`), vitest config, and scaffold unit test |
+| Pending | Shopify embedded shell, Polaris integration, typed Fastify client |
 
 ## Acceptance (from migration plan)
 
@@ -35,4 +37,4 @@ See Phase 4 in [`platform-v2-migration-plan.md`](../../docs/gitbook/02-architect
 ## Deferred / out of scope (this stub)
 
 - Full user-story elaboration — run `/speckit-specify` or `/speckit-clarify` when phase becomes active.
-- Implementation — tracked in `tasks.md` with `[ ]` until `/speckit-implement`.
+- Remaining implementation — tracked in migration plan pending items above.

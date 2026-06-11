@@ -4,7 +4,9 @@
 
 **Created**: 2026-06-12
 
-**Status**: Stub — Not started on `master`
+**Last updated**: 2026-06-12
+
+**Status**: **Partial** — Dockerfiles + fly stub shipped on `master`
 
 **Master index**: [`specs/000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md)
 
@@ -18,9 +20,9 @@ Vercel/Railway/R2/Redis deploy matrices; env validation; worker deploy.
 
 | Field | Value |
 |-------|-------|
-| Implementation | **Not started** |
-| Spec Kit | Stub spec + plan + tasks (expand via `/speckit-plan` when work starts) |
-| Sibling worktree | May exist under `ai-shopify-superapp-phase18-*` — not merged until PR lands |
+| Implementation | **Partial** |
+| Shipped | `apps/api/Dockerfile`, `apps/workers/Dockerfile`, and `fly.api.toml` with `PLATFORM_V2_ENABLED` and service env stubs |
+| Pending | Vercel/Railway deploy configs, R2/Redis binding matrices, env validation, automated worker deploy |
 
 ## Acceptance (from migration plan)
 
@@ -35,4 +37,4 @@ See Phase 18 in [`platform-v2-migration-plan.md`](../../docs/gitbook/02-architec
 ## Deferred / out of scope (this stub)
 
 - Full user-story elaboration — run `/speckit-specify` or `/speckit-clarify` when phase becomes active.
-- Implementation — tracked in `tasks.md` with `[ ]` until `/speckit-implement`.
+- Remaining implementation — tracked in migration plan pending items above.

@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import {
   createJobOrchestrator,
+  getJobStatusStore,
   type JobOrchestrator,
 } from '@superapp/job-orchestration';
 import {
   createImageStorageProcessor,
-  createScaffoldWorkerHandlers,
+  createWorkerHandlers,
 } from '@superapp/workers';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -38,7 +39,7 @@ export function getJobOrchestrator(): JobOrchestrator {
             events: result.events,
           };
         },
-        ...createScaffoldWorkerHandlers(),
+        ...createWorkerHandlers(),
       },
     });
   }
@@ -79,7 +80,22 @@ export async function registerJobRoutes(app: FastifyInstance) {
 
   app.get('/v1/jobs/mode', async () => ({
     executionMode: getJobOrchestrator().executionMode,
+    platformV2Enabled: process.env.PLATFORM_V2_ENABLED !== 'false',
   }));
+
+  app.get('/v1/jobs/:jobId', async (request, reply) => {
+    const params = z.object({ jobId: z.string().min(1) }).safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: 'Invalid job id' });
+    }
+
+    const record = await getJobStatusStore().get(params.data.jobId);
+    if (!record) {
+      return reply.status(404).send({ error: 'Job not found' });
+    }
+
+    return reply.send(record);
+  });
 }
 
 export function resetJobOrchestratorForTests() {

@@ -1,8 +1,10 @@
 import {
+  JobOrchestratorConfigSchema,
   loadJobOrchestratorConfig,
   resolveEffectiveMode,
 } from './config.js';
 import { createBullMqQueueAdapter } from './bullmq-queue.js';
+import { getJobStatusStore } from './job-status-store.js';
 import type {
   EnqueueJobInput,
   EnqueueJobResult,
@@ -31,7 +33,9 @@ export class JobOrchestrator {
   private ownsQueueAdapter = false;
 
   constructor(options: JobOrchestratorOptions = {}) {
-    this.config = options.config ?? loadJobOrchestratorConfig();
+    this.config = JobOrchestratorConfigSchema.parse(
+      options.config ?? loadJobOrchestratorConfig(),
+    );
     this.effectiveMode = resolveEffectiveMode(this.config);
     this.inlineHandlers = options.inlineHandlers ?? {};
 
@@ -54,6 +58,20 @@ export class JobOrchestrator {
     trace: JobEnvelope['trace'];
     queueName?: PlatformQueueName;
   }): Promise<EnqueueJobResult> {
+    if (!this.config.platformV2Enabled) {
+      await getJobStatusStore().upsert({
+        jobId: input.id,
+        jobType: input.jobType,
+        queueName: input.queueName ?? resolvePlatformQueue(input.jobType),
+        status: 'SKIPPED',
+        correlationId: input.trace.correlationId,
+        shopId: input.trace.shopId,
+        updatedAt: new Date().toISOString(),
+        error: { code: 'PLATFORM_V2_DISABLED', message: 'PLATFORM_V2_ENABLED is false' },
+      });
+      return { status: 'skipped', reason: 'PLATFORM_V2_ENABLED is false' };
+    }
+
     if (this.effectiveMode === 'disabled') {
       return { status: 'skipped', reason: 'JOB_EXECUTION_MODE is disabled' };
     }
@@ -71,6 +89,16 @@ export class JobOrchestrator {
       return { status: 'invalid', reason: 'Job envelope failed validation' };
     }
 
+    await getJobStatusStore().upsert({
+      jobId: input.id,
+      jobType: input.jobType,
+      queueName,
+      status: 'QUEUED',
+      correlationId: input.trace.correlationId,
+      shopId: input.trace.shopId,
+      updatedAt: new Date().toISOString(),
+    });
+
     if (this.effectiveMode === 'inline') {
       const handler = this.inlineHandlers[queueName];
       if (!handler) {
@@ -80,7 +108,34 @@ export class JobOrchestrator {
         };
       }
 
+      await getJobStatusStore().upsert({
+        jobId: input.id,
+        jobType: input.jobType,
+        queueName,
+        status: 'RUNNING',
+        correlationId: input.trace.correlationId,
+        shopId: input.trace.shopId,
+        updatedAt: new Date().toISOString(),
+      });
+
       const handlerResult = await handler(envelope.data);
+      await getJobStatusStore().upsert({
+        jobId: input.id,
+        jobType: input.jobType,
+        queueName,
+        status: handlerResult.status === 'SUCCESS' ? 'SUCCESS' : 'FAILED',
+        correlationId: input.trace.correlationId,
+        shopId: input.trace.shopId,
+        updatedAt: new Date().toISOString(),
+        result: handlerResult.result,
+        error:
+          handlerResult.status === 'FAILED' &&
+          typeof handlerResult.result === 'object' &&
+          handlerResult.result &&
+          'error' in handlerResult.result
+            ? (handlerResult.result as { error: { code: string; message: string } }).error
+            : undefined,
+      });
       return {
         status: 'completed',
         queueName,

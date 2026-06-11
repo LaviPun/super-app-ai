@@ -6,7 +6,7 @@
 
 **Last updated**: 2026-06-12
 
-**Status**: **Partial** — scaffold handler on `master`
+**Status**: **Partial** — minimal functional handlers shipped on `master`
 
 **Master index**: [`specs/000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md)
 
@@ -21,7 +21,7 @@ Move AI_GENERATE/HYDRATE/MODIFY to worker; Fastify returns 202; evals pass; Reci
 | Field | Value |
 |-------|-------|
 | Implementation | **Partial** |
-| Shipped | Scaffold handler on `ai-generation` queue (`apps/workers/src/handlers/scaffold-handlers.ts`) |
+| Shipped | Functional `ai-generation` handler (`apps/workers/src/handlers/ai-generation-handler.ts`) with Zod payload validation, RecipeSpec stub output, and unit tests in `apps/workers` |
 | Pending | Full AI_GENERATE/HYDRATE/MODIFY logic, Fastify 202 enqueue, eval migration |
 
 ## Acceptance (from migration plan)
@@ -37,4 +37,4 @@ See Phase 7 in [`platform-v2-migration-plan.md`](../../docs/gitbook/02-architect
 ## Deferred / out of scope (this stub)
 
 - Full user-story elaboration — run `/speckit-specify` or `/speckit-clarify` when phase becomes active.
-- Implementation — tracked in `tasks.md` with `[ ]` until `/speckit-implement`.
+- Remaining implementation — tracked in migration plan pending items above.

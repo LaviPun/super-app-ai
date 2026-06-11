@@ -80,4 +80,26 @@ describe('JobOrchestrator', () => {
 
     expect(result.status).toBe('invalid');
   });
+
+  it('skips enqueue when PLATFORM_V2_ENABLED is false', async () => {
+    const orchestrator = createJobOrchestrator({
+      config: {
+        mode: 'inline',
+        platformV2Enabled: false,
+        queuePrefix: 'test',
+        defaultAttempts: 3,
+        defaultBackoffMs: 1000,
+      },
+    });
+
+    const result = await orchestrator.enqueue({
+      id: 'job_v2_off',
+      jobType: 'AI_GENERATE',
+      payload: {},
+      trace: { correlationId: 'corr_v2_off', shopId: 'shop_1' },
+    });
+
+    expect(result.status).toBe('skipped');
+    expect(result.status === 'skipped' ? result.reason : '').toContain('PLATFORM_V2_ENABLED');
+  });
 });

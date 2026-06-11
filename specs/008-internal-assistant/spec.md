@@ -4,7 +4,9 @@
 
 **Created**: 2026-06-12
 
-**Status**: Stub — Not started on `master`
+**Last updated**: 2026-06-12
+
+**Status**: **Partial** — API proxy routes shipped on `master`
 
 **Master index**: [`specs/000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md)
 
@@ -18,9 +20,9 @@ Internal UI to Next admin; streaming API to Fastify; isolated from merchant AI; 
 
 | Field | Value |
 |-------|-------|
-| Implementation | **Not started** |
-| Spec Kit | Stub spec + plan + tasks (expand via `/speckit-plan` when work starts) |
-| Sibling worktree | May exist under `ai-shopify-superapp-phase8-*` — not merged until PR lands |
+| Implementation | **Partial** |
+| Shipped | Fastify API proxy routes in `apps/api/src/routes/internal-assistant.ts` — `GET /v1/internal/assistant/readiness` and `POST /v1/internal/assistant/chat` stubs with `PLATFORM_V2_ENABLED` awareness |
+| Pending | Next admin UI, streaming to Fastify, full migration from Remix internal assistant |
 
 ## Acceptance (from migration plan)
 
@@ -35,4 +37,4 @@ See Phase 8 in [`platform-v2-migration-plan.md`](../../docs/gitbook/02-architect
 ## Deferred / out of scope (this stub)
 
 - Full user-story elaboration — run `/speckit-specify` or `/speckit-clarify` when phase becomes active.
-- Implementation — tracked in `tasks.md` with `[ ]` until `/speckit-implement`.
+- Remaining implementation — tracked in migration plan pending items above.

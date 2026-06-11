@@ -7,7 +7,7 @@ import {
 } from '@superapp/platform-contracts';
 import { loadJobOrchestratorConfig } from '@superapp/job-orchestration';
 import { createImageStorageProcessor } from './image-storage.js';
-import { createScaffoldWorkerHandlers } from './handlers/scaffold-handlers.js';
+import { createScaffoldWorkerHandlers } from './handlers/worker-handlers.js';
 import type { JobHandler } from '@superapp/job-orchestration';
 
 export type WorkerRuntimeOptions = {

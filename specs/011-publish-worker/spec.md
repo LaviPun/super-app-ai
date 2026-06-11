@@ -6,7 +6,7 @@
 
 **Last updated**: 2026-06-12
 
-**Status**: **Partial** — scaffold handler on `master`
+**Status**: **Partial** — minimal functional handler shipped on `master`
 
 **Master index**: [`specs/000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md)
 
@@ -21,7 +21,7 @@ Async publish via worker; idempotent deploy; compile stays pure.
 | Field | Value |
 |-------|-------|
 | Implementation | **Partial** |
-| Shipped | Scaffold handler on `publish` queue |
+| Shipped | Functional `publish` handler (`apps/workers/src/handlers/publish-handler.ts`) with preflight checks, RecipeSpec module validation, and unit tests |
 | Pending | Async publish via worker, idempotent deploy, compile migration |
 
 ## Acceptance (from migration plan)
@@ -37,4 +37,4 @@ See Phase 11 in [`platform-v2-migration-plan.md`](../../docs/gitbook/02-architec
 ## Deferred / out of scope (this stub)
 
 - Full user-story elaboration — run `/speckit-specify` or `/speckit-clarify` when phase becomes active.
-- Implementation — tracked in `tasks.md` with `[ ]` until `/speckit-implement`.
+- Remaining implementation — tracked in migration plan pending items above.

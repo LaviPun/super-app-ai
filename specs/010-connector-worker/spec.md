@@ -6,7 +6,7 @@
 
 **Last updated**: 2026-06-12
 
-**Status**: **Partial** — scaffold handler on `master`
+**Status**: **Partial** — minimal functional handler shipped on `master`
 
 **Master index**: [`specs/000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md)
 
@@ -21,8 +21,8 @@ Async connector tests and flow HTTP in worker; SSRF helpers shared with API.
 | Field | Value |
 |-------|-------|
 | Implementation | **Partial** |
-| Shipped | Scaffold handler on `connector` queue |
-| Pending | Async connector tests, flow HTTP, shared SSRF helpers with API |
+| Shipped | Functional `connector` handler (`apps/workers/src/handlers/connector-handler.ts`) with SSRF checks via `@superapp/security`, Zod payload validation, and unit tests |
+| Pending | Async connector tests, flow HTTP, full SSRF integration with Fastify API routes |
 
 ## Acceptance (from migration plan)
 
@@ -37,4 +37,4 @@ See Phase 10 in [`platform-v2-migration-plan.md`](../../docs/gitbook/02-architec
 ## Deferred / out of scope (this stub)
 
 - Full user-story elaboration — run `/speckit-specify` or `/speckit-clarify` when phase becomes active.
-- Implementation — tracked in `tasks.md` with `[ ]` until `/speckit-implement`.
+- Remaining implementation — tracked in migration plan pending items above.
