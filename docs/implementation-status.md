@@ -1,3 +1,27 @@
+## 2026-06-12 (Platform V2 Phase 12 — Storage And Image Worker — shipped)
+
+- **Status:** Phase 12 complete in worktree — contracts, worker handler, job registry, docs, and Remix preview enqueue stub.
+- **Job registry (`packages/platform-contracts/src/jobs.ts`):** Registers `IMAGE_INGESTION`, `PREVIEW_EXPORT`, and `ASSET_CLEANUP` on the `asset-storage` queue with `resolveImageWorkerQueue()` and payload parse helpers aligned to `storage.ts`.
+- **Contracts (`packages/platform-contracts`):** `storage.ts` defines generated asset metadata, worker payloads, events, and results. Preview export is RecipeSpec/config-safe (blocks scripts and inline handlers); no merchant code deployment paths exist in this worker.
+- **Worker handler (`apps/workers`):** `ImageWorkerHandler` performs ingest/preview/cleanup against a `StorageAdapter`. `createImageStorageProcessor()` validates envelopes, delegates to the handler, and emits `JOB_STARTED` / `JOB_PROGRESS` / `JOB_COMPLETED` / `JOB_FAILED` events.
+- **Storage adapters:** `StorageAdapter` interface, `LocalStorageAdapter`, injectable `R2StorageAdapter` contract, and `createStorageAdapter()` fallback to local storage when an R2 binding is unavailable.
+- **Remix integration (stub):** `apps/web/app/services/preview/preview-export.queue.server.ts` validates `PREVIEW_EXPORT` payloads and is invoked from `preview.$moduleId` after HTML render when `PREVIEW_EXPORT_QUEUE_ENABLED=1`. BullMQ enqueue remains TODO until Phase 9–11 queue merge.
+- **Signed URL/proxy policy:** R2 secrets stay server-side. Production signed URLs are issued by the API proxy/signing service in a later phase, not from worker credentials.
+- **Docs:** [`docs/gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md`](./gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md)
+- **Tests:** `packages/platform-contracts`, `apps/workers`, and preview enqueue stub tests pass via `pnpm test`.
+
+## 2026-05-19 (Platform V2 Phase 12 — Storage And Image Worker — initial worktree)
+
+- **Isolated worktree:** `platform-v2-phase-12-storage-image-worker` at `/Users/lavipun/Work/ai-shopify-superapp-phase12-storage-image-worker` (no edits to main or Phase 9/10/11 worktrees).
+- **Contracts (`packages/platform-contracts`):** `storage.ts` defines generated asset metadata, worker payloads (`IMAGE_INGESTION`, `PREVIEW_EXPORT`, `ASSET_CLEANUP`), events, and results. Preview export is RecipeSpec/config-safe (blocks scripts and inline handlers); no merchant code deployment paths exist in this worker.
+- **Worker handler (`apps/workers`):** `ImageWorkerHandler` performs ingest/preview/cleanup against a `StorageAdapter`. `createImageStorageProcessor()` validates envelopes, delegates to the handler, and emits `JOB_STARTED` / `JOB_PROGRESS` / `JOB_COMPLETED` / `JOB_FAILED` events.
+- **Storage adapters:** `StorageAdapter` interface, `LocalStorageAdapter`, injectable `R2StorageAdapter` contract, and `createStorageAdapter()` fallback to local storage when an R2 binding is unavailable.
+- **Signed URL/proxy policy:** R2 secrets stay server-side. Production signed URLs are issued by the API proxy/signing service in a later phase, not from worker credentials.
+- **Legacy alignment:** Remix preview rendering (`apps/web/app/services/preview/preview.service.ts`) and theme analysis remain unchanged. Phase 12 adds the worker/storage contract for moving large artifacts out of Prisma.
+- **Docs:** [`docs/gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md`](./gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md)
+- **Tests:** `packages/platform-contracts` and `apps/workers` Vitest suites cover validation, adapter failures, metadata/result shape, cleanup, and worker lifecycle events.
+- **Merge risk:** Phase 9–11 branches may own shared `packages/platform-contracts/src/jobs.ts` queue routing. When stacking, register `IMAGE_INGESTION`, `PREVIEW_EXPORT`, and `ASSET_CLEANUP` there without rewriting Phase 9–11 processor wiring.
+
 ## 2026-05-15 (internal AI assistant — chat UX, send guard, docs)
 
 - **Composer:** `computeAssistantSendDisabledReason` is the single source for send disabled + operator copy (streaming, `sendInFlight`, session `useFetcher` busy, route navigation pending, `unavailable` session, empty draft). Subdued hint next to send; **warning** `Banner` for live probe text (send still allowed); **critical** `Banner` only for real stream/transport failures. `sendLockRef` blocks same-tick double submit before `isStreaming` paints.

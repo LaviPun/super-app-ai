@@ -18,6 +18,8 @@
 * [Platform overview](01-overview/platform-overview.md)
 * [System architecture](02-architecture/system-architecture.md)
 * [Data model](02-architecture/data-model.md)
+* [Spec-driven development (Spec Kit)](02-architecture/spec-driven-development.md)
+* [V2 Phase 12 — storage & image worker](02-architecture/v2-migration/phase-12-storage-image-worker.md)
 * [Technical reference (full)](../technical.md)
 
 ## Backend & platform

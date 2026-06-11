@@ -40,6 +40,7 @@
     "@shopify/shopify-app-remix": "^2.8.0",
     "@shopify/shopify-app-session-storage-prisma": "^5.0.4",
     "@superapp/core": "workspace:*",
+    "@superapp/platform-contracts": "workspace:*",
     "@superapp/rate-limit": "workspace:*",
     "@xyflow/react": "^12.10.1",
     "ioredis": "^5.10.1",

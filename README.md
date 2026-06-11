@@ -146,6 +146,10 @@ merchant prompt   ─►   LLM output (strict JSON)   ─►   Zod-validated Rec
 
 The trust boundary is enforced by `packages/core/src/recipe.ts` (Zod schema) and the compiler in `apps/web/app/services/recipes/compiler/`. Nothing crosses the boundary unless it parses cleanly. Anything outside the closed set of `RECIPE_SPEC_TYPES` (in `packages/core/src/allowed-values.ts`) is rejected.
 
+### Platform V2 Phase 12 (storage and image worker)
+
+Phase 12 of the Platform V2 migration adds generated-asset contracts in `packages/platform-contracts/src/storage.ts`, job registry in `packages/platform-contracts/src/jobs.ts`, the `ImageWorkerHandler` in `apps/workers/src/image/image-worker.ts`, and a BullMQ-ready `createImageStorageProcessor()` shim in `apps/workers/src/image-storage.ts`. Generated assets and preview exports are stored through a `StorageAdapter` (local filesystem in dev/test, Cloudflare R2 contract with injectable binding double in production). Metadata and storage results are validated with Zod; R2 credentials never reach the merchant client. Remix preview routes call `schedulePreviewExport()` when `PREVIEW_EXPORT_QUEUE_ENABLED=1` (payload validation stub until BullMQ merge). See [`docs/gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md`](docs/gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md).
+
 ### Two AI layers
 
 | Layer | Models | Where it runs |
@@ -435,6 +439,17 @@ The repo uses pnpm workspaces. Most commands are scoped per-package via `pnpm --
 | `pnpm --filter web router:internal` | Start the reference internal AI router (`/route`, `/healthz`, Ollama / OpenAI passthrough) | Local router dev |
 | `pnpm --filter web evals` | Run the deterministic evals harness with `StubLlmClient` | CI parity / local dev |
 | `pnpm --filter web evals:live` | Run live evals (`EVAL_PROVIDER_ID=<id>` required) | Nightly or manual quality check |
+
+### `apps/workers` and `packages/platform-contracts` (Phase 12)
+
+| Command | What it does | When to use it |
+|---------|--------------|----------------|
+| `pnpm --filter @superapp/platform-contracts test` | Vitest for storage + job registry contracts | After editing `storage.ts` or `jobs.ts` |
+| `pnpm --filter @superapp/platform-contracts typecheck` | Typecheck shared contracts | Pre-commit |
+| `pnpm --filter @superapp/workers test` | Vitest for storage adapters + image worker | After worker changes |
+| `pnpm --filter @superapp/workers typecheck` | Typecheck worker package | Pre-commit |
+
+Local storage defaults to `.data/superapp-assets` (override with `LOCAL_STORAGE_PATH`). Set `PREVIEW_EXPORT_QUEUE_ENABLED=1` in `apps/web` to exercise the Remix preview export enqueue stub.
 
 ### Testing extensions locally
 

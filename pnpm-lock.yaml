@@ -68,6 +68,9 @@ importers:
       '@superapp/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@superapp/platform-contracts':
+        specifier: workspace:*
+        version: link:../../packages/platform-contracts
       '@superapp/rate-limit':
         specifier: workspace:*
         version: link:../../packages/rate-limit
@@ -148,6 +151,25 @@ importers:
         specifier: ^3.2.4
         version: 3.2.4(@types/debug@4.1.12)(@types/node@22.19.13)(tsx@4.21.0)(yaml@2.8.2)
 
+  apps/workers:
+    dependencies:
+      '@superapp/platform-contracts':
+        specifier: workspace:*
+        version: link:../../packages/platform-contracts
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.1
+        version: 22.19.13
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.13)
+
   extensions/admin-ui:
     dependencies:
       '@preact/signals':
@@ -197,6 +219,19 @@ importers:
         version: 5.9.3
 
   packages/core:
+    dependencies:
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.13)
+
+  packages/platform-contracts:
     dependencies:
       zod:
         specifier: ^3.24.1
