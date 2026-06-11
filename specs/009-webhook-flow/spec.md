@@ -4,7 +4,9 @@
 
 **Created**: 2026-06-12
 
-**Status**: Stub — Not started on `master`
+**Last updated**: 2026-06-12
+
+**Status**: **Partial** — scaffold handlers on `master`
 
 **Master index**: [`specs/000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md)
 
@@ -18,9 +20,9 @@ Fastify webhook ingress; flow worker; dedupe; fast Shopify ack; replayable flows
 
 | Field | Value |
 |-------|-------|
-| Implementation | **Not started** |
-| Spec Kit | Stub spec + plan + tasks (expand via `/speckit-plan` when work starts) |
-| Sibling worktree | May exist under `ai-shopify-superapp-phase9-*` — not merged until PR lands |
+| Implementation | **Partial** |
+| Shipped | Scaffold handlers on `flow` + `webhook` queues |
+| Pending | Fastify webhook ingress, dedupe, replayable flows |
 
 ## Acceptance (from migration plan)
 

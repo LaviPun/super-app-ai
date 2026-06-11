@@ -2,18 +2,21 @@
 
 **Input**: [spec.md](./spec.md), [platform-v2-migration-plan.md](../../docs/gitbook/02-architecture/platform-v2-migration-plan.md)
 
-**Status on master**: Partial
+**Status on master**: **Shipped** — 2026-06-12
 
-## Phase checklist (stub)
+## Phase checklist
 
-- [ ] T001 Review Phase 6 acceptance criteria in migration plan
-- [ ] T002 Run `/speckit-plan` to produce detailed implementation plan
-- [ ] T003 Run `/speckit-tasks` to break down dependency-ordered work
-- [ ] T004 Implement phase deliverables (`/speckit-implement`)
-- [ ] T005 Add gitbook page under `docs/gitbook/02-architecture/v2-migration/` when merged
-- [ ] T006 Update [`000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md) matrix row to Shipped/Partial
+- [x] T001 Review Phase 6 acceptance criteria in migration plan
+- [x] T002 Create worker entrypoint (`src/start.ts`)
+- [x] T003 Implement BullMQ runtime (`src/worker-runtime.ts`)
+- [x] T004 Wire graceful shutdown
+- [x] T005 Register image storage handler + scaffold handlers
+- [x] T006 Add unit tests for runtime and handlers
+- [x] T007 Update [`000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md) matrix row to Shipped
+- [ ] T008 Add Prisma client bootstrap (Phase 15 dependency)
+- [ ] T009 Add Sentry/OTel bootstrap (Phase 16 dependency)
 
 ## Verification
 
-- [ ] T007 `pnpm test` for affected packages
-- [ ] T008 Typecheck affected packages
+- [x] T010 `pnpm test` for apps/workers
+- [x] T011 Typecheck apps/workers

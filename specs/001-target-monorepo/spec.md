@@ -4,7 +4,9 @@
 
 **Created**: 2026-06-12
 
-**Status**: Stub — Partial on `master`
+**Last updated**: 2026-06-12
+
+**Status**: **Partial** on `master`
 
 **Master index**: [`specs/000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md)
 
@@ -19,8 +21,8 @@ Create apps/frontend, apps/api, packages/db, packages/security, packages/observa
 | Field | Value |
 |-------|-------|
 | Implementation | **Partial** |
-| Spec Kit | Stub spec + plan + tasks (expand via `/speckit-plan` when work starts) |
-| Sibling worktree | May exist under `ai-shopify-superapp-phase1-*` — not merged until PR lands |
+| Present on `master` | `apps/web`, `apps/workers`, `apps/api`, `packages/core`, `packages/platform-contracts`, `packages/job-orchestration`, `extensions/*` |
+| Pending | `apps/frontend` (Next.js), `packages/db`, `packages/security`, `packages/observability` |
 
 ## Acceptance (from migration plan)
 

@@ -4,7 +4,9 @@
 
 **Created**: 2026-06-12
 
-**Status**: Stub — Not started on `master`
+**Last updated**: 2026-06-12
+
+**Status**: **Partial** — scaffold handler on `master`
 
 **Master index**: [`specs/000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md)
 
@@ -18,9 +20,9 @@ Async publish via worker; idempotent deploy; compile stays pure.
 
 | Field | Value |
 |-------|-------|
-| Implementation | **Not started** |
-| Spec Kit | Stub spec + plan + tasks (expand via `/speckit-plan` when work starts) |
-| Sibling worktree | May exist under `ai-shopify-superapp-phase11-*` — not merged until PR lands |
+| Implementation | **Partial** |
+| Shipped | Scaffold handler on `publish` queue |
+| Pending | Async publish via worker, idempotent deploy, compile migration |
 
 ## Acceptance (from migration plan)
 

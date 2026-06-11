@@ -4,7 +4,9 @@
 
 **Created**: 2026-06-12
 
-**Status**: Stub — Not started on `master`
+**Last updated**: 2026-06-12
+
+**Status**: **Partial** on `master`
 
 **Master index**: [`specs/000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md)
 
@@ -18,9 +20,9 @@ Preview envelope; Next shell; Fastify data; strict CSP; no arbitrary Liquid.
 
 | Field | Value |
 |-------|-------|
-| Implementation | **Not started** |
-| Spec Kit | Stub spec + plan + tasks (expand via `/speckit-plan` when work starts) |
-| Sibling worktree | May exist under `ai-shopify-superapp-phase13-*` — not merged until PR lands |
+| Implementation | **Partial** |
+| Shipped | Preview export enqueue via `JobOrchestrator` (inline + queue modes) |
+| Pending | Next.js preview shell, Fastify preview data API, strict CSP sandbox |
 
 ## Acceptance (from migration plan)
 

@@ -4,7 +4,9 @@
 
 **Created**: 2026-06-12
 
-**Status**: Stub — Partial on `master`
+**Last updated**: 2026-06-12
+
+**Status**: **Shipped (core)** on `master`
 
 **Master index**: [`specs/000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md)
 
@@ -18,21 +20,25 @@ Full job/API/event schemas in platform-contracts; validate Remix payloads; all i
 
 | Field | Value |
 |-------|-------|
-| Implementation | **Partial** |
-| Spec Kit | Stub spec + plan + tasks (expand via `/speckit-plan` when work starts) |
-| Sibling worktree | May exist under `ai-shopify-superapp-phase2-*` — not merged until PR lands |
+| Package | `packages/platform-contracts` |
+| Implementation | **Shipped (core)** |
+| Tests | 6 unit tests passing (storage + jobs + platform-jobs) |
 
-## Acceptance (from migration plan)
+## Deliverables
 
-See Phase 2 in [`platform-v2-migration-plan.md`](../../docs/gitbook/02-architecture/platform-v2-migration-plan.md) for full acceptance criteria.
+- [x] Image/storage job contracts (`storage.ts`, `jobs.ts`)
+- [x] Platform job registry (`platform-jobs.ts`) — queue names, job types, `JobEnvelope`, `WorkerEventSchema`
+- [x] Zod validation at boundaries for all registered job types
+- [ ] Full API request/response schemas for Fastify routes (incremental)
+
+## Acceptance
+
+- All platform worker queues have typed job envelopes in contracts
+- Remix preview export validates against shared schemas before enqueue
+- Worker runtime imports queue names from contracts (no string duplication)
 
 ## Success criteria
 
-- **SC-001**: Phase deliverables match migration plan acceptance section.
-- **SC-002**: Unit/integration tests for new logic; no secrets/PII in logs.
-- **SC-003**: RecipeSpec-only deployment boundary preserved where applicable.
-
-## Deferred / out of scope (this stub)
-
-- Full user-story elaboration — run `/speckit-specify` or `/speckit-clarify` when phase becomes active.
-- Implementation — tracked in `tasks.md` with `[ ]` until `/speckit-implement`.
+- **SC-001**: Phase deliverables match migration plan acceptance section. ✅ (core)
+- **SC-002**: Unit/integration tests for new logic; no secrets/PII in logs. ✅
+- **SC-003**: RecipeSpec-only deployment boundary preserved where applicable. ✅

@@ -4,7 +4,9 @@
 
 **Created**: 2026-06-12
 
-**Status**: Stub — Not started on `master`
+**Last updated**: 2026-06-12
+
+**Status**: **Partial** — scaffold handler on `master`
 
 **Master index**: [`specs/000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md)
 
@@ -18,9 +20,9 @@ Async connector tests and flow HTTP in worker; SSRF helpers shared with API.
 
 | Field | Value |
 |-------|-------|
-| Implementation | **Not started** |
-| Spec Kit | Stub spec + plan + tasks (expand via `/speckit-plan` when work starts) |
-| Sibling worktree | May exist under `ai-shopify-superapp-phase10-*` — not merged until PR lands |
+| Implementation | **Partial** |
+| Shipped | Scaffold handler on `connector` queue |
+| Pending | Async connector tests, flow HTTP, shared SSRF helpers with API |
 
 ## Acceptance (from migration plan)
 
