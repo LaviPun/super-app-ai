@@ -74,7 +74,61 @@ describe('parseTags', () => {
 });
 
 describe('ensureInternalAiTables PRAGMA guard', () => {
+  it('skips SQLite bootstrap SQL for non-SQLite DATABASE_URL', async () => {
+    const previousDatabaseUrl = process.env.DATABASE_URL;
+    process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/app';
+    prismaMock.internalAiSession.create.mockResolvedValueOnce({
+      id: 'sess-non-sqlite',
+      title: 'New chat',
+      mode: 'localMachine',
+      memoryEnabled: true,
+      updatedAt: new Date(),
+      createdAt: new Date(),
+      _count: { messages: 0 },
+    });
+
+    try {
+      const { InternalAssistantStoreService } = await import('~/services/ai/internal-assistant-store.server');
+      const store = new InternalAssistantStoreService();
+      await expect(
+        store.createSession({ title: 'x', mode: 'localMachine' }),
+      ).resolves.toMatchObject({ id: 'sess-non-sqlite' });
+      expect(prismaMock.$executeRawUnsafe).not.toHaveBeenCalled();
+      expect(prismaMock.$queryRawUnsafe).not.toHaveBeenCalled();
+    } finally {
+      process.env.DATABASE_URL = previousDatabaseUrl;
+    }
+  });
+
+  it('runs SQLite bootstrap SQL for sqlite DATABASE_URL', async () => {
+    const previousDatabaseUrl = process.env.DATABASE_URL;
+    process.env.DATABASE_URL = 'file:./dev.db';
+    prismaMock.$queryRawUnsafe.mockResolvedValueOnce([]);
+    prismaMock.internalAiSession.create.mockResolvedValueOnce({
+      id: 'sess-sqlite',
+      title: 'New chat',
+      mode: 'localMachine',
+      memoryEnabled: true,
+      updatedAt: new Date(),
+      createdAt: new Date(),
+      _count: { messages: 0 },
+    });
+
+    try {
+      const { InternalAssistantStoreService } = await import('~/services/ai/internal-assistant-store.server');
+      const store = new InternalAssistantStoreService();
+      await expect(
+        store.createSession({ title: 'x', mode: 'localMachine' }),
+      ).resolves.toMatchObject({ id: 'sess-sqlite' });
+      expect(prismaMock.$executeRawUnsafe).toHaveBeenCalled();
+    } finally {
+      process.env.DATABASE_URL = previousDatabaseUrl;
+    }
+  });
+
   it('swallows non-SQLite PRAGMA errors without rethrowing', async () => {
+    const previousDatabaseUrl = process.env.DATABASE_URL;
+    process.env.DATABASE_URL = 'file:./dev.db';
     prismaMock.$executeRawUnsafe.mockImplementationOnce(async () => {
       const err = new Error('syntax error at or near "PRAGMA"');
       (err as { code?: string }).code = 'P2010';
@@ -90,22 +144,59 @@ describe('ensureInternalAiTables PRAGMA guard', () => {
       _count: { messages: 0 },
     });
 
-    const { InternalAssistantStoreService } = await import('~/services/ai/internal-assistant-store.server');
-    const store = new InternalAssistantStoreService();
-    await expect(
-      store.createSession({ title: 'x', mode: 'localMachine' }),
-    ).resolves.toMatchObject({ id: 'sess-1' });
+    try {
+      const { InternalAssistantStoreService } = await import('~/services/ai/internal-assistant-store.server');
+      const store = new InternalAssistantStoreService();
+      await expect(
+        store.createSession({ title: 'x', mode: 'localMachine' }),
+      ).resolves.toMatchObject({ id: 'sess-1' });
+    } finally {
+      process.env.DATABASE_URL = previousDatabaseUrl;
+    }
   });
 
   it('rethrows unrelated database errors', async () => {
+    const previousDatabaseUrl = process.env.DATABASE_URL;
+    process.env.DATABASE_URL = 'file:./dev.db';
     prismaMock.$executeRawUnsafe.mockImplementationOnce(async () => {
       throw new Error('connection refused');
     });
-    const { InternalAssistantStoreService } = await import('~/services/ai/internal-assistant-store.server');
-    const store = new InternalAssistantStoreService();
-    await expect(
-      store.createSession({ title: 'x', mode: 'localMachine' }),
-    ).rejects.toThrow('connection refused');
+    try {
+      const { InternalAssistantStoreService } = await import('~/services/ai/internal-assistant-store.server');
+      const store = new InternalAssistantStoreService();
+      await expect(
+        store.createSession({ title: 'x', mode: 'localMachine' }),
+      ).rejects.toThrow('connection refused');
+    } finally {
+      process.env.DATABASE_URL = previousDatabaseUrl;
+    }
+  });
+
+  it('swallows non-SQLite DATETIME DDL errors and continues', async () => {
+    const previousDatabaseUrl = process.env.DATABASE_URL;
+    process.env.DATABASE_URL = 'file:./dev.db';
+    prismaMock.$executeRawUnsafe.mockImplementationOnce(async () => {
+      throw new Error('type "DATETIME" does not exist');
+    });
+    prismaMock.internalAiSession.create.mockResolvedValueOnce({
+      id: 'sess-2',
+      title: 'New chat',
+      mode: 'localMachine',
+      memoryEnabled: true,
+      updatedAt: new Date(),
+      createdAt: new Date(),
+      _count: { messages: 0 },
+    });
+
+    try {
+      const { InternalAssistantStoreService } = await import('~/services/ai/internal-assistant-store.server');
+      const store = new InternalAssistantStoreService();
+      await expect(
+        store.createSession({ title: 'x', mode: 'localMachine' }),
+      ).resolves.toMatchObject({ id: 'sess-2' });
+    } finally {
+      process.env.DATABASE_URL = previousDatabaseUrl;
+    }
   });
 });
 

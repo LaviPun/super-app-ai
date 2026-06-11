@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "prisma db push --skip-generate && prisma generate && NODE_OPTIONS='--no-warnings' remix vite:dev",
-    "dev:internal": "prisma db push --skip-generate && prisma generate && NODE_OPTIONS='--no-warnings' remix vite:dev --port 4000",
+    "dev:internal": "prisma db push --skip-generate && prisma generate && concurrently -k -n router,web -c blue,green \"pnpm run router:internal\" \"NODE_OPTIONS='--no-warnings' remix vite:dev --port 4000 --host 127.0.0.1\"",
     "build": "prisma generate && remix vite:build",
     "start": "remix-serve build/server/index.js",
     "typecheck": "tsc --noEmit",
@@ -17,7 +17,10 @@
     "router:internal": "tsx --tsconfig tsconfig.scripts.json scripts/internal-ai-router.ts",
     "evals": "tsx --tsconfig tsconfig.scripts.json scripts/run-evals.ts",
     "evals:strict": "pnpm evals --strict",
-    "evals:live": "RUN_LIVE_EVALS=1 vitest run app/__tests__/evals.live.test.ts"
+    "evals:live": "RUN_LIVE_EVALS=1 vitest run app/__tests__/evals.live.test.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium",
+    "smoke:internal-ai": "tsx --tsconfig tsconfig.scripts.json scripts/smoke-internal-ai.ts"
   },
   "dependencies": {
     "@opentelemetry/auto-instrumentations-node": "^0.70.1",
@@ -37,8 +40,10 @@
     "@shopify/shopify-app-remix": "^2.8.0",
     "@shopify/shopify-app-session-storage-prisma": "^5.0.4",
     "@superapp/core": "workspace:*",
+    "@superapp/platform-contracts": "workspace:*",
     "@superapp/rate-limit": "workspace:*",
     "@xyflow/react": "^12.10.1",
+    "ioredis": "^5.10.1",
     "isbot": "^4.4.0",
     "openid-client": "^6.0.0",
     "react": "^18.3.1",
@@ -47,12 +52,14 @@
     "zod-to-json-schema": "^3.24.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.54.2",
     "@remix-run/dev": "^2.10.3",
     "@types/node": "^22.10.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@typescript-eslint/eslint-plugin": "^8.56.1",
     "@typescript-eslint/parser": "^8.56.1",
+    "concurrently": "^9.2.1",
     "eslint": "^10.0.2",
     "eslint-formatter-unix": "^9.0.1",
     "eslint-plugin-react": "^7.37.5",

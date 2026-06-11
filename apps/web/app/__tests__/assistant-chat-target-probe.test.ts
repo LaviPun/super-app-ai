@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   isChatEndpointStatus,
+  isChatHandshakeStatus,
   probeTargetLiveness,
   validateAssistantChatTarget,
 } from '~/services/ai/assistant-chat-target-probe.server';
@@ -14,6 +15,32 @@ describe('assistant-chat-target-probe', () => {
     expect(isChatEndpointStatus(200)).toBe(true);
     expect(isChatEndpointStatus(422)).toBe(true);
     expect(isChatEndpointStatus(404)).toBe(false);
+  });
+
+  it('isChatHandshakeStatus accepts upstream-unreachable responses', () => {
+    expect(isChatHandshakeStatus(502)).toBe(true);
+    expect(isChatHandshakeStatus(503)).toBe(true);
+    expect(isChatHandshakeStatus(404)).toBe(false);
+  });
+
+  it('validates qwen3 target when first OpenAI-style probe returns 502 (router alive, upstream down)', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes('/v1/chat/completions')) {
+        return new Response(JSON.stringify({ error: 'Upstream unreachable' }), { status: 502 });
+      }
+      return new Response('no', { status: 404 });
+    });
+    const result = await validateAssistantChatTarget({
+      target: 'localMachine',
+      backend: 'qwen3',
+      url: 'http://127.0.0.1:8787',
+      timeoutMs: 2000,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain('502');
+    expect(result.message).toContain('OpenAI-style');
+    expect(fetchMock).toHaveBeenCalled();
   });
 
   it('validates Ollama target when /api/tags returns 200', async () => {
@@ -89,7 +116,8 @@ describe('assistant-chat-target-probe', () => {
     const result = await validateAssistantChatTarget({
       target: 'modalRemote',
       backend: 'openai',
-      url: 'https://router.example',
+      // Use a resolvable public host so assertSafeTargetUrl (DNS + IP class checks) passes before fetch runs.
+      url: 'https://example.com',
       timeoutMs: 2000,
     });
     expect(result.ok).toBe(false);

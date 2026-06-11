@@ -24,6 +24,7 @@ Single source of truth by topic. Prefer these files; avoid duplicating content i
 |----------|----------|
 | Merchants | [`app.md`](../../app.md) |
 | App owner / internal team | [`internal-admin.md`](../../internal-admin.md) |
+| Internal AI (Qwen3, probes, model setup) | [`internal-admin.md`](../../internal-admin.md) § *Internal AI Assistant setup* · [`ai-providers.md`](../../ai-providers.md) · GitBook: [`internal-ai-assistant.md`](../06-internal-admin/internal-ai-assistant.md) |
 
 ## Engineering depth
 
@@ -43,7 +44,7 @@ Single source of truth by topic. Prefer these files; avoid duplicating content i
 |-------|----------|
 | SLOs & measurement | [`slos.md`](../../slos.md) |
 | Incidents | [`runbooks/index.md`](../../runbooks/index.md) (hub) |
-| UI conventions | [`uiux-guideline.md`](../../uiux-guideline.md) + root [`DESIGN.md`](../../DESIGN.md) |
+| UI conventions | [`uiux-guideline.md`](../../uiux-guideline.md) + root [`DESIGN.md`](../../../DESIGN.md) |
 
 ## Extra reference
 
@@ -55,7 +56,7 @@ Single source of truth by topic. Prefer these files; avoid duplicating content i
 
 ## GitBook-only synthesis
 
-Pages under `docs/gitbook/**` (except this map and `README`) summarize or structure navigation; they defer detail to the table above.
+Pages under `docs/gitbook/**` (except this map and `README`) summarize or structure navigation; they defer detail to the table above. For **internal AI assistant** routes and safety controls, start at [`internal-ai-assistant.md`](../06-internal-admin/internal-ai-assistant.md).
 
 ## Canonical references
 

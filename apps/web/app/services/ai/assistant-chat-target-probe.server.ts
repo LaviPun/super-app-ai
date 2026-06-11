@@ -1,4 +1,5 @@
 import type { RouterRuntimeTarget } from '~/schemas/router-runtime-config.server';
+import { isReferenceLocalPromptRouterBaseUrl } from '~/services/ai/assistant-router-local.server';
 import { assertSafeTargetUrl } from '~/services/ai/internal-assistant.server';
 
 export type AssistantRouterBackend = 'ollama' | 'openai' | 'qwen3' | 'custom';
@@ -34,6 +35,16 @@ export async function fetchWithTimeout(
 
 export function isChatEndpointStatus(status: number): boolean {
   return status === 200 || status === 400 || status === 401 || status === 403 || status === 405 || status === 422;
+}
+
+/**
+ * True when the HTTP server clearly handled the route (including upstream
+ * failures). Used for assistant target validation so `internal-ai-router`
+ * returning 502 (Ollama/OpenAI unreachable) still counts as "chat stack
+ * reachable" vs connection refused / 404.
+ */
+export function isChatHandshakeStatus(status: number): boolean {
+  return isChatEndpointStatus(status) || status === 502 || status === 503 || status === 504;
 }
 
 /** Cold-start friendly timeout for HTTPS edges vs fast localhost. */
@@ -144,8 +155,12 @@ export async function validateAssistantChatTarget(input: {
   if (input.backend === 'ollama') {
     try {
       const tags = await fetchWithTimeout(`${baseUrl}/api/tags`, input.token, input.timeoutMs, { method: 'GET' });
-      if (isChatEndpointStatus(tags.status)) {
-        return { ok: true, message: `${input.target} Ollama endpoint accepted (/api/tags ${tags.status})` };
+      if (isChatHandshakeStatus(tags.status)) {
+        const hint =
+          tags.status === 502 || tags.status === 503 || tags.status === 504
+            ? ' (upstream may be down — start Ollama or check ROUTER_OLLAMA_BASE_URL)'
+            : '';
+        return { ok: true, message: `${input.target} Ollama endpoint accepted (/api/tags ${tags.status})${hint}` };
       }
     } catch {
       // continue to router-only detection
@@ -163,7 +178,10 @@ export async function validateAssistantChatTarget(input: {
     };
   }
 
-  const chatCandidates = ['/v1/chat/completions', '/chat/completions', '/api/chat/completions'];
+  // Include `/api/chat` so targets pointing at `internal-ai-router` (Ollama
+  // passthrough) validate when `backend` is `qwen3`/`openai` but the router
+  // does not expose a working OpenAI-compatible upstream yet.
+  const chatCandidates = ['/v1/chat/completions', '/chat/completions', '/api/chat/completions', '/api/chat'];
   for (const endpoint of chatCandidates) {
     try {
       const response = await fetchWithTimeout(
@@ -180,8 +198,18 @@ export async function validateAssistantChatTarget(input: {
           }),
         },
       );
-      if (isChatEndpointStatus(response.status)) {
-        return { ok: true, message: `${input.target} chat endpoint accepted (${endpoint} ${response.status})` };
+      if (isChatHandshakeStatus(response.status)) {
+        const hint =
+          response.status === 502 || response.status === 503 || response.status === 504
+            ? ' (upstream may be down)'
+            : '';
+        const refHint = isReferenceLocalPromptRouterBaseUrl(baseUrl)
+          ? ' Reference local router: validation tries OpenAI-style paths then POST /api/chat; chat sends prefer OpenAI paths then fall back to Ollama /api/chat when upstream is unset or errors (502/503/504/401/403 or trivial 422).'
+          : '';
+        return {
+          ok: true,
+          message: `${input.target} chat endpoint accepted (${endpoint} ${response.status})${hint}.${refHint}`,
+        };
       }
     } catch {
       // try next candidate
@@ -197,6 +225,10 @@ export async function validateAssistantChatTarget(input: {
   }
   return {
     ok: false,
-    message: `${input.target} chat endpoint not detected. Tried /v1/chat/completions, /chat/completions, /api/chat/completions.`,
+    message: `${input.target} chat endpoint not detected. Tried OpenAI-compatible paths (/v1/chat/completions, /chat/completions, /api/chat/completions) then POST /api/chat.${
+      isReferenceLocalPromptRouterBaseUrl(baseUrl)
+        ? ' On reference :8787 with backend qwen3/openai, start Ollama or configure the router OpenAI upstream; the assistant will try Ollama /api/chat automatically on common failures.'
+        : ''
+    }`,
   };
 }

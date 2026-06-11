@@ -146,6 +146,10 @@ merchant prompt   ─►   LLM output (strict JSON)   ─►   Zod-validated Rec
 
 The trust boundary is enforced by `packages/core/src/recipe.ts` (Zod schema) and the compiler in `apps/web/app/services/recipes/compiler/`. Nothing crosses the boundary unless it parses cleanly. Anything outside the closed set of `RECIPE_SPEC_TYPES` (in `packages/core/src/allowed-values.ts`) is rejected.
 
+### Platform V2 Phase 12 (storage and image worker)
+
+Phase 12 of the Platform V2 migration adds generated-asset contracts in `packages/platform-contracts/src/storage.ts`, job registry in `packages/platform-contracts/src/jobs.ts`, the `ImageWorkerHandler` in `apps/workers/src/image/image-worker.ts`, and a BullMQ-ready `createImageStorageProcessor()` shim in `apps/workers/src/image-storage.ts`. Generated assets and preview exports are stored through a `StorageAdapter` (local filesystem in dev/test, Cloudflare R2 contract with injectable binding double in production). Metadata and storage results are validated with Zod; R2 credentials never reach the merchant client. Remix preview routes call `schedulePreviewExport()` when `PREVIEW_EXPORT_QUEUE_ENABLED=1` (payload validation stub until BullMQ merge). See [`docs/gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md`](docs/gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md).
+
 ### Two AI layers
 
 | Layer | Models | Where it runs |
@@ -351,7 +355,7 @@ Provider config is **credentials-first**: once a key is supplied in the Internal
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `INTERNAL_AI_ROUTER_URL` | No | — | Base URL for the prompt-router service |
+| `INTERNAL_AI_ROUTER_URL` | No | development: `http://127.0.0.1:8787`; otherwise unset | Base URL for the prompt-router service (`pnpm dev:internal` starts it on 8787) |
 | `INTERNAL_AI_ROUTER_TOKEN` | No | — | Bearer token sent to `/route` |
 | `INTERNAL_AI_ROUTER_SHADOW` | No | `false` | If `true`, call `/route` for metrics but use deterministic decisions |
 | `INTERNAL_AI_ROUTER_TIMEOUT_MS` | No | `3000` | Client timeout for `/route` |
@@ -362,7 +366,10 @@ Provider config is **credentials-first**: once a key is supplied in the Internal
 | `INTERNAL_AI_ROUTER_DEBUG_LOG` | No | `0` | If `1`, emit sparse JSON debug lines (avoid in prod) |
 | `INTERNAL_AI_ROUTER_DUAL_TARGET_ENABLED` | No | `false` | Enables DB-driven dual-target resolution from `/internal/model-setup` |
 | `INTERNAL_AI_ALLOW_HOSTS` | No | — | Comma-separated hostnames (exact, case-insensitive) that bypass the SSRF / private-host checks in `assertSafeTargetUrl` for assistant target URLs. Use for trusted internal HTTPS hosts like `internal.svc.cluster.local`. Allowlisted hosts are accepted for both `http:` and `https:`. |
+| `INTERNAL_AI_LOCAL_ONLY` | No | `0` | When `1`/`true`/`yes`/`on`, the internal AI assistant rejects `modalRemote` sends and disables automatic failover to the cloud target; use with local-first dev. |
 | `INTERNAL_AI_TOOL_AUDIT_RETENTION_DAYS` | No | `90` | Retention window for `InternalAiToolAudit` rows. The daily cron in `/api/cron` (guarded by a 24h in-memory marker) deletes audit rows older than this many days. Non-positive / non-finite values fall back to the default. |
+| `INTERNAL_AI_CHAT_MESSAGE_RETENTION_DAYS` | No | `30` | Retention window for internal assistant chat messages (`InternalAiMessage`) used by chat retention jobs. Non-positive / non-finite values fall back to default. |
+| `ALLOW_MERCHANT_CODE_EXECUTION` | No | `false` | Keep disabled in production. Merchant RecipeSpec generation paths hard-block Anthropic code execution even if a provider enables `codeExecution` in `extraConfig`. |
 
 ### Internal AI router (service-side tunables)
 
@@ -432,6 +439,17 @@ The repo uses pnpm workspaces. Most commands are scoped per-package via `pnpm --
 | `pnpm --filter web router:internal` | Start the reference internal AI router (`/route`, `/healthz`, Ollama / OpenAI passthrough) | Local router dev |
 | `pnpm --filter web evals` | Run the deterministic evals harness with `StubLlmClient` | CI parity / local dev |
 | `pnpm --filter web evals:live` | Run live evals (`EVAL_PROVIDER_ID=<id>` required) | Nightly or manual quality check |
+
+### `apps/workers` and `packages/platform-contracts` (Phase 12)
+
+| Command | What it does | When to use it |
+|---------|--------------|----------------|
+| `pnpm --filter @superapp/platform-contracts test` | Vitest for storage + job registry contracts | After editing `storage.ts` or `jobs.ts` |
+| `pnpm --filter @superapp/platform-contracts typecheck` | Typecheck shared contracts | Pre-commit |
+| `pnpm --filter @superapp/workers test` | Vitest for storage adapters + image worker | After worker changes |
+| `pnpm --filter @superapp/workers typecheck` | Typecheck worker package | Pre-commit |
+
+Local storage defaults to `.data/superapp-assets` (override with `LOCAL_STORAGE_PATH`). Set `PREVIEW_EXPORT_QUEUE_ENABLED=1` in `apps/web` to exercise the Remix preview export enqueue stub.
 
 ### Testing extensions locally
 
@@ -769,8 +787,17 @@ Same image, two flavors: deployed via the Kubernetes manifests in `deploy/intern
 # Defaults to Ollama at 127.0.0.1:11434 with qwen3:4b-instruct
 pnpm --filter web router:internal
 
-# Configure the Remix app to call it
-# apps/web/.env
+# Internal admin dev (Remix on :4000 + router on :8787 together)
+cd apps/web && pnpm dev:internal
+```
+
+In **`NODE_ENV=development`**, if `INTERNAL_AI_ROUTER_URL` is unset, the app assumes the reference router at **`http://127.0.0.1:8787`** (same host as `pnpm dev:internal` starts). Production and tests keep the previous behavior (no implicit URL).
+
+**Internal AI Assistant (`/internal/ai-assistant`):** New sessions default to **Local** target unless cloud is explicitly selected and local-only mode is off. When the chat base URL is the reference local router (`http://127.0.0.1:8787` or `http://localhost:8787` with no extra path) and the runtime backend is `qwen3` or `openai`, sends try OpenAI-compatible paths first (`/v1/chat/completions`, `/chat/completions`, `/api/chat/completions`), then **one** fallback to **`POST /api/chat`** (Ollama) if the OpenAI path fails with `502`/`503`/`504`/`401`/`403`, or `422` with a trivial body—so a missing OpenAI upstream does not strand the operator. Remote inference URLs (e.g. Modal) never use that Ollama shortcut. Set **`INTERNAL_AI_LOCAL_ONLY=1`** to disable cloud target selection and cross-target failover entirely (local sends only). The assistant header renders one active readiness summary plus optional standby detail to avoid contradictory duplicate status chips.
+
+Optional explicit wiring in `apps/web/.env`:
+
+```bash
 INTERNAL_AI_ROUTER_URL=http://127.0.0.1:8787
 INTERNAL_AI_ROUTER_TOKEN=<long-random-token>
 ```
@@ -1080,6 +1107,7 @@ The full documentation set lives under [`docs/`](docs/). Highlights:
 | Doc | Purpose |
 |-----|---------|
 | [`docs/gitbook/README.md`](docs/gitbook/README.md) + [`docs/gitbook/SUMMARY.md`](docs/gitbook/SUMMARY.md) | GitBook-style outline (welcome, guides, architecture, reference, ops, planning) |
+| [`docs/gitbook/06-internal-admin/internal-ai-assistant.md`](docs/gitbook/06-internal-admin/internal-ai-assistant.md) | Internal AI assistant / model setup: routes, probes, release gate, retention (links to `internal-admin.md` + `ai-providers.md`) |
 | [`docs/ai-module-main-doc.md`](docs/ai-module-main-doc.md) | RecipeSpec and capabilities — primary spec for modules |
 | [`docs/technical.md`](docs/technical.md) | High-level architecture, services, security, universal module slot |
 | [`docs/ai-providers.md`](docs/ai-providers.md) | AI provider integration, module-gen vs internal split |
@@ -1099,6 +1127,8 @@ The full documentation set lives under [`docs/`](docs/). Highlights:
 | [`DESIGN.md`](DESIGN.md) | Design system source of truth (typography, color, spacing, motion) |
 | [`codechange-behave.md`](codechange-behave.md) | Change-propagation checklist |
 | [`global-audit.md`](global-audit.md) | Audit checklist |
+
+**Documentation & recent changes:** Top of [`docs/implementation-status.md`](docs/implementation-status.md) (dated bullets + GitBook cross-links).
 
 ---
 

@@ -8,6 +8,7 @@ This section is for reliability, incident response, and production safety.
 2. `../../slos.md` — SLO targets and measurement
 3. `../../runbooks/index.md` — incident procedures
 4. `../../debug.md` — known runtime and extension troubleshooting notes
+5. `../06-internal-admin/internal-ai-assistant.md` — internal Qwen3 assistant: chat URL safety, release gate, audit retention (operator-only)
 
 ## Focus points
 

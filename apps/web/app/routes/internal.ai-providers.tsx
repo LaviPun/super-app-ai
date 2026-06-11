@@ -58,15 +58,6 @@ function parseUsageMeta(meta: string | null): Record<string, unknown> {
   }
 }
 
-function withCurrentModelOption(
-  options: Array<{ label: string; value: string }>,
-  currentValue: string,
-): Array<{ label: string; value: string }> {
-  if (!currentValue) return options;
-  if (options.some((opt) => opt.value === currentValue)) return options;
-  return [...options, { label: `${currentValue} (current)`, value: currentValue }];
-}
-
 function parseOpenAiExtraConfig(extraConfig: string | null): {
   reasoningEffort?: 'low' | 'medium' | 'high';
   verbosity?: 'low' | 'medium' | 'high';
@@ -599,14 +590,22 @@ export default function InternalAiProviders() {
       .filter((pr) => pr.provider.provider === 'ANTHROPIC')
       .map((pr) => ({ label: pr.displayName, value: pr.model })),
   ];
-  const openaiModelOptions = withCurrentModelOption(openaiModelOptionsBase, openaiModel);
-  const claudeModelOptions = withCurrentModelOption(claudeModelOptionsBase, claudeModel);
+  const openaiModelOptions = openaiModelOptionsBase;
+  const claudeModelOptions = claudeModelOptionsBase;
+  const openaiModelListed = openaiModelOptionsBase.some((o) => o.value === openaiModel);
+  const claudeModelListed = claudeModelOptionsBase.some((o) => o.value === claudeModel);
   const addProviderModelOptions =
     addProvider === 'OPENAI'
-      ? withCurrentModelOption(openaiModelOptionsBase, addDefaultModel)
+      ? openaiModelOptionsBase
       : addProvider === 'ANTHROPIC'
-        ? withCurrentModelOption(claudeModelOptionsBase, addDefaultModel)
+        ? claudeModelOptionsBase
         : [{ label: 'Enter model manually', value: '' }];
+  const addDefaultModelListed =
+    addProvider === 'OPENAI'
+      ? openaiModelOptionsBase.some((o) => o.value === addDefaultModel)
+      : addProvider === 'ANTHROPIC'
+        ? claudeModelOptionsBase.some((o) => o.value === addDefaultModel)
+        : true;
 
   return (
     <Page title="AI Providers" subtitle="Enter credentials only — model catalog, pricing, and usage stats are auto-managed.">
@@ -668,6 +667,7 @@ export default function InternalAiProviders() {
                   <Text as="h3" variant="headingSm">OpenAI default</Text>
                   <Form method="post">
                     <input type="hidden" name="intent" value="saveOpenAI" />
+                    <input type="hidden" name="openaiModel" value={openaiModel} />
                     <BlockStack gap="150">
                       <TextField
                         label="OpenAI API key"
@@ -679,11 +679,17 @@ export default function InternalAiProviders() {
                         placeholder="Leave blank to keep existing key"
                         helpText={defaultProviders?.openai ? `Current: ${defaultProviders.openai.apiKeyMasked}` : undefined}
                       />
+                      {!openaiModelListed && openaiModel ? (
+                        <Banner tone="warning" title="Stored default model is not in the active catalog">
+                          <Text as="p" variant="bodySm">
+                            Saved model <code>{openaiModel}</code> is not among current active price rows. Pick an active model below to migrate, or clear the selection to remove the default.
+                          </Text>
+                        </Banner>
+                      ) : null}
                       <Select
                         label="Default OpenAI model (optional)"
-                        name="openaiModel"
                         options={openaiModelOptions}
-                        value={openaiModel}
+                        value={openaiModelListed ? openaiModel : ''}
                         onChange={setOpenaiModel}
                       />
                       <InlineStack align="start">
@@ -702,6 +708,7 @@ export default function InternalAiProviders() {
                   <Text as="h3" variant="headingSm">Claude (Anthropic) default</Text>
                   <Form method="post">
                     <input type="hidden" name="intent" value="saveClaude" />
+                    <input type="hidden" name="claudeModel" value={claudeModel} />
                     <BlockStack gap="150">
                       <TextField
                         label="Claude API key"
@@ -713,11 +720,17 @@ export default function InternalAiProviders() {
                         placeholder="Leave blank to keep existing key"
                         helpText={defaultProviders?.claude ? `Current: ${defaultProviders.claude.apiKeyMasked}` : undefined}
                       />
+                      {!claudeModelListed && claudeModel ? (
+                        <Banner tone="warning" title="Stored default model is not in the active catalog">
+                          <Text as="p" variant="bodySm">
+                            Saved model <code>{claudeModel}</code> is not among current active price rows. Pick an active model below to migrate, or clear the selection to remove the default.
+                          </Text>
+                        </Banner>
+                      ) : null}
                       <Select
                         label="Default Claude model (optional)"
-                        name="claudeModel"
                         options={claudeModelOptions}
-                        value={claudeModel}
+                        value={claudeModelListed ? claudeModel : ''}
                         onChange={setClaudeModel}
                       />
                       <TextField
@@ -729,6 +742,13 @@ export default function InternalAiProviders() {
                         placeholder="pptx, xlsx, docx"
                       />
                       <Checkbox label="Enable code execution for Claude" checked={claudeCodeExecution} onChange={setClaudeCodeExecution} />
+                      {claudeCodeExecution ? (
+                        <Banner tone="warning" title="Code execution safety boundary" data-testid="claude-code-execution-warning">
+                          <Text as="p" variant="bodySm">
+                            Internal/testing only. Merchant module generation paths block code execution by policy.
+                          </Text>
+                        </Banner>
+                      ) : null}
                       <input type="hidden" name="claudeCodeExecution" value={claudeCodeExecution ? 'true' : 'false'} />
                       <InlineStack align="start">
                         <Button submit variant="primary" loading={isSaving}>Save Claude default</Button>
@@ -758,13 +778,22 @@ export default function InternalAiProviders() {
                 <TextField label="Name" name="name" value={addName} onChange={setAddName} autoComplete="off" helpText="A friendly label for this provider." />
                 <Select label="Provider type" name="provider" options={providerTypeOptions} value={addProvider} onChange={setAddProvider} />
                 {addProvider === 'OPENAI' || addProvider === 'ANTHROPIC' ? (
-                  <Select
-                    label="Default model (optional)"
-                    name="defaultModel"
-                    options={addProviderModelOptions}
-                    value={addDefaultModel}
-                    onChange={setAddDefaultModel}
-                  />
+                  <>
+                    <input type="hidden" name="defaultModel" value={addDefaultModel} />
+                    {!addDefaultModelListed && addDefaultModel ? (
+                      <Banner tone="warning" title="Model not in active catalog">
+                        <Text as="p" variant="bodySm">
+                          <code>{addDefaultModel}</code> is not listed; choose an active model or clear to enter a new default after creation.
+                        </Text>
+                      </Banner>
+                    ) : null}
+                    <Select
+                      label="Default model (optional)"
+                      options={addProviderModelOptions}
+                      value={addDefaultModelListed ? addDefaultModel : ''}
+                      onChange={setAddDefaultModel}
+                    />
+                  </>
                 ) : (
                   <TextField label="Default model (optional)" name="defaultModel" value={addDefaultModel} onChange={setAddDefaultModel} autoComplete="off" />
                 )}
@@ -782,6 +811,13 @@ export default function InternalAiProviders() {
                       helpText="Comma-separated: anthropic IDs (pptx, xlsx, docx, pdf) or custom skill IDs. Max 8 per request."
                     />
                     <Checkbox label="Enable Claude code execution" checked={addClaudeCodeExecution} onChange={setAddClaudeCodeExecution} />
+                    {addClaudeCodeExecution ? (
+                      <Banner tone="warning" title="Code execution safety boundary">
+                        <Text as="p" variant="bodySm">
+                          Internal/testing only. Merchant module generation paths block code execution by policy.
+                        </Text>
+                      </Banner>
+                    ) : null}
                   </>
                 ) : null}
                 <input type="hidden" name="claudeCodeExecution" value={addClaudeCodeExecution ? 'true' : 'false'} />

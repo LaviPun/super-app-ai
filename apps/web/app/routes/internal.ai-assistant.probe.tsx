@@ -1,7 +1,10 @@
 import { json, type LoaderFunctionArgs } from '@remix-run/node';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
+import { isInternalAiLocalOnlyEnabled } from '~/env.server';
+import { AppError } from '~/services/errors/app-error.server';
 import { DEFAULT_ROUTER_RUNTIME_CONFIG, type RouterRuntimeConfig } from '~/schemas/router-runtime-config.server';
 import { getRouterRuntimeConfig } from '~/services/ai/router-runtime-config.server';
+import { enforceInternalAiRateLimit } from '~/services/security/rate-limit.server';
 import {
   probeTargetLiveness,
   validateAssistantChatTarget,
@@ -43,19 +46,14 @@ export async function probeAssistantTargets(
   }
   const { config, parseError: configParseError } = resolveConfig(runtime);
   if (configParseError) parseError = configParseError;
+  const assistantLocalOnly = isInternalAiLocalOnlyEnabled();
 
-  const [localHealth, modalHealth, localChatProbe, modalChatProbe] = await Promise.all([
+  const [localHealth, localChatProbe] = await Promise.all([
     probeTargetLiveness({
       backend: config.targets.localMachine.backend,
       url: config.targets.localMachine.url,
       token: config.targets.localMachine.token,
       timeoutMs: config.targets.localMachine.timeoutMs,
-    }),
-    probeTargetLiveness({
-      backend: config.targets.modalRemote.backend,
-      url: config.targets.modalRemote.url,
-      token: config.targets.modalRemote.token,
-      timeoutMs: config.targets.modalRemote.timeoutMs,
     }),
     validateAssistantChatTarget({
       target: 'localMachine',
@@ -64,14 +62,27 @@ export async function probeAssistantTargets(
       token: config.targets.localMachine.token,
       timeoutMs: config.targets.localMachine.timeoutMs,
     }),
-    validateAssistantChatTarget({
-      target: 'modalRemote',
-      backend: config.targets.modalRemote.backend,
-      url: config.targets.modalRemote.url,
-      token: config.targets.modalRemote.token,
-      timeoutMs: config.targets.modalRemote.timeoutMs,
-    }),
   ]);
+  const [modalHealth, modalChatProbe] = assistantLocalOnly
+    ? [
+        { ok: false, message: 'disabled (INTERNAL_AI_LOCAL_ONLY)' },
+        { ok: false, message: 'disabled (INTERNAL_AI_LOCAL_ONLY)' },
+      ]
+    : await Promise.all([
+        probeTargetLiveness({
+          backend: config.targets.modalRemote.backend,
+          url: config.targets.modalRemote.url,
+          token: config.targets.modalRemote.token,
+          timeoutMs: config.targets.modalRemote.timeoutMs,
+        }),
+        validateAssistantChatTarget({
+          target: 'modalRemote',
+          backend: config.targets.modalRemote.backend,
+          url: config.targets.modalRemote.url,
+          token: config.targets.modalRemote.token,
+          timeoutMs: config.targets.modalRemote.timeoutMs,
+        }),
+      ]);
 
   return {
     localMachine: { health: localHealth, chatProbe: localChatProbe },
@@ -82,6 +93,18 @@ export async function probeAssistantTargets(
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireInternalAdmin(request);
+  try {
+    await enforceInternalAiRateLimit(request, 'probe');
+  } catch (error) {
+    if (error instanceof AppError && error.code === 'RATE_LIMITED') {
+      const retryAfterSec = Number(error.details?.retryAfterSec ?? 60);
+      return json(
+        { error: error.message },
+        { status: 429, headers: { 'Cache-Control': 'no-store', 'Retry-After': String(retryAfterSec) } },
+      );
+    }
+    throw error;
+  }
   const result = await probeAssistantTargets();
   return json(result, {
     headers: { 'Cache-Control': 'no-store' },
@@ -90,6 +113,18 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export async function action({ request }: LoaderFunctionArgs) {
   await requireInternalAdmin(request);
+  try {
+    await enforceInternalAiRateLimit(request, 'probe');
+  } catch (error) {
+    if (error instanceof AppError && error.code === 'RATE_LIMITED') {
+      const retryAfterSec = Number(error.details?.retryAfterSec ?? 60);
+      return json(
+        { error: error.message },
+        { status: 429, headers: { 'Cache-Control': 'no-store', 'Retry-After': String(retryAfterSec) } },
+      );
+    }
+    throw error;
+  }
   const result = await probeAssistantTargets();
   return json(result, {
     headers: { 'Cache-Control': 'no-store' },

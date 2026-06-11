@@ -60,3 +60,9 @@ export const DEFAULT_ROUTER_RUNTIME_CONFIG: RouterRuntimeConfig = {
     },
   },
 };
+
+/**
+ * Remix → reference `internal-ai-router` when `INTERNAL_AI_ROUTER_URL` is unset.
+ * Used only in `NODE_ENV === 'development'` by {@link resolveRouterTargetConfig}.
+ */
+export const DEFAULT_LOCAL_PROMPT_ROUTER_BASE_URL = 'http://127.0.0.1:8787';

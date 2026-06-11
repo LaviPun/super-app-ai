@@ -1,8 +1,9 @@
 import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { ModuleService } from '~/services/modules/module.service';
-import { RecipeService } from '~/services/recipes/recipe.service';
 import { PreviewService } from '~/services/preview/preview.service';
+import { schedulePreviewExport } from '~/services/preview/preview-export.queue.server';
+import { RecipeService } from '~/services/recipes/recipe.service';
 
 export async function loader({ request, params }: { request: Request; params: { moduleId?: string } }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -21,6 +22,14 @@ export async function loader({ request, params }: { request: Request; params: { 
   const preview = new PreviewService().render(spec);
 
   if (preview.kind === 'JSON') return json(preview.json);
+
+  void schedulePreviewExport({
+    shopId: mod.shopId,
+    moduleId: mod.id,
+    revisionId: draft.id,
+    html: preview.html,
+    recipeSpecRef: draft.id,
+  }).catch(() => undefined);
 
   return new Response(preview.html, {
     headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },

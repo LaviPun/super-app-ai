@@ -45,6 +45,12 @@ const EnvSchema = z.object({
   // Explicitly controls Shopify test billing mode. If unset, falls back to NODE_ENV for backward compatibility.
   BILLING_TEST_MODE: z.string().optional(),
 
+  /** When set, internal AI assistant never uses modalRemote or cross-target failover (local-only). */
+  INTERNAL_AI_LOCAL_ONLY: z.string().optional(),
+  INTERNAL_AI_TOOL_AUDIT_RETENTION_DAYS: z.string().optional(),
+  INTERNAL_AI_CHAT_MESSAGE_RETENTION_DAYS: z.string().optional(),
+  ALLOW_MERCHANT_CODE_EXECUTION: z.string().optional(),
+
   // Workflow email connector (optional)
   EMAIL_CONNECTOR_PROVIDER: z.enum(['sendgrid', 'generic']).optional(),
   EMAIL_API_URL: z.string().url().optional(),
@@ -125,4 +131,14 @@ export function isStrictPiiRedactionEnabled(): boolean {
 export function isBillingTestModeEnabled(): boolean {
   const defaultValue = process.env.NODE_ENV !== 'production';
   return parseBooleanEnv(process.env.BILLING_TEST_MODE, defaultValue);
+}
+
+/** Internal admin assistant: block cloud target and dual-target fallback when true. */
+export function isInternalAiLocalOnlyEnabled(): boolean {
+  return parseBooleanEnv(process.env.INTERNAL_AI_LOCAL_ONLY, false);
+}
+
+/** Merchant-facing RecipeSpec generation paths must keep this disabled by default. */
+export function isMerchantCodeExecutionAllowed(): boolean {
+  return parseBooleanEnv(process.env.ALLOW_MERCHANT_CODE_EXECUTION, false);
 }

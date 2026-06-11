@@ -5,7 +5,7 @@
 - recipe-only AI output model (no arbitrary code deploy)
 - strict schema validation at boundaries
 - encrypted secrets at rest
-- SSRF protection for outbound connector calls
+- SSRF protection for outbound connector calls and **internal AI chat targets** (validated base URLs, optional `INTERNAL_AI_ALLOW_HOSTS`; see [`../06-internal-admin/internal-ai-assistant.md`](../06-internal-admin/internal-ai-assistant.md) and [`../../internal-admin.md`](../../internal-admin.md))
 - webhook and callback signature verification
 - plan/capability gates before publish
 

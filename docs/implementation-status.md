@@ -1,3 +1,60 @@
+## 2026-06-12 (Platform V2 Phase 12 — Storage And Image Worker — shipped)
+
+- **Status:** Phase 12 complete in worktree — contracts, worker handler, job registry, docs, and Remix preview enqueue stub.
+- **Job registry (`packages/platform-contracts/src/jobs.ts`):** Registers `IMAGE_INGESTION`, `PREVIEW_EXPORT`, and `ASSET_CLEANUP` on the `asset-storage` queue with `resolveImageWorkerQueue()` and payload parse helpers aligned to `storage.ts`.
+- **Contracts (`packages/platform-contracts`):** `storage.ts` defines generated asset metadata, worker payloads, events, and results. Preview export is RecipeSpec/config-safe (blocks scripts and inline handlers); no merchant code deployment paths exist in this worker.
+- **Worker handler (`apps/workers`):** `ImageWorkerHandler` performs ingest/preview/cleanup against a `StorageAdapter`. `createImageStorageProcessor()` validates envelopes, delegates to the handler, and emits `JOB_STARTED` / `JOB_PROGRESS` / `JOB_COMPLETED` / `JOB_FAILED` events.
+- **Storage adapters:** `StorageAdapter` interface, `LocalStorageAdapter`, injectable `R2StorageAdapter` contract, and `createStorageAdapter()` fallback to local storage when an R2 binding is unavailable.
+- **Remix integration (stub):** `apps/web/app/services/preview/preview-export.queue.server.ts` validates `PREVIEW_EXPORT` payloads and is invoked from `preview.$moduleId` after HTML render when `PREVIEW_EXPORT_QUEUE_ENABLED=1`. BullMQ enqueue remains TODO until Phase 9–11 queue merge.
+- **Signed URL/proxy policy:** R2 secrets stay server-side. Production signed URLs are issued by the API proxy/signing service in a later phase, not from worker credentials.
+- **Docs:** [`docs/gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md`](./gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md)
+- **Tests:** `packages/platform-contracts`, `apps/workers`, and preview enqueue stub tests pass via `pnpm test`.
+
+## 2026-05-19 (Platform V2 Phase 12 — Storage And Image Worker — initial worktree)
+
+- **Isolated worktree:** `platform-v2-phase-12-storage-image-worker` at `/Users/lavipun/Work/ai-shopify-superapp-phase12-storage-image-worker` (no edits to main or Phase 9/10/11 worktrees).
+- **Contracts (`packages/platform-contracts`):** `storage.ts` defines generated asset metadata, worker payloads (`IMAGE_INGESTION`, `PREVIEW_EXPORT`, `ASSET_CLEANUP`), events, and results. Preview export is RecipeSpec/config-safe (blocks scripts and inline handlers); no merchant code deployment paths exist in this worker.
+- **Worker handler (`apps/workers`):** `ImageWorkerHandler` performs ingest/preview/cleanup against a `StorageAdapter`. `createImageStorageProcessor()` validates envelopes, delegates to the handler, and emits `JOB_STARTED` / `JOB_PROGRESS` / `JOB_COMPLETED` / `JOB_FAILED` events.
+- **Storage adapters:** `StorageAdapter` interface, `LocalStorageAdapter`, injectable `R2StorageAdapter` contract, and `createStorageAdapter()` fallback to local storage when an R2 binding is unavailable.
+- **Signed URL/proxy policy:** R2 secrets stay server-side. Production signed URLs are issued by the API proxy/signing service in a later phase, not from worker credentials.
+- **Legacy alignment:** Remix preview rendering (`apps/web/app/services/preview/preview.service.ts`) and theme analysis remain unchanged. Phase 12 adds the worker/storage contract for moving large artifacts out of Prisma.
+- **Docs:** [`docs/gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md`](./gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md)
+- **Tests:** `packages/platform-contracts` and `apps/workers` Vitest suites cover validation, adapter failures, metadata/result shape, cleanup, and worker lifecycle events.
+- **Merge risk:** Phase 9–11 branches may own shared `packages/platform-contracts/src/jobs.ts` queue routing. When stacking, register `IMAGE_INGESTION`, `PREVIEW_EXPORT`, and `ASSET_CLEANUP` there without rewriting Phase 9–11 processor wiring.
+
+## 2026-05-15 (internal AI assistant — chat UX, send guard, docs)
+
+- **Composer:** `computeAssistantSendDisabledReason` is the single source for send disabled + operator copy (streaming, `sendInFlight`, session `useFetcher` busy, route navigation pending, `unavailable` session, empty draft). Subdued hint next to send; **warning** `Banner` for live probe text (send still allowed); **critical** `Banner` only for real stream/transport failures. `sendLockRef` blocks same-tick double submit before `isStreaming` paints.
+- **Remix:** Route-level `ErrorBoundary` (Polaris `Page` + reload) for render errors.
+- **Tests:** `assistant-session-mode.test.ts` (`computeAssistantSendDisabledReason` + extended `canSendAssistantMessage`); `internal-ai-assistant.route.test.ts` (extra `computeSessionMutationFollowUp` idle/error cases).
+- **Docs:** GitBook [`internal-ai-assistant.md`](./gitbook/06-internal-admin/internal-ai-assistant.md) — *Operator and engineering notes (chat UX)*.
+
+## 2026-05-15 (internal admin — model catalog dropdowns, model-setup sync, assistant loading)
+
+- **AI Providers default models:** [`internal.ai-providers.tsx`](../apps/web/app/routes/internal.ai-providers.tsx) no longer injects de-catalogued models into Polaris `Select` options (removed `withCurrentModelOption`). Dropdowns list **active** `aiModelPrice` rows only; stored defaults that are not in the catalog stay in hidden fields with a **warning banner** so saves do not silently resurrect removed SKUs in the picker UI.
+- **Local AI Setting:** Form state **re-syncs from loader** after successful saves / revalidation (fingerprinted `routerRuntimeConfig`), fixing stale fields and reducing Polaris `Select` edge cases. Observability metrics use optional chaining on `metrics.byTarget[resolved.target]`.
+- **AI Assistant:** Loading overlay (**Spinner** + **SkeletonBodyText**) while the assistant route is in a non-idle navigation state (initial load or revalidation). **Internal layout** toast effect now requires a non-empty string `message` before calling Polaris `Toast` (avoids bad `routeData.toast` shapes).
+
+## 2026-05-15 (internal AI assistant — reference-router alignment + local-only)
+
+- **Single reference-router detection:** [`assistant-router-local.server.ts`](../apps/web/app/services/ai/assistant-router-local.server.ts) exports `isReferenceLocalPromptRouterBaseUrl` (matches `http://127.0.0.1:8787` / `http://localhost:8787` base only). Used by [`internal-assistant.server.ts`](../apps/web/app/services/ai/internal-assistant.server.ts) (OpenAI→Ollama fallback) and [`assistant-chat-target-probe.server.ts`](../apps/web/app/services/ai/assistant-chat-target-probe.server.ts) (probe copy). [`internal.ai-assistant.tsx`](../apps/web/app/routes/internal.ai-assistant.tsx) reuses it for dev hints (replaces ad-hoc `:8787` regex).
+- **Send path:** For `qwen3`/`openai` on the reference local base only, after OpenAI-compatible attempts, one **`POST /api/chat`** fallback on `502`/`503`/`504`/`401`/`403` or trivial `422` body; Modal and other hosts unchanged. [`AssistantUpstreamHttpError`](../apps/web/app/services/ai/internal-assistant.server.ts) carries HTTP status for this branch.
+- **`INTERNAL_AI_LOCAL_ONLY`:** Optional in [`env.server.ts`](../apps/web/app/env.server.ts); when enabled, assistant rejects `modalRemote`, disables cross-target failover, blocks cloud in UI/actions/stream, and shows an info banner. [`internal.model-setup.tsx`](../apps/web/app/routes/internal.model-setup.tsx) enforces the same policy on save/switch/rollback and skips Modal chat validation on save. Documented in [`README.md`](../README.md) and [`apps/web/.env.example`](../apps/web/.env.example).
+- **Tests:** [`assistant-router-local.server.test.ts`](../apps/web/app/__tests__/assistant-router-local.server.test.ts); extended [`internal-assistant.service.test.ts`](../apps/web/app/__tests__/internal-assistant.service.test.ts) (503, trivial 422→Ollama, Modal 502 no `/api/chat`, local-only rejection); probe assertion text in [`assistant-chat-target-probe.test.ts`](../apps/web/app/__tests__/assistant-chat-target-probe.test.ts); [`internal-model-setup.action.test.ts`](../apps/web/app/__tests__/internal-model-setup.action.test.ts) (local-only switch/save/rollback + skipped modal validation).
+
+## 2026-05-15 (internal AI assistant — Remix session mutations + viewport height)
+
+- **New Chat / Delete / session toggles:** [`internal.ai-assistant.tsx`](../apps/web/app/routes/internal.ai-assistant.tsx) no longer POSTs via ad-hoc `fetch()`; it uses Remix **`useFetcher().submit`** to the route action so responses deserialize consistently and navigation/revalidation follow the router. Polaris **New Chat** / **Memory** buttons pass **`submit={false}`** to avoid accidental parent-form submission. Exported **`buildCreateSessionFormData`**, **`buildDeleteSessionFormData`**, **`buildUpdateSessionModeFormData`**, **`buildUpdateSessionMemoryFormData`** for regression tests.
+- **Layout:** `.AiAssistant-root` height is **`min(72dvh, 100dvh - 24px)`** with matching **`max-height`**; inner `.AiAssistant-conversationWrap` remains the primary scroll region.
+- **Session mutation completion:** `useFetcher` posts with **`useFormAction()`** (correct leaf action URL). Idle handling no longer depends on observing `submitting`/`loading` transitions (fast actions could go straight to `idle` and skip the follow-up). **`computeSessionMutationFollowUp`** centralizes navigate vs revalidate logic (covered in Vitest).
+- **Send:** `canSendAssistantMessage` keys off **`activeSessionId !== 'unavailable'`** (chat probe/readiness never gate the button). Streaming `finally` no longer reads a stale **`streamError`** closure from `useCallback` deps.
+- **Tests:** [`internal-ai-assistant.route.test.ts`](../apps/web/app/__tests__/internal-ai-assistant.route.test.ts) covers the FormData helpers + **`computeSessionMutationFollowUp`**.
+
+## 2026-05-15 (internal admin frontend — AI assistant + model-setup)
+
+- **Hydration (`/internal/ai-assistant`):** Inline `<style>{…}</style>` text differed between SSR and the browser (CSS normalization / quoting). Fixed by a single module constant `AI_ASSISTANT_INLINE_CSS` and `<style dangerouslySetInnerHTML={{ __html: … }} />` in [`internal.ai-assistant.tsx`](../apps/web/app/routes/internal.ai-assistant.tsx).
+- **Client bundle (`/internal/model-setup`):** Route module imported `PromptRouterDecisionSchema` from `~/schemas/prompt-router.server` at top level, pulling a `.server` file into the client graph (Vite “Server-only module referenced by client”). Probes moved to [`internal-model-setup-probes.server.ts`](../apps/web/app/services/ai/internal-model-setup-probes.server.ts); route imports only that `.server` helper from loader/action paths.
+
 ## 2026-05-15 (phase-5 verification pass)
 
 - Ran final acceptance commands on current branch state:
@@ -12,6 +69,11 @@
   `internal-ai-audit-retention.job`, `release-controls`, `release-transition`, `publish-policy`,
   `publish-contract-drift`, `publish-preflight`.
 - Phase-1 connection-graph artifact was not present in `docs/audit/`, so only current-snapshot smoke verification was possible in this pass.
+
+## Documentation & recent changes (2026-05-15)
+
+- **GitBook:** Added [`docs/gitbook/06-internal-admin/internal-ai-assistant.md`](./gitbook/06-internal-admin/internal-ai-assistant.md) (read order, route map, canonical links) and wired it into [`SUMMARY.md`](./gitbook/SUMMARY.md), [`documentation-map.md`](./gitbook/00-welcome/documentation-map.md), and the [internal admin section guide](./gitbook/06-internal-admin/internal-admin-section-guide.md). Updated [`progress-till-now.md`](./gitbook/10-progress/progress-till-now.md) snapshot + [`README.md`](../README.md) docs table.
+- **No spec fork:** Long-form behavior remains in [`internal-admin.md`](./internal-admin.md) and [`ai-providers.md`](./ai-providers.md); GitBook stays navigation + short synthesis per house style.
 
 ## 2026-05-14 (admin AI chat hardening)
 
@@ -49,7 +111,7 @@
 
 # Implementation Status — AI Shopify SuperApp
 
-> Last updated: 2026-05-14 (admin AI chat hardening: enforcing release gates, decryption surfacing, auto-reprobe, tightened SSRF guard with `INTERNAL_AI_ALLOW_HOSTS`, prod-only router auth, session delete + tool-audit retention cron, SSE heartbeat, empty-reply error path, import dedupe, modal-proxy URL warning).
+> Last updated: 2026-05-15 (GitBook internal AI navigation + doc cross-links; 2026-05-14 admin AI chat hardening: release gates, decryption surfacing, auto-reprobe, SSRF + `INTERNAL_AI_ALLOW_HOSTS`, prod router auth, session delete + audit retention cron, SSE heartbeat, empty-reply path, import dedupe, modal-proxy URL warning).
 > Current automated test baseline: **347 total** (`docs/audit/test-baseline.json`). Shared numeric facts are tracked in [`docs/_glossary.md`](./_glossary.md).
 > **AI Module doc alignment:** Single source of truth from [ai-module-main-doc.md](./ai-module-main-doc.md); see section below.
 > **Change propagation:** All code changes follow [codechange-behave.md](../codechange-behave.md) (impact map, propagation pass, docs/README updates).

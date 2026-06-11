@@ -1,6 +1,6 @@
 # Internal admin dashboard
 
-**Full guide:** [`internal-admin.md`](../../internal-admin.md) (auth, ports, routes, jobs, providers).
+**Full guide:** [`internal-admin.md`](../../internal-admin.md) (auth, ports, routes, jobs, providers). **Internal AI (Qwen3, probes, model setup):** [`internal-ai-assistant.md`](internal-ai-assistant.md).
 
 Below is a **logic summary** aligned with that doc.
 
@@ -31,6 +31,7 @@ The internal admin dashboard is for the app owner team. It controls global platf
 - Templates (`/internal/templates`)
 - Activity (`/internal/activity`, `/internal/activity/:id`)
 - Jobs (`/internal/jobs`)
+- AI Assistant (`/internal/ai-assistant`) and model setup (`/internal/model-setup`) — see [`internal-ai-assistant.md`](internal-ai-assistant.md)
 - Settings (`/internal/settings`)
 
 ## Dashboard logic

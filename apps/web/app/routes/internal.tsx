@@ -5,9 +5,26 @@ import {
   Frame, Navigation, TopBar, Toast, type IconSource,
 } from '@shopify/polaris';
 import {
-  AppsIcon, ClockIcon, CodeIcon,
-  NoteIcon, SettingsIcon,
-  ExitIcon, AutomationIcon, CashDollarIcon, StoreIcon, BugIcon,
+  BugIcon,
+  CalendarCheckIcon,
+  CategoriesIcon,
+  ChartVerticalIcon,
+  ChatIcon,
+  CodeIcon,
+  ConnectIcon,
+  DataTableIcon,
+  DesktopIcon,
+  ExitIcon,
+  HomeIcon,
+  KeyIcon,
+  LiveIcon,
+  PlanIcon,
+  SettingsIcon,
+  ShieldCheckMarkIcon,
+  StoreIcon,
+  ThemeTemplateIcon,
+  TransferInIcon,
+  WorkIcon,
 } from '@shopify/polaris-icons';
 import { useState, useCallback, useEffect } from 'react';
 import { internalSessionStorage } from '~/internal-admin/session.server';
@@ -64,10 +81,11 @@ function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
   const routeData = matches[matches.length - 1]?.data as Record<string, unknown> | undefined;
 
   useEffect(() => {
-    if (routeData?.toast && typeof routeData.toast === 'object') {
-      const t = routeData.toast as { message: string; error?: boolean };
+    if (routeData?.toast && typeof routeData.toast === 'object' && routeData.toast !== null) {
+      const t = routeData.toast as { message?: unknown; error?: unknown };
+      if (typeof t.message !== 'string' || !t.message.trim()) return;
       setToastMsg(t.message);
-      setToastError(!!t.error);
+      setToastError(Boolean(t.error));
       setToastActive(true);
     }
   }, [routeData?.toast]);
@@ -85,32 +103,32 @@ function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
     .slice(0, 2) || 'SA';
 
   const mainItems = [
-    { url: '/internal', label: 'Dashboard', icon: AppsIcon, exactMatch: true },
+    { url: '/internal', label: 'Dashboard', icon: HomeIcon, exactMatch: true },
   ];
 
   const monitoringItems = [
-    { url: '/internal/release-dashboard', label: 'Release Dashboard', icon: ClockIcon },
-    { url: '/internal/activity', label: 'Activity Log', icon: AutomationIcon },
+    { url: '/internal/release-dashboard', label: 'Release Dashboard', icon: CalendarCheckIcon },
+    { url: '/internal/activity', label: 'Activity Log', icon: LiveIcon },
     { url: '/internal/logs', label: 'Error Logs', icon: BugIcon },
-    { url: '/internal/api-logs', label: 'API Logs', icon: NoteIcon },
-    { url: '/internal/audit', label: 'Audit Log', icon: NoteIcon },
-    { url: '/internal/webhooks', label: 'Webhooks', icon: AutomationIcon },
+    { url: '/internal/api-logs', label: 'API Logs', icon: DataTableIcon },
+    { url: '/internal/audit', label: 'Audit Log', icon: ShieldCheckMarkIcon },
+    { url: '/internal/webhooks', label: 'Webhooks', icon: TransferInIcon },
   ];
 
   const dataItems = [
     { url: '/internal/stores', label: 'Stores', icon: StoreIcon },
-    { url: '/internal/usage', label: 'Usage & Costs', icon: CashDollarIcon },
-    { url: '/internal/ai-accounts', label: 'AI Accounts', icon: CashDollarIcon },
-    { url: '/internal/jobs', label: 'Jobs', icon: ClockIcon },
+    { url: '/internal/usage', label: 'Usage & Costs', icon: ChartVerticalIcon },
+    { url: '/internal/ai-accounts', label: 'AI Accounts', icon: KeyIcon },
+    { url: '/internal/jobs', label: 'Jobs', icon: WorkIcon },
   ];
 
   const configItems = [
-    { url: '/internal/ai-providers', label: 'AI Providers', icon: SettingsIcon },
-    { url: '/internal/ai-assistant', label: 'AI Assistant', icon: AutomationIcon },
-    { url: '/internal/model-setup', label: 'Local AI Setting', icon: AutomationIcon },
-    { url: '/internal/plan-tiers', label: 'Plan Tiers', icon: CashDollarIcon },
-    { url: '/internal/categories', label: 'Categories', icon: StoreIcon },
-    { url: '/internal/templates', label: 'Templates', icon: StoreIcon },
+    { url: '/internal/ai-providers', label: 'AI Providers', icon: ConnectIcon },
+    { url: '/internal/ai-assistant', label: 'AI Assistant', icon: ChatIcon },
+    { url: '/internal/model-setup', label: 'Local AI Setting', icon: DesktopIcon },
+    { url: '/internal/plan-tiers', label: 'Plan Tiers', icon: PlanIcon },
+    { url: '/internal/categories', label: 'Categories', icon: CategoriesIcon },
+    { url: '/internal/templates', label: 'Templates', icon: ThemeTemplateIcon },
     { url: '/internal/recipe-edit', label: 'Recipe edit', icon: CodeIcon },
   ];
 

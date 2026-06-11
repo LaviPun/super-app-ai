@@ -12,7 +12,7 @@ const saveRouterRuntimeConfigMock = vi.fn();
 const resolveRouterTargetConfigMock = vi.fn();
 const activityLogMock = vi.fn(async () => {});
 const settingsGetMock = vi.fn(async () => ({ designReferenceUrl: null }));
-const settingsUpdateMock = vi.fn(async () => undefined);
+const settingsUpdateMock = vi.fn(async (..._args: unknown[]) => undefined);
 const getPromptRouterMetricsSnapshotMock = vi.fn(() => ({
   attempts: 0,
   successes: 0,
@@ -53,9 +53,7 @@ vi.mock('~/services/ai/prompt-router.server', () => ({
 
 vi.mock('~/services/activity/activity.service', () => ({
   ActivityLogService: class {
-    async log(...args: unknown[]) {
-      return activityLogMock(...args);
-    }
+    log = activityLogMock;
   },
 }));
 
@@ -64,8 +62,8 @@ vi.mock('~/services/settings/settings.service', () => ({
     async get() {
       return settingsGetMock();
     }
-    async update(input: unknown) {
-      return settingsUpdateMock(input);
+    async update(..._args: unknown[]) {
+      return settingsUpdateMock(..._args);
     }
   },
 }));
@@ -93,6 +91,7 @@ function makeFormRequest(body: Record<string, string>): Request {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete process.env.INTERNAL_AI_LOCAL_ONLY;
   saveRouterRuntimeConfigMock.mockImplementation(async (cfg: RouterRuntimeConfig) => cfg);
   validateAssistantChatTargetMock.mockResolvedValue({ ok: true, message: 'ok' });
 });
@@ -101,7 +100,7 @@ afterEach(() => {
   vi.resetModules();
 });
 
-describe('handleModelSetupAction', () => {
+describe('internal.model-setup action', () => {
   it('switchTarget flips activeTarget, records previousTarget, and forces shadowMode=true', async () => {
     const current = buildConfig({
       activeTarget: 'localMachine',
@@ -110,14 +109,12 @@ describe('handleModelSetupAction', () => {
     });
     getRouterRuntimeConfigMock.mockResolvedValue({ config: current });
 
-    const { handleModelSetupAction } = await import('~/routes/internal.model-setup');
-    const response = await handleModelSetupAction(
-      makeFormRequest({ intent: 'switchTarget', target: 'modalRemote' }),
-    );
+    const { action } = await import('~/routes/internal.model-setup');
+    const response = await action({ request: makeFormRequest({ intent: 'switchTarget', target: 'modalRemote' }) });
 
     expect(response.status).toBe(200);
     expect(saveRouterRuntimeConfigMock).toHaveBeenCalledTimes(1);
-    const saved = saveRouterRuntimeConfigMock.mock.calls[0][0] as RouterRuntimeConfig;
+    const saved = saveRouterRuntimeConfigMock.mock.calls[0]![0]! as RouterRuntimeConfig;
     expect(saved.activeTarget).toBe('modalRemote');
     expect(saved.previousTarget).toBe('localMachine');
     expect(saved.shadowMode).toBe(true);
@@ -133,12 +130,12 @@ describe('handleModelSetupAction', () => {
     });
     getRouterRuntimeConfigMock.mockResolvedValue({ config: current });
 
-    const { handleModelSetupAction } = await import('~/routes/internal.model-setup');
-    const response = await handleModelSetupAction(makeFormRequest({ intent: 'rollback' }));
+    const { action } = await import('~/routes/internal.model-setup');
+    const response = await action({ request: makeFormRequest({ intent: 'rollback' }) });
 
     expect(response.status).toBe(200);
     expect(saveRouterRuntimeConfigMock).toHaveBeenCalledTimes(1);
-    const saved = saveRouterRuntimeConfigMock.mock.calls[0][0] as RouterRuntimeConfig;
+    const saved = saveRouterRuntimeConfigMock.mock.calls[0]![0]! as RouterRuntimeConfig;
     expect(saved.activeTarget).toBe('localMachine');
     expect(saved.shadowMode).toBe(true);
     const json = (await response.json()) as { toast?: { message: string } };
@@ -149,8 +146,8 @@ describe('handleModelSetupAction', () => {
     const current = buildConfig({ activeTarget: 'modalRemote', previousTarget: undefined });
     getRouterRuntimeConfigMock.mockResolvedValue({ config: current });
 
-    const { handleModelSetupAction } = await import('~/routes/internal.model-setup');
-    const response = await handleModelSetupAction(makeFormRequest({ intent: 'rollback' }));
+    const { action } = await import('~/routes/internal.model-setup');
+    const response = await action({ request: makeFormRequest({ intent: 'rollback' }) });
 
     expect(response.status).toBe(400);
     expect(saveRouterRuntimeConfigMock).not.toHaveBeenCalled();
@@ -172,9 +169,9 @@ describe('handleModelSetupAction', () => {
       return { ok: true, message: 'ok' };
     });
 
-    const { handleModelSetupAction } = await import('~/routes/internal.model-setup');
-    const response = await handleModelSetupAction(
-      makeFormRequest({
+    const { action } = await import('~/routes/internal.model-setup');
+    const response = await action({
+      request: makeFormRequest({
         intent: 'save',
         activeTarget: 'localMachine',
         dualTargetEnabled: 'false',
@@ -192,12 +189,117 @@ describe('handleModelSetupAction', () => {
         modalModel: 'Qwen/Qwen3-4B-Instruct',
         modalTimeoutMs: '3000',
       }),
-    );
+    });
 
     expect(response.status).toBe(400);
     expect(saveRouterRuntimeConfigMock).not.toHaveBeenCalled();
     const json = (await response.json()) as { error?: string };
     expect(json.error).toMatch(/strict assistant target validation/);
     expect(json.error).toMatch(/router \/route proxy/);
+  });
+
+  it('switchTarget to modalRemote is rejected when INTERNAL_AI_LOCAL_ONLY is enabled', async () => {
+    process.env.INTERNAL_AI_LOCAL_ONLY = '1';
+    const current = buildConfig({ activeTarget: 'localMachine' });
+    getRouterRuntimeConfigMock.mockResolvedValue({ config: current });
+
+    const { action } = await import('~/routes/internal.model-setup');
+    const response = await action({ request: makeFormRequest({ intent: 'switchTarget', target: 'modalRemote' }) });
+
+    expect(response.status).toBe(400);
+    expect(saveRouterRuntimeConfigMock).not.toHaveBeenCalled();
+    const json = (await response.json()) as { error?: string };
+    expect(json.error).toMatch(/INTERNAL_AI_LOCAL_ONLY/);
+  });
+
+  it('save rejects modalRemote active target when INTERNAL_AI_LOCAL_ONLY is enabled', async () => {
+    process.env.INTERNAL_AI_LOCAL_ONLY = '1';
+    const current = buildConfig();
+    getRouterRuntimeConfigMock.mockResolvedValue({ config: current });
+
+    const { action } = await import('~/routes/internal.model-setup');
+    const response = await action({
+      request: makeFormRequest({
+        intent: 'save',
+        activeTarget: 'modalRemote',
+        dualTargetEnabled: 'false',
+        shadowMode: 'true',
+        circuitFailureThreshold: '5',
+        circuitCooldownMs: '30000',
+        releaseGateSchemaFailRateMax: '0.02',
+        releaseGateFallbackRateMax: '0.05',
+        localUrl: 'http://127.0.0.1:11434',
+        localBackend: 'ollama',
+        localModel: 'qwen3:4b-instruct',
+        localTimeoutMs: '3000',
+        modalUrl: 'https://example.modal.run',
+        modalBackend: 'openai',
+        modalModel: 'Qwen/Qwen3-4B-Instruct',
+        modalTimeoutMs: '3000',
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(saveRouterRuntimeConfigMock).not.toHaveBeenCalled();
+    const json = (await response.json()) as { error?: string };
+    expect(json.error).toMatch(/INTERNAL_AI_LOCAL_ONLY/);
+  });
+
+  it('save skips modal assistant validation when INTERNAL_AI_LOCAL_ONLY is enabled', async () => {
+    process.env.INTERNAL_AI_LOCAL_ONLY = '1';
+    const current = buildConfig();
+    getRouterRuntimeConfigMock.mockResolvedValue({ config: current });
+    validateAssistantChatTargetMock.mockImplementation(async ({ target }: { target: string }) => {
+      if (target === 'modalRemote') {
+        return { ok: false, message: 'should not be called for modal when local-only' };
+      }
+      return { ok: true, message: 'ok' };
+    });
+
+    const { action } = await import('~/routes/internal.model-setup');
+    const response = await action({
+      request: makeFormRequest({
+        intent: 'save',
+        activeTarget: 'localMachine',
+        dualTargetEnabled: 'false',
+        shadowMode: 'true',
+        circuitFailureThreshold: '5',
+        circuitCooldownMs: '30000',
+        releaseGateSchemaFailRateMax: '0.02',
+        releaseGateFallbackRateMax: '0.05',
+        localUrl: 'http://127.0.0.1:11434',
+        localBackend: 'ollama',
+        localModel: 'qwen3:4b-instruct',
+        localTimeoutMs: '3000',
+        modalUrl: 'https://example.modal.run',
+        modalBackend: 'openai',
+        modalModel: 'Qwen/Qwen3-4B-Instruct',
+        modalTimeoutMs: '3000',
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(validateAssistantChatTargetMock).toHaveBeenCalledTimes(1);
+    expect(validateAssistantChatTargetMock).toHaveBeenCalledWith(
+      expect.objectContaining({ target: 'localMachine' }),
+    );
+  });
+
+  it('rollback to modalRemote is rejected when INTERNAL_AI_LOCAL_ONLY is enabled', async () => {
+    process.env.INTERNAL_AI_LOCAL_ONLY = '1';
+    const current = buildConfig({
+      activeTarget: 'localMachine',
+      previousTarget: 'modalRemote',
+      shadowMode: true,
+    });
+    getRouterRuntimeConfigMock.mockResolvedValue({ config: current });
+
+    const { action } = await import('~/routes/internal.model-setup');
+    const response = await action({ request: makeFormRequest({ intent: 'rollback' }) });
+
+    expect(response.status).toBe(400);
+    expect(saveRouterRuntimeConfigMock).not.toHaveBeenCalled();
+    const json = (await response.json()) as { error?: string };
+    expect(json.error).toMatch(/INTERNAL_AI_LOCAL_ONLY/);
   });
 });

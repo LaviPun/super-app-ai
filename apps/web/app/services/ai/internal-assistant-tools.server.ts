@@ -1,4 +1,5 @@
 import { getPrisma } from '~/db.server';
+import { redactString } from '~/services/observability/redact.server';
 
 export type AssistantToolName =
   | 'getSystemHealth'
@@ -10,6 +11,10 @@ export type AssistantToolRunResult = {
   toolName: AssistantToolName;
   ok: boolean;
   data: Record<string, unknown>;
+};
+
+type AssistantToolRunOptions = {
+  shopDomain?: string;
 };
 
 const TOOL_KEYWORDS: Array<{ tool: AssistantToolName; patterns: RegExp[] }> = [
@@ -38,10 +43,36 @@ export function selectToolsForPrompt(prompt: string): AssistantToolName[] {
   return Array.from(new Set(selected)).slice(0, 3);
 }
 
-export async function runAssistantTool(toolName: AssistantToolName): Promise<AssistantToolRunResult> {
+function sanitizeMessage(text: string, maxLength = 180): string {
+  return redactString(text).slice(0, maxLength);
+}
+
+function sanitizePath(path: string | null | undefined): string {
+  const redacted = redactString(path ?? '');
+  if (redacted.length <= 120) return redacted;
+  return `${redacted.slice(0, 117)}...`;
+}
+
+async function resolveShopIdByDomain(shopDomain?: string): Promise<string | null> {
+  const normalized = shopDomain?.trim().toLowerCase();
+  if (!normalized) return null;
+  const prisma = getPrisma();
+  const shop = await prisma.shop.findFirst({
+    where: { shopDomain: normalized },
+    select: { id: true },
+  });
+  return shop?.id ?? null;
+}
+
+export async function runAssistantTool(
+  toolName: AssistantToolName,
+  options: AssistantToolRunOptions = {},
+): Promise<AssistantToolRunResult> {
   const prisma = getPrisma();
   const since1h = new Date(Date.now() - 60 * 60 * 1000);
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const scopedShopId = await resolveShopIdByDomain(options.shopDomain);
+  const hasShopScope = Boolean(scopedShopId);
 
   if (toolName === 'checkDBStatus') {
     const started = Date.now();
@@ -63,9 +94,12 @@ export async function runAssistantTool(toolName: AssistantToolName): Promise<Ass
 
   if (toolName === 'getRecentErrors') {
     const rows = await prisma.errorLog.findMany({
-      where: { createdAt: { gte: since24h } },
+      where: {
+        createdAt: { gte: since24h },
+        ...(hasShopScope ? { shopId: scopedShopId } : {}),
+      },
       orderBy: [{ createdAt: 'desc' }],
-      take: 20,
+      take: hasShopScope ? 20 : 200,
       select: {
         id: true,
         level: true,
@@ -80,23 +114,44 @@ export async function runAssistantTool(toolName: AssistantToolName): Promise<Ass
       ok: true,
       data: {
         totalLast24h: rows.length,
-        recent: rows.map((row) => ({
-          id: row.id,
-          level: row.level,
-          source: row.source,
-          route: row.route,
-          message: row.message.slice(0, 300),
-          createdAt: row.createdAt.toISOString(),
-        })),
+        scopedToShopDomain: hasShopScope ? options.shopDomain : null,
+        ...(hasShopScope
+          ? {
+              recent: rows.map((row) => ({
+                id: row.id,
+                level: row.level,
+                source: row.source,
+                route: sanitizePath(row.route),
+                message: sanitizeMessage(row.message),
+                createdAt: row.createdAt.toISOString(),
+              })),
+            }
+          : {
+              levelBuckets: rows.reduce<Record<string, number>>((acc, row) => {
+                const key = row.level || 'UNKNOWN';
+                acc[key] = (acc[key] ?? 0) + 1;
+                return acc;
+              }, {}),
+              sourceBuckets: rows.reduce<Record<string, number>>((acc, row) => {
+                const key = row.source || 'unknown';
+                acc[key] = (acc[key] ?? 0) + 1;
+                return acc;
+              }, {}),
+              note:
+                'Add a myshopify domain in the prompt to retrieve scoped error details. Unscoped results are aggregated.',
+            }),
       },
     };
   }
 
   if (toolName === 'fetchLogs') {
     const rows = await prisma.apiLog.findMany({
-      where: { createdAt: { gte: since1h } },
+      where: {
+        createdAt: { gte: since1h },
+        ...(hasShopScope ? { shopId: scopedShopId } : {}),
+      },
       orderBy: [{ createdAt: 'desc' }],
-      take: 50,
+      take: hasShopScope ? 50 : 200,
       select: {
         id: true,
         actor: true,
@@ -112,16 +167,28 @@ export async function runAssistantTool(toolName: AssistantToolName): Promise<Ass
       ok: true,
       data: {
         totalLast1h: rows.length,
+        scopedToShopDomain: hasShopScope ? options.shopDomain : null,
         statusBuckets: summarizeStatusCodeDistribution(rows.map((row) => row.status)),
-        recent: rows.slice(0, 15).map((row) => ({
-          id: row.id,
-          actor: row.actor,
-          method: row.method,
-          path: row.path,
-          status: row.status,
-          durationMs: row.durationMs,
-          createdAt: row.createdAt.toISOString(),
-        })),
+        ...(hasShopScope
+          ? {
+              recent: rows.slice(0, 15).map((row) => ({
+                id: row.id,
+                actor: row.actor,
+                method: row.method,
+                path: sanitizePath(row.path),
+                status: row.status,
+                durationMs: row.durationMs,
+                createdAt: row.createdAt.toISOString(),
+              })),
+            }
+          : {
+              topMethods: rows.reduce<Record<string, number>>((acc, row) => {
+                acc[row.method] = (acc[row.method] ?? 0) + 1;
+                return acc;
+              }, {}),
+              note:
+                'Add a myshopify domain in the prompt to retrieve scoped log rows. Unscoped results are aggregated.',
+            }),
       },
     };
   }
