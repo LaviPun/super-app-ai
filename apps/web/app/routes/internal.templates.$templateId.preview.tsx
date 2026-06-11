@@ -2,6 +2,7 @@ import { json } from '@remix-run/node';
 import { findTemplate, RecipeSpecSchema } from '@superapp/core';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { PreviewService, type PreviewSurface } from '~/services/preview/preview.service';
+import { previewShellResponse } from '~/services/preview/preview-responses.server';
 import { SettingsService } from '~/services/settings/settings.service';
 
 function getTemplateSpec(templateId: string, overridesJson: string | null) {
@@ -68,35 +69,11 @@ export async function loader({ request, params }: { request: Request; params: { 
   }
 
   if (mode === 'merchant') {
-    const merchantLikeHtml = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${template.name} Merchant Preview</title>
-    <style>
-      body { margin: 0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #f3f4f6; color: #111827; }
-      .top { height: 56px; background: #111827; color: #fff; display: flex; align-items: center; padding: 0 16px; font-size: 14px; }
-      .hero { background: #fff; border-bottom: 1px solid #e5e7eb; padding: 18px 16px; }
-      .hero h1 { margin: 0 0 6px; font-size: 18px; }
-      .hero p { margin: 0; color: #6b7280; font-size: 13px; }
-      .canvas { max-width: 1120px; margin: 18px auto; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
-      iframe { width: 100%; height: 560px; border: 0; display: block; background: #fff; }
-    </style>
-  </head>
-  <body>
-    <div class="top">Merchant storefront simulation</div>
-    <div class="hero">
-      <h1>Sample storefront page</h1>
-      <p>Template: ${template.name} · Type: ${template.type} · Surface: ${surface}</p>
-    </div>
-    <div class="canvas">
-      <iframe src="/internal/templates/${encodeURIComponent(templateId)}/preview?surface=${encodeURIComponent(surface)}"></iframe>
-    </div>
-  </body>
-</html>`;
-    return new Response(merchantLikeHtml, {
-      headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
+    const artifactUrl = `/internal/templates/${encodeURIComponent(templateId)}/preview?surface=${encodeURIComponent(surface)}`;
+    return previewShellResponse({
+      title: template.name,
+      artifactUrl,
+      surface,
     });
   }
 

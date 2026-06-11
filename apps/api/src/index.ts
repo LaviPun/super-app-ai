@@ -1,39 +1,40 @@
 import Fastify from 'fastify';
-import { loadApiEnv } from './env.js';
-import { registerJobRoutes } from './routes/jobs.js';
+import { loadEnv, type ApiEnv } from './env.js';
+import { registerObservabilityPlugin } from './plugins/observability.js';
+import { registerRolloutCutoverPlugin } from './plugins/rollout-cutover.js';
+import { registerSecurityPlugin } from './plugins/security.js';
 import { registerInternalAssistantRoutes } from './routes/internal-assistant.js';
-import { registerPreviewRoutes } from './routes/preview.js';
+import { registerHealthRoutes, registerJobRoutes } from './routes/index.js';
+import { registerConnectorRoutes } from './routes/connectors.js';
+import { registerWebhookFlowRoutes } from './routes/webhook-flow.js';
+import { createJobSystem, type JobSystem } from './services/jobs/factory.js';
 
-export async function buildApp() {
-  const env = loadApiEnv();
-  const app = Fastify({ logger: false });
+export type BuildAppOptions = {
+  env?: ApiEnv;
+  logger?: boolean;
+  jobs?: JobSystem;
+};
 
-  app.get('/health', async () => ({
-    status: 'ok',
-    service: '@superapp/api',
-    timestamp: new Date().toISOString(),
-  }));
-
-  app.get('/ready', async () => ({
-    status: 'ready',
-    jobExecutionMode: process.env.JOB_EXECUTION_MODE ?? 'inline',
-  }));
-
-  await registerJobRoutes(app);
-  await registerInternalAssistantRoutes(app);
-  await registerPreviewRoutes(app);
-
-  return { app, env };
-}
-
-async function main() {
-  const { app, env } = await buildApp();
-  await app.listen({ port: env.PORT, host: env.HOST });
-}
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((error) => {
-    console.error(error);
-    process.exit(1);
+export async function buildApp(options: BuildAppOptions = {}) {
+  const env = options.env ?? loadEnv();
+  const app = Fastify({
+    logger: options.logger ?? env.NODE_ENV !== 'test',
   });
+  const jobs = options.jobs ?? createJobSystem(env);
+
+  await registerObservabilityPlugin(app, env, jobs);
+  await registerRolloutCutoverPlugin(app);
+  await registerSecurityPlugin(app);
+  await registerHealthRoutes(app, env);
+  await registerJobRoutes(app);
+  await registerConnectorRoutes(app);
+  await registerInternalAssistantRoutes(app);
+  await registerWebhookFlowRoutes(app);
+  app.addHook('onClose', async () => {
+    await jobs.queue.close?.();
+  });
+
+  return app;
 }
+
+export { loadEnv };

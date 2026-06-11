@@ -4,9 +4,9 @@ This is the final V2 architecture plan for moving the current Remix-based Shopif
 
 The target is not a bigger Remix app and not a full-stack Next.js monolith. The target is a separated platform:
 
-- Next.js embedded Shopify app on Cloudflare Pages (preview shell; Remix merchant UI until cutover).
-- Fastify API gateway locally; Cloudflare Workers in production.
-- BullMQ workers locally; Cloudflare Workers + Queues in production.
+- Next.js embedded Shopify app on Vercel.
+- Fastify API gateway on Railway.
+- BullMQ workers on Railway.
 - Redis for queues, cache, locks, streaming coordination, and short-lived state.
 - PostgreSQL as the core source of truth.
 - RunPod for GPU and AI inference workloads.
@@ -41,7 +41,7 @@ The baseline must be treated as the source system during migration. It should re
 flowchart TD
   merchant[MerchantInShopifyAdmin] --> nextApp[NextEmbeddedAppOnVercel]
   operator[InternalOperator] --> nextApp
-  agentClient[AgentClient] --> apiGateway[FastifyOrWorkersAPIGatewayOnCloudflare]
+  agentClient[AgentClient] --> apiGateway[FastifyAPIGatewayOnRailway]
   shopifyWebhooks[ShopifyWebhooks] --> apiGateway
 
   nextApp --> apiGateway
@@ -278,7 +278,7 @@ Do not use Redis for:
 
 MVP:
 
-- External Redis (e.g. Upstash) is acceptable for local/transition BullMQ.
+- Railway Redis is acceptable for speed.
 
 Scaling:
 
@@ -863,19 +863,16 @@ Acceptance:
 
 Goal: deploy the target topology.
 
-Deploy (Cloudflare-only — no Kubernetes, Fly.io, or Railway):
+Deploy:
 
-- `apps/frontend` to **Cloudflare Pages** (`apps/frontend/wrangler.jsonc`).
-- `apps/api` to **Cloudflare Workers** (`apps/api/wrangler.jsonc`).
-- `apps/workers` to **Cloudflare Workers** queue consumer (`apps/workers/wrangler.jsonc`).
-- **Cloudflare Queues** (`asset-storage`) for async jobs.
-- **Cloudflare R2** (`superapp-assets`, binding `ASSETS`).
+- `apps/frontend` to Vercel.
+- `apps/api` to Railway.
+- `apps/workers` to Railway.
 - RunPod for GPU/AI inference.
-- External Redis optional during BullMQ transition.
+- Redis Cloud or Railway Redis.
 - Managed Postgres.
+- Cloudflare R2.
 - Sentry, OTel backend, PostHog.
-
-Runbook: [`v2-migration/cloudflare-deployment-runbook.md`](./v2-migration/cloudflare-deployment-runbook.md).
 
 Add environment matrices for:
 

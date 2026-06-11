@@ -1,0 +1,45 @@
+name: V2 Frontend Build
+
+on:
+  pull_request:
+    paths:
+      - 'apps/frontend/**'
+      - 'packages/platform-contracts/**'
+      - 'scripts/deployment/**'
+      - '.github/workflows/v2-frontend-build.yml'
+  workflow_dispatch:
+
+env:
+  NODE_ENV: production
+  NEXT_PUBLIC_API_BASE_URL: https://api-placeholder.example.com
+
+jobs:
+  frontend:
+    name: Build · Test · Deploy config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build contracts
+        run: pnpm --filter @superapp/platform-contracts build
+
+      - name: Build frontend
+        run: pnpm --filter @superapp/frontend build
+
+      - name: Frontend unit tests
+        run: pnpm --filter @superapp/frontend test
+
+      - name: Validate deployment manifest
+        run: pnpm deploy:validate

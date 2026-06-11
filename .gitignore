@@ -58,6 +58,9 @@ coverage/
 # Playwright (local auth state and run output)
 apps/web/e2e/.auth/
 apps/web/test-results/
+apps/frontend/test-results/
+test-results/
 
 # Vendored gstack (nested git repo; do not commit)
 .gstack-tools/
+.gstack/

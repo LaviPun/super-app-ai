@@ -1977,17 +1977,19 @@ export default function InternalAiAssistantRoute() {
               >
                 {data.activeSession.memoryEnabled ? 'Memory ON' : 'Memory OFF'}
               </Button>
-              <Button
-                size="slim"
-                variant="plain"
-                submit={false}
-                onClick={() => {
-                  setImportError(null);
-                  setShowImportModal(true);
-                }}
-              >
-                Import
-              </Button>
+              <span data-testid="memory-import">
+                <Button
+                  size="slim"
+                  variant="plain"
+                  submit={false}
+                  onClick={() => {
+                    setImportError(null);
+                    setShowImportModal(true);
+                  }}
+                >
+                  Import
+                </Button>
+              </span>
               <Button
                 size="slim"
                 variant="plain"

@@ -1,49 +1,61 @@
-## 2026-06-12 (Platform V2 — Cloudflare Workers API + queue consumer parity)
+## 2026-05-19 (Audit remediation — repo hygiene + docs + web hardening)
 
-- **Status:** Full Fastify API surface ported to `apps/api/src/cloudflare-worker.ts` (jobs enqueue/status, preview envelope/content, internal assistant stubs, health/ready). Shared handlers in `apps/api/src/handlers/*`. Workers queue consumer dispatches all 7 platform queues via `platform-queue-dispatcher.ts`.
-- **Job orchestration:** `createCloudflareQueueAdapter()` for CF Queues bindings; wrangler configs list all queue producers/consumers.
-- **Specs:** Master matrix + phase 18 operator vs automated runbook updated; phases 8, 14–17, 21 marked Partial with Workers port noted.
-- **Operator-only:** Create R2 bucket `superapp-assets`, create 7 CF Queues in dashboard, `wrangler login`, set `JOB_EXECUTION_MODE=queue` on API Worker when queues exist.
-- **Tests:** `pnpm test` green; V2 package typecheck green after job-orchestration rebuild.
+- **Git hygiene:** `.gitignore` adds `**/.next/` and root `test-results/`; no conflict markers in tree.
+- **Web (Remix):** Internal `<title>` via `internal-route-meta.ts`; probe logic extracted to `assistant-probe-route.server.ts`; merchant auth guards on `/advanced`, `/picker`; unit + Playwright coverage (`merchant-auth-guards`, `internal-route-meta`, merchant e2e).
+- **API security:** Baseline response headers on Fastify (`X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`) — [`security.ts`](../apps/api/src/plugins/security.ts).
+- **Docs:** [`integrations/platform-hosting.md`](./integrations/platform-hosting.md) (Vercel / Railway / RunPod / legacy Remix); [`packages/db/.env.example`](../packages/db/.env.example) Postgres migration path; phase-plan V2 table; production-readiness **98/100**.
+- **Branch:** `vr/v2` pushed to origin after commits; phase worktrees documented as non-blocking at `1b0df9d`.
+- **Verification:** `pnpm --filter @superapp/api test`; `pnpm test:v2:fast`.
 
-## 2026-06-12 (Platform V2 — Spec audit + Cloudflare-only deploy)
+## 2026-05-19 (Platform V2 Phase 21 — Rollout and cutover)
 
-- **Status:** Full spec re-sync on `master`; Kubernetes/Fly/Railway deploy artifacts removed; Cloudflare wrangler configs + runbook added.
-- **Removed:** `deploy/internal-ai-router/`, `fly.api.toml`, `railway.api.toml`, `railway.workers.toml`, `apps/api/Dockerfile`, `apps/workers/Dockerfile`.
-- **Added:** `apps/api/wrangler.jsonc`, `apps/workers/wrangler.jsonc`, `apps/frontend/wrangler.jsonc`, Cloudflare Worker/Queue entry points, [`cloudflare-deployment-runbook.md`](./gitbook/02-architecture/v2-migration/cloudflare-deployment-runbook.md).
-- **Specs updated:** `000-platform-v2-master`, `018-deployment`, `spec-driven-development.md`, ADR-001, migration plan Phase 18.
-- **Tests:** `pnpm test` green (600+ unit tests).
+- **Rollout flags:** `packages/platform-contracts/src/rollout-cutover.ts` — Zod-backed env parsing; all cutover flags default **off**; `JOB_EXECUTION_MODE` defaults to `inline` for legacy Remix.
+- **Remix:** `apps/web/app/services/platform-v2/rollout-cutover.server.ts` + root loader `platformV2Cutover` metadata for operators.
+- **Fastify:** `rollout-cutover` plugin gates `/v1/*` until `FASTIFY_API_ENABLED=true` (`/health`, `/ready` stay available).
+- **Workers:** `apps/workers/src/publish-execution.ts` wires `PUBLISH` to `runPublishJob` when `PUBLISH_WORKER_ENABLED` + `JOB_EXECUTION_MODE=queue`.
+- **Docs:** [`phase-21-rollout-cutover.md`](./gitbook/02-architecture/v2-migration/phase-21-rollout-cutover.md), GitBook SUMMARY V2 section, phase **11/13/14** stubs, rollback notes in [`release-operations.md`](./release-operations.md).
+- **Verification:** `pnpm test:v2:fast`, `pnpm --filter web test`, platform-contracts/api/workers unit tests.
 
-## 2026-06-12 (Platform V2 — Job orchestration + API + live preview enqueue)
+## 2026-05-19 (Production readiness continuation — **97/100**)
 
-- **Status:** Job orchestration shipped (`packages/job-orchestration`), Fastify API skeleton (`apps/api`), BullMQ worker runtime (`apps/workers/src/worker-runtime.ts`), platform job registry expanded, preview export uses `JobOrchestrator` (inline by default; queue when Redis configured).
-- **Packages:** `@superapp/job-orchestration`, `@superapp/api`, `@superapp/workers`, `@superapp/platform-contracts` (platform-jobs.ts).
-- **Env:** `JOB_EXECUTION_MODE`, `QUEUE_REDIS_URL`, `PREVIEW_EXPORT_QUEUE_ENABLED=1`.
-- **Tests:** Full `pnpm test` green (600+ unit tests across packages).
+- **Score:** [`docs/qa/production-readiness.md`](./qa/production-readiness.md) — **98/100** (merchant OAuth manual gate + high audit debt).
+- **Fixes:** Remix prod build; safe delete forms; internal `<title>` meta; merchant auth on `/advanced`, `/picker`; `/modules` auth-before-DB; `protobufjs` override (0 critical audit).
+- **Verification:** `pnpm test:v2:fast` (incl. web-build); `pnpm --filter web test` **489** pass; internal Playwright **14/14**; merchant auth-guards **1/1**; prod Lighthouse in [`performance-audit.md`](./qa/performance-audit.md).
+- **Operator gate:** [`docs/qa/merchant-oauth-checklist.md`](./qa/merchant-oauth-checklist.md) before App Store merchant traffic.
 
-## 2026-06-12 (Platform V2 Phase 12 — Storage And Image Worker — shipped)
+## 2026-05-19 (Autonomous QA pass — internal admin + fixes)
 
-- **Status:** Phase 12 merged to `master` — contracts, worker handler, job registry, docs, and Remix preview enqueue via JobOrchestrator. Remaining: R2 prod deploy binding, signed URL proxy (Phase 18).
-- **Job registry (`packages/platform-contracts/src/jobs.ts`):** Registers `IMAGE_INGESTION`, `PREVIEW_EXPORT`, and `ASSET_CLEANUP` on the `asset-storage` queue with `resolveImageWorkerQueue()` and payload parse helpers aligned to `storage.ts`.
-- **Contracts (`packages/platform-contracts`):** `storage.ts` defines generated asset metadata, worker payloads, events, and results. Preview export is RecipeSpec/config-safe (blocks scripts and inline handlers); no merchant code deployment paths exist in this worker.
-- **Worker handler (`apps/workers`):** `ImageWorkerHandler` performs ingest/preview/cleanup against a `StorageAdapter`. `createImageStorageProcessor()` validates envelopes, delegates to the handler, and emits `JOB_STARTED` / `JOB_PROGRESS` / `JOB_COMPLETED` / `JOB_FAILED` events.
-- **Storage adapters:** `StorageAdapter` interface, `LocalStorageAdapter`, injectable `R2StorageAdapter` contract, and `createStorageAdapter()` fallback to local storage when an R2 binding is unavailable.
-- **Remix integration:** `apps/web/app/services/preview/preview-export.queue.server.ts` validates and enqueues `PREVIEW_EXPORT` via `JobOrchestrator` when `PREVIEW_EXPORT_QUEUE_ENABLED=1`. Inline mode stores artifacts immediately; queue mode publishes to BullMQ `asset-storage` when Redis is available.
-- **Signed URL/proxy policy:** R2 secrets stay server-side. Production signed URLs are issued by the API proxy/signing service in a later phase, not from worker credentials.
-- **Docs:** [`docs/gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md`](./gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md)
-- **Tests:** `packages/platform-contracts`, `apps/workers`, and preview enqueue stub tests pass via `pnpm test`.
+- **Artifacts:** [`docs/qa/qa-report.md`](./qa/qa-report.md), [`fix-log.md`](./qa/fix-log.md), [`security-audit.md`](./qa/security-audit.md), [`performance-audit.md`](./qa/performance-audit.md), [`production-readiness.md`](./qa/production-readiness.md).
+- **Fixes:** Merchant template preview uses `previewShellResponse()` (sandbox iframe + badge); AI assistant Import E2E stabilized via `data-testid="memory-import"`.
+- **Verification:** Playwright internal e2e; route crawls on internal admin and Next frontend dev.
 
-## 2026-05-19 (Platform V2 Phase 12 — Storage And Image Worker — initial worktree)
+## 2026-05-19 (Platform V2 — consolidated workspace commit on `vr/v2`)
 
-- **Isolated worktree:** `platform-v2-phase-12-storage-image-worker` at `/Users/lavipun/Work/ai-shopify-superapp-phase12-storage-image-worker` (no edits to main or Phase 9/10/11 worktrees).
-- **Contracts (`packages/platform-contracts`):** `storage.ts` defines generated asset metadata, worker payloads (`IMAGE_INGESTION`, `PREVIEW_EXPORT`, `ASSET_CLEANUP`), events, and results. Preview export is RecipeSpec/config-safe (blocks scripts and inline handlers); no merchant code deployment paths exist in this worker.
-- **Worker handler (`apps/workers`):** `ImageWorkerHandler` performs ingest/preview/cleanup against a `StorageAdapter`. `createImageStorageProcessor()` validates envelopes, delegates to the handler, and emits `JOB_STARTED` / `JOB_PROGRESS` / `JOB_COMPLETED` / `JOB_FAILED` events.
-- **Storage adapters:** `StorageAdapter` interface, `LocalStorageAdapter`, injectable `R2StorageAdapter` contract, and `createStorageAdapter()` fallback to local storage when an R2 binding is unavailable.
-- **Signed URL/proxy policy:** R2 secrets stay server-side. Production signed URLs are issued by the API proxy/signing service in a later phase, not from worker credentials.
-- **Legacy alignment:** Remix preview rendering (`apps/web/app/services/preview/preview.service.ts`) and theme analysis remain unchanged. Phase 12 adds the worker/storage contract for moving large artifacts out of Prisma.
-- **Docs:** [`docs/gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md`](./gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md)
-- **Tests:** `packages/platform-contracts` and `apps/workers` Vitest suites cover validation, adapter failures, metadata/result shape, cleanup, and worker lifecycle events.
-- **Merge risk:** Phase 9–11 branches may own shared `packages/platform-contracts/src/jobs.ts` queue routing. When stacking, register `IMAGE_INGESTION`, `PREVIEW_EXPORT`, and `ASSET_CLEANUP` there without rewriting Phase 9–11 processor wiring.
+- **Git:** V2 tree (`apps/api`, `apps/workers`, `apps/frontend`, `packages/*`, CI workflows, docs) committed from main workspace; phase worktrees were already at `1b0df9d` — main workspace is canonical.
+- **Remix connectors (Phase 10):** `POST /api/connectors/test` and `POST /api/agent/connectors/:connectorId/test` enqueue `CONNECTOR_TEST` jobs via `connector-test-job.server.ts` and return **202** `{ ok, queued, job }` (no sync `ConnectorService.test` in routes).
+- **Frontend build:** `job-events-client` / `internal-assistant-api` imports use extensionless paths so `next build` resolves `sse-parse`.
+- **Verification:** `pnpm test:v2:fast` green (evals/e2e/Remix web build skipped per matrix); `pnpm --filter web test` connector route/worker slices green.
+- **Still skipped in fast matrix:** AI evals, Playwright e2e, Remix `web` production build (legacy baseline).
+
+## 2026-05-19 (Platform V2 Phase 20 — Testing Matrix)
+
+- **Worktree:** `platform-v2-phase-20-testing-matrix` @ `/Users/lavipun/Work/ai-shopify-superapp-phase20-testing-matrix` (no commit; local verification only).
+- **Root gate:** `pnpm test:v2` runs `scripts/v2-test-matrix.mjs --continue` — typecheck, lint, unit, integration slices, Playwright, evals, prisma validate, and per-V2-package builds; writes `test-results/v2-matrix.json`.
+- **Fast/CI variants:** `test:v2:fast` (skip evals/e2e/web build), `test:v2:ci` (skip web build), `test:v2:typecheck`, `test:v2:unit`, `test:v2:build`.
+- **GitHub Actions:** [`.github/workflows/v2-matrix.yml`](../.github/workflows/v2-matrix.yml) — parallel jobs for V2 quality, unit, integration, evals (`continue-on-error`), Playwright, and builds. Legacy [`ci.yml`](../.github/workflows/ci.yml) unchanged.
+- **Docs:** [`phase-20-testing-matrix.md`](./gitbook/02-architecture/v2-migration/phase-20-testing-matrix.md).
+- **Known baseline failures:** Remix `web` production build; stub/strict AI evals (forbidden-surface gate). V2 package typecheck/unit/integration/build slices targeted green.
+- **Merge risks:** `pnpm-lock.yaml` + shared `packages/core` script exports; dual CI evals/prisma until Remix cutover.
+
+## 2026-05-15 (internal AI assistant — chat UX, send guard, docs)
+
+## 2026-05-19 (Platform V2 Phase 19 — Async UX)
+
+- **Fastify:** Shared SSE helper for job events; added `GET /v1/jobs/:jobId/events`; generic job enqueue/status responses now include `links` and event backlog (parity with internal assistant routes).
+- **Next frontend:** `job-events-client` (SSE + polling fallback), `async-job-states` phase mapping, `AsyncJobProgressPanel` + simulated demos on `/internal/ai-assistant`, `/jobs`, and `/internal/data`.
+- **Tests:** Vitest coverage for SSE parsing, UX state resolution, and client fallback; Playwright `async-ux.spec.ts` exercises simulated progress timelines without a live API.
+- **Docs:** [`phase-19-async-ux.md`](./gitbook/02-architecture/v2-migration/phase-19-async-ux.md).
+- **Branch/worktree:** `platform-v2-phase-19-async-ux` at `/Users/lavipun/Work/ai-shopify-superapp-phase19-async-ux` (V2 apps remain uncommitted workspace files until prior phases land).
 
 ## 2026-05-15 (internal AI assistant — chat UX, send guard, docs)
 
@@ -129,7 +141,7 @@
 - Extracted [`assistant-chat-target-probe.server.ts`](../apps/web/app/services/ai/assistant-chat-target-probe.server.ts) for chat-endpoint validation shared by **Setup the Model** and **AI Assistant** loader probes.
 - `/internal/ai-assistant` loader now runs `validateAssistantChatTarget` per target; top bar shows health + chat readiness (amber when router-only); send is blocked with guidance to `/internal/model-setup` when probes fail; removed dead model `<select>` in favor of read-only runtime model.
 - Reference router [`internal-ai-router.ts`](../apps/web/scripts/internal-ai-router.ts) proxies `GET /api/tags` and `POST /api/chat` to `ROUTER_OLLAMA_BASE_URL` with the same Bearer auth rules as `/route` when enabled.
-- Docs: [`docs/internal-admin.md`](./internal-admin.md) (minimal router vs reference passthrough vs Modal edge), [`README.md`](../README.md) (Railway router runbook + PORT binding), [`deploy/railway-internal-router/README.md`](../deploy/railway-internal-router/README.md) (production self-host path), [`deploy/modal-qwen-router/README.md`](../deploy/modal-qwen-router/README.md) (proxy does not forward `/api/chat`; mock teardown); default **Qwen3 ~4B** Ollama tag `qwen3:4b-instruct`; legacy UI copy updated to **Qwen3** naming.
+- Docs: [`docs/internal-admin.md`](./internal-admin.md) (minimal router vs reference passthrough vs Modal edge), [`README.md`](../README.md) (Railway assistant URL note), [`deploy/modal-qwen-router/README.md`](../deploy/modal-qwen-router/README.md) (proxy does not forward `/api/chat`; mock teardown); [`deploy/railway-internal-router/README.md`](../deploy/railway-internal-router/README.md) (Railway deploy runbook); router env defaults aligned to **Qwen3 ~4B** Ollama tag `qwen3:4b-instruct`; legacy UI copy updated to **Qwen3** naming.
 - Local defaults use **`qwen3:4b-instruct`** (Ollama library ~4.02B params, not `latest` umbrella); operators can override per env / Setup the Model.
 
 # Implementation Status — AI Shopify SuperApp
@@ -167,21 +179,6 @@
 | — | **Agent-Native Architecture Audit + Remediation** | ✅ P1–P10+ Complete + Fresh Audit Gaps Resolved (30 agent endpoints, UI polling, ConnectorEndpoint agent CRUD, DataStoreRecord list, FlowSchedule full update) |
 | — | **Universal Module Slot & extension plan** | ✅ Complete (metaobject-only, API 2026-04+) |
 | — | **CEO Review Controls Sync (2026-04-29)** | ✅ Decisions captured; implementation pending |
-
-### Platform V2 migration (separate from legacy phases 0–8)
-
-Canonical plan: [`docs/gitbook/02-architecture/platform-v2-migration-plan.md`](./gitbook/02-architecture/platform-v2-migration-plan.md). Master Spec Kit index: [`specs/000-platform-v2-master/spec.md`](../specs/000-platform-v2-master/spec.md).
-
-| V2 Phase | Title | Status on `master` |
-|----------|-------|-------------------|
-| 0 | Baseline & inventory | ⚠️ Partial (ADR + plan in repo) |
-| 1 | Target monorepo shape | ⚠️ Partial (`workers`, `platform-contracts`; no `api`/`frontend`) |
-| 2 | Shared contracts | ⚠️ Partial (image/storage jobs only) |
-| 3–11 | API, frontend, queues, workers | ❌ Not started on `master` (WIP in sibling worktrees) |
-| 5 | Job orchestration & BullMQ | ✅ Shipped (`@superapp/job-orchestration`) |
-| 3 | Fastify API skeleton | ✅ Shipped skeleton (`apps/api`) |
-| 12 | Storage & image worker | ✅ Shipped; R2 prod + signed URLs in Phase 18 |
-| 13–21 | Preview through cutover | ❌ Not started (stub specs only) |
 
 ### Current progress snapshot (2026-04-30)
 
@@ -584,7 +581,7 @@ Aligned with [ai-module-main-doc.md](./ai-module-main-doc.md). Single source of 
 | Prompt router contract + gating | `apps/web/app/schemas/prompt-router.server.ts`, `apps/web/app/services/ai/prompt-router.server.ts`, `apps/web/app/services/ai/llm.server.ts` | Added `PromptRouterDecision` JSON contract and dedicated router service (internal endpoint + deterministic fallback). Main compiler now obeys router `includeFlags` (catalog/full schema/style schema/intent packet/settings pack) so only allowed prompt context is sent. |
 | Internal `/route` reference service | `apps/web/scripts/internal-ai-router.ts`, `apps/web/package.json`, `README.md` | Added deployable reference router service (Ollama + vLLM/OpenAI-compatible) with hard limits, bearer auth, schema validation, rate limiting, timeout fallback, and prompt-injection safety gating. |
 | Router health + containerization | `apps/web/scripts/internal-ai-router.ts`, `apps/web/Dockerfile.internal-router`, `README.md` | Added `GET /healthz`, graceful shutdown (`SIGINT`/`SIGTERM`), and a dedicated Dockerfile for fast deploy on container platforms. |
-| Router Railway deploy path | `deploy/railway-internal-router/*`, `apps/web/railway.internal-router.toml` | K8s `deploy/internal-ai-router/` removed; production self-host via Railway Docker service + optional Modal edge; router binds Railway `PORT` when `ROUTER_PORT` unset. |
+| Router Railway deploy path | `deploy/railway-internal-router/*`, `apps/web/railway.internal-router.toml`, `scripts/deployment/deployment-manifest.ts` | Replaced Kubernetes manifests with Railway operator runbook, `railway.internal-router.toml`, and deployment-manifest `internal-router` target; K8s bundle removed. |
 | Qwen3 first-layer router hardening | `apps/web/app/schemas/prompt-router*.ts`, `apps/web/app/services/ai/prompt-router.server.ts`, `apps/web/scripts/internal-ai-router.ts`, `deploy/modal-qwen-router/*`, `README.md`, `docs/ai-providers.md` | Stable `reasonCode` enum + short `reasoning`; Remix client applies confidence/moduleType harness vs deterministic baseline, optional circuit breaker, shadow mode (call `/route` but keep deterministic decision), canary shop allowlist, in-memory metrics snapshot for tests; reference router merges model output with the same guards; default model IDs documented for Qwen3-4B-class routing; optional Modal HTTPS proxy for upstream `/route`. |
 | Qwen3 dual-target runtime switching | `apps/web/app/schemas/router-runtime-config.server.ts`, `apps/web/app/services/ai/router-runtime-config.server.ts`, `apps/web/app/routes/internal.model-setup.tsx`, `apps/web/app/services/ai/prompt-router.server.ts`, `README.md`, `docs/ai-providers.md` | Added encrypted dual-target config (`localMachine` / `modalRemote`), Internal Admin **Setup the Model** session, target-specific token rotation fields, health + route probes, guarded switch/rollback workflow, per-target observability gates (schema-fail/fallback/p95), and feature-flagged router resolution (`INTERNAL_AI_ROUTER_DUAL_TARGET_ENABLED`) with deterministic fallback guarantees preserved. **model-setup** strict assistant chat-endpoint validation on save (rejects router-only URLs); **Validate assistant targets** runs the same checks without saving. |
 | Internal Qwen3 assistant test dashboard | `apps/web/app/routes/internal.ai-assistant.tsx`, `apps/web/app/routes/internal.ai-assistant.chat.stream.tsx`, `apps/web/app/services/ai/internal-assistant.server.ts`, `apps/web/app/services/ai/internal-assistant-store.server.ts`, `apps/web/prisma/schema.prisma`, `apps/web/prisma/migrations/20260501004000_add_retry_count_to_internal_ai_message/migration.sql`, `apps/web/prisma/migrations/20260501005500_add_stream_resume_fields_to_internal_ai_message/migration.sql`, `apps/web/app/routes/internal.tsx`, `apps/web/app/__tests__/internal-assistant.service.test.ts`, `README.md`, `docs/internal-admin.md` | Added Internal Admin **AI Assistant** with DB-backed multi-chat persistence, memory controls, internal tool snapshots/audits, local/cloud mode routing with failover metadata, retry/error message chips, JSON export/import, request-id based SSE resume semantics to prevent duplicate turns during reconnects, and observability timeline diagnostics (attempt status, timestamps, reconnect count, resumed markers). |

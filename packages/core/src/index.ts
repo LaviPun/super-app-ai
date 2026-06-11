@@ -11,3 +11,6 @@ export * from './workflow-validator.js';
 export * from './workflow-templates.js';
 export * from './flow-catalog.js';
 export * from './capability-graph.js';
+export * from './publish-worker.js';
+export * from './intent-graph.js';
+export * from './recipe-dsl.js';

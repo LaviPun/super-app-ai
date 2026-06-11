@@ -100,8 +100,9 @@ const EMPTY_LOADER_DATA = {
 };
 
 export async function loader({ request }: { request: Request }) {
+  const { session } = await shopify.authenticate.admin(request);
+
   try {
-    const { session } = await shopify.authenticate.admin(request);
     const prisma = getPrisma();
 
     let shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
@@ -166,20 +167,9 @@ export async function loader({ request }: { request: Request }) {
       loaderError: undefined as string | undefined,
     });
   } catch (err) {
-    let message: string;
-    let status = 500;
-    if (err instanceof Response) {
-      status = err.status;
-      message = err.status === 401 ? 'Session expired or not authenticated.' : `Request failed: ${err.status} ${err.statusText || 'Error'}.`;
-    } else if (err instanceof Error) {
-      message = err.message;
-    } else {
-      message = String(err);
-    }
-    return json(
-      { ...EMPTY_LOADER_DATA, loaderError: message },
-      { status }
-    );
+    const message =
+      err instanceof Error ? err.message : typeof err === 'string' ? err : 'Failed to load modules.';
+    return json({ ...EMPTY_LOADER_DATA, loaderError: message }, { status: 500 });
   }
 }
 

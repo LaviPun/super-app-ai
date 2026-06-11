@@ -5,8 +5,11 @@
     "rootDir": "src",
     "declaration": true,
     "declarationMap": true,
-    "types": ["@cloudflare/workers-types"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/**/__tests__/**"]
+  "include": [
+    "src/**/*.ts"
+  ]
 }

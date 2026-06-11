@@ -21,6 +21,32 @@ This plan is structured for iterative development with strong quality gates:
 
 ---
 
+## Platform V2 migration (Phases 0–21) — branch `vr/v2`
+
+Canonical architecture: [platform-v2-migration-plan.md](./gitbook/02-architecture/platform-v2-migration-plan.md) and [ADR-001](./gitbook/02-architecture/v2-migration/ADR-001-platform-v2-architecture.md).
+
+| Phase | Topic | Status on `vr/v2` |
+| ----- | ----- | ----------------- |
+| 0–9 | Contracts, API, workers, webhooks | ✅ Merged in workspace |
+| 10 | Connector worker | ✅ Remix routes enqueue `CONNECTOR_TEST` |
+| 11 | Publish worker | ✅ Wired; `PUBLISH_WORKER_ENABLED` defaults off |
+| 12 | Storage / image worker | ✅ In tree; flag-gated |
+| 13 | Preview sandbox | ✅ Local; script blocking deferred to hardening |
+| 14 | Intent graph / Recipe DSL | ✅ Foundation; deployable-code gate separate |
+| 15 | Data layer / Postgres | ✅ SQLite + repository; **Postgres driver deferred** — see [phase-15](./gitbook/02-architecture/v2-migration/phase-15-data-layer-productionization.md) + [`packages/db/.env.example`](../packages/db/.env.example) |
+| 16 | Observability | ✅ OTLP hooks; prod backends manual |
+| 17 | Security / compliance | ✅ SSRF, HMAC, GDPR ingress, rate-limit stub — [checklist](./gitbook/02-architecture/v2-migration/phase-17-security-compliance.md) |
+| 18 | Deployment | ✅ Vercel + Railway configs — [hosting guide](./integrations/platform-hosting.md) |
+| 19 | Async UX | ✅ SSE job events + Next panels |
+| 20 | Testing matrix | ✅ `pnpm test:v2*` + CI workflow |
+| 21 | Rollout / cutover | ✅ Flags default **off** — [phase-21](./gitbook/02-architecture/v2-migration/phase-21-rollout-cutover.md) |
+
+**Phase worktrees:** twelve `platform-v2-phase-*` / `vr/v2-phase10-*` worktrees remain at commit `1b0df9d` (pre-V2 land). They are **not blocking** — main workspace on `vr/v2` is canonical; worktrees can be removed after operators confirm no local-only patches.
+
+**Deferred (not cutover):** production flag flip, merchant traffic on Next/Fastify, Postgres `pg` driver, Redis-backed rate limits, RunPod credentials in prod, App Store OAuth sign-off.
+
+---
+
 ## Phase 0 — Engineering Baseline (CI + standards) ✅
 **Goal:** Make the repo safe to scale.
 
@@ -70,7 +96,7 @@ This plan is structured for iterative development with strong quality gates:
   - [x] Prefer Theme App Extension blocks/embeds
   - [x] Minimal reversible patch only when needed
 - [x] Theme compatibility profile generated and stored (`ThemeAnalyzerService` + `/api/theme/analyze`)
-- [ ] Profile-driven compile/publish adapter wiring (deferred; current compile/publish paths do not read `services/theme/`)
+- [ ] Profile-driven compile/publish adapter wiring (deferred; current compile/publish paths do not read `services/theme/`) — **still open on `vr/v2`**
 
 ### Acceptance criteria
 - ✅ Does not break Dawn-like themes
@@ -431,7 +457,7 @@ The following strategic safety/release-engineering controls were captured during
 - Base branch detected: `master` (via `origin/HEAD` → `master`)
 - Plan path: `docs/phase-plan.md`
 - Restore snapshot: `/Users/lavipun/.gstack/projects/LaviPun-super-app-ai/master-autoplan-restore-20260501-141829.md`
-- **Focus (git context):** internal AI assistant hardening — shared `assistant-chat-target-probe.server.ts`, `internal.ai-assistant` + `internal.model-setup` loader probes, `internal-ai-router.ts` Ollama passthrough, K8s configmap + deploy docs, `implementation-status` / `internal-admin` alignment
+- **Focus (git context):** internal AI assistant hardening — shared `assistant-chat-target-probe.server.ts`, `internal.ai-assistant` + `internal.model-setup` loader probes, `internal-ai-router.ts` Ollama passthrough, Railway router runbook + deploy docs, `implementation-status` / `internal-admin` alignment
 - UI scope: **yes** (internal admin assistant + model setup surfaces)
 - DX scope: **yes** (router scripts, deploy READMEs, env conventions)
 - Codex CLI: **exec unavailable** this run (`codex exec` failed with `refresh_token_reused` / token refresh despite short-lived auth probe success). Dual-voice Codex sections tagged **N/A**; primary analysis Claude-only.
@@ -585,7 +611,7 @@ ENG DUAL VOICES — CONSENSUS TABLE (2026-05-01):
 
 - **Persona:** Platform maintainer wiring local Ollama + internal admin.
 - **TTHW:** Still dominated by Shopify CLI + DB + env — internal router passthrough reduces one failure mode (single port for route + chat).
-- **Docs anchor:** `docs/internal-admin.md` “Internal AI Assistant setup” + deploy READMEs for Modal vs K8s.
+- **Docs anchor:** `docs/internal-admin.md` “Internal AI Assistant setup” + deploy READMEs for Modal vs Railway.
 
 #### DX scorecard — snapshot
 
@@ -621,7 +647,7 @@ ENG DUAL VOICES — CONSENSUS TABLE (2026-05-01):
 |---|-------|----------|----------------|-----------|----------|--------|
 | 12 | Eng | Enforce `releaseGateSchemaFailRateMax` / `releaseGateFallbackRateMax` with a 200-call in-memory rolling buffer per target; trip forces shadow mode in-memory and emits `ROUTER_RELEASE_GATE_TRIPPED` | Mechanical | P2 safety-by-default | Persisted gates that did nothing were a footgun; in-memory trip avoids writing under load | Persist trip state to DB on every route call |
 | 13 | Eng | Surface `parseError` from `getRouterRuntimeConfig` and render banner on `/internal/model-setup` + chip on `/internal/ai-assistant` | Mechanical | P5 explicit | Silent decryption fallback after `ENCRYPTION_KEY` rotation was masking outages | Auto-rewrite config on parse error |
-| 14 | Eng | Tighten `assertSafeTargetUrl` (exact-match `http://` localhosts; reject link-local + cloud metadata for `https://`); add `INTERNAL_AI_ALLOW_HOSTS` allowlist | Mechanical | P2 safety-by-default | Closes `http://localhost.attacker.example` and IMDS exfiltration paths; allowlist preserves K8s internal SSL use case | Permanently block all private-range hostnames with no escape hatch |
+| 14 | Eng | Tighten `assertSafeTargetUrl` (exact-match `http://` localhosts; reject link-local + cloud metadata for `https://`); add `INTERNAL_AI_ALLOW_HOSTS` allowlist | Mechanical | P2 safety-by-default | Closes `http://localhost.attacker.example` and IMDS exfiltration paths; allowlist preserves trusted internal HTTPS hostnames (e.g. Railway private networking) | Permanently block all private-range hostnames with no escape hatch |
 | 15 | Eng | Ignore `ROUTER_REQUIRE_AUTH=0` in production with stderr WARN | Mechanical | P2 safety-by-default | Prevents a single env flip from disabling `/route` auth in prod | Honor the override unconditionally |
 | 16 | Eng | Hard-delete session via `intent: 'deleteSession'`; preserve `InternalAiToolAudit` rows via `ON DELETE SET NULL` | Mechanical | P4 audit integrity | Operator-requested cleanup must not erase compliance trail | Cascade audits with sessions |
 | 17 | Ops | Daily cron purge of `InternalAiToolAudit` older than `INTERNAL_AI_TOOL_AUDIT_RETENTION_DAYS` (default 90), guarded by 24h in-memory marker | Mechanical | P3 pragmatic | Bounded growth without a dedicated job scheduler; existing cron loader is sufficient | Stand up a new scheduler service |

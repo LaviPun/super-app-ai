@@ -1,0 +1,223 @@
+name: V2 Testing Matrix
+
+on:
+  push:
+    branches: [main, develop, 'platform-v2-*', 'vr/v2', 'phase/platform-v2-*']
+    paths:
+      - 'apps/api/**'
+      - 'apps/workers/**'
+      - 'apps/frontend/**'
+      - 'packages/core/**'
+      - 'packages/db/**'
+      - 'packages/network-security/**'
+      - 'packages/platform-contracts/**'
+      - 'scripts/v2-test-matrix.mjs'
+      - '.github/workflows/v2-matrix.yml'
+      - 'pnpm-lock.yaml'
+  pull_request:
+    branches: [main, develop, 'vr/v2']
+    paths:
+      - 'apps/api/**'
+      - 'apps/workers/**'
+      - 'apps/frontend/**'
+      - 'packages/core/**'
+      - 'packages/db/**'
+      - 'packages/network-security/**'
+      - 'packages/platform-contracts/**'
+      - 'scripts/v2-test-matrix.mjs'
+      - '.github/workflows/v2-matrix.yml'
+      - 'pnpm-lock.yaml'
+
+env:
+  NODE_ENV: test
+  DATABASE_URL: file:./dev.db
+  SHOPIFY_API_KEY: ci-placeholder
+  SHOPIFY_API_SECRET: ci-placeholder
+  SHOPIFY_APP_URL: https://placeholder.example.com
+  SCOPES: read_products
+  ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  INTERNAL_ADMIN_PASSWORD: ci-placeholder
+  INTERNAL_ADMIN_SESSION_SECRET: ci-placeholder
+  CRON_SECRET: ci-placeholder
+
+jobs:
+  v2-quality:
+    name: V2 · Typecheck · Lint · Prisma
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck V2 packages
+        run: pnpm test:v2:typecheck
+
+      - name: Lint Remix baseline (shared contracts)
+        run: pnpm --filter web lint
+
+      - name: Lint V2 packages (if-present)
+        run: pnpm --filter @superapp/platform-contracts --filter @superapp/db --filter @superapp/network-security --filter @superapp/core --filter @superapp/rate-limit --filter @superapp/api --filter @superapp/workers --filter @superapp/frontend --if-present lint
+
+      - name: Prisma validate (legacy schema)
+        working-directory: apps/web
+        run: pnpm exec prisma validate
+
+  v2-unit:
+    name: V2 · Unit tests
+    runs-on: ubuntu-latest
+    needs: v2-quality
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client (legacy parity tests)
+        working-directory: apps/web
+        run: pnpm exec prisma generate
+
+      - name: Build V2 library packages (dist types)
+        run: pnpm --filter @superapp/platform-contracts --filter @superapp/network-security --filter @superapp/core --filter @superapp/db build
+
+      - name: Unit tests (V2 packages)
+        run: pnpm test:v2:unit
+
+  v2-integration:
+    name: V2 · Integration tests
+    runs-on: ubuntu-latest
+    needs: v2-unit
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        working-directory: apps/web
+        run: pnpm exec prisma generate
+
+      - name: API integration (queue + orchestration + connectors)
+        run: pnpm --filter @superapp/api exec vitest run src/__tests__/job-orchestrator.test.ts src/__tests__/bullmq-job-queue.test.ts src/__tests__/connectors.routes.test.ts
+
+      - name: Workers integration (runtime + processors + flows)
+        run: pnpm --filter @superapp/workers exec vitest run src/__tests__/runtime.test.ts src/__tests__/processors.test.ts src/__tests__/webhook-flow.test.ts src/__tests__/connector-execution.test.ts
+
+      - name: Remix parity integration (connector + preview routes)
+        run: pnpm --filter web exec vitest run app/__tests__/connector-worker.test.ts app/__tests__/connector-test-routes.test.ts
+
+  v2-evals:
+    name: V2 · AI evals (stub)
+    runs-on: ubuntu-latest
+    needs: v2-quality
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        working-directory: apps/web
+        run: pnpm exec prisma generate
+
+      - name: AI regression suite (strict — known baseline gap)
+        working-directory: apps/web
+        run: pnpm evals --strict
+        env:
+          EVAL_THRESHOLD_SCHEMA: '0.99'
+          EVAL_THRESHOLD_COMPILER: '0.99'
+          EVAL_THRESHOLD_ND: '1.0'
+
+  v2-playwright:
+    name: V2 · Playwright (frontend)
+    runs-on: ubuntu-latest
+    needs: v2-unit
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browser
+        working-directory: apps/frontend
+        run: pnpm exec playwright install chromium
+
+      - name: Run Next internal AI assistant E2E
+        working-directory: apps/frontend
+        run: pnpm test:e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-playwright-report
+          path: apps/frontend/test-results
+          if-no-files-found: ignore
+
+  v2-build:
+    name: V2 · Package builds
+    runs-on: ubuntu-latest
+    needs: [v2-integration, v2-playwright]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build V2 packages
+        run: pnpm test:v2:build

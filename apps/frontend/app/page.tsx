@@ -1,35 +1,55 @@
-const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3002';
-
-async function getHealth() {
-  try {
-    const response = await fetch(`${apiBase}/health`, { cache: 'no-store' });
-    if (!response.ok) return { status: 'error' };
-    return response.json() as Promise<{ status: string; service: string }>;
-  } catch {
-    return { status: 'unreachable', service: '@superapp/api' };
-  }
-}
+import { fetchApiHealth } from '@/lib/api-client';
+import { V2RouteShell } from '@/components/V2RouteShell';
+import { internalRoutes, merchantRoutes } from '@/routes/legacy-route-map';
 
 export default async function HomePage() {
-  const health = await getHealth();
+  const apiBase = process.env.API_BASE_URL ?? 'http://127.0.0.1:3001';
+  let healthLabel = 'API offline';
+  let healthClass = 'status-warn';
+  try {
+    const health = await fetchApiHealth({ baseUrl: apiBase });
+    healthLabel = `${health.service} v${health.version}`;
+    healthClass = 'status-ok';
+  } catch {
+    healthLabel = 'API offline (start @superapp/api locally)';
+  }
 
   return (
-    <main style={{ fontFamily: 'system-ui, sans-serif', padding: '2rem', maxWidth: 720 }}>
-      <h1>SuperApp Platform V2 Frontend</h1>
-      <p>Minimal Next.js shell for the Platform V2 migration. Merchant UI remains in Remix (`apps/web`) during cutover.</p>
-      <section style={{ marginTop: '1.5rem' }}>
-        <h2>Health</h2>
-        <pre>{JSON.stringify(health, null, 2)}</pre>
+    <>
+      <section className="hero">
+        <p className="eyebrow">Next.js embedded foundation</p>
+        <h1>SuperApp Platform V2</h1>
+        <p>
+          Migration-ready shell mirroring the existing Remix merchant and internal admin surfaces.
+          Data mutations stay behind Fastify contracts; no backend platform logic lives in Next routes.
+        </p>
       </section>
-      <p style={{ marginTop: '1.5rem' }}>
-        API base: <code>{apiBase}</code>
-      </p>
-      <p>
-        <a href={`${apiBase}/health`}>Open API health</a>
-      </p>
-      <p>
-        <a href="/preview/shop_1/module_1?assetId=preview_module_1">Open preview sandbox (shop_1/module_1)</a>
-      </p>
-    </main>
+
+      <section className="status-grid" aria-label="Platform status">
+        <div className="status-card">
+          <p className="status-label">Fastify health</p>
+          <p className={`status-value ${healthClass}`}>{healthLabel}</p>
+        </div>
+        <div className="status-card">
+          <p className="status-label">API base</p>
+          <p className="status-value">{apiBase}</p>
+        </div>
+        <div className="status-card">
+          <p className="status-label">Route parity source</p>
+          <p className="status-value">apps/web/app/routes</p>
+        </div>
+      </section>
+
+      <V2RouteShell
+        title="Merchant embedded surfaces"
+        subtitle="Mirrors the Remix embedded app nav in apps/web/app/root.tsx."
+        routes={merchantRoutes}
+      />
+      <V2RouteShell
+        title="Internal admin surfaces"
+        subtitle="Mirrors the Remix /internal operator frame groups: Overview, Monitoring, Data, Configuration."
+        routes={internalRoutes}
+      />
+    </>
   );
 }

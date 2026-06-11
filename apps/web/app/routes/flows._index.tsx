@@ -242,6 +242,15 @@ export default function FlowsIndex() {
       </BlockStack>
 
       {deleteTarget && (
+        <>
+        <Form
+          id={`delete-schedule-form-${deleteTarget.id}`}
+          method="post"
+          style={{ display: 'none' }}
+        >
+          <input type="hidden" name="intent" value="delete" />
+          <input type="hidden" name="scheduleId" value={deleteTarget.id} />
+        </Form>
         <Modal
           open
           onClose={handleDeleteClose}
@@ -249,11 +258,7 @@ export default function FlowsIndex() {
           primaryAction={{
             content: 'Delete', destructive: true,
             onAction: () => {
-              const form = document.createElement('form');
-              form.method = 'post';
-              form.innerHTML = `<input name="intent" value="delete" /><input name="scheduleId" value="${deleteTarget.id}" />`;
-              document.body.appendChild(form);
-              form.submit();
+              document.getElementById(`delete-schedule-form-${deleteTarget.id}`)?.requestSubmit();
             },
           }}
           secondaryActions={[{ content: 'Cancel', onAction: handleDeleteClose }]}
@@ -262,6 +267,7 @@ export default function FlowsIndex() {
             <Text as="p">Are you sure you want to delete <strong>{deleteTarget.name}</strong>? This cannot be undone.</Text>
           </Modal.Section>
         </Modal>
+        </>
       )}
     </Page>
   );

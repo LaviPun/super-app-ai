@@ -7,18 +7,22 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "tsx watch src/start.ts",
-    "start": "tsx src/start.ts",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "start:cf": "tsx src/start.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "dev:cf": "wrangler dev",
     "deploy:cf": "wrangler deploy"
   },
   "dependencies": {
+    "@superapp/core": "workspace:*",
+    "@superapp/db": "workspace:*",
     "@superapp/job-orchestration": "workspace:*",
+    "@superapp/network-security": "workspace:*",
     "@superapp/platform-contracts": "workspace:*",
     "@superapp/security": "workspace:*",
-    "bullmq": "^5.41.0",
+    "bullmq": "^5.76.10",
     "ioredis": "^5.10.1",
     "zod": "^3.24.1"
   },

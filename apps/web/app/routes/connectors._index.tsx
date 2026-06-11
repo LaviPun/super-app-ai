@@ -199,6 +199,15 @@ export default function ConnectorsIndex() {
       </BlockStack>
 
       {deleteTarget && (
+        <>
+        <Form
+          id={`delete-connector-form-${deleteTarget.id}`}
+          method="post"
+          style={{ display: 'none' }}
+        >
+          <input type="hidden" name="intent" value="delete" />
+          <input type="hidden" name="connectorId" value={deleteTarget.id} />
+        </Form>
         <Modal
           open
           onClose={handleDeleteClose}
@@ -207,11 +216,7 @@ export default function ConnectorsIndex() {
             content: 'Delete',
             destructive: true,
             onAction: () => {
-              const form = document.createElement('form');
-              form.method = 'post';
-              form.innerHTML = `<input name="intent" value="delete" /><input name="connectorId" value="${deleteTarget.id}" />`;
-              document.body.appendChild(form);
-              form.submit();
+              document.getElementById(`delete-connector-form-${deleteTarget.id}`)?.requestSubmit();
             },
           }}
           secondaryActions={[{ content: 'Cancel', onAction: handleDeleteClose }]}
@@ -222,6 +227,7 @@ export default function ConnectorsIndex() {
             </Text>
           </Modal.Section>
         </Modal>
+        </>
       )}
     </Page>
   );

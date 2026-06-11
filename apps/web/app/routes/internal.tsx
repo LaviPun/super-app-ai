@@ -1,5 +1,5 @@
 import { json } from '@remix-run/node';
-import type { HeadersFunction } from '@remix-run/node';
+import type { HeadersFunction, MetaFunction } from '@remix-run/node';
 import { Outlet, useLoaderData, useLocation, useMatches } from '@remix-run/react';
 import {
   Frame, Navigation, TopBar, Toast, type IconSource,
@@ -29,6 +29,12 @@ import {
 import { useState, useCallback, useEffect } from 'react';
 import { internalSessionStorage } from '~/internal-admin/session.server';
 import { SettingsService, type AppSettingsData } from '~/services/settings/settings.service';
+import { internalDocumentTitle } from '~/utils/internal-route-meta';
+
+export const meta: MetaFunction<typeof loader> = ({ location, data }) => {
+  const appName = data?.settings?.appName ?? 'SuperApp Admin';
+  return [{ title: internalDocumentTitle(location.pathname, appName) }];
+};
 
 export const headers: HeadersFunction = () => ({
   'Content-Security-Policy': "frame-ancestors 'none'",

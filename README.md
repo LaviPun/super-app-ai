@@ -188,7 +188,8 @@ ai-shopify-superapp/
 │       │   └── components/        # Polaris-based UI components
 │       ├── prisma/                # Prisma schema + migrations
 │       ├── scripts/               # CLI scripts (internal-ai-router, retention, seed, evals, smoke)
-│       └── Dockerfile.internal-router
+│       ├── Dockerfile.internal-router
+│       └── railway.internal-router.toml
 ├── packages/
 │   ├── core/                      # RecipeSpec schema, capability matrix, module catalog, templates,
 │   │                              # workflow engine spec, connector SDK, flow catalog
@@ -202,6 +203,7 @@ ai-shopify-superapp/
 │   │                              # payment, validation, cart transform)
 │   └── superapp-flow-*/           # 5 Flow triggers + 4 Flow actions
 ├── deploy/
+│   ├── railway-internal-router/   # Railway operator runbook for the Node reference router
 │   └── modal-qwen-router/         # Modal HTTPS edge proxy (optional)
 ├── docs/                          # Technical docs, merchant docs, internal docs, phase plan, runbooks
 ├── shopify.app.toml               # Shopify app config (webhooks, scopes, app proxy, metaobjects)
@@ -232,6 +234,7 @@ ai-shopify-superapp/
 | `packages/core/src/allowed-values.ts` | Single source of truth for closed enums (module types, surfaces, targets) | `allowed-values.ts` |
 | `packages/core/src/capabilities.ts` | Capability list and plan-tier gating logic | `capabilities.ts` |
 | `extensions/theme-app-extension/blocks/` | Liquid slot blocks that read `shop.metafields['superapp.theme']['module_refs']` | `universal-slot.liquid` |
+| `deploy/railway-internal-router/` | Railway operator runbook + env example for internal router | `README.md`, `env.example` |
 | `deploy/modal-qwen-router/` | Optional Modal HTTPS proxy (and mock upstream) | `modal_app.py` |
 | `apps/api/wrangler.jsonc` | Cloudflare Workers config for V2 API | `wrangler.jsonc` |
 | `apps/workers/wrangler.jsonc` | Cloudflare Queues consumer for asset-storage | `wrangler.jsonc` |
@@ -254,6 +257,7 @@ ai-shopify-superapp/
 | Testing | **Vitest 3** |
 | Tooling | pnpm 9 workspaces, ESLint, Husky + lint-staged, Prisma CLI |
 | Deploy targets | Cloudflare Workers/Pages/R2/Queues (V2), Docker (`Dockerfile.internal-router`), Modal (`deploy/modal-qwen-router/`) |
+| Deploy targets | Docker (`Dockerfile.internal-router`), Railway (`deploy/railway-internal-router/`), Modal (`deploy/modal-qwen-router/`) |
 
 The Shopify Admin API version is pinned to `2026-01` (see `shopify.app.toml` and `apps/web/app/shopify.server.ts`). App distribution is `AppDistribution.AppStore`.
 
@@ -378,6 +382,7 @@ Provider config is **credentials-first**: once a key is supplied in the Internal
 ### Internal AI router (service-side tunables)
 
 These are read by `apps/web/scripts/internal-ai-router.ts` (the reference router) and can be set via env when running Docker or Modal.
+These are read by `apps/web/scripts/internal-ai-router.ts` (the reference router). Set them on the Railway internal-router service per [`deploy/railway-internal-router/README.md`](deploy/railway-internal-router/README.md).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -786,6 +791,7 @@ The reference router (`apps/web/scripts/internal-ai-router.ts`) is a small Node 
 - Returns a strict `PromptRouterDecision` JSON.
 
 Run locally with `pnpm --filter web router:internal`, via Docker (`Dockerfile.internal-router`), or behind the optional Modal edge proxy.
+Same image, two flavors: deployed on **Railway** per [`deploy/railway-internal-router/README.md`](deploy/railway-internal-router/README.md) (recommended for production) or run locally with `pnpm --filter web router:internal`.
 
 ### Run it locally
 
@@ -814,6 +820,7 @@ INTERNAL_AI_ROUTER_TOKEN=<long-random-token>
 |--------|------|---------|
 | POST | `/route` | Prompt routing decision (strict `PromptRouterDecision` JSON) |
 | GET | `/healthz` | `{ ok, service, backend }` — used by container health checks |
+| GET | `/healthz` | `{ ok, service, backend }` — used by Railway / container health checks |
 | GET | `/api/tags` | Ollama passthrough (when `ROUTER_BACKEND=ollama`) |
 | POST | `/api/chat` | Ollama passthrough |
 | POST | `/v1/chat/completions` | OpenAI-compatible passthrough |
@@ -928,6 +935,7 @@ pnpm --filter web retention:run
 ```
 
 Schedule it under your platform's cron facility (Cloudflare Cron Triggers, systemd timer, or a managed cron service).
+Schedule it under your platform's cron facility (Railway cron, systemd timer, or a managed cron service).
 
 ### Cron endpoint
 
@@ -1019,10 +1027,19 @@ Node 20 and pnpm 9 are pinned. No CI job has access to real Shopify or LLM crede
 - **Queue consumer** — `apps/workers/wrangler.jsonc`; deploy with `pnpm --filter @superapp/workers deploy:cf`
 - **Preview frontend** — `apps/frontend/wrangler.jsonc`; Pages deploy via `deploy:cf` script
 - **Runbook** — [`docs/gitbook/02-architecture/v2-migration/cloudflare-deployment-runbook.md`](docs/gitbook/02-architecture/v2-migration/cloudflare-deployment-runbook.md)
+- **Railway** — operator runbook in [`deploy/railway-internal-router/`](deploy/railway-internal-router/):
+  1. New Railway service in the same project as API/workers; repo root as working directory.
+  2. Builder config: [`apps/web/railway.internal-router.toml`](apps/web/railway.internal-router.toml) → `apps/web/Dockerfile.internal-router`.
+  3. Health check: `GET /healthz` on port **8787**.
+  4. Set env vars from [`deploy/railway-internal-router/env.example`](deploy/railway-internal-router/env.example) (`INTERNAL_AI_ROUTER_TOKEN`, `ROUTER_*`).
+  5. Point Remix `INTERNAL_AI_ROUTER_URL` at the Railway HTTPS URL.
+  If you previously used `kubectl apply -k deploy/internal-ai-router`, see the migration section in the Railway README before decommissioning the cluster Deployment.
+- **Modal edge (optional)** — HTTPS proxy in [`deploy/modal-qwen-router/`](deploy/modal-qwen-router/). Two apps live in the folder: the **proxy** (`modal_app.py`) and a **mock upstream** (`mock_upstream_app.py`, contract testing only — never route production traffic to it). Modal secrets used by the proxy: `INTERNAL_ROUTER_UPSTREAM_URL`, `INTERNAL_AI_ROUTER_TOKEN`, `ROUTER_PROXY_TIMEOUT_S`. The Modal layer scales HTTP ingress; it does **not** run GPU inference itself.
 
 ### Image registry and secrets
 
 - The Dockerfile is registry-agnostic; tag and push to your own registry (`ghcr.io`, ECR, GCR, etc.).
+- For Railway, set `INTERNAL_AI_ROUTER_TOKEN` and `ROUTER_OPENAI_API_KEY` in the Railway dashboard — never commit real values.
 - For Modal, define secrets in the Modal dashboard and reference them in `modal_app.py`.
 - For Cloudflare, use `wrangler secret put` — never commit production tokens.
 
@@ -1041,6 +1058,7 @@ Node 20 and pnpm 9 are pinned. No CI job has access to real Shopify or LLM crede
 | Router calls always fall back to deterministic | Circuit is open, or shop is not in `INTERNAL_AI_ROUTER_CANARY_SHOPS` | Wait `INTERNAL_AI_ROUTER_CIRCUIT_COOLDOWN_MS`, or add the shop to canary, or unset the canary var to allow all shops |
 | Router responds 401 | Missing / bad `INTERNAL_AI_ROUTER_TOKEN`, or `ROUTER_REQUIRE_AUTH` is on | Confirm token parity between Remix app and router |
 | Router responds 429 | Per-tenant rate limit hit (`ROUTER_TENANT_RATE_*`, `ROUTER_TENANT_MAX_ACTIVE_REQUESTS`) | Reduce concurrency or raise the limit in router env |
+| Router responds 429 | Per-tenant rate limit hit (`ROUTER_TENANT_RATE_*`, `ROUTER_TENANT_MAX_ACTIVE_REQUESTS`) | Reduce concurrency or raise the limits in Railway env |
 | Webhook handler runs twice on retry | Idempotency guard not applied | Use `apps/web/app/services/flows/idempotency.server.ts` — return early when it returns `false` |
 | Plan gate blocks publish unexpectedly | Module declares a capability with a higher `MIN_PLAN_FOR_CAPABILITY` than the shop's tier | Either downgrade the spec (drop the capability) or upgrade the shop's plan tier |
 | Connector test fails with SSRF error | Target URL not in allowlist or uses HTTP / private IP | Add the host to the connector's allowlist; use HTTPS; private IPs are blocked by design |
@@ -1062,6 +1080,7 @@ Node 20 and pnpm 9 are pinned. No CI job has access to real Shopify or LLM crede
 - **Connector** — an external API integration (HTTP, Slack, Email, Storage, or custom via SDK). Each has its own allowlist and SSRF-guarded calls.
 - **Data Store** — app-owned database table (predefined or custom). CRUD-able via UI, flows, and Agent API.
 - **Internal router** — small Qwen3-based service that decides how much structured context to attach before the main RecipeSpec LLM call. Self-hosted via local process, Docker, or Modal.
+- **Internal router** — small Qwen3-based service that decides how much structured context to attach before the main RecipeSpec LLM call. Self-hosted via Railway / Docker / Modal.
 - **Owner-tier AI** — OpenAI / Anthropic, used for merchant module generation.
 - **Merchant-tier AI / Qwen3** — small self-hosted model for the prompt router and internal AI assistant.
 - **Idempotency key** — `X-Shopify-Webhook-Id` (or generated UUID locally); persisted in `WebhookEvent` to guarantee at-most-once webhook processing.
