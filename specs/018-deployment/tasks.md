@@ -1,19 +1,24 @@
 # Tasks: Phase 18 — Deployment Infrastructure
 
-**Input**: [spec.md](./spec.md), [platform-v2-migration-plan.md](../../docs/gitbook/02-architecture/platform-v2-migration-plan.md)
+**Input**: [spec.md](./spec.md), [cloudflare-deployment-runbook.md](../../docs/gitbook/02-architecture/v2-migration/cloudflare-deployment-runbook.md)
 
-**Status on master**: Partial — minimal implementation shipped
+**Status on master**: Partial — Cloudflare configs shipped
 
-## Phase checklist (stub)
+## Phase checklist
 
 - [x] T001 Review Phase 18 acceptance criteria in migration plan
-- [x] T002 Run `/speckit-plan` to produce detailed implementation plan
-- [x] T003 Run `/speckit-tasks` to break down dependency-ordered work
-- [x] T004 Implement phase deliverables (`/speckit-implement`)
-- [x] T005 Add gitbook page under `docs/gitbook/02-architecture/v2-migration/` when merged
-- [x] T006 Update [`000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md) matrix row to Shipped/Partial
+- [x] T002 Remove Kubernetes manifests (`deploy/internal-ai-router/`)
+- [x] T003 Remove Fly.io and Railway deploy configs
+- [x] T004 Add `wrangler.jsonc` for `apps/api`, `apps/workers`, `apps/frontend`
+- [x] T005 Add Cloudflare Worker + Queue consumer entry points
+- [x] T006 Write Cloudflare deployment runbook
+- [x] T007 Update ADR + master spec matrix to Cloudflare-only
+- [ ] T008 Provision R2 + Queues in Cloudflare account (operator)
+- [ ] T009 Port full Fastify API routes to Workers
+- [ ] T010 Add CI deploy workflow for Cloudflare
 
 ## Verification
 
-- [x] T007 `pnpm test` for affected packages
-- [x] T008 Typecheck affected packages
+- [x] T011 `pnpm test` for affected packages
+- [x] T012 Typecheck affected packages
+- [x] T013 Grep confirms no `kubernetes`/`k8s`/`kubectl`/`helm`/`fly.io`/`railway` deploy artifacts

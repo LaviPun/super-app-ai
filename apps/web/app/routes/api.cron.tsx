@@ -1,6 +1,6 @@
 /**
  * Cron trigger endpoint — called periodically by an external scheduler
- * (e.g. Shopify Partner cron, GitHub Actions, Railway cron, or any HTTP cron service).
+ * (e.g. Shopify Partner cron, GitHub Actions, Cloudflare Cron Triggers, or any HTTP cron service).
  *
  * Protection: requires `X-Cron-Secret` header matching CRON_SECRET env var.
  * If CRON_SECRET is not set, the endpoint is disabled.

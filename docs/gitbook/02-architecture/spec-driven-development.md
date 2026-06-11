@@ -75,20 +75,23 @@ For the **next** phase, use phase number as `--number` (e.g. `--number 13`) so d
 |----|------|----------|-----------------|
 | 0 | Baseline & inventory | *(master only)* | Partial |
 | 1 | Target monorepo | `001-target-monorepo` | Partial |
-| 2 | Shared contracts | `002-shared-contracts` | Partial |
-| 3 | Fastify API | `003-fastify-api` | Not started |
-| 4 | Next frontend | `004-next-frontend` | Not started |
-| 5 | Job orchestration | `005-job-orchestration` | Not started |
-| 6 | Worker skeleton | `006-worker-skeleton` | Partial |
-| 7 | AI generation worker | `007-ai-generation-worker` | Not started |
+| 2 | Shared contracts | `002-shared-contracts` | **Shipped (core)** |
+| 3 | Fastify API | `003-fastify-api` | **Shipped (skeleton)** |
+| 4 | Next frontend | `004-next-frontend` | **Partial** |
+| 5 | Job orchestration | `005-job-orchestration` | **Shipped** |
+| 6 | Worker skeleton | `006-worker-skeleton` | **Shipped** |
+| 7 | AI generation worker | `007-ai-generation-worker` | Partial |
 | 8 | Internal assistant | `008-internal-assistant` | Not started |
-| 9 | Webhook & flow | `009-webhook-flow` | Not started |
-| 10 | Connector worker | `010-connector-worker` | Not started |
-| 11 | Publish worker | `011-publish-worker` | Not started |
+| 9 | Webhook & flow | `009-webhook-flow` | Partial |
+| 10 | Connector worker | `010-connector-worker` | Partial |
+| 11 | Publish worker | `011-publish-worker` | Partial |
 | 12 | Storage & image worker | `012-storage-image-worker` | **Shipped** |
-| 13–21 | Preview → cutover | `013-*` … `021-*` | Not started (stub specs) |
+| 13 | Preview sandbox | `013-preview-sandbox` | **Shipped** |
+| 14–17 | Intent → security | `014-*` … `017-*` | Not started / Partial |
+| 18 | Deployment | `018-deployment` | **Partial** (Cloudflare wrangler + runbook) |
+| 19–21 | Async UX → cutover | `019-*` … `021-*` | Partial / Not started |
 
-Phase 12 deferred on master: BullMQ `asset-storage` consumer, live preview enqueue, R2 prod binding, signed URLs — see [`012-storage-image-worker/spec.md`](../../../specs/012-storage-image-worker/spec.md).
+**Deploy policy:** Cloudflare only (Workers, Pages, R2, Queues). See [`cloudflare-deployment-runbook.md`](./v2-migration/cloudflare-deployment-runbook.md).
 
 ## Brownfield vs greenfield
 

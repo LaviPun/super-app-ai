@@ -154,7 +154,7 @@ For **Modal**, deploy [`deploy/modal-qwen-router/modal_app.py`](../deploy/modal-
 
 | Env / setting | Use |
 |---------------|-----|
-| **`INTERNAL_AI_ROUTER_URL`** (Remix `.env`) | HTTPS origin of **`superapp-internal-ai-router-proxy`** only (`modal deploy modal_app.py`). Secret **`INTERNAL_ROUTER_UPSTREAM_URL`** on Modal must target your **real** upstream router (Node/K8s), not the optional mock. |
+| **`INTERNAL_AI_ROUTER_URL`** (Remix `.env`) | HTTPS origin of **`superapp-internal-ai-router-proxy`** only (`modal deploy modal_app.py`). Secret **`INTERNAL_ROUTER_UPSTREAM_URL`** on Modal must target your **real** upstream router (local Node or Docker), not the optional mock. |
 | **`modalRemote.url`** in **Setup the Model** | Real **chat** host only (inference). **Do not** use [`mock_upstream_app.py`](../deploy/modal-qwen-router/mock_upstream_app.py) URLs or any deployment that lacks `/api/chat` / OpenAI-compatible chat. |
 | Mock app | Stop/delete **`superapp-internal-ai-router-mock`** when unused — see [`deploy/modal-qwen-router/README.md`](../deploy/modal-qwen-router/README.md) § *Stopping or removing the mock app*. |
 

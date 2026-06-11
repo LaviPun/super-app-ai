@@ -24,13 +24,13 @@ Adopt a **separated platform architecture**:
 
 | Layer | Technology | Hosting (target) |
 |-------|------------|------------------|
-| Embedded merchant + internal UI | **Next.js** (App Router, Polaris, App Bridge) | Vercel |
-| API gateway | **Fastify** | Railway |
-| Async workers | **Node + BullMQ** | Railway |
-| Queue / cache / locks | **Redis** | Railway → Redis Cloud at scale |
+| Embedded merchant + internal UI | **Next.js** (App Router, Polaris, App Bridge) | Cloudflare Pages (preview shell); Remix until cutover |
+| API gateway | **Fastify** (local) / **Workers** (prod) | Cloudflare Workers |
+| Async workers | **BullMQ** (local) / **Queues** (prod) | Cloudflare Workers + Queues |
+| Queue / cache / locks | **Redis** (transition) | Upstash or external Redis until Queues fully wired |
 | Source of truth | **PostgreSQL** (Prisma) | Managed Postgres |
 | AI inference | RunPod + provider APIs | External |
-| Assets | Cloudflare R2 | Cloudflare |
+| Assets | Cloudflare R2 | Cloudflare R2 (`ASSETS` binding) |
 | Observability | Sentry, OpenTelemetry, PostHog | SaaS |
 
 **Monorepo layout** (phased):

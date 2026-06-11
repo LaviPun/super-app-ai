@@ -1,4 +1,4 @@
-import { PREVIEW_SHELL_CSP, buildPreviewContentUrl, buildPreviewEnvelopeUrl } from '../../src/lib/preview-sandbox';
+import { PREVIEW_SHELL_CSP, buildPreviewContentUrl, buildPreviewEnvelopeUrl } from '../../../../src/lib/preview-sandbox';
 
 type PreviewPageProps = {
   params: Promise<{ shopId: string; moduleId: string }>;

@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "superapp-api",
+  "main": "src/cloudflare-worker.ts",
+  "compatibility_date": "2026-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "JOB_EXECUTION_MODE": "inline",
+    "PLATFORM_V2_ENABLED": "true"
+  },
+  "r2_buckets": [
+    {
+      "binding": "ASSETS",
+      "bucket_name": "superapp-assets"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "ASSET_STORAGE_QUEUE",
+        "queue": "asset-storage"
+      }
+    ]
+  }
+}
