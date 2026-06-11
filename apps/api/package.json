@@ -1,22 +1,20 @@
 {
-  "name": "@superapp/workers",
+  "name": "@superapp/api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
   "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json",
-    "dev": "tsx watch src/start.ts",
-    "start": "tsx src/start.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@superapp/job-orchestration": "workspace:*",
     "@superapp/platform-contracts": "workspace:*",
-    "bullmq": "^5.41.0",
-    "ioredis": "^5.10.1",
+    "@superapp/workers": "workspace:*",
+    "fastify": "^5.2.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {

@@ -7,6 +7,8 @@ node_modules/
 dist/
 build/
 .cache/
+.data/
+**/.data/
 
 # Prisma generated
 apps/web/node_modules/.prisma/

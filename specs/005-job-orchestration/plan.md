@@ -1,24 +1,29 @@
 # Implementation Plan: Phase 5 — Job Orchestration And BullMQ
 
-**Branch**: TBD | **Date**: 2026-06-12 | **Spec**: [spec.md](./spec.md)
+**Branch**: `master` | **Date**: 2026-06-12 | **Spec**: [spec.md](./spec.md)
 
 ## Summary
 
-JobStore, JobQueue, JobOrchestrator, JobEvents, JobReplay; inline/queue/disabled modes; Redis config.
+`@superapp/job-orchestration` provides BullMQ-backed job enqueue with inline fallback for local dev and CI.
 
-## Technical context
+## Architecture
 
-- **Canonical architecture**: [`platform-v2-migration-plan.md`](../../docs/gitbook/02-architecture/platform-v2-migration-plan.md)
-- **ADR**: [`ADR-001-platform-v2-architecture.md`](../../docs/gitbook/02-architecture/v2-migration/ADR-001-platform-v2-architecture.md)
-- **Dependencies**: Prior V2 phases per migration plan ordering.
+```
+Remix (schedulePreviewExport) ──┐
+Fastify (/v1/jobs/enqueue)     ──┼──► JobOrchestrator ──► inline handlers (workers)
+                                 └──► BullMQ queues ──► WorkerRuntime consumers
+```
 
-## Next steps
+## Key files
 
-1. Set `export SPECIFY_FEATURE=005-job-orchestration`
-2. Run `/speckit-plan` to expand this stub with concrete file paths and package layout.
-3. Run `/speckit-tasks` for dependency-ordered checklist.
-4. Run `/speckit-implement` when ready to code.
+| Path | Role |
+|------|------|
+| `packages/job-orchestration/src/config.ts` | Env parsing, effective mode resolution |
+| `packages/job-orchestration/src/bullmq-queue.ts` | BullMQ Queue adapter |
+| `packages/job-orchestration/src/job-orchestrator.ts` | Enqueue + inline execution |
+| `packages/job-orchestration/src/job-events.ts` | Worker event helpers |
+| `packages/platform-contracts/src/platform-jobs.ts` | Platform job type + queue registry |
 
 ## Constitution check
 
-Align with [`.specify/memory/constitution.md`](../../.specify/memory/constitution.md): Zod at boundaries, SOLID services, no merchant code deployment.
+Align with [`.specify/memory/constitution.md`](../../.specify/memory/constitution.md): Zod at boundaries, SOLID services, no merchant code deployment. ✅

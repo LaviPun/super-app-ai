@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-12
 
-**Status**: Shipped (worktree 2026-06-12); BullMQ consumer merge pending Phase 9–11
+**Status:** Shipped (worktree 2026-06-12); BullMQ enqueue + inline processing live on `master`
 
 **Input**: Phase 12 of Platform V2 migration — offload generated/reference images and RecipeSpec preview artifacts from Prisma to a worker boundary with pluggable storage (local dev, R2 production).
 
@@ -97,10 +97,10 @@ When modules are unpublished or assets are superseded, stored objects must be de
 
 ## Assumptions
 
-- BullMQ (or equivalent) queue wiring lands in a sibling phase; Phase 12 delivers the handler boundary and contracts.
-- Remix preview generation in `apps/web` enqueues via `schedulePreviewExport()` stub when `PREVIEW_EXPORT_QUEUE_ENABLED=1`; BullMQ publish remains TODO until Phase 9–11 queue merge.
+- BullMQ queue wiring is provided by `@superapp/job-orchestration` and `@superapp/workers` worker runtime.
+- Remix preview generation calls `schedulePreviewExport()` when `PREVIEW_EXPORT_QUEUE_ENABLED=1`; inline mode processes immediately; queue mode enqueues to `asset-storage` when Redis is configured.
 - `THEME_ANALYZE` reuses storage adapters in a future phase; not part of this spec's MVP.
-- Signed URL / API proxy delivery is explicitly out of scope for Phase 12 (documented stub only).
+- Signed URL / API proxy delivery remains Phase 18+ (documented stub only).
 
 ## Out of Scope (Phase 12)
 

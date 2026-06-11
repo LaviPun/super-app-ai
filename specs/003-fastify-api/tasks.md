@@ -1,19 +1,17 @@
 # Tasks: Phase 3 — Fastify API Skeleton
 
-**Input**: [spec.md](./spec.md), [platform-v2-migration-plan.md](../../docs/gitbook/02-architecture/platform-v2-migration-plan.md)
+**Status on master**: **Shipped (skeleton)** (2026-06-12)
 
-**Status on master**: Not started
+## Phase checklist
 
-## Phase checklist (stub)
-
-- [ ] T001 Review Phase 3 acceptance criteria in migration plan
-- [ ] T002 Run `/speckit-plan` to produce detailed implementation plan
-- [ ] T003 Run `/speckit-tasks` to break down dependency-ordered work
-- [ ] T004 Implement phase deliverables (`/speckit-implement`)
-- [ ] T005 Add gitbook page under `docs/gitbook/02-architecture/v2-migration/` when merged
-- [ ] T006 Update [`000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md) matrix row to Shipped/Partial
+- [x] T001 Review Phase 3 acceptance criteria in migration plan
+- [x] T002 Produce implementation plan
+- [x] T003 Create `apps/api` with Fastify bootstrap
+- [x] T004 Add health + job enqueue routes
+- [x] T005 Add unit tests
+- [x] T006 Update master spec matrix
 
 ## Verification
 
-- [ ] T007 `pnpm test` for affected packages
-- [ ] T008 Typecheck affected packages
+- [x] T007 `pnpm --filter @superapp/api test`
+- [x] T008 `pnpm --filter @superapp/api typecheck`

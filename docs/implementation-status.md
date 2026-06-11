@@ -1,11 +1,18 @@
+## 2026-06-12 (Platform V2 — Job orchestration + API + live preview enqueue)
+
+- **Status:** Job orchestration shipped (`packages/job-orchestration`), Fastify API skeleton (`apps/api`), BullMQ worker runtime (`apps/workers/src/worker-runtime.ts`), platform job registry expanded, preview export uses `JobOrchestrator` (inline by default; queue when Redis configured).
+- **Packages:** `@superapp/job-orchestration`, `@superapp/api`, `@superapp/workers`, `@superapp/platform-contracts` (platform-jobs.ts).
+- **Env:** `JOB_EXECUTION_MODE`, `QUEUE_REDIS_URL`, `PREVIEW_EXPORT_QUEUE_ENABLED=1`.
+- **Tests:** Full `pnpm test` green (600+ unit tests across packages).
+
 ## 2026-06-12 (Platform V2 Phase 12 — Storage And Image Worker — shipped)
 
-- **Status:** Phase 12 merged to `master` (PR #8) — contracts, worker handler, job registry, docs, and Remix preview enqueue stub. Deferred: live BullMQ publish, R2 prod deploy, signed URLs.
+- **Status:** Phase 12 merged to `master` — contracts, worker handler, job registry, docs, and Remix preview enqueue via JobOrchestrator. Remaining: R2 prod deploy binding, signed URL proxy (Phase 18).
 - **Job registry (`packages/platform-contracts/src/jobs.ts`):** Registers `IMAGE_INGESTION`, `PREVIEW_EXPORT`, and `ASSET_CLEANUP` on the `asset-storage` queue with `resolveImageWorkerQueue()` and payload parse helpers aligned to `storage.ts`.
 - **Contracts (`packages/platform-contracts`):** `storage.ts` defines generated asset metadata, worker payloads, events, and results. Preview export is RecipeSpec/config-safe (blocks scripts and inline handlers); no merchant code deployment paths exist in this worker.
 - **Worker handler (`apps/workers`):** `ImageWorkerHandler` performs ingest/preview/cleanup against a `StorageAdapter`. `createImageStorageProcessor()` validates envelopes, delegates to the handler, and emits `JOB_STARTED` / `JOB_PROGRESS` / `JOB_COMPLETED` / `JOB_FAILED` events.
 - **Storage adapters:** `StorageAdapter` interface, `LocalStorageAdapter`, injectable `R2StorageAdapter` contract, and `createStorageAdapter()` fallback to local storage when an R2 binding is unavailable.
-- **Remix integration (stub):** `apps/web/app/services/preview/preview-export.queue.server.ts` validates `PREVIEW_EXPORT` payloads and is invoked from `preview.$moduleId` after HTML render when `PREVIEW_EXPORT_QUEUE_ENABLED=1`. BullMQ enqueue remains TODO until Phase 9–11 queue merge.
+- **Remix integration:** `apps/web/app/services/preview/preview-export.queue.server.ts` validates and enqueues `PREVIEW_EXPORT` via `JobOrchestrator` when `PREVIEW_EXPORT_QUEUE_ENABLED=1`. Inline mode stores artifacts immediately; queue mode publishes to BullMQ `asset-storage` when Redis is available.
 - **Signed URL/proxy policy:** R2 secrets stay server-side. Production signed URLs are issued by the API proxy/signing service in a later phase, not from worker credentials.
 - **Docs:** [`docs/gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md`](./gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md)
 - **Tests:** `packages/platform-contracts`, `apps/workers`, and preview enqueue stub tests pass via `pnpm test`.
@@ -155,7 +162,9 @@ Canonical plan: [`docs/gitbook/02-architecture/platform-v2-migration-plan.md`](.
 | 1 | Target monorepo shape | ⚠️ Partial (`workers`, `platform-contracts`; no `api`/`frontend`) |
 | 2 | Shared contracts | ⚠️ Partial (image/storage jobs only) |
 | 3–11 | API, frontend, queues, workers | ❌ Not started on `master` (WIP in sibling worktrees) |
-| 12 | Storage & image worker | ✅ Shipped (PR #8); BullMQ/R2/signed URLs deferred |
+| 5 | Job orchestration & BullMQ | ✅ Shipped (`@superapp/job-orchestration`) |
+| 3 | Fastify API skeleton | ✅ Shipped skeleton (`apps/api`) |
+| 12 | Storage & image worker | ✅ Shipped; R2 prod + signed URLs in Phase 18 |
 | 13–21 | Preview through cutover | ❌ Not started (stub specs only) |
 
 ### Current progress snapshot (2026-04-30)

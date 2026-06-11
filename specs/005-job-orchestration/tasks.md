@@ -1,19 +1,19 @@
 # Tasks: Phase 5 — Job Orchestration And BullMQ
 
-**Input**: [spec.md](./spec.md), [platform-v2-migration-plan.md](../../docs/gitbook/02-architecture/platform-v2-migration-plan.md)
+**Input**: [spec.md](./spec.md), [plan.md](./plan.md)
 
-**Status on master**: Not started
+**Status on master**: **Shipped** (2026-06-12)
 
-## Phase checklist (stub)
+## Phase checklist
 
-- [ ] T001 Review Phase 5 acceptance criteria in migration plan
-- [ ] T002 Run `/speckit-plan` to produce detailed implementation plan
-- [ ] T003 Run `/speckit-tasks` to break down dependency-ordered work
-- [ ] T004 Implement phase deliverables (`/speckit-implement`)
-- [ ] T005 Add gitbook page under `docs/gitbook/02-architecture/v2-migration/` when merged
-- [ ] T006 Update [`000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md) matrix row to Shipped/Partial
+- [x] T001 Review Phase 5 acceptance criteria in migration plan
+- [x] T002 Produce implementation plan ([plan.md](./plan.md))
+- [x] T003 Break down dependency-ordered work (this file)
+- [x] T004 Implement `@superapp/job-orchestration` package
+- [x] T005 Wire Remix preview export + Fastify enqueue to orchestrator
+- [x] T006 Update [`000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md) matrix row
 
 ## Verification
 
-- [ ] T007 `pnpm test` for affected packages
-- [ ] T008 Typecheck affected packages
+- [x] T007 `pnpm test` for affected packages
+- [x] T008 Typecheck affected packages

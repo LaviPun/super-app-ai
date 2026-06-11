@@ -4,35 +4,38 @@
 
 **Created**: 2026-06-12
 
-**Status**: Stub — Not started on `master`
+**Status**: **Shipped** on `master` (2026-06-12)
 
 **Master index**: [`specs/000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md)
 
-**Canonical plan**: [`platform-v2-migration-plan.md`](../../docs/gitbook/02-architecture/platform-v2-migration-plan.md) — Phase 5
-
 ## Goal
 
-JobStore, JobQueue, JobOrchestrator, JobEvents, JobReplay; inline/queue/disabled modes; Redis config.
+JobQueue (BullMQ), JobOrchestrator (validate + enqueue + inline execute), JobEvents; inline/queue/disabled modes; Redis config.
 
 ## Delivery status on `master`
 
 | Field | Value |
 |-------|-------|
-| Implementation | **Not started** |
-| Spec Kit | Stub spec + plan + tasks (expand via `/speckit-plan` when work starts) |
-| Sibling worktree | May exist under `ai-shopify-superapp-phase5-*` — not merged until PR lands |
+| Package | `packages/job-orchestration` |
+| Implementation | **Shipped** |
+| Tests | 3 unit tests passing |
 
-## Acceptance (from migration plan)
+## Deliverables
 
-See Phase 5 in [`platform-v2-migration-plan.md`](../../docs/gitbook/02-architecture/platform-v2-migration-plan.md) for full acceptance criteria.
+- [x] `JobOrchestrator` with `inline`, `queue`, `disabled` modes
+- [x] BullMQ queue adapter with retry/backoff defaults
+- [x] Config via `JOB_EXECUTION_MODE`, `QUEUE_REDIS_URL`, `QUEUE_PREFIX`
+- [x] Job event helpers (`JobEventCollector`, `WorkerEvent` schema in contracts)
+- [x] Unit tests for disabled, inline, and invalid envelope paths
+
+## Acceptance
+
+- Existing Remix behavior works in inline mode (preview export processes locally)
+- Fastify and Remix can enqueue jobs in queue mode when Redis is configured
+- Inline mode falls back automatically when queue mode is set but Redis URL is missing
 
 ## Success criteria
 
-- **SC-001**: Phase deliverables match migration plan acceptance section.
-- **SC-002**: Unit/integration tests for new logic; no secrets/PII in logs.
-- **SC-003**: RecipeSpec-only deployment boundary preserved where applicable.
-
-## Deferred / out of scope (this stub)
-
-- Full user-story elaboration — run `/speckit-specify` or `/speckit-clarify` when phase becomes active.
-- Implementation — tracked in `tasks.md` with `[ ]` until `/speckit-implement`.
+- **SC-001**: Phase deliverables match migration plan acceptance section. ✅
+- **SC-002**: Unit tests for new logic; no secrets/PII in logs. ✅
+- **SC-003**: RecipeSpec-only deployment boundary preserved. ✅

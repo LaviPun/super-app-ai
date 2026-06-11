@@ -53,6 +53,18 @@ jobs:
       - name: Typecheck (rate-limit)
         run: pnpm --filter @superapp/rate-limit typecheck
 
+      - name: Typecheck (platform-contracts)
+        run: pnpm --filter @superapp/platform-contracts typecheck
+
+      - name: Typecheck (job-orchestration)
+        run: pnpm --filter @superapp/job-orchestration typecheck
+
+      - name: Typecheck (workers)
+        run: pnpm --filter @superapp/workers typecheck
+
+      - name: Typecheck (api)
+        run: pnpm --filter @superapp/api typecheck
+
       - name: Prisma validate
         working-directory: apps/web
         run: pnpm exec prisma validate

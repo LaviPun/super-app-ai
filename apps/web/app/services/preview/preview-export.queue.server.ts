@@ -4,6 +4,8 @@ import {
   resolveImageWorkerQueue,
   type ImageWorkerPayload,
 } from '@superapp/platform-contracts';
+import { createJobOrchestrator } from '@superapp/job-orchestration';
+import { createImageStorageProcessor } from '@superapp/workers';
 import { randomUUID } from 'node:crypto';
 
 type PreviewExportPayload = Extract<ImageWorkerPayload, { type: 'PREVIEW_EXPORT' }>;
@@ -19,14 +21,43 @@ export type SchedulePreviewExportParams = {
 };
 
 export type PreviewExportEnqueueResult =
-  | { status: 'queued'; queueName: typeof ASSET_STORAGE_QUEUE; payload: PreviewExportPayload }
+  | {
+      status: 'queued';
+      queueName: typeof ASSET_STORAGE_QUEUE;
+      payload: PreviewExportPayload;
+      jobId: string;
+      executionMode: string;
+    }
+  | { status: 'completed'; queueName: typeof ASSET_STORAGE_QUEUE; payload: PreviewExportPayload; jobId: string }
   | { status: 'skipped'; reason: string }
   | { status: 'invalid'; reason: string };
 
-/**
- * Validates and stages a PREVIEW_EXPORT worker payload.
- * BullMQ / worker consumer wiring lands with Phase 9–11 queue merge; until then this is a no-op stub.
- */
+let previewOrchestrator: ReturnType<typeof createJobOrchestrator> | undefined;
+
+function getPreviewOrchestrator() {
+  if (!previewOrchestrator) {
+    previewOrchestrator = createJobOrchestrator({
+      inlineHandlers: {
+        [ASSET_STORAGE_QUEUE]: async (job) => {
+          const processor = createImageStorageProcessor();
+          const result = await processor({
+            id: job.id,
+            queueName: job.queueName,
+            payload: job.payload,
+            trace: job.trace,
+          });
+          return {
+            status: result.status,
+            result: result.result,
+            events: result.events,
+          };
+        },
+      },
+    });
+  }
+  return previewOrchestrator;
+}
+
 export async function schedulePreviewExport(
   params: SchedulePreviewExportParams,
 ): Promise<PreviewExportEnqueueResult> {
@@ -34,13 +65,14 @@ export async function schedulePreviewExport(
     return { status: 'skipped', reason: 'PREVIEW_EXPORT_QUEUE_ENABLED is not set' };
   }
 
+  const jobId = randomUUID();
   const payloadInput = {
     type: 'PREVIEW_EXPORT' as const,
-    jobId: randomUUID(),
+    jobId,
     shopId: params.shopId,
     moduleId: params.moduleId,
     revisionId: params.revisionId,
-    traceId: params.traceId,
+    traceId: params.traceId ?? jobId,
     assetId: params.assetId ?? `preview_${params.moduleId}`,
     preview: {
       contentType: 'text/html' as const,
@@ -59,6 +91,40 @@ export async function schedulePreviewExport(
     return { status: 'invalid', reason: 'Unexpected queue mapping for PREVIEW_EXPORT' };
   }
 
-  // TODO(phase-9-11-merge): enqueue on BullMQ `asset-storage` and persist job row via shared registry.
-  return { status: 'queued', queueName, payload: parsed.data };
+  const orchestrator = getPreviewOrchestrator();
+  const enqueueResult = await orchestrator.enqueue({
+    id: jobId,
+    jobType: 'PREVIEW_EXPORT',
+    payload: parsed.data,
+    trace: {
+      correlationId: parsed.data.traceId ?? jobId,
+      shopId: params.shopId,
+    },
+    queueName,
+  });
+
+  if (enqueueResult.status === 'invalid' || enqueueResult.status === 'skipped') {
+    return enqueueResult;
+  }
+
+  if (enqueueResult.status === 'completed') {
+    return {
+      status: 'completed',
+      queueName,
+      payload: parsed.data,
+      jobId,
+    };
+  }
+
+  return {
+    status: 'queued',
+    queueName,
+    payload: parsed.data,
+    jobId,
+    executionMode: orchestrator.executionMode,
+  };
+}
+
+export function resetPreviewOrchestratorForTests() {
+  previewOrchestrator = undefined;
 }

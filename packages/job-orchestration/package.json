@@ -1,5 +1,5 @@
 {
-  "name": "@superapp/workers",
+  "name": "@superapp/job-orchestration",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,13 +7,10 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "tsx watch src/start.ts",
-    "start": "tsx src/start.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@superapp/job-orchestration": "workspace:*",
     "@superapp/platform-contracts": "workspace:*",
     "bullmq": "^5.41.0",
     "ioredis": "^5.10.1",
@@ -21,7 +18,6 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
-    "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"
   }

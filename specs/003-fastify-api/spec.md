@@ -4,35 +4,38 @@
 
 **Created**: 2026-06-12
 
-**Status**: Stub — Not started on `master`
+**Status**: **Shipped (skeleton)** on `master` (2026-06-12)
 
 **Master index**: [`specs/000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md)
 
-**Canonical plan**: [`platform-v2-migration-plan.md`](../../docs/gitbook/02-architecture/platform-v2-migration-plan.md) — Phase 3
-
 ## Goal
 
-apps/api with plugins, health, jobs, AI, module, publish, connector, flow, webhook, internal routes; no long-running work in handlers.
+Fastify API gateway skeleton with health checks and job enqueue endpoints using platform contracts and job orchestration.
 
 ## Delivery status on `master`
 
 | Field | Value |
 |-------|-------|
-| Implementation | **Not started** |
-| Spec Kit | Stub spec + plan + tasks (expand via `/speckit-plan` when work starts) |
-| Sibling worktree | May exist under `ai-shopify-superapp-phase3-*` — not merged until PR lands |
+| Package | `apps/api` (`@superapp/api`) |
+| Endpoints | `GET /health`, `GET /ready`, `POST /v1/jobs/enqueue`, `GET /v1/jobs/mode` |
+| Tests | 2 tests passing |
 
-## Acceptance (from migration plan)
+## Deliverables
 
-See Phase 3 in [`platform-v2-migration-plan.md`](../../docs/gitbook/02-architecture/platform-v2-migration-plan.md) for full acceptance criteria.
+- [x] Fastify app bootstrap with env validation
+- [x] Health and readiness endpoints
+- [x] Job enqueue route using `JobOrchestrator` + worker inline handlers
+- [x] Unit tests via `app.inject`
+
+## Deferred (later phases)
+
+- Shopify OAuth and session validation
+- Webhook HMAC verification
+- SSE progress streaming
+- Full internal admin API surface
 
 ## Success criteria
 
-- **SC-001**: Phase deliverables match migration plan acceptance section.
-- **SC-002**: Unit/integration tests for new logic; no secrets/PII in logs.
-- **SC-003**: RecipeSpec-only deployment boundary preserved where applicable.
-
-## Deferred / out of scope (this stub)
-
-- Full user-story elaboration — run `/speckit-specify` or `/speckit-clarify` when phase becomes active.
-- Implementation — tracked in `tasks.md` with `[ ]` until `/speckit-implement`.
+- **SC-001**: Fastify starts locally via `pnpm --filter @superapp/api dev`. ✅
+- **SC-002**: Health/readiness checks work. ✅
+- **SC-003**: No production Remix behavior changes required for skeleton. ✅

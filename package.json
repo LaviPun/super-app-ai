@@ -7,7 +7,7 @@
     "dev:web": "pnpm --filter web dev",
     "shopify:dev": "shopify app dev",
     "build": "pnpm -r build",
-    "test": "pnpm --filter @superapp/platform-contracts build && pnpm --filter web exec prisma generate && pnpm -r test",
+    "test": "pnpm --filter @superapp/platform-contracts build && pnpm --filter @superapp/job-orchestration build && pnpm --filter @superapp/workers build && pnpm --filter web exec prisma generate && pnpm -r test",
     "lint": "pnpm -r lint",
     "evals": "pnpm --filter web evals",
     "evals:strict": "pnpm --filter web evals --strict",

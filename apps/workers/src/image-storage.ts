@@ -2,6 +2,7 @@ import {
   ASSET_STORAGE_QUEUE,
   IMAGE_WORKER_QUEUE_BY_TYPE,
   ImageWorkerPayloadSchema,
+  type PlatformQueueName,
 } from '@superapp/platform-contracts';
 import { ImageWorkerHandler } from './image/image-worker.js';
 import { createStorageAdapter, type CreateStorageAdapterOptions } from './storage/storage-adapter-factory.js';
@@ -38,8 +39,8 @@ export function createImageStorageProcessor(options: ImageStorageProcessorOption
 
   return async (job: ImageStorageJobEnvelope): Promise<ImageStorageProcessorResult> => {
     const parsed = ImageWorkerPayloadSchema.safeParse(mergeJobEnvelope(job));
-    const queueName =
-      job.queueName ||
+    const queueName: PlatformQueueName =
+      (job.queueName as PlatformQueueName) ||
       (parsed.success ? IMAGE_WORKER_QUEUE_BY_TYPE[parsed.data.type] : undefined) ||
       ASSET_STORAGE_QUEUE;
 
@@ -116,7 +117,7 @@ function mergeJobEnvelope(job: ImageStorageJobEnvelope): unknown {
 
 function workerEvent(
   job: ImageStorageJobEnvelope,
-  queueName: string,
+  queueName: PlatformQueueName,
   type: WorkerEvent['type'],
   progress: number,
   message: string,
