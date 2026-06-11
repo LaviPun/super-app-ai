@@ -12,8 +12,10 @@ export const JobOrchestratorConfigSchema = z.object({
 
 export type JobOrchestratorConfig = z.infer<typeof JobOrchestratorConfigSchema>;
 
-export function loadJobOrchestratorConfig(
-  env: NodeJS.ProcessEnv = process.env,
+type EnvRecord = Record<string, string | undefined>;
+
+export function loadJobOrchestratorConfigFromRecord(
+  env: EnvRecord = process.env,
 ): JobOrchestratorConfig {
   const modeRaw = env.JOB_EXECUTION_MODE?.trim();
   const mode =
@@ -37,8 +39,17 @@ export function loadJobOrchestratorConfig(
   });
 }
 
-export function resolveEffectiveMode(config: JobOrchestratorConfig): JobOrchestratorConfig['mode'] {
-  if (config.mode === 'queue' && !config.queueRedisUrl) {
+export function loadJobOrchestratorConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): JobOrchestratorConfig {
+  return loadJobOrchestratorConfigFromRecord(env);
+}
+
+export function resolveEffectiveMode(
+  config: JobOrchestratorConfig,
+  options?: { externalQueueAvailable?: boolean },
+): JobOrchestratorConfig['mode'] {
+  if (config.mode === 'queue' && !config.queueRedisUrl && !options?.externalQueueAvailable) {
     return 'inline';
   }
   return config.mode;

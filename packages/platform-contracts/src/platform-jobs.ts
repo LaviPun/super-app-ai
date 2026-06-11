@@ -58,6 +58,17 @@ export const PLATFORM_QUEUE_REGISTRY = {
   queueByType: PLATFORM_JOB_QUEUE_BY_TYPE,
 } as const;
 
+/** Wrangler producer binding names keyed by platform queue. */
+export const CLOUDFLARE_QUEUE_BINDING_BY_QUEUE: Record<PlatformQueueName, string> = {
+  'asset-storage': 'ASSET_STORAGE_QUEUE',
+  'ai-generation': 'AI_GENERATION_QUEUE',
+  flow: 'FLOW_QUEUE',
+  connector: 'CONNECTOR_QUEUE',
+  publish: 'PUBLISH_QUEUE',
+  webhook: 'WEBHOOK_QUEUE',
+  retention: 'RETENTION_QUEUE',
+};
+
 export function resolvePlatformQueue(jobType: PlatformJobType): PlatformQueueName {
   return PLATFORM_JOB_QUEUE_BY_TYPE[jobType];
 }

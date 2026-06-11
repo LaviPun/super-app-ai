@@ -4,8 +4,9 @@
     "outDir": "dist",
     "rootDir": "src",
     "declaration": true,
-    "declarationMap": true
+    "declarationMap": true,
+    "types": ["@cloudflare/workers-types"]
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/__tests__/**", "src/cloudflare-queue-consumer.ts"]
+  "exclude": ["src/**/__tests__/**"]
 }

@@ -1,3 +1,11 @@
+## 2026-06-12 (Platform V2 — Cloudflare Workers API + queue consumer parity)
+
+- **Status:** Full Fastify API surface ported to `apps/api/src/cloudflare-worker.ts` (jobs enqueue/status, preview envelope/content, internal assistant stubs, health/ready). Shared handlers in `apps/api/src/handlers/*`. Workers queue consumer dispatches all 7 platform queues via `platform-queue-dispatcher.ts`.
+- **Job orchestration:** `createCloudflareQueueAdapter()` for CF Queues bindings; wrangler configs list all queue producers/consumers.
+- **Specs:** Master matrix + phase 18 operator vs automated runbook updated; phases 8, 14–17, 21 marked Partial with Workers port noted.
+- **Operator-only:** Create R2 bucket `superapp-assets`, create 7 CF Queues in dashboard, `wrangler login`, set `JOB_EXECUTION_MODE=queue` on API Worker when queues exist.
+- **Tests:** `pnpm test` green; V2 package typecheck green after job-orchestration rebuild.
+
 ## 2026-06-12 (Platform V2 — Spec audit + Cloudflare-only deploy)
 
 - **Status:** Full spec re-sync on `master`; Kubernetes/Fly/Railway deploy artifacts removed; Cloudflare wrangler configs + runbook added.

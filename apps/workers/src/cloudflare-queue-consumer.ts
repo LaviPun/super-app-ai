@@ -1,47 +1,50 @@
+/// <reference types="@cloudflare/workers-types" />
+
 /**
- * Cloudflare Queues consumer for asset-storage jobs.
+ * Cloudflare Queues consumer for all platform job queues.
  * BullMQ remains the local/transition path; this handler is the Cloudflare-native queue consumer.
  */
-import { createImageStorageProcessor } from './image-storage.js';
+import {
+  createPlatformQueueHandlers,
+  dispatchPlatformQueueJob,
+  parseQueueMessageBody,
+} from './platform-queue-dispatcher.js';
 
-type QueueMessage = {
-  id: string;
-  queueName: string;
-  payload: unknown;
-  trace?: {
-    correlationId?: string;
-    requestId?: string;
-    shopId?: string;
-  };
-};
+export interface WorkersConsumerEnv {
+  ASSETS?: R2Bucket;
+  R2_BUCKET_NAME?: string;
+}
+
+export async function handleQueueBatch(
+  batch: MessageBatch<unknown>,
+  env: WorkersConsumerEnv,
+): Promise<void> {
+  const handlers = createPlatformQueueHandlers({
+    storageAdapterOptions: {
+      provider: env.ASSETS ? 'r2' : 'local',
+      r2Bucket: env.ASSETS,
+      r2BucketName: env.R2_BUCKET_NAME ?? 'superapp-assets',
+    },
+  });
+
+  for (const message of batch.messages) {
+    const envelope = parseQueueMessageBody(message.body);
+    if (!envelope) {
+      message.ack();
+      continue;
+    }
+
+    try {
+      await dispatchPlatformQueueJob(envelope, handlers);
+      message.ack();
+    } catch {
+      message.retry();
+    }
+  }
+}
 
 export default {
-  async queue(batch: MessageBatch<QueueMessage>, env: { ASSETS?: R2Bucket }): Promise<void> {
-    const processor = createImageStorageProcessor({
-      storageAdapterOptions: {
-        provider: env.ASSETS ? 'r2' : 'local',
-        r2Bucket: env.ASSETS,
-        r2BucketName: 'superapp-assets',
-      },
-    });
-
-    for (const message of batch.messages) {
-      try {
-        const body = message.body;
-        await processor({
-          id: body.id,
-          queueName: body.queueName ?? 'asset-storage',
-          payload: body.payload,
-          trace: {
-            correlationId: body.trace?.correlationId ?? body.id,
-            requestId: body.trace?.requestId,
-            shopId: body.trace?.shopId,
-          },
-        });
-        message.ack();
-      } catch {
-        message.retry();
-      }
-    }
+  async queue(batch: MessageBatch<unknown>, env: WorkersConsumerEnv): Promise<void> {
+    await handleQueueBatch(batch, env);
   },
 };

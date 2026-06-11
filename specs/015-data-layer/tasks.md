@@ -2,7 +2,7 @@
 
 **Input**: [spec.md](./spec.md), [platform-v2-migration-plan.md](../../docs/gitbook/02-architecture/platform-v2-migration-plan.md)
 
-**Status on master**: Partial — minimal implementation shipped
+**Status on master**: Partial — R2/local storage adapters + worker handlers; prod R2 bucket is operator-provisioned
 
 ## Phase checklist (stub)
 

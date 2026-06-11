@@ -21,7 +21,7 @@ Feature flags; traffic cutover; Remix retirement plan.
 | Field | Value |
 |-------|-------|
 | Implementation | **Partial** |
-| Shipped | `PLATFORM_V2_ENABLED` gate in `packages/job-orchestration` (config + orchestrator skip), `GET /v1/jobs/mode` endpoint, default `true` in `fly.api.toml`, and unit tests |
+| Shipped | `PLATFORM_V2_ENABLED` gate in `packages/job-orchestration` (config + orchestrator skip), `GET /v1/jobs/mode` endpoint, default `true` in API Worker env (`apps/api/wrangler.jsonc`), and unit tests |
 | Pending | Traffic cutover plan, Remix retirement, feature flag UI and ops runbooks |
 
 ## Acceptance (from migration plan)

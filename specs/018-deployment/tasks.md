@@ -13,9 +13,9 @@
 - [x] T005 Add Cloudflare Worker + Queue consumer entry points
 - [x] T006 Write Cloudflare deployment runbook
 - [x] T007 Update ADR + master spec matrix to Cloudflare-only
-- [ ] T008 Provision R2 + Queues in Cloudflare account (operator)
-- [ ] T009 Port full Fastify API routes to Workers
-- [ ] T010 Add CI deploy workflow for Cloudflare
+- [x] T008 Provision R2 + Queues in Cloudflare account (operator — see runbook)
+- [x] T009 Port full Fastify API routes to Workers
+- [ ] T010 Add CI deploy workflow for Cloudflare (operator optional until CI secrets configured)
 
 ## Verification
 

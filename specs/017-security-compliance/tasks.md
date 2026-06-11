@@ -2,7 +2,7 @@
 
 **Input**: [spec.md](./spec.md), [platform-v2-migration-plan.md](../../docs/gitbook/02-architecture/platform-v2-migration-plan.md)
 
-**Status on master**: Partial — minimal implementation shipped
+**Status on master**: Partial — SSRF/rate-limit in shared packages; CF WAF/Turnstile operator-configured
 
 ## Phase checklist (stub)
 

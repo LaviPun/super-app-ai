@@ -2,7 +2,7 @@
 
 **Input**: [spec.md](./spec.md), [platform-v2-migration-plan.md](../../docs/gitbook/02-architecture/platform-v2-migration-plan.md)
 
-**Status on master**: Partial — minimal implementation shipped
+**Status on master**: Partial — `PLATFORM_V2_ENABLED` + `/v1/jobs/mode` on API Worker; traffic cutover pending
 
 ## Phase checklist (stub)
 

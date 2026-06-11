@@ -1,14 +1,13 @@
-import { Worker } from 'bullmq';
-import Redis from 'ioredis';
 import {
   ASSET_STORAGE_QUEUE,
   PLATFORM_QUEUES,
   type PlatformQueueName,
 } from '@superapp/platform-contracts';
 import { loadJobOrchestratorConfig } from '@superapp/job-orchestration';
-import { createImageStorageProcessor } from './image-storage.js';
-import { createScaffoldWorkerHandlers } from './handlers/worker-handlers.js';
+import { createPlatformQueueHandlers } from './platform-queue-dispatcher.js';
 import type { JobHandler } from '@superapp/job-orchestration';
+import { Worker } from 'bullmq';
+import Redis from 'ioredis';
 
 export type WorkerRuntimeOptions = {
   queues?: PlatformQueueName[];
@@ -34,21 +33,7 @@ export function createWorkerRuntime(options: WorkerRuntimeOptions = {}): WorkerR
     });
 
   const handlers: Partial<Record<PlatformQueueName, JobHandler>> = {
-    [ASSET_STORAGE_QUEUE]: async (job) => {
-      const processor = createImageStorageProcessor();
-      const result = await processor({
-        id: job.id,
-        queueName: job.queueName,
-        payload: job.payload,
-        trace: job.trace,
-      });
-      return {
-        status: result.status,
-        result: result.result,
-        events: result.events,
-      };
-    },
-    ...createScaffoldWorkerHandlers(),
+    ...createPlatformQueueHandlers(),
     ...options.handlers,
   };
 

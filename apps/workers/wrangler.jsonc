@@ -4,6 +4,9 @@
   "main": "src/cloudflare-queue-consumer.ts",
   "compatibility_date": "2026-01-01",
   "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "R2_BUCKET_NAME": "superapp-assets"
+  },
   "r2_buckets": [
     {
       "binding": "ASSETS",
@@ -12,11 +15,13 @@
   ],
   "queues": {
     "consumers": [
-      {
-        "queue": "asset-storage",
-        "max_batch_size": 10,
-        "max_batch_timeout": 30
-      }
+      { "queue": "asset-storage", "max_batch_size": 10, "max_batch_timeout": 30 },
+      { "queue": "ai-generation", "max_batch_size": 10, "max_batch_timeout": 30 },
+      { "queue": "flow", "max_batch_size": 10, "max_batch_timeout": 30 },
+      { "queue": "connector", "max_batch_size": 10, "max_batch_timeout": 30 },
+      { "queue": "publish", "max_batch_size": 10, "max_batch_timeout": 30 },
+      { "queue": "webhook", "max_batch_size": 10, "max_batch_timeout": 30 },
+      { "queue": "retention", "max_batch_size": 10, "max_batch_timeout": 30 }
     ]
   }
 }

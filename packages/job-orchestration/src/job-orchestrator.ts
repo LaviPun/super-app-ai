@@ -23,6 +23,8 @@ export type JobOrchestratorOptions = {
   inlineHandlers?: Partial<Record<PlatformQueueName, JobHandler>>;
   queueAdapter?: JobQueueAdapter;
   config?: ReturnType<typeof loadJobOrchestratorConfig>;
+  /** Cloudflare Queues bindings (no Redis URL required). */
+  externalQueueAvailable?: boolean;
 };
 
 export class JobOrchestrator {
@@ -36,7 +38,9 @@ export class JobOrchestrator {
     this.config = JobOrchestratorConfigSchema.parse(
       options.config ?? loadJobOrchestratorConfig(),
     );
-    this.effectiveMode = resolveEffectiveMode(this.config);
+    this.effectiveMode = resolveEffectiveMode(this.config, {
+      externalQueueAvailable: options.externalQueueAvailable ?? Boolean(options.queueAdapter),
+    });
     this.inlineHandlers = options.inlineHandlers ?? {};
 
     if (options.queueAdapter) {
