@@ -67,6 +67,29 @@ export SPECIFY_FEATURE=013-your-feature
 
 For the **next** phase, use phase number as `--number` (e.g. `--number 13`) so directories align with migration numbering.
 
+**Master index:** [`specs/000-platform-v2-master/spec.md`](../../../specs/000-platform-v2-master/spec.md) — phase coverage matrix, deferred items, links to all `specs/0NN-*` directories.
+
+### V2 phase coverage matrix (2026-06-12, `master`)
+
+| V2 | Name | Spec dir | `master` status |
+|----|------|----------|-----------------|
+| 0 | Baseline & inventory | *(master only)* | Partial |
+| 1 | Target monorepo | `001-target-monorepo` | Partial |
+| 2 | Shared contracts | `002-shared-contracts` | Partial |
+| 3 | Fastify API | `003-fastify-api` | Not started |
+| 4 | Next frontend | `004-next-frontend` | Not started |
+| 5 | Job orchestration | `005-job-orchestration` | Not started |
+| 6 | Worker skeleton | `006-worker-skeleton` | Partial |
+| 7 | AI generation worker | `007-ai-generation-worker` | Not started |
+| 8 | Internal assistant | `008-internal-assistant` | Not started |
+| 9 | Webhook & flow | `009-webhook-flow` | Not started |
+| 10 | Connector worker | `010-connector-worker` | Not started |
+| 11 | Publish worker | `011-publish-worker` | Not started |
+| 12 | Storage & image worker | `012-storage-image-worker` | **Shipped** |
+| 13–21 | Preview → cutover | `013-*` … `021-*` | Not started (stub specs) |
+
+Phase 12 deferred on master: BullMQ `asset-storage` consumer, live preview enqueue, R2 prod binding, signed URLs — see [`012-storage-image-worker/spec.md`](../../../specs/012-storage-image-worker/spec.md).
+
 ## Brownfield vs greenfield
 
 - **Greenfield** (new capability): Start at `/speckit-specify` with user-facing requirements.

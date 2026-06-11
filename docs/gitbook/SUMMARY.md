@@ -19,7 +19,10 @@
 * [System architecture](02-architecture/system-architecture.md)
 * [Data model](02-architecture/data-model.md)
 * [Spec-driven development (Spec Kit)](02-architecture/spec-driven-development.md)
+* [Platform V2 migration plan](02-architecture/platform-v2-migration-plan.md)
+* [V2 master spec index](../../../specs/000-platform-v2-master/spec.md)
 * [V2 Phase 12 — storage & image worker](02-architecture/v2-migration/phase-12-storage-image-worker.md)
+* [ADR-001 — Platform V2 architecture](02-architecture/v2-migration/ADR-001-platform-v2-architecture.md)
 * [Technical reference (full)](../technical.md)
 
 ## Backend & platform

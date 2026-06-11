@@ -5,7 +5,7 @@ alwaysApply: true
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan at:
-`specs/012-storage-image-worker/plan.md`
+`specs/000-platform-v2-master/plan.md`
 
-Active feature: `012-storage-image-worker` (set `SPECIFY_FEATURE=012-storage-image-worker`)
+Active feature: `000-platform-v2-master` (set `SPECIFY_FEATURE=000-platform-v2-master`). Per-phase work: `SPECIFY_FEATURE=0NN-<phase-name>`.
 <!-- SPECKIT END -->

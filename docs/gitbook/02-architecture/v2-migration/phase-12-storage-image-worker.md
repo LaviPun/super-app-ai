@@ -1,6 +1,6 @@
 # Platform V2 — Phase 12 Storage And Image Worker
 
-**Status:** Shipped in worktree (2026-06-12) — merge to main pending stack with Phase 9–11  
+**Status:** Shipped on `master` (2026-06-12, PR #8). BullMQ consumer wiring and R2 production deploy remain deferred until Phases 5/9–11/18 land.  
 **Plan reference:** `platform-v2-migration-plan.md` § Phase 12
 
 ## Scope delivered

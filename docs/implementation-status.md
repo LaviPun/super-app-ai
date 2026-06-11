@@ -1,6 +1,6 @@
 ## 2026-06-12 (Platform V2 Phase 12 — Storage And Image Worker — shipped)
 
-- **Status:** Phase 12 complete in worktree — contracts, worker handler, job registry, docs, and Remix preview enqueue stub.
+- **Status:** Phase 12 merged to `master` (PR #8) — contracts, worker handler, job registry, docs, and Remix preview enqueue stub. Deferred: live BullMQ publish, R2 prod deploy, signed URLs.
 - **Job registry (`packages/platform-contracts/src/jobs.ts`):** Registers `IMAGE_INGESTION`, `PREVIEW_EXPORT`, and `ASSET_CLEANUP` on the `asset-storage` queue with `resolveImageWorkerQueue()` and payload parse helpers aligned to `storage.ts`.
 - **Contracts (`packages/platform-contracts`):** `storage.ts` defines generated asset metadata, worker payloads, events, and results. Preview export is RecipeSpec/config-safe (blocks scripts and inline handlers); no merchant code deployment paths exist in this worker.
 - **Worker handler (`apps/workers`):** `ImageWorkerHandler` performs ingest/preview/cleanup against a `StorageAdapter`. `createImageStorageProcessor()` validates envelopes, delegates to the handler, and emits `JOB_STARTED` / `JOB_PROGRESS` / `JOB_COMPLETED` / `JOB_FAILED` events.
@@ -144,6 +144,19 @@
 | — | **Agent-Native Architecture Audit + Remediation** | ✅ P1–P10+ Complete + Fresh Audit Gaps Resolved (30 agent endpoints, UI polling, ConnectorEndpoint agent CRUD, DataStoreRecord list, FlowSchedule full update) |
 | — | **Universal Module Slot & extension plan** | ✅ Complete (metaobject-only, API 2026-04+) |
 | — | **CEO Review Controls Sync (2026-04-29)** | ✅ Decisions captured; implementation pending |
+
+### Platform V2 migration (separate from legacy phases 0–8)
+
+Canonical plan: [`docs/gitbook/02-architecture/platform-v2-migration-plan.md`](./gitbook/02-architecture/platform-v2-migration-plan.md). Master Spec Kit index: [`specs/000-platform-v2-master/spec.md`](../specs/000-platform-v2-master/spec.md).
+
+| V2 Phase | Title | Status on `master` |
+|----------|-------|-------------------|
+| 0 | Baseline & inventory | ⚠️ Partial (ADR + plan in repo) |
+| 1 | Target monorepo shape | ⚠️ Partial (`workers`, `platform-contracts`; no `api`/`frontend`) |
+| 2 | Shared contracts | ⚠️ Partial (image/storage jobs only) |
+| 3–11 | API, frontend, queues, workers | ❌ Not started on `master` (WIP in sibling worktrees) |
+| 12 | Storage & image worker | ✅ Shipped (PR #8); BullMQ/R2/signed URLs deferred |
+| 13–21 | Preview through cutover | ❌ Not started (stub specs only) |
 
 ### Current progress snapshot (2026-04-30)
 
