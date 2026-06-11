@@ -34,14 +34,26 @@ Expected: image worker + storage adapter tests pass (9+ tests).
 
 Enqueue `PREVIEW_EXPORT` with body containing `<script>alert(1)</script>` — expect `failed` status and no object written.
 
+## Validate Remix preview export stub
+
+```bash
+pnpm --filter web test -- app/services/preview/preview-export.queue.server.test.ts
+```
+
+With `PREVIEW_EXPORT_QUEUE_ENABLED=1`, `schedulePreviewExport()` validates a `PREVIEW_EXPORT` payload and returns `{ status: 'queued', queueName: 'asset-storage', payload }`. The preview route (`apps/web/app/routes/preview.$moduleId.tsx`) calls it fire-and-forget after HTML render. BullMQ publish remains deferred until Phase 9–11 queue merge.
+
 ## Merge checklist
 
-- Register job types in shared `packages/platform-contracts/src/jobs.ts` when merging with Phase 9–11 branch
-- Update `docs/implementation-status.md` and gitbook phase doc
+- Register job types in shared `packages/platform-contracts/src/jobs.ts` when merging with Phase 9–11 branch (done in this worktree)
+- Update `docs/implementation-status.md` and gitbook phase doc (done)
 - Run full monorepo test suite before PR
+
+```bash
+pnpm test
+```
 
 ## Out of scope (this quickstart)
 
-- Production R2 binding deployment
-- Remix route enqueue for preview export
+- Production R2 binding deployment (ops config documented in gitbook phase-12 doc)
+- BullMQ consumer registration and live queue publish from Remix
 - Signed URL retrieval
