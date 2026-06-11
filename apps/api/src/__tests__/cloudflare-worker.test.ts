@@ -7,6 +7,32 @@ import worker from '../cloudflare-worker.js';
 import { resetJobOrchestratorForTests } from '../handlers/job-handlers.js';
 import { resetPreviewSandboxServiceForTests } from '../handlers/preview-handlers.js';
 
+function createMockJobStatusKv(): KVNamespace {
+  const records = new Map<string, string>();
+  return {
+    get: async (key: string) => records.get(key) ?? null,
+    put: async (key: string, value: string) => {
+      records.set(key, value);
+    },
+    delete: async (key: string) => {
+      records.delete(key);
+    },
+    list: async () => ({ keys: [], list_complete: true, cacheStatus: null }),
+    getWithMetadata: async (key: string) => ({
+      value: records.get(key) ?? null,
+      metadata: null,
+      cacheStatus: null,
+    }),
+  } as KVNamespace;
+}
+
+function workerEnv(overrides: Record<string, unknown> = {}) {
+  return {
+    JOB_STATUS_KV: createMockJobStatusKv(),
+    ...overrides,
+  };
+}
+
 describe('cloudflare-worker', () => {
   let tempDir = '';
 
@@ -41,6 +67,7 @@ describe('cloudflare-worker', () => {
 
   it('enqueues and returns job status inline', async () => {
     process.env.PLATFORM_V2_ENABLED = 'true';
+    const env = workerEnv({ JOB_EXECUTION_MODE: 'inline', PLATFORM_V2_ENABLED: 'true' });
     const response = await worker.fetch(
       new Request('https://api.example/v1/jobs/enqueue', {
         method: 'POST',
@@ -56,15 +83,12 @@ describe('cloudflare-worker', () => {
           },
         }),
       }),
-      { JOB_EXECUTION_MODE: 'inline', PLATFORM_V2_ENABLED: 'true' },
+      env,
     );
 
     expect(response.status).toBe(202);
     const body = (await response.json()) as { jobId: string };
-    const status = await worker.fetch(new Request(`https://api.example/v1/jobs/${body.jobId}`), {
-      JOB_EXECUTION_MODE: 'inline',
-      PLATFORM_V2_ENABLED: 'true',
-    });
+    const status = await worker.fetch(new Request(`https://api.example/v1/jobs/${body.jobId}`), env);
     expect(status.status).toBe(200);
     expect(await status.json()).toMatchObject({
       jobId: body.jobId,
@@ -104,11 +128,11 @@ describe('cloudflare-worker', () => {
           },
         }),
       }),
-      {
+      workerEnv({
         JOB_EXECUTION_MODE: 'inline',
         PLATFORM_V2_ENABLED: 'true',
         LOCAL_STORAGE_PATH: tempDir,
-      },
+      }),
     );
     expect(enqueue.status).toBe(202);
 
@@ -139,11 +163,11 @@ describe('cloudflare-worker', () => {
           payload: { topic: 'orders/create', shopId: 'shop_1' },
         }),
       }),
-      {
+      workerEnv({
         JOB_EXECUTION_MODE: 'queue',
         PLATFORM_V2_ENABLED: 'true',
         WEBHOOK_QUEUE: { send } as Queue,
-      },
+      }),
     );
 
     expect(response.status).toBe(202);

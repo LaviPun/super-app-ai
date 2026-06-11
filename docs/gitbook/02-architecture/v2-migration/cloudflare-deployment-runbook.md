@@ -20,9 +20,9 @@ Local development keeps **Fastify** (`apps/api`) and **BullMQ** (`apps/workers`)
 
 | Step | Who | Notes |
 |------|-----|-------|
-| Create R2 bucket `superapp-assets` | **Operator (CF dashboard or CLI)** | Required before deploy; wrangler references bucket name only |
-| Create Queues (`asset-storage`, `ai-generation`, `flow`, `connector`, `publish`, `webhook`, `retention`) | **Operator** | `wrangler queues create <name>` for each queue in wrangler configs |
 | `wrangler login` | **Operator** | One-time per machine |
+| Create R2 + Queues + KV | **Automated** | `./scripts/cloudflare-setup.sh` (after login) |
+| Paste KV namespace IDs into `apps/api/wrangler.jsonc` | **Operator** | One-time after first KV create (`wrangler kv namespace list`) |
 | `pnpm --filter @superapp/api deploy:cf` | **Automated script** | Deploys API Worker with producers + R2 binding |
 | `pnpm --filter @superapp/workers deploy:cf` | **Automated script** | Deploys queue consumer Worker |
 | `pnpm --filter @superapp/frontend deploy:cf` | **Automated script** | After `pnpm build` |
@@ -38,7 +38,7 @@ The Cloudflare Worker entry (`apps/api/src/cloudflare-worker.ts`) mirrors Fastif
 | `GET /health`, `GET /ready` | Liveness / readiness |
 | `GET /v1/jobs/mode` | Execution mode + feature gate |
 | `POST /v1/jobs/enqueue` | All `PlatformJobType` values via `@superapp/platform-contracts` |
-| `GET /v1/jobs/:jobId` | Job status (in-memory store; DO/KV in later phase) |
+| `GET /v1/jobs/:jobId` | Job status (`JOB_STATUS_KV`, 7-day TTL) |
 | `GET /v1/preview/:shopId/:moduleId/envelope` | Preview envelope JSON |
 | `GET /v1/preview/:shopId/:moduleId/content` | CSP-protected HTML |
 | `GET /v1/internal/assistant/readiness` | Phase 8 proxy stub |
@@ -52,12 +52,32 @@ Queue mode on Workers uses `@superapp/job-orchestration` `createCloudflareQueueA
 - `wrangler` CLI (installed per-app via `pnpm install`)
 - `wrangler login`
 
-## R2 (operator)
+## Automated setup
 
-Create bucket `superapp-assets` (or override in wrangler). The Workers binding name is **`ASSETS`** in both API and worker wrangler files.
+After `wrangler login`:
+
+```bash
+./scripts/cloudflare-setup.sh
+```
+
+Creates R2 bucket `superapp-assets`, all seven Queues, and KV namespace `superapp-job-status` when missing. Prints deploy commands and reminds you to paste KV IDs into `apps/api/wrangler.jsonc`.
+
+## R2
+
+The Workers binding name is **`ASSETS`** in both API and worker wrangler files. Created by the setup script or manually:
 
 ```bash
 wrangler r2 bucket create superapp-assets
+```
+
+## Job status KV
+
+Binding: **`JOB_STATUS_KV`** in `apps/api/wrangler.jsonc`. TTL: 7 days per record.
+
+```bash
+wrangler kv namespace create superapp-job-status
+wrangler kv namespace create superapp-job-status --preview
+wrangler kv namespace list
 ```
 
 Optional env for public reads (signed URL proxy ships in a later phase):
@@ -67,9 +87,9 @@ Optional env for public reads (signed URL proxy ships in a later phase):
 | `R2_BUCKET_NAME` | Bucket name fallback in adapter factory |
 | `R2_PUBLIC_BASE_URL` | CDN origin for public-read objects |
 
-## Queues (operator)
+## Queues
 
-Create each queue (names must match wrangler):
+Names must match wrangler (created by setup script or manually):
 
 ```bash
 for q in asset-storage ai-generation flow connector publish webhook retention; do

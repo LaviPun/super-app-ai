@@ -13,9 +13,12 @@
 - [x] T005 Add Cloudflare Worker + Queue consumer entry points
 - [x] T006 Write Cloudflare deployment runbook
 - [x] T007 Update ADR + master spec matrix to Cloudflare-only
-- [x] T008 Provision R2 + Queues in Cloudflare account (operator — see runbook)
+- [x] T008 Provision R2 + Queues + KV via `scripts/cloudflare-setup.sh` (automated after operator `wrangler login`)
 - [x] T009 Port full Fastify API routes to Workers
+- [x] T009a Job status persistence on Workers via `JOB_STATUS_KV` binding (7-day TTL)
 - [ ] T010 Add CI deploy workflow for Cloudflare (operator optional until CI secrets configured)
+
+**Operator-only:** `wrangler login` (one-time per machine). All resource creation is scripted; paste KV namespace IDs from `wrangler kv namespace list` into `apps/api/wrangler.jsonc` after first run.
 
 ## Verification
 

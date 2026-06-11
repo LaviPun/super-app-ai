@@ -4,4 +4,5 @@ export * from './cloudflare-queue.js';
 export * from './job-events.js';
 export * from './job-orchestrator.js';
 export * from './job-status-store.js';
+export * from './kv-job-status-store.js';
 export * from './types.js';

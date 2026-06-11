@@ -28,6 +28,7 @@ export type ApiRuntimeEnv = {
   PUBLISH_QUEUE?: Queue;
   WEBHOOK_QUEUE?: Queue;
   RETENTION_QUEUE?: Queue;
+  JOB_STATUS_KV?: KVNamespace;
 };
 
 function extractCloudflareQueueBindings(env: ApiRuntimeEnv) {

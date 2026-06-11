@@ -1,4 +1,5 @@
 import type { ApiRuntimeEnv } from './handlers/api-context.js';
+import { configureJobStatusStore } from './services/job-status-store-config.js';
 import { handleAssistantChat, handleAssistantReadiness } from './handlers/internal-assistant-handlers.js';
 import { handleHealthWorker, handleReady } from './handlers/health-handlers.js';
 import {
@@ -126,6 +127,7 @@ function matchRoute(method: string, pathname: string) {
 
 export default {
   async fetch(request: Request, env: ApiWorkerEnv): Promise<Response> {
+    configureJobStatusStore(env);
     const url = new URL(request.url);
     const matched = matchRoute(request.method, url.pathname);
 
