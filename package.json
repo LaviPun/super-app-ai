@@ -1,7 +1,11 @@
 {
   "name": "ai-shopify-superapp",
   "private": true,
-  "packageManager": "pnpm@9.12.2",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20.20.0",
+    "pnpm": ">=9.15.0"
+  },
   "scripts": {
     "dev": "pnpm -r dev",
     "dev:web": "pnpm --filter web dev",
@@ -23,13 +27,15 @@
   },
   "devDependencies": {
     "husky": "^9.1.7",
-    "lint-staged": "^16.3.1"
+    "lint-staged": "^16.4.0",
+    "vitest": ">=3.2.6 <4"
   },
   "pnpm": {
     "overrides": {
       "protobufjs": ">=8.0.1",
       "shell-quote": ">=1.8.4",
-      "vitest": ">=3.2.6 <4"
+      "vitest": ">=3.2.6 <4",
+      "ioredis": "^5.11.1"
     }
   },
   "lint-staged": {

@@ -1,3 +1,19 @@
+## 2026-06-12 (Vault Gadget app — returns, theme profiles, webhook ledger)
+
+- **New `vault/` Gadget scaffold** for Shopify return sync and supporting services (not wired into Remix monorepo deploy yet).
+- **`shopifyReturn` / `shopifyReturnLineItem` models** with shop-scoped Gelly filters and `shopify-app-users`-only CRUD permissions.
+- **Theme profile migration:** `recordThemeProfile` shop action calls `api/lib/shopify/themeProfiles.ts` (`recordThemeProfile`) with `triggers.api: true` (no session/actor requirement).
+- **Webhook ledger migration:** `POST-shopify-webhooks` route uses `api/lib/shopify/webhookLedger.ts` with `isDuplicate` / `isNew` / `webhookEventId` result shape.
+- **Tests:** `vault/api/lib/shopify/*.test.ts` (vitest); run `pnpm --dir vault test`.
+- **Operator note:** run `ggt dev` in `vault/` to sync `.gadget/server` before Gadget deploy.
+
+## 2026-06-12 (Dependency upgrade — Node 24 dev SSR fix)
+
+- **Workspace deps** bumped to latest **compatible** majors: Remix **2.17.5**, Vite **6.4.x**, TypeScript **5.9.x**, Vitest **3.2.x**, Fastify **5.x**, BullMQ **5.78.x**, Wrangler **4.x**, Next **15.5.x**, Shopify API **11.14.x** / `@shopify/shopify-app-remix` **3.8.5** / Polaris **12.27.x**, Prisma **5.22.x**, OpenTelemetry + Sentry patch bumps, extension `@shopify/ui-extensions` **2026.4.0**. Root **pnpm 9.15.9**; `engines.node` `>=20.20.0`; `pnpm.overrides.ioredis` dedupes BullMQ types.
+- **Node 24 SSR fix:** `@shopify/shopify-app-remix` **2.8.x** used deprecated `import … assert { type: 'json' }` in `AppProvider.mjs` (removed in Node 22+). Upgraded to **3.8.5** (`with { type: 'json' }`). Remix/Vite **dev** and **build** work on Node **24.16.0**. `.nvmrc` → **24**.
+- **Deferred major upgrades** (need dedicated migration): Prisma 7, `@shopify/shopify-app-remix` 4.x, `@shopify/shopify-api` 13.x, Polaris 13, React 19, Vite 7+ (Remix 2 peer caps at Vite 6), Vitest 4, Zod 4, TypeScript 6, Next 16.
+- **Verification (Node 24.16.0):** `pnpm --filter web typecheck` clean; `apps/web` vitest **498 passed** / 16 skipped; `remix vite:build` green; `dev:internal` SSR `/internal/login` **200**.
+
 ## 2026-06-12 (Internal vs main chatbot: self-hosted internal default + Gemini + default/fallback)
 
 - **Internal chatbot stays self-hosted by default.** `DEFAULT_ROUTER_RUNTIME_CONFIG`: `localMachine` = local Ollama (`qwen3:4b-instruct`, active default), `modalRemote` = cloud Qwen twin (`qwen3` backend, `Qwen/Qwen3-4B-Instruct`) for a future Modal-hosted twin. The `anthropic` backend remains a **selectable option** per target in `/internal/model-setup`, never the default. (Reverts the earlier same-day default-to-Anthropic change.)

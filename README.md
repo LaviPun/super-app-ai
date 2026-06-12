@@ -257,7 +257,6 @@ ai-shopify-superapp/
 | Testing | **Vitest 3** |
 | Tooling | pnpm 9 workspaces, ESLint, Husky + lint-staged, Prisma CLI |
 | Deploy targets | Cloudflare Workers/Pages/R2/Queues (V2), Docker (`Dockerfile.internal-router`), Modal (`deploy/modal-qwen-router/`) |
-| Deploy targets | Docker (`Dockerfile.internal-router`), Railway (`deploy/railway-internal-router/`), Modal (`deploy/modal-qwen-router/`) |
 
 The Shopify Admin API version is pinned to `2026-01` (see `shopify.app.toml` and `apps/web/app/shopify.server.ts`). App distribution is `AppDistribution.AppStore`.
 
@@ -265,12 +264,19 @@ The Shopify Admin API version is pinned to `2026-01` (see `shopify.app.toml` and
 
 ## Prerequisites
 
-- **Node** 20+
-- **pnpm** 9.12.2+ (this repo pins `packageManager` in root `package.json`)
+- **Node** **24.x** (pinned in [`.nvmrc`](.nvmrc); **Node 20.20+** also supported via `engines.node`)
+- **pnpm** **9.15.x** (pinned via `packageManager` in root `package.json`; enable with `corepack enable`)
 - **Shopify CLI** (`npm i -g @shopify/cli`)
 - A **Shopify Partner account** and a **dev store**
 - For local AI router (optional): **Ollama** (`qwen3:4b-instruct`) or a vLLM/OpenAI-compatible endpoint
 - For production: **Postgres** and **Redis**
+
+```bash
+# Recommended: use the pinned Node version before install/dev
+nvm use          # reads .nvmrc → 24
+corepack enable  # once per machine, for pinned pnpm
+pnpm install
+```
 
 ---
 
@@ -435,8 +441,8 @@ The repo uses pnpm workspaces. Most commands are scoped per-package via `pnpm --
 
 | Command | What it does | When to use it |
 |---------|--------------|----------------|
-| `pnpm --filter web dev` | Prisma push + generate, then start Remix on port 3000 | Local Remix-only dev |
-| `pnpm --filter web dev:internal` | Same as `dev` but on port 4000 | Operator-only sessions or running admin in parallel |
+| `pnpm --filter web dev` | Prisma push + generate, then start Remix on port 3000 | Local Remix-only dev (Node **20.20+** or **24.x**) |
+| `pnpm --filter web dev:internal` | Remix on **4000** + internal AI router on **8787** (`concurrently`) | Internal admin at http://127.0.0.1:4000/internal/login |
 | `pnpm --filter web build` | Production Remix build | Pre-deploy |
 | `pnpm --filter web start` | Run the production build | Production runtime |
 | `pnpm --filter web typecheck` | `tsc --noEmit` | Pre-commit (also enforced by lint-staged) |
@@ -980,7 +986,7 @@ The repository ships a single GitHub Actions workflow at [`.github/workflows/ci.
 
 Live LLM evals run in a separate workflow with `environment: production` and `EVAL_PROVIDER_ID` injected as a secret.
 
-Node 20 and pnpm 9 are pinned. No CI job has access to real Shopify or LLM credentials.
+Node **24.x** (`.nvmrc`) and pnpm **9.15.x** (`packageManager`) are pinned. No CI job has access to real Shopify or LLM credentials.
 
 ---
 
@@ -1049,6 +1055,7 @@ Node 20 and pnpm 9 are pinned. No CI job has access to real Shopify or LLM crede
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
+| `Unexpected identifier 'assert'` on `virtual:remix/server-build` during `dev` / `dev:internal` | Stale `@shopify/shopify-app-remix` before **3.8** ships deprecated `import … assert { type: 'json' }` syntax removed in Node 22+ | Upgrade to `@shopify/shopify-app-remix` **3.8.5+** (`pnpm install`), then `nvm use` and re-run dev. If native modules fail after a Node major switch, run `pnpm install` to rebuild (e.g. `better-sqlite3`) |
 | Boot fails with `ENCRYPTION_KEY` validation error | Key is not 32-byte base64 | Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` |
 | `Missing INTERNAL_ADMIN_SESSION_SECRET` on boot | Required even for `dev:internal` | Set the var in `.env`; tests inject it automatically via `vitest.config.ts` |
 | `/internal/...` keeps redirecting to `/internal/login` | Cookie `__superapp_internal` not set / not trusted | Confirm `INTERNAL_ADMIN_SESSION_SECRET` matches between processes; in prod the cookie is `Secure`, so HTTP origins won't work |

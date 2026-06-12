@@ -13,6 +13,8 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 | **4000** | Internal admin only | From `apps/web`: `pnpm dev:internal` (runs **Remix** on 4000 and the **internal-ai-router** on **8787** in parallel via `concurrently`; stop with Ctrl+C once to exit both) |
 | **8787** | Reference internal prompt router + Ollama passthrough | Started automatically with `pnpm dev:internal`; or run alone: `pnpm --filter web router:internal`. Requires **Ollama** (`ollama serve`) for inference or router calls to Ollama will fail (502/timeouts). |
 
+**Node version:** use **Node 24.x** (`nvm use` at repo root reads `.nvmrc`). Node **20.20+** is also supported. Requires `@shopify/shopify-app-remix` **3.8.5+** (uses `import … with { type: 'json' }` instead of deprecated `assert` syntax removed in Node 22+).
+
 - **Shopify app** must run on **3000** so the CLI tunnel and Partner Dashboard point to the correct URL.
 - **Internal admin** runs on **4000** so you can use it without touching the Shopify app. Open **http://127.0.0.1:4000/internal/login** (`dev:internal` binds `--host 127.0.0.1` so smoke/Playwright match CI). When a Shopify Cloudflare tunnel URL in `shopify.app.toml` is expired (NXDOMAIN), use this local URL for staging-gate smoke and e2e instead of the tunnel.
 - **Environment:** `apps/web/.env` must include all vars in `apps/web/.env.example`, including **`SCOPES`** (comma-separated, same list as `shopify.app.toml` `[access_scopes]`). If `SCOPES` is missing, SSR boot fails with `[env] Boot failed — invalid environment: SCOPES: Required`. See [Shopify dev setup](shopify-dev-setup.md), section 4 (Environment variables).

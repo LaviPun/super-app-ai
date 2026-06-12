@@ -141,6 +141,8 @@ Workers use binding `ASSETS` on Cloudflare; S3-compatible vars for Fastify/local
 
 ## Local smoke
 
+Use **Node 24.x** (`nvm use` at repo root). Node **20.20+** is also supported. Requires `@shopify/shopify-app-remix` **3.8.5+** for Remix/Vite dev SSR on Node 22+.
+
 ```bash
 # Terminal A
 pnpm --filter @superapp/api dev

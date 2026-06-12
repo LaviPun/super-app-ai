@@ -1,0 +1,14 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": [
+    "api/**/*.ts",
+    "accessControl/**/*.ts",
+    "settings.gadget.ts",
+    "gadget-server.d.ts"
+  ]
+}

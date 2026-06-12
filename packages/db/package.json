@@ -19,12 +19,12 @@
   },
   "dependencies": {
     "@superapp/platform-contracts": "workspace:*",
-    "better-sqlite3": "^11.8.1"
+    "better-sqlite3": "^11.10.0"
   },
   "devDependencies": {
-    "typescript": "^5.6.3",
-    "vitest": "^2.1.8",
     "@types/better-sqlite3": "^7.6.12",
-    "@types/node": "^22.10.1"
+    "@types/node": "^22.19.21",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.6"
   }
 }

@@ -3,8 +3,8 @@
 This repo uses a **Remix embedded app** built with `@shopify/shopify-app-remix`.
 
 ## 1) Prerequisites
-- Node 20+
-- pnpm
+- **Node 24.x** (see repo [`.nvmrc`](../.nvmrc) — run `nvm use` before install/dev; Node **20.20+** also supported; requires `@shopify/shopify-app-remix` **3.8.5+**)
+- **pnpm 9.15.x** (`corepack enable` picks up the version from root `package.json`)
 - Shopify CLI installed (`npm i -g @shopify/cli`)  
 - A Shopify Partner account
 - A Shopify Dev store created from Partner dashboard
