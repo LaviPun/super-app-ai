@@ -44,6 +44,8 @@ export function providerKindsForAssistantBackend(backend: string): string[] {
   switch (backend) {
     case 'openai':
       return ['OPENAI'];
+    case 'anthropic':
+      return ['ANTHROPIC'];
     case 'qwen3':
       return ['CUSTOM', 'OPENAI'];
     case 'ollama':

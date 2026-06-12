@@ -9,9 +9,9 @@ import { isInternalAiLocalOnlyEnabledFromEnv } from '~/services/ai/internal-ai-l
 
 type ProbeResult = AssistantChatProbeResult;
 
-type RouterBackend = 'ollama' | 'openai' | 'qwen3' | 'custom';
+type RouterBackend = 'ollama' | 'openai' | 'qwen3' | 'custom' | 'anthropic';
 const RouterRuntimeTargetSchema = z.enum(['localMachine', 'modalRemote']);
-const RouterBackendSchema = z.enum(['ollama', 'openai', 'qwen3', 'custom']);
+const RouterBackendSchema = z.enum(['ollama', 'openai', 'qwen3', 'custom', 'anthropic']);
 const SaveConfigFormSchema = z.object({
   activeTarget: RouterRuntimeTargetSchema,
   fallbackTarget: z.string().optional(),
@@ -776,6 +776,7 @@ export default function InternalModelSetupRoute() {
                       { label: 'openai', value: 'openai' },
                       { label: 'qwen3', value: 'qwen3' },
                       { label: 'custom', value: 'custom' },
+                      { label: 'anthropic', value: 'anthropic' },
                     ]}
                   />
                 </InlineGrid>
@@ -811,6 +812,7 @@ export default function InternalModelSetupRoute() {
                     value={modalBackend}
                     onChange={(v) => setModalBackend(v as RouterBackend)}
                     options={[
+                      { label: 'anthropic', value: 'anthropic' },
                       { label: 'openai', value: 'openai' },
                       { label: 'ollama', value: 'ollama' },
                       { label: 'qwen3', value: 'qwen3' },

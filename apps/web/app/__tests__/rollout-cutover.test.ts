@@ -6,7 +6,8 @@ import {
 } from '~/services/platform-v2/rollout-cutover.server';
 
 /** Isolated env so suite-wide `process.env` from `.env` does not flip cutover flags. */
-const LEGACY_ENV: NodeJS.ProcessEnv = {
+const LEGACY_ENV = {
+  NODE_ENV: 'test' as const,
   FRONTEND_NEXT_ENABLED: 'false',
   FRONTEND_NEXT_BASE_URL: '',
   FASTIFY_API_ENABLED: 'false',

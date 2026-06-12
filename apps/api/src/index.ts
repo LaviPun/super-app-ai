@@ -5,6 +5,8 @@ import { registerRolloutCutoverPlugin } from './plugins/rollout-cutover.js';
 import { registerSecurityPlugin } from './plugins/security.js';
 import { registerInternalAssistantRoutes } from './routes/internal-assistant.js';
 import { registerHealthRoutes, registerJobRoutes } from './routes/index.js';
+import { registerPlatformJobRoutes } from './routes/jobs.js';
+import { registerPreviewRoutes } from './routes/preview.js';
 import { registerConnectorRoutes } from './routes/connectors.js';
 import { registerWebhookFlowRoutes } from './routes/webhook-flow.js';
 import { createJobSystem, type JobSystem } from './services/jobs/factory.js';
@@ -27,6 +29,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await registerSecurityPlugin(app);
   await registerHealthRoutes(app, env);
   await registerJobRoutes(app);
+  await registerPlatformJobRoutes(app);
+  await registerPreviewRoutes(app);
   await registerConnectorRoutes(app);
   await registerInternalAssistantRoutes(app);
   await registerWebhookFlowRoutes(app);

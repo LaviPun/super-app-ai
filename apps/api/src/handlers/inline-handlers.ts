@@ -1,3 +1,4 @@
+/// <reference types="@cloudflare/workers-types" />
 import type { JobHandler } from '@superapp/job-orchestration';
 import { ASSET_STORAGE_QUEUE, type PlatformQueueName } from '@superapp/platform-contracts';
 import {

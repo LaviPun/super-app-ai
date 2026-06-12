@@ -1,9 +1,11 @@
 # ADR-001: Platform V2 Architecture
 
-**Status:** Accepted  
+**Status:** Accepted — **hosting table superseded in part by [ADR-002](./ADR-002-cloudflare-v2-hosting.md)** (2026-06-12)  
 **Date:** 2026-05-19  
 **Deciders:** Engineering (Platform V2 migration)  
-**Related:** [Platform V2 migration plan](../platform-v2-migration-plan.md)
+**Related:** [Platform V2 migration plan](../platform-v2-migration-plan.md), [ADR-002 (scoped Cloudflare hosting)](./ADR-002-cloudflare-v2-hosting.md)
+
+> **Superseded notice (2026-06-12):** The Railway-centric hosting column in the Decision table below is historical. The V2 platform now targets **Cloudflare** (Workers, Pages, R2, Queues) as the primary path, with Fastify/BullMQ on Railway/Docker retained only as the optional `PLATFORM_BACKEND=fastify` fallback and for the internal AI router. See [ADR-002](./ADR-002-cloudflare-v2-hosting.md) for the governing hosting policy. All other decisions in this ADR (separated services, RecipeSpec-only, shared Zod contracts, incremental cutover) remain in force.
 
 ## Context
 
@@ -22,12 +24,12 @@ We need a production-grade, AI-native commerce platform that scales async work, 
 
 Adopt a **separated platform architecture**:
 
-| Layer | Technology | Hosting (target) |
+| Layer | Technology | Hosting (target — see ADR-002 for current) |
 |-------|------------|------------------|
-| Embedded merchant + internal UI | **Next.js** (App Router, Polaris, App Bridge) | Vercel |
-| API gateway | **Fastify** | Railway |
-| Async workers | **Node + BullMQ** | Railway |
-| Queue / cache / locks | **Redis** | Railway → Redis Cloud at scale |
+| Embedded merchant + internal UI | **Next.js** (App Router, Polaris, App Bridge) | Cloudflare Pages (primary) / Vercel (optional) |
+| API gateway | **Fastify or Cloudflare Worker** | Cloudflare Workers (primary) / Railway when `PLATFORM_BACKEND=fastify` |
+| Async workers | **CF Queue consumers or Node + BullMQ** | Cloudflare Queues (primary) / Railway (fallback) |
+| Queue / cache / locks | **Cloudflare Queues or Redis** | Cloudflare (primary) / Redis when Fastify backend active |
 | Source of truth | **PostgreSQL** (Prisma) | Managed Postgres |
 | AI inference | RunPod + provider APIs | External |
 | Assets | Cloudflare R2 | Cloudflare |
@@ -85,7 +87,7 @@ Adopt a **separated platform architecture**:
 ## Compliance with platform safety rules
 
 - AI emits **RecipeSpec JSON only** — enforced in `packages/core` and workers.
-- Preview sandbox and SSRF rules carry forward to `packages/security`.
+- Preview sandbox and SSRF rules carry forward to `@superapp/network-security` (`packages/network-security`; `packages/security` is a re-export facade).
 - GDPR webhooks remain auditable with Postgres as compliance store.
 
 ## References

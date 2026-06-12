@@ -22,14 +22,19 @@ Full job/API/event schemas in platform-contracts; validate Remix payloads; all i
 |-------|-------|
 | Package | `packages/platform-contracts` |
 | Implementation | **Shipped (core)** |
-| Tests | 6 unit tests passing (storage + jobs + platform-jobs) |
+| Tests | 7 unit test files in `packages/platform-contracts/src/__tests__/` |
 
 ## Deliverables
 
-- [x] Image/storage job contracts (`storage.ts`, `jobs.ts`)
-- [x] Platform job registry (`platform-jobs.ts`) — queue names, job types, `JobEnvelope`, `WorkerEventSchema`
-- [x] Zod validation at boundaries for all registered job types
-- [ ] Full API request/response schemas for Fastify routes (incremental)
+- [x] Image/storage job contracts (`storage.ts`, `image-worker-jobs.ts`)
+- [x] Legacy BullMQ contracts (`jobs.ts`) — `WorkerEventSchema`, kebab-case queues
+- [x] Platform job registry (`platform-jobs.ts`) — `PlatformWorkerEventSchema`, `PLATFORM_QUEUES`, CF bindings
+- [x] Worker execution payloads (`worker-payloads.ts`)
+- [x] Rollout + preview modules (`rollout-cutover.ts`, `preview.ts`, `health.ts`)
+- [x] Zod validation at boundaries for registered job types
+- [ ] Full API request/response schemas for every Fastify route (incremental)
+
+**Research:** [`research.md`](./research.md) — dual queue naming decision record
 
 ## Acceptance
 

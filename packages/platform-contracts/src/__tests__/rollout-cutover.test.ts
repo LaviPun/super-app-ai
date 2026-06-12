@@ -102,3 +102,44 @@ describe('worker gating helpers', () => {
     );
   });
 });
+
+describe('PLATFORM_BACKEND switch', () => {
+  it('defaults to legacy behavior when unset', () => {
+    const flags = parsePlatformV2RolloutFlags({});
+    expect(flags.platformBackend).toBeUndefined();
+    expect(flags.fastifyApiEnabled).toBe(false);
+    expect(flags.jobExecutionMode).toBe('inline');
+  });
+
+  it('PLATFORM_BACKEND=fastify enables Fastify /v1 and queue execution', () => {
+    const flags = parsePlatformV2RolloutFlags({ PLATFORM_BACKEND: 'fastify' });
+    expect(flags.platformBackend).toBe('fastify');
+    expect(flags.fastifyApiEnabled).toBe(true);
+    expect(flags.jobExecutionMode).toBe('queue');
+    expect(shouldExposeFastifyV1Routes(flags)).toBe(true);
+  });
+
+  it('PLATFORM_BACKEND=cloudflare keeps Fastify gated and uses queue execution', () => {
+    const flags = parsePlatformV2RolloutFlags({ PLATFORM_BACKEND: 'cloudflare' });
+    expect(flags.platformBackend).toBe('cloudflare');
+    expect(flags.fastifyApiEnabled).toBe(false);
+    expect(flags.jobExecutionMode).toBe('queue');
+    expect(shouldExposeFastifyV1Routes(flags)).toBe(false);
+  });
+
+  it('explicit flags override the preset', () => {
+    const flags = parsePlatformV2RolloutFlags({
+      PLATFORM_BACKEND: 'cloudflare',
+      FASTIFY_API_ENABLED: 'true',
+      JOB_EXECUTION_MODE: 'inline',
+    });
+    expect(flags.fastifyApiEnabled).toBe(true);
+    expect(flags.jobExecutionMode).toBe('inline');
+  });
+
+  it('ignores invalid PLATFORM_BACKEND values', () => {
+    const flags = parsePlatformV2RolloutFlags({ PLATFORM_BACKEND: 'kubernetes' });
+    expect(flags.platformBackend).toBeUndefined();
+    expect(flags.jobExecutionMode).toBe('inline');
+  });
+});

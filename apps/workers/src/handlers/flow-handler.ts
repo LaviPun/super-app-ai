@@ -1,10 +1,10 @@
-import { FlowRunPayloadSchema } from '@superapp/platform-contracts';
+import { FlowRunWorkerPayloadSchema } from '@superapp/platform-contracts';
 import type { JobHandler } from '@superapp/job-orchestration';
 import { failureResult, successResult } from './handler-utils.js';
 
 export function createFlowHandler(): JobHandler {
   return async (job) => {
-    const parsed = FlowRunPayloadSchema.safeParse(job.payload);
+    const parsed = FlowRunWorkerPayloadSchema.safeParse(job.payload);
     if (!parsed.success) {
       return failureResult(job, 'flow', {
         code: 'INVALID_FLOW_PAYLOAD',

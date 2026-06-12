@@ -258,7 +258,7 @@ export default function FlowsIndex() {
           primaryAction={{
             content: 'Delete', destructive: true,
             onAction: () => {
-              document.getElementById(`delete-schedule-form-${deleteTarget.id}`)?.requestSubmit();
+              (document.getElementById(`delete-schedule-form-${deleteTarget.id}`) as HTMLFormElement | null)?.requestSubmit();
             },
           }}
           secondaryActions={[{ content: 'Cancel', onAction: handleDeleteClose }]}

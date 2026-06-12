@@ -6,7 +6,7 @@ export type RouterRuntimeTarget = z.infer<typeof RouterRuntimeTargetSchema>;
 export const RouterTargetConfigSchema = z.object({
   url: z.string().url().optional(),
   token: z.string().min(1).optional(),
-  backend: z.enum(['ollama', 'openai', 'qwen3', 'custom']).default('ollama'),
+  backend: z.enum(['ollama', 'openai', 'qwen3', 'custom', 'anthropic']).default('ollama'),
   model: z.string().optional(),
   timeoutMs: z.number().int().min(200).max(10_000).default(3000),
 });
@@ -36,6 +36,17 @@ export const RouterRuntimeConfigSchema = z.object({
 
 export type RouterRuntimeConfig = z.infer<typeof RouterRuntimeConfigSchema>;
 
+/** Base URL used when an operator selects the optional `anthropic` backend for a target. */
+export const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com';
+
+/**
+ * Internal assistant defaults to self-hosted models on BOTH targets:
+ * - `localMachine`: local Ollama (the default active target).
+ * - `modalRemote`: a cloud-hosted twin of the same Qwen model (e.g. on Modal),
+ *   pinged via the OpenAI-compatible `qwen3` backend. Operators may switch
+ *   either target to the `anthropic` backend in /internal/model-setup, but it
+ *   is never the default — the internal copilot stays self-hosted unless asked.
+ */
 export const DEFAULT_ROUTER_RUNTIME_CONFIG: RouterRuntimeConfig = {
   dualTargetEnabled: false,
   activeTarget: 'localMachine',

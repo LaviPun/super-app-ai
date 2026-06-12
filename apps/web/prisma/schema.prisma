@@ -446,8 +446,10 @@ model AppSettings {
   categoryOverrides  String?
   // Admin: template spec overrides (JSON: { [templateId]: RecipeSpec } for recipe-edit "All recipes")
   templateSpecOverrides String?
-  // Default AI provider when using .env keys: openai | claude (null = use DB active, then OpenAI env fallback)
+  // Default AI provider when using .env keys: openai | claude | gemini (null = use DB active, then OpenAI env fallback)
   defaultAiProvider String?
+  // Main code-generation chatbot: AiProvider.id used as automatic fallback when the active (default) provider call fails.
+  fallbackAiProviderId String?
   // Optional URL used as premium UI/UX visual reference when compiling storefront AI prompts.
   designReferenceUrl String?
   // Encrypted JSON runtime settings for first-layer router target switching (localMachine/modalRemote)

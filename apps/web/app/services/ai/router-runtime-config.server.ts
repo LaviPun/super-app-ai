@@ -79,17 +79,34 @@ function parseConfigWithError(ciphertext: string | null): ParseResult {
   try {
     const decoded = decryptJson<unknown>(ciphertext);
     const parsed = RouterRuntimeConfigSchema.parse(decoded);
+    const defaultModelFor = (backend: string): string | undefined => {
+      switch (backend) {
+        case 'ollama':
+          return 'qwen3:4b-instruct';
+        case 'qwen3':
+          return 'Qwen/Qwen3-4B-Instruct';
+        case 'anthropic':
+          // Resolved at send time from ANTHROPIC_DEFAULT_MODEL; no static default here.
+          return undefined;
+        default:
+          return undefined;
+      }
+    };
     return {
       config: {
         ...parsed,
         targets: {
           localMachine: {
             ...parsed.targets.localMachine,
-            model: parsed.targets.localMachine.model?.trim() || 'qwen3:4b-instruct',
+            model:
+              parsed.targets.localMachine.model?.trim() ||
+              defaultModelFor(parsed.targets.localMachine.backend),
           },
           modalRemote: {
             ...parsed.targets.modalRemote,
-            model: parsed.targets.modalRemote.model?.trim() || 'Qwen/Qwen3-4B-Instruct',
+            model:
+              parsed.targets.modalRemote.model?.trim() ||
+              defaultModelFor(parsed.targets.modalRemote.backend),
           },
         },
       },

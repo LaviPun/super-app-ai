@@ -2,13 +2,17 @@
 
 Where each Platform V2 surface runs, which config files to use, and how they connect during the Remix → Next/Fastify migration.
 
+> **Hosting policy ([ADR-002](../gitbook/02-architecture/v2-migration/ADR-002-cloudflare-v2-hosting.md)):** Cloudflare is the **primary** V2 platform target (Workers, Pages, R2, Queues). The Railway/Docker topology below is the **optional `PLATFORM_BACKEND=fastify` alternate** plus the internal AI router — retained by policy, not the default. For the recommended Cloudflare path see [`env-matrix.md`](../deployment/env-matrix.md) and the [Cloudflare runbook](../gitbook/02-architecture/v2-migration/cloudflare-deployment-runbook.md).
+
 ## Topology
 
-| Surface | Host | Repo path | Primary config |
-| ------- | ---- | --------- | -------------- |
-| Next.js merchant + internal shell | **Vercel** | `apps/frontend` | [`apps/frontend/vercel.json`](../../apps/frontend/vercel.json), [`apps/frontend/.env.example`](../../apps/frontend/.env.example) |
-| Fastify API gateway | **Railway** (Docker) | `apps/api` | [`apps/api/Dockerfile`](../../apps/api/Dockerfile), [`apps/api/railway.toml`](../../apps/api/railway.toml), [`apps/api/.env.example`](../../apps/api/.env.example) |
-| BullMQ workers | **Railway** (Docker) | `apps/workers` | [`apps/workers/Dockerfile`](../../apps/workers/Dockerfile), [`apps/workers/railway.toml`](../../apps/workers/railway.toml), [`apps/workers/.env.example`](../../apps/workers/.env.example) |
+The **Primary (CF)** column is the recommended target; the **Alternate** column is the Fastify/Railway path used only when `PLATFORM_BACKEND=fastify`.
+
+| Surface | Primary (CF) | Alternate (Fastify/Railway) | Repo path | Alternate config |
+| ------- | --- | ---- | --------- | -------------- |
+| Next.js merchant + internal shell | **Cloudflare Pages** | Vercel | `apps/frontend` | [`apps/frontend/vercel.json`](../../apps/frontend/vercel.json), [`apps/frontend/.env.example`](../../apps/frontend/.env.example) |
+| API gateway | **Cloudflare Workers** | Fastify on Railway (Docker) | `apps/api` | [`apps/api/Dockerfile`](../../apps/api/Dockerfile), [`apps/api/railway.toml`](../../apps/api/railway.toml), [`apps/api/.env.example`](../../apps/api/.env.example) |
+| Async workers | **Cloudflare Queues consumers** | BullMQ on Railway (Docker) | `apps/workers` | [`apps/workers/Dockerfile`](../../apps/workers/Dockerfile), [`apps/workers/railway.toml`](../../apps/workers/railway.toml), [`apps/workers/.env.example`](../../apps/workers/.env.example) |
 | Internal AI router (Qwen3 `/route`) | **Railway** (Docker) | `apps/web` router image | [`apps/web/Dockerfile.internal-router`](../../apps/web/Dockerfile.internal-router), [`apps/web/railway.internal-router.toml`](../../apps/web/railway.internal-router.toml), [`deploy/railway-internal-router/README.md`](../../deploy/railway-internal-router/README.md) |
 | Legacy embedded Remix app | Existing host (Fly / Railway / custom) | `apps/web` | [`apps/web/.env.example`](../../apps/web/.env.example) |
 | Queue / cache | **Railway Redis** or Redis Cloud | — | `QUEUE_REDIS_URL` in env matrix |

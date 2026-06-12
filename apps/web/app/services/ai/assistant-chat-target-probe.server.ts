@@ -2,7 +2,7 @@ import type { RouterRuntimeTarget } from '~/schemas/router-runtime-config.server
 import { isReferenceLocalPromptRouterBaseUrl } from '~/services/ai/assistant-router-local.server';
 import { assertSafeTargetUrl } from '~/services/ai/internal-assistant.server';
 
-export type AssistantRouterBackend = 'ollama' | 'openai' | 'qwen3' | 'custom';
+export type AssistantRouterBackend = 'ollama' | 'openai' | 'qwen3' | 'custom' | 'anthropic';
 
 export type AssistantChatProbeResult = {
   ok: boolean;
@@ -69,6 +69,23 @@ export async function probeTargetLiveness(input: {
   if (!rawUrl) return { ok: false, message: 'URL missing' };
   const baseUrl = rawUrl.replace(/\/+$/, '');
   const ms = livenessTimeoutMs(rawUrl, input.timeoutMs);
+
+  if (input.backend === 'anthropic') {
+    try {
+      const response = await fetchWithTimeout(`${baseUrl}/v1/models?limit=1`, undefined, ms, {
+        method: 'GET',
+        headers: {
+          'x-api-key': input.token ?? '',
+          'anthropic-version': '2023-06-01',
+        },
+      });
+      if (response.ok) return { ok: true, message: `Anthropic API reachable (${response.status})` };
+      if (response.status === 401) return { ok: false, message: 'Anthropic API key rejected (401)' };
+      return { ok: false, message: `Anthropic /v1/models returned ${response.status}` };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'unreachable' };
+    }
+  }
 
   if (input.backend === 'ollama') {
     try {
@@ -151,6 +168,32 @@ export async function validateAssistantChatTarget(input: {
     return { ok: false, message: `${input.target} URL missing` };
   }
   const baseUrl = rawUrl.replace(/\/+$/, '');
+
+  if (input.backend === 'anthropic') {
+    try {
+      const response = await fetchWithTimeout(`${baseUrl}/v1/messages`, undefined, Math.max(input.timeoutMs, 12_000), {
+        method: 'POST',
+        headers: {
+          'x-api-key': input.token ?? '',
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5',
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'ping' }],
+        }),
+      });
+      if (response.status === 401) {
+        return { ok: false, message: `${input.target} Anthropic API key rejected (401). Check ANTHROPIC_API_KEY or the configured token.` };
+      }
+      if (isChatHandshakeStatus(response.status)) {
+        return { ok: true, message: `${input.target} Anthropic Messages API accepted (/v1/messages ${response.status})` };
+      }
+      return { ok: false, message: `${input.target} Anthropic /v1/messages returned ${response.status}` };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : `${input.target} Anthropic API unreachable` };
+    }
+  }
 
   if (input.backend === 'ollama') {
     try {

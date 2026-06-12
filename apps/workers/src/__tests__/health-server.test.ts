@@ -42,7 +42,7 @@ describe('worker health server', () => {
 
     const res = await fetch(`http://127.0.0.1:${port}/ready`);
     expect(res.status).toBe(503);
-    const body = await res.json();
+    const body = (await res.json()) as { checks: Record<string, boolean> };
     expect(body.checks).toMatchObject({ config: true, runtime: false });
 
     await health.close();

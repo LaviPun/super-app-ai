@@ -8,9 +8,10 @@ describe('job status route', () => {
     resetJobOrchestratorForTests();
     resetJobStatusStore();
     process.env.PLATFORM_V2_ENABLED = 'true';
+    process.env.FASTIFY_API_ENABLED = 'true';
     process.env.JOB_EXECUTION_MODE = 'inline';
 
-    const { app } = await buildApp();
+    const app = await buildApp();
     const orchestrator = getJobOrchestrator();
 
     const enqueue = await app.inject({

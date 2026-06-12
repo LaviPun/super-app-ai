@@ -6,7 +6,7 @@
 
 **Last updated**: 2026-06-12
 
-**Status**: **Partial** — job status API shipped on `master`
+**Status**: **Partial** — Next async UX components + job status API shipped on `master`
 
 **Master index**: [`specs/000-platform-v2-master/spec.md`](../000-platform-v2-master/spec.md)
 
@@ -21,8 +21,9 @@ Merchant queued-state UI; job progress; cancellation UX.
 | Field | Value |
 |-------|-------|
 | Implementation | **Partial** |
-| Shipped | `GET /v1/jobs/:jobId` job status endpoint in `apps/api/src/routes/jobs.ts` with unit tests (`job-status.test.ts`) |
-| Pending | Merchant queued-state UI, job progress polling UX, cancellation UX |
+| API | `GET /v1/jobs/:jobId` in [`apps/api/src/routes/index.ts`](../../apps/api/src/routes/index.ts) (BullMQ + platform KV fallback); `GET /v1/jobs/:jobId/events` SSE in `job-events-route.ts`; tests in `job-status.test.ts` |
+| Next.js UI | `apps/frontend/src/components/AsyncJobProgressPanel.tsx`, `AsyncJobProgressDemo.tsx`, `AsyncJobUxShowcase.tsx`; helpers in `src/lib/async-job-states.ts`; Playwright specs `tests/e2e/async-ux.spec.ts` |
+| Pending | Production merchant embedded UX wired to live job streams; cancellation UX end-to-end |
 
 ## Acceptance (from migration plan)
 
@@ -30,11 +31,11 @@ See Phase 19 in [`platform-v2-migration-plan.md`](../../docs/gitbook/02-architec
 
 ## Success criteria
 
-- **SC-001**: Phase deliverables match migration plan acceptance section.
-- **SC-002**: Unit/integration tests for new logic; no secrets/PII in logs.
-- **SC-003**: RecipeSpec-only deployment boundary preserved where applicable.
+- **SC-001**: Job status API + demo async UX components exist with tests. ⚠️ Partial (demo/showcase, not full merchant cutover)
+- **SC-002**: Unit/integration tests for new logic; no secrets/PII in logs. ✅
+- **SC-003**: RecipeSpec-only deployment boundary preserved where applicable. ✅
 
-## Deferred / out of scope (this stub)
+## Deferred / out of scope (this iteration)
 
-- Full user-story elaboration — run `/speckit-specify` or `/speckit-clarify` when phase becomes active.
-- Remaining implementation — tracked in migration plan pending items above.
+- Wire Polaris merchant pages to platform job SSE (depends on Phase 21 cutover)
+- Cancellation API contract + UI confirmation flows

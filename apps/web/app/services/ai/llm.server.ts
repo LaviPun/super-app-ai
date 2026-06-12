@@ -8,6 +8,7 @@ import { AiProviderService } from '~/services/internal/ai-provider.service';
 import { openAiGenerateRecipe } from '~/services/ai/clients/openai-responses.client.server';
 import { anthropicGenerateRecipe } from '~/services/ai/clients/anthropic-messages.client.server';
 import { openAiCompatibleGenerateRecipe } from '~/services/ai/clients/openai-compatible.client.server';
+import { geminiGenerateRecipe } from '~/services/ai/clients/gemini.client.server';
 import { getModuleSummary, getAllTypesSummary } from '~/services/ai/module-summaries.server';
 import { CONFIDENCE_THRESHOLDS } from '~/services/ai/classify.server';
 import { getCatalogDetails, getCatalogDetailsForType } from '~/services/ai/catalog-details.server';
@@ -236,6 +237,18 @@ export class ConfiguredLlmClient implements LlmClient {
       });
     }
 
+    if (provider.provider === 'GEMINI') {
+      return geminiGenerateRecipe({
+        apiKey,
+        baseUrl: provider.baseUrl ?? undefined,
+        model,
+        prompt: augmentedPrompt,
+        shopId: this.shopId,
+        maxTokens: hints?.maxTokens,
+        responseSchema: hints?.responseSchema,
+      });
+    }
+
     // CUSTOM or AZURE_OPENAI: treat as OpenAI-compatible
     return openAiCompatibleGenerateRecipe({
       apiKey,
@@ -311,6 +324,29 @@ class EnvClaudeClient implements LlmClient {
   }
 }
 
+/** Uses GEMINI_API_KEY (and optional GEMINI_DEFAULT_MODEL) from env. */
+class EnvGeminiClient implements LlmClient {
+  constructor(
+    private readonly apiKey: string,
+    private readonly model: string,
+    private readonly shopId?: string,
+  ) {}
+
+  async generateRecipe(prompt: string, hints?: GenerateHints) {
+    const augmentedPrompt = hints?.previousError
+      ? `${prompt}\n\n(Previous validation error: ${hints.previousError})`
+      : prompt;
+    return geminiGenerateRecipe({
+      apiKey: this.apiKey,
+      model: this.model,
+      prompt: augmentedPrompt,
+      shopId: this.shopId,
+      maxTokens: hints?.maxTokens,
+      responseSchema: hints?.responseSchema,
+    });
+  }
+}
+
 /** Thrown when no AI provider is configured and no env key is set. Surface in API with setup CTA. */
 export class AiProviderNotConfiguredError extends Error {
   readonly code = 'AI_PROVIDER_NOT_CONFIGURED';
@@ -352,14 +388,21 @@ export async function getLlmClient(
 ): Promise<{ client: LlmClient; providerId: string | null }> {
   const providerId = await resolveProviderIdForShop(shopId);
   if (providerId) {
-    return {
-      client: new ConfiguredLlmClient(
-        providerId,
-        shopId ?? undefined,
-        options?.blockMerchantCodeExecution === true,
-      ),
-      providerId,
-    };
+    const block = options?.blockMerchantCodeExecution === true;
+    const primary = new ConfiguredLlmClient(providerId, shopId ?? undefined, block);
+    // Operator-assigned fallback provider (AppSettings.fallbackAiProviderId):
+    // when the default (active) provider call fails, transparently retry on it.
+    const prisma = getPrisma();
+    const appSettings = await prisma.appSettings.findUnique({ where: { id: 'singleton' } });
+    const fallbackId = (appSettings?.fallbackAiProviderId ?? '').trim() || null;
+    if (fallbackId && fallbackId !== providerId) {
+      const fb = await prisma.aiProvider.findUnique({ where: { id: fallbackId } });
+      if (fb) {
+        const fallback = new ConfiguredLlmClient(fallbackId, shopId ?? undefined, block);
+        return { client: new FallbackLlmClient(primary, fallback), providerId };
+      }
+    }
+    return { client: primary, providerId };
   }
 
   const prisma = getPrisma();
@@ -368,6 +411,7 @@ export async function getLlmClient(
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
   const openaiKey = process.env.OPENAI_API_KEY?.trim();
+  const geminiKey = process.env.GEMINI_API_KEY?.trim();
 
   const anthropicSkillsRaw = process.env.ANTHROPIC_SKILLS?.trim();
   const anthropicSkills = anthropicSkillsRaw
@@ -394,6 +438,18 @@ export async function getLlmClient(
       const fallbackModel = process.env.OPENAI_DEFAULT_MODEL?.trim() || 'gpt-4o-mini';
       const fallback = new EnvOpenAiClient(openaiKey, fallbackModel, shopId ?? undefined);
       return { client: new FallbackLlmClient(primary, fallback), providerId: null };
+    }
+    return { client: primary, providerId: null };
+  }
+  if (defaultAi === 'gemini' && geminiKey) {
+    const model = process.env.GEMINI_DEFAULT_MODEL?.trim() || 'gemini-2.5-flash';
+    const primary = new EnvGeminiClient(geminiKey, model, shopId ?? undefined);
+    if (openaiKey) {
+      const fallbackModel = process.env.OPENAI_DEFAULT_MODEL?.trim() || 'gpt-4o-mini';
+      return {
+        client: new FallbackLlmClient(primary, new EnvOpenAiClient(openaiKey, fallbackModel, shopId ?? undefined)),
+        providerId: null,
+      };
     }
     return { client: primary, providerId: null };
   }

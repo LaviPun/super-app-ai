@@ -9,6 +9,7 @@ import {
 import { mergeTraceContext, serializeQueueTrace } from '@superapp/observability';
 import type { ApiEnv } from '../env.js';
 import { jobEventLinks, registerGenericJobEventRoutes } from './job-events-route.js';
+import { handleJobStatus } from '../handlers/job-handlers.js';
 
 export async function registerHealthRoutes(app: FastifyInstance, env: ApiEnv): Promise<void> {
   app.get('/health', async () => {
@@ -41,7 +42,12 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
     const params = request.params as { jobId?: string };
     if (!params.jobId) return reply.status(400).send({ error: 'MISSING_JOB_ID' });
     const job = await app.jobs.store.get(params.jobId);
-    if (!job) return reply.status(404).send({ error: 'JOB_NOT_FOUND' });
+    if (!job) {
+      // Jobs enqueued via POST /v1/jobs/enqueue (platform-queue handlers) are
+      // tracked in the platform job status store, not the BullMQ store.
+      const platformStatus = await handleJobStatus(params.jobId);
+      return reply.status(platformStatus.status).send(platformStatus.body);
+    }
     const transportStatus = await app.jobs.queue.getStatus?.(job.id, job.queueName);
     const events = await app.jobs.events.list(job.id);
     return {

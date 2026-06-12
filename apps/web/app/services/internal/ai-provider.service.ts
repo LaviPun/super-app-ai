@@ -1,7 +1,7 @@
 import { getPrisma } from '~/db.server';
 import { encryptJson, decryptJson } from '~/services/security/crypto.server';
 
-export type ProviderKind = 'OPENAI' | 'ANTHROPIC' | 'AZURE_OPENAI' | 'CUSTOM';
+export type ProviderKind = 'OPENAI' | 'ANTHROPIC' | 'GEMINI' | 'AZURE_OPENAI' | 'CUSTOM';
 
 /** JSON stored in AiProvider.extraConfig for ANTHROPIC: skills list and code execution flag. */
 export type AnthropicExtraConfig = {

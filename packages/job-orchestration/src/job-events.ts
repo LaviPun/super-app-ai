@@ -1,13 +1,13 @@
-import { WorkerEventSchema, type WorkerEvent } from '@superapp/platform-contracts';
+import { PlatformWorkerEventSchema, type PlatformWorkerEvent } from '@superapp/platform-contracts';
 
-export type JobEvent = WorkerEvent;
+export type JobEvent = PlatformWorkerEvent;
 
 export function parseJobEvent(value: unknown): JobEvent {
-  return WorkerEventSchema.parse(value);
+  return PlatformWorkerEventSchema.parse(value);
 }
 
 export function createJobEvent(input: Omit<JobEvent, 'timestamp'> & { timestamp?: string }): JobEvent {
-  return WorkerEventSchema.parse({
+  return PlatformWorkerEventSchema.parse({
     ...input,
     timestamp: input.timestamp ?? new Date().toISOString(),
   });

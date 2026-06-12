@@ -105,3 +105,42 @@ describe('OpenAI-compatible client', () => {
     expect(r.tokensOut).toBe(4);
   });
 });
+
+describe('Gemini client', () => {
+  it('extracts candidate text and usageMetadata, auth via x-goog-api-key', async () => {
+    let capturedUrl = '';
+    let capturedHeaders: Record<string, string> = {};
+    (globalThis as any).fetch = vi.fn(async (url: string, opts: { headers?: Record<string, string> }) => {
+      capturedUrl = url;
+      capturedHeaders = opts?.headers ?? {};
+      return {
+        status: 200,
+        headers: new Map(),
+        text: async () => JSON.stringify({
+          modelVersion: 'gemini-2.5-flash',
+          candidates: [{ content: { parts: [{ text: '{"type":"theme.banner","name":"G","config":{"heading":"Hi","enableAnimation":false}}' }] } }],
+          usageMetadata: { promptTokenCount: 11, candidatesTokenCount: 22 },
+        }),
+      };
+    }) as any;
+
+    const { geminiGenerateRecipe } = await import('~/services/ai/clients/gemini.client.server');
+    const r = await geminiGenerateRecipe({ apiKey: 'gkey', model: 'gemini-2.5-flash', prompt: 'make banner' });
+    expect(r.rawJson).toContain('theme.banner');
+    expect(r.tokensIn).toBe(11);
+    expect(r.tokensOut).toBe(22);
+    expect(r.model).toBe('gemini-2.5-flash');
+    expect(capturedUrl).toContain('/v1beta/models/gemini-2.5-flash:generateContent');
+    expect(capturedHeaders['x-goog-api-key']).toBe('gkey');
+  });
+
+  it('throws a clear error when the prompt is blocked', async () => {
+    (globalThis as any).fetch = vi.fn(async () => ({
+      status: 200,
+      headers: new Map(),
+      text: async () => JSON.stringify({ promptFeedback: { blockReason: 'SAFETY' }, candidates: [] }),
+    })) as any;
+    const { geminiGenerateRecipe } = await import('~/services/ai/clients/gemini.client.server');
+    await expect(geminiGenerateRecipe({ apiKey: 'k', model: 'gemini-2.5-flash', prompt: 'x' })).rejects.toThrow(/blocked: SAFETY/);
+  });
+});

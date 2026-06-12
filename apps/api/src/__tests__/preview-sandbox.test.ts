@@ -24,8 +24,9 @@ describe('preview sandbox API', () => {
     tempDir = await mkdtemp(path.join(os.tmpdir(), 'superapp-api-preview-'));
     process.env.LOCAL_STORAGE_PATH = tempDir;
     process.env.JOB_EXECUTION_MODE = 'inline';
+    process.env.FASTIFY_API_ENABLED = 'true';
 
-    const { app } = await buildApp();
+    const app = await buildApp();
 
     const enqueue = await app.inject({
       method: 'POST',
@@ -67,7 +68,7 @@ describe('preview sandbox API', () => {
     tempDir = await mkdtemp(path.join(os.tmpdir(), 'superapp-api-preview-missing-'));
     process.env.LOCAL_STORAGE_PATH = tempDir;
 
-    const { app } = await buildApp();
+    const app = await buildApp();
     const response = await app.inject({
       method: 'GET',
       url: '/v1/preview/shop_9/module_9/envelope',

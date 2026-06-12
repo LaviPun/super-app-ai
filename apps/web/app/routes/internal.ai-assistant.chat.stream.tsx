@@ -50,7 +50,7 @@ export interface RunAssistantStreamDeps {
   activity: Pick<ActivityLogService, 'log'>;
   streamChat: typeof streamInternalAssistantChat;
   estimateCostCents?: (meta: {
-    backend: 'ollama' | 'openai' | 'qwen3' | 'custom';
+    backend: 'ollama' | 'openai' | 'qwen3' | 'custom' | 'anthropic';
     model: string;
     tokensIn: number;
     tokensOut: number;

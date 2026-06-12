@@ -21,7 +21,7 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 
 ## Features
 
-- Configure AI providers (OpenAI / Anthropic / Azure OpenAI / Custom OpenAI-compatible)
+- Configure AI providers (OpenAI / Anthropic / Google Gemini / Azure OpenAI / Custom OpenAI-compatible), with a default (active) provider and an optional fallback provider
 - Set the global active provider; override per store
 - View AI usage and approximate costs (30-day window) with **Replay** action that re-enqueues the same generation as a new `AI_GENERATE` job under a fresh correlationId
 - View error logs (auto-redacted — no secrets/PII)
@@ -96,7 +96,7 @@ INTERNAL_SSO_REDIRECT_URI=https://your-app.example.com/internal/sso/callback
 
 ## AI provider management
 
-**Architecture:** **Merchant module generation** (RecipeSpec) uses **OpenAI** and **Anthropic (Claude)** only — configure those under AI Providers / Settings. **Internal** flows (prompt router first layer, **Setup the Model**, **AI Assistant**) use **Qwen3 ~4B** targets documented in [AI providers](./ai-providers.md) (module vs internal split).
+**Architecture:** **Merchant module generation** (RecipeSpec) uses **OpenAI** and **Anthropic (Claude)** only — configure those under AI Providers / Settings. **Internal** flows (prompt router first layer, **Setup the Model**, **AI Assistant**) **always default to the self-hosted Qwen3 ~4B** targets: `localMachine` = local Ollama (active default), `modalRemote` = a cloud-hosted Qwen twin (e.g. Modal). Operators may switch either target to the optional **`anthropic`** backend in **Setup the Model**, but the internal copilot is never hosted-by-default. See [AI providers](./ai-providers.md) (module vs internal split).
 
 Use `/internal/ai-providers` to:
 1. Add a provider (name, type, API key, base URL, default model)

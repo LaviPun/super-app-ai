@@ -1,13 +1,13 @@
 import { createJobEvent } from '@superapp/job-orchestration';
-import type { JobEnvelope, PlatformQueueName, WorkerEvent } from '@superapp/platform-contracts';
+import type { JobEnvelope, PlatformQueueName, PlatformWorkerEvent } from '@superapp/platform-contracts';
 import type { JobHandlerResult } from '@superapp/job-orchestration';
 import { emitWorkerTelemetry } from '../telemetry/worker-telemetry.js';
 
 export function workerEvents(
   job: JobEnvelope,
   queueName: PlatformQueueName,
-  events: Array<Omit<WorkerEvent, 'timestamp'> & { timestamp?: string }>,
-): WorkerEvent[] {
+  events: Array<Omit<PlatformWorkerEvent, 'timestamp'> & { timestamp?: string }>,
+): PlatformWorkerEvent[] {
   const parsed = events.map((event) =>
     createJobEvent({
       ...event,

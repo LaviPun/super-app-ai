@@ -216,7 +216,7 @@ export default function ConnectorsIndex() {
             content: 'Delete',
             destructive: true,
             onAction: () => {
-              document.getElementById(`delete-connector-form-${deleteTarget.id}`)?.requestSubmit();
+              (document.getElementById(`delete-connector-form-${deleteTarget.id}`) as HTMLFormElement | null)?.requestSubmit();
             },
           }}
           secondaryActions={[{ content: 'Cancel', onAction: handleDeleteClose }]}

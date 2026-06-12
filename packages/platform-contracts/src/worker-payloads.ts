@@ -38,7 +38,12 @@ export const WebhookPayloadSchema = z.object({
 
 export type WebhookPayload = z.infer<typeof WebhookPayloadSchema>;
 
-export const FlowRunPayloadSchema = z.object({
+/**
+ * Payload for FLOW_RUN jobs on the platform (Cloudflare) queues. Distinct
+ * from the legacy BullMQ `FlowRunPayloadSchema` in `jobs.ts`, which uses
+ * uppercase trigger names and no jobId/shopId.
+ */
+export const FlowRunWorkerPayloadSchema = z.object({
   jobId: z.string().min(1),
   shopId: z.string().min(1),
   flowId: z.string().min(1),
@@ -46,7 +51,7 @@ export const FlowRunPayloadSchema = z.object({
   input: z.record(z.unknown()).default({}),
 });
 
-export type FlowRunPayload = z.infer<typeof FlowRunPayloadSchema>;
+export type FlowRunWorkerPayload = z.infer<typeof FlowRunWorkerPayloadSchema>;
 
 export const ConnectorJobPayloadSchema = z.object({
   jobId: z.string().min(1),

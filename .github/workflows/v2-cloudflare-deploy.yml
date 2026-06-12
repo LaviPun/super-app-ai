@@ -1,0 +1,80 @@
+name: V2 Cloudflare Deploy
+
+# Phase 18 / T010 — guarded deploy to Cloudflare Workers + Pages.
+# Manual-dispatch only and short-circuits when CLOUDFLARE_API_TOKEN is not
+# configured, so it never deploys unexpectedly. Operators run this from the
+# Actions tab once secrets are set (see cloudflare-deployment-runbook.md).
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Which surface to deploy
+        type: choice
+        default: all
+        options:
+          - all
+          - api
+          - workers
+          - frontend
+
+env:
+  NODE_ENV: production
+
+jobs:
+  preflight:
+    name: Preflight · secrets gate
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.gate.outputs.enabled }}
+    steps:
+      - id: gate
+        name: Check Cloudflare credentials
+        run: |
+          if [ -n "${{ secrets.CLOUDFLARE_API_TOKEN }}" ] && [ -n "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CLOUDFLARE_API_TOKEN/ACCOUNT_ID not set — skipping deploy. Configure repo secrets to enable."
+          fi
+
+  deploy:
+    name: Deploy · ${{ github.event.inputs.target }}
+    needs: preflight
+    if: needs.preflight.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace dependencies
+        run: |
+          pnpm --filter @superapp/platform-contracts build
+          pnpm --filter @superapp/db build
+          pnpm --filter @superapp/network-security build
+
+      - name: Deploy API Worker
+        if: ${{ github.event.inputs.target == 'all' || github.event.inputs.target == 'api' }}
+        run: pnpm --filter @superapp/api deploy:cf
+
+      - name: Deploy queue-consumer Workers
+        if: ${{ github.event.inputs.target == 'all' || github.event.inputs.target == 'workers' }}
+        run: pnpm --filter @superapp/workers deploy:cf
+
+      - name: Deploy frontend (Pages)
+        if: ${{ github.event.inputs.target == 'all' || github.event.inputs.target == 'frontend' }}
+        run: pnpm --filter @superapp/frontend deploy:cf

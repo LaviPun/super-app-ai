@@ -10,15 +10,17 @@
 
 **Canonical plan**: [`docs/gitbook/02-architecture/platform-v2-migration-plan.md`](../../docs/gitbook/02-architecture/platform-v2-migration-plan.md)
 
-**ADR**: [`docs/gitbook/02-architecture/v2-migration/ADR-001-platform-v2-architecture.md`](../../docs/gitbook/02-architecture/v2-migration/ADR-001-platform-v2-architecture.md)
+**ADR**: [`ADR-001`](../../docs/gitbook/02-architecture/v2-migration/ADR-001-platform-v2-architecture.md) (historical), [`ADR-002`](../../docs/gitbook/02-architecture/v2-migration/ADR-002-cloudflare-v2-hosting.md) (scoped hosting policy)
 
 **Deploy runbook**: [`docs/gitbook/02-architecture/v2-migration/cloudflare-deployment-runbook.md`](../../docs/gitbook/02-architecture/v2-migration/cloudflare-deployment-runbook.md)
+
+**Spec Kit audit**: [`docs/spec-kit-status-report.md`](../../docs/spec-kit-status-report.md)
 
 ## Purpose
 
 Single index for the **Platform V2** migration (Next.js + Fastify/Workers API + BullMQ/Queues workers + Redis transition + Postgres + R2). This is separate from legacy SuperApp phases 0–8 in [`docs/phase-plan.md`](../../docs/phase-plan.md), which shipped inside the Remix monolith.
 
-**Cloud policy:** Cloudflare only for V2 cloud infra (Workers, Pages, R2, Queues). No Kubernetes, Fly.io, or Railway.
+**Hosting policy (ADR-002):** V2 platform **primary** path is Cloudflare (Workers, Pages, R2, Queues). Optional Fastify/BullMQ on Railway/Docker when `PLATFORM_BACKEND=fastify`. Internal AI router remains Railway/Docker/Modal (separate). No Kubernetes for new V2 work. Railway deploy configs for the alternate backend and router are **in scope to remain** until operators retire them.
 
 ## Completion statement (2026-06-12)
 
@@ -30,7 +32,7 @@ Single index for the **Platform V2** migration (Next.js + Fastify/Workers API + 
 | **Platform V2 workers (Phases 6–12)** | **Shipped (core + scaffolds)** | BullMQ runtime, image worker, scaffold handlers, CF consumer for all platform queues |
 | **Platform V2 preview enqueue (Phase 12)** | **Shipped** | `schedulePreviewExport()` uses JobOrchestrator; inline + Redis/CF queue modes |
 | **Platform V2 preview sandbox (Phase 13)** | **Shipped** | Envelope contracts, Fastify + Workers preview API, Next.js sandbox shell |
-| **Platform V2 deployment (Phase 18)** | **Partial** | Full API port + queue adapter; operator R2/Queues provisioning |
+| **Platform V2 deployment (Phase 18)** | **Shipped** | Full API port + queue adapter + guarded CI deploy workflow; scoped hosting policy ratified (ADR-002). One-time operator `wrangler login`/secrets only. |
 | **Platform V2 Phases 8, 14–17, 21** | **Partial** | Minimal packages + API stubs; full migration pending |
 | **Platform V2 Phases 4, 19–20** | Partial | Polaris shell, async UX, cross-service test matrix |
 
@@ -55,18 +57,31 @@ Single index for the **Platform V2** migration (Next.js + Fastify/Workers API + 
 | 14 | Intent graph & Recipe DSL | `014-intent-graph` | **Partial** | `@superapp/intent-graph` in-memory store + schemas |
 | 15 | Data layer productionization | `015-data-layer` | **Partial** | `@superapp/data-layer` in-memory repository + schemas |
 | 16 | Observability & analytics | `016-observability` | **Partial** | Worker telemetry sink + PII redaction; OTel/Sentry pending |
-| 17 | Security & compliance | `017-security-compliance` | **Partial** | `@superapp/security` SSRF guard; App Store audit pending |
-| 18 | Deployment infrastructure | `018-deployment` | **Partial** | Full API Worker port + multi-queue wrangler; operator R2/Queues + CI deploy pending |
+| 17 | Security & compliance | `017-security-compliance` | **Partial** | `@superapp/network-security` SSRF/signing/redaction; App Store audit pending |
+| 18 | Deployment infrastructure | `018-deployment` | **Shipped** | CF Worker API parity + wrangler + guarded CI deploy workflow; scoped hosting policy (ADR-002); one-time operator `wrangler login`/secrets only |
 | 19 | Async UX | `019-async-ux` | Partial | Job orchestration enables async; merchant UI pending |
 | 20 | Testing matrix | `020-testing-matrix` | Partial | Package tests green; cross-service matrix pending |
-| 21 | Rollout & cutover | `021-rollout-cutover` | **Partial** | `PLATFORM_V2_ENABLED` gate + job mode endpoint; traffic cutover pending |
+| 21 | Rollout & cutover | `021-rollout-cutover` | **Partial** | `PLATFORM_BACKEND` + rollout flags in contracts; `PLATFORM_V2_ENABLED` in job-orchestration; traffic cutover + Remix retirement pending |
+
+## Dual queue architecture
+
+Two job/queue generations coexist until Phase 21 cutover consolidates traffic. See [`002-shared-contracts/research.md`](../002-shared-contracts/research.md) and contract inventory in [`spec-kit-status-report.md`](../../docs/spec-kit-status-report.md).
+
+| Path | Contracts | Transport |
+|------|-----------|-----------|
+| Legacy BullMQ / Fastify | `jobs.ts` — `WorkerEventSchema`, kebab-case queues (`flow-execution`, …) | Redis + BullMQ when `PLATFORM_BACKEND=fastify` |
+| Platform / Cloudflare | `platform-jobs.ts`, `worker-payloads.ts`, `image-worker-jobs.ts` — `PlatformWorkerEventSchema`, short queue names (`flow`, `webhook`, `asset-storage`, …) | CF Queues when `PLATFORM_BACKEND=cloudflare` |
+
+API `GET /v1/jobs/:jobId` merges BullMQ store + platform KV status store ([`apps/api/src/routes/index.ts`](../../apps/api/src/routes/index.ts)).
 
 ## Environment variables (job stack)
 
 | Variable | Purpose |
 |----------|---------|
-| `JOB_EXECUTION_MODE` | `inline` (default), `queue`, or `disabled` |
-| `QUEUE_REDIS_URL` / `REDIS_URL` | Redis for BullMQ when mode is `queue` |
+| `PLATFORM_BACKEND` | `cloudflare` (recommended) or `fastify` — presets API gate + default job mode ([`rollout-cutover.ts`](../../packages/platform-contracts/src/rollout-cutover.ts)) |
+| `JOB_EXECUTION_MODE` | `inline` (default when backend unset), `queue`, or `disabled` |
+| `PLATFORM_V2_ENABLED` | When `false`, job orchestrator skips enqueue (`@superapp/job-orchestration`) |
+| `QUEUE_REDIS_URL` / `REDIS_URL` | Redis for BullMQ when mode is `queue` and backend is `fastify` |
 | `QUEUE_PREFIX` | BullMQ key prefix (default `superapp`) |
 | `PREVIEW_EXPORT_QUEUE_ENABLED` | Set `1` to enable preview export enqueue from Remix |
 | `R2_BUCKET_NAME` | R2 bucket for asset adapter (binding `ASSETS` on Workers) |
@@ -77,7 +92,7 @@ Single index for the **Platform V2** migration (Next.js + Fastify/Workers API + 
 - **SC-M2**: Shipped phases have tasks marked `[x]` in tasks.md. ✅ (updated 2026-06-12)
 - **SC-M3**: Migration plan linked from gitbook SUMMARY. ✅
 - **SC-M4**: `master` CI passes `pnpm test` and typechecks for shipped packages. ✅
-- **SC-M5**: No Kubernetes / Fly / Railway deploy artifacts in repo. ✅ (removed 2026-06-12)
+- **SC-M5**: V2 platform targets Cloudflare (Workers, Pages, R2, Queues); no Kubernetes for new V2 work. Railway/Docker artifacts limited to Fastify alternate backend (`PLATFORM_BACKEND=fastify`) and internal AI router — retained by policy, not residue. ✅ (criterion restated under [ADR-002](../../docs/gitbook/02-architecture/v2-migration/ADR-002-cloudflare-v2-hosting.md), 2026-06-12; prior "zero Railway" claim retracted; V2-platform K8s/Fly removed)
 
 ## Related specs
 

@@ -20,7 +20,7 @@ Keep services pure and testable. Workers handle async boundaries; Remix routes s
 
 ### V. Security & SSRF
 
-Network calls use SSRF protections and allowlists. Storage credentials (R2, API keys) stay server-side. Preview HTML must reject scripts and inline handlers.
+Network calls use SSRF protections and allowlists implemented in `@superapp/network-security` (re-exported via `@superapp/security`). Storage credentials (R2, API keys) stay server-side. Preview HTML must reject scripts and inline handlers.
 
 ### VI. Performance & CWV
 
@@ -28,10 +28,14 @@ Storefront outputs must be Core Web Vitals friendly. Avoid heavy frontend depend
 
 ## Monorepo Structure
 
-- `apps/web` — Remix embedded app (routes + services)
-- `apps/workers` — async job processors (storage, image, future queues)
+- `apps/web` — Remix embedded app (legacy merchant + internal admin; cutover pending)
+- `apps/frontend` — Next.js App Router shell (Phase 4)
+- `apps/api` — Fastify gateway + Cloudflare Worker parity (Phase 3)
+- `apps/workers` — async job processors (BullMQ + CF queue consumers)
 - `packages/core` — recipe schema, capability gating, module catalog
 - `packages/platform-contracts` — cross-service Zod contracts and job payloads
+- `packages/job-orchestration` — enqueue adapters, orchestrator, rollout-related config
+- `packages/network-security` — SSRF, signing, GDPR, redaction (facade: `@superapp/security`)
 - `extensions/*` — generic Shopify extensions reading metafields
 
 ## Phase-Based V2 Migration

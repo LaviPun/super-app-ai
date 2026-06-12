@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { isInternalAiLocalOnlyEnabled } from '~/env.server';
-import type { RouterRuntimeConfig } from '~/schemas/router-runtime-config.server';
+import { DEFAULT_ANTHROPIC_BASE_URL, type RouterRuntimeConfig } from '~/schemas/router-runtime-config.server';
 import { isReferenceLocalPromptRouterBaseUrl } from '~/services/ai/assistant-router-local.server';
 import type { AssistantMode } from '~/services/ai/internal-assistant-store.server';
 import { formatToolContext, runAssistantTool, selectToolsForPrompt, type AssistantToolRunResult } from '~/services/ai/internal-assistant-tools.server';
@@ -8,6 +8,8 @@ import { getRouterRuntimeConfig } from '~/services/ai/router-runtime-config.serv
 import { assertSafeTargetUrl as assertSafeUrl } from '~/services/security/ssrf.server';
 
 const AssistantTargetSchema = z.enum(['localMachine', 'modalRemote']);
+
+export type AssistantBackend = 'ollama' | 'openai' | 'qwen3' | 'custom' | 'anthropic';
 export type AssistantTarget = z.infer<typeof AssistantTargetSchema>;
 
 const AssistantMessageSchema = z.object({
@@ -19,7 +21,7 @@ export type AssistantMessage = z.infer<typeof AssistantMessageSchema>;
 
 export type AssistantChatResult = {
   target: AssistantTarget;
-  backend: 'ollama' | 'openai' | 'qwen3' | 'custom';
+  backend: AssistantBackend;
   model: string;
   reply: string;
   latencyMs: number;
@@ -36,19 +38,29 @@ export type AssistantStreamEvent =
 
 type ResolvedAssistantTargetConfig = {
   target: AssistantTarget;
-  backend: 'ollama' | 'openai' | 'qwen3' | 'custom';
+  backend: AssistantBackend;
   model: string;
   url: string;
   token?: string;
   timeoutMs: number;
 };
 
-const DEFAULT_MODEL_BY_BACKEND: Record<'ollama' | 'openai' | 'qwen3' | 'custom', string> = {
-  ollama: 'qwen3:4b-instruct',
-  openai: 'gpt-4o-mini',
-  qwen3: 'Qwen/Qwen3-4B-Instruct',
-  custom: 'qwen3:4b-instruct',
-};
+function defaultModelForBackend(backend: AssistantBackend): string {
+  switch (backend) {
+    case 'ollama':
+      return 'qwen3:4b-instruct';
+    case 'openai':
+      return 'gpt-4o-mini';
+    case 'qwen3':
+      return 'Qwen/Qwen3-4B-Instruct';
+    case 'anthropic':
+      return process.env.ANTHROPIC_DEFAULT_MODEL?.trim() || 'claude-sonnet-4-6';
+    default:
+      return 'qwen3:4b-instruct';
+  }
+}
+
+const ANTHROPIC_VERSION = '2023-06-01';
 
 const SYSTEM_PROMPT = [
   'You are Qwen3, an internal operations copilot.',
@@ -59,6 +71,21 @@ const SYSTEM_PROMPT = [
 
 function getTargetPrefix(target: AssistantTarget): 'LOCAL_ROUTER' | 'MODAL_ROUTER' {
   return target === 'localMachine' ? 'LOCAL_ROUTER' : 'MODAL_ROUTER';
+}
+
+/**
+ * Floor for chat generation timeouts. The shared router target config defaults
+ * to 3000ms, which is sized for prompt-router /route decisions — a chat
+ * completion on a local 4B model takes >3s to first byte on a cold load, so
+ * chat requests must not inherit that budget directly. Override with
+ * INTERNAL_AI_CHAT_TIMEOUT_MS; keep below the ~90s Cloudflare tunnel limit.
+ */
+const CHAT_TIMEOUT_FLOOR_MS = 30_000;
+
+function resolveChatTimeoutMs(configuredMs: number): number {
+  const env = Number(process.env.INTERNAL_AI_CHAT_TIMEOUT_MS?.trim() || '');
+  if (Number.isFinite(env) && env > 0) return env;
+  return Math.max(configuredMs, CHAT_TIMEOUT_FLOOR_MS);
 }
 
 function getAllowedLocalHttpHosts(): string[] {
@@ -96,17 +123,35 @@ async function resolveTargetConfig(target: AssistantTarget): Promise<ResolvedAss
   const envUrl = process.env[`${prefix}_URL`]?.trim() || process.env.INTERNAL_AI_ROUTER_URL?.trim() || '';
   const envToken = process.env[`${prefix}_TOKEN`]?.trim() || process.env.INTERNAL_AI_ROUTER_TOKEN?.trim() || '';
   const envModel = process.env[`${prefix}_MODEL`]?.trim() || '';
+  const backend = targetConfig.backend;
+  if (backend === 'anthropic') {
+    const url = targetConfig.url?.trim() || DEFAULT_ANTHROPIC_BASE_URL;
+    await assertSafeTargetUrl(url);
+    const token = targetConfig.token?.trim() || process.env.ANTHROPIC_API_KEY?.trim();
+    if (!token) {
+      throw new Error(
+        `Target "${target}" uses the Anthropic backend but no API key is configured. Set ANTHROPIC_API_KEY or add a token in /internal/model-setup.`,
+      );
+    }
+    return {
+      target,
+      backend,
+      model: targetConfig.model?.trim() || envModel || defaultModelForBackend(backend),
+      token,
+      timeoutMs: resolveChatTimeoutMs(targetConfig.timeoutMs),
+      url,
+    };
+  }
   const url = targetConfig.url?.trim() || envUrl;
   if (!url) throw new Error(`Target "${target}" is not configured with a URL`);
   await assertSafeTargetUrl(url);
 
-  const backend = targetConfig.backend;
   return {
     target,
     backend,
-    model: targetConfig.model?.trim() || envModel || DEFAULT_MODEL_BY_BACKEND[backend],
+    model: targetConfig.model?.trim() || envModel || defaultModelForBackend(backend),
     token: targetConfig.token?.trim() || envToken || undefined,
-    timeoutMs: targetConfig.timeoutMs,
+    timeoutMs: resolveChatTimeoutMs(targetConfig.timeoutMs),
     url,
   };
 }
@@ -252,6 +297,57 @@ async function sendViaOpenAiCompatible(params: {
   }
 }
 
+/**
+ * Anthropic Messages API transport. System-role prompt messages move to the
+ * top-level `system` parameter; auth uses `x-api-key` + `anthropic-version`
+ * (not Bearer). Streaming responses are SSE with `content_block_delta` /
+ * `message_start` / `message_delta` events.
+ */
+async function sendViaAnthropic(params: {
+  config: ResolvedAssistantTargetConfig;
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+  stream?: boolean;
+}): Promise<Response> {
+  const baseUrl = params.config.url.replace(/\/+$/, '');
+  const system = params.messages
+    .filter((message) => message.role === 'system')
+    .map((message) => message.content)
+    .join('\n\n');
+  const turns = params.messages
+    .filter((message) => message.role !== 'system')
+    .map((message) => ({ role: message.role as 'user' | 'assistant', content: message.content }));
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), params.config.timeoutMs);
+  try {
+    const response = await fetch(`${baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': params.config.token ?? '',
+        'anthropic-version': ANTHROPIC_VERSION,
+      },
+      body: JSON.stringify({
+        model: params.config.model,
+        max_tokens: 2048,
+        ...(system ? { system } : {}),
+        messages: turns,
+        stream: params.stream === true,
+      }),
+      signal: controller.signal,
+    });
+    if (response.ok) return response;
+    const body = (await response.text()).slice(0, 400);
+    throw new AssistantUpstreamHttpError(
+      `Assistant upstream error ${response.status}: ${body} (Anthropic /v1/messages)`,
+      response.status,
+      '/v1/messages',
+      body,
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function sendViaOllama(params: {
   config: ResolvedAssistantTargetConfig;
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
@@ -315,6 +411,21 @@ async function sendViaOllama(params: {
 }
 
 async function readNonStreamingResponse(response: Response, backend: ResolvedAssistantTargetConfig['backend']) {
+  if (backend === 'anthropic') {
+    const payload = await response.json();
+    const reply = Array.isArray(payload?.content)
+      ? payload.content
+          .filter((block: { type?: string }) => block?.type === 'text')
+          .map((block: { text?: string }) => block?.text ?? '')
+          .join('')
+      : '';
+    if (!reply.trim()) throw new Error('Assistant response was empty');
+    return {
+      reply: reply.trim(),
+      tokensIn: Number(payload?.usage?.input_tokens ?? 0) || 0,
+      tokensOut: Number(payload?.usage?.output_tokens ?? 0) || 0,
+    };
+  }
   if (backend === 'ollama') {
     const payload = await response.json();
     const reply = payload?.message?.content;
@@ -342,6 +453,13 @@ type AssistantStreamChunk = {
   eval_count?: number;
   choices?: Array<{ delta?: { content?: string } }>;
   usage?: { prompt_tokens?: number; completion_tokens?: number };
+};
+
+type AnthropicStreamEvent = {
+  type?: string;
+  delta?: { type?: string; text?: string };
+  message?: { usage?: { input_tokens?: number; output_tokens?: number } };
+  usage?: { input_tokens?: number; output_tokens?: number };
 };
 
 async function* readStreamingResponse(response: Response, backend: ResolvedAssistantTargetConfig['backend']): AsyncGenerator<{ token?: string; tokensIn?: number; tokensOut?: number }> {
@@ -373,6 +491,35 @@ async function* readStreamingResponse(response: Response, backend: ResolvedAssis
               tokensIn: Number(json?.prompt_eval_count ?? 0) || 0,
               tokensOut: Number(json?.eval_count ?? 0) || 0,
             };
+          }
+        }
+      } else if (backend === 'anthropic') {
+        const frames = buffer.split('\n\n');
+        buffer = frames.pop() ?? '';
+        for (const frame of frames) {
+          for (const rawLine of frame.split('\n')) {
+            const line = rawLine.trim();
+            if (!line.startsWith('data:')) continue;
+            const data = line.slice(5).trim();
+            if (!data) continue;
+            let json: AnthropicStreamEvent | undefined;
+            try {
+              json = JSON.parse(data) as AnthropicStreamEvent;
+            } catch {
+              continue;
+            }
+            if (json?.type === 'content_block_delta' && json.delta?.type === 'text_delta') {
+              const token = json.delta.text;
+              if (typeof token === 'string' && token) yield { token };
+              continue;
+            }
+            if (json?.type === 'message_start' && json.message?.usage) {
+              yield { tokensIn: Number(json.message.usage.input_tokens ?? 0) || 0 };
+              continue;
+            }
+            if (json?.type === 'message_delta' && json.usage) {
+              yield { tokensOut: Number(json.usage.output_tokens ?? 0) || 0 };
+            }
           }
         }
       } else {
@@ -442,6 +589,10 @@ async function trySend(params: {
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
   stream?: boolean;
 }): Promise<TrySendResult> {
+  if (params.config.backend === 'anthropic') {
+    const response = await sendViaAnthropic(params);
+    return { response, streamBackend: 'anthropic', resolvedModel: params.config.model };
+  }
   if (params.config.backend === 'ollama') {
     const result = await sendViaOllama(params);
     return { response: result.response, streamBackend: 'ollama', resolvedModel: result.model };

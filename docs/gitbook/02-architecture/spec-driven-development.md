@@ -67,36 +67,27 @@ export SPECIFY_FEATURE=013-your-feature
 
 For the **next** phase, use phase number as `--number` (e.g. `--number 13`) so directories align with migration numbering.
 
-**Master index:** [`specs/000-platform-v2-master/spec.md`](../../../specs/000-platform-v2-master/spec.md) — phase coverage matrix, deferred items, links to all `specs/0NN-*` directories.
+**Master index:** [`specs/000-platform-v2-master/spec.md`](../../../specs/000-platform-v2-master/spec.md) — phase coverage matrix, env vars, dual-queue architecture, deferred items, links to all `specs/0NN-*` directories.
 
-### V2 phase coverage matrix (2026-06-12, `master`)
+**Living audit:** [`docs/spec-kit-status-report.md`](../../../docs/spec-kit-status-report.md) — contract inventory, research gaps, SC-M1–M5 honesty, remediation tracker (updated 2026-06-12 spec rework).
 
-| V2 | Name | Spec dir | `master` status |
-|----|------|----------|-----------------|
-| 0 | Baseline & inventory | *(master only)* | Partial |
-| 1 | Target monorepo | `001-target-monorepo` | Partial |
-| 2 | Shared contracts | `002-shared-contracts` | **Shipped (core)** |
-| 3 | Fastify API | `003-fastify-api` | **Shipped (skeleton)** |
-| 4 | Next frontend | `004-next-frontend` | **Partial** |
-| 5 | Job orchestration | `005-job-orchestration` | **Shipped** |
-| 6 | Worker skeleton | `006-worker-skeleton` | **Shipped** |
-| 7 | AI generation worker | `007-ai-generation-worker` | Partial |
-| 8 | Internal assistant | `008-internal-assistant` | Not started |
-| 9 | Webhook & flow | `009-webhook-flow` | Partial |
-| 10 | Connector worker | `010-connector-worker` | Partial |
-| 11 | Publish worker | `011-publish-worker` | Partial |
-| 12 | Storage & image worker | `012-storage-image-worker` | **Shipped** |
-| 13 | Preview sandbox | `013-preview-sandbox` | **Shipped** |
-| 14–17 | Intent → security | `014-*` … `017-*` | Not started / Partial |
-| 18 | Deployment | `018-deployment` | **Partial** (Cloudflare wrangler + runbook) |
-| 19–21 | Async UX → cutover | `019-*` … `021-*` | Partial / Not started |
-
-**Deploy policy:** Cloudflare only (Workers, Pages, R2, Queues). See [`cloudflare-deployment-runbook.md`](./v2-migration/cloudflare-deployment-runbook.md).
+**Deploy policy:** Scoped Cloudflare-primary hosting per [ADR-002](./v2-migration/ADR-002-cloudflare-v2-hosting.md) and [cloudflare-deployment-runbook.md](./v2-migration/cloudflare-deployment-runbook.md). Do not duplicate the phase matrix here — use the master spec table.
 
 ## Brownfield vs greenfield
 
 - **Greenfield** (new capability): Start at `/speckit-specify` with user-facing requirements.
 - **Brownfield** (phase already coded in a worktree): Create spec directory + fill `spec.md` from gitbook phase doc, then `/speckit-plan` and `/speckit-tasks` to capture remaining merge work and tests.
+
+## Selecting the active feature (`SPECIFY_FEATURE`)
+
+Spec Kit commands act on the active feature. Set it per shell:
+
+```bash
+export SPECIFY_FEATURE=000-platform-v2-master   # cross-phase / master index
+export SPECIFY_FEATURE=009-webhook-flow         # a specific phase
+```
+
+When unset, commands default to the master feature in `.specify/feature.json`. Always export the phase you intend to edit so `/speckit-plan`, `/speckit-tasks`, and `/speckit-analyze` write to the right `specs/0NN-*` directory.
 
 ## Verification
 

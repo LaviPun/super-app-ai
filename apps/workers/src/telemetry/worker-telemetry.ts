@@ -1,4 +1,4 @@
-import type { WorkerEvent } from '@superapp/platform-contracts';
+import type { PlatformWorkerEvent } from '@superapp/platform-contracts';
 
 const PII_KEYS = new Set(['email', 'phone', 'token', 'secret', 'password', 'authorization']);
 
@@ -15,7 +15,7 @@ function sanitizeMetadata(metadata: Record<string, unknown> | undefined): Record
   return sanitized;
 }
 
-export type TelemetrySink = (event: WorkerEvent) => void;
+export type TelemetrySink = (event: PlatformWorkerEvent) => void;
 
 export function createConsoleTelemetrySink(service = '@superapp/workers'): TelemetrySink {
   return (event) => {
@@ -42,7 +42,7 @@ export function setWorkerTelemetrySink(sink: TelemetrySink): void {
   defaultSink = sink;
 }
 
-export function emitWorkerTelemetry(event: WorkerEvent): void {
+export function emitWorkerTelemetry(event: PlatformWorkerEvent): void {
   defaultSink(event);
 }
 

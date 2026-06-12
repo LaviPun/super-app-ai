@@ -7,7 +7,7 @@
 | Area | Weight | Score | Notes |
 |------|--------|-------|-------|
 | Automated tests | 25% | 25/25 | `test:v2:fast` green incl. **web-build**; web **489+** unit tests; internal Playwright **14/14** + merchant auth guard tests; rollout-cutover unit tests |
-| Security | 25% | 23/25 | Remix internal CSP/frame headers; Fastify baseline headers + Phase 17 plugin; **0 critical** audit (`protobufjs` override); **19 high** transitive remain |
+| Security | 25% | 23/25 | Remix internal CSP/frame headers; Fastify baseline headers + Phase 17 plugin; **0 critical** audit (`pnpm.overrides`: `protobufjs`, `shell-quote >=1.8.4`, `vitest >=3.2.6 <4`); **23 high / 21 moderate** transitive remain (OpenTelemetry/grpc chain) |
 | Operability | 15% | 15/15 | Internal admin **21+** routes authed; prod Remix on **:4100**; meaningful `<title>` on internal routes; [platform-hosting.md](../integrations/platform-hosting.md) |
 | Merchant UX | 20% | 17/20 | `/advanced`, `/picker`, `/modules` auth-aligned; embedded OAuth still **manual** ([merchant-oauth-checklist.md](./merchant-oauth-checklist.md)) |
 | Performance | 15% | 14/15 | Prod Lighthouse: Remix login **92/100/89**; Next home **100/89/96** ([performance-audit.md](./performance-audit.md)); Next vs Remix both on **3000** in dev — documented in hosting guide |
@@ -20,12 +20,12 @@
 | **Internal admin** | **Yes** — password auth, E2E crawl, axe, prod build + serve verified |
 | **Merchant embedded app** | **Conditional** — auth guards aligned; complete [merchant-oauth-checklist.md](./merchant-oauth-checklist.md) on a dev store before App Store |
 | **Next frontend (`apps/frontend`)** | **Staging-ready** — static routes build; prod Lighthouse good; wire API base + auth bridge to Remix for live data |
-| **Fastify + workers** | **Staging-ready** — health checks, rollout flags default off; Railway/Vercel configs documented |
+| **Fastify + workers** | **Staging-ready** — health checks, rollout flags default off. Cloudflare Workers is the primary target ([ADR-002](../gitbook/02-architecture/v2-migration/ADR-002-cloudflare-v2-hosting.md)); Railway/Vercel configs are the documented `PLATFORM_BACKEND=fastify` alternate |
 
 ### Remaining for 100/100 (−2 points)
 
 1. **Merchant OAuth (−1)** — operator checklist on real dev store (`pnpm shopify:dev`); cannot automate without Partner credentials.
-2. **High audit debt (−1)** — 19 highs (OpenTelemetry/grpc/brace-expansion chain); no criticals after `pnpm.overrides.protobufjs`. Full resolution needs upstream bumps or additional overrides.
+2. **High audit debt (−1)** — 23 highs / 21 moderates (OpenTelemetry/grpc/brace-expansion chain); **0 criticals** after `pnpm.overrides` (`protobufjs`, `shell-quote >=1.8.4`, `vitest >=3.2.6 <4`). Full resolution needs upstream OpenTelemetry bumps. Verified `pnpm audit` 2026-06-12.
 
 ### Optional (not scored)
 

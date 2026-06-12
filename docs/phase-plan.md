@@ -36,7 +36,7 @@ Canonical architecture: [platform-v2-migration-plan.md](./gitbook/02-architectur
 | 15 | Data layer / Postgres | ✅ SQLite + repository; **Postgres driver deferred** — see [phase-15](./gitbook/02-architecture/v2-migration/phase-15-data-layer-productionization.md) + [`packages/db/.env.example`](../packages/db/.env.example) |
 | 16 | Observability | ✅ OTLP hooks; prod backends manual |
 | 17 | Security / compliance | ✅ SSRF, HMAC, GDPR ingress, rate-limit stub — [checklist](./gitbook/02-architecture/v2-migration/phase-17-security-compliance.md) |
-| 18 | Deployment | ✅ Vercel + Railway configs — [hosting guide](./integrations/platform-hosting.md) |
+| 18 | Deployment | ✅ Cloudflare-primary ([ADR-002](./gitbook/02-architecture/v2-migration/ADR-002-cloudflare-v2-hosting.md)); Vercel/Railway are the `PLATFORM_BACKEND=fastify` alternate — [hosting guide](./integrations/platform-hosting.md) |
 | 19 | Async UX | ✅ SSE job events + Next panels |
 | 20 | Testing matrix | ✅ `pnpm test:v2*` + CI workflow |
 | 21 | Rollout / cutover | ✅ Flags default **off** — [phase-21](./gitbook/02-architecture/v2-migration/phase-21-rollout-cutover.md) |

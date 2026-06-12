@@ -4,10 +4,10 @@
 
 | Layer | Models | Where |
 |-------|--------|--------|
-| **Merchant module generation** (RecipeSpec JSON, compiler, merchant-facing flows) | **OpenAI** and **Anthropic (Claude)** only | `getLlmClient` → `/internal/ai-providers`, store overrides, env fallbacks (`OPENAI_*`, `ANTHROPIC_*`). Uses Responses/Messages APIs with strict JSON. |
+| **Merchant module generation** (RecipeSpec JSON, compiler, merchant-facing flows) | **OpenAI**, **Anthropic (Claude)**, and **Google Gemini** | `getLlmClient` → `/internal/ai-providers`, store overrides, env fallbacks (`OPENAI_*`, `ANTHROPIC_*`, `GEMINI_*`). Uses Responses/Messages/generateContent APIs with strict JSON. A default (active) provider plus an optional operator-assigned fallback provider (`AppSettings.fallbackAiProviderId`). |
 | **Internal + first-layer** (prompt router, internal AI Assistant, operator tooling) | **Qwen3 ~4B** class | `INTERNAL_AI_ROUTER_*`, `/internal/model-setup` dual targets (`localMachine` / `modalRemote`), reference [`internal-ai-router.ts`](../apps/web/scripts/internal-ai-router.ts). |
 
-Other provider kinds in Internal Admin (e.g. Azure OpenAI, custom OpenAI-compatible) exist for integration flexibility; **RecipeSpec generation paths are intended to run on OpenAI or Anthropic** per this split.
+Other provider kinds in Internal Admin (e.g. Azure OpenAI, custom OpenAI-compatible) exist for integration flexibility; **RecipeSpec generation runs on the configured default provider (OpenAI / Anthropic / Gemini), with automatic failover to the assigned fallback provider** when the default call fails.
 
 ## Goals
 - Strict JSON-only responses matching RecipeSpec JSON Schema
@@ -19,10 +19,17 @@ Other provider kinds in Internal Admin (e.g. Azure OpenAI, custom OpenAI-compati
 - **OpenAI Responses API** (`openai-responses.client.server.ts`): uses `text.format: { type: 'json_object' }`. Default `max_output_tokens: 8192`. Accepts `maxTokens` override — hydration passes `16000`. Set `OPENAI_API_KEY` (and optionally `OPENAI_DEFAULT_MODEL`, default `gpt-4o-mini`).
 - **Anthropic Messages API** (`anthropic-messages.client.server.ts`): system prompt forces JSON-only output. Default `max_tokens: 8192`. Accepts `maxTokens` override. Supports **Claude Agent Skills** and **code execution** when configured (see below). Set `ANTHROPIC_API_KEY` (and optionally `ANTHROPIC_DEFAULT_MODEL`, default `claude-sonnet-4-20250514`).
 - **Custom OpenAI-compatible** (`openai-compatible.client.server.ts`): tries `/v1/responses` first, falls back to `/v1/chat/completions` with `response_format`.
+- **Google Gemini** (`gemini.client.server.ts`): `POST /v1beta/models/{model}:generateContent`, auth via `x-goog-api-key`, system instruction forces JSON-only, `generationConfig.responseMimeType: 'application/json'` plus native `responseSchema` (JSON-Schema keywords Gemini rejects are stripped). Default `maxOutputTokens: 8192`. Set `GEMINI_API_KEY` (and optionally `GEMINI_DEFAULT_MODEL`, default `gemini-2.5-flash`).
+
+## Default & fallback selection
+- The **default** AI for module generation is the globally **active** `AiProvider` (set on `/internal/ai-providers` via *Set global active*; `AiProvider.isActive`). Per-shop overrides (`Shop.aiProviderOverrideId`) take precedence when present.
+- The **fallback** AI is `AppSettings.fallbackAiProviderId`, chosen on the same page (*Default & fallback AI* card). When set and different from the active provider, `getLlmClient` wraps the pair in `FallbackLlmClient`: the fallback runs automatically only if the default call throws.
+- Env path (no DB providers): `defaultAiProvider` (`openai | claude | gemini`) selects the primary from env keys; OpenAI is the implicit fallback for claude/gemini when `OPENAI_API_KEY` is also set.
+- Cost note: usage is attributed to the default `providerId`; if the fallback actually serves a request its price lookup keys on (default providerId, model) and may resolve to 0 until that model is priced — the served model is recorded in `AiUsage.meta`.
 
 ## Internal admin provider workflow
 - Internal Admin → `AI Providers` is credentials-first: operators enter only provider credentials/default model.
-- Model catalog + pricing are auto-synced from catalog APIs (OpenRouter model catalog endpoint) for `OPENAI` and `ANTHROPIC`; manual per-model price entry is removed.
+- Model catalog + pricing are auto-synced from catalog APIs (OpenRouter model catalog endpoint) for `OPENAI` and `ANTHROPIC`. For `GEMINI` (and Azure/Custom), enter the model id and per-1M token rates in `AiModelPrice` so cost/usage dashboards populate.
 - Synced rows are persisted to `AiModelPrice` (active snapshot), and model metadata (description/context) is stored in `AiProvider.extraConfig.modelCatalog`.
 - The page shows per-model usage and cost (30d) by joining `AiUsage` telemetry (`meta.model`) with active `AiModelPrice`.
 - Existing `.env` keys can be imported to DB from the `AI Providers` page (masked in UI), so database credentials can become the primary source of truth.

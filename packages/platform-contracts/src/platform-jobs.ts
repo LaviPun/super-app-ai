@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ASSET_STORAGE_QUEUE, IMAGE_WORKER_JOB_TYPES } from './jobs';
+import { ASSET_STORAGE_QUEUE, IMAGE_WORKER_JOB_TYPES } from './image-worker-jobs.js';
 
 export const PLATFORM_QUEUES = [
   ASSET_STORAGE_QUEUE,
@@ -30,10 +30,6 @@ export const PlatformJobTypeSchema = z.enum([
 ]);
 
 export type PlatformJobType = z.infer<typeof PlatformJobTypeSchema>;
-
-export const JOB_EXECUTION_MODES = ['inline', 'queue', 'disabled'] as const;
-export const JobExecutionModeSchema = z.enum(JOB_EXECUTION_MODES);
-export type JobExecutionMode = z.infer<typeof JobExecutionModeSchema>;
 
 export const PLATFORM_JOB_QUEUE_BY_TYPE: Record<PlatformJobType, PlatformQueueName> = {
   IMAGE_INGESTION: ASSET_STORAGE_QUEUE,
@@ -95,7 +91,12 @@ export const JobEnvelopeSchema = z.object({
 
 export type JobEnvelope = z.infer<typeof JobEnvelopeSchema>;
 
-export const WorkerEventSchema = z.object({
+/**
+ * Event emitted by platform-queue (Cloudflare) workers. Distinct from the
+ * legacy BullMQ `WorkerEvent` in `jobs.ts`, which uses the incompatible
+ * `QueueName` enum.
+ */
+export const PlatformWorkerEventSchema = z.object({
   type: z.enum(['JOB_STARTED', 'JOB_PROGRESS', 'JOB_COMPLETED', 'JOB_FAILED']),
   jobId: z.string().min(1),
   queueName: PlatformQueueNameSchema,
@@ -106,4 +107,4 @@ export const WorkerEventSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
-export type WorkerEvent = z.infer<typeof WorkerEventSchema>;
+export type PlatformWorkerEvent = z.infer<typeof PlatformWorkerEventSchema>;

@@ -219,8 +219,13 @@ export async function loader({ request }: { request: Request }) {
     };
   });
 
+  const appSettings = await prisma.appSettings.findUnique({
+    where: { id: 'singleton' },
+    select: { fallbackAiProviderId: true },
+  });
   const openaiEnv = process.env.OPENAI_API_KEY?.trim();
   const claudeEnv = process.env.ANTHROPIC_API_KEY?.trim();
+  const geminiEnv = process.env.GEMINI_API_KEY?.trim();
 
   return json({
     providers,
@@ -228,9 +233,11 @@ export async function loader({ request }: { request: Request }) {
     defaultProviders,
     providerRatings: Object.fromEntries(providerRatings),
     suggestedProviderId,
+    fallbackProviderId: appSettings?.fallbackAiProviderId ?? null,
     envKeyStatus: {
       openai: openaiEnv ? `••••••••${openaiEnv.slice(-4)}` : null,
       claude: claudeEnv ? `••••••••${claudeEnv.slice(-4)}` : null,
+      gemini: geminiEnv ? `••••••••${geminiEnv.slice(-4)}` : null,
     },
   });
 }
@@ -242,6 +249,21 @@ export async function action({ request }: { request: Request }) {
   const service = new AiProviderService();
   const prisma = getPrisma();
   const activity = new ActivityLogService();
+
+  if (intent === 'saveFallbackProvider') {
+    const raw = String(form.get('fallbackProviderId') ?? '').trim();
+    const fallbackAiProviderId = raw || null;
+    if (fallbackAiProviderId) {
+      const exists = await prisma.aiProvider.findUnique({ where: { id: fallbackAiProviderId } });
+      if (!exists) return json({ error: 'Fallback provider not found' }, { status: 404 });
+    }
+    await prisma.appSettings.upsert({
+      where: { id: 'singleton' },
+      create: { id: 'singleton', fallbackAiProviderId },
+      update: { fallbackAiProviderId },
+    });
+    return json({ ok: true });
+  }
 
   if (intent === 'activate') {
     const id = String(form.get('id') ?? '');
@@ -406,7 +428,7 @@ export async function action({ request }: { request: Request }) {
 
   if (!name || !apiKey) return json({ error: 'Name and API key are required.' }, { status: 400 });
 
-  const ALLOWED_PROVIDERS: readonly ProviderKind[] = ['OPENAI', 'ANTHROPIC', 'AZURE_OPENAI', 'CUSTOM'];
+  const ALLOWED_PROVIDERS: readonly ProviderKind[] = ['OPENAI', 'ANTHROPIC', 'GEMINI', 'AZURE_OPENAI', 'CUSTOM'];
   if (!ALLOWED_PROVIDERS.includes(providerRaw as ProviderKind)) {
     return json({ error: `Unknown provider kind: ${providerRaw}` }, { status: 400 });
   }
@@ -524,7 +546,7 @@ function OpenAiExtraConfigForm({ provider }: { provider: { id: string; extraConf
 }
 
 export default function InternalAiProviders() {
-  const { providers, prices, defaultProviders, envKeyStatus, providerRatings, suggestedProviderId } = useLoaderData<typeof loader>();
+  const { providers, prices, defaultProviders, envKeyStatus, providerRatings, suggestedProviderId, fallbackProviderId } = useLoaderData<typeof loader>();
   const data = useActionData<typeof action>();
   const nav = useNavigation();
   const isSaving = nav.state !== 'idle';
@@ -536,6 +558,7 @@ export default function InternalAiProviders() {
   const [addApiKey, setAddApiKey] = useState('');
   const [addClaudeSkills, setAddClaudeSkills] = useState('');
   const [addClaudeCodeExecution, setAddClaudeCodeExecution] = useState(false);
+  const [fallbackSel, setFallbackSel] = useState(fallbackProviderId ?? '');
 
   const [openaiApiKey, setOpenaiApiKey] = useState('');
   const [openaiModel, setOpenaiModel] = useState(defaultProviders?.openai?.model ?? '');
@@ -572,6 +595,7 @@ export default function InternalAiProviders() {
   const providerTypeOptions = [
     { label: 'OpenAI', value: 'OPENAI' },
     { label: 'Anthropic (Claude)', value: 'ANTHROPIC' },
+    { label: 'Google Gemini', value: 'GEMINI' },
     { label: 'Azure OpenAI', value: 'AZURE_OPENAI' },
     { label: 'Custom endpoint', value: 'CUSTOM' },
   ];
@@ -610,7 +634,7 @@ export default function InternalAiProviders() {
   return (
     <Page title="AI Providers" subtitle="Enter credentials only — model catalog, pricing, and usage stats are auto-managed.">
       <BlockStack gap="400">
-        {data?.error ? (
+        {data && 'error' in data && data.error ? (
           <Banner tone="critical" title="Error">
             <Text as="p">{data.error}</Text>
           </Banner>
@@ -761,6 +785,36 @@ export default function InternalAiProviders() {
                 </BlockStack>
               </Card>
             </InlineGrid>
+          </BlockStack>
+        </Card>
+
+        <Card>
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">Default &amp; fallback AI</Text>
+            <Text as="p" variant="bodySm" tone="subdued">
+              The <strong>default</strong> AI is the globally active provider above (used for all module code generation).
+              The <strong>fallback</strong> runs automatically only if a default call fails. Configure each provider&apos;s
+              key, model, and token rate above; track per-request cost and balance in AI Usage and AI Accounts.
+            </Text>
+            <Form method="post">
+              <input type="hidden" name="intent" value="saveFallbackProvider" />
+              <InlineStack gap="200" blockAlign="end" wrap={false}>
+                <div style={{ minWidth: 320 }}>
+                  <Select
+                    label="Fallback provider"
+                    name="fallbackProviderId"
+                    value={fallbackSel}
+                    onChange={setFallbackSel}
+                    options={[
+                      { label: 'None (no fallback)', value: '' },
+                      ...providers.map((p) => ({ label: `${p.name} (${p.provider})`, value: p.id })),
+                    ]}
+                    helpText="Pick a provider different from the active default."
+                  />
+                </div>
+                <Button submit disabled={isSaving}>Save fallback</Button>
+              </InlineStack>
+            </Form>
           </BlockStack>
         </Card>
 

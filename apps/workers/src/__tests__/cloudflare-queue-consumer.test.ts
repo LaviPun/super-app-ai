@@ -32,7 +32,7 @@ describe('cloudflare-queue-consumer', () => {
       trace: { correlationId: 'job_consumer_1', shopId: 'shop_1' },
     });
 
-    await handleQueueBatch({ messages: [message] } as MessageBatch<unknown>, {});
+    await handleQueueBatch({ messages: [message] } as unknown as MessageBatch<unknown>, {});
 
     expect(message.ack).toHaveBeenCalledOnce();
     expect(message.retry).not.toHaveBeenCalled();
@@ -52,7 +52,7 @@ describe('cloudflare-queue-consumer', () => {
       trace: { correlationId: 'job_consumer_ai', shopId: 'shop_1' },
     });
 
-    await handleQueueBatch({ messages: [message] } as MessageBatch<unknown>, {});
+    await handleQueueBatch({ messages: [message] } as unknown as MessageBatch<unknown>, {});
 
     expect(message.ack).toHaveBeenCalledOnce();
   });
@@ -66,7 +66,7 @@ describe('cloudflare-queue-consumer', () => {
       trace: { correlationId: 'job_consumer_bad' },
     });
 
-    await handleQueueBatch({ messages: [message] } as MessageBatch<unknown>, {});
+    await handleQueueBatch({ messages: [message] } as unknown as MessageBatch<unknown>, {});
 
     expect(message.retry).toHaveBeenCalledOnce();
   });
@@ -74,7 +74,7 @@ describe('cloudflare-queue-consumer', () => {
   it('acks invalid payloads without retry', async () => {
     const message = createMessage({ invalid: true });
 
-    await handleQueueBatch({ messages: [message] } as MessageBatch<unknown>, {});
+    await handleQueueBatch({ messages: [message] } as unknown as MessageBatch<unknown>, {});
 
     expect(message.ack).toHaveBeenCalledOnce();
     expect(message.retry).not.toHaveBeenCalled();

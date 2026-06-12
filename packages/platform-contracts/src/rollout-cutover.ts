@@ -4,7 +4,23 @@ import { z } from 'zod';
 export const JobExecutionModeSchema = z.enum(['inline', 'queue', 'disabled']);
 export type JobExecutionMode = z.infer<typeof JobExecutionModeSchema>;
 
+/**
+ * Single high-level switch for which API/job backend serves the platform.
+ * - `cloudflare`: the CF Worker serves /v1 (Fastify stays gated); queue execution.
+ * - `fastify`: Fastify serves /v1 with BullMQ; queue execution.
+ * Individual flags (FASTIFY_API_ENABLED, JOB_EXECUTION_MODE) still override the
+ * preset when set explicitly. Unset preserves legacy behavior (inline Remix).
+ */
+export const PlatformBackendSchema = z.enum(['cloudflare', 'fastify']);
+export type PlatformBackend = z.infer<typeof PlatformBackendSchema>;
+
+export function parsePlatformBackend(env: NodeJS.ProcessEnv = process.env): PlatformBackend | undefined {
+  const parsed = PlatformBackendSchema.safeParse(env.PLATFORM_BACKEND?.trim().toLowerCase());
+  return parsed.success ? parsed.data : undefined;
+}
+
 export const PlatformV2RolloutFlagsSchema = z.object({
+  platformBackend: PlatformBackendSchema.optional(),
   frontendNextEnabled: z.boolean(),
   fastifyApiEnabled: z.boolean(),
   shopifyEmbeddedNextCutoverEnabled: z.boolean(),
@@ -21,6 +37,7 @@ export const PlatformV2RolloutFlagsSchema = z.object({
 export type PlatformV2RolloutFlags = z.infer<typeof PlatformV2RolloutFlagsSchema>;
 
 export const PLATFORM_V2_ROLLOUT_ENV_KEYS = {
+  PLATFORM_BACKEND: 'PLATFORM_BACKEND',
   FRONTEND_NEXT_ENABLED: 'FRONTEND_NEXT_ENABLED',
   FASTIFY_API_ENABLED: 'FASTIFY_API_ENABLED',
   SHOPIFY_EMBEDDED_NEXT_CUTOVER_ENABLED: 'SHOPIFY_EMBEDDED_NEXT_CUTOVER_ENABLED',
@@ -44,16 +61,23 @@ function readBooleanFlag(env: NodeJS.ProcessEnv, key: string, defaultValue = fal
 }
 
 export function parsePlatformV2RolloutFlags(env: NodeJS.ProcessEnv = process.env): PlatformV2RolloutFlags {
+  const platformBackend = parsePlatformBackend(env);
   const jobExecutionMode = JobExecutionModeSchema.safeParse(env.JOB_EXECUTION_MODE?.trim());
+  const jobExecutionModeDefault: JobExecutionMode = platformBackend ? 'queue' : 'inline';
   return PlatformV2RolloutFlagsSchema.parse({
+    platformBackend,
     frontendNextEnabled: readBooleanFlag(env, PLATFORM_V2_ROLLOUT_ENV_KEYS.FRONTEND_NEXT_ENABLED, false),
-    fastifyApiEnabled: readBooleanFlag(env, PLATFORM_V2_ROLLOUT_ENV_KEYS.FASTIFY_API_ENABLED, false),
+    fastifyApiEnabled: readBooleanFlag(
+      env,
+      PLATFORM_V2_ROLLOUT_ENV_KEYS.FASTIFY_API_ENABLED,
+      platformBackend === 'fastify',
+    ),
     shopifyEmbeddedNextCutoverEnabled: readBooleanFlag(
       env,
       PLATFORM_V2_ROLLOUT_ENV_KEYS.SHOPIFY_EMBEDDED_NEXT_CUTOVER_ENABLED,
       false,
     ),
-    jobExecutionMode: jobExecutionMode.success ? jobExecutionMode.data : 'inline',
+    jobExecutionMode: jobExecutionMode.success ? jobExecutionMode.data : jobExecutionModeDefault,
     aiGenerationAsyncEnabled: readBooleanFlag(env, PLATFORM_V2_ROLLOUT_ENV_KEYS.AI_GENERATION_ASYNC_ENABLED, false),
     aiGenerationStreamViaQueueEnabled: readBooleanFlag(
       env,

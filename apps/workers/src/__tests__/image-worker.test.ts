@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ImageWorkerHandler } from '../image/image-worker';
 import { LocalStorageAdapter } from '../storage/local-storage-adapter';
 import { R2StorageAdapter } from '../storage/r2-storage-adapter';
-import { StorageAdapterError, type PutObjectInput, type PutObjectResult, type StorageAdapter } from '../storage/storage-adapter';
+import { StorageAdapterError, type GetObjectResult, type PutObjectInput, type PutObjectResult, type StorageAdapter } from '../storage/storage-adapter';
 
 const fixedNow = () => new Date('2026-05-19T09:00:00.000Z');
 const cleanupPaths: string[] = [];
@@ -173,6 +173,18 @@ class RecordingStorageAdapter implements StorageAdapter {
       sizeBytes: input.body.byteLength,
       contentType: input.contentType,
       visibility: input.visibility,
+    };
+  }
+
+  async getObject(key: string): Promise<GetObjectResult> {
+    const found = this.puts.find((input) => input.key === key);
+    if (!found) {
+      throw new StorageAdapterError('STORAGE_READ_FAILED', `No object stored at ${key}.`);
+    }
+    return {
+      body: found.body,
+      contentType: found.contentType,
+      sizeBytes: found.body.byteLength,
     };
   }
 
