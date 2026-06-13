@@ -9,10 +9,10 @@ import { getPrisma } from '~/db.server';
 export async function action({ request }: { request: Request }) {
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
 
-  await shopify.authenticate.webhook(request);
+  const { payload } = await shopify.authenticate.webhook(request);
 
-  const payload = (await request.json()) as { shop_id?: number; shop_domain?: string };
-  const shopDomain = payload.shop_domain ?? payload.shop_id?.toString();
+  const webhookPayload = payload as { shop_id?: number; shop_domain?: string };
+  const shopDomain = webhookPayload.shop_domain ?? webhookPayload.shop_id?.toString();
   if (!shopDomain)
     return new Response(JSON.stringify({ error: 'Missing shop identifier' }), {
       status: 400,
