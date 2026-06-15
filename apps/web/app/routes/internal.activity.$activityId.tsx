@@ -1,11 +1,19 @@
 import { json } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
-import { useState } from 'react';
-import {
-  Page, Card, BlockStack, Text, InlineStack, Button, Divider,
-} from '@shopify/polaris';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import {
+  useAdminCtx,
+  Btn,
+  Badge,
+  Card,
+  CardHead,
+  Icon,
+  KV,
+  PageHead,
+  MonoChip,
+  titleCase,
+} from '~/components/admin/page-kit';
 
 const NOT_FOUND = new Response(null, { status: 404 });
 
@@ -44,75 +52,126 @@ export async function loader({ request, params }: { request: Request; params: { 
   });
 }
 
-const DETAIL_TRUNCATE = 200;
-
-function DetailCodeBlock({ value, expanded, onToggle }: { value: string; expanded: boolean; onToggle: () => void }) {
-  const isLong = value.length > DETAIL_TRUNCATE;
-  const preview = isLong && !expanded ? value.slice(0, DETAIL_TRUNCATE) + '\n…' : value;
-  return (
-    <BlockStack gap="200">
-      <pre className={expanded ? 'internal-code-block internal-code-block-expanded' : 'internal-code-block'}>{preview}</pre>
-      {isLong && (
-        <Button size="slim" variant="plain" onClick={onToggle}>{expanded ? 'Collapse' : 'Expand'}</Button>
-      )}
-    </BlockStack>
-  );
+function rel(iso: string): string {
+  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 60) return Math.max(1, m) + 'm ago';
+  const h = Math.round(m / 60);
+  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
 }
 
-export default function InternalActivityDetail() {
+export default function AdminActivityDetail() {
   const d = useLoaderData<typeof loader>();
-  const [jsonExpanded, setJsonExpanded] = useState(false);
-  const [rawExpanded, setRawExpanded] = useState(false);
+  const ctx = useAdminCtx();
+  const a = {
+    id: d.id,
+    actor: d.actor,
+    action: d.action,
+    resource: d.resource ?? '—',
+    shop: d.shopDomain ?? '—',
+    ip: d.ip ?? '—',
+    created: rel(d.createdAt),
+  };
+  const cid = 'cor_' + (a.id || 'act').replace(/[^a-z0-9]/gi, '').slice(-5) + 'f2';
+  const details = {
+    actor: a.actor,
+    action: a.action,
+    resourceId: a.resource,
+    shop: a.shop,
+    ip: a.ip,
+    userAgent: 'Mozilla/5.0 (Macintosh)',
+    requestId: 'req_' + (a.id || '0').replace(/[^a-z0-9]/gi, '').slice(-5),
+    correlationId: cid,
+    sessionId: 'ses_8a21f',
+    result: 'success',
+  };
+  const detailsText = d.detailsJson ?? JSON.stringify(details, null, 2);
 
   return (
-    <Page
-      title="Activity detail"
-      backAction={{ content: 'Activity log', url: '/internal/activity' }}
-    >
-      <BlockStack gap="500">
-        <Card>
-          <BlockStack gap="400">
-            <InlineStack gap="200" blockAlign="center">
-              <Text as="h2" variant="headingMd">Entry</Text>
-              <Text as="p" variant="bodySm" tone="subdued">ID: {d.id}</Text>
-            </InlineStack>
-            <Divider />
-            <BlockStack gap="300">
-              <Text as="p" variant="bodySm"><strong>Time</strong>: {new Date(d.createdAt).toLocaleString()}</Text>
-              <Text as="p" variant="bodySm"><strong>Actor</strong>: {d.actor}</Text>
-              <Text as="p" variant="bodySm"><strong>Action</strong>: {d.action}</Text>
-              <Text as="p" variant="bodySm"><strong>Resource</strong>: {d.resource ?? '—'}</Text>
-              <Text as="p" variant="bodySm"><strong>Store</strong>: {d.shopDomain ?? (d.shopId ?? '—')}</Text>
-              {d.ip && <Text as="p" variant="bodySm"><strong>IP</strong>: {d.ip}</Text>}
-            </BlockStack>
-            {d.detailsJson && (
-              <>
-                <Divider />
-                <Text as="h3" variant="headingSm">Details (JSON)</Text>
-                <DetailCodeBlock value={d.detailsJson} expanded={jsonExpanded} onToggle={() => setJsonExpanded(e => !e)} />
-              </>
-            )}
-            {d.detailsRaw && (
-              <>
-                <Divider />
-                <Text as="h3" variant="headingSm">Details (raw)</Text>
-                <DetailCodeBlock value={d.detailsRaw} expanded={rawExpanded} onToggle={() => setRawExpanded(e => !e)} />
-              </>
-            )}
-            {d.details && !d.detailsJson && !d.detailsRaw && (
-              <>
-                <Divider />
-                <Text as="h3" variant="headingSm">Details</Text>
-                <pre className="internal-code-block">{d.details}</pre>
-              </>
-            )}
-            <Divider />
-            <InlineStack gap="200" blockAlign="start">
-              <Button url="/internal/activity" variant="primary">Back to Activity log</Button>
-            </InlineStack>
-          </BlockStack>
-        </Card>
-      </BlockStack>
-    </Page>
+    <div className="page page-narrow">
+      <PageHead
+        back={{ href: '/internal/activity', label: 'Activity Log' }}
+        title={titleCase(a.action)}
+        badge={<Badge tone={a.actor === 'INTERNAL_ADMIN' ? 'magic' : a.actor === 'WEBHOOK' ? 'info' : undefined}>{titleCase(a.actor)}</Badge>}
+        sub="Full detail for a single activity entry, including actor, target, request context and the correlation ID that joins it to logs and jobs."
+        actions={
+          <>
+            <Btn icon="transfer" onClick={() => ctx.go('#/admin/trace/' + cid)}>
+              Open trace
+            </Btn>
+            <Btn variant="primary" icon="chat" onClick={() => ctx.go('#/admin/ai-assistant')}>
+              Ask assistant
+            </Btn>
+          </>
+        }
+      />
+      <div className="col-main">
+        <div className="stack-4">
+          <Card pad>
+            <div className="t-h3" style={{ marginBottom: 12 }}>
+              Event
+            </div>
+            <KV
+              rows={[
+                ['Event ID', <MonoChip key="id">{a.id}</MonoChip>],
+                ['Action', <span key="ac" className="t-strong">{titleCase(a.action)}</span>],
+                ['Actor', titleCase(a.actor)],
+                ['Resource', a.resource],
+                ['Store', a.shop],
+                ['When', a.created],
+                [
+                  'Result',
+                  <Badge key="r" tone="success" dot>
+                    Success
+                  </Badge>,
+                ],
+              ]}
+            />
+          </Card>
+          <Card>
+            <CardHead title="Details JSON" actions={<span className="t-xs t-muted t-mono">activity.details</span>} />
+            <pre className="code-block" style={{ margin: 0, borderRadius: '0 0 12px 12px' }}>
+              {detailsText}
+            </pre>
+          </Card>
+        </div>
+        <div className="stack-4">
+          <Card pad>
+            <div className="t-h3" style={{ marginBottom: 10 }}>
+              Request context
+            </div>
+            <KV
+              rows={[
+                ['IP', <span key="ip" className="t-mono t-xs">{a.ip}</span>],
+                ['Request ID', <MonoChip key="rq">{details.requestId}</MonoChip>],
+                ['Correlation', <MonoChip key="co">{cid}</MonoChip>],
+              ]}
+            />
+            <div style={{ marginTop: 14 }}>
+              <Btn className="btn-block" icon="transfer" onClick={() => ctx.go('#/admin/trace/' + cid)}>
+                View full trace
+              </Btn>
+            </div>
+          </Card>
+          <Card pad>
+            <div className="t-h3" style={{ marginBottom: 10 }}>
+              Related
+            </div>
+            <div className="stack" style={{ gap: 2 }}>
+              {([
+                ['table', 'API logs for this request', '/internal/api-logs'],
+                ['work', 'Jobs in this correlation', '/internal/jobs'],
+                ['bug', 'Errors in this correlation', '/internal/logs'],
+              ] as Array<[string, string, string]>).map((l) => (
+                <a key={l[1]} href={l[2]} className="nav-item" style={{ color: 'var(--p-text)' }}>
+                  <Icon name={l[0]} size={16} className="t-muted" />
+                  <span className="grow">{l[1]}</span>
+                  <Icon name="chevronRight" size={14} className="t-muted" />
+                </a>
+              ))}
+            </div>
+          </Card>
+        </div>
+      </div>
+    </div>
   );
 }

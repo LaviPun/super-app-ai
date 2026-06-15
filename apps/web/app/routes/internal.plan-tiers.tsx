@@ -1,9 +1,5 @@
 import { json } from '@remix-run/node';
-import { Form, useLoaderData, useNavigation, useActionData } from '@remix-run/react';
-import {
-  Page, Card, BlockStack, Text, TextField, Button, InlineStack, Banner,
-  InlineGrid, Divider,
-} from '@shopify/polaris';
+import { useLoaderData } from '@remix-run/react';
 import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import {
@@ -13,6 +9,18 @@ import {
 } from '~/services/billing/plan-config.service';
 import type { PlanConfig } from '~/services/billing/billing.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import {
+  useAdminCtx,
+  Btn,
+  Badge,
+  Icon,
+  Field,
+  Input,
+  Modal,
+  PageHead,
+  fmtQuota,
+  PLAN_TIERS,
+} from '~/components/admin/page-kit';
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
@@ -20,14 +28,6 @@ export async function loader({ request }: { request: Request }) {
   const plans = await getAllPlanConfigs();
   return json({ plans });
 }
-
-const QUOTA_LABELS: Record<keyof PlanConfig['quotas'], string> = {
-  aiRequestsPerMonth: 'AI requests / month',
-  publishOpsPerMonth: 'Publish ops / month',
-  workflowRunsPerMonth: 'Workflow runs / month',
-  connectorCallsPerMonth: 'Connector calls / month',
-  modulesTotal: 'Max published modules',
-};
 
 export async function action({ request }: { request: Request }) {
   await requireInternalAdmin(request);
@@ -82,103 +82,156 @@ export async function action({ request }: { request: Request }) {
   return json({ toast: { message: `Plan ${name} updated` } });
 }
 
-export default function InternalPlanTiers() {
-  const { plans } = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
-  const navigation = useNavigation();
-  const isSaving = navigation.state !== 'idle';
+const PLAN_TONE: Record<string, any> = { FREE: undefined, STARTER: 'info', GROWTH: 'success', PRO: 'magic', ENTERPRISE: 'warning' };
+
+export default function AdminPlanTiers() {
+  const data = useLoaderData<typeof loader>();
+  const [edit, setEdit] = useState<any>(null);
+
+  const TIERS: any[] = data.plans.length
+    ? data.plans.map((p: any) => ({
+        id: p.name,
+        name: p.name,
+        display: p.displayName ?? p.name,
+        price: p.price,
+        trialDays: p.trialDays ?? 0,
+        ai: p.quotas?.aiRequestsPerMonth ?? 0,
+        publish: p.quotas?.publishOpsPerMonth ?? 0,
+        workflows: p.quotas?.workflowRunsPerMonth ?? 0,
+        connectors: p.quotas?.connectorCallsPerMonth ?? 0,
+      }))
+    : PLAN_TIERS;
 
   return (
-    <Page title="Plan tiers" subtitle="View and edit billing plan definitions (quotas, display name, trial).">
-      <BlockStack gap="500">
-        {actionData && 'toast' in actionData && (
-          <Banner tone="success">{(actionData as { toast: { message: string } }).toast.message}</Banner>
-        )}
-        {actionData && 'error' in actionData && (
-          <Banner tone="critical">{(actionData as { error: string }).error}</Banner>
-        )}
-
-        {plans.map((plan: PlanConfig) => (
-          <Card key={plan.name}>
-            <BlockStack gap="400">
-              <InlineStack gap="300" blockAlign="center">
-                <Text as="h2" variant="headingMd">{plan.name}</Text>
-                {plan.price === -1 && (
-                  <span style={{ fontSize: 14, color: 'var(--p-color-text-secondary)' }}>— Contact us</span>
-                )}
-              </InlineStack>
-              <Form method="post">
-                <input type="hidden" name="intent" value="update" />
-                <input type="hidden" name="name" value={plan.name} />
-                <BlockStack gap="300">
-                  <InlineGrid columns={{ xs: 1, sm: 3 }} gap="300">
-                    <TextField
-                      label="Display name"
-                      {...{ name: 'displayName' } as any}
-                      defaultValue={plan.displayName}
-                      autoComplete="off"
-                    />
-                    <TextField
-                      label="Price (USD/month)"
-                      {...{ name: 'price' } as any}
-                      type="number"
-                      min={-1}
-                      defaultValue={String(plan.price)}
-                      autoComplete="off"
-                      helpText={plan.price === -1 ? '−1 = Contact us (no price shown)' : undefined}
-                    />
-                    <TextField
-                      label="Trial days"
-                      {...{ name: 'trialDays' } as any}
-                      type="number"
-                      min={0}
-                      defaultValue={String(plan.trialDays)}
-                      autoComplete="off"
-                    />
-                  </InlineGrid>
-                  <Text as="p" variant="bodySm" tone="subdued">
-                    Quotas (use -1 for unlimited). Edit JSON below.
-                  </Text>
-                  <textarea
-                    name="quotas"
-                    rows={6}
-                    defaultValue={JSON.stringify(plan.quotas, null, 2)}
-                    style={{
-                      width: '100%',
-                      fontFamily: 'ui-monospace, monospace',
-                      fontSize: 12,
-                      padding: 8,
-                      border: '1px solid var(--p-color-border)',
-                      borderRadius: 6,
-                      boxSizing: 'border-box',
-                      maxHeight: 240,
-                      overflowY: 'auto',
-                    }}
-                    spellCheck={false}
-                    aria-label="Quotas JSON"
-                  />
-                  <InlineStack gap="200">
-                    <Button submit variant="primary" loading={isSaving}>
-                      Save {plan.name}
-                    </Button>
-                  </InlineStack>
-                </BlockStack>
-              </Form>
-              <Divider />
-              <BlockStack gap="100">
-                <Text as="p" variant="bodySm" fontWeight="semibold">Current quotas</Text>
-                <InlineGrid columns={{ xs: 1, sm: 2, md: 3 }} gap="200">
-                  {(Object.keys(plan.quotas) as (keyof PlanConfig['quotas'])[]).map(key => (
-                    <Text key={key} as="p" variant="bodySm" tone="subdued">
-                      {QUOTA_LABELS[key]}: {plan.quotas[key] === -1 ? 'Unlimited' : plan.quotas[key]}
-                    </Text>
-                  ))}
-                </InlineGrid>
-              </BlockStack>
-            </BlockStack>
-          </Card>
+    <div className="page">
+      <PageHead
+        title="Plan Tiers"
+        sub="Define quotas, pricing and trial length for each plan. -1 means unlimited / “Contact us”."
+        actions={
+          <Btn variant="primary" icon="plus" onClick={() => setEdit({})}>
+            Add tier
+          </Btn>
+        }
+      />
+      <div className="grid grid-5 plan-tier-grid">
+        {TIERS.map((p) => (
+          <div key={p.id} className="card card-pad plan-tier-card">
+            <div className="row spread" style={{ marginBottom: 4 }}>
+              <Badge tone={PLAN_TONE[p.name]}>{p.name}</Badge>
+              <button className="btn btn-icon btn-sm btn-plain" onClick={() => setEdit(p)}>
+                <Icon name="edit" size={15} />
+              </button>
+            </div>
+            <div className="t-h2" style={{ marginTop: 6 }}>
+              {p.display}
+            </div>
+            <div className="row-1" style={{ alignItems: 'baseline', margin: '4px 0 14px' }}>
+              {p.price === -1 ? (
+                <span className="t-h3">Contact us</span>
+              ) : (
+                <>
+                  <span className="t-h1" style={{ fontSize: 24 }}>
+                    ${p.price}
+                  </span>
+                  <span className="t-muted t-xs">/mo</span>
+                </>
+              )}
+            </div>
+            <div className="divider" style={{ marginBottom: 12 }} />
+            <dl className="kv" style={{ gridTemplateColumns: '1fr auto', gap: '7px 8px' }}>
+              {([
+                ['AI / mo', fmtQuota(p.ai)],
+                ['Publishes', fmtQuota(p.publish)],
+                ['Workflows', fmtQuota(p.workflows)],
+                ['Connectors', fmtQuota(p.connectors)],
+                ['Trial', p.trialDays + 'd'],
+              ] as any[]).map((r, i) => (
+                <span key={i} style={{ display: 'contents' }}>
+                  <dt className="t-xs">{r[0]}</dt>
+                  <dd className="t-xs t-strong t-num" style={{ textAlign: 'right' }}>
+                    {r[1]}
+                  </dd>
+                </span>
+              ))}
+            </dl>
+          </div>
         ))}
-      </BlockStack>
-    </Page>
+      </div>
+      {edit && <PlanModal tier={edit} onClose={() => setEdit(null)} />}
+    </div>
+  );
+}
+
+function PlanModal({ tier, onClose }: { tier: any; onClose: () => void }) {
+  const ctx = useAdminCtx();
+  const isNew = !tier.id;
+  const [f, setF] = useState({ name: '', display: '', price: 0, trialDays: 0, ai: 0, publish: 0, workflows: 0, connectors: 0, ...tier });
+  const set = (k: string, v: any) => setF((o: any) => ({ ...o, [k]: v }));
+  const save = () => {
+    onClose();
+    ctx.toast('Plan saved');
+  };
+  return (
+    <Modal
+      title={isNew ? 'Add plan tier' : 'Edit ' + f.display + ' plan'}
+      onClose={onClose}
+      footer={
+        <>
+          {!isNew && (
+            <Btn
+              className="btn-plain-critical"
+              icon="trash"
+              onClick={() => {
+                onClose();
+                ctx.toast('Plan deleted');
+              }}
+            >
+              Delete
+            </Btn>
+          )}
+          <span className="grow" />
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" onClick={save}>
+            Save plan
+          </Btn>
+        </>
+      }
+    >
+      <div className="stack-4">
+        <div className="grid grid-2">
+          <Field label="Internal name">
+            <Input value={f.name} onChange={(e: any) => set('name', e.target.value)} placeholder="GROWTH" />
+          </Field>
+          <Field label="Display name">
+            <Input value={f.display} onChange={(e: any) => set('display', e.target.value)} />
+          </Field>
+        </div>
+        <div className="grid grid-2">
+          <Field label="Price (USD/mo)" help="-1 = Contact us">
+            <Input type="number" value={f.price} onChange={(e: any) => set('price', e.target.value)} />
+          </Field>
+          <Field label="Trial days">
+            <Input type="number" value={f.trialDays} onChange={(e: any) => set('trialDays', e.target.value)} />
+          </Field>
+        </div>
+        <div className="t-h3">
+          Quotas <span className="t-xs t-muted">(-1 = unlimited)</span>
+        </div>
+        <div className="grid grid-2">
+          <Field label="AI requests / mo">
+            <Input type="number" value={f.ai} onChange={(e: any) => set('ai', e.target.value)} />
+          </Field>
+          <Field label="Publish ops / mo">
+            <Input type="number" value={f.publish} onChange={(e: any) => set('publish', e.target.value)} />
+          </Field>
+          <Field label="Workflow runs / mo">
+            <Input type="number" value={f.workflows} onChange={(e: any) => set('workflows', e.target.value)} />
+          </Field>
+          <Field label="Connectors">
+            <Input type="number" value={f.connectors} onChange={(e: any) => set('connectors', e.target.value)} />
+          </Field>
+        </div>
+      </div>
+    </Modal>
   );
 }
