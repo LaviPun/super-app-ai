@@ -1,15 +1,18 @@
 import { json } from '@remix-run/node';
 import { useLoaderData, useFetcher } from '@remix-run/react';
-import {
-  Page, Card, BlockStack, Text, Button, Badge, InlineStack,
-  DataTable, Banner, EmptyState, TextField, Modal, Box,
-} from '@shopify/polaris';
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { DataStoreService } from '~/services/data/data-store.service';
 import { parseDataModel, dataModelToForm } from '@superapp/core';
 import { SchemaForm, type JsonSchemaNode, type SectionUiHints } from '~/components/SchemaForm';
+import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
+import {
+  Btn, Badge, Card, PageHead, FilterBar, DataTable, Modal, Field, Input, Textarea, MonoChip,
+  useTableState,
+} from '~/components/superapp';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 export async function loader({ request, params }: { request: Request; params: { storeKey?: string } }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -49,155 +52,116 @@ export async function loader({ request, params }: { request: Request; params: { 
 }
 
 export default function DataStoreDetail() {
-  const { storeKey, store, records, total, page, pageSize, recordForm } = useLoaderData<typeof loader>();
+  return (
+    <MerchantShell>
+      <DataStoreDetailBody />
+    </MerchantShell>
+  );
+}
+
+function DataStoreDetailBody() {
+  const { storeKey, store, records, total, recordForm } = useLoaderData<typeof loader>();
+  const ctx = useMerchantCtx();
   const fetcher = useFetcher();
+  const ts = useTableState();
   const [addOpen, setAddOpen] = useState(false);
+  const [viewRecord, setViewRecord] = useState<typeof records[0] | null>(null);
   const [newTitle, setNewTitle] = useState('');
   const [newPayload, setNewPayload] = useState('{}');
   const [newExternalId, setNewExternalId] = useState('');
-  // Typed-form value (grouped under `record`) when the store has a schema.
   const [recordValue, setRecordValue] = useState<Record<string, unknown>>({ record: {} });
-  const [viewRecord, setViewRecord] = useState<typeof records[0] | null>(null);
 
-  const handleAdd = useCallback(() => {
+  const handleAdd = () => {
     let payload: unknown;
-    if (recordForm) {
-      // Typed store: submit the validated field values directly.
-      payload = (recordValue.record as Record<string, unknown>) ?? {};
-    } else {
-      try { payload = JSON.parse(newPayload); } catch { payload = { raw: newPayload }; }
-    }
-    fetcher.submit(
-      { intent: 'add-record', storeKey, title: newTitle || undefined, externalId: newExternalId || undefined, payload } as any,
-      { method: 'POST', action: '/api/data-stores', encType: 'application/json' },
-    );
-    setAddOpen(false);
-    setNewTitle('');
-    setNewPayload('{}');
-    setNewExternalId('');
-    setRecordValue({ record: {} });
-  }, [storeKey, newTitle, newPayload, newExternalId, recordForm, recordValue, fetcher]);
-
-  const handleDelete = useCallback((recordId: string) => {
-    fetcher.submit(
-      { intent: 'delete-record', storeKey, recordId } as any,
-      { method: 'POST', action: '/api/data-stores', encType: 'application/json' },
-    );
+    if (recordForm) payload = (recordValue.record as Record<string, unknown>) ?? {};
+    else { try { payload = JSON.parse(newPayload); } catch { payload = { raw: newPayload }; } }
+    fetcher.submit({ intent: 'add-record', storeKey, title: newTitle || undefined, externalId: newExternalId || undefined, payload } as any,
+      { method: 'POST', action: '/api/data-stores', encType: 'application/json' });
+    setAddOpen(false); setNewTitle(''); setNewPayload('{}'); setNewExternalId(''); setRecordValue({ record: {} });
+    ctx.toast('Record added');
+  };
+  const handleDelete = (recordId: string) => {
+    fetcher.submit({ intent: 'delete-record', storeKey, recordId } as any, { method: 'POST', action: '/api/data-stores', encType: 'application/json' });
     setViewRecord(null);
-  }, [storeKey, fetcher]);
+    ctx.toast('Record deleted');
+  };
 
-  const totalPages = Math.ceil(total / pageSize);
+  const rows = records.filter((r: any) => ((r.title ?? '') + (r.externalId ?? '') + r.payload).toLowerCase().includes(ts.search.toLowerCase()));
 
   return (
-    <Page
-      title={store.label}
-      subtitle={store.description ?? `Data store: ${store.key}`}
-      backAction={{ content: 'Data models', url: '/data' }}
-      titleMetadata={
-        <InlineStack gap="200">
-          <Badge tone="info">{store.key}</Badge>
-          <Badge>{`${total} record${total !== 1 ? 's' : ''}`}</Badge>
-        </InlineStack>
-      }
-      secondaryActions={[
-        { content: 'Export CSV', url: `/data/${storeKey}/export`, external: true },
-        { content: 'Print / PDF', url: `/data/${storeKey}/print`, external: true },
-      ]}
-    >
-      <BlockStack gap="500">
-        <Card>
-          <BlockStack gap="300">
-            <InlineStack align="space-between" blockAlign="center">
-              <Text as="h2" variant="headingMd">Records</Text>
-              <Button onClick={() => setAddOpen(true)}>Add record</Button>
-            </InlineStack>
-            {records.length === 0 ? (
-              <EmptyState heading="No records yet" image="">
-                <p>Records will appear here when added by flows, modules, or manually.</p>
-              </EmptyState>
-            ) : (
-              <>
-                <DataTable
-                  columnContentTypes={['text', 'text', 'text', 'text', 'text']}
-                  headings={['Title', 'External ID', 'Created', 'Preview', '']}
-                  rows={records.map(r => {
-                    let preview = '';
-                    try { const p = JSON.parse(r.payload); preview = JSON.stringify(p).slice(0, 80); } catch { preview = r.payload.slice(0, 80); }
-                    return [
-                      r.title ?? '-',
-                      r.externalId ?? '-',
-                      new Date(r.createdAt).toLocaleString(),
-                      <Text key={`p-${r.id}`} as="span" variant="bodySm" tone="subdued">{preview}{preview.length >= 80 ? '...' : ''}</Text>,
-                      <InlineStack key={`a-${r.id}`} gap="100">
-                        <Button size="slim" onClick={() => setViewRecord(r)}>View</Button>
-                        <Button size="slim" tone="critical" onClick={() => handleDelete(r.id)}>Delete</Button>
-                      </InlineStack>,
-                    ];
-                  })}
-                />
-                {totalPages > 1 && (
-                  <InlineStack align="center" gap="200">
-                    <Text as="p" variant="bodySm" tone="subdued">
-                      Page {page} of {totalPages} ({total} records)
-                    </Text>
-                  </InlineStack>
-                )}
-              </>
-            )}
-          </BlockStack>
-        </Card>
-      </BlockStack>
+    <div className="page">
+      <PageHead
+        back={{ href: '/data', label: 'Data' }}
+        title={store.label}
+        badge={<Badge>{store.key}</Badge>}
+        sub={store.description ?? `Data store · ${store.key}`}
+        actions={(
+          <>
+            <a href={`/data/${storeKey}/export`} target="_blank" rel="noreferrer" className="btn btn-sm"><span>Export</span></a>
+            <a href={`/data/${storeKey}/print`} target="_blank" rel="noreferrer" className="btn btn-sm"><span>Print / PDF</span></a>
+            <Btn variant="primary" icon="plus" onClick={() => setAddOpen(true)}>Add record</Btn>
+          </>
+        )}
+      />
+      <Card>
+        <FilterBar search={ts.search} onSearch={ts.setSearch} placeholder="Search records…" results={total} />
+        {rows.length === 0 ? (
+          <div style={{ padding: 24, color: 'var(--p-text-secondary)', fontSize: 14 }}>No records yet — added by flows, modules, or manually.</div>
+        ) : (
+          <DataTable rowKey="id" columns={[
+            { key: 'title', label: 'Title', render: (r: any) => <span className="cell-strong">{r.title ?? '—'}</span> },
+            { key: 'externalId', label: 'External ID', render: (r: any) => r.externalId ? <MonoChip>{r.externalId}</MonoChip> : <span className="t-muted">—</span> },
+            { key: 'createdAt', label: 'Created', render: (r: any) => <span className="cell-sub">{new Date(r.createdAt).toLocaleDateString('en-US')}</span> },
+            { key: 'payload', label: 'Payload preview', render: (r: any) => <span className="t-mono t-trunc" style={{ maxWidth: 280, display: 'inline-block', color: 'var(--p-text-secondary)' }}>{r.payload}</span> },
+            { key: 'act', label: '', render: (r: any) => (
+              <div className="dt-actions">
+                <Btn size="sm" icon="eye" onClick={() => setViewRecord(r)} />
+                <Btn size="sm" className="btn-plain-critical" icon="trash" onClick={() => handleDelete(r.id)} />
+              </div>
+            ) },
+          ]} rows={rows} />
+        )}
+      </Card>
 
       {addOpen && (
-        <Modal
-          open
-          onClose={() => setAddOpen(false)}
-          title="Add record"
-          primaryAction={{ content: 'Add', onAction: handleAdd }}
-          secondaryActions={[{ content: 'Cancel', onAction: () => setAddOpen(false) }]}
-        >
-          <Modal.Section>
-            <BlockStack gap="300">
-              <TextField label="Title (optional)" value={newTitle} onChange={setNewTitle} autoComplete="off" />
-              <TextField label="External ID (optional)" value={newExternalId} onChange={setNewExternalId} autoComplete="off" placeholder="e.g. gid://shopify/Product/123" />
-              {recordForm ? (
-                <SchemaForm
-                  schema={recordForm.jsonSchema as JsonSchemaNode}
-                  uiSchema={recordForm.uiSchema as Record<string, SectionUiHints>}
-                  value={recordValue}
-                  onChange={setRecordValue}
-                  tier="advanced"
-                />
-              ) : (
-                <TextField label="Payload (JSON)" value={newPayload} onChange={setNewPayload} autoComplete="off" multiline={6} monospaced />
-              )}
-            </BlockStack>
-          </Modal.Section>
+        <Modal title="Add record" onClose={() => setAddOpen(false)}
+          footer={(
+            <>
+              <span className="grow" />
+              <Btn onClick={() => setAddOpen(false)}>Cancel</Btn>
+              <Btn variant="primary" onClick={handleAdd}>Add record</Btn>
+            </>
+          )}>
+          <div className="stack-4">
+            <Field label="Title" optional><Input value={newTitle} onChange={(e: any) => setNewTitle(e.target.value)} autoFocus /></Field>
+            <Field label="External ID" optional><Input mono value={newExternalId} onChange={(e: any) => setNewExternalId(e.target.value)} /></Field>
+            {recordForm ? (
+              <SchemaForm
+                schema={recordForm.jsonSchema as JsonSchemaNode}
+                uiSchema={recordForm.uiSchema as Record<string, SectionUiHints>}
+                value={recordValue}
+                onChange={setRecordValue}
+                tier="advanced"
+              />
+            ) : (
+              <Field label="Payload (JSON)"><Textarea mono rows={5} value={newPayload} onChange={(e: any) => setNewPayload(e.target.value)} /></Field>
+            )}
+          </div>
         </Modal>
       )}
 
       {viewRecord && (
-        <Modal
-          open
-          onClose={() => setViewRecord(null)}
-          title={viewRecord.title ?? 'Record detail'}
-          secondaryActions={[{ content: 'Close', onAction: () => setViewRecord(null) }]}
-        >
-          <Modal.Section>
-            <BlockStack gap="300">
-              {viewRecord.externalId && <Text as="p" variant="bodySm">External ID: {viewRecord.externalId}</Text>}
-              <Text as="p" variant="bodySm" tone="subdued">Created: {new Date(viewRecord.createdAt).toLocaleString()}</Text>
-              <Box padding="200" background="bg-surface-secondary" borderRadius="200">
-                <pre style={{ margin: 0, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 400, overflow: 'auto' }}>
-                  {(() => {
-                    try { return JSON.stringify(JSON.parse(viewRecord.payload), null, 2); } catch { return viewRecord.payload; }
-                  })()}
-                </pre>
-              </Box>
-            </BlockStack>
-          </Modal.Section>
+        <Modal title={viewRecord.title ?? 'Record detail'} onClose={() => setViewRecord(null)}
+          footer={<><span className="grow" /><Btn onClick={() => setViewRecord(null)}>Close</Btn></>}>
+          <div className="stack-3">
+            {viewRecord.externalId && <div className="t-sm">External ID: <MonoChip>{viewRecord.externalId}</MonoChip></div>}
+            <div className="t-xs t-muted">Created: {new Date(viewRecord.createdAt).toLocaleString()}</div>
+            <pre className="code-block" style={{ maxHeight: 400, overflow: 'auto' }}>
+              {(() => { try { return JSON.stringify(JSON.parse(viewRecord.payload), null, 2); } catch { return viewRecord.payload; } })()}
+            </pre>
+          </div>
         </Modal>
       )}
-    </Page>
+    </div>
   );
 }

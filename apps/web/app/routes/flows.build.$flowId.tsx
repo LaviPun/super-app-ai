@@ -7,6 +7,7 @@ import { getPrisma } from '~/db.server';
 import { FlowBuilder } from '~/components/FlowBuilder';
 import { ModuleService } from '~/services/modules/module.service';
 import { RecipeService } from '~/services/recipes/recipe.service';
+import { MerchantShell } from '~/components/merchant/MerchantShell';
 
 export async function loader({ request, params }: { request: Request; params: { flowId?: string } }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -99,6 +100,7 @@ export default function FlowBuildPage() {
   }, [flowId, fetcher]);
 
   return (
+    <MerchantShell>
     <Page
       title={moduleName ?? 'New Flow'}
       subtitle="Visual flow builder"
@@ -123,5 +125,6 @@ export default function FlowBuildPage() {
         />
       </BlockStack>
     </Page>
+    </MerchantShell>
   );
 }

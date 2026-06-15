@@ -1,16 +1,16 @@
 import { json, redirect } from '@remix-run/node';
-import { useLoaderData, useActionData, Form, useNavigation } from '@remix-run/react';
-import { useEffect, useState } from 'react';
-import {
-  Page, Card, BlockStack, Text, Button, InlineStack, Banner,
-  SkeletonBodyText, InlineGrid, Badge, ProgressBar, Divider,
-} from '@shopify/polaris';
+import { useLoaderData, useActionData, useFetcher } from '@remix-run/react';
+import { useEffect } from 'react';
 import { shopify } from '~/shopify.server';
 import { BillingService, type BillingPlan } from '~/services/billing/billing.service';
 import { getAllPlanConfigs } from '~/services/billing/plan-config.service';
 import { QuotaService } from '~/services/billing/quota.service';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
+import { Icon, Btn, Card, PageHead, Progress, fmtNum, fmtQuota, titleCase } from '~/components/superapp';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -62,127 +62,106 @@ export async function action({ request }: { request: Request }) {
   }
 }
 
-function usagePct(used: number, limit: number): number {
-  if (limit === -1) return 0;
-  if (limit === 0) return 100;
-  return Math.min(100, Math.round((used / limit) * 100));
-}
+const USAGE_ICON: Record<string, string> = { aiRequests: 'magic', publishOps: 'rocket', workflowRuns: 'flow', connectorCalls: 'connect' };
 
 export default function BillingPage() {
   const { sub, usage, plans } = useLoaderData<typeof loader>();
+  return (
+    <MerchantShell>
+      <BillingBody sub={sub} usage={usage} plans={plans} />
+    </MerchantShell>
+  );
+}
+
+function BillingBody({ sub, usage, plans }: any) {
+  const ctx = useMerchantCtx();
   const actionData = useActionData<typeof action>();
-  const nav = useNavigation();
-  const isSaving = nav.state !== 'idle';
-  const [errorDismissed, setErrorDismissed] = useState(false);
+  const changeFetcher = useFetcher<{ confirmationUrl?: string; error?: string }>();
+  const current = (sub?.planName ?? 'FREE').toUpperCase();
+  const currentPlan = plans.find((p: any) => p.name === current);
 
-  const confirmationUrl = actionData && 'confirmationUrl' in actionData ? actionData.confirmationUrl : undefined;
   useEffect(() => {
-    if (confirmationUrl) {
-      if (window.top) window.top.location.href = confirmationUrl;
+    if (changeFetcher.data?.confirmationUrl) {
+      // Navigate the top-level window to Shopify's managed-pricing confirmation.
+      if (typeof window !== 'undefined') window.open(changeFetcher.data.confirmationUrl, '_top');
+    } else if (changeFetcher.data?.error) {
+      ctx.toast(changeFetcher.data.error, { error: true });
     }
-  }, [confirmationUrl]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [changeFetcher.data]);
 
-  useEffect(() => {
-    setErrorDismissed(false);
-  }, [actionData]);
-
-  const formatQuota = (v: number) => v === -1 ? 'Unlimited' : v.toLocaleString();
-  const currentPlan = sub?.planName ?? 'Free';
-
-  const usageItems = [
-    { label: 'AI Requests', used: usage.used.aiRequests, limit: usage.quotas.aiRequestsPerMonth },
-    { label: 'Publish Ops', used: usage.used.publishOps, limit: usage.quotas.publishOpsPerMonth },
-    { label: 'Workflow Runs', used: usage.used.workflowRuns, limit: usage.quotas.workflowRunsPerMonth },
-    { label: 'Connector Calls', used: usage.used.connectorCalls, limit: usage.quotas.connectorCallsPerMonth },
+  const usageRows: [string, string, number, number][] = [
+    ['AI generations', 'aiRequests', usage.used.aiRequests, usage.quotas.aiRequestsPerMonth],
+    ['Publish operations', 'publishOps', usage.used.publishOps, usage.quotas.publishOpsPerMonth],
+    ['Workflow runs', 'workflowRuns', usage.used.workflowRuns, usage.quotas.workflowRunsPerMonth],
+    ['Connector calls', 'connectorCalls', usage.used.connectorCalls, usage.quotas.connectorCallsPerMonth],
   ];
 
+  const changePlan = (name: string) => {
+    changeFetcher.submit({ plan: name }, { method: 'post' });
+    ctx.toast(`Switching to ${titleCase(name)}`);
+  };
+
   return (
-    <Page title="Billing & Plan" backAction={{ content: 'Dashboard', url: '/' }}>
-      <BlockStack gap="500">
-        {!errorDismissed && actionData && 'error' in actionData && actionData.error && (
-          <Banner tone="critical" title="Upgrade failed" onDismiss={() => setErrorDismissed(true)}>
-            <Text as="p">{actionData.error}</Text>
-          </Banner>
-        )}
-        {/* ─── Plan banner ─── */}
-        {sub ? (
-          <Banner tone="success" title={`${sub.planName} plan`}>
-            <Text as="p">Status: <strong>{sub.status}</strong>. Thank you for your subscription!</Text>
-          </Banner>
-        ) : (
-          <Banner tone="info" title="You're on the Free plan">
-            <Text as="p">Upgrade to unlock more AI requests, modules, connectors, and automation workflows.</Text>
-          </Banner>
-        )}
+    <div className="page">
+      <PageHead title="Plan & usage" sub={`You’re on the ${titleCase(current)} plan. Track usage and upgrade any time.`} />
+      {actionData && 'error' in actionData && actionData.error && <div style={{ marginBottom: 16 }}><Card pad>{actionData.error}</Card></div>}
 
-        {/* ─── Usage cards ─── */}
-        <Card>
-          <BlockStack gap="400">
-            <Text as="h2" variant="headingMd">Usage this month</Text>
-            {isSaving ? (
-              <SkeletonBodyText lines={4} />
-            ) : (
-              <InlineGrid columns={{ xs: 1, sm: 2 }} gap="400">
-                {usageItems.map(item => {
-                  const pct = usagePct(item.used, item.limit);
-                  const tone = item.limit === -1 ? 'success' as const : pct >= 90 ? 'critical' as const : pct >= 70 ? 'highlight' as const : 'success' as const;
-                  return (
-                    <BlockStack key={item.label} gap="200">
-                      <InlineStack align="space-between">
-                        <Text as="p" variant="bodySm">{item.label}</Text>
-                        <Text as="p" variant="bodySm" tone="subdued">
-                          {item.used} / {formatQuota(item.limit)}
-                        </Text>
-                      </InlineStack>
-                      <ProgressBar progress={item.limit === -1 ? 0 : pct} tone={tone} size="small" />
-                    </BlockStack>
-                  );
-                })}
-              </InlineGrid>
-            )}
-          </BlockStack>
+      <div className="col-main" style={{ marginBottom: 24 }}>
+        <Card pad>
+          <div className="row spread" style={{ marginBottom: 18 }}>
+            <div className="t-h3">This month’s usage</div>
+            <span className="t-xs t-muted">Resets monthly</span>
+          </div>
+          <div className="stack-5">
+            {usageRows.map((u, i) => {
+              const limit = u[3];
+              const finite = limit !== -1;
+              return (
+                <div key={i} className="stack-1">
+                  <div className="row spread">
+                    <span className="row-2 t-sm t-strong"><Icon name={USAGE_ICON[u[1]] ?? 'bolt'} size={15} className="t-muted" />{u[0]}</span>
+                    <span className="t-sm t-num t-muted">{fmtNum(u[2])} / {finite ? fmtNum(limit) : 'Unlimited'}</span>
+                  </div>
+                  {finite && <Progress value={limit > 0 ? (u[2] / limit) * 100 : 0} tone={limit > 0 && u[2] / limit > 0.85 ? 'warning' : undefined} />}
+                </div>
+              );
+            })}
+          </div>
         </Card>
+        <Card pad className="plan-current">
+          <div className="badge badge-success" style={{ marginBottom: 10 }}>Current plan</div>
+          <div className="t-h1" style={{ fontSize: 28 }}>{titleCase(current)}</div>
+          <div className="row-1" style={{ alignItems: 'baseline', marginTop: 4 }}>
+            <span className="t-h2">${currentPlan?.price ?? 0}</span><span className="t-muted">/month</span>
+          </div>
+          <div className="divider" style={{ margin: '16px 0' }} />
+          <Btn variant="primary" className="btn-block" onClick={() => ctx.toast('Choose a plan below')}>Change plan</Btn>
+          <Btn className="btn-block btn-plain-subdued" style={{ marginTop: 8 }} onClick={() => ctx.go('#/app/billing/history')}>Billing history</Btn>
+        </Card>
+      </div>
 
-        <Divider />
-
-        {/* ─── Plans ─── */}
-        <Text as="h2" variant="headingLg">Choose your plan</Text>
-        <InlineGrid columns={{ xs: 1, sm: 2, md: 3 }} gap="400">
-          {plans.filter(p => p.name !== 'FREE').map(p => {
-            const isCurrent = currentPlan === p.name;
-            return (
-              <Card key={p.name}>
-                <BlockStack gap="300">
-                  <InlineStack align="space-between" blockAlign="center">
-                    <Text as="h3" variant="headingMd">{p.displayName}</Text>
-                    {isCurrent && <Badge tone="success">Current</Badge>}
-                  </InlineStack>
-                  <Text as="p" variant="headingXl">${p.price}<Text as="span" tone="subdued" variant="bodySm">/month</Text></Text>
-                  <Divider />
-                  <BlockStack gap="100">
-                    <Text as="p" variant="bodySm">&#10003; {formatQuota(p.quotas.aiRequestsPerMonth)} AI requests/mo</Text>
-                    <Text as="p" variant="bodySm">&#10003; {formatQuota(p.quotas.publishOpsPerMonth)} publish ops/mo</Text>
-                    <Text as="p" variant="bodySm">&#10003; {formatQuota(p.quotas.workflowRunsPerMonth)} workflow runs/mo</Text>
-                    <Text as="p" variant="bodySm">&#10003; {formatQuota(p.quotas.connectorCallsPerMonth)} connector calls/mo</Text>
-                  </BlockStack>
-                  <Form method="post">
-                    <input type="hidden" name="plan" value={p.name} />
-                    <Button
-                      submit
-                      variant={isCurrent ? 'secondary' : 'primary'}
-                      disabled={isCurrent}
-                      loading={isSaving}
-                      fullWidth
-                    >
-                      {isCurrent ? 'Current plan' : `Upgrade to ${p.displayName}`}
-                    </Button>
-                  </Form>
-                </BlockStack>
-              </Card>
-            );
-          })}
-        </InlineGrid>
-      </BlockStack>
-    </Page>
+      <h2 className="t-h2" style={{ marginBottom: 14 }}>Plans</h2>
+      <div className="grid grid-4">
+        {plans.filter((p: any) => p.name !== 'FREE').map((p: any) => (
+          <div key={p.name} className={'card card-pad plan-card' + (p.name === current ? ' active' : '')}>
+            <div className="t-h3">{titleCase(p.name)}</div>
+            <div className="row-1" style={{ alignItems: 'baseline', margin: '6px 0 14px' }}>
+              {p.price === -1
+                ? <span className="t-h2">Custom</span>
+                : <><span className="t-h1" style={{ fontSize: 26 }}>${p.price}</span><span className="t-muted t-sm">/mo</span></>}
+            </div>
+            <div className="stack-2" style={{ marginBottom: 16 }}>
+              {[[fmtQuota(p.quotas.aiRequestsPerMonth), 'AI generations'], [fmtQuota(p.quotas.publishOpsPerMonth), 'publishes'], [fmtQuota(p.quotas.workflowRunsPerMonth), 'workflow runs'], [fmtQuota(p.quotas.connectorCallsPerMonth), 'connectors']].map((f, i) => (
+                <div key={i} className="row-2 t-sm"><Icon name="check" size={15} style={{ color: 'var(--p-success)' }} /><span><b className="t-num">{f[0]}</b> {f[1]}</span></div>
+              ))}
+            </div>
+            {p.name === current
+              ? <Btn className="btn-block" disabled>Current plan</Btn>
+              : <Btn variant={p.name === 'PRO' ? 'primary' : undefined} className="btn-block" loading={changeFetcher.state !== 'idle'} onClick={() => changePlan(p.name)}>{p.price === -1 ? 'Contact us' : `Choose ${titleCase(p.name)}`}</Btn>}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

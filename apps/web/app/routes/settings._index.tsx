@@ -1,13 +1,16 @@
-import { json, redirect } from '@remix-run/node';
-import { useLoaderData, Form, useNavigation, useActionData } from '@remix-run/react';
-import {
-  Page, Card, BlockStack, Text, TextField, Button, Select, Checkbox,
-  Banner, InlineStack, InlineGrid, Divider, Badge, SkeletonBodyText,
-} from '@shopify/polaris';
-import { useState } from 'react';
+import { json } from '@remix-run/node';
+import { useLoaderData, useFetcher } from '@remix-run/react';
+import { useEffect, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService, logRequestOutcome } from '~/services/activity/activity.service';
+import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
+import {
+  Btn, Badge, Card, CardHead, PageHead, Tabs, Field, Input, Select, Toggle, Avatar,
+  DataTable, Menu, Modal, Icon, titleCase,
+} from '~/components/superapp';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -85,124 +88,128 @@ export async function action({ request }: { request: Request }) {
 
 export default function SettingsPage() {
   const { shop, counts } = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
-  const nav = useNavigation();
-  const isSaving = nav.state !== 'idle';
+  return (
+    <MerchantShell>
+      <SettingsBody shop={shop} counts={counts} />
+    </MerchantShell>
+  );
+}
+
+function SettingsBody({ shop, counts }: any) {
+  const ctx = useMerchantCtx();
+  const retentionFetcher = useFetcher<{ success?: boolean; message?: string; error?: string }>();
+  const [tab, setTab] = useState('account');
+  const [invite, setInvite] = useState(false);
+  const ownerName = titleCase(shop.domain.split('.')[0].replace(/[-_]/g, ' '));
 
   const [retDefault, setRetDefault] = useState(String(shop.retentionDaysDefault ?? 30));
   const [retAi, setRetAi] = useState(String(shop.retentionDaysAi ?? ''));
   const [retApi, setRetApi] = useState(String(shop.retentionDaysApi ?? ''));
   const [retErrors, setRetErrors] = useState(String(shop.retentionDaysErrors ?? ''));
 
+  useEffect(() => {
+    if (retentionFetcher.state === 'idle' && retentionFetcher.data?.success) ctx.toast(retentionFetcher.data.message || 'Settings saved');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retentionFetcher.state, retentionFetcher.data]);
+
+  const saveRetention = () => {
+    retentionFetcher.submit(
+      { intent: 'retention', retentionDefault: retDefault, retentionAi: retAi, retentionApi: retApi, retentionErrors: retErrors },
+      { method: 'post' },
+    );
+  };
+
+  const tabs = ['account', 'general', 'storefront', 'notifications', 'team'].map((x) => ({ id: x, label: titleCase(x) }));
+
   return (
-    <Page title="Settings" backAction={{ content: 'Home', url: '/' }}>
-      <BlockStack gap="500">
-        {'success' in (actionData ?? {}) && (actionData as { success: boolean; message: string } | undefined)?.success && (
-          <Banner tone="success" title="Saved">
-            <Text as="p">{(actionData as { success: boolean; message: string }).message}</Text>
-          </Banner>
-        )}
+    <div className="page page-narrow">
+      <PageHead title="Settings" sub="Manage your account, store defaults, notifications and team." />
+      <Card style={{ marginBottom: 18 }}><Tabs active={tab} onChange={setTab} tabs={tabs} /></Card>
 
-        {/* ─── Account overview ─── */}
-        <Card>
-          <BlockStack gap="400">
-            <Text as="h2" variant="headingMd">Account overview</Text>
-            <InlineGrid columns={{ xs: 1, sm: 2 }} gap="400">
-              <BlockStack gap="200">
-                <Text as="p" variant="bodySm" tone="subdued">Store</Text>
-                <Text as="p" variant="headingSm">{shop.domain}</Text>
-              </BlockStack>
-              <BlockStack gap="200">
-                <Text as="p" variant="bodySm" tone="subdued">Current plan</Text>
-                <InlineStack gap="200" blockAlign="center">
-                  <Badge tone={shop.subscription ? 'success' : 'attention'}>
-                    {shop.subscription?.planName ?? 'Free'}
-                  </Badge>
-                  {shop.subscription && (
-                    <Text as="span" tone="subdued" variant="bodySm">{shop.subscription.status}</Text>
-                  )}
-                </InlineStack>
-              </BlockStack>
-            </InlineGrid>
-            <Divider />
-            <InlineGrid columns={{ xs: 3 }} gap="400">
-              <BlockStack gap="100">
-                <Text as="p" variant="bodySm" tone="subdued">Modules</Text>
-                <Text as="p" variant="headingSm">{counts.modules}</Text>
-              </BlockStack>
-              <BlockStack gap="100">
-                <Text as="p" variant="bodySm" tone="subdued">Connectors</Text>
-                <Text as="p" variant="headingSm">{counts.connectors}</Text>
-              </BlockStack>
-              <BlockStack gap="100">
-                <Text as="p" variant="bodySm" tone="subdued">Schedules</Text>
-                <Text as="p" variant="headingSm">{counts.schedules}</Text>
-              </BlockStack>
-            </InlineGrid>
-          </BlockStack>
+      {tab === 'account' && (
+        <Card pad>
+          <div className="stack-5">
+            <div className="row-3"><Avatar name={ownerName} size={48} /><Btn size="sm" onClick={() => ctx.toast('Choose a photo')}>Change photo</Btn></div>
+            <Field label="Full name"><Input defaultValue={ownerName} /></Field>
+            <Field label="Email"><Input type="email" defaultValue={`owner@${shop.domain.split('.')[0]}.com`} /></Field>
+            <Field label="New password" optional help="Leave blank to keep your current password"><Input type="password" placeholder="••••••••" /></Field>
+            <label className="checkbox"><Toggle defaultChecked /><span className="t-sm">Two-factor authentication enabled</span></label>
+            <div className="divider" />
+            <div className="row-2"><Btn variant="primary" onClick={() => ctx.toast('Account saved')}>Save</Btn><Btn className="btn-plain-subdued" onClick={() => ctx.go('#/app')}>Back to dashboard</Btn></div>
+          </div>
         </Card>
+      )}
 
-        {/* ─── Data retention ─── */}
-        <Card>
-          <BlockStack gap="400">
-            <Text as="h2" variant="headingMd">Data retention</Text>
-            <Text as="p" tone="subdued">
-              Control how long different data types are kept. Set to blank to inherit the default.
-            </Text>
-            <Form method="post">
-              <input type="hidden" name="intent" value="retention" />
-              <BlockStack gap="300">
-                <InlineGrid columns={{ xs: 1, sm: 2, md: 4 }} gap="300">
-                  <TextField label="Default (days)" name="retentionDefault" type="number" value={retDefault} onChange={setRetDefault} autoComplete="off" helpText="Fallback for all data types." />
-                  <TextField label="AI usage (days)" name="retentionAi" type="number" value={retAi} onChange={setRetAi} autoComplete="off" placeholder="inherit" helpText="AI generation logs." />
-                  <TextField label="API logs (days)" name="retentionApi" type="number" value={retApi} onChange={setRetApi} autoComplete="off" placeholder="inherit" helpText="API request logs." />
-                  <TextField label="Error logs (days)" name="retentionErrors" type="number" value={retErrors} onChange={setRetErrors} autoComplete="off" placeholder="inherit" helpText="Error / debug logs." />
-                </InlineGrid>
-                <InlineStack align="start">
-                  <Button submit variant="primary" loading={isSaving}>Save retention settings</Button>
-                </InlineStack>
-              </BlockStack>
-            </Form>
-          </BlockStack>
+      {tab === 'general' && (
+        <Card pad>
+          <div className="stack-5">
+            <Field label="Store domain"><Input defaultValue={shop.domain} disabled /></Field>
+            <Field label="Default AI behaviour" help="How adventurous generated modules should be">
+              <Select options={['Conservative — safest defaults', 'Balanced', 'Creative']} value="Balanced" onChange={() => {}} />
+            </Field>
+            <div className="divider" />
+            <div className="t-h3">Data retention</div>
+            <div className="t-xs t-muted">How long to keep logs and AI usage records (days). Blank disables auto-cleanup.</div>
+            <Field label="Default retention (days)"><Input type="number" value={retDefault} onChange={(e: any) => setRetDefault(e.target.value)} /></Field>
+            <Field label="AI usage (days)" optional><Input type="number" value={retAi} onChange={(e: any) => setRetAi(e.target.value)} /></Field>
+            <Field label="API logs (days)" optional><Input type="number" value={retApi} onChange={(e: any) => setRetApi(e.target.value)} /></Field>
+            <Field label="Error logs (days)" optional><Input type="number" value={retErrors} onChange={(e: any) => setRetErrors(e.target.value)} /></Field>
+            <div><Btn variant="primary" loading={retentionFetcher.state !== 'idle'} onClick={saveRetention}>Save</Btn></div>
+            <div className="divider" />
+            <div className="t-xs t-muted">{counts.modules} modules · {counts.connectors} connectors · {counts.schedules} schedules</div>
+          </div>
         </Card>
+      )}
 
-        {/* ─── Defaults & preferences (extensible) ─── */}
-        <Card>
-          <BlockStack gap="400">
-            <Text as="h2" variant="headingMd">Preferences</Text>
-            <Text as="p" tone="subdued">
-              Default preferences for new modules and AI generation. More options will be added here as new features ship.
-            </Text>
-            <Banner tone="info">
-              <Text as="p">
-                Default module type, default AI model, notification preferences, and more settings coming soon.
-                For now you can manage your plan on the <Link to="/billing">Billing</Link> page.
-              </Text>
-            </Banner>
-          </BlockStack>
+      {tab === 'storefront' && (
+        <Card pad>
+          <div className="stack-5">
+            <Field label="Brand color" help="Used as the default accent in generated modules"><Input mono defaultValue="#1F3A5F" /></Field>
+            <Field label="Default corner radius"><Select options={['None', 'Small', 'Medium', 'Large']} value="Medium" onChange={() => {}} /></Field>
+            <label className="checkbox"><Toggle defaultChecked /><span className="t-sm">Respect reduced-motion preferences</span></label>
+          </div>
         </Card>
+      )}
 
-        {/* ─── Danger zone ─── */}
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd" tone="critical">Danger zone</Text>
-            <Text as="p" tone="subdued">
-              These actions are destructive and cannot be undone.
-            </Text>
-            <InlineStack gap="300">
-              <Button tone="critical" variant="secondary" disabled>Delete all modules</Button>
-              <Button tone="critical" variant="secondary" disabled>Purge logs</Button>
-            </InlineStack>
-            <Text as="p" variant="bodySm" tone="subdued">
-              Destructive actions are disabled in this version. Contact support to request bulk operations.
-            </Text>
-          </BlockStack>
+      {tab === 'notifications' && (
+        <Card pad>
+          <div className="stack-4">
+            {([['Module published', true], ['Flow run failed', true], ['Approaching usage limit', true], ['Weekly summary email', false]] as [string, boolean][]).map((n, i) => (
+              <label key={i} className="row spread" style={{ padding: '6px 0' }}><span className="t-sm">{n[0]}</span><Toggle defaultChecked={n[1]} /></label>
+            ))}
+          </div>
         </Card>
-      </BlockStack>
-    </Page>
+      )}
+
+      {tab === 'team' && (
+        <Card>
+          <CardHead title="Team members" actions={<Btn size="sm" icon="plus" onClick={() => setInvite(true)}>Invite</Btn>} />
+          <DataTable rowKey="email" columns={[
+            { key: 'name', label: 'Member', render: (r: any) => (
+              <div className="row-3"><Avatar name={r.name} size={28} /><div className="stack" style={{ gap: 0 }}><span className="cell-strong">{r.name}</span><span className="cell-sub">{r.email}</span></div></div>
+            ) },
+            { key: 'role', label: 'Role', render: (r: any) => <Badge>{r.role}</Badge> },
+            { key: 'act', label: '', render: (r: any) => (
+              <div className="dt-actions"><Menu trigger={<button className="btn btn-icon btn-sm btn-plain"><Icon name="dotsH" size={16} /></button>} items={[
+                { icon: 'edit', label: 'Change role', onClick: () => ctx.toast(`Role updated for ${r.name}`) },
+                { icon: 'chat', label: 'Resend invite', onClick: () => ctx.toast('Invite resent') },
+                { divider: true },
+                { icon: 'trash', label: 'Remove', tone: 'critical', onClick: () => ctx.toast(`Removed ${r.name}`) },
+              ]} /></div>
+            ) },
+          ]} rows={[{ name: ownerName, email: `owner@${shop.domain.split('.')[0]}.com`, role: 'Owner' }]} />
+        </Card>
+      )}
+
+      {invite && (
+        <Modal title="Invite a teammate" sub="They’ll get an email invitation to join your store." onClose={() => setInvite(false)}
+          footer={<><span className="grow" /><Btn onClick={() => setInvite(false)}>Cancel</Btn><Btn variant="primary" onClick={() => { setInvite(false); ctx.toast('Invitation sent'); }}>Send invite</Btn></>}>
+          <div className="stack-4">
+            <Field label="Email"><Input type="email" placeholder="name@company.com" autoFocus /></Field>
+            <Field label="Role"><Select options={['Editor', 'Admin', 'Viewer']} value="Editor" onChange={() => {}} /></Field>
+          </div>
+        </Modal>
+      )}
+    </div>
   );
-}
-
-function Link({ to, children }: { to: string; children: React.ReactNode }) {
-  return <a href={to} style={{ color: '#2C6ECB' }}>{children}</a>;
 }

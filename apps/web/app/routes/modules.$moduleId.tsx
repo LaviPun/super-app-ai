@@ -1,11 +1,6 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, Form, useNavigation, useFetcher, useSearchParams, useRevalidator } from '@remix-run/react';
-import {
-  Page, Card, BlockStack, Text, InlineStack, Button, TextField,
-  Banner, Badge, DataTable, Box,
-  Modal, Tabs, Select, Checkbox,
-} from '@shopify/polaris';
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useLoaderData, useNavigate, useFetcher, useSearchParams, useRevalidator } from '@remix-run/react';
+import { useState, useEffect } from 'react';
 import { shopify } from '~/shopify.server';
 import { ModuleService } from '~/services/modules/module.service';
 import { RecipeService } from '~/services/recipes/recipe.service';
@@ -16,210 +11,26 @@ import { computeRepublishDiff } from '@superapp/platform-contracts';
 import type { ModuleType } from '@superapp/core';
 import { SettingsService } from '~/services/settings/settings.service';
 import { buildAdminFormConfig } from '~/services/control-packs/admin-form.server';
-import { getTypeDisplayLabel, getTypeTone, getCategoryDisplayLabel } from '~/utils/type-label';
 import { compileRecipe } from '~/services/recipes/compiler';
-import { StyleBuilder } from '~/components/StyleBuilder';
-import { ConfigEditor, type V2Form } from '~/components/ConfigEditor';
 import { ThemeService } from '~/services/shopify/theme.service';
-import type { Capability, DeployTarget, RecipeSpec } from '@superapp/core';
+import type { Capability, DeployTarget } from '@superapp/core';
+import type { V2Form } from '~/components/ConfigEditor';
+import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
+import {
+  Icon, Btn, Badge, StatusBadge, Card, CardHead, Section, Field, Input, Textarea, Select,
+  Tabs, Banner, Menu, KV, PageHead, DataTable, ConfirmDialog, Modal, titleCase,
+} from '~/components/superapp';
 
-function isThemeStorefrontUi(spec: RecipeSpec): boolean {
-  return ['theme.section', 'proxy.widget'].includes(spec.type);
-}
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
-const DB_STYLES = `
-  @keyframes db-breathe {
-    0%,100% { box-shadow: 0 4px 20px rgba(124,58,237,0.08), 0 0 0 1px rgba(139,92,246,0.12); }
-    50%      { box-shadow: 0 12px 56px rgba(124,58,237,0.28), 0 0 0 1px rgba(139,92,246,0.24), 0 0 90px rgba(139,92,246,0.07); }
-  }
-  @keyframes db-beam   { 0% { left:-65%; } 100% { left:145%; } }
-  @keyframes db-blink  { 0%,100% { opacity:1; } 50% { opacity:0; } }
-  @keyframes db-fadein { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
-`;
+const TYPE_COLOR: Record<string, string> = { 'Storefront UI': 'info', 'Function': 'warning', 'Integration': 'magic', 'Flow': 'success', 'Data store': 'info' };
 
-const DB_MESSAGES = [
-  '> Querying neural layers...',
-  '> Propagating signals...',
-  '> Aggregating features...',
-  '> Synthesizing module...',
-  '> Rendering output...',
-];
-
-// Neural-network node coordinates [x, y]
-const NN_IN:   [number, number][] = [[22, 18], [22, 48], [22, 78]];
-const NN_H1:   [number, number][] = [[88, 10], [88, 33], [88, 56], [88, 79]];
-const NN_H2:   [number, number][] = [[158, 10], [158, 33], [158, 56], [158, 79]];
-const NN_OUT:  [number, number][] = [[218, 30], [218, 66]];
-
-// 10 signal routes: input → hidden1 → hidden2 → output
-const NN_SIGS: [number, number][][] = [
-  [NN_IN[0]!, NN_H1[0]!, NN_H2[0]!, NN_OUT[0]!],
-  [NN_IN[0]!, NN_H1[1]!, NN_H2[2]!, NN_OUT[1]!],
-  [NN_IN[1]!, NN_H1[1]!, NN_H2[1]!, NN_OUT[0]!],
-  [NN_IN[1]!, NN_H1[2]!, NN_H2[2]!, NN_OUT[1]!],
-  [NN_IN[2]!, NN_H1[2]!, NN_H2[3]!, NN_OUT[0]!],
-  [NN_IN[2]!, NN_H1[3]!, NN_H2[3]!, NN_OUT[1]!],
-  [NN_IN[0]!, NN_H1[3]!, NN_H2[1]!, NN_OUT[0]!],
-  [NN_IN[1]!, NN_H1[0]!, NN_H2[3]!, NN_OUT[1]!],
-  [NN_IN[2]!, NN_H1[1]!, NN_H2[0]!, NN_OUT[0]!],
-  [NN_IN[1]!, NN_H1[3]!, NN_H2[2]!, NN_OUT[1]!],
-];
-
-function nnPath(pts: [number, number][]): string {
-  const [x0, y0] = pts[0]!;
-  let d = `M ${x0} ${y0}`;
-  for (let i = 1; i < pts.length; i++) {
-    const [px, py] = pts[i - 1]!;
-    const [cx, cy] = pts[i]!;
-    const mx = (px + cx) / 2;
-    d += ` C ${mx} ${py} ${mx} ${cy} ${cx} ${cy}`;
-  }
-  return d;
-}
-
-function AIGeneratingAnimation({ label }: { label?: string }) {
-  const [msgIdx, setMsgIdx] = useState(0);
-
-  useEffect(() => {
-    const t = setInterval(() => setMsgIdx(i => (i + 1) % DB_MESSAGES.length), 1700);
-    return () => clearInterval(t);
-  }, []);
-
-  return (
-    <>
-      <style dangerouslySetInnerHTML={{ __html: DB_STYLES }} />
-      <div style={{
-        padding: '28px 24px 22px',
-        background: 'linear-gradient(145deg, #ffffff 0%, #f5f0ff 50%, #fdf4ff 100%)',
-        borderRadius: 18,
-        border: '1px solid rgba(139,92,246,0.14)',
-        animation: 'db-breathe 3.2s ease-in-out infinite',
-        position: 'relative',
-        overflow: 'hidden',
-        textAlign: 'center',
-      }}>
-        {/* light beam sweep */}
-        <div style={{
-          position: 'absolute', top: 0, bottom: 0, width: '45%',
-          background: 'linear-gradient(to right, transparent, rgba(255,255,255,0.55), transparent)',
-          animation: 'db-beam 3.8s ease-in-out infinite',
-          pointerEvents: 'none',
-        }} />
-
-        {/* corner accent dots */}
-        <div style={{ position: 'absolute', top: 12, left: 12,   width: 5, height: 5, borderRadius: '50%', background: 'rgba(139,92,246,0.20)' }} />
-        <div style={{ position: 'absolute', top: 12, right: 12,  width: 5, height: 5, borderRadius: '50%', background: 'rgba(139,92,246,0.20)' }} />
-        <div style={{ position: 'absolute', bottom: 12, left: 12,  width: 5, height: 5, borderRadius: '50%', background: 'rgba(139,92,246,0.20)' }} />
-        <div style={{ position: 'absolute', bottom: 12, right: 12, width: 5, height: 5, borderRadius: '50%', background: 'rgba(139,92,246,0.20)' }} />
-
-        {/* Neural-network SVG */}
-        <svg viewBox="0 0 298 96" width="298" height="96"
-          style={{ display: 'block', margin: '0 auto 16px', overflow: 'visible' }}>
-          <defs>
-            <filter id="nn-glow" x="-60%" y="-60%" width="220%" height="220%">
-              <feGaussianBlur in="SourceGraphic" stdDeviation="2.2" result="b" />
-              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-            </filter>
-            <radialGradient id="nn-ng" cx="38%" cy="32%">
-              <stop offset="0%" stopColor="#ffffff" />
-              <stop offset="100%" stopColor="#ede9fe" />
-            </radialGradient>
-          </defs>
-
-          {/* Connection lines */}
-          {NN_IN.flatMap(([ix, iy]) => NN_H1.map(([hx, hy], j) => (
-            <line key={`ih1-${ix}-${j}`} x1={ix} y1={iy} x2={hx} y2={hy} stroke="rgba(139,92,246,0.10)" strokeWidth="0.7" />
-          )))}
-          {NN_H1.flatMap(([hx, hy], i) => NN_H2.map(([h2x, h2y], j) => (
-            <line key={`h1h2-${i}-${j}`} x1={hx} y1={hy} x2={h2x} y2={h2y} stroke="rgba(139,92,246,0.10)" strokeWidth="0.7" />
-          )))}
-          {NN_H2.flatMap(([hx, hy], i) => NN_OUT.map(([ox, oy], j) => (
-            <line key={`h2o-${i}-${j}`} x1={hx} y1={hy} x2={ox} y2={oy} stroke="rgba(139,92,246,0.10)" strokeWidth="0.7" />
-          )))}
-          {/* OUT → module card connectors */}
-          {NN_OUT.map(([ox, oy], i) => (
-            <line key={`om-${i}`} x1={ox} y1={oy} x2={235} y2={i === 0 ? 34 : 62} stroke="rgba(124,58,237,0.22)" strokeWidth="1" strokeDasharray="3 2" />
-          ))}
-
-          {/* Signal particles flowing through the network */}
-          {NN_SIGS.map((pts, i) => (
-            <circle key={`sig-${i}`} r="2.8" fill="#7c3aed" filter="url(#nn-glow)">
-              <animateMotion
-                dur="2.4s"
-                repeatCount="indefinite"
-                begin={`${-(i * 0.24).toFixed(2)}s`}
-                path={nnPath(pts)}
-                calcMode="linear"
-              />
-            </circle>
-          ))}
-
-          {/* Input + hidden nodes */}
-          {[...NN_IN, ...NN_H1, ...NN_H2].map(([x, y], i) => (
-            <g key={`nd-${i}`}>
-              <circle cx={x} cy={y} r="5.5" fill="url(#nn-ng)" stroke="rgba(139,92,246,0.28)" strokeWidth="1.3" />
-              <circle cx={x} cy={y} r="2" fill="rgba(139,92,246,0.42)" />
-            </g>
-          ))}
-
-          {/* Output nodes — pulsing rings */}
-          {NN_OUT.map(([x, y], i) => (
-            <g key={`out-${i}`}>
-              <circle cx={x} cy={y} r="7" fill="url(#nn-ng)" stroke="#7c3aed" strokeWidth="2">
-                <animate attributeName="r"             values="7;9;7"     dur="2s" repeatCount="indefinite" begin={`${i * 0.7}s`} />
-                <animate attributeName="stroke-opacity" values="0.6;1;0.6" dur="2s" repeatCount="indefinite" begin={`${i * 0.7}s`} />
-              </circle>
-              <circle cx={x} cy={y} r="3" fill="#7c3aed">
-                <animate attributeName="opacity" values="0.6;1;0.6" dur="2s" repeatCount="indefinite" begin={`${i * 0.7}s`} />
-              </circle>
-            </g>
-          ))}
-
-          {/* Mini module card being assembled */}
-          <g>
-            <rect x="235" y="14" width="32" height="68" rx="5"
-              fill="rgba(245,240,255,0.94)" stroke="rgba(124,58,237,0.48)" strokeWidth="1.5">
-              <animate attributeName="stroke-opacity" values="0.48;1;0.48" dur="2s" repeatCount="indefinite" />
-            </rect>
-            {/* header */}
-            <rect x="239" y="19" width="24" height="6" rx="2" fill="rgba(124,58,237,0.40)" />
-            {/* content lines */}
-            <rect x="239" y="30" width="24" height="2" rx="1" fill="rgba(124,58,237,0.18)" />
-            <rect x="239" y="35" width="18" height="2" rx="1" fill="rgba(124,58,237,0.12)" />
-            <rect x="239" y="40" width="21" height="2" rx="1" fill="rgba(124,58,237,0.18)" />
-            {/* button */}
-            <rect x="239" y="46" width="24" height="8" rx="2" fill="rgba(124,58,237,0.20)">
-              <animate attributeName="fill-opacity" values="1;0.5;1" dur="1.8s" repeatCount="indefinite" />
-            </rect>
-            {/* footer lines */}
-            <rect x="239" y="58" width="16" height="2" rx="1" fill="rgba(124,58,237,0.12)" />
-            <rect x="239" y="63" width="20" height="2" rx="1" fill="rgba(124,58,237,0.10)" />
-            <rect x="239" y="68" width="12" height="2" rx="1" fill="rgba(124,58,237,0.10)" />
-            {/* sparkle above card */}
-            <circle cx="267" cy="14" r="2.5" fill="#7c3aed">
-              <animate attributeName="opacity" values="1;0;1"     dur="1.5s" repeatCount="indefinite" />
-              <animate attributeName="r"       values="2.5;4;2.5" dur="1.5s" repeatCount="indefinite" />
-            </circle>
-          </g>
-
-          {/* Labels */}
-          <text x="22"  y="94" textAnchor="middle" fontSize="6.5" fill="rgba(109,40,217,0.35)" fontFamily="'SF Mono',monospace">data</text>
-          <text x="251" y="94" textAnchor="middle" fontSize="6.5" fill="rgba(109,40,217,0.60)" fontFamily="'SF Mono',monospace">module</text>
-        </svg>
-
-        {/* Terminal message */}
-        <div style={{ fontFamily: '"SF Mono","Fira Code","Cascadia Code",monospace', fontSize: 13, color: '#5b21b6', marginBottom: 5, letterSpacing: '0.01em' }}>
-          <span key={msgIdx} style={{ animation: 'db-fadein 0.3s ease' }}>
-            {DB_MESSAGES[msgIdx]}
-          </span>
-          <span style={{ animation: 'db-blink 1s step-end infinite', marginLeft: 2, color: '#7c3aed' }}>▋</span>
-        </div>
-        {label && (
-          <div style={{ fontSize: 11, color: 'rgba(109,40,217,0.40)', fontFamily: 'monospace', letterSpacing: '0.02em' }}>{label}</div>
-        )}
-      </div>
-    </>
-  );
+function designType(t: string): string {
+  if (/flow/i.test(t)) return 'Flow';
+  if (/function|discount/i.test(t)) return 'Function';
+  if (/connector|integration/i.test(t)) return 'Integration';
+  if (/data|store/i.test(t)) return 'Data store';
+  return 'Storefront UI';
 }
 
 export async function loader({ request, params }: { request: Request; params: { moduleId?: string } }) {
@@ -394,800 +205,273 @@ function getDefaultThemeId(
 }
 
 export default function ModuleDetail() {
-  const { moduleId, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, adminConfig, engine, v2Form, republishDiff } =
-    useLoaderData<typeof loader>();
+  return (
+    <MerchantShell>
+      <ModuleDetailBody />
+    </MerchantShell>
+  );
+}
+
+function ModuleDetailBody() {
+  const data = useLoaderData<typeof loader>();
+  const { moduleId, mod, spec, versions, themes, publishedThemeId, hydration } = data;
+  const ctx = useMerchantCtx();
+  const navigate = useNavigate();
   const revalidator = useRevalidator();
   const [searchParams] = useSearchParams();
-  const justPublished = searchParams.get('published') === '1';
-  const draft = mod.versions.find((v: { status: string }) => v.status === 'DRAFT') ?? mod.activeVersion ?? mod.versions[0];
+
+  const validationReport = (hydration?.validationReport ?? null) as
+    | { overall: string; checks: { id: string; severity: string; status: string; description: string }[] }
+    | null;
+  const designT = designType(String(spec?.type ?? mod.type));
   const isThemeModule = String(spec?.type ?? '').startsWith('theme.');
-  const isFunctionModule = String(spec?.type ?? '').startsWith('functions.');
-  const isAdminBlock = spec?.type === 'admin.block';
-  const isBlocked = blockedCapabilities.length > 0;
-  const nav = useNavigation();
-  const modifyFetcher = useFetcher<{ options?: { index: number; explanation: string; recipe: Record<string, unknown> }[]; error?: string; moduleId?: string }>();
-  const modifyConfirmFetcher = useFetcher<{ ok?: boolean; error?: string; version?: number; name?: string }>();
-  const hydrateFetcher = useFetcher<{ ok?: boolean; error?: string; validationReport?: { overall: string; checks: { id: string; severity: string; status: string; description: string; howToFix?: string }[] }; hydratedAt?: string }>();
-  const fillSettingsFetcher = useFetcher<{ ok?: boolean; filled?: boolean; message?: string; error?: string; version?: number; diff?: { addedKeys: string[] } }>();
-  const publishFetcher = useFetcher<{ error?: string }>();
-  const PublishForm = publishFetcher.Form;
-  const isPublishing = publishFetcher.state !== 'idle';
-  const isModifying = modifyFetcher.state !== 'idle';
-  const isModifyConfirming = modifyConfirmFetcher.state !== 'idle';
-  const isHydrating = hydrateFetcher.state !== 'idle';
-  const isFillingSettings = fillSettingsFetcher.state !== 'idle';
-  const [livePreviewHtml, setLivePreviewHtml] = useState<string | null>(null);
-  const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [previewLinkInfo, setPreviewLinkInfo] = useState<{ href: string; target: string; text: string } | null>(null);
-  const linkInfoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [copiedId, setCopiedId] = useState(false);
-  const handleCopyId = useCallback(() => {
-    navigator.clipboard.writeText(moduleId).then(() => {
-      setCopiedId(true);
-      setTimeout(() => setCopiedId(false), 2000);
-    }).catch(() => {});
-  }, [moduleId]);
-  const isSaving = nav.state !== 'idle' || publishFetcher.state !== 'idle';
+  const isDraft = mod.status === 'DRAFT';
+  const summary = (mod as any).summary || `${designT} module`;
 
-  const defaultThemeId = getDefaultThemeId(themes, publishedThemeId ?? null);
-  const [selectedThemeId, setSelectedThemeId] = useState(defaultThemeId);
-
-  useEffect(() => {
-    const next = getDefaultThemeId(themes, publishedThemeId ?? null);
-    const currentValid = themes.length && themes.some(t => String(t.id) === selectedThemeId);
-    if (!currentValid) setSelectedThemeId(next);
-  }, [themes, publishedThemeId, selectedThemeId]);
-
-  const [previewMode, setPreviewMode] = useState<'visual' | 'html'>('visual');
-  const [techModalOpen, setTechModalOpen] = useState(false);
-  const [techTab, setTechTab] = useState(0);
-  const [modifyModalOpen, setModifyModalOpen] = useState(false);
+  const [tab, setTab] = useState('overview');
+  const [delOpen, setDelOpen] = useState(false);
+  const [modifyOpen, setModifyOpen] = useState(false);
   const [modifyInstruction, setModifyInstruction] = useState('');
-  const [modifyOptions, setModifyOptions] = useState<{ index: number; explanation: string; recipe: Record<string, unknown> }[] | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState(false);
-  const deleteFetcher = useFetcher<{ error?: string }>();
-  const isDeletingModule = deleteFetcher.state !== 'idle';
+  const [selectedThemeId, setSelectedThemeId] = useState(getDefaultThemeId(themes, publishedThemeId ?? null));
+
+  const publishFetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const rollbackFetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const deleteFetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const modifyFetcher = useFetcher<{ options?: any[]; error?: string }>();
+
+  const isPublishing = publishFetcher.state !== 'idle';
 
   useEffect(() => {
-    if (modifyFetcher.data?.options && modifyFetcher.state === 'idle') {
-      setModifyOptions(modifyFetcher.data.options);
-    }
-  }, [modifyFetcher.data, modifyFetcher.state]);
-
-  const hasHtmlPreview = previewHtml !== null;
-
-  useEffect(() => {
-    if (modifyConfirmFetcher.data?.ok && !isModifyConfirming) {
-      // Reload to show the updated module spec after AI modification
-      window.location.reload();
-    }
-  }, [modifyConfirmFetcher.data, isModifyConfirming]);
-
-  useEffect(() => {
-    if (hydrateFetcher.data?.ok && hydrateFetcher.state === 'idle') {
+    if (publishFetcher.data?.ok && publishFetcher.state === 'idle') {
+      ctx.toast(isDraft ? 'Published — live in a few minutes' : 'Re-published');
       revalidator.revalidate();
-    }
-  }, [hydrateFetcher.data, hydrateFetcher.state, revalidator]);
-
-  useEffect(() => {
-    if (fillSettingsFetcher.data?.filled && fillSettingsFetcher.state === 'idle') {
-      revalidator.revalidate();
-    }
-  }, [fillSettingsFetcher.data, fillSettingsFetcher.state, revalidator]);
-
-  useEffect(() => {
-    function onMessage(e: MessageEvent) {
-      if (e.data?.type === 'preview-link-click') {
-        setPreviewLinkInfo({ href: e.data.href, target: e.data.target, text: e.data.text });
-        if (linkInfoTimeoutRef.current) clearTimeout(linkInfoTimeoutRef.current);
-        linkInfoTimeoutRef.current = setTimeout(() => setPreviewLinkInfo(null), 5000);
-      }
-    }
-    window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, []);
-
-  const handleSpecChange = useCallback((updatedSpec: RecipeSpec) => {
-    if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
-    previewDebounceRef.current = setTimeout(() => {
-      const fd = new FormData();
-      fd.set('spec', JSON.stringify(updatedSpec));
-      fetch('/api/preview', { method: 'POST', body: fd })
-        .then(r => r.json())
-        .then((data: { html?: string }) => { if (data?.html) setLivePreviewHtml(data.html); })
-        .catch(() => {});
-    }, 300);
-  }, []);
-
-  // WS4/025: Function-preview simulation fixture, driven from the UI. Re-renders
-  // the deterministic Function simulation against the chosen cart/customer context.
-  const [simInput, setSimInput] = useState<{ currency: string; countryCode: string; isPlus: boolean }>({
-    currency: 'USD', countryCode: 'US', isPlus: true,
-  });
-  const runSimulation = useCallback((next: { currency: string; countryCode: string; isPlus: boolean }) => {
-    if (!spec) return;
-    const fd = new FormData();
-    fd.set('spec', JSON.stringify(spec));
-    fd.set('simulation', JSON.stringify(next));
-    fetch('/api/preview', { method: 'POST', body: fd })
-      .then(r => r.json())
-      .then((data: { html?: string }) => { if (data?.html) setLivePreviewHtml(data.html); })
-      .catch(() => {});
-  }, [spec]);
-
-  // Auto-trigger hydration only for brand-new modules that have NEVER been hydrated.
-  useEffect(() => {
-    if (hydration.status === 'none' && !hydration.everHydrated && spec && draft?.id && hydrateFetcher.state === 'idle') {
-      hydrateFetcher.submit(
-        { moduleId, versionId: draft.id },
-        { method: 'post', action: '/api/ai/hydrate-module' },
-      );
+    } else if (publishFetcher.data?.error && publishFetcher.state === 'idle') {
+      ctx.toast(publishFetcher.data.error, { error: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run once on mount
+  }, [publishFetcher.data, publishFetcher.state]);
+
+  useEffect(() => {
+    if (rollbackFetcher.data?.ok && rollbackFetcher.state === 'idle') {
+      ctx.toast('Rolled back');
+      revalidator.revalidate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rollbackFetcher.data, rollbackFetcher.state]);
+
+  useEffect(() => {
+    if (deleteFetcher.data?.ok && deleteFetcher.state === 'idle') {
+      navigate('/modules');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deleteFetcher.data, deleteFetcher.state]);
+
+  const justPublished = searchParams.get('published') === '1';
+
+  const publish = () => {
+    const body: Record<string, string> = {};
+    if (isThemeModule && selectedThemeId) body.themeId = selectedThemeId;
+    publishFetcher.submit(body, { method: 'post', action: `/api/agent/modules/${moduleId}/publish`, encType: 'application/json' });
+  };
+  const rollback = (version: number) => {
+    rollbackFetcher.submit({ moduleId, version: String(version) }, { method: 'post', action: '/api/rollback' });
+  };
+  const doDelete = () => {
+    deleteFetcher.submit({}, { method: 'post', action: `/api/modules/${moduleId}/delete` });
+    ctx.toast(`Deleted “${mod.name}”`);
+    setDelOpen(false);
+  };
+  const submitModify = () => {
+    const q = modifyInstruction.trim();
+    if (!q) return;
+    modifyFetcher.submit({ instruction: q }, { method: 'post', action: `/api/agent/modules/${moduleId}/modify`, encType: 'application/json' });
+    ctx.toast('Generating modification options…');
+  };
+
+  const tabs = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'versions', label: 'Versions', badge: versions.length },
+    { id: 'settings', label: 'Settings' },
+  ];
 
   return (
-    <Page
-      title={mod.name}
-      subtitle={spec ? `${getCategoryDisplayLabel(spec.category)} · ${getTypeDisplayLabel(spec.type)}` : undefined}
-      backAction={{ content: 'Modules', url: '/modules' }}
-      titleMetadata={
-        <InlineStack gap="200">
-          <Badge tone={mod.status === 'PUBLISHED' ? 'success' : 'attention'}>{mod.status}</Badge>
-          <Badge>{planTier}</Badge>
-        </InlineStack>
-      }
-    >
-      <BlockStack gap="500">
-        {/* Top: single row of tags (no redundant cards) */}
-        <InlineStack gap="200" wrap>
-          {spec && (
-            <Badge tone={getTypeTone(spec.type)}>{getTypeDisplayLabel(spec.type)}</Badge>
-          )}
-          {spec?.category != null && <Badge>{getCategoryDisplayLabel(spec.category)}</Badge>}
-          <Badge>{`Versions: ${versions.length}`}</Badge>
-          <Badge>{`Plan: ${planTier}`}</Badge>
-        </InlineStack>
-
-        {/* Module ID — click to copy */}
-        <InlineStack gap="200" blockAlign="center">
-          <Text as="p" variant="bodySm" tone="subdued">Module ID:</Text>
-          <button
-            type="button"
-            onClick={handleCopyId}
-            title="Click to copy module ID"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              background: '#f6f6f7', border: '1px solid #e3e3e3',
-              borderRadius: 6, padding: '3px 10px', cursor: 'pointer',
-              fontFamily: 'var(--p-font-mono, monospace)', fontSize: 12,
-              color: '#303030',
-            }}
-          >
-            <span>{moduleId}</span>
-            <span style={{ fontSize: 11, color: copiedId ? '#008060' : '#6d7175' }}>
-              {copiedId ? '✓ Copied' : '⎘ Copy'}
-            </span>
-          </button>
-          {mod.status === 'PUBLISHED' && (
-            <Text as="p" variant="bodySm" tone="subdued">
-              Paste this ID into the <strong>SuperApp Module Slot</strong> block in your theme editor.
-            </Text>
-          )}
-        </InlineStack>
-
-        {justPublished && (
-          <Banner tone="success" title="Module published successfully!">
-            <Text as="p">Your module is now live on your store.</Text>
-          </Banner>
+    <div className="page">
+      <PageHead
+        back={{ href: '/modules', label: 'AI Modules' }}
+        title={mod.name}
+        badge={<StatusBadge value={mod.status} />}
+        sub={summary}
+        actions={(
+          <>
+            <Btn icon="eye" onClick={() => ctx.toast('Opening live preview')}>Preview</Btn>
+            <Btn icon="magic" onClick={() => setModifyOpen(true)}>Modify with AI</Btn>
+            <Menu trigger={<button className="btn btn-icon"><Icon name="dotsH" size={16} /></button>} items={[
+              { icon: 'copy', label: 'Duplicate', onClick: () => ctx.toast(`Duplicated “${mod.name}”`) },
+              { icon: 'download', label: 'Export spec', onClick: () => ctx.toast('Spec exported as JSON') },
+              { divider: true },
+              { icon: 'trash', label: 'Delete module', tone: 'critical', onClick: () => setDelOpen(true) },
+            ]} />
+            {isDraft
+              ? <Btn variant="primary" icon="rocket" loading={isPublishing} onClick={publish}>Publish</Btn>
+              : <Btn variant="primary" icon="refresh" loading={isPublishing} onClick={publish}>Republish</Btn>}
+          </>
         )}
+      />
 
-        {isAdminBlock && (
-          <Banner tone="info" title="How to activate this admin block">
-            <Text as="p">
-              This block is published and stored. To display it on Shopify Admin pages, go to the relevant order, product, or customer page in Shopify Admin, click <strong>Customize</strong>, and add the <strong>SuperApp</strong> block from the extensions panel.
-            </Text>
-          </Banner>
-        )}
+      {justPublished && (
+        <div style={{ marginBottom: 16 }}>
+          <Banner tone="success" title="Module published">This module is now live on your storefront.</Banner>
+        </div>
+      )}
 
-        {catalog && (
-          <Banner tone="info" title={`Template: ${catalog.catalogId}`}>
-            <p>{catalog.description}</p>
-          </Banner>
-        )}
+      {isThemeModule && themes.length > 0 && (
+        <div style={{ marginBottom: 16, maxWidth: 360 }}>
+          <Field label="Publish to theme">
+            <Select
+              options={themes.map(t => ({ value: String(t.id), label: `${t.name}${t.role === 'main' ? ' (live)' : ''}` }))}
+              value={selectedThemeId}
+              onChange={(e: any) => setSelectedThemeId(e.target.value)}
+            />
+          </Field>
+        </div>
+      )}
 
-        {isBlocked && (
-          <Banner tone="warning" title="Plan upgrade required">
-            <BlockStack gap="200">
-              {blockReasons.map((r, i) => <Text key={i} as="p">{r}</Text>)}
-              <Button url="/billing" variant="plain">View upgrade options →</Button>
-            </BlockStack>
-          </Banner>
-        )}
+      {delOpen && (
+        <ConfirmDialog title="Delete module?" tone="critical" confirmLabel="Delete" icon="trash"
+          message={`This removes “${mod.name}” and all of its versions. This cannot be undone.`}
+          onConfirm={doDelete} onClose={() => setDelOpen(false)} />
+      )}
 
-        {/* Two-panel: left = settings, right = sticky preview */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 'var(--p-space-400)', alignItems: 'start' }}>
-
-          {/* LEFT PANEL: Config + Style + AI + Publish + History + Tech */}
-          <BlockStack gap="400">
-
-            {spec && (
-              <ConfigEditor key={`config-${draft?.id}`} spec={spec} moduleId={moduleId} adminConfig={adminConfig} onSpecChange={handleSpecChange} engine={engine} v2Form={v2Form as V2Form | null} />
+      {modifyOpen && (
+        <Modal title="Modify with AI" sub="Describe the change in plain language" onClose={() => setModifyOpen(false)}
+          footer={(
+            <>
+              <span className="grow" />
+              <Btn onClick={() => setModifyOpen(false)}>Cancel</Btn>
+              <Btn variant="magic" icon="magic" loading={modifyFetcher.state !== 'idle'} disabled={!modifyInstruction.trim()}
+                onClick={submitModify}>Generate options</Btn>
+            </>
+          )}>
+          <div className="stack-4">
+            <Field label="What should change?">
+              <Textarea rows={4} placeholder="e.g. Make the button green and add a quantity stepper"
+                value={modifyInstruction} onChange={(e: any) => setModifyInstruction(e.target.value)} />
+            </Field>
+            {modifyFetcher.data?.error && <Banner tone="critical">{modifyFetcher.data.error}</Banner>}
+            {modifyFetcher.data?.options && (
+              <div className="stack-2">
+                {modifyFetcher.data.options.map((o: any, i: number) => (
+                  <div key={i} className="card card-pad">
+                    <div className="t-sm t-strong">Option {i + 1}</div>
+                    <div className="t-sm t-muted">{o.explanation}</div>
+                  </div>
+                ))}
+              </div>
             )}
+          </div>
+        </Modal>
+      )}
 
-            <InlineStack>
-              <Button url={`/modules/${moduleId}/captures`} variant="plain">View data captures →</Button>
-            </InlineStack>
+      <Card style={{ marginBottom: 18 }}>
+        <Tabs active={tab} onChange={setTab} tabs={tabs} />
+      </Card>
 
-            {spec && isThemeStorefrontUi(spec) && (
-              <StyleBuilder key={draft?.id} spec={spec} moduleId={moduleId} onSpecChange={handleSpecChange} />
-            )}
-
-            <Card padding="400">
-              <BlockStack gap="300">
-                <InlineStack align="space-between" blockAlign="center">
-                  <BlockStack gap="100">
-                    <Text as="h2" variant="headingMd">Modify with AI</Text>
-                    <Text as="p" variant="bodySm" tone="subdued">
-                      Describe what you want to change and AI will generate 3 modification options to choose from.
-                    </Text>
-                  </BlockStack>
-                  <Badge tone="magic">AI-powered</Badge>
-                </InlineStack>
-                <Button onClick={() => { setModifyModalOpen(true); setModifyOptions(null); }} aria-label="Open modal to rework this module’s recipe with AI">
-                  Rework recipe
-                </Button>
-              </BlockStack>
+      {tab === 'overview' && (
+        <div className="col-main">
+          <div className="stack-4">
+            <Card>
+              <div className="br-canvas" style={{ height: 320, borderRadius: '12px 12px 0 0' }}>
+                <div className="fake-pdp">
+                  <div className="fake-img skel" />
+                  <div className="stack-2" style={{ flex: 1 }}>
+                    <div className="skel" style={{ height: 14, width: '60%' }} />
+                    <div className="skel" style={{ height: 10, width: '40%' }} />
+                    <div className="gen-overlay">
+                      <div className="row-2"><Icon name="cart" size={16} /><span className="t-strong">Add to cart — $48.00</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <Section>
+                <div className="row spread">
+                  <div className="t-sm t-muted">Live preview · last rendered just now</div>
+                  <Btn size="sm" icon="external">Open in new tab</Btn>
+                </div>
+              </Section>
             </Card>
-
-            {spec && (
-              <Card padding="400">
-                <BlockStack gap="300">
-                  <InlineStack align="space-between" blockAlign="center">
-                    <Text as="h2" variant="headingMd">Full settings &amp; validation</Text>
-                    {hydration.status === 'done' && (
-                      <Badge tone={(hydration.validationReport as { overall?: string } | null)?.overall === 'PASS' ? 'success' : 'warning'}>
-                        {(hydration.validationReport as { overall?: string } | null)?.overall ?? 'Done'}
-                      </Badge>
-                    )}
-                  </InlineStack>
-                  {hydration.status === 'none' && (
-                    <>
-                      <Text as="p" variant="bodySm" tone="subdued">
-                        Generate admin config schema, defaults, theme editor settings, and a validation report for this module.
-                      </Text>
-                      {hydrateFetcher.data?.error && !isHydrating && (
-                        <Banner tone="critical">
-                          <Text as="p">{hydrateFetcher.data.error}</Text>
-                        </Banner>
-                      )}
-                      {isHydrating ? (
-                        <AIGeneratingAnimation label="Generating admin config, defaults & validation report" />
-                      ) : (
-                        <hydrateFetcher.Form method="post" action="/api/ai/hydrate-module">
-                          <input type="hidden" name="moduleId" value={moduleId} />
-                          {draft?.id && <input type="hidden" name="versionId" value={draft.id} />}
-                          <Button submit variant="primary" loading={isHydrating}>
-                            Generate full settings
-                          </Button>
-                        </hydrateFetcher.Form>
-                      )}
-                    </>
-                  )}
-                  {hydration.status === 'done' && hydration.validationReport && Array.isArray((hydration.validationReport as { checks?: unknown }).checks) && (
-                    <BlockStack gap="300">
-                      {hydration.hydratedAt && (
-                        <BlockStack gap="200">
-                          <InlineStack gap="200" blockAlign="center" wrap={false}>
-                            <Text as="p" variant="bodySm" tone="subdued">
-                              Generated {new Date(hydration.hydratedAt).toLocaleString()}
-                            </Text>
-                            <hydrateFetcher.Form method="post" action="/api/ai/hydrate-module">
-                              <input type="hidden" name="moduleId" value={moduleId} />
-                              {draft?.id && <input type="hidden" name="versionId" value={draft.id} />}
-                              <input type="hidden" name="force" value="1" />
-                              <Button submit variant="secondary" size="slim" loading={isHydrating} aria-label="Re-run AI to regenerate full settings and validation report">
-                                Regenerate full settings
-                              </Button>
-                            </hydrateFetcher.Form>
-                          </InlineStack>
-                          <Text as="p" variant="bodySm" tone="subdued">
-                            Re-run AI to refresh admin schema, defaults, and validation report.
-                          </Text>
-                        </BlockStack>
-                      )}
-                      <BlockStack gap="200">
-                        <InlineStack gap="200" blockAlign="center" wrap={false}>
-                          <fillSettingsFetcher.Form method="post" action="/api/ai/fill-settings">
-                            <input type="hidden" name="moduleId" value={moduleId} />
-                            <Button submit variant="secondary" size="slim" loading={isFillingSettings} aria-label="Use AI to fill only the settings you haven't set, without overwriting your values">
-                              Fill missing settings
-                            </Button>
-                          </fillSettingsFetcher.Form>
-                          {!isFillingSettings && fillSettingsFetcher.data?.message && (
-                            <Text as="span" variant="bodySm" tone="subdued">{fillSettingsFetcher.data.message}</Text>
-                          )}
-                          {!isFillingSettings && fillSettingsFetcher.data?.filled && (
-                            <Text as="span" variant="bodySm" tone="success">
-                              Filled {fillSettingsFetcher.data.diff?.addedKeys.length ?? 0} setting(s); your values were kept.
-                            </Text>
-                          )}
-                        </InlineStack>
-                        {!isFillingSettings && fillSettingsFetcher.data?.error && (
-                          <Text as="span" variant="bodySm" tone="critical">{fillSettingsFetcher.data.error}</Text>
-                        )}
-                      </BlockStack>
-                      <BlockStack gap="200">
-                        <Text as="p" variant="bodySm" fontWeight="semibold">Validation checks</Text>
-                        {((hydration.validationReport as { checks: Array<{ id: string; severity: string; status: string; description: string; howToFix?: string }> }).checks).map((c, i) => (
-                          <div key={i}>
-                            <InlineStack gap="200" blockAlign="center">
-                              <Badge tone={c.status === 'PASS' ? 'success' : c.status === 'WARN' ? 'warning' : 'critical'}>{c.status}</Badge>
-                              <Text as="span" variant="bodySm">{c.description}</Text>
-                            </InlineStack>
-                            {c.howToFix && (
-                              <Text as="p" variant="bodySm" tone="subdued">{c.howToFix}</Text>
-                            )}
-                          </div>
-                        ))}
-                      </BlockStack>
-                    </BlockStack>
-                  )}
-                </BlockStack>
+            <Card>
+              <CardHead title="What this module does" />
+              <Section>
+                <div className="t-body">
+                  This module adds a {mod.name.toLowerCase()} to your storefront. It is currently on version {versions[0]?.version ?? 1}. All changes are versioned and reversible.
+                </div>
+              </Section>
+            </Card>
+            {validationReport && (
+              <Card>
+                <CardHead title="Validation" />
+                <Section>
+                  <div className="stack-2">
+                    {validationReport.checks.slice(0, 6).map((c) => (
+                      <div key={c.id} className="row-2">
+                        <Icon name={c.status === 'pass' ? 'check' : 'alert'} size={14}
+                          style={{ color: c.status === 'pass' ? 'var(--p-success)' : 'var(--p-critical)' }} />
+                        <span className="t-sm">{c.description}</span>
+                      </div>
+                    ))}
+                  </div>
+                </Section>
               </Card>
             )}
-
-            <Card padding="400">
-              <BlockStack gap="300">
-                <InlineStack align="space-between" blockAlign="center">
-                  <Text as="h2" variant="headingMd">Publish</Text>
-                  {mod.status === 'PUBLISHED' && <Badge tone="success">Live</Badge>}
-                </InlineStack>
-                {isBlocked ? (
-                  <Banner tone="critical">
-                    <Text as="p">This module requires capabilities not included in your plan.</Text>
-                  </Banner>
-                ) : (
-                  <Text as="p" tone="subdued">
-                    Publishing deploys the module to your store.{isThemeModule ? ' Select a target theme below.' : ''}
-                  </Text>
-                )}
-                {/* WS5/026 + WS3/024: idempotent republish preview — what changes vs the live version. */}
-                {republishDiff && (
-                  <Box padding="300" background="bg-surface-secondary" borderRadius="200">
-                    <BlockStack gap="100">
-                      <InlineStack gap="200" blockAlign="center">
-                        <Badge tone={republishDiff.action === 'noop' ? 'success' : republishDiff.action === 'create' ? 'info' : 'attention'}>
-                          {republishDiff.action === 'create' ? 'First publish' : republishDiff.action === 'noop' ? 'No changes' : 'Will update'}
-                        </Badge>
-                        <Text as="span" variant="bodySm" fontWeight="semibold">Republish preview</Text>
-                      </InlineStack>
-                      {republishDiff.action === 'noop' && (
-                        <Text as="p" variant="bodySm" tone="subdued">
-                          This draft matches the live version — republishing is a safe no-op (no duplicate is created).
-                        </Text>
-                      )}
-                      {republishDiff.action === 'create' && (
-                        <Text as="p" variant="bodySm" tone="subdued">
-                          First publish for this module{republishDiff.changedFields.length ? ` — writes ${republishDiff.changedFields.length} setting group(s).` : '.'}
-                        </Text>
-                      )}
-                      {republishDiff.action === 'update' && (
-                        <Text as="p" variant="bodySm" tone="subdued">
-                          Republishing updates {republishDiff.changedFields.length} setting group(s): {republishDiff.changedFields.join(', ')}.
-                        </Text>
-                      )}
-                    </BlockStack>
-                  </Box>
-                )}
-                {publishFetcher.data?.error && !isPublishing && (() => {
-                  const err = publishFetcher.data.error;
-                  const msg = typeof err === 'string' ? err : 'Publish failed. Please try again.';
-                  // Don't show "Theme X not found" when that theme is in the current list (stale/transient error)
-                  const themeNotFoundMatch = msg.match(/^Theme\s+(\d+)\s+not found/);
-                  const themeIdInError = themeNotFoundMatch ? themeNotFoundMatch[1] : null;
-                  const themeInList = themeIdInError && themes.some(t => String(t.id) === themeIdInError);
-                  if (themeInList) return null;
-                  return (
-                    <Banner tone="critical">
-                      <Text as="p">{msg}</Text>
-                    </Banner>
-                  );
-                })()}
-                <PublishForm method="post" action="/api/publish">
-                  <input type="hidden" name="moduleId" value={moduleId} />
-                  <BlockStack gap="300">
-                    {isThemeModule && themes.length > 0 && (
-                      <>
-                        <InlineStack gap="300" blockAlign="center" wrap={false}>
-                          <Box minWidth="240px">
-                            <Select
-                              label="Target theme"
-                              options={themes.map((t: { id: number; name: string; role: string }) => ({
-                                value: String(t.id),
-                                label: String(t.role).toLowerCase() === 'main' ? `${t.name} (Live)` : t.name,
-                              }))}
-                              value={selectedThemeId || defaultThemeId}
-                              onChange={setSelectedThemeId}
-                            />
-                          </Box>
-                          <Box paddingBlockStart="400">
-                            <Button
-                              onClick={() => revalidator.revalidate()}
-                              loading={revalidator.state === 'loading'}
-                            >
-                              Refresh themes
-                            </Button>
-                          </Box>
-                        </InlineStack>
-                        <input type="hidden" name="themeId" value={selectedThemeId || defaultThemeId} />
-                      </>
-                    )}
-                    {isThemeModule && themes.length === 0 && (
-                      <Banner tone="warning">
-                        <BlockStack gap="200">
-                          <Text as="p">Could not fetch themes from your store. Click Refresh themes to try again.</Text>
-                          <Button
-                            onClick={() => revalidator.revalidate()}
-                            loading={revalidator.state === 'loading'}
-                          >
-                            Refresh themes
-                          </Button>
-                        </BlockStack>
-                      </Banner>
-                    )}
-                    <InlineStack gap="200">
-                      <Button
-                        submit
-                        variant="primary"
-                        disabled={isBlocked || isSaving || (isThemeModule && themes.length > 0 && !(selectedThemeId || defaultThemeId))}
-                        loading={isSaving}
-                      >
-                        {mod.status === 'PUBLISHED' ? 'Re-publish' : 'Publish to store'}
-                      </Button>
-                    </InlineStack>
-                  </BlockStack>
-                </PublishForm>
-              </BlockStack>
+          </div>
+          <div className="stack-4">
+            <Card pad>
+              <div className="t-h3" style={{ marginBottom: 12 }}>Details</div>
+              <KV rows={[
+                ['Type', <Badge key="t" tone={TYPE_COLOR[designT]}>{designT}</Badge>],
+                ['Category', titleCase(String(mod.category || 'General'))],
+                ['Version', 'v' + (versions[0]?.version ?? 1)],
+                ['Status', <StatusBadge key="s" value={mod.status} />],
+              ]} />
             </Card>
-
-            <Card padding="400">
-              <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">Version history</Text>
-                {versions.length === 0 ? (
-                  <Text as="p" tone="subdued">No versions yet.</Text>
-                ) : (
-                  <DataTable
-                    columnContentTypes={['numeric', 'text', 'text', 'text']}
-                    headings={['Version', 'Status', 'Published at', '']}
-                    rows={versions.map(v => [
-                      v.version,
-                      <Badge key={v.id} tone={v.status === 'PUBLISHED' ? 'success' : 'attention'}>
-                        {`${v.status}${v.isActive ? ' (active)' : ''}`}
-                      </Badge>,
-                      v.publishedAt ? new Date(v.publishedAt).toLocaleString('en-US') : '—',
-                      v.isActive ? (
-                        <Text key={v.id} as="span" tone="subdued">Current</Text>
-                      ) : (
-                        <Form key={v.id} method="post" action="/api/rollback">
-                          <input type="hidden" name="moduleId" value={moduleId} />
-                          <input type="hidden" name="version" value={String(v.version)} />
-                          <Button submit size="slim" variant="secondary">
-                            {`Rollback to v${v.version}`}
-                          </Button>
-                        </Form>
-                      ),
-                    ])}
-                  />
-                )}
-              </BlockStack>
-            </Card>
-
-            <Card padding="400">
-              <InlineStack align="space-between" blockAlign="center">
-                <Text as="h2" variant="headingMd">Technical details</Text>
-                <Button onClick={() => setTechModalOpen(true)}>
-                  View compiled operations &amp; RecipeSpec
-                </Button>
-              </InlineStack>
-            </Card>
-
-            <Card padding="400">
-              <BlockStack gap="300">
-                <Text as="h2" variant="headingMd">Danger zone</Text>
-                <Text as="p" tone="subdued">
-                  Permanently delete this module and all its versions. This cannot be undone.
-                </Text>
-                {!deleteConfirm ? (
-                  <Button tone="critical" onClick={() => setDeleteConfirm(true)}>
-                    Delete module
-                  </Button>
-                ) : (
-                  <BlockStack gap="200">
-                    <Banner tone="critical">
-                      <Text as="p">Are you sure? This will permanently delete "{mod.name}" and all its versions.</Text>
-                    </Banner>
-                    <InlineStack gap="200">
-                      <Form method="post" action={`/api/modules/${moduleId}/delete`}>
-                        <Button submit tone="critical" variant="primary" loading={isDeletingModule}>
-                          Yes, delete permanently
-                        </Button>
-                      </Form>
-                      <Button onClick={() => setDeleteConfirm(false)}>Cancel</Button>
-                    </InlineStack>
-                  </BlockStack>
-                )}
-              </BlockStack>
-            </Card>
-
-          </BlockStack>
-
-          {/* Right panel: sticky preview */}
-          <div style={{ position: 'sticky', top: 'var(--p-space-400)' }}>
-            <Card padding="400">
-              <BlockStack gap="400">
-                <InlineStack align="space-between" blockAlign="center">
-                  <Text as="h2" variant="headingMd" fontWeight="semibold">Live preview</Text>
-                  <InlineStack gap="200">
-                    {hasHtmlPreview && (
-                      <Button
-                        size="slim"
-                        variant={previewMode === 'visual' ? 'primary' : 'secondary'}
-                        onClick={() => setPreviewMode(previewMode === 'visual' ? 'html' : 'visual')}
-                      >
-                        {previewMode === 'visual' ? 'View HTML' : 'Visual preview'}
-                      </Button>
-                    )}
-                    {livePreviewHtml && <Badge tone="success">Live</Badge>}
-                    <Badge>{hasHtmlPreview ? 'HTML' : 'JSON'}</Badge>
-                  </InlineStack>
-                </InlineStack>
-
-                {isFunctionModule && (
-                  <Box padding="300" background="bg-surface-secondary" borderRadius="200">
-                    <BlockStack gap="200">
-                      <Text as="p" variant="bodySm" fontWeight="semibold">Simulation context</Text>
-                      <InlineStack gap="300" blockAlign="end" wrap>
-                        <Select
-                          label="Currency"
-                          options={['USD', 'CAD', 'GBP', 'EUR']}
-                          value={simInput.currency}
-                          onChange={(v) => { const next = { ...simInput, currency: v }; setSimInput(next); runSimulation(next); }}
-                        />
-                        <Select
-                          label="Country"
-                          options={['US', 'CA', 'GB', 'DE']}
-                          value={simInput.countryCode}
-                          onChange={(v) => { const next = { ...simInput, countryCode: v }; setSimInput(next); runSimulation(next); }}
-                        />
-                        <Checkbox
-                          label="Shopify Plus store"
-                          checked={simInput.isPlus}
-                          onChange={(v) => { const next = { ...simInput, isPlus: v }; setSimInput(next); runSimulation(next); }}
-                        />
-                      </InlineStack>
-                      <Text as="p" variant="bodySm" tone="subdued">
-                        Drives the deterministic Function simulation (e.g. cart-transform falls back to a non-Plus path when Plus is off).
-                      </Text>
-                    </BlockStack>
-                  </Box>
-                )}
-
-                {hasHtmlPreview && previewMode === 'visual' && (
-                  <div style={{ overflow: 'hidden', borderRadius: 12, border: '1px solid var(--p-color-border)', minHeight: 520, background: 'var(--p-color-bg-surface-secondary)' }}>
-                    <iframe
-                      title="Module preview"
-                      srcDoc={livePreviewHtml ?? previewHtml ?? ''}
-                      style={{ width: '100%', height: 520, border: 0 }}
-                      sandbox="allow-scripts allow-same-origin allow-popups"
-                    />
-                  </div>
-                )}
-
-                {hasHtmlPreview && previewMode === 'html' && (
-                  <div style={{ padding: 16, background: 'var(--p-color-bg-surface-secondary)', borderRadius: 12, minHeight: 520, maxHeight: 520, overflow: 'auto' }}>
-                    <pre style={{ whiteSpace: 'pre-wrap', margin: 0, fontSize: 12, fontFamily: 'var(--p-font-mono)', lineHeight: 1.6 }}>
-                      {previewHtml}
-                    </pre>
-                  </div>
-                )}
-
-                {!hasHtmlPreview && previewJson != null && (
-                  <div style={{ padding: 16, background: 'var(--p-color-bg-surface-secondary)', borderRadius: 12, minHeight: 520, maxHeight: 520, overflow: 'auto' }}>
-                    <pre style={{ whiteSpace: 'pre-wrap', margin: 0, fontSize: 12, fontFamily: 'var(--p-font-mono)' }}>
-                      {JSON.stringify(previewJson as Record<string, unknown>, null, 2)}
-                    </pre>
-                  </div>
-                )}
-
-                {!hasHtmlPreview && !previewJson && (
-                  <Box padding="600" background="bg-surface-secondary" borderRadius="300" minHeight="200px">
-                    <BlockStack gap="200">
-                      <Text as="p" tone="subdued">No preview available for this module type.</Text>
-                      <Text as="p" variant="bodySm" tone="subdued">Publish to a theme to see it on your storefront.</Text>
-                    </BlockStack>
-                  </Box>
-                )}
-
-                {previewLinkInfo && (
-                  <Banner tone="info" onDismiss={() => setPreviewLinkInfo(null)}>
-                    <BlockStack gap="100">
-                      <Text as="p" variant="bodySm">
-                        <strong>Link clicked{previewLinkInfo.text ? `: "${previewLinkInfo.text}"` : ''}</strong>
-                      </Text>
-                      <Text as="p" variant="bodySm">
-                        URL: <code style={{ fontSize: 11, wordBreak: 'break-all' }}>{previewLinkInfo.href || '(no URL)'}</code>
-                      </Text>
-                      <Text as="p" variant="bodySm" tone="subdued">
-                        Opens in: {previewLinkInfo.target === '_blank' ? 'new tab' : previewLinkInfo.target === '_self' || !previewLinkInfo.target ? 'same page (redirect)' : previewLinkInfo.target}
-                      </Text>
-                    </BlockStack>
-                  </Banner>
-                )}
-
-                <Text as="p" variant="bodySm" tone="subdued">
-                  For pixel-perfect preview, publish to a duplicate theme and test on your storefront.
-                </Text>
-              </BlockStack>
+            <Card pad>
+              <div className="t-h3" style={{ marginBottom: 10 }}>Placement</div>
+              <div className="t-sm t-muted">Shown on all product pages, sticky to the bottom of the viewport.</div>
             </Card>
           </div>
-
         </div>
-      </BlockStack>
+      )}
 
-        {modifyModalOpen && (
-          <Modal
-            open={modifyModalOpen}
-            onClose={() => { setModifyModalOpen(false); setModifyInstruction(''); setModifyOptions(null); }}
-            title="Modify module with AI"
-            primaryAction={modifyOptions ? undefined : {
-              content: 'Generate 3 options',
-              loading: isModifying,
-              disabled: !modifyInstruction.trim() || isModifying,
-              onAction: () => {
-                setModifyOptions(null);
-                modifyFetcher.submit(
-                  { moduleId, instruction: modifyInstruction },
-                  { method: 'post', action: '/api/ai/modify-module' },
-                );
-              },
-            }}
-            secondaryActions={[{
-              content: modifyOptions ? 'Back' : 'Cancel',
-              onAction: () => {
-                if (modifyOptions) { setModifyOptions(null); }
-                else { setModifyModalOpen(false); setModifyInstruction(''); }
-              },
-            }]}
-            size={modifyOptions ? 'large' : undefined}
-          >
-            <Modal.Section>
-              <BlockStack gap="400">
-                {!modifyOptions && (
-                  <>
-                    <Text as="p" tone="subdued">
-                      Describe the changes you want. AI will generate 3 different modification options while keeping the same type ({spec ? getTypeDisplayLabel(spec.type) : '—'}).
-                    </Text>
-                    <TextField
-                      label="What should change?"
-                      value={modifyInstruction}
-                      onChange={setModifyInstruction}
-                      autoComplete="off"
-                      multiline={4}
-                      placeholder='e.g. "Change the headline to Holiday Sale", "Make the popup trigger on scroll instead of exit intent"'
-                      helpText="Be specific about what to change. The rest of the module will be preserved."
-                    />
-                    {isModifying && (
-                      <AIGeneratingAnimation label="Crafting 3 unique modification options for you" />
-                    )}
-                  </>
-                )}
+      {tab === 'versions' && (
+        <Card>
+          <DataTable rowKey="version" columns={[
+            { key: 'version', label: 'Version', render: (r: any) => <span className="cell-strong">v{r.version}</span> },
+            { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
+            { key: 'publishedAt', label: 'Published', render: (r: any) => <span className="cell-sub">{r.publishedAt ? new Date(r.publishedAt).toLocaleDateString('en-US') : '—'}</span> },
+            { key: 'act', label: '', render: (r: any) => (
+              <div className="dt-actions">
+                {!r.isActive && <Btn size="sm" icon="replay" onClick={() => rollback(r.version)}>Roll back</Btn>}
+              </div>
+            ) },
+          ]} rows={versions} />
+        </Card>
+      )}
 
-                {modifyOptions && (
-                  <BlockStack gap="300">
-                    <Text as="h3" variant="headingSm">Choose a modification</Text>
-                    {modifyOptions.map((opt, i) => {
-                      const config = (opt.recipe.config ?? {}) as Record<string, unknown>;
-                      return (
-                        <Card key={i}>
-                          <BlockStack gap="200">
-                            <InlineStack align="space-between" blockAlign="center">
-                              <Text as="h3" variant="headingSm">Option {i + 1}</Text>
-                              <Badge tone="info">{String(opt.recipe.type ?? '')}</Badge>
-                            </InlineStack>
-                            <Text as="p" variant="bodyMd">{opt.explanation}</Text>
-                            <BlockStack gap="050">
-                              {Object.entries(config).slice(0, 4).map(([k, v]) => (
-                                <Text key={k} as="p" variant="bodySm" tone="subdued">
-                                  {k}: {typeof v === 'object' ? JSON.stringify(v).slice(0, 50) : String(v).slice(0, 50)}
-                                </Text>
-                              ))}
-                            </BlockStack>
-                            <Button
-                              variant="primary"
-                              loading={isModifyConfirming}
-                              disabled={isModifyConfirming}
-                              onClick={() => {
-                                modifyConfirmFetcher.submit(
-                                  { moduleId, spec: JSON.stringify(opt.recipe) },
-                                  { method: 'post', action: '/api/ai/modify-module-confirm' },
-                                );
-                              }}
-                            >
-                              Use this option
-                            </Button>
-                          </BlockStack>
-                        </Card>
-                      );
-                    })}
-                  </BlockStack>
-                )}
-
-                {modifyConfirmFetcher.data?.ok && (
-                  <Banner tone="success">
-                    <Text as="p">Module updated to version {modifyConfirmFetcher.data.version}. Reload the page to see changes.</Text>
-                  </Banner>
-                )}
-                {modifyFetcher.data?.error && !isModifying && (
-                  <Banner tone="critical">
-                    <Text as="p">{modifyFetcher.data.error}</Text>
-                  </Banner>
-                )}
-                {modifyConfirmFetcher.data?.error && !isModifyConfirming && (
-                  <Banner tone="critical">
-                    <Text as="p">{modifyConfirmFetcher.data.error}</Text>
-                  </Banner>
-                )}
-              </BlockStack>
-            </Modal.Section>
-          </Modal>
-        )}
-
-    {techModalOpen && (
-      <Modal
-        open={techModalOpen}
-        onClose={() => setTechModalOpen(false)}
-        title="Technical details"
-        size="large"
-      >
-        <Modal.Section>
-          <Tabs
-            tabs={[
-              { id: 'compiled', content: 'Compiled operations' },
-              { id: 'recipespec', content: 'RecipeSpec' },
-            ]}
-            selected={techTab}
-            onSelect={setTechTab}
-          />
-          <Box paddingBlockStart="400">
-            {techTab === 0 && (
-              <BlockStack gap="200">
-                <Text as="p" variant="bodySm" tone="subdued">
-                  Deploy operations generated from the RecipeSpec. Read-only.
-                </Text>
-                <div style={{ background: '#f6f6f7', borderRadius: 8, padding: 12, maxHeight: 500, overflow: 'auto' }}>
-                  <pre style={{ whiteSpace: 'pre-wrap', margin: 0, fontSize: 12, fontFamily: 'monospace' }}>
-                    {JSON.stringify(compiled, null, 2)}
-                  </pre>
-                </div>
-              </BlockStack>
-            )}
-            {techTab === 1 && (
-              <BlockStack gap="200">
-                <Text as="p" variant="bodySm" tone="subdued">
-                  The validated RecipeSpec JSON for this module. Read-only.
-                </Text>
-                <div style={{ background: '#f6f6f7', borderRadius: 8, padding: 12, maxHeight: 500, overflow: 'auto' }}>
-                  <pre style={{ whiteSpace: 'pre-wrap', margin: 0, fontSize: 12, fontFamily: 'monospace' }}>
-                    {JSON.stringify(spec, null, 2)}
-                  </pre>
-                </div>
-              </BlockStack>
-            )}
-          </Box>
-        </Modal.Section>
-      </Modal>
-    )}
-    </Page>
+      {tab === 'settings' && (
+        <Card pad>
+          <div className="stack-4" style={{ maxWidth: 520 }}>
+            <Field label="Module name"><Input defaultValue={mod.name} /></Field>
+            <Field label="Internal notes" optional><Textarea placeholder="Notes for your team…" /></Field>
+            <div className="divider" />
+            <Banner tone="critical" title="Delete this module">
+              <div className="stack-2">
+                <span>This removes the module and all versions. It cannot be undone.</span>
+                <div><Btn variant="critical" icon="trash" onClick={() => setDelOpen(true)}>Delete module</Btn></div>
+              </div>
+            </Banner>
+          </div>
+        </Card>
+      )}
+    </div>
   );
 }

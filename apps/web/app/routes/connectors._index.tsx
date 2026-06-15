@@ -1,14 +1,17 @@
 import { json, redirect } from '@remix-run/node';
-import { useLoaderData, Form, useNavigation, useActionData, Link, useRevalidator } from '@remix-run/react';
-import {
-  Page, Card, BlockStack, Text, DataTable, Button, TextField,
-  InlineStack, Badge, Banner, EmptyState, Modal, SkeletonBodyText, InlineGrid,
-} from '@shopify/polaris';
-import { useState, useCallback, useEffect } from 'react';
+import { useLoaderData, useNavigate, useFetcher, useRevalidator } from '@remix-run/react';
+import { useState, useEffect } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { ConnectorService } from '~/services/connectors/connector.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
+import {
+  Icon, Btn, Badge, StatusBadge, Card, PageHead, FilterBar, DataTable, EmptyState,
+  Menu, Modal, Field, Input, Select, ConfirmDialog, MonoChip, StatusDot, useTableState, titleCase,
+} from '~/components/superapp';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -80,155 +83,147 @@ export async function action({ request }: { request: Request }) {
   return json({ error: 'Unknown intent' }, { status: 400 });
 }
 
+function authDisplay(t: string): string {
+  if (t === 'API_KEY') return 'API key';
+  if (t === 'BASIC') return 'Basic auth';
+  if (t === 'OAUTH2' || t === 'OAUTH') return 'OAuth 2.0';
+  return titleCase(t);
+}
+function timeAgo(iso: string | null): string {
+  if (!iso) return 'never';
+  const diff = Date.now() - new Date(iso).getTime();
+  const h = Math.round(diff / 3600000);
+  if (h < 1) return 'just now';
+  if (h < 24) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+
 export default function ConnectorsIndex() {
   const { connectors, stats } = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
-  const nav = useNavigation();
-  const isSaving = nav.state !== 'idle';
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
-  const handleDeleteClose = useCallback(() => setDeleteTarget(null), []);
+  return (
+    <MerchantShell>
+      <ConnectorsBody connectors={connectors} stats={stats} />
+    </MerchantShell>
+  );
+}
+
+function ConnectorsBody({ connectors }: any) {
+  const ctx = useMerchantCtx();
+  const navigate = useNavigate();
+  const ts = useTableState();
   const { revalidate } = useRevalidator();
+  const [modal, setModal] = useState(false);
+  const [del, setDel] = useState<any>(null);
+  const [auth, setAuth] = useState('API Key');
+  const createFetcher = useFetcher();
+  const deleteFetcher = useFetcher();
+  const testFetcher = useFetcher();
 
   useEffect(() => {
-    // Reflect agent writes: poll every 30s + revalidate on window focus
     const interval = setInterval(revalidate, 30_000);
     window.addEventListener('focus', revalidate);
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', revalidate);
-    };
+    return () => { clearInterval(interval); window.removeEventListener('focus', revalidate); };
   }, [revalidate]);
 
+  // Design rows: connectors mapped to the design shape; status derived from last test.
+  const rows = connectors
+    .map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      baseUrl: c.baseUrl,
+      auth: c.authType,
+      endpoints: c.endpointCount,
+      lastTested: timeAgo(c.lastTestedAt),
+      lastStatus: c.lastTestedAt ? 200 : 0,
+      status: c.lastTestedAt ? 'CONNECTED' : 'NEW',
+    }))
+    .filter((c: any) => (c.name + c.baseUrl).toLowerCase().includes(ts.search.toLowerCase()));
+
+  const testConnector = (r: any) => {
+    testFetcher.submit({ connectorId: r.id, path: '/', method: 'GET' }, { method: 'post', action: '/api/connectors/test', encType: 'application/json' });
+    ctx.toast(`Testing ${r.name}…`);
+  };
+  const conMenu = (r: any) => [
+    { icon: 'play', label: 'Test connection', onClick: () => testConnector(r) },
+    { icon: 'edit', label: 'Edit', onClick: () => navigate(`/connectors/${r.id}?tab=settings`) },
+    { divider: true },
+    { icon: 'trash', label: 'Delete', tone: 'critical', onClick: () => setDel(r) },
+  ];
+
+  const submitCreate = (formEl: HTMLFormElement) => {
+    const fd = new FormData(formEl);
+    fd.set('intent', 'create');
+    createFetcher.submit(fd, { method: 'post' });
+    setModal(false);
+    ctx.toast('Connector created');
+  };
+  const confirmDelete = () => {
+    if (!del) return;
+    deleteFetcher.submit({ intent: 'delete', connectorId: del.id }, { method: 'post' });
+    ctx.toast(`Deleted “${del.name}”`);
+    setDel(null);
+  };
+
   return (
-    <Page
-      title="Connectors"
-      subtitle="Connect external APIs for automation flows"
-      backAction={{ content: 'Dashboard', url: '/' }}
-    >
-      <BlockStack gap="500">
-        {actionData?.error && (
-          <Banner tone="critical" title="Error">
-            <Text as="p">{actionData.error}</Text>
-          </Banner>
-        )}
-
-        <BlockStack gap="200">
-          <Text as="h2" variant="headingMd" fontWeight="semibold">Overview</Text>
-          <InlineGrid columns={{ xs: 2, sm: 3 }} gap="400">
-            <Card padding="400">
-              <BlockStack gap="200">
-                <Text as="p" variant="bodySm" tone="subdued">Total</Text>
-                <Text as="p" variant="headingXl">{stats.total}</Text>
-            </BlockStack>
-          </Card>
-          <Card padding="400">
-            <BlockStack gap="200">
-              <Text as="p" variant="bodySm" tone="subdued">Tested</Text>
-              <Text as="p" variant="headingXl" tone="success">{stats.tested}</Text>
-            </BlockStack>
-          </Card>
-          <Card padding="400">
-            <BlockStack gap="200">
-              <Text as="p" variant="bodySm" tone="subdued">Untested</Text>
-              <Text as="p" variant="headingXl" tone={stats.total - stats.tested > 0 ? 'caution' : undefined}>
-                {stats.total - stats.tested}
-              </Text>
-            </BlockStack>
-          </Card>
-        </InlineGrid>
-        </BlockStack>
-
-        <Card padding="400">
-          <BlockStack gap="300">
-            <InlineStack align="space-between" blockAlign="center">
-              <Text as="h2" variant="headingMd">Add connector</Text>
-              <Badge tone="info">SSRF protected</Badge>
-            </InlineStack>
-            <Text as="p" tone="subdued">
-              Only HTTPS connections are allowed. Base URL domain is automatically allowlisted. API keys are encrypted at rest.
-            </Text>
-            <Form method="post">
-              <input type="hidden" name="intent" value="create" />
-              <BlockStack gap="200">
-                <InlineGrid columns={{ xs: 1, sm: 2 }} gap="200">
-                  <TextField label="Connector name" name="name" autoComplete="off" placeholder="My ERP API" helpText="Friendly name for this integration." />
-                  <TextField label="Base URL (https only)" name="baseUrl" autoComplete="off" placeholder="https://api.example.com/v1" />
-                </InlineGrid>
-                <InlineGrid columns={{ xs: 1, sm: 2 }} gap="200">
-                  <TextField label="API key header" name="headerName" autoComplete="off" placeholder="X-Api-Key" />
-                  <TextField label="API key" name="apiKey" type="password" autoComplete="off" />
-                </InlineGrid>
-                <InlineStack align="start">
-                  <Button submit variant="primary" loading={isSaving}>Add connector</Button>
-                </InlineStack>
-              </BlockStack>
-            </Form>
-          </BlockStack>
-        </Card>
-
-        <Card padding="400">
-          <BlockStack gap="400">
-            <Text as="h2" variant="headingMd" fontWeight="semibold">Configured connectors</Text>
-            {isSaving ? (
-              <SkeletonBodyText lines={3} />
-            ) : connectors.length === 0 ? (
-              <EmptyState heading="No connectors yet" image="">
-                <Text as="p" tone="subdued">Connect external APIs to power your automation flows. Add your first connector above.</Text>
-              </EmptyState>
-            ) : (
-              <DataTable
-                columnContentTypes={['text', 'text', 'text', 'text', 'numeric', 'text']}
-                headings={['Name', 'Base URL', 'Auth', 'Status', 'Endpoints', '']}
-                rows={connectors.map(c => [
-                  c.name,
-                  c.baseUrl,
-                  <Badge key={`a-${c.id}`}>{c.authType}</Badge>,
-                  c.lastTestedAt
-                    ? <Badge key={`s-${c.id}`} tone="success">{`Tested ${new Date(c.lastTestedAt).toLocaleDateString()}`}</Badge>
-                    : <Badge key={`s-${c.id}`} tone="attention">Untested</Badge>,
-                  c.endpointCount,
-                  <InlineStack key={`act-${c.id}`} gap="100">
-                    <Link to={`/connectors/${c.id}`}><Button size="slim">Test API</Button></Link>
-                    <Button size="slim" tone="critical" onClick={() => setDeleteTarget({ id: c.id, name: c.name })}>Delete</Button>
-                  </InlineStack>,
-                ])}
-              />
-            )}
-          </BlockStack>
-        </Card>
-      </BlockStack>
-
-      {deleteTarget && (
-        <>
-        <Form
-          id={`delete-connector-form-${deleteTarget.id}`}
-          method="post"
-          style={{ display: 'none' }}
-        >
-          <input type="hidden" name="intent" value="delete" />
-          <input type="hidden" name="connectorId" value={deleteTarget.id} />
-        </Form>
-        <Modal
-          open
-          onClose={handleDeleteClose}
-          title="Delete connector"
-          primaryAction={{
-            content: 'Delete',
-            destructive: true,
-            onAction: () => {
-              (document.getElementById(`delete-connector-form-${deleteTarget.id}`) as HTMLFormElement | null)?.requestSubmit();
-            },
-          }}
-          secondaryActions={[{ content: 'Cancel', onAction: handleDeleteClose }]}
-        >
-          <Modal.Section>
-            <Text as="p">
-              Are you sure you want to delete <strong>{deleteTarget.name}</strong>? This removes all stored credentials and cannot be undone.
-            </Text>
-          </Modal.Section>
-        </Modal>
-        </>
+    <div className="page">
+      <PageHead
+        title="Connectors"
+        sub="Connect external APIs, test them in the built-in request console, then use them in flows and modules."
+        actions={<Btn variant="primary" icon="plus" onClick={() => setModal(true)}>Add connector</Btn>}
+      />
+      {del && (
+        <ConfirmDialog title="Delete connector?" tone="critical" confirmLabel="Delete" icon="trash"
+          message={`This removes “${del.name}” and its saved endpoints. Flows and modules that use it will stop working.`}
+          onConfirm={confirmDelete} onClose={() => setDel(null)} />
       )}
-    </Page>
+      <Card>
+        <FilterBar search={ts.search} onSearch={ts.setSearch} placeholder="Search connectors…" results={rows.length} />
+        {rows.length === 0 ? (
+          <EmptyState icon="connect" title="No connectors yet"
+            action={<Btn variant="primary" icon="plus" onClick={() => setModal(true)}>Add your first connector</Btn>}>
+            Connect Klaviyo, Slack, your WMS, or any REST API.
+          </EmptyState>
+        ) : (
+          <DataTable rowKey="id" onRowClick={(r: any) => navigate(`/connectors/${r.id}`)} columns={[
+            { key: 'name', label: 'Connector', render: (r: any) => (
+              <div className="row-3">
+                <span className="tile-ico" style={{ width: 30, height: 30, background: 'var(--p-surface-secondary)' }}><Icon name="connect" size={15} /></span>
+                <span className="cell-strong">{r.name}</span>
+              </div>
+            ) },
+            { key: 'baseUrl', label: 'Base URL', render: (r: any) => <MonoChip>{r.baseUrl}</MonoChip> },
+            { key: 'auth', label: 'Auth', render: (r: any) => <Badge>{authDisplay(r.auth)}</Badge> },
+            { key: 'endpoints', label: 'Endpoints', num: true },
+            { key: 'lastStatus', label: 'Last test', render: (r: any) => (
+              <span className="row-2"><StatusDot ok={r.lastStatus < 400 && r.lastStatus > 0} /><span className="cell-sub">{r.lastStatus ? `${r.lastStatus} · ${r.lastTested}` : 'untested'}</span></span>
+            ) },
+            { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
+            { key: 'act', label: '', render: (r: any) => (
+              <div className="dt-actions"><Menu trigger={<button className="btn btn-icon btn-sm btn-plain"><Icon name="dotsH" size={16} /></button>} items={conMenu(r)} /></div>
+            ) },
+          ]} rows={rows} />
+        )}
+      </Card>
+      {modal && (
+        <Modal title="Add connector" sub="Connect an external REST API" onClose={() => setModal(false)}
+          footer={(
+            <>
+              <span className="grow" />
+              <Btn onClick={() => setModal(false)}>Cancel</Btn>
+              <Btn variant="primary" onClick={(e: any) => submitCreate(e.target.closest('.modal-overlay').querySelector('form'))}>Create connector</Btn>
+            </>
+          )}>
+          <form>
+            <div className="stack-4">
+              <Field label="Name" help="A friendly label, e.g. “Klaviyo”"><Input name="name" placeholder="My API" autoFocus /></Field>
+              <Field label="Base URL"><Input name="baseUrl" mono placeholder="https://api.example.com/v1" /></Field>
+              <Field label="Authentication"><Select options={['API Key', 'Basic auth', 'OAuth 2.0']} value={auth} onChange={(e: any) => setAuth(e.target.value)} /></Field>
+              <Field label="API key" help="Encrypted at rest — never shown again"><Input name="apiKey" type="password" placeholder="••••••••••••" /></Field>
+              <Field label="Header name" optional help="Header used to send the API key"><Input name="headerName" mono placeholder="X-Api-Key" /></Field>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
   );
 }

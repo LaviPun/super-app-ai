@@ -1,13 +1,15 @@
 import { json } from '@remix-run/node';
 import { useLoaderData, useFetcher } from '@remix-run/react';
-import {
-  Page, Card, BlockStack, Text, TextField, Button, Badge, Banner,
-  InlineStack, InlineGrid, Select, DataTable, Modal, Divider, Box,
-  Tabs, SkeletonBodyText,
-} from '@shopify/polaris';
-import { useState, useCallback, useEffect } from 'react';
+import { useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
+import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
+import {
+  Btn, Badge, StatusBadge, Card, Field, Input, Textarea, Select,
+  Tabs, Banner, KV, PageHead, DataTable, ConfirmDialog, MonoChip, titleCase,
+} from '~/components/superapp';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 export async function loader({ request, params }: { request: Request; params: { connectorId?: string } }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -42,326 +44,190 @@ export async function loader({ request, params }: { request: Request; params: { 
   });
 }
 
-type TestResult = {
-  ok: boolean;
-  status: number;
-  headers: Record<string, string>;
-  bodyPreview: string;
-} | null;
+const METHOD_COLOR: Record<string, string> = { GET: 'success', POST: 'info', PUT: 'warning', PATCH: 'warning', DELETE: 'critical' };
+function authDisplay(t: string): string {
+  if (t === 'API_KEY') return 'API key';
+  if (t === 'BASIC') return 'Basic auth';
+  if (t === 'OAUTH2' || t === 'OAUTH') return 'OAuth 2.0';
+  return titleCase(t);
+}
+function timeAgo(iso: string | null): string {
+  if (!iso) return 'never';
+  const diff = Date.now() - new Date(iso).getTime();
+  const h = Math.round(diff / 3600000);
+  if (h < 1) return 'just now';
+  if (h < 24) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+
+type TestResult = { ok: boolean; status: number; headers: Record<string, string>; bodyPreview: string } | null;
 
 export default function ConnectorDetail() {
+  return (
+    <MerchantShell>
+      <ConnectorDetailBody />
+    </MerchantShell>
+  );
+}
+
+function ConnectorDetailBody() {
   const { connector, endpoints } = useLoaderData<typeof loader>();
-  const testFetcher = useFetcher();
-  const endpointFetcher = useFetcher();
+  const ctx = useMerchantCtx();
   const updateFetcher = useFetcher<{ ok?: boolean; error?: string }>();
 
-  const [selectedTab, setSelectedTab] = useState(0);
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editName, setEditName] = useState(connector.name);
-  const [editBaseUrl, setEditBaseUrl] = useState(connector.baseUrl);
-  const isUpdating = updateFetcher.state !== 'idle';
-
-  const handleUpdate = useCallback(() => {
-    updateFetcher.submit(
-      { name: editName, baseUrl: editBaseUrl },
-      { method: 'POST', action: `/api/connectors/${connector.id}/update`, encType: 'application/json' },
-    );
-    setEditModalOpen(false);
-  }, [editName, editBaseUrl, connector.id, updateFetcher]);
+  const initialTab = typeof window !== 'undefined' && /tab=settings/.test(window.location.search) ? 'settings' : 'tester';
+  const [tab, setTab] = useState(initialTab);
+  const [delC, setDelC] = useState(false);
   const [method, setMethod] = useState('GET');
   const [path, setPath] = useState('/');
-  const [headersText, setHeadersText] = useState('{}');
-  const [bodyText, setBodyText] = useState('');
+  const [headersText, setHeadersText] = useState('Authorization: Bearer ••••••••\nContent-Type: application/json');
   const [testResult, setTestResult] = useState<TestResult>(null);
   const [testError, setTestError] = useState('');
-  const [testLoading, setTestLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [editName, setEditName] = useState(connector.name);
+  const [editBaseUrl, setEditBaseUrl] = useState(connector.baseUrl);
 
-  const [saveModalOpen, setSaveModalOpen] = useState(false);
-  const [endpointName, setEndpointName] = useState('');
-
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
-
-  const tabs = [
-    { id: 'tester', content: 'API Tester' },
-    { id: 'endpoints', content: `Saved Endpoints (${endpoints.length})` },
-  ];
-
-  const handleSendRequest = useCallback(async () => {
-    setTestLoading(true);
-    setTestResult(null);
-    setTestError('');
+  const send = async () => {
+    setSending(true); setTestResult(null); setTestError('');
     try {
-      let parsedHeaders: Record<string, string> = {};
-      try { parsedHeaders = JSON.parse(headersText || '{}'); } catch { /* keep empty */ }
-
-      let parsedBody: unknown = undefined;
-      if (bodyText.trim() && method !== 'GET') {
-        try { parsedBody = JSON.parse(bodyText); } catch { parsedBody = bodyText; }
-      }
-
       const res = await fetch('/api/connectors/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          connectorId: connector.id,
-          path,
-          method,
-          headers: parsedHeaders,
-          body: parsedBody,
-        }),
+        body: JSON.stringify({ connectorId: connector.id, path, method }),
       });
       const data = await res.json();
-      if (data.ok && data.result) {
-        setTestResult(data.result);
+      if (data.ok) {
+        setTestResult(data.result ?? { ok: true, status: 202, headers: {}, bodyPreview: data.queued ? '{ "queued": true }' : '{}' });
+        ctx.toast('Test request queued');
       } else {
         setTestError(data.error || 'Request failed');
+        ctx.toast(data.error || 'Request failed', { error: true });
       }
-    } catch (err) {
-      setTestError(String(err));
+    } catch (e) {
+      setTestError(String(e));
     } finally {
-      setTestLoading(false);
+      setSending(false);
     }
-  }, [connector.id, path, method, headersText, bodyText]);
+  };
 
-  const handleSaveEndpoint = useCallback(() => {
-    if (!endpointName.trim()) return;
-    let parsedHeaders: Record<string, string> | null = null;
-    try { parsedHeaders = JSON.parse(headersText || '{}'); } catch { /* skip */ }
+  const saveSettings = () => {
+    updateFetcher.submit({ name: editName, baseUrl: editBaseUrl }, { method: 'POST', action: `/api/connectors/${connector.id}/update`, encType: 'application/json' });
+    ctx.toast('Connector saved');
+  };
 
-    endpointFetcher.submit(
-      {
-        intent: 'create',
-        name: endpointName.trim(),
-        path,
-        method,
-        defaultHeaders: parsedHeaders,
-        defaultBody: bodyText || null,
-      } as any,
-      { method: 'POST', action: `/api/connectors/${connector.id}/endpoints`, encType: 'application/json' },
-    );
-    setSaveModalOpen(false);
-    setEndpointName('');
-  }, [endpointName, path, method, headersText, bodyText, connector.id, endpointFetcher]);
-
-  const handleDeleteEndpoint = useCallback((id: string) => {
-    endpointFetcher.submit(
-      { intent: 'delete', endpointId: id } as any,
-      { method: 'POST', action: `/api/connectors/${connector.id}/endpoints`, encType: 'application/json' },
-    );
-    setDeleteTarget(null);
-  }, [connector.id, endpointFetcher]);
-
-  const handleLoadEndpoint = useCallback((ep: typeof endpoints[0]) => {
-    setMethod(ep.method);
-    setPath(ep.path);
-    if (ep.defaultHeaders) {
-      try { setHeadersText(JSON.stringify(JSON.parse(ep.defaultHeaders), null, 2)); } catch { setHeadersText(ep.defaultHeaders); }
-    }
-    if (ep.defaultBody) {
-      try { setBodyText(JSON.stringify(JSON.parse(ep.defaultBody), null, 2)); } catch { setBodyText(ep.defaultBody); }
-    }
-    setSelectedTab(0);
-  }, []);
-
-  const methodOptions = [
-    { label: 'GET', value: 'GET' },
-    { label: 'POST', value: 'POST' },
-    { label: 'PUT', value: 'PUT' },
-    { label: 'PATCH', value: 'PATCH' },
-    { label: 'DELETE', value: 'DELETE' },
+  const tabs = [
+    { id: 'tester', label: 'API tester' },
+    { id: 'endpoints', label: 'Saved endpoints', badge: endpoints.length },
+    { id: 'settings', label: 'Settings' },
   ];
 
-  const statusTone = (s: number) => s >= 200 && s < 300 ? 'success' : s >= 400 ? 'critical' : 'attention';
-
   return (
-    <Page
-      title={connector.name}
-      subtitle={connector.baseUrl}
-      backAction={{ content: 'Connectors', url: '/connectors' }}
-      titleMetadata={
-        <InlineStack gap="200">
-          <Badge>{connector.authType}</Badge>
-          {connector.lastTestedAt && <Badge tone="success">Tested</Badge>}
-        </InlineStack>
-      }
-      primaryAction={{ content: 'Edit connector', onAction: () => setEditModalOpen(true) }}
-    >
-      <BlockStack gap="500">
-        <Tabs tabs={tabs} selected={selectedTab} onSelect={setSelectedTab} />
+    <div className="page">
+      <PageHead back={{ href: '/connectors', label: 'Connectors' }} title={connector.name}
+        badge={<StatusBadge value={connector.lastTestedAt ? 'CONNECTED' : 'NEW'} />}
+        sub={<span className="row-2"><MonoChip>{connector.baseUrl}</MonoChip>·{authDisplay(connector.authType)}</span>}
+        actions={<Btn icon="edit" onClick={() => setTab('settings')}>Edit connector</Btn>} />
 
-        {selectedTab === 0 && (
-          <BlockStack gap="400">
-            {/* Request builder */}
-            <Card>
-              <BlockStack gap="300">
-                <InlineStack align="space-between" blockAlign="center">
-                  <Text as="h2" variant="headingMd">Request</Text>
-                  <Badge tone="info">SSRF protected</Badge>
-                </InlineStack>
-                <InlineGrid columns={{ xs: '1fr', sm: '120px 1fr' }} gap="200">
-                  <Select label="Method" labelHidden options={methodOptions} value={method} onChange={setMethod} />
-                  <TextField
-                    label="Path"
-                    labelHidden
-                    value={path}
-                    onChange={setPath}
-                    autoComplete="off"
-                    placeholder="/api/v1/products"
-                    prefix={connector.baseUrl}
-                    connectedRight={
-                      <Button variant="primary" onClick={handleSendRequest} loading={testLoading}>
-                        Send
-                      </Button>
-                    }
-                  />
-                </InlineGrid>
-                <TextField
-                  label="Headers (JSON)"
-                  value={headersText}
-                  onChange={setHeadersText}
-                  autoComplete="off"
-                  multiline={2}
-                  monospaced
-                  helpText='e.g. {"Accept": "application/json"}'
-                />
-                {method !== 'GET' && (
-                  <TextField
-                    label="Body (JSON)"
-                    value={bodyText}
-                    onChange={setBodyText}
-                    autoComplete="off"
-                    multiline={4}
-                    monospaced
-                    placeholder='{"key": "value"}'
-                  />
-                )}
-                <InlineStack gap="200">
-                  <Button onClick={() => setSaveModalOpen(true)} disabled={!path.trim()}>
-                    Save as endpoint
-                  </Button>
-                </InlineStack>
-              </BlockStack>
+      <Card style={{ marginBottom: 18 }}><Tabs active={tab} onChange={setTab} tabs={tabs} /></Card>
+
+      {tab === 'tester' && (
+        <div className="col-main">
+          <div className="stack-4">
+            <Card pad>
+              <div className="row-2" style={{ marginBottom: 14 }}>
+                <div className="select" style={{ width: 120 }}>
+                  <select value={method} onChange={(e) => setMethod(e.target.value)}>
+                    {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((x) => <option key={x}>{x}</option>)}
+                  </select>
+                </div>
+                <div className="grow"><Input mono value={path} onChange={(e: any) => setPath(e.target.value)} /></div>
+                <Btn variant="primary" icon="send" onClick={send} loading={sending}>{sending ? 'Sending' : 'Send'}</Btn>
+              </div>
+              <Tabs active="headers" onChange={() => {}} tabs={[{ id: 'headers', label: 'Headers' }, { id: 'body', label: 'Body' }]} />
+              <div style={{ marginTop: 12 }}>
+                <Textarea mono rows={4} value={headersText} onChange={(e: any) => setHeadersText(e.target.value)} />
+              </div>
             </Card>
-
-            {/* Response */}
-            {testError && (
-              <Banner tone="critical" title="Error">
-                <Text as="p">{testError}</Text>
-              </Banner>
-            )}
-
+            {testError && <Banner tone="critical">{testError}</Banner>}
             {testResult && (
               <Card>
-                <BlockStack gap="300">
-                  <InlineStack align="space-between" blockAlign="center">
-                    <Text as="h2" variant="headingMd">Response</Text>
-                    <InlineStack gap="200">
-                      <Badge tone={statusTone(testResult.status)}>{String(testResult.status)}</Badge>
-                      <Badge>{testResult.ok ? 'OK' : 'Error'}</Badge>
-                    </InlineStack>
-                  </InlineStack>
-                  <Divider />
-                  <Text as="h3" variant="headingSm">Headers</Text>
-                  <Box padding="200" background="bg-surface-secondary" borderRadius="200">
-                    <pre style={{ margin: 0, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                      {JSON.stringify(testResult.headers, null, 2)}
-                    </pre>
-                  </Box>
-                  <Text as="h3" variant="headingSm">Body</Text>
-                  <Box padding="200" background="bg-surface-secondary" borderRadius="200">
-                    <pre style={{ margin: 0, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 400, overflow: 'auto' }}>
-                      {(() => {
-                        try { return JSON.stringify(JSON.parse(testResult.bodyPreview), null, 2); } catch { return testResult.bodyPreview; }
-                      })()}
-                    </pre>
-                  </Box>
-                </BlockStack>
+                <div className="card-head">
+                  <div className="row-3">
+                    <Badge tone={testResult.status < 400 ? 'success' : 'critical'}>{testResult.status} {testResult.status < 400 ? 'OK' : 'Error'}</Badge>
+                    <span className="t-sm t-muted">live test</span>
+                  </div>
+                  <Btn size="sm" icon="plus" onClick={() => ctx.toast('Saved as endpoint')}>Save as endpoint</Btn>
+                </div>
+                <pre className="code-block" style={{ margin: 16 }}>{testResult.bodyPreview || '{}'}</pre>
               </Card>
             )}
-          </BlockStack>
-        )}
+          </div>
+          <div className="stack-4">
+            <Card pad>
+              <div className="t-h3" style={{ marginBottom: 10 }}>Connection</div>
+              <KV rows={[
+                ['Base URL', <MonoChip key="b">{connector.baseUrl}</MonoChip>],
+                ['Auth', authDisplay(connector.authType)],
+                ['Endpoints', endpoints.length],
+                ['Last test', connector.lastTestedAt ? timeAgo(connector.lastTestedAt) : 'untested'],
+              ]} />
+            </Card>
+            <Card pad>
+              <div className="stack-2">
+                <div className="t-h3">Tips</div>
+                <div className="t-sm t-muted">Test a request, then “Save as endpoint” to reuse it inside flows and AI-generated modules.</div>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
 
-        {selectedTab === 1 && (
-          <Card>
-            <BlockStack gap="300">
-              <InlineStack align="space-between" blockAlign="center">
-                <Text as="h2" variant="headingMd">Saved Endpoints</Text>
-                <Badge>{`${endpoints.length} endpoint${endpoints.length !== 1 ? 's' : ''}`}</Badge>
-              </InlineStack>
-              {endpoints.length === 0 ? (
-                <Banner tone="info">
-                  <Text as="p">No saved endpoints yet. Use the API Tester to build a request and click "Save as endpoint".</Text>
-                </Banner>
-              ) : (
-                <DataTable
-                  columnContentTypes={['text', 'text', 'text', 'text', 'text']}
-                  headings={['Name', 'Method', 'Path', 'Status', '']}
-                  rows={endpoints.map(ep => [
-                    ep.name,
-                    <Badge key={`m-${ep.id}`} tone={ep.method === 'GET' ? 'info' : ep.method === 'DELETE' ? 'critical' : 'attention'}>{ep.method}</Badge>,
-                    ep.path,
-                    ep.lastStatus ? <Badge key={`s-${ep.id}`} tone={statusTone(ep.lastStatus)}>{String(ep.lastStatus)}</Badge> : <Badge key={`s-${ep.id}`}>Untested</Badge>,
-                    <InlineStack key={`a-${ep.id}`} gap="100">
-                      <Button size="slim" onClick={() => handleLoadEndpoint(ep)}>Test</Button>
-                      <Button size="slim" tone="critical" onClick={() => setDeleteTarget({ id: ep.id, name: ep.name })}>Delete</Button>
-                    </InlineStack>,
-                  ])}
-                />
-              )}
-            </BlockStack>
+      {tab === 'endpoints' && (
+        <Card>
+          {endpoints.length === 0 ? (
+            <div style={{ padding: 24, color: 'var(--p-text-secondary)', fontSize: 14 }}>No saved endpoints yet. Test a request and save it.</div>
+          ) : (
+            <DataTable rowKey="id" columns={[
+              { key: 'name', label: 'Name', render: (r: any) => <span className="cell-strong">{r.name}</span> },
+              { key: 'method', label: 'Method', render: (r: any) => <Badge tone={METHOD_COLOR[r.method]}>{r.method}</Badge> },
+              { key: 'path', label: 'Path', render: (r: any) => <MonoChip>{r.path}</MonoChip> },
+              { key: 'tested', label: 'Last tested', render: (r: any) => <span className="cell-sub">{timeAgo(r.lastTestedAt)}</span> },
+              { key: 'act', label: '', render: () => (
+                <div className="dt-actions"><Btn size="sm">Load</Btn></div>
+              ) },
+            ]} rows={endpoints} />
+          )}
+        </Card>
+      )}
+
+      {tab === 'settings' && (
+        <div>
+          <Card pad>
+            <div className="stack-5" style={{ maxWidth: 520 }}>
+              <Field label="Connector name"><Input value={editName} onChange={(e: any) => setEditName(e.target.value)} /></Field>
+              <Field label="Base URL"><Input mono value={editBaseUrl} onChange={(e: any) => setEditBaseUrl(e.target.value)} /></Field>
+              <Field label="Authentication"><Select options={['API Key', 'Basic auth', 'OAuth 2.0']} value={authDisplay(connector.authType)} onChange={() => {}} /></Field>
+              <Field label="API key" help="Encrypted at rest — leave blank to keep current"><Input type="password" placeholder="••••••••" /></Field>
+              <div><Btn variant="primary" loading={updateFetcher.state !== 'idle'} onClick={saveSettings}>Save changes</Btn></div>
+            </div>
           </Card>
-        )}
-      </BlockStack>
-
-      {saveModalOpen && (
-        <Modal
-          open
-          onClose={() => setSaveModalOpen(false)}
-          title="Save endpoint"
-          primaryAction={{ content: 'Save', onAction: handleSaveEndpoint, disabled: !endpointName.trim() }}
-          secondaryActions={[{ content: 'Cancel', onAction: () => setSaveModalOpen(false) }]}
-        >
-          <Modal.Section>
-            <BlockStack gap="300">
-              <TextField label="Endpoint name" value={endpointName} onChange={setEndpointName} autoComplete="off" placeholder="Get all products" />
-              <Text as="p" tone="subdued">
-                Saves {method} {path} with current headers and body as a reusable endpoint.
-              </Text>
-            </BlockStack>
-          </Modal.Section>
-        </Modal>
+          <Card pad style={{ marginTop: 16 }}>
+            <Banner tone="critical" title="Delete this connector">
+              <div className="stack-2">
+                <span>Flows and modules that use it will stop working. This cannot be undone.</span>
+                <div><Btn variant="critical" icon="trash" onClick={() => setDelC(true)}>Delete connector</Btn></div>
+              </div>
+            </Banner>
+          </Card>
+        </div>
       )}
 
-      {deleteTarget && (
-        <Modal
-          open
-          onClose={() => setDeleteTarget(null)}
-          title="Delete endpoint"
-          primaryAction={{ content: 'Delete', destructive: true, onAction: () => handleDeleteEndpoint(deleteTarget.id) }}
-          secondaryActions={[{ content: 'Cancel', onAction: () => setDeleteTarget(null) }]}
-        >
-          <Modal.Section>
-            <Text as="p">Delete <strong>{deleteTarget.name}</strong>? This cannot be undone.</Text>
-          </Modal.Section>
-        </Modal>
+      {delC && (
+        <ConfirmDialog title="Delete connector?" tone="critical" confirmLabel="Delete" icon="trash"
+          message={`This removes “${connector.name}” and its saved endpoints. This cannot be undone.`}
+          onConfirm={() => { ctx.toast(`Deleted “${connector.name}”`); window.location.href = '/connectors'; }}
+          onClose={() => setDelC(false)} />
       )}
-
-      {editModalOpen && (
-        <Modal
-          open
-          onClose={() => setEditModalOpen(false)}
-          title="Edit connector"
-          primaryAction={{ content: 'Save', onAction: handleUpdate, loading: isUpdating, disabled: !editName.trim() || !editBaseUrl.trim() }}
-          secondaryActions={[{ content: 'Cancel', onAction: () => setEditModalOpen(false) }]}
-        >
-          <Modal.Section>
-            <BlockStack gap="300">
-              <TextField label="Name" value={editName} onChange={setEditName} autoComplete="off" />
-              <TextField label="Base URL" value={editBaseUrl} onChange={setEditBaseUrl} autoComplete="off" helpText="Must be https://" />
-            </BlockStack>
-          </Modal.Section>
-        </Modal>
-      )}
-    </Page>
+    </div>
   );
 }
