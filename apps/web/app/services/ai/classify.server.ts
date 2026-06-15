@@ -113,7 +113,7 @@ export function classifyUserIntentKeywords(
   }));
 
   return {
-    moduleType: (bestMatch?.type ?? 'theme.banner') as ModuleType,
+    moduleType: (bestMatch?.type ?? 'theme.section') as ModuleType,
     intent: intentId,
     intentGroup,
     surface,

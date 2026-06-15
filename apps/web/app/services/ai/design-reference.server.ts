@@ -1,4 +1,6 @@
 import { SettingsService } from '~/services/settings/settings.service';
+import { getPrisma } from '~/db.server';
+import type { StorePalette, StoreTypography, ThemeProfileResult } from '~/services/theme/theme-analyzer.service';
 
 export interface DesignReferencePack {
   sourceUrl: string;
@@ -98,5 +100,84 @@ export function buildDesignReferencePromptBlock(pack: DesignReferencePack): stri
 export async function resolveDesignReferencePack(): Promise<DesignReferencePack> {
   const settings = await new SettingsService().get();
   return deriveDesignReferencePack(settings.designReferenceUrl);
+}
+
+/**
+ * Build a DesignReferencePack from a palette extracted off the merchant's LIVE
+ * theme (ThemeAnalyzerService). Unlike the URL-based `store` pack, this carries
+ * concrete hex values so generated sections actually match the storefront.
+ */
+export function paletteToDesignReferencePack(
+  palette: StorePalette,
+  typography: StoreTypography,
+  sourceUrl: string,
+): DesignReferencePack {
+  const primary = unique(
+    [palette.primary, palette.accent, palette.button].filter((c): c is string => !!c),
+  );
+  const neutral = unique(
+    [palette.background, palette.text, ...palette.neutrals].filter((c): c is string => !!c),
+  );
+  const typographyHints: string[] = [];
+  if (typography.headingFont) typographyHints.push(`Match heading font feel: ${typography.headingFont}.`);
+  if (typography.bodyFont) typographyHints.push(`Match body font feel: ${typography.bodyFont}.`);
+  if (typographyHints.length === 0) {
+    typographyHints.push('Match the live store typography mood (heading emphasis + readable body).');
+  }
+
+  return {
+    sourceUrl,
+    sourceType: 'store',
+    brandTone: 'extracted from the live store theme — match its existing color and type system exactly',
+    primaryColors: primary.length > 0 ? primary : ['Use the live store brand/accent colors'],
+    neutralPalette: neutral.length > 0 ? neutral : ['Use the live store neutral palette'],
+    typographyHints,
+    componentStyleHints: [
+      'Reuse the store palette for background, text, and CTA so the section looks native.',
+      'Keep CTA color contrast and radius consistent with the live theme.',
+    ],
+    uxPrinciples: [
+      'The section must feel like it ships with the theme, not bolted on.',
+      'Preserve accessibility and legibility while matching the extracted palette.',
+    ],
+  };
+}
+
+/** Latest persisted theme aesthetic for a shop (most recently analyzed theme). */
+export async function loadStoreAesthetic(
+  shopId: string,
+  themeId?: string,
+): Promise<{ palette: StorePalette; typography: StoreTypography } | null> {
+  const prisma = getPrisma();
+  const row = themeId
+    ? await prisma.themeProfile.findUnique({ where: { shopId_themeId: { shopId, themeId } } })
+    : await prisma.themeProfile.findFirst({ where: { shopId }, orderBy: { updatedAt: 'desc' } });
+  if (!row) return null;
+  try {
+    const profile = JSON.parse(row.profileJson) as ThemeProfileResult;
+    if (!profile.palette || profile.palette.source === 'none') return null;
+    return { palette: profile.palette, typography: profile.typography ?? {} };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the best design reference for storefront generation: prefer the live
+ * theme palette (concrete hexes), else fall back to the settings URL / default.
+ */
+export async function resolveStoreDesignReferencePack(
+  shopId: string,
+  options: { themeId?: string; storeUrl?: string } = {},
+): Promise<DesignReferencePack> {
+  const aesthetic = await loadStoreAesthetic(shopId, options.themeId);
+  if (aesthetic) {
+    return paletteToDesignReferencePack(aesthetic.palette, aesthetic.typography, options.storeUrl ?? 'live-theme');
+  }
+  return resolveDesignReferencePack();
+}
+
+function unique<T>(arr: T[]): T[] {
+  return [...new Set(arr)];
 }
 

@@ -99,7 +99,7 @@ If you add new functionality requiring additional scopes, update **both** `shopi
 
 ### Theme modules (banner, popup, notification bar, effect)
 
-Theme modules deploy via **app extension + Shopify metaobjects** only (no direct theme file writes). When you publish a theme.banner, theme.popup, theme.notificationBar, or theme.effect module, the app upserts a **`superapp_module` metaobject** per module (one entry per active module) and removes the metaobject when the module is unpublished or deleted. The **SuperApp Theme Modules** app embed (in `extensions/theme-app-extension`) lists active `superapp_module` metaobjects via Liquid and renders them on the storefront. Merchants must add the "SuperApp Theme Modules" app embed in the theme editor (Theme → Customize → App embeds) for published theme modules to appear.
+Theme modules deploy via **app extension + Shopify metaobjects** only (no direct theme file writes). When you publish a `theme.section` module (any kind — banner, popup, notification-bar, contactForm, effect, floatingWidget, or custom), the app upserts a **`superapp_module` metaobject** per module (one entry per active module) and removes the metaobject when the module is unpublished or deleted. The **SuperApp Theme Modules** app embed (in `extensions/theme-app-extension`) lists active `superapp_module` metaobjects via Liquid and renders them on the storefront. Merchants must add the "SuperApp Theme Modules" app embed in the theme editor (Theme → Customize → App embeds) for published theme modules to appear.
 
 A one-time backfill route at `/internal/metaobject-backfill` migrates legacy `superapp.theme.modules` metafield blobs into the new metaobject layout for stores that were on the previous architecture.
 
@@ -151,3 +151,17 @@ pnpm exec shopify app deploy --allow-updates
 ```
 
 The `--allow-updates` flag is required when not in an interactive terminal. Customer account UI extension has a **64 KB script limit**; see [docs/debug.md](./debug.md) for bundle size and extension troubleshooting.
+
+## 2026-06-14 — Functions two-layer deploy (spec 026)
+
+Source of truth: [`module-system-v2.md`](./module-system-v2.md). Contract: `packages/platform-contracts/src/publish-functions.ts` (`FunctionDeploymentContractSchema`).
+
+A Shopify Function module deploys in **two layers**:
+1. **(a) wasm extension** — the function lives in `extensions/<handle>/` and ships via `shopify app deploy` (build/CI). `extensionHandle` + `wasmDeployed` track this.
+2. **(b) runtime config** — the app upserts per-module config to a metaobject (`configMetaobjectType`) that the deployed function reads at runtime.
+
+Publish preflight (`classifyModulePublishability`) **fails loudly** (`status: 'blocked'`) when a function type has no deployed extension behind it, naming the required handle. The 9 AUDIT-only types are gated `'not publishable yet'` — never reported as published when nothing deploys. Republish upserts the config metaobject in place (`computeRepublishDiff`); unpublish deletes it.
+
+**Wiring (2026-06-15):** `PublishService.publish` runs the gate before any deploy work and throws `ModuleNotPublishableError` on `gated`/`blocked` (surfaced by `api.publish.tsx` as HTTP `422` with reasons), so no caller can report a non-deploying module as "published". Which Function extensions are actually deployed (layer a) is declared to the app via the env var **`SHOPIFY_DEPLOYED_FUNCTION_EXTENSIONS`** (comma/space-separated handles, e.g. `discount-function delivery-customization-function`). It is **empty by default**, so Function publishes block until the wasm is shipped — set it in each environment once `shopify app deploy` has run. Layer-b config writes call `MetaobjectService.getFunctionConfigByKey` + `computeRepublishDiff` to skip no-op republishes (the metaobjects are handle-keyed, so republish never duplicates).
+
+Representative smoke path (dev store): `theme.section`, one function (e.g. `functions.discountRules` with its extension deployed), and a `checkout.block` (gated) — generate → preview → publish/preflight → verify → republish → rollback.

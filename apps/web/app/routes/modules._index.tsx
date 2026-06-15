@@ -3,7 +3,7 @@ import { useLoaderData, Form, Link, useNavigation, useNavigate, useSearchParams,
 import {
   Page, Card, TextField, Button, BlockStack, Text, Badge,
   DataTable, InlineStack, EmptyState, SkeletonBodyText, Banner,
-  InlineGrid, Divider, Tabs, Select, Spinner, Box,
+  InlineGrid, Divider, Tabs, Select, Spinner, Box, Checkbox,
 } from '@shopify/polaris';
 import { useState, useCallback, useEffect } from 'react';
 import { shopify } from '~/shopify.server';
@@ -14,6 +14,7 @@ import {
   MODULE_TYPES_DISPLAY_ORDER,
   getTemplateReadiness,
   getTemplateInstallability,
+  listV2Presets,
 } from '@superapp/core';
 import { INTENT_EXAMPLES } from '~/services/ai/intent-examples';
 import { getTypeDisplayLabel, getTypeTone, getCategoryDisplayLabel } from '~/utils/type-label';
@@ -96,6 +97,7 @@ const EMPTY_LOADER_DATA = {
   }[],
   categories: [] as string[],
   types: [] as string[],
+  presets: [] as { id: string; name: string; description: string; type: string }[],
   loaderError: undefined as string | undefined,
 };
 
@@ -164,6 +166,8 @@ export async function loader({ request }: { request: Request }) {
       templates,
       categories: TEMPLATE_CATEGORIES as unknown as string[],
       types: [...MODULE_TYPES_DISPLAY_ORDER],
+      // Curated quick-start presets for v2-manifest types (control-pack powered).
+      presets: listV2Presets(4).map(p => ({ id: p.id, name: p.name, description: p.description, type: p.type })),
       loaderError: undefined as string | undefined,
     });
   } catch (err) {
@@ -198,7 +202,7 @@ function CopyIdButton({ id }: { id: string }) {
 }
 
 export default function ModulesIndex() {
-  const { modules, stats, typeCounts, templates, categories, types, loaderError } = useLoaderData<typeof loader>();
+  const { modules, stats, typeCounts, templates, categories, types, presets, loaderError } = useLoaderData<typeof loader>();
   const [searchParams] = useSearchParams();
   const nav = useNavigation();
   const navigate = useNavigate();
@@ -228,6 +232,7 @@ export default function ModulesIndex() {
   const [aiPreferredType, setAiPreferredType] = useState<string>('Auto');
   const [aiPreferredCategory, setAiPreferredCategory] = useState<string>('Auto');
   const [aiPreferredBlockType, setAiPreferredBlockType] = useState<string>('Auto');
+  const [aiMatchStoreColors, setAiMatchStoreColors] = useState(true);
   const [tplSearch, setTplSearch] = useState('');
   const [tplCategory, setTplCategory] = useState('All');
   const [tplType, setTplType] = useState('All');
@@ -261,8 +266,9 @@ export default function ModulesIndex() {
     formData.set('preferredType', aiPreferredType);
     formData.set('preferredCategory', aiPreferredCategory);
     formData.set('preferredBlockType', aiPreferredBlockType);
+    formData.set('matchStoreColors', String(aiMatchStoreColors));
     proposeFetcher.submit(formData, { method: 'post', action: '/api/ai/create-module' });
-  }, [prompt, aiPreferredType, aiPreferredCategory, aiPreferredBlockType, proposeFetcher]);
+  }, [prompt, aiPreferredType, aiPreferredCategory, aiPreferredBlockType, aiMatchStoreColors, proposeFetcher]);
 
   const handleSelectOption = useCallback((recipe: Record<string, unknown>) => {
     const formData = new FormData();
@@ -497,6 +503,12 @@ export default function ModulesIndex() {
                         />
                       )}
                     </InlineGrid>
+                    <Checkbox
+                      label="Match my store's theme colors"
+                      checked={aiMatchStoreColors}
+                      onChange={setAiMatchStoreColors}
+                      helpText="For storefront sections, the AI reads your live theme palette and matches the generated section to it."
+                    />
                     <InlineStack gap="200">
                       <Button variant="primary" loading={isGenerating} disabled={!prompt.trim() || isGenerating} onClick={handleGenerate}>
                         {aiOptions ? 'Regenerate options' : 'Generate 3 options'}
@@ -620,6 +632,32 @@ export default function ModulesIndex() {
                 </Text>
               </BlockStack>
             </Card>
+
+            {presets.length > 0 && (
+              <Card padding="400">
+                <BlockStack gap="300">
+                  <Text as="h3" variant="headingMd" fontWeight="semibold">Quick start — recommended presets</Text>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Control-pack powered starting points. Sections are fully customizable — kind is a recommendation, not a limit.
+                  </Text>
+                  <InlineGrid columns={{ xs: 1, sm: 2, md: 4 }} gap="300">
+                    {presets.map(p => (
+                      <Card key={p.id} padding="300">
+                        <BlockStack gap="200">
+                          <Badge tone={getTypeTone(p.type)}>{getTypeDisplayLabel(p.type)}</Badge>
+                          <Text as="p" variant="bodyMd" fontWeight="semibold">{p.name}</Text>
+                          <Text as="p" variant="bodySm" tone="subdued">{p.description}</Text>
+                          <Form method="post" action="/api/modules/from-template">
+                            <input type="hidden" name="templateId" value={p.id} />
+                            <Button submit size="slim">Start from this</Button>
+                          </Form>
+                        </BlockStack>
+                      </Card>
+                    ))}
+                  </InlineGrid>
+                </BlockStack>
+              </Card>
+            )}
 
             <InlineGrid columns={{ xs: 1, sm: 5 }} gap="300">
               <TextField

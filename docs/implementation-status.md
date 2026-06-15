@@ -1,3 +1,18 @@
+## 2026-06-14 (Module System v2 — all named theme.* types collapsed into theme.section)
+
+- **All six named theme.* types collapsed into the generic `theme.section`.** `theme.banner`, `theme.popup`, `theme.notificationBar`, `theme.contactForm`, `theme.effect`, and `theme.floatingWidget` are removed from the schema, `RECIPE_SPEC_TYPES`, every `Record<ModuleType>` map, the classifier rules, the intent maps, the catalog generator, and all templates. Each former type is now a `config.kind` (`'banner' | 'popup' | 'notification-bar' | 'contactForm' | 'effect' | 'floatingWidget'`) on `theme.section`; `kind` is a free-form recommendation tag, never a restriction.
+- **Per-kind renderer registry** in `PreviewService` (`themeSection` dispatches on `config.kind`; `sectionBanner`/`sectionPopup`/`sectionNotificationBar`/`sectionContactForm`/`sectionEffect`/`sectionFloatingWidget` read `config.fields` then top-level via `cfg`). The dedicated `theme.*.ts` compilers are deleted — `compileThemeSection` → `theme-module.ts` handles every kind. Prompts/summaries/expectations/hydrate guidance and `ConfigEditor`/`StyleBuilder` are kind-aware.
+- **Dead enums removed:** `CONTACT_FORM_*`, `THEME_EFFECT_*`, `THEME_FLOATING_WIDGET_*`. No dead/duplicate/residual code; all prompts and aggregations follow the kind model.
+- **Verification:** core 142 tests green, web 488 tests green (16 skipped), both typecheck 0 errors, catalog regenerated. Source of truth: **`docs/module-system-v2.md`**.
+
+## 2026-06-13 (Module System v2 — control packs + unrestricted storefront sections)
+
+- **Generic `theme.section` type** removes the fixed theme-type catalog: merchants can build ANY storefront section / theme app extension. `config.kind` is a free-form recommendation tag (never an enum); sections declare their own typed `fieldSchema`/`fields`, repeatable `blocks`, and a sanitized `advancedCustom` HTML/JS escape hatch. Named theme.* types are now presets of this. Full design in **`docs/module-system-v2.md`**.
+- **Control Packs** (`packages/core/src/control-packs/`): composable, tiered settings (content/style/trigger/targeting/frequency/countdown/behavior/audience/schedule/advanced-custom) that derive the Zod schema, LLM JSON-schema, and admin form. Rendered by one generic `SchemaForm`.
+- **Backend data:** typed `DataStore.schemaJson` validation, CSV/print export (`services/data/export.service.ts` + routes), `DataCapture` admin view.
+- **Flag:** `AppSettings.moduleSystemVersion` (`v1`|`v2`, default `v1`), toggle in Internal → Settings.
+- **Verification:** core 142 tests green, web typecheck 0 errors, catalog regenerated.
+
 ## 2026-06-12 (Vault Gadget app — returns, theme profiles, webhook ledger)
 
 - **New `vault/` Gadget scaffold** for Shopify return sync and supporting services (not wired into Remix monorepo deploy yet).
@@ -1831,3 +1846,17 @@ No P0/P1 regressions remained at sweep completion.
 ### Scorecard closure (2026-05-01)
 
 Strict route scorecard `docs/internal-admin-qa-scorecard-2026-05-01.md` was brought to **35/35 CERTIFIED** using `apps/web/app/__tests__/internal-admin-route-closure.test.ts` (mocked OIDC callback, SSE smoke, parameterized loaders). Vitest sets `INTERNAL_ADMIN_SESSION_SECRET` in `apps/web/vitest.config.ts` for that harness.
+
+## 2026-06-14 — Module-generation uplift (specs 022–026)
+
+Build order 23 → 22 → 24 → 25 → 26. Canonical plan: [`module-system-v2.md`](./module-system-v2.md). Each phase: sibling spec folder (`spec.md`/`plan.md`/`tasks.md`/`contracts/`) + typed contract module in `packages/platform-contracts/src/` + tests. Typecheck + vitest green in both `packages/platform-contracts` and `apps/web`.
+
+| Spec | Workstream | Contract module | Key app code | Status |
+|------|-----------|-----------------|--------------|--------|
+| 023 | Guardrails / prompt-injection | `generation-guardrails.ts` | `injection-scan.server.ts`, `recipe-discriminator-guard.server.ts`, envelope wiring in `llm.server.ts` | Contracts + servers + tests landed; doc sync done |
+| 022 | Requirements-first + search | `requirement-spec.ts` | `requirement-spec.server.ts`, `solution-search.server.ts` | Contracts + servers + tests landed; create-route wiring pending |
+| 024 | Settings uplift | `module-settings.ts` | `fill-missing-settings.server.ts`; `SchemaForm.tsx` (already present) | Contracts + server + tests landed; route wiring pending |
+| 025 | Live preview all surfaces | `preview.ts` (extended) | `function-simulation.server.ts`, per-surface renderers in `preview.service.ts` | Landed; static diagram removed; all types interactive |
+| 026 | Publish + Functions reliability | `publish-functions.ts` | `classifyModulePublishability` in `publish-preflight.server.ts` | Contracts + classifier + tests landed; publish-service wiring pending |
+
+Remaining integration (route/service wiring) is enumerated per spec's `tasks.md` under "Integration".

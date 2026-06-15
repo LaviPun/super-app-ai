@@ -15,7 +15,7 @@ import { ProgressivePublishService } from '~/services/releases/progressive-publi
 describe('release controls', () => {
   it('enforces surface capability allowlist by target', () => {
     const result = evaluateSurfaceCapabilityAllowlist({
-      moduleType: 'theme.banner',
+      moduleType: 'theme.section',
       targetKind: 'PLATFORM',
       declaredCapabilities: ['THEME_ASSETS'],
     });

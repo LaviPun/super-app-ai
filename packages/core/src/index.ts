@@ -14,3 +14,5 @@ export * from './capability-graph.js';
 export * from './publish-worker.js';
 export * from './intent-graph.js';
 export * from './recipe-dsl.js';
+export * from './control-packs/index.js';
+export * from './data-model.js';

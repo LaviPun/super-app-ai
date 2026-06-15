@@ -60,7 +60,7 @@ export async function loader({ request }: { request: Request }) {
       'CONFIDENCE_THRESHOLDS govern whether an agent should proceed directly, offer alternatives, or ask for clarification.',
       'cleanIntents is the canonical list of intent IDs used for classification and routing.',
       'routingTable maps intent IDs to prompt scaffolds, profiles, and output schemas.',
-      'moduleTypeToIntent maps Shopify extension module types (e.g. theme.popup) to intent IDs.',
+      'moduleTypeToIntent maps Shopify extension module types (e.g. theme.section) to intent IDs.',
       'Use POST /api/agent/classify to classify a prompt and get the resolved routing entry.',
       'Use POST /api/agent/generate-options to run the full classify→LLM pipeline and get 3 RecipeSpec options.',
     ],

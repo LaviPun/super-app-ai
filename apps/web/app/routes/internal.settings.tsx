@@ -91,6 +91,13 @@ export async function action({ request }: { request: Request }) {
     return json({ toast: { message: 'App configuration saved' }, section: 'config' });
   }
 
+  if (intent === 'saveModuleEngine') {
+    const value = form.get('moduleSystemVersion') === 'v2' ? 'v2' : 'v1';
+    await service.update({ moduleSystemVersion: value });
+    await activity.log({ actor: 'INTERNAL_ADMIN', action: 'STORE_SETTINGS_UPDATED', details: { section: 'moduleSystemVersion', moduleSystemVersion: value } });
+    return json({ toast: { message: `Module System set to ${value}` }, section: 'config' });
+  }
+
   const aiProviderService = new AiProviderService();
 
   if (intent === 'saveOpenAI') {
@@ -189,6 +196,7 @@ export default function InternalSettings() {
   const [enableEmailAlerts, setEnableEmailAlerts] = useState(settings.enableEmailAlerts);
   const [alertRecipients, setAlertRecipients] = useState(settings.alertRecipients ?? '');
   const [maintenanceMode, setMaintenanceMode] = useState(settings.maintenanceMode);
+  const [moduleEngine, setModuleEngine] = useState<'v1' | 'v2'>(settings.moduleSystemVersion);
   const [maintenanceMessage, setMaintenanceMessage] = useState(settings.maintenanceMessage ?? '');
 
   const [openaiModel, setOpenaiModel] = useState(defaultProviders?.openai?.model ?? '');
@@ -558,6 +566,33 @@ export default function InternalSettings() {
                 )}
                 <InlineStack align="start">
                   <Button submit variant="primary" loading={isSaving}>Save configuration</Button>
+                </InlineStack>
+              </BlockStack>
+            </Form>
+
+            <Divider />
+            <Form method="post">
+              <input type="hidden" name="intent" value="saveModuleEngine" />
+              <BlockStack gap="300">
+                <Text as="h3" variant="headingSm">Module System engine</Text>
+                <Select
+                  label="Settings engine"
+                  name="moduleSystemVersion"
+                  options={[
+                    { label: 'v1 — legacy (hand-written settings)', value: 'v1' },
+                    { label: 'v2 — control packs (grouped, tiered, escape hatch)', value: 'v2' },
+                  ]}
+                  value={moduleEngine}
+                  onChange={(v) => setModuleEngine(v === 'v2' ? 'v2' : 'v1')}
+                  helpText="v2 renders module settings from composable control packs. Affects module types with a v2 manifest (popup, banner, notification bar)."
+                />
+                {moduleEngine === 'v2' && (
+                  <Banner tone="info" title="Module System v2 enabled">
+                    <Text as="p">Supported module settings render as grouped, tiered control packs. Compare against v1 via AI usage metrics before promoting.</Text>
+                  </Banner>
+                )}
+                <InlineStack align="start">
+                  <Button submit variant="primary" loading={isSaving}>Save engine</Button>
                 </InlineStack>
               </BlockStack>
             </Form>

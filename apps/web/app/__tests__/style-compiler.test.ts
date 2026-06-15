@@ -8,9 +8,7 @@ import {
   sanitizeCustomCss,
   compileCustomCss,
 } from '~/services/recipes/compiler/style-compiler';
-import { compileThemeBanner } from '~/services/recipes/compiler/theme.banner';
-import { compileThemePopup } from '~/services/recipes/compiler/theme.popup';
-import { compileNotificationBar } from '~/services/recipes/compiler/theme.notificationBar';
+import { compileThemeSection } from '~/services/recipes/compiler/theme.section';
 import { compileProxyWidget } from '~/services/recipes/compiler/proxy.widget';
 import type { RecipeSpec } from '@superapp/core';
 
@@ -237,77 +235,77 @@ describe('compileCustomCss', () => {
 const themeTarget = { kind: 'THEME' as const, themeId: 'theme-1', moduleId: 'test-module-1' };
 
 describe('theme compilers — style integration', () => {
-  it('theme.banner compiles with target and returns themeModulePayload', () => {
+  it('theme.section (banner kind) compiles with target and returns themeModulePayload', () => {
     const spec = {
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'Test Banner',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
-      config: { heading: 'Hi', enableAnimation: false },
-    } as RecipeSpec;
-    const out = compileThemeBanner(spec as Parameters<typeof compileThemeBanner>[0], themeTarget);
+      config: { kind: 'banner', activation: 'section', fields: { heading: 'Hi', enableAnimation: false }, blocks: [] },
+    } as unknown as RecipeSpec;
+    const out = compileThemeSection(spec as Parameters<typeof compileThemeSection>[0], themeTarget);
     expect(out.ops.length).toBeGreaterThan(0);
     expect(out.ops.some((o) => o.kind === 'AUDIT')).toBe(true);
     expect(out.themeModulePayload).toBeDefined();
-    expect(out.themeModulePayload?.type).toBe('theme.banner');
+    expect(out.themeModulePayload?.type).toBe('theme.section');
     expect(out.themeModulePayload?.config).toEqual(spec.config);
   });
 
-  it('theme.banner compiles custom colors and style into payload', () => {
+  it('theme.section (banner kind) compiles custom colors and style into payload', () => {
     const spec = {
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'Banner',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
-      config: { heading: 'Hi', enableAnimation: false },
+      config: { kind: 'banner', activation: 'section', fields: { heading: 'Hi', enableAnimation: false }, blocks: [] },
       style: {
         colors: { text: '#222222', background: '#eeeeee' },
         customCss: '.superapp-banner__heading { letter-spacing: 0.05em; }',
       },
-    } as RecipeSpec;
-    const out = compileThemeBanner(spec as Parameters<typeof compileThemeBanner>[0], themeTarget);
+    } as unknown as RecipeSpec;
+    const out = compileThemeSection(spec as Parameters<typeof compileThemeSection>[0], themeTarget);
     expect(out.themeModulePayload).toBeDefined();
     expect(out.themeModulePayload?.style).toEqual((spec as { style?: unknown }).style);
   });
 
-  it('theme.banner custom CSS is passed through in payload', () => {
+  it('theme.section (banner kind) custom CSS is passed through in payload', () => {
     const spec = {
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'Banner',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
-      config: { heading: 'Hi', enableAnimation: false },
+      config: { kind: 'banner', activation: 'section', fields: { heading: 'Hi', enableAnimation: false }, blocks: [] },
       style: { customCss: '@import url("bad.css"); .foo { color: red; }' },
-    } as RecipeSpec;
-    const out = compileThemeBanner(spec as Parameters<typeof compileThemeBanner>[0], themeTarget);
+    } as unknown as RecipeSpec;
+    const out = compileThemeSection(spec as Parameters<typeof compileThemeSection>[0], themeTarget);
     expect(out.themeModulePayload?.style?.customCss).toBe((spec as { style?: { customCss?: string } }).style?.customCss);
   });
 
-  it('theme.popup compiles with target and returns themeModulePayload', () => {
+  it('theme.section (popup kind) compiles with target and returns themeModulePayload', () => {
     const spec = {
-      type: 'theme.popup',
+      type: 'theme.section',
       name: 'Popup',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
-      config: { title: 'Hi', trigger: 'ON_LOAD', frequency: 'ONCE_PER_DAY' },
-    } as RecipeSpec;
-    const out = compileThemePopup(spec as Parameters<typeof compileThemePopup>[0], themeTarget);
+      config: { kind: 'popup', activation: 'overlay', fields: {}, blocks: [], title: 'Hi', trigger: 'ON_LOAD', frequency: 'ONCE_PER_DAY' },
+    } as unknown as RecipeSpec;
+    const out = compileThemeSection(spec as Parameters<typeof compileThemeSection>[0], themeTarget);
     expect(out.ops.length).toBeGreaterThan(0);
     expect(out.themeModulePayload).toBeDefined();
-    expect(out.themeModulePayload?.type).toBe('theme.popup');
+    expect(out.themeModulePayload?.type).toBe('theme.section');
   });
 
-  it('theme.notificationBar compiles without style (defaults applied)', () => {
+  it('theme.section (notification-bar kind) compiles without style (defaults applied)', () => {
     const spec = {
-      type: 'theme.notificationBar',
+      type: 'theme.section',
       name: 'Bar',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
-      config: { message: 'Hello', dismissible: true },
-    } as RecipeSpec;
-    const out = compileNotificationBar(spec as Parameters<typeof compileNotificationBar>[0], themeTarget);
+      config: { kind: 'notification-bar', activation: 'global', fields: { message: 'Hello', dismissible: true }, blocks: [] },
+    } as unknown as RecipeSpec;
+    const out = compileThemeSection(spec as Parameters<typeof compileThemeSection>[0], themeTarget);
     expect(out.themeModulePayload).toBeDefined();
-    expect(out.themeModulePayload?.type).toBe('theme.notificationBar');
+    expect(out.themeModulePayload?.type).toBe('theme.section');
     expect(out.themeModulePayload?.config).toEqual(spec.config);
   });
 });
@@ -324,7 +322,7 @@ describe('proxy.widget — style integration', () => {
       category: 'STOREFRONT_UI',
       requires: ['APP_PROXY'],
       config: { widgetId: 'widget-abc', title: 'Hello', mode: 'HTML' },
-    } as RecipeSpec;
+    } as unknown as RecipeSpec;
     const out = compileProxyWidget(spec as Parameters<typeof compileProxyWidget>[0]);
     expect(out.proxyWidgetPayload).toBeDefined();
     expect(out.proxyWidgetPayload?.styleCss).toContain('--sa-text');
@@ -338,7 +336,7 @@ describe('proxy.widget — style integration', () => {
       requires: ['APP_PROXY'],
       config: { widgetId: 'widget-abc', title: 'Hello', mode: 'HTML' },
       style: { colors: { text: '#ff0000', background: '#000000' } },
-    } as RecipeSpec;
+    } as unknown as RecipeSpec;
     const out = compileProxyWidget(spec as Parameters<typeof compileProxyWidget>[0]);
     expect(out.proxyWidgetPayload?.styleCss).toContain('--sa-text: #ff0000;');
     expect(out.proxyWidgetPayload?.styleCss).toContain('--sa-bg: #000000;');
@@ -352,7 +350,7 @@ describe('proxy.widget — style integration', () => {
       requires: ['APP_PROXY'],
       config: { widgetId: 'widget-abc', title: 'Hello', mode: 'HTML' },
       style: { customCss: '.inner { font-style: italic; }' },
-    } as RecipeSpec;
+    } as unknown as RecipeSpec;
     const out = compileProxyWidget(spec as Parameters<typeof compileProxyWidget>[0]);
     expect(out.proxyWidgetPayload?.styleCss).toContain('.superapp-widget .inner');
   });

@@ -29,7 +29,7 @@ const CustomCssSchema = z
 
 /**
  * Theme-safe storefront UI style. All values from Allowed Values Manifest (doc 3.4).
- * Used by theme.banner, theme.popup, theme.notificationBar, proxy.widget.
+ * Used by theme.section, proxy.widget (and other storefront types).
  */
 export const StorefrontStyleSchema = z
   .object({

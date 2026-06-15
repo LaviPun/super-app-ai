@@ -12,27 +12,32 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
     name: 'Theme Loyalty Widget',
     description: 'Storefront banner promoting loyalty rewards on every purchase.',
     category: 'STOREFRONT_UI',
-    type: 'theme.banner',
+    type: 'theme.section',
     icon: 'banner',
     tags: ['loyalty', 'widget', 'rewards', 'storefront'],
     spec: {
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'Theme Loyalty Widget',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'banner',
+        activation: 'section',
+        fields: {
         heading: 'Earn Rewards on Every Purchase',
         subheading: 'Join our loyalty program and start earning points today.',
         ctaText: 'Learn More',
         ctaUrl: 'https://example.com/rewards',
         enableAnimation: false,
+        },
+        blocks: [],
       },
       placement: { enabled_on: { templates: ['index', 'product'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
       style: {
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'medium' },
         typography: { size: 'MD', weight: 'bold', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#ffffff', background: '#7c3aed', buttonBg: '#ffffff', buttonText: '#7c3aed' },
+        colors: { text: '#ffffff', background: '#7c3aed', buttonBg: '#ffffff', buttonText: '#7c3aed', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'md', borderWidth: 'none', shadow: 'sm' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -62,7 +67,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         ],
         b2bOnly: false,
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'LOY-102',
@@ -86,7 +91,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         ],
         b2bOnly: false,
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'LOY-103',
@@ -110,7 +115,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         ],
         b2bOnly: false,
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'LOY-104',
@@ -130,7 +135,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         label: 'Loyalty Points',
         blockKind: 'block',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'LOY-105',
@@ -150,7 +155,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         label: 'Redeem Points',
         blockKind: 'action',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'LOY-106',
@@ -169,7 +174,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         target: 'admin.customer-details.block.render',
         label: 'Loyalty Info',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'LOY-107',
@@ -191,22 +196,26 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
           { kind: 'WRITE_TO_STORE', storeKey: 'loyalty-points', payloadMapping: { customerId: '{{customer.id}}', orderId: '{{order.id}}' } },
         ],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'LOY-108',
     name: 'Referral Overlay',
     description: 'Floating referral CTA widget shown sitewide to encourage sharing.',
     category: 'STOREFRONT_UI',
-    type: 'theme.floatingWidget',
+    type: 'theme.section',
     icon: 'widget',
     tags: ['referral', 'overlay', 'floating', 'sharing'],
     spec: {
-      type: 'theme.floatingWidget',
+      type: 'theme.section',
       name: 'Referral Overlay',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'floatingWidget',
+        activation: 'global',
+        fields: {},
+        blocks: [],
         variant: 'custom',
         label: 'Refer & Earn',
         anchor: 'bottom_right',
@@ -221,7 +230,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'floating', anchor: 'bottom', offsetX: 24, offsetY: 24, width: 'auto', zIndex: 'overlay' },
         spacing: { padding: 'medium', margin: 'none', gap: 'tight' },
         typography: { size: 'SM', weight: 'bold', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#ffffff', background: '#7c3aed', buttonBg: '#ffffff', buttonText: '#7c3aed' },
+        colors: { text: '#ffffff', background: '#7c3aed', buttonBg: '#ffffff', buttonText: '#7c3aed', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'full', borderWidth: 'none', shadow: 'lg' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -249,7 +258,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
       config: {
         events: ['page_viewed', 'product_viewed', 'product_added_to_cart', 'checkout_started', 'checkout_completed'],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'ANA-110',
@@ -267,7 +276,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
       config: {
         events: ['product_viewed'],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'ANA-111',
@@ -285,7 +294,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
       config: {
         events: ['search_submitted'],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'ANA-112',
@@ -303,7 +312,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
       config: {
         events: ['checkout_contact_info_submitted', 'checkout_shipping_info_submitted', 'payment_info_submitted'],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'ANA-113',
@@ -321,7 +330,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
       config: {
         events: ['cart_viewed', 'product_added_to_cart', 'product_removed_from_cart'],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'ANA-114',
@@ -339,7 +348,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
       config: {
         events: ['collection_viewed'],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'ANA-115',
@@ -357,7 +366,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
       config: {
         events: ['ui_extension_errored'],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'ANA-116',
@@ -375,7 +384,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
       config: {
         events: ['checkout_completed'],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'ANA-117',
@@ -393,7 +402,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
       config: {
         events: ['page_viewed'],
       },
-    } as RecipeSpec,
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -419,7 +428,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
           { kind: 'SEND_SLACK_MESSAGE', channel: '#orders', text: 'New order received: {{order.name}} for {{order.total_price}}' },
         ],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'OPS-119',
@@ -440,7 +449,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
           { kind: 'TAG_ORDER', tags: 'high-value' },
         ],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'OPS-120',
@@ -459,7 +468,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         target: 'admin.order-details.block.render',
         label: 'Run Automation',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'OPS-121',
@@ -478,7 +487,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         target: 'admin.customer-details.block.render',
         label: 'Segment Templates',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'OPS-122',
@@ -497,7 +506,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         target: 'admin.order-details.block.render',
         label: 'Validation Rules',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'OPS-123',
@@ -517,7 +526,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         label: 'Staff Toolkit',
         blockKind: 'tile',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'OPS-124',
@@ -537,7 +546,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         label: 'Receipt Promo',
         blockKind: 'block',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'OPS-125',
@@ -557,7 +566,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         goal: 'Extend purchase options card with subscription and preorder workflows',
         suggestedFiles: ['src/PurchaseOptions.tsx', 'src/hooks/useSubscription.ts'],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'OPS-126',
@@ -577,7 +586,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         goal: 'Add subscription management link to admin order cards and storefront',
         suggestedFiles: ['blocks/subscription-link.liquid', 'assets/subscription.js'],
       },
-    } as RecipeSpec,
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -589,15 +598,19 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
     name: 'Winter Snowfall Effect',
     description: 'Full-viewport snowfall overlay for seasonal or winter theme decoration.',
     category: 'STOREFRONT_UI',
-    type: 'theme.effect',
+    type: 'theme.section',
     icon: 'banner',
     tags: ['effect', 'snowfall', 'winter', 'decoration'],
     spec: {
-      type: 'theme.effect',
+      type: 'theme.section',
       name: 'Winter Snowfall Effect',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'effect',
+        activation: 'overlay',
+        fields: {},
+        blocks: [],
         effectKind: 'snowfall',
         intensity: 'medium',
         speed: 'normal',
@@ -612,22 +625,26 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
       },
-    } as RecipeSpec,
+    } as unknown as RecipeSpec,
   },
   {
     id: 'EFF-128',
     name: 'Confetti Celebration Effect',
     description: 'Confetti burst overlay for product launches, sales, or celebrations.',
     category: 'STOREFRONT_UI',
-    type: 'theme.effect',
+    type: 'theme.section',
     icon: 'banner',
     tags: ['effect', 'confetti', 'celebration', 'launch'],
     spec: {
-      type: 'theme.effect',
+      type: 'theme.section',
       name: 'Confetti Celebration Effect',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'effect',
+        activation: 'overlay',
+        fields: {},
+        blocks: [],
         effectKind: 'confetti',
         intensity: 'high',
         speed: 'fast',
@@ -642,7 +659,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
       },
-    } as RecipeSpec,
+    } as unknown as RecipeSpec,
   },
   {
     id: 'PRX-129',
@@ -667,7 +684,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium' },
         typography: { size: 'MD', weight: 'normal', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#1e293b', background: '#ffffff' },
+        colors: { text: '#1e293b', background: '#ffffff', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'md', borderWidth: 'thin', shadow: 'sm' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -697,7 +714,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium' },
         typography: { size: 'MD', weight: 'normal', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#1e293b', background: '#eff6ff', buttonBg: '#2563eb', buttonText: '#ffffff' },
+        colors: { text: '#1e293b', background: '#eff6ff', buttonBg: '#2563eb', buttonText: '#ffffff', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'lg', borderWidth: 'none', shadow: 'sm' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -721,7 +738,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         offerTitle: 'Add this to your order',
         message: 'Get 15% off this popular add-on. One-click to add it now.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'PPO-132',
@@ -740,7 +757,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         offerTitle: 'Protect your purchase',
         message: 'Add a 2-year extended warranty for peace of mind.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'CKU-133',
@@ -760,7 +777,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         productVariantGid: 'gid://shopify/ProductVariant/0000000000',
         discountPercent: 20,
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'CKU-134',
@@ -780,7 +797,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         productVariantGid: 'gid://shopify/ProductVariant/0000000001',
         discountPercent: 0,
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'INT-135',
@@ -801,7 +818,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         trigger: 'SHOPIFY_WEBHOOK_ORDER_CREATED',
         payloadMapping: { orderId: '{{order.id}}', total: '{{order.total_price}}' },
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'INT-136',
@@ -822,7 +839,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         trigger: 'SHOPIFY_WEBHOOK_CUSTOMER_CREATED',
         payloadMapping: { customerId: '{{customer.id}}', email: '{{customer.email}}' },
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'VAL-137',
@@ -845,7 +862,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
           },
         ],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'VAL-138',
@@ -868,7 +885,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
           },
         ],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'FUL-139',
@@ -888,7 +905,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
           { when: { productTagIn: ['fragile'] }, apply: { shipAlone: true } },
         ],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'FUL-140',
@@ -908,7 +925,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
           { when: { productTagIn: ['hazmat'] }, apply: { groupWithTag: 'hazmat-shipment' } },
         ],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'ORT-141',
@@ -928,7 +945,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
           { when: {}, apply: { priority: 10 } },
         ],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'ORT-142',
@@ -949,22 +966,26 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
           { when: { countryCode: 'GB' }, apply: { preferLocationId: 'uk-warehouse-01', priority: 1 } },
         ],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'CNT-143',
     name: 'Storefront Contact Form',
     description: 'Advanced contact form block for lead capture and support requests with consent + anti-spam controls.',
     category: 'STOREFRONT_UI',
-    type: 'theme.contactForm',
+    type: 'theme.section',
     icon: 'form',
     tags: ['contact', 'lead-capture', 'support', 'form'],
     spec: {
-      type: 'theme.contactForm',
+      type: 'theme.section',
       name: 'Storefront Contact Form',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'contactForm',
+        activation: 'section',
+        fields: {},
+        blocks: [],
         title: 'Get in touch',
         subtitle: 'Tell us what you need and we will get back to you quickly.',
         submitLabel: 'Send message',
@@ -999,11 +1020,11 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium' },
         typography: { size: 'MD', weight: 'normal', lineHeight: 'normal', align: 'left' },
-        colors: { text: '#0f172a', background: '#ffffff', border: '#cbd5e1', buttonBg: '#1d4ed8', buttonText: '#ffffff' },
+        colors: { text: '#0f172a', background: '#ffffff', border: '#cbd5e1', buttonBg: '#1d4ed8', buttonText: '#ffffff', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'md', borderWidth: 'thin', shadow: 'sm' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
       },
-    } as RecipeSpec,
+    },
   },
 ];

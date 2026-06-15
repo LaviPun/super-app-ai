@@ -42,7 +42,7 @@ describe('validateJobPayload', () => {
   it('validates AI_GENERATE sample', () => {
     const payload = validateJobPayload('AI_GENERATE', {
       prompt: 'Add a banner for summer sale',
-      catalogId: 'theme.banner',
+      catalogId: 'theme.section',
     });
     expect(payload.prompt).toContain('banner');
     expect(AiGeneratePayloadSchema.parse(payload)).toEqual(payload);

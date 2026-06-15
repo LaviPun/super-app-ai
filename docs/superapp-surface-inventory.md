@@ -58,7 +58,7 @@ Current set: **26 module types**.
 
 | Family | Types |
 |---|---|
-| Theme/storefront UI | `theme.banner`, `theme.popup`, `theme.notificationBar`, `theme.contactForm`, `theme.effect`, `theme.floatingWidget`, `proxy.widget` |
+| Theme/storefront UI | `theme.section` (generic; kinds: banner, popup, notification-bar, contactForm, effect, floatingWidget, …), `proxy.widget` |
 | Functions | `functions.discountRules`, `functions.deliveryCustomization`, `functions.paymentCustomization`, `functions.cartAndCheckoutValidation`, `functions.cartTransform`, `functions.fulfillmentConstraints`, `functions.orderRoutingLocationRule` |
 | Checkout/post-purchase UI | `checkout.upsell`, `checkout.block`, `postPurchase.offer` |
 | Admin/POS/platform | `admin.block`, `admin.action`, `pos.extension`, `platform.extensionBlueprint` |
@@ -92,7 +92,7 @@ Canonical ID formats:
 
 Examples:
 
-- `type.theme.popup`
+- `type.theme.section`
 - `storefront.popup.capture.product`
 - `storefront.popup.capture.product.trigger.exit_intent`
 
@@ -184,3 +184,27 @@ Representative stacks:
 | AI catalog details source-of-truth | PASS | Uses core `MODULE_TYPE_TO_TEMPLATE_KIND`. |
 | Non-RecipeSpec surfaces in taxonomy | GAP (documented) | `payments`/`purchase_options`/`subscription_link` are taxonomy-level only, not RecipeSpec types. |
 | Catalog/docs count sync | GAP (fixed) | Stale counts in `docs/catalog.md` corrected in this work. |
+
+## 2026-06-14 — Preview + publish status matrix (specs 025/026)
+
+Source of truth: [`module-system-v2.md`](./module-system-v2.md).
+
+### Preview (WS4 / 025)
+Every `RECIPE_SPEC_TYPES` entry now returns an **interactive** preview — none falls to the static diagram (removed). Renderers in `preview.service.ts`:
+- `theme.section` / `proxy.widget` — rich HTML (existing, per-kind).
+- `checkout.*` — checkout-UI mock (order summary + extension block + after-add state).
+- `postPurchase.offer` — post-purchase offer (accept/decline + accepted state).
+- `admin.*` / `platform.extensionBlueprint` — Polaris-like admin block.
+- `customerAccount.blocks` — account block populated from account context.
+- `pos.extension` — POS tile.
+- `analytics.pixel` — subscribed events + sample payload.
+- `integration.httpSync` / `flow.automation` — simulated workflow run.
+- `functions.*` — deterministic simulation (`function-simulation.server.ts`) showing concrete outcomes incl. non-Plus fallback.
+
+Coverage is asserted dynamically (`PREVIEW_KINDS ⊇ RECIPE_SPEC_TYPES`).
+
+### Publish (WS5 / 026)
+`classifyModulePublishability` returns one of:
+- **deployable** — `theme.section`, `proxy.widget`, `checkout.upsell`, `customerAccount.blocks`, `admin.block`, `admin.action`, and the 5 wired function types (when their extension is deployed).
+- **blocked** — wired function type with no deployed extension (fail loudly).
+- **gated** ("not publishable yet") — the 9 AUDIT-only types: `checkout.block`, `postPurchase.offer`, `pos.extension`, `analytics.pixel`, `integration.httpSync`, `flow.automation`, `platform.extensionBlueprint`, `functions.fulfillmentConstraints`, `functions.orderRoutingLocationRule`.

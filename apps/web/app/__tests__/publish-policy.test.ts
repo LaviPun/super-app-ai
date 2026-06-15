@@ -24,7 +24,7 @@ describe('PublishPolicyService', () => {
       versionId: 'v2',
       planTier: 'PLUS',
       requires: [],
-      specType: 'theme.banner',
+      specType: 'theme.section',
       targetKind: 'PLATFORM',
     });
 
@@ -39,7 +39,7 @@ describe('PublishPolicyService', () => {
       versionId: 'v3',
       planTier: 'PLUS' as const,
       requires: [],
-      specType: 'theme.banner',
+      specType: 'theme.section',
       targetKind: 'THEME' as const,
     };
     const first = service.evaluate(input);

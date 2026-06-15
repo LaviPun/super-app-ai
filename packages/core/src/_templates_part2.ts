@@ -23,7 +23,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         title: 'Address Suggestions',
         message: 'Start typing your address and select from the suggestions below.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'CHK-038',
@@ -43,7 +43,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         title: 'Contact Tips',
         message: 'We will only use your email for order updates and shipping notifications.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'CHK-039',
@@ -63,7 +63,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         title: 'Secure Checkout',
         message: 'Your payment information is encrypted and secure. We never store card details.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'CHK-040',
@@ -83,7 +83,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         title: 'Policies & Support',
         message: 'View our return policy, privacy policy, and contact support for assistance.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'CHK-041',
@@ -103,7 +103,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         title: 'Review Your Order',
         message: 'Please double-check your shipping address and items before placing the order.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'CHK-042',
@@ -123,7 +123,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         title: 'Savings',
         message: 'You are saving with applied discounts. Savings shown per item.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'CHK-043',
@@ -143,7 +143,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         title: 'Discount Info',
         message: 'Have a promo code? Enter it above. Only one discount code can be used per order.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'CHK-044',
@@ -163,7 +163,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         title: 'Shipping Details',
         message: 'Estimated delivery times are calculated from the date of shipment.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'CHK-045',
@@ -183,7 +183,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         title: 'Payment Options',
         message: 'Choose your preferred payment method. All transactions are secured with SSL encryption.',
       },
-    } as RecipeSpec,
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -207,7 +207,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         title: 'What Happens Next',
         message: 'Your order is confirmed. You will receive a shipping confirmation email shortly.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'TYO-047',
@@ -227,7 +227,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         title: 'Need Help?',
         message: 'Our support team is available 24/7. Contact us for any order questions.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'TYO-048',
@@ -247,7 +247,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         title: 'Recommended For You',
         message: 'Customers who bought these items also loved these products.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'TYO-049',
@@ -267,7 +267,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         title: 'Product Care',
         message: 'Follow the included care instructions to keep your purchase in great condition.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'TYO-050',
@@ -287,7 +287,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         title: 'Quick Feedback',
         message: 'How was your shopping experience? Your feedback helps us improve.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'TYO-051',
@@ -312,7 +312,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         ],
         b2bOnly: false,
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'TYO-052',
@@ -336,7 +336,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         ],
         b2bOnly: false,
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'TYO-053',
@@ -360,7 +360,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         ],
         b2bOnly: false,
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'TYO-054',
@@ -384,7 +384,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         ],
         b2bOnly: false,
       },
-    } as RecipeSpec,
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -413,7 +413,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         ],
         b2bOnly: false,
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'ACC-056',
@@ -438,7 +438,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         ],
         b2bOnly: false,
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'ACC-057',
@@ -463,7 +463,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         ],
         b2bOnly: false,
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'ACC-058',
@@ -489,7 +489,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         ],
         b2bOnly: false,
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'ACC-059',
@@ -514,7 +514,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         ],
         b2bOnly: false,
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'ACC-060',
@@ -539,7 +539,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         ],
         b2bOnly: false,
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'ACC-061',
@@ -563,7 +563,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         ],
         b2bOnly: false,
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'ACC-062',
@@ -587,7 +587,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         ],
         b2bOnly: false,
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'ACC-063',
@@ -612,7 +612,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         ],
         b2bOnly: true,
       },
-    } as RecipeSpec,
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -639,7 +639,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
           },
         ],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'SHP-065',
@@ -662,7 +662,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
           },
         ],
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'SHP-066',
@@ -682,7 +682,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         title: 'Shipping Guide',
         message: 'Choose the shipping speed that works best for you. Free shipping on orders over $75.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'SHP-067',
@@ -702,7 +702,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         title: 'Address Tips',
         message: 'Please include apartment or suite numbers. PO Boxes may delay delivery.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'SHP-068',
@@ -722,7 +722,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         title: 'Pickup Instructions',
         message: 'Orders are ready for pickup within 2 hours. Bring your order confirmation email.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'SHP-069',
@@ -742,39 +742,44 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         title: 'Choose Pickup Point',
         message: 'Select a pickup point near you. Your package will be held for 7 days.',
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'SHP-070',
     name: 'Cart Shipping Estimator',
     description: 'Show a shipping estimate banner on the cart page to set expectations.',
     category: 'STOREFRONT_UI',
-    type: 'theme.banner',
+    type: 'theme.section',
     icon: 'banner',
     tags: ['cart', 'shipping', 'estimator'],
     spec: {
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'Cart Shipping Estimator',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'banner',
+        activation: 'section',
+        fields: {
         heading: 'Shipping Estimate',
         subheading: 'Most orders ship within 1-3 business days. Free shipping over $75.',
         ctaText: 'View shipping policy',
         ctaUrl: 'https://example.com/shipping-policy',
         enableAnimation: false,
+        },
+        blocks: [],
       },
       placement: { enabled_on: { templates: ['cart'] as any } },
       style: {
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'medium' },
         typography: { size: 'SM', weight: 'medium', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#1e293b', background: '#f0fdf4', buttonBg: '#16a34a', buttonText: '#ffffff' },
+        colors: { text: '#1e293b', background: '#f0fdf4', buttonBg: '#16a34a', buttonText: '#ffffff', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'md', borderWidth: 'thin', shadow: 'none' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'SHP-071',
@@ -799,7 +804,7 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         ],
         b2bOnly: false,
       },
-    } as RecipeSpec,
+    },
   },
   {
     id: 'SHP-072',
@@ -818,6 +823,6 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
         target: 'admin.order-details.block.render',
         label: 'Delivery Operations',
       },
-    } as RecipeSpec,
+    },
   },
 ];

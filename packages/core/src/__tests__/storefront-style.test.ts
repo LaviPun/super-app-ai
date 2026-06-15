@@ -87,12 +87,12 @@ describe('StorefrontStyleSchema', () => {
 });
 
 describe('RecipeSpec style field', () => {
-  it('theme.banner accepts style with customCss', () => {
+  it('theme.section accepts style with customCss', () => {
     const spec = RecipeSpecSchema.parse({
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'Banner',
       category: 'STOREFRONT_UI',
-      config: { heading: 'Hi', enableAnimation: false },
+      config: { kind: 'banner', fields: { heading: 'Hi' } },
       style: { customCss: '.superapp-banner__heading { letter-spacing: 0.1em; }' },
     });
     expect((spec as any).style?.customCss).toBeDefined();

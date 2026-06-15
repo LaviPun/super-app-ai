@@ -46,7 +46,7 @@ storefront.<component>.<intent>.<surface>.trigger.<trg>  # storefront row with e
 ```
 
 Examples:
-- `type.theme.popup`
+- `type.theme.section`
 - `storefront.popup.capture.product`
 - `storefront.popup.capture.product.trigger.exit_intent`
 
@@ -112,3 +112,7 @@ See also: [`docs/superapp-surface-inventory.md`](/Users/lavipun/Work/ai-shopify-
 ## Next expansions
 Add more axes (industries, compliance regimes, theme families) to the generated catalog to reach 50k+ template IDs.
 Expand curated templates to cover more use cases (B2B, subscriptions, loyalty programs).
+
+## 2026-06-14 — Search-augmented generation (spec 022)
+
+`solution-search.server.ts` ranks `MODULE_TEMPLATES` against a `RequirementSpec` (type match + token/tag overlap + capability-surface intersection) and returns the top-k as (a) `grounding` text injected into the create prompt and (b) `startFrom` options surfaced to the client. Deterministic — no extra LLM hop. See [`module-system-v2.md`](./module-system-v2.md) and spec `022-requirement-search-generation`.

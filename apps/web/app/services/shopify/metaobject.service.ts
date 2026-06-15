@@ -31,6 +31,15 @@ const METAOBJECT_DELETE = `#graphql
   }
 `;
 
+const METAOBJECT_BY_HANDLE = `#graphql
+  query MetaobjectByHandle($handle: MetaobjectHandleInput!) {
+    metaobjectByHandle(handle: $handle) {
+      id
+      field(key: "config_json") { value }
+    }
+  }
+`;
+
 const SHOP_MODULE_REFS_QUERY = `#graphql
   query ShopModuleRefs($namespace: String!, $key: String!) {
     shop {
@@ -165,6 +174,31 @@ export class MetaobjectService {
         { key: 'config_json', value: JSON.stringify(config) },
       ],
     );
+  }
+
+  /**
+   * Read the existing function-config metaobject for `functionKey`, if any.
+   * Returns its GID + parsed config so the publish path can compute an idempotent
+   * republish diff (WS5/026) and skip no-op writes. `null` when not yet published.
+   */
+  async getFunctionConfigByKey(
+    functionKey: string,
+  ): Promise<{ metaobjectId: string; config: Record<string, unknown> } | null> {
+    const json = (await this.graphqlJson(METAOBJECT_BY_HANDLE, {
+      handle: { type: '$app:superapp_function_config', handle: `superapp-fn-${functionKey}` },
+    })) as { data?: { metaobjectByHandle?: { id?: string; field?: { value?: string } | null } | null } };
+    const mo = json?.data?.metaobjectByHandle;
+    if (!mo?.id) return null;
+    let config: Record<string, unknown> = {};
+    const raw = mo.field?.value;
+    if (raw) {
+      try {
+        config = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        config = {};
+      }
+    }
+    return { metaobjectId: mo.id, config };
   }
 
   /** Upsert a `$app:superapp_checkout_upsell` metaobject. Returns its GID. */

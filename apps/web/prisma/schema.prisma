@@ -454,6 +454,8 @@ model AppSettings {
   designReferenceUrl String?
   // Encrypted JSON runtime settings for first-layer router target switching (localMachine/modalRemote)
   routerRuntimeConfigEnc String?
+  // Module System engine: 'v1' (legacy hand-written configs) | 'v2' (control-pack composer). Default v1 = no behavior change.
+  moduleSystemVersion String @default("v1")
   // Meta
   updatedAt DateTime @updatedAt
 }

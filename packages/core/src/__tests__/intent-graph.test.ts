@@ -36,7 +36,7 @@ describe('IntentGraphSchema', () => {
     expect(graph.metadata.featureFlag).toBe('INTENT_GRAPH_ENABLED');
     expect(graph.routing.output_schema).toBe('StorefrontModuleSpecV1');
     expect(graph.nodes.some((node) => node.kind === 'goal' && node.intent === 'promo.banner')).toBe(true);
-    expect(graph.nodes.some((node) => node.kind === 'recipe_candidate' && node.moduleType === 'theme.banner')).toBe(true);
+    expect(graph.nodes.some((node) => node.kind === 'recipe_candidate' && node.moduleType === 'theme.section')).toBe(true);
   });
 
   it('falls back to extension blueprint for unknown long-tail intents', () => {
@@ -80,7 +80,7 @@ describe('IntentGraphSchema', () => {
           {
             id: 'same_id',
             kind: 'recipe_candidate',
-            moduleType: 'theme.banner',
+            moduleType: 'theme.section',
             category: 'STOREFRONT_UI',
             surface: 'online_store',
           },
@@ -111,15 +111,15 @@ describe('IntentGraphSchema', () => {
         {
           id: 'catalog_1',
           kind: 'catalog_match',
-          catalogId: 'type.theme.popup',
-          moduleType: 'theme.banner',
+          catalogId: 'type.proxy.widget',
+          moduleType: 'theme.section',
           score: 0.9,
         },
         {
           id: 'candidate_1',
           kind: 'recipe_candidate',
-          moduleType: 'theme.banner',
-          catalogId: 'type.theme.popup',
+          moduleType: 'theme.section',
+          catalogId: 'type.proxy.widget',
           category: 'STOREFRONT_UI',
           surface: 'online_store',
         },
@@ -127,6 +127,6 @@ describe('IntentGraphSchema', () => {
     });
 
     expect(parsed.success).toBe(false);
-    expect(parsed.error?.issues.map((issue) => issue.message).join('\n')).toMatch(/not theme.banner/);
+    expect(parsed.error?.issues.map((issue) => issue.message).join('\n')).toMatch(/not theme.section/);
   });
 });

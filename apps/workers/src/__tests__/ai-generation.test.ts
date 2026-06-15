@@ -21,14 +21,17 @@ describe('AI generation worker', () => {
         async generate() {
           return {
             recipeSpec: {
-              type: 'theme.banner',
+              type: 'theme.section',
               name: 'Summer sale banner',
               category: 'STOREFRONT_UI',
+              requires: ['THEME_ASSETS'],
               config: {
-                heading: 'Summer sale',
-                subheading: 'Save today',
-                ctaText: 'Shop now',
-                ctaUrl: 'https://example.com/collections/sale',
+                kind: 'banner',
+                activation: 'section',
+                title: 'Summer sale',
+                subtitle: 'Save today',
+                fields: { ctaText: 'Shop now', ctaUrl: 'https://example.com/collections/sale' },
+                blocks: [],
               },
             },
             model: 'test-model',
@@ -65,13 +68,14 @@ describe('AI generation worker', () => {
       payload: {
         moduleId: 'mod-1',
         sourceSpec: {
-          type: 'theme.banner',
+          type: 'theme.section',
           name: 'Existing banner',
           category: 'STOREFRONT_UI',
           config: {
-            heading: 'Hello',
-            ctaText: 'Shop now',
-            ctaUrl: 'https://example.com/collections/all',
+            kind: 'banner',
+            activation: 'section',
+            title: 'Hello',
+            fields: { ctaText: 'Shop now', ctaUrl: 'https://example.com/collections/all' },
           },
         },
       },

@@ -51,14 +51,17 @@ export class StubAiGenerationAdapter implements AiGenerationAdapter {
   async generate(input: { prompt: string }): Promise<AiWorkerResult> {
     return {
       recipeSpec: {
-        type: 'theme.banner',
+        type: 'theme.section',
         name: 'Generated banner',
         category: 'STOREFRONT_UI',
+        requires: ['THEME_ASSETS'],
         config: {
-          heading: input.prompt.slice(0, 60) || 'Store announcement',
-          subheading: 'Generated safely as RecipeSpec JSON.',
-          ctaText: 'Shop now',
-          ctaUrl: 'https://example.com/collections/all',
+          kind: 'banner',
+          activation: 'section',
+          title: input.prompt.slice(0, 60) || 'Store announcement',
+          subtitle: 'Generated safely as RecipeSpec JSON.',
+          fields: { ctaText: 'Shop now', ctaUrl: 'https://example.com/collections/all' },
+          blocks: [],
         },
       },
       options: [],
@@ -80,14 +83,17 @@ export class StubAiGenerationAdapter implements AiGenerationAdapter {
   async modify(input: { moduleId: string; instruction: string }): Promise<AiWorkerResult> {
     return {
       recipeSpec: {
-        type: 'theme.banner',
+        type: 'theme.section',
         name: `Modified ${input.moduleId}`,
         category: 'STOREFRONT_UI',
+        requires: ['THEME_ASSETS'],
         config: {
-          heading: input.instruction.slice(0, 60) || 'Updated announcement',
-          subheading: 'Modified safely as RecipeSpec JSON.',
-          ctaText: 'Learn more',
-          ctaUrl: 'https://example.com/collections/all',
+          kind: 'banner',
+          activation: 'section',
+          title: input.instruction.slice(0, 60) || 'Updated announcement',
+          subtitle: 'Modified safely as RecipeSpec JSON.',
+          fields: { ctaText: 'Learn more', ctaUrl: 'https://example.com/collections/all' },
+          blocks: [],
         },
       },
       model: 'stub-ai-worker',

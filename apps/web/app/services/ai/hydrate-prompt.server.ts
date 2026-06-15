@@ -11,15 +11,13 @@ const ENVELOPE_GROUPS =
   `1. adminConfig.jsonSchema.properties MUST include ALL 11 groups as top-level keys: ${REQUIRED_GROUPS}.\n` +
   `2. adminConfig.defaults MUST include ALL 11 groups as top-level keys (same names) with REAL, non-empty objects containing meaningful field defaults — NOT empty {} objects. Every group key in jsonSchema must have a corresponding populated defaults entry.`;
 
-function getTypeSpecificGuidance(type: string): string {
-  if (type === 'theme.popup') {
-    return ' Popup: add mobile fallback trigger; behavior: focus trap, escape-to-close, scroll lock, return focus; style: CTA bg/text/hover/focus.';
-  }
-  if (type === 'theme.banner') {
-    return ' Banner: block vs embed; add dismiss/persistence defaults.';
-  }
-  if (type === 'theme.contactForm') {
-    return ' Contact form: include field-visibility and required toggles, consent/privacy controls, anti-spam defaults (honeypot), and submission routing (SHOPIFY_CONTACT vs APP_PROXY) with endpoint fallback.';
+function getTypeSpecificGuidance(spec: RecipeSpec): string {
+  if (spec.type === 'theme.section') {
+    const kind = (spec.config as { kind?: string }).kind;
+    if (kind === 'contactForm') {
+      return ' Contact form: include field-visibility and required toggles, consent/privacy controls, anti-spam defaults (honeypot), and submission routing (SHOPIFY_CONTACT vs APP_PROXY) with endpoint fallback.';
+    }
+    return ' Section: structured fields/blocks first; custom HTML/CSS/JS only when needed; declare a clear kind. Overlay/popup kinds: add mobile fallback trigger; behavior: focus trap, escape-to-close, scroll lock, return focus; style: CTA bg/text/hover/focus.';
   }
   return '';
 }
@@ -46,7 +44,7 @@ export function buildHydratePrompt(recipeSpec: RecipeSpec, merchantContext?: { p
     'validationReport.overall: "PASS" or "WARN" only. validationReport.checks: array of { id: string, severity: "blocker"|"high"|"medium"|"low", status: "PASS"|"WARN"|"FAIL", description: string, howToFix?: string }. ALL four fields (id, severity, status, description) are required on every check.',
 
     // ── adminConfig ──
-    ENVELOPE_GROUPS + getTypeSpecificGuidance(recipeSpec.type),
+    ENVELOPE_GROUPS + getTypeSpecificGuidance(recipeSpec),
 
     'RecipeSpec:',
     JSON.stringify(recipeSpec),

@@ -24,6 +24,11 @@ import {
   getSettingsPack,
 } from '~/services/ai/prompt-expectations.server';
 import { buildHydratePrompt } from '~/services/ai/hydrate-prompt.server';
+import { wrapUserRequestForPrompt } from '~/services/ai/injection-scan.server';
+import {
+  RecipeDiscriminatorError,
+  assertKnownDiscriminator,
+} from '~/services/ai/recipe-discriminator-guard.server';
 import { HydrateEnvelopeSchema, type HydrateEnvelope, validatePerfectConfig } from '~/schemas/hydrate-envelope.server';
 import { estimateCostCentsFromDbRates } from '~/services/ai/cost-estimate.server';
 import {
@@ -36,7 +41,7 @@ import {
   getRecipeSingleJsonSchemaForType,
 } from '~/services/ai/recipe-json-schema.server';
 import type { PromptRouterDecision } from '~/schemas/prompt-router.server';
-import { buildDesignReferencePromptBlock, resolveDesignReferencePack } from '~/services/ai/design-reference.server';
+import { buildDesignReferencePromptBlock, resolveDesignReferencePack, resolveStoreDesignReferencePack } from '~/services/ai/design-reference.server';
 
 import { getPrisma } from '~/db.server';
 
@@ -55,7 +60,22 @@ export interface GenerateHints {
 }
 
 export interface LlmClient {
-  generateRecipe(prompt: string, hints?: GenerateHints): Promise<{ rawJson: string; tokensIn: number; tokensOut: number; model?: string }>;
+  generateRecipe(prompt: string, hints?: GenerateHints): Promise<GenerateResult>;
+}
+
+/**
+ * Result of a single LLM call.
+ * `servedProviderId` names the DB provider that actually served the request, so
+ * cost/usage can be attributed to the real model even when a fallback served it.
+ * It is `null`/absent for env-key clients (no DB provider row) and stamped with
+ * the provider id by `ConfiguredLlmClient`.
+ */
+export interface GenerateResult {
+  rawJson: string;
+  tokensIn: number;
+  tokensOut: number;
+  model?: string;
+  servedProviderId?: string | null;
 }
 
 export function guardAnthropicSkillsConfig(
@@ -78,19 +98,19 @@ export class StubLlmClient implements LlmClient {
     let rawJson: string;
     if (lower.includes('exit-intent') || lower.includes('popup')) {
       rawJson = make({
-        type: 'theme.popup',
+        type: 'theme.section',
         name: 'Stub Popup',
         category: 'STOREFRONT_UI',
         requires: ['THEME_ASSETS'],
-        config: { title: 'Get 10% Off', trigger: 'ON_EXIT_INTENT', frequency: 'ONCE_PER_DAY' },
+        config: { kind: 'popup', activation: 'overlay', title: 'Get 10% Off', trigger: 'ON_EXIT_INTENT', frequency: 'ONCE_PER_DAY', fields: {}, blocks: [] },
       } as RecipeSpec);
     } else if (lower.includes('notification bar') || lower.includes('dismissible')) {
       rawJson = make({
-        type: 'theme.notificationBar',
+        type: 'theme.section',
         name: 'Stub Notification Bar',
         category: 'STOREFRONT_UI',
         requires: ['THEME_ASSETS'],
-        config: { message: 'Free shipping on orders over $50', dismissible: true },
+        config: { kind: 'notification-bar', activation: 'global', fields: { message: 'Free shipping on orders over $50', dismissible: true }, blocks: [] },
       } as RecipeSpec);
     } else if (lower.includes('store locator') || lower.includes('widget')) {
       rawJson = make({
@@ -145,11 +165,11 @@ export class StubLlmClient implements LlmClient {
       } as RecipeSpec);
     } else {
       rawJson = make({
-        type: 'theme.banner',
+        type: 'theme.section',
         name: 'Stub Banner',
         category: 'STOREFRONT_UI',
         requires: ['THEME_ASSETS'],
-        config: { heading: prompt.slice(0, 40) || 'Hello', enableAnimation: false },
+        config: { kind: 'banner', activation: 'section', fields: { heading: prompt.slice(0, 40) || 'Hello', enableAnimation: false }, blocks: [] },
       } as RecipeSpec);
     }
     return { rawJson, tokensIn: Math.min(200, prompt.length), tokensOut: 300, model: 'stub' };
@@ -163,7 +183,14 @@ export class ConfiguredLlmClient implements LlmClient {
     private readonly blockMerchantCodeExecution = false,
   ) {}
 
-  async generateRecipe(prompt: string, hints?: GenerateHints) {
+  async generateRecipe(prompt: string, hints?: GenerateHints): Promise<GenerateResult> {
+    // Stamp the served provider id so cost/usage attributes to this provider's
+    // model even when this client is the fallback leg of a FallbackLlmClient.
+    const res = await this.callProvider(prompt, hints);
+    return { ...res, servedProviderId: this.providerId };
+  }
+
+  private async callProvider(prompt: string, hints?: GenerateHints): Promise<GenerateResult> {
     const prisma = getPrisma();
     const provider = await prisma.aiProvider.findUnique({ where: { id: this.providerId } });
     if (!provider) throw new Error('AI provider not found');
@@ -361,7 +388,7 @@ export class AiProviderNotConfiguredError extends Error {
  * If the primary fails for any reason (rate limit, tool-use blocks, model error, etc.),
  * transparently retries with the fallback. If fallback also fails, throws the primary error.
  */
-class FallbackLlmClient implements LlmClient {
+export class FallbackLlmClient implements LlmClient {
   constructor(
     private readonly primary: LlmClient,
     private readonly fallback: LlmClient,
@@ -501,6 +528,8 @@ export function compileCreateModulePrompt(params: {
   fullSchemaSpec?: string;
   styleSchemaSpec?: string;
   catalogDetails?: string;
+  /** Search-augmented grounding examples (RAG) — already self-headed. */
+  groundingBlock?: string;
   settingsPack?: string;
   previousError?: string;
   /** IntentPacket JSON (doc 15.8): structured intent so heavy AI only fills layout/copy/settings. */
@@ -530,7 +559,7 @@ export function compileCreateModulePrompt(params: {
     '',
     params.expectations,
     '',
-    `User request: ${params.userRequest}`,
+    wrapUserRequestForPrompt(params.userRequest),
   );
   if (profileGuidance) {
     parts.push('', profileGuidance);
@@ -558,6 +587,9 @@ export function compileCreateModulePrompt(params: {
   }
   if (params.catalogDetails) {
     parts.push('', 'Catalog (examples for inspiration):', params.catalogDetails);
+  }
+  if (params.groundingBlock) {
+    parts.push('', params.groundingBlock);
   }
   if (params.previousError) {
     parts.push('', '(Previous validation error — fix in next response):', params.previousError);
@@ -603,6 +635,8 @@ export function compileCreateSingleRecipePrompt(params: {
   fullSchemaSpec?: string;
   styleSchemaSpec?: string;
   catalogDetails?: string;
+  /** Search-augmented grounding examples (RAG) — already self-headed. */
+  groundingBlock?: string;
   settingsPack?: string;
   previousError?: string;
   intentPacketJson?: string;
@@ -632,7 +666,7 @@ export function compileCreateSingleRecipePrompt(params: {
     '',
     params.expectations,
     '',
-    `User request: ${params.userRequest}`,
+    wrapUserRequestForPrompt(params.userRequest),
   );
   if (profileGuidance) parts.push('', profileGuidance);
   if (params.uiDesignerPass) parts.push('', params.uiDesignerPass);
@@ -650,6 +684,9 @@ export function compileCreateSingleRecipePrompt(params: {
   }
   if (params.catalogDetails) {
     parts.push('', 'Catalog (examples for inspiration):', params.catalogDetails);
+  }
+  if (params.groundingBlock) {
+    parts.push('', params.groundingBlock);
   }
   if (params.previousError) {
     parts.push('', '(Previous validation error — fix in next response):', params.previousError);
@@ -675,7 +712,7 @@ export function compileModifyModulePrompt(params: {
     'Current RecipeSpec (preserve this shape; only change what the user asked):',
     params.currentSpecJson,
     '',
-    `User requested change: ${params.userInstruction}`,
+    wrapUserRequestForPrompt(params.userInstruction),
   ];
   if (params.previousError) {
     parts.push('', `(Previous error: ${params.previousError})`);
@@ -708,9 +745,7 @@ Respond with a JSON object containing a single key "recipe" whose value is the c
 }
 
 const TYPE_CATEGORY_REQUIRES: Record<string, { category: string; requires: string[] }> = {
-  'theme.banner': { category: 'STOREFRONT_UI', requires: ['THEME_ASSETS'] },
-  'theme.popup': { category: 'STOREFRONT_UI', requires: ['THEME_ASSETS'] },
-  'theme.notificationBar': { category: 'STOREFRONT_UI', requires: ['THEME_ASSETS'] },
+  'theme.section': { category: 'STOREFRONT_UI', requires: ['THEME_ASSETS'] },
   'proxy.widget': { category: 'STOREFRONT_UI', requires: ['APP_PROXY'] },
   'functions.discountRules': { category: 'FUNCTION', requires: ['DISCOUNT_FUNCTION'] },
   'functions.deliveryCustomization': { category: 'FUNCTION', requires: ['SHIPPING_FUNCTION'] },
@@ -727,9 +762,7 @@ const TYPE_CATEGORY_REQUIRES: Record<string, { category: string; requires: strin
 };
 
 const CONFIG_ENUM_KEYS: Record<string, string[]> = {
-  'theme.popup': ['trigger', 'frequency', 'showOnPages'],
-  'theme.banner': [],
-  'theme.notificationBar': [],
+  'theme.section': ['trigger', 'frequency', 'showOnPages'],
   'proxy.widget': ['mode'],
 };
 
@@ -812,11 +845,8 @@ function repairRecipeForValidation(raw: unknown): unknown {
 
   const config = o.config as Record<string, unknown> | undefined;
   if (config && typeof config === 'object') {
-    if (type === 'theme.popup' && !config.title && typeof config.heading === 'string') {
+    if (type === 'theme.section' && !config.title && typeof config.heading === 'string') {
       config.title = config.heading;
-    }
-    if (type === 'theme.banner' && !config.heading && typeof config.title === 'string') {
-      config.heading = config.title;
     }
     const urlKeys = ['ctaUrl', 'secondaryCtaUrl', 'linkUrl'];
     for (const k of urlKeys) {
@@ -923,7 +953,7 @@ function isFatalValidationError(message: string): boolean {
 
 export async function generateValidatedRecipe(
   prompt: string,
-  options?: { shopId?: string; action?: string; maxAttempts?: number; maxTokens?: number }
+  options?: { shopId?: string; action?: string; maxAttempts?: number; maxTokens?: number; expectedType?: ModuleType }
 ): Promise<RecipeSpec> {
   const maxAttempts = options?.maxAttempts ?? 3;
   const action = options?.action ?? 'RECIPE_GENERATION';
@@ -936,17 +966,23 @@ export async function generateValidatedRecipe(
 
   let lastErr: unknown;
   for (let i = 0; i < maxAttempts; i++) {
-    const { rawJson, tokensIn, tokensOut, model } = await client.generateRecipe(wrappedPrompt, {
+    const { rawJson, tokensIn, tokensOut, model, servedProviderId } = await client.generateRecipe(wrappedPrompt, {
       previousError: lastErr ? String(lastErr) : undefined,
       maxTokens: options?.maxTokens,
     });
     try {
-      const parsed = RecipeSpecSchema.parse(unwrapRecipe(JSON.parse(rawJson)));
-      const costCents = providerId
-        ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut)
-        : 0;
-      await recordAiUsage(usage, {
+      const candidate = unwrapRecipe(JSON.parse(rawJson));
+      // Schema-bound invariant: wrong/unknown discriminator → reject, not repair.
+      assertKnownDiscriminator(candidate, options?.expectedType);
+      const parsed = RecipeSpecSchema.parse(candidate);
+      const { providerId: servedId, costCents } = await attributeServedCost(
+        { servedProviderId, model },
         providerId,
+        tokensIn,
+        tokensOut,
+      );
+      await recordAiUsage(usage, {
+        providerId: servedId,
         shopId: options?.shopId,
         action,
         tokensIn,
@@ -958,6 +994,10 @@ export async function generateValidatedRecipe(
       });
       return parsed;
     } catch (err) {
+      // A rejected discriminator is non-recoverable — do not waste repair attempts.
+      if (err instanceof RecipeDiscriminatorError) {
+        throw err;
+      }
       lastErr = err;
     }
   }
@@ -995,6 +1035,7 @@ Output a JSON object with a single key "recipe" whose value is the complete upda
     let tokensIn = 0;
     let tokensOut = 0;
     let model: string | undefined;
+    let servedProviderId: string | null | undefined;
     try {
       const result = await client.generateRecipe(modifyPrompt, {
         previousError: lastErr ? String(lastErr) : undefined,
@@ -1003,15 +1044,19 @@ Output a JSON object with a single key "recipe" whose value is the complete upda
       tokensIn = result.tokensIn;
       tokensOut = result.tokensOut;
       model = result.model;
+      servedProviderId = result.servedProviderId;
       const parsed = RecipeSpecSchema.parse(unwrapRecipe(JSON.parse(result.rawJson)));
       if (!options?.allowTypeChange && parsed.type !== currentSpec.type) {
         throw new Error(`AI changed module type from "${currentSpec.type}" to "${parsed.type}". Type changes are not allowed in modify mode.`);
       }
-      const costCents = providerId
-        ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut)
-        : 0;
-      await recordAiUsage(usage, {
+      const { providerId: servedId, costCents } = await attributeServedCost(
+        { servedProviderId, model },
         providerId,
+        tokensIn,
+        tokensOut,
+      );
+      await recordAiUsage(usage, {
+        providerId: servedId,
         shopId: options?.shopId,
         action: 'RECIPE_MODIFY',
         tokensIn,
@@ -1024,11 +1069,14 @@ Output a JSON object with a single key "recipe" whose value is the complete upda
       return parsed;
     } catch (err) {
       lastErr = err;
-      const failCost = providerId
-        ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut)
-        : 0;
-      await recordAiUsage(usage, {
+      const { providerId: servedId, costCents: failCost } = await attributeServedCost(
+        { servedProviderId, model },
         providerId,
+        tokensIn,
+        tokensOut,
+      );
+      await recordAiUsage(usage, {
+        providerId: servedId,
         shopId: options?.shopId,
         action: 'RECIPE_MODIFY_FAILED',
         tokensIn,
@@ -1071,6 +1119,8 @@ export async function* generateValidatedRecipeOptionsStream(
     promptProfile?: string;
     routerDecision?: PromptRouterDecision;
     optionCount?: number;
+    /** Search-augmented grounding examples (RAG), injected into each prompt. */
+    groundingBlock?: string;
   },
 ): AsyncGenerator<RecipeOptionStreamEvent, void, void> {
   const optionCount = Math.max(1, Math.min(3, options?.optionCount ?? 3));
@@ -1092,7 +1142,7 @@ export async function* generateValidatedRecipeOptionsStream(
     ? options.routerDecision.includeFlags.includeFullSchema
     : isLowConfidence;
   const fullSchemaSpec = !singleSchema && includeFullSchema ? getFullRecipeSchemaSpec(classification.moduleType) : undefined;
-  const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'theme.floatingWidget', 'proxy.widget'];
+  const storefrontTypes = ['theme.section', 'proxy.widget'];
   const isStorefront = storefrontTypes.includes(classification.moduleType);
   const includeStyleSchema = options?.routerDecision
     ? options.routerDecision.includeFlags.includeStyleSchema
@@ -1109,7 +1159,9 @@ export async function* generateValidatedRecipeOptionsStream(
     ? undefined
     : options?.intentPacketJson;
   const designReferenceBlock = isStorefront
-    ? buildDesignReferencePromptBlock(await resolveDesignReferencePack())
+    ? buildDesignReferencePromptBlock(
+        options?.shopId ? await resolveStoreDesignReferencePack(options.shopId) : await resolveDesignReferencePack(),
+      )
     : undefined;
   const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
   const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
@@ -1132,6 +1184,7 @@ export async function* generateValidatedRecipeOptionsStream(
       fullSchemaSpec,
       styleSchemaSpec,
       catalogDetails,
+      groundingBlock: options?.groundingBlock,
       settingsPack,
       intentPacketJson,
       promptProfile: options?.promptProfile,
@@ -1145,6 +1198,7 @@ export async function* generateValidatedRecipeOptionsStream(
     let tokensOut = 0;
     let model: string | undefined;
     let costCents = 0;
+    let servedId: string | null = providerId;
     try {
       const result = await client.generateRecipe(compiledPrompt, {
         maxTokens: perBudget,
@@ -1155,7 +1209,7 @@ export async function* generateValidatedRecipeOptionsStream(
       tokensIn = result.tokensIn;
       tokensOut = result.tokensOut;
       model = result.model;
-      costCents = providerId ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut) : 0;
+      ({ providerId: servedId, costCents } = await attributeServedCost(result, providerId, tokensIn, tokensOut));
 
       const parsed = JSON.parse(result.rawJson);
       const raw = unwrapRecipe(parsed);
@@ -1179,7 +1233,7 @@ export async function* generateValidatedRecipeOptionsStream(
         : `${approach.label} option`;
 
       await recordAiUsage(usage, {
-        providerId,
+        providerId: servedId,
         shopId: options?.shopId,
         action: 'RECIPE_GENERATION_OPTION',
         tokensIn,
@@ -1198,7 +1252,7 @@ export async function* generateValidatedRecipeOptionsStream(
       };
     } catch (err) {
       await recordAiUsage(usage, {
-        providerId,
+        providerId: servedId,
         shopId: options?.shopId,
         action: 'RECIPE_GENERATION_OPTION_FAILED',
         tokensIn,
@@ -1282,6 +1336,8 @@ export async function generateValidatedRecipeOptionsParallel(
     routerDecision?: PromptRouterDecision;
     /** Number of parallel option calls (default 3). */
     optionCount?: number;
+    /** Search-augmented grounding examples (RAG), injected into each prompt. */
+    groundingBlock?: string;
   },
 ): Promise<RecipeOption[]> {
   const optionCount = Math.max(1, Math.min(3, options?.optionCount ?? 3));
@@ -1303,7 +1359,7 @@ export async function generateValidatedRecipeOptionsParallel(
     ? options.routerDecision.includeFlags.includeFullSchema
     : isLowConfidence;
   const fullSchemaSpec = !singleSchema && includeFullSchema ? getFullRecipeSchemaSpec(classification.moduleType) : undefined;
-  const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'theme.floatingWidget', 'proxy.widget'];
+  const storefrontTypes = ['theme.section', 'proxy.widget'];
   const isStorefront = storefrontTypes.includes(classification.moduleType);
   const includeStyleSchema = options?.routerDecision
     ? options.routerDecision.includeFlags.includeStyleSchema
@@ -1320,7 +1376,9 @@ export async function generateValidatedRecipeOptionsParallel(
     ? undefined
     : options?.intentPacketJson;
   const designReferenceBlock = isStorefront
-    ? buildDesignReferencePromptBlock(await resolveDesignReferencePack())
+    ? buildDesignReferencePromptBlock(
+        options?.shopId ? await resolveStoreDesignReferencePack(options.shopId) : await resolveDesignReferencePack(),
+      )
     : undefined;
   const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
   const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
@@ -1338,6 +1396,7 @@ export async function generateValidatedRecipeOptionsParallel(
       fullSchemaSpec,
       styleSchemaSpec,
       catalogDetails,
+      groundingBlock: options?.groundingBlock,
       settingsPack,
       intentPacketJson,
       promptProfile: options?.promptProfile,
@@ -1351,6 +1410,7 @@ export async function generateValidatedRecipeOptionsParallel(
     let tokensOut = 0;
     let model: string | undefined;
     let costCents = 0;
+    let servedId: string | null = providerId;
 
     try {
       const result = await client.generateRecipe(compiledPrompt, {
@@ -1362,7 +1422,7 @@ export async function generateValidatedRecipeOptionsParallel(
       tokensIn = result.tokensIn;
       tokensOut = result.tokensOut;
       model = result.model;
-      costCents = providerId ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut) : 0;
+      ({ providerId: servedId, costCents } = await attributeServedCost(result, providerId, tokensIn, tokensOut));
 
       const parsed = JSON.parse(result.rawJson);
       const raw = unwrapRecipe(parsed);
@@ -1386,7 +1446,7 @@ export async function generateValidatedRecipeOptionsParallel(
         : `${approach.label} option`;
 
       await recordAiUsage(usage, {
-        providerId,
+        providerId: servedId,
         shopId: options?.shopId,
         action: 'RECIPE_GENERATION_OPTION',
         tokensIn,
@@ -1399,7 +1459,7 @@ export async function generateValidatedRecipeOptionsParallel(
       return { ok: true as const, option: { explanation, recipe } };
     } catch (err) {
       await recordAiUsage(usage, {
-        providerId,
+        providerId: servedId,
         shopId: options?.shopId,
         action: 'RECIPE_GENERATION_OPTION_FAILED',
         tokensIn,
@@ -1444,6 +1504,8 @@ export async function generateValidatedRecipeOptions(
     confidenceScore?: number;
     promptProfile?: string;
     routerDecision?: PromptRouterDecision;
+    /** Search-augmented grounding examples (RAG), injected into each prompt. */
+    groundingBlock?: string;
   },
 ): Promise<RecipeOption[]> {
   if (getRecipeSingleJsonSchemaForType(classification.moduleType)) {
@@ -1454,6 +1516,7 @@ export async function generateValidatedRecipeOptions(
       promptProfile: options?.promptProfile,
       routerDecision: options?.routerDecision,
       optionCount: 3,
+      groundingBlock: options?.groundingBlock,
     });
   }
   const maxAttempts = options?.maxAttempts ?? 3;
@@ -1471,14 +1534,16 @@ export async function generateValidatedRecipeOptions(
   const routerConfidence = options?.routerDecision?.confidence ?? options?.confidenceScore ?? 1;
   const isLowConfidence = routerConfidence < CONFIDENCE_THRESHOLDS.DIRECT;
   const isHighConfidence = routerConfidence >= CONFIDENCE_THRESHOLDS.DIRECT;
-  const storefrontTypes = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'theme.floatingWidget', 'proxy.widget'];
+  const storefrontTypes = ['theme.section', 'proxy.widget'];
   const isStorefront = storefrontTypes.includes(classification.moduleType);
   // Settings pack is always injected — it's lightweight and ensures the AI populates all relevant fields.
   const settingsPack = options?.routerDecision?.includeFlags.includeSettingsPack === false
     ? undefined
     : getSettingsPack(classification.moduleType);
   const designReferenceBlock = isStorefront
-    ? buildDesignReferencePromptBlock(await resolveDesignReferencePack())
+    ? buildDesignReferencePromptBlock(
+        options?.shopId ? await resolveStoreDesignReferencePack(options.shopId) : await resolveDesignReferencePack(),
+      )
     : undefined;
   const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
   const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
@@ -1527,6 +1592,7 @@ export async function generateValidatedRecipeOptions(
       fullSchemaSpec,
       styleSchemaSpec,
       catalogDetails,
+      groundingBlock: options?.groundingBlock,
       previousError: lastErr ? String(lastErr) : undefined,
       intentPacketJson: includeIntentPacket ? options?.intentPacketJson : undefined,
       promptProfile: options?.promptProfile,
@@ -1541,9 +1607,10 @@ export async function generateValidatedRecipeOptions(
     let tokensIn = 0;
     let tokensOut = 0;
     let model: string | undefined;
+    let servedProviderId: string | null | undefined;
 
     try {
-      ({ rawJson, tokensIn, tokensOut, model } = await client.generateRecipe(compiledPrompt, {
+      ({ rawJson, tokensIn, tokensOut, model, servedProviderId } = await client.generateRecipe(compiledPrompt, {
         maxTokens: optionsBudget,
         responseSchema: optionsJsonSchema
           ? { name: `RecipeOptions_${classification.moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}`, schema: optionsJsonSchema }
@@ -1587,11 +1654,14 @@ export async function generateValidatedRecipeOptions(
         throw new Error(firstValidationError ?? 'All 3 options failed Zod validation');
       }
 
-      const costCents = providerId
-        ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut)
-        : 0;
-      await recordAiUsage(usage, {
+      const { providerId: servedId, costCents } = await attributeServedCost(
+        { servedProviderId, model },
         providerId,
+        tokensIn,
+        tokensOut,
+      );
+      await recordAiUsage(usage, {
+        providerId: servedId,
         shopId: options?.shopId,
         action: 'RECIPE_GENERATION_OPTIONS',
         tokensIn,
@@ -1605,32 +1675,23 @@ export async function generateValidatedRecipeOptions(
       return validated;
     } catch (err) {
       lastErr = err;
-      if (providerId) {
-        const failCost = await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut);
-        await recordAiUsage(usage, {
-          providerId,
-          shopId: options?.shopId,
-          action: 'RECIPE_GENERATION_OPTIONS_FAILED',
-          tokensIn,
-          tokensOut,
-          costCents: failCost,
-          meta: { attempts: attempt + 1, model, error: String(err).slice(0, 500) },
-          requestCount: 1,
-          prompt: compiledPrompt,
-        });
-      } else {
-        await recordAiUsage(usage, {
-          providerId: null,
-          shopId: options?.shopId,
-          action: 'RECIPE_GENERATION_OPTIONS_FAILED',
-          tokensIn,
-          tokensOut,
-          costCents: 0,
-          meta: { attempts: attempt + 1, model, error: String(err).slice(0, 500) },
-          requestCount: 1,
-          prompt: compiledPrompt,
-        });
-      }
+      const { providerId: servedId, costCents: failCost } = await attributeServedCost(
+        { servedProviderId, model },
+        providerId,
+        tokensIn,
+        tokensOut,
+      );
+      await recordAiUsage(usage, {
+        providerId: servedId,
+        shopId: options?.shopId,
+        action: 'RECIPE_GENERATION_OPTIONS_FAILED',
+        tokensIn,
+        tokensOut,
+        costCents: failCost,
+        meta: { attempts: attempt + 1, model, error: String(err).slice(0, 500) },
+        requestCount: 1,
+        prompt: compiledPrompt,
+      });
     }
   }
 
@@ -1670,6 +1731,7 @@ export async function modifyRecipeSpecOptions(
     let tokensIn = 0;
     let tokensOut = 0;
     let model: string | undefined;
+    let servedProviderId: string | null | undefined;
 
     try {
       const result = await client.generateRecipe(compiledPrompt, {
@@ -1678,6 +1740,7 @@ export async function modifyRecipeSpecOptions(
       tokensIn = result.tokensIn;
       tokensOut = result.tokensOut;
       model = result.model;
+      servedProviderId = result.servedProviderId;
 
       const parsed = JSON.parse(result.rawJson);
       const optionsArr = parsed?.options ?? (Array.isArray(parsed) ? parsed : null);
@@ -1706,11 +1769,14 @@ export async function modifyRecipeSpecOptions(
         throw new Error(firstValidationError ?? 'All modification options failed validation');
       }
 
-      const costCents = providerId
-        ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut)
-        : 0;
-      await recordAiUsage(usage, {
+      const { providerId: servedId, costCents } = await attributeServedCost(
+        { servedProviderId, model },
         providerId,
+        tokensIn,
+        tokensOut,
+      );
+      await recordAiUsage(usage, {
+        providerId: servedId,
         shopId: options?.shopId,
         action: 'RECIPE_MODIFY_OPTIONS',
         tokensIn,
@@ -1724,11 +1790,14 @@ export async function modifyRecipeSpecOptions(
       return validated;
     } catch (err) {
       lastErr = err;
-      const failCost = providerId
-        ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut)
-        : 0;
-      await recordAiUsage(usage, {
+      const { providerId: servedId, costCents: failCost } = await attributeServedCost(
+        { servedProviderId, model },
         providerId,
+        tokensIn,
+        tokensOut,
+      );
+      await recordAiUsage(usage, {
+        providerId: servedId,
         shopId: options?.shopId,
         action: 'RECIPE_MODIFY_OPTIONS_FAILED',
         tokensIn,
@@ -1841,7 +1910,7 @@ export async function hydrateRecipeSpec(
 
   let lastErr: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const { rawJson, tokensIn, tokensOut, model } = await client.generateRecipe(
+    const { rawJson, tokensIn, tokensOut, model, servedProviderId } = await client.generateRecipe(
       wrappedPrompt,
       { previousError: lastErr ? String(lastErr) : undefined, maxTokens: 16000 },
     );
@@ -1850,11 +1919,14 @@ export async function hydrateRecipeSpec(
       const envelope = HydrateEnvelopeSchema.parse(parsed);
       const perfect = validatePerfectConfig(envelope);
       const envelopeToUse = perfect.envelope ?? envelope;
-      const costCents = providerId
-        ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut)
-        : 0;
-      await recordAiUsage(usage, {
+      const { providerId: servedId, costCents } = await attributeServedCost(
+        { servedProviderId, model },
         providerId,
+        tokensIn,
+        tokensOut,
+      );
+      await recordAiUsage(usage, {
+        providerId: servedId,
         shopId: options?.shopId,
         action: 'RECIPE_HYDRATE',
         tokensIn,
@@ -1867,11 +1939,14 @@ export async function hydrateRecipeSpec(
       return envelopeToUse;
     } catch (err) {
       lastErr = err;
-      const failCost = providerId
-        ? await estimateCostCentsFromDb(providerId, model ?? '', tokensIn, tokensOut)
-        : 0;
-      await recordAiUsage(usage, {
+      const { providerId: servedId, costCents: failCost } = await attributeServedCost(
+        { servedProviderId, model },
         providerId,
+        tokensIn,
+        tokensOut,
+      );
+      await recordAiUsage(usage, {
+        providerId: servedId,
         shopId: options?.shopId,
         action: 'RECIPE_HYDRATE_FAILED',
         tokensIn,
@@ -1888,6 +1963,26 @@ export async function hydrateRecipeSpec(
 
 async function estimateCostCentsFromDb(providerId: string, model: string, tokensIn: number, tokensOut: number) {
   return estimateCostCentsFromDbRates({ providerId, model, tokensIn, tokensOut });
+}
+
+/**
+ * Attribute cost/usage to the provider that actually served the request. When a
+ * fallback provider serves, `result.servedProviderId` names it so the rate lookup
+ * uses the served model's pricing (avoids attributing a fallback call to the
+ * default provider's id, which would price at 0 until that model's rate exists).
+ * Falls back to the configured `defaultProviderId` for env clients / failure paths.
+ */
+async function attributeServedCost(
+  result: { servedProviderId?: string | null; model?: string },
+  defaultProviderId: string | null,
+  tokensIn: number,
+  tokensOut: number,
+): Promise<{ providerId: string | null; costCents: number }> {
+  const providerId = result.servedProviderId ?? defaultProviderId;
+  const costCents = providerId
+    ? await estimateCostCentsFromDb(providerId, result.model ?? '', tokensIn, tokensOut)
+    : 0;
+  return { providerId, costCents };
 }
 
 /**

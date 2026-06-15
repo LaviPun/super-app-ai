@@ -128,7 +128,7 @@ async function looksLikeRouterOnlyUrl(
           prompt: 'health-check',
           operationClass: 'P0_CREATE',
           classification: {
-            moduleType: 'theme.popup',
+            moduleType: 'theme.section',
             intent: 'promo.popup',
             surface: 'home',
             confidence: 0.7,

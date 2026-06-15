@@ -43,10 +43,10 @@ export type EvalSummary = {
 };
 
 export const GOLDEN_PROMPTS: GoldenPrompt[] = [
-  { id: 'banner-basic', prompt: 'Show a promotional banner with the heading "Summer Sale - 20% off" and a CTA button', expectedType: 'theme.banner', description: 'Basic theme banner' },
-  { id: 'banner-with-image', prompt: 'Create a hero banner with heading "New Arrivals", subheading "Shop the latest collection", CTA "Shop Now" linking to /collections/new', expectedType: 'theme.banner', description: 'Banner with image and CTA' },
-  { id: 'popup-exit', prompt: 'Show an exit-intent popup offering 10% off for email subscribers', expectedType: 'theme.popup', description: 'Exit intent popup' },
-  { id: 'notification-bar', prompt: 'Add a dismissible notification bar saying "Free shipping on orders over $50"', expectedType: 'theme.notificationBar', description: 'Notification bar' },
+  { id: 'banner-basic', prompt: 'Show a promotional banner with the heading "Summer Sale - 20% off" and a CTA button', expectedType: 'theme.section', description: 'Basic theme banner' },
+  { id: 'banner-with-image', prompt: 'Create a hero banner with heading "New Arrivals", subheading "Shop the latest collection", CTA "Shop Now" linking to /collections/new', expectedType: 'theme.section', description: 'Banner with image and CTA' },
+  { id: 'popup-exit', prompt: 'Show an exit-intent popup offering 10% off for email subscribers', expectedType: 'theme.section', description: 'Exit intent popup' },
+  { id: 'notification-bar', prompt: 'Add a dismissible notification bar saying "Free shipping on orders over $50"', expectedType: 'theme.section', description: 'Notification bar' },
   { id: 'proxy-widget', prompt: 'Create a store locator widget called store-finder that displays a title "Find a Store"', expectedType: 'proxy.widget', description: 'App proxy widget' },
   { id: 'discount-rule', prompt: 'Give 15% discount to customers with tag "VIP" on orders over $100', expectedType: 'functions.discountRules', description: 'Discount function' },
   { id: 'shipping-rule', prompt: 'Hide "Cash on Delivery" shipping method for customers outside the US', expectedType: 'functions.deliveryCustomization', description: 'Delivery customization' },

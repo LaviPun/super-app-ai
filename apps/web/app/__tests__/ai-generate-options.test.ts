@@ -34,7 +34,7 @@ describe('getProposalSetSchema', () => {
 
 describe('MODULE_SUMMARIES', () => {
   const ALL_TYPES = [
-    'theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'theme.floatingWidget', 'proxy.widget',
+    'theme.section', 'proxy.widget',
     'functions.discountRules', 'functions.deliveryCustomization', 'functions.paymentCustomization',
     'functions.cartAndCheckoutValidation', 'functions.cartTransform',
     'functions.fulfillmentConstraints', 'functions.orderRoutingLocationRule',
@@ -52,14 +52,14 @@ describe('MODULE_SUMMARIES', () => {
   });
 
   it('getModuleSummary returns non-empty string for known types', () => {
-    const summary = getModuleSummary('theme.popup');
-    expect(summary).toContain('theme.popup');
+    const summary = getModuleSummary('theme.section');
+    expect(summary).toContain('theme.section');
     expect(summary).toContain('trigger');
   });
 
   it('getAllTypesSummary lists all types', () => {
     const summary = getAllTypesSummary();
-    expect(summary).toContain('theme.banner');
+    expect(summary).toContain('theme.section');
     expect(summary).toContain('flow.automation');
     expect(summary).toContain('customerAccount.blocks');
   });
@@ -68,13 +68,13 @@ describe('MODULE_SUMMARIES', () => {
 describe('classifyUserIntent', () => {
   it('classifies popup-related prompts', () => {
     const result = classifyUserIntent('Show a popup when user tries to leave the page');
-    expect(result.moduleType).toBe('theme.popup');
+    expect(result.moduleType).toBe('theme.section');
     expect(result.confidence).not.toBe('low');
   });
 
   it('classifies banner-related prompts', () => {
     const result = classifyUserIntent('Create a promotional banner for the summer sale');
-    expect(result.moduleType).toBe('theme.banner');
+    expect(result.moduleType).toBe('theme.section');
   });
 
   it('classifies discount-related prompts', () => {
@@ -88,15 +88,15 @@ describe('classifyUserIntent', () => {
   });
 
   it('uses preferredType when provided', () => {
-    const result = classifyUserIntent('something vague', 'theme.notificationBar');
-    expect(result.moduleType).toBe('theme.notificationBar');
+    const result = classifyUserIntent('something vague', 'theme.section');
+    expect(result.moduleType).toBe('theme.section');
     expect(result.confidence).toBe('high');
   });
 
   it('returns clean intent ID for routing (promo.popup for popup prompts)', () => {
     const result = classifyUserIntent('Show a sale popup with a coupon code');
     expect(result.intent).toBe('promo.popup');
-    expect(result.moduleType).toBe('theme.popup');
+    expect(result.moduleType).toBe('theme.section');
   });
 
   it('detects surface: homepage', () => {
@@ -104,38 +104,37 @@ describe('classifyUserIntent', () => {
     expect(result.surface).toBe('home');
   });
 
-  it('falls back to theme.banner for ambiguous prompts', () => {
+  it('falls back to theme.section for ambiguous prompts', () => {
     const result = classifyUserIntent('do something cool');
-    expect(result.moduleType).toBe('theme.banner');
+    expect(result.moduleType).toBe('theme.section');
     expect(result.confidence).toBe('low');
   });
 
-  it('classifies snowfall and winter effect as theme.effect with utility.effect intent', () => {
+  it('classifies snowfall and winter effect as theme.section (effect kind)', () => {
     const snowfall = classifyUserIntent('Add snowfall effect on my store');
-    expect(snowfall.moduleType).toBe('theme.effect');
-    expect(snowfall.intent).toBe('utility.effect');
+    expect(snowfall.moduleType).toBe('theme.section');
     const winter = classifyUserIntent('I want a winter christmas effect');
-    expect(winter.moduleType).toBe('theme.effect');
+    expect(winter.moduleType).toBe('theme.section');
     const confetti = classifyUserIntent('Show confetti on the homepage');
-    expect(confetti.moduleType).toBe('theme.effect');
+    expect(confetti.moduleType).toBe('theme.section');
   });
 });
 
 describe('AI patch plan invariants', () => {
-  const STOREFRONT_TYPES = ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.effect', 'theme.floatingWidget', 'proxy.widget'];
+  const STOREFRONT_TYPES = ['theme.section', 'proxy.widget'];
 
   it('getPromptExpectations returns non-empty for every storefront type', () => {
     for (const type of STOREFRONT_TYPES) {
-      const expectations = getPromptExpectations(type as 'theme.banner');
+      const expectations = getPromptExpectations(type as 'theme.section');
       expect(expectations.length).toBeGreaterThan(50);
       expect(expectations).toContain(type);
     }
   });
 
-  it('getCatalogDetailsForType returns inspiration for theme.effect and proxy.widget', () => {
-    const effectCatalog = getCatalogDetailsForType('theme.effect');
+  it('getCatalogDetailsForType returns inspiration for theme.section and proxy.widget', () => {
+    const effectCatalog = getCatalogDetailsForType('theme.section');
     expect(effectCatalog).not.toBe('No matching catalog entries found.');
-    expect(effectCatalog).toContain('effect');
+    expect(effectCatalog).toContain('section');
     const widgetCatalog = getCatalogDetailsForType('proxy.widget');
     expect(widgetCatalog).not.toBe('No matching catalog entries found.');
     expect(widgetCatalog).toContain('widget');

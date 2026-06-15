@@ -181,10 +181,10 @@ describe('MetaobjectService core operations', () => {
     const service = new MetaobjectService(admin);
 
     const payload = {
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'Banner',
       activationType: 'AUTO',
-      config: { title: 'Hello' },
+      config: { kind: 'banner', title: 'Hello' },
       style: { color: '#000' },
     } as unknown as Parameters<MetaobjectService['upsertModuleObject']>[1];
 

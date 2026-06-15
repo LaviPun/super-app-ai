@@ -399,7 +399,7 @@ export const PIXEL_STANDARD_EVENTS = [
 export const FLOW_EXTENSION_KINDS = ['flow.trigger', 'flow.action', 'flow.template', 'flow.lifecycle_event'] as const;
 
 // ─── RecipeSpec config enums (doc 18) ─────────────────────────────────────────
-/** theme.popup trigger (doc 18.1). */
+/** theme.section overlay/popup trigger (doc 18.1). */
 export const POPUP_TRIGGERS = [
   'ON_LOAD',
   'ON_EXIT_INTENT',
@@ -409,7 +409,7 @@ export const POPUP_TRIGGERS = [
   'ON_CLICK',
   'TIMED',
 ] as const;
-/** theme.popup frequency (doc 18.1). */
+/** theme.section overlay/popup frequency (doc 18.1). */
 export const POPUP_FREQUENCY = [
   'EVERY_VISIT',
   'ONCE_PER_SESSION',
@@ -417,12 +417,8 @@ export const POPUP_FREQUENCY = [
   'ONCE_PER_WEEK',
   'ONCE_EVER',
 ] as const;
-/** theme.popup showOnPages (doc 18.1). */
+/** theme.section overlay/popup showOnPages (doc 18.1). */
 export const POPUP_SHOW_ON_PAGES = ['ALL', 'HOMEPAGE', 'COLLECTION', 'PRODUCT', 'CART', 'CUSTOM'] as const;
-/** theme.contactForm submission destination. */
-export const CONTACT_FORM_SUBMISSION_MODES = ['SHOPIFY_CONTACT', 'APP_PROXY'] as const;
-/** theme.contactForm spam protection mode. */
-export const CONTACT_FORM_SPAM_PROTECTION = ['NONE', 'HONEYPOT'] as const;
 
 /** integration.httpSync + flow.automation base triggers (doc 18.2, 18.3). */
 export const INTEGRATION_HTTP_SYNC_TRIGGERS = [
@@ -488,23 +484,7 @@ export const PROXY_WIDGET_MODES = ['JSON', 'HTML'] as const;
 /** Cart transform mode. */
 export const CART_TRANSFORM_MODES = ['BUNDLE', 'UNBUNDLE'] as const;
 
-/** theme.effect kind (decoration overlay). */
-export const THEME_EFFECT_KINDS = ['snowfall', 'confetti'] as const;
-/** theme.effect intensity (particle density). */
-export const THEME_EFFECT_INTENSITY = ['low', 'medium', 'high'] as const;
-/** theme.effect speed. */
-export const THEME_EFFECT_SPEED = ['slow', 'normal', 'fast'] as const;
-/** theme.effect start trigger — when the effect begins playing. */
-export const THEME_EFFECT_START_TRIGGERS = ['page_load', 'scroll_25', 'exit_intent', 'time_3s', 'time_5s', 'time_10s'] as const;
-/** theme.effect placement — viewport region the overlay covers. */
-export const THEME_EFFECT_PLACEMENTS = ['full_screen', 'top_half', 'bottom_half'] as const;
 
-/** theme.floatingWidget variant — what kind of floating button/widget. */
-export const THEME_FLOATING_WIDGET_VARIANTS = ['whatsapp', 'chat', 'coupon', 'cart', 'scroll_top', 'custom'] as const;
-/** theme.floatingWidget on-click action. */
-export const THEME_FLOATING_WIDGET_ACTIONS = ['open_whatsapp', 'open_url', 'open_popup', 'open_drawer', 'scroll_top'] as const;
-/** theme.floatingWidget anchor position. */
-export const THEME_FLOATING_WIDGET_ANCHORS = ['bottom_right', 'bottom_left', 'top_right', 'top_left', 'bottom_center'] as const;
 
 /** POS block kind. */
 export const POS_BLOCK_KINDS = ['tile', 'modal', 'block', 'action'] as const;
@@ -548,12 +528,11 @@ export type ModuleCategory = (typeof MODULE_CATEGORIES)[number];
 
 // ─── RecipeSpec type discriminators (doc 3.3 + 4.8) — single source for schema and UI ───
 export const RECIPE_SPEC_TYPES = [
-  'theme.banner',
-  'theme.popup',
-  'theme.notificationBar',
-  'theme.contactForm',
-  'theme.effect',
-  'theme.floatingWidget',
+  // Generic, unrestricted storefront section / theme app extension. `config.kind`
+  // is a free-form recommendation tag — merchants can build ANY section, not a
+  // fixed list. The named theme.* types below are retained transitionally and are
+  // being migrated to theme.section presets (see docs/module-system-v2.md).
+  'theme.section',
   'proxy.widget',
   'functions.discountRules',
   'functions.deliveryCustomization',
@@ -579,12 +558,7 @@ export type ModuleType = (typeof RECIPE_SPEC_TYPES)[number];
 
 /** Preferred display order for module types (by category, then logical order). New types not listed fall at end. */
 const MODULE_TYPE_ORDER: ModuleType[] = [
-  'theme.banner',
-  'theme.popup',
-  'theme.notificationBar',
-  'theme.contactForm',
-  'theme.effect',
-  'theme.floatingWidget',
+  'theme.section',
   'proxy.widget',
   'checkout.upsell',
   'checkout.block',
@@ -639,12 +613,7 @@ export type ShopifySurface = (typeof SHOPIFY_SURFACES)[number];
 
 /** Map each RecipeSpec type → category (doc 3.3). */
 export const MODULE_TYPE_TO_CATEGORY: Record<ModuleType, ModuleCategory> = {
-  'theme.banner': 'STOREFRONT_UI',
-  'theme.popup': 'STOREFRONT_UI',
-  'theme.notificationBar': 'STOREFRONT_UI',
-  'theme.contactForm': 'STOREFRONT_UI',
-  'theme.effect': 'STOREFRONT_UI',
-  'theme.floatingWidget': 'STOREFRONT_UI',
+  'theme.section': 'STOREFRONT_UI',
   'proxy.widget': 'STOREFRONT_UI',
   'functions.discountRules': 'FUNCTION',
   'functions.deliveryCustomization': 'FUNCTION',
@@ -668,12 +637,7 @@ export const MODULE_TYPE_TO_CATEGORY: Record<ModuleType, ModuleCategory> = {
 
 /** Map each RecipeSpec type → default capability requires[] (doc 3.3 primary capability). */
 export const MODULE_TYPE_DEFAULT_REQUIRES: Record<ModuleType, readonly string[]> = {
-  'theme.banner': ['THEME_ASSETS'],
-  'theme.popup': ['THEME_ASSETS'],
-  'theme.notificationBar': ['THEME_ASSETS'],
-  'theme.contactForm': ['THEME_ASSETS'],
-  'theme.effect': ['THEME_ASSETS'],
-  'theme.floatingWidget': ['THEME_ASSETS'],
+  'theme.section': ['THEME_ASSETS'],
   'proxy.widget': ['APP_PROXY'],
   'functions.discountRules': ['DISCOUNT_FUNCTION'],
   'functions.deliveryCustomization': ['SHIPPING_FUNCTION'],
@@ -697,12 +661,7 @@ export const MODULE_TYPE_DEFAULT_REQUIRES: Record<ModuleType, readonly string[]>
 
 /** Map each RecipeSpec type → Shopify surface (doc 4.1). */
 export const MODULE_TYPE_TO_SURFACE: Record<ModuleType, ShopifySurface> = {
-  'theme.banner': 'online_store',
-  'theme.popup': 'online_store',
-  'theme.notificationBar': 'online_store',
-  'theme.contactForm': 'online_store',
-  'theme.effect': 'online_store',
-  'theme.floatingWidget': 'online_store',
+  'theme.section': 'online_store',
   'proxy.widget': 'online_store',
   'functions.discountRules': 'checkout',
   'functions.deliveryCustomization': 'checkout',
@@ -792,23 +751,33 @@ export interface ClassificationRule {
   surface?: string;
 }
 export const CLASSIFICATION_RULES: ClassificationRule[] = [
-  { keywords: ['popup', 'pop-up', 'pop up', 'modal', 'overlay', 'lightbox'], type: 'theme.popup' },
+  // Generic section catch-all for custom/novel storefront sections the named presets
+  // don't cover. kind is a recommendation; theme.section can express anything.
+  {
+    keywords: [
+      'section', 'custom section', 'faq', 'accordion', 'lookbook', 'size chart', 'size guide',
+      'comparison table', 'feature grid', 'tabs', 'testimonial', 'gallery', 'image with text',
+      'rich text', 'custom block', 'unique section', 'bespoke section', 'any section',
+    ],
+    type: 'theme.section',
+  },
+  { keywords: ['popup', 'pop-up', 'pop up', 'modal', 'overlay', 'lightbox'], type: 'theme.section' },
   {
     keywords: ['contact form', 'contact us', 'support form', 'inquiry form', 'lead form'],
-    type: 'theme.contactForm',
+    type: 'theme.section', // collapsed: kind 'contactForm'
   },
-  { keywords: ['banner', 'hero', 'hero banner', 'announcement banner'], type: 'theme.banner' },
+  { keywords: ['banner', 'hero', 'hero banner', 'announcement banner'], type: 'theme.section' },
   {
     keywords: ['notification bar', 'announcement bar', 'top bar', 'info bar', 'notice bar'],
-    type: 'theme.notificationBar',
+    type: 'theme.section', // collapsed: kind 'notification-bar'
   },
   {
     keywords: ['snowfall', 'snow', 'confetti', 'winter effect', 'christmas effect', 'decoration', 'seasonal effect', 'full screen effect', 'holiday effect'],
-    type: 'theme.effect',
+    type: 'theme.section', // collapsed: kind 'effect'
   },
   {
     keywords: ['floating button', 'floating widget', 'whatsapp button', 'chat button', 'scroll to top', 'sticky button', 'chat widget', 'whatsapp chat', 'floating chat'],
-    type: 'theme.floatingWidget',
+    type: 'theme.section', // collapsed: kind 'floatingWidget'
   },
   { keywords: ['widget', 'store locator', 'proxy', 'app proxy'], type: 'proxy.widget' },
   {
@@ -869,11 +838,11 @@ export const LIMITS = {
   // RecipeSpec base
   nameMin: 3,
   nameMax: 80,
-  // theme.banner
+  // heading limits (shared by section, contactForm, etc.)
   headingMin: 1,
   headingMax: 80,
   subheadingMax: 200,
-  // theme.popup
+  // theme.section overlay/popup kind (activation: 'overlay')
   popupTitleMin: 1,
   popupTitleMax: 60,
   popupBodyMax: 240,
@@ -883,9 +852,6 @@ export const LIMITS = {
   popupCustomPageUrlMax: 200,
   popupCountdownSecondsMax: 86400,
   popupCountdownLabelMax: 40,
-  // theme.notificationBar
-  notificationBarMessageMin: 1,
-  notificationBarMessageMax: 140,
   // StorefrontStyleSchema
   customCssMax: 2000,
   // Functions rules/bundles

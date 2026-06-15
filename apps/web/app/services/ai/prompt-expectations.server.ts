@@ -10,7 +10,9 @@ import { LIMITS } from '@superapp/core';
  */
 
 /** Purpose + guidance block: anchors the AI on goal, flow, and extras. */
-export const PROMPT_PURPOSE_AND_GUIDANCE = `Purpose: You are generating Shopify storefront modules (popups, banners, notification bars, etc.) that merchants add to their theme. Each module must be a single deployable RecipeSpec JSON object that validates and can ship without manual cleanup. The end user is the shopper.
+export const PROMPT_PURPOSE_AND_GUIDANCE = `Purpose: You are generating Shopify storefront modules that merchants add to their theme. Each module must be a single deployable RecipeSpec JSON object that validates and can ship without manual cleanup. The end user is the shopper.
+
+Storefront sections are NOT limited to a fixed catalog. For ANY custom or novel section (FAQ, lookbook, size chart, hero, comparison table, anything), use type "theme.section": set config.kind to a short recommendation tag (e.g. "faq", "hero", "lookbook", "custom") — kind is a RECOMMENDATION, never a constraint — declare the section's settings in config.fieldSchema with values in config.fields, use config.blocks for repeatable content, and only use config.advancedCustom (sanitized custom HTML/CSS/JS) for truly bespoke markup. The named theme.* types (banner, popup, notificationBar, …) are convenient presets of theme.section; prefer them when they fit, but never force a request into them — reach for theme.section whenever the merchant wants something they don't cover.
 
 Design quality bar: produce premium, conversion-aware UI decisions that are still implementable in RecipeSpec fields. Premium means clear hierarchy, intentional typography, role-based color usage, consistent spacing rhythm, and polished interaction behavior.
 
@@ -52,127 +54,22 @@ export const PREMIUM_OUTPUT_GUARDRAILS = `Premium output guardrails:
  * All config fields (content + controls) go in a single "config" object.
  */
 const EXPECTED_SHAPE_EXAMPLES: Partial<Record<ModuleType, string>> = {
-  'theme.popup': `{
-  "type": "theme.popup",
+  'theme.section': `{
+  "type": "theme.section",
   "name": "string, ${LIMITS.nameMin}-${LIMITS.nameMax} chars",
   "category": "STOREFRONT_UI",
   "requires": ["THEME_ASSETS"],
   "config": {
-    "title": "string, 1-60 chars, required",
-    "body": "string, 0-240, optional",
-    "trigger": "ON_LOAD | ON_EXIT_INTENT | ON_SCROLL_25 | ON_SCROLL_50 | ON_SCROLL_75 | ON_CLICK | TIMED",
-    "delaySeconds": 0,
-    "frequency": "EVERY_VISIT | ONCE_PER_SESSION | ONCE_PER_DAY | ONCE_PER_WEEK | ONCE_EVER",
-    "maxShowsPerDay": 0,
-    "showOnPages": "ALL | HOMEPAGE | COLLECTION | PRODUCT | CART | CUSTOM",
-    "customPageUrls": [],
-    "autoCloseSeconds": 0,
-    "showCloseButton": true,
-    "countdownEnabled": false,
-    "countdownSeconds": 0,
-    "countdownLabel": "",
-    "ctaText": "optional",
-    "ctaUrl": "https://... optional, must be valid URL or omit",
-    "secondaryCtaText": "optional",
-    "secondaryCtaUrl": "optional, valid URL or omit"
-  },
-  "style": { "layout": { "mode": "overlay", "anchor": "center" } }
-}`,
-
-  'theme.banner': `{
-  "type": "theme.banner",
-  "name": "string, ${LIMITS.nameMin}-${LIMITS.nameMax} chars",
-  "category": "STOREFRONT_UI",
-  "requires": ["THEME_ASSETS"],
-  "config": {
-    "heading": "string, 1-80, required",
-    "subheading": "optional",
-    "ctaText": "optional",
-    "ctaUrl": "optional, valid URL or omit",
-    "imageUrl": "optional, valid URL or omit",
-    "enableAnimation": false
-  },
-  "style": { "layout": { "mode": "inline", "anchor": "top" } }
-}`,
-
-  'theme.notificationBar': `{
-  "type": "theme.notificationBar",
-  "name": "string, ${LIMITS.nameMin}-${LIMITS.nameMax} chars",
-  "category": "STOREFRONT_UI",
-  "requires": ["THEME_ASSETS"],
-  "config": {
-    "message": "string, 1-140, required",
-    "linkText": "optional",
-    "linkUrl": "optional, valid URL or omit",
-    "dismissible": true
+    "kind": "free-form recommendation tag, e.g. 'hero' | 'faq' | 'lookbook' | 'notification-bar' | 'custom'",
+    "activation": "section | global | overlay",
+    "title": "optional section title",
+    "fieldSchema": { "fields": [{ "name": "string", "type": "text|textarea|number|boolean|date|url|email|select", "required": false }] },
+    "fields": { "exampleField": "value bound at render" },
+    "blocks": [{ "kind": "string", "text": "optional", "imageUrl": "optional url" }],
+    "advancedCustom": { "customHtml": "optional sanitized HTML", "customJs": "optional sandboxed JS" }
   },
   "style": {}
 }`,
-
-  'theme.contactForm': `{
-  "type": "theme.contactForm",
-  "name": "string, ${LIMITS.nameMin}-${LIMITS.nameMax} chars",
-  "category": "STOREFRONT_UI",
-  "requires": ["THEME_ASSETS"],
-  "config": {
-    "title": "string, 1-80, required",
-    "subtitle": "optional, max 200",
-    "submitLabel": "string, 1-40",
-    "successMessage": "string, 1-200",
-    "errorMessage": "string, 1-200",
-    "submissionMode": "SHOPIFY_CONTACT | APP_PROXY",
-    "proxyEndpointPath": "/apps/superapp/capture",
-    "recipientEmail": "optional email",
-    "showName": true, "showEmail": true, "showPhone": false, "showCompany": false, "showOrderNumber": false, "showSubject": true, "showMessage": true,
-    "nameRequired": true, "emailRequired": true, "phoneRequired": false, "companyRequired": false, "orderNumberRequired": false, "subjectRequired": false, "messageRequired": true,
-    "consentRequired": false, "consentLabel": "optional text",
-    "sendCopyToCustomer": false, "includeCustomerContext": true,
-    "spamProtection": "NONE | HONEYPOT", "honeypotFieldName": "website",
-    "tags": [],
-    "successRedirectUrl": "optional valid URL"
-  },
-  "style": { "layout": { "mode": "inline", "anchor": "top" } }
-}`,
-
-  'theme.effect': `{
-  "type": "theme.effect",
-  "name": "string, ${LIMITS.nameMin}-${LIMITS.nameMax} chars",
-  "category": "STOREFRONT_UI",
-  "requires": ["THEME_ASSETS"],
-  "config": {
-    "effectKind": "snowfall | confetti",
-    "intensity": "low | medium | high",
-    "speed": "slow | normal | fast",
-    "startTrigger": "page_load | scroll_25 | time_3s | time_5s | time_10s",
-    "durationSeconds": 0,
-    "overlayPlacement": "full_screen | header_only | footer_only | above_fold",
-    "reducedMotion": true
-  },
-  "placement": { "enabled_on": { "templates": ["index", "product"] } },
-  "style": { "layout": { "zIndex": "overlay" }, "accessibility": { "reducedMotion": true } }
-}`,
-
-  'theme.floatingWidget': `{
-  "type": "theme.floatingWidget",
-  "name": "string, ${LIMITS.nameMin}-${LIMITS.nameMax} chars",
-  "category": "STOREFRONT_UI",
-  "requires": ["THEME_ASSETS"],
-  "config": {
-    "variant": "whatsapp | chat | coupon | cart | scroll_top | custom",
-    "label": "optional string, 0-60 chars",
-    "iconUrl": "optional, valid https URL or omit",
-    "anchor": "bottom_right | bottom_left | top_right | top_left | bottom_center",
-    "offsetX": 24,
-    "offsetY": 24,
-    "onClick": "open_whatsapp | open_url | open_popup | open_drawer | scroll_top",
-    "message": "optional, 0-500 chars (prefilled WhatsApp/chat text)",
-    "url": "optional, valid https URL or omit",
-    "hideOnMobile": false,
-    "hideOnDesktop": false
-  },
-  "style": { "layout": { "mode": "floating", "zIndex": "overlay" } }
-}`,
-
   'proxy.widget': `{
   "type": "proxy.widget",
   "name": "string, ${LIMITS.nameMin}-${LIMITS.nameMax} chars",
@@ -237,83 +134,19 @@ export const STOREFRONT_STYLE_SCHEMA_SPEC = `Storefront style (optional object).
  * Compiled into the prompt so the AI gets complete validation constraints.
  */
 const FULL_RECIPE_SCHEMA_SPECS: Partial<Record<ModuleType, string>> = {
-  'theme.popup': `theme.popup — full config schema (Zod validation; every field must match):
-Top-level: type="theme.popup", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, style=optional.
-config.title: string, required, ${LIMITS.popupTitleMin}-${LIMITS.popupTitleMax} chars.
-config.body: string, optional, 0-${LIMITS.popupBodyMax} chars.
-config.trigger: enum exactly one of: ON_LOAD, ON_EXIT_INTENT, ON_SCROLL_25, ON_SCROLL_50, ON_SCROLL_75, ON_CLICK, TIMED.
-config.delaySeconds: number, int, 0-${LIMITS.popupDelaySecondsMax}, default 0.
-config.frequency: enum exactly: EVERY_VISIT, ONCE_PER_SESSION, ONCE_PER_DAY, ONCE_PER_WEEK, ONCE_EVER.
-config.maxShowsPerDay: number, int, 0-${LIMITS.popupMaxShowsPerDayMax}, default 0.
-config.showOnPages: enum exactly: ALL, HOMEPAGE, COLLECTION, PRODUCT, CART, CUSTOM.
-config.customPageUrls: array of strings, max ${LIMITS.popupCustomPageUrlsMax} items, each max ${LIMITS.popupCustomPageUrlMax} chars.
-config.autoCloseSeconds: number, int, 0-${LIMITS.popupDelaySecondsMax}, default 0.
-config.showCloseButton: boolean, default true.
-config.countdownEnabled: boolean, default false.
-config.countdownSeconds: number, int, 0-${LIMITS.popupCountdownSecondsMax}, default 0.
-config.countdownLabel: string, max ${LIMITS.popupCountdownLabelMax} chars, default "".
-config.ctaText, config.secondaryCtaText: string, optional, max 40 chars.
-config.ctaUrl, config.secondaryCtaUrl: optional; if present must be valid URL (https), empty string invalid.`,
-
-  'theme.banner': `theme.banner — full config schema (Zod validation):
-Top-level: type="theme.banner", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, style=optional.
-config.heading: string, required, ${LIMITS.headingMin}-${LIMITS.headingMax} chars.
-config.subheading: string, optional, 0-${LIMITS.subheadingMax} chars.
-config.ctaText: string, optional, 0-40 chars.
-config.ctaUrl: optional; if present valid URL (https), empty string invalid.
-config.imageUrl: optional; if present valid URL (https), empty string invalid.
-config.enableAnimation: boolean, default false.`,
-
-  'theme.notificationBar': `theme.notificationBar — full config schema (Zod validation):
-Top-level: type="theme.notificationBar", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, style=optional.
-config.message: string, required, ${LIMITS.notificationBarMessageMin}-${LIMITS.notificationBarMessageMax} chars.
-config.linkText: string, optional, 0-40 chars.
-config.linkUrl: optional; if present valid URL (https), empty string invalid.
-config.dismissible: boolean, default true.`,
-
-  'theme.contactForm': `theme.contactForm — full config schema (Zod validation):
-Top-level: type="theme.contactForm", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, placement=optional, style=optional.
-config.title: string, required, ${LIMITS.headingMin}-${LIMITS.headingMax} chars.
-config.subtitle: string, optional, 0-${LIMITS.subheadingMax} chars.
-config.submitLabel: string, required, 1-40 chars.
-config.successMessage: string, required, 1-${LIMITS.subheadingMax} chars.
-config.errorMessage: string, required, 1-${LIMITS.subheadingMax} chars.
-config.showName/showEmail/showPhone/showCompany/showOrderNumber/showSubject/showMessage: boolean controls for field visibility.
-config.nameRequired/emailRequired/phoneRequired/companyRequired/orderNumberRequired/subjectRequired/messageRequired: boolean required toggles.
-config.consentRequired: boolean. config.consentLabel: string max 120.
-config.submissionMode: enum exactly SHOPIFY_CONTACT | APP_PROXY.
-config.proxyEndpointPath: string path regex ^/[a-z0-9-/]{1,200}$.
-config.recipientEmail: optional valid email.
-config.sendCopyToCustomer: boolean. config.includeCustomerContext: boolean.
-config.spamProtection: enum exactly NONE | HONEYPOT.
-config.honeypotFieldName: string 1-40 chars.
-config.tags: string[] max 20 items, each 1-40 chars.
-config.successRedirectUrl: optional valid URL.`,
-
-  'theme.effect': `theme.effect — full config schema (Zod validation):
-Top-level: type="theme.effect", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, placement=optional, style=optional.
-config.effectKind: enum exactly "snowfall" or "confetti", required.
-config.intensity: enum exactly "low" | "medium" | "high", default "medium".
-config.speed: enum exactly "slow" | "normal" | "fast", default "normal".
-config.startTrigger: enum exactly "page_load" | "scroll_25" | "time_3s" | "time_5s" | "time_10s", default "page_load".
-config.durationSeconds: integer 0-300, default 0 (0 = play indefinitely).
-config.overlayPlacement: enum exactly "full_screen" | "header_only" | "footer_only" | "above_fold", default "full_screen".
-config.reducedMotion: boolean, default true (disable effect when user prefers reduced motion — always set true unless explicit creative reason).`,
-
-  'theme.floatingWidget': `theme.floatingWidget — full config schema (Zod validation):
-Top-level: type="theme.floatingWidget", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, placement=optional, style=optional.
-config.variant: enum exactly "whatsapp" | "chat" | "coupon" | "cart" | "scroll_top" | "custom", required.
-config.label: string, optional, 0-60 chars.
-config.iconUrl: optional URL (https); omit if not needed.
-config.anchor: enum exactly "bottom_right" | "bottom_left" | "top_right" | "top_left" | "bottom_center", default "bottom_right".
-config.offsetX: integer -200..200, default 24.
-config.offsetY: integer -200..200, default 24.
-config.onClick: enum exactly "open_whatsapp" | "open_url" | "open_popup" | "open_drawer" | "scroll_top", default "open_url".
-config.message: string, optional, 0-500 chars (pre-filled text for WhatsApp or chat on click).
-config.url: optional URL (https); required when onClick is open_url or open_whatsapp (wa.me/... format); omit otherwise.
-config.hideOnMobile: boolean, default false.
-config.hideOnDesktop: boolean, default false.
-Style tip: use layout.mode="floating" and layout.zIndex="overlay" so the widget floats over page content.`,
+  'theme.section': `theme.section — generic, UNRESTRICTED storefront section / theme app extension (Zod validation):
+Top-level: type="theme.section", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["THEME_ASSETS"], config={...}, placement=optional, style=optional.
+config.kind: string, free-form recommendation tag (e.g. 'hero' | 'faq' | 'lookbook' | 'banner' | 'popup' | 'notification-bar' | 'custom'). NEVER an enum — build ANY section.
+config.activation: enum section | global | overlay (overlay = popup/modal behavior).
+config.title: string, optional. config.subtitle/body: string, optional.
+config.fieldSchema: { fields: [{ name, type: text|textarea|number|boolean|date|url|email|select, required? }] } — declare typed merchant settings.
+config.fields: object — values for the declared fieldSchema, bound at render.
+config.blocks: array of { kind: string, text?, url?, imageUrl?, fields? } — repeatable content.
+config.advancedCustom: { customHtml?, customCss?, customJs? } — sanitized escape hatch, sandboxed at preview + CSP-bound at deploy.
+Overlay/popup kinds (activation="overlay") may also set: trigger (ON_LOAD|ON_EXIT_INTENT|ON_SCROLL_25|ON_SCROLL_50|ON_SCROLL_75|ON_CLICK|TIMED), delaySeconds(0-${LIMITS.popupDelaySecondsMax}), frequency (EVERY_VISIT|ONCE_PER_SESSION|ONCE_PER_DAY|ONCE_PER_WEEK|ONCE_EVER), maxShowsPerDay(0-${LIMITS.popupMaxShowsPerDayMax}), showOnPages (ALL|HOMEPAGE|COLLECTION|PRODUCT|CART|CUSTOM), customPageUrls(string[] max ${LIMITS.popupCustomPageUrlsMax}), autoCloseSeconds(0-${LIMITS.popupDelaySecondsMax}), showCloseButton(bool), countdownEnabled(bool), countdownSeconds(0-${LIMITS.popupCountdownSecondsMax}), countdownLabel(max ${LIMITS.popupCountdownLabelMax}), ctaText/secondaryCtaText(max 40), ctaUrl/secondaryCtaUrl(valid https URL or omit).
+Contact-form kind (kind="contactForm") may also set: title(${LIMITS.headingMin}-${LIMITS.headingMax}), subtitle(0-${LIMITS.subheadingMax}), submitLabel(1-40), successMessage/errorMessage(1-${LIMITS.subheadingMax}), showName/showEmail/showPhone/showCompany/showOrderNumber/showSubject/showMessage(bool), matching *Required(bool), consentRequired(bool)+consentLabel(max 120), submissionMode(SHOPIFY_CONTACT|APP_PROXY), proxyEndpointPath(^/[a-z0-9-/]{1,200}$), recipientEmail(valid email opt), sendCopyToCustomer/includeCustomerContext(bool), spamProtection(NONE|HONEYPOT), honeypotFieldName(1-40), tags(string[] max 20), successRedirectUrl(valid URL opt).
+Effect kind (kind="effect", activation="overlay") may also set: effectKind(recommend "snowfall"|"confetti" — free-form), intensity("low"|"medium"|"high"), speed("slow"|"normal"|"fast"), startTrigger("page_load"|"scroll_25"|"time_3s"|"time_5s"|"time_10s"), durationSeconds(0-300, 0=indefinite), overlayPlacement("full_screen"|"header_only"|"footer_only"|"above_fold"), reducedMotion(bool — always true unless explicit creative reason).
+Floating-widget kind (kind="floatingWidget", activation="global") may also set: variant("whatsapp"|"chat"|"coupon"|"cart"|"scroll_top"|"custom"), label(0-60), iconUrl(https opt), anchor("bottom_right"|"bottom_left"|"top_right"|"top_left"|"bottom_center"), offsetX/offsetY(-200..200), onClick("open_whatsapp"|"open_url"|"open_popup"|"open_drawer"|"scroll_top"), message(0-500, prefilled WhatsApp/chat text), url(https; required for open_url/open_whatsapp), hideOnMobile/hideOnDesktop(bool). Use style layout.mode="floating", zIndex="overlay".`,
 
   'proxy.widget': `proxy.widget — full config schema (Zod validation):
 Top-level: type="proxy.widget", name=string ${LIMITS.nameMin}-${LIMITS.nameMax} chars, category="STOREFRONT_UI", requires=["APP_PROXY"], config={...}, style=optional.
@@ -349,52 +182,21 @@ export function getModifyPromptExpectations(): string {
  * rather than producing minimal "safe" configs. Each pack lists the fields the AI MUST populate.
  */
 const SETTINGS_PACKS: Partial<Record<ModuleType, string>> = {
-  'theme.popup': `Settings pack — theme.popup MUST include all of these:
-CONTENT: title (clear value proposition), body (optional supporting copy, empty string OK), ctaText (primary action label).
-TRIGGER: trigger (choose based on intent: ON_LOAD for immediate, ON_EXIT_INTENT for cart/engagement, TIMED for delay), delaySeconds (0 unless TIMED), frequency (ONCE_PER_SESSION for most), showOnPages (specific page or ALL).
-CLOSE: showCloseButton (true), autoCloseSeconds (0 unless auto-dismiss is appropriate).
-OPTIONAL but valuable: countdownEnabled + countdownSeconds for urgency; secondaryCtaText for a dismiss link.
-STYLE: set colors, typography, shape, and layout anchor so each of the 3 options looks visually distinct.`,
-
-  'theme.banner': `Settings pack — theme.banner MUST include all of these:
-CONTENT: heading (concise, action-oriented), subheading (supporting detail or empty string), ctaText + ctaUrl (clear destination).
-LAYOUT: style.layout.mode (inline for in-page, sticky for persistent), style.layout.anchor (top or bottom for sticky).
-STYLE: differentiate the 3 options with distinct colors, typography.size, and shape.radius.
-OPTIONAL: imageUrl for a visual banner; enableAnimation for entrance effect.`,
-
-  'theme.notificationBar': `Settings pack — theme.notificationBar MUST include all of these:
-CONTENT: message (concise, 1 sentence, max 140 chars), linkText + linkUrl (optional CTA).
-CONTROLS: dismissible (true by default; set false for critical messages).
-STYLE: sticky top, high-contrast colors. Vary the 3 options by message tone (urgent / friendly / informational) and color scheme.`,
-
-  'theme.contactForm': `Settings pack — theme.contactForm MUST include all of these:
-CONTENT: title, subtitle (optional), submitLabel, successMessage, errorMessage.
-FIELDS: choose visibility + required toggles for name/email/phone/company/orderNumber/subject/message.
-PRIVACY: consentRequired + consentLabel when lead/contact capture is involved.
-SUBMISSION: submissionMode (SHOPIFY_CONTACT for native contact route, APP_PROXY for custom processing), proxyEndpointPath when APP_PROXY.
-ANTI-SPAM: spamProtection + honeypotFieldName (recommended HONEYPOT).
-OPS: tags, includeCustomerContext, sendCopyToCustomer based on merchant needs.
-STYLE: inline layout, readable field spacing, clear primary button contrast.`,
-
-  'theme.effect': `Settings pack — theme.effect MUST include all of these:
-REQUIRED: effectKind (snowfall or confetti based on context), intensity, speed.
-TIMING: startTrigger (page_load for immediate, time_3s/time_5s for delay, scroll_25 for scroll-based), durationSeconds (0 for continuous or 5-30s for burst).
-PLACEMENT: overlayPlacement (full_screen default, header_only for subtle, above_fold for hero-only).
-ACCESSIBILITY: reducedMotion must be true unless merchant explicitly asks otherwise.
-VARY 3 options by: effectKind + intensity + startTrigger + overlayPlacement (e.g. subtle snow header / medium confetti scroll / high confetti full burst).`,
-
-  'theme.floatingWidget': `Settings pack — theme.floatingWidget MUST include all of these:
-VARIANT: variant (choose from whatsapp/chat/coupon/cart/scroll_top/custom based on intent), anchor (default bottom_right), onClick action.
-LABEL: label (short, clear — e.g. "Chat with us", "Get 10% off", "WhatsApp us").
-URL/MESSAGE: url (required for open_url / open_whatsapp variants — use wa.me/... for WhatsApp), message (pre-filled chat text for WhatsApp).
-POSITIONING: offsetX/offsetY (default 24px from corner; adjust for non-default).
-VISIBILITY: hideOnMobile/hideOnDesktop (usually both false unless device-specific UX).
-STYLE: layout.mode="floating", layout.zIndex="overlay"; vary colors and shape across the 3 options.`,
+  'theme.section': `Settings pack — theme.section (generic, build ANYTHING):
+KIND: config.kind = short recommendation tag for the section ("hero", "faq", "lookbook", "feature-grid", "custom"). Recommendation only — never restrict the merchant's intent.
+STRUCTURE (preferred): declare config.fieldSchema.fields = [{ name, type, label?, required?, options? }] for the section's own settings, and put initial values in config.fields. Use config.blocks for repeatable items (each { kind, text?, imageUrl?, url?, fields? }).
+ESCAPE HATCH (only when needed): config.advancedCustom.customHtml / customCss-via-style.customCss / customJs for bespoke markup. It is sanitized + CSP-scoped; do not rely on external scripts.
+ACTIVATION: config.activation = "section" (in-page), "global" (site-wide), or "overlay" (popup/modal behavior).
+OVERLAY/POPUP (when activation="overlay", kind="popup"/"modal"): CONTENT title + body + ctaText; TRIGGER trigger (ON_LOAD/ON_EXIT_INTENT/TIMED…), delaySeconds, frequency (ONCE_PER_SESSION for most), showOnPages; CLOSE showCloseButton(true), autoCloseSeconds(0 unless auto-dismiss); urgency via countdownEnabled+countdownSeconds; secondaryCtaText for a dismiss link.
+CONTACT FORM (when kind="contactForm"): CONTENT title, subtitle (opt), submitLabel, successMessage, errorMessage; FIELDS visibility + required toggles for name/email/phone/company/orderNumber/subject/message; PRIVACY consentRequired + consentLabel; SUBMISSION submissionMode (SHOPIFY_CONTACT native, APP_PROXY custom) + proxyEndpointPath when APP_PROXY; ANTI-SPAM spamProtection + honeypotFieldName (recommended HONEYPOT); OPS tags, includeCustomerContext, sendCopyToCustomer.
+EFFECT (when kind="effect", activation="overlay"): effectKind (snowfall/confetti or other), intensity, speed; TIMING startTrigger (page_load/time_3s/scroll_25), durationSeconds (0 continuous or 5-30s burst); PLACEMENT overlayPlacement (full_screen/header_only/above_fold); ACCESSIBILITY reducedMotion must be true unless merchant asks otherwise.
+FLOATING WIDGET (when kind="floatingWidget", activation="global"): VARIANT variant (whatsapp/chat/coupon/cart/scroll_top/custom), anchor (default bottom_right), onClick action; LABEL short clear label; URL/MESSAGE url (required for open_url/open_whatsapp — wa.me/... for WhatsApp) + message (prefilled chat text); POSITIONING offsetX/offsetY (default 24px); VISIBILITY hideOnMobile/hideOnDesktop; use layout.mode="floating", zIndex="overlay".
+STYLE: set colors, typography, spacing, shape so the section looks intentional and on-brand; for overlays set layout anchor so each option looks visually distinct.`,
 
   'proxy.widget': `Settings pack — proxy.widget MUST include all of these:
 REQUIRED: widgetId (unique lowercase-with-hyphens ID, descriptive — e.g. "loyalty-points-widget"), mode (HTML for rich content, JSON for data), title.
 OPTIONAL: message (introductory text shown above the proxy-rendered content).
-NOTE: proxy.widget uses APP_PROXY — content is rendered server-side; use theme.floatingWidget instead for floating buttons.`,
+NOTE: proxy.widget uses APP_PROXY — content is rendered server-side; use theme.section with kind="floatingWidget" instead for floating buttons.`,
 };
 
 /**

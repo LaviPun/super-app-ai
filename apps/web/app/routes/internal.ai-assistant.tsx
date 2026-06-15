@@ -1035,6 +1035,10 @@ export default function InternalAiAssistantRoute() {
   const sendLockRef = useRef(false);
   const [draft, setDraft] = useState('');
   const [streamingReply, setStreamingReply] = useState('');
+  // Id of the assistant message a finished stream was persisted as. The transient
+  // streaming bubble is cleared only once this message lands in the revalidated
+  // loader data, so the reply never renders twice (bubble + persisted) or flickers.
+  const [streamedAssistantId, setStreamedAssistantId] = useState<string | null>(null);
   const [liveProbes, setLiveProbes] = useState<{
     localMachine: LiveProbe;
     modalRemote: LiveProbe;
@@ -1235,6 +1239,7 @@ export default function InternalAiAssistantRoute() {
     }
     setIsStreaming(true);
     setStreamingReply('');
+    setStreamedAssistantId(null);
     setToolStatus('Starting response...');
     setToolEvents([]);
     setIsReconnecting(false);
@@ -1304,6 +1309,9 @@ export default function InternalAiAssistantRoute() {
             setToolEvents((prev) => [...prev, { name: toolName, ok, at: new Date().toISOString() }]);
           } else if (eventName === 'done') {
             completed = true;
+            if (typeof payload?.assistantMessageId === 'string') {
+              setStreamedAssistantId(payload.assistantMessageId);
+            }
             setStreamMeta({
               target: payload.target,
               backend: payload.backend,
@@ -1324,6 +1332,9 @@ export default function InternalAiAssistantRoute() {
             sawError = true;
             lastErrorMessage = payload.message ?? 'Streaming error';
             setStreamError(lastErrorMessage ?? 'Streaming error');
+            if (typeof payload?.assistantMessageId === 'string') {
+              setStreamedAssistantId(payload.assistantMessageId);
+            }
             setToolStatus(null);
           }
         }
@@ -1360,6 +1371,16 @@ export default function InternalAiAssistantRoute() {
     liveProbes,
     revalidator,
   ]);
+
+  // Drop the transient streaming bubble once its persisted message is in loader
+  // data — prevents the finished reply from rendering twice after revalidation.
+  useEffect(() => {
+    if (!streamedAssistantId) return;
+    if (data.messages.some((m) => m.id === streamedAssistantId)) {
+      setStreamingReply('');
+      setStreamedAssistantId(null);
+    }
+  }, [streamedAssistantId, data.messages]);
 
   const copyToClipboard = useCallback(async (id: string, content: string) => {
     try {

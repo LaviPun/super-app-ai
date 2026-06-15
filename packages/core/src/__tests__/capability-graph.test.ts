@@ -7,7 +7,7 @@ import {
 
 describe('capability graph', () => {
   it('maps theme module types to THEME surface', () => {
-    const node = getCapabilityNode('theme.banner');
+    const node = getCapabilityNode('theme.section');
     expect(node.surface).toBe('THEME');
     expect(node.allowedTargetKinds).toEqual(['THEME']);
   });
@@ -19,8 +19,8 @@ describe('capability graph', () => {
   });
 
   it('enforces target allowlist checks', () => {
-    expect(isTargetAllowedForType('theme.popup', 'THEME')).toBe(true);
-    expect(isTargetAllowedForType('theme.popup', 'PLATFORM')).toBe(false);
+    expect(isTargetAllowedForType('theme.section', 'THEME')).toBe(true);
+    expect(isTargetAllowedForType('theme.section', 'PLATFORM')).toBe(false);
     expect(isTargetAllowedForType('checkout.upsell', 'PLATFORM')).toBe(true);
   });
 

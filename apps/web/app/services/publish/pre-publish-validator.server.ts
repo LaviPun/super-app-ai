@@ -37,11 +37,7 @@ export function validateBeforePublish(
   const errors: ValidationError[] = [];
 
   switch (spec.type) {
-    case 'theme.banner':
-    case 'theme.popup':
-    case 'theme.notificationBar':
-    case 'theme.contactForm':
-    case 'theme.effect':
+    case 'theme.section':
     case 'proxy.widget':
       errors.push(...validateThemeModule(spec, ctx));
       break;
@@ -89,11 +85,7 @@ function validateThemeModule(
   }
 
   if (
-    spec.type === 'theme.banner' ||
-    spec.type === 'theme.popup' ||
-    spec.type === 'theme.notificationBar' ||
-    spec.type === 'theme.contactForm' ||
-    spec.type === 'theme.effect' ||
+    spec.type === 'theme.section' ||
     spec.type === 'proxy.widget'
   ) {
     const s = (spec as { style?: { customCss?: string } }).style;

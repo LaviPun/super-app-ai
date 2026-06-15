@@ -5,6 +5,8 @@ import {
   Checkbox, Banner, Divider, Badge,
 } from '@shopify/polaris';
 import type { RecipeSpec } from '@superapp/core';
+import { SchemaForm, type JsonSchemaNode, type SectionUiHints } from '~/components/SchemaForm';
+import { specToGrouped, groupedToSpec, type GroupedValue } from '~/services/control-packs/config-adapter';
 
 type FieldDef = {
   key: string;
@@ -17,15 +19,9 @@ type FieldDef = {
 };
 
 const CONFIG_FIELDS: Record<string, FieldDef[]> = {
-  'theme.banner': [
-    { key: 'heading', label: 'Heading', type: 'text', maxLength: 80 },
-    { key: 'subheading', label: 'Subheading', type: 'text', maxLength: 200 },
-    { key: 'ctaText', label: 'Primary button text', type: 'text', maxLength: 40 },
-    { key: 'ctaUrl', label: 'Primary button URL', type: 'url' },
-    { key: 'imageUrl', label: 'Image URL', type: 'url', helpText: 'Banner hero image (recommended 800x400)' },
-    { key: 'enableAnimation', label: 'Enable entrance animation', type: 'boolean' },
-  ],
-  'theme.popup': [
+  // theme.section is the generic storefront type; collapsed overlay/popup kinds
+  // keep these config keys top-level, so this rich field set still applies.
+  'theme.section': [
     { key: 'title', label: 'Title', type: 'text', maxLength: 60 },
     { key: 'body', label: 'Body text', type: 'textarea', maxLength: 240 },
     { key: 'trigger', label: 'Trigger', type: 'select', options: [
@@ -64,13 +60,9 @@ const CONFIG_FIELDS: Record<string, FieldDef[]> = {
     { key: 'secondaryCtaText', label: 'Secondary button text', type: 'text', maxLength: 40, helpText: 'Optional second action button' },
     { key: 'secondaryCtaUrl', label: 'Secondary button URL', type: 'url' },
   ],
-  'theme.notificationBar': [
-    { key: 'message', label: 'Message', type: 'text', maxLength: 140 },
-    { key: 'linkText', label: 'Link text', type: 'text', maxLength: 40 },
-    { key: 'linkUrl', label: 'Link URL', type: 'url' },
-    { key: 'dismissible', label: 'Dismissible', type: 'boolean' },
-  ],
-  'theme.contactForm': [
+  // Kind-specific field set for theme.section with kind:'contactForm'. Selected
+  // via the composite `theme.section:contactForm` key (see field selection below).
+  'theme.section:contactForm': [
     { key: 'title', label: 'Form title', type: 'text', maxLength: 80 },
     { key: 'subtitle', label: 'Subtitle', type: 'textarea', maxLength: 200 },
     { key: 'submitLabel', label: 'Submit button text', type: 'text', maxLength: 40 },
@@ -107,7 +99,8 @@ const CONFIG_FIELDS: Record<string, FieldDef[]> = {
     { key: 'honeypotFieldName', label: 'Honeypot field name', type: 'text', maxLength: 40 },
     { key: 'successRedirectUrl', label: 'Success redirect URL', type: 'url' },
   ],
-  'theme.effect': [
+  // theme.section kind:'effect' — selected via composite `theme.section:effect` key.
+  'theme.section:effect': [
     { key: 'effectKind', label: 'Effect kind', type: 'select', options: [
       { label: 'Snowfall', value: 'snowfall' },
       { label: 'Confetti', value: 'confetti' },
@@ -344,27 +337,48 @@ function renderField(
   }
 }
 
+/** v2 control-pack form payload computed in the loader (see admin-form.server.ts). */
+export type V2Form = {
+  jsonSchema: JsonSchemaNode;
+  uiSchema?: Record<string, SectionUiHints>;
+  tier: 'basic' | 'advanced';
+};
+
 export function ConfigEditor({
   spec,
   moduleId,
   adminConfig,
   onSpecChange,
+  engine = 'v1',
+  v2Form = null,
 }: {
   spec: RecipeSpec;
   moduleId: string;
   adminConfig?: { jsonSchema: Record<string, unknown>; uiSchema?: Record<string, unknown>; defaults: Record<string, unknown> } | null;
   onSpecChange?: (spec: RecipeSpec) => void;
+  /** Module System engine. 'v2' renders the grouped, pack-based SchemaForm. */
+  engine?: 'v1' | 'v2';
+  /** Composed control-pack schema for this module type; required for v2 rendering. */
+  v2Form?: V2Form | null;
 }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string; version?: number }>();
   const { revalidate } = useRevalidator();
+  const useV2 = engine === 'v2' && !!v2Form;
 
   // Use AI-generated dynamic fields when available (module has been hydrated)
   const dynamicFields = adminConfig?.jsonSchema
     ? extractDynamicFields(adminConfig.jsonSchema, adminConfig.uiSchema)
     : null;
 
-  // Fall back to static per-type fields when not hydrated
-  const staticFields = CONFIG_FIELDS[spec.type] ?? [];
+  // Fall back to static per-type fields when not hydrated. theme.section is
+  // generic: prefer a kind-specific field set (e.g. contactForm) when present.
+  const sectionKind = spec.type === 'theme.section'
+    ? (spec as { config?: { kind?: string } }).config?.kind
+    : undefined;
+  const staticFields =
+    (sectionKind ? CONFIG_FIELDS[`theme.section:${sectionKind}`] : undefined)
+    ?? CONFIG_FIELDS[spec.type]
+    ?? [];
   const fields = dynamicFields ?? staticFields;
   const isDynamic = dynamicFields !== null;
 
@@ -372,6 +386,20 @@ export function ConfigEditor({
   const [config, setConfig] = useState<Record<string, unknown>>(
     () => ({ ...(spec as any).config }),
   );
+  // v2: grouped, pack-based value mirrored from the spec.
+  const [grouped, setGrouped] = useState<GroupedValue>(() => specToGrouped(spec));
+  const handleGroupedChange = useCallback((next: Record<string, unknown>) => {
+    const g = next as GroupedValue;
+    setGrouped(g);
+    onSpecChange?.(groupedToSpec(spec, g));
+  }, [spec, onSpecChange]);
+  const handleV2Save = useCallback(() => {
+    const updated = groupedToSpec(spec, grouped);
+    fetcher.submit(
+      { spec: JSON.stringify({ ...updated, name }) },
+      { method: 'post', action: `/api/modules/${moduleId}/spec` },
+    );
+  }, [spec, grouped, name, moduleId, fetcher]);
 
   const handleConfigChange = useCallback((key: string, val: unknown) => {
     setConfig(prev => {
@@ -402,6 +430,54 @@ export function ConfigEditor({
   const isSaving = fetcher.state !== 'idle';
   const hasChanges = name !== spec.name ||
     JSON.stringify(config) !== JSON.stringify((spec as any).config);
+
+  // v2 control-pack engine: grouped, tiered, schema-driven editor.
+  if (useV2 && v2Form) {
+    const v2HasChanges =
+      name !== spec.name ||
+      JSON.stringify(grouped) !== JSON.stringify(specToGrouped(spec));
+    return (
+      <Card>
+        <BlockStack gap="400">
+          <InlineStack align="space-between" blockAlign="center">
+            <Text as="h2" variant="headingMd">Module settings</Text>
+            <InlineStack gap="200">
+              <Badge tone="info">{`v2 · ${v2Form.tier}`}</Badge>
+              {fetcher.data?.ok && <Badge tone="success">Saved</Badge>}
+              {fetcher.data?.error && <Badge tone="critical">Error</Badge>}
+            </InlineStack>
+          </InlineStack>
+
+          <TextField
+            label="Module name"
+            value={name}
+            onChange={(val) => { setName(val); onSpecChange?.({ ...spec, name: val } as RecipeSpec); }}
+            autoComplete="off"
+            maxLength={80}
+          />
+
+          <SchemaForm
+            schema={v2Form.jsonSchema}
+            uiSchema={v2Form.uiSchema}
+            value={grouped}
+            onChange={handleGroupedChange}
+            tier={v2Form.tier}
+            disabled={isSaving}
+          />
+
+          {fetcher.data?.error && (
+            <Banner tone="critical"><Text as="p">{fetcher.data.error}</Text></Banner>
+          )}
+
+          <InlineStack align="end">
+            <Button variant="primary" onClick={handleV2Save} loading={isSaving} disabled={!v2HasChanges || isSaving}>
+              Save changes
+            </Button>
+          </InlineStack>
+        </BlockStack>
+      </Card>
+    );
+  }
 
   // No fields at all and not hydrated → prompt to hydrate
   if (fields.length === 0 && spec.type !== 'flow.automation') {

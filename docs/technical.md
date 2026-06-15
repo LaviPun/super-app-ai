@@ -49,11 +49,11 @@ This system uses a **Recipes architecture**:
 
 ## 3. Module types (RecipeSpec)
 
+> **Module System v2:** the named theme.* types (banner, popup, notification-bar, contactForm, effect, floatingWidget) are collapsed into the generic `theme.section`; each is now a free-form `config.kind`. See `docs/module-system-v2.md`.
+
 | Type | Category | Capabilities required |
 |---|---|---|
-| `theme.banner` | STOREFRONT_UI | THEME_ASSETS |
-| `theme.popup` | STOREFRONT_UI | THEME_ASSETS |
-| `theme.notificationBar` | STOREFRONT_UI | THEME_ASSETS |
+| `theme.section` (generic; kinds: banner, popup, notification-bar, contactForm, effect, floatingWidget, …) | STOREFRONT_UI | THEME_ASSETS |
 | `proxy.widget` | STOREFRONT_UI | APP_PROXY |
 | `functions.discountRules` | FUNCTION | DISCOUNT_FUNCTION |
 | `functions.deliveryCustomization` | FUNCTION | SHIPPING_FUNCTION |
@@ -460,7 +460,7 @@ Quota enforcement runs **before** any consuming action (`aiRequest` before AI ge
 
 ## 10b. Storefront UI style system
 
-All storefront UI recipes (`theme.banner`, `theme.popup`, `theme.notificationBar`, `proxy.widget`) accept an optional `style` object (validated by `StorefrontStyleSchema`). The style uses preset enums for safety — no arbitrary CSS values except `customCss` (sanitized + scoped at compile time).
+All storefront UI recipes (`theme.section` of any kind, `proxy.widget`) accept an optional `style` object (validated by `StorefrontStyleSchema`). The style uses preset enums for safety — no arbitrary CSS values except `customCss` (sanitized + scoped at compile time).
 
 **Compile pipeline:**
 ```
@@ -476,7 +476,7 @@ spec.style
 
 **Proxy widget route (`/proxy/:widgetId`):** Reads the `$app:superapp_proxy_widget` metaobject by handle (`superapp-proxy-{widgetId}`) via Admin API and injects the stored `style_css` into a `<style>` block in the returned HTML document.
 
-**Overlay/backdrop controls:** The Style Builder shows backdrop color, backdrop opacity, anchor, and offset controls whenever the layout mode is `overlay`, `sticky`, or `floating` — not just for `theme.popup`.
+**Overlay/backdrop controls:** The Style Builder shows backdrop color, backdrop opacity, anchor, and offset controls whenever the layout mode is `overlay`, `sticky`, or `floating` — not just for the `popup` kind.
 
 ---
 

@@ -55,7 +55,7 @@ describe('MODULE_TEMPLATES integrity', () => {
   it('findTemplate returns the correct template by ID', () => {
     const uao = findTemplate('UAO-001');
     expect(uao).toBeDefined();
-    expect(uao!.spec.type).toBe('theme.banner');
+    expect(uao!.spec.type).toBe('theme.section');
 
     const chk = findTemplate('CHK-037');
     expect(chk).toBeDefined();
@@ -81,13 +81,14 @@ describe('MODULE_TEMPLATES integrity', () => {
 
   it('applies advanced defaults for popup, integration, and flow templates', () => {
     for (const t of MODULE_TEMPLATES) {
-      if (t.spec.type === 'theme.popup') {
-        expect(t.spec.config.trigger).toBeDefined();
-        expect(t.spec.config.frequency).toBeDefined();
-        expect(t.spec.config.maxShowsPerDay).toBeDefined();
-        expect(t.spec.config.showOnPages).toBeDefined();
-        expect(t.spec.config.showCloseButton).toBeDefined();
-        expect(t.spec.config.countdownEnabled).toBeDefined();
+      if (t.spec.type === 'theme.section' && (t.spec.config as { kind?: string }).kind === 'popup') {
+        const cfg = t.spec.config as Record<string, unknown>;
+        expect(cfg.trigger).toBeDefined();
+        expect(cfg.frequency).toBeDefined();
+        expect(cfg.maxShowsPerDay).toBeDefined();
+        expect(cfg.showOnPages).toBeDefined();
+        expect(cfg.showCloseButton).toBeDefined();
+        expect(cfg.countdownEnabled).toBeDefined();
       }
 
       if (t.spec.type === 'integration.httpSync') {
@@ -96,12 +97,13 @@ describe('MODULE_TEMPLATES integrity', () => {
         expect(t.spec.config.payloadMapping.event).toBeDefined();
       }
 
-      if (t.spec.type === 'theme.contactForm') {
-        expect(t.spec.config.submitLabel).toBeDefined();
-        expect(t.spec.config.successMessage).toBeDefined();
-        expect(t.spec.config.errorMessage).toBeDefined();
-        expect(t.spec.config.submissionMode).toBeDefined();
-        expect(t.spec.config.spamProtection).toBeDefined();
+      if (t.spec.type === 'theme.section' && (t.spec.config as { kind?: string }).kind === 'contactForm') {
+        const cfg = t.spec.config as Record<string, unknown>;
+        expect(cfg.submitLabel).toBeDefined();
+        expect(cfg.successMessage).toBeDefined();
+        expect(cfg.errorMessage).toBeDefined();
+        expect(cfg.submissionMode).toBeDefined();
+        expect(cfg.spamProtection).toBeDefined();
       }
 
       if (t.spec.type === 'flow.automation') {

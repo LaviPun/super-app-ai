@@ -29,7 +29,7 @@ describe('Drift check: RECIPE_SPEC_TYPES coverage', () => {
 
   it('every RecipeSpec type has prompt expectations', () => {
     for (const type of RECIPE_SPEC_TYPES) {
-      const exp = getPromptExpectations(type as 'theme.banner');
+      const exp = getPromptExpectations(type as 'theme.section');
       expect(exp, `getPromptExpectations returned empty for ${type}`).toBeTruthy();
       expect(exp.length, `Expectations too short for ${type}`).toBeGreaterThan(30);
     }
@@ -37,8 +37,8 @@ describe('Drift check: RECIPE_SPEC_TYPES coverage', () => {
 
   it('storefront types have full schema specs', () => {
     const storefrontTypes = [
-      'theme.banner', 'theme.popup', 'theme.notificationBar',
-      'theme.effect', 'theme.floatingWidget', 'proxy.widget',
+      'theme.section',
+      'proxy.widget',
     ] as const;
     for (const type of storefrontTypes) {
       const spec = getFullRecipeSchemaSpec(type);
@@ -49,8 +49,8 @@ describe('Drift check: RECIPE_SPEC_TYPES coverage', () => {
 
   it('storefront types return catalog details (not empty)', () => {
     const storefrontTypes = [
-      'theme.banner', 'theme.popup', 'theme.notificationBar',
-      'theme.effect', 'theme.floatingWidget', 'proxy.widget',
+      'theme.section',
+      'proxy.widget',
     ];
     for (const type of storefrontTypes) {
       const catalog = getCatalogDetailsForType(type);
@@ -88,12 +88,12 @@ describe('Drift check: CLEAN_INTENTS and ROUTING_TABLE invariants', () => {
     expect(result.prompt_scaffold_id).not.toBe('tpl_promo_popup_v1');
   });
 
-  it('theme.floatingWidget resolves to utility.floating_widget routing', () => {
+  it('utility.floating_widget intent resolves to floating widget routing scaffold', () => {
     const result = resolveRouting('utility.floating_widget');
     expect(result.prompt_scaffold_id).toBe('tpl_floating_widget_v1');
   });
 
-  it('theme.effect resolves to utility.effect routing (tpl_effect_v1)', () => {
+  it('utility.effect intent resolves to effect routing scaffold (tpl_effect_v1)', () => {
     const result = resolveRouting('utility.effect');
     expect(result.prompt_scaffold_id).toBe('tpl_effect_v1');
   });
@@ -101,20 +101,20 @@ describe('Drift check: CLEAN_INTENTS and ROUTING_TABLE invariants', () => {
 
 // ─── New type coverage ─────────────────────────────────────────────────────────
 
-describe('Drift check: theme.floatingWidget new type is fully registered', () => {
-  it('MODULE_TYPE_TO_INTENT includes theme.floatingWidget', () => {
-    expect(MODULE_TYPE_TO_INTENT['theme.floatingWidget']).toBe('utility.floating_widget');
+describe('Drift check: floatingWidget collapsed into theme.section (kind)', () => {
+  it('theme.floatingWidget is no longer a standalone module-type intent', () => {
+    expect(MODULE_TYPE_TO_INTENT['theme.floatingWidget']).toBeUndefined();
   });
 
-  it('theme.floatingWidget summary contains variant and anchor', () => {
-    const summary = MODULE_SUMMARIES['theme.floatingWidget' as keyof typeof MODULE_SUMMARIES];
+  it('theme.section summary covers the floatingWidget kind (variant + anchor)', () => {
+    const summary = MODULE_SUMMARIES['theme.section'];
     expect(summary).toContain('variant');
     expect(summary).toContain('anchor');
   });
 
-  it('theme.floatingWidget full schema spec is present', () => {
-    const spec = getFullRecipeSchemaSpec('theme.floatingWidget');
-    expect(spec).toContain('theme.floatingWidget');
+  it('theme.section full schema spec documents the floatingWidget kind', () => {
+    const spec = getFullRecipeSchemaSpec('theme.section');
+    expect(spec).toContain('floatingWidget');
     expect(spec).toContain('variant');
     expect(spec).toContain('onClick');
   });

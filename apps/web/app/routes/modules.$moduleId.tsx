@@ -3,7 +3,7 @@ import { useLoaderData, Form, useNavigation, useFetcher, useSearchParams, useRev
 import {
   Page, Card, BlockStack, Text, InlineStack, Button, TextField,
   Banner, Badge, DataTable, Box,
-  Modal, Tabs, Select,
+  Modal, Tabs, Select, Checkbox,
 } from '@shopify/polaris';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { shopify } from '~/shopify.server';
@@ -11,16 +11,20 @@ import { ModuleService } from '~/services/modules/module.service';
 import { RecipeService } from '~/services/recipes/recipe.service';
 import { CapabilityService } from '~/services/shopify/capability.service';
 import { PreviewService } from '~/services/preview/preview.service';
-import { MODULE_CATALOG, isCapabilityAllowed } from '@superapp/core';
+import { MODULE_CATALOG, isCapabilityAllowed, hasManifest } from '@superapp/core';
+import { computeRepublishDiff } from '@superapp/platform-contracts';
+import type { ModuleType } from '@superapp/core';
+import { SettingsService } from '~/services/settings/settings.service';
+import { buildAdminFormConfig } from '~/services/control-packs/admin-form.server';
 import { getTypeDisplayLabel, getTypeTone, getCategoryDisplayLabel } from '~/utils/type-label';
 import { compileRecipe } from '~/services/recipes/compiler';
 import { StyleBuilder } from '~/components/StyleBuilder';
-import { ConfigEditor } from '~/components/ConfigEditor';
+import { ConfigEditor, type V2Form } from '~/components/ConfigEditor';
 import { ThemeService } from '~/services/shopify/theme.service';
 import type { Capability, DeployTarget, RecipeSpec } from '@superapp/core';
 
 function isThemeStorefrontUi(spec: RecipeSpec): boolean {
-  return ['theme.banner', 'theme.popup', 'theme.notificationBar', 'theme.contactForm', 'theme.effect', 'theme.floatingWidget', 'proxy.widget'].includes(spec.type);
+  return ['theme.section', 'proxy.widget'].includes(spec.type);
 }
 
 const DB_STYLES = `
@@ -315,6 +319,31 @@ export async function loader({ request, params }: { request: Request; params: { 
   const publishedVersion = mod.versions.find(v => v.status === 'PUBLISHED') ?? mod.activeVersion ?? null;
   const publishedThemeId = publishedVersion?.targetThemeId ?? null;
 
+  // WS5/026 + WS3/024: idempotent republish preview — what changes if the merchant
+  // republishes the current draft over the live version. Pure config diff; no I/O.
+  const republishDiff = (() => {
+    if (!spec) return null;
+    const draftConfig = ((spec as { config?: Record<string, unknown> }).config ?? {}) as Record<string, unknown>;
+    let existing: { metaobjectId: string; config: Record<string, unknown> } | null = null;
+    if (publishedVersion) {
+      try {
+        const publishedSpec = new RecipeService().parse(publishedVersion.specJson);
+        existing = {
+          metaobjectId: publishedVersion.id,
+          config: ((publishedSpec as { config?: Record<string, unknown> }).config ?? {}) as Record<string, unknown>,
+        };
+      } catch {
+        existing = null;
+      }
+    }
+    return computeRepublishDiff({
+      moduleType: spec.type,
+      metaobjectType: spec.type,
+      existing,
+      next: draftConfig,
+    });
+  })();
+
   // everHydrated: true if any version has hydration data (used client-side to skip auto-trigger)
   const everHydrated = (mod.versions as Array<{ hydratedAt: Date | null }>).some(v => v.hydratedAt != null);
 
@@ -337,7 +366,20 @@ export async function loader({ request, params }: { request: Request; params: { 
       })()
     : { status: 'none' as const, hydratedAt: null, validationReport: null, everHydrated: false };
 
-  return json({ moduleId, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, adminConfig });
+  // Module System v2: when the engine flag is on and this type has a control-pack
+  // manifest, compose the grouped admin-form schema. Defaults to v1 (no change).
+  const engine = (await new SettingsService().get()).moduleSystemVersion;
+  const v2Form: V2Form | null =
+    engine === 'v2' && spec && hasManifest(spec.type as ModuleType)
+      ? (() => {
+          const built = buildAdminFormConfig(spec.type as ModuleType, 'advanced');
+          return built
+            ? ({ jsonSchema: built.jsonSchema, uiSchema: built.uiSchema, tier: 'advanced' } as unknown as V2Form)
+            : null;
+        })()
+      : null;
+
+  return json({ moduleId, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, adminConfig, engine, v2Form, republishDiff });
 }
 
 function getDefaultThemeId(
@@ -352,25 +394,28 @@ function getDefaultThemeId(
 }
 
 export default function ModuleDetail() {
-  const { moduleId, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, adminConfig } =
+  const { moduleId, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, adminConfig, engine, v2Form, republishDiff } =
     useLoaderData<typeof loader>();
   const revalidator = useRevalidator();
   const [searchParams] = useSearchParams();
   const justPublished = searchParams.get('published') === '1';
   const draft = mod.versions.find((v: { status: string }) => v.status === 'DRAFT') ?? mod.activeVersion ?? mod.versions[0];
   const isThemeModule = String(spec?.type ?? '').startsWith('theme.');
+  const isFunctionModule = String(spec?.type ?? '').startsWith('functions.');
   const isAdminBlock = spec?.type === 'admin.block';
   const isBlocked = blockedCapabilities.length > 0;
   const nav = useNavigation();
   const modifyFetcher = useFetcher<{ options?: { index: number; explanation: string; recipe: Record<string, unknown> }[]; error?: string; moduleId?: string }>();
   const modifyConfirmFetcher = useFetcher<{ ok?: boolean; error?: string; version?: number; name?: string }>();
   const hydrateFetcher = useFetcher<{ ok?: boolean; error?: string; validationReport?: { overall: string; checks: { id: string; severity: string; status: string; description: string; howToFix?: string }[] }; hydratedAt?: string }>();
+  const fillSettingsFetcher = useFetcher<{ ok?: boolean; filled?: boolean; message?: string; error?: string; version?: number; diff?: { addedKeys: string[] } }>();
   const publishFetcher = useFetcher<{ error?: string }>();
   const PublishForm = publishFetcher.Form;
   const isPublishing = publishFetcher.state !== 'idle';
   const isModifying = modifyFetcher.state !== 'idle';
   const isModifyConfirming = modifyConfirmFetcher.state !== 'idle';
   const isHydrating = hydrateFetcher.state !== 'idle';
+  const isFillingSettings = fillSettingsFetcher.state !== 'idle';
   const [livePreviewHtml, setLivePreviewHtml] = useState<string | null>(null);
   const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [previewLinkInfo, setPreviewLinkInfo] = useState<{ href: string; target: string; text: string } | null>(null);
@@ -425,6 +470,12 @@ export default function ModuleDetail() {
   }, [hydrateFetcher.data, hydrateFetcher.state, revalidator]);
 
   useEffect(() => {
+    if (fillSettingsFetcher.data?.filled && fillSettingsFetcher.state === 'idle') {
+      revalidator.revalidate();
+    }
+  }, [fillSettingsFetcher.data, fillSettingsFetcher.state, revalidator]);
+
+  useEffect(() => {
     function onMessage(e: MessageEvent) {
       if (e.data?.type === 'preview-link-click') {
         setPreviewLinkInfo({ href: e.data.href, target: e.data.target, text: e.data.text });
@@ -447,6 +498,22 @@ export default function ModuleDetail() {
         .catch(() => {});
     }, 300);
   }, []);
+
+  // WS4/025: Function-preview simulation fixture, driven from the UI. Re-renders
+  // the deterministic Function simulation against the chosen cart/customer context.
+  const [simInput, setSimInput] = useState<{ currency: string; countryCode: string; isPlus: boolean }>({
+    currency: 'USD', countryCode: 'US', isPlus: true,
+  });
+  const runSimulation = useCallback((next: { currency: string; countryCode: string; isPlus: boolean }) => {
+    if (!spec) return;
+    const fd = new FormData();
+    fd.set('spec', JSON.stringify(spec));
+    fd.set('simulation', JSON.stringify(next));
+    fetch('/api/preview', { method: 'POST', body: fd })
+      .then(r => r.json())
+      .then((data: { html?: string }) => { if (data?.html) setLivePreviewHtml(data.html); })
+      .catch(() => {});
+  }, [spec]);
 
   // Auto-trigger hydration only for brand-new modules that have NEVER been hydrated.
   useEffect(() => {
@@ -545,8 +612,12 @@ export default function ModuleDetail() {
           <BlockStack gap="400">
 
             {spec && (
-              <ConfigEditor key={`config-${draft?.id}`} spec={spec} moduleId={moduleId} adminConfig={adminConfig} onSpecChange={handleSpecChange} />
+              <ConfigEditor key={`config-${draft?.id}`} spec={spec} moduleId={moduleId} adminConfig={adminConfig} onSpecChange={handleSpecChange} engine={engine} v2Form={v2Form as V2Form | null} />
             )}
+
+            <InlineStack>
+              <Button url={`/modules/${moduleId}/captures`} variant="plain">View data captures →</Button>
+            </InlineStack>
 
             {spec && isThemeStorefrontUi(spec) && (
               <StyleBuilder key={draft?.id} spec={spec} moduleId={moduleId} onSpecChange={handleSpecChange} />
@@ -626,6 +697,27 @@ export default function ModuleDetail() {
                         </BlockStack>
                       )}
                       <BlockStack gap="200">
+                        <InlineStack gap="200" blockAlign="center" wrap={false}>
+                          <fillSettingsFetcher.Form method="post" action="/api/ai/fill-settings">
+                            <input type="hidden" name="moduleId" value={moduleId} />
+                            <Button submit variant="secondary" size="slim" loading={isFillingSettings} aria-label="Use AI to fill only the settings you haven't set, without overwriting your values">
+                              Fill missing settings
+                            </Button>
+                          </fillSettingsFetcher.Form>
+                          {!isFillingSettings && fillSettingsFetcher.data?.message && (
+                            <Text as="span" variant="bodySm" tone="subdued">{fillSettingsFetcher.data.message}</Text>
+                          )}
+                          {!isFillingSettings && fillSettingsFetcher.data?.filled && (
+                            <Text as="span" variant="bodySm" tone="success">
+                              Filled {fillSettingsFetcher.data.diff?.addedKeys.length ?? 0} setting(s); your values were kept.
+                            </Text>
+                          )}
+                        </InlineStack>
+                        {!isFillingSettings && fillSettingsFetcher.data?.error && (
+                          <Text as="span" variant="bodySm" tone="critical">{fillSettingsFetcher.data.error}</Text>
+                        )}
+                      </BlockStack>
+                      <BlockStack gap="200">
                         <Text as="p" variant="bodySm" fontWeight="semibold">Validation checks</Text>
                         {((hydration.validationReport as { checks: Array<{ id: string; severity: string; status: string; description: string; howToFix?: string }> }).checks).map((c, i) => (
                           <div key={i}>
@@ -659,6 +751,34 @@ export default function ModuleDetail() {
                   <Text as="p" tone="subdued">
                     Publishing deploys the module to your store.{isThemeModule ? ' Select a target theme below.' : ''}
                   </Text>
+                )}
+                {/* WS5/026 + WS3/024: idempotent republish preview — what changes vs the live version. */}
+                {republishDiff && (
+                  <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                    <BlockStack gap="100">
+                      <InlineStack gap="200" blockAlign="center">
+                        <Badge tone={republishDiff.action === 'noop' ? 'success' : republishDiff.action === 'create' ? 'info' : 'attention'}>
+                          {republishDiff.action === 'create' ? 'First publish' : republishDiff.action === 'noop' ? 'No changes' : 'Will update'}
+                        </Badge>
+                        <Text as="span" variant="bodySm" fontWeight="semibold">Republish preview</Text>
+                      </InlineStack>
+                      {republishDiff.action === 'noop' && (
+                        <Text as="p" variant="bodySm" tone="subdued">
+                          This draft matches the live version — republishing is a safe no-op (no duplicate is created).
+                        </Text>
+                      )}
+                      {republishDiff.action === 'create' && (
+                        <Text as="p" variant="bodySm" tone="subdued">
+                          First publish for this module{republishDiff.changedFields.length ? ` — writes ${republishDiff.changedFields.length} setting group(s).` : '.'}
+                        </Text>
+                      )}
+                      {republishDiff.action === 'update' && (
+                        <Text as="p" variant="bodySm" tone="subdued">
+                          Republishing updates {republishDiff.changedFields.length} setting group(s): {republishDiff.changedFields.join(', ')}.
+                        </Text>
+                      )}
+                    </BlockStack>
+                  </Box>
                 )}
                 {publishFetcher.data?.error && !isPublishing && (() => {
                   const err = publishFetcher.data.error;
@@ -822,6 +942,36 @@ export default function ModuleDetail() {
                     <Badge>{hasHtmlPreview ? 'HTML' : 'JSON'}</Badge>
                   </InlineStack>
                 </InlineStack>
+
+                {isFunctionModule && (
+                  <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                    <BlockStack gap="200">
+                      <Text as="p" variant="bodySm" fontWeight="semibold">Simulation context</Text>
+                      <InlineStack gap="300" blockAlign="end" wrap>
+                        <Select
+                          label="Currency"
+                          options={['USD', 'CAD', 'GBP', 'EUR']}
+                          value={simInput.currency}
+                          onChange={(v) => { const next = { ...simInput, currency: v }; setSimInput(next); runSimulation(next); }}
+                        />
+                        <Select
+                          label="Country"
+                          options={['US', 'CA', 'GB', 'DE']}
+                          value={simInput.countryCode}
+                          onChange={(v) => { const next = { ...simInput, countryCode: v }; setSimInput(next); runSimulation(next); }}
+                        />
+                        <Checkbox
+                          label="Shopify Plus store"
+                          checked={simInput.isPlus}
+                          onChange={(v) => { const next = { ...simInput, isPlus: v }; setSimInput(next); runSimulation(next); }}
+                        />
+                      </InlineStack>
+                      <Text as="p" variant="bodySm" tone="subdued">
+                        Drives the deterministic Function simulation (e.g. cart-transform falls back to a non-Plus path when Plus is off).
+                      </Text>
+                    </BlockStack>
+                  </Box>
+                )}
 
                 {hasHtmlPreview && previewMode === 'visual' && (
                   <div style={{ overflow: 'hidden', borderRadius: 12, border: '1px solid var(--p-color-border)', minHeight: 520, background: 'var(--p-color-bg-surface-secondary)' }}>

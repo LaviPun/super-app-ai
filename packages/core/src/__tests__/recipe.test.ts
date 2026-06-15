@@ -2,40 +2,105 @@ import { describe, it, expect } from 'vitest';
 import { RecipeSpecSchema } from '../recipe.js';
 
 describe('RecipeSpecSchema', () => {
-  it('validates a theme.banner recipe', () => {
+  it('validates a theme.section banner recipe', () => {
     const spec = RecipeSpecSchema.parse({
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'Homepage Banner',
       category: 'STOREFRONT_UI',
-      config: { heading: 'Hello', enableAnimation: false }
+      config: { kind: 'banner', fields: { heading: 'Hello', enableAnimation: false } }
     });
-    expect(spec.type).toBe('theme.banner');
+    expect(spec.type).toBe('theme.section');
   });
 
-  it('validates a theme.effect recipe', () => {
+  it('validates a generic theme.section with free-form kind, fields, blocks, and escape hatch', () => {
     const spec = RecipeSpecSchema.parse({
-      type: 'theme.effect',
+      type: 'theme.section',
+      name: 'FAQ Accordion',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'faq', // arbitrary recommendation tag, not an enum
+        activation: 'section',
+        title: 'Frequently asked questions',
+        fieldSchema: { fields: [{ name: 'introText', type: 'text' }] },
+        fields: { introText: 'Answers to common questions.' },
+        blocks: [
+          { kind: 'qa', text: 'Do you ship internationally? Yes.' },
+          { kind: 'qa', text: 'What is your return policy? 30 days.' },
+        ],
+        advancedCustom: { customHtml: '<details><summary>More</summary><p>Details</p></details>' },
+      },
+      placement: { enabled_on: { templates: ['page'] } },
+    });
+    expect(spec.type).toBe('theme.section');
+    if (spec.type === 'theme.section') {
+      expect(spec.config.kind).toBe('faq');
+      expect(spec.config.blocks).toHaveLength(2);
+      expect(spec.config.fieldSchema?.fields[0]?.name).toBe('introText');
+    }
+  });
+
+  it('accepts an arbitrary, never-before-seen section kind (no enum restriction)', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'theme.section',
+      name: 'Constellation Map',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: { kind: 'interactive-constellation-map', activation: 'global' },
+    });
+    expect(spec.type === 'theme.section' && spec.config.kind).toBe('interactive-constellation-map');
+  });
+
+  it('persists v2 advanced popup packs (audience, schedule, advancedCustom)', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'theme.section',
+      name: 'Advanced Popup',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'popup',
+        title: 'VIP offer',
+        trigger: 'ON_EXIT_INTENT',
+        audience: { visitor: 'returning', loggedInOnly: true, customerTags: ['VIP'] },
+        schedule: { daysOfWeek: ['fri', 'sat'], dayStartHour: 18, dayEndHour: 23 },
+        advancedCustom: { customHtml: '<div>hi</div>' },
+      },
+    });
+    expect(spec.type).toBe('theme.section');
+    if (spec.type === 'theme.section') {
+      expect(spec.config.audience?.visitor).toBe('returning');
+      expect(spec.config.schedule?.daysOfWeek).toEqual(['fri', 'sat']);
+      expect(spec.config.advancedCustom?.customHtml).toBe('<div>hi</div>');
+    }
+  });
+
+  it('validates a theme.section effect recipe', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'theme.section',
       name: 'Winter Snowfall',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
-      config: { effectKind: 'snowfall', intensity: 'medium', speed: 'normal' },
+      config: { kind: 'effect', activation: 'overlay', effectKind: 'snowfall', intensity: 'medium', speed: 'normal' },
       style: { accessibility: { reducedMotion: true } },
     });
-    expect(spec.type).toBe('theme.effect');
-    if (spec.type === 'theme.effect') {
+    expect(spec.type).toBe('theme.section');
+    if (spec.type === 'theme.section') {
+      expect(spec.config.kind).toBe('effect');
       expect(spec.config.effectKind).toBe('snowfall');
       expect(spec.config.intensity).toBe('medium');
       expect(spec.config.speed).toBe('normal');
     }
   });
 
-  it('validates a theme.contactForm recipe', () => {
+  it('validates a theme.section contactForm recipe', () => {
     const spec = RecipeSpecSchema.parse({
-      type: 'theme.contactForm',
+      type: 'theme.section',
       name: 'Contact Us',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'contactForm',
+        activation: 'section',
         title: 'Get in touch',
         submitLabel: 'Send message',
         successMessage: 'Thanks! We received your message.',
@@ -43,30 +108,35 @@ describe('RecipeSpecSchema', () => {
         submissionMode: 'SHOPIFY_CONTACT',
       },
     });
-    expect(spec.type).toBe('theme.contactForm');
-  });
-
-  it('theme.effect accepts optional placement and defaults intensity/speed', () => {
-    const spec = RecipeSpecSchema.parse({
-      type: 'theme.effect',
-      name: 'Holiday Confetti',
-      category: 'STOREFRONT_UI',
-      config: { effectKind: 'confetti' },
-    });
-    expect(spec.type).toBe('theme.effect');
-    if (spec.type === 'theme.effect') {
-      expect(spec.config.intensity).toBe('medium');
-      expect(spec.config.speed).toBe('normal');
+    expect(spec.type).toBe('theme.section');
+    if (spec.type === 'theme.section') {
+      expect(spec.config.kind).toBe('contactForm');
+      expect(spec.config.submissionMode).toBe('SHOPIFY_CONTACT');
     }
   });
 
-  it('rejects theme.effect with invalid effectKind', () => {
-    expect(() => RecipeSpecSchema.parse({
-      type: 'theme.effect',
-      name: 'Bad',
+  it('theme.section effect kind preserves effectKind via the open config', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'theme.section',
+      name: 'Holiday Confetti',
       category: 'STOREFRONT_UI',
-      config: { effectKind: 'rain' },
-    })).toThrow();
+      config: { kind: 'effect', activation: 'overlay', effectKind: 'confetti' },
+    });
+    expect(spec.type).toBe('theme.section');
+    if (spec.type === 'theme.section') {
+      expect(spec.config.kind).toBe('effect');
+      expect(spec.config.effectKind).toBe('confetti');
+    }
+  });
+
+  it('accepts an arbitrary effect kind (no enum restriction after collapse)', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'theme.section',
+      name: 'Custom Rain',
+      category: 'STOREFRONT_UI',
+      config: { kind: 'effect', activation: 'overlay', effectKind: 'rain' },
+    });
+    expect(spec.type === 'theme.section' && spec.config.effectKind).toBe('rain');
   });
 
   it('rejects proxy.widget with invalid widgetId', () => {

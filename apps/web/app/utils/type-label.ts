@@ -1,6 +1,6 @@
 /**
  * Module type display: human-readable label and Polaris Badge tone.
- * e.g. theme.banner -> "Theme banner", customerAccount.blocks -> "Customer account blocks"
+ * e.g. theme.section -> "Theme section", customerAccount.blocks -> "Customer account blocks"
  */
 
 export type TypeBadgeTone =
@@ -41,7 +41,7 @@ const NAMESPACE_LABEL: Record<string, string> = {
 
 /**
  * Returns a human-readable label for the module type (sentence-style).
- * theme.banner -> "Theme banner"
+ * theme.section -> "Theme section"
  * functions.cartAndCheckoutValidation -> "Cart and checkout validation"
  * customerAccount.blocks -> "Customer account blocks"
  */
@@ -71,7 +71,7 @@ export function getCategoryDisplayLabel(category: string): string {
   return CATEGORY_LABEL[category] ?? category.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
-/** Returns the last segment only (kept for URL/keys). e.g. "theme.banner" -> "banner" */
+/** Returns the last segment only (kept for URL/keys). e.g. "theme.section" -> "section" */
 export function getTypeShortLabel(fullType: string): string {
   if (!fullType || typeof fullType !== 'string') return fullType ?? '';
   const parts = fullType.trim().split('.');

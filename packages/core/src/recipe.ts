@@ -5,6 +5,10 @@
 import { z } from 'zod';
 import type { Capability } from './capabilities.js';
 import { StorefrontStyleSchema } from './storefront-style.js';
+import { AudiencePackSchema } from './control-packs/packs/audience.pack.js';
+import { SchedulePackSchema } from './control-packs/packs/schedule.pack.js';
+import { AdvancedCustomPackSchema } from './control-packs/packs/advanced-custom.pack.js';
+import { DataModelSchema } from './data-model.js';
 import type { ModuleCategory, ModuleType } from './allowed-values.js';
 import {
   LIMITS,
@@ -19,11 +23,6 @@ import {
   PIXEL_STANDARD_EVENTS,
   MODULE_CATEGORIES,
   RECIPE_SPEC_TYPES,
-  POPUP_TRIGGERS,
-  POPUP_FREQUENCY,
-  POPUP_SHOW_ON_PAGES,
-  CONTACT_FORM_SUBMISSION_MODES,
-  CONTACT_FORM_SPAM_PROTECTION,
   INTEGRATION_HTTP_SYNC_TRIGGERS,
   FLOW_AUTOMATION_TRIGGERS,
   FLOW_STEP_KINDS,
@@ -33,14 +32,6 @@ import {
   BLUEPRINT_SURFACES,
   PROXY_WIDGET_MODES,
   CART_TRANSFORM_MODES,
-  THEME_EFFECT_KINDS,
-  THEME_EFFECT_INTENSITY,
-  THEME_EFFECT_SPEED,
-  THEME_EFFECT_START_TRIGGERS,
-  THEME_EFFECT_PLACEMENTS,
-  THEME_FLOATING_WIDGET_VARIANTS,
-  THEME_FLOATING_WIDGET_ACTIONS,
-  THEME_FLOATING_WIDGET_ANCHORS,
   POS_BLOCK_KINDS,
   HTTP_METHODS,
   HTTP_METHODS_EXTENDED,
@@ -114,155 +105,51 @@ const Base = z.object({
 });
 
 export const RecipeSpecSchema = z.discriminatedUnion('type', [
+  /**
+   * Generic, unrestricted storefront section / theme app extension.
+   * Merchants can build ANY section: `kind` is a free-form recommendation tag
+   * (e.g. 'hero', 'faq', 'lookbook', 'custom'), `fieldSchema` declares the
+   * section's own typed settings (reuses the DataModel field system), `blocks`
+   * holds repeatable content, and `advancedCustom` is the sanitized HTML/CSS/JS
+   * escape hatch. Named theme.* types are presets of this. Not a fixed category.
+   */
   Base.extend({
-    type: z.literal('theme.banner'),
+    type: z.literal('theme.section'),
     category: z.literal('STOREFRONT_UI').default('STOREFRONT_UI'),
     requires: z.array(z.custom<Capability>()).default(['THEME_ASSETS']),
     config: z.object({
-      heading: z.string().min(LIMITS.headingMin).max(LIMITS.headingMax),
-      subheading: z.string().min(0).max(LIMITS.subheadingMax).optional(),
-      ctaText: z.string().min(0).max(40).optional(),
-      ctaUrl: z.string().url().optional(),
-      imageUrl: z.string().url().optional(),
-      enableAnimation: z.boolean().default(false),
-    }),
+      /** Free-form recommendation tag — NOT an enum. Drives preview/recommendations only. */
+      kind: z.string().min(1).max(60).default('custom'),
+      /** How the section activates on the storefront. */
+      activation: z.enum(['section', 'global', 'overlay']).default('section'),
+      title: z.string().max(LIMITS.nameMax).optional(),
+      subtitle: z.string().max(LIMITS.subheadingMax).optional(),
+      /** The section's own typed settings, declared inline (reuses DataModel). */
+      fieldSchema: DataModelSchema.optional(),
+      /** Values for the declared fields, bound at render time. */
+      fields: z.record(z.unknown()).default({}),
+      /** Repeatable content blocks for list/grid-style sections. */
+      blocks: z.array(z.object({
+        kind: z.string().min(1).max(40),
+        text: z.string().max(2000).optional(),
+        imageUrl: z.string().url().optional(),
+        url: z.string().url().optional(),
+        fields: z.record(z.unknown()).optional(),
+      })).max(50).default([]),
+      audience: AudiencePackSchema.optional(),
+      schedule: SchedulePackSchema.optional(),
+      /** Sanitized custom markup/styles/scripts (scoped + CSP-bound at compile/preview). */
+      advancedCustom: AdvancedCustomPackSchema.optional(),
+    // Open section: `.catchall` accepts kind-specific keys (collapsed from the former
+    // named theme.* types) so kind renderers can read them. Structured fields/blocks
+    // remain the recommended path.
+    }).catchall(z.unknown()),
     placement: PlacementSchema,
     style: StorefrontStyleSchema.optional(),
   }),
 
-  Base.extend({
-    type: z.literal('theme.popup'),
-    category: z.literal('STOREFRONT_UI').default('STOREFRONT_UI'),
-    requires: z.array(z.custom<Capability>()).default(['THEME_ASSETS']),
-    config: z.object({
-      title: z.string().min(LIMITS.popupTitleMin).max(LIMITS.popupTitleMax),
-      body: z.string().min(0).max(LIMITS.popupBodyMax).optional(),
-      trigger: z.enum(POPUP_TRIGGERS).default('ON_LOAD'),
-      delaySeconds: z.number().int().min(0).max(LIMITS.popupDelaySecondsMax).default(0),
-      frequency: z.enum(POPUP_FREQUENCY).default('ONCE_PER_DAY'),
-      maxShowsPerDay: z.number().int().min(0).max(LIMITS.popupMaxShowsPerDayMax).default(0),
-      showOnPages: z.enum(POPUP_SHOW_ON_PAGES).default('ALL'),
-      customPageUrls: z.array(z.string().max(LIMITS.popupCustomPageUrlMax)).max(LIMITS.popupCustomPageUrlsMax).default([]),
-      autoCloseSeconds: z.number().int().min(0).max(LIMITS.popupDelaySecondsMax).default(0),
-      showCloseButton: z.boolean().default(true),
-      countdownEnabled: z.boolean().default(false),
-      countdownSeconds: z.number().int().min(0).max(LIMITS.popupCountdownSecondsMax).default(0),
-      countdownLabel: z.string().max(LIMITS.popupCountdownLabelMax).default(''),
-      ctaText: z.string().min(0).max(40).optional(),
-      ctaUrl: z.string().url().optional(),
-      secondaryCtaText: z.string().max(40).optional(),
-      secondaryCtaUrl: z.string().url().optional(),
-    }),
-    placement: PlacementSchema,
-    style: StorefrontStyleSchema.optional(),
-  }),
-
-  Base.extend({
-    type: z.literal('theme.notificationBar'),
-    category: z.literal('STOREFRONT_UI').default('STOREFRONT_UI'),
-    requires: z.array(z.custom<Capability>()).default(['THEME_ASSETS']),
-    config: z.object({
-      message: z.string().min(LIMITS.notificationBarMessageMin).max(LIMITS.notificationBarMessageMax),
-      linkText: z.string().min(0).max(40).optional(),
-      linkUrl: z.string().url().optional(),
-      dismissible: z.boolean().default(true),
-    }),
-    placement: PlacementSchema,
-    style: StorefrontStyleSchema.optional(),
-  }),
-
-  Base.extend({
-    type: z.literal('theme.contactForm'),
-    category: z.literal('STOREFRONT_UI').default('STOREFRONT_UI'),
-    requires: z.array(z.custom<Capability>()).default(['THEME_ASSETS']),
-    config: z.object({
-      title: z.string().min(LIMITS.headingMin).max(LIMITS.headingMax),
-      subtitle: z.string().min(0).max(LIMITS.subheadingMax).optional(),
-      submitLabel: z.string().min(1).max(40).default('Send message'),
-      successMessage: z.string().min(1).max(LIMITS.subheadingMax).default('Thanks! We received your message.'),
-      errorMessage: z.string().min(1).max(LIMITS.subheadingMax).default('Something went wrong. Please try again.'),
-      showName: z.boolean().default(true),
-      showEmail: z.boolean().default(true),
-      showPhone: z.boolean().default(false),
-      showCompany: z.boolean().default(false),
-      showOrderNumber: z.boolean().default(false),
-      showSubject: z.boolean().default(true),
-      showMessage: z.boolean().default(true),
-      nameRequired: z.boolean().default(true),
-      emailRequired: z.boolean().default(true),
-      phoneRequired: z.boolean().default(false),
-      companyRequired: z.boolean().default(false),
-      orderNumberRequired: z.boolean().default(false),
-      subjectRequired: z.boolean().default(false),
-      messageRequired: z.boolean().default(true),
-      consentRequired: z.boolean().default(false),
-      consentLabel: z.string().max(120).default('I agree to be contacted about my request.'),
-      submissionMode: z.enum(CONTACT_FORM_SUBMISSION_MODES).default('SHOPIFY_CONTACT'),
-      proxyEndpointPath: z.string().regex(/^\/[a-z0-9\-\/]{1,200}$/).default('/apps/superapp/capture'),
-      recipientEmail: z.string().email().optional(),
-      sendCopyToCustomer: z.boolean().default(false),
-      includeCustomerContext: z.boolean().default(true),
-      spamProtection: z.enum(CONTACT_FORM_SPAM_PROTECTION).default('HONEYPOT'),
-      honeypotFieldName: z.string().min(1).max(40).default('website'),
-      tags: z.array(z.string().min(1).max(40)).max(20).default([]),
-      successRedirectUrl: z.string().url().optional(),
-    }),
-    placement: PlacementSchema,
-    style: StorefrontStyleSchema.optional(),
-  }),
-
-  Base.extend({
-    type: z.literal('theme.effect'),
-    category: z.literal('STOREFRONT_UI').default('STOREFRONT_UI'),
-    requires: z.array(z.custom<Capability>()).default(['THEME_ASSETS']),
-    config: z.object({
-      effectKind: z.enum(THEME_EFFECT_KINDS),
-      intensity: z.enum(THEME_EFFECT_INTENSITY).default('medium'),
-      speed: z.enum(THEME_EFFECT_SPEED).default('normal'),
-      /** When the effect starts playing. Defaults to page_load. */
-      startTrigger: z.enum(THEME_EFFECT_START_TRIGGERS).default('page_load'),
-      /** How long the effect runs in seconds. 0 = play indefinitely. Max 300. */
-      durationSeconds: z.number().int().min(0).max(300).default(0),
-      /** Viewport region the overlay covers. */
-      overlayPlacement: z.enum(THEME_EFFECT_PLACEMENTS).default('full_screen'),
-      /** Disable effect when user prefers reduced motion. Recommended true. */
-      reducedMotion: z.boolean().default(true),
-    }),
-    placement: PlacementSchema,
-    style: StorefrontStyleSchema.optional(),
-  }),
-
-  Base.extend({
-    type: z.literal('theme.floatingWidget'),
-    category: z.literal('STOREFRONT_UI').default('STOREFRONT_UI'),
-    requires: z.array(z.custom<Capability>()).default(['THEME_ASSETS']),
-    config: z.object({
-      /** What kind of floating widget to render. */
-      variant: z.enum(THEME_FLOATING_WIDGET_VARIANTS).default('custom'),
-      /** Visible label next to the icon. Optional. */
-      label: z.string().min(0).max(60).optional(),
-      /** Icon image URL or a named icon. Optional — themes use a default per variant. */
-      iconUrl: z.string().url().optional(),
-      /** Corner anchor for the widget. */
-      anchor: z.enum(THEME_FLOATING_WIDGET_ANCHORS).default('bottom_right'),
-      /** Horizontal offset from anchor edge in pixels, -200..200. */
-      offsetX: z.number().int().min(-200).max(200).default(24),
-      /** Vertical offset from anchor edge in pixels, -200..200. */
-      offsetY: z.number().int().min(-200).max(200).default(24),
-      /** What happens when the widget is clicked. */
-      onClick: z.enum(THEME_FLOATING_WIDGET_ACTIONS).default('open_url'),
-      /** Pre-filled message for WhatsApp or chat variants. Optional. */
-      message: z.string().min(0).max(500).optional(),
-      /** Destination URL for open_url / open_whatsapp onClick. Must be valid URL when provided. */
-      url: z.string().url().optional(),
-      /** Hide on mobile. */
-      hideOnMobile: z.boolean().default(false),
-      /** Hide on desktop. */
-      hideOnDesktop: z.boolean().default(false),
-    }),
-    placement: PlacementSchema,
-    style: StorefrontStyleSchema.optional(),
-  }),
+  // theme.banner / theme.popup / theme.notificationBar / theme.contactForm collapsed into
+  // theme.section (kind: 'banner' | 'popup' | 'notification-bar' | 'contactForm' | 'effect' | 'floatingWidget') — Module System v2.
 
   Base.extend({
     type: z.literal('proxy.widget'),

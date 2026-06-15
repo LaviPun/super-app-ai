@@ -44,47 +44,22 @@ function runGolden(raw: unknown) {
 }
 
 // ---------------------------------------------------------------------------
-// Golden fixtures — one per module type (14 total)
+// Golden fixtures — one per module type. Overlay/popup is a theme.section kind
+// (kind:'popup'), exercised alongside the generic section fixture below.
 // ---------------------------------------------------------------------------
 
 const GOLDEN: Record<string, unknown> = {
-  'theme.banner': {
-    type: 'theme.banner',
-    name: 'Summer Sale Banner',
-    category: 'STOREFRONT_UI',
-    requires: ['THEME_ASSETS'],
-    config: {
-      heading: 'Summer Sale – 20% Off',
-      subheading: 'Limited time offer',
-      ctaText: 'Shop Now',
-      ctaUrl: 'https://example.com/sale',
-      enableAnimation: false,
-    },
-  },
 
-  'theme.popup': {
-    type: 'theme.popup',
-    name: 'Exit Intent Popup',
-    category: 'STOREFRONT_UI',
-    requires: ['THEME_ASSETS'],
-    config: {
-      title: 'Get 10% Off',
-      body: 'Subscribe and save on your first order',
-      trigger: 'ON_EXIT_INTENT',
-      frequency: 'ONCE_PER_DAY',
-      ctaText: 'Get Code',
-      ctaUrl: 'https://example.com/discount',
-    },
-  },
-
-  'theme.notificationBar': {
-    type: 'theme.notificationBar',
+  'theme.section': {
+    type: 'theme.section',
     name: 'Free Shipping Bar',
     category: 'STOREFRONT_UI',
     requires: ['THEME_ASSETS'],
     config: {
-      message: 'Free shipping on orders over $50',
-      dismissible: true,
+      kind: 'notification-bar',
+      activation: 'global',
+      fields: { message: 'Free shipping on orders over $50', dismissible: true },
+      blocks: [],
     },
   },
 

@@ -10,6 +10,8 @@ import type {
 } from '~/services/recipes/compiler/types';
 import { MetafieldService } from '~/services/shopify/metafield.service';
 import { MetaobjectService } from '~/services/shopify/metaobject.service';
+import { computeRepublishDiff, type ModulePublishPreflightResult } from '@superapp/platform-contracts';
+import { classifyModulePublishability } from '~/services/publish/publish-preflight.server';
 
 const THEME_MODULES_NAMESPACE = 'superapp.theme';
 const THEME_MODULE_REFS_KEY = 'module_refs';
@@ -28,10 +30,42 @@ const CHECKOUT_UPSELL_REFS_KEY = 'upsell_refs';
 const CUSTOMER_ACCOUNT_NAMESPACE = 'superapp.customer_account';
 const CUSTOMER_ACCOUNT_BLOCK_REFS_KEY = 'block_refs';
 
+/**
+ * Thrown when a module is not publishable (WS5/026): `gated` (no publish wiring
+ * yet — "not publishable yet") or `blocked` (a Function type whose wasm extension
+ * isn't deployed). Carries the preflight so callers can surface the reasons and
+ * never report "published" when nothing deploys.
+ */
+export class ModuleNotPublishableError extends Error {
+  readonly code = 'MODULE_NOT_PUBLISHABLE';
+  constructor(readonly preflight: ModulePublishPreflightResult) {
+    super(preflight.reasons[0] ?? `${preflight.moduleType} is not publishable (${preflight.status}).`);
+    this.name = 'ModuleNotPublishableError';
+  }
+}
+
+/**
+ * Function extension handles known to be deployed via `shopify app deploy`
+ * (layer a of the two-layer Functions contract). Declared by operators via
+ * `SHOPIFY_DEPLOYED_FUNCTION_EXTENSIONS` (comma/space separated). Empty by
+ * default, so Function publishes fail loudly until the wasm is actually shipped.
+ */
+function deployedFunctionExtensions(): Set<string> {
+  const raw = process.env.SHOPIFY_DEPLOYED_FUNCTION_EXTENSIONS ?? '';
+  return new Set(raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean));
+}
+
 export class PublishService {
   constructor(private readonly admin: AdminApiContext['admin']) {}
 
-  async publish(spec: RecipeSpec, target: DeployTarget): Promise<{ compiledJson?: string }> {
+  async publish(spec: RecipeSpec, target: DeployTarget): Promise<{ compiledJson?: string; preflight: ModulePublishPreflightResult }> {
+    // WS5/026: never silently no-op. Gate before any deploy work so a caller
+    // cannot report "published" for a type that deploys nothing.
+    const preflight = classifyModulePublishability(spec, { deployedExtensions: deployedFunctionExtensions() });
+    if (!preflight.willDeploy) {
+      throw new ModuleNotPublishableError(preflight);
+    }
+
     const result = compileRecipe(spec, target);
     const {
       ops,
@@ -109,7 +143,7 @@ export class PublishService {
       }
     }
 
-    return { compiledJson };
+    return { compiledJson, preflight };
   }
 
   // ─── Write helpers ─────────────────────────────────────────────────────────
@@ -161,11 +195,24 @@ export class PublishService {
     functionKey: string,
     config: unknown,
   ): Promise<void> {
+    // WS5/026: idempotent republish — skip the write when nothing changed so a
+    // republish is a true no-op (the metaobject is already handle-keyed, so this
+    // also guarantees no duplicates).
+    const next = (config && typeof config === 'object' ? (config as Record<string, unknown>) : {}) as Record<string, unknown>;
+    const existing = await mo.getFunctionConfigByKey(functionKey);
+    const diff = computeRepublishDiff({
+      moduleType: `functions.${functionKey}`,
+      metaobjectType: '$app:superapp_function_config',
+      existing,
+      next,
+    });
+    if (diff.action === 'noop') return;
+
     const refKey = `fn_${functionKey}`;
     await mo.ensureMetafieldDefinition(
       FUNCTIONS_NAMESPACE, refKey, '$app:superapp_function_config', false,
     );
-    const gid = await mo.upsertFunctionConfigObject(functionKey, config);
+    const gid = await mo.upsertFunctionConfigObject(functionKey, next);
     await mo.setModuleRef(FUNCTIONS_NAMESPACE, refKey, gid);
   }
 

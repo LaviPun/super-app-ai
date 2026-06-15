@@ -10,13 +10,16 @@ import type { WorkerJobEnvelope, WorkerProcessorResult } from './processors.js';
 import type { WorkerLogger } from './logger.js';
 
 const STUB_SPEC: RecipeSpec = {
-  type: 'theme.banner',
+  type: 'theme.section',
   name: 'Queue publish stub',
   category: 'STOREFRONT_UI',
-  requires: [],
+  requires: ['THEME_ASSETS'],
   config: {
-    heading: 'Configured via RecipeSpec',
-    enableAnimation: false,
+    kind: 'custom',
+    activation: 'section',
+    title: 'Configured via RecipeSpec',
+    fields: {},
+    blocks: [],
   },
 };
 

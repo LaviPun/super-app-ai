@@ -34,9 +34,9 @@ describe('RecipeDslSchema and compiler', () => {
       schema_version: '1.0',
       id: 'dsl_phase14_popup',
       intentGraph: graph,
-      catalogId: 'type.theme.popup',
+      catalogId: 'type.theme.section',
       recipe: {
-        type: 'theme.popup',
+        type: 'theme.section',
         name: 'Exit Offer',
         config: {
           title: 'Wait before you go',
@@ -53,9 +53,9 @@ describe('RecipeDslSchema and compiler', () => {
 
     expect(result.boundaries.validatedRecipeSpec).toBe(true);
     expect(result.boundaries.deploysMerchantCode).toBe(false);
-    expect(result.recipe.type).toBe('theme.popup');
+    expect(result.recipe.type).toBe('theme.section');
     expect(RecipeSpecSchema.safeParse(result.recipe).success).toBe(true);
-    if (result.recipe.type === 'theme.popup') {
+    if (result.recipe.type === 'theme.section') {
       expect(result.recipe.config.trigger).toBe('ON_EXIT_INTENT');
       expect(result.recipe.placement?.enabled_on?.templates).toEqual(['product']);
     }
@@ -64,14 +64,14 @@ describe('RecipeDslSchema and compiler', () => {
   it('builds DSL from an intent graph and preserves catalog compatibility', () => {
     const graph = buildIntentGraphFromPacket(intentPacket);
     const dsl = buildRecipeDslFromIntentGraph(graph, {
-      type: 'theme.popup',
+      type: 'theme.section',
       name: 'Graph Popup',
       config: { title: 'A graph-derived popup' },
     });
 
     expect(dsl.intentGraph?.id).toBe(graph.id);
-    expect(dsl.catalogId).toBe('type.theme.popup');
-    expect(dsl.recipe.type).toBe('theme.popup');
+    expect(dsl.catalogId).toBe('type.theme.section');
+    expect(dsl.recipe.type).toBe('theme.section');
   });
 
   it('can compile from a compatible existing template', () => {
@@ -80,20 +80,21 @@ describe('RecipeDslSchema and compiler', () => {
       id: 'dsl_template_banner',
       templateId: 'UAO-001',
       recipe: {
-        type: 'theme.banner',
+        type: 'theme.section',
         name: 'Cart Threshold Banner',
         config: {
-          heading: 'Almost there',
+          kind: 'banner',
+          title: 'Almost there',
         },
       },
       steps: [
-        { id: 'set_heading', op: 'set_config', path: 'heading', value: 'Spend $10 more for free shipping' },
+        { id: 'set_title', op: 'set_config', path: 'title', value: 'Spend $10 more for free shipping' },
       ],
     });
 
-    expect(result.recipe.type).toBe('theme.banner');
-    if (result.recipe.type === 'theme.banner') {
-      expect(result.recipe.config.heading).toBe('Spend $10 more for free shipping');
+    expect(result.recipe.type).toBe('theme.section');
+    if (result.recipe.type === 'theme.section') {
+      expect(result.recipe.config.title).toBe('Spend $10 more for free shipping');
     }
   });
 
@@ -102,7 +103,7 @@ describe('RecipeDslSchema and compiler', () => {
       schema_version: '1.0',
       id: 'dsl_unsafe_script',
       recipe: {
-        type: 'theme.banner',
+        type: 'theme.section',
         name: 'Unsafe Banner',
         config: {
           heading: '<script>alert("xss")</script>',
@@ -119,7 +120,7 @@ describe('RecipeDslSchema and compiler', () => {
       schema_version: '1.0',
       id: 'dsl_unsafe_key',
       recipe: {
-        type: 'theme.banner',
+        type: 'theme.section',
         name: 'Unsafe Key',
         config: {
           rawLiquid: 'plain text',
@@ -137,14 +138,14 @@ describe('RecipeDslSchema and compiler', () => {
       compileRecipeDsl({
         schema_version: '1.0',
         id: 'dsl_bad_catalog',
-        catalogId: 'type.theme.popup',
+        catalogId: 'type.theme.section',
         recipe: {
-          type: 'theme.banner',
-          name: 'Mismatched Banner',
-          config: { heading: 'Hello' },
+          type: 'proxy.widget',
+          name: 'Mismatched Widget',
+          config: { widgetId: 'mismatch-widget', title: 'Mismatch' },
         },
       }),
-    ).toThrow(/not theme.banner/);
+    ).toThrow(/not proxy.widget/);
 
     expect(() =>
       compileRecipeDsl({
@@ -152,12 +153,12 @@ describe('RecipeDslSchema and compiler', () => {
         id: 'dsl_bad_template',
         templateId: 'UAO-001',
         recipe: {
-          type: 'theme.popup',
-          name: 'Mismatched Popup',
-          config: { title: 'Hello' },
+          type: 'proxy.widget',
+          name: 'Mismatched Widget',
+          config: { widgetId: 'mismatch-widget', title: 'Mismatch' },
         },
       }),
-    ).toThrow(/not theme.popup/);
+    ).toThrow(/not proxy.widget/);
   });
 
   it('rejects DSL that cannot compile to existing RecipeSpec', () => {
@@ -166,9 +167,9 @@ describe('RecipeDslSchema and compiler', () => {
         schema_version: '1.0',
         id: 'dsl_bad_recipe',
         recipe: {
-          type: 'theme.banner',
-          name: 'Missing Heading',
-          config: {},
+          type: 'proxy.widget',
+          name: 'Invalid Widget',
+          config: { widgetId: 'NO SPACES', title: 'x' },
         },
       }),
     ).toThrow();

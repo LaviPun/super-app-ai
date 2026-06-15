@@ -32,12 +32,7 @@ const ROUTER_CONFIDENCE = {
 } as const;
 
 const MODULE_SETTINGS_FIELDS: Partial<Record<ModuleType, string[]>> = {
-  'theme.popup': ['title', 'trigger', 'frequency', 'showOnPages', 'ctaText'],
-  'theme.banner': ['heading', 'subheading', 'ctaText', 'ctaUrl'],
-  'theme.notificationBar': ['message', 'dismissible'],
-  'theme.contactForm': ['title', 'submitLabel', 'submissionMode', 'spamProtection'],
-  'theme.effect': ['effectKind', 'intensity', 'speed', 'startTrigger'],
-  'theme.floatingWidget': ['variant', 'anchor', 'onClick', 'url'],
+  'theme.section': ['title', 'trigger', 'frequency', 'showOnPages', 'ctaText', 'submitLabel', 'submissionMode', 'spamProtection', 'effectKind', 'intensity', 'speed', 'variant', 'anchor', 'onClick', 'url'],
   'proxy.widget': ['widgetId', 'mode', 'title'],
 };
 

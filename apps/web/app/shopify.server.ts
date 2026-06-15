@@ -6,7 +6,7 @@ import { initOtel } from '~/services/observability/otel.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
 
 initOtel();
-const SHOPIFY_API_VERSION = '2026-01';
+const SHOPIFY_API_VERSION = '2026-04';
 
 if (process.env.NODE_ENV !== 'test') validateEnv();
 

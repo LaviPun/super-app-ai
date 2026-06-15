@@ -52,7 +52,6 @@ export type TemplateInstallability = {
  * (DataCapture/DataStore/external sync) rather than only visual output.
  */
 export const TEMPLATE_TYPES_REQUIRING_DATA_SAVE: ReadonlySet<string> = new Set([
-  'theme.contactForm',
   'flow.automation',
   'integration.httpSync',
   'analytics.pixel',
@@ -74,14 +73,8 @@ function uniqCapabilities(flags: Capability[]): Capability[] {
 
 function getRequiredDataFlagsForType(type: string): Capability[] {
   switch (type) {
-    case 'theme.banner':
-    case 'theme.popup':
-    case 'theme.notificationBar':
-    case 'theme.floatingWidget':
-    case 'theme.effect':
+    case 'theme.section':
       return ['PRODUCT_DATA', 'COLLECTION_DATA', 'METAFIELD_DATA'];
-    case 'theme.contactForm':
-      return ['CUSTOMER_DATA', 'PRODUCT_DATA', 'COLLECTION_DATA', 'METAFIELD_DATA'];
     case 'proxy.widget':
       return ['PRODUCT_DATA', 'COLLECTION_DATA', 'CART_DATA', 'CUSTOMER_DATA'];
     case 'functions.discountRules':
@@ -175,50 +168,9 @@ function withFlowDefaults(spec: RecipeSpec): RecipeSpec {
 }
 
 function withTypeDefaults(spec: RecipeSpec): RecipeSpec {
-  if (spec.type === 'theme.popup') {
-    return {
-      ...spec,
-      config: {
-        ...spec.config,
-        trigger: spec.config.trigger ?? 'ON_EXIT_INTENT',
-        delaySeconds: spec.config.delaySeconds ?? 3,
-        frequency: spec.config.frequency ?? 'ONCE_PER_DAY',
-        maxShowsPerDay: spec.config.maxShowsPerDay ?? 2,
-        showOnPages: spec.config.showOnPages ?? 'ALL',
-        customPageUrls: spec.config.customPageUrls ?? [],
-        autoCloseSeconds: spec.config.autoCloseSeconds ?? 0,
-        showCloseButton: spec.config.showCloseButton ?? true,
-        countdownEnabled: spec.config.countdownEnabled ?? false,
-        countdownSeconds: spec.config.countdownSeconds ?? 0,
-        countdownLabel: spec.config.countdownLabel ?? '',
-        secondaryCtaText: spec.config.secondaryCtaText ?? 'No thanks',
-      },
-    };
-  }
 
-  if (spec.type === 'theme.banner') {
-    return {
-      ...spec,
-      config: {
-        ...spec.config,
-        ctaText: spec.config.ctaText ?? 'Learn more',
-        enableAnimation: spec.config.enableAnimation ?? false,
-      },
-    };
-  }
 
-  if (spec.type === 'theme.notificationBar') {
-    return {
-      ...spec,
-      config: {
-        ...spec.config,
-        dismissible: spec.config.dismissible ?? true,
-        linkText: spec.config.linkText ?? 'Learn more',
-      },
-    };
-  }
-
-  if (spec.type === 'theme.contactForm') {
+  if (spec.type === 'theme.section' && spec.config.kind === 'contactForm') {
     return {
       ...spec,
       config: {
@@ -243,7 +195,7 @@ function withTypeDefaults(spec: RecipeSpec): RecipeSpec {
     };
   }
 
-  if (spec.type === 'theme.floatingWidget') {
+  if (spec.type === 'theme.section' && spec.config.kind === 'floatingWidget') {
     return {
       ...spec,
       config: {
@@ -392,7 +344,8 @@ export function getTemplateReadiness(template: TemplateEntry): TemplateReadiness
   const hasWriteToStore = template.type === 'flow.automation'
     && Array.isArray(cfg.steps)
     && (cfg.steps as Array<{ kind?: string }>).some((s) => s.kind === 'WRITE_TO_STORE');
-  const hasContactCapture = template.type === 'theme.contactForm'
+  const hasContactCapture = template.type === 'theme.section'
+    && cfg.kind === 'contactForm'
     && (cfg.submissionMode === 'APP_PROXY' || cfg.submissionMode === 'SHOPIFY_CONTACT');
   const hasAnalyticsCapture = template.type === 'analytics.pixel';
   const hasExternalSync = template.type === 'integration.httpSync';

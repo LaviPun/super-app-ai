@@ -1,7 +1,10 @@
 import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
-import { generateValidatedRecipeOptions, AiProviderNotConfiguredError } from '~/services/ai/llm.server';
+import { generateValidatedRecipeOptions, modifyRecipeSpec, AiProviderNotConfiguredError } from '~/services/ai/llm.server';
+import { fillMissingSettings } from '~/services/ai/fill-missing-settings.server';
+import { SettingsService } from '~/services/settings/settings.service';
+import type { RecipeSpec } from '@superapp/core';
 import { getPrisma } from '~/db.server';
 import { JobService } from '~/services/jobs/job.service';
 import { withApiLogging } from '~/services/observability/api-log.service';
@@ -12,6 +15,12 @@ import { augmentWithCheapClassifier } from '~/services/ai/cheap-classifier.serve
 import { buildIntentPacket } from '~/services/ai/intent-packet.server';
 import { serializeIntentPacketForPrompt } from '~/services/ai/token-budget.server';
 import { buildPromptRouterDecision } from '~/services/ai/prompt-router.server';
+import { extractRequirementSpec } from '~/services/ai/requirement-spec.server';
+import { searchSolutions } from '~/services/ai/solution-search.server';
+import { ensureStoreAesthetic } from '~/services/theme/ensure-aesthetic.server';
+import { applyStorePalette } from '~/services/theme/apply-store-palette.server';
+import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
+import { computeCoverageReport } from '@superapp/platform-contracts';
 
 /** POST only; GET (e.g. prefetch or redirect) returns 405. */
 export async function loader() {
@@ -33,6 +42,8 @@ export async function action({ request }: { request: Request }) {
       const preferredType = String(form.get('preferredType') ?? 'Auto').trim();
       const preferredCategory = String(form.get('preferredCategory') ?? 'Auto').trim();
       const preferredBlockType = String(form.get('preferredBlockType') ?? 'Auto').trim();
+      // Default on: match generated storefront sections to the live theme palette.
+      const matchStoreColors = String(form.get('matchStoreColors') ?? 'true').trim() !== 'false';
 
       const constraints: string[] = [];
       if (preferredType && preferredType !== 'Auto') {
@@ -91,11 +102,34 @@ export async function action({ request }: { request: Request }) {
         operationClass: 'P0_CREATE',
       });
 
+      // WS1/022: structured requirement (deterministic — no extra LLM hop) +
+      // search-augmented grounding from existing templates.
+      const requirementSpec = await extractRequirementSpec({
+        userRequest: prompt,
+        classification,
+        intentPacket,
+      });
+      const { startFrom, grounding } = searchSolutions(requirementSpec);
+
+      // For storefront sections, make sure we have the live theme palette so the
+      // generated section matches the store's real colors. Best-effort + time-boxed.
+      const isStorefrontType =
+        classification.moduleType === 'theme.section' || classification.moduleType === 'proxy.widget';
+      if (isStorefrontType) {
+        await ensureStoreAesthetic({ admin, shopId: shopRow.id });
+      }
+
       const jobs = new JobService();
       const job = await jobs.create({
         shopId: shopRow.id,
         type: 'AI_GENERATE',
-        payload: { promptLen: prompt.length, classifiedType: classification.moduleType, intent: intentPacket.classification.intent },
+        payload: {
+          promptLen: prompt.length,
+          classifiedType: classification.moduleType,
+          intent: intentPacket.classification.intent,
+          requirementSpec,
+          startFromIds: startFrom.map((s) => s.templateId),
+        },
       });
       await jobs.start(job.id);
 
@@ -110,9 +144,79 @@ export async function action({ request }: { request: Request }) {
           confidenceScore: intentPacket.classification.confidence,
           promptProfile: intentPacket.routing.prompt_profile,
           routerDecision,
+          groundingBlock: grounding || undefined,
         });
 
-        await jobs.succeed(job.id, { optionCount: recipeOptions.length, type: classification.moduleType });
+        // WS1/022: coverage of must-have controls by the best option's config.
+        // Control-pack namespaces ARE the top-level config keys, so coverage is
+        // exact for v2 control-pack types (theme.section et al).
+        let bestConfig = (recipeOptions[0]?.recipe as { config?: Record<string, unknown> } | undefined)?.config ?? {};
+        let coverage = computeCoverageReport({
+          moduleType: requirementSpec.moduleType,
+          mustHaveControls: requirementSpec.mustHaveControls,
+          presentControls: Object.keys(bestConfig),
+        });
+
+        // WS1/022 + WS3/024: when the v2 engine is on and the best option is
+        // missing must-have control packs, auto-invoke fill-missing once to
+        // complete it (≤1 extra LLM call, only on incomplete coverage). Flag-gated
+        // so the v1 generation path is unchanged.
+        let autoFilled = false;
+        const engine = (await new SettingsService().get()).moduleSystemVersion;
+        if (engine === 'v2' && recipeOptions[0] && !coverage.complete && coverage.missing.length > 0) {
+          try {
+            const bestRecipe = recipeOptions[0].recipe as RecipeSpec;
+            const fill = await fillMissingSettings(
+              {
+                moduleId: `pending:${job.id}`,
+                moduleType: requirementSpec.moduleType,
+                currentConfig: bestConfig,
+                expectedControls: requirementSpec.mustHaveControls,
+                merchantSetKeys: [], // nothing merchant-set at create time
+              },
+              async (missingKeys) => {
+                const instruction =
+                  `Add the following missing setting groups so the module is complete: ${missingKeys.join(', ')}. ` +
+                  `Fill them with sensible, production-ready values; keep every existing field unchanged and keep the module type "${requirementSpec.moduleType}".`;
+                const modified = await modifyRecipeSpec(bestRecipe, instruction, { shopId: shopRow.id, maxAttempts: 2 });
+                const modifiedConfig = ((modified as { config?: Record<string, unknown> }).config ?? {}) as Record<string, unknown>;
+                const picked: Record<string, unknown> = {};
+                for (const key of missingKeys) {
+                  if (Object.prototype.hasOwnProperty.call(modifiedConfig, key)) picked[key] = modifiedConfig[key];
+                }
+                return picked;
+              },
+            );
+            if (fill.diff.addedKeys.length > 0) {
+              bestConfig = fill.config;
+              (recipeOptions[0].recipe as { config?: Record<string, unknown> }).config = fill.config;
+              coverage = computeCoverageReport({
+                moduleType: requirementSpec.moduleType,
+                mustHaveControls: requirementSpec.mustHaveControls,
+                presentControls: Object.keys(bestConfig),
+              });
+              autoFilled = true;
+            }
+          } catch {
+            // Auto-fill is best-effort — never fail generation if it can't complete.
+          }
+        }
+
+        // Snap generated storefront sections onto the live store palette so they
+        // match the merchant's theme. Conservative: never clobbers colors the
+        // model chose deliberately (see applyStorePalette).
+        let paletteMatched = false;
+        if (matchStoreColors && isStorefrontType) {
+          const aesthetic = await loadStoreAesthetic(shopRow.id);
+          if (aesthetic) {
+            for (const opt of recipeOptions) {
+              applyStorePalette(opt.recipe as RecipeSpec, aesthetic.palette);
+            }
+            paletteMatched = true;
+          }
+        }
+
+        await jobs.succeed(job.id, { optionCount: recipeOptions.length, type: classification.moduleType, autoFilled, paletteMatched });
 
         const confidence = intentPacket.classification.confidence;
         const band =
@@ -133,6 +237,11 @@ export async function action({ request }: { request: Request }) {
             routing: intentPacket.routing,
           },
           routerDecision,
+          requirementSpec,
+          coverage,
+          autoFilled,
+          paletteMatched,
+          startFrom,
           options: recipeOptions.map((opt, i) => ({
             index: i,
             explanation: opt.explanation,

@@ -24,7 +24,7 @@ const HAS_KEY = Boolean(process.env.OPENAI_API_KEY?.trim() || process.env.ANTHRO
 
 const PROMPTS: Array<{ moduleType: ModuleType; prompts: string[] }> = [
   {
-    moduleType: 'theme.banner',
+    moduleType: 'theme.section',
     prompts: [
       'Show a sitewide announcement banner for free shipping over $50',
       'Promote our summer sale with a banner at the top of the homepage',
@@ -32,7 +32,7 @@ const PROMPTS: Array<{ moduleType: ModuleType; prompts: string[] }> = [
     ],
   },
   {
-    moduleType: 'theme.popup',
+    moduleType: 'theme.section',
     prompts: [
       'Capture emails on exit intent with a 10% discount popup',
       'Show a welcome popup on first visit with a coupon code',
@@ -40,7 +40,7 @@ const PROMPTS: Array<{ moduleType: ModuleType; prompts: string[] }> = [
     ],
   },
   {
-    moduleType: 'theme.notificationBar',
+    moduleType: 'theme.section',
     prompts: [
       'Notify shoppers about free shipping over $50',
       'Announce a flash 24-hour sale at the top of the page',

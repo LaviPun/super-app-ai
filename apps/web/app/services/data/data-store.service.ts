@@ -1,5 +1,15 @@
 import { getPrisma } from '~/db.server';
 import { persistJsonSafely } from '~/services/observability/redact.server';
+import { parseDataModel, validateRecord } from '@superapp/core';
+
+/** Thrown when a record payload fails the store's typed schema (DataStore.schemaJson). */
+export class RecordValidationError extends Error {
+  readonly code = 'RECORD_VALIDATION_FAILED';
+  constructor(message: string) {
+    super(message);
+    this.name = 'RecordValidationError';
+  }
+}
 
 export type PredefinedStore = {
   key: string;
@@ -107,6 +117,13 @@ export class DataStoreService {
     data: { externalId?: string; title?: string; payload: unknown; piiFlags?: unknown; customerId?: string },
   ) {
     const prisma = getPrisma();
+    // Typed validation when the store declares a schema (Module System v2).
+    const store = await prisma.dataStore.findUnique({ where: { id: dataStoreId }, select: { schemaJson: true } });
+    const model = parseDataModel(store?.schemaJson ?? null);
+    if (model) {
+      const result = validateRecord(model, data.payload);
+      if (!result.ok) throw new RecordValidationError(result.error ?? 'Record failed validation');
+    }
     return prisma.dataStoreRecord.create({
       data: {
         dataStoreId,

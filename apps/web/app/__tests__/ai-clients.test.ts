@@ -23,13 +23,13 @@ describe('OpenAI Responses client', () => {
       model: 'gpt-5-mini',
       output: [{
         type: 'message',
-        content: [{ type: 'output_text', text: '{"type":"theme.banner","name":"X","config":{"heading":"Hi","enableAnimation":false}}' }]
+        content: [{ type: 'output_text', text: '{"type":"theme.section","name":"X","config":{"heading":"Hi","enableAnimation":false}}' }]
       }],
       usage: { input_tokens: 10, output_tokens: 20 }
     }, { 'x-request-id': 'req_123' });
 
     const r = await openAiGenerateRecipe({ apiKey: 'k', model: 'gpt-5-mini', prompt: 'make banner' });
-    expect(r.rawJson).toContain('theme.banner');
+    expect(r.rawJson).toContain('theme.section');
     expect(r.tokensIn).toBe(10);
     expect(r.tokensOut).toBe(20);
   });
@@ -82,7 +82,7 @@ describe('OpenAI-compatible client', () => {
   it('uses responses endpoint if available', async () => {
     mockFetchOnce(200, {
       model: 'x',
-      output: [{ type: 'message', content: [{ type: 'output_text', text: '{"type":"theme.banner","name":"X","config":{"heading":"Hi","enableAnimation":false}}' }] }],
+      output: [{ type: 'message', content: [{ type: 'output_text', text: '{"type":"theme.section","name":"X","config":{"heading":"Hi","enableAnimation":false}}' }] }],
       usage: { input_tokens: 1, output_tokens: 2 }
     });
 
@@ -118,7 +118,7 @@ describe('Gemini client', () => {
         headers: new Map(),
         text: async () => JSON.stringify({
           modelVersion: 'gemini-2.5-flash',
-          candidates: [{ content: { parts: [{ text: '{"type":"theme.banner","name":"G","config":{"heading":"Hi","enableAnimation":false}}' }] } }],
+          candidates: [{ content: { parts: [{ text: '{"type":"theme.section","name":"G","config":{"heading":"Hi","enableAnimation":false}}' }] } }],
           usageMetadata: { promptTokenCount: 11, candidatesTokenCount: 22 },
         }),
       };
@@ -126,7 +126,7 @@ describe('Gemini client', () => {
 
     const { geminiGenerateRecipe } = await import('~/services/ai/clients/gemini.client.server');
     const r = await geminiGenerateRecipe({ apiKey: 'gkey', model: 'gemini-2.5-flash', prompt: 'make banner' });
-    expect(r.rawJson).toContain('theme.banner');
+    expect(r.rawJson).toContain('theme.section');
     expect(r.tokensIn).toBe(11);
     expect(r.tokensOut).toBe(22);
     expect(r.model).toBe('gemini-2.5-flash');

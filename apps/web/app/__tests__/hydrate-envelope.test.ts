@@ -5,7 +5,7 @@ import { buildHydratePrompt } from '~/services/ai/hydrate-prompt.server';
 const validEnvelope = {
   version: '1.0',
   moduleKey: 'exit-intent-popup',
-  recipeRef: { type: 'theme.popup', name: 'Exit Intent Popup', category: 'STOREFRONT_UI' },
+  recipeRef: { type: 'theme.section', name: 'Exit Intent Popup', category: 'STOREFRONT_UI' },
   summary: 'An exit-intent popup for email capture.',
   assumptions: ['OS 2.0 theme', 'Theme App Extension available'],
   adminConfig: {
@@ -91,29 +91,29 @@ describe('HydrateEnvelopeSchema', () => {
 describe('buildHydratePrompt', () => {
   it('includes RecipeSpec JSON in prompt', () => {
     const spec = {
-      type: 'theme.popup',
+      type: 'theme.section',
       name: 'Test Popup',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
-      config: { title: 'Hi', body: '', trigger: 'ON_LOAD', delaySeconds: 0, frequency: 'ONCE_PER_DAY', maxShowsPerDay: 0, showOnPages: 'ALL', customPageUrls: [], autoCloseSeconds: 0, showCloseButton: true, countdownEnabled: false, countdownSeconds: 0, countdownLabel: '', ctaText: '', ctaUrl: '', secondaryCtaText: '',       secondaryCtaUrl: '' },
+      config: { kind: 'popup', activation: 'overlay', fields: {}, blocks: [], title: 'Hi', body: '', trigger: 'ON_LOAD', delaySeconds: 0, frequency: 'ONCE_PER_DAY', maxShowsPerDay: 0, showOnPages: 'ALL', customPageUrls: [], autoCloseSeconds: 0, showCloseButton: true, countdownEnabled: false, countdownSeconds: 0, countdownLabel: '', ctaText: '', ctaUrl: '', secondaryCtaText: '',       secondaryCtaUrl: '' },
     } as Parameters<typeof buildHydratePrompt>[0];
     const prompt = buildHydratePrompt(spec);
-    expect(prompt).toContain('theme.popup');
+    expect(prompt).toContain('theme.section');
     expect(prompt).toContain('Test Popup');
     expect(prompt).toContain('HydrateEnvelope');
     expect(prompt).toContain('validationReport');
   });
 
   it('includes merchant context and type-specific guidance when provided', () => {
-    const spec = { type: 'theme.popup', name: 'X', category: 'STOREFRONT_UI', requires: [], config: {} } as unknown as Parameters<typeof buildHydratePrompt>[0];
+    const spec = { type: 'theme.section', name: 'X', category: 'STOREFRONT_UI', requires: [], config: { kind: 'popup', activation: 'overlay' } } as unknown as Parameters<typeof buildHydratePrompt>[0];
     const prompt = buildHydratePrompt(spec, { planTier: 'GROWTH', locale: 'fr' });
     expect(prompt).toContain('plan=GROWTH');
     expect(prompt).toContain('locale=fr');
-    expect(prompt).toMatch(/mobile fallback|Popup/);
+    expect(prompt).toMatch(/mobile fallback|Popup|Section/);
   });
 
   it('references version 1.0 and adminConfig in prompt', () => {
-    const spec = { type: 'theme.banner', name: 'B', category: 'STOREFRONT_UI', requires: [], config: {} } as unknown as Parameters<typeof buildHydratePrompt>[0];
+    const spec = { type: 'theme.section', name: 'B', category: 'STOREFRONT_UI', requires: [], config: {} } as unknown as Parameters<typeof buildHydratePrompt>[0];
     const prompt = buildHydratePrompt(spec);
     expect(prompt).toContain('"1.0"');
     expect(prompt).toContain('adminConfig');

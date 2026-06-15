@@ -118,7 +118,7 @@ const validRouteBody = {
   shopDomain: 'tenant-a.myshopify.com',
   operationClass: 'P0_CREATE' as const,
   classification: {
-    moduleType: 'theme.popup',
+    moduleType: 'theme.section',
     intent: 'promo.popup',
     surface: 'home',
     confidence: 0.7,
@@ -278,7 +278,7 @@ describe('internal-ai-router /route happy path and guards', () => {
     upstreamProcess = await startUpstreamOllama();
     const modelDecision = {
       version: '1.0',
-      moduleType: 'theme.popup',
+      moduleType: 'theme.section',
       confidence: 0.72,
       intent: 'promo.popup',
       surface: 'home',
@@ -325,7 +325,7 @@ describe('internal-ai-router /route happy path and guards', () => {
     expect(response.status).toBe(200);
     const payload = (await response.json()) as Record<string, unknown>;
     expect(payload.version).toBe('1.0');
-    expect(payload.moduleType).toBe('theme.popup');
+    expect(payload.moduleType).toBe('theme.section');
     expect(typeof payload.confidence).toBe('number');
     expect(payload.includeFlags).toMatchObject({ includeSettingsPack: true });
     expect(upstreamProcess.calls).toBeGreaterThanOrEqual(1);

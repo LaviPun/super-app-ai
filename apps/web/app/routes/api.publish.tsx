@@ -7,7 +7,7 @@ export async function loader() {
 import { shopify } from '~/shopify.server';
 import { ModuleService } from '~/services/modules/module.service';
 import { RecipeService } from '~/services/recipes/recipe.service';
-import { PublishService } from '~/services/publish/publish.service';
+import { PublishService, ModuleNotPublishableError } from '~/services/publish/publish.service';
 import { validateBeforePublish } from '~/services/publish/pre-publish-validator.server';
 import { ThemeService } from '~/services/shopify/theme.service';
 import { CapabilityService } from '~/services/shopify/capability.service';
@@ -268,6 +268,20 @@ export async function action({ request }: { request: Request }) {
         return redirect(`/modules/${module.id}?published=1`);
       } catch (e) {
         await jobs.fail(job.id, e);
+        // WS5/026: gated/blocked modules fail loudly — never reported as published.
+        if (e instanceof ModuleNotPublishableError) {
+          await logRequestOutcome({ shopId: shopRow?.id, pathOrIntent: '/api/publish', success: false, details: { error: e.message, status: e.preflight.status } });
+          return json(
+            {
+              error: e.message,
+              code: e.code,
+              status: e.preflight.status,
+              reasons: e.preflight.reasons,
+              requiresExtension: e.preflight.requiresExtension,
+            },
+            { status: 422 },
+          );
+        }
         const message = toErrorMessage(e);
         await logRequestOutcome({ shopId: shopRow?.id, pathOrIntent: '/api/publish', success: false, details: { error: message } });
         return json({ error: message }, { status: 500 });

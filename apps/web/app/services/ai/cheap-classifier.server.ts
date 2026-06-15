@@ -25,11 +25,7 @@ Valid moduleType values:
 ${RECIPE_SPEC_TYPES.join(', ')}
 
 Rules:
-- theme.popup: popups, modals, overlays, lightboxes
-- theme.banner: banners, hero banners, image+text blocks
-- theme.notificationBar: announcement bars, top bars, info bars
-- theme.effect: snow, confetti, seasonal/holiday decorations, visual effects
-- theme.floatingWidget: floating buttons, WhatsApp chat, scroll-to-top, chat bubbles
+- theme.section: ANY storefront section, theme app extension, or overlay — banners, hero/image+text blocks, popups/modals/overlays/lightboxes (kind:'popup', activation:'overlay'), notification/announcement bars, contact/lead forms (kind:'contactForm'), snow/confetti/seasonal decorations (kind:'effect', activation:'overlay'), floating buttons/WhatsApp chat/scroll-to-top/chat bubbles (kind:'floatingWidget', activation:'global'), FAQ, lookbook, feature grids, and ANY custom/novel section. kind is a free-form recommendation, never a restriction.
 - proxy.widget: server-rendered widgets via app proxy
 - functions.*: Shopify Functions (discounts, delivery, payments, validation, cart transforms)
 - checkout.*: checkout UI extensions (upsell blocks, informational blocks)

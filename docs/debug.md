@@ -826,3 +826,19 @@ Replaced the hardcoded field renderer with a fully generic renderer that iterate
 - All other values → `<s-text>` with label prefix
 
 **Rule:** Never hardcode expected field names in UI extension renderers. AI generates arbitrary config schemas — the renderer must be schema-agnostic.
+
+## §19 — "Previewed buttons, published nothing" (specs 025/026, 2026-06-14)
+
+**Root cause (preview).** `PreviewService.render` only had rich renderers for `theme.section`/`proxy.widget`; every other type fell to `structuredWorkflowPreview` — a static diagram. Merchants saw a generic card, not the real surface, so a non-working module looked previewable.
+
+**Fix.** Replaced the default branch with per-surface interactive renderers and a deterministic Function simulator (`function-simulation.server.ts`). Removed the static diagram + `getSurfaceFixture` (no dead code). Coverage asserted via `PREVIEW_KINDS ⊇ RECIPE_SPEC_TYPES`.
+
+**Root cause (publish).** `compileRecipe` emits `{ kind: 'AUDIT' }` for 9 types and never deploys `.wasm`; publish could report success while nothing deployed.
+
+**Fix.** `classifyModulePublishability` gates AUDIT-only types as "not publishable yet" and **blocks** wired function types whose extension isn't deployed (loud failure naming the handle). Republish upserts the config metaobject in place (`computeRepublishDiff`) — no duplicates; unpublish deletes. Two-layer Functions contract documented in `shopify-dev-setup.md`.
+
+## §20 — Generation trust boundary hardening (spec 023, 2026-06-14)
+
+**Root cause.** Merchant free text was interpolated directly into prompts (`User request: ...`), giving prompt-injection a path to alter output format/type. RecipeSpec validation still bounded the result, but unknown discriminators wasted repair attempts.
+
+**Fix.** All merchant text is wrapped in a delimited `<user_request>` envelope (`PromptEnvelopeSchema`) + system rule; `injection-scan.server.ts` flags/strips override attempts; `assertKnownDiscriminator` rejects unknown/contradictory types before parse so `generateValidatedRecipe` short-circuits repair (reject, not repair). SSRF + escape-hatch boundaries unchanged and test-proven.

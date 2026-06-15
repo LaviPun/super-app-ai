@@ -1,42 +1,24 @@
 import type { RecipeSpec, DeployTarget } from '@superapp/core';
 import type { CompileResult } from './types';
-import { compileThemeBanner } from './theme.banner';
-import { compileThemePopup } from './theme.popup';
-import { compileNotificationBar } from './theme.notificationBar';
-import { compileThemeContactForm } from './theme.contactForm';
-import { compileThemeEffect } from './theme.effect';
+import { compileThemeSection } from './theme.section';
 import { compileProxyWidget } from './proxy.widget';
 import { compileDiscountRules } from './functions.discountRules';
 import { compileDeliveryCustomization } from './functions.deliveryCustomization';
 import { compilePaymentCustomization } from './functions.paymentCustomization';
 import { compileCartAndCheckoutValidation } from './functions.cartAndCheckoutValidation';
 import { compileCartTransform } from './functions.cartTransform';
+import { compileFulfillmentConstraints } from './functions.fulfillmentConstraints';
+import { compileOrderRoutingLocationRule } from './functions.orderRoutingLocationRule';
 import { compileCheckoutUpsell } from './checkout.upsell';
 import { compileCustomerAccountBlocks } from './customerAccount.blocks';
-import { compileThemeFloatingWidget } from './theme.floatingWidget';
 import { compileAdminBlock } from './admin.block';
 import { compileAdminAction } from './admin.action';
 
 export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileResult {
   switch (spec.type) {
-    case 'theme.banner':
-      if (target.kind !== 'THEME') throw new Error('theme.banner requires THEME target');
-      return compileThemeBanner(spec, target);
-    case 'theme.popup':
-      if (target.kind !== 'THEME') throw new Error('theme.popup requires THEME target');
-      return compileThemePopup(spec, target);
-    case 'theme.notificationBar':
-      if (target.kind !== 'THEME') throw new Error('theme.notificationBar requires THEME target');
-      return compileNotificationBar(spec, target);
-    case 'theme.contactForm':
-      if (target.kind !== 'THEME') throw new Error('theme.contactForm requires THEME target');
-      return compileThemeContactForm(spec, target);
-    case 'theme.effect':
-      if (target.kind !== 'THEME') throw new Error('theme.effect requires THEME target');
-      return compileThemeEffect(spec, target);
-    case 'theme.floatingWidget':
-      if (target.kind !== 'THEME') throw new Error('theme.floatingWidget requires THEME target');
-      return compileThemeFloatingWidget(spec, target);
+    case 'theme.section':
+      if (target.kind !== 'THEME') throw new Error('theme.section requires THEME target');
+      return compileThemeSection(spec, target);
     case 'proxy.widget':
       return compileProxyWidget(spec);
     case 'functions.discountRules':
@@ -49,6 +31,10 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
       return compileCartAndCheckoutValidation(spec);
     case 'functions.cartTransform':
       return compileCartTransform(spec);
+    case 'functions.fulfillmentConstraints':
+      return compileFulfillmentConstraints(spec);
+    case 'functions.orderRoutingLocationRule':
+      return compileOrderRoutingLocationRule(spec);
     case 'checkout.upsell':
       return compileCheckoutUpsell(spec);
     case 'customerAccount.blocks':
@@ -64,8 +50,6 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
     case 'integration.httpSync':
     case 'flow.automation':
     case 'platform.extensionBlueprint':
-    case 'functions.fulfillmentConstraints':
-    case 'functions.orderRoutingLocationRule':
       return { ops: [{ kind: 'AUDIT', action: `compile.${spec.type}` }] };
     default: {
       const _exhaustive: never = spec;

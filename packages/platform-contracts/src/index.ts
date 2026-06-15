@@ -5,4 +5,8 @@ export * from './rollout-cutover.js';
 export * from './image-worker-jobs.js';
 export * from './platform-jobs.js';
 export * from './preview.js';
+export * from './generation-guardrails.js';
+export * from './requirement-spec.js';
+export * from './module-settings.js';
+export * from './publish-functions.js';
 export * from './worker-payloads.js';

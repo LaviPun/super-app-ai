@@ -4,6 +4,43 @@ import { THEME_PLACEABLE_TEMPLATES } from './allowed-values.js';
 
 export const PART1_TEMPLATES: TemplateEntry[] = [
   // ═══════════════════════════════════════════════════════════════════════════════
+  // Generic section — the unrestricted starting point. `kind` is a recommendation,
+  // not a cage: merchants build ANY section from here (see docs/module-system-v2.md).
+  // ═══════════════════════════════════════════════════════════════════════════════
+  {
+    id: 'SEC-001',
+    name: 'Custom Section',
+    description: 'A blank, fully customizable storefront section. Declare your own fields, add content blocks, or drop in sanitized custom HTML/CSS/JS — build anything, not a fixed type.',
+    category: 'STOREFRONT_UI',
+    type: 'theme.section',
+    icon: 'section',
+    tags: ['custom', 'section', 'generic', 'flexible'],
+    spec: {
+      type: 'theme.section',
+      name: 'Custom Section',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'custom',
+        activation: 'section',
+        title: 'Section title',
+        fields: {},
+        blocks: [],
+      },
+      placement: { enabled_on: { templates: ['index'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
+      style: {
+        layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
+        spacing: { padding: 'medium', margin: 'none', gap: 'medium' },
+        typography: { size: 'MD', weight: 'normal', lineHeight: 'normal', align: 'left' },
+        colors: { text: '#111827', background: '#ffffff', overlayBackdropOpacity: 0.45 },
+        shape: { radius: 'md', borderWidth: 'none', shadow: 'none' },
+        responsive: { hideOnMobile: false, hideOnDesktop: false },
+        accessibility: { focusVisible: true, reducedMotion: true },
+      },
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════════
   // Category 1: Upsell & AOV (UAO-001 to UAO-009)
   // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -13,32 +50,37 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
     name: 'Cart Upsell Strip',
     description: 'Banner on the cart page encouraging add-ons to reach free shipping threshold.',
     category: 'STOREFRONT_UI',
-    type: 'theme.banner',
+    type: 'theme.section',
     icon: 'banner',
     tags: ['upsell', 'cart', 'aov'],
     spec: {
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'Cart Upsell Strip',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'banner',
+        activation: 'section',
+        fields: {
         heading: 'Add X to get free shipping',
         subheading: 'You are so close! Add a few more items to unlock free delivery.',
         ctaText: 'Browse Add-Ons',
         ctaUrl: 'https://example.com/collections/add-ons',
         enableAnimation: false,
+        },
+        blocks: [],
       },
       placement: { enabled_on: { templates: ['cart'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
       style: {
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'medium' },
         typography: { size: 'MD', weight: 'bold', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#ffffff', background: '#2563eb', buttonBg: '#ffffff', buttonText: '#2563eb' },
+        colors: { text: '#ffffff', background: '#2563eb', buttonBg: '#ffffff', buttonText: '#2563eb', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'md', borderWidth: 'none', shadow: 'sm' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
       },
-    } as RecipeSpec,
+    },
   },
 
   // UAO-002: PDP Cross-Sell Carousel
@@ -47,32 +89,37 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
     name: 'PDP Cross-Sell Carousel',
     description: 'Frequently bought together banner on product pages to drive cross-sells.',
     category: 'STOREFRONT_UI',
-    type: 'theme.banner',
+    type: 'theme.section',
     icon: 'banner',
     tags: ['cross-sell', 'product', 'carousel'],
     spec: {
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'PDP Cross-Sell Carousel',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'banner',
+        activation: 'section',
+        fields: {
         heading: 'Frequently Bought Together',
         subheading: 'Customers who purchased this item also loved these picks.',
         ctaText: 'View All',
         ctaUrl: 'https://example.com/collections/best-sellers',
         enableAnimation: false,
+        },
+        blocks: [],
       },
       placement: { enabled_on: { templates: ['product'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
       style: {
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium' },
         typography: { size: 'LG', weight: 'bold', lineHeight: 'normal', align: 'left' },
-        colors: { text: '#1e293b', background: '#f8fafc', buttonBg: '#0f172a', buttonText: '#ffffff' },
+        colors: { text: '#1e293b', background: '#f8fafc', buttonBg: '#0f172a', buttonText: '#ffffff', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'lg', borderWidth: 'thin', shadow: 'sm' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
       },
-    } as RecipeSpec,
+    },
   },
 
   // UAO-003: Collection Add-On Tiles
@@ -81,32 +128,37 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
     name: 'Collection Add-On Tiles',
     description: 'Upsell banner on collection pages prompting shoppers to complete their look.',
     category: 'STOREFRONT_UI',
-    type: 'theme.banner',
+    type: 'theme.section',
     icon: 'banner',
     tags: ['upsell', 'collection', 'add-on'],
     spec: {
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'Collection Add-On Tiles',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'banner',
+        activation: 'section',
+        fields: {
         heading: 'Complete Your Look',
         subheading: 'Pair these items together for the perfect outfit.',
         ctaText: 'Shop Now',
         ctaUrl: 'https://example.com/collections/accessories',
         enableAnimation: false,
+        },
+        blocks: [],
       },
       placement: { enabled_on: { templates: ['collection'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
       style: {
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium' },
         typography: { size: 'LG', weight: 'bold', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#ffffff', background: '#7c3aed', buttonBg: '#ffffff', buttonText: '#7c3aed' },
+        colors: { text: '#ffffff', background: '#7c3aed', buttonBg: '#ffffff', buttonText: '#7c3aed', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'md', borderWidth: 'none', shadow: 'md' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
       },
-    } as RecipeSpec,
+    },
   },
 
   // UAO-004: Free-Shipping Ladder + Add-Ons
@@ -115,30 +167,36 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
     name: 'Free-Shipping Ladder + Add-Ons',
     description: 'Notification bar showing free shipping progress and suggesting add-on items.',
     category: 'STOREFRONT_UI',
-    type: 'theme.notificationBar',
+    type: 'theme.section',
     icon: 'notification',
-    tags: ['shipping', 'progress', 'upsell'],
+    tags: ['shipping', 'progress', 'upsell', 'notification-bar'],
     spec: {
-      type: 'theme.notificationBar',
+      type: 'theme.section',
       name: 'Free-Shipping Ladder + Add-Ons',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
-        message: 'You are $25 away from FREE shipping! Add an item to qualify.',
-        linkText: 'See suggestions',
-        linkUrl: 'https://example.com/collections/under-25',
-        dismissible: false,
+        kind: 'notification-bar',
+        activation: 'global',
+        title: 'You are $25 away from FREE shipping! Add an item to qualify.',
+        fields: {
+          message: 'You are $25 away from FREE shipping! Add an item to qualify.',
+          linkText: 'See suggestions',
+          linkUrl: 'https://example.com/collections/under-25',
+          dismissible: false,
+        },
+        blocks: [],
       },
       style: {
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'sticky' },
         spacing: { padding: 'tight', margin: 'none', gap: 'medium' },
         typography: { size: 'SM', weight: 'bold', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#ffffff', background: '#059669' },
+        colors: { text: '#ffffff', background: '#059669', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'none', borderWidth: 'none', shadow: 'none' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
       },
-    } as RecipeSpec,
+    },
   },
 
   // UAO-005: Checkout Line-Item Cross-Sell
@@ -160,7 +218,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
         title: 'You might also like',
         message: 'Customers who bought this also added these items.',
       },
-    } as RecipeSpec,
+    },
   },
 
   // UAO-006: Checkout Reductions Upsell
@@ -182,7 +240,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
         title: 'Save more with add-ons',
         message: 'Add one more item to unlock an extra 10% off your entire order.',
       },
-    } as RecipeSpec,
+    },
   },
 
   // UAO-007: Thank-You Upsell Block
@@ -204,7 +262,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
         title: 'Recommended for you',
         message: 'Based on your purchase, you might love these products.',
       },
-    } as RecipeSpec,
+    },
   },
 
   // UAO-008: Account Reorder Action
@@ -230,7 +288,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
         ],
         b2bOnly: false,
       },
-    } as RecipeSpec,
+    },
   },
 
   // UAO-009: POS Upsell Assistant
@@ -252,7 +310,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
         label: 'Suggested Add-Ons',
         blockKind: 'action',
       },
-    } as RecipeSpec,
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════════
@@ -281,7 +339,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
         ],
         combineWithOtherDiscounts: true,
       },
-    } as RecipeSpec,
+    },
   },
 
   // DAP-011: BOGO Discount
@@ -304,7 +362,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
         ],
         combineWithOtherDiscounts: false,
       },
-    } as RecipeSpec,
+    },
   },
 
   // DAP-012: VIP Customer Discount
@@ -327,7 +385,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
         ],
         combineWithOtherDiscounts: true,
       },
-    } as RecipeSpec,
+    },
   },
 
   // DAP-013: Shipping Discount + Messaging
@@ -350,7 +408,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
         ],
         combineWithOtherDiscounts: true,
       },
-    } as RecipeSpec,
+    },
   },
 
   // DAP-014: First-Order Discount Banner
@@ -359,32 +417,37 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
     name: 'First-Order Discount Banner',
     description: 'Homepage banner welcoming new customers with a first-order discount.',
     category: 'STOREFRONT_UI',
-    type: 'theme.banner',
+    type: 'theme.section',
     icon: 'banner',
     tags: ['discount', 'first-order', 'welcome'],
     spec: {
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'First-Order Discount Banner',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'banner',
+        activation: 'section',
+        fields: {
         heading: 'Welcome! 15% off your first order',
         subheading: 'Use code WELCOME15 at checkout. Valid for new customers only.',
         ctaText: 'Shop Now',
         ctaUrl: 'https://example.com/collections/all',
         enableAnimation: true,
+        },
+        blocks: [],
       },
       placement: { enabled_on: { templates: ['index'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
       style: {
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium' },
         typography: { size: 'XL', weight: 'bold', lineHeight: 'tight', align: 'center' },
-        colors: { text: '#ffffff', background: '#dc2626', buttonBg: '#ffffff', buttonText: '#dc2626' },
+        colors: { text: '#ffffff', background: '#dc2626', buttonBg: '#ffffff', buttonText: '#dc2626', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'lg', borderWidth: 'none', shadow: 'md' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
       },
-    } as RecipeSpec,
+    },
   },
 
   // DAP-015: Checkout Savings Breakdown
@@ -406,7 +469,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
         title: 'Your Savings',
         message: 'Here is a breakdown of all discounts applied to your order.',
       },
-    } as RecipeSpec,
+    },
   },
 
   // DAP-016: Thank-You "You Saved" Receipt
@@ -428,7 +491,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
         title: 'You Saved',
         message: 'Great news! You saved on this order with applied discounts.',
       },
-    } as RecipeSpec,
+    },
   },
 
   // DAP-017: Admin Discount Builder
@@ -449,7 +512,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
         target: 'admin.discount-details.function-settings.render',
         label: 'Discount Rules',
       },
-    } as RecipeSpec,
+    },
   },
 
   // DAP-018: Promo Schedule Automation
@@ -472,7 +535,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
           { kind: 'TAG_ORDER', tags: 'promo-active' },
         ],
       },
-    } as RecipeSpec,
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════════
@@ -507,7 +570,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
           notificationMessage: 'Bundling requires Shopify Plus.',
         },
       },
-    } as RecipeSpec,
+    },
   },
 
   // BCT-020: Mix-and-Match Bundle
@@ -538,7 +601,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
           notificationMessage: 'Mix-and-match bundles require Shopify Plus.',
         },
       },
-    } as RecipeSpec,
+    },
   },
 
   // BCT-021: Pack-Size Normalize
@@ -569,7 +632,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
           notificationMessage: 'Pack normalization requires Shopify Plus.',
         },
       },
-    } as RecipeSpec,
+    },
   },
 
   // BCT-022: Gift With Purchase
@@ -600,7 +663,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
           notificationMessage: 'Gift bundles require Shopify Plus.',
         },
       },
-    } as RecipeSpec,
+    },
   },
 
   // BCT-023: Bundle + Discount Combo
@@ -631,7 +694,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
           notificationMessage: 'Combo bundles require Shopify Plus.',
         },
       },
-    } as RecipeSpec,
+    },
   },
 
   // BCT-024: Checkout Bundle Applied Note
@@ -653,7 +716,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
         title: 'Bundle Applied',
         message: 'Your bundle discount has been automatically applied to this order.',
       },
-    } as RecipeSpec,
+    },
   },
 
   // BCT-025: Thank-You Bundle Education
@@ -675,7 +738,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
         title: 'Your Bundle',
         message: 'You purchased a bundle! Each item will be shipped together for your convenience.',
       },
-    } as RecipeSpec,
+    },
   },
 
   // BCT-026: Admin Bundle Debug Card
@@ -696,7 +759,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
         target: 'admin.order-details.block.render',
         label: 'Bundle Details',
       },
-    } as RecipeSpec,
+    },
   },
 
   // BCT-027: Flow Bundle Exception Alerts
@@ -724,7 +787,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
           },
         ],
       },
-    } as RecipeSpec,
+    },
   },
 
   // ═══════════════════════════════════════════════════════════════════════════════
@@ -737,32 +800,37 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
     name: 'Cart Donation Module',
     description: 'Banner on the cart page allowing customers to add a charitable donation.',
     category: 'STOREFRONT_UI',
-    type: 'theme.banner',
+    type: 'theme.section',
     icon: 'banner',
     tags: ['cart', 'donation', 'charity'],
     spec: {
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'Cart Donation Module',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'banner',
+        activation: 'section',
+        fields: {
         heading: 'Add a Donation',
         subheading: 'Round up your order to support our charity partner.',
         ctaText: 'Add $1',
         ctaUrl: 'https://example.com/donate',
         enableAnimation: false,
+        },
+        blocks: [],
       },
       placement: { enabled_on: { templates: ['cart'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
       style: {
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'medium' },
         typography: { size: 'MD', weight: 'medium', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#1e293b', background: '#ecfdf5', buttonBg: '#10b981', buttonText: '#ffffff' },
+        colors: { text: '#1e293b', background: '#ecfdf5', buttonBg: '#10b981', buttonText: '#ffffff', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'md', borderWidth: 'thin', shadow: 'sm' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
       },
-    } as RecipeSpec,
+    },
   },
 
   // CUX-029: Gift Wrap Selector
@@ -771,32 +839,37 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
     name: 'Gift Wrap Selector',
     description: 'Cart page banner offering gift wrapping as an add-on service.',
     category: 'STOREFRONT_UI',
-    type: 'theme.banner',
+    type: 'theme.section',
     icon: 'banner',
     tags: ['cart', 'gift-wrap', 'upsell'],
     spec: {
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'Gift Wrap Selector',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'banner',
+        activation: 'section',
+        fields: {
         heading: 'Add Gift Wrapping',
         subheading: 'Make it special with premium gift wrapping for just $5.',
         ctaText: 'Add Gift Wrap',
         ctaUrl: 'https://example.com/gift-wrap',
         enableAnimation: false,
+        },
+        blocks: [],
       },
       placement: { enabled_on: { templates: ['cart'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
       style: {
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'medium' },
         typography: { size: 'MD', weight: 'medium', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#ffffff', background: '#be185d', buttonBg: '#ffffff', buttonText: '#be185d' },
+        colors: { text: '#ffffff', background: '#be185d', buttonBg: '#ffffff', buttonText: '#be185d', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'md', borderWidth: 'none', shadow: 'sm' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
       },
-    } as RecipeSpec,
+    },
   },
 
   // CUX-030: Order Note + Delivery Instructions
@@ -805,30 +878,35 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
     name: 'Order Note + Delivery Instructions',
     description: 'Cart banner prompting customers to add delivery instructions.',
     category: 'STOREFRONT_UI',
-    type: 'theme.banner',
+    type: 'theme.section',
     icon: 'banner',
     tags: ['cart', 'notes', 'delivery'],
     spec: {
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'Order Note + Delivery Instructions',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'banner',
+        activation: 'section',
+        fields: {
         heading: 'Delivery Instructions',
         subheading: 'Have special delivery requirements? Leave a note for our team.',
         enableAnimation: false,
+        },
+        blocks: [],
       },
       placement: { enabled_on: { templates: ['cart'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
       style: {
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'medium' },
         typography: { size: 'MD', weight: 'normal', lineHeight: 'normal', align: 'left' },
-        colors: { text: '#1e293b', background: '#f1f5f9' },
+        colors: { text: '#1e293b', background: '#f1f5f9', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'md', borderWidth: 'thin', shadow: 'none' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
       },
-    } as RecipeSpec,
+    },
   },
 
   // CUX-031: Shipping Estimator (Cart)
@@ -837,32 +915,37 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
     name: 'Shipping Estimator (Cart)',
     description: 'Cart banner displaying estimated shipping costs before checkout.',
     category: 'STOREFRONT_UI',
-    type: 'theme.banner',
+    type: 'theme.section',
     icon: 'banner',
     tags: ['cart', 'shipping', 'estimator'],
     spec: {
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'Shipping Estimator (Cart)',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'banner',
+        activation: 'section',
+        fields: {
         heading: 'Estimated Shipping',
         subheading: 'Enter your zip code at checkout for exact rates. Most orders ship free over $75.',
         ctaText: 'Proceed to Checkout',
         ctaUrl: 'https://example.com/checkout',
         enableAnimation: false,
+        },
+        blocks: [],
       },
       placement: { enabled_on: { templates: ['cart'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
       style: {
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'medium' },
         typography: { size: 'SM', weight: 'normal', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#374151', background: '#eff6ff', buttonBg: '#2563eb', buttonText: '#ffffff' },
+        colors: { text: '#374151', background: '#eff6ff', buttonBg: '#2563eb', buttonText: '#ffffff', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'md', borderWidth: 'thin', shadow: 'none' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
       },
-    } as RecipeSpec,
+    },
   },
 
   // CUX-032: Cart Trust Panel
@@ -871,30 +954,35 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
     name: 'Cart Trust Panel',
     description: 'Trust and security badges banner displayed on the cart page.',
     category: 'STOREFRONT_UI',
-    type: 'theme.banner',
+    type: 'theme.section',
     icon: 'banner',
     tags: ['cart', 'trust', 'security'],
     spec: {
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'Cart Trust Panel',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'banner',
+        activation: 'section',
+        fields: {
         heading: 'Shop With Confidence',
         subheading: 'SSL encrypted checkout. 30-day returns. 24/7 customer support.',
         enableAnimation: false,
+        },
+        blocks: [],
       },
       placement: { enabled_on: { templates: ['cart'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
       style: {
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'medium' },
         typography: { size: 'SM', weight: 'medium', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#166534', background: '#f0fdf4' },
+        colors: { text: '#166534', background: '#f0fdf4', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'md', borderWidth: 'thin', shadow: 'none' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
       },
-    } as RecipeSpec,
+    },
   },
 
   // CUX-033: Cart Exit-Intent Offer
@@ -903,15 +991,19 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
     name: 'Cart Exit-Intent Offer',
     description: 'Popup triggered on exit intent from the cart page with a special offer.',
     category: 'STOREFRONT_UI',
-    type: 'theme.popup',
+    type: 'theme.section',
     icon: 'popup',
     tags: ['cart', 'exit-intent', 'popup'],
     spec: {
-      type: 'theme.popup',
+      type: 'theme.section',
       name: 'Cart Exit-Intent Offer',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'popup',
+        activation: 'overlay',
+        fields: {},
+        blocks: [],
         title: 'Wait! Special offer',
         body: 'Complete your purchase now and get 10% off with code STAY10.',
         trigger: 'ON_EXIT_INTENT',
@@ -937,7 +1029,7 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
       },
-    } as RecipeSpec,
+    },
   },
 
   // CUX-034: Cart Minimum Order Warning
@@ -946,32 +1038,37 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
     name: 'Cart Minimum Order Warning',
     description: 'Cart banner warning customers about minimum order requirements.',
     category: 'STOREFRONT_UI',
-    type: 'theme.banner',
+    type: 'theme.section',
     icon: 'banner',
     tags: ['cart', 'validation', 'minimum'],
     spec: {
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'Cart Minimum Order Warning',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'banner',
+        activation: 'section',
+        fields: {
         heading: 'Minimum Order Required',
         subheading: 'A minimum order of $25 is required for checkout. Add more items to proceed.',
         ctaText: 'Continue Shopping',
         ctaUrl: 'https://example.com/collections/all',
         enableAnimation: false,
+        },
+        blocks: [],
       },
       placement: { enabled_on: { templates: ['cart'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
       style: {
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'medium' },
         typography: { size: 'MD', weight: 'bold', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#92400e', background: '#fffbeb', buttonBg: '#d97706', buttonText: '#ffffff' },
+        colors: { text: '#92400e', background: '#fffbeb', buttonBg: '#d97706', buttonText: '#ffffff', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'md', borderWidth: 'thin', shadow: 'none' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
       },
-    } as RecipeSpec,
+    },
   },
 
   // CUX-035: Cart "Only X Left" Urgency
@@ -980,32 +1077,37 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
     name: 'Cart "Only X Left" Urgency',
     description: 'Product page banner creating urgency with low stock messaging.',
     category: 'STOREFRONT_UI',
-    type: 'theme.banner',
+    type: 'theme.section',
     icon: 'banner',
     tags: ['urgency', 'inventory', 'product'],
     spec: {
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'Cart "Only X Left" Urgency',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'banner',
+        activation: 'section',
+        fields: {
         heading: 'Hurry! Low Stock',
         subheading: 'Only a few units left in stock. Order now before it sells out.',
         ctaText: 'Add to Cart',
         ctaUrl: 'https://example.com/cart',
         enableAnimation: true,
+        },
+        blocks: [],
       },
       placement: { enabled_on: { templates: ['product'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
       style: {
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'tight' },
         typography: { size: 'MD', weight: 'bold', lineHeight: 'tight', align: 'center' },
-        colors: { text: '#ffffff', background: '#b91c1c', buttonBg: '#ffffff', buttonText: '#b91c1c' },
+        colors: { text: '#ffffff', background: '#b91c1c', buttonBg: '#ffffff', buttonText: '#b91c1c', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'md', borderWidth: 'none', shadow: 'md' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
       },
-    } as RecipeSpec,
+    },
   },
 
   // CUX-036: Cart Analytics Signals
@@ -1025,6 +1127,6 @@ export const PART1_TEMPLATES: TemplateEntry[] = [
       config: {
         events: ['cart_viewed', 'product_added_to_cart'],
       },
-    } as RecipeSpec,
+    },
   },
 ];

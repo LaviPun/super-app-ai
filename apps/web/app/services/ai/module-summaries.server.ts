@@ -8,34 +8,14 @@ const STYLE_SUMMARY = `Style (optional, storefront UI only): layout(mode:inline|
  * Each summary is ~150-200 tokens. Only the relevant type(s) are sent.
  */
 export const MODULE_SUMMARIES: Record<ModuleType, string> = {
-  'theme.banner': `Module: theme.banner | Category: STOREFRONT_UI | Requires: THEME_ASSETS
-Settings: heading(str 1-80), subheading(str 0-200, opt), ctaText(str 0-40, opt), ctaUrl(url, opt), imageUrl(url, opt), enableAnimation(bool, default false).
-Controls: enableAnimation toggles entrance animation.
-${STYLE_SUMMARY}`,
-
-  'theme.popup': `Module: theme.popup | Category: STOREFRONT_UI | Requires: THEME_ASSETS
-Settings: title(str 1-60), body(str 0-240, opt), ctaText(str 0-40, opt), ctaUrl(url, opt), secondaryCtaText(str max 40, opt), secondaryCtaUrl(url, opt).
-Controls: trigger(ON_LOAD|ON_EXIT_INTENT|ON_SCROLL_25|ON_SCROLL_50|ON_SCROLL_75|ON_CLICK|TIMED), delaySeconds(int 0-300), frequency(EVERY_VISIT|ONCE_PER_SESSION|ONCE_PER_DAY|ONCE_PER_WEEK|ONCE_EVER), maxShowsPerDay(int 0-100), showOnPages(ALL|HOMEPAGE|COLLECTION|PRODUCT|CART|CUSTOM), customPageUrls(array str max 20), autoCloseSeconds(int 0-300), showCloseButton(bool), countdownEnabled(bool), countdownSeconds(int 0-86400), countdownLabel(str max 40).
-${STYLE_SUMMARY}`,
-
-  'theme.notificationBar': `Module: theme.notificationBar | Category: STOREFRONT_UI | Requires: THEME_ASSETS
-Settings: message(str 1-140), linkText(str 0-40, opt), linkUrl(url, opt).
-Controls: dismissible(bool, default true).
-${STYLE_SUMMARY}`,
-
-  'theme.contactForm': `Module: theme.contactForm | Category: STOREFRONT_UI | Requires: THEME_ASSETS
-Settings: title(str 1-80), subtitle(str 0-200, opt), submitLabel(str 1-40), successMessage(str 1-200), errorMessage(str 1-200), recipientEmail(email, opt), tags(str[] max 20, opt), successRedirectUrl(url, opt).
-Controls: field visibility(showName/showEmail/showPhone/showCompany/showOrderNumber/showSubject/showMessage), required flags(nameRequired/emailRequired/phoneRequired/companyRequired/orderNumberRequired/subjectRequired/messageRequired), consentRequired + consentLabel(max 120), submissionMode(SHOPIFY_CONTACT|APP_PROXY), proxyEndpointPath(path), sendCopyToCustomer(bool), includeCustomerContext(bool), spamProtection(NONE|HONEYPOT), honeypotFieldName(str 1-40).
-${STYLE_SUMMARY}`,
-
-  'theme.effect': `Module: theme.effect | Category: STOREFRONT_UI | Requires: THEME_ASSETS
-Settings: effectKind(snowfall|confetti, required), intensity(low|medium|high, default medium), speed(slow|normal|fast, default normal), startTrigger(page_load|scroll_25|time_3s|time_5s|time_10s, default page_load), durationSeconds(int 0-300, 0=indefinite, default 0), overlayPlacement(full_screen|header_only|footer_only|above_fold, default full_screen), reducedMotion(bool, default true — always set true unless creative reason).
-Controls: full-viewport decoration overlay; no Shopify data. Use for seasonal effects (snowfall, confetti). Always set reducedMotion:true unless merchant explicitly asks for it off.
-${STYLE_SUMMARY}`,
-
-  'theme.floatingWidget': `Module: theme.floatingWidget | Category: STOREFRONT_UI | Requires: THEME_ASSETS
-Settings: variant(whatsapp|chat|coupon|cart|scroll_top|custom, required), label(str 0-60, opt), iconUrl(url, opt), anchor(bottom_right|bottom_left|top_right|top_left|bottom_center, default bottom_right), offsetX(int -200..200, default 24), offsetY(int -200..200, default 24), onClick(open_whatsapp|open_url|open_popup|open_drawer|scroll_top, default open_url), message(str 0-500, opt — prefilled text for WhatsApp/chat), url(url, opt — destination for open_url/open_whatsapp), hideOnMobile(bool, default false), hideOnDesktop(bool, default false).
-Controls: floating button/icon anchored to a corner. WhatsApp variant opens wa.me link; chat opens drawer; scroll_top scrolls to top.
+  'theme.section': `Module: theme.section | Category: STOREFRONT_UI | Requires: THEME_ASSETS
+Generic, UNRESTRICTED storefront section / theme app extension — build ANY section, not a fixed type.
+Settings: kind(str, free-form recommendation tag e.g. 'hero'|'faq'|'lookbook'|'custom'), activation('section'|'global'|'overlay'), title(str, opt), subtitle(str, opt), fieldSchema(declare typed settings), fields(values), blocks(repeatable content), advancedCustom(sanitized customHtml/customJs escape hatch), audience(opt), schedule(opt).
+Controls: prefer declaring fieldSchema + fields for structured content; use blocks for repeatable items; use advancedCustom only for truly bespoke markup. kind is a recommendation, never a constraint.
+Overlay/popup kinds (activation:'overlay', kind:'popup') add: title(str 1-60), body(str 0-240), ctaText/ctaUrl, secondaryCtaText/secondaryCtaUrl, trigger(ON_LOAD|ON_EXIT_INTENT|ON_SCROLL_25|ON_SCROLL_50|ON_SCROLL_75|ON_CLICK|TIMED), delaySeconds(0-300), frequency(EVERY_VISIT|ONCE_PER_SESSION|ONCE_PER_DAY|ONCE_PER_WEEK|ONCE_EVER), maxShowsPerDay(0-100), showOnPages(ALL|HOMEPAGE|COLLECTION|PRODUCT|CART|CUSTOM), customPageUrls(str[] max 20), autoCloseSeconds(0-300), showCloseButton(bool), countdownEnabled(bool), countdownSeconds(0-86400), countdownLabel(str max 40).
+Contact-form kind (kind:'contactForm') adds: title(str 1-80), subtitle(opt), submitLabel(str 1-40), successMessage/errorMessage, field visibility(showName/showEmail/showPhone/showCompany/showOrderNumber/showSubject/showMessage) + required flags, consentRequired+consentLabel(max 120), submissionMode(SHOPIFY_CONTACT|APP_PROXY), proxyEndpointPath, sendCopyToCustomer, includeCustomerContext, spamProtection(NONE|HONEYPOT), honeypotFieldName, recipientEmail(opt), tags(opt), successRedirectUrl(opt).
+Effect kind (kind:'effect', activation:'overlay') adds: effectKind(snowfall|confetti recommended — free-form), intensity(low|medium|high), speed(slow|normal|fast), startTrigger(page_load|scroll_25|time_3s|time_5s|time_10s), durationSeconds(0-300, 0=indefinite), overlayPlacement(full_screen|header_only|footer_only|above_fold), reducedMotion(bool — always true unless creative reason). Full-viewport decoration; no Shopify data.
+Floating-widget kind (kind:'floatingWidget', activation:'global') adds: variant(whatsapp|chat|coupon|cart|scroll_top|custom), label(str 0-60), iconUrl(opt), anchor(bottom_right|bottom_left|top_right|top_left|bottom_center), offsetX/offsetY(-200..200), onClick(open_whatsapp|open_url|open_popup|open_drawer|scroll_top), message(prefilled WhatsApp/chat text), url(destination), hideOnMobile/hideOnDesktop(bool). Floating button/icon anchored to a corner.
 ${STYLE_SUMMARY}`,
 
   'proxy.widget': `Module: proxy.widget | Category: STOREFRONT_UI | Requires: APP_PROXY

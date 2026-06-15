@@ -8,6 +8,8 @@ import { useState, useCallback } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { DataStoreService } from '~/services/data/data-store.service';
+import { parseDataModel, dataModelToForm } from '@superapp/core';
+import { SchemaForm, type JsonSchemaNode, type SectionUiHints } from '~/components/SchemaForm';
 
 export async function loader({ request, params }: { request: Request; params: { storeKey?: string } }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -27,8 +29,13 @@ export async function loader({ request, params }: { request: Request; params: { 
 
   const result = await svc.listRecordsByDataStoreId(store.id, { page, pageSize: 50 });
 
+  // Typed record form when the store declares a schema (Module System v2 backend data).
+  const model = parseDataModel((store as { schemaJson?: string | null }).schemaJson ?? null);
+  const recordForm = model ? dataModelToForm(model) : null;
+
   return json({
     storeKey,
+    recordForm,
     store: { id: store.id, key: store.key, label: store.label, description: store.description },
     records: result.records.map(r => ({
       ...r,
@@ -42,17 +49,24 @@ export async function loader({ request, params }: { request: Request; params: { 
 }
 
 export default function DataStoreDetail() {
-  const { storeKey, store, records, total, page, pageSize } = useLoaderData<typeof loader>();
+  const { storeKey, store, records, total, page, pageSize, recordForm } = useLoaderData<typeof loader>();
   const fetcher = useFetcher();
   const [addOpen, setAddOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newPayload, setNewPayload] = useState('{}');
   const [newExternalId, setNewExternalId] = useState('');
+  // Typed-form value (grouped under `record`) when the store has a schema.
+  const [recordValue, setRecordValue] = useState<Record<string, unknown>>({ record: {} });
   const [viewRecord, setViewRecord] = useState<typeof records[0] | null>(null);
 
   const handleAdd = useCallback(() => {
     let payload: unknown;
-    try { payload = JSON.parse(newPayload); } catch { payload = { raw: newPayload }; }
+    if (recordForm) {
+      // Typed store: submit the validated field values directly.
+      payload = (recordValue.record as Record<string, unknown>) ?? {};
+    } else {
+      try { payload = JSON.parse(newPayload); } catch { payload = { raw: newPayload }; }
+    }
     fetcher.submit(
       { intent: 'add-record', storeKey, title: newTitle || undefined, externalId: newExternalId || undefined, payload } as any,
       { method: 'POST', action: '/api/data-stores', encType: 'application/json' },
@@ -61,7 +75,8 @@ export default function DataStoreDetail() {
     setNewTitle('');
     setNewPayload('{}');
     setNewExternalId('');
-  }, [storeKey, newTitle, newPayload, newExternalId, fetcher]);
+    setRecordValue({ record: {} });
+  }, [storeKey, newTitle, newPayload, newExternalId, recordForm, recordValue, fetcher]);
 
   const handleDelete = useCallback((recordId: string) => {
     fetcher.submit(
@@ -84,6 +99,10 @@ export default function DataStoreDetail() {
           <Badge>{`${total} record${total !== 1 ? 's' : ''}`}</Badge>
         </InlineStack>
       }
+      secondaryActions={[
+        { content: 'Export CSV', url: `/data/${storeKey}/export`, external: true },
+        { content: 'Print / PDF', url: `/data/${storeKey}/print`, external: true },
+      ]}
     >
       <BlockStack gap="500">
         <Card>
@@ -141,7 +160,17 @@ export default function DataStoreDetail() {
             <BlockStack gap="300">
               <TextField label="Title (optional)" value={newTitle} onChange={setNewTitle} autoComplete="off" />
               <TextField label="External ID (optional)" value={newExternalId} onChange={setNewExternalId} autoComplete="off" placeholder="e.g. gid://shopify/Product/123" />
-              <TextField label="Payload (JSON)" value={newPayload} onChange={setNewPayload} autoComplete="off" multiline={6} monospaced />
+              {recordForm ? (
+                <SchemaForm
+                  schema={recordForm.jsonSchema as JsonSchemaNode}
+                  uiSchema={recordForm.uiSchema as Record<string, SectionUiHints>}
+                  value={recordValue}
+                  onChange={setRecordValue}
+                  tier="advanced"
+                />
+              ) : (
+                <TextField label="Payload (JSON)" value={newPayload} onChange={setNewPayload} autoComplete="off" multiline={6} monospaced />
+              )}
             </BlockStack>
           </Modal.Section>
         </Modal>

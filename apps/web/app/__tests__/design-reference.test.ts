@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDesignReferencePromptBlock,
   deriveDesignReferencePack,
+  paletteToDesignReferencePack,
 } from '~/services/ai/design-reference.server';
+import type { StorePalette } from '~/services/theme/theme-analyzer.service';
 import { compileCreateSingleRecipePrompt } from '~/services/ai/llm.server';
 import {
   FRONTEND_DEVELOPER_REFINEMENT_PASS,
@@ -26,12 +28,45 @@ describe('design-reference fallback', () => {
   });
 });
 
+describe('paletteToDesignReferencePack (live theme)', () => {
+  const palette: StorePalette = {
+    primary: '#1773b0',
+    accent: '#ff5a00',
+    background: '#fafafa',
+    text: '#121212',
+    button: '#1773b0',
+    buttonText: '#ffffff',
+    neutrals: ['#1773b0', '#121212', '#fafafa'],
+    source: 'settings_data',
+  };
+
+  it('carries concrete hex values from the extracted palette', () => {
+    const pack = paletteToDesignReferencePack(palette, { headingFont: 'Assistant' }, 'live-theme');
+    expect(pack.sourceType).toBe('store');
+    expect(pack.primaryColors).toContain('#1773b0');
+    expect(pack.primaryColors).toContain('#ff5a00');
+    expect(pack.neutralPalette).toContain('#fafafa');
+    expect(pack.typographyHints.join(' ')).toContain('Assistant');
+  });
+
+  it('surfaces real hexes into the compiled prompt block', () => {
+    const block = buildDesignReferencePromptBlock(paletteToDesignReferencePack(palette, {}, 'live-theme'));
+    expect(block).toContain('#1773b0');
+    expect(block).toContain('#fafafa');
+  });
+
+  it('degrades to instruction text when palette has no colors', () => {
+    const pack = paletteToDesignReferencePack({ neutrals: [], source: 'css' }, {}, 'live-theme');
+    expect(pack.primaryColors[0]).toMatch(/Use the live store/);
+  });
+});
+
 describe('prompt premium sections', () => {
   it('includes DesignReferenceV1 and refinement passes in compiled prompt', () => {
     const designBlock = buildDesignReferencePromptBlock(deriveDesignReferencePack('https://bummer.in'));
     const prompt = compileCreateSingleRecipePrompt({
       purposeAndGuidance: PROMPT_PURPOSE_AND_GUIDANCE,
-      moduleType: 'theme.popup',
+      moduleType: 'theme.section',
       summary: 'summary',
       expectations: 'expectations',
       userRequest: 'Create premium popup',

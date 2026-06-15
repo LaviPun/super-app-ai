@@ -93,3 +93,106 @@ export function assertPreviewContentIsRecipeSafe(body: string): void {
     );
   }
 }
+
+// ── WS4 / 025: full working live preview for every surface ───────────────────
+
+/**
+ * Every RECIPE_SPEC_TYPES entry must map to an interactive preview renderer —
+ * none may fall to the generic diagram. This package is `@superapp/core`-free,
+ * so the list is mirrored here; `apps/web` asserts `RECIPE_SPEC_TYPES ⊆
+ * PREVIEW_KINDS` in a test so the two cannot drift.
+ */
+export const PREVIEW_KINDS = [
+  'theme.section',
+  'proxy.widget',
+  'functions.discountRules',
+  'functions.deliveryCustomization',
+  'functions.paymentCustomization',
+  'functions.cartAndCheckoutValidation',
+  'functions.cartTransform',
+  'functions.fulfillmentConstraints',
+  'functions.orderRoutingLocationRule',
+  'checkout.upsell',
+  'checkout.block',
+  'postPurchase.offer',
+  'admin.block',
+  'admin.action',
+  'pos.extension',
+  'analytics.pixel',
+  'integration.httpSync',
+  'flow.automation',
+  'platform.extensionBlueprint',
+  'customerAccount.blocks',
+] as const;
+export const PreviewKindSchema = z.enum(PREVIEW_KINDS);
+export type PreviewKind = (typeof PREVIEW_KINDS)[number];
+
+/** One line item in a simulation fixture. */
+export const PreviewLineItemSchema = z.object({
+  sku: z.string().min(1),
+  title: z.string().min(1),
+  /** Unit price in major currency units (e.g. dollars). */
+  price: z.number().nonnegative(),
+  quantity: z.number().int().positive().default(1),
+  tags: z.array(z.string()).default([]),
+});
+export type PreviewLineItem = z.infer<typeof PreviewLineItemSchema>;
+
+/**
+ * Deterministic fixture fed through a compiled Function rule config to produce a
+ * concrete preview outcome ("Cart $120, VIP → 15% off"; "method 'Economy' hidden").
+ */
+export const PreviewSimulationInputSchema = z.object({
+  currency: z.string().min(3).max(3).default('USD'),
+  countryCode: z.string().min(2).max(2).default('US'),
+  customerTags: z.array(z.string()).default([]),
+  lineItems: z.array(PreviewLineItemSchema).default([]),
+  /** Available shipping/payment method names, for delivery/payment customizations. */
+  methods: z.array(z.string()).default([]),
+  /** Whether the simulated store is Shopify Plus (drives non-Plus fallback). */
+  isPlus: z.boolean().default(true),
+});
+export type PreviewSimulationInput = z.infer<typeof PreviewSimulationInputSchema>;
+
+export const PREVIEW_SIMULATION_EFFECTS = [
+  'applied',
+  'hidden',
+  'renamed',
+  'reordered',
+  'blocked',
+  'bundled',
+  'constrained',
+  'routed',
+  'none',
+] as const;
+export const PreviewSimulationEffectSchema = z.enum(PREVIEW_SIMULATION_EFFECTS);
+
+export const PreviewSimulationOutcomeSchema = z.object({
+  label: z.string().min(1),
+  detail: z.string().min(1),
+  effect: PreviewSimulationEffectSchema,
+});
+export type PreviewSimulationOutcome = z.infer<typeof PreviewSimulationOutcomeSchema>;
+
+export const PreviewSimulationResultSchema = z.object({
+  kind: PreviewKindSchema,
+  outcomes: z.array(PreviewSimulationOutcomeSchema).default([]),
+  /** Present when the simulated store is non-Plus and a fallback applies. */
+  fallbackNote: z.string().optional(),
+});
+export type PreviewSimulationResult = z.infer<typeof PreviewSimulationResultSchema>;
+
+/** Default fixture used when a caller doesn't supply one. */
+export function defaultSimulationInput(): PreviewSimulationInput {
+  return PreviewSimulationInputSchema.parse({
+    currency: 'USD',
+    countryCode: 'US',
+    customerTags: ['VIP'],
+    lineItems: [
+      { sku: 'BACKPACK-1', title: 'Travel Backpack', price: 120, quantity: 1, tags: ['bags'] },
+      { sku: 'CUBE-SET', title: 'Packing Cube Set', price: 32, quantity: 1, tags: [] },
+    ],
+    methods: ['Standard', 'Economy', 'Express'],
+    isPlus: true,
+  });
+}

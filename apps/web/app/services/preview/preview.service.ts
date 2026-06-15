@@ -5,6 +5,15 @@ import {
   compileOverlayPositionCss,
   normalizeStyle,
 } from '~/services/recipes/compiler/style-compiler';
+import {
+  defaultSimulationInput,
+  type PreviewSimulationInput,
+  type PreviewSimulationResult,
+} from '@superapp/platform-contracts';
+import {
+  isFunctionPreviewKind,
+  simulateFunction,
+} from '~/services/preview/function-simulation.server';
 
 export type PreviewResult =
   | { kind: 'HTML'; html: string }
@@ -21,28 +30,22 @@ export type PreviewSurface =
 
 export type PreviewContext = {
   surface?: PreviewSurface;
+  /** Fixture for Function simulation previews (cart/checkout). */
+  simulation?: PreviewSimulationInput;
 };
 
 export class PreviewService {
   render(spec: RecipeSpec, context?: PreviewContext): PreviewResult {
     const surface = context?.surface ?? inferSurface(spec.type);
     switch (spec.type) {
-      case 'theme.banner':
-        return { kind: 'HTML', html: this.banner(spec) };
-      case 'theme.popup':
-        return { kind: 'HTML', html: this.popup(spec) };
-      case 'theme.notificationBar':
-        return { kind: 'HTML', html: this.notificationBar(spec) };
-      case 'theme.contactForm':
-        return { kind: 'HTML', html: this.contactForm(spec) };
-      case 'theme.effect':
-        return { kind: 'HTML', html: this.effect(spec) };
-      case 'theme.floatingWidget':
-        return { kind: 'HTML', html: this.floatingWidget(spec) };
+      case 'theme.section':
+        return { kind: 'HTML', html: this.themeSection(spec) };
       case 'proxy.widget':
         return { kind: 'HTML', html: this.proxyWidget(spec) };
       default:
-        return { kind: 'HTML', html: this.structuredWorkflowPreview(spec, surface) };
+        // WS4: every remaining type gets a real, interactive surface preview —
+        // never the static diagram.
+        return { kind: 'HTML', html: this.interactiveSurfacePreview(spec, surface, context?.simulation) };
     }
   }
 
@@ -54,57 +57,45 @@ export class PreviewService {
     return `${varsBlock}\n${rules}`;
   }
 
-  private banner(spec: Extract<RecipeSpec, { type: 'theme.banner' }>): string {
-    const c = spec.config;
-    const styleBlock = this.styleCss(spec, '.superapp-banner');
-    return pageHtml(`
-      <section class="superapp-banner">
-        <div class="superapp-banner__inner">
-          <div class="superapp-banner__content">
-            <h2 class="superapp-banner__heading">${esc(c.heading)}</h2>
-            ${c.subheading ? `<p class="superapp-banner__subheading">${esc(c.subheading)}</p>` : ''}
-            ${c.ctaText && c.ctaUrl ? `<a class="superapp-banner__cta" href="${escAttr(c.ctaUrl)}">${esc(c.ctaText)}</a>` : ''}
-          </div>
-          ${c.imageUrl ? `<img class="superapp-banner__image" src="${escAttr(c.imageUrl)}" alt="" loading="lazy" width="800" height="400">` : ''}
-        </div>
-      </section>
-    `, `
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-      ${styleBlock}
-      .superapp-banner__inner { display:flex; gap: var(--sa-gap); align-items:center; }
-      .superapp-banner__content { max-width: 720px; }
-      .superapp-banner__heading { margin: 0 0 8px; font-size: 1.25em; line-height: var(--sa-lh); font-weight: var(--sa-fw); }
-      .superapp-banner__subheading { margin: 0 0 12px; opacity: 0.85; }
-      .superapp-banner__cta { display:inline-block; padding: 10px 14px; border: 1px solid currentColor; text-decoration:none; border-radius: var(--sa-radius); background: var(--sa-btn-bg, transparent); color: var(--sa-btn-text, var(--sa-text)); }
-      .superapp-banner__image { max-width: 420px; height: auto; border-radius: var(--sa-radius); background:#f2f2f2; }
-      @media (max-width: 900px) { .superapp-banner__inner { flex-direction: column; align-items:flex-start; } .superapp-banner__image{ max-width:100%; } }
-    `);
+  /**
+   * Section dispatcher. Known `kind`s (migrated from the former named theme.*
+   * types) get a rich renderer; any other kind falls back to the generic
+   * renderer. This is how the collapse preserves per-kind fidelity while the
+   * type stays open/unrestricted.
+   */
+  private themeSection(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    switch (spec.config.kind) {
+      case 'notification-bar':
+        return this.sectionNotificationBar(spec);
+      case 'banner':
+        return this.sectionBanner(spec);
+      case 'popup':
+        return this.sectionPopup(spec);
+      case 'contactForm':
+        return this.sectionContactForm(spec);
+      case 'effect':
+        return this.sectionEffect(spec);
+      case 'floatingWidget':
+        return this.sectionFloatingWidget(spec);
+      default:
+        return this.sectionGeneric(spec);
+    }
   }
 
-  private notificationBar(spec: Extract<RecipeSpec, { type: 'theme.notificationBar' }>): string {
-    const c = spec.config;
-    const styleBlock = this.styleCss(spec, '.superapp-note');
-    return pageHtml(`
-      <div class="superapp-note">
-        <div class="superapp-note__inner">
-          <span class="superapp-note__msg">${esc(c.message)}</span>
-          ${c.linkText && c.linkUrl ? `<a class="superapp-note__link" href="${escAttr(c.linkUrl)}">${esc(c.linkText)}</a>` : ''}
-          ${c.dismissible ? `<button class="superapp-note__close" type="button" aria-label="Dismiss" onclick="this.closest('.superapp-note').remove()">×</button>` : ''}
-        </div>
-      </div>
-    `, `
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-      ${styleBlock}
-      .superapp-note { position: sticky; top: 0; z-index: var(--sa-z); }
-      .superapp-note__inner { display:flex; gap: var(--sa-gap); align-items:center; justify-content:center; }
-      .superapp-note__link { color: var(--sa-text); text-decoration: underline; }
-      .superapp-note__close { margin-left: 8px; border: 0; background: transparent; color: inherit; font-size: 18px; cursor: pointer; }
-    `);
+  /** Reads a config value, preferring config.fields then top-level config. */
+  private cfg(spec: Extract<RecipeSpec, { type: 'theme.section' }>, key: string): unknown {
+    const c = spec.config as Record<string, unknown>;
+    const f = (c.fields ?? {}) as Record<string, unknown>;
+    return f[key] ?? c[key];
   }
 
-  private popup(spec: Extract<RecipeSpec, { type: 'theme.popup' }>): string {
-    const c = spec.config;
-    const style = normalizeStyle((spec as any).style);
+  /** Kind renderer: popup (overlay dialog). */
+  private sectionPopup(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const title = String(this.cfg(spec, 'title') ?? '');
+    const body = this.cfg(spec, 'body');
+    const ctaText = this.cfg(spec, 'ctaText');
+    const ctaUrl = this.cfg(spec, 'ctaUrl');
+    const style = normalizeStyle((spec as { style?: unknown }).style as never);
     const styleVars = compileStyleVars(style);
     const styleCss = compileStyleCss(style, '.superapp-popup__panel');
     const overlayCss = compileOverlayPositionCss(style, '.superapp-popup', '.superapp-popup__panel');
@@ -112,11 +103,11 @@ export class PreviewService {
       <button class="demo-open" onclick="document.querySelector('.superapp-popup').hidden=false">Open popup preview</button>
       <div class="superapp-popup" hidden>
         <div class="superapp-popup__backdrop" onclick="document.querySelector('.superapp-popup').hidden=true"></div>
-        <div class="superapp-popup__panel" role="dialog" aria-modal="true" aria-label="${escAttr(c.title)}">
+        <div class="superapp-popup__panel" role="dialog" aria-modal="true" aria-label="${escAttr(title)}">
           <button class="superapp-popup__close" type="button" onclick="document.querySelector('.superapp-popup').hidden=true" aria-label="Close">×</button>
-          <h3 class="superapp-popup__title">${esc(c.title)}</h3>
-          ${c.body ? `<p class="superapp-popup__body">${esc(c.body)}</p>` : ''}
-          ${c.ctaText && c.ctaUrl ? `<a class="superapp-popup__cta" href="${escAttr(c.ctaUrl)}">${esc(c.ctaText)}</a>` : ''}
+          <h3 class="superapp-popup__title">${esc(title)}</h3>
+          ${body ? `<p class="superapp-popup__body">${esc(String(body))}</p>` : ''}
+          ${ctaText && ctaUrl ? `<a class="superapp-popup__cta" href="${escAttr(String(ctaUrl))}">${esc(String(ctaText))}</a>` : ''}
         </div>
       </div>
     `, `
@@ -134,26 +125,133 @@ export class PreviewService {
     `);
   }
 
-  private contactForm(spec: Extract<RecipeSpec, { type: 'theme.contactForm' }>): string {
+  /** Kind renderer: banner. Reads from config.fields, falling back to top-level config. */
+  private sectionBanner(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const c = spec.config as Record<string, unknown>;
+    const f = (c.fields ?? {}) as Record<string, unknown>;
+    const pick = (k: string) => (f[k] ?? c[k]) as unknown;
+    const heading = String(pick('heading') ?? c.title ?? '');
+    const subheading = pick('subheading') ? String(pick('subheading')) : '';
+    const ctaText = pick('ctaText') ? String(pick('ctaText')) : '';
+    const ctaUrl = pick('ctaUrl') ? String(pick('ctaUrl')) : '';
+    const imageUrl = pick('imageUrl') ? String(pick('imageUrl')) : '';
+    const styleBlock = this.styleCss(spec, '.superapp-banner');
+    return pageHtml(`
+      <section class="superapp-banner">
+        <div class="superapp-banner__inner">
+          <div class="superapp-banner__content">
+            <h2 class="superapp-banner__heading">${esc(heading)}</h2>
+            ${subheading ? `<p class="superapp-banner__subheading">${esc(subheading)}</p>` : ''}
+            ${ctaText && ctaUrl ? `<a class="superapp-banner__cta" href="${escAttr(ctaUrl)}">${esc(ctaText)}</a>` : ''}
+          </div>
+          ${imageUrl ? `<img class="superapp-banner__image" src="${escAttr(imageUrl)}" alt="" loading="lazy" width="800" height="400">` : ''}
+        </div>
+      </section>
+    `, `
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      ${styleBlock}
+      .superapp-banner__inner { display:flex; gap: var(--sa-gap); align-items:center; }
+      .superapp-banner__content { max-width: 720px; }
+      .superapp-banner__heading { margin: 0 0 8px; font-size: 1.25em; line-height: var(--sa-lh); font-weight: var(--sa-fw); }
+      .superapp-banner__subheading { margin: 0 0 12px; opacity: 0.85; }
+      .superapp-banner__cta { display:inline-block; padding: 10px 14px; border: 1px solid currentColor; text-decoration:none; border-radius: var(--sa-radius); background: var(--sa-btn-bg, transparent); color: var(--sa-btn-text, var(--sa-text)); }
+      .superapp-banner__image { max-width: 420px; height: auto; border-radius: var(--sa-radius); background:#f2f2f2; }
+      @media (max-width: 900px) { .superapp-banner__inner { flex-direction: column; align-items:flex-start; } .superapp-banner__image{ max-width:100%; } }
+    `);
+  }
+
+  /** Kind renderer: notification bar. Reads bar data from config.fields. */
+  private sectionNotificationBar(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const f = (spec.config.fields ?? {}) as Record<string, unknown>;
+    const message = String(f.message ?? spec.config.title ?? '');
+    const linkText = f.linkText ? String(f.linkText) : '';
+    const linkUrl = f.linkUrl ? String(f.linkUrl) : '';
+    const dismissible = f.dismissible !== false;
+    const styleBlock = this.styleCss(spec, '.superapp-note');
+    return pageHtml(`
+      <div class="superapp-note">
+        <div class="superapp-note__inner">
+          <span class="superapp-note__msg">${esc(message)}</span>
+          ${linkText && linkUrl ? `<a class="superapp-note__link" href="${escAttr(linkUrl)}">${esc(linkText)}</a>` : ''}
+          ${dismissible ? `<button class="superapp-note__close" type="button" aria-label="Dismiss" onclick="this.closest('.superapp-note').remove()">×</button>` : ''}
+        </div>
+      </div>
+    `, `
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      ${styleBlock}
+      .superapp-note { position: sticky; top: 0; z-index: var(--sa-z); }
+      .superapp-note__inner { display:flex; gap: var(--sa-gap); align-items:center; justify-content:center; }
+      .superapp-note__link { color: var(--sa-text); text-decoration: underline; }
+      .superapp-note__close { margin-left: 8px; border: 0; background: transparent; color: inherit; font-size: 18px; cursor: pointer; }
+    `);
+  }
+
+  /**
+   * Generic section renderer — works for ANY `kind`. Renders title/subtitle,
+   * repeatable blocks, declared field values, and the sanitized custom-HTML
+   * escape hatch. Scripts are stripped for the preview iframe (they run only on
+   * the live storefront under the extension CSP).
+   */
+  private sectionGeneric(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
     const c = spec.config;
+    const styleBlock = this.styleCss(spec, '.superapp-section');
+    const blocks = (c.blocks ?? [])
+      .map((b) => `<div class="superapp-section__block">${b.imageUrl ? `<img src="${escAttr(b.imageUrl)}" alt="" loading="lazy">` : ''}${b.text ? `<p>${esc(b.text)}</p>` : ''}${b.url && b.text ? '' : ''}</div>`)
+      .join('');
+    const fields = c.fields && typeof c.fields === 'object' ? (c.fields as Record<string, unknown>) : {};
+    const fieldRows = Object.entries(fields)
+      .map(([k, v]) => `<div class="superapp-section__field"><span>${esc(k)}</span><span>${esc(typeof v === 'object' ? JSON.stringify(v) : String(v))}</span></div>`)
+      .join('');
+    const custom = c.advancedCustom?.customHtml ? sanitizePreviewHtml(c.advancedCustom.customHtml) : '';
+
+    return pageHtml(`
+      <section class="superapp-section superapp-section--${escAttr(c.kind)}">
+        ${c.title ? `<h2 class="superapp-section__title">${esc(c.title)}</h2>` : ''}
+        ${c.subtitle ? `<p class="superapp-section__sub">${esc(c.subtitle)}</p>` : ''}
+        ${blocks ? `<div class="superapp-section__blocks">${blocks}</div>` : ''}
+        ${custom ? `<div class="superapp-section__custom">${custom}</div>` : ''}
+        ${fieldRows ? `<div class="superapp-section__fields">${fieldRows}</div>` : ''}
+      </section>
+    `, `
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      ${styleBlock}
+      .superapp-section__title { margin: 0 0 8px; font-size: 1.25em; font-weight: var(--sa-fw); }
+      .superapp-section__sub { margin: 0 0 12px; opacity: 0.85; }
+      .superapp-section__blocks { display: grid; gap: var(--sa-gap); grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+      .superapp-section__block img { max-width: 100%; height: auto; border-radius: var(--sa-radius); background: #f2f2f2; }
+      .superapp-section__fields { margin-top: 12px; display: grid; gap: 4px; font-size: 0.85em; }
+      .superapp-section__field { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px dashed #e2e8f0; padding: 2px 0; }
+      .superapp-section__field span:first-child { color: #6B7280; }
+    `);
+  }
+
+  /** Kind renderer: contactForm (lead-capture form). */
+  private sectionContactForm(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const str = (key: string, fallback = ''): string => {
+      const v = this.cfg(spec, key);
+      return v == null ? fallback : String(v);
+    };
+    const bool = (key: string): boolean => this.cfg(spec, key) === true;
     const styleBlock = this.styleCss(spec, '.superapp-contact-form');
     const required = (enabled: boolean, isRequired: boolean) => (enabled && isRequired ? 'required' : '');
 
+    const title = str('title');
+    const subtitle = str('subtitle');
     return pageHtml(`
-      <section class="superapp-contact-form" aria-label="${escAttr(c.title)}">
-        <h2 class="superapp-contact-form__title">${esc(c.title)}</h2>
-        ${c.subtitle ? `<p class="superapp-contact-form__subtitle">${esc(c.subtitle)}</p>` : ''}
+      <section class="superapp-contact-form" aria-label="${escAttr(title)}">
+        <h2 class="superapp-contact-form__title">${esc(title)}</h2>
+        ${subtitle ? `<p class="superapp-contact-form__subtitle">${esc(subtitle)}</p>` : ''}
 
-        <form class="superapp-contact-form__form" onsubmit="event.preventDefault(); document.querySelector('.superapp-contact-form__status').textContent='${escAttr(c.successMessage)}';">
-          ${c.showName ? `<label>Name <input type="text" name="name" ${required(c.showName, c.nameRequired)} /></label>` : ''}
-          ${c.showEmail ? `<label>Email <input type="email" name="email" ${required(c.showEmail, c.emailRequired)} /></label>` : ''}
-          ${c.showPhone ? `<label>Phone <input type="tel" name="phone" ${required(c.showPhone, c.phoneRequired)} /></label>` : ''}
-          ${c.showCompany ? `<label>Company <input type="text" name="company" ${required(c.showCompany, c.companyRequired)} /></label>` : ''}
-          ${c.showOrderNumber ? `<label>Order number <input type="text" name="orderNumber" ${required(c.showOrderNumber, c.orderNumberRequired)} /></label>` : ''}
-          ${c.showSubject ? `<label>Subject <input type="text" name="subject" ${required(c.showSubject, c.subjectRequired)} /></label>` : ''}
-          ${c.showMessage ? `<label>Message <textarea name="message" rows="5" ${required(c.showMessage, c.messageRequired)}></textarea></label>` : ''}
-          ${c.consentRequired ? `<label class="superapp-contact-form__consent"><input type="checkbox" required /> ${esc(c.consentLabel)}</label>` : ''}
-          <button type="submit" class="superapp-contact-form__submit">${esc(c.submitLabel)}</button>
+        <form class="superapp-contact-form__form" onsubmit="event.preventDefault(); document.querySelector('.superapp-contact-form__status').textContent='${escAttr(str('successMessage'))}';">
+          ${bool('showName') ? `<label>Name <input type="text" name="name" ${required(bool('showName'), bool('nameRequired'))} /></label>` : ''}
+          ${bool('showEmail') ? `<label>Email <input type="email" name="email" ${required(bool('showEmail'), bool('emailRequired'))} /></label>` : ''}
+          ${bool('showPhone') ? `<label>Phone <input type="tel" name="phone" ${required(bool('showPhone'), bool('phoneRequired'))} /></label>` : ''}
+          ${bool('showCompany') ? `<label>Company <input type="text" name="company" ${required(bool('showCompany'), bool('companyRequired'))} /></label>` : ''}
+          ${bool('showOrderNumber') ? `<label>Order number <input type="text" name="orderNumber" ${required(bool('showOrderNumber'), bool('orderNumberRequired'))} /></label>` : ''}
+          ${bool('showSubject') ? `<label>Subject <input type="text" name="subject" ${required(bool('showSubject'), bool('subjectRequired'))} /></label>` : ''}
+          ${bool('showMessage') ? `<label>Message <textarea name="message" rows="5" ${required(bool('showMessage'), bool('messageRequired'))}></textarea></label>` : ''}
+          ${bool('consentRequired') ? `<label class="superapp-contact-form__consent"><input type="checkbox" required /> ${esc(str('consentLabel'))}</label>` : ''}
+          <button type="submit" class="superapp-contact-form__submit">${esc(str('submitLabel'))}</button>
           <p class="superapp-contact-form__status" aria-live="polite"></p>
         </form>
       </section>
@@ -188,11 +286,11 @@ export class PreviewService {
     `);
   }
 
-  private effect(spec: Extract<RecipeSpec, { type: 'theme.effect' }>): string {
-    const c = spec.config;
-    const effectKind = c.effectKind;
-    const intensity = c.intensity ?? 'medium';
-    const speed = c.speed ?? 'normal';
+  /** Kind renderer: effect (full-viewport decoration overlay). */
+  private sectionEffect(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const effectKind = String(this.cfg(spec, 'effectKind') ?? 'snowfall');
+    const intensity = String(this.cfg(spec, 'intensity') ?? 'medium');
+    const speed = String(this.cfg(spec, 'speed') ?? 'normal');
     const particleCount = intensity === 'low' ? 30 : intensity === 'high' ? 80 : 50;
     const durationSec = speed === 'slow' ? 12 : speed === 'fast' ? 6 : 9;
 
@@ -248,11 +346,12 @@ export class PreviewService {
     `);
   }
 
-  private floatingWidget(spec: Extract<RecipeSpec, { type: 'theme.floatingWidget' }>): string {
-    const c = spec.config;
-    const anchor = c.anchor ?? 'bottom_right';
-    const offsetX = c.offsetX ?? 24;
-    const offsetY = c.offsetY ?? 24;
+  /** Kind renderer: floatingWidget (corner-anchored floating button). */
+  private sectionFloatingWidget(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const anchor = String(this.cfg(spec, 'anchor') ?? 'bottom_right');
+    const offsetX = Number(this.cfg(spec, 'offsetX') ?? 24);
+    const offsetY = Number(this.cfg(spec, 'offsetY') ?? 24);
+    const variant = String(this.cfg(spec, 'variant') ?? 'custom');
 
     const variantIcons: Record<string, string> = {
       whatsapp: '💬',
@@ -262,8 +361,8 @@ export class PreviewService {
       scroll_top: '↑',
       custom: '⭐',
     };
-    const icon = variantIcons[c.variant ?? 'custom'] ?? '⭐';
-    const label = c.label ?? '';
+    const icon = variantIcons[variant] ?? '⭐';
+    const label = String(this.cfg(spec, 'label') ?? '');
 
     let posX = '';
     let posY = '';
@@ -279,7 +378,7 @@ export class PreviewService {
 
     return pageHtml(`
       <div class="preview-stage">
-        <div class="preview-label">Floating widget · ${esc(anchor.replace(/_/g, ' '))} · ${esc(c.variant ?? 'custom')}</div>
+        <div class="preview-label">Floating widget · ${esc(anchor.replace(/_/g, ' '))} · ${esc(variant)}</div>
         <div class="preview-products">
           <div class="preview-product"><span>Product A</span><span>$29</span></div>
           <div class="preview-product"><span>Product B</span><span>$49</span></div>
@@ -359,67 +458,235 @@ export class PreviewService {
     `);
   }
 
-  private structuredWorkflowPreview(spec: RecipeSpec, surface: PreviewSurface): string {
-    const fixture = getSurfaceFixture(surface);
-    const configPreview = JSON.stringify(spec.config, null, 2);
-    return pageHtml(`
-      <section class="superapp-structured-preview">
-        <header class="superapp-structured-preview__header">
+  /**
+   * WS4: interactive per-surface preview for every non-theme/proxy type. Drives
+   * the render from the spec's compiled config (what deploys), evaluates logic
+   * branches, and never falls back to the static diagram. CSP-bound + sandboxed.
+   */
+  private interactiveSurfacePreview(
+    spec: RecipeSpec,
+    surface: PreviewSurface,
+    simulation?: PreviewSimulationInput,
+  ): string {
+    if (isFunctionPreviewKind(spec.type)) {
+      const result = simulateFunction(spec as never, simulation ?? defaultSimulationInput());
+      return this.functionSimulationPreview(spec, result);
+    }
+    switch (spec.type) {
+      case 'checkout.upsell':
+      case 'checkout.block':
+        return this.checkoutSurfacePreview(spec);
+      case 'postPurchase.offer':
+        return this.postPurchaseSurfacePreview(spec);
+      case 'admin.block':
+      case 'admin.action':
+      case 'platform.extensionBlueprint':
+        return this.adminSurfacePreview(spec);
+      case 'customerAccount.blocks':
+        return this.accountSurfacePreview(spec);
+      case 'pos.extension':
+        return this.posSurfacePreview(spec);
+      case 'analytics.pixel':
+        return this.pixelSurfacePreview(spec);
+      case 'integration.httpSync':
+      case 'flow.automation':
+        return this.workflowSurfacePreview(spec, surface);
+      default:
+        // Unknown/novel type: still interactive (mock card), not the diagram.
+        return this.workflowSurfacePreview(spec, surface);
+    }
+  }
+
+  private cfgVal(spec: RecipeSpec, key: string): unknown {
+    return (spec.config as Record<string, unknown>)?.[key];
+  }
+
+  private functionSimulationPreview(spec: RecipeSpec, result: PreviewSimulationResult): string {
+    const rows = result.outcomes
+      .map(
+        (o) => `
+        <div class="sim-row sim-${esc(o.effect)}">
+          <div class="sim-row__label">${esc(o.label)}</div>
+          <div class="sim-row__detail">${esc(o.detail)}</div>
+          <span class="sim-badge">${esc(o.effect)}</span>
+        </div>`,
+      )
+      .join('');
+    const fallback = result.fallbackNote
+      ? `<div class="sim-fallback">Non-Plus fallback: ${esc(result.fallbackNote)}</div>`
+      : '';
+    return pageHtml(
+      `
+      <section class="sim">
+        <header class="sim__header">
           <h2>${esc(spec.name)} <span>${esc(spec.type)}</span></h2>
-          <p>Merchant-like structured preview for non-theme template types.</p>
+          <p>Deterministic Function simulation against a representative cart fixture.</p>
         </header>
+        ${fallback}
+        <div class="sim__list">${rows}</div>
+      </section>`,
+      `
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#f6f8fb; margin:0; }
+      .sim__header h2 { margin:0; font-size:18px; color:#111827; }
+      .sim__header h2 span { font-size:12px; color:#6b7280; margin-left:6px; }
+      .sim__header p { margin:6px 0 12px; color:#475569; font-size:13px; }
+      .sim__list { display:grid; gap:8px; }
+      .sim-row { background:#fff; border:1px solid #dce3ec; border-left-width:4px; border-radius:8px; padding:10px 12px; position:relative; }
+      .sim-row__label { font-weight:600; color:#111827; font-size:14px; }
+      .sim-row__detail { color:#475569; font-size:13px; margin-top:2px; }
+      .sim-badge { position:absolute; top:10px; right:12px; font:11px IBM Plex Mono, ui-monospace, monospace; text-transform:uppercase; color:#6b7280; }
+      .sim-applied { border-left-color:#0E9F6E; }
+      .sim-hidden, .sim-blocked { border-left-color:#DC2626; }
+      .sim-renamed, .sim-reordered, .sim-bundled, .sim-routed, .sim-constrained { border-left-color:#2F80ED; }
+      .sim-none { border-left-color:#D97706; }
+      .sim-fallback { background:#FEF3C7; border:1px solid #F59E0B; color:#92400E; border-radius:8px; padding:8px 10px; font-size:13px; margin-bottom:10px; }
+      `,
+    );
+  }
 
-        <div class="superapp-structured-preview__grid">
-          <article class="superapp-preview-card">
-            <h3>Workflow context</h3>
-            <p><strong>Surface:</strong> ${esc(surface)}</p>
-            <p><strong>Scenario:</strong> ${esc(fixture.summary)}</p>
-            <ul>
-              ${fixture.steps.map((step) => `<li>${esc(step)}</li>`).join('')}
-            </ul>
-          </article>
+  private surfaceCard(title: string, badge: string, bodyHtml: string, css = ''): string {
+    return pageHtml(
+      `
+      <section class="surf">
+        <header class="surf__header"><h2>${esc(title)} <span>${esc(badge)}</span></h2></header>
+        <div class="surf__body">${bodyHtml}</div>
+      </section>`,
+      `
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#f6f8fb; margin:0; }
+      .surf__header h2 { margin:0 0 12px; font-size:18px; color:#111827; }
+      .surf__header h2 span { font-size:12px; color:#6b7280; margin-left:6px; }
+      .surf-panel { background:#fff; border:1px solid #dce3ec; border-radius:10px; padding:14px; }
+      .surf-panel h3 { margin:0 0 8px; font-size:14px; color:#1F3A5F; }
+      .surf-btn { display:inline-block; background:#1F3A5F; color:#fff; border:0; border-radius:8px; padding:9px 14px; font-size:14px; cursor:pointer; text-decoration:none; }
+      .surf-muted { color:#6b7280; font-size:13px; }
+      details.surf-state { margin-top:10px; border:1px solid #dce3ec; border-radius:8px; padding:8px 10px; background:#fff; }
+      details.surf-state > summary { cursor:pointer; font-size:13px; color:#2F80ED; }
+      ${css}
+      `,
+    );
+  }
 
-          <article class="superapp-preview-card">
-            <h3>Shopify entities</h3>
-            <ul>
-              ${fixture.entities.map((entity) => `<li>${esc(entity)}</li>`).join('')}
-            </ul>
-          </article>
+  private checkoutSurfacePreview(spec: RecipeSpec): string {
+    const title = String(this.cfgVal(spec, 'title') ?? this.cfgVal(spec, 'heading') ?? spec.name);
+    const body = String(this.cfgVal(spec, 'body') ?? this.cfgVal(spec, 'message') ?? '');
+    const cta = String(this.cfgVal(spec, 'ctaText') ?? this.cfgVal(spec, 'buttonLabel') ?? 'Add to order');
+    return this.surfaceCard(spec.name, `${spec.type} · checkout UI`, `
+      <div class="surf-panel co">
+        <div class="co__order">
+          <h3>Order summary</h3>
+          <div class="co__line"><span>Travel Backpack</span><span>$120.00</span></div>
+          <div class="co__line"><span>Packing Cube Set</span><span>$32.00</span></div>
+          <div class="co__line co__total"><span>Subtotal</span><span>$152.00</span></div>
         </div>
-
-        <article class="superapp-preview-card">
-          <h3>Fixture products</h3>
-          <div class="superapp-products">
-            ${fixture.products.map((product) => `
-              <div class="superapp-product">
-                <strong>${esc(product.title)}</strong>
-                <span>${esc(product.price)}</span>
-              </div>
-            `).join('')}
-          </div>
-        </article>
-
-        <article class="superapp-preview-card">
-          <h3>Template config snapshot</h3>
-          <pre>${esc(configPreview)}</pre>
-        </article>
-      </section>
+        <div class="co__ext">
+          <h3>${esc(title)}</h3>
+          ${body ? `<p class="surf-muted">${esc(body)}</p>` : ''}
+          <a class="surf-btn" href="#add">${esc(cta)}</a>
+          <details class="surf-state"><summary>After "added" state</summary><p class="surf-muted">Line added to order; extension shows confirmation and updated subtotal.</p></details>
+        </div>
+      </div>
     `, `
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #f8fafc; margin: 0; }
-      .superapp-structured-preview { display: grid; gap: 14px; }
-      .superapp-structured-preview__header h2 { margin: 0; font-size: 18px; }
-      .superapp-structured-preview__header h2 span { font-size: 12px; color: #64748b; margin-left: 6px; }
-      .superapp-structured-preview__header p { margin: 6px 0 0; color: #475569; font-size: 13px; }
-      .superapp-structured-preview__grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
-      .superapp-preview-card { background: #fff; border: 1px solid #dbe3ef; border-radius: 10px; padding: 12px; }
-      .superapp-preview-card h3 { margin: 0 0 8px; font-size: 14px; color: #111827; }
-      .superapp-preview-card p { margin: 6px 0; color: #334155; font-size: 13px; }
-      .superapp-preview-card ul { margin: 8px 0 0; padding-left: 18px; color: #334155; font-size: 13px; display: grid; gap: 5px; }
-      .superapp-products { display: grid; gap: 8px; }
-      .superapp-product { display: flex; justify-content: space-between; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; background: #fff; }
-      .superapp-preview-card pre { margin: 0; white-space: pre-wrap; font-size: 12px; line-height: 1.35; color: #0f172a; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; }
+      .co { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+      .co__line { display:flex; justify-content:space-between; font-size:13px; padding:4px 0; color:#334155; }
+      .co__total { border-top:1px solid #dce3ec; margin-top:6px; padding-top:8px; font-weight:600; color:#111827; }
     `);
   }
+
+  private postPurchaseSurfacePreview(spec: RecipeSpec): string {
+    const title = String(this.cfgVal(spec, 'title') ?? this.cfgVal(spec, 'heading') ?? spec.name);
+    const offer = String(this.cfgVal(spec, 'offerText') ?? this.cfgVal(spec, 'body') ?? 'Add this one-time offer to your order.');
+    return this.surfaceCard(spec.name, `${spec.type} · post-purchase`, `
+      <div class="surf-panel">
+        <h3>${esc(title)}</h3>
+        <p class="surf-muted">Shown after payment, before the thank-you page.</p>
+        <p>${esc(offer)}</p>
+        <a class="surf-btn" href="#accept">Accept offer</a>
+        <a class="surf-btn" href="#decline" style="background:#6B7280;margin-left:8px">Decline</a>
+        <details class="surf-state"><summary>Accepted state</summary><p class="surf-muted">Offer charged to original payment; order updated without re-auth.</p></details>
+      </div>
+    `);
+  }
+
+  private adminSurfacePreview(spec: RecipeSpec): string {
+    const title = String(this.cfgVal(spec, 'title') ?? this.cfgVal(spec, 'heading') ?? spec.name);
+    const action = String(this.cfgVal(spec, 'actionLabel') ?? this.cfgVal(spec, 'ctaText') ?? 'Run action');
+    return this.surfaceCard(spec.name, `${spec.type} · admin (Polaris)`, `
+      <div class="surf-panel">
+        <h3>${esc(title)}</h3>
+        <p class="surf-muted">Embedded admin block rendered with Polaris-like primitives.</p>
+        <div class="adm__rows">
+          <div class="adm__row"><span>Status</span><span class="adm__badge">Active</span></div>
+          <div class="adm__row"><span>Last run</span><span>2 minutes ago</span></div>
+        </div>
+        <a class="surf-btn" href="#action">${esc(action)}</a>
+        <details class="surf-state"><summary>After action</summary><p class="surf-muted">Action dispatched; admin toast confirms success and the row updates.</p></details>
+      </div>
+    `, `
+      .adm__row { display:flex; justify-content:space-between; font-size:13px; padding:6px 0; border-bottom:1px solid #eef2f7; }
+      .adm__badge { background:#E7F5EF; color:#0E9F6E; border-radius:9999px; padding:2px 10px; font-size:12px; }
+    `);
+  }
+
+  private accountSurfacePreview(spec: RecipeSpec): string {
+    const blocks = this.cfgVal(spec, 'blocks');
+    const items = Array.isArray(blocks) ? (blocks as Array<Record<string, unknown>>) : [];
+    const list = items.length
+      ? items.map((b) => `<div class="surf-panel"><h3>${esc(String(b.title ?? b.kind ?? 'Block'))}</h3><p class="surf-muted">${esc(String(b.body ?? b.kind ?? ''))}</p></div>`).join('')
+      : `<div class="surf-panel"><h3>${esc(String(this.cfgVal(spec, 'title') ?? spec.name))}</h3><p class="surf-muted">Customer account block populated from account context (orders, loyalty tier).</p></div>`;
+    return this.surfaceCard(spec.name, `${spec.type} · customer account`, `<div class="acct">${list}</div>`, `
+      .acct { display:grid; gap:12px; }
+    `);
+  }
+
+  private posSurfacePreview(spec: RecipeSpec): string {
+    const title = String(this.cfgVal(spec, 'title') ?? spec.name);
+    return this.surfaceCard(spec.name, `${spec.type} · POS`, `
+      <div class="surf-panel pos">
+        <h3>${esc(title)}</h3>
+        <p class="surf-muted">Smart Grid tile / POS block as it appears to a store associate.</p>
+        <a class="surf-btn" href="#tap">Tap tile</a>
+        <details class="surf-state"><summary>Tapped state</summary><p class="surf-muted">POS opens the block modal with cart context.</p></details>
+      </div>
+    `);
+  }
+
+  private pixelSurfacePreview(spec: RecipeSpec): string {
+    const events = this.cfgVal(spec, 'events');
+    const evs = Array.isArray(events) ? (events as unknown[]).map(String) : ['page_viewed', 'product_viewed', 'checkout_completed'];
+    return this.surfaceCard(spec.name, `${spec.type} · web pixel`, `
+      <div class="surf-panel">
+        <h3>Subscribed events</h3>
+        <p class="surf-muted">A web pixel has no visible UI — this shows the events it captures and a sample payload.</p>
+        <div class="px__events">${evs.map((e) => `<span class="px__chip">${esc(e)}</span>`).join('')}</div>
+        <details class="surf-state" open><summary>Sample event payload</summary><pre>${esc(JSON.stringify({ event: evs[0] ?? 'page_viewed', timestamp: '2026-06-14T12:00:00Z', clientId: 'demo-client' }, null, 2))}</pre></details>
+      </div>
+    `, `
+      .px__events { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; }
+      .px__chip { background:#EAF1FB; color:#2F80ED; border-radius:9999px; padding:3px 10px; font-size:12px; }
+      pre { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px; font-size:12px; }
+    `);
+  }
+
+  private workflowSurfacePreview(spec: RecipeSpec, surface: PreviewSurface): string {
+    const steps = this.cfgVal(spec, 'steps');
+    const stepList = Array.isArray(steps) ? (steps as Array<Record<string, unknown>>) : [];
+    const rendered = stepList.length
+      ? stepList.map((s, i) => `<div class="wf__step"><span class="wf__n">${i + 1}</span><div><strong>${esc(String(s.kind ?? s.type ?? 'step'))}</strong><div class="surf-muted">${esc(String(s.label ?? s.description ?? ''))}</div></div></div>`).join('')
+      : ['Trigger fires', 'Conditions evaluated against fixture', 'Action dispatched'].map((t, i) => `<div class="wf__step"><span class="wf__n">${i + 1}</span><div><strong>${esc(t)}</strong></div></div>`).join('');
+    return this.surfaceCard(spec.name, `${spec.type} · ${surface}`, `
+      <div class="surf-panel">
+        <h3>Workflow run (simulated)</h3>
+        <div class="wf">${rendered}</div>
+        <details class="surf-state"><summary>Run output</summary><pre>${esc(JSON.stringify({ status: 'completed', dispatched: true }, null, 2))}</pre></details>
+      </div>
+    `, `
+      .wf { display:grid; gap:8px; }
+      .wf__step { display:flex; gap:10px; align-items:flex-start; }
+      .wf__n { background:#1F3A5F; color:#fff; border-radius:9999px; width:22px; height:22px; display:inline-flex; align-items:center; justify-content:center; font-size:12px; flex:0 0 auto; }
+      pre { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px; font-size:12px; }
+    `);
+  }
+
 }
 
 const LINK_INTERCEPT_SCRIPT = `
@@ -535,6 +802,21 @@ function pageHtml(body: string, css: string) {
   `.trim();
 }
 
+/**
+ * Strip executable vectors from merchant/AI custom HTML for the preview iframe.
+ * (The live storefront runs custom JS under the extension's own CSP; the preview
+ * is HTML/CSS only.) Removes <script>/<iframe>/<object>, on* handlers, and
+ * javascript: URLs. Not a full sanitizer — the preview is sandboxed + CSP-bound.
+ */
+function sanitizePreviewHtml(html: string): string {
+  return html
+    .replace(/<\s*(script|iframe|object|embed)[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    .replace(/<\s*(script|iframe|object|embed)\b[^>]*>/gi, '')
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/(href|src)\s*=\s*("javascript:[^"]*"|'javascript:[^']*')/gi, '$1="#"')
+    .slice(0, 20_000);
+}
+
 function esc(input: string) {
   let out = '';
   for (let i = 0; i < input.length; i++) {
@@ -565,87 +847,3 @@ function inferSurface(type: string): PreviewSurface {
   return 'generic';
 }
 
-function getSurfaceFixture(surface: PreviewSurface) {
-  if (surface === 'product') {
-    return {
-      summary: 'Product detail page with recommendation and tracking context',
-      entities: ['product: gid://shopify/Product/1001', 'customer: gid://shopify/Customer/901', 'metafield namespace: custom'],
-      steps: ['Page loads product metadata', 'Module evaluates product conditions', 'CTA event tracked and surfaced to merchant'],
-      products: [
-        { title: 'Aurora Running Shoe', price: '$89.00' },
-        { title: 'Performance Socks', price: '$14.00' },
-        { title: 'Sport Bottle', price: '$19.00' },
-      ],
-    };
-  }
-  if (surface === 'collection') {
-    return {
-      summary: 'Collection listing context with merchandising workflows',
-      entities: ['collection: gid://shopify/Collection/77', 'products: 24 items', 'sort order: best-selling'],
-      steps: ['Collection is resolved', 'Template filters/sorts candidate products', 'Merchant action recommendations rendered'],
-      products: [
-        { title: 'Core Hoodie', price: '$64.00' },
-        { title: 'Trail Shorts', price: '$39.00' },
-        { title: 'Daily Tee', price: '$24.00' },
-      ],
-    };
-  }
-  if (surface === 'cart') {
-    return {
-      summary: 'Cart and function transformation context',
-      entities: ['cart: gid://shopify/Cart/551', 'lineItems: 3', 'currency: USD'],
-      steps: ['Cart lines loaded', 'Function rules evaluated', 'Suggested bundle/validation response produced'],
-      products: [
-        { title: 'Travel Backpack', price: '$120.00' },
-        { title: 'Packing Cube Set', price: '$32.00' },
-        { title: 'Luggage Tag', price: '$9.00' },
-      ],
-    };
-  }
-  if (surface === 'checkout') {
-    return {
-      summary: 'Checkout stage with order conversion workflow',
-      entities: ['checkout token: chk_9876', 'customer: returning', 'shipping country: US'],
-      steps: ['Checkout renders extension point', 'Offer/rule evaluated against cart + customer', 'Result emitted to checkout UI'],
-      products: [
-        { title: 'Starter Skin Kit', price: '$59.00' },
-        { title: 'Hydration Serum', price: '$18.00' },
-        { title: 'Sample Pack', price: '$0.00' },
-      ],
-    };
-  }
-  if (surface === 'postPurchase') {
-    return {
-      summary: 'Post-purchase offer workflow after payment',
-      entities: ['order: #1084', 'customer: gid://shopify/Customer/901', 'offer window: active'],
-      steps: ['Order completed', 'Post-purchase eligibility evaluated', 'Offer acceptance/rejection captured'],
-      products: [
-        { title: 'Premium Warranty', price: '$12.00' },
-        { title: 'Gift Wrap', price: '$6.00' },
-        { title: 'Accessory Add-on', price: '$15.00' },
-      ],
-    };
-  }
-  if (surface === 'customer') {
-    return {
-      summary: 'Customer account dashboard context',
-      entities: ['customer: gid://shopify/Customer/901', 'orders: 7', 'loyalty tier: Gold'],
-      steps: ['Customer account page loads', 'Template reads account-level data', 'Blocks/actions rendered with account context'],
-      products: [
-        { title: 'Reorder Favorite: Classic Jacket', price: '$110.00' },
-        { title: 'Recommended: Winter Gloves', price: '$28.00' },
-        { title: 'Reward Item: Branded Mug', price: '$0.00' },
-      ],
-    };
-  }
-  return {
-    summary: 'Generic merchant workflow context',
-    entities: ['shop: demo-shop.myshopify.com', 'module: internal-template-preview', 'dataset: deterministic fixture'],
-    steps: ['Template config parsed', 'Module output staged for surface', 'Preview action telemetry enabled'],
-    products: [
-      { title: 'Demo Product One', price: '$25.00' },
-      { title: 'Demo Product Two', price: '$40.00' },
-      { title: 'Demo Product Three', price: '$15.00' },
-    ],
-  };
-}

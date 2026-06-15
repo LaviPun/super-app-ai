@@ -2,6 +2,8 @@
 
 **Purpose:** Single source of truth for planning and building the modules core. No merchant-uploaded arbitrary code is deployed. Theme modules may include **AI-generated** Liquid/JS/CSS produced from the Module DSL, and must pass validation before publish. The AI module generator outputs **RecipeSpec** JSON; all deployable behaviour is compiled from that.
 
+> **Module System v2 (storefront sections are unrestricted).** The theme surface is no longer a fixed type catalog. The generic **`theme.section`** type expresses any storefront section / theme app extension — `config.kind` is a free-form recommendation tag (never an enum), with merchant-declared `fieldSchema`/`fields`, repeatable `blocks`, and a sanitized `advancedCustom` (HTML/CSS/JS) escape hatch. Named theme.* types are presets. The trust boundary (validate + sanitize + scope + CSP) is unchanged. See **`docs/module-system-v2.md`** for the full design and the control-pack settings system.
+
 ---
 
 ## Table of contents
@@ -183,12 +185,20 @@ type ModuleCategory =
 
 ### 3.3 RecipeSpec type variants (current)
 
+> **Module System v2 — storefront types collapsed.** The named theme.* types
+> (`theme.banner`, `theme.popup`, `theme.notificationBar`, `theme.contactForm`,
+> `theme.effect`, `theme.floatingWidget`) have been **collapsed into the single
+> generic `theme.section`** type. `config.kind` is a free-form recommendation tag
+> (`'banner' | 'popup' | 'notification-bar' | 'contactForm' | 'effect' |
+> 'floatingWidget' | '<anything>'`) — merchants can build ANY section, extension,
+> or overlay, not a fixed list. The per-type rows and §18.x sections below are
+> retained for historical reference; **`docs/module-system-v2.md` is the source of
+> truth** for the storefront type model. Settings that were per-type now live
+> under `theme.section` and are read kind-by-kind.
+
 | `type` | Category | Primary capability |
 |--------|----------|---------------------|
-| `theme.banner` | STOREFRONT_UI | THEME_ASSETS |
-| `theme.popup` | STOREFRONT_UI | THEME_ASSETS |
-| `theme.notificationBar` | STOREFRONT_UI | THEME_ASSETS |
-| `theme.effect` | STOREFRONT_UI | THEME_ASSETS |
+| `theme.section` (generic; kinds: banner, popup, notification-bar, contactForm, effect, floatingWidget, …) | STOREFRONT_UI | THEME_ASSETS |
 | `proxy.widget` | STOREFRONT_UI | APP_PROXY (see scope note below) |
 | `functions.discountRules` | FUNCTION | DISCOUNT_FUNCTION |
 | `functions.deliveryCustomization` | FUNCTION | SHIPPING_FUNCTION |
@@ -214,7 +224,7 @@ type ModuleCategory =
 
 ### 3.4 Storefront style (storefront UI types)
 
-For `theme.banner`, `theme.popup`, `theme.notificationBar`, `theme.effect`, `proxy.widget`, an optional `style` object conforms to `StorefrontStyleSchema` (`packages/core/src/storefront-style.ts`):
+For `theme.section` (all kinds) and `proxy.widget`, an optional `style` object conforms to `StorefrontStyleSchema` (`packages/core/src/storefront-style.ts`):
 
 - **layout:** mode, anchor, offsetX/Y, width, zIndex (all enums).
 - **spacing:** padding, margin, gap.

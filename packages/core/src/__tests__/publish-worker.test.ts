@@ -3,12 +3,12 @@ import type { PublishWorkerAdapters, PublishWorkerState } from '../publish-worke
 import { PublishWorkerError, runPublishJob } from '../publish-worker.js';
 
 const baseSpec = {
-  type: 'theme.banner',
+  type: 'theme.section',
   name: 'Free Shipping Banner',
   category: 'STOREFRONT_UI',
   config: {
-    heading: 'Free shipping over $50',
-    enableAnimation: false,
+    kind: 'banner',
+    fields: { heading: 'Free shipping over $50', enableAnimation: false },
   },
 };
 
@@ -32,7 +32,7 @@ function buildAdapters(state: PublishWorkerState): PublishWorkerAdapters {
           {
             kind: 'THEME_MODULE_UPSERT',
             moduleId: 'mod_123',
-            payload: { type: 'theme.banner', name: 'Free Shipping Banner', config: {} },
+            payload: { type: 'theme.section', name: 'Free Shipping Banner', config: {} },
           },
         ],
         compiledJson: '{"ok":true}',

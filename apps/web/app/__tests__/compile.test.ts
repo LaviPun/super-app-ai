@@ -3,26 +3,26 @@ import { compileRecipe } from '~/services/recipes/compiler';
 import type { RecipeSpec } from '@superapp/core';
 
 describe('compileRecipe', () => {
-  it('compiles theme.banner to theme asset ops', () => {
+  it('compiles theme.section (banner kind) to theme asset ops', () => {
     const spec: RecipeSpec = {
-      type: 'theme.banner',
+      type: 'theme.section',
       name: 'My Banner',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
-      config: { heading: 'Hi', enableAnimation: false },
+      config: { kind: 'banner', activation: 'section', fields: { heading: 'Hi', enableAnimation: false }, blocks: [] },
     } as unknown as RecipeSpec;
 
     const out = compileRecipe(spec, { kind: 'THEME', themeId: '123', moduleId: 'test-module-123' });
     expect(out.ops.length).toBeGreaterThan(0);
   });
 
-  it('compiles theme.effect to theme asset ops and respects reducedMotion', () => {
+  it('compiles theme.section (effect kind) to theme asset ops and respects reducedMotion', () => {
     const spec: RecipeSpec = {
-      type: 'theme.effect',
+      type: 'theme.section',
       name: 'Winter Snow',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
-      config: { effectKind: 'snowfall', intensity: 'medium', speed: 'normal' },
+      config: { kind: 'effect', activation: 'overlay', fields: {}, blocks: [], effectKind: 'snowfall', intensity: 'medium', speed: 'normal' },
       style: { accessibility: { reducedMotion: true } },
     } as unknown as RecipeSpec;
 
@@ -31,13 +31,17 @@ describe('compileRecipe', () => {
     expect(out.themeModulePayload).toBeDefined();
   });
 
-  it('compiles theme.contactForm to theme module payload', () => {
+  it('compiles theme.section (contactForm kind) to theme module payload', () => {
     const spec: RecipeSpec = {
-      type: 'theme.contactForm',
+      type: 'theme.section',
       name: 'Contact',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'contactForm',
+        activation: 'section',
+        fields: {},
+        blocks: [],
         title: 'Contact us',
         submitLabel: 'Send',
         successMessage: 'Thanks',
@@ -47,7 +51,7 @@ describe('compileRecipe', () => {
 
     const out = compileRecipe(spec, { kind: 'THEME', themeId: '789', moduleId: 'test-module-789' });
     expect(out.ops.length).toBeGreaterThan(0);
-    expect(out.themeModulePayload?.type).toBe('theme.contactForm');
+    expect(out.themeModulePayload?.type).toBe('theme.section');
     expect(out.themeModulePayload?.activationType).toBe('section');
   });
 
@@ -77,5 +81,35 @@ describe('compileRecipe', () => {
 
     const out = compileRecipe(spec, { kind: 'PLATFORM' });
     expect(out.ops.some(o => o.kind === 'FUNCTION_CONFIG_UPSERT')).toBe(true);
+  });
+
+  it('compiles functions.fulfillmentConstraints to function config upsert op', () => {
+    const spec: RecipeSpec = {
+      type: 'functions.fulfillmentConstraints',
+      name: 'Ship fragile alone',
+      category: 'FUNCTION',
+      requires: [],
+      config: { rules: [{ when: { productTagIn: ['fragile'] }, apply: { shipAlone: true } }] },
+    } as unknown as RecipeSpec;
+
+    const out = compileRecipe(spec, { kind: 'PLATFORM' });
+    const op = out.ops.find(o => o.kind === 'FUNCTION_CONFIG_UPSERT');
+    expect(op).toBeDefined();
+    expect((op as { functionKey: string }).functionKey).toBe('fulfillmentConstraints');
+  });
+
+  it('compiles functions.orderRoutingLocationRule to function config upsert op', () => {
+    const spec: RecipeSpec = {
+      type: 'functions.orderRoutingLocationRule',
+      name: 'Prefer EU warehouse',
+      category: 'FUNCTION',
+      requires: [],
+      config: { rules: [{ when: { countryCode: 'DE' }, apply: { preferLocationId: 'gid://shopify/Location/1', priority: 10 } }] },
+    } as unknown as RecipeSpec;
+
+    const out = compileRecipe(spec, { kind: 'PLATFORM' });
+    const op = out.ops.find(o => o.kind === 'FUNCTION_CONFIG_UPSERT');
+    expect(op).toBeDefined();
+    expect((op as { functionKey: string }).functionKey).toBe('orderRoutingLocationRule');
   });
 });

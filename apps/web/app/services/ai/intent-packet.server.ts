@@ -95,11 +95,7 @@ function mapSurface(surface?: string): string {
 }
 
 function mapArchetype(moduleType: string): string {
-  if (moduleType === 'theme.popup') return 'modal';
-  if (moduleType === 'theme.banner') return 'banner';
-  if (moduleType === 'theme.notificationBar') return 'notification_bar';
-  if (moduleType === 'theme.effect') return 'embed';
-  if (moduleType === 'theme.floatingWidget') return 'drawer';
+  if (moduleType === 'theme.section') return 'section';
   if (moduleType === 'proxy.widget') return 'embed';
   if (moduleType === 'checkout.upsell' || moduleType === 'checkout.block') return 'inline_block';
   if (moduleType === 'postPurchase.offer') return 'modal';

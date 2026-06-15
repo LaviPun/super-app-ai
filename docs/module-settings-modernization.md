@@ -2,6 +2,13 @@
 
 This document defines the minimum advanced settings expected for recipes/templates so module flows are production-usable, not basic demos.
 
+> **Module System v2:** the named theme.* types below (`theme.banner`, `theme.popup`,
+> `theme.notificationBar`, `theme.contactForm`, `theme.effect`, `theme.floatingWidget`)
+> are collapsed into the single generic **`theme.section`** type — each is now a
+> free-form `config.kind`. The per-kind settings expectations in this guide still
+> apply (read them as "the `popup` kind", "the `contactForm` kind", …). See
+> **`docs/module-system-v2.md`** for the authoritative storefront type model.
+
 ## Scope
 
 - Canonical module types are from `packages/core/src/allowed-values.ts` (`RECIPE_SPEC_TYPES`).
@@ -166,3 +173,19 @@ Installability is computed by `getTemplateInstallability()` in `packages/core/sr
 - Applied: centralized template modernization layer in `packages/core/src/templates.ts`.
 - Outcome: all template entries now inherit advanced defaults per module type without duplicating logic across 4 template source files.
 - Verification target: template integrity tests + schema validation must continue passing for all template specs.
+
+## 2026-06-14 — Settings actions (spec 024)
+
+Source of truth: [`module-system-v2.md`](./module-system-v2.md). Contract: `packages/platform-contracts/src/module-settings.ts`.
+
+Four merchant actions on `modules.$moduleId.tsx`:
+- **Fill-missing** (`fill-missing-settings.server.ts`) — diff current config vs expected controls; AI proposes only the missing keys; merge via pure `buildFillMissingDiff` which **never overwrites merchant-set or already-set values**. Output: `SettingsDiff`.
+- **Regenerate** — full re-gen for the same type preserving `pinnedKeys` (`RegenerateSettingsRequestSchema`).
+- **Schema-driven form** — `SchemaForm.tsx` renders `{ jsonSchema, uiSchema, value }` from the hydrate `adminConfigSchemaJson` (closes the generate-but-never-render gap); derives widgets from JSON-schema when no hint is given; tier + conditional visibility. `ConfigEditor` stays as the v1 fallback behind the flag.
+- **Republish** — idempotent recompile + publish with a visible `RepublishDiff` (contract in `publish-functions.ts`) and rollback via the existing rollback route.
+
+### 2026-06-15 — integration wiring
+
+- **Fill-missing** is live at `api.ai.fill-settings.tsx` (expected controls = hydrated `adminConfigSchemaJson` properties; proposer reuses the validated `modifyRecipeSpec` path; persists via `createNewVersion`) with a **Fill missing settings** action in the hydration card.
+- **RepublishDiff preview** renders in the module-detail Publish card: the loader computes `computeRepublishDiff(draft.config vs published.config)` and shows `First publish` / `No changes (safe no-op)` / `Will update <fields>` before the merchant republishes.
+- **Auto-fill at create** (WS1/022): when `moduleSystemVersion === 'v2'` and the best generated option misses must-have control packs, `api.ai.create-module.tsx` runs one fill pass to complete it and recomputes coverage (`autoFilled` in the response). Best-effort, ≤1 extra LLM call, only on incomplete coverage; the v1 path is unchanged.

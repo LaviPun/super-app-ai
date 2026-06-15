@@ -62,6 +62,13 @@ Single index for the **Platform V2** migration (Next.js + Fastify/Workers API + 
 | 19 | Async UX | `019-async-ux` | Partial | Job orchestration enables async; merchant UI pending |
 | 20 | Testing matrix | `020-testing-matrix` | Partial | Package tests green; cross-service matrix pending |
 | 21 | Rollout & cutover | `021-rollout-cutover` | **Partial** | `PLATFORM_BACKEND` + rollout flags in contracts; `PLATFORM_V2_ENABLED` in job-orchestration; traffic cutover + Remix retirement pending |
+| 22 | Requirements-first, search-augmented generation | `022-requirement-search-generation` | **Shipped (core)** | `RequirementSpec`/coverage contracts + deterministic extraction + RAG grounding; **wired** into `api.ai.create-module.tsx` (grounding into prompt, coverage + startFrom in response, v2-gated auto-fill on incomplete coverage) |
+| 23 | Generation guardrails / prompt-injection harness | `023-generation-guardrails` | **Shipped (core)** | Prompt envelope + injection scan + schema-bound discriminator reject; **wired** into all prompt compilers + generate loop; SSRF/escape-hatch test-proven |
+| 24 | Module settings uplift | `024-module-settings-uplift` | **Shipped (core)** | Fill-missing/regenerate/admin-form contracts + never-overwrite merge; `SchemaForm` renderer; **wired** `api.ai.fill-settings.tsx` + Fill-missing UI action + RepublishDiff preview in the Publish card |
+| 25 | Full working live preview for every surface | `025-live-preview-all-surfaces` | **Shipped (core)** | Per-surface interactive renderers + deterministic Function simulation; **wired** `PreviewContext.simulation` from the preview UI (Function sim panel); static diagram removed |
+| 26 | Publish + Functions reliability | `026-publish-functions-reliability` | **Shipped (core)** | Two-layer Functions contract + loud preflight (gated/blocked) + idempotent republish diff; **wired** into `publish.service.ts` (gate throws `ModuleNotPublishableError`; `computeRepublishDiff` skips no-op writes) |
+
+> Phases 22–26 are the **module-generation uplift** (build order 23 → 22 → 24 → 25 → 26). Canonical plan: [`docs/module-system-v2.md`](../../docs/module-system-v2.md). Each lands as a sibling spec folder + typed contract module in `packages/platform-contracts/src/` + tests, behind the `moduleSystemVersion` / `?engine=v2` flag where it touches generation.
 
 ## Dual queue architecture
 

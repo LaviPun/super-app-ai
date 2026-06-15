@@ -5,7 +5,7 @@ import { PreviewService } from '~/services/preview/preview.service';
 describe('PreviewService structured fixtures', () => {
   const service = new PreviewService();
 
-  it('renders structured HTML preview for non-theme templates', () => {
+  it('renders an interactive checkout-surface preview for non-theme templates (WS4)', () => {
     const spec: RecipeSpec = {
       type: 'checkout.block',
       name: 'Checkout Trust Block',
@@ -21,19 +21,25 @@ describe('PreviewService structured fixtures', () => {
     const preview = service.render(spec, { surface: 'checkout' });
     expect(preview.kind).toBe('HTML');
     if (preview.kind === 'HTML') {
-      expect(preview.html).toContain('Workflow context');
-      expect(preview.html).toContain('Fixture products');
-      expect(preview.html).toContain('checkout');
+      // New interactive surface mock — not the removed static diagram.
+      expect(preview.html).not.toContain('Workflow context');
+      expect(preview.html).toContain('Order summary');
+      expect(preview.html).toContain('Trust guarantee');
+      expect(preview.html).toContain('checkout UI');
     }
   });
 
   it('keeps theme templates on interactive HTML renderer', () => {
     const spec: RecipeSpec = {
-      type: 'theme.popup',
+      type: 'theme.section',
       name: 'Welcome Popup',
       category: 'STOREFRONT_UI',
       requires: ['THEME_ASSETS'],
       config: {
+        kind: 'popup',
+        activation: 'overlay',
+        fields: {},
+        blocks: [],
         title: 'Welcome',
         trigger: 'ON_LOAD',
         delaySeconds: 0,

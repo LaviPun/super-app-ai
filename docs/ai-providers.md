@@ -25,7 +25,7 @@ Other provider kinds in Internal Admin (e.g. Azure OpenAI, custom OpenAI-compati
 - The **default** AI for module generation is the globally **active** `AiProvider` (set on `/internal/ai-providers` via *Set global active*; `AiProvider.isActive`). Per-shop overrides (`Shop.aiProviderOverrideId`) take precedence when present.
 - The **fallback** AI is `AppSettings.fallbackAiProviderId`, chosen on the same page (*Default & fallback AI* card). When set and different from the active provider, `getLlmClient` wraps the pair in `FallbackLlmClient`: the fallback runs automatically only if the default call throws.
 - Env path (no DB providers): `defaultAiProvider` (`openai | claude | gemini`) selects the primary from env keys; OpenAI is the implicit fallback for claude/gemini when `OPENAI_API_KEY` is also set.
-- Cost note: usage is attributed to the default `providerId`; if the fallback actually serves a request its price lookup keys on (default providerId, model) and may resolve to 0 until that model is priced — the served model is recorded in `AiUsage.meta`.
+- Cost attribution: usage is attributed to the provider that **actually served** the request. Each `ConfiguredLlmClient` stamps `servedProviderId` on its result, so when the fallback serves, `attributeServedCost` keys the price lookup on (fallback providerId, served model) and records the `AiUsage` row under the fallback provider — not the default. Env-key clients (no DB row) carry no `servedProviderId` and price at 0, as before. The served model is also recorded in `AiUsage.meta`.
 
 ## Internal admin provider workflow
 - Internal Admin → `AI Providers` is credentials-first: operators enter only provider credentials/default model.
@@ -150,3 +150,21 @@ These are passed via `hints.maxTokens` through `LlmClient.generateRecipe`. Indiv
 
 ## Notes
 If you enable a “debug capture” mode later, store it per shop and time-bound it (e.g. 15 minutes) to avoid retaining sensitive data.
+
+## 2026-06-14 — Module-generation uplift: call budget + guardrails (specs 022/023)
+
+Source of truth: [`module-system-v2.md`](./module-system-v2.md). Contracts: `packages/platform-contracts/src/{requirement-spec,generation-guardrails}.ts`.
+
+### Per-create call budget (WS1 / 022)
+Asserted and logged via `AiUsage`:
+- ≤ 1 classify-LLM (conditional, only when keyword+embedding confidence is low)
+- ≤ 1 router (optional)
+- N generation (one per approach hint) + per-option repair
+- RequirementSpec extraction adds **0** always-on hops (deterministic from classify + IntentPacket + control-pack manifest); at most **1** conditional LLM escalation when `confidenceScore < CONFIDENCE_THRESHOLDS.WITH_ALTERNATIVES`.
+- Search-augment (`solution-search.server.ts`) adds **0** LLM hops (deterministic ranking of `MODULE_TEMPLATES`).
+
+### Guardrails (WS2 / 023)
+- Merchant text is wrapped in a delimited `<user_request>` envelope (`PromptEnvelopeSchema`) in every prompt compiler, with a system rule declaring the wrapped text is data, not instructions.
+- `injection-scan.server.ts` flags + strips known override patterns (flag, never hard-block).
+- Schema-bound invariant: `assertKnownDiscriminator` rejects unknown/contradictory `type` **before** `RecipeSpecSchema.parse`, so `generateValidatedRecipe` short-circuits repair (reject, not repair).
+- SSRF (`assertSafeTargetUrl` + connector allowlist) and escape-hatch sanitisation (`assertGeneratedPreviewHtmlIsSafe`, `sanitizeCustomCss`) are unchanged and test-proven.

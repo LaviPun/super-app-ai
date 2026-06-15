@@ -9,11 +9,7 @@ import type { ModuleType } from '@superapp/core';
  * Storefront types are compact. Default is 4000 — enough for one rich recipe.
  */
 export const RECIPE_TOKEN_BUDGETS: Partial<Record<ModuleType, number>> = {
-  'theme.banner': 2500,
-  'theme.notificationBar': 2000,
-  'theme.popup': 3000,
-  'theme.effect': 2500,
-  'theme.floatingWidget': 2500,
+  'theme.section': 3000,
   'proxy.widget': 2500,
   'flow.automation': 6000,
   'customerAccount.blocks': 4500,

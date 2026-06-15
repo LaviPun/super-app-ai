@@ -34,7 +34,7 @@ export async function runRouteProbe(
     const payload = {
       prompt: 'Create a popup with 10% discount.',
       classification: {
-        moduleType: 'theme.popup',
+        moduleType: 'theme.section',
         intent: 'promo.popup',
         surface: 'home',
         confidence: 0.7,
@@ -45,7 +45,7 @@ export async function runRouteProbe(
           intent: 'promo.popup',
           confidence: 0.7,
           evidence: [],
-          moduleTypeHint: 'theme.popup',
+          moduleTypeHint: 'theme.section',
         },
         routing: {
           needCatalog: true,
@@ -56,7 +56,7 @@ export async function runRouteProbe(
       },
       fallback: {
         version: '1.0',
-        moduleType: 'theme.popup',
+        moduleType: 'theme.section',
         confidence: 0.7,
         includeFlags: {
           includeSettingsPack: true,

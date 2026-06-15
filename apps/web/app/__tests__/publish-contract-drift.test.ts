@@ -10,7 +10,7 @@ describe('Publish contract drift checks', () => {
       versionId: 'contract-v1',
       planTier: 'PLUS',
       requires: [],
-      specType: 'theme.banner',
+      specType: 'theme.section',
       targetKind: 'PLATFORM',
     });
     expect(result.allowed).toBe(false);
@@ -34,7 +34,7 @@ describe('Publish contract drift checks', () => {
       versionId: 'contract-v3',
       planTier: 'PLUS',
       requires: ['THEME_ASSETS'],
-      specType: 'theme.popup',
+      specType: 'theme.section',
       targetKind: 'THEME',
     });
     expect(result.allowed).toBe(true);

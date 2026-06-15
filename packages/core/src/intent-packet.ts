@@ -300,7 +300,7 @@ export const OUTPUT_SCHEMA_STOREFRONT = 'StorefrontModuleSpecV1';
 
 /** Intent prefix or exact intent → routing. output_schema StorefrontModuleSpecV1 = RecipeSpec in this codebase. */
 export const ROUTING_TABLE: Record<string, RoutingEntry> = {
-  // Storefront promo (theme.popup, theme.banner, theme.notificationBar map here)
+  // Storefront promo (theme.section maps here; popup is a kind of theme.section)
   'promo.popup': { prompt_scaffold_id: 'tpl_promo_popup_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
   'promo.banner': { prompt_scaffold_id: 'tpl_promo_banner_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
   'promo.slideout': { prompt_scaffold_id: 'tpl_promo_slideout_v1', prompt_profile: 'storefront_ui_v1', output_schema: 'StorefrontModuleSpecV1' },
@@ -354,14 +354,9 @@ export const ROUTING_TABLE: Record<string, RoutingEntry> = {
   'platform.extensionBlueprint': { prompt_scaffold_id: 'tpl_blueprint_v1', prompt_profile: 'admin_ui_v1', output_schema: 'AdminUISpecV1' },
 };
 
-/** Map module type (e.g. theme.popup) to intent for routing when intent is not from Clean Intent List. */
+/** Map module type (e.g. theme.section) to intent for routing when intent is not from Clean Intent List. */
 export const MODULE_TYPE_TO_INTENT: Record<string, string> = {
-  'theme.popup': 'promo.popup',
-  'theme.contactForm': 'engage.newsletter_capture',
-  'theme.banner': 'promo.banner',
-  'theme.notificationBar': 'utility.announcement',
-  'theme.effect': 'utility.effect',
-  'theme.floatingWidget': 'utility.floating_widget',
+  'theme.section': 'promo.popup',
   'proxy.widget': 'utility.floating_widget',
   'checkout.upsell': 'upsell.cart_upsell',
   'checkout.block': 'upsell.cross_sell_addon',

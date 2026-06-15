@@ -46,12 +46,7 @@ export type CatalogEntry = {
  * `getCatalogDetailsForType` can return inspiration rows for it.
  */
 export const MODULE_TYPE_TO_TEMPLATE_KIND: Record<ModuleType, string> = {
-  'theme.banner': 'banner',
-  'theme.popup': 'popup',
-  'theme.notificationBar': 'notification_bar',
-  'theme.contactForm': 'contact_form',
-  'theme.effect': 'effect',
-  'theme.floatingWidget': 'floating_widget',
+  'theme.section': 'section',
   'proxy.widget': 'widget',
   'functions.discountRules': 'discount_rules',
   'functions.deliveryCustomization': 'delivery_customization',
@@ -77,12 +72,7 @@ export const MODULE_TYPE_TO_TEMPLATE_KIND: Record<ModuleType, string> = {
  * Cross-cutting tags for each moduleType. Drive search/discoverability ('plus-only', 'theme', 'function', etc.).
  */
 const MODULE_TYPE_TAGS: Record<ModuleType, readonly string[]> = {
-  'theme.banner': ['theme', 'storefront', 'banner'],
-  'theme.popup': ['theme', 'storefront', 'popup'],
-  'theme.notificationBar': ['theme', 'storefront', 'notification'],
-  'theme.contactForm': ['theme', 'storefront', 'contact', 'form', 'lead-capture'],
-  'theme.effect': ['theme', 'storefront', 'effect', 'seasonal'],
-  'theme.floatingWidget': ['theme', 'storefront', 'floating', 'widget'],
+  'theme.section': ['theme', 'storefront', 'section', 'custom', 'generic', 'contact', 'form', 'lead-capture', 'effect', 'seasonal', 'floating', 'widget'],
   'proxy.widget': ['proxy', 'storefront', 'widget'],
   'functions.discountRules': ['function', 'discount', 'pricing'],
   'functions.deliveryCustomization': ['function', 'delivery', 'shipping'],

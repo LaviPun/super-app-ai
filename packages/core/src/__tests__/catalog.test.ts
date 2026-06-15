@@ -90,9 +90,9 @@ describe('catalog query API', () => {
   });
 
   it('filterCatalog supports tag filters (every tag must be present)', () => {
-    const themePopupTags = filterCatalog({ tags: ['type', 'theme', 'popup'] });
+    const themePopupTags = filterCatalog({ tags: ['type', 'theme', 'section'] });
     expect(themePopupTags.length).toBe(1);
-    expect(themePopupTags[0]?.catalogId).toBe('type.theme.popup');
+    expect(themePopupTags[0]?.catalogId).toBe('type.theme.section');
 
     const noisy = filterCatalog({ tags: ['type', 'theme', 'this-tag-does-not-exist'] });
     expect(noisy.length).toBe(0);

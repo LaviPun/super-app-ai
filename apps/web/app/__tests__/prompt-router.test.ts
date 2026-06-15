@@ -12,7 +12,7 @@ import { ActivityLogService } from '~/services/activity/activity.service';
 
 function makeClassification(confidenceScore: number): ClassifyResult {
   return {
-    moduleType: 'theme.popup',
+    moduleType: 'theme.section',
     intent: 'promo.popup',
     surface: 'home',
     confidence: confidenceScore >= 0.8 ? 'high' : confidenceScore >= 0.55 ? 'medium' : 'low',
@@ -25,7 +25,7 @@ function makeClassification(confidenceScore: number): ClassifyResult {
 function routerPayload(overrides: Record<string, unknown> = {}) {
   return {
     version: '1.0',
-    moduleType: 'theme.popup',
+    moduleType: 'theme.section',
     confidence: 0.99,
     intent: 'promo.popup',
     surface: 'home',
@@ -146,7 +146,7 @@ describe('internal router client', () => {
       storeContext: { shop_domain: 'shop.myshopify.com', theme_os2: true },
     });
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify(routerPayload({ moduleType: 'theme.banner' })), { status: 200 }),
+      new Response(JSON.stringify(routerPayload({ moduleType: 'proxy.widget' })), { status: 200 }),
     );
 
     const decision = await buildPromptRouterDecision({
@@ -155,7 +155,7 @@ describe('internal router client', () => {
       intentPacket: packet,
     });
 
-    expect(decision.moduleType).toBe('theme.popup');
+    expect(decision.moduleType).toBe('theme.section');
     expect(decision.reasonCode).toBe('internal_router_module_type_corrected');
     expect(getPromptRouterMetricsSnapshot().harnessModuleTypeCorrections).toBeGreaterThanOrEqual(1);
   });
@@ -243,7 +243,7 @@ describe('internal router client', () => {
       })
       .mockImplementationOnce(
         async () =>
-          new Response(JSON.stringify(routerPayload({ moduleType: 'theme.popup', confidence: 0.7 })), {
+          new Response(JSON.stringify(routerPayload({ moduleType: 'theme.section', confidence: 0.7 })), {
             status: 200,
           }),
       );
@@ -302,7 +302,7 @@ describe('release gate', () => {
     expect(tripped).toBeDefined();
 
     fetchSpy.mockResolvedValueOnce(
-      new Response(JSON.stringify(routerPayload({ moduleType: 'theme.popup', confidence: 0.65 })), {
+      new Response(JSON.stringify(routerPayload({ moduleType: 'theme.section', confidence: 0.65 })), {
         status: 200,
       }),
     );
