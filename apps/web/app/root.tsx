@@ -4,6 +4,13 @@ import { useEffect } from 'react';
 import { Link, Links, Meta, Outlet, Scripts, ScrollRestoration, useLoaderData, useRouteError, useLocation } from '@remix-run/react';
 import polarisCss from '@shopify/polaris/build/esm/styles.css?url';
 import appCss from './app.css?url';
+// SuperApp AI design-system (vendored from the Claude Design handoff bundle).
+// Self-contained --p-*/--sa-* tokens + unprefixed .card/.btn/.page classes;
+// does not collide with @shopify/polaris (.Polaris-* / --p-color-*).
+import saPolarisCss from './styles/superapp/polaris.css?url';
+import saShellCss from './styles/superapp/shell.css?url';
+import saPagesCss from './styles/superapp/pages.css?url';
+import saGenerateCss from './styles/superapp/generate.css?url';
 import enTranslations from '@shopify/polaris/locales/en.json';
 import { AppProvider as PolarisProvider } from '@shopify/polaris';
 import { AppProvider } from '@shopify/shopify-app-remix/react';
@@ -14,6 +21,10 @@ import { getPlatformV2CutoverConfig } from '~/services/platform-v2/rollout-cutov
 export const links: LinksFunction = () => [
   { rel: 'stylesheet', href: polarisCss },
   { rel: 'stylesheet', href: appCss },
+  { rel: 'stylesheet', href: saPolarisCss },
+  { rel: 'stylesheet', href: saShellCss },
+  { rel: 'stylesheet', href: saPagesCss },
+  { rel: 'stylesheet', href: saGenerateCss },
 ];
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -120,14 +131,16 @@ export default function App() {
           <AppProvider isEmbeddedApp apiKey={apiKey}>
             <ClientErrorReporting />
             <ActivityLogger />
+            {/* Shopify App Bridge top-level nav — rendered OUTSIDE the app (Shopify admin
+                left rail). Matches the design's MERCHANT_NAV. In-app sub-tabs for Build
+                (Modules/Flows/Connectors/Data/Templates) and Insights (Analytics/Activity)
+                are rendered inside each page via <MerchantSubnav />. */}
             <s-app-nav>
-              <Link to="/" rel="home">Home</Link>
-              <Link to="/modules">AI modules</Link>
-              <Link to="/jobs">Jobs</Link>
-              <Link to="/advanced">Advanced features</Link>
-              <Link to="/data">Data models</Link>
-              <Link to="/billing">Billing</Link>
+              <Link to="/" rel="home">Dashboard</Link>
+              <Link to="/modules">Build</Link>
+              <Link to="/analytics">Insights</Link>
               <Link to="/settings">Settings</Link>
+              <Link to="/billing">Billing</Link>
             </s-app-nav>
             <div className="app-content">
               <Outlet />
