@@ -160,8 +160,9 @@ export async function loader({ request, params }: { request: Request; params: { 
       subscription: true,
     },
   });
-  if (!shop) throw new Response('Store not found', { status: 404 });
-
+  // A missing shop is NOT a 404 here — the design surface uses placeholder store ids.
+  // Compute the shop-independent options below, then (if no real shop) return shop:null
+  // so the component renders the placeholder store inside the admin shell.
   const providers = await new AiProviderService().list();
   const providerOptions = [
     { label: 'Use global provider', value: '' },
@@ -175,6 +176,18 @@ export async function loader({ request, params }: { request: Request; params: { 
     { label: 'Pro', value: 'PRO' },
     { label: 'Enterprise', value: 'ENTERPRISE' },
   ];
+
+  if (!shop) {
+    const emptyUsage = { totalRequests: 0, totalTokensIn: 0, totalTokensOut: 0, totalCostCents: 0, byProvider: [] as any[] };
+    return json({
+      shop: null,
+      providerOptions,
+      billingPlanOptions,
+      publishedModulesMeta: [] as ReturnType<typeof buildPublishedModulesMeta>,
+      aiUsage30d: emptyUsage,
+      aiUsageAllTime: emptyUsage,
+    });
+  }
 
   const publishedModulesMeta = buildPublishedModulesMeta(shop);
   const aiUsageRows = await prisma.aiUsage.findMany({

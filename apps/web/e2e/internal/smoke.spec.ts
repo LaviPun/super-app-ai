@@ -88,11 +88,16 @@ for (const route of ADMIN_ROUTES) {
 }
 
 test('command palette opens with the design markup', async ({ page }) => {
-  await page.goto('/internal', { waitUntil: 'domcontentloaded' });
+  await page.goto('/internal');
   await expect(page.locator('.admin-shell')).toBeVisible();
-  // ⌘K / Ctrl+K toggles the command palette overlay (.cmdk).
-  await page.keyboard.press('Control+k');
-  await expect(page.locator('.cmdk')).toBeVisible();
+  // ⌘K / Ctrl+K toggles the command palette overlay (.cmdk). The keydown listener
+  // attaches after client hydration, so retry the shortcut to absorb that timing
+  // (an immediate single press can land before the listener is registered).
+  await expect(async () => {
+    if (await page.locator('.cmdk').count()) await page.keyboard.press('Escape');
+    await page.keyboard.press('Control+k');
+    await expect(page.locator('.cmdk')).toBeVisible({ timeout: 800 });
+  }).toPass({ timeout: 8000 });
   await page.keyboard.press('Escape');
   await expect(page.locator('.cmdk')).toHaveCount(0);
 });

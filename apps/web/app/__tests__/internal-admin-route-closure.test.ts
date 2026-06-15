@@ -307,7 +307,9 @@ describe('internal admin route closure (scorecard certification harness)', () =>
     const res = await storeDetailLoader({ request: req, params: { storeId: 'shop-1' } });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.shop.id).toBe('shop-1');
+    // shop is now typed `{...} | null` (missing stores fall back to placeholder
+    // instead of 404); this case mocks a found shop, so it is non-null.
+    expect(body.shop?.id).toBe('shop-1');
   });
 
   it('internal.templates.$templateId: loader returns template payload', async () => {
