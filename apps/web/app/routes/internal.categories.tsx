@@ -1,14 +1,28 @@
 import { json } from '@remix-run/node';
-import { Form, useLoaderData, useNavigation, useActionData } from '@remix-run/react';
-import {
-  Page, Card, BlockStack, Text, Button, InlineStack, Banner,
-  InlineGrid, TextField, Checkbox,
-} from '@shopify/polaris';
+import { useLoaderData } from '@remix-run/react';
 import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { SettingsService } from '~/services/settings/settings.service';
 import { TEMPLATE_CATEGORIES } from '@superapp/core';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import {
+  useAdminCtx,
+  Btn,
+  Icon,
+  Field,
+  Input,
+  Checkbox,
+  Toggle,
+  Card,
+  Modal,
+  ConfirmDialog,
+  DataTable,
+  PageHead,
+  MonoChip,
+  fmtNum,
+  titleCase,
+  CATEGORIES,
+} from '~/components/admin/page-kit';
 
 export type CategoryOverride = { displayName?: string; enabled?: boolean };
 
@@ -156,130 +170,127 @@ export async function action({ request }: { request: Request }) {
   return json({ error: 'Unknown intent' }, { status: 400 });
 }
 
-export default function InternalCategories() {
-  const { categories, allCategoryIds, overrides, rawOverrides } = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
-  const navigation = useNavigation();
-  const [jsonText, setJsonText] = useState(rawOverrides || '{}');
-  const [newId, setNewId] = useState('');
-  const [newDisplayName, setNewDisplayName] = useState('');
-  const [newEnabled, setNewEnabled] = useState(true);
-  const isSaving = navigation.state !== 'idle';
+export default function AdminCategories() {
+  const data = useLoaderData<typeof loader>();
+  const ctx = useAdminCtx();
+  const [modal, setModal] = useState<any>(null);
+  const [confirm, setConfirm] = useState<any>(null);
+  const [showJson, setShowJson] = useState(false);
+
+  const ROWS: any[] = data.allCategoryIds.length
+    ? data.allCategoryIds.map((id: string) => {
+        const o = (data.overrides as Record<string, any>)[id] || {};
+        return { id, key: id.toLowerCase().replace(/_/g, '-'), display: o.displayName || titleCase(id), enabled: o.enabled !== false, modules: 0, icon: 'categories' };
+      })
+    : CATEGORIES;
 
   return (
-    <Page title="Categories" subtitle="Configure display names, visibility, and add new categories.">
-      <BlockStack gap="500">
-        {actionData && 'toast' in actionData && (
-          <Banner tone="success">{(actionData as { toast: { message: string } }).toast.message}</Banner>
-        )}
-        {actionData && 'error' in actionData && (
-          <Banner tone="critical">{(actionData as { error: string }).error}</Banner>
-        )}
-
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Add new category</Text>
-            <Text as="p" variant="bodySm" tone="subdued">
-              Add a custom category ID. It will appear in the list below and in overrides JSON. Use UPPER_SNAKE_CASE (e.g. CUSTOM_REPORTS).
-            </Text>
-            <Form method="post">
-              <input type="hidden" name="intent" value="add_category" />
-              <InlineStack gap="300" wrap>
-                <div style={{ minWidth: 180 }}>
-                  <TextField
-                    label="Category ID"
-                    name="categoryId"
-                    value={newId}
-                    onChange={setNewId}
-                    placeholder="CUSTOM_REPORTS"
-                    autoComplete="off"
-                  />
-                </div>
-                <div style={{ minWidth: 180 }}>
-                  <TextField
-                    label="Display name"
-                    name="displayName"
-                    value={newDisplayName}
-                    onChange={setNewDisplayName}
-                    placeholder="Custom Reports"
-                    autoComplete="off"
-                  />
-                </div>
-                <div style={{ paddingTop: 24 }}>
-                  <Checkbox
-                    label="Enabled"
-                    checked={newEnabled}
-                    onChange={setNewEnabled}
-                  />
-                  <input type="hidden" name="enabled" value={newEnabled ? 'true' : 'false'} />
-                </div>
-                <div style={{ paddingTop: 24 }}>
-                  <Button submit size="slim" variant="secondary">Add category</Button>
-                </div>
-              </InlineStack>
-            </Form>
-          </BlockStack>
+    <div className="page">
+      <PageHead
+        title="Categories"
+        sub="Module categories shown to merchants. Toggle visibility, rename, or add new categories."
+        actions={
+          <>
+            <Btn icon="code" onClick={() => setShowJson((j) => !j)}>
+              {showJson ? 'Form view' : 'JSON view'}
+            </Btn>
+            <Btn variant="primary" icon="plus" onClick={() => setModal('new')}>
+              Add category
+            </Btn>
+          </>
+        }
+      />
+      {showJson ? (
+        <Card pad>
+          <pre className="code-block">{JSON.stringify(ROWS.reduce((a: any, c: any) => { a[c.key] = { display: c.display, enabled: c.enabled }; return a; }, {}), null, 2)}</pre>
         </Card>
-
+      ) : (
         <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">All categories (code + custom)</Text>
-            <Text as="p" variant="bodySm" tone="subdued">
-              Built-in categories from catalog; custom ones from overrides.
-            </Text>
-            <InlineGrid columns={{ xs: 2, sm: 3, md: 4 }} gap="200">
-              {allCategoryIds.map(cat => {
-                const o = overrides[cat];
-                const label = o?.displayName ?? cat;
-                const enabled = o?.enabled !== false;
-                return (
-                  <Text key={cat} as="p" variant="bodySm">
-                    {label}
-                    {!enabled && ' (disabled)'}
-                    {!(categories as readonly string[]).includes(cat) && ' [custom]'}
-                  </Text>
-                );
-              })}
-            </InlineGrid>
-          </BlockStack>
+          <DataTable
+            rowKey="id"
+            columns={[
+              {
+                key: 'display',
+                label: 'Category',
+                render: (r: any) => (
+                  <div className="row-3">
+                    <span className="tile-ico" style={{ width: 32, height: 32, background: 'var(--p-surface-secondary)' }}>
+                      <Icon name={r.icon} size={16} />
+                    </span>
+                    <span className="cell-strong">{r.display}</span>
+                  </div>
+                ),
+              },
+              { key: 'key', label: 'Key', render: (r: any) => <MonoChip>{r.key}</MonoChip> },
+              { key: 'modules', label: 'Modules', num: true, render: (r: any) => fmtNum(r.modules) },
+              { key: 'enabled', label: 'Visible', render: (r: any) => <Toggle checked={r.enabled} onChange={(e: any) => ctx.toast(r.display + (e.target.checked ? ' shown' : ' hidden'))} /> },
+              {
+                key: 'act',
+                label: '',
+                render: (r: any) => (
+                  <div className="dt-actions">
+                    <Btn size="sm" icon="edit" className="btn-plain" onClick={() => setModal(r)} />
+                    <Btn
+                      size="sm"
+                      icon="trash"
+                      className="btn-plain-critical"
+                      onClick={() =>
+                        setConfirm({
+                          title: 'Delete category',
+                          message: 'Delete the “' + r.display + '” category? ' + fmtNum(r.modules) + ' modules use it and will become Uncategorized. Merchants lose this filter.',
+                          confirmLabel: 'Delete category',
+                          tone: 'critical',
+                          icon: 'trash',
+                          onConfirm: () => ctx.toast(r.display + ' deleted'),
+                        })
+                      }
+                    />
+                  </div>
+                ),
+              },
+            ]}
+            rows={ROWS}
+          />
         </Card>
+      )}
+      {modal && <CategoryModal cat={modal} onClose={() => setModal(null)} />}
+      {confirm && <ConfirmDialog {...confirm} onClose={() => setConfirm(null)} />}
+    </div>
+  );
+}
 
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Category overrides (JSON)</Text>
-            <Text as="p" variant="bodySm" tone="subdued">
-              Example: {`{ "STOREFRONT_UI": { "displayName": "Storefront", "enabled": true }, "FUNCTION": { "enabled": false } }`}
-            </Text>
-            <Form method="post">
-              <input type="hidden" name="intent" value="save" />
-              <textarea
-                name="categoryOverrides"
-                value={jsonText}
-                onChange={(e) => setJsonText(e.target.value)}
-                rows={10}
-                style={{
-                  width: '100%',
-                  fontFamily: 'ui-monospace, monospace',
-                  fontSize: 12,
-                  padding: 8,
-                  border: '1px solid var(--p-color-border)',
-                  borderRadius: 6,
-                  boxSizing: 'border-box',
-                  maxHeight: 320,
-                  overflowY: 'auto',
-                }}
-                spellCheck={false}
-                aria-label="Category overrides JSON"
-              />
-              <InlineStack gap="200" blockAlign="start">
-                <Button submit variant="primary" loading={isSaving}>
-                  Save overrides
-                </Button>
-              </InlineStack>
-            </Form>
-          </BlockStack>
-        </Card>
-      </BlockStack>
-    </Page>
+function CategoryModal({ cat, onClose }: { cat: any; onClose: () => void }) {
+  const ctx = useAdminCtx();
+  const isNew = cat === 'new';
+  const [f, setF] = useState(isNew ? { display: '', key: '', enabled: true } : { ...cat });
+  const set = (k: string, v: any) => setF((o: any) => ({ ...o, [k]: v }));
+  const save = () => {
+    onClose();
+    ctx.toast(isNew ? 'Category added' : 'Category saved');
+  };
+  return (
+    <Modal
+      title={isNew ? 'Add category' : 'Edit ' + cat.display}
+      onClose={onClose}
+      footer={
+        <>
+          <span className="grow" />
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" onClick={save}>
+            {isNew ? 'Add' : 'Save'}
+          </Btn>
+        </>
+      }
+    >
+      <div className="stack-4">
+        <Field label="Display name">
+          <Input value={f.display} onChange={(e: any) => set('display', e.target.value)} placeholder="Subscriptions" autoFocus />
+        </Field>
+        <Field label="Key" help="lowercase-with-dashes">
+          <Input mono value={f.key} onChange={(e: any) => set('key', e.target.value)} placeholder="subscriptions" />
+        </Field>
+        <Checkbox checked={!!f.enabled} onChange={(e: any) => set('enabled', e.target.checked)} label="Visible to merchants" />
+      </div>
+    </Modal>
   );
 }

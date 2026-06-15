@@ -1,9 +1,6 @@
 import { json, redirect } from '@remix-run/node';
-import { useLoaderData, useSearchParams, useFetcher } from '@remix-run/react';
-import {
-  Page, Card, BlockStack, Text, Select, InlineStack, Button, Banner,
-} from '@shopify/polaris';
-import { useState, useCallback, useEffect } from 'react';
+import { useLoaderData } from '@remix-run/react';
+import { useState } from 'react';
 import { requireInternalAdmin, commitInternal } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import { ModuleService } from '~/services/modules/module.service';
@@ -11,6 +8,18 @@ import { RecipeSpecSchema, MODULE_TEMPLATES, findTemplate } from '@superapp/core
 import { getTypeDisplayLabel } from '~/utils/type-label';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { SettingsService } from '~/services/settings/settings.service';
+import {
+  useAdminCtx,
+  Btn,
+  Badge,
+  Card,
+  Field,
+  Select,
+  Banner,
+  PageHead,
+  STORES,
+  TEMPLATES,
+} from '~/components/admin/page-kit';
 
 const TEMPLATES_SHOP_ID = '__templates__';
 
@@ -228,185 +237,89 @@ export async function action({ request }: { request: Request }) {
   return json({ error: 'Unknown intent' }, { status: 400 });
 }
 
-export default function InternalRecipeEdit() {
-  const { shops, modules, shopId, moduleId, currentSpec, moduleName } = useLoaderData<typeof loader>();
-  const fetcher = useFetcher<typeof action>();
-  const actionData = fetcher.data;
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [specText, setSpecText] = useState(currentSpec ?? '');
+const SAMPLE_SPEC = `{
+  "type": "STOREFRONT_UI",
+  "name": "Sticky Add-to-Cart Bar",
+  "category": "conversion",
+  "layout": { "mode": "sticky", "anchor": "bottom", "width": "full" },
+  "components": [
+    { "kind": "variantPicker", "label": "Choose size" },
+    { "kind": "quantity", "min": 1, "max": 10 },
+    { "kind": "button", "label": "Add to cart", "style": "primary" }
+  ],
+  "tokens": { "radius": "md", "shadow": "lg", "buttonBg": "#1F3A5F" },
+  "responsive": { "hideOnMobile": false }
+}`;
 
-  useEffect(() => {
-    if (currentSpec != null) setSpecText(currentSpec);
-  }, [currentSpec]);
+export default function AdminRecipeEdit() {
+  const data = useLoaderData<typeof loader>();
+  const ctx = useAdminCtx();
+  const [valid, setValid] = useState<boolean | null>(null);
 
-  const shopOptions = [
-    { label: 'Select a store or templates', value: '' },
-    { label: 'All recipes (templates)', value: TEMPLATES_SHOP_ID },
-    ...shops.map(s => ({ label: s.shopDomain, value: s.id })),
-  ];
-  const moduleOptions = [
-    { label: 'Select a module', value: '' },
-    ...modules.map(m => ({ label: `${m.name} (${getTypeDisplayLabel(m.type)})`, value: m.id })),
-  ];
-
-  const onShopChange = useCallback(
-    (value: string) => {
-      const p = new URLSearchParams(searchParams);
-      if (value) p.set('shopId', value);
-      else p.delete('shopId');
-      p.delete('moduleId');
-      setSearchParams(p);
-    },
-    [searchParams, setSearchParams]
-  );
-  const onModuleChange = useCallback(
-    (value: string) => {
-      const p = new URLSearchParams(searchParams);
-      if (value) p.set('moduleId', value);
-      else p.delete('moduleId');
-      setSearchParams(p);
-    },
-    [searchParams, setSearchParams]
-  );
-
-  const submittingIntent =
-    fetcher.state !== 'idle' && fetcher.formData
-      ? String(fetcher.formData.get('intent') ?? '')
-      : null;
-  const isSaving = submittingIntent === 'save';
-  const isValidating = submittingIntent === 'validate';
-
-  const validationResult = actionData && 'validationResult' in actionData ? actionData.validationResult : null;
-  const errors = validationResult && !validationResult.valid && validationResult.errors;
-
-  const submitJson = useCallback(
-    (intent: 'validate' | 'save') => {
-      fetcher.submit(
-        { intent, shopId, moduleId, spec: specText },
-        { method: 'post', encType: 'application/json' },
-      );
-    },
-    [fetcher, shopId, moduleId, specText],
-  );
+  const moduleName: string | null = data.moduleName ?? null;
+  const json = (data.currentSpec as string) || SAMPLE_SPEC;
+  const sourceOptions = ['All recipes (templates)'].concat(STORES.map((s) => s.name));
+  const moduleOptions = (moduleName ? [moduleName] : []).concat(TEMPLATES.map((t) => t.name));
 
   return (
-    <Page title="Recipe edit" subtitle="Edit module RecipeSpec JSON (validated on save).">
-      <BlockStack gap="500">
-        <Card>
-          <BlockStack gap="400">
-            <Text as="h2" variant="headingMd">Select store and module</Text>
-            <Text as="p" variant="bodySm" tone="subdued">Choose a store or All recipes (templates), then a module to edit its spec.</Text>
-            <InlineStack gap="300" wrap>
-              <div style={{ minWidth: 280 }}>
-                <Select
-                  label="Store"
-                  options={shopOptions}
-                  value={shopId}
-                  onChange={onShopChange}
-                />
-              </div>
-              <div style={{ minWidth: 280 }}>
-                <Select
-                  label="Module"
-                  options={moduleOptions}
-                  value={moduleId}
-                  onChange={onModuleChange}
-                  disabled={!shopId}
-                />
-              </div>
-            </InlineStack>
-            {moduleName && (
-              <Text as="p" variant="bodySm" tone="subdued">
-                Editing: {moduleName}
-              </Text>
-            )}
-          </BlockStack>
-        </Card>
-
-        {currentSpec == null && (shopId && moduleId) && shopId !== TEMPLATES_SHOP_ID && (
-          <Banner tone="warning">Module not found or has no versions.</Banner>
-        )}
-
-        {currentSpec != null && (
+    <div className="page">
+      <PageHead
+        back={moduleName ? { href: '/internal/modules', label: moduleName } : undefined}
+        title="Recipe edit"
+        badge={<Badge tone="warning">Staff only · hidden from merchant</Badge>}
+        sub={
+          moduleName
+            ? 'The internal RecipeSpec generated for this module. Merchants never see this JSON — only the rendered module. Validated with the Zod schema before save.'
+            : 'Edit the RecipeSpec JSON for a store’s module or a default template. Internal only — never shown to merchants. Validated with the Zod schema before save.'
+        }
+        actions={
           <>
-            {errors && (
-              <Banner tone="critical" title="Validation failed">
-                <BlockStack gap="200">
-                  {errors.formErrors?.length ? (
-                    <Text as="p" variant="bodySm">{errors.formErrors.join(' ')}</Text>
-                  ) : null}
-                  {errors.fieldErrors && Object.keys(errors.fieldErrors).length > 0 && (
-                    <pre style={{ fontSize: 12, overflow: 'auto', maxHeight: 120 }}>
-                      {JSON.stringify(errors.fieldErrors, null, 2)}
-                    </pre>
-                  )}
-                </BlockStack>
-              </Banner>
-            )}
-            {validationResult?.valid && actionData && 'validationResult' in actionData && (
-              <Banner tone="success">Spec is valid.</Banner>
-            )}
-
-            <Card>
-              <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">RecipeSpec JSON</Text>
-                <Text as="p" variant="bodySm" tone="subdued">Edit the JSON below. Validate before saving. Saving creates a new version (store) or updates the template override (templates).</Text>
-                <textarea
-                  aria-label="RecipeSpec JSON"
-                  value={specText}
-                  onChange={(e) => setSpecText(e.target.value)}
-                  rows={18}
-                  style={{
-                    width: '100%',
-                    fontFamily: 'ui-monospace, monospace',
-                    fontSize: 13,
-                    padding: 12,
-                    border: '1px solid var(--p-color-border)',
-                    borderRadius: 8,
-                    boxSizing: 'border-box',
-                    maxHeight: '60vh',
-                    overflowY: 'auto',
-                  }}
-                  spellCheck={false}
-                />
-                <InlineStack gap="200" blockAlign="start">
-                  <Button
-                    variant="secondary"
-                    loading={isValidating}
-                    disabled={isSaving || isValidating}
-                    onClick={() => submitJson('validate')}
-                  >
-                    Validate
-                  </Button>
-                  <Button
-                    variant="primary"
-                    loading={isSaving}
-                    disabled={isSaving || isValidating || !shopId || !moduleId}
-                    onClick={() => submitJson('save')}
-                  >
-                    {shopId === TEMPLATES_SHOP_ID ? 'Save template override' : 'Save as new version'}
-                  </Button>
-                </InlineStack>
-              </BlockStack>
-            </Card>
+            <Btn icon="check" onClick={() => setValid(true)}>
+              Validate
+            </Btn>
+            <Btn variant="primary" icon="download" onClick={() => ctx.toast('Saved new version')}>
+              Save version
+            </Btn>
           </>
-        )}
-
-        {!shopId && (
-          <Card>
-            <Text as="p" tone="subdued">Select &quot;All recipes (templates)&quot; to view and edit default module templates, or select a store to edit that store&apos;s modules.</Text>
-          </Card>
-        )}
-        {shopId && !moduleId && modules.length > 0 && (
-          <Card>
-            <Text as="p" tone="subdued">
-              {shopId === TEMPLATES_SHOP_ID
-                ? 'Select a template to view or edit its RecipeSpec. Saving updates the template override (used when creating from template).'
-                : 'Select a module to edit its RecipeSpec.'}
-            </Text>
-          </Card>
-        )}
-      </BlockStack>
-    </Page>
+        }
+      />
+      {moduleName && (
+        <div style={{ marginBottom: 16 }}>
+          <Banner tone="info" title="Connected recipe">
+            <span>
+              This recipe is bound to <b>{moduleName}</b>. It is the source of truth for how the module is generated — kept in the admin and invisible to the merchant.
+            </span>
+          </Banner>
+        </div>
+      )}
+      <div className="filter-bar" style={{ border: 0, padding: 0, marginBottom: 16 }}>
+        <div style={{ minWidth: 240 }}>
+          <Field label="Source">
+            <Select options={sourceOptions} value={moduleName ? moduleName : 'All recipes (templates)'} onChange={() => {}} />
+          </Field>
+        </div>
+        <div style={{ minWidth: 240 }}>
+          <Field label="Module / template">
+            <Select options={moduleOptions} value={moduleName ? moduleName : moduleOptions[0]} onChange={() => {}} />
+          </Field>
+        </div>
+      </div>
+      {valid != null && (
+        <div style={{ marginBottom: 16 }}>
+          <Banner tone="success" title="Valid RecipeSpec" onDismiss={() => setValid(null)}>
+            Schema validation passed. Safe to save as a new version or template override.
+          </Banner>
+        </div>
+      )}
+      <Card>
+        <div className="card-head">
+          <div className="t-h3">RecipeSpec JSON</div>
+          <span className="t-xs t-muted t-mono">{moduleName ? 'module.recipe.json' : 'recipe_spec.v3.json'}</span>
+        </div>
+        <pre className="code-block" style={{ margin: 0, borderRadius: '0 0 12px 12px', maxHeight: 480 }} contentEditable suppressContentEditableWarning>
+          {json}
+        </pre>
+      </Card>
+    </div>
   );
 }

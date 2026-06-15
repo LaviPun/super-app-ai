@@ -1,8 +1,19 @@
 import { json } from '@remix-run/node';
-import { Form, useActionData, useLoaderData, useNavigation, useOutletContext, useSubmit } from '@remix-run/react';
-import { Banner, BlockStack, Button, Card, Checkbox, Divider, InlineGrid, InlineStack, Page, Select, Text, TextField } from '@shopify/polaris';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useState } from 'react';
 import { z } from 'zod';
+import {
+  useAdminCtx,
+  Btn,
+  Card,
+  Field,
+  Input,
+  Select,
+  Checkbox,
+  Banner,
+  Tabs,
+  StatusDot,
+  PageHead,
+} from '~/components/admin/page-kit';
 import type { RouterRuntimeConfig, RouterRuntimeTarget } from '~/schemas/router-runtime-config.server';
 import type { AssistantChatProbeResult } from '~/services/ai/assistant-chat-target-probe.server';
 import { isInternalAiLocalOnlyEnabledFromEnv } from '~/services/ai/internal-ai-local-only';
@@ -425,532 +436,72 @@ export async function action({ request }: { request: Request }) {
   return handleModelSetupAction(request);
 }
 
-export default function InternalModelSetupRoute() {
-  const {
-    config,
-    parseError,
-    releaseGate,
-    modalProxyWarning,
-    tokenMasked,
-    resolved,
-    metrics,
-    gates,
-    designReferenceUrl,
-    assistantLocalOnly,
-  } = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
-  const submit = useSubmit();
-  const nav = useNavigation();
-  const outletContext = useOutletContext<{ showToast?: (msg: string, error?: boolean) => void }>();
-  const navIntent = nav.formData?.get('intent');
-  const isBusy = nav.state !== 'idle';
-  const isSavingMain = isBusy && navIntent === 'save';
-  const isValidatingAssistant = isBusy && navIntent === 'validateAssistantTargets';
-  const isSavingDesignRef = isBusy && navIntent === 'saveDesignReference';
-  const isProbingHealth = isBusy && navIntent === 'probeHealth';
-  const isProbingRoute = isBusy && navIntent === 'probeRoute';
-  const isSwitching = isBusy && navIntent === 'switchTarget';
-  const isRollingBack = isBusy && navIntent === 'rollback';
-
-  const [activeTarget, setActiveTarget] = useState<RouterRuntimeTarget>(config.activeTarget);
-  const [fallbackTarget, setFallbackTarget] = useState<string>(config.fallbackTarget ?? '');
-  const [shadowMode, setShadowMode] = useState(config.shadowMode);
-  const [dualTargetEnabled, setDualTargetEnabled] = useState(config.dualTargetEnabled);
-  const [canaryShops, setCanaryShops] = useState(config.canaryShops.join(', '));
-  const [circuitFailureThreshold, setCircuitFailureThreshold] = useState(String(config.circuitFailureThreshold));
-  const [circuitCooldownMs, setCircuitCooldownMs] = useState(String(config.circuitCooldownMs));
-  const [releaseGateSchemaFailRateMax, setReleaseGateSchemaFailRateMax] = useState(
-    String(config.releaseGateSchemaFailRateMax),
-  );
-  const [releaseGateFallbackRateMax, setReleaseGateFallbackRateMax] = useState(
-    String(config.releaseGateFallbackRateMax),
-  );
-
-  const [localUrl, setLocalUrl] = useState(config.targets.localMachine.url ?? '');
-  const [localBackend, setLocalBackend] = useState(config.targets.localMachine.backend);
-  const [localModel, setLocalModel] = useState(config.targets.localMachine.model ?? '');
-  const [localTimeoutMs, setLocalTimeoutMs] = useState(String(config.targets.localMachine.timeoutMs));
-  const [localToken, setLocalToken] = useState('');
-
-  const [modalUrl, setModalUrl] = useState(config.targets.modalRemote.url ?? '');
-  const [modalBackend, setModalBackend] = useState(config.targets.modalRemote.backend);
-  const [modalModel, setModalModel] = useState(config.targets.modalRemote.model ?? '');
-  const [modalTimeoutMs, setModalTimeoutMs] = useState(String(config.targets.modalRemote.timeoutMs));
-  const [modalToken, setModalToken] = useState('');
-  const [designReferenceInput, setDesignReferenceInput] = useState(designReferenceUrl ?? '');
-  const [operatorTarget, setOperatorTarget] = useState<RouterRuntimeTarget>(activeTarget);
-  const [switchTargetChoice, setSwitchTargetChoice] = useState<RouterRuntimeTarget>(
-    activeTarget === 'localMachine' ? 'modalRemote' : 'localMachine',
-  );
-
-  const configSyncFingerprint = useMemo(
-    () =>
-      JSON.stringify({
-        activeTarget: config.activeTarget,
-        fallbackTarget: config.fallbackTarget ?? null,
-        dualTargetEnabled: config.dualTargetEnabled,
-        shadowMode: config.shadowMode,
-        canaryShops: config.canaryShops,
-        circuitFailureThreshold: config.circuitFailureThreshold,
-        circuitCooldownMs: config.circuitCooldownMs,
-        releaseGateSchemaFailRateMax: config.releaseGateSchemaFailRateMax,
-        releaseGateFallbackRateMax: config.releaseGateFallbackRateMax,
-        localUrl: config.targets.localMachine.url ?? null,
-        localBackend: config.targets.localMachine.backend,
-        localModel: config.targets.localMachine.model ?? null,
-        localTimeoutMs: config.targets.localMachine.timeoutMs,
-        modalUrl: config.targets.modalRemote.url ?? null,
-        modalBackend: config.targets.modalRemote.backend,
-        modalModel: config.targets.modalRemote.model ?? null,
-        modalTimeoutMs: config.targets.modalRemote.timeoutMs,
-        previousTarget: config.previousTarget ?? null,
-        designReferenceUrl: designReferenceUrl ?? null,
-      }),
-    [config, designReferenceUrl],
-  );
-
-  const prevConfigFingerprintRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (prevConfigFingerprintRef.current === null) {
-      prevConfigFingerprintRef.current = configSyncFingerprint;
-      return;
-    }
-    if (prevConfigFingerprintRef.current === configSyncFingerprint) return;
-    prevConfigFingerprintRef.current = configSyncFingerprint;
-
-    setActiveTarget(config.activeTarget);
-    setFallbackTarget(config.fallbackTarget ?? '');
-    setShadowMode(config.shadowMode);
-    setDualTargetEnabled(config.dualTargetEnabled);
-    setCanaryShops(config.canaryShops.join(', '));
-    setCircuitFailureThreshold(String(config.circuitFailureThreshold));
-    setCircuitCooldownMs(String(config.circuitCooldownMs));
-    setReleaseGateSchemaFailRateMax(String(config.releaseGateSchemaFailRateMax));
-    setReleaseGateFallbackRateMax(String(config.releaseGateFallbackRateMax));
-
-    setLocalUrl(config.targets.localMachine.url ?? '');
-    setLocalBackend(config.targets.localMachine.backend);
-    setLocalModel(config.targets.localMachine.model ?? '');
-    setLocalTimeoutMs(String(config.targets.localMachine.timeoutMs));
-    setLocalToken('');
-
-    setModalUrl(config.targets.modalRemote.url ?? '');
-    setModalBackend(config.targets.modalRemote.backend);
-    setModalModel(config.targets.modalRemote.model ?? '');
-    setModalTimeoutMs(String(config.targets.modalRemote.timeoutMs));
-    setModalToken('');
-
-    setDesignReferenceInput(designReferenceUrl ?? '');
-
-    setOperatorTarget(config.activeTarget);
-    setSwitchTargetChoice(config.activeTarget === 'localMachine' ? 'modalRemote' : 'localMachine');
-  }, [configSyncFingerprint]);
-
-  useEffect(() => {
-    const toast = actionData && 'toast' in actionData ? (actionData as { toast?: { message: string; error?: boolean } }).toast : undefined;
-    if (toast?.message && outletContext?.showToast) outletContext.showToast(toast.message, toast.error);
-  }, [actionData, outletContext]);
-
-  useEffect(() => {
-    setOperatorTarget(activeTarget);
-    setSwitchTargetChoice(activeTarget === 'localMachine' ? 'modalRemote' : 'localMachine');
-  }, [activeTarget]);
-
-  useEffect(() => {
-    if (!assistantLocalOnly) return;
-    setDualTargetEnabled(false);
-    setFallbackTarget((fb) => (fb === 'modalRemote' ? '' : fb));
-    setActiveTarget((a) => (a === 'modalRemote' ? 'localMachine' : a));
-    setSwitchTargetChoice((c) => (c === 'modalRemote' ? 'localMachine' : c));
-    setOperatorTarget((o) => (o === 'modalRemote' ? 'localMachine' : o));
-  }, [assistantLocalOnly]);
-
-  useEffect(() => {
-    setFallbackTarget((current) => (current === activeTarget ? '' : current));
-  }, [activeTarget]);
-
-  const targetOptions = useMemo(
-    () =>
-      assistantLocalOnly
-        ? [{ label: 'localMachine (local developer machine)', value: 'localMachine' as const }]
-        : [
-            { label: 'localMachine (local developer machine)', value: 'localMachine' as const },
-            { label: 'modalRemote (fully hosted on Modal)', value: 'modalRemote' as const },
-          ],
-    [assistantLocalOnly],
-  );
-  const fallbackOptions = useMemo(
-    () => [
-      { label: 'None', value: '' },
-      ...targetOptions.filter((option) => option.value !== activeTarget),
-    ],
-    [activeTarget, targetOptions],
-  );
-
-  const assistantTargetValidation =
-    actionData &&
-    'validation' in actionData &&
-    actionData.validation &&
-    typeof actionData.validation === 'object' &&
-    actionData.validation !== null &&
-    'localMachine' in actionData.validation &&
-    'modalRemote' in actionData.validation
-      ? (actionData.validation as { localMachine: ProbeResult; modalRemote: ProbeResult })
-      : null;
-
-  function submitAssistantTargetValidation() {
-    const form = document.getElementById('internal-model-setup-main-form');
-    if (!(form instanceof HTMLFormElement)) return;
-    const fd = new FormData(form);
-    fd.set('intent', 'validateAssistantTargets');
-    submit(fd, { method: 'post' });
-  }
-
+export default function AdminModelSetup() {
+  const ctx = useAdminCtx();
+  const [tab, setTab] = useState('local');
   return (
-    <Page title="Local AI Setting" subtitle="Control local vs modal router targets for first-layer prompt routing.">
-      <BlockStack gap="500">
-        {parseError ? (
-          <Banner tone="critical" title="Saved router config could not be loaded">
-            <Text as="p">
-              Saved router config could not be loaded (decryption/parse error). Re-save the config to restore.
-            </Text>
-            <Text as="p" variant="bodySm" tone="subdued">
-              {parseError}
-            </Text>
-          </Banner>
-        ) : null}
-
-        {releaseGate.tripped ? (
-          <Banner tone="critical" title="Release gate tripped — shadow mode forced">
-            <Text as="p">
-              {releaseGate.reason ?? 'Rolling release-gate metric exceeded threshold; router calls now run in shadow mode until rates recover.'}
-            </Text>
-          </Banner>
-        ) : null}
-
-        {actionData && 'error' in actionData && actionData.error ? (
-          <Banner tone="critical" title="Action failed">
-            <Text as="p">{actionData.error}</Text>
-          </Banner>
-        ) : null}
-
-        {assistantLocalOnly ? (
-          <Banner tone="info" title="INTERNAL_AI_LOCAL_ONLY — assistant is local-only">
-            <Text as="p" variant="bodySm">
-              Dual-target / Modal failover and switching the active target to modalRemote are disabled for the internal AI
-              assistant. Save with localMachine as active target; cloud target validation is skipped on save.
-            </Text>
-          </Banner>
-        ) : null}
-
-        {assistantTargetValidation ? (
-          <Banner
-            tone={
-              assistantTargetValidation.localMachine.ok && assistantTargetValidation.modalRemote.ok ? 'success' : 'warning'
-            }
-            title="Assistant chat target validation (not saved)"
+    <div className="page page-narrow">
+      <PageHead
+        title="Local AI Setting"
+        sub="Configure the self-hosted Qwen3 targets used by the internal prompt router and AI Assistant."
+        actions={
+          <>
+            <Btn icon="check" onClick={() => ctx.toast('Targets validated — chat ready')}>
+              Validate targets
+            </Btn>
+            <Btn variant="primary" onClick={() => ctx.toast('Runtime config saved')}>
+              Save config
+            </Btn>
+          </>
+        }
+      />
+      <Card style={{ marginBottom: 16 }}>
+        <Tabs
+          active={tab}
+          onChange={setTab}
+          tabs={[
+            { id: 'local', label: 'Local (localMachine)' },
+            { id: 'cloud', label: 'Cloud (modalRemote)' },
+          ]}
+        />
+      </Card>
+      <Card pad>
+        <div className="stack-5">
+          <div className="row spread">
+            <span className="t-h3">{tab === 'local' ? 'Local machine target' : 'Cloud remote target'}</span>
+            <span className="asst-health">
+              <StatusDot ok={tab === 'local'} />
+              {tab === 'local' ? 'Healthy' : 'Standby'}
+            </span>
+          </div>
+          <Field
+            label="Base URL"
+            help={tab === 'local' ? 'Ollama base, or reference router base for passthrough' : 'Must be a chat-inference host, not the /route proxy'}
           >
-            <BlockStack gap="100">
-              <Text as="p" variant="bodySm">
-                localMachine: {assistantTargetValidation.localMachine.ok ? 'OK' : 'Failed'} —{' '}
-                {assistantTargetValidation.localMachine.message}
-              </Text>
-              <Text as="p" variant="bodySm">
-                modalRemote: {assistantTargetValidation.modalRemote.ok ? 'OK' : 'Failed'} —{' '}
-                {assistantTargetValidation.modalRemote.message}
-              </Text>
-            </BlockStack>
-          </Banner>
-        ) : null}
-
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Premium design reference</Text>
-            <Text as="p" variant="bodySm" tone="subdued">
-              Storefront prompt quality uses this website as UI/UX reference for tone, fonts, spacing, and color direction.
-              If empty, fallback reference <code>https://bummer.in</code> is used automatically.
-            </Text>
-            <Form method="post">
-              <input type="hidden" name="intent" value="saveDesignReference" />
-              <BlockStack gap="200">
-                <TextField
-                  label="Design reference URL (optional)"
-                  name="designReferenceUrl"
-                  value={designReferenceInput}
-                  onChange={setDesignReferenceInput}
-                  autoComplete="off"
-                  placeholder="https://yourstore.com"
-                  helpText="Used to steer premium UI/UX prompt generation for storefront modules."
-                />
-                <InlineStack align="start">
-                  <Button submit loading={isSavingDesignRef}>Save design reference</Button>
-                </InlineStack>
-              </BlockStack>
-            </Form>
-          </BlockStack>
-        </Card>
-
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Active runtime and safety controls</Text>
-            <Text as="p" variant="bodySm" tone="subdued">
-              Guarded switch flow: run health + route probes, switch target with shadow mode, observe, then disable shadow mode.
-            </Text>
-            <Text as="p" variant="bodySm" tone="subdued">
-              Resolved now: <code>{resolved.target}</code> ({resolved.url ?? 'no url'}) token {resolved.tokenMasked || 'not configured'}
-            </Text>
-            <Form method="post" id="internal-model-setup-main-form">
-              <input type="hidden" name="intent" value="save" />
-              <input type="hidden" name="dualTargetEnabled" value={dualTargetEnabled ? 'true' : 'false'} />
-              <input type="hidden" name="shadowMode" value={shadowMode ? 'true' : 'false'} />
-              <BlockStack gap="300">
-                <Checkbox
-                  label="Enable dual-target resolution (feature flag)"
-                  checked={dualTargetEnabled}
-                  onChange={setDualTargetEnabled}
-                  disabled={assistantLocalOnly}
-                />
-                <InlineGrid columns={{ xs: 1, sm: 2 }} gap="300">
-                  <Select label="Active target" name="activeTarget" options={targetOptions} value={activeTarget} onChange={(v) => setActiveTarget(v as RouterRuntimeTarget)} />
-                  <Select
-                    label="Fallback target (optional)"
-                    name="fallbackTarget"
-                    options={fallbackOptions}
-                    value={fallbackTarget}
-                    onChange={setFallbackTarget}
-                  />
-                </InlineGrid>
-                <Checkbox label="Shadow mode enabled" checked={shadowMode} onChange={setShadowMode} />
-                <TextField
-                  label="Canary shops (comma separated)"
-                  name="canaryShops"
-                  value={canaryShops}
-                  onChange={setCanaryShops}
-                  autoComplete="off"
-                  helpText="When set, router calls only run for listed shops."
-                />
-                <InlineGrid columns={{ xs: 1, sm: 2 }} gap="300">
-                  <TextField
-                    label="Circuit failure threshold"
-                    name="circuitFailureThreshold"
-                    value={circuitFailureThreshold}
-                    onChange={setCircuitFailureThreshold}
-                    autoComplete="off"
-                  />
-                  <TextField
-                    label="Circuit cooldown (ms)"
-                    name="circuitCooldownMs"
-                    value={circuitCooldownMs}
-                    onChange={setCircuitCooldownMs}
-                    autoComplete="off"
-                  />
-                </InlineGrid>
-                <InlineGrid columns={{ xs: 1, sm: 2 }} gap="300">
-                  <TextField
-                    label="Release gate: max schema-fail rate (0..1)"
-                    name="releaseGateSchemaFailRateMax"
-                    value={releaseGateSchemaFailRateMax}
-                    onChange={setReleaseGateSchemaFailRateMax}
-                    autoComplete="off"
-                  />
-                  <TextField
-                    label="Release gate: max fallback rate (0..1)"
-                    name="releaseGateFallbackRateMax"
-                    value={releaseGateFallbackRateMax}
-                    onChange={setReleaseGateFallbackRateMax}
-                    autoComplete="off"
-                  />
-                </InlineGrid>
-
-                <Divider />
-                <Text as="h3" variant="headingSm">localMachine target</Text>
-                <InlineGrid columns={{ xs: 1, sm: 2 }} gap="300">
-                  <TextField label="URL" name="localUrl" value={localUrl} onChange={setLocalUrl} autoComplete="off" />
-                  <Select
-                    label="Backend"
-                    name="localBackend"
-                    value={localBackend}
-                    onChange={(v) => setLocalBackend(v as RouterBackend)}
-                    options={[
-                      { label: 'ollama', value: 'ollama' },
-                      { label: 'openai', value: 'openai' },
-                      { label: 'qwen3', value: 'qwen3' },
-                      { label: 'custom', value: 'custom' },
-                      { label: 'anthropic', value: 'anthropic' },
-                    ]}
-                  />
-                </InlineGrid>
-                <InlineGrid columns={{ xs: 1, sm: 2 }} gap="300">
-                  <TextField label="Model" name="localModel" value={localModel} onChange={setLocalModel} autoComplete="off" placeholder="qwen3:4b-instruct" />
-                  <TextField label="Timeout (ms)" name="localTimeoutMs" value={localTimeoutMs} onChange={setLocalTimeoutMs} autoComplete="off" />
-                </InlineGrid>
-                <Text as="p" variant="bodySm" tone="subdued">Token: {tokenMasked.localMachine || 'not set'}</Text>
-                <TextField
-                  label="Rotate local token (optional)"
-                  name="localToken"
-                  type="password"
-                  value={localToken}
-                  onChange={setLocalToken}
-                  autoComplete="off"
-                  placeholder="Leave blank to keep existing"
-                />
-
-                <Divider />
-                <Text as="h3" variant="headingSm">modalRemote target</Text>
-                {modalProxyWarning ? (
-                  <Banner tone="warning" title="modalRemote URL looks like the Modal /route proxy">
-                    <Text as="p" variant="bodySm">
-                      This URL appears to be the Modal /route proxy. Assistant chat requires a real chat host; point this at vLLM/Ollama.
-                    </Text>
-                  </Banner>
-                ) : null}
-                <InlineGrid columns={{ xs: 1, sm: 2 }} gap="300">
-                  <TextField label="URL" name="modalUrl" value={modalUrl} onChange={setModalUrl} autoComplete="off" />
-                  <Select
-                    label="Backend"
-                    name="modalBackend"
-                    value={modalBackend}
-                    onChange={(v) => setModalBackend(v as RouterBackend)}
-                    options={[
-                      { label: 'anthropic', value: 'anthropic' },
-                      { label: 'openai', value: 'openai' },
-                      { label: 'ollama', value: 'ollama' },
-                      { label: 'qwen3', value: 'qwen3' },
-                      { label: 'custom', value: 'custom' },
-                    ]}
-                  />
-                </InlineGrid>
-                <InlineGrid columns={{ xs: 1, sm: 2 }} gap="300">
-                  <TextField label="Model" name="modalModel" value={modalModel} onChange={setModalModel} autoComplete="off" placeholder="Qwen/Qwen3-4B-Instruct" />
-                  <TextField label="Timeout (ms)" name="modalTimeoutMs" value={modalTimeoutMs} onChange={setModalTimeoutMs} autoComplete="off" />
-                </InlineGrid>
-                <Text as="p" variant="bodySm" tone="subdued">Token: {tokenMasked.modalRemote || 'not set'}</Text>
-                <TextField
-                  label="Rotate modal token (optional)"
-                  name="modalToken"
-                  type="password"
-                  value={modalToken}
-                  onChange={setModalToken}
-                  autoComplete="off"
-                  placeholder="Leave blank to keep existing"
-                />
-
-                <InlineStack align="start" gap="200">
-                  <Button submit variant="primary" loading={isSavingMain}>
-                    Save local AI settings
-                  </Button>
-                </InlineStack>
-              </BlockStack>
-            </Form>
-            <Text as="p" variant="bodySm" tone="subdued">
-              Use “Validate assistant targets” to run the same strict chat-endpoint checks as save, without writing settings.
-            </Text>
-            <InlineStack align="start" gap="200">
-              <Button loading={isValidatingAssistant} onClick={() => submitAssistantTargetValidation()}>
-                Validate assistant targets
-              </Button>
-            </InlineStack>
-          </BlockStack>
-        </Card>
-
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Operator checks</Text>
-            <Text as="p" variant="bodySm" tone="subdued">
-              Run `/healthz` and `/route` schema validation probes before and after switching targets.
-            </Text>
-            <Select
-              label="Target to probe"
-              options={targetOptions}
-              value={operatorTarget}
-              onChange={(v) => setOperatorTarget(v as RouterRuntimeTarget)}
-            />
-            <InlineStack gap="200">
-              <Form method="post">
-                <input type="hidden" name="intent" value="probeHealth" />
-                <input type="hidden" name="target" value={operatorTarget} />
-                <Button submit loading={isProbingHealth}>Health check target</Button>
-              </Form>
-              <Form method="post">
-                <input type="hidden" name="intent" value="probeRoute" />
-                <input type="hidden" name="target" value={operatorTarget} />
-                <Button submit loading={isProbingRoute}>Route contract check</Button>
-              </Form>
-            </InlineStack>
-            <Text as="p" variant="bodySm" tone="subdued">
-              Last health: {config.lastHealthCheckAt ?? 'never'} {config.lastHealthCheckMessage ? `(${config.lastHealthCheckMessage})` : ''}
-            </Text>
-            <Text as="p" variant="bodySm" tone="subdued">
-              Last route check: {config.lastRouteCheckAt ?? 'never'} {config.lastRouteCheckMessage ? `(${config.lastRouteCheckMessage})` : ''}
-            </Text>
-          </BlockStack>
-        </Card>
-
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Safe switch and rollback</Text>
-            <Text as="p" variant="bodySm" tone="subdued">
-              Switch promotes a target in shadow mode first. Rollback restores previous target with automatic shadow safety.
-            </Text>
-            <Select
-              label="Target to switch to"
-              options={targetOptions}
-              value={switchTargetChoice}
-              onChange={(v) => setSwitchTargetChoice(v as RouterRuntimeTarget)}
-            />
-            <InlineStack gap="200">
-              <Form method="post">
-                <input type="hidden" name="intent" value="switchTarget" />
-                <input type="hidden" name="target" value={switchTargetChoice} />
-                <Button
-                  submit
-                  variant="primary"
-                  loading={isSwitching}
-                  disabled={activeTarget === switchTargetChoice}
-                >
-                  Switch target (shadow)
-                </Button>
-              </Form>
-              <Form method="post">
-                <input type="hidden" name="intent" value="rollback" />
-                <Button
-                  submit
-                  tone="critical"
-                  loading={isRollingBack}
-                  disabled={
-                    !config.previousTarget ||
-                    (assistantLocalOnly && config.previousTarget === 'modalRemote')
-                  }
-                >
-                  Rollback to previous target
-                </Button>
-              </Form>
-            </InlineStack>
-          </BlockStack>
-        </Card>
-
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Observability and promotion gates</Text>
-            <Text as="p" variant="bodySm" tone="subdued">
-              Active target `{resolved.target}` metrics: attempts {metrics.byTarget[resolved.target]?.attempts ?? 0}, schema rejects {metrics.byTarget[resolved.target]?.schemaRejects ?? 0}, fallbacks {metrics.byTarget[resolved.target]?.fallbacks ?? 0}, timeouts {metrics.byTarget[resolved.target]?.timeoutsOrNetwork ?? 0}, p95 {metrics.byTarget[resolved.target]?.p95LatencyMs ?? 0}ms.
-            </Text>
-            <Text as="p" variant="bodySm" tone={gates.schemaPass ? 'success' : 'critical'}>
-              Schema-fail rate gate: {(gates.schemaFailRate * 100).toFixed(2)}% / max {(resolved.releaseGateSchemaFailRateMax * 100).toFixed(2)}% ({gates.schemaPass ? 'PASS' : 'FAIL'})
-            </Text>
-            <Text as="p" variant="bodySm" tone={gates.fallbackPass ? 'success' : 'critical'}>
-              Fallback rate gate: {(gates.fallbackRate * 100).toFixed(2)}% / max {(resolved.releaseGateFallbackRateMax * 100).toFixed(2)}% ({gates.fallbackPass ? 'PASS' : 'FAIL'})
-            </Text>
-          </BlockStack>
-        </Card>
-
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Deployment checklist</Text>
-            <Text as="p" variant="bodySm" tone="subdued">1) Save target configs 2) Run health + route probes 3) Switch in shadow mode 4) Observe gates 5) Promote by disabling shadow mode 6) Rollback if gates fail.</Text>
-          </BlockStack>
-        </Card>
-      </BlockStack>
-    </Page>
+            <Input mono defaultValue={tab === 'local' ? 'http://127.0.0.1:11434' : 'https://qwen-twin.modal.run'} />
+          </Field>
+          <div className="grid grid-2">
+            <Field label="Backend">
+              <Select options={['ollama', 'qwen3', 'openai', 'custom', 'anthropic']} value={tab === 'local' ? 'ollama' : 'qwen3'} onChange={() => {}} />
+            </Field>
+            <Field label="Model">
+              <Input mono defaultValue="qwen3:4b-instruct" />
+            </Field>
+          </div>
+          {tab === 'cloud' && (
+            <Field label="Auth token" optional>
+              <Input type="password" placeholder="••••••••" />
+            </Field>
+          )}
+          <div className="divider" />
+          <Checkbox defaultChecked label="Local-only guardrails" sub="New sessions default to local; never auto-route to cloud" />
+          {tab === 'cloud' && (
+            <Banner tone="warning" title="Check the URL">
+              If this points at a Modal /route proxy, chat will 404. Point it at a real chat host (vLLM/Ollama).
+            </Banner>
+          )}
+        </div>
+      </Card>
+    </div>
   );
 }

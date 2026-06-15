@@ -1,35 +1,21 @@
 import { json } from '@remix-run/node';
 import type { HeadersFunction, MetaFunction } from '@remix-run/node';
-import { Outlet, useLoaderData, useLocation, useMatches } from '@remix-run/react';
-import {
-  Frame, Navigation, TopBar, Toast, type IconSource,
-} from '@shopify/polaris';
-import {
-  BugIcon,
-  CalendarCheckIcon,
-  CategoriesIcon,
-  ChartVerticalIcon,
-  ChatIcon,
-  CodeIcon,
-  ConnectIcon,
-  DataTableIcon,
-  DesktopIcon,
-  ExitIcon,
-  HomeIcon,
-  KeyIcon,
-  LiveIcon,
-  PlanIcon,
-  SettingsIcon,
-  ShieldCheckMarkIcon,
-  StoreIcon,
-  ThemeTemplateIcon,
-  TransferInIcon,
-  WorkIcon,
-} from '@shopify/polaris-icons';
-import { useState, useCallback, useEffect } from 'react';
+import { Outlet, useLoaderData, useLocation, useMatches, useNavigate } from '@remix-run/react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { internalSessionStorage } from '~/internal-admin/session.server';
 import { SettingsService, type AppSettingsData } from '~/services/settings/settings.service';
 import { internalDocumentTitle } from '~/utils/internal-route-meta';
+import {
+  Icon,
+  Avatar,
+  Toast,
+  CommandPalette,
+  superappRoute,
+  navCounts,
+  JOBS,
+  ERROR_LOGS,
+  WEBHOOKS,
+} from '~/components/superapp';
 
 export const meta: MetaFunction<typeof loader> = ({ location, data }) => {
   const appName = data?.settings?.appName ?? 'SuperApp Admin';
@@ -62,198 +48,274 @@ export async function loader({ request }: { request: Request }) {
 export default function InternalLayout() {
   const { isAuthed, settings } = useLoaderData<typeof loader>();
   const location = useLocation();
-  const isLoginPage = location.pathname === '/internal/login' || location.pathname.startsWith('/internal/sso');
+  const isLoginPage =
+    location.pathname === '/internal/login' || location.pathname.startsWith('/internal/sso');
 
   if (!isAuthed || isLoginPage) {
     return <Outlet />;
   }
 
-  return <InternalAppFrame settings={settings} />;
+  return <AdminChrome settings={settings} />;
 }
 
-function InternalAppFrame({ settings }: { settings: AppSettingsData | null }) {
+/* ---------------- ADMIN_NAV — exactly mirrors the design's shell.jsx ---------------- */
+type NavItem = {
+  url: string; // design hash route (#/admin/...)
+  label: string;
+  icon: string;
+  exact?: boolean;
+  badge?: string;
+  countKey?: 'dlq' | 'err' | 'wh';
+  countTone?: string;
+};
+type NavSection = { title: string; items: NavItem[] };
+
+const ADMIN_NAV: NavSection[] = [
+  { title: 'Overview', items: [{ url: '#/admin', label: 'Dashboard', icon: 'home', exact: true }] },
+  {
+    title: 'Operations',
+    items: [
+      { url: '#/admin/stores', label: 'Stores', icon: 'store' },
+      { url: '#/admin/jobs', label: 'Jobs', icon: 'work', countKey: 'dlq', countTone: 'critical' },
+      { url: '#/admin/activity', label: 'Activity Log', icon: 'live' },
+      { url: '#/admin/api-logs', label: 'API Logs', icon: 'table' },
+      { url: '#/admin/logs', label: 'Error Logs', icon: 'bug', countKey: 'err', countTone: 'critical' },
+      { url: '#/admin/webhooks', label: 'Webhooks', icon: 'transfer', countKey: 'wh', countTone: 'warning' },
+      { url: '#/admin/audit', label: 'Audit Log', icon: 'shield' },
+    ],
+  },
+  {
+    title: 'Platform',
+    items: [
+      { url: '#/admin/modules', label: 'Modules', icon: 'layers' },
+      { url: '#/admin/flows', label: 'Flows', icon: 'flow' },
+      { url: '#/admin/connectors', label: 'Connectors', icon: 'connect' },
+      { url: '#/admin/data-stores', label: 'Data Stores', icon: 'database' },
+      { url: '#/admin/customers', label: 'Customers', icon: 'users' },
+    ],
+  },
+  {
+    title: 'AI & Models',
+    items: [
+      { url: '#/admin/ai-providers', label: 'AI Providers', icon: 'connect' },
+      { url: '#/admin/ai-assistant', label: 'AI Assistant', icon: 'chat', badge: 'New' },
+      { url: '#/admin/model-setup', label: 'Local AI Setting', icon: 'desktop' },
+      { url: '#/admin/usage', label: 'Usage & Costs', icon: 'chart' },
+      { url: '#/admin/release', label: 'Release Gate', icon: 'rocket' },
+    ],
+  },
+  {
+    title: 'Catalog',
+    items: [
+      { url: '#/admin/plan-tiers', label: 'Plan Tiers', icon: 'plan' },
+      { url: '#/admin/categories', label: 'Categories', icon: 'categories' },
+      { url: '#/admin/templates', label: 'Templates', icon: 'template' },
+      { url: '#/admin/recipe-edit', label: 'Recipe Edit', icon: 'code' },
+    ],
+  },
+];
+
+// Does the current real pathname match a design hash route?
+function navMatch(hash: string, pathname: string, exact?: boolean): boolean {
+  const target = superappRoute(hash);
+  if (exact) return pathname === target;
+  return pathname === target || pathname.startsWith(target + '/');
+}
+
+function AdminChrome({ settings }: { settings: AppSettingsData | null }) {
   const location = useLocation();
-  const [mobileNavActive, setMobileNavActive] = useState(false);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [toastActive, setToastActive] = useState(false);
-  const [toastMsg, setToastMsg] = useState('');
-  const [toastError, setToastError] = useState(false);
+  const navigate = useNavigate();
+  const path = location.pathname;
 
-  const toggleMobileNav = useCallback(() => setMobileNavActive(v => !v), []);
-  const dismissToast = useCallback(() => setToastActive(false), []);
-  const toggleUserMenu = useCallback(() => setUserMenuOpen(v => !v), []);
+  const [collapsed, setCollapsed] = useState(false);
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  const [toast, setToast] = useState<{ message: string; error?: boolean; id: number } | null>(null);
 
+  // hydrate collapsed state from localStorage (client only)
+  useEffect(() => {
+    try {
+      setCollapsed(localStorage.getItem('saai_nav_collapsed') === '1');
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const toggle = useCallback(() => {
+    setCollapsed((c) => {
+      const n = !c;
+      try {
+        localStorage.setItem('saai_nav_collapsed', n ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return n;
+    });
+  }, []);
+
+  // ⌘K / Ctrl+K opens the command palette (ported from app.jsx)
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCmdkOpen((o) => !o);
+      }
+    };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, []);
+
+  const showToast = useCallback((message: string, error?: boolean) => {
+    if (!message || !message.trim()) return;
+    setToast({ message, error, id: Date.now() });
+  }, []);
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(id);
+  }, [toast]);
+
+  // Surface route-level toasts (loader/action returning `{ toast: {...} }`).
   const matches = useMatches();
   const routeData = matches[matches.length - 1]?.data as Record<string, unknown> | undefined;
-
+  const routeToast = routeData?.toast;
   useEffect(() => {
-    if (routeData?.toast && typeof routeData.toast === 'object' && routeData.toast !== null) {
-      const t = routeData.toast as { message?: unknown; error?: unknown };
-      if (typeof t.message !== 'string' || !t.message.trim()) return;
-      setToastMsg(t.message);
-      setToastError(Boolean(t.error));
-      setToastActive(true);
+    if (routeToast && typeof routeToast === 'object') {
+      const tt = routeToast as { message?: unknown; error?: unknown };
+      if (typeof tt.message === 'string' && tt.message.trim()) {
+        showToast(tt.message, Boolean(tt.error));
+      }
     }
-  }, [routeData?.toast]);
+  }, [routeToast, showToast]);
 
-  const appName = settings?.appName ?? 'SuperApp AI';
-  const headerColor = settings?.headerColor ?? '#000000';
-  const adminName = settings?.adminName ?? 'Admin';
-  const profilePicUrl = settings?.profilePicUrl ?? null;
+  const counts = useMemo(() => navCounts(JOBS, ERROR_LOGS, WEBHOOKS), []);
+  const adminName = settings?.adminName ?? 'Lavi Admin';
+  const profilePicUrl = settings?.profilePicUrl ?? undefined;
 
-  const initials = adminName
-    .split(' ')
-    .map(w => w[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2) || 'SA';
-
-  const mainItems = [
-    { url: '/internal', label: 'Dashboard', icon: HomeIcon, exactMatch: true },
-  ];
-
-  const monitoringItems = [
-    { url: '/internal/release-dashboard', label: 'Release Dashboard', icon: CalendarCheckIcon },
-    { url: '/internal/activity', label: 'Activity Log', icon: LiveIcon },
-    { url: '/internal/logs', label: 'Error Logs', icon: BugIcon },
-    { url: '/internal/api-logs', label: 'API Logs', icon: DataTableIcon },
-    { url: '/internal/audit', label: 'Audit Log', icon: ShieldCheckMarkIcon },
-    { url: '/internal/webhooks', label: 'Webhooks', icon: TransferInIcon },
-  ];
-
-  const dataItems = [
-    { url: '/internal/stores', label: 'Stores', icon: StoreIcon },
-    { url: '/internal/usage', label: 'Usage & Costs', icon: ChartVerticalIcon },
-    { url: '/internal/ai-accounts', label: 'AI Accounts', icon: KeyIcon },
-    { url: '/internal/jobs', label: 'Jobs', icon: WorkIcon },
-  ];
-
-  const configItems = [
-    { url: '/internal/ai-providers', label: 'AI Providers', icon: ConnectIcon },
-    { url: '/internal/ai-assistant', label: 'AI Assistant', icon: ChatIcon },
-    { url: '/internal/model-setup', label: 'Local AI Setting', icon: DesktopIcon },
-    { url: '/internal/plan-tiers', label: 'Plan Tiers', icon: PlanIcon },
-    { url: '/internal/categories', label: 'Categories', icon: CategoriesIcon },
-    { url: '/internal/templates', label: 'Templates', icon: ThemeTemplateIcon },
-    { url: '/internal/recipe-edit', label: 'Recipe edit', icon: CodeIcon },
-  ];
-
-  const toNavItems = (items: Array<{ url: string; label: string; icon: IconSource; exactMatch?: boolean }>) =>
-    items.map(item => ({
-      ...item,
-      selected: item.exactMatch
-        ? location.pathname === item.url
-        : location.pathname.startsWith(item.url),
-    }));
-
-  const navigation = (
-    <Navigation location={location.pathname}>
-      <Navigation.Section title="Overview" items={toNavItems(mainItems)} />
-      <Navigation.Section title="Monitoring" items={toNavItems(monitoringItems)} />
-      <Navigation.Section title="Data" items={toNavItems(dataItems)} />
-      <Navigation.Section title="Configuration" items={toNavItems(configItems)} />
-      <Navigation.Section
-        separator
-        items={[
-          { url: '/internal/settings', label: 'Settings', icon: SettingsIcon },
-          { url: '/internal/logout', label: 'Logout', icon: ExitIcon },
-        ]}
-      />
-    </Navigation>
-  );
-
-  const userMenuMarkup = (
-    <TopBar.UserMenu
-      actions={[
-        { items: [
-          { content: 'Settings', url: '/internal/settings' },
-          { content: 'Logout', url: '/internal/logout' },
-        ]},
-      ]}
-      name={adminName}
-      initials={initials}
-      avatar={profilePicUrl ?? undefined}
-      open={userMenuOpen}
-      onToggle={toggleUserMenu}
-    />
-  );
-
-  const topBar = (
-    <TopBar
-      showNavigationToggle
-      userMenu={userMenuMarkup}
-      onNavigationToggle={toggleMobileNav}
-    />
-  );
-
-  const logoSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36"><rect width="36" height="36" rx="8" fill="${headerColor.replace('#', '%23')}"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="Instrument Sans,Arial,sans-serif" font-size="14" font-weight="700" fill="%23fff">${encodeURIComponent(appName.slice(0, 2).toUpperCase())}</text></svg>`;
-
-  const logo = {
-    width: 36,
-    topBarSource: settings?.logoUrl || ('data:image/svg+xml,' + logoSvg),
-    accessibilityLabel: appName,
-    url: '/internal',
+  const goHash = (hash: string) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    navigate(superappRoute(hash));
   };
+
+  const navLink = (it: NavItem) => {
+    const sel = navMatch(it.url, path, it.exact);
+    const count = it.countKey ? counts[it.countKey] : null;
+    return (
+      <a
+        key={it.url}
+        href={superappRoute(it.url)}
+        onClick={goHash(it.url)}
+        className={'nav-item' + (sel ? ' sel' : '')}
+        title={collapsed ? it.label : undefined}
+      >
+        <Icon name={it.icon} size={17} />
+        <span className="grow nav-label">{it.label}</span>
+        {it.badge && (
+          <span className="badge badge-new nav-badge" style={{ height: 16, fontSize: 10 }}>
+            {it.badge}
+          </span>
+        )}
+        {count ? <span className={'nav-count ' + (it.countTone || '')}>{count}</span> : null}
+        {collapsed && count ? <span className={'nav-dot ' + (it.countTone || '')} /> : null}
+      </a>
+    );
+  };
+
+  const footLink = (hash: string, label: string, icon: string) => (
+    <a
+      href={superappRoute(hash)}
+      onClick={goHash(hash)}
+      className={'nav-item' + (navMatch(hash, path) ? ' sel' : '')}
+      title={collapsed ? label : undefined}
+    >
+      <Icon name={icon} size={17} />
+      <span className="nav-label">{label}</span>
+    </a>
+  );
 
   return (
     <>
       <style
         dangerouslySetInnerHTML={{
-          __html: `
-        .Polaris-TopBar { background: ${headerColor} !important; }
-        /* Internal admin: full width - no max-width on frame main or page */
-        .internal-admin-frame-wrapper .Polaris-Frame__Main,
-        .internal-admin-content .Polaris-Page,
-        .internal-admin-content .Polaris-Page__Content { max-width: none !important; width: 100% !important; }
-        .internal-admin-content .Polaris-Page-MainContent { max-width: none !important; }
-        .internal-admin-content { background: var(--sa-color-bg, #f6f8fb); color: var(--sa-color-text, #111827); }
-        /* Internal admin: frame fills viewport; only main content scrolls so nav/top bar stay fixed */
-        .internal-admin-frame-wrapper { flex: 1; min-height: 0; height: 100%; display: flex; flex-direction: column; }
-        .internal-admin-frame-wrapper > * { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-        .internal-admin-frame-wrapper .Polaris-Frame { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-        .internal-admin-frame-wrapper .Polaris-Frame__Main { flex: 1; min-height: 0; overflow-y: auto !important; overflow-x: hidden !important; -webkit-overflow-scrolling: touch; }
-        .internal-admin-content { flex: 1 1 auto; min-height: 100%; overflow: visible; display: block; }
-        /* Internal admin: truncate long text with ellipsis; full value on hover via title */
-        .internal-truncate { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .internal-truncate-wide { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        /* Scrollable table container; use thead th { position: sticky; top: 0; background: ... } for sticky header */
-        .internal-table-scroll { overflow: auto; max-height: min(70vh, 520px); }
-        .internal-table-scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--p-color-bg-surface); box-shadow: 0 1px 0 var(--p-color-border); }
-        /* Code / JSON block: capped height, scroll, optional expand */
-        .internal-code-block { margin: 0; padding: 12px; background: var(--p-color-bg-surface-secondary); border-radius: 8px; font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 280px; overflow-y: auto; }
-        .internal-code-block-expanded { max-height: none; }
-        /* Store detail: table column widths so Name is readable */
-        .internal-store-modules-table .Polaris-DataTable__Cell:first-child { min-width: 140px; max-width: 280px; }
-        .internal-store-modules-table .Polaris-DataTable__Cell:nth-child(8) { width: 72px; }
-      `,
+          __html: `.internal-admin-viewport { flex: 1; min-height: 0; height: 100%; display: flex; }
+            .internal-admin-viewport .admin-shell { flex: 1; min-width: 0; }`,
         }}
       />
-      <div className="internal-admin-frame-wrapper">
-        <Frame
-          topBar={topBar}
-          navigation={navigation}
-          showMobileNavigation={mobileNavActive}
-          onNavigationDismiss={toggleMobileNav}
-          logo={logo}
-        >
-          <div className={`internal-admin-content${location.pathname === '/internal' ? ' internal-dashboard-page' : ''}`}>
-            <Outlet context={{ showToast: (msg: string, error?: boolean) => {
-              setToastMsg(msg);
-              setToastError(!!error);
-              setToastActive(true);
-            }}} />
-            <footer className="app-footer">Made with ❤️ by Lavi</footer>
+      <div className="internal-admin-viewport">
+        <div className={'admin-shell' + (collapsed ? ' collapsed' : '')}>
+          <aside className="admin-nav">
+            <div className="admin-brand">
+              <div className="brand-mark">SA</div>
+              <div className="stack nav-label" style={{ gap: 0, minWidth: 0 }}>
+                <div className="brand-name">SuperApp AI</div>
+                <div className="brand-sub">Internal Admin</div>
+              </div>
+              <button
+                className="nav-collapse-btn"
+                onClick={toggle}
+                title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                aria-label="Toggle sidebar"
+              >
+                <Icon name={collapsed ? 'chevronRight' : 'chevronLeft'} size={15} />
+              </button>
+            </div>
+            <div className="admin-nav-scroll">
+              {ADMIN_NAV.map((sec) => (
+                <div key={sec.title} className="nav-sec">
+                  <div className="nav-sec-title">{sec.title}</div>
+                  {sec.items.map(navLink)}
+                </div>
+              ))}
+            </div>
+            <div className="admin-nav-foot">
+              <a
+                href={superappRoute('#/admin/release')}
+                onClick={goHash('#/admin/release')}
+                className="nav-health"
+                style={{ textDecoration: 'none' }}
+                title={`Release gate healthy · ${counts.dlq} in DLQ · ${counts.err} errors 24h`}
+              >
+                <span className="nav-health-dot" />
+                <div className="stack grow nav-label" style={{ gap: 0, minWidth: 0 }}>
+                  <span className="t-xs t-strong" style={{ color: 'var(--p-text)' }}>
+                    All systems healthy
+                  </span>
+                  <span className="t-xs t-muted">{`${counts.dlq} in DLQ · ${counts.err} errors 24h`}</span>
+                </div>
+              </a>
+              {footLink('#/admin/settings', 'Settings', 'settings')}
+              {footLink('#/admin/logout', 'Logout', 'exit')}
+            </div>
+          </aside>
+          <div className="admin-main">
+            <header className="admin-top">
+              <button className="global-search" onClick={() => setCmdkOpen(true)}>
+                <Icon name="search" size={16} />
+                <span className="grow" style={{ textAlign: 'left' }}>
+                  Search stores, modules, jobs, logs…
+                </span>
+                <kbd className="kbd">⌘K</kbd>
+              </button>
+              <div className="row-3">
+                <a
+                  className="top-icon-btn"
+                  href={superappRoute('#/admin/activity')}
+                  onClick={goHash('#/admin/activity')}
+                  title="Notifications"
+                >
+                  <Icon name="bell" size={18} />
+                  <span className="top-dot" />
+                </a>
+                <Avatar name={adminName} src={profilePicUrl} size={30} />
+              </div>
+            </header>
+            <div className="admin-content">
+              <Outlet context={{ showToast }} />
+            </div>
           </div>
-          {toastActive && (
-            <Toast
-              content={toastMsg}
-              error={toastError}
-              onDismiss={dismissToast}
-              duration={4000}
-            />
-          )}
-        </Frame>
+        </div>
       </div>
+      {cmdkOpen && <CommandPalette mode="admin" onClose={() => setCmdkOpen(false)} />}
+      <Toast toast={toast} />
     </>
   );
 }

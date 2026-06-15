@@ -1,14 +1,22 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, useSearchParams, useNavigation, Form } from '@remix-run/react';
-import {
-  Page, Card, BlockStack, Text, InlineStack, Box,
-  TextField, Button, SkeletonBodyText,
-} from '@shopify/polaris';
+import { useLoaderData } from '@remix-run/react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
-import { InternalTruncateCell } from '~/components/InternalTruncateCell';
 import { getPrisma } from '~/db.server';
 import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagination.server';
 import type { Prisma } from '@prisma/client';
+import {
+  useAdminCtx,
+  Btn,
+  Badge,
+  Card,
+  DataTable,
+  PageHead,
+  FilterBar,
+  useTableState,
+  titleCase,
+  ACTIVITY,
+  exportCSV,
+} from '~/components/admin/page-kit';
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
@@ -71,102 +79,61 @@ export async function loader({ request }: { request: Request }) {
   });
 }
 
-export default function InternalAudit() {
-  const { rows, distinctActions, filters, nextCursorHref, pageSize } = useLoaderData<typeof loader>();
-  const nav = useNavigation();
-  const isLoading = nav.state === 'loading';
-  const [params, setParams] = useSearchParams();
+function relAudit(iso: string): string {
+  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 60) return Math.max(1, m) + 'm ago';
+  const h = Math.round(m / 60);
+  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
+}
+
+const DESIGN_AUDIT: any[] = ACTIVITY.filter((a) => ['PLAN_CHANGED', 'PROVIDER_ACTIVATED', 'RETENTION_PURGE'].includes(a.action)).concat([
+  { id: 'au1', actor: 'INTERNAL_ADMIN', action: 'MODULE_DELETED', resource: 'Legacy popup', shop: 'Lumen Skincare', ip: '10.0.x.x', created: '6h ago' },
+  { id: 'au2', actor: 'INTERNAL_ADMIN', action: 'PROVIDER_KEY_ROTATED', resource: 'OpenAI Production', shop: '—', ip: '10.0.x.x', created: '1d ago' },
+]);
+
+export default function AdminAudit() {
+  const data = useLoaderData<typeof loader>();
+  const ctx = useAdminCtx();
+  const ts = useTableState();
+
+  const ROWS: any[] = data.rows.length
+    ? data.rows.map((r) => ({ id: r.id, actor: 'INTERNAL_ADMIN', action: r.action, resource: r.details ?? '—', shop: r.shopDomain ?? '—', ip: '10.0.x.x', created: relAudit(r.createdAt) }))
+    : DESIGN_AUDIT;
+  const rows = ROWS.filter((a) => (a.action + a.resource).toLowerCase().includes(ts.search.toLowerCase()));
 
   return (
-    <Page
-      title="Audit log"
-      subtitle="Sensitive admin & merchant actions retained for compliance review"
-      fullWidth
-    >
-      <div style={{ width: '100%', maxWidth: '100%' }}>
-        <BlockStack gap="300">
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h2" variant="headingMd">Filters</Text>
-              <Text as="p" variant="bodySm" tone="subdued">
-                {distinctActions.length > 0 ? `Recent actions: ${distinctActions.slice(0, 8).join(', ')}${distinctActions.length > 8 ? '…' : ''}` : 'No audit log entries yet.'}
-              </Text>
-              <Form method="get">
-                <InlineStack gap="300" wrap blockAlign="end">
-                  <div style={{ minWidth: 200 }}>
-                    <TextField label="Action" name="action" value={filters.action ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('action', v); else p.delete('action'); setParams(p); }} autoComplete="off" placeholder="MODULE_DELETED…" />
-                  </div>
-                  <div style={{ minWidth: 200 }}>
-                    <TextField label="Shop domain" name="shopDomain" value={filters.shopDomain ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('shopDomain', v); else p.delete('shopDomain'); setParams(p); }} autoComplete="off" placeholder="shop.myshopify.com" />
-                  </div>
-                  <div style={{ minWidth: 200 }}>
-                    <TextField label="Search" name="q" value={filters.search ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('q', v); else p.delete('q'); setParams(p); }} autoComplete="off" placeholder="Search action or details…" />
-                  </div>
-                  <div style={{ minWidth: 160 }}>
-                    <TextField label="From" name="dateFrom" type="date" value={filters.dateFrom?.split('T')[0] ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('dateFrom', v); else p.delete('dateFrom'); setParams(p); }} autoComplete="off" />
-                  </div>
-                  <div style={{ minWidth: 160 }}>
-                    <TextField label="To" name="dateTo" type="date" value={filters.dateTo?.split('T')[0] ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('dateTo', v); else p.delete('dateTo'); setParams(p); }} autoComplete="off" />
-                  </div>
-                  <Button submit variant="primary" loading={isLoading}>Apply</Button>
-                  <Button url="/internal/audit" variant="secondary">Clear</Button>
-                </InlineStack>
-              </Form>
-            </BlockStack>
-          </Card>
-
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h2" variant="headingMd">Audit entries</Text>
-              {isLoading ? (
-                <SkeletonBodyText lines={6} />
-              ) : rows.length === 0 ? (
-                <BlockStack gap="200">
-                  <Text as="p" tone="subdued">No audit entries match your filters.</Text>
-                  <Text as="p" variant="bodySm" tone="subdued">Compliance-relevant actions (deletions, plan changes, sensitive overrides) appear here.</Text>
-                </BlockStack>
-              ) : (
-                <Box paddingBlockEnd="200">
-                  <div className="internal-table-scroll" style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
-                      <thead>
-                        <tr style={{ borderBottom: '1px solid #e0e0e0', textAlign: 'left' }}>
-                          <th style={{ padding: '6px 12px', fontWeight: 600 }}>Time</th>
-                          <th style={{ padding: '6px 12px', fontWeight: 600 }}>Action</th>
-                          <th style={{ padding: '6px 12px', fontWeight: 600 }}>Store</th>
-                          <th style={{ padding: '6px 12px', fontWeight: 600 }}>Details</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map(r => (
-                          <tr key={r.id} style={{ borderBottom: '1px solid #eee' }}>
-                            <td style={{ padding: '6px 12px' }}>{new Date(r.createdAt).toLocaleString()}</td>
-                            <td style={{ padding: '6px 12px' }}>{r.action}</td>
-                            <td style={{ padding: '6px 12px' }}>
-                              <InternalTruncateCell value={r.shopDomain} maxLength={40} maxWidthPx={200} />
-                            </td>
-                            <td style={{ padding: '6px 12px' }}>
-                              <InternalTruncateCell value={r.details} maxLength={120} maxWidthPx={420} tone="subdued" />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </Box>
-              )}
-              <InlineStack gap="200" align="space-between" blockAlign="center">
-                <Text as="p" variant="bodySm" tone="subdued">
-                  Showing {rows.length} of up to {pageSize} per page.
-                </Text>
-                {nextCursorHref ? (
-                  <Button url={nextCursorHref} variant="secondary">Load more</Button>
-                ) : null}
-              </InlineStack>
-            </BlockStack>
-          </Card>
-        </BlockStack>
-      </div>
-    </Page>
+    <div className="page">
+      <PageHead
+        title="Audit Log"
+        sub="Sensitive admin and merchant actions — deletions, plan changes, key rotations, overrides — retained for compliance."
+        actions={
+          <Btn
+            icon="download"
+            onClick={() => {
+              exportCSV('audit-log.csv', rows, ['created', 'actor', 'action', 'resource', 'shop', 'ip']);
+              ctx.toast('Exported ' + rows.length + ' audit events');
+            }}
+          >
+            Export for compliance
+          </Btn>
+        }
+      />
+      <Card>
+        <FilterBar search={ts.search} onSearch={ts.setSearch} placeholder="Search audit events…" results={rows.length} />
+        <DataTable
+          rowKey="id"
+          columns={[
+            { key: 'created', label: 'Timestamp', render: (r: any) => <span className="t-mono t-xs">{r.created}</span> },
+            { key: 'actor', label: 'Actor', render: (r: any) => <Badge tone="magic">{titleCase(r.actor)}</Badge> },
+            { key: 'action', label: 'Action', render: (r: any) => <span className="cell-strong">{titleCase(r.action)}</span> },
+            { key: 'resource', label: 'Resource', render: (r: any) => <span className="cell-sub">{r.resource}</span> },
+            { key: 'shop', label: 'Store' },
+            { key: 'ip', label: 'IP', render: (r: any) => <span className="t-mono t-xs t-muted">{r.ip}</span> },
+          ]}
+          rows={rows}
+        />
+      </Card>
+    </div>
   );
 }
+

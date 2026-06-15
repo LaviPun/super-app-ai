@@ -1,15 +1,24 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, useSearchParams, useNavigation, Form, useFetcher } from '@remix-run/react';
-import { useEffect, useState } from 'react';
-import {
-  Page, Card, BlockStack, Text, Badge, InlineStack, Modal, Box,
-  TextField, Select, Button, SkeletonBodyText, Spinner,
-} from '@shopify/polaris';
+import { useLoaderData } from '@remix-run/react';
+import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
-import { InternalTruncateCell } from '~/components/InternalTruncateCell';
 import { getPrisma } from '~/db.server';
 import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagination.server';
 import type { Prisma } from '@prisma/client';
+import {
+  useAdminCtx,
+  Btn,
+  Badge,
+  StatusBadge,
+  Card,
+  DataTable,
+  PageHead,
+  FilterBar,
+  MonoChip,
+  useTableState,
+  titleCase,
+  ERROR_LOGS,
+} from '~/components/admin/page-kit';
 
 type ErrorLogDetailData = {
   id: string;
@@ -83,214 +92,63 @@ export async function loader({ request }: { request: Request }) {
   });
 }
 
-const LEVEL_OPTIONS = [
-  { label: 'All levels', value: '' },
-  { label: 'ERROR', value: 'ERROR' },
-  { label: 'WARN', value: 'WARN' },
-  { label: 'INFO', value: 'INFO' },
-];
-
-const SOURCE_OPTIONS = [
-  { label: 'All sources', value: '' },
-  { label: 'API', value: 'API' },
-  { label: 'Error boundary', value: 'ERROR_BOUNDARY' },
-  { label: 'Client', value: 'CLIENT' },
-  { label: 'Server', value: 'SERVER' },
-];
-
-function ErrorLogDetailContent({ d }: { d: ErrorLogDetailData }) {
-  return (
-    <BlockStack gap="400">
-      <BlockStack gap="200">
-        <Text as="p" variant="bodySm"><strong>Time</strong>: {new Date(d.createdAt).toLocaleString()}</Text>
-        <Text as="p" variant="bodySm"><strong>Level</strong>: <Badge tone={d.level === 'ERROR' ? 'critical' : d.level === 'WARN' ? 'warning' : 'info'}>{d.level}</Badge></Text>
-        <Text as="p" variant="bodySm"><strong>Source</strong>: {d.source ?? '—'}</Text>
-        <Text as="p" variant="bodySm"><strong>Route</strong>: {d.route ?? '—'}</Text>
-        <Text as="p" variant="bodySm"><strong>Store</strong>: {d.shopDomain ?? '—'}</Text>
-        {d.correlationId && (
-          <InlineStack gap="200" blockAlign="center">
-            <Text as="p" variant="bodySm"><strong>Correlation</strong>: <code>{d.correlationId}</code></Text>
-            <Button size="slim" variant="plain" url={`/internal/trace/${encodeURIComponent(d.correlationId)}`}>Open trace</Button>
-          </InlineStack>
-        )}
-        {d.requestId && <Text as="p" variant="bodySm"><strong>Request ID</strong>: <code>{d.requestId}</code></Text>}
-      </BlockStack>
-      <Text as="p" variant="bodySm"><strong>Message</strong></Text>
-      <pre className="internal-code-block" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{d.message}</pre>
-      {d.stack && (
-        <>
-          <Text as="p" variant="bodySm"><strong>Stack</strong></Text>
-          <pre className="internal-code-block" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 200, overflow: 'auto' }}>{d.stack}</pre>
-        </>
-      )}
-      {d.metaJson && (
-        <>
-          <Text as="p" variant="bodySm"><strong>Meta</strong></Text>
-          <pre className="internal-code-block" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 240, overflow: 'auto' }}>{d.metaJson}</pre>
-        </>
-      )}
-    </BlockStack>
-  );
+function relLog(iso: string): string {
+  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 60) return Math.max(1, m) + 'm ago';
+  const h = Math.round(m / 60);
+  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
 }
 
-export default function InternalLogs() {
-  const { logs, filters, nextCursorHref, pageSize } = useLoaderData<typeof loader>();
-  const nav = useNavigation();
-  const isLoading = nav.state === 'loading';
-  const [params, setParams] = useSearchParams();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const fetcher = useFetcher<ErrorLogDetailData>();
+export default function AdminLogs() {
+  const data = useLoaderData<typeof loader>();
+  const ctx = useAdminCtx();
+  const ts = useTableState();
+  const [level, setLevel] = useState('All');
 
-  useEffect(() => {
-    if (selectedId) fetcher.load(`/internal/logs/${selectedId}`);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only load when selectedId changes
-  }, [selectedId]);
-
-  const detailData = fetcher.data;
+  const ROWS: any[] = data.logs.length
+    ? data.logs.map((l) => ({ id: l.id, level: l.level, message: l.message, source: l.source, route: l.route, shop: l.shopDomain ?? '—', created: relLog(l.createdAt), correlationId: l.correlationId ?? '' }))
+    : ERROR_LOGS;
+  const rows = ROWS.filter((e) => (level === 'All' || e.level === level) && (e.message + e.route).toLowerCase().includes(ts.search.toLowerCase()));
 
   return (
-    <Page title="Error logs" subtitle={`${logs.length} entries · API, error boundaries, client, server`} fullWidth>
-      <div style={{ width: '100%', maxWidth: '100%' }}>
-        <BlockStack gap="300">
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h2" variant="headingMd">Filters</Text>
-            <Text as="p" variant="bodySm" tone="subdued">Filter by level, source, message/route search, and date range.</Text>
-            <Form method="get">
-              <InlineStack gap="300" wrap blockAlign="end">
-                <div style={{ minWidth: 140 }}>
-                  <Select
-                    label="Level"
-                    name="level"
-                    options={LEVEL_OPTIONS}
-                    value={filters.level ?? ''}
-                    onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('level', v); else p.delete('level'); setParams(p); }}
-                  />
+    <div className="page">
+      <PageHead title="Error Logs" sub="Auto-redacted error stream — no secrets or PII. Trace any error end-to-end via its correlation ID." />
+      <Card>
+        <FilterBar
+          search={ts.search}
+          onSearch={ts.setSearch}
+          placeholder="Search messages, routes…"
+          results={rows.length}
+          filters={[{ options: ['All', 'ERROR', 'WARN', 'INFO'].map((l) => ({ value: l, label: l === 'All' ? 'All levels' : titleCase(l) })), value: level, onChange: setLevel }]}
+        />
+        <DataTable
+          rowKey="id"
+          onRowClick={(r: any) => ctx.go('#/admin/errors/' + r.id)}
+          columns={[
+            { key: 'level', label: 'Level', width: 90, render: (r: any) => <StatusBadge value={r.level} /> },
+            { key: 'message', label: 'Message', render: (r: any) => <span className="cell-strong t-trunc" style={{ maxWidth: 420, display: 'inline-block' }}>{r.message}</span> },
+            { key: 'source', label: 'Source', render: (r: any) => <Badge>{r.source}</Badge> },
+            { key: 'route', label: 'Route', render: (r: any) => <MonoChip>{r.route}</MonoChip> },
+            { key: 'shop', label: 'Store', render: (r: any) => <span className="cell-sub t-trunc" style={{ maxWidth: 180, display: 'inline-block' }}>{r.shop}</span> },
+            { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{r.created}</span> },
+            {
+              key: 'act',
+              label: '',
+              render: (r: any) => (
+                <div className="dt-actions">
+                  <Btn size="sm" icon="eye" className="btn-plain" onClick={() => ctx.go('#/admin/errors/' + r.id)}>
+                    View
+                  </Btn>
+                  <Btn size="sm" icon="transfer" className="btn-plain" onClick={() => ctx.go('#/admin/trace/' + r.correlationId)}>
+                    Trace
+                  </Btn>
                 </div>
-                <div style={{ minWidth: 140 }}>
-                  <Select
-                    label="Source"
-                    name="source"
-                    options={SOURCE_OPTIONS}
-                    value={filters.source ?? ''}
-                    onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('source', v); else p.delete('source'); setParams(p); }}
-                  />
-                </div>
-                <div style={{ minWidth: 200 }}>
-                  <TextField
-                    label="Search"
-                    name="q"
-                    value={filters.search ?? ''}
-                    onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('q', v); else p.delete('q'); setParams(p); }}
-                    autoComplete="off"
-                    placeholder="Search message, route, source..."
-                  />
-                </div>
-                <div style={{ minWidth: 220 }}>
-                  <TextField
-                    label="Correlation ID"
-                    name="correlationId"
-                    value={filters.correlationId ?? ''}
-                    onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('correlationId', v); else p.delete('correlationId'); setParams(p); }}
-                    autoComplete="off"
-                    placeholder="req_… / corr_…"
-                  />
-                </div>
-                <div style={{ minWidth: 160 }}>
-                  <TextField label="From" name="dateFrom" type="date" value={filters.dateFrom?.split('T')[0] ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('dateFrom', v); else p.delete('dateFrom'); setParams(p); }} autoComplete="off" />
-                </div>
-                <div style={{ minWidth: 160 }}>
-                  <TextField label="To" name="dateTo" type="date" value={filters.dateTo?.split('T')[0] ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('dateTo', v); else p.delete('dateTo'); setParams(p); }} autoComplete="off" />
-                </div>
-                <Button submit variant="primary" loading={isLoading}>Apply</Button>
-                <Button url="/internal/logs" variant="secondary">Clear</Button>
-              </InlineStack>
-            </Form>
-          </BlockStack>
-        </Card>
-
-        <Card>
-          <BlockStack gap="200">
-            <Text as="h2" variant="headingMd">Error log entries</Text>
-            {isLoading ? (
-              <SkeletonBodyText lines={6} />
-            ) : logs.length === 0 ? (
-              <BlockStack gap="200">
-                <Text as="p" tone="subdued">No error log entries match your filters.</Text>
-                <Text as="p" variant="bodySm" tone="subdued">Errors from API, error boundaries, client (window.onerror, unhandledrejection), and server are recorded here.</Text>
-              </BlockStack>
-            ) : (
-              <Box paddingBlockEnd="200">
-                <div className="internal-table-scroll" style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid #e0e0e0', textAlign: 'left' }}>
-                        <th style={{ padding: '6px 12px', fontWeight: 600 }}>Time</th>
-                        <th style={{ padding: '6px 12px', fontWeight: 600 }}>Level</th>
-                        <th style={{ padding: '6px 12px', fontWeight: 600 }}>Source</th>
-                        <th style={{ padding: '6px 12px', fontWeight: 600 }}>Message</th>
-                        <th style={{ padding: '6px 12px', fontWeight: 600 }}>Store</th>
-                        <th style={{ padding: '6px 12px', fontWeight: 600 }}>Route</th>
-                        <th style={{ padding: '6px 12px', fontWeight: 600 }}>Correlation</th>
-                        <th style={{ padding: '6px 12px', fontWeight: 600, width: 140 }}></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {logs.map(l => (
-                        <tr key={l.id} style={{ borderBottom: '1px solid #eee' }}>
-                          <td style={{ padding: '6px 12px' }}>{new Date(l.createdAt).toLocaleString()}</td>
-                          <td style={{ padding: '6px 12px' }}><Badge tone={l.level === 'ERROR' ? 'critical' : l.level === 'WARN' ? 'warning' : 'info'}>{l.level}</Badge></td>
-                          <td style={{ padding: '6px 12px' }}>{l.source ?? '—'}</td>
-                          <td style={{ padding: '6px 12px' }}><InternalTruncateCell value={l.message} maxLength={80} maxWidthPx={280} /></td>
-                          <td style={{ padding: '6px 12px' }}><InternalTruncateCell value={l.shopDomain} maxLength={40} maxWidthPx={140} /></td>
-                          <td style={{ padding: '6px 12px' }}><InternalTruncateCell value={l.route} maxLength={60} maxWidthPx={180} /></td>
-                          <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 11 }}>
-                            <InternalTruncateCell value={l.correlationId ?? '—'} maxLength={20} maxWidthPx={140} />
-                          </td>
-                          <td style={{ padding: '6px 12px' }}>
-                            <InlineStack gap="100">
-                              <Button size="slim" variant="secondary" onClick={() => setSelectedId(l.id)}>View</Button>
-                              {l.correlationId ? (
-                                <Button size="slim" variant="plain" url={`/internal/trace/${encodeURIComponent(l.correlationId)}`}>Trace</Button>
-                              ) : null}
-                            </InlineStack>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </Box>
-            )}
-            <InlineStack gap="200" align="space-between" blockAlign="center">
-              <Text as="p" variant="bodySm" tone="subdued">
-                Showing {logs.length} of up to {pageSize} per page.
-              </Text>
-              {nextCursorHref ? (
-                <Button url={nextCursorHref} variant="secondary">Load more</Button>
-              ) : null}
-            </InlineStack>
-          </BlockStack>
-        </Card>
-        </BlockStack>
-      </div>
-
-      <Modal open={selectedId != null} onClose={() => setSelectedId(null)} title="Error detail" size="large" secondaryActions={[{ content: 'Close', onAction: () => setSelectedId(null) }]}>
-        <Modal.Section>
-          {fetcher.state === 'loading' && !detailData ? (
-            <InlineStack gap="200" blockAlign="center">
-              <Spinner size="small" />
-              <Text as="span" tone="subdued">Loading…</Text>
-            </InlineStack>
-          ) : detailData ? (
-            <div style={{ maxHeight: '70vh', overflow: 'auto' }}>
-              <ErrorLogDetailContent d={detailData} />
-            </div>
-          ) : fetcher.data === undefined && fetcher.state === 'idle' ? null : (
-            <Text as="p" tone="critical">Failed to load error log.</Text>
-          )}
-        </Modal.Section>
-      </Modal>
-    </Page>
+              ),
+            },
+          ]}
+          rows={rows}
+        />
+      </Card>
+    </div>
   );
 }

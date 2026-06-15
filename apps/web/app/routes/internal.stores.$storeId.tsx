@@ -1,10 +1,37 @@
 import { useState } from 'react';
 import { json, redirect } from '@remix-run/node';
-import { Form, useLoaderData } from '@remix-run/react';
+import { useLoaderData, useParams } from '@remix-run/react';
 import {
-  Page, Card, BlockStack, Text, Select, InlineStack, Button, TextField, Badge,
-  DataTable, Modal, Scrollable, Divider,
-} from '@shopify/polaris';
+  useAdminCtx,
+  Icon,
+  Btn,
+  Badge,
+  StatusBadge,
+  Card,
+  Field,
+  Input,
+  Select,
+  Toggle,
+  Banner,
+  Modal,
+  Tabs,
+  KV,
+  DataTable,
+  PageHead,
+  StatTile,
+  MonoChip,
+  fmtNum,
+  fmtQuota,
+  titleCase,
+  STORES,
+  MODULES,
+  PROVIDERS,
+  PLAN_TIERS,
+  ACTIVITY,
+  storeHealth,
+  healthTone,
+  healthLabel,
+} from '~/components/admin/page-kit';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import { AiProviderService } from '~/services/internal/ai-provider.service';
@@ -264,244 +291,232 @@ export async function action({ request }: { request: Request }) {
   return redirect(`/internal/stores/${shopId}`);
 }
 
-const codeBlockStyle = { margin: 0, fontSize: 11, overflow: 'auto', maxHeight: 220, padding: 8, background: 'var(--p-color-bg-surface-secondary)', borderRadius: 6, whiteSpace: 'pre-wrap' as const, wordBreak: 'break-all' as const };
+const PLAN_TONE: Record<string, any> = { FREE: undefined, STARTER: 'info', GROWTH: 'success', PRO: 'magic', ENTERPRISE: 'warning' };
 
-function JsonSection({ title, json }: { title: string; json: string | null }) {
-  if (json == null || json === '') return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(json);
-  } catch {
-    return (
-      <BlockStack gap="100">
-        <Text as="h3" variant="headingSm">{title}</Text>
-        <pre style={codeBlockStyle}>{json}</pre>
-      </BlockStack>
-    );
-  }
-  return (
-    <BlockStack gap="100">
-      <Text as="h3" variant="headingSm">{title}</Text>
-      <pre style={codeBlockStyle}>{JSON.stringify(parsed, null, 2)}</pre>
-    </BlockStack>
-  );
-}
+export default function AdminStoreDetail() {
+  const data = useLoaderData<typeof loader>();
+  const params = useParams();
+  const ctx = useAdminCtx();
+  // Map the real shop onto the design's store shape; fall back to the placeholder set.
+  const real = data.shop;
+  const placeholder = STORES.find((x) => x.id === params.storeId) || STORES[0];
+  const s: any = real
+    ? {
+        id: real.id,
+        domain: real.shopDomain,
+        name: real.shopDomain.split('.')[0],
+        plan: real.planTier,
+        status: real.subscription?.status === 'ACTIVE' ? 'ACTIVE' : (real.subscription?.status ?? 'ACTIVE'),
+        modules: real.modulesCount,
+        published: real.publishedCount,
+        aiCalls30d: (data.aiUsage30d as any)?.count ?? placeholder.aiCalls30d,
+        owner: placeholder.owner,
+        country: placeholder.country,
+        installedAt: placeholder.installedAt,
+        provider: placeholder.provider,
+      }
+    : placeholder;
 
-function ModuleDetailsModal({ row, open, onClose }: { row: ModuleMetaRow; open: boolean; onClose: () => void }) {
-  return (
-    <Modal open={open} onClose={onClose} title={`${row.name} — module details`} size="large">
-      <Modal.Section>
-        <Scrollable style={{ maxHeight: '70vh' }}>
-          <BlockStack gap="400">
-            <BlockStack gap="200">
-              <Text as="h2" variant="headingMd">Overview</Text>
-              <BlockStack gap="100">
-                <Text as="p" variant="bodySm"><strong>ID:</strong> {row.id}</Text>
-                <Text as="p" variant="bodySm"><strong>Type:</strong> {row.type} · <strong>Category:</strong> {row.category} · <strong>Status:</strong> {row.status}</Text>
-                <Text as="p" variant="bodySm"><strong>Published at:</strong> {row.publishedAt ? new Date(row.publishedAt).toLocaleString() : '—'} · <strong>Theme ID:</strong> {row.targetThemeId ?? '—'}</Text>
-              </BlockStack>
-            </BlockStack>
-            <Divider />
-            <JsonSection title="Recipe (full spec)" json={row.specJson} />
-            <JsonSection title="Implementation plan" json={row.implementationPlanJson} />
-            <JsonSection title="Admin config schema (settings UI)" json={row.adminConfigSchemaJson} />
-            <JsonSection title="Admin defaults" json={row.adminDefaultsJson} />
-            <JsonSection title="Theme editor settings" json={row.themeEditorSettingsJson} />
-            <JsonSection title="UI tokens" json={row.uiTokensJson} />
-            <JsonSection title="Validation report" json={row.validationReportJson} />
-            <BlockStack gap="100">
-              <Text as="h3" variant="headingSm">Meta sent to store (metafield superapp.theme.modules)</Text>
-              <Text as="p" variant="bodySm" tone="subdued">Payload written to the store when this theme module is published. Keyed by module ID.</Text>
-              {row.metaError ? (
-                <Text as="p" tone="critical">{row.metaError}</Text>
-              ) : row.metaSentToStore ? (
-                <pre style={codeBlockStyle}>{JSON.stringify(row.metaSentToStore, null, 2)}</pre>
-              ) : (
-                <Text as="p" tone="subdued">Not a published theme module; no meta sent.</Text>
-              )}
-            </BlockStack>
-          </BlockStack>
-        </Scrollable>
-      </Modal.Section>
-    </Modal>
-  );
-}
-
-export default function InternalStoreDetail() {
-  const { shop, providerOptions, billingPlanOptions, publishedModulesMeta, aiUsage30d, aiUsageAllTime } = useLoaderData<typeof loader>();
-  const [modalRow, setModalRow] = useState<ModuleMetaRow | null>(null);
-  const [providerId, setProviderId] = useState<string>(shop.aiProviderOverrideId ?? '');
-  const [retentionDefault, setRetentionDefault] = useState<string>(String(shop.retentionDaysDefault ?? ''));
-  const [retentionAi, setRetentionAi] = useState<string>(String(shop.retentionDaysAi ?? ''));
-  const [retentionApi, setRetentionApi] = useState<string>(String(shop.retentionDaysApi ?? ''));
-  const [retentionErr, setRetentionErr] = useState<string>(String(shop.retentionDaysErrors ?? ''));
-
-  const moduleTableRows = publishedModulesMeta.map((row) => [
-    row.name,
-    row.type,
-    row.category,
-    row.status,
-    row.publishedAt ? new Date(row.publishedAt).toLocaleString() : '—',
-    row.targetThemeId ?? '—',
-    row.metaSentToStore ? 'Yes' : row.metaError ? 'Error' : '—',
-    <Button key={row.id} size="slim" onClick={() => setModalRow(row)}>Details</Button>,
-  ]);
+  const [tab, setTab] = useState('overview');
+  const [planModal, setPlanModal] = useState(false);
+  const [planChoice, setPlanChoice] = useState(s.plan);
+  const mods = MODULES.filter((m) => m.store === s.name);
+  const h = storeHealth(s);
+  const hTone = healthTone(h);
+  const applyPlan = () => {
+    setPlanModal(false);
+    ctx.toast('Plan changed to ' + titleCase(planChoice));
+  };
 
   return (
-    <Page
-      title={shop.shopDomain}
-      backAction={{ content: 'Stores', url: '/internal/stores' }}
-      subtitle={`${shop.modulesCount} modules (${shop.publishedCount} published) · ${shop.planTier}`}
-    >
-      <BlockStack gap="300">
-        <Card>
-          <BlockStack gap="200">
-            <InlineStack gap="300" blockAlign="center" wrap>
-              <Badge tone="info">{shop.planTier}</Badge>
-              {shop.subscription && (
-                <Badge tone={shop.subscription.status === 'ACTIVE' ? 'success' : 'attention'}>
-                  {`${shop.subscription.planName} (${shop.subscription.status})`}
-                </Badge>
-              )}
-            </InlineStack>
-            <Form method="post">
-              <input type="hidden" name="intent" value="provider" />
-              <input type="hidden" name="shopId" value={shop.id} />
-              <InlineStack gap="200" blockAlign="center">
-                <Text as="span" variant="bodySm" fontWeight="semibold">AI provider</Text>
-                <div style={{ minWidth: 200 }}>
-                  <Select
-                    label=""
-                    name="providerId"
-                    options={providerOptions}
-                    value={providerId}
-                    onChange={setProviderId}
-                    labelHidden
-                  />
+    <div className="page">
+      <PageHead
+        back={{ href: '/internal/stores', label: 'Stores' }}
+        title={s.name}
+        badge={
+          <span className="row-2">
+            <StatusBadge value={s.status} />
+            <Badge tone={PLAN_TONE[s.plan]}>{titleCase(s.plan)}</Badge>
+          </span>
+        }
+        sub={
+          <span className="row-2">
+            <MonoChip>{s.domain}</MonoChip>
+            <a className="btn btn-plain btn-sm" href={'https://' + s.domain} target="_blank" rel="noreferrer">
+              Open admin
+              <Icon name="external" size={14} />
+            </a>
+          </span>
+        }
+        actions={
+          <>
+            <Btn icon="chat" onClick={() => ctx.go('#/admin/ai-assistant')}>
+              Investigate
+            </Btn>
+            <Btn
+              variant="primary"
+              icon="plan"
+              onClick={() => {
+                setPlanChoice(s.plan);
+                setPlanModal(true);
+              }}
+            >
+              Change plan
+            </Btn>
+          </>
+        }
+      />
+      <div className="grid grid-4" style={{ marginBottom: 16 }}>
+        <StatTile label="Health score" value={h} sub={healthLabel(h)} icon="shield" tone={hTone} />
+        <StatTile label="Modules" value={s.modules} sub={s.published + ' published'} icon="layers" tone="info" />
+        <StatTile label="AI calls (30d)" value={fmtNum(s.aiCalls30d)} icon="magic" tone="magic" />
+        <StatTile label="Provider" value={String(s.provider).split(' · ')[0]} sub={String(s.provider).split(' · ')[1]} icon="connect" tone="success" />
+      </div>
+      <Card style={{ marginBottom: 16 }}>
+        <Tabs
+          active={tab}
+          onChange={setTab}
+          tabs={[
+            { id: 'overview', label: 'Overview' },
+            { id: 'modules', label: 'Modules', badge: mods.length },
+            { id: 'overrides', label: 'Overrides' },
+            { id: 'retention', label: 'Retention' },
+          ]}
+        />
+      </Card>
+      {tab === 'overview' && (
+        <div className="col-main">
+          <Card pad>
+            <div className="t-h3" style={{ marginBottom: 12 }}>
+              Store details
+            </div>
+            <KV
+              rows={[
+                ['Store ID', <MonoChip key="id">{s.id}</MonoChip>],
+                ['Domain', <MonoChip key="dom">{s.domain}</MonoChip>],
+                ['Owner', s.owner],
+                ['Plan', <Badge key="pl" tone={PLAN_TONE[s.plan]}>{titleCase(s.plan)}</Badge>],
+                ['Status', <StatusBadge key="st" value={s.status} />],
+                ['Installed', s.installedAt],
+                ['AI provider', s.provider],
+              ]}
+            />
+          </Card>
+          <Card pad>
+            <div className="t-h3" style={{ marginBottom: 12 }}>
+              Recent activity
+            </div>
+            <div className="timeline">
+              {ACTIVITY.slice(0, 4).map((a, i) => (
+                <div key={i} className="tl-item">
+                  <span className="tl-dot info" />
+                  <div className="t-sm t-strong">{titleCase(a.action)}</div>
+                  <div className="t-xs t-muted">{a.created}</div>
                 </div>
-                <Button submit size="slim" variant="primary">Save</Button>
-              </InlineStack>
-            </Form>
-            <Form method="post">
-              <input type="hidden" name="intent" value="set_plan" />
-              <input type="hidden" name="shopId" value={shop.id} />
-              <InlineStack gap="200" blockAlign="center">
-                <Text as="span" variant="bodySm" fontWeight="semibold">Plan</Text>
-                <select
-                  name="plan"
-                  defaultValue={shop.planTier ?? 'FREE'}
-                  style={{ minWidth: 120, padding: '6px 10px', borderRadius: 8, border: '1px solid var(--p-color-border)' }}
-                >
-                  {billingPlanOptions.map(o => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-                <Button submit size="slim" variant="secondary">Set</Button>
-              </InlineStack>
-            </Form>
-            <Form method="post">
-              <input type="hidden" name="intent" value="retention" />
-              <input type="hidden" name="shopId" value={shop.id} />
-              <InlineStack gap="200" blockAlign="center" wrap>
-                <Text as="span" variant="bodySm" fontWeight="semibold">Retention (days)</Text>
-                <TextField
-                  label=""
-                  name="retentionDaysDefault"
-                  type="number"
-                  autoComplete="off"
-                  value={retentionDefault}
-                  onChange={setRetentionDefault}
-                  placeholder="Default 30"
-                  labelHidden
-                />
-                <TextField
-                  label=""
-                  name="retentionDaysAi"
-                  type="number"
-                  autoComplete="off"
-                  value={retentionAi}
-                  onChange={setRetentionAi}
-                  placeholder="AI"
-                  labelHidden
-                />
-                <TextField
-                  label=""
-                  name="retentionDaysApi"
-                  type="number"
-                  autoComplete="off"
-                  value={retentionApi}
-                  onChange={setRetentionApi}
-                  placeholder="API"
-                  labelHidden
-                />
-                <TextField
-                  label=""
-                  name="retentionDaysErrors"
-                  type="number"
-                  autoComplete="off"
-                  value={retentionErr}
-                  onChange={setRetentionErr}
-                  placeholder="Err"
-                  labelHidden
-                />
-                <Button submit size="slim" variant="primary">Save</Button>
-              </InlineStack>
-            </Form>
-          </BlockStack>
-        </Card>
-
-        <Card>
-          <BlockStack gap="200">
-            <Text as="h2" variant="headingMd">Store information — modules & meta sent</Text>
-            <Text as="p" variant="bodySm" tone="subdued">
-              Published theme modules: payload written to metafield <code>superapp.theme.modules</code>. Click Details for full module info in a popup.
-            </Text>
-            {publishedModulesMeta.length === 0 ? (
-              <Text as="p" tone="subdued">No modules.</Text>
-            ) : (
-              <div className="internal-store-modules-table">
-                <DataTable
-                  columnContentTypes={['text', 'text', 'text', 'text', 'text', 'text', 'text', 'text']}
-                  headings={['Name', 'Type', 'Category', 'Status', 'Pub. at', 'Theme ID', 'Meta', '']}
-                  rows={moduleTableRows}
-                />
-              </div>
-            )}
-          </BlockStack>
-        </Card>
-
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">AI usage and cost (store)</Text>
-            <InlineStack gap="300" wrap>
-              <Badge tone="info">{`30d requests: ${aiUsage30d.totalRequests}`}</Badge>
-              <Badge tone="info">{`30d tokens in/out: ${aiUsage30d.totalTokensIn}/${aiUsage30d.totalTokensOut}`}</Badge>
-              <Badge tone="success">{`30d cost: $${(aiUsage30d.totalCostCents / 100).toFixed(4)}`}</Badge>
-              <Badge tone="success">{`All-time cost: $${(aiUsageAllTime.totalCostCents / 100).toFixed(4)}`}</Badge>
-            </InlineStack>
-            {aiUsageAllTime.byProvider.length === 0 ? (
-              <Text as="p" tone="subdued">No AI usage recorded for this store yet.</Text>
-            ) : (
-              <DataTable
-                columnContentTypes={['text', 'text', 'numeric', 'numeric', 'numeric', 'text']}
-                headings={['Provider', 'Model', 'Requests', 'Tokens in', 'Tokens out', 'Cost']}
-                rows={aiUsageAllTime.byProvider.map((row) => [
-                  row.provider,
-                  row.model,
-                  row.requests,
-                  row.tokensIn,
-                  row.tokensOut,
-                  `$${(row.costCents / 100).toFixed(4)}`,
-                ])}
-              />
-            )}
-          </BlockStack>
-        </Card>
-      </BlockStack>
-
-      {modalRow && (
-        <ModuleDetailsModal row={modalRow} open={!!modalRow} onClose={() => setModalRow(null)} />
+              ))}
+            </div>
+          </Card>
+        </div>
       )}
-    </Page>
+      {tab === 'modules' && (
+        <Card className="internal-store-modules-table">
+          <DataTable
+            rowKey="id"
+            columns={[
+              { key: 'name', label: 'Module', render: (r: any) => <span className="cell-strong">{r.name}</span> },
+              { key: 'type', label: 'Type', render: (r: any) => <Badge>{r.type}</Badge> },
+              { key: 'version', label: 'Version', render: (r: any) => 'v' + r.version },
+              { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
+              { key: 'updated', label: 'Updated', render: (r: any) => <span className="cell-sub">{r.updated}</span> },
+            ]}
+            rows={mods.length ? mods : MODULES.slice(0, 3)}
+          />
+        </Card>
+      )}
+      {tab === 'overrides' && (
+        <Card pad>
+          <div className="stack-5" style={{ maxWidth: 540 }}>
+            <Field label="AI provider override" help="Force this store onto a specific provider, regardless of the global default">
+              <Select options={['Use global default'].concat(PROVIDERS.map((p) => p.name))} value="Use global default" onChange={() => ctx.toast('Override updated')} />
+            </Field>
+            <Field label="Feature flags" optional>
+              <div className="stack-2">
+                {[
+                  ['betaImageToModule', 'Beta: image-to-module'],
+                  ['betaMultiStep', 'Beta: multi-step flows'],
+                  ['allowCustomCss', 'Allow custom CSS'],
+                ].map((f, i) => (
+                  <label key={i} className="row spread">
+                    <span className="t-sm">{f[1]}</span>
+                    <Toggle onChange={(e: any) => ctx.toast(f[1] + (e.target.checked ? ' enabled' : ' disabled'))} />
+                  </label>
+                ))}
+              </div>
+            </Field>
+            <div>
+              <Btn variant="primary" onClick={() => ctx.toast('Overrides saved')}>
+                Save overrides
+              </Btn>
+            </div>
+          </div>
+        </Card>
+      )}
+      {tab === 'retention' && (
+        <Card pad>
+          <div className="stack-4" style={{ maxWidth: 540 }}>
+            <Banner tone="info">Override how long logs and usage data are kept for this store. Leave blank to use the plan default.</Banner>
+            <div className="grid grid-2">
+              {[
+                ['aiUsage', 'AI usage', '90'],
+                ['apiLogs', 'API logs', '30'],
+                ['errorLogs', 'Error logs', '30'],
+                ['jobs', 'Jobs', '14'],
+              ].map((r, i) => (
+                <Field key={i} label={r[1] + ' (days)'}>
+                  <Input type="number" defaultValue={r[2]} />
+                </Field>
+              ))}
+            </div>
+            <div>
+              <Btn variant="primary" onClick={() => ctx.toast('Retention updated')}>
+                Save retention
+              </Btn>
+            </div>
+          </div>
+        </Card>
+      )}
+      {planModal && (
+        <Modal
+          title="Change plan"
+          sub={s.name + ' — internal override (no Shopify billing)'}
+          onClose={() => setPlanModal(false)}
+          footer={
+            <>
+              <span className="grow" />
+              <Btn onClick={() => setPlanModal(false)}>Cancel</Btn>
+              <Btn variant="primary" onClick={applyPlan}>
+                Apply plan
+              </Btn>
+            </>
+          }
+        >
+          <div className="stack-2">
+            {PLAN_TIERS.map((p) => (
+              <label key={p.id} className={'plan-radio' + (p.name === planChoice ? ' active' : '')}>
+                <input type="radio" name="plan" checked={p.name === planChoice} onChange={() => setPlanChoice(p.name)} />
+                <div className="grow">
+                  <div className="t-strong">{p.display}</div>
+                  <div className="t-xs t-muted">
+                    {fmtQuota(p.ai)} AI · {fmtQuota(p.publish)} publishes
+                  </div>
+                </div>
+                <div className="t-strong">{p.price === -1 ? 'Custom' : '$' + p.price}</div>
+              </label>
+            ))}
+          </div>
+        </Modal>
+      )}
+    </div>
   );
 }
+

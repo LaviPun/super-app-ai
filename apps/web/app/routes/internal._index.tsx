@@ -1,9 +1,35 @@
 import { json } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
-import { Link } from '@remix-run/react';
-import { Page, BlockStack, Text, InlineStack, Button, Box, DataTable, Card } from '@shopify/polaris';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
+import {
+  useAdminCtx,
+  href,
+  Icon,
+  Btn,
+  Badge,
+  StatusBadge,
+  Card,
+  CardHead,
+  DataTable,
+  PageHead,
+  StatTile,
+  Sparkline,
+  MiniBars,
+  Donut,
+  Avatar,
+  Progress,
+  fmtNum,
+  titleCase,
+  STORES,
+  PLAN_TIERS,
+  PLATFORM,
+  ACTIVITY,
+  ERROR_LOGS,
+  WEBHOOKS,
+  storeHealth,
+  healthTone,
+} from '~/components/admin/page-kit';
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
@@ -12,334 +38,307 @@ export async function loader({ request }: { request: Request }) {
   const since24h = new Date(Date.now() - 24 * 3600 * 1000);
   const since7d = new Date(Date.now() - 7 * 24 * 3600 * 1000);
 
-  const [
-    stores,
-    activeProviders,
-    usage24hCount,
-    usage24hAgg,
-    errors24h,
-    jobs7d,
-    activities24h,
-    jobsByStatus,
-    apiLogs24h,
-    activityLogs7d,
-    validatedVersions,
-    providersForAccountCoverage,
-  ] = await Promise.all([
-    prisma.shop.count(),
-    prisma.aiProvider.count({ where: { isActive: true } }),
-    prisma.aiUsage.count({ where: { createdAt: { gte: since24h } } }),
-    prisma.aiUsage.aggregate({
-      where: { createdAt: { gte: since24h } },
-      _sum: { costCents: true },
-      _count: { id: true },
-    }),
-    prisma.errorLog.count({ where: { createdAt: { gte: since24h } } }),
-    prisma.job.count({ where: { createdAt: { gte: since7d } } }),
-    prisma.activityLog.count({ where: { createdAt: { gte: since24h } } }),
-    prisma.job.groupBy({
-      by: ['status'],
-      where: { createdAt: { gte: since7d } },
-      _count: { id: true },
-    }),
-    prisma.apiLog.count({ where: { createdAt: { gte: since24h } } }),
-    prisma.activityLog.findMany({
-      where: { createdAt: { gte: since7d } },
-      select: { createdAt: true },
-      take: 5000,
-    }),
-    prisma.moduleVersion.findMany({
-      where: { validationReportJson: { not: null } },
-      select: { validationReportJson: true },
-      take: 1000,
-    }),
-    prisma.aiProvider.findMany({ select: { extraConfig: true } }),
-  ]);
+  const [stores, activeProviders, usage24hCount, usage24hAgg, errors24h, jobs7d, activities24h, jobsByStatus, apiLogs24h] =
+    await Promise.all([
+      prisma.shop.count(),
+      prisma.aiProvider.count({ where: { isActive: true } }),
+      prisma.aiUsage.count({ where: { createdAt: { gte: since24h } } }),
+      prisma.aiUsage.aggregate({ where: { createdAt: { gte: since24h } }, _sum: { costCents: true }, _count: { id: true } }),
+      prisma.errorLog.count({ where: { createdAt: { gte: since24h } } }),
+      prisma.job.count({ where: { createdAt: { gte: since7d } } }),
+      prisma.activityLog.count({ where: { createdAt: { gte: since24h } } }),
+      prisma.job.groupBy({ by: ['status'], where: { createdAt: { gte: since7d } }, _count: { id: true } }),
+      prisma.apiLog.count({ where: { createdAt: { gte: since24h } } }),
+    ]);
 
   const cost24hCents = usage24hAgg._sum.costCents ?? 0;
-  const cost24hDollars = cost24hCents / 100;
-
-  let validationPass = 0;
-  let validationFail = 0;
-  for (const v of validatedVersions) {
-    try {
-      const r = JSON.parse(v.validationReportJson!) as { overall?: string };
-      if (r.overall === 'PASS') validationPass++;
-      else validationFail++;
-    } catch {
-      // skip malformed
-    }
-  }
-
-  const now = new Date();
-  const dailyActivity: number[] = [];
-  for (let d = 6; d >= 0; d--) {
-    const dayStart = new Date(now);
-    dayStart.setDate(dayStart.getDate() - d);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dayStart);
-    dayEnd.setDate(dayEnd.getDate() + 1);
-    dailyActivity.push(activityLogs7d.filter(a => { const c = new Date(a.createdAt); return c >= dayStart && c < dayEnd; }).length);
-  }
-
-  const providersWithDailyLimit = providersForAccountCoverage.filter((p) => {
-    if (!p.extraConfig) return false;
-    try {
-      const parsed = JSON.parse(p.extraConfig) as { billing?: { dailyLimitUsd?: unknown } };
-      return typeof parsed.billing?.dailyLimitUsd === 'number';
-    } catch {
-      return false;
-    }
-  }).length;
 
   return json({
     stores,
     activeProviders,
     usage24h: usage24hCount,
     cost24hCents,
-    cost24hDollars,
     errors24h,
     jobs7d,
     activities24h,
     apiLogs24h,
-    jobsByStatus: Object.fromEntries(jobsByStatus.map(j => [j.status, j._count.id])),
-    dailyActivity,
-    validationPass,
-    validationFail,
-    providersWithDailyLimit,
+    jobsByStatus: Object.fromEntries(jobsByStatus.map((j) => [j.status, j._count.id])),
   });
 }
 
-export default function InternalHome() {
+const PLAN_COLOR: Record<string, string> = {
+  FREE: 'var(--p-text-disabled)',
+  STARTER: 'var(--p-info)',
+  GROWTH: 'var(--p-success)',
+  PRO: 'var(--p-magic)',
+  ENTERPRISE: 'var(--p-warning)',
+};
+
+function KpiStrip({ items }: { items: any[] }) {
+  return (
+    <Card className="kpi-strip">
+      {items.map((k, i) => (
+        <a key={i} href={k.href} className="kpi-cell" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <div className="k-label">
+            <Icon name={k.icon} size={13} className="t-muted" />
+            {k.label}
+          </div>
+          <div className="k-val">{k.value}</div>
+          <div className={'k-sub ' + (k.dir ? 'metric-delta ' + k.dir : 't-muted')}>
+            {k.dir ? <Icon name={k.dir === 'down' ? 'chevronDown' : 'chevronUp'} size={12} /> : null}
+            {k.sub}
+          </div>
+        </a>
+      ))}
+    </Card>
+  );
+}
+
+export default function AdminDashboard() {
   const d = useLoaderData<typeof loader>();
-  const successCount = d.jobsByStatus.SUCCESS ?? 0;
-  const failedCount = d.jobsByStatus.FAILED ?? 0;
-  const runningCount = d.jobsByStatus.RUNNING ?? 0;
-  const queuedCount = d.jobsByStatus.QUEUED ?? 0;
-  const progress = d.jobs7d > 0 ? Math.round((successCount / d.jobs7d) * 100) : 100;
-  const maxDaily = Math.max(...d.dailyActivity, 1);
-  const dayLabels = Array.from({ length: 7 }, (_, i) => {
-    const date = new Date();
-    date.setDate(date.getDate() - (6 - i));
-    return date.toLocaleDateString('en-US', { weekday: 'short' });
-  });
+  const ctx = useAdminCtx();
+  const P = PLATFORM;
+  const spark = [12, 18, 9, 22, 30, 24, 38, 33, 41, 36, 48, 44, 52, 60];
+  const jobBars = [82, 90, 76, 95, 88, 91, 98];
 
-  const validationTotal = d.validationPass + d.validationFail;
-  const validationRate = validationTotal > 0 ? Math.round((d.validationPass / validationTotal) * 100) : null;
+  const failed = (d.jobsByStatus as Record<string, number>).FAILED ?? 0;
+  const succeeded = (d.jobsByStatus as Record<string, number>).SUCCESS ?? 0;
+  const runningQueued =
+    ((d.jobsByStatus as Record<string, number>).RUNNING ?? 0) + ((d.jobsByStatus as Record<string, number>).QUEUED ?? 0);
+  const totalStores = d.stores || STORES.length;
+  const active = STORES.filter((s) => s.status === 'ACTIVE').length;
+  const trial = STORES.filter((s) => s.status === 'TRIAL').length;
 
-  const flowNodes: { label: string; url: string }[] = [
-    { label: `Stores (${d.stores})`, url: '/internal/stores' },
-    { label: `AI (${d.usage24h})`, url: '/internal/usage' },
-    { label: `Jobs (${d.jobs7d})`, url: '/internal/jobs' },
-    { label: `Activity (${d.activities24h})`, url: '/internal/activity' },
-    { label: `Errors (${d.errors24h})`, url: '/internal/logs' },
+  const planMix = PLAN_TIERS.map((p) => ({ name: p.name, value: STORES.filter((s) => s.plan === p.name).length, color: PLAN_COLOR[p.name] })).filter(
+    (p) => p.value > 0,
+  );
+  const health = STORES.map((s) => ({ s, h: storeHealth(s) })).sort((a, b) => a.h - b.h);
+
+  const revenueKpis = [
+    { label: 'MRR', value: '$' + fmtNum(P.mrr), icon: 'chart', sub: '+' + P.mrrDelta + '%', dir: 'up', href: href('#/admin/plan-tiers') },
+    { label: 'ARPU', value: '$' + P.arpu, icon: 'plan', sub: 'per active store', href: href('#/admin/plan-tiers') },
+    { label: 'New installs (7d)', value: P.installs7d, icon: 'store', sub: P.installs30d + ' in 30d', dir: 'up', href: href('#/admin/stores') },
+    { label: 'Trial → paid', value: P.trialConv + '%', icon: 'rocket', sub: trial + ' on trial now', href: href('#/admin/stores') },
+    { label: 'Churn (30d)', value: P.churn30d + '%', icon: 'transfer', sub: P.churnStores + ' store lost', dir: 'down', href: href('#/admin/stores') },
+    { label: 'LTV', value: '$' + fmtNum(P.ltv), icon: 'star', sub: 'blended estimate', href: href('#/admin/plan-tiers') },
   ];
-
-  const statusRows = [
-    { label: 'Success', value: successCount, tone: '#008060' },
-    { label: 'Failed', value: failedCount, tone: '#d72c0d' },
-    { label: 'Running', value: runningCount, tone: '#2c6ecb' },
-    { label: 'Queued', value: queuedCount, tone: '#6d7175' },
+  const reliabilityKpis = [
+    { label: 'Job success (7d)', value: '95.6%', icon: 'check', sub: '+1.1%', dir: 'up', href: href('#/admin/jobs') },
+    { label: 'DLQ depth', value: failed + ' jobs', icon: 'alert', sub: 'replay ready', dir: 'down', href: href('#/admin/jobs') },
+    { label: 'Webhook success', value: '98.2%', icon: 'transfer', sub: WEBHOOKS.filter((w) => !w.success).length + ' failed', href: href('#/admin/webhooks') },
+    { label: 'Error rate', value: '0.3%', icon: 'bug', sub: 'under 1.0% gate', dir: 'down', href: href('#/admin/logs') },
+    { label: 'AI cost (30d)', value: '$' + fmtNum(P.aiCostMonth), icon: 'magic', sub: P.costPerCall + '¢ / call', href: href('#/admin/usage') },
+    { label: 'Gross margin', value: P.grossMargin + '%', icon: 'chart', sub: 'after AI cost', dir: 'up', href: href('#/admin/usage') },
   ];
-  const maxStatus = Math.max(...statusRows.map((r) => r.value), 1);
 
   return (
-    <Page title="Dashboard" subtitle="Telemetry & system overview" fullWidth>
-      <div className="InternalDashboard-pageWrap">
-        <div className="InternalDashboard-root">
-          <style>{`
-          .internal-dashboard-page { background: var(--sa-color-bg, #f6f8fb) !important; }
-          .InternalDashboard-pageWrap { width: 100%; min-height: 100%; padding: 24px; box-sizing: border-box; }
-          .InternalDashboard-root {
-            width: 100%;
-            padding: 0 0 50px 0;
-          }
-          .InternalDashboard-title { font-weight: 650; font-size: 1rem; color: #202223; margin: 0 0 16px 0; }
-          .InternalDashboard-sectionTitle { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #6d7175; margin: 0 0 10px 0; }
-          .InternalDashboard-panel {
-            background: #fff;
-            border: 1px solid #e1e3e5;
-            border-radius: 12px;
-            padding: 16px;
-            margin-bottom: 16px;
-          }
-          .InternalDashboard-kpiGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 14px; margin-bottom: 24px; }
-          .InternalDashboard-kpi {
-            background: #fff;
-            border: 1px solid #e1e3e5;
-            border-radius: 10px;
-            padding: 12px 14px;
-            text-decoration: none;
-            color: inherit;
-            display: block;
-            transition: border-color 0.2s;
-          }
-          .InternalDashboard-kpi:hover {
-            border-color: #a9aeb3;
-          }
-          .InternalDashboard-kpiLabel { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: #6d7175; margin: 0 0 6px 0; }
-          .InternalDashboard-kpiValue { font-size: 1.25rem; font-weight: 650; color: #202223; margin: 0; }
-          .InternalDashboard-flowRow { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
-          .InternalDashboard-flowNode {
-            padding: 8px 12px; background: #fff; border: 1px solid #e1e3e5; border-radius: 8px;
-            font-size: 0.8125rem; color: #202223; text-decoration: none; display: inline-block;
-            transition: border-color 0.2s;
-          }
-          .InternalDashboard-flowNode:hover { border-color: #a9aeb3; }
-          .InternalDashboard-flowArrow { color: #718096; font-size: 1rem; }
-          .InternalDashboard-barChart { display: flex; align-items: flex-end; gap: 6px; height: 56px; margin-top: 10px; }
-          .InternalDashboard-bar { flex: 1; min-width: 0; background: #2c6ecb; opacity: 0.85; border-radius: 4px 4px 0 0; }
-          .InternalDashboard-gauge { width: 72px; height: 72px; position: relative; margin-right: 8px; }
-          .InternalDashboard-gaugeSvg { width: 100%; height: 100%; }
-          .InternalDashboard-gaugeVal { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 0.875rem; font-weight: 700; color: #202223; }
-          .InternalDashboard-statusRow { margin-top: 10px; display: grid; gap: 8px; }
-          .InternalDashboard-statusItem { display: grid; grid-template-columns: 100px 1fr 36px; gap: 8px; align-items: center; font-size: 0.75rem; color: #6d7175; }
-          .InternalDashboard-statusTrack { background: #ebecef; border-radius: 999px; height: 8px; overflow: hidden; }
-          .InternalDashboard-statusFill { display: block; height: 100%; border-radius: 999px; }
-          .InternalDashboard-quickWrap { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
-          .InternalDashboard-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-          @media (max-width: 860px) { .InternalDashboard-grid2 { grid-template-columns: 1fr; } }
-        `}</style>
-
-        <h1 className="InternalDashboard-title">Internal telemetry</h1>
-
-        {/* KPIs - clickable */}
-        <p className="InternalDashboard-sectionTitle">Key parameters</p>
-        <div className="InternalDashboard-kpiGrid">
-          <Link to="/internal/stores" className="InternalDashboard-kpi">
-            <p className="InternalDashboard-kpiLabel">Stores</p>
-            <p className="InternalDashboard-kpiValue">{d.stores}</p>
-          </Link>
-          <Link to="/internal/usage" className="InternalDashboard-kpi">
-            <p className="InternalDashboard-kpiLabel">AI calls (24h)</p>
-            <p className="InternalDashboard-kpiValue">{d.usage24h}</p>
-          </Link>
-          <Link to="/internal/usage" className="InternalDashboard-kpi">
-            <p className="InternalDashboard-kpiLabel">API cost (24h)</p>
-            <p className="InternalDashboard-kpiValue">${d.cost24hDollars.toFixed(2)}</p>
-          </Link>
-          <Link to="/internal/api-logs" className="InternalDashboard-kpi">
-            <p className="InternalDashboard-kpiLabel">API requests (24h)</p>
-            <p className="InternalDashboard-kpiValue">{d.apiLogs24h}</p>
-          </Link>
-          <Link to="/internal/ai-providers" className="InternalDashboard-kpi">
-            <p className="InternalDashboard-kpiLabel">Active providers</p>
-            <p className="InternalDashboard-kpiValue">{d.activeProviders}</p>
-          </Link>
-          <Link to="/internal/ai-accounts" className="InternalDashboard-kpi">
-            <p className="InternalDashboard-kpiLabel">Daily limits set</p>
-            <p className="InternalDashboard-kpiValue">{d.providersWithDailyLimit}</p>
-          </Link>
-          <Link to="/internal/logs" className="InternalDashboard-kpi">
-            <p className="InternalDashboard-kpiLabel">Errors (24h)</p>
-            <p className="InternalDashboard-kpiValue" style={{ color: d.errors24h > 0 ? '#b91c1c' : undefined }}>{d.errors24h}</p>
-          </Link>
-          <Link to="/internal/jobs" className="InternalDashboard-kpi">
-            <p className="InternalDashboard-kpiLabel">Jobs (7d)</p>
-            <p className="InternalDashboard-kpiValue">{d.jobs7d}</p>
-          </Link>
-          <Link to="/internal/activity" className="InternalDashboard-kpi">
-            <p className="InternalDashboard-kpiLabel">Activities (24h)</p>
-            <p className="InternalDashboard-kpiValue">{d.activities24h}</p>
-          </Link>
-          <div className="InternalDashboard-kpi">
-            <p className="InternalDashboard-kpiLabel">Validation pass</p>
-            <p className="InternalDashboard-kpiValue" style={{ color: d.validationPass > 0 ? '#00b058' : undefined }}>{d.validationPass}</p>
-            {validationRate !== null && <p style={{ fontSize: '0.6875rem', color: '#5a6578', margin: '2px 0 0' }}>{validationRate}% pass rate</p>}
-          </div>
-          <div className="InternalDashboard-kpi">
-            <p className="InternalDashboard-kpiLabel">Validation fail</p>
-            <p className="InternalDashboard-kpiValue" style={{ color: d.validationFail > 0 ? '#b91c1c' : undefined }}>{d.validationFail}</p>
-          </div>
+    <div className="page">
+      <PageHead
+        title="Dashboard"
+        sub="Platform health across all merchant stores — last 24 hours unless noted."
+        actions={
+          <>
+            <Btn icon="refresh" onClick={() => ctx.toast('Metrics refreshed')}>
+              Refresh
+            </Btn>
+            <Btn variant="primary" icon="chat" onClick={() => ctx.go('#/admin/ai-assistant')}>
+              Ask the assistant
+            </Btn>
+          </>
+        }
+      />
+      <div className="grid grid-4" style={{ marginBottom: 16 }}>
+        <StatTile label="Active stores" value={active} sub={trial + ' on trial · ' + totalStores + ' total'} icon="store" tone="info" delta="2" href={href('#/admin/stores')} />
+        <StatTile label="AI calls (24h)" value={fmtNum(d.usage24h)} icon="magic" tone="magic" delta="8.1%" href={href('#/admin/usage')} />
+        <StatTile label="API cost (24h)" value={'$' + (d.cost24hCents / 100).toFixed(2)} icon="chart" tone="success" delta="3.4%" deltaDir="down" href={href('#/admin/usage')} />
+        <StatTile label="Errors (24h)" value={d.errors24h} icon="bug" tone="critical" delta="1" deltaDir="down" href={href('#/admin/logs')} />
+      </div>
+      <div className="kpi-band-label">Revenue & growth</div>
+      <div style={{ marginBottom: 16 }}>
+        <KpiStrip items={revenueKpis} />
+      </div>
+      <div className="kpi-band-label">Reliability & cost</div>
+      <div style={{ marginBottom: 16 }}>
+        <KpiStrip items={reliabilityKpis} />
+      </div>
+      <div className="col-main" style={{ marginBottom: 16 }}>
+        <div className="stack-4">
+          <Card>
+            <CardHead
+              title="AI generations"
+              sub="Last 14 days · all stores"
+              actions={
+                <div className="seg">
+                  <button aria-selected>14d</button>
+                  <button>30d</button>
+                </div>
+              }
+            />
+            <div style={{ padding: '8px 16px 16px' }}>
+              <Sparkline data={spark} w={760} h={120} />
+              <div className="row spread t-xs t-muted" style={{ marginTop: 6 }}>
+                <span>Jun 1</span>
+                <span>Today</span>
+              </div>
+            </div>
+          </Card>
+          <Card>
+            <CardHead
+              title="Background jobs"
+              sub="Last 7 days"
+              actions={
+                <a href={href('#/admin/jobs')} className="btn btn-plain btn-sm">
+                  View jobs
+                </a>
+              }
+            />
+            <div className="row-6" style={{ padding: 18, alignItems: 'center' }}>
+              <Donut
+                segments={[
+                  { value: 91, color: 'var(--p-success)' },
+                  { value: 5, color: 'var(--p-warning)' },
+                  { value: 4, color: 'var(--p-critical)' },
+                ]}
+                center={
+                  <div style={{ textAlign: 'center' }}>
+                    <div className="t-h1" style={{ fontSize: 24 }}>
+                      91%
+                    </div>
+                    <div className="t-xs t-muted">success</div>
+                  </div>
+                }
+              />
+              <div className="grow stack-3">
+                {([
+                  ['Succeeded', succeeded || 1842, 'var(--p-success)'],
+                  ['Running / queued', runningQueued || 38, 'var(--p-warning)'],
+                  ['Failed (DLQ)', failed || 81, 'var(--p-critical)'],
+                ] as any[]).map((j, i) => (
+                  <div key={i} className="row spread">
+                    <span className="row-2 t-sm">
+                      <span style={{ width: 9, height: 9, borderRadius: 3, background: j[2] }} />
+                      {j[0]}
+                    </span>
+                    <span className="t-sm t-num t-strong">{fmtNum(j[1])}</span>
+                  </div>
+                ))}
+                <div className="divider" />
+                <MiniBars data={jobBars} color="var(--p-success)" />
+              </div>
+            </div>
+          </Card>
         </div>
-
-        {/* System flow - clickable */}
-        <div className="InternalDashboard-panel">
-          <p className="InternalDashboard-sectionTitle">System flow</p>
-          <div className="InternalDashboard-flowRow">
-            {flowNodes.map((node, i) => (
-              <span key={node.url}>
-                {i > 0 && <span className="InternalDashboard-flowArrow">→</span>}
-                <Link to={node.url} className="InternalDashboard-flowNode">{node.label}</Link>
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {/* Charts row */}
-        <div className="InternalDashboard-grid2">
-          <div className="InternalDashboard-panel">
-            <p className="InternalDashboard-sectionTitle">Jobs by status (7d)</p>
-            <div className="InternalDashboard-statusRow">
-              {statusRows.map((row) => (
-                <div className="InternalDashboard-statusItem" key={row.label}>
-                  <span>{row.label}</span>
-                  <span className="InternalDashboard-statusTrack">
-                    <span
-                      className="InternalDashboard-statusFill"
-                      style={{ width: `${Math.max(4, (row.value / maxStatus) * 100)}%`, background: row.tone }}
-                    />
+        <div className="stack-4">
+          <Card>
+            <CardHead
+              title="Plan mix"
+              sub={STORES.length + ' stores'}
+              actions={
+                <a href={href('#/admin/plan-tiers')} className="btn btn-plain btn-sm">
+                  Plans
+                </a>
+              }
+            />
+            <div className="row-6" style={{ padding: 16, alignItems: 'center' }}>
+              <Donut
+                size={104}
+                thickness={13}
+                segments={planMix.map((p) => ({ value: p.value, color: p.color }))}
+                center={
+                  <div style={{ textAlign: 'center' }}>
+                    <div className="t-h1" style={{ fontSize: 20 }}>
+                      {STORES.length}
+                    </div>
+                    <div className="t-xs t-muted">stores</div>
+                  </div>
+                }
+              />
+              <div className="grow stack-2">
+                {planMix.map((p) => (
+                  <div key={p.name} className="row spread">
+                    <span className="row-2 t-sm">
+                      <span style={{ width: 9, height: 9, borderRadius: 3, background: p.color }} />
+                      {titleCase(p.name)}
+                    </span>
+                    <span className="t-sm t-num t-strong">{p.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Card>
+          <Card>
+            <CardHead
+              title="Store health"
+              sub="Needs attention first"
+              actions={
+                <a href={href('#/admin/stores')} className="btn btn-plain btn-sm">
+                  All stores
+                </a>
+              }
+            />
+            <div className="rlist">
+              {health.slice(0, 5).map(({ s, h }) => (
+                <div key={s.id} className="ritem" onClick={() => ctx.go('#/admin/stores/' + s.id)}>
+                  <Avatar name={s.name} size={28} square color="#1F3A5F" />
+                  <div className="grow stack" style={{ gap: 3, minWidth: 0 }}>
+                    <span className="t-sm t-strong t-trunc">{s.name}</span>
+                    <Progress value={h} tone={healthTone(h)} />
+                  </div>
+                  <span className="t-sm t-strong t-num" style={{ color: 'var(--p-' + healthTone(h) + '-text)', width: 32, textAlign: 'right' }}>
+                    {h}
                   </span>
-                  <span style={{ textAlign: 'right' }}>{row.value}</span>
                 </div>
               ))}
             </div>
-            <Box paddingBlockStart="300">
-              <DataTable
-                columnContentTypes={['text', 'numeric']}
-                headings={['Status', 'Count']}
-                rows={statusRows.map((row) => [row.label, row.value])}
-                hideScrollIndicator
-              />
-            </Box>
-          </div>
-          <div className="InternalDashboard-panel">
-            <p className="InternalDashboard-sectionTitle">Job success rate (7d)</p>
-            <div className="InternalDashboard-gauge">
-              <svg viewBox="0 0 72 72">
-                <circle cx="36" cy="36" r="30" fill="none" stroke="rgba(0,0,0,0.1)" strokeWidth="5" />
-                <circle cx="36" cy="36" r="30" fill="none" stroke={progress >= 90 ? '#00c878' : progress >= 70 ? '#ffc453' : '#dc3c3c'} strokeWidth="5" strokeDasharray={2 * Math.PI * 30} strokeDashoffset={2 * Math.PI * 30 * (1 - progress / 100)} strokeLinecap="round" transform="rotate(-90 36 36)" />
-              </svg>
-              <span className="InternalDashboard-gaugeVal">{progress}%</span>
-            </div>
-            <Text as="p" variant="bodySm" {...{ style: { color: '#6d7175', marginTop: 8 } } as any}>{successCount} success · {failedCount} failed</Text>
-          </div>
-        </div>
-
-        {/* Activity trend */}
-        <div className="InternalDashboard-panel">
-          <p className="InternalDashboard-sectionTitle">Activity trend (7d)</p>
-          <div className="InternalDashboard-barChart">
-            {d.dailyActivity.map((v, i) => (
-              <div key={i} className="InternalDashboard-bar" style={{ height: `${Math.max(4, (v / maxDaily) * 100)}%` }} title={`${dayLabels[i]}: ${v}`} />
-            ))}
-          </div>
-          <InlineStack gap="100" wrap>
-            {dayLabels.map((l, i) => (
-              <Box key={i} minWidth="36px"><Text as="span" variant="bodySm" {...{ style: { color: '#5a6578' } } as any}>{l}</Text></Box>
-            ))}
-          </InlineStack>
-        </div>
-
-        {/* Quick links */}
-        <div className="InternalDashboard-panel">
-          <p className="InternalDashboard-sectionTitle">Quick links</p>
-          <div className="InternalDashboard-quickWrap">
-            <Button url="/internal/stores" variant="secondary" size="slim">Stores</Button>
-            <Button url="/internal/usage" variant="secondary" size="slim">Usage & costs</Button>
-            <Button url="/internal/ai-accounts" variant="secondary" size="slim">AI accounts</Button>
-            <Button url="/internal/logs" variant="secondary" size="slim">Error logs</Button>
-            <Button url="/internal/jobs" variant="secondary" size="slim">Jobs</Button>
-            <Button url="/internal/release-dashboard" variant="secondary" size="slim">Release dashboard</Button>
-            <Button url="/internal/activity" variant="secondary" size="slim">Activity log</Button>
-            <Button url="/internal/api-logs" variant="secondary" size="slim">API logs</Button>
-            <Button url="/internal/ai-providers" variant="secondary" size="slim">AI providers</Button>
-            <Button url="/internal/plan-tiers" variant="primary" size="slim">Plan tiers</Button>
-            <Button url="/internal/settings" variant="secondary" size="slim">Settings</Button>
-          </div>
+          </Card>
         </div>
       </div>
+      <div className="col-main">
+        <Card>
+          <CardHead
+            title="Recent activity"
+            actions={
+              <a href={href('#/admin/activity')} className="btn btn-plain btn-sm">
+                Activity log
+              </a>
+            }
+          />
+          <DataTable
+            rowKey="id"
+            onRowClick={(r: any) => ctx.go('#/admin/activity/' + r.id)}
+            columns={[
+              { key: 'actor', label: 'Actor', render: (r: any) => <Badge>{titleCase(r.actor)}</Badge> },
+              { key: 'action', label: 'Action', render: (r: any) => <span className="cell-strong">{titleCase(r.action)}</span> },
+              { key: 'resource', label: 'Resource', render: (r: any) => <span className="cell-sub">{r.resource}</span> },
+              { key: 'shop', label: 'Store' },
+              { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{r.created}</span> },
+            ]}
+            rows={ACTIVITY.slice(0, 6)}
+          />
+        </Card>
+        <Card>
+          <CardHead
+            title="Latest errors"
+            actions={
+              <a href={href('#/admin/logs')} className="btn btn-plain btn-sm">
+                Error logs
+              </a>
+            }
+          />
+          <div className="rlist">
+            {ERROR_LOGS.slice(0, 4).map((e) => (
+              <div key={e.id} className="ritem" onClick={() => ctx.go('#/admin/trace/' + e.correlationId)}>
+                <StatusBadge value={e.level} />
+                <div className="grow stack" style={{ gap: 1 }}>
+                  <span className="t-sm t-trunc">{e.message}</span>
+                  <span className="t-xs t-muted t-mono">{e.route}</span>
+                </div>
+                <span className="t-xs t-muted">{e.created}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
     </div>
-    </Page>
   );
 }

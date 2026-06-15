@@ -1,20 +1,22 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, useSearchParams, useNavigation, Form, useRevalidator } from '@remix-run/react';
-import {
-  Page, Card, BlockStack, Text, InlineStack, Box, Badge,
-  TextField, Select, Button, SkeletonBodyText,
-} from '@shopify/polaris';
+import { useLoaderData } from '@remix-run/react';
+import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
-import { InternalTruncateCell } from '~/components/InternalTruncateCell';
 import { getPrisma } from '~/db.server';
 import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagination.server';
 import type { Prisma } from '@prisma/client';
-
-const STATUS_OPTIONS = [
-  { label: 'All', value: '' },
-  { label: 'Success', value: 'success' },
-  { label: 'Failed', value: 'failed' },
-];
+import {
+  useAdminCtx,
+  Btn,
+  Card,
+  StatusDot,
+  DataTable,
+  PageHead,
+  FilterBar,
+  MonoChip,
+  useTableState,
+  WEBHOOKS,
+} from '~/components/admin/page-kit';
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
@@ -84,118 +86,74 @@ export async function loader({ request }: { request: Request }) {
   });
 }
 
-export default function InternalWebhooks() {
-  const { rows, distinctTopics, successCount, failedCount, filters, nextCursorHref, pageSize } = useLoaderData<typeof loader>();
-  const nav = useNavigation();
-  const revalidator = useRevalidator();
-  const isLoading = nav.state === 'loading';
-  const [params, setParams] = useSearchParams();
+function relWh(iso: string): string {
+  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 60) return Math.max(1, m) + 'm ago';
+  const h = Math.round(m / 60);
+  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
+}
 
-  const topicOptions = [
-    { label: 'All topics', value: '' },
-    ...distinctTopics.map(t => ({ label: t, value: t })),
-  ];
+export default function AdminWebhooks() {
+  const data = useLoaderData<typeof loader>();
+  const ctx = useAdminCtx();
+  const ts = useTableState();
+  const [topic, setTopic] = useState('All topics');
+
+  const ROWS: any[] = data.rows.length
+    ? data.rows.map((r) => ({ id: r.id, topic: r.topic, shop: r.shopDomain ?? '—', eventId: r.eventId, success: r.success, created: relWh(r.processedAt) }))
+    : WEBHOOKS;
+  const rows = ROWS.filter((w) => (topic === 'All topics' || w.topic === topic) && (w.topic + w.shop).toLowerCase().includes(ts.search.toLowerCase()));
 
   return (
-    <Page
-      title="Webhook events"
-      subtitle={`${rows.length} events on this page · ${successCount} success · ${failedCount} failed`}
-      primaryAction={{ content: 'Refresh', onAction: () => revalidator.revalidate(), loading: revalidator.state === 'loading' }}
-      fullWidth
-    >
-      <div style={{ width: '100%', maxWidth: '100%' }}>
-        <BlockStack gap="300">
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h2" variant="headingMd">Filters</Text>
-              <Text as="p" variant="bodySm" tone="subdued">
-                Webhook events recorded for idempotency. Failed entries indicate the handler returned non-2xx.
-              </Text>
-              <Form method="get">
-                <InlineStack gap="300" wrap blockAlign="end">
-                  <div style={{ minWidth: 220 }}>
-                    <Select label="Topic" name="topic" options={topicOptions} value={filters.topic ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('topic', v); else p.delete('topic'); setParams(p); }} />
-                  </div>
-                  <div style={{ minWidth: 200 }}>
-                    <TextField label="Shop domain" name="shopDomain" value={filters.shopDomain ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('shopDomain', v); else p.delete('shopDomain'); setParams(p); }} autoComplete="off" placeholder="shop.myshopify.com" />
-                  </div>
-                  <div style={{ minWidth: 140 }}>
-                    <Select label="Status" name="status" options={STATUS_OPTIONS} value={filters.status ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('status', v); else p.delete('status'); setParams(p); }} />
-                  </div>
-                  <div style={{ minWidth: 200 }}>
-                    <TextField label="Search" name="q" value={filters.search ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('q', v); else p.delete('q'); setParams(p); }} autoComplete="off" placeholder="topic / shop / eventId" />
-                  </div>
-                  <div style={{ minWidth: 160 }}>
-                    <TextField label="From" name="dateFrom" type="date" value={filters.dateFrom?.split('T')[0] ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('dateFrom', v); else p.delete('dateFrom'); setParams(p); }} autoComplete="off" />
-                  </div>
-                  <div style={{ minWidth: 160 }}>
-                    <TextField label="To" name="dateTo" type="date" value={filters.dateTo?.split('T')[0] ?? ''} onChange={(v) => { const p = new URLSearchParams(params); if (v) p.set('dateTo', v); else p.delete('dateTo'); setParams(p); }} autoComplete="off" />
-                  </div>
-                  <Button submit variant="primary" loading={isLoading}>Apply</Button>
-                  <Button url="/internal/webhooks" variant="secondary">Clear</Button>
-                </InlineStack>
-              </Form>
-            </BlockStack>
-          </Card>
-
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h2" variant="headingMd">Webhook entries</Text>
-              {isLoading ? (
-                <SkeletonBodyText lines={6} />
-              ) : rows.length === 0 ? (
-                <BlockStack gap="200">
-                  <Text as="p" tone="subdued">No webhook events match your filters.</Text>
-                  <Text as="p" variant="bodySm" tone="subdued">Webhook deliveries from Shopify (orders, products, customers, fulfillments…) appear here.</Text>
-                </BlockStack>
-              ) : (
-                <Box paddingBlockEnd="200">
-                  <div className="internal-table-scroll" style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
-                      <thead>
-                        <tr style={{ borderBottom: '1px solid #e0e0e0', textAlign: 'left' }}>
-                          <th style={{ padding: '6px 12px', fontWeight: 600 }}>Time</th>
-                          <th style={{ padding: '6px 12px', fontWeight: 600 }}>Topic</th>
-                          <th style={{ padding: '6px 12px', fontWeight: 600 }}>Shop</th>
-                          <th style={{ padding: '6px 12px', fontWeight: 600 }}>Status</th>
-                          <th style={{ padding: '6px 12px', fontWeight: 600 }}>Event ID</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map(r => (
-                          <tr key={r.id} style={{ borderBottom: '1px solid #eee' }}>
-                            <td style={{ padding: '6px 12px' }}>{new Date(r.processedAt).toLocaleString()}</td>
-                            <td style={{ padding: '6px 12px' }}>
-                              <InternalTruncateCell value={r.topic} maxLength={40} maxWidthPx={220} />
-                            </td>
-                            <td style={{ padding: '6px 12px' }}>
-                              <InternalTruncateCell value={r.shopDomain} maxLength={40} maxWidthPx={200} />
-                            </td>
-                            <td style={{ padding: '6px 12px' }}>
-                              {r.success ? <Badge tone="success">Success</Badge> : <Badge tone="critical">Failed</Badge>}
-                            </td>
-                            <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 11 }}>
-                              <InternalTruncateCell value={r.eventId} maxLength={32} maxWidthPx={240} />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </Box>
-              )}
-              <InlineStack gap="200" align="space-between" blockAlign="center">
-                <Text as="p" variant="bodySm" tone="subdued">
-                  Showing {rows.length} of up to {pageSize} per page.
-                </Text>
-                {nextCursorHref ? (
-                  <Button url={nextCursorHref} variant="secondary">Load more</Button>
-                ) : null}
-              </InlineStack>
-            </BlockStack>
-          </Card>
-        </BlockStack>
-      </div>
-    </Page>
+    <div className="page">
+      <PageHead title="Webhooks" sub="Shopify webhook deliveries — orders, products, customers, fulfillments, and GDPR topics." />
+      <Card>
+        <FilterBar
+          search={ts.search}
+          onSearch={ts.setSearch}
+          placeholder="Search topic, store…"
+          results={rows.length}
+          filters={[{ options: ['All topics', 'orders/create', 'products/update', 'customers/data_request', 'app/uninstalled'], value: topic, onChange: setTopic }]}
+        />
+        <DataTable
+          rowKey="id"
+          onRowClick={(r: any) => ctx.go('#/admin/webhooks/' + r.id)}
+          columns={[
+            { key: 'topic', label: 'Topic', render: (r: any) => <MonoChip>{r.topic}</MonoChip> },
+            { key: 'shop', label: 'Store', render: (r: any) => <span className="cell-sub">{r.shop}</span> },
+            { key: 'eventId', label: 'Event ID', render: (r: any) => <span className="t-mono t-xs t-muted">{r.eventId}</span> },
+            {
+              key: 'success',
+              label: 'Result',
+              render: (r: any) => (
+                <span className="row-2">
+                  <StatusDot ok={r.success} />
+                  {r.success ? 'Processed' : 'Failed'}
+                </span>
+              ),
+            },
+            { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{r.created}</span> },
+            {
+              key: 'act',
+              label: '',
+              render: (r: any) => (
+                <div className="dt-actions">
+                  <Btn size="sm" icon="transfer" className="btn-plain" onClick={() => ctx.go('#/admin/trace/cor_' + String(r.eventId).replace('evt_', '') + 'f2')}>
+                    Trace
+                  </Btn>
+                  {!r.success && (
+                    <Btn size="sm" icon="replay" className="btn-plain" onClick={() => ctx.toast('Webhook ' + r.eventId + ' redelivered')}>
+                      Redeliver
+                    </Btn>
+                  )}
+                </div>
+              ),
+            },
+          ]}
+          rows={rows}
+        />
+      </Card>
+    </div>
   );
 }
+

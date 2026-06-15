@@ -1,15 +1,37 @@
 import { json, redirect } from '@remix-run/node';
-import { Form, useLoaderData, useActionData, useNavigation } from '@remix-run/react';
-import {
-  Page, Card, BlockStack, TextField, Button, Text, InlineStack, Select,
-  Badge, Banner, Checkbox, InlineGrid, Divider,
-} from '@shopify/polaris';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { AiProviderService, type ProviderKind } from '~/services/internal/ai-provider.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { getPrisma } from '~/db.server';
 import { syncProviderCatalogToDb, getLatestProviderFeaturePreset } from '~/services/ai/provider-model-catalog.server';
+import {
+  useAdminCtx,
+  Icon,
+  Btn,
+  Badge,
+  StatusBadge,
+  Card,
+  CardHead,
+  Field,
+  Input,
+  Select,
+  Toggle,
+  Checkbox,
+  Tabs,
+  Modal,
+  ConfirmDialog,
+  KV,
+  DataTable,
+  PageHead,
+  StatTile,
+  MonoChip,
+  fmtCents,
+  fmtNum,
+  PROVIDERS,
+  AI_ACCOUNTS,
+  MODEL_PRICES,
+} from '~/components/admin/page-kit';
 
 type ModelCatalogMeta = {
   model: string;
@@ -459,591 +481,470 @@ export async function action({ request }: { request: Request }) {
   return redirect('/internal/ai-providers');
 }
 
-function ClaudeExtraConfigForm({ provider }: { provider: { id: string; extraConfig: string | null } }) {
-  const [skills, setSkills] = useState(() => {
-    try {
-      const c = provider.extraConfig ? JSON.parse(provider.extraConfig) as { skills?: string[] } : {};
-      return c.skills?.join(', ') ?? '';
-    } catch { return ''; }
-  });
-  const [codeExecution, setCodeExecution] = useState(() => {
-    try {
-      const c = provider.extraConfig ? JSON.parse(provider.extraConfig) as { codeExecution?: boolean } : {};
-      return !!c.codeExecution;
-    } catch { return false; }
-  });
-  return (
-    <BlockStack gap="200">
-      {provider.extraConfig ? (
-        <Text as="p" variant="bodySm" tone="subdued">
-          Claude: {(() => {
-            try {
-              const c = JSON.parse(provider.extraConfig) as { skills?: string[]; codeExecution?: boolean };
-              const parts = [];
-              if (c.skills?.length) parts.push(`Skills: ${c.skills.join(', ')}`);
-              if (c.codeExecution) parts.push('Code execution: on');
-              return parts.length ? parts.join(' · ') : '—';
-            } catch { return '—'; }
-          })()}
-        </Text>
-      ) : null}
-      <Form method="post">
-        <input type="hidden" name="intent" value="updateExtraConfig" />
-        <input type="hidden" name="id" value={provider.id} />
-        <input type="hidden" name="providerKind" value="ANTHROPIC" />
-        <BlockStack gap="200">
-          <TextField label="Claude skills (comma-separated)" name="claudeSkills" value={skills} onChange={setSkills} autoComplete="off" placeholder="pptx, xlsx" />
-          <Checkbox label="Code execution" checked={codeExecution} onChange={setCodeExecution} />
-          <input type="hidden" name="claudeCodeExecution" value={codeExecution ? 'true' : 'false'} />
-          <Button submit size="slim" variant="secondary">Update Claude options</Button>
-        </BlockStack>
-      </Form>
-    </BlockStack>
-  );
-}
+/* eslint-disable @typescript-eslint/no-explicit-any */
+export default function AdminProviders() {
+  const ctx = useAdminCtx();
+  const [modal, setModal] = useState<any>(null);
+  const [tab, setTab] = useState('providers');
+  const [confirm, setConfirm] = useState<any>(null);
+  const [priceModal, setPriceModal] = useState<any>(null);
+  const [acctModal, setAcctModal] = useState<any>(null);
 
-function OpenAiExtraConfigForm({ provider }: { provider: { id: string; extraConfig: string | null } }) {
-  const parsed = parseOpenAiExtraConfig(provider.extraConfig);
-  const [reasoningEffort, setReasoningEffort] = useState<'low' | 'medium' | 'high'>(parsed.reasoningEffort ?? 'medium');
-  const [verbosity, setVerbosity] = useState<'low' | 'medium' | 'high'>(parsed.verbosity ?? 'medium');
-  const [webSearch, setWebSearch] = useState(Boolean(parsed.webSearch));
+  const headAction =
+    tab === 'accounts' ? (
+      <Btn variant="primary" icon="plus" onClick={() => setAcctModal('link')}>
+        Link account
+      </Btn>
+    ) : tab === 'pricing' ? (
+      <Btn variant="primary" icon="plus" onClick={() => setPriceModal('new')}>
+        Add pricing
+      </Btn>
+    ) : (
+      <Btn variant="primary" icon="plus" onClick={() => setModal('new')}>
+        Add provider
+      </Btn>
+    );
 
   return (
-    <Form method="post">
-      <input type="hidden" name="intent" value="updateExtraConfig" />
-      <input type="hidden" name="id" value={provider.id} />
-      <input type="hidden" name="providerKind" value="OPENAI" />
-      <input type="hidden" name="openaiWebSearch" value={webSearch ? 'true' : 'false'} />
-      <BlockStack gap="200">
-        <Text as="p" variant="bodySm" tone="subdued">OpenAI feature profile</Text>
-        <Select
-          label="Reasoning effort"
-          name="openaiReasoningEffort"
-          options={[
-            { label: 'Low', value: 'low' },
-            { label: 'Medium', value: 'medium' },
-            { label: 'High', value: 'high' },
+    <div className="page">
+      <PageHead title="AI Providers" sub="AI backends for merchant module generation, the billing accounts behind them, and per-model pricing." actions={headAction} />
+      <div className="grid grid-4" style={{ marginBottom: 16 }}>
+        <StatTile label="Providers" value={PROVIDERS.length} icon="connect" tone="info" />
+        <StatTile label="Active" value="OpenAI" sub="gpt-4o · global default" icon="check" tone="success" />
+        <StatTile label="Calls (30d)" value={fmtNum(PROVIDERS.reduce((a, p) => a + p.calls30d, 0))} icon="magic" tone="magic" />
+        <StatTile label="Spend (30d)" value={fmtCents(PROVIDERS.reduce((a, p) => a + p.costCents, 0))} icon="chart" tone="success" />
+      </div>
+      <Card style={{ marginBottom: 16 }}>
+        <Tabs
+          active={tab}
+          onChange={setTab}
+          tabs={[
+            { id: 'providers', label: 'Providers', badge: PROVIDERS.length },
+            { id: 'accounts', label: 'Accounts', badge: AI_ACCOUNTS.length },
+            { id: 'pricing', label: 'Model pricing', badge: MODEL_PRICES.length },
           ]}
-          value={reasoningEffort}
-          onChange={(v) => setReasoningEffort(v as 'low' | 'medium' | 'high')}
         />
-        <Select
-          label="Response verbosity"
-          name="openaiVerbosity"
-          options={[
-            { label: 'Low', value: 'low' },
-            { label: 'Medium', value: 'medium' },
-            { label: 'High', value: 'high' },
-          ]}
-          value={verbosity}
-          onChange={(v) => setVerbosity(v as 'low' | 'medium' | 'high')}
-        />
-        <Checkbox label="Enable web search tool" checked={webSearch} onChange={setWebSearch} />
-        <Button submit size="slim" variant="secondary">Update OpenAI options</Button>
-      </BlockStack>
-    </Form>
-  );
-}
-
-export default function InternalAiProviders() {
-  const { providers, prices, defaultProviders, envKeyStatus, providerRatings, suggestedProviderId, fallbackProviderId } = useLoaderData<typeof loader>();
-  const data = useActionData<typeof action>();
-  const nav = useNavigation();
-  const isSaving = nav.state !== 'idle';
-
-  const [addName, setAddName] = useState('');
-  const [addProvider, setAddProvider] = useState('OPENAI');
-  const [addDefaultModel, setAddDefaultModel] = useState('');
-  const [addBaseUrl, setAddBaseUrl] = useState('');
-  const [addApiKey, setAddApiKey] = useState('');
-  const [addClaudeSkills, setAddClaudeSkills] = useState('');
-  const [addClaudeCodeExecution, setAddClaudeCodeExecution] = useState(false);
-  const [fallbackSel, setFallbackSel] = useState(fallbackProviderId ?? '');
-
-  const [openaiApiKey, setOpenaiApiKey] = useState('');
-  const [openaiModel, setOpenaiModel] = useState(defaultProviders?.openai?.model ?? '');
-  const [claudeApiKey, setClaudeApiKey] = useState('');
-  const [claudeModel, setClaudeModel] = useState(defaultProviders?.claude?.model ?? '');
-  const [claudeSkills, setClaudeSkills] = useState(() => {
-    if (!defaultProviders?.claude?.extraConfig) return '';
-    try {
-      const c = JSON.parse(defaultProviders.claude.extraConfig) as { skills?: string[] };
-      return c.skills?.join(', ') ?? '';
-    } catch { return ''; }
-  });
-  const [claudeCodeExecution, setClaudeCodeExecution] = useState(() => {
-    if (!defaultProviders?.claude?.extraConfig) return false;
-    try {
-      const c = JSON.parse(defaultProviders.claude.extraConfig) as { codeExecution?: boolean };
-      return !!c.codeExecution;
-    } catch { return false; }
-  });
-
-  useEffect(() => {
-    setOpenaiModel((prev) => defaultProviders?.openai?.model ?? prev);
-    setClaudeModel((prev) => defaultProviders?.claude?.model ?? prev);
-    if (defaultProviders?.claude?.extraConfig) {
-      try {
-        const c = JSON.parse(defaultProviders.claude.extraConfig) as { skills?: string[]; codeExecution?: boolean };
-        setClaudeSkills(c.skills?.join(', ') ?? '');
-        setClaudeCodeExecution(!!c.codeExecution);
-      } catch {
-        // keep current
-      }
-    }
-  }, [defaultProviders?.openai?.model, defaultProviders?.claude?.model, defaultProviders?.claude?.extraConfig]);
-  const providerTypeOptions = [
-    { label: 'OpenAI', value: 'OPENAI' },
-    { label: 'Anthropic (Claude)', value: 'ANTHROPIC' },
-    { label: 'Google Gemini', value: 'GEMINI' },
-    { label: 'Azure OpenAI', value: 'AZURE_OPENAI' },
-    { label: 'Custom endpoint', value: 'CUSTOM' },
-  ];
-  const openaiProvider = providers.find((p) => p.provider === 'OPENAI');
-  const claudeProvider = providers.find((p) => p.provider === 'ANTHROPIC');
-  const suggestedProvider = providers.find((p) => p.id === suggestedProviderId);
-  const openaiModelOptionsBase = [
-    { label: 'Select OpenAI model (optional)', value: '' },
-    ...prices
-      .filter((pr) => pr.provider.provider === 'OPENAI')
-      .map((pr) => ({ label: pr.displayName, value: pr.model })),
-  ];
-  const claudeModelOptionsBase = [
-    { label: 'Select Claude model (optional)', value: '' },
-    ...prices
-      .filter((pr) => pr.provider.provider === 'ANTHROPIC')
-      .map((pr) => ({ label: pr.displayName, value: pr.model })),
-  ];
-  const openaiModelOptions = openaiModelOptionsBase;
-  const claudeModelOptions = claudeModelOptionsBase;
-  const openaiModelListed = openaiModelOptionsBase.some((o) => o.value === openaiModel);
-  const claudeModelListed = claudeModelOptionsBase.some((o) => o.value === claudeModel);
-  const addProviderModelOptions =
-    addProvider === 'OPENAI'
-      ? openaiModelOptionsBase
-      : addProvider === 'ANTHROPIC'
-        ? claudeModelOptionsBase
-        : [{ label: 'Enter model manually', value: '' }];
-  const addDefaultModelListed =
-    addProvider === 'OPENAI'
-      ? openaiModelOptionsBase.some((o) => o.value === addDefaultModel)
-      : addProvider === 'ANTHROPIC'
-        ? claudeModelOptionsBase.some((o) => o.value === addDefaultModel)
-        : true;
-
-  return (
-    <Page title="AI Providers" subtitle="Enter credentials only — model catalog, pricing, and usage stats are auto-managed.">
-      <BlockStack gap="400">
-        {data && 'error' in data && data.error ? (
-          <Banner tone="critical" title="Error">
-            <Text as="p">{data.error}</Text>
-          </Banner>
-        ) : null}
-
-        {(envKeyStatus.openai || envKeyStatus.claude) ? (
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h2" variant="headingMd">Import existing environment keys</Text>
-              <Text as="p" variant="bodySm" tone="subdued">
-                Move credential ownership to the database so this page becomes the source of truth.
-              </Text>
-              <Text as="p" variant="bodySm" tone="subdued">
-                OpenAI: {envKeyStatus.openai ?? 'not set'} · Claude: {envKeyStatus.claude ?? 'not set'}
-              </Text>
-              <Form method="post">
-                <input type="hidden" name="intent" value="importEnvDefaults" />
-                <InlineStack align="start">
-                  <Button submit variant="secondary" loading={isSaving}>Import env keys to DB</Button>
-                </InlineStack>
-              </Form>
-            </BlockStack>
-          </Card>
-        ) : null}
-
-        {suggestedProvider ? (
-          <Banner tone="info" title="Suggested provider">
-            <Text as="p" variant="bodySm">
-              {suggestedProvider.name} · rating {providerRatings[suggestedProvider.id]?.overall ?? 0}/100
-              {' '}({providerRatings[suggestedProvider.id]?.label ?? 'No data'})
-            </Text>
-          </Banner>
-        ) : null}
-
-        <Card>
-          <BlockStack gap="200">
-            <Text as="h2" variant="headingMd">How this page works</Text>
-            <Text as="p" variant="bodySm" tone="subdued">
-              1) Save provider credentials. 2) Sync latest model/pricing/API feature presets from current provider docs. 3) Usage and costs are calculated from tracked tokens.
-            </Text>
-          </BlockStack>
-        </Card>
-
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Default providers</Text>
-            <Text as="p" variant="bodySm" tone="subdued">
-              These are the provider profiles used by the app when store settings select OpenAI or Claude defaults.
-            </Text>
-
-            <InlineGrid columns={{ xs: '1fr', md: '1fr 1fr' }} gap="300">
-              <Card>
-                <BlockStack gap="200">
-                  <Text as="h3" variant="headingSm">OpenAI default</Text>
-                  <Form method="post">
-                    <input type="hidden" name="intent" value="saveOpenAI" />
-                    <input type="hidden" name="openaiModel" value={openaiModel} />
-                    <BlockStack gap="150">
-                      <TextField
-                        label="OpenAI API key"
-                        name="openaiApiKey"
-                        type="password"
-                        value={openaiApiKey}
-                        onChange={setOpenaiApiKey}
-                        autoComplete="off"
-                        placeholder="Leave blank to keep existing key"
-                        helpText={defaultProviders?.openai ? `Current: ${defaultProviders.openai.apiKeyMasked}` : undefined}
-                      />
-                      {!openaiModelListed && openaiModel ? (
-                        <Banner tone="warning" title="Stored default model is not in the active catalog">
-                          <Text as="p" variant="bodySm">
-                            Saved model <code>{openaiModel}</code> is not among current active price rows. Pick an active model below to migrate, or clear the selection to remove the default.
-                          </Text>
-                        </Banner>
-                      ) : null}
-                      <Select
-                        label="Default OpenAI model (optional)"
-                        options={openaiModelOptions}
-                        value={openaiModelListed ? openaiModel : ''}
-                        onChange={setOpenaiModel}
-                      />
-                      <InlineStack align="start">
-                        <Button submit variant="primary" loading={isSaving}>Save OpenAI default</Button>
-                      </InlineStack>
-                      <Text as="p" variant="bodySm" tone="subdued">
-                        Saving credentials auto-syncs all OpenAI models and pricing.
-                      </Text>
-                    </BlockStack>
-                  </Form>
-                </BlockStack>
-              </Card>
-
-              <Card>
-                <BlockStack gap="200">
-                  <Text as="h3" variant="headingSm">Claude (Anthropic) default</Text>
-                  <Form method="post">
-                    <input type="hidden" name="intent" value="saveClaude" />
-                    <input type="hidden" name="claudeModel" value={claudeModel} />
-                    <BlockStack gap="150">
-                      <TextField
-                        label="Claude API key"
-                        name="claudeApiKey"
-                        type="password"
-                        value={claudeApiKey}
-                        onChange={setClaudeApiKey}
-                        autoComplete="off"
-                        placeholder="Leave blank to keep existing key"
-                        helpText={defaultProviders?.claude ? `Current: ${defaultProviders.claude.apiKeyMasked}` : undefined}
-                      />
-                      {!claudeModelListed && claudeModel ? (
-                        <Banner tone="warning" title="Stored default model is not in the active catalog">
-                          <Text as="p" variant="bodySm">
-                            Saved model <code>{claudeModel}</code> is not among current active price rows. Pick an active model below to migrate, or clear the selection to remove the default.
-                          </Text>
-                        </Banner>
-                      ) : null}
-                      <Select
-                        label="Default Claude model (optional)"
-                        options={claudeModelOptions}
-                        value={claudeModelListed ? claudeModel : ''}
-                        onChange={setClaudeModel}
-                      />
-                      <TextField
-                        label="Agent skills (optional, comma-separated)"
-                        name="claudeSkills"
-                        value={claudeSkills}
-                        onChange={setClaudeSkills}
-                        autoComplete="off"
-                        placeholder="pptx, xlsx, docx"
-                      />
-                      <Checkbox label="Enable code execution for Claude" checked={claudeCodeExecution} onChange={setClaudeCodeExecution} />
-                      {claudeCodeExecution ? (
-                        <Banner tone="warning" title="Code execution safety boundary" data-testid="claude-code-execution-warning">
-                          <Text as="p" variant="bodySm">
-                            Internal/testing only. Merchant module generation paths block code execution by policy.
-                          </Text>
-                        </Banner>
-                      ) : null}
-                      <input type="hidden" name="claudeCodeExecution" value={claudeCodeExecution ? 'true' : 'false'} />
-                      <InlineStack align="start">
-                        <Button submit variant="primary" loading={isSaving}>Save Claude default</Button>
-                      </InlineStack>
-                      <Text as="p" variant="bodySm" tone="subdued">
-                        Saving credentials auto-syncs all Claude models and pricing.
-                      </Text>
-                    </BlockStack>
-                  </Form>
-                </BlockStack>
-              </Card>
-            </InlineGrid>
-          </BlockStack>
-        </Card>
-
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Default &amp; fallback AI</Text>
-            <Text as="p" variant="bodySm" tone="subdued">
-              The <strong>default</strong> AI is the globally active provider above (used for all module code generation).
-              The <strong>fallback</strong> runs automatically only if a default call fails. Configure each provider&apos;s
-              key, model, and token rate above; track per-request cost and balance in AI Usage and AI Accounts.
-            </Text>
-            <Form method="post">
-              <input type="hidden" name="intent" value="saveFallbackProvider" />
-              <InlineStack gap="200" blockAlign="end" wrap={false}>
-                <div style={{ minWidth: 320 }}>
-                  <Select
-                    label="Fallback provider"
-                    name="fallbackProviderId"
-                    value={fallbackSel}
-                    onChange={setFallbackSel}
-                    options={[
-                      { label: 'None (no fallback)', value: '' },
-                      ...providers.map((p) => ({ label: `${p.name} (${p.provider})`, value: p.id })),
-                    ]}
-                    helpText="Pick a provider different from the active default."
-                  />
+      </Card>
+      {tab === 'providers' && (
+        <div className="grid grid-2">
+          {PROVIDERS.map((p) => (
+            <div key={p.id} className={'card card-pad provider-card' + (p.active ? ' active' : '')}>
+              <div className="row spread" style={{ marginBottom: 14 }}>
+                <div className="row-3">
+                  <span className="tile-ico" style={{ background: 'var(--p-surface-secondary)' }}>
+                    <Icon name="connect" size={19} />
+                  </span>
+                  <div className="stack" style={{ gap: 1 }}>
+                    <span className="t-strong">{p.name}</span>
+                    <span className="t-xs t-muted">{p.provider}</span>
+                  </div>
                 </div>
-                <Button submit disabled={isSaving}>Save fallback</Button>
-              </InlineStack>
-            </Form>
-          </BlockStack>
-        </Card>
-
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Provider profiles</Text>
-            <Text as="p" variant="bodySm" tone="subdued">
-              Create and manage non-default provider endpoints (for example Azure OpenAI or custom gateways).
-            </Text>
-
-            <BlockStack gap="200">
-              <Text as="h3" variant="headingSm">Add additional provider profile</Text>
-            <Form method="post">
-              <BlockStack gap="150">
-                <TextField label="Name" name="name" value={addName} onChange={setAddName} autoComplete="off" helpText="A friendly label for this provider." />
-                <Select label="Provider type" name="provider" options={providerTypeOptions} value={addProvider} onChange={setAddProvider} />
-                {addProvider === 'OPENAI' || addProvider === 'ANTHROPIC' ? (
-                  <>
-                    <input type="hidden" name="defaultModel" value={addDefaultModel} />
-                    {!addDefaultModelListed && addDefaultModel ? (
-                      <Banner tone="warning" title="Model not in active catalog">
-                        <Text as="p" variant="bodySm">
-                          <code>{addDefaultModel}</code> is not listed; choose an active model or clear to enter a new default after creation.
-                        </Text>
-                      </Banner>
-                    ) : null}
-                    <Select
-                      label="Default model (optional)"
-                      options={addProviderModelOptions}
-                      value={addDefaultModelListed ? addDefaultModel : ''}
-                      onChange={setAddDefaultModel}
-                    />
-                  </>
-                ) : (
-                  <TextField label="Default model (optional)" name="defaultModel" value={addDefaultModel} onChange={setAddDefaultModel} autoComplete="off" />
-                )}
-                <TextField label="Base URL (optional)" name="baseUrl" value={addBaseUrl} onChange={setAddBaseUrl} autoComplete="off" />
-                <TextField label="API key" name="apiKey" type="password" value={addApiKey} onChange={setAddApiKey} autoComplete="off" />
-                {addProvider === 'ANTHROPIC' ? (
-                  <>
-                    <TextField
-                      label="Claude agent skills (optional)"
-                      name="claudeSkills"
-                      value={addClaudeSkills}
-                      onChange={setAddClaudeSkills}
-                      autoComplete="off"
-                      placeholder="pptx, xlsx, docx or custom skill_01Ab..."
-                      helpText="Comma-separated: anthropic IDs (pptx, xlsx, docx, pdf) or custom skill IDs. Max 8 per request."
-                    />
-                    <Checkbox label="Enable Claude code execution" checked={addClaudeCodeExecution} onChange={setAddClaudeCodeExecution} />
-                    {addClaudeCodeExecution ? (
-                      <Banner tone="warning" title="Code execution safety boundary">
-                        <Text as="p" variant="bodySm">
-                          Internal/testing only. Merchant module generation paths block code execution by policy.
-                        </Text>
-                      </Banner>
-                    ) : null}
-                  </>
+                {p.active ? (
+                  <Badge tone="success" dot>
+                    Active
+                  </Badge>
+                ) : p.fallback ? (
+                  <Badge tone="info">Fallback</Badge>
                 ) : null}
-                <input type="hidden" name="claudeCodeExecution" value={addClaudeCodeExecution ? 'true' : 'false'} />
-                <InlineStack align="start">
-                  <Button submit variant="primary" loading={isSaving}>Create provider profile</Button>
-                </InlineStack>
-              </BlockStack>
-            </Form>
-            </BlockStack>
-
-            <Divider />
-
-            <BlockStack gap="200">
-              <Text as="h3" variant="headingSm">Configured provider profiles</Text>
-              {providers.length === 0 ? (
-                <BlockStack gap="100">
-                  <Text as="p" tone="subdued">No providers configured yet.</Text>
-                  <Text as="p" variant="bodySm" tone="subdued">Create one using the form above.</Text>
-                </BlockStack>
-              ) : (
-                providers.map(p => (
-                  <Card key={p.id}>
-                    <BlockStack gap="200">
-                      <InlineStack gap="200" align="space-between" blockAlign="center">
-                        <InlineStack gap="200" blockAlign="center">
-                          <Text as="p" variant="headingSm">{p.name}</Text>
-                          <Badge>{p.provider}</Badge>
-                          {p.isActive ? <Badge tone="success">Global active</Badge> : null}
-                        </InlineStack>
-                        <Form method="post">
-                          <input type="hidden" name="intent" value="activate" />
-                          <input type="hidden" name="id" value={p.id} />
-                          <Button submit disabled={p.isActive} size="slim">{p.isActive ? 'Active' : 'Set global active'}</Button>
-                        </Form>
-                      </InlineStack>
-                      <Text as="p" variant="bodySm" tone="subdued">
-                        API key: {(p as { apiKeyMasked?: string }).apiKeyMasked ?? '—'} · Default model: {p.model ?? '—'} · Base URL: {p.baseUrl ?? '—'}
-                      </Text>
-                      {providerRatings[p.id] ? (
-                        <InlineStack gap="200" blockAlign="center">
-                          {(() => {
-                            const rating = providerRatings[p.id]!;
-                            return (
-                              <>
-                                <Badge tone={rating.label === 'Recommended' ? 'success' : rating.label === 'Needs attention' ? 'critical' : 'info'}>
-                                  {rating.label}
-                                </Badge>
-                                <Text as="p" variant="bodySm" tone="subdued">
-                                  Rating {rating.overall}/100 · Success {rating.successRatePct}% ·
-                                  Quality {rating.quality}% · Reliability {rating.reliability}% ·
-                                  Value {rating.value}% · {rating.totalRequests} req (30d)
-                                </Text>
-                              </>
-                            );
-                          })()}
-                        </InlineStack>
-                      ) : (
-                        <Text as="p" variant="bodySm" tone="subdued">
-                          No usage data yet to score this provider.
-                        </Text>
-                      )}
-                      <InlineStack gap="200">
-                        {(p.provider === 'OPENAI' || p.provider === 'ANTHROPIC') ? (
-                          <>
-                            <Form method="post">
-                              <input type="hidden" name="intent" value="syncCatalog" />
-                              <input type="hidden" name="providerId" value={p.id} />
-                              <Button submit size="slim" variant="secondary" loading={isSaving}>
-                                Sync pricing/models
-                              </Button>
-                            </Form>
-                            <Form method="post">
-                              <input type="hidden" name="intent" value="syncProviderUpdates" />
-                              <input type="hidden" name="providerId" value={p.id} />
-                              <Button submit size="slim" variant="secondary" loading={isSaving}>
-                                Update API/features
-                              </Button>
-                            </Form>
-                          </>
-                        ) : null}
-                      </InlineStack>
-                      {p.provider === 'OPENAI' && (
-                        <OpenAiExtraConfigForm provider={p} />
-                      )}
-                      {p.provider === 'ANTHROPIC' && (
-                        <ClaudeExtraConfigForm provider={p} />
-                      )}
-                    </BlockStack>
-                  </Card>
-                ))
-              )}
-            </BlockStack>
-          </BlockStack>
-        </Card>
-
-        <Card>
-          <BlockStack gap="400">
-            <InlineStack align="space-between" blockAlign="center">
-              <Text as="h2" variant="headingMd">Auto-synced model pricing and usage (30d)</Text>
-              <InlineStack gap="200">
-                <Form method="post">
-                  <input type="hidden" name="intent" value="syncAllProviders" />
-                  <Button submit size="slim" variant="primary" loading={isSaving}>Update all providers</Button>
-                </Form>
-                {openaiProvider ? (
-                  <Form method="post">
-                    <input type="hidden" name="intent" value="syncCatalog" />
-                    <input type="hidden" name="providerId" value={openaiProvider.id} />
-                    <Button submit size="slim" variant="secondary" loading={isSaving}>Sync OpenAI</Button>
-                  </Form>
-                ) : null}
-                {claudeProvider ? (
-                  <Form method="post">
-                    <input type="hidden" name="intent" value="syncCatalog" />
-                    <input type="hidden" name="providerId" value={claudeProvider.id} />
-                    <Button submit size="slim" variant="secondary" loading={isSaving}>Sync Claude</Button>
-                  </Form>
-                ) : null}
-              </InlineStack>
-            </InlineStack>
-            <Text as="p" variant="bodySm" tone="subdued">
-              Manual pricing entry is removed. Pricing is fetched from catalog APIs and persisted to the database per provider.
-            </Text>
-            {prices.length > 0 ? (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid #e1e3e5', textAlign: 'left' }}>
-                      <th style={{ padding: '8px' }}>Provider</th>
-                      <th style={{ padding: '8px' }}>Model</th>
-                      <th style={{ padding: '8px' }}>Info</th>
-                      <th style={{ padding: '8px', textAlign: 'right' }}>Input (c/1M)</th>
-                      <th style={{ padding: '8px', textAlign: 'right' }}>Output (c/1M)</th>
-                      <th style={{ padding: '8px', textAlign: 'right' }}>Cached (c/1M)</th>
-                      <th style={{ padding: '8px', textAlign: 'right' }}>30d requests</th>
-                      <th style={{ padding: '8px', textAlign: 'right' }}>30d cost</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {prices.map((pr) => (
-                      <tr key={pr.id} style={{ borderBottom: '1px solid #f1f2f3' }}>
-                        <td style={{ padding: '8px' }}>{pr.provider.name}</td>
-                        <td style={{ padding: '8px' }}>
-                          <InlineStack gap="200">
-                            <Text as="span" variant="bodySm">{pr.displayName}</Text>
-                            {(pr.provider.model && pr.provider.model === pr.model) ? <Badge tone="info">default</Badge> : null}
-                          </InlineStack>
-                        </td>
-                        <td style={{ padding: '8px', maxWidth: 320 }}>
-                          <Text as="p" variant="bodySm" tone="subdued">
-                            {pr.description ? pr.description.slice(0, 120) : '—'}
-                            {pr.contextWindow ? ` · ctx ${pr.contextWindow.toLocaleString()}` : ''}
-                          </Text>
-                        </td>
-                        <td style={{ padding: '8px', textAlign: 'right' }}>{pr.inputPer1MTokensCents.toLocaleString()}</td>
-                        <td style={{ padding: '8px', textAlign: 'right' }}>{pr.outputPer1MTokensCents.toLocaleString()}</td>
-                        <td style={{ padding: '8px', textAlign: 'right' }}>{pr.cachedInputPer1MTokensCents?.toLocaleString() ?? '—'}</td>
-                        <td style={{ padding: '8px', textAlign: 'right' }}>{pr.usage30d?.requests?.toLocaleString() ?? '0'}</td>
-                        <td style={{ padding: '8px', textAlign: 'right' }}>${(((pr.usage30d?.costCents ?? 0) / 100)).toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               </div>
-            ) : (
-              <Text as="p" variant="bodySm" tone="subdued">
-                No synced catalog data yet. Save OpenAI/Claude credentials and sync the catalog.
-              </Text>
-            )}
-          </BlockStack>
+              <KV
+                rows={[
+                  ['Model', <MonoChip key="m">{p.model}</MonoChip>],
+                  ['Base URL', <span key="u" className="t-mono t-xs t-trunc" style={{ maxWidth: 200, display: 'inline-block' }}>{p.baseUrl}</span>],
+                  ['API key', <span key="k" className="t-mono">{p.key}</span>],
+                  ['Calls (30d)', fmtNum(p.calls30d)],
+                  ['Cost (30d)', fmtCents(p.costCents)],
+                ]}
+              />
+              {p.skills && (
+                <div className="row-2" style={{ marginTop: 10 }}>
+                  <span className="t-xs t-muted">Skills:</span>
+                  {p.skills.map((sk: string) => (
+                    <Badge key={sk} tone="magic">
+                      {sk}
+                    </Badge>
+                  ))}
+                  {p.codeExec && <Badge tone="warning">Code exec</Badge>}
+                </div>
+              )}
+              <div className="divider" style={{ margin: '14px 0' }} />
+              <div className="row-2">
+                {!p.active && (
+                  <Btn
+                    size="sm"
+                    icon="check"
+                    onClick={() =>
+                      setConfirm({
+                        title: 'Set active provider',
+                        message: 'Make ' + p.name + ' the global default for all merchant module generation? The current active provider becomes idle.',
+                        confirmLabel: 'Set active',
+                        tone: 'primary',
+                        icon: 'check',
+                        onConfirm: () => ctx.toast(p.name + ' set as active'),
+                      })
+                    }
+                  >
+                    Set active
+                  </Btn>
+                )}
+                <Btn size="sm" icon="edit" onClick={() => setModal(p)}>
+                  Edit
+                </Btn>
+                <Btn size="sm" icon="transfer" className="btn-plain" onClick={() => ctx.go('#/admin/trace/cor_rs8f2')}>
+                  Logs
+                </Btn>
+                <span className="grow" />
+                <Btn
+                  size="sm"
+                  className="btn-plain-critical"
+                  icon="trash"
+                  onClick={() =>
+                    setConfirm({
+                      title: 'Delete provider',
+                      message: 'Delete ' + p.name + '? Stores using it fall back to the global default. This cannot be undone.',
+                      confirmLabel: 'Delete provider',
+                      tone: 'critical',
+                      icon: 'trash',
+                      onConfirm: () => ctx.toast(p.name + ' deleted'),
+                    })
+                  }
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {tab === 'accounts' && (
+        <div className="grid grid-2">
+          {AI_ACCOUNTS.map((a) => (
+            <Card key={a.id} pad>
+              <div className="row spread" style={{ marginBottom: 12 }}>
+                <div className="row-3">
+                  <span className="tile-ico" style={{ background: 'var(--p-surface-secondary)' }}>
+                    <Icon name="key" size={18} />
+                  </span>
+                  <div className="stack" style={{ gap: 1 }}>
+                    <span className="t-strong">{a.name}</span>
+                    <span className="t-xs t-muted">{a.email}</span>
+                  </div>
+                </div>
+                <StatusBadge value={a.status} />
+              </div>
+              <KV
+                rows={[
+                  ['Balance / credit', <span key="b" className="t-strong">{a.balance}</span>],
+                  ['API keys', a.keys + ' active'],
+                  ['Used by', <Badge key="u">{a.provider}</Badge>],
+                ]}
+              />
+              <div className="row-2" style={{ marginTop: 12 }}>
+                <Btn size="sm" icon="eye" onClick={() => setAcctModal(a)}>
+                  View keys
+                </Btn>
+                <Btn
+                  size="sm"
+                  icon="refresh"
+                  onClick={() =>
+                    setConfirm({
+                      title: 'Rotate API keys',
+                      message: 'Rotate all ' + a.keys + ' keys for ' + a.name + '? In-flight requests using the old keys will fail until clients refresh.',
+                      confirmLabel: 'Rotate keys',
+                      tone: 'critical',
+                      icon: 'refresh',
+                      onConfirm: () => ctx.toast('Keys rotated for ' + a.name),
+                    })
+                  }
+                >
+                  Rotate
+                </Btn>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+      {tab === 'pricing' && (
+        <Card>
+          <CardHead
+            title="Model pricing"
+            sub="Cents per 1M tokens · used to compute per-call cost"
+            actions={
+              <Btn size="sm" icon="plus" onClick={() => setPriceModal('new')}>
+                Add pricing
+              </Btn>
+            }
+          />
+          <DataTable
+            rowKey="id"
+            columns={[
+              { key: 'provider', label: 'Provider' },
+              { key: 'model', label: 'Model', render: (r: any) => <MonoChip>{r.model}</MonoChip> },
+              { key: 'input', label: 'Input ¢/1M', num: true },
+              { key: 'output', label: 'Output ¢/1M', num: true },
+              { key: 'cached', label: 'Cached ¢/1M', num: true, render: (r: any) => (r.cached == null ? '—' : r.cached) },
+              {
+                key: 'act',
+                label: '',
+                render: (r: any) => (
+                  <div className="dt-actions">
+                    <Btn size="sm" icon="edit" className="btn-plain" onClick={() => setPriceModal(r)} />
+                    <Btn
+                      size="sm"
+                      icon="trash"
+                      className="btn-plain-critical"
+                      onClick={() =>
+                        setConfirm({
+                          title: 'Delete pricing',
+                          message: 'Delete pricing for ' + r.model + '? Cost calculations for this model fall back to the provider default.',
+                          confirmLabel: 'Delete',
+                          tone: 'critical',
+                          icon: 'trash',
+                          onConfirm: () => ctx.toast('Pricing deleted'),
+                        })
+                      }
+                    />
+                  </div>
+                ),
+              },
+            ]}
+            rows={MODEL_PRICES}
+          />
         </Card>
-      </BlockStack>
-    </Page>
+      )}
+      {modal && <ProviderModal provider={modal === 'new' ? null : modal} onClose={() => setModal(null)} />}
+      {priceModal && <PricingModal price={priceModal === 'new' ? null : priceModal} onClose={() => setPriceModal(null)} />}
+      {acctModal && (acctModal === 'link' ? <AccountModal onClose={() => setAcctModal(null)} /> : <AccountKeysModal account={acctModal} onClose={() => setAcctModal(null)} />)}
+      {confirm && <ConfirmDialog {...confirm} onClose={() => setConfirm(null)} />}
+    </div>
+  );
+}
+
+function ProviderModal({ provider, onClose }: { provider: any; onClose: () => void }) {
+  const ctx = useAdminCtx();
+  const [f, setF] = useState<any>(
+    provider
+      ? { skillsText: provider.skills ? provider.skills.join(', ') : '', ...provider }
+      : { name: '', provider: 'OPENAI', model: '', baseUrl: '', skillsText: '', codeExec: false, active: false, fallback: false },
+  );
+  const set = (k: string, v: any) => setF((o: any) => ({ ...o, [k]: v }));
+  const type = f.provider;
+  const save = () => {
+    onClose();
+    ctx.toast(provider ? 'Provider updated' : 'Provider added');
+  };
+  return (
+    <Modal
+      title={provider ? 'Edit provider' : 'Add AI provider'}
+      size="lg"
+      onClose={onClose}
+      footer={
+        <>
+          <span className="grow" />
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" onClick={save}>
+            {provider ? 'Save changes' : 'Add provider'}
+          </Btn>
+        </>
+      }
+    >
+      <div className="stack-4">
+        <div className="grid grid-2">
+          <Field label="Display name">
+            <Input value={f.name} onChange={(e: any) => set('name', e.target.value)} placeholder="OpenAI Production" />
+          </Field>
+          <Field label="Provider type">
+            <Select
+              options={[
+                { value: 'OPENAI', label: 'OpenAI' },
+                { value: 'ANTHROPIC', label: 'Anthropic (Claude)' },
+                { value: 'AZURE_OPENAI', label: 'Azure OpenAI' },
+                { value: 'CUSTOM', label: 'Custom (OpenAI-compatible)' },
+              ]}
+              value={type}
+              onChange={(e: any) => set('provider', e.target.value)}
+            />
+          </Field>
+        </div>
+        <div className="grid grid-2">
+          <Field label="Default model">
+            <Input mono value={f.model} onChange={(e: any) => set('model', e.target.value)} placeholder="gpt-4o" />
+          </Field>
+          <Field label="Base URL" optional={type === 'OPENAI'}>
+            <Input mono value={f.baseUrl} onChange={(e: any) => set('baseUrl', e.target.value)} placeholder="https://api.openai.com/v1" />
+          </Field>
+        </div>
+        <Field label="API key" help="Encrypted at rest. Leave blank to keep the existing key.">
+          <Input type="password" placeholder={provider ? '•••••••••• (unchanged)' : 'sk-…'} />
+        </Field>
+        {type === 'ANTHROPIC' && (
+          <Card className="card-subdued" pad>
+            <div className="stack-3">
+              <div className="t-h3">Claude options</div>
+              <Field label="Agent skills" help="Comma-separated: pptx, xlsx, docx, or custom skill IDs">
+                <Input value={f.skillsText} onChange={(e: any) => set('skillsText', e.target.value)} placeholder="pptx, xlsx" />
+              </Field>
+              <label className="checkbox">
+                <Toggle checked={!!f.codeExec} onChange={(e: any) => set('codeExec', e.target.checked)} />
+                <span className="t-sm">Enable code execution (beta)</span>
+              </label>
+            </div>
+          </Card>
+        )}
+        <div className="grid grid-2">
+          <Checkbox checked={!!f.active} onChange={(e: any) => set('active', e.target.checked)} label="Set as active provider" sub="Global default for module generation" />
+          <Checkbox checked={!!f.fallback} onChange={(e: any) => set('fallback', e.target.checked)} label="Use as fallback" sub="Tried if the active provider fails" />
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function PricingModal({ price, onClose }: { price: any; onClose: () => void }) {
+  const ctx = useAdminCtx();
+  const [f, setF] = useState<any>(price ? { ...price } : { provider: PROVIDERS[0] ? PROVIDERS[0].name : '', model: '', input: '', output: '', cached: '' });
+  const set = (k: string, v: any) => setF((o: any) => ({ ...o, [k]: v }));
+  const save = () => {
+    onClose();
+    ctx.toast(price ? 'Pricing updated' : 'Pricing added');
+  };
+  return (
+    <Modal
+      title={price ? 'Edit pricing' : 'Add model pricing'}
+      onClose={onClose}
+      footer={
+        <>
+          <span className="grow" />
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" onClick={save}>
+            Save pricing
+          </Btn>
+        </>
+      }
+    >
+      <div className="stack-4">
+        <div className="grid grid-2">
+          <Field label="Provider">
+            <Select options={PROVIDERS.map((p) => p.name)} value={f.provider} onChange={(e: any) => set('provider', e.target.value)} />
+          </Field>
+          <Field label="Model">
+            <Input mono value={f.model} onChange={(e: any) => set('model', e.target.value)} placeholder="gpt-4o" />
+          </Field>
+        </div>
+        <div className="t-h3">
+          Price <span className="t-xs t-muted">(cents per 1M tokens)</span>
+        </div>
+        <div className="grid grid-3">
+          <Field label="Input">
+            <Input type="number" value={f.input} onChange={(e: any) => set('input', e.target.value)} />
+          </Field>
+          <Field label="Output">
+            <Input type="number" value={f.output} onChange={(e: any) => set('output', e.target.value)} />
+          </Field>
+          <Field label="Cached" optional>
+            <Input type="number" value={f.cached == null ? '' : f.cached} onChange={(e: any) => set('cached', e.target.value)} />
+          </Field>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function AccountModal({ onClose }: { onClose: () => void }) {
+  const ctx = useAdminCtx();
+  const [f, setF] = useState<any>({ name: '', provider: 'OPENAI', email: '', balance: '$0.00' });
+  const set = (k: string, v: any) => setF((o: any) => ({ ...o, [k]: v }));
+  const save = () => {
+    onClose();
+    ctx.toast('Account linked');
+  };
+  return (
+    <Modal
+      title="Link AI account"
+      sub="Connect a billing account so its credit balance and keys appear here."
+      onClose={onClose}
+      footer={
+        <>
+          <span className="grow" />
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" onClick={save}>
+            Link account
+          </Btn>
+        </>
+      }
+    >
+      <div className="stack-4">
+        <div className="grid grid-2">
+          <Field label="Account name">
+            <Input value={f.name} onChange={(e: any) => set('name', e.target.value)} placeholder="OpenAI — Platform" autoFocus />
+          </Field>
+          <Field label="Provider">
+            <Select
+              options={[
+                { value: 'OPENAI', label: 'OpenAI' },
+                { value: 'ANTHROPIC', label: 'Anthropic' },
+                { value: 'AZURE_OPENAI', label: 'Azure OpenAI' },
+                { value: 'CUSTOM', label: 'Custom' },
+              ]}
+              value={f.provider}
+              onChange={(e: any) => set('provider', e.target.value)}
+            />
+          </Field>
+        </div>
+        <Field label="Billing email">
+          <Input value={f.email} onChange={(e: any) => set('email', e.target.value)} placeholder="ops@superapp.ai" />
+        </Field>
+        <Field label="API key" help="Encrypted at rest and masked everywhere.">
+          <Input type="password" placeholder="sk-…" />
+        </Field>
+      </div>
+    </Modal>
+  );
+}
+
+function AccountKeysModal({ account, onClose }: { account: any; onClose: () => void }) {
+  const ctx = useAdminCtx();
+  const keys = Array.from({ length: account.keys }, (_, i) => ({
+    id: 'key_' + (i + 1),
+    label: i === 0 ? 'Primary' : 'Key ' + (i + 1),
+    masked: '••••••••' + (1000 + i * 7).toString(36),
+    created: ['2025-11-02', '2026-02-14', '2026-05-30'][i] || '2026-01-01',
+  }));
+  return (
+    <Modal
+      title={account.name + ' — API keys'}
+      sub={account.keys + ' active keys'}
+      onClose={onClose}
+      footer={
+        <>
+          <span className="grow" />
+          <Btn onClick={onClose}>Close</Btn>
+          <Btn
+            variant="primary"
+            icon="plus"
+            onClick={() => {
+              onClose();
+              ctx.toast('New key created');
+            }}
+          >
+            Create key
+          </Btn>
+        </>
+      }
+    >
+      <div className="stack-2">
+        {keys.map((k) => (
+          <div key={k.id} className="row spread" style={{ padding: '10px 0', borderBottom: '1px solid var(--p-border)' }}>
+            <div className="stack" style={{ gap: 1 }}>
+              <span className="t-sm t-strong">{k.label}</span>
+              <span className="t-mono t-xs t-muted">{k.masked}</span>
+            </div>
+            <div className="row-2">
+              <span className="t-xs t-muted">Created {k.created}</span>
+              <Btn size="sm" icon="refresh" className="btn-plain" onClick={() => ctx.toast('Key rotated')} />
+              <Btn size="sm" icon="trash" className="btn-plain-critical" onClick={() => ctx.toast('Key revoked')} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </Modal>
   );
 }
