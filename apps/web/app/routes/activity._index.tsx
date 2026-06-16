@@ -1,13 +1,35 @@
 import { json } from '@remix-run/node';
 import { useState } from 'react';
+import { useLoaderData } from '@remix-run/react';
 import { shopify } from '~/shopify.server';
+import { getPrisma } from '~/db.server';
+import { ActivityLogService } from '~/services/activity/activity.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { Icon, Btn, Card, PageHead, FilterBar, EmptyState, useTableState, titleCase } from '~/components/superapp';
 
- 
+// Map a raw ActivityLog action to the design's visual "kind".
+function activityKind(action: string): string {
+  const a = (action || '').toUpperCase();
+  if (a.startsWith('MODULE') || a.includes('AI_GENERAT') || a.includes('TEMPLATE')) return 'module';
+  if (a.startsWith('FLOW') || a.startsWith('SCHEDULE') || a.startsWith('WORKFLOW')) return 'flow';
+  if (a.startsWith('CONNECTOR') || a.startsWith('ENDPOINT')) return 'connector';
+  if (a.includes('DATA_STORE') || a.includes('RECORD') || a.includes('WEBHOOK')) return 'data';
+  if (a.includes('LOGIN') || a.includes('INVIT') || a.includes('TEAM')) return 'team';
+  if (a.includes('ERROR') || a.includes('FAIL') || a.includes('WARNING') || a.includes('GATE')) return 'alert';
+  return 'module';
+}
+function relativeTime(d: Date): string {
+  const secs = Math.max(1, Math.round((Date.now() - new Date(d).getTime()) / 1000));
+  if (secs < 60) return secs + 's ago';
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return mins + 'm ago';
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  const days = Math.round(hrs / 24);
+  return days === 1 ? 'Yesterday' : days + 'd ago';
+}
 
-// `api.activity` is a POST-only logger (no list endpoint serves merchant
-// activity), so the feed uses the design's placeholder activity stream.
+// Fallback stream when the store has no logged activity yet (fresh install / dev).
 const M_ACTIVITY = [
   { id: 'ma_1', action: 'MODULE_PUBLISHED', resource: 'Sticky Add-to-Cart Bar', actor: 'You', kind: 'module', created: '2m ago' },
   { id: 'ma_2', action: 'FLOW_RUN_SUCCEEDED', resource: 'Order → Slack alert', actor: 'System', kind: 'flow', created: '8m ago' },
@@ -24,8 +46,28 @@ const ACT_ICON: Record<string, string> = { module: 'layers', flow: 'flow', alert
 const ACT_TONE: Record<string, string> = { module: 'info', flow: 'success', alert: 'critical', data: 'info', connector: 'magic', team: 'warning' };
 
 export async function loader({ request }: { request: Request }) {
-  await shopify.authenticate.admin(request);
-  return json({ activity: M_ACTIVITY });
+  const { session } = await shopify.authenticate.admin(request);
+  let activity = M_ACTIVITY;
+  try {
+    const prisma = getPrisma();
+    const shop = await prisma.shop.findUnique({ where: { shopDomain: session.shop }, select: { id: true } });
+    if (shop) {
+      const rows = await new ActivityLogService().list({ shopId: shop.id, take: 60 });
+      if (rows.length) {
+        activity = rows.map((r) => ({
+          id: r.id,
+          action: r.action,
+          resource: r.resource ?? '—',
+          actor: r.actor === 'MERCHANT' ? 'You' : titleCase(r.actor),
+          kind: activityKind(r.action),
+          created: relativeTime(r.createdAt),
+        }));
+      }
+    }
+  } catch {
+    /* fall back to the placeholder stream */
+  }
+  return json({ activity });
 }
 
 export default function ActivityIndex() {
@@ -37,11 +79,12 @@ export default function ActivityIndex() {
 }
 
 function ActivityBody() {
+  const { activity } = useLoaderData<typeof loader>();
   const ctx = useMerchantCtx();
   const ts = useTableState();
   const [kind, setKind] = useState('All');
   const kinds = ['All', 'module', 'flow', 'connector', 'data', 'team', 'alert'];
-  const rows = M_ACTIVITY.filter((a) => (kind === 'All' || a.kind === kind) && (a.action + a.resource + a.actor).toLowerCase().includes(ts.search.toLowerCase()));
+  const rows = activity.filter((a) => (kind === 'All' || a.kind === kind) && (a.action + a.resource + a.actor).toLowerCase().includes(ts.search.toLowerCase()));
 
   return (
     <div className="page">

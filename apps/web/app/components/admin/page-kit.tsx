@@ -6,7 +6,7 @@ import React from 'react';
 import { superappRoute } from '~/components/superapp';
 import { useAdminCtx } from './admin-ctx';
 
-export { useAdminCtx } from './admin-ctx';
+export { useAdminCtx, useAdminOps, adminHref } from './admin-ctx';
 export type { AdminCtx } from './admin-ctx';
 
 // Re-export everything the design pages reference from the shared foundation so a

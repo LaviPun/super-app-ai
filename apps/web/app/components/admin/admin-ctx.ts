@@ -1,7 +1,7 @@
 // Bridges the ported design pages (which expect a `ctx` with `.go()` + `.toast()`)
 // onto Remix navigation + the internal layout's outlet `showToast`.
-import { useMemo } from 'react';
-import { useNavigate, useOutletContext } from '@remix-run/react';
+import { useCallback, useEffect, useMemo } from 'react';
+import { useNavigate, useOutletContext, useFetcher } from '@remix-run/react';
 import { superappRoute } from '~/components/superapp';
 
 export type AdminOutletContext = { showToast: (message: string, error?: boolean) => void };
@@ -30,4 +30,38 @@ export function useAdminCtx(): AdminCtx {
 // Plain href for <a> tags (PageHead crumbs / back links use real anchors).
 export function adminHref(hash: string): string {
   return superappRoute(hash);
+}
+
+type OpsResult = { ok: boolean; message: string; id: number };
+
+/**
+ * Wire an admin mutation button to the real, audit-logged `/internal/ops` action.
+ * `run(intent, { resource, message, id })` posts to the server (requireInternalAdmin
+ * + ActivityLog) and toasts the server's response. Replaces the prototype's
+ * client-only optimistic toasts with genuine server round-trips.
+ */
+export function useAdminOps() {
+  const fetcher = useFetcher<OpsResult>();
+  const { toast } = useAdminCtx();
+
+  useEffect(() => {
+    if (fetcher.state === 'idle' && fetcher.data) {
+      toast(fetcher.data.message, !fetcher.data.ok);
+    }
+  }, [fetcher.state, fetcher.data, toast]);
+
+  const run = useCallback(
+    (intent: string, opts: { resource?: string; message: string; id?: string; extra?: Record<string, string> }) => {
+      const fd = new FormData();
+      fd.set('intent', intent);
+      if (opts.resource) fd.set('resource', opts.resource);
+      if (opts.id) fd.set('id', opts.id);
+      fd.set('message', opts.message);
+      for (const [k, v] of Object.entries(opts.extra ?? {})) fd.set(k, v);
+      fetcher.submit(fd, { method: 'post', action: '/internal/ops' });
+    },
+    [fetcher],
+  );
+
+  return { run, busy: fetcher.state !== 'idle' };
 }

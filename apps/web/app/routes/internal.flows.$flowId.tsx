@@ -3,7 +3,7 @@ import { useLoaderData } from '@remix-run/react';
 import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import {
-  useAdminCtx,
+  useAdminOps,
   StoreLink,
   Btn,
   Badge,
@@ -57,9 +57,14 @@ function FlowStepRow({ s, i, total }: { s: any; i: number; total: number }) {
 
 export default function AdminFlowDetail() {
   const { flow: f, steps, runs } = useLoaderData<typeof loader>();
-  const ctx = useAdminCtx();
+  const ops = useAdminOps();
   const [tab, setTab] = useState('steps');
-  const toggle = () => ctx.toast(f.name + (f.status === 'ACTIVE' ? ' paused' : ' resumed'));
+  const toggle = () =>
+    ops.run(f.status === 'ACTIVE' ? 'flow_pause' : 'flow_resume', {
+      id: f.id,
+      resource: f.name,
+      message: f.name + (f.status === 'ACTIVE' ? ' paused' : ' resumed'),
+    });
 
   return (
     <div className="page">
@@ -86,7 +91,7 @@ export default function AdminFlowDetail() {
                   Resume
                 </Btn>
               ))}
-            <Btn variant="primary" icon="rocket" onClick={() => ctx.toast('Test run enqueued')}>
+            <Btn variant="primary" icon="rocket" onClick={() => ops.run('flow_run', { id: f.id, resource: f.name, message: 'Test run enqueued' })}>
               Run now
             </Btn>
           </>

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import {
   useAdminCtx,
+  useAdminOps,
   StoreLink,
   Icon,
   Btn,
@@ -36,6 +37,7 @@ const SOURCE_TONE: Record<string, any> = { template: 'info', recipe: 'success', 
 export default function AdminModuleDetail() {
   const { module: m, versions, spec } = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
+  const ops = useAdminOps();
   const [tab, setTab] = useState('overview');
   const [confirm, setConfirm] = useState<any>(null);
 
@@ -63,7 +65,7 @@ export default function AdminModuleDetail() {
               Edit recipe
             </Btn>
             {m.status === 'DRAFT' ? (
-              <Btn variant="primary" icon="rocket" onClick={() => ctx.toast(m.name + ' published')}>
+              <Btn variant="primary" icon="rocket" onClick={() => ops.run('publish', { id: m.id, resource: m.name, message: m.name + ' published' })}>
                 Publish
               </Btn>
             ) : (
@@ -197,7 +199,7 @@ export default function AdminModuleDetail() {
                             confirmLabel: 'Roll back',
                             tone: 'primary',
                             icon: 'replay',
-                            onConfirm: () => ctx.toast('Rolled back to v' + r.version),
+                            onConfirm: () => ops.run('rollback', { id: m.id, resource: m.name, message: 'Rolled back to v' + r.version }),
                           })
                         }
                       >

@@ -3,6 +3,7 @@ import { useLoaderData } from '@remix-run/react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import {
   useAdminCtx,
+  useAdminOps,
   Btn,
   Badge,
   StatusBadge,
@@ -48,7 +49,8 @@ function AttemptRow({ a }: { a: any }) {
 export default function AdminJobDetail() {
   const { job: j, payload, attempts } = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
-  const replay = () => ctx.toast('Replayed ' + j.id);
+  const ops = useAdminOps();
+  const replay = () => ops.run('job_replay', { id: j.id, resource: j.id, message: 'Replayed ' + j.id });
 
   return (
     <div className="page">

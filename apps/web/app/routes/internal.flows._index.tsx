@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import {
   useAdminCtx,
+  useAdminOps,
   StoreLink,
   Icon,
   Btn,
@@ -29,6 +30,7 @@ export async function loader({ request }: { request: Request }) {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export default function AdminFlows() {
   const ctx = useAdminCtx();
+  const ops = useAdminOps();
   const ts = useTableState('runs7d');
   const [status, setStatus] = useState('All');
   const [store, setStore] = useState('All');
@@ -116,11 +118,11 @@ export default function AdminFlows() {
               label: '',
               render: (r: any) =>
                 r.status === 'ACTIVE' ? (
-                  <Btn size="sm" className="btn-plain" icon="pause" onClick={() => ctx.toast(r.name + ' paused')}>
+                  <Btn size="sm" className="btn-plain" icon="pause" onClick={() => ops.run('flow_pause', { id: r.id, resource: r.name, message: r.name + ' paused' })}>
                     Pause
                   </Btn>
                 ) : r.status === 'PAUSED' ? (
-                  <Btn size="sm" className="btn-plain" icon="play" onClick={() => ctx.toast(r.name + ' resumed')}>
+                  <Btn size="sm" className="btn-plain" icon="play" onClick={() => ops.run('flow_resume', { id: r.id, resource: r.name, message: r.name + ' resumed' })}>
                     Resume
                   </Btn>
                 ) : (

@@ -3,7 +3,7 @@ import { useLoaderData } from '@remix-run/react';
 import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import {
-  useAdminCtx,
+  useAdminOps,
   StoreLink,
   Btn,
   Badge,
@@ -34,9 +34,9 @@ const METHOD_TONE: Record<string, any> = { GET: 'success', POST: 'info', PUT: 'w
 
 export default function AdminConnectorDetail() {
   const { connector: c, endpoints, tests } = useLoaderData<typeof loader>();
-  const ctx = useAdminCtx();
+  const ops = useAdminOps();
   const [tab, setTab] = useState('endpoints');
-  const runTest = () => ctx.toast('Connection OK — 200');
+  const runTest = () => ops.run('connector_test', { id: c.id, resource: c.name, message: 'Connection OK — 200' });
 
   return (
     <div className="page">
@@ -93,7 +93,7 @@ export default function AdminConnectorDetail() {
                 label: '',
                 render: (r: any) => (
                   <div className="dt-actions">
-                    <Btn size="sm" className="btn-plain" icon="play" onClick={() => ctx.toast(r.method + ' ' + r.path + ' → 200 OK')}>
+                    <Btn size="sm" className="btn-plain" icon="play" onClick={() => ops.run('connector_test', { id: c.id, resource: r.path, message: r.method + ' ' + r.path + ' → 200 OK' })}>
                       Call
                     </Btn>
                   </div>
@@ -125,7 +125,7 @@ export default function AdminConnectorDetail() {
               <Input mono defaultValue={c.baseUrl} />
             </Field>
             <Field label="Auth type">
-              <Select options={['API_KEY', 'BASIC', 'OAUTH2']} value={c.auth} onChange={() => ctx.toast('Auth type updated')} />
+              <Select options={['API_KEY', 'BASIC', 'OAUTH2']} value={c.auth} onChange={() => ops.run('connector_save', { id: c.id, resource: c.name, message: 'Auth type updated' })} />
             </Field>
             <Field label="Domain allowlist" help="Only these hosts can be called from flows (SSRF guard).">
               <Input mono defaultValue={c.allowlist} />
@@ -134,7 +134,7 @@ export default function AdminConnectorDetail() {
               <Input type="password" placeholder="•••••••••• (unchanged)" />
             </Field>
             <div>
-              <Btn variant="primary" onClick={() => ctx.toast('Connector saved')}>
+              <Btn variant="primary" onClick={() => ops.run('connector_save', { id: c.id, resource: c.name, message: 'Connector saved' })}>
                 Save config
               </Btn>
             </div>

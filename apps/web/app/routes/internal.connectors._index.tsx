@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import {
   useAdminCtx,
+  useAdminOps,
   StoreLink,
   Btn,
   Badge,
@@ -28,6 +29,7 @@ export async function loader({ request }: { request: Request }) {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export default function AdminConnectors() {
   const ctx = useAdminCtx();
+  const ops = useAdminOps();
   const ts = useTableState();
   const [status, setStatus] = useState('All');
   const [store, setStore] = useState('All');
@@ -119,7 +121,7 @@ export default function AdminConnectors() {
               label: '',
               render: (r: any) => (
                 <div className="dt-actions">
-                  <Btn size="sm" className="btn-plain" icon="refresh" onClick={() => ctx.toast(r.name + ' — 200 OK')}>
+                  <Btn size="sm" className="btn-plain" icon="refresh" onClick={() => ops.run('connector_test', { id: r.id, resource: r.name, message: r.name + ' — 200 OK' })}>
                     Test
                   </Btn>
                   <Btn
@@ -133,7 +135,7 @@ export default function AdminConnectors() {
                         confirmLabel: 'Delete',
                         tone: 'critical',
                         icon: 'trash',
-                        onConfirm: () => ctx.toast(r.name + ' deleted'),
+                        onConfirm: () => ops.run('connector_delete', { id: r.id, resource: r.name, message: r.name + ' deleted' }),
                       })
                     }
                   />

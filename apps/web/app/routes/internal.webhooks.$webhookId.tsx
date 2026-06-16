@@ -2,7 +2,7 @@ import { json } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import {
-  useAdminCtx,
+  useAdminOps,
   Btn,
   Badge,
   Card,
@@ -40,11 +40,11 @@ function DeliveryRow({ d }: { d: any }) {
 
 export default function AdminWebhookDetail() {
   const { webhook: w, payload } = useLoaderData<typeof loader>();
-  const ctx = useAdminCtx();
+  const ops = useAdminOps();
   const deliveries = [{ n: w.attempts, ok: w.success }]
     .concat(Array.from({ length: Math.max(0, w.attempts - 1) }, (_, i) => ({ n: w.attempts - 1 - i, ok: false })))
     .sort((a, b) => a.n - b.n);
-  const redeliver = () => ctx.toast('Webhook redelivered');
+  const redeliver = () => ops.run('webhook_redeliver', { id: w.id, resource: w.topic, message: 'Webhook redelivered' });
 
   return (
     <div className="page">
