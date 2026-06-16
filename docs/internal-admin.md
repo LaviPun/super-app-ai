@@ -3,6 +3,8 @@
 This dashboard is for the **app owner** (your team), not merchants.
 It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 
+> **UI:** As of the 2026-06-16 SuperApp redesign, the admin renders through the vendored `AdminChrome` shell (`apps/web/app/routes/internal.tsx`) — a collapsible left rail grouped **Overview · Operations · Platform · AI & Models · Catalog**, a top bar with global **⌘K** command palette, notifications, avatar, and a health footer. This replaces the prior Polaris `Frame`; auth and loaders are unchanged. See [DESIGN.md](../DESIGN.md) § *Implemented Design System*.
+
 ---
 
 ## Ports
@@ -60,7 +62,16 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 | `/internal/audit` | Audit log of sensitive admin/merchant actions (deletions, plan changes, overrides) for compliance review |
 | `/internal/webhooks` | Webhook events from Shopify (orders, products, customers, fulfillments, GDPR) — topic/shop/status/date filters |
 | `/internal/trace/:correlationId` | Unified timeline view: every API log, job, error, AI usage row, flow step, and activity entry that share the same correlationId/requestId |
-| `/internal/stores` | Installed stores; per-store AI provider override, retention overrides, **Change plan** (FREE/STARTER/GROWTH/PRO/ENTERPRISE) |
+| `/internal/stores` | Installed stores; per-store AI provider override, retention overrides, **Change plan** (FREE/STARTER/GROWTH/PRO/ENTERPRISE). `:storeId` detail page falls back to placeholder data for unknown ids |
+| `/internal/modules`, `/internal/modules/:moduleId` | **Platform** — module list + detail (versions, publish/rollback) |
+| `/internal/flows`, `/internal/flows/:flowId` | **Platform** — flow list + detail (steps visualization, run history, pause/resume, run-now) |
+| `/internal/connectors`, `/internal/connectors/:connectorId` | **Platform** — connector list + detail (endpoints, test history, config, test connection) |
+| `/internal/data-stores`, `/internal/data-stores/:key` | **Platform** — data-store list + record detail |
+| `/internal/customers`, `/internal/customers/:customerId` | **Platform** — customers derived from stores + detail |
+| `/internal/jobs/:jobId` | Background job detail (attempts, payload); **Replay** when the job exists in the DB |
+| `/internal/webhooks/:webhookId` | Webhook delivery detail (attempts, payload, HMAC); **Redeliver** on failures |
+| `/internal/recipe-edit/:id` | Recipe edit detail page |
+| `/internal/ops` | **Shared mutation action** (action-only; loader redirects to `/internal`). All Platform/Operations admin buttons submit here via the `useAdminOps()` hook. Maps each intent (publish, rollback, flow_pause/resume, flow_run, connector_test/save/delete, webhook_redeliver, job_replay) to a real service call + `ActivityLogService` audit entry, and returns `{ ok, message }` for toasts |
 | `/internal/plan-tiers` | View and edit plan tier definitions (display name, price [-1 = Contact us], trial days, quotas JSON). Enterprise = unlimited + Contact us; Pro = 10× Growth |
 | `/internal/categories` | View module categories, **add new categories**, edit overrides (display name, enabled) as JSON |
 | `/internal/recipe-edit` | Select **store or "All recipes (templates)"** → module/template → edit RecipeSpec; Validate or Save (new version or template override) |

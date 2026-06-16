@@ -21,8 +21,8 @@ This system uses a **Recipes architecture**:
 ### Admin UI (Embedded)
 - Remix + React + Polaris (Vite 6, React Router v7 future flags). Polaris 12’s **Card** uses ShadowBevel (`.Polaris-ShadowBevel`); rounded corners are enforced in `apps/web/app/app.css` and an inline style in `root.tsx` so cards stay round on all viewports. See [debug.md](./debug.md) §8 and [implementation-status.md](./implementation-status.md) (Admin app — stack, tooling & UI fixes).
 - Merchant can: generate module (AI or template) → preview → publish → rollback → manage connectors → build flows → manage data models → manage billing
-- **Embedded app nav order**: Home → AI modules (`/modules`) → Advanced features (`/advanced`) → Data models (`/data`) → Billing (`/billing`) → Settings (`/settings`)
-- **Advanced features** (`/advanced`): hub page with cards linking to Connectors (`/connectors`) and Workflows (`/flows`); Connectors and Flows are no longer top-level nav items.
+- **Embedded app nav (App Bridge `<s-app-nav>`, 2026-06-16 SuperApp redesign)**: Dashboard (`/`) → Build (`/modules`) → Insights (`/analytics`) → Settings (`/settings`) → Billing (`/billing`). In-app sub-tabs (`MerchantSubnav` inside `MerchantShell`): **Build** → Modules/Flows/Connectors/Data/Templates; **Insights** → Analytics/Activity. See [DESIGN.md](../DESIGN.md) § *Implemented Design System*.
+- **Advanced features** (`/advanced`): legacy hub linking to Connectors (`/connectors`) and Workflows (`/flows`) — reachable but no longer on the primary rail; those pages now live under the Build sub-tab.
 - **Data models** (`/data`): three-tab layout — "All data models" (unified list with status + record counts), "Suggested & custom" (enable predefined stores, manage custom stores), "Settings" (explains how data enters stores via flows/manual/agent API and how scheduling works via FlowSchedule).
 
 ### API / Services

@@ -1,29 +1,87 @@
+---
+description: Route map and feature logic for the embedded merchant Shopify app.
+---
+
 # Merchant dashboard
 
-**Full merchant-facing guide:** [`app.md`](../../app.md) (features, billing, flows, data stores, Style Builder).
-
-This page is a **compact route map** for navigation inside GitBook.
-
----
+{% hint style="info" %}
+This page is a **compact route map**. The full merchant-facing guide — features, billing, flows, data stores, Style Builder — is [`app.md`](../../app.md).
+{% endhint %}
 
 ## Primary merchant journey
 
-1. generate module from AI or template
-2. inspect/edit draft spec and settings
-3. preview module behavior
-4. publish to selected surface/theme
-5. monitor usage, logs, and rollback if needed
+{% stepper %}
+{% step %}
+### Generate
+
+Describe a module in plain language (AI) **or** start from a template.
+{% endstep %}
+
+{% step %}
+### Inspect & edit
+
+Review the draft RecipeSpec, tune settings, and use the Style Builder for storefront UI.
+{% endstep %}
+
+{% step %}
+### Preview
+
+See the module behave in an embedded preview before anything ships.
+{% endstep %}
+
+{% step %}
+### Publish
+
+Publish to the selected surface / theme.
+{% endstep %}
+
+{% step %}
+### Monitor & roll back
+
+Watch usage and logs; roll back to a prior version if needed.
+{% endstep %}
+{% endstepper %}
 
 ## Main merchant sections
 
-- Home
-- Modules (`/modules`, `/modules/:moduleId`)
-- Connectors (`/connectors`, `/connectors/:connectorId`)
-- Flows (`/flows`, `/flows/build/:flowId`)
-- Data models (`/data`, `/data/:storeKey`)
-- Billing (`/billing`)
-- Settings (`/settings`)
-- Advanced features (`/advanced`)
+Top-level nav is **Shopify App Bridge** (`<s-app-nav>` in `root.tsx`), rendered *outside* the embedded app: **Dashboard · Build · Insights · Settings · Billing**. Inside the app, `MerchantShell` renders `MerchantSubnav` (in-app sub-tabs) under Build and Insights.
+
+{% hint style="success" %}
+The five top-level items mirror the Claude Design handoff exactly. See [DESIGN.md](../../../DESIGN.md) § *Implemented Design System*.
+{% endhint %}
+
+{% tabs %}
+{% tab title="Dashboard" %}
+`/` — home: quota, module counts, attributed-revenue sparkline, quick actions, recent modules + activity.
+{% endtab %}
+
+{% tab title="Build" %}
+Top item `/modules`; in-app sub-tabs:
+
+* **Modules** — `/modules`, `/modules/:moduleId` (incl. AI builder at `/generate`)
+* **Flows** — `/flows`, `/flows/build/:flowId`
+* **Connectors** — `/connectors`, `/connectors/:connectorId`
+* **Data models** — `/data`, `/data/:storeKey`
+* **Templates** — `/templates`, `/templates/:templateId`
+{% endtab %}
+
+{% tab title="Insights" %}
+Top item `/analytics`; in-app sub-tabs:
+
+* **Analytics** — `/analytics`
+* **Activity** — `/activity`
+{% endtab %}
+
+{% tab title="Billing & Settings" %}
+* **Billing** — `/billing` (history at `/billing/history`)
+* **Settings** — `/settings`
+* **Help & guides** — `/help`
+{% endtab %}
+{% endtabs %}
+
+{% hint style="info" %}
+The legacy **Advanced features** hub (`/advanced`) is still reachable but no longer on the primary rail — its links (Connectors, Flows) now live under **Build**.
+{% endhint %}
 
 ## Module page logic
 

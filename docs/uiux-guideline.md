@@ -24,21 +24,29 @@
 
 ## 2) Core IA (Information Architecture)
 
-### Primary nav (current)
-Driven by `<s-app-nav>` in `apps/web/app/root.tsx`:
-- **Home** (AI Builder / Template picker + Module list)
-- **AI modules** (module library, drafts, published modules)
-- **Advanced features** (Connectors, Flows, Schedules, Workflows, API tester)
-- **Data models** (Predefined + Custom data stores)
-- **Billing** (Plan & usage)
-- **Settings** (App-level preferences)
+### Primary nav (current — Merchant Dashboard)
+Top-level nav is **Shopify App Bridge**, rendered *outside* the embedded app via `<s-app-nav>` in `apps/web/app/root.tsx` (5 items, matching the SuperApp design handoff):
+- **Dashboard** (`/`) — home: quota, module counts, quick actions
+- **Build** (`/modules`) — Modules / Flows / Connectors / Data / Templates
+- **Insights** (`/analytics`) — Analytics / Activity
+- **Settings** (`/settings`)
+- **Billing** (`/billing`)
 
-### Internal admin nav
+In-app sub-navigation is `MerchantSubnav` (`apps/web/app/components/superapp/MerchantSubnav.tsx`), rendered inside `MerchantShell` and keyed off `pathname`:
+- **Build** → Modules · Flows · Connectors · Data · Templates
+- **Insights** → Analytics · Activity
+
+The design's own left rail is **not** rendered — App Bridge nav replaces it per the embedded-app convention.
+
+### Internal admin nav (`AdminChrome` in `apps/web/app/routes/internal.tsx`)
+Collapsible left rail, sections mirror the design's `shell.jsx` exactly:
 - **Overview**: Dashboard
-- **Monitoring**: Activity Log, Error Logs, API Logs, Audit Log, Webhooks
-- **Data**: Stores, Usage & Costs, Jobs
-- **Configuration**: AI Providers, Plan Tiers, Categories, Templates, Recipe edit
-- **Footer**: Settings, Logout
+- **Operations**: Stores, Jobs (DLQ count), Activity Log, API Logs, Error Logs (count), Webhooks (count), Audit Log
+- **Platform**: Modules, Flows, Connectors, Data Stores, Customers
+- **AI & Models**: AI Providers, AI Assistant, Local AI Setting, Usage & Costs, Release Gate
+- **Catalog**: Plan Tiers, Categories, Templates, Recipe Edit
+- **Footer**: Settings, Logout + health summary
+- **Top bar**: brand, global ⌘K search / command palette, notifications, admin avatar
 
 > Cross-record `correlationId` traces are reachable from API Logs / Jobs / Errors / Activity / AI Usage rows via the **Trace** action; the unified timeline lives at `/internal/trace/<correlationId>`.
 
@@ -247,11 +255,12 @@ Provide controls as **presets + scales** (implemented in StyleBuilder):
 
 ## 12) Internal Developer Dashboard
 
-### Layout (Implemented)
-- **Frame layout** (`internal.tsx`) with Polaris `Frame`, `TopBar`, and `Navigation`
-- Left sidebar with icons for all pages: Dashboard, AI Providers, Usage & Costs, Activity Log, Error Logs, API Logs, Stores, Jobs
-- Top header with branded "SA" logo and Admin user menu
-- Sidebar auto-highlights active page; Logout separated below divider
+### Layout (Implemented — SuperApp redesign)
+- **`AdminChrome` shell** (`internal.tsx`) — vendored SuperApp design system, not Polaris `Frame`. Collapsible left rail grouped into **Overview · Operations · Platform · AI & Models · Catalog** (see Core IA above for the full item list).
+- Top bar: brand, global **⌘K** search + command-palette overlay (`components/superapp/CommandPalette.tsx`), notifications, admin avatar.
+- Sidebar auto-highlights the active page; section nav items can carry live counts (DLQ, error count, webhook failures). Footer holds Settings, Logout, and a health summary.
+- Auth (`requireInternalAdmin` / `internalSessionStorage`) and the loader are unchanged from the prior shell.
+- Page primitives live in `components/admin/page-kit.tsx`; mutations route through `useAdminOps()` → the shared `/internal/ops` action, which audit-logs every operation.
 
 ### Activity Log (Implemented)
 - Dedicated `ActivityLog` Prisma model tracks all significant actions
