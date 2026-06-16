@@ -142,3 +142,12 @@ export function isInternalAiLocalOnlyEnabled(): boolean {
 export function isMerchantCodeExecutionAllowed(): boolean {
   return parseBooleanEnv(process.env.ALLOW_MERCHANT_CODE_EXECUTION, false);
 }
+
+/**
+ * Multi-module blueprints (one request → a coordinated set of modules). Off by
+ * default; single-module generation is unchanged when disabled. See
+ * docs/blueprints.md.
+ */
+export function isBlueprintsEnabled(): boolean {
+  return parseBooleanEnv(process.env.BLUEPRINTS_ENABLED, false);
+}

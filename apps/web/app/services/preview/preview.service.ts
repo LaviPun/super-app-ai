@@ -32,21 +32,36 @@ export type PreviewContext = {
   surface?: PreviewSurface;
   /** Fixture for Function simulation previews (cart/checkout). */
   simulation?: PreviewSimulationInput;
+  /**
+   * Live-theme fonts (from ThemeAnalyzer's StoreTypography). When provided, the
+   * preview HTML is wrapped in a font scope so it inherits the merchant's theme
+   * fonts — matching what the storefront renders (where modules inherit fonts by
+   * cascade). Without it, previews use the app's default stack and can look
+   * off-brand.
+   */
+  themeFonts?: { headingFont?: string; bodyFont?: string };
 };
 
 export class PreviewService {
   render(spec: RecipeSpec, context?: PreviewContext): PreviewResult {
     const surface = context?.surface ?? inferSurface(spec.type);
+    let result: PreviewResult;
     switch (spec.type) {
       case 'theme.section':
-        return { kind: 'HTML', html: this.themeSection(spec) };
+        result = { kind: 'HTML', html: this.themeSection(spec) };
+        break;
       case 'proxy.widget':
-        return { kind: 'HTML', html: this.proxyWidget(spec) };
+        result = { kind: 'HTML', html: this.proxyWidget(spec) };
+        break;
       default:
         // WS4: every remaining type gets a real, interactive surface preview —
         // never the static diagram.
-        return { kind: 'HTML', html: this.interactiveSurfacePreview(spec, surface, context?.simulation) };
+        result = { kind: 'HTML', html: this.interactiveSurfacePreview(spec, surface, context?.simulation) };
     }
+    if (result.kind === 'HTML' && context?.themeFonts) {
+      return { kind: 'HTML', html: wrapThemeFonts(result.html, context.themeFonts) };
+    }
+    return result;
   }
 
   private styleCss(spec: { style?: unknown }, rootSelector: string): string {
@@ -845,5 +860,58 @@ function inferSurface(type: string): PreviewSurface {
   if (type === 'flow.automation') return 'checkout';
   if (type === 'analytics.pixel') return 'product';
   return 'generic';
+}
+
+/** System fallback stack appended after any theme font so previews never go blank. */
+const PREVIEW_FALLBACK_STACK =
+  "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+
+/**
+ * Sanitize an extracted font family for safe use in a CSS value + a Google Fonts
+ * URL. Allows letters/numbers/spaces only (the family name), so a malformed or
+ * malicious value can't break out of the `font-family` declaration or the URL.
+ */
+function sanitizeFamily(name?: string): string | undefined {
+  if (!name) return undefined;
+  const clean = name.replace(/[^a-zA-Z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return clean.length ? clean : undefined;
+}
+
+/**
+ * Wrap preview HTML in a font scope so it inherits the merchant's live-theme
+ * fonts. The inner renderers never set `font-family`, so a scope on the wrapper
+ * cascades cleanly; headings get the heading font, everything else the body
+ * font. A best-effort Google Fonts link loads the families when available; if a
+ * family isn't on Google Fonts (e.g. a proprietary Shopify font), the name still
+ * applies and falls back to the system stack.
+ */
+export function wrapThemeFonts(
+  html: string,
+  fonts: { headingFont?: string; bodyFont?: string },
+): string {
+  const heading = sanitizeFamily(fonts.headingFont);
+  const body = sanitizeFamily(fonts.bodyFont);
+  if (!heading && !body) return html;
+
+  const bodyDecl = body ? `'${body}', ${PREVIEW_FALLBACK_STACK}` : PREVIEW_FALLBACK_STACK;
+  const headDecl = [heading, body]
+    .filter(Boolean)
+    .map((f) => `'${f}'`)
+    .concat(PREVIEW_FALLBACK_STACK)
+    .join(', ');
+
+  const families = [...new Set([heading, body].filter((f): f is string => !!f))];
+  const link = families.length
+    ? `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?${families
+        .map((f) => `family=${f.replace(/ /g, '+')}:wght@400;500;600;700`)
+        .join('&')}&display=swap">`
+    : '';
+
+  const style = `<style>
+  .superapp-preview-fontscope { font-family: ${bodyDecl}; }
+  .superapp-preview-fontscope :is(h1,h2,h3,h4,h5,h6) { font-family: ${headDecl}; }
+</style>`;
+
+  return `${link}${style}<div class="superapp-preview-fontscope" data-theme-fonts>${html}</div>`;
 }
 

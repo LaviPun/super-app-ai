@@ -1,6 +1,13 @@
 import { SettingsService } from '~/services/settings/settings.service';
 import { getPrisma } from '~/db.server';
 import type { StorePalette, StoreTypography, ThemeProfileResult } from '~/services/theme/theme-analyzer.service';
+import {
+  buildDesignSystemDirective,
+  computeAestheticSignalsFromColors,
+  isHexColor,
+  selectPack,
+  type PackSelection,
+} from '~/services/ai/style-packs.server';
 
 export interface DesignReferencePack {
   sourceUrl: string;
@@ -103,6 +110,33 @@ export async function resolveDesignReferencePack(): Promise<DesignReferencePack>
 }
 
 /**
+ * Pick the style pack (Design System Bible §B) implied by a design reference
+ * pack's colors + typography. Returns the full selection (pack id, confidence,
+ * alternatives) so callers can surface a picker on low confidence.
+ */
+export function selectStylePackForReference(pack: DesignReferencePack): PackSelection {
+  const headingHint = pack.typographyHints.find((h) => /head/i.test(h)) ?? pack.typographyHints[0];
+  const signals = computeAestheticSignalsFromColors(
+    pack.primaryColors,
+    pack.neutralPalette,
+    headingHint,
+  );
+  return selectPack(signals);
+}
+
+/**
+ * Build the design-system directive injected into the generation prompt: the
+ * Apple-HIG floor + the selected style pack's grammar + mobile-first + mandatory
+ * micro-interactions + self-audit. Brand hexes (when concrete) are restated so
+ * the model uses the store's real colors.
+ */
+export function buildDesignSystemDirectiveForReference(pack: DesignReferencePack): string {
+  const selection = selectStylePackForReference(pack);
+  const brandColors = [...pack.primaryColors, ...pack.neutralPalette].filter(isHexColor);
+  return buildDesignSystemDirective({ selection, brandColors, fontHints: pack.typographyHints });
+}
+
+/**
  * Build a DesignReferencePack from a palette extracted off the merchant's LIVE
  * theme (ThemeAnalyzerService). Unlike the URL-based `store` pack, this carries
  * concrete hex values so generated sections actually match the storefront.
@@ -160,6 +194,17 @@ export async function loadStoreAesthetic(
   } catch {
     return null;
   }
+}
+
+/** Like `loadStoreAesthetic` but resolves the internal shopId from a shop domain. */
+export async function loadStoreAestheticByDomain(
+  shopDomain: string,
+  themeId?: string,
+): Promise<{ palette: StorePalette; typography: StoreTypography } | null> {
+  const prisma = getPrisma();
+  const shop = await prisma.shop.findUnique({ where: { shopDomain }, select: { id: true } });
+  if (!shop) return null;
+  return loadStoreAesthetic(shop.id, themeId);
 }
 
 /**

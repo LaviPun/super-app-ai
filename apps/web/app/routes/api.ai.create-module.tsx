@@ -1,7 +1,9 @@
 import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
-import { generateValidatedRecipeOptions, modifyRecipeSpec, AiProviderNotConfiguredError } from '~/services/ai/llm.server';
+import { generateValidatedRecipeOptions, generateValidatedBlueprint, modifyRecipeSpec, AiProviderNotConfiguredError } from '~/services/ai/llm.server';
+import { planBlueprint } from '~/services/ai/blueprint-planner';
+import { isBlueprintsEnabled } from '~/env.server';
 import { fillMissingSettings } from '~/services/ai/fill-missing-settings.server';
 import { SettingsService } from '~/services/settings/settings.service';
 import type { RecipeSpec } from '@superapp/core';
@@ -216,7 +218,42 @@ export async function action({ request }: { request: Request }) {
           }
         }
 
-        await jobs.succeed(job.id, { optionCount: recipeOptions.length, type: classification.moduleType, autoFilled, paletteMatched });
+        // Multi-module blueprints (flag-gated): when the intent maps to a
+        // coordinated set (e.g. a product bundle = cartTransform + bundle UI +
+        // checkout), also generate the full blueprint alongside the single-module
+        // options. Best-effort — never fails the single-module response.
+        let blueprint: Awaited<ReturnType<typeof generateValidatedBlueprint>> | null = null;
+        const plan = planBlueprint({
+          moduleType: classification.moduleType,
+          intent: intentPacket.classification.intent,
+        });
+        if (isBlueprintsEnabled() && plan.kind === 'blueprint') {
+          try {
+            blueprint = await generateValidatedBlueprint(prompt, plan, {
+              shopId: shopRow.id,
+              intentPacketJson: serializeIntentPacketForPrompt(intentPacket),
+              confidenceScore: intentPacket.classification.confidence,
+              promptProfile: intentPacket.routing.prompt_profile,
+              routerDecision,
+              groundingBlock: grounding || undefined,
+            });
+            if (blueprint && matchStoreColors) {
+              const aesthetic = await loadStoreAesthetic(shopRow.id);
+              if (aesthetic) {
+                for (const member of blueprint.modules) {
+                  if (member.recipe.type === 'theme.section' || member.recipe.type === 'proxy.widget') {
+                    applyStorePalette(member.recipe as RecipeSpec, aesthetic.palette);
+                  }
+                }
+              }
+            }
+          } catch {
+            // Blueprint generation is additive — never block the single-module result.
+            blueprint = null;
+          }
+        }
+
+        await jobs.succeed(job.id, { optionCount: recipeOptions.length, type: classification.moduleType, autoFilled, paletteMatched, blueprintModules: blueprint?.modules.length ?? 0 });
 
         const confidence = intentPacket.classification.confidence;
         const band =
@@ -247,6 +284,20 @@ export async function action({ request }: { request: Request }) {
             explanation: opt.explanation,
             recipe: opt.recipe,
           })),
+          blueprint: blueprint
+            ? {
+                name: blueprint.name,
+                summary: blueprint.summary,
+                moduleCount: blueprint.modules.length,
+                modules: blueprint.modules.map((m) => ({
+                  role: m.role,
+                  explanation: m.explanation,
+                  type: m.recipe.type,
+                  recipe: m.recipe,
+                })),
+                links: blueprint.links ?? [],
+              }
+            : null,
         });
       } catch (e: any) {
         await jobs.fail(job.id, e);

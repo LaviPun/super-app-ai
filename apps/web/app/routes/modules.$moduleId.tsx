@@ -3,9 +3,11 @@ import { useLoaderData, useNavigate, useFetcher, useSearchParams, useRevalidator
 import { useState, useEffect } from 'react';
 import { shopify } from '~/shopify.server';
 import { ModuleService } from '~/services/modules/module.service';
+import { BlueprintService } from '~/services/blueprints/blueprint.service';
 import { RecipeService } from '~/services/recipes/recipe.service';
 import { CapabilityService } from '~/services/shopify/capability.service';
 import { PreviewService } from '~/services/preview/preview.service';
+import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
 import { MODULE_CATALOG, isCapabilityAllowed, hasManifest } from '@superapp/core';
 import { computeRepublishDiff } from '@superapp/platform-contracts';
 import type { ModuleType } from '@superapp/core';
@@ -45,6 +47,21 @@ export async function loader({ request, params }: { request: Request; params: { 
   const caps = new CapabilityService();
   let planTier = await caps.getPlanTier(session.shop);
   if (planTier === 'UNKNOWN') planTier = await caps.refreshPlanTier(session.shop, admin);
+
+  // Blueprint membership: when this module belongs to a Recipe group, surface its
+  // siblings so the merchant sees it is one part of a coordinated set.
+  let blueprint: { id: string; name: string; moduleCount: number; members: { id: string; name: string; type: string }[] } | null = null;
+  if (mod.recipeId) {
+    const bp = await new BlueprintService().getBlueprint(session.shop, mod.recipeId);
+    if (bp && bp.modules.length > 1) {
+      blueprint = {
+        id: bp.id,
+        name: bp.title,
+        moduleCount: bp.modules.length,
+        members: bp.modules.map((x) => ({ id: x.id, name: x.name, type: x.type })),
+      };
+    }
+  }
 
   const draft = mod.versions.find(v => v.status === 'DRAFT') ?? mod.activeVersion ?? mod.versions[0];
   const spec = draft ? new RecipeService().parse(draft.specJson) : null;
@@ -103,7 +120,9 @@ export async function loader({ request, params }: { request: Request; params: { 
   if (draft?.previewHtmlJson) {
     previewHtml = draft.previewHtmlJson;
   } else if (spec) {
-    const result = new PreviewService().render(spec);
+    // Inherit the merchant's live-theme fonts so the preview matches the storefront.
+    const aesthetic = await loadStoreAesthetic(mod.shopId).catch(() => null);
+    const result = new PreviewService().render(spec, { themeFonts: aesthetic?.typography });
     if (result.kind === 'HTML') {
       previewHtml = result.html;
     } else {
@@ -190,7 +209,7 @@ export async function loader({ request, params }: { request: Request; params: { 
         })()
       : null;
 
-  return json({ moduleId, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, adminConfig, engine, v2Form, republishDiff });
+  return json({ moduleId, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, adminConfig, engine, v2Form, republishDiff, blueprint });
 }
 
 function getDefaultThemeId(
@@ -317,6 +336,20 @@ function ModuleDetailBody() {
           </>
         )}
       />
+
+      {data.blueprint && (
+        <div style={{ marginBottom: 16 }}>
+          <Banner tone="info" title={`Part of the “${data.blueprint.name}” blueprint (${data.blueprint.moduleCount} modules)`}>
+            <div className="row-2" style={{ flexWrap: 'wrap', gap: 6 }}>
+              {data.blueprint.members.map((mem) => (
+                <a key={mem.id} href={`/modules/${mem.id}`} style={{ textDecoration: 'none' }}>
+                  <Badge tone={mem.id === data.moduleId ? 'info' : undefined}>{mem.name}</Badge>
+                </a>
+              ))}
+            </div>
+          </Banner>
+        </div>
+      )}
 
       {justPublished && (
         <div style={{ marginBottom: 16 }}>

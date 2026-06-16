@@ -4,6 +4,7 @@ import { ModuleService } from '~/services/modules/module.service';
 import { PreviewService } from '~/services/preview/preview.service';
 import { schedulePreviewExport } from '~/services/preview/preview-export.queue.server';
 import { RecipeService } from '~/services/recipes/recipe.service';
+import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
 
 export async function loader({ request, params }: { request: Request; params: { moduleId?: string } }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -19,7 +20,9 @@ export async function loader({ request, params }: { request: Request; params: { 
   if (!draft) return json({ error: 'No version found' }, { status: 404 });
 
   const spec = new RecipeService().parse(draft.specJson);
-  const preview = new PreviewService().render(spec);
+  // Inherit the merchant's live-theme fonts so the preview matches the storefront.
+  const aesthetic = await loadStoreAesthetic(mod.shopId).catch(() => null);
+  const preview = new PreviewService().render(spec, { themeFonts: aesthetic?.typography });
 
   if (preview.kind === 'JSON') return json(preview.json);
 

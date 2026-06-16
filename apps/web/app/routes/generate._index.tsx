@@ -14,6 +14,16 @@ export async function loader({ request }: { request: Request }) {
   return json({ ok: true });
 }
 
+// Multi-module blueprint returned alongside the single-module options when the
+// request maps to a coordinated set (flag-gated; see docs/blueprints.md).
+type BlueprintResult = {
+  name: string;
+  summary: string;
+  moduleCount: number;
+  modules: { role: string; type: string; explanation: string; recipe: Record<string, unknown> }[];
+  links?: { fromRole: string; toRole: string; note: string }[];
+};
+
 const RADIUS_MAP: Record<string, number> = { none: 0, sm: 6, md: 10, lg: 16, full: 999 };
 const SIZE_MAP: Record<string, { h: number; f: number }> = { S: { h: 38, f: 13 }, M: { h: 46, f: 15 }, L: { h: 54, f: 17 } };
 const SHADOW_MAP: Record<string, string> = { none: 'none', sm: '0 1px 2px rgba(20,33,58,.12)', md: '0 4px 12px rgba(20,33,58,.16)', lg: '0 12px 28px rgba(20,33,58,.22)' };
@@ -77,8 +87,9 @@ function GenerateWorkspace() {
   const location = useLocation();
   const seed = (location.state as any) || { prompt: 'A sticky add-to-cart bar with a variant picker', type: 'ai' };
 
-  const proposeFetcher = useFetcher<{ options?: { index: number; explanation: string; recipe: Record<string, unknown> }[]; error?: string; message?: string }>();
-  const confirmFetcher = useFetcher<{ moduleId?: string; error?: string }>();
+  const proposeFetcher = useFetcher<{ options?: { index: number; explanation: string; recipe: Record<string, unknown> }[]; blueprint?: BlueprintResult | null; error?: string; message?: string }>();
+  const confirmFetcher = useFetcher<{ moduleId?: string; recipeId?: string; firstModuleId?: string; moduleCount?: number; error?: string }>();
+  const [blueprint, setBlueprint] = useState<BlueprintResult | null>(null);
 
   const [phase, setPhase] = useState<'generating' | 'choosing' | 'ready'>('generating');
   const [stepIdx, setStepIdx] = useState(0);
@@ -157,6 +168,7 @@ function GenerateWorkspace() {
     setSettingsMap(sm);
     setThreadMap(tm);
     setHistoryMap(hm);
+    setBlueprint(proposeFetcher.data.blueprint ?? null);
     setSelected(null);
     setPhase('choosing');
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -164,6 +176,11 @@ function GenerateWorkspace() {
 
   // After confirm (real module created), go to the module detail.
   useEffect(() => {
+    if (confirmFetcher.state === 'idle' && confirmFetcher.data?.firstModuleId) {
+      ctx.toast(`Blueprint created — ${confirmFetcher.data.moduleCount ?? 'multiple'} modules`);
+      navigate(`/modules?recipe=${confirmFetcher.data.recipeId}`);
+      return;
+    }
     if (confirmFetcher.state === 'idle' && confirmFetcher.data?.moduleId) {
       ctx.toast('Module created');
       navigate(`/modules/${confirmFetcher.data.moduleId}`);
@@ -211,6 +228,18 @@ function GenerateWorkspace() {
   };
 
   // Create the real module from the selected concept's AI recipe, then navigate.
+  const finishBlueprint = () => {
+    if (!blueprint) return;
+    const fd = new FormData();
+    fd.set('blueprint', JSON.stringify({
+      name: blueprint.name,
+      summary: blueprint.summary,
+      modules: blueprint.modules.map((m) => ({ role: m.role, explanation: m.explanation, recipe: m.recipe })),
+      links: blueprint.links ?? [],
+    }));
+    confirmFetcher.submit(fd, { method: 'post', action: '/api/ai/create-blueprint' });
+  };
+
   const finish = (fallbackMsg: string) => {
     const recipe = activeCand?.recipe;
     if (!recipe) { ctx.toast(fallbackMsg); navigate('/modules'); return; }
@@ -246,6 +275,25 @@ function GenerateWorkspace() {
           <Btn variant="primary" icon="rocket" loading={publishing} onClick={() => finish('Published — live in a few minutes')}>Publish</Btn>
         </div>
       </header>
+      {blueprint && (
+        <div style={{ padding: '12px 16px 0' }}>
+          <Banner tone="info" title={`This request is a full solution: ${blueprint.name} (${blueprint.moduleCount} modules)`}>
+            <div className="stack" style={{ gap: 8 }}>
+              <span className="t-sm">{blueprint.summary}</span>
+              <div className="row-2" style={{ flexWrap: 'wrap', gap: 6 }}>
+                {blueprint.modules.map((m) => (
+                  <Badge key={m.role}>{`${m.role} · ${titleCase(String(m.type).replace(/\./g, ' '))}`}</Badge>
+                ))}
+              </div>
+              <div>
+                <Btn variant="primary" icon="layers" loading={publishing} onClick={finishBlueprint}>
+                  {`Create all ${blueprint.moduleCount} modules`}
+                </Btn>
+              </div>
+            </div>
+          </Banner>
+        </div>
+      )}
       <div className="gen-body">
         <GenBuildPanel
           settings={settings} set={set} ctrlTab={ctrlTab} setCtrlTab={setCtrlTab}

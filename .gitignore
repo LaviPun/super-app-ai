@@ -61,6 +61,9 @@ apps/web/test-results/
 apps/frontend/test-results/
 test-results/
 
+# Generated smoke-test output (blueprint/design-system verification scripts)
+apps/web/scripts/smoke-out/
+
 # Vendored gstack (nested git repo; do not commit)
 .gstack-tools/
 .gstack/

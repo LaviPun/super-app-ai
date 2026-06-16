@@ -59,6 +59,7 @@ model Recipe {
   shop      Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
   category  String   // RECIPE_GOAL_CATEGORIES from manifest
   title     String
+  summary   String?  // blueprint description when this Recipe groups a multi-module blueprint
   version   Int      @default(1)
   createdAt DateTime @default(now())
 

@@ -1,6 +1,7 @@
 export * from './allowed-values.js';
 export * from './intent-packet.js';
 export * from './recipe.js';
+export * from './recipe-blueprint.js';
 export * from './storefront-style.js';
 export * from './capabilities.js';
 export * from './catalog.js';

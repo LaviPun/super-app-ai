@@ -3,7 +3,11 @@ import type { RecipeSpec } from '@superapp/core';
 import { ReleaseTransitionService } from '~/services/releases/release-transition.service';
 
 export class ModuleService {
-  async createDraft(shopDomain: string, spec: RecipeSpec) {
+  async createDraft(
+    shopDomain: string,
+    spec: RecipeSpec,
+    opts?: { recipeId?: string; sourceType?: string },
+  ) {
     const prisma = getPrisma();
     const shop = await prisma.shop.findUnique({ where: { shopDomain } });
     if (!shop) throw new Error('Shop not found');
@@ -15,6 +19,8 @@ export class ModuleService {
         category: spec.category,
         name: spec.name,
         status: 'DRAFT',
+        ...(opts?.recipeId ? { recipeId: opts.recipeId } : {}),
+        ...(opts?.sourceType ? { sourceType: opts.sourceType } : {}),
         versions: {
           create: {
             version: 1,

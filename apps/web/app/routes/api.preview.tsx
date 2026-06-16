@@ -3,13 +3,14 @@ import { shopify } from '~/shopify.server';
 import { RecipeService } from '~/services/recipes/recipe.service';
 import { PreviewService, type PreviewContext } from '~/services/preview/preview.service';
 import { PreviewSimulationInputSchema } from '@superapp/platform-contracts';
+import { loadStoreAestheticByDomain } from '~/services/ai/design-reference.server';
 
 export async function loader() {
   return json({ error: 'POST only' }, { status: 405 });
 }
 
 export async function action({ request }: { request: Request }) {
-  await shopify.authenticate.admin(request);
+  const { session } = await shopify.authenticate.admin(request);
 
   const formData = await request.formData().catch(() => null);
   const specJson = formData?.get('spec') as string | null;
@@ -26,6 +27,10 @@ export async function action({ request }: { request: Request }) {
       return json({ error: `Invalid simulation input: ${e instanceof Error ? e.message : String(e)}` }, { status: 400 });
     }
   }
+
+  // Inherit the merchant's live-theme fonts so the live-editor preview matches the storefront.
+  const aesthetic = await loadStoreAestheticByDomain(session.shop).catch(() => null);
+  if (aesthetic?.typography) context = { ...context, themeFonts: aesthetic.typography };
 
   try {
     const spec = new RecipeService().parse(specJson);

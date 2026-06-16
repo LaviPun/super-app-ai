@@ -38,7 +38,10 @@ export async function loader({ request }: { request: Request }) {
     const modules = await prisma.module.findMany({
       where: { shopId: shopRow.id },
       orderBy: { updatedAt: 'desc' },
-      include: { versions: { orderBy: { version: 'desc' }, take: 1 } },
+      include: {
+        versions: { orderBy: { version: 'desc' }, take: 1 },
+        recipe: { select: { id: true, title: true } },
+      },
       take: 200,
     });
 
@@ -56,6 +59,8 @@ export async function loader({ request }: { request: Request }) {
         version: m.versions[0]?.version ?? 1,
         summary: m.summary ?? `${designType(m.type)} module`,
         updated: timeAgo(m.updatedAt),
+        blueprintId: m.recipe?.id ?? null,
+        blueprintName: m.recipe?.title ?? null,
       })),
       stats: { total: modules.length, published, drafts },
       loaderError: undefined as string | undefined,
@@ -270,6 +275,11 @@ function ModulesBody({ modules, stats, loaderError }: any) {
                 <div className="stack-1" style={{ padding: 14 }}>
                   <div className="t-strong">{m.name}</div>
                   <div className="t-sm t-muted t-trunc">{m.summary}</div>
+                  {m.blueprintName && (
+                    <div style={{ marginTop: 6 }}>
+                      <Badge tone="info"><Icon name="layers" size={11} /> {m.blueprintName}</Badge>
+                    </div>
+                  )}
                   <div className="row spread" style={{ marginTop: 8 }}>
                     <Badge tone={TYPE_COLOR[m.type]}>{m.type}</Badge>
                     <span className="t-xs t-muted">v{m.version} · {m.updated}</span>

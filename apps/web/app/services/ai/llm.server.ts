@@ -1,6 +1,7 @@
-import type { RecipeSpec, ModuleType } from '@superapp/core';
+import type { RecipeSpec, ModuleType, RecipeBlueprint } from '@superapp/core';
 import crypto from 'node:crypto';
-import { RecipeSpecSchema } from '@superapp/core';
+import { RecipeSpecSchema, validateBlueprintCoherence } from '@superapp/core';
+import type { BlueprintPlan } from '~/services/ai/blueprint-planner';
 import { isMerchantCodeExecutionAllowed } from '~/env.server';
 import { AiUsageService } from '~/services/observability/ai-usage.service';
 import { resolveProviderIdForShop } from '~/services/ai/provider-routing.server';
@@ -41,7 +42,8 @@ import {
   getRecipeSingleJsonSchemaForType,
 } from '~/services/ai/recipe-json-schema.server';
 import type { PromptRouterDecision } from '~/schemas/prompt-router.server';
-import { buildDesignReferencePromptBlock, resolveDesignReferencePack, resolveStoreDesignReferencePack } from '~/services/ai/design-reference.server';
+import { buildDesignReferencePromptBlock, buildDesignSystemDirectiveForReference, resolveDesignReferencePack, resolveStoreDesignReferencePack, type DesignReferencePack } from '~/services/ai/design-reference.server';
+import { runDesignQa, summarizeQa } from '~/services/ai/design-qa.server';
 
 import { getPrisma } from '~/db.server';
 
@@ -537,6 +539,8 @@ export function compileCreateModulePrompt(params: {
   /** Prompt profile from ROUTING_TABLE (e.g. storefront_ui_v1). Drives surface-specific guidance. */
   promptProfile?: string;
   designReferenceBlock?: string;
+  designSystemDirective?: string;
+  blueprintContext?: string;
   uiDesignerPass?: string;
   frontendDeveloperPass?: string;
   premiumGuardrails?: string;
@@ -546,6 +550,12 @@ export function compileCreateModulePrompt(params: {
   const parts: string[] = [];
   if (params.designReferenceBlock) {
     parts.push(params.designReferenceBlock, '');
+  }
+  if (params.designSystemDirective) {
+    parts.push(params.designSystemDirective, '');
+  }
+  if (params.blueprintContext) {
+    parts.push(params.blueprintContext, '');
   }
   parts.push(
     params.purposeAndGuidance,
@@ -642,6 +652,8 @@ export function compileCreateSingleRecipePrompt(params: {
   intentPacketJson?: string;
   promptProfile?: string;
   designReferenceBlock?: string;
+  designSystemDirective?: string;
+  blueprintContext?: string;
   uiDesignerPass?: string;
   frontendDeveloperPass?: string;
   premiumGuardrails?: string;
@@ -650,6 +662,12 @@ export function compileCreateSingleRecipePrompt(params: {
   const parts: string[] = [];
   if (params.designReferenceBlock) {
     parts.push(params.designReferenceBlock, '');
+  }
+  if (params.designSystemDirective) {
+    parts.push(params.designSystemDirective, '');
+  }
+  if (params.blueprintContext) {
+    parts.push(params.blueprintContext, '');
   }
   parts.push(
     params.purposeAndGuidance,
@@ -694,6 +712,23 @@ export function compileCreateSingleRecipePrompt(params: {
   return parts.join('\n');
 }
 
+/**
+ * Run the spec-level design-QA gate (Design System Bible §G) and return the
+ * (safely auto-corrected) recipe. Re-validates after auto-fixes; falls back to
+ * the original recipe if a fix somehow breaks Zod. Logs blocking issues.
+ */
+function applyDesignQaSafe(recipe: RecipeSpec): RecipeSpec {
+  const qa = runDesignQa(recipe);
+  if (!qa.pass) {
+    console.warn(`[design-qa] ${summarizeQa(qa)} — ${qa.issues
+      .filter((i) => i.severity === 'fail')
+      .map((i) => i.id)
+      .join(', ')}`);
+  }
+  const safe = RecipeSpecSchema.safeParse(qa.recipe);
+  return safe.success ? safe.data : recipe;
+}
+
 /** All inputs are strings; returns a single compiled prompt string to send to the AI. */
 export function compileModifyModulePrompt(params: {
   summary: string;
@@ -724,7 +759,7 @@ export function compileModifyModulePrompt(params: {
  * Unwrap the `{ recipe: ... }` wrapper that structured output produces.
  * Falls back to treating the whole object as a recipe for backward compatibility.
  */
-function unwrapRecipe(raw: unknown): unknown {
+export function unwrapRecipe(raw: unknown): unknown {
   if (raw && typeof raw === 'object' && 'recipe' in raw) {
     return (raw as { recipe?: unknown }).recipe;
   }
@@ -813,7 +848,7 @@ function normalizeEnumValue(key: string, value: string): string {
  * Repair common AI output issues before Zod: default category/requires, normalize enums, coerce numbers, clamp name.
  * Merges AI's "settings" + "controls" into "config" and strips non-spec keys (assets, meta).
  */
-function repairRecipeForValidation(raw: unknown): unknown {
+export function repairRecipeForValidation(raw: unknown): unknown {
   if (!raw || typeof raw !== 'object') return raw;
   const o = JSON.parse(JSON.stringify(raw)) as Record<string, unknown>;
   const type = o.type as string | undefined;
@@ -1121,6 +1156,8 @@ export async function* generateValidatedRecipeOptionsStream(
     optionCount?: number;
     /** Search-augmented grounding examples (RAG), injected into each prompt. */
     groundingBlock?: string;
+    /** When this module is one member of a blueprint, coordination context for the prompt. */
+    blueprintContext?: string;
   },
 ): AsyncGenerator<RecipeOptionStreamEvent, void, void> {
   const optionCount = Math.max(1, Math.min(3, options?.optionCount ?? 3));
@@ -1158,11 +1195,11 @@ export async function* generateValidatedRecipeOptionsStream(
   const intentPacketJson = options?.routerDecision?.includeFlags.includeIntentPacket === false
     ? undefined
     : options?.intentPacketJson;
-  const designReferenceBlock = isStorefront
-    ? buildDesignReferencePromptBlock(
-        options?.shopId ? await resolveStoreDesignReferencePack(options.shopId) : await resolveDesignReferencePack(),
-      )
+  const designReferencePack: DesignReferencePack | undefined = isStorefront
+    ? (options?.shopId ? await resolveStoreDesignReferencePack(options.shopId) : await resolveDesignReferencePack())
     : undefined;
+  const designReferenceBlock = designReferencePack ? buildDesignReferencePromptBlock(designReferencePack) : undefined;
+  const designSystemDirective = designReferencePack ? buildDesignSystemDirectiveForReference(designReferencePack) : undefined;
   const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
   const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
   const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
@@ -1189,6 +1226,8 @@ export async function* generateValidatedRecipeOptionsStream(
       intentPacketJson,
       promptProfile: options?.promptProfile,
       designReferenceBlock,
+      designSystemDirective,
+      blueprintContext: options?.blueprintContext,
       uiDesignerPass,
       frontendDeveloperPass,
       premiumGuardrails,
@@ -1227,6 +1266,8 @@ export async function* generateValidatedRecipeOptionsStream(
         recipe = fix.recipe;
         repairedFlag = fix.repaired;
       }
+
+      recipe = applyDesignQaSafe(recipe);
 
       const explanation = typeof (parsed as { explanation?: unknown })?.explanation === 'string'
         ? (parsed as { explanation: string }).explanation
@@ -1338,6 +1379,8 @@ export async function generateValidatedRecipeOptionsParallel(
     optionCount?: number;
     /** Search-augmented grounding examples (RAG), injected into each prompt. */
     groundingBlock?: string;
+    /** When this module is one member of a blueprint, coordination context for the prompt. */
+    blueprintContext?: string;
   },
 ): Promise<RecipeOption[]> {
   const optionCount = Math.max(1, Math.min(3, options?.optionCount ?? 3));
@@ -1375,11 +1418,11 @@ export async function generateValidatedRecipeOptionsParallel(
   const intentPacketJson = options?.routerDecision?.includeFlags.includeIntentPacket === false
     ? undefined
     : options?.intentPacketJson;
-  const designReferenceBlock = isStorefront
-    ? buildDesignReferencePromptBlock(
-        options?.shopId ? await resolveStoreDesignReferencePack(options.shopId) : await resolveDesignReferencePack(),
-      )
+  const designReferencePack: DesignReferencePack | undefined = isStorefront
+    ? (options?.shopId ? await resolveStoreDesignReferencePack(options.shopId) : await resolveDesignReferencePack())
     : undefined;
+  const designReferenceBlock = designReferencePack ? buildDesignReferencePromptBlock(designReferencePack) : undefined;
+  const designSystemDirective = designReferencePack ? buildDesignSystemDirectiveForReference(designReferencePack) : undefined;
   const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
   const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
   const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
@@ -1401,6 +1444,8 @@ export async function generateValidatedRecipeOptionsParallel(
       intentPacketJson,
       promptProfile: options?.promptProfile,
       designReferenceBlock,
+      designSystemDirective,
+      blueprintContext: options?.blueprintContext,
       uiDesignerPass,
       frontendDeveloperPass,
       premiumGuardrails,
@@ -1440,6 +1485,8 @@ export async function generateValidatedRecipeOptionsParallel(
         recipe = fix.recipe;
         repairedFlag = fix.repaired;
       }
+
+      recipe = applyDesignQaSafe(recipe);
 
       const explanation = typeof (parsed as { explanation?: unknown })?.explanation === 'string'
         ? (parsed as { explanation: string }).explanation
@@ -1494,6 +1541,85 @@ export async function generateValidatedRecipeOptionsParallel(
  * For types that don't yet have a JSON Schema (rare), falls back to the legacy
  * "ask for 3 in one call" path.
  */
+/**
+ * Generate a coordinated multi-module blueprint from one request. For each
+ * planned role, generates ONE best-fit validated recipe (optionCount: 1 to bound
+ * cost) with cross-module coordination context injected into the prompt. Reuses
+ * the full per-module pipeline (design directive + design-QA gate). Required
+ * roles that fail to generate abort the blueprint; optional roles are skipped.
+ */
+export async function generateValidatedBlueprint(
+  prompt: string,
+  plan: Extract<BlueprintPlan, { kind: 'blueprint' }>,
+  options?: {
+    shopId?: string;
+    intentPacketJson?: string;
+    confidenceScore?: number;
+    promptProfile?: string;
+    routerDecision?: PromptRouterDecision;
+    groundingBlock?: string;
+  },
+): Promise<RecipeBlueprint> {
+  const roleList = plan.modules.map((m) => `${m.role} (${m.moduleType})`).join(', ');
+
+  const generated = await Promise.all(
+    plan.modules.map(async (m) => {
+      const blueprintContext = [
+        `BLUEPRINT CONTEXT — coordinate, do not duplicate:`,
+        `This module is the "${m.role}" of the "${plan.name}" blueprint (${plan.summary}).`,
+        `The full blueprint contains: ${roleList}.`,
+        `This member's job: ${m.reason}`,
+        `Do the "${m.role}" job only; the other members handle their own surfaces. Keep naming/behavior consistent with them.`,
+        m.kindHint ? `Prefer config.kind "${m.kindHint}" for this member.` : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+
+      const recipeOptions = await generateValidatedRecipeOptionsParallel(
+        prompt,
+        { moduleType: m.moduleType, intent: plan.intent },
+        {
+          shopId: options?.shopId,
+          intentPacketJson: options?.intentPacketJson,
+          confidenceScore: options?.confidenceScore,
+          promptProfile: options?.promptProfile,
+          routerDecision: options?.routerDecision,
+          groundingBlock: options?.groundingBlock,
+          optionCount: 1,
+          blueprintContext,
+        },
+      ).catch((err) => {
+        if (m.required) throw new Error(`Blueprint member "${m.role}" (${m.moduleType}) failed: ${err instanceof Error ? err.message : String(err)}`);
+        return [] as RecipeOption[];
+      });
+
+      const best = recipeOptions[0];
+      return best ? { role: m.role, explanation: best.explanation, recipe: best.recipe } : null;
+    }),
+  );
+
+  const modules = generated.filter((x): x is NonNullable<typeof x> => x != null);
+  if (modules.length === 0) throw new Error('Blueprint generation produced no valid modules.');
+
+  const presentRoles = new Set(modules.map((m) => m.role));
+  const links = plan.modules
+    .filter((m) => m.role !== plan.primaryRole && presentRoles.has(m.role) && presentRoles.has(plan.primaryRole))
+    .map((m) => ({ fromRole: plan.primaryRole, toRole: m.role, note: m.reason }));
+
+  const blueprint: RecipeBlueprint = {
+    name: plan.name,
+    summary: plan.summary,
+    modules,
+    ...(links.length ? { links } : {}),
+  };
+
+  const coherence = validateBlueprintCoherence(blueprint);
+  if (!coherence.ok) {
+    console.warn(`[blueprint] coherence issues for "${plan.name}": ${coherence.issues.join(' | ')}`);
+  }
+  return blueprint;
+}
+
 export async function generateValidatedRecipeOptions(
   prompt: string,
   classification: { moduleType: ModuleType; intent?: string; surface?: string },
@@ -1506,6 +1632,8 @@ export async function generateValidatedRecipeOptions(
     routerDecision?: PromptRouterDecision;
     /** Search-augmented grounding examples (RAG), injected into each prompt. */
     groundingBlock?: string;
+    /** When this module is one member of a blueprint, coordination context for the prompt. */
+    blueprintContext?: string;
   },
 ): Promise<RecipeOption[]> {
   if (getRecipeSingleJsonSchemaForType(classification.moduleType)) {
@@ -1517,6 +1645,7 @@ export async function generateValidatedRecipeOptions(
       routerDecision: options?.routerDecision,
       optionCount: 3,
       groundingBlock: options?.groundingBlock,
+      blueprintContext: options?.blueprintContext,
     });
   }
   const maxAttempts = options?.maxAttempts ?? 3;
@@ -1540,11 +1669,11 @@ export async function generateValidatedRecipeOptions(
   const settingsPack = options?.routerDecision?.includeFlags.includeSettingsPack === false
     ? undefined
     : getSettingsPack(classification.moduleType);
-  const designReferenceBlock = isStorefront
-    ? buildDesignReferencePromptBlock(
-        options?.shopId ? await resolveStoreDesignReferencePack(options.shopId) : await resolveDesignReferencePack(),
-      )
+  const designReferencePack: DesignReferencePack | undefined = isStorefront
+    ? (options?.shopId ? await resolveStoreDesignReferencePack(options.shopId) : await resolveDesignReferencePack())
     : undefined;
+  const designReferenceBlock = designReferencePack ? buildDesignReferencePromptBlock(designReferencePack) : undefined;
+  const designSystemDirective = designReferencePack ? buildDesignSystemDirectiveForReference(designReferencePack) : undefined;
   const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
   const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
   const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
@@ -1597,6 +1726,8 @@ export async function generateValidatedRecipeOptions(
       intentPacketJson: includeIntentPacket ? options?.intentPacketJson : undefined,
       promptProfile: options?.promptProfile,
       designReferenceBlock,
+      designSystemDirective,
+      blueprintContext: options?.blueprintContext,
       uiDesignerPass,
       frontendDeveloperPass,
       premiumGuardrails,
@@ -1631,7 +1762,7 @@ export async function generateValidatedRecipeOptions(
         if (parsed.success) {
           validated.push({
             explanation: typeof opt?.explanation === 'string' ? opt.explanation : `Option ${validated.length + 1}`,
-            recipe: parsed.data,
+            recipe: applyDesignQaSafe(parsed.data),
           });
           continue;
         }
@@ -1643,7 +1774,7 @@ export async function generateValidatedRecipeOptions(
           });
           validated.push({
             explanation: typeof opt?.explanation === 'string' ? opt.explanation : `Option ${validated.length + 1} (repaired)`,
-            recipe,
+            recipe: applyDesignQaSafe(recipe),
           });
         } catch (repairErr) {
           if (!firstValidationError) firstValidationError = repairErr instanceof Error ? repairErr.message : String(repairErr);
