@@ -17,6 +17,8 @@
     "router:internal": "tsx --tsconfig tsconfig.scripts.json scripts/internal-ai-router.ts",
     "evals": "tsx --tsconfig tsconfig.scripts.json scripts/run-evals.ts",
     "evals:strict": "pnpm evals --strict",
+    "tournament": "tsx --tsconfig tsconfig.scripts.json scripts/run-tournament.ts",
+    "tournament:fixture": "tsx --tsconfig tsconfig.scripts.json scripts/run-tournament-fixture.ts",
     "evals:live": "RUN_LIVE_EVALS=1 vitest run app/__tests__/evals.live.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",

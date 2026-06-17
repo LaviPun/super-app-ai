@@ -67,3 +67,4 @@ apps/web/scripts/smoke-out/
 # Vendored gstack (nested git repo; do not commit)
 .gstack-tools/
 .gstack/
+apps/web/scripts/tournament-out/
