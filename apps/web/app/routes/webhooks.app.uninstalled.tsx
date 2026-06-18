@@ -11,10 +11,9 @@ type AppUninstalledPayload = {
 export async function action({ request }: { request: Request }) {
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
 
-  await shopify.authenticate.webhook(request);
-
-  const payload = (await request.json()) as AppUninstalledPayload;
-  const shopDomain = String(payload.myshopify_domain ?? payload.domain ?? '').trim().toLowerCase();
+  const { payload } = await shopify.authenticate.webhook(request);
+  const webhookPayload = payload as AppUninstalledPayload;
+  const shopDomain = String(webhookPayload.myshopify_domain ?? webhookPayload.domain ?? '').trim().toLowerCase();
   if (!shopDomain) {
     return new Response(JSON.stringify({ error: 'Missing shop domain' }), {
       status: 400,
