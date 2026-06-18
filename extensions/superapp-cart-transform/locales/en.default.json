@@ -1,0 +1,4 @@
+{
+  "name": "SuperApp Cart Transform",
+  "description": "Merges SuperApp bundle component lines into one parent bundle line in cart and checkout."
+}

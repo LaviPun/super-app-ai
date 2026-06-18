@@ -1,0 +1,18 @@
+api_version = "2026-04"
+
+[[extensions]]
+name = "t:name"
+handle = "discount-function"
+type = "function"
+uid = "6179b5f8-2ace-7370-0584-a7fb2f3aa70a2f520122"
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "cart.lines.discounts.generate.run"
+  input_query = "src/cart_lines_discounts_generate_run.graphql"
+  export = "cart_lines_discounts_generate_run"
+
+  [extensions.build]
+  command = "cargo build --target=wasm32-unknown-unknown --release"
+  path = "target/wasm32-unknown-unknown/release/superapp-discount.wasm"
+  watch = [ "src/**/*.rs" ]

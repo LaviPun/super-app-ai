@@ -1,0 +1,16 @@
+name = "superapp-web-pixel"
+type = "web_pixel_extension"
+uid = "1f65ba7c-9f70-3242-7d49-686078c6f1f1eb837401"
+
+runtime_context = "strict"
+
+[settings]
+type = "object"
+
+[settings.fields.accountID]
+name = "Account ID"
+description = "Account ID"
+type = "single_line_text_field"
+validations =  [
+  { name = "min", value = "1" }
+]

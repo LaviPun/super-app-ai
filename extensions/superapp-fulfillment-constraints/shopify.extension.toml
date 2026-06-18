@@ -1,0 +1,22 @@
+api_version = "2026-04"
+
+[[extensions]]
+name = "t:name"
+handle = "superapp-fulfillment-constraints"
+type = "function"
+uid = "32fd7a0b-c2ee-b3de-e062-46cbb7e6dac007f17076"
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "cart.fulfillment-constraints.generate.run"
+  input_query = "src/cart_fulfillment_constraints_generate_run.graphql"
+  export = "cart_fulfillment_constraints_generate_run"
+
+  [extensions.build]
+  command = "cargo build --target=wasm32-unknown-unknown --release"
+  path = "target/wasm32-unknown-unknown/release/superapp-fulfillment-constraints.wasm"
+  watch = [ "src/**/*.rs" ]
+
+  [extensions.ui.paths]
+  create = "/"
+  details = "/"

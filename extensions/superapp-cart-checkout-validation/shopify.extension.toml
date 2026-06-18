@@ -1,0 +1,18 @@
+api_version = "2026-04"
+
+[[extensions]]
+name = "t:name"
+handle = "superapp-cart-checkout-validation"
+type = "function"
+uid = "9e2d8804-9f53-ef60-c2cc-7eac2c4688bd605868fc"
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "cart.validations.generate.run"
+  input_query = "src/cart_validations_generate_run.graphql"
+  export = "cart_validations_generate_run"
+
+  [extensions.build]
+  command = "cargo build --target=wasm32-unknown-unknown --release"
+  path = "target/wasm32-unknown-unknown/release/superapp-cart-checkout-validation.wasm"
+  watch = ["src/**/*.rs"]

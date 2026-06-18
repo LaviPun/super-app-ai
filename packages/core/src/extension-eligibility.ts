@@ -1,0 +1,308 @@
+/**
+ * Extension eligibility registry — the single source of truth for HOW every
+ * module type deploys, what Shopify plan/scopes it needs to take effect, and
+ * whether its runtime is actually shipped.
+ *
+ * This replaces the old binary "blocked / gated" model. A merchant can ask for
+ * ANYTHING, so the platform must answer one of two honest things for every type:
+ *   1. `deployable`     — a real runtime is shipped; publish writes config the
+ *                         runtime reads. (Plan/scope requirements are surfaced as
+ *                         merchant-facing NOTES, never a silent block — e.g.
+ *                         "delivery customization runs on Shopify Plus".)
+ *   2. `needs_runtime`  — the runtime binary/extension is not shipped yet. This is
+ *                         the ONLY thing that genuinely can't deploy, and the goal
+ *                         is to drive this set to empty by shipping each runtime.
+ *
+ * The registry maps each `ModuleType` to a concrete Shopify extension family
+ * (theme app extension, checkout UI, admin UI, customer-account UI, Flow,
+ * Web Pixel, POS UI, Function wasm, app proxy, or a composite). `runtimeShipped`
+ * is static for fixed-family runtimes (theme/checkout/admin/etc. that live in
+ * `extensions/`) and computed from the deployed-function manifest for Functions.
+ *
+ * Mirrors the public Shopify extension surface so the categorization tracks
+ * "the list from Shopify". Extend by adding/flipping an entry when a runtime ships.
+ */
+import type { ModuleType } from './allowed-values.js';
+import { RECIPE_SPEC_TYPES } from './allowed-values.js';
+import type { CapabilitySurface } from './capability-graph.js';
+import { getCapabilityNode } from './capability-graph.js';
+
+/** The Shopify extension family that backs a module type at runtime. */
+export type ExtensionRuntimeKind =
+  | 'theme' // theme app extension (extensions/theme-app-extension)
+  | 'checkout-ui' // checkout UI extension (extensions/checkout-ui)
+  | 'customer-account-ui' // extensions/customer-account-ui
+  | 'admin-ui' // extensions/admin-ui
+  | 'flow' // Flow actions/triggers (extensions/superapp-flow-*)
+  | 'web-pixel' // Web Pixel extension (analytics)
+  | 'pos-ui' // POS UI extension
+  | 'app-proxy' // handled server-side via the app proxy (always available)
+  | 'function' // Shopify Function (wasm)
+  | 'composite'; // composes other module types (no runtime of its own)
+
+/** Merchant Shopify plan tier (from Shop.planTier). */
+export type MerchantPlanTier = 'plus' | 'standard' | 'unknown';
+
+export type ExtensionEligibility = {
+  moduleType: ModuleType;
+  surface: CapabilitySurface;
+  runtime: ExtensionRuntimeKind;
+  /**
+   * For `runtime: 'function'`, the wasm extension handle that must be deployed.
+   * Shipped-ness for functions is computed from the deployed-function manifest.
+   */
+  functionHandle?: string;
+  /**
+   * Whether the (non-function) runtime extension is shipped in `extensions/`.
+   * For `runtime: 'function'`, this is ignored — use the manifest.
+   */
+  runtimeShipped: boolean;
+  /**
+   * Shopify plan required for this surface/API to take EFFECT at runtime. The
+   * config still deploys on any plan; this is a merchant-facing note, not a block.
+   * `undefined` ⇒ available on all plans.
+   */
+  requiresPlan?: 'plus';
+  /** Access scopes the app must hold to write this module's config. */
+  requiredScopes: string[];
+  /** Short merchant-facing description of how this module deploys. */
+  note: string;
+};
+
+/**
+ * Plan-gated Shopify Function APIs: these only take effect on Shopify Plus. We
+ * still build + deploy the wasm and write config; the merchant simply needs Plus
+ * for it to run. Surfaced as a note so the answer is "deployable on Plus", never
+ * "blocked".
+ */
+const PLUS_ONLY_FUNCTIONS = new Set<ModuleType>([
+  'functions.deliveryCustomization',
+  'functions.paymentCustomization',
+  'functions.cartAndCheckoutValidation',
+]);
+
+/**
+ * Function wasm extension handles, by module type (Layer-A runtimes). These match
+ * the `handle` in each `extensions/<dir>/shopify.extension.toml`. A handle here is
+ * only "deployable" once it's also in the deployed-extensions manifest.
+ *
+ * `orderRoutingLocationRule` has NO entry: the Shopify CLI offers no order-routing
+ * function template, so there is no wasm to ship — it stays `needs_runtime` until
+ * Shopify exposes that surface.
+ */
+export const FUNCTION_RUNTIME_HANDLES: Record<string, string> = {
+  'functions.cartTransform': 'cart-transform-function',
+  'functions.discountRules': 'discount-function',
+  'functions.deliveryCustomization': 'superapp-delivery-customization',
+  'functions.paymentCustomization': 'superapp-payment-customization',
+  'functions.cartAndCheckoutValidation': 'superapp-cart-checkout-validation',
+  'functions.fulfillmentConstraints': 'superapp-fulfillment-constraints',
+};
+
+/**
+ * How each module type deploys. `runtimeShipped` reflects what physically exists
+ * in `extensions/` today (flip to `true` the moment a runtime ships). For
+ * functions, `runtimeShipped` is unused — the deployed-function manifest decides.
+ */
+const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
+  // ── Theme app extension (shipped) ──────────────────────────────────────────
+  'theme.section': {
+    moduleType: 'theme.section',
+    runtime: 'theme',
+    runtimeShipped: true,
+    requiredScopes: ['write_metaobjects', 'read_themes'],
+    note: 'Renders as a theme app block via the storefront theme extension.',
+  },
+  'proxy.widget': {
+    moduleType: 'proxy.widget',
+    runtime: 'app-proxy',
+    runtimeShipped: true,
+    requiredScopes: ['write_metaobjects'],
+    note: 'Served through the app proxy; available on all plans.',
+  },
+
+  // ── Shopify Functions (wasm) ───────────────────────────────────────────────
+  'functions.discountRules': fn('functions.discountRules', 'Applies server-side discounts via a Function.'),
+  'functions.cartTransform': fn('functions.cartTransform', 'Merges/expands cart lines via a Cart Transform Function.'),
+  'functions.deliveryCustomization': fn(
+    'functions.deliveryCustomization',
+    'Reorders/renames/hides delivery options via a Function (runs on Shopify Plus).',
+  ),
+  'functions.paymentCustomization': fn(
+    'functions.paymentCustomization',
+    'Reorders/renames/hides payment methods via a Function (runs on Shopify Plus).',
+  ),
+  'functions.cartAndCheckoutValidation': fn(
+    'functions.cartAndCheckoutValidation',
+    'Blocks cart/checkout progress on rule violations via a Function (checkout-level validation runs on Shopify Plus).',
+  ),
+  'functions.fulfillmentConstraints': fn(
+    'functions.fulfillmentConstraints',
+    'Constrains how line items can be grouped/fulfilled via a Function.',
+  ),
+  'functions.orderRoutingLocationRule': fn(
+    'functions.orderRoutingLocationRule',
+    'Influences which location fulfills an order via a Function.',
+  ),
+
+  // ── Checkout / post-purchase UI (shipped: extensions/checkout-ui) ──────────
+  'checkout.upsell': {
+    moduleType: 'checkout.upsell',
+    runtime: 'checkout-ui',
+    runtimeShipped: true,
+    requiresPlan: 'plus',
+    requiredScopes: ['write_metaobjects'],
+    note: 'Renders in checkout via a checkout UI extension (checkout extensibility runs on Shopify Plus).',
+  },
+  'checkout.block': {
+    moduleType: 'checkout.block',
+    runtime: 'checkout-ui',
+    runtimeShipped: true,
+    requiresPlan: 'plus',
+    requiredScopes: ['write_metaobjects'],
+    note: 'Renders a custom block in checkout via a checkout UI extension (runs on Shopify Plus).',
+  },
+  'postPurchase.offer': {
+    moduleType: 'postPurchase.offer',
+    runtime: 'checkout-ui',
+    runtimeShipped: true,
+    requiredScopes: ['write_metaobjects'],
+    note: 'Renders on the Thank-you / Order-status page via the checkout UI extension (available on all plans).',
+  },
+
+  // ── Admin UI (shipped: extensions/admin-ui) ────────────────────────────────
+  'admin.block': {
+    moduleType: 'admin.block',
+    runtime: 'admin-ui',
+    runtimeShipped: true,
+    requiredScopes: ['write_metaobjects'],
+    note: 'Renders inside the Shopify admin via an admin UI extension.',
+  },
+  'admin.action': {
+    moduleType: 'admin.action',
+    runtime: 'admin-ui',
+    runtimeShipped: true,
+    requiredScopes: ['write_metaobjects'],
+    note: 'Adds an admin action via an admin UI extension.',
+  },
+
+  // ── Customer account UI (shipped: extensions/customer-account-ui) ──────────
+  'customerAccount.blocks': {
+    moduleType: 'customerAccount.blocks',
+    runtime: 'customer-account-ui',
+    runtimeShipped: true,
+    requiredScopes: ['write_metaobjects'],
+    note: 'Renders in customer accounts via a customer-account UI extension.',
+  },
+
+  // ── Flow (shipped: extensions/superapp-flow-*) ─────────────────────────────
+  'flow.automation': {
+    moduleType: 'flow.automation',
+    runtime: 'flow',
+    // Flow trigger/action extensions ship; flip to true once the compiler
+    // persists the workflow definition at publish (see compileFlowAutomation).
+    runtimeShipped: false,
+    requiredScopes: ['write_metaobjects'],
+    note: 'Persists a workflow definition the engine runs; Shopify Flow trigger/action extensions are shipped.',
+  },
+
+  // ── Integration (app proxy / server, always available) ─────────────────────
+  'integration.httpSync': {
+    moduleType: 'integration.httpSync',
+    runtime: 'app-proxy',
+    runtimeShipped: true,
+    requiredScopes: ['write_metaobjects'],
+    note: 'Runs server-side (scheduled/app-proxy sync); available on all plans.',
+  },
+
+  // ── Web Pixel (analytics) ──────────────────────────────────────────────────
+  'analytics.pixel': {
+    moduleType: 'analytics.pixel',
+    runtime: 'web-pixel',
+    // extensions/superapp-web-pixel ships; compiler emits WEB_PIXEL_UPSERT and
+    // PublishService deploys it via webPixelCreate/Update.
+    runtimeShipped: true,
+    requiredScopes: ['write_pixels', 'read_customer_events'],
+    note: 'Subscribes to storefront events via a Web Pixel extension.',
+  },
+
+  // ── POS UI ─────────────────────────────────────────────────────────────────
+  'pos.extension': {
+    moduleType: 'pos.extension',
+    runtime: 'pos-ui',
+    // Shipped: extensions/superapp-pos-block reads published config from the app
+    // backend (/api/pos/config) via App Authentication — POS can't read
+    // Storefront metaobjects, so config comes from the app, not metaobjects.
+    runtimeShipped: true,
+    requiredScopes: ['write_metaobjects'],
+    note: 'Renders on Shopify POS via a POS UI extension; reads its published config from the app backend (/api/pos/config) using a session token, since POS cannot read Storefront metaobjects.',
+  },
+
+  // ── Composite (no runtime of its own; decomposes into real members) ────────
+  'platform.extensionBlueprint': {
+    moduleType: 'platform.extensionBlueprint',
+    runtime: 'composite',
+    runtimeShipped: true,
+    requiredScopes: [],
+    note: 'A blueprint that composes other deployable module types; deploys via its members.',
+  },
+};
+
+function fn(moduleType: ModuleType, note: string): Omit<ExtensionEligibility, 'surface'> {
+  return {
+    moduleType,
+    runtime: 'function',
+    functionHandle: FUNCTION_RUNTIME_HANDLES[moduleType],
+    runtimeShipped: false, // functions resolve shipped-ness from the manifest
+    requiresPlan: PLUS_ONLY_FUNCTIONS.has(moduleType) ? 'plus' : undefined,
+    requiredScopes: ['write_metaobjects'],
+    note,
+  };
+}
+
+/** Eligibility metadata for a module type (surface filled from the capability graph). */
+export function getExtensionEligibility(moduleType: ModuleType): ExtensionEligibility {
+  const base = REGISTRY[moduleType];
+  return { ...base, surface: getCapabilityNode(moduleType).surface };
+}
+
+/** All eligibility entries (used by audits/UI). */
+export function listExtensionEligibility(): ExtensionEligibility[] {
+  return RECIPE_SPEC_TYPES.map(getExtensionEligibility);
+}
+
+export type RuntimeShippedCheck = {
+  /** Function handles known-deployed via `shopify app deploy` (Layer-A manifest). */
+  deployedFunctionHandles?: Iterable<string>;
+};
+
+/**
+ * Whether a module type's runtime is actually shipped. For functions, this is the
+ * presence of its handle in the deployed-function manifest; for fixed-family
+ * runtimes it is the static `runtimeShipped` flag.
+ */
+export function isRuntimeShipped(moduleType: ModuleType, ctx: RuntimeShippedCheck = {}): boolean {
+  const e = getExtensionEligibility(moduleType);
+  if (e.runtime === 'function') {
+    const deployed = new Set(ctx.deployedFunctionHandles ?? []);
+    return !!e.functionHandle && deployed.has(e.functionHandle);
+  }
+  return e.runtimeShipped;
+}
+
+/**
+ * Whether a module's plan/scope requirements are satisfied for the merchant. This
+ * NEVER blocks deploy — it drives a merchant-facing note ("needs Shopify Plus to
+ * take effect"). Returns the unmet requirements so the UI can explain them.
+ */
+export function evaluatePlanEligibility(
+  moduleType: ModuleType,
+  ctx: { plan?: MerchantPlanTier; grantedScopes?: Iterable<string> } = {},
+): { planSatisfied: boolean; requiresPlan?: 'plus'; missingScopes: string[] } {
+  const e = getExtensionEligibility(moduleType);
+  const plan = ctx.plan ?? 'unknown';
+  const planSatisfied = !e.requiresPlan || plan === 'plus';
+  const granted = new Set(ctx.grantedScopes ?? []);
+  const missingScopes = ctx.grantedScopes ? e.requiredScopes.filter((s) => !granted.has(s)) : [];
+  return { planSatisfied, requiresPlan: e.requiresPlan, missingScopes };
+}

@@ -1,0 +1,71 @@
+{
+  "payload": {
+    "export": "cart_lines_discounts_generate_run",
+    "target": "cart.lines.discounts.generate.run",
+    "input": {
+      "cart": {
+        "cost": {
+          "subtotalAmount": {
+            "amount": "60.0"
+          }
+        },
+        "lines": [
+          {
+            "id": "gid://shopify/CartLine/0",
+            "cost": {
+              "subtotalAmount": {
+                "amount": "60.0"
+              }
+            },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "sku": "REVEAL-SKU"
+            }
+          }
+        ]
+      },
+      "discount": {
+        "discountClasses": ["PRODUCT", "ORDER"],
+        "metafield": {
+          "jsonValue": {
+            "rules": [
+              {
+                "when": { "minSubtotal": 50.0, "skuIn": ["REVEAL-SKU"] },
+                "apply": { "percentageOff": 20.0 }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": [
+        {
+          "productDiscountsAdd": {
+            "candidates": [
+              {
+                "associatedDiscountCode": null,
+                "message": "20% OFF",
+                "prerequisites": null,
+                "targets": [
+                  {
+                    "cartLine": {
+                      "id": "gid://shopify/CartLine/0",
+                      "quantity": null
+                    }
+                  }
+                ],
+                "value": {
+                  "percentage": {
+                    "value": "20.0"
+                  }
+                }
+              }
+            ],
+            "selectionStrategy": "FIRST"
+          }
+        }
+      ]
+    }
+  }
+}

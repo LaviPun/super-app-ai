@@ -1,0 +1,9 @@
+{
+  "name": "superapp-pos-block",
+  "block_heading": "SuperApp",
+  "action_heading": "SuperApp",
+  "open_action": "Open",
+  "loading": "Loading…",
+  "load_error": "Couldn't load configuration.",
+  "empty_state": "No POS module is published for this store yet."
+}

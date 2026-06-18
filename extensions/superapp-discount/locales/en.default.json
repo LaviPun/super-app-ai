@@ -1,0 +1,4 @@
+{
+  "name": "SuperApp Discount",
+  "description": "Applies SuperApp discount rules (percentage off matching products) from published config."
+}

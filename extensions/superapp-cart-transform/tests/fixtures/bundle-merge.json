@@ -1,0 +1,70 @@
+{
+  "payload": {
+    "export": "cart_transform_run",
+    "target": "cart.transform.run",
+    "input": {
+      "cart": {
+        "lines": [
+          {
+            "id": "gid://shopify/CartLine/1",
+            "quantity": 1,
+            "bundleId": { "value": "starter-bundle" },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "id": "gid://shopify/ProductVariant/11"
+            }
+          },
+          {
+            "id": "gid://shopify/CartLine/2",
+            "quantity": 1,
+            "bundleId": { "value": "starter-bundle" },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "id": "gid://shopify/ProductVariant/12"
+            }
+          },
+          {
+            "id": "gid://shopify/CartLine/3",
+            "quantity": 2,
+            "bundleId": null,
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "id": "gid://shopify/ProductVariant/99"
+            }
+          }
+        ]
+      },
+      "cartTransform": {
+        "metafield": {
+          "jsonValue": {
+            "bundles": [
+              {
+                "bundleId": "starter-bundle",
+                "parentVariantId": "gid://shopify/ProductVariant/500",
+                "title": "Starter Bundle",
+                "discountPercentage": 15.0
+              }
+            ]
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": [
+        {
+          "linesMerge": {
+            "attributes": null,
+            "cartLines": [
+              { "cartLineId": "gid://shopify/CartLine/1", "quantity": 1 },
+              { "cartLineId": "gid://shopify/CartLine/2", "quantity": 1 }
+            ],
+            "image": null,
+            "parentVariantId": "gid://shopify/ProductVariant/500",
+            "title": "Starter Bundle",
+            "price": { "percentageDecrease": { "value": "15.0" } }
+          }
+        }
+      ]
+    }
+  }
+}
