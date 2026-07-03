@@ -255,6 +255,7 @@ export const ADMIN_ACTION_TARGETS = [
   'admin.customer-segment-details.action.render',
   'admin.discount-details.action.render',
   'admin.discount-index.action.render',
+  'admin.discount-index.selection-action.render',
   'admin.draft-order-details.action.render',
   'admin.draft-order-index.action.render',
   'admin.draft-order-index.selection-action.render',
@@ -282,6 +283,7 @@ export const ADMIN_BLOCK_TARGETS = [
   'admin.discount-details.function-settings.render',
   'admin.order-details.block.render',
   'admin.product-details.block.render',
+  'admin.product-details.reorder.render',
   'admin.product-variant-details.block.render',
 ] as const;
 const ADMIN_PRINT_TARGETS = [

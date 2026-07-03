@@ -3,16 +3,15 @@ import { render } from 'preact';
 import { useAdminActions } from '../hooks/useAdminActions';
 import { AdminBlockRenderer } from '../components/AdminBlockRenderer';
 
-const TARGET = 'admin.product-details.action.render';
+const TARGET = 'admin.discount-index.selection-action.render';
 
 function close() {
+  // ActionExtensionApi exposes close() directly on the global shopify object.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  // ActionExtensionApi exposes close() directly on the global shopify object
-  // (the old shopify.extension.api.close path never existed — button did nothing).
   (globalThis as any).shopify?.close?.();
 }
 
-function ProductDetailsAction() {
+function DiscountSelectionAction() {
   const state = useAdminActions(TARGET);
   const heading = state.status === 'ready' ? state.action.title || state.action.label || 'SuperApp' : 'SuperApp';
 
@@ -30,8 +29,8 @@ function ProductDetailsAction() {
         {state.status === 'hidden' && (
           <s-banner heading="SuperApp" tone="info">
             <s-text>
-              No action configured for products. Publish an admin.action module targeting
-              admin.product-details.action.render from the SuperApp.
+              No action configured for the discounts bulk-action menu. Publish an admin.action
+              module targeting admin.discount-index.selection-action.render from the SuperApp.
             </s-text>
           </s-banner>
         )}
@@ -53,5 +52,5 @@ function ProductDetailsAction() {
 }
 
 export default async function extension() {
-  render(<ProductDetailsAction />, document.body);
+  render(<DiscountSelectionAction />, document.body);
 }

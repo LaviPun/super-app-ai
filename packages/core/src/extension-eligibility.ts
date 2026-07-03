@@ -185,19 +185,26 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
   },
 
   // ── Admin UI (shipped: extensions/admin-ui) ────────────────────────────────
+  // The generic, config-driven admin UI extension is shipped and registered for the
+  // admin block/action targets (extensions/admin-ui/shopify.extension.toml, 2026-04
+  // Polaris `s-*`). Publishing an admin.block/admin.action persists its config to a
+  // `$app:superapp_admin_block` / `$app:superapp_admin_action` metaobject referenced
+  // by superapp.admin/{block_refs,action_refs}; the extension reads those refs at the
+  // matching target and renders the config (description/fields/badges/table/buttons/
+  // links) — no per-module bundle. So these are genuinely deployable, not AUDIT-only.
   'admin.block': {
     moduleType: 'admin.block',
     runtime: 'admin-ui',
     runtimeShipped: true,
     requiredScopes: ['write_metaobjects'],
-    note: 'Renders inside the Shopify admin via an admin UI extension.',
+    note: 'Renders inside the Shopify admin via the shipped generic admin UI extension (extensions/admin-ui), which reads the published module config from a superapp.admin/block_refs metaobject at the block target.',
   },
   'admin.action': {
     moduleType: 'admin.action',
     runtime: 'admin-ui',
     runtimeShipped: true,
     requiredScopes: ['write_metaobjects'],
-    note: 'Adds an admin action via an admin UI extension.',
+    note: 'Adds an admin action (More-actions modal) via the shipped generic admin UI extension (extensions/admin-ui), which reads the published module config from a superapp.admin/action_refs metaobject at the action target.',
   },
   // Spring 2026 Discount UI Extension. The discount-details admin UI extension is
   // not yet built in `extensions/`, so runtimeShipped:false → needs_runtime until

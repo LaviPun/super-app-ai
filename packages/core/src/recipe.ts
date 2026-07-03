@@ -139,6 +139,78 @@ const Base = z.object({
   dataModel: ModuleDataStoreSchema.optional(),
 });
 
+/**
+ * Tone vocabulary shared by admin badges/text/buttons. Mirrors the Polaris admin
+ * `s-badge`/`s-text` tone union (2026-04) so the generic admin UI extension can map
+ * a config tone straight to a component tone without translation.
+ */
+const AdminToneEnum = z.enum(['neutral', 'info', 'success', 'warning', 'critical']);
+
+/**
+ * Declarative presentational vocabulary for `admin.block` / `admin.action` modules.
+ * The generic shipped admin UI extension (extensions/admin-ui) reads these from the
+ * persisted metaobject and renders them with Polaris `s-*` web components — so a
+ * published admin module shows real fields, data rows, badges, buttons and links,
+ * not just its label. Every key is optional and additive: existing `{target,label}`
+ * blocks/actions stay valid and simply render their label + any config keys.
+ *
+ * Defined as a raw Zod shape (spread into each config `z.object`) rather than a
+ * standalone object schema so it composes with the discriminated-union variants.
+ */
+const AdminContentShape = {
+  /** Intro paragraph shown under the heading. */
+  description: z.string().max(600).optional(),
+  /** Label/value data rows (e.g. "Risk level: High"). Rendered as inline pairs. */
+  fields: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(80),
+        value: z.string().max(400),
+        tone: AdminToneEnum.optional(),
+      }),
+    )
+    .max(30)
+    .optional(),
+  /** Status badges (e.g. "Verified", "VIP"). */
+  badges: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(60),
+        tone: AdminToneEnum.optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
+  /** A simple data table: header columns + string rows. */
+  table: z
+    .object({
+      columns: z.array(z.string().min(1).max(60)).min(1).max(6),
+      rows: z.array(z.array(z.string().max(200)).max(6)).max(50),
+    })
+    .optional(),
+  /** Action buttons. A `url` renders a link-button; otherwise it is inert (display only). */
+  buttons: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(60),
+        url: z.string().max(2000).optional(),
+        tone: z.enum(['default', 'critical']).optional(),
+      }),
+    )
+    .max(10)
+    .optional(),
+  /** Plain hyperlinks (deep-links into the app or external resources). */
+  links: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(80),
+        url: z.string().min(1).max(2000),
+      }),
+    )
+    .max(10)
+    .optional(),
+} as const;
+
 export const RecipeSpecSchema = z.discriminatedUnion('type', [
   /**
    * Generic, unrestricted storefront section / theme app extension.
@@ -465,6 +537,13 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       target: z.enum(ADMIN_BLOCK_TARGETS),
       label: z.string().min(LIMITS.labelMin).max(LIMITS.labelMax),
       shouldRender: z.boolean().optional(),
+      /**
+       * Declarative presentational content the generic admin UI extension renders
+       * with Polaris `s-*` web components (blocks read this from the persisted
+       * `$app:superapp_admin_block` metaobject; see extensions/admin-ui). All fields
+       * are optional so the thin `{target,label}` blocks stay valid.
+       */
+      ...AdminContentShape,
     }),
   }),
 
@@ -479,6 +558,11 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       label: z.string().min(LIMITS.labelMin).max(LIMITS.labelMax),
       /** Optional heading displayed inside the action modal. Defaults to label if omitted. */
       title: z.string().min(1).max(60).optional(),
+      /**
+       * Declarative presentational content rendered inside the action modal by the
+       * generic admin UI extension (read from `$app:superapp_admin_action`). Optional.
+       */
+      ...AdminContentShape,
     }),
   }),
 
