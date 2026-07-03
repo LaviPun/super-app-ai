@@ -447,6 +447,77 @@ function BasicTab({
         </InlineStack>
       </BlockStack>
 
+      {/* Motion & elevation (phase #2 design tokens) */}
+      <BlockStack gap="200">
+        <Text as="p" variant="headingSm">Motion &amp; elevation</Text>
+        <InlineStack gap="300" wrap>
+          <Select
+            label="Density"
+            options={[
+              { label: 'Airy', value: 'airy' },
+              { label: 'Comfortable', value: 'comfortable' },
+              { label: 'Compact', value: 'compact' },
+            ]}
+            value={style.spacing.density ?? 'comfortable'}
+            onChange={(v) =>
+              update({ spacing: { ...style.spacing, density: v as StorefrontStyle['spacing']['density'] } })
+            }
+          />
+          <Select
+            label="Elevation"
+            options={[
+              { label: 'Auto (from pack)', value: '' },
+              { label: 'Soft depth', value: 'soft' },
+              { label: 'Float / glow', value: 'glow' },
+              { label: 'Border-carried', value: 'border' },
+              { label: 'Emboss / inset', value: 'emboss' },
+            ]}
+            value={style.shape.elevation ?? ''}
+            onChange={(v) =>
+              update({
+                shape: { ...style.shape, elevation: (v || undefined) as StorefrontStyle['shape']['elevation'] },
+              })
+            }
+          />
+          <Select
+            label="Motion speed"
+            options={[
+              { label: 'None', value: 'none' },
+              { label: 'Fast (150ms)', value: 'fast' },
+              { label: 'Base (200ms)', value: 'base' },
+              { label: 'Slow (300ms)', value: 'slow' },
+            ]}
+            value={style.motion?.duration ?? 'base'}
+            onChange={(v) =>
+              update({
+                motion: {
+                  duration: v as NonNullable<StorefrontStyle['motion']>['duration'],
+                  easing: style.motion?.easing ?? 'standard',
+                },
+              })
+            }
+          />
+          <Select
+            label="Motion easing"
+            options={[
+              { label: 'Standard', value: 'standard' },
+              { label: 'Enter (decelerate)', value: 'enter' },
+              { label: 'Exit (accelerate)', value: 'exit' },
+              { label: 'Mechanical', value: 'mechanical' },
+            ]}
+            value={style.motion?.easing ?? 'standard'}
+            onChange={(v) =>
+              update({
+                motion: {
+                  duration: style.motion?.duration ?? 'base',
+                  easing: v as NonNullable<StorefrontStyle['motion']>['easing'],
+                },
+              })
+            }
+          />
+        </InlineStack>
+      </BlockStack>
+
       {/* Responsive */}
       {cfg.showResponsive && (
         <>
