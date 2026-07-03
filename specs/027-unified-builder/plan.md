@@ -12,10 +12,18 @@
 - Tree state: `tsc` clean in all three packages; web **668 passed / 16 skipped**; core 148; contracts 55.
 - Note: a true interactive e2e of the embedded builder needs a dev store + tunnel (the merchant smoke is a no-5xx contract that skips without a running server); the `/api/preview` path it depends on is unit-tested.
 
-**Remaining (revised now that the Builder exists):**
-- **1c** — settings driven by the hydrate admin schema (`SchemaForm`) instead of the lossy 12-field projection, so the right rail reflects the real config for every type; full a11y/state pass.
-- **2** — speed: stream generation to first preview (`create-module.stream`); accuracy: real pre-publish validation (theme-check / GraphQL / component) surfaced in the validation tab + publish gate.
-- **3** — Spring 2026 leverage: new generation targets (Discount UI / App Home / Bulk Action), Functions-read-metaobjects, agent-ready modules, Sidekick distribution.
+**Landed (all green, branch `feat/027-unified-builder`):**
+- `143300f` — Phase 0: removed broken coverage/auto-fill; honest `mustHaveControls`; killed dead `republishDiff` compute.
+- `f459b49` — Phase 1b: real `PreviewService` preview in a sandboxed iframe for all types + Function simulation; mock + dead CSS removed.
+- `ba30bea` — Phase 2 (accuracy slice): 026 deployability preflight surfaced in the Builder validation tab ("Valid — but not publishable yet").
+- `fc6905c` — Phase 1c (slice): storefront controls gated to storefront types; non-storefront modules get honest "refine via chat" guidance.
+- `f11d910` — plan/status doc.
+
+**Remaining — specced, each needs a focused session + dev-store verification (not faked here):**
+- **1c-full — schema-driven settings.** Replace the lossy `BASE_SETTINGS`/`settingsFromRecipe`/`mergeSettingsIntoRecipe` projection with `SchemaForm` bound to the hydrate `adminConfigSchemaJson`, so the right rail edits the real config for every type. Files: `generate._index.tsx` (GenControls), reuse `components/SchemaForm.tsx` + `buildAdminFormConfig`. Needs the hydrate step wired into the create flow (today hydrate happens on the module-detail page). Interactive verification required.
+- **2-speed — stream to first preview.** Swap the `/api/ai/create-module` call for the SSE `create-module.stream.tsx` so options paint as they generate. Files: `generate._index.tsx` (proposeFetcher → reader loop like the assistant's). Risk: touches the polished generating→choosing transition; needs browser verification.
+- **2-accuracy — runtime artifact validation.** Add `@shopify/theme-check-node` (Liquid) + Admin GraphQL introspection validation into the `validate` action + publish preflight. New dep; unit-testable per validator.
+- **3 — Spring 2026 generation targets.** New `RECIPE_SPEC_TYPES` (Discount UI Extension, App Home / no-backend, Bulk Action Admin Extension) — each is a cross-cutting build: `recipe.ts` union + `MODULE_TYPE_TO_SURFACE`/`_INTENT` + capability node + compiler branch + payload + preview renderer + publish wiring + catalog/templates + summaries + prompt expectations + JSON schema + tests. Plus Functions-read-metaobjects (largely satisfied by 026's two-layer config), composable color palettes + standard storefront events in generated `theme.section` (theme-app-extension liquid), and Sidekick App Extension distribution. Do one type end-to-end at a time.
 
 ---
 
