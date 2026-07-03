@@ -68,7 +68,7 @@ export async function loader({ request, params }: { request: Request; params: { 
 
   // Blueprint membership: when this module belongs to a Recipe group, surface its
   // siblings so the merchant sees it is one part of a coordinated set.
-  let blueprint: { id: string; name: string; moduleCount: number; members: { id: string; name: string; type: string }[] } | null = null;
+  let blueprint: { id: string; name: string; moduleCount: number; draftCount: number; members: { id: string; name: string; type: string; status: string }[] } | null = null;
   if (mod.recipeId) {
     const bp = await new BlueprintService().getBlueprint(session.shop, mod.recipeId);
     if (bp && bp.modules.length > 1) {
@@ -76,7 +76,8 @@ export async function loader({ request, params }: { request: Request; params: { 
         id: bp.id,
         name: bp.title,
         moduleCount: bp.modules.length,
-        members: bp.modules.map((x) => ({ id: x.id, name: x.name, type: x.type })),
+        draftCount: bp.modules.filter((x) => x.status === 'DRAFT').length,
+        members: bp.modules.map((x) => ({ id: x.id, name: x.name, type: x.type, status: x.status })),
       };
     }
   }
@@ -315,8 +316,40 @@ function ModuleDetailBody() {
   const duplicateFetcher = useFetcher<{ ok?: boolean; id?: string; name?: string; error?: string }>();
   const renameFetcher = useFetcher<{ ok?: boolean; name?: string; error?: string }>();
   const hydrateFetcher = useFetcher<{ ok?: boolean; error?: string; message?: string }>();
+  const coDeployFetcher = useFetcher<{
+    recipeId?: string;
+    published?: { moduleId: string; type: string }[];
+    failed?: { moduleId: string; type: string; error: string }[];
+    skipped?: { moduleId: string; type: string; reason: string }[];
+    error?: string;
+  }>();
 
   const isPublishing = publishFetcher.state !== 'idle';
+  const isCoDeploying = coDeployFetcher.state !== 'idle';
+
+  useEffect(() => {
+    if (coDeployFetcher.state !== 'idle' || !coDeployFetcher.data) return;
+    const d = coDeployFetcher.data;
+    if (d.error) {
+      ctx.toast(d.error, { error: true });
+    } else {
+      const okN = d.published?.length ?? 0;
+      const badN = (d.failed?.length ?? 0) + (d.skipped?.length ?? 0);
+      ctx.toast(
+        badN > 0 ? `Published ${okN} of ${okN + badN} — ${badN} need attention` : `Published all ${okN} modules`,
+        { error: badN > 0 },
+      );
+      revalidator.revalidate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coDeployFetcher.data, coDeployFetcher.state]);
+
+  const publishAll = () => {
+    if (!data.blueprint) return;
+    const fd = new FormData();
+    if (isThemeModule && selectedThemeId) fd.set('themeId', selectedThemeId);
+    coDeployFetcher.submit(fd, { method: 'post', action: `/api/blueprints/${data.blueprint.id}/publish` });
+  };
 
   useEffect(() => {
     if (publishFetcher.data?.ok && publishFetcher.state === 'idle') {
@@ -479,12 +512,21 @@ function ModuleDetailBody() {
       {data.blueprint && (
         <div style={{ marginBottom: 16 }}>
           <Banner tone="info" title={`Part of the “${data.blueprint.name}” blueprint (${data.blueprint.moduleCount} modules)`}>
-            <div className="row-2" style={{ flexWrap: 'wrap', gap: 6 }}>
-              {data.blueprint.members.map((mem: { id: string; name: string; type: string }) => (
-                <a key={mem.id} href={`/modules/${mem.id}`} style={{ textDecoration: 'none' }}>
-                  <Badge tone={mem.id === data.moduleId ? 'info' : undefined}>{mem.name}</Badge>
-                </a>
-              ))}
+            <div className="stack" style={{ gap: 8 }}>
+              <div className="row-2" style={{ flexWrap: 'wrap', gap: 6 }}>
+                {data.blueprint.members.map((mem: { id: string; name: string; type: string; status: string }) => (
+                  <a key={mem.id} href={`/modules/${mem.id}`} style={{ textDecoration: 'none' }}>
+                    <Badge tone={mem.id === data.moduleId ? 'info' : mem.status === 'PUBLISHED' ? 'success' : undefined}>{mem.name}</Badge>
+                  </a>
+                ))}
+              </div>
+              {data.blueprint.draftCount > 0 && (
+                <div>
+                  <Btn variant="primary" icon="layers" loading={isCoDeploying} onClick={publishAll}>
+                    {`Publish all ${data.blueprint.moduleCount} modules`}
+                  </Btn>
+                </div>
+              )}
             </div>
           </Banner>
         </div>

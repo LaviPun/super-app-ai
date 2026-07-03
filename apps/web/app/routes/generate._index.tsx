@@ -612,7 +612,10 @@ function GenerateWorkspace() {
     handledConfirmRef.current = confirmFetcher.data;
     const data = confirmFetcher.data;
     if (data.firstModuleId) {
-      ctx.toast(`Blueprint created — ${data.moduleCount ?? 'multiple'} modules`);
+      // Blueprint members are created as DRAFTs; the merchant co-deploys them as a
+      // unit via the "Publish all N" affordance on the module's blueprint banner
+      // (R3.2). Land on the first member where that button (+ theme picker) lives.
+      ctx.toast(`Blueprint created — ${data.moduleCount ?? 'multiple'} modules. Use “Publish all” to deploy them together.`);
       navigate(`/modules/${data.firstModuleId}`);
       return;
     }
