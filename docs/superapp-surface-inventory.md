@@ -171,7 +171,7 @@ Representative stacks:
 | Area | Result | Notes |
 |---|---|---|
 | Mental model + boundaries | PASS | Present across architecture docs and code contracts; consolidated here. |
-| Canonical RecipeSpec parity (`allowed-values` vs `recipe`) | PASS | 20 types align. |
+| Canonical RecipeSpec parity (`allowed-values` vs `recipe`) | PASS | 21 types align (adds `admin.discountUi`). |
 | Expanded storefront catalog formula/cap | PASS | Generator formula and cap confirmed; cardinality test added. |
 | Naming patterns | PASS | Generator and docs use canonical formats. |
 | Theme placement editor mechanisms | PASS | Finite enums present and enforced. |
@@ -208,6 +208,16 @@ Coverage is asserted dynamically (`PREVIEW_KINDS ⊇ RECIPE_SPEC_TYPES`).
 ### Publish (WS5 / 026 — updated 2026-07-03)
 `classifyModulePublishability` (now delegating to the **core eligibility registry**) returns one of:
 - **deployable** — has a shipped runtime: `theme.section`, `proxy.widget`, `checkout.upsell`, `customerAccount.blocks`, `admin.block`, `admin.action`, `analytics.pixel` (now via `WEB_PIXEL_UPSERT`), and function types whose wasm handle is in the deployed set (manifest ∪ env).
-- **needs_runtime** ("not publishable yet") — the runtime extension isn't shipped: the remaining AUDIT-only types (`checkout.block`, `postPurchase.offer`, `pos.extension`, `integration.httpSync`, `flow.automation`, `platform.extensionBlueprint`, `functions.fulfillmentConstraints`, `functions.orderRoutingLocationRule`) and any function type with no deployed extension. `willDeploy === false` always carries a reason; the merchant Builder shows it before publish.
+- **needs_runtime** ("not publishable yet") — the registry marks exactly **three** types
+  `runtimeShipped:false`: `functions.orderRoutingLocationRule` (no CLI template),
+  `flow.automation` (workflow-definition publish wiring pending — note a linear
+  `FlowRunnerService` runtime *is* live, so this label is pessimistic), and
+  `admin.discountUi` (Spring-2026 discount-details extension not yet built). `willDeploy
+  === false` carries a reason; the Builder shows it before publish.
+- **⚠ Known false-published bug** — `checkout.block`, `postPurchase.offer`,
+  `integration.httpSync`, and `platform.extensionBlueprint` are marked `deployable` but
+  their compiler hits the bare-AUDIT fallthrough and **writes nothing**, yet publish
+  still flips them PUBLISHED. `pos.extension` and `functions.fulfillmentConstraints` are
+  genuinely deployable (POS via a DB-read path, not a metaobject write).
 
 The prior `gated`/`blocked` split collapsed into `needs_runtime`.

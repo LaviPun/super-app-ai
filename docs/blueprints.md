@@ -22,7 +22,8 @@ request → classify (intent) → planBlueprint(intent)
                                               → response.blueprint (alongside single options)
                                               → POST /api/ai/create-blueprint
                                               → BlueprintService.createDraft (Recipe + N draft Modules)
-                                              → publish each member to its surface (existing PublishService)
+                                              → (members stay DRAFT; publish one-at-a-time via the ordinary per-module publish UI —
+                                                 coordinated co-deploy `publishBlueprint` is built but has ZERO callers)
 ```
 
 ## The "how many modules" decision (deterministic)
@@ -61,23 +62,29 @@ blueprint; optional roles are skipped. Returns a `RecipeBlueprint`
 ## Data model (reuses `Recipe`)
 - A blueprint = a `Recipe` row (`title` = name, new nullable `summary` = description)
   with N `Module` children linked via `Module.recipeId`. **No new tables.**
-- Migration: `prisma/migrations/20260616120000_add_recipe_summary_blueprint`
-  (`ALTER TABLE "Recipe" ADD COLUMN "summary" TEXT`).
+- Migration: `Recipe.summary TEXT` lives in the single baseline
+  `prisma/migrations/20260702000000_baseline/migration.sql`. (The originally-cited
+  `20260616120000_add_recipe_summary_blueprint` was folded into the baseline and now
+  exists only under `migrations-archive/` / `_archived_migrations_pre_baseline/`.)
 - `ModuleService.createDraft(shop, spec, { recipeId })` links each member.
 
 ## Persistence + deploy (`apps/web/app/services/blueprints/blueprint.service.ts`)
 - `createDraft(shop, blueprint)` → `{ recipeId, moduleIds, firstModuleId }`.
 - `getBlueprint(shop, recipeId)` / `listBlueprints(shop)` for the UI.
-- `publishBlueprint(admin, shop, recipeId, { themeId })` → loops the existing
-  per-module `PublishService.publish`, routing theme members to a `THEME` target
-  and others to `PLATFORM`, each writing to its surface's
-  `list.metaobject_reference`. **Best-effort, NOT atomic** (Shopify writes can't
-  be transactional across surfaces): failed members stay `DRAFT` and are
-  retryable; results report `{ published[], failed[] }`.
+- `publishBlueprint(admin, shop, recipeId, { themeId })` is **implemented but
+  built-not-wired — it has ZERO callers** (no route, UI button, or job invokes it),
+  so coordinated co-deploy does not run today. As designed it would loop the existing
+  per-module `PublishService.publish` (theme members → `THEME`, others → `PLATFORM`),
+  best-effort and non-atomic, reporting `{ published[], failed[] }`. `injectResolvedBundle`
+  (the bundle-GID resolver it would call) is likewise test-only, so bundle members would
+  deploy with placeholder GIDs until it is wired. Until a "Publish all N" action exists,
+  members publish one-at-a-time via the ordinary per-module publish UI.
 
 ## Routes + UI
-- `api.ai.create-module` (flag on + plan is a blueprint): also returns a
-  `blueprint` field alongside the single-module `options`.
+- `api.ai.create-module.stream` (flag on + plan is a blueprint): the **primary** UI
+  call site — streams a `blueprint` SSE event alongside the single-module options.
+  `api.ai.create-module` (batch) is the fallback and returns a `blueprint` field the
+  same way.
 - `api.ai.create-blueprint` (new): persists the posted blueprint → ids.
 - `generate._index.tsx`: an info banner offers **"Create all N modules"**; accept
   POSTs to `/api/ai/create-blueprint` and navigates to `/modules?recipe=<id>`.
@@ -97,6 +104,7 @@ Default **off** → single-module generation is unchanged.
 
 ## Out of scope (follow-ups)
 - LLM-driven planner for uncatalogued composites (deterministic catalog first).
-- Atomic / rollback co-deploy; blueprint-level progressive rollout.
+- Co-deploy itself (`publishBlueprint` is built but unwired), then atomic / rollback
+  co-deploy and blueprint-level progressive rollout.
 - Auto-wiring real data flow between members (we ship human-readable `links` notes).
 - Real product-picker for bundle SKUs (admin-config work).

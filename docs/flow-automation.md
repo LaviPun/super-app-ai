@@ -169,13 +169,18 @@ Shopify Admin webhook **topic** (`orders/create`, `fulfillment_orders/order_rout
 `returns/request`, …) → a canonical trigger id (`shopify.order.created`) + required
 **scope** + category + reference fields + legacy enum. Three consumers:
 
-1. **`shopify.app.toml`** subscribes every topic whose scope is granted (the always-on
-   set) → all route to `/webhooks`. Validated with `shopify app config validate` (✅).
-   Added commerce read-scopes: fulfillments, inventory, draft_orders, returns,
-   fulfillment_orders (merchant/assigned/third-party), discounts, price_rules, locations.
-2. **`/webhooks` generic dispatcher** (`routes/webhooks.tsx`): any incoming topic →
-   `topicToTrigger()` → idempotency → `runForTrigger(trigger)`. Add a topic to the
-   registry + toml and it fires — no new route.
+> **Reality (2026-07 audit): NOT WIRED.** `shopify-webhook-topics.ts` exists in
+> `packages/core`, but the live Remix `/webhooks` route does **not** use it. On the
+> live path only two flow topics are wired.
+
+1. **`shopify.app.toml`** subscribes a **fixed** set — `app/uninstalled`,
+   `app/scopes_update`, `orders/create`, `products/update`, plus 3 GDPR compliance
+   topics (`shopify.app.toml:15-41`) — **not** "every granted topic."
+2. **`/webhooks`** (`routes/webhooks.tsx`) is a **hand-written switch over 4 topics**,
+   not a generic dispatcher: it gates on `orders/create`/`products/update` →
+   `runForTrigger`, and handles `app/uninstalled`/`app/scopes_update` inline as
+   lifecycle. There is **no** `topicToTrigger()` call in `apps/web`. Adding a topic to
+   the registry does **not** make it fire — you must edit the route.
 3. **Flow builder trigger picker** (`flows.build.$flowId.tsx` loader → `FlowBuilder`):
    the full catalog, grouped by category, with scope status ("needs scope X" for
    un-granted topics). Order routing is both a trigger (`fulfillment_orders/order_routing_complete`)
@@ -187,9 +192,10 @@ in the catalog and are surfaced as "enable scope X", never hidden.
 
 ## 9b. Admin surfacing
 
-- **Flows hub** (`flows._index.tsx`): real trigger labels, real run counts (7d), a
-  **Waiting (parked)** tile (durable-wait visibility), and a real success rate — all from
-  `WorkflowRun`.
+- **Flows hub** (`flows._index.tsx`): real trigger labels, real run counts (7d), and a
+  real success rate — all from `WorkflowRun`. **There is no "Waiting (parked)" tile**
+  (durable-wait park is engine-only and never surfaced); the hub buckets only
+  `SUCCEEDED`/`FAILED`/`TIMED_OUT`.
 - **Flow builder**: full trigger catalog + Route-Order action + data-store linking
   (`WRITE_TO_STORE` picks a real store key).
 - **Module detail** (`modules.$moduleId.tsx`): a deployability banner from the eligibility
@@ -197,18 +203,17 @@ in the catalog and are surfaced as "enable scope X", never hidden.
 
 ## 9c. Reliability & safety (rate limits, DLQ, loop guards)
 
-- **Shopify API rate-limit tracking** (`services/shopify/rate-limit.service.ts`): every
-  Admin call through the Shopify connector records `extensions.cost.throttleStatus`
-  (currentlyAvailable / maximumAvailable / restoreRate) + `actualQueryCost` into
-  `ShopApiRateLimit` (best-effort, never throws into the call). Exposed live at
-  **`/api-usage`** (real data, empty state until the first call) for the API-limit
-  threshold dashboard. `RateLimitService.backoffMs` gives proactive throttle backoff;
-  the connector already honors 429 `Retry-After`.
+> **Reality (2026-07 audit): both are built-not-wired — zero callers, tables stay empty.**
+
+- **Shopify API rate-limit tracking** (`services/shopify/rate-limit.service.ts`): the
+  `recordAdminThrottle` writer exists but has **zero callers** — nothing persists
+  `throttleStatus` into `ShopApiRateLimit`, so the table stays empty (the connector
+  reads `throttleStatus` inline for its own 429 backoff but never records it). The
+  `/api-usage` dashboard therefore shows an empty state in production.
 - **Dead-letter queue** (`services/flows/dead-letter.service.ts` + `FlowDeadLetter`):
-  a flow run that fails after in-run retries is dead-lettered (keyed to its flow). Cron
-  (`replayDeadLetters`) replays PENDING entries with **bounded** exponential backoff via
-  `runFlowById` (re-runs only that flow, never re-fires siblings); after `maxAttempts`
-  it is **DISCARDED** — no infinite loop. Replay state lives in the row.
+  `DeadLetterService.record`/`replayDeadLetters` are fully implemented but have **zero
+  callers**; `flow-runner.service.ts` only leaves a comment on failure. `FlowDeadLetter`
+  stays empty and no cron replays it.
 - **Engine safety caps** (`workflow-engine.service.ts`): `MAX_NODE_EXECUTIONS` (10k per
   run) stops a runaway/pathological loop with `SAFETY_LIMIT`; `MAX_RECURSION_DEPTH` (64)
   bounds nested loop/parallel sub-graphs; `MAX_RESUMES` (100, via `WorkflowRun.resumeCount`)
@@ -227,8 +232,10 @@ extensions can't read Storefront metaobjects, so the runtime uses **App Authenti
 **`/api/pos/config`** (`routes/api.pos.config.tsx`, verified via
 `authenticate.public.pos`), which reads the shop's published `pos.extension` config from
 the DB (`services/pos/pos-config.server.ts`). No metaobject is needed (POS can't read
-them). Eligibility flipped to `runtimeShipped: true`; the only remaining `needs_runtime`
-type is `functions.orderRoutingLocationRule` (no CLI template yet — built as a flow action).
+them). Eligibility flipped to `runtimeShipped: true`. The remaining `needs_runtime`
+types are **three**: `functions.orderRoutingLocationRule` (no CLI template — built as a
+flow action), `flow.automation` (workflow-definition publish wiring pending), and
+`admin.discountUi` (Spring-2026 discount-details extension not yet built in `extensions/`).
 
 ## 11. Verify
 

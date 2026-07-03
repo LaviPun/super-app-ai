@@ -118,7 +118,11 @@ The AI's job shrinks to **filling pack values**, not inventing controls — more
 Build on existing primitives — no parallel system.
 
 - **Built:** `DataStore`/`DataStoreRecord`, `data-store.service.ts`, record grid `data.$storeKey.tsx`, `module-capture.service.ts` + `api.module-captures.tsx` + `proxy.capture.tsx`, Connector layer.
-- **Gap:** `DataStore.schemaJson` dormant; `DataCapture` no admin UI; no CSV/PDF/print export.
+- **Gap (updated 2026-07):** only `DataStore.schemaJson` typed provisioning is still
+  dormant (`ensureTypedStore` has zero non-test callers; `provisionFromModuleSpec` does
+  not exist). CSV export, browser print-to-PDF, `DataCapture` ingestion, and the
+  captures admin view are **all live** (`data.$storeKey_.export.tsx`,
+  `data.$storeKey_.print.tsx`, `api.module-captures.tsx`, `modules.$moduleId_.captures.tsx`).
 
 Plan:
 
@@ -130,8 +134,14 @@ Plan:
 ## The single generic schema-form renderer (key unlock)
 
 `app/components/SchemaForm.tsx` renders any `{ jsonSchema, uiSchema, defaults }`:
-- Replaces hardcoded `ConfigEditor.tsx` + `StyleBuilder.tsx`.
-- **Consumes the `adminConfigSchemaJson` the hydrate step already generates** — closing the generate-but-never-render gap.
+- **Intended** to replace hardcoded `ConfigEditor.tsx` + `StyleBuilder.tsx` — but as
+  of 2026-07 both are imported-but-never-mounted (`<ConfigEditor`/`<StyleBuilder` JSX =
+  0 app-wide), and the live builder (`generate._index.tsx`) reads `recipe.config`
+  scalars directly.
+- **Does NOT yet consume the hydrate `adminConfigSchemaJson`** on any merchant-facing
+  path — that field is generated + persisted but no longer rendered, so the
+  generate-but-never-render gap is **still open**. `SchemaForm`'s only live mount is the
+  unrelated backend-data record form (`data.$storeKey.tsx`).
 - Reused by Backend Data CRUD forms and capture views.
 - Supports grouping, conditional visibility, and tier-gating.
 
@@ -143,6 +153,12 @@ Plan:
 - **Compiler dedupe.** Collapse 6 `theme.*.ts` and 7 `functions.*.ts` compilers into `compileThemeModule(type)` and `compileFunctionConfig(functionKey)`.
 
 ## Compare-which-is-better (A/B)
+
+> **Reality (2026-07): plumbing without payoff.** `AppSettings.moduleSystemVersion`
+> is settable, but generation never reads it, `?engine=v2` does not exist, only
+> `theme.section` has a manifest, and the v2 renderer (`ConfigEditor`→`SchemaForm`) is
+> unmounted — so flipping the flag changes nothing observable and there is nothing to
+> A/B. The below is the original intent, not current behavior.
 
 - Add `AppSettings.moduleSystemVersion` (`'v1' | 'v2'`) or a per-request `?engine=v2`.
 - Keep v1 path intact. Compare on latency, token cost (`AiUsage`), validation/repair rate, control richness. Promote v2 when metrics win.

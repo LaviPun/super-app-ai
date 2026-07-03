@@ -181,11 +181,14 @@ Source of truth: [`module-system-v2.md`](./module-system-v2.md). Contract: `pack
 Four merchant actions on `modules.$moduleId.tsx`:
 - **Fill-missing** (`fill-missing-settings.server.ts`) — diff current config vs expected controls; AI proposes only the missing keys; merge via pure `buildFillMissingDiff` which **never overwrites merchant-set or already-set values**. Output: `SettingsDiff`.
 - **Regenerate** — full re-gen for the same type preserving `pinnedKeys` (`RegenerateSettingsRequestSchema`).
-- **Schema-driven form** — `SchemaForm.tsx` renders `{ jsonSchema, uiSchema, value }` from the hydrate `adminConfigSchemaJson` (closes the generate-but-never-render gap); derives widgets from JSON-schema when no hint is given; tier + conditional visibility. `ConfigEditor` stays as the v1 fallback behind the flag.
+- **Schema-driven form** — `SchemaForm.tsx` can render `{ jsonSchema, uiSchema, value }` from a hydrate `adminConfigSchemaJson`, but **is not wired to it on any merchant path** as of 2026-07: `ConfigEditor` (its host under the v2 flag) is imported-but-never-mounted, so the generate-but-never-render gap is **still open**. The live builder edits `recipe.config` scalars directly (`generate._index.tsx`). `SchemaForm`'s only live mount is the unrelated backend-data record form.
 - **Republish** — idempotent recompile + publish with a visible `RepublishDiff` (contract in `publish-functions.ts`) and rollback via the existing rollback route.
 
 ### 2026-06-15 — integration wiring
 
 - **Fill-missing** is live at `api.ai.fill-settings.tsx` (expected controls = hydrated `adminConfigSchemaJson` properties; proposer reuses the validated `modifyRecipeSpec` path; persists via `createNewVersion`) with a **Fill missing settings** action in the hydration card.
-- **RepublishDiff preview** renders in the module-detail Publish card: the loader computes `computeRepublishDiff(draft.config vs published.config)` and shows `First publish` / `No changes (safe no-op)` / `Will update <fields>` before the merchant republishes.
+- **RepublishDiff preview — removed (2026-07-03, spec 027).** The dead
+  `computeRepublishDiff` loader compute was deleted from `modules.$moduleId.tsx`; the
+  module-detail Publish card no longer renders a pre-republish diff. (`computeRepublishDiff`
+  now exists only inside `publish.service.ts`/its test, not on the module-detail loader.)
 - **Auto-fill at create — removed (2026-07-03, spec 027).** An earlier version auto-filled the best option at create time when coverage was < 100%. It was built on a broken premise: coverage compared manifest pack **ids** against the bespoke generated config (which never uses control-pack composition — `composeConfig` is admin-form-only), so it could never be "complete" and fired a wasted `modifyRecipeSpec` call on every v2 create. It's gone; "fill missing" is a **post-hydrate** action only (via `api.ai.fill-settings.tsx`), where the hydrated admin schema is the aligned vocabulary. `mustHaveControlsForType` now returns pack namespaces so the field is at least internally honest.
