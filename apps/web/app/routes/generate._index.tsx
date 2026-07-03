@@ -673,6 +673,7 @@ function GenerateWorkspace() {
       <div className="gen-body">
         <GenBuildPanel
           settings={settings} set={set} ctrlTab={ctrlTab} setCtrlTab={setCtrlTab}
+          moduleType={String((activeCand?.recipe as any)?.type ?? '')}
           thread={thread} thinking={thinking} refine={refine} setRefine={setRefine} onRefine={doRefine}
           credits={credits} dockOpen={dockOpen} setDockOpen={setDockOpen} histOpen={histOpen} setHistOpen={setHistOpen} history={history}
         />
@@ -819,7 +820,7 @@ function GenCandMini({ s, accent }: any) {
 function GenBuildPanel(props: any) {
   return (
     <aside className="gen-build-panel">
-      <GenControls settings={props.settings} set={props.set} ctrlTab={props.ctrlTab} setCtrlTab={props.setCtrlTab} />
+      <GenControls settings={props.settings} set={props.set} ctrlTab={props.ctrlTab} setCtrlTab={props.setCtrlTab} moduleType={props.moduleType} />
       <GenBuilderDock
         credits={props.credits} costPerChange={COST_PER_CHANGE} open={props.dockOpen} setOpen={props.setDockOpen}
         thread={props.thread} thinking={props.thinking} refine={props.refine} setRefine={props.setRefine} onRefine={props.onRefine}
@@ -1005,8 +1006,26 @@ function GenPreview({ recipe, device }: { recipe: Record<string, unknown> | null
   );
 }
 
-function GenControls({ settings: s, set, ctrlTab, setCtrlTab }: any) {
+function GenControls({ settings: s, set, ctrlTab, setCtrlTab, moduleType }: any) {
   const swatches = ['#1F3A5F', '#0E9F6E', '#14213A', '#2F80ED', '#D97706', '#DC2626'];
+  // The visual controls below model a storefront block (button/layout/colors).
+  // For non-storefront types (functions, admin, checkout, flow, …) they don't
+  // map to the spec, so show honest guidance and steer editing to the AI chat.
+  const isStorefront = moduleType === 'theme.section' || moduleType === 'proxy.widget';
+  if (!isStorefront) {
+    return (
+      <div className="gbp-controls">
+        <div className="gen-controls-head"><span className="t-h3">Controls</span><span className="t-xs t-muted">Refine with AI</span></div>
+        <div className="gen-ctrl-body">
+          <div className="stack-3" style={{ padding: 16 }}>
+            <Banner tone="info" title={`${titleCase(String(moduleType || 'This module').replace(/\./g, ' '))} settings`}>
+              This isn’t a visual storefront block, so it has no color or layout controls. Check the live preview on the right, and describe any change in the Builder chat below — it edits the real module spec.
+            </Banner>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="gbp-controls">
       <div className="gen-controls-head"><span className="t-h3">Controls</span><span className="t-xs t-muted">Changes apply live</span></div>
