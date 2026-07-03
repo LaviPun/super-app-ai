@@ -14,6 +14,15 @@ import { augmentWithCheapClassifier } from '~/services/ai/cheap-classifier.serve
 import { buildIntentPacket } from '~/services/ai/intent-packet.server';
 import { serializeIntentPacketForPrompt } from '~/services/ai/token-budget.server';
 import { buildPromptRouterDecision } from '~/services/ai/prompt-router.server';
+import { extractRequirementSpec } from '~/services/ai/requirement-spec.server';
+import { searchSolutions } from '~/services/ai/solution-search.server';
+import { ensureStoreAesthetic } from '~/services/theme/ensure-aesthetic.server';
+import { applyStorePalette } from '~/services/theme/apply-store-palette.server';
+import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
+import { generateValidatedBlueprint } from '~/services/ai/llm.server';
+import { planBlueprint } from '~/services/ai/blueprint-planner';
+import { isBlueprintsEnabled } from '~/env.server';
+import type { RecipeSpec } from '@superapp/core';
 
 /** GET disallowed; this is a streaming POST endpoint. */
 export async function loader() {
@@ -96,6 +105,18 @@ export async function action({ request }: { request: Request }) {
         ? 'with_alternatives'
         : 'fallback';
 
+  // Parity with the batch route: RAG grounding + live store-palette matching so
+  // streamed storefront options look the same as the non-streaming path.
+  const requirementSpec = await extractRequirementSpec({ userRequest: finalPrompt, classification, intentPacket });
+  const { grounding } = searchSolutions(requirementSpec);
+  const isStorefrontType =
+    classification.moduleType === 'theme.section' || classification.moduleType === 'proxy.widget';
+  const matchStoreColors = String(form.get('matchStoreColors') ?? '') === 'true';
+  if (isStorefrontType && matchStoreColors) {
+    await ensureStoreAesthetic({ admin, shopId: shopRow.id });
+  }
+  const aesthetic = isStorefrontType && matchStoreColors ? await loadStoreAesthetic(shopRow.id) : null;
+
   const jobs = new JobService();
   const job = await jobs.create({
     shopId: shopRow.id,
@@ -137,10 +158,56 @@ export async function action({ request }: { request: Request }) {
           promptProfile: intentPacket.routing.prompt_profile,
           routerDecision,
           optionCount: 3,
+          groundingBlock: grounding || undefined,
         })) {
-          if (event.kind === 'option') validCount++;
+          if (event.kind === 'option') {
+            validCount++;
+            // Snap storefront options onto the live store palette (parity with batch).
+            if (aesthetic && event.option?.recipe) {
+              try {
+                applyStorePalette(event.option.recipe as RecipeSpec, aesthetic.palette);
+              } catch {
+                /* palette match is best-effort */
+              }
+            }
+          }
           send(event.kind, event);
         }
+
+        // Blueprint parity: when the request maps to a coordinated set, generate it
+        // and stream a `blueprint` event (best-effort — never blocks the options).
+        try {
+          const plan = planBlueprint({ moduleType: classification.moduleType, intent: intentPacket.classification.intent });
+          if (isBlueprintsEnabled() && plan.kind === 'blueprint') {
+            const blueprint = await generateValidatedBlueprint(finalPrompt, plan, {
+              shopId: shopRow.id,
+              intentPacketJson: serializeIntentPacketForPrompt(intentPacket),
+              confidenceScore: confidence,
+              promptProfile: intentPacket.routing.prompt_profile,
+              routerDecision,
+              groundingBlock: grounding || undefined,
+            });
+            if (blueprint) {
+              if (aesthetic) {
+                for (const member of blueprint.modules) {
+                  if (member.recipe.type === 'theme.section' || member.recipe.type === 'proxy.widget') {
+                    try { applyStorePalette(member.recipe as RecipeSpec, aesthetic.palette); } catch { /* best-effort */ }
+                  }
+                }
+              }
+              send('blueprint', {
+                name: blueprint.name,
+                summary: blueprint.summary,
+                moduleCount: blueprint.modules.length,
+                modules: blueprint.modules.map((m) => ({ role: m.role, type: m.recipe.type, explanation: m.explanation, recipe: m.recipe })),
+                links: blueprint.links ?? [],
+              });
+            }
+          }
+        } catch {
+          /* blueprint is additive — never fail the stream */
+        }
+
         await jobs.succeed(job.id, { optionCount: validCount, type: classification.moduleType });
       } catch (e: unknown) {
         await jobs.fail(job.id, e);

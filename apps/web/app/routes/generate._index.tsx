@@ -1,6 +1,6 @@
 import { json } from '@remix-run/node';
 import { useNavigate, useLocation, useFetcher, useLoaderData } from '@remix-run/react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { RecipeSpecSchema } from '@superapp/core';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
@@ -391,17 +391,108 @@ function GenerateWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedPrompt]);
 
-  // Kick off real generation when entering the generating phase.
+  // Build the chooser concepts from a set of AI options (shared by the streaming
+  // and batch paths). Re-runnable: the stream calls it as each option arrives.
+  const genStartedRef = useRef(false);
+  const applyOptions = useCallback((opts: { explanation: string; recipe: Record<string, unknown> }[], bp?: BlueprintResult | null) => {
+    const capped = opts.slice(0, CONCEPT_PRESETS.length);
+    if (capped.length === 0) return;
+    const concs: Concept[] = capped.map((opt, i) => {
+      const preset = CONCEPT_PRESETS[i]!;
+      const name = (opt.recipe?.name as string) || preset.name;
+      return {
+        ...preset,
+        recipe: opt.recipe,
+        explanation: opt.explanation,
+        name,
+        type: displayType(opt.recipe?.type),
+        tagline: opt.explanation || '',
+        tags: tagsFromRecipe(opt.recipe),
+        intro: opt.explanation ? `Done. ${opt.explanation}` : `Done. I generated “${name}” from your prompt.`,
+      };
+    });
+    const sm: Record<string, any> = {}, tm: Record<string, any[]> = {}, hm: Record<string, any[]> = {};
+    concs.forEach((c) => {
+      sm[c.id] = { ...c.settings, ...settingsFromRecipe(c.recipe) };
+      tm[c.id] = [
+        { role: 'user', text: seedPrompt },
+        { role: 'assistant', text: c.intro + '\n\nUse the controls on the right to fine-tune it, or ask me to change anything below.' },
+      ];
+      hm[c.id] = [{ id: 'h_gen', label: 'Module generated', detail: `Created “${c.name}” from your prompt.`, cost: 1, time: 'Just now' }];
+    });
+    setCandidates(concs);
+    setSettingsMap(sm);
+    setThreadMap(tm);
+    setHistoryMap(hm);
+    if (bp !== undefined) setBlueprint(bp ?? null);
+    setSelected(null);
+    setPhase('choosing');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedPrompt]);
+
+  // Streaming generation: options render as they validate (faster first paint).
+  // Any failure falls back to the proven batch route, so it's never worse.
+  const streamGenerate = useCallback(async () => {
+    const fd = new FormData();
+    fd.set('prompt', seedPrompt);
+    fd.set('preferredType', 'Auto');
+    fd.set('preferredCategory', 'Auto');
+    fd.set('preferredBlockType', 'Auto');
+    fd.set('matchStoreColors', 'true');
+    const collected: Record<number, { explanation: string; recipe: Record<string, unknown> }> = {};
+    let gotAny = false;
+    try {
+      const res = await fetch('/api/ai/create-module/stream', { method: 'POST', body: fd, headers: { Accept: 'text/event-stream' } });
+      if (!res.ok || !res.body) throw new Error('stream unavailable');
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let sep = buf.indexOf('\n\n');
+        while (sep !== -1) {
+          const frame = buf.slice(0, sep);
+          buf = buf.slice(sep + 2);
+          let ev = 'message';
+          const dataLines: string[] = [];
+          for (const line of frame.split('\n')) {
+            if (line.startsWith('event:')) ev = line.slice(6).trim();
+            else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
+          }
+          if (dataLines.length) {
+            let payload: any = null;
+            try { payload = JSON.parse(dataLines.join('\n')); } catch { payload = null; }
+            if (payload) {
+              if (ev === 'option' && payload.option?.recipe) {
+                collected[payload.index] = { explanation: payload.option.explanation ?? '', recipe: payload.option.recipe };
+                gotAny = true;
+                applyOptions(Object.keys(collected).sort((a, b) => Number(a) - Number(b)).map((k) => collected[Number(k)]!));
+              } else if (ev === 'blueprint') {
+                setBlueprint(payload as BlueprintResult);
+              } else if (ev === 'error') {
+                throw new Error(payload.message || 'Generation failed');
+              }
+            }
+          }
+          sep = buf.indexOf('\n\n');
+        }
+      }
+      if (!gotAny) throw new Error('no options streamed');
+    } catch {
+      // Batch fallback — only if streaming produced nothing usable.
+      if (!gotAny) proposeFetcher.submit(fd, { method: 'post', action: '/api/ai/create-module' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedPrompt, applyOptions]);
+
+  // Kick off real generation when entering the generating phase (stream once).
   useEffect(() => {
     if (phase !== 'generating' || !seedPrompt) return;
-    if (proposeFetcher.state === 'idle' && !proposeFetcher.data) {
-      const fd = new FormData();
-      fd.set('prompt', seedPrompt);
-      fd.set('preferredType', 'Auto');
-      fd.set('preferredCategory', 'Auto');
-      fd.set('preferredBlockType', 'Auto');
-      fd.set('matchStoreColors', 'true');
-      proposeFetcher.submit(fd, { method: 'post', action: '/api/ai/create-module' });
+    if (!genStartedRef.current) {
+      genStartedRef.current = true;
+      void streamGenerate();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
@@ -430,36 +521,7 @@ function GenerateWorkspace() {
       navigate('/modules');
       return;
     }
-    const concs: Concept[] = opts.map((opt, i) => {
-      const preset = CONCEPT_PRESETS[i]!;
-      const name = (opt.recipe?.name as string) || preset.name;
-      return {
-        ...preset,
-        recipe: opt.recipe,
-        explanation: opt.explanation,
-        name,
-        type: displayType(opt.recipe?.type),
-        tagline: opt.explanation || '',
-        tags: tagsFromRecipe(opt.recipe),
-        intro: opt.explanation ? `Done. ${opt.explanation}` : `Done. I generated “${name}” from your prompt.`,
-      };
-    });
-    const sm: Record<string, any> = {}, tm: Record<string, any[]> = {}, hm: Record<string, any[]> = {};
-    concs.forEach((c) => {
-      sm[c.id] = { ...c.settings, ...settingsFromRecipe(c.recipe) };
-      tm[c.id] = [
-        { role: 'user', text: seedPrompt },
-        { role: 'assistant', text: c.intro + '\n\nUse the controls on the right to fine-tune it, or ask me to change anything below.' },
-      ];
-      hm[c.id] = [{ id: 'h_gen', label: 'Module generated', detail: `Created “${c.name}” from your prompt.`, cost: 1, time: 'Just now' }];
-    });
-    setCandidates(concs);
-    setSettingsMap(sm);
-    setThreadMap(tm);
-    setHistoryMap(hm);
-    setBlueprint(proposeFetcher.data.blueprint ?? null);
-    setSelected(null);
-    setPhase('choosing');
+    applyOptions(opts, proposeFetcher.data.blueprint ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proposeFetcher.state, proposeFetcher.data]);
 
@@ -579,13 +641,12 @@ function GenerateWorkspace() {
   const backToOptions = () => setPhase('choosing');
   const regenerate = () => {
     setCandidates([]); setSettingsMap({}); setThreadMap({}); setHistoryMap({}); setSelected(null);
+    setBlueprint(null);
     createdRef.current = null;
     finishRef.current = null;
+    genStartedRef.current = false;
     setPhase('generating');
-    const fd = new FormData();
-    fd.set('prompt', seedPrompt);
-    fd.set('preferredType', 'Auto'); fd.set('preferredCategory', 'Auto'); fd.set('preferredBlockType', 'Auto'); fd.set('matchStoreColors', 'true');
-    proposeFetcher.submit(fd, { method: 'post', action: '/api/ai/create-module' });
+    void streamGenerate();
   };
 
   // Create the real modules from the generated blueprint, then navigate.
