@@ -1,0 +1,58 @@
+api_version = "2026-04"
+
+# SuperApp Admin Print — custom print documents (packing slip / invoice / label /
+# pick list) for orders and products (Print Action Extension API). Each target renders
+# an `s-admin-print-action` whose `src` points at the app's /admin-print/document route,
+# parameterized by the published admin.print module config (superapp.admin/print_refs)
+# and the selected resource id. Config-driven — one generic renderer per target.
+[[extensions]]
+uid = "11ee18b1-784f-4f91-9046-1c8b7fb1a755"
+type = "ui_extension"
+name = "SuperApp Order Print Action"
+handle = "superapp-admin-order-print-action"
+
+[extensions.capabilities]
+api_access = true
+
+[[extensions.targeting]]
+module = "./src/OrderDetailsPrint.tsx"
+target = "admin.order-details.print-action.render"
+
+[[extensions]]
+uid = "8225da22-1dbc-423b-8712-3520f8ba3186"
+type = "ui_extension"
+name = "SuperApp Product Print Action"
+handle = "superapp-admin-product-print-action"
+
+[extensions.capabilities]
+api_access = true
+
+[[extensions.targeting]]
+module = "./src/ProductDetailsPrint.tsx"
+target = "admin.product-details.print-action.render"
+
+[[extensions]]
+uid = "28aa450a-7986-4018-8faf-4ae09192c005"
+type = "ui_extension"
+name = "SuperApp Order Bulk Print Action"
+handle = "superapp-admin-order-bulk-print-action"
+
+[extensions.capabilities]
+api_access = true
+
+[[extensions.targeting]]
+module = "./src/OrderIndexPrint.tsx"
+target = "admin.order-index.selection-print-action.render"
+
+[[extensions]]
+uid = "0e2cf523-e307-49c8-9e82-83211dea7b04"
+type = "ui_extension"
+name = "SuperApp Product Bulk Print Action"
+handle = "superapp-admin-product-bulk-print-action"
+
+[extensions.capabilities]
+api_access = true
+
+[[extensions.targeting]]
+module = "./src/ProductIndexPrint.tsx"
+target = "admin.product-index.selection-print-action.render"

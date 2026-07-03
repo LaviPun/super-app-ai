@@ -471,16 +471,88 @@ export const ADMIN_BLOCK_TARGETS = [
   'admin.product-details.reorder.render',
   'admin.product-variant-details.block.render',
 ] as const;
-const ADMIN_PRINT_TARGETS = [
+/**
+ * `admin_print` (Print Action Extension API) targets — the four surfaces where a
+ * custom print document (label / packing slip / invoice / pick list) can be produced
+ * for orders and products (verified 2026-04 via dev MCP: Print Action Extension API
+ * "Support Targets (4)"). Backs the `admin.print` RecipeSpec type; the shipped
+ * admin-print extension registers one entrypoint per target, each rendering an
+ * `s-admin-print-action` whose `src` points at the app's `/admin-print/document`
+ * route parameterized by the published config.
+ */
+export const ADMIN_PRINT_TARGETS = [
   'admin.order-details.print-action.render',
   'admin.product-details.print-action.render',
   'admin.order-index.selection-print-action.render',
   'admin.product-index.selection-print-action.render',
 ] as const;
+export type AdminPrintTarget = (typeof ADMIN_PRINT_TARGETS)[number];
+
+/**
+ * `admin_link` extension targets — deep links from a Shopify admin resource page to
+ * a page of the app. Distinct Shopify extension TYPE (`admin_link`), NOT a ui_extension:
+ * the registration IS the deploy (a `[[extensions.targeting]] target + url` in the
+ * extension toml; Shopify appends the store + resource-id URL params at click time).
+ * This is the AUTHORITATIVE 2026-04 enum, verified via `shopify app config validate`.
+ * `admin.<resource>-details.action.link` places the link in the resource-page action
+ * menu; `admin.<resource>-index.(selection-)action.link` places it in the index page /
+ * bulk-selection action bar; `admin.app.intent.link` / `admin.app.support.link` are the
+ * special resource-independent targets invokable anywhere.
+ */
+export const ADMIN_LINK_TARGETS = [
+  'admin.abandoned-checkout-details.action.link',
+  'admin.abandoned-checkout-index.action.link',
+  'admin.discount-index.action.link',
+  'admin.discount-index.selection-action.link',
+  'admin.discount-details.action.link',
+  'admin.customer-index.action.link',
+  'admin.customer-index.selection-action.link',
+  'admin.customer-details.action.link',
+  'admin.order-index.action.link',
+  'admin.order-index.selection-action.link',
+  'admin.order-details.action.link',
+  'admin.draft-order-details.action.link',
+  'admin.draft-order-index.action.link',
+  'admin.draft-order-index.selection-action.link',
+  'admin.product-index.action.link',
+  'admin.product-index.selection-action.link',
+  'admin.product-details.action.link',
+  'admin.product-variant-details.action.link',
+  'admin.product-variant-index.selection-action.link',
+  'admin.collection-details.action.link',
+  'admin.collection-index.action.link',
+  'admin.order-fulfilled-card.action.link',
+  'admin.app.support.link',
+  'admin.page-index.action.link',
+  'admin.page-details.action.link',
+  'admin.blog-details.action.link',
+  'admin.article-details.action.link',
+  'admin.app.intent.link',
+] as const;
+export type AdminLinkTarget = (typeof ADMIN_LINK_TARGETS)[number];
+
+/**
+ * `admin.print` document kinds — a recommendation tag for the generated print doc,
+ * mapped to the app's print-document renderer. Free-form-ish but bounded so previews
+ * and the shipped renderer can branch on the intent.
+ */
+export const ADMIN_PRINT_DOCUMENT_KINDS = ['packing-slip', 'invoice', 'shipping-label', 'pick-list', 'custom'] as const;
+export type AdminPrintDocumentKind = (typeof ADMIN_PRINT_DOCUMENT_KINDS)[number];
+
+/**
+ * `admin.customers.segmentation-templates.data` — the single runnable target for a
+ * customer-segment template extension (verified 2026-04 via dev MCP). The extension
+ * returns an array of `{ title, description, query }` templates the merchant inserts
+ * in the segment editor with one click. Backed by the `admin.segmentTemplate` type.
+ */
+export const ADMIN_SEGMENT_TEMPLATE_TARGET = 'admin.customers.segmentation-templates.data' as const;
+
 export const ADMIN_TARGETS = [
   ...ADMIN_ACTION_TARGETS,
   ...ADMIN_BLOCK_TARGETS,
   ...ADMIN_PRINT_TARGETS,
+  ...ADMIN_LINK_TARGETS,
+  ADMIN_SEGMENT_TEMPLATE_TARGET,
   'admin.customers.segmentation-templates.render',
   'admin.product-details.configuration.render',
   'admin.product-variant-details.configuration.render',
@@ -1155,9 +1227,22 @@ export const RECIPE_SPEC_TYPES = [
   'admin.block',
   'admin.action',
   // Spring 2026 "Discount UI Extension" — an admin UI that configures a discount
-  // (pairs with functions.discountRules). Declarative today; needs_runtime until
-  // the discount-details extension is shipped.
+  // (pairs with functions.discountRules), rendered by the shipped
+  // discount-function-settings extension at admin.discount-details.function-settings.render.
   'admin.discountUi',
+  // Admin link extension (`admin_link` type): a deep link from an admin resource page
+  // to a page of the app. The toml registration IS the deploy; the shipped admin-link
+  // extension family carries the config-driven link targets.
+  'admin.link',
+  // Admin print extension (`admin_print` / Print Action Extension API): produces a
+  // custom print document (packing slip / invoice / label) for orders + products,
+  // rendered by the shipped admin-print extension whose s-admin-print-action src
+  // points at the app's print-document route.
+  'admin.print',
+  // Customer-segment template extension (admin.customers.segmentation-templates.data):
+  // returns pre-built segment query templates into the segment editor, served by the
+  // shipped segment-template extension reading the published config.
+  'admin.segmentTemplate',
   'pos.extension',
   'analytics.pixel',
   'integration.httpSync',
@@ -1196,6 +1281,9 @@ const MODULE_TYPE_ORDER: ModuleType[] = [
   'admin.block',
   'admin.action',
   'admin.discountUi',
+  'admin.link',
+  'admin.print',
+  'admin.segmentTemplate',
   'pos.extension',
   'platform.extensionBlueprint',
   'analytics.pixel',
@@ -1260,6 +1348,9 @@ export const MODULE_TYPE_TO_CATEGORY: Record<ModuleType, ModuleCategory> = {
   'admin.block': 'ADMIN_UI',
   'admin.action': 'ADMIN_UI',
   'admin.discountUi': 'ADMIN_UI',
+  'admin.link': 'ADMIN_UI',
+  'admin.print': 'ADMIN_UI',
+  'admin.segmentTemplate': 'ADMIN_UI',
   'pos.extension': 'ADMIN_UI',
   'analytics.pixel': 'INTEGRATION',
   'integration.httpSync': 'INTEGRATION',
@@ -1294,6 +1385,9 @@ export const MODULE_TYPE_DEFAULT_REQUIRES: Record<ModuleType, readonly string[]>
   'admin.block': [],
   'admin.action': [],
   'admin.discountUi': [],
+  'admin.link': [],
+  'admin.print': [],
+  'admin.segmentTemplate': [],
   'pos.extension': [],
   'analytics.pixel': [],
   'integration.httpSync': [],
@@ -1324,6 +1418,9 @@ export const MODULE_TYPE_TO_SURFACE: Record<ModuleType, ShopifySurface> = {
   'admin.block': 'admin',
   'admin.action': 'admin',
   'admin.discountUi': 'admin',
+  'admin.link': 'admin',
+  'admin.print': 'admin',
+  'admin.segmentTemplate': 'admin',
   'pos.extension': 'pos',
   'analytics.pixel': 'marketing_analytics',
   'integration.httpSync': 'online_store',
@@ -1475,6 +1572,18 @@ export const CLASSIFICATION_RULES: ClassificationRule[] = [
   { keywords: ['upsell', 'checkout upsell', 'cross-sell at checkout', 'order bump'], type: 'checkout.upsell' },
   { keywords: ['checkout block', 'checkout block render'], type: 'checkout.block' },
   { keywords: ['post purchase', 'post-purchase', 'one-click upsell'], type: 'postPurchase.offer' },
+  {
+    keywords: ['admin print', 'print action', 'packing slip', 'print invoice', 'shipping label', 'print label', 'pick list', 'print document', 'custom invoice'],
+    type: 'admin.print',
+  },
+  {
+    keywords: ['admin link', 'deep link', 'link extension', 'link to app', 'admin deep link', 'resource link', 'jump to app'],
+    type: 'admin.link',
+  },
+  {
+    keywords: ['segment template', 'customer segment template', 'segmentation template', 'segment editor', 'pre-built segment', 'segment query template'],
+    type: 'admin.segmentTemplate',
+  },
   { keywords: ['admin block', 'admin card', 'admin panel', 'admin extension'], type: 'admin.block' },
   { keywords: ['admin action', 'more actions', 'action modal', 'action button'], type: 'admin.action' },
   { keywords: ['pos', 'point of sale', 'pos extension', 'receipt'], type: 'pos.extension' },

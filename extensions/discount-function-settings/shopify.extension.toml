@@ -1,0 +1,26 @@
+api_version = "2026-04"
+
+# SuperApp Discount Function Settings — the admin UI a merchant sees inside a
+# discount's details page when the discount is powered by a SuperApp discount
+# Function. It renders a settings form from the published admin.discountUi module
+# config and saves the values to the discount's `$app/function-configuration`
+# metafield, which the paired discount Function reads at cart.lines.discounts.generate.run.
+[[extensions]]
+name = "SuperApp Discount Function Settings"
+handle = "discount-function-settings"
+uid = "26e5fa5f-1ddb-4d1a-9171-1f10821e6f3b"
+type = "ui_extension"
+
+[extensions.capabilities]
+api_access = true
+
+# Only one target is allowed for a discount function-settings extension.
+[[extensions.targeting]]
+module = "./src/DiscountFunctionSettings.tsx"
+target = "admin.discount-details.function-settings.render"
+
+# The metafield the settings UI reads/writes and the Function reads. Reserved
+# app-scoped namespace ($app) keeps it private to this app.
+[[extensions.metafields]]
+namespace = "$app"
+key = "function-configuration"

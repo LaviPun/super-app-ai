@@ -226,6 +226,79 @@ export const PART3_TEMPLATES: TemplateEntry[] = [
       },
     },
   },
+  {
+    id: 'ALK-202',
+    name: 'Admin Link — Reconcile Order',
+    description: 'Deep link from the order details page to the app’s order-reconciliation workflow.',
+    category: 'ADMIN_UI',
+    type: 'admin.link',
+    icon: 'admin',
+    tags: ['admin', 'link', 'deep-link', 'order'],
+    spec: {
+      type: 'admin.link',
+      name: 'Admin Link — Reconcile Order',
+      category: 'ADMIN_UI',
+      requires: [],
+      config: {
+        target: 'admin.order-details.action.link',
+        label: 'Reconcile in SuperApp',
+        url: '/app/orders/reconcile',
+      },
+    },
+  },
+  {
+    id: 'APR-203',
+    name: 'Admin Print — Packing Slip',
+    description: 'Custom branded packing slip printed from the order details page print-action menu.',
+    category: 'ADMIN_UI',
+    type: 'admin.print',
+    icon: 'admin',
+    tags: ['admin', 'print', 'packing-slip', 'order', 'fulfillment'],
+    spec: {
+      type: 'admin.print',
+      name: 'Admin Print — Packing Slip',
+      category: 'ADMIN_UI',
+      requires: [],
+      config: {
+        target: 'admin.order-details.print-action.render',
+        label: 'Print packing slip',
+        documentKind: 'packing-slip',
+        title: 'Packing Slip',
+        subtitle: 'Thank you for your order!',
+        includeShopHeader: true,
+      },
+    },
+  },
+  {
+    id: 'ASG-204',
+    name: 'Segment Template — VIP Customers',
+    description: 'Pre-built customer-segment templates (VIP + at-risk) inserted into the segment editor.',
+    category: 'ADMIN_UI',
+    type: 'admin.segmentTemplate',
+    icon: 'admin',
+    tags: ['admin', 'segment', 'template', 'customers', 'marketing'],
+    spec: {
+      type: 'admin.segmentTemplate',
+      name: 'Segment Template — VIP Customers',
+      category: 'ADMIN_UI',
+      requires: [],
+      config: {
+        target: 'admin.customers.segmentation-templates.data',
+        templates: [
+          {
+            title: 'VIP customers',
+            description: 'Customers with 5 or more orders.',
+            query: 'number_of_orders >= 5',
+          },
+          {
+            title: 'At-risk customers',
+            description: 'Customers who have not ordered in the last 180 days.',
+            query: 'last_order_date < -P180D',
+          },
+        ],
+      },
+    },
+  },
 
   // ═══════════════════════════════════════════════════════════════════
   // Category 10: Trust & Messaging (TRU-082 to TRU-090)

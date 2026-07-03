@@ -4,6 +4,10 @@ import { compileRecipe } from '~/services/recipes/compiler';
 import type {
   AdminActionPayload,
   AdminBlockPayload,
+  AdminDiscountUiPayload,
+  AdminLinkPayload,
+  AdminPrintPayload,
+  AdminSegmentTemplatePayload,
   CheckoutUpsellPayload,
   CustomerAccountBlockPayload,
   ThemeModulePayload,
@@ -25,6 +29,18 @@ const ADMIN_BLOCK_REFS_KEY = 'block_refs';
 
 const ADMIN_ACTIONS_NAMESPACE = 'superapp.admin';
 const ADMIN_ACTION_REFS_KEY = 'action_refs';
+
+const ADMIN_DISCOUNT_UI_NAMESPACE = 'superapp.admin';
+const ADMIN_DISCOUNT_UI_REFS_KEY = 'discount_ui_refs';
+
+const ADMIN_LINK_NAMESPACE = 'superapp.admin';
+const ADMIN_LINK_REFS_KEY = 'link_refs';
+
+const ADMIN_PRINT_NAMESPACE = 'superapp.admin';
+const ADMIN_PRINT_REFS_KEY = 'print_refs';
+
+const ADMIN_SEGMENT_TEMPLATE_NAMESPACE = 'superapp.admin';
+const ADMIN_SEGMENT_TEMPLATE_REFS_KEY = 'segment_template_refs';
 
 const FUNCTIONS_NAMESPACE = 'superapp.functions';
 
@@ -88,6 +104,10 @@ export class PublishService {
       themeModulePayload,
       adminBlockPayload,
       adminActionPayload,
+      adminDiscountUiPayload,
+      adminLinkPayload,
+      adminPrintPayload,
+      adminSegmentTemplatePayload,
       checkoutUpsellPayload,
       customerAccountBlockPayload,
       proxyWidgetPayload,
@@ -108,6 +128,26 @@ export class PublishService {
     // ── Admin action → metaobject + list.metaobject_reference ───────────────
     if (adminActionPayload && target.moduleId) {
       await this.writeAdminAction(mo, target.moduleId, adminActionPayload);
+    }
+
+    // ── Admin discount UI → metaobject + list.metaobject_reference ───────────
+    if (adminDiscountUiPayload && target.moduleId) {
+      await this.writeAdminDiscountUi(mo, target.moduleId, adminDiscountUiPayload);
+    }
+
+    // ── Admin link → metaobject + list.metaobject_reference ─────────────────
+    if (adminLinkPayload && target.moduleId) {
+      await this.writeAdminLink(mo, target.moduleId, adminLinkPayload);
+    }
+
+    // ── Admin print → metaobject + list.metaobject_reference ────────────────
+    if (adminPrintPayload && target.moduleId) {
+      await this.writeAdminPrint(mo, target.moduleId, adminPrintPayload);
+    }
+
+    // ── Admin segment template → metaobject + list.metaobject_reference ──────
+    if (adminSegmentTemplatePayload && target.moduleId) {
+      await this.writeAdminSegmentTemplate(mo, target.moduleId, adminSegmentTemplatePayload);
     }
 
     // ── Checkout upsell → metaobject + list.metaobject_reference ────────────
@@ -225,6 +265,62 @@ export class PublishService {
     const currentGids = await mo.getModuleGidList(ADMIN_ACTIONS_NAMESPACE, ADMIN_ACTION_REFS_KEY);
     const updatedGids = Array.from(new Set([...currentGids, gid]));
     await mo.setModuleGidList(ADMIN_ACTIONS_NAMESPACE, ADMIN_ACTION_REFS_KEY, updatedGids);
+  }
+
+  private async writeAdminDiscountUi(
+    mo: MetaobjectService,
+    moduleId: string,
+    payload: AdminDiscountUiPayload,
+  ): Promise<void> {
+    await mo.ensureMetafieldDefinition(
+      ADMIN_DISCOUNT_UI_NAMESPACE, ADMIN_DISCOUNT_UI_REFS_KEY, '$app:superapp_admin_discount_ui', true,
+    );
+    const gid = await mo.upsertAdminDiscountUiObject(moduleId, payload);
+    const currentGids = await mo.getModuleGidList(ADMIN_DISCOUNT_UI_NAMESPACE, ADMIN_DISCOUNT_UI_REFS_KEY);
+    const updatedGids = Array.from(new Set([...currentGids, gid]));
+    await mo.setModuleGidList(ADMIN_DISCOUNT_UI_NAMESPACE, ADMIN_DISCOUNT_UI_REFS_KEY, updatedGids);
+  }
+
+  private async writeAdminLink(
+    mo: MetaobjectService,
+    moduleId: string,
+    payload: AdminLinkPayload,
+  ): Promise<void> {
+    await mo.ensureMetafieldDefinition(
+      ADMIN_LINK_NAMESPACE, ADMIN_LINK_REFS_KEY, '$app:superapp_admin_link', true,
+    );
+    const gid = await mo.upsertAdminLinkObject(moduleId, payload);
+    const currentGids = await mo.getModuleGidList(ADMIN_LINK_NAMESPACE, ADMIN_LINK_REFS_KEY);
+    const updatedGids = Array.from(new Set([...currentGids, gid]));
+    await mo.setModuleGidList(ADMIN_LINK_NAMESPACE, ADMIN_LINK_REFS_KEY, updatedGids);
+  }
+
+  private async writeAdminPrint(
+    mo: MetaobjectService,
+    moduleId: string,
+    payload: AdminPrintPayload,
+  ): Promise<void> {
+    await mo.ensureMetafieldDefinition(
+      ADMIN_PRINT_NAMESPACE, ADMIN_PRINT_REFS_KEY, '$app:superapp_admin_print', true,
+    );
+    const gid = await mo.upsertAdminPrintObject(moduleId, payload);
+    const currentGids = await mo.getModuleGidList(ADMIN_PRINT_NAMESPACE, ADMIN_PRINT_REFS_KEY);
+    const updatedGids = Array.from(new Set([...currentGids, gid]));
+    await mo.setModuleGidList(ADMIN_PRINT_NAMESPACE, ADMIN_PRINT_REFS_KEY, updatedGids);
+  }
+
+  private async writeAdminSegmentTemplate(
+    mo: MetaobjectService,
+    moduleId: string,
+    payload: AdminSegmentTemplatePayload,
+  ): Promise<void> {
+    await mo.ensureMetafieldDefinition(
+      ADMIN_SEGMENT_TEMPLATE_NAMESPACE, ADMIN_SEGMENT_TEMPLATE_REFS_KEY, '$app:superapp_admin_segment_template', true,
+    );
+    const gid = await mo.upsertAdminSegmentTemplateObject(moduleId, payload);
+    const currentGids = await mo.getModuleGidList(ADMIN_SEGMENT_TEMPLATE_NAMESPACE, ADMIN_SEGMENT_TEMPLATE_REFS_KEY);
+    const updatedGids = Array.from(new Set([...currentGids, gid]));
+    await mo.setModuleGidList(ADMIN_SEGMENT_TEMPLATE_NAMESPACE, ADMIN_SEGMENT_TEMPLATE_REFS_KEY, updatedGids);
   }
 
   private async writeFunctionConfig(

@@ -1,0 +1,42 @@
+api_version = "2026-04"
+
+# SuperApp Admin Links — deep links from admin resource pages to the SuperApp.
+# `admin_link` is a distinct Shopify extension TYPE: the toml registration IS the
+# deployed artifact (each [[extensions.targeting]] is one link target + relative url).
+# Shopify appends the store domain + the selected/displayed resource id to the url at
+# click time, so `/app/link` can key off `?shop=…&id=…` and route the merchant to the
+# right SuperApp workflow. The published admin.link module config
+# (superapp.admin/link_refs) carries the merchant-facing label + intended destination.
+[[extensions]]
+name = "t:name"
+handle = "admin-link"
+uid = "3c9467a9-ef95-47b8-83ce-53a3e537387a"
+type = "admin_link"
+
+# Order pages → SuperApp order workflow.
+[[extensions.targeting]]
+target = "admin.order-details.action.link"
+url = "/app/link?resource=order"
+
+[[extensions.targeting]]
+target = "admin.order-index.selection-action.link"
+url = "/app/link?resource=order&bulk=1"
+
+# Product pages → SuperApp product workflow.
+[[extensions.targeting]]
+target = "admin.product-details.action.link"
+url = "/app/link?resource=product"
+
+[[extensions.targeting]]
+target = "admin.product-index.selection-action.link"
+url = "/app/link?resource=product&bulk=1"
+
+# Customer pages → SuperApp customer workflow.
+[[extensions.targeting]]
+target = "admin.customer-details.action.link"
+url = "/app/link?resource=customer"
+
+# Collection pages → SuperApp collection workflow.
+[[extensions.targeting]]
+target = "admin.collection-details.action.link"
+url = "/app/link?resource=collection"

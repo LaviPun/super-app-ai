@@ -18,6 +18,10 @@ import { compilePostPurchaseOffer } from './postPurchase.offer';
 import { compileCustomerAccountBlocks } from './customerAccount.blocks';
 import { compileAdminBlock } from './admin.block';
 import { compileAdminAction } from './admin.action';
+import { compileAdminDiscountUi } from './admin.discountUi';
+import { compileAdminLink } from './admin.link';
+import { compileAdminPrint } from './admin.print';
+import { compileAdminSegmentTemplate } from './admin.segmentTemplate';
 import { compileAnalyticsPixel } from './analytics.pixel';
 import { compileMessagingCampaign } from './messaging.campaign';
 import { compileAgenticCatalogProfile } from './agentic.catalogProfile';
@@ -57,6 +61,14 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
       return compileAdminBlock(spec);
     case 'admin.action':
       return compileAdminAction(spec);
+    case 'admin.discountUi':
+      return compileAdminDiscountUi(spec);
+    case 'admin.link':
+      return compileAdminLink(spec);
+    case 'admin.print':
+      return compileAdminPrint(spec);
+    case 'admin.segmentTemplate':
+      return compileAdminSegmentTemplate(spec);
     case 'analytics.pixel':
       return compileAnalyticsPixel(spec);
     case 'messaging.campaign':
@@ -71,9 +83,6 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
     case 'integration.httpSync':
     case 'flow.automation':
     case 'platform.extensionBlueprint':
-    // admin.discountUi (Spring 2026): declarative today — no admin discount-details
-    // extension shipped yet, so it AUDIT-compiles and preflight gates it needs_runtime.
-    case 'admin.discountUi':
       return { ops: [{ kind: 'AUDIT', action: `compile.${spec.type}` }] };
     default: {
       const _exhaustive: never = spec;

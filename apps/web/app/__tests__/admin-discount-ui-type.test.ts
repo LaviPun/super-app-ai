@@ -5,8 +5,11 @@ import { PreviewService } from '~/services/preview/preview.service';
 
 /**
  * Spring 2026 `admin.discountUi` (Discount UI Extension): generatable + validatable
- * + previewable now, honestly `needs_runtime` for publish until the discount-details
- * admin extension is shipped in `extensions/`.
+ * + previewable, and now DEPLOYABLE — the discount-function-settings extension is
+ * shipped in `extensions/discount-function-settings` (registers
+ * admin.discount-details.function-settings.render, reads the published field config,
+ * saves values to the discount function-configuration metafield). Publishing persists
+ * the config to a superapp.admin/discount_ui_refs metaobject via a real compiler payload.
  */
 function discountUiSpec(): RecipeSpec {
   const t = MODULE_TEMPLATES.find((m) => m.spec.type === 'admin.discountUi');
@@ -24,11 +27,10 @@ describe('admin.discountUi module type', () => {
     }
   });
 
-  it('is classified needs_runtime (fails loudly, never silently "published")', () => {
+  it('is classified deployable (discount-function-settings extension is shipped)', () => {
     const result = classifyModulePublishability(discountUiSpec());
-    expect(result.status).toBe('needs_runtime');
-    expect(result.willDeploy).toBe(false);
-    expect(result.reasons.length).toBeGreaterThan(0);
+    expect(result.status).toBe('deployable');
+    expect(result.willDeploy).toBe(true);
   });
 
   it('renders a real discount-UI preview (not the generic diagram)', () => {

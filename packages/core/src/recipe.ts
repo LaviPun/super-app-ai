@@ -30,6 +30,9 @@ import {
   ADMIN_TARGETS,
   ADMIN_BLOCK_TARGETS,
   ADMIN_ACTION_TARGETS,
+  ADMIN_LINK_TARGETS,
+  ADMIN_PRINT_TARGETS,
+  ADMIN_PRINT_DOCUMENT_KINDS,
   POS_TARGETS,
   PIXEL_STANDARD_EVENTS,
   MODULE_CATEGORIES,
@@ -788,6 +791,90 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
         label: z.string().min(1).max(80),
         kind: z.enum(['text', 'number', 'toggle', 'select']).default('text'),
       })).max(20).default([]),
+    }),
+  }),
+
+  // Admin link extension (`admin_link` type). A deep link from an admin resource page
+  // to a page of the app. Distinct Shopify extension TYPE — NOT a ui_extension: the
+  // deploy IS the toml registration (`target` + relative `url`; Shopify appends the
+  // store + selected-resource id at click time). Config-driven registration in the
+  // shipped admin-link extension family. No runtime bundle to render.
+  Base.extend({
+    type: z.literal('admin.link'),
+    category: z.literal('ADMIN_UI').default('ADMIN_UI'),
+    requires: z.array(z.custom<Capability>()).default([]),
+    config: z.object({
+      /** Which admin resource page (or the resource-independent app-intent target) hosts the link. */
+      target: z.enum(ADMIN_LINK_TARGETS),
+      /** Merchant-facing link label shown in the admin. */
+      label: z.string().min(LIMITS.labelMin).max(LIMITS.labelMax),
+      /**
+       * Relative app path the link opens (e.g. `/app/orders/reconcile`). Shopify appends
+       * `shop` + selected-resource id URL params at invocation, so the app page can key
+       * off the resource. A single leading-slash relative path; no external URLs.
+       */
+      url: z.string().min(1).max(2000).regex(/^\/[^\s]*$/, 'url must be a relative app path starting with "/"'),
+    }),
+  }),
+
+  // Admin print extension (`admin_print` / Print Action Extension API). Produces a
+  // custom printable document (packing slip / invoice / label / pick list) for orders
+  // and products. The shipped admin-print extension renders an `s-admin-print-action`
+  // whose `src` points at the app's `/admin-print/document` route, parameterized by
+  // the published config (documentKind + title + which resource ids). Config-driven —
+  // no per-module bundle. Publishing persists the config the print route reads.
+  Base.extend({
+    type: z.literal('admin.print'),
+    category: z.literal('ADMIN_UI').default('ADMIN_UI'),
+    requires: z.array(z.custom<Capability>()).default([]),
+    config: z.object({
+      /** One of the four print-action render targets (order/product · details/index-selection). */
+      target: z.enum(ADMIN_PRINT_TARGETS),
+      /** Menu label shown in the admin print-action list. */
+      label: z.string().min(LIMITS.labelMin).max(LIMITS.labelMax),
+      /** Which document the app produces. Drives the print-document renderer + preview. */
+      documentKind: z.enum(ADMIN_PRINT_DOCUMENT_KINDS).default('packing-slip'),
+      /** Document title/heading printed on the page. */
+      title: z.string().min(1).max(120),
+      /** Optional sub-line / merchant note printed under the title. */
+      subtitle: z.string().max(240).optional(),
+      /**
+       * Optional print-document body template. `{{order.name}}` / `{{product.title}}`
+       * style placeholders are resolved by the app's print route at render time. Omit →
+       * the renderer uses the documentKind's default layout.
+       */
+      bodyTemplate: z.string().max(8000).optional(),
+      /** Whether to include the shop logo/header block in the printed doc. */
+      includeShopHeader: z.boolean().default(true),
+    }),
+  }),
+
+  // Customer-segment template extension (admin.customers.segmentation-templates.data).
+  // A runnable data extension that returns pre-built segment query templates into the
+  // segment editor's template gallery. Config-driven: the shipped segment-template
+  // extension reads the published templates and returns them verbatim. Each template's
+  // `query` uses ShopifyQL-style segment syntax (e.g. `number_of_orders >= 5`).
+  Base.extend({
+    type: z.literal('admin.segmentTemplate'),
+    category: z.literal('ADMIN_UI').default('ADMIN_UI'),
+    requires: z.array(z.custom<Capability>()).default([]),
+    config: z.object({
+      /** The single runnable target for segment-template data extensions. */
+      target: z.literal('admin.customers.segmentation-templates.data').default('admin.customers.segmentation-templates.data'),
+      /** The segment query templates surfaced in the editor gallery. */
+      templates: z
+        .array(
+          z.object({
+            /** Template card title. */
+            title: z.string().min(1).max(80),
+            /** One-line explanation of who the segment matches. */
+            description: z.string().min(1).max(240),
+            /** The segment query inserted on one click (segment editor syntax). */
+            query: z.string().min(1).max(2000),
+          }),
+        )
+        .min(1)
+        .max(20),
     }),
   }),
 

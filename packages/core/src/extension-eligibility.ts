@@ -240,15 +240,60 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
     requiredScopes: ['write_metaobjects'],
     note: 'Adds an admin action (More-actions modal) via the shipped generic admin UI extension (extensions/admin-ui), which reads the published module config from a superapp.admin/action_refs metaobject at the action target.',
   },
-  // Spring 2026 Discount UI Extension. The discount-details admin UI extension is
-  // not yet built in `extensions/`, so runtimeShipped:false → needs_runtime until
-  // it ships (generatable + previewable meanwhile; pairs with functions.discountRules).
+  // Spring 2026 Discount UI Extension. The discount-function-settings admin UI
+  // extension is now SHIPPED (extensions/discount-function-settings) registering
+  // admin.discount-details.function-settings.render with an s-function-settings root
+  // and an $app/function-configuration metafield. Publishing an admin.discountUi
+  // persists its config to a superapp.admin/discount_ui_refs metaobject; the extension
+  // reads that config at the target, renders the declared fields as a settings form,
+  // and writes the buyer's values to the discount's function-configuration metafield
+  // (the shape the paired functions.discountRules Function reads). So it is genuinely
+  // deployable, not AUDIT-only.
   'admin.discountUi': {
     moduleType: 'admin.discountUi',
     runtime: 'admin-ui',
-    runtimeShipped: false,
+    runtimeShipped: true,
     requiredScopes: ['write_metaobjects', 'write_discounts'],
-    note: 'Discount UI Extension (Spring 2026) — configures a discount from the admin. Needs the discount-details extension shipped before it can publish.',
+    note: 'Discount UI Extension (Spring 2026) — configures a discount from the admin via the shipped discount-function-settings extension (admin.discount-details.function-settings.render). Renders the published field config and saves values to the discount function-configuration metafield the paired discount Function reads.',
+  },
+
+  // Admin link extension (`admin_link` type). Deep links from admin resource pages to
+  // app pages. Distinct Shopify extension TYPE whose deploy IS the toml registration
+  // (target + relative url; Shopify appends store + resource-id at click). The shipped
+  // admin-link extension family (extensions/admin-link) carries the registered link
+  // targets; publishing persists the label/url config the app link page keys off.
+  // No runtime bundle — the registration itself is the deployed artifact.
+  'admin.link': {
+    moduleType: 'admin.link',
+    runtime: 'admin-ui',
+    runtimeShipped: true,
+    requiredScopes: ['write_metaobjects'],
+    note: 'Adds a deep link from an admin resource page to a page of the app via a shipped admin_link extension (extensions/admin-link). Shopify appends the store + selected-resource id to the URL at click time.',
+  },
+
+  // Admin print extension (`admin_print` / Print Action Extension API). Produces a
+  // custom print document for orders + products. The shipped admin-print extension
+  // (extensions/admin-print) registers the four print-action targets and renders an
+  // s-admin-print-action whose src points at the app's /admin-print/document route;
+  // publishing persists the documentKind/title/template config that route reads.
+  'admin.print': {
+    moduleType: 'admin.print',
+    runtime: 'admin-ui',
+    runtimeShipped: true,
+    requiredScopes: ['write_metaobjects'],
+    note: 'Adds a custom print document (packing slip / invoice / label) to the admin print-action menu via the shipped admin-print extension (extensions/admin-print), which renders the app-served print document defined by the published config.',
+  },
+
+  // Customer-segment template extension (admin.customers.segmentation-templates.data).
+  // The shipped segment-template extension (extensions/admin-segment-template) registers
+  // the single data target and returns the published segment-query templates into the
+  // segment editor gallery; publishing persists the templates the extension reads.
+  'admin.segmentTemplate': {
+    moduleType: 'admin.segmentTemplate',
+    runtime: 'admin-ui',
+    runtimeShipped: true,
+    requiredScopes: ['write_metaobjects'],
+    note: 'Adds pre-built customer-segment query templates to the segment editor via the shipped segment-template extension (extensions/admin-segment-template), which returns the published templates at the segmentation-templates.data target.',
   },
 
   // ── Customer account UI (shipped: extensions/customer-account-ui) ──────────

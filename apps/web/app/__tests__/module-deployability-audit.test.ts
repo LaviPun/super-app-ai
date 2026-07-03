@@ -58,9 +58,6 @@ const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
   'functions.shippingDiscount',
   // Flow trigger/action extensions ship; workflow-definition publish wiring pending.
   'flow.automation',
-  // Spring 2026 Discount UI Extension — generatable + previewable, but the
-  // discount-details admin extension isn't built in extensions/ yet.
-  'admin.discountUi',
   // App-proxy sync: no compiler persists its config and nothing consumes it
   // server-side yet, so publishing would deploy nothing. Gated until wired.
   'integration.httpSync',
@@ -178,6 +175,10 @@ const PAYLOAD_KEYS = [
   'themeModulePayload',
   'adminBlockPayload',
   'adminActionPayload',
+  'adminDiscountUiPayload',
+  'adminLinkPayload',
+  'adminPrintPayload',
+  'adminSegmentTemplatePayload',
   'checkoutUpsellPayload',
   'customerAccountBlockPayload',
   'proxyWidgetPayload',

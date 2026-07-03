@@ -94,7 +94,22 @@ Settings: target(enum from ADMIN_TARGETS), label(str 1-80), shouldRender(bool, o
 No style.`,
 
   'admin.discountUi': `Module: admin.discountUi | Category: ADMIN_UI
-Settings: title(str 1-80), discountClass(product|order|shipping), functionHandle(str, opt — links a functions.discountRules Function), description(str, opt), fields([{key,label,kind:text|number|toggle|select}], opt). Spring 2026 Discount UI Extension — an admin form that configures a discount.
+Settings: title(str 1-80), discountClass(product|order|shipping), functionHandle(str, opt — links a functions.discountRules Function), description(str, opt), fields([{key,label,kind:text|number|toggle|select}], opt). Spring 2026 Discount UI Extension — an admin form (admin.discount-details.function-settings.render) that configures a discount and saves values to the discount function-configuration metafield the paired Function reads.
+No style.`,
+
+  'admin.link': `Module: admin.link | Category: ADMIN_UI
+DEEP LINK from an admin resource page to a page of the app (admin_link extension type — the toml registration IS the deploy; Shopify appends the store + selected-resource id to the URL at click). Use for "add a link on the order page to my app", "jump from a product to my app workflow".
+Settings: target(from ADMIN_LINK_TARGETS — e.g. admin.order-details.action.link|admin.product-details.action.link|admin.customer-details.action.link|admin.collection-details.action.link|admin.order-index.selection-action.link|admin.product-index.selection-action.link|admin.app.intent.link), label(str 1-80), url(relative app path starting with "/", max 2000 — no external URLs).
+No style.`,
+
+  'admin.print': `Module: admin.print | Category: ADMIN_UI
+CUSTOM PRINT DOCUMENT (packing slip / invoice / shipping label / pick list) for orders + products (admin_print / Print Action Extension API). The extension renders s-admin-print-action pointing at the app's print-document route. Use for "custom packing slip", "branded invoice", "print shipping labels".
+Settings: target(admin.order-details.print-action.render|admin.product-details.print-action.render|admin.order-index.selection-print-action.render|admin.product-index.selection-print-action.render), label(str 1-80), documentKind(packing-slip|invoice|shipping-label|pick-list|custom), title(str 1-120), subtitle(str 0-240, opt), bodyTemplate(str 0-8000, opt — {{order.name}}/{{product.title}} placeholders), includeShopHeader(bool, default true).
+No style.`,
+
+  'admin.segmentTemplate': `Module: admin.segmentTemplate | Category: ADMIN_UI
+PRE-BUILT CUSTOMER-SEGMENT QUERY TEMPLATES surfaced in the segment editor's template gallery (admin.customers.segmentation-templates.data). Merchants insert a template's query with one click. Use for "add VIP/at-risk segment templates", "pre-built customer segments".
+Settings: target(admin.customers.segmentation-templates.data, fixed), templates(array 1-20, each: title(str 1-80), description(str 1-240), query(segment editor query syntax, str 1-2000 — e.g. "number_of_orders >= 5")).
 No style.`,
 
   'pos.extension': `Module: pos.extension | Category: ADMIN_UI

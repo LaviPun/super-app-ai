@@ -589,6 +589,12 @@ export class PreviewService {
         return this.adminSurfacePreview(spec);
       case 'admin.discountUi':
         return this.discountUiSurfacePreview(spec);
+      case 'admin.link':
+        return this.adminLinkSurfacePreview(spec);
+      case 'admin.print':
+        return this.adminPrintSurfacePreview(spec);
+      case 'admin.segmentTemplate':
+        return this.segmentTemplateSurfacePreview(spec);
       case 'customerAccount.blocks':
         return this.accountSurfacePreview(spec);
       case 'pos.extension':
@@ -776,6 +782,93 @@ export class PreviewService {
       .dui__field label { font-size:12px; color:#6B7280; }
       .dui__input { border:1px solid #DCE3EC; border-radius:8px; padding:8px 10px; font-size:13px; background:#fff; color:#6B7280; }
       .dui__toggle { width:36px; height:20px; border-radius:9999px; background:#DCE3EC; }
+    `);
+  }
+
+  /** Admin link extension (`admin_link`) — a deep link from an admin resource page. */
+  private adminLinkSurfacePreview(spec: RecipeSpec): string {
+    const label = String(this.cfgVal(spec, 'label') ?? spec.name);
+    const target = String(this.cfgVal(spec, 'target') ?? '');
+    const url = String(this.cfgVal(spec, 'url') ?? '/');
+    const resource = target.split('.')[1] ?? 'resource';
+    return this.surfaceCard(spec.name, `${spec.type} · admin link`, `
+      <div class="surf-panel">
+        <p class="surf-muted">Shown in the ${esc(resource)} page action menu. Clicking opens your app with the store + selected-resource id appended.</p>
+        <div class="alk__menu">
+          <div class="alk__item">Edit</div>
+          <div class="alk__item">Duplicate</div>
+          <div class="alk__item alk__item--app"><span class="alk__dot"></span>${esc(label)}</div>
+        </div>
+        <p class="surf-muted">Opens: <code>${esc(url)}?shop=…&amp;id=…</code></p>
+        <details class="surf-state"><summary>Target</summary><p class="surf-muted"><code>${esc(target)}</code> — deployed as an admin_link toml registration (no runtime bundle).</p></details>
+      </div>
+    `, `
+      .alk__menu { border:1px solid #DCE3EC; border-radius:8px; overflow:hidden; margin:10px 0; max-width:280px; }
+      .alk__item { padding:9px 12px; font-size:13px; color:#334155; border-bottom:1px solid #eef2f7; }
+      .alk__item:last-child { border-bottom:0; }
+      .alk__item--app { color:#1F3A5F; font-weight:600; display:flex; align-items:center; gap:8px; }
+      .alk__dot { width:8px; height:8px; border-radius:9999px; background:#1F3A5F; }
+    `);
+  }
+
+  /** Admin print extension (`admin_print`) — a custom printable document preview. */
+  private adminPrintSurfacePreview(spec: RecipeSpec): string {
+    const label = String(this.cfgVal(spec, 'label') ?? spec.name);
+    const kind = String(this.cfgVal(spec, 'documentKind') ?? 'packing-slip');
+    const title = String(this.cfgVal(spec, 'title') ?? 'Document');
+    const subtitle = String(this.cfgVal(spec, 'subtitle') ?? '');
+    const includeHeader = this.cfgVal(spec, 'includeShopHeader') !== false;
+    return this.surfaceCard(spec.name, `${spec.type} · admin print`, `
+      <div class="surf-panel">
+        <p class="surf-muted">Print-action “${esc(label)}” — opens a print preview of an app-rendered ${esc(kind)}.</p>
+        <div class="apr__page">
+          ${includeHeader ? '<div class="apr__shop">Your Store</div>' : ''}
+          <h3 class="apr__title">${esc(title)}</h3>
+          ${subtitle ? `<p class="apr__sub">${esc(subtitle)}</p>` : ''}
+          <div class="apr__rows">
+            <div class="apr__row"><span>SKU-001 · Travel Backpack</span><span>× 1</span></div>
+            <div class="apr__row"><span>SKU-014 · Packing Cube Set</span><span>× 2</span></div>
+          </div>
+        </div>
+        <a class="surf-btn" href="#print">Print</a>
+        <details class="surf-state"><summary>How it renders</summary><p class="surf-muted">s-admin-print-action src points at the app’s /admin-print/document route, parameterized by this config + the selected resource.</p></details>
+      </div>
+    `, `
+      .apr__page { border:1px solid #DCE3EC; border-radius:8px; background:#fff; padding:16px; margin:10px 0; }
+      .apr__shop { font-size:12px; color:#6B7280; text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px; }
+      .apr__title { margin:0; font-size:16px; color:#111827; }
+      .apr__sub { margin:4px 0 10px; color:#6B7280; font-size:13px; }
+      .apr__row { display:flex; justify-content:space-between; font-size:13px; padding:5px 0; border-bottom:1px dashed #eef2f7; color:#334155; }
+    `);
+  }
+
+  /** Customer-segment template extension — the segment editor template gallery. */
+  private segmentTemplateSurfacePreview(spec: RecipeSpec): string {
+    const templatesRaw = this.cfgVal(spec, 'templates');
+    const templates = Array.isArray(templatesRaw) ? (templatesRaw as Array<Record<string, unknown>>) : [];
+    const cards = templates.length
+      ? templates
+          .map(
+            (t) => `
+        <div class="seg__card">
+          <h3>${esc(String(t?.title ?? 'Template'))}</h3>
+          <p class="surf-muted">${esc(String(t?.description ?? ''))}</p>
+          <code class="seg__q">${esc(String(t?.query ?? ''))}</code>
+        </div>`,
+          )
+          .join('')
+      : '<p class="surf-muted">No segment templates configured yet.</p>';
+    return this.surfaceCard(spec.name, `${spec.type} · segment templates`, `
+      <div class="surf-panel">
+        <p class="surf-muted">Appears in the customer segment editor’s template gallery. One click inserts the query.</p>
+        <div class="seg__grid">${cards}</div>
+        <details class="surf-state"><summary>Target</summary><p class="surf-muted"><code>admin.customers.segmentation-templates.data</code> — a runnable data extension returning these templates.</p></details>
+      </div>
+    `, `
+      .seg__grid { display:grid; gap:10px; margin:10px 0; }
+      .seg__card { border:1px solid #DCE3EC; border-radius:8px; padding:12px; background:#fff; }
+      .seg__card h3 { margin:0 0 4px; font-size:14px; color:#1F3A5F; }
+      .seg__q { display:block; margin-top:8px; background:#F6F8FB; border-radius:6px; padding:6px 8px; font-size:12px; color:#334155; overflow-x:auto; }
     `);
   }
 
