@@ -74,9 +74,15 @@ export async function loader({ request }: { request: Request }) {
   const aiLimit = usage.quotas?.aiRequestsPerMonth ?? 0;
   const aiUsed = usage.used?.aiRequests ?? 0;
   const main = themes.find((t) => t.role === 'main');
+  // Sidekick "create" action-link lands here with ?prompt=… (see
+  // extensions/superapp-sidekick-create). Surface it so the workspace can seed
+  // the generator even without client-side router state. Additive: absent param
+  // ⇒ null ⇒ existing state-based seeding is byte-for-byte unchanged.
+  const seedPrompt = new URL(request.url).searchParams.get('prompt');
   return json({
     aiLeft: aiLimit === -1 ? null : Math.max(0, aiLimit - aiUsed),
     defaultThemeId: main ? String(main.id) : themes[0] ? String(themes[0].id) : null,
+    seedPrompt: seedPrompt && seedPrompt.trim() ? seedPrompt.trim() : null,
   });
 }
 
@@ -376,7 +382,13 @@ function GenerateWorkspace() {
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
   const seed = (location.state as any) || null;
-  const seedPrompt = typeof seed?.prompt === 'string' ? seed.prompt.trim() : '';
+  // Prefer client-nav router state; fall back to the loader's ?prompt= param so
+  // a Sidekick create action-link (which arrives as a fresh URL navigation, no
+  // router state) still seeds the generator.
+  const seedPrompt =
+    typeof seed?.prompt === 'string' && seed.prompt.trim()
+      ? seed.prompt.trim()
+      : (loaderData.seedPrompt ?? '');
 
   const proposeFetcher = useFetcher<{ options?: { index: number; explanation: string; recipe: Record<string, unknown> }[]; blueprint?: BlueprintResult | null; error?: string; message?: string }>();
   const confirmFetcher = useFetcher<{ moduleId?: string; recipeId?: string; firstModuleId?: string; moduleCount?: number; error?: string }>();

@@ -1,0 +1,18 @@
+api_version = "2026-04"
+
+[[extensions]]
+name = "Super App AI Sidekick data"
+uid = "409de19e-15dd-4cac-8d71-d25d5d374ac8409de19e"
+type = "ui_extension"
+handle = "superapp-sidekick-data"
+# Sidekick reads this description to decide when the extension is relevant to a
+# merchant question (256-token limit). Be specific about domain + tasks.
+description = "Search the merchant's Super App AI generated modules (storefront popups, banners, bundles, upsells, discount/cart-transform functions, recommendation blocks) and report each module's status, type, version, and performance (impressions, interactions, conversions, conversion rate)."
+
+# Headless data tools target. Executes in Shopify's sandbox with no UI; the
+# bundle fetches our app backend and returns MCP Resource Links.
+[[extensions.targeting]]
+target = "admin.app.tools.data"
+module = "./src/index.js"
+tools = "./tools.json"
+instructions = "./instructions.md"

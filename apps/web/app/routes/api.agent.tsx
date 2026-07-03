@@ -32,6 +32,14 @@ export async function loader({ request }: { request: Request }) {
         returns: 'module: { id, name, type, category, status, versions[]: { version, status, spec, publishedAt, targetThemeId } }',
       },
       {
+        id: 'get_module_performance',
+        method: 'GET',
+        path: '/api/agent/modules/:moduleId/performance',
+        description: 'Aggregated performance for a module over the last N days (default 30). READ-ONLY.',
+        returns: '{ ok, moduleId, name, type, status, performance: { available, impressions, interactions, actions, conversions, conversionRate, byDay[] } | { available:false, reason } }',
+        notes: 'Query param: days (1-90, default 30). Reports available:false when no metrics recorded — never fabricates zeros. Same aggregation the Sidekick data extension uses.',
+      },
+      {
         id: 'create_module',
         method: 'POST',
         path: '/api/agent/modules',

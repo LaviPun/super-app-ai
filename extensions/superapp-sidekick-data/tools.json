@@ -1,0 +1,41 @@
+[
+  {
+    "$schema": "https://schemas.shopify.com/admin/tools/2026-04/tool.json",
+    "name": "search_modules",
+    "description": "Search the merchant's Super App AI modules by name and/or status. Returns each module with its type, status (DRAFT or PUBLISHED), category, latest version, and last-updated time. Use to answer questions like 'what modules do I have', 'which of my modules are still drafts', or 'find my spin-to-win popup'.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Optional case-insensitive substring to match against the module name. Omit to list all modules."
+        },
+        "status": {
+          "type": "string",
+          "description": "Filter by publish status. ANY returns both drafts and published modules.",
+          "enum": ["ANY", "DRAFT", "PUBLISHED"]
+        }
+      }
+    }
+  },
+  {
+    "$schema": "https://schemas.shopify.com/admin/tools/2026-04/tool.json",
+    "name": "get_module_performance",
+    "description": "Get a Super App AI module's performance over the last N days: impressions, interactions, actions, conversions, and conversion rate, plus a per-day breakdown. Use to answer 'how is my <module> performing'. If no analytics have been recorded yet the result reports that instead of showing zeros.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "moduleId": {
+          "type": "string",
+          "description": "The id of the module to report on, e.g. from a search_modules result."
+        },
+        "days": {
+          "type": "integer",
+          "description": "How many days of history to summarize (1-90).",
+          "minimum": 1,
+          "maximum": 90
+        }
+      }
+    }
+  }
+]

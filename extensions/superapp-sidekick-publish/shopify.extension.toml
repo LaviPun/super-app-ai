@@ -1,0 +1,22 @@
+[[extensions]]
+name = "Super App AI Sidekick publish"
+handle = "superapp-sidekick-publish"
+uid = "6e8e9156-3412-4821-b305-f1b9ccee5dbd6e8e9156"
+type = "admin_link"
+# Sidekick reads this to decide relevance (256-token limit).
+description = "Open a Super App AI module on its page to publish its latest draft and take it live. Navigates the merchant to the module in Super App AI, where plan and pre-publish checks run and the merchant confirms the publish (choosing a theme for storefront modules). Nothing is published automatically."
+
+# Navigation intent → the module page with the publish action highlighted.
+# `{id}` is filled from the intent value; `?publish=1` hints the app to surface
+# the publish flow. Publishing still runs the app's plan-gate + pre-publish
+# validation and requires the merchant to confirm.
+[[extensions.targeting]]
+target = "admin.app.intent.link"
+url = "/modules/{id}?publish=1"
+tools = "./tools.json"
+instructions = "./instructions.md"
+
+  [[extensions.targeting.intents]]
+  type = "application/superapp-module-publish"
+  action = "edit"
+  schema = "./publish-schema.json"

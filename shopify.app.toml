@@ -51,6 +51,11 @@ url = "/proxy"
 prefix = "apps"
 subpath = "superapp"
 
+[sidekick]
+# Required when the app has any Sidekick-eligible extensions (256-token limit).
+# Consolidated summary Sidekick uses to route merchant questions to us.
+extensions_summary = "Search and report on Super App AI generated modules (storefront popups, banners, bundles, upsells, discount and cart-transform Functions, recommendation blocks, and admin/POS/checkout/customer-account blocks), including each module's status, type, version, and performance; and Create, Configure, and Publish those modules from a natural-language request. All create, configure, and publish actions open the app for the merchant to review and confirm — nothing changes in the store automatically."
+
 [auth]
 redirect_urls = [ ]
 

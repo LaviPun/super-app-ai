@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schemas.shopify.com/admin/intents/2026-04/intent.json",
+  "value": {
+    "type": "string",
+    "description": "The id (gid://application/superapp-module/<id>) of the Super App AI module to publish. Comes from a search_modules result.",
+    "mapTo": "param",
+    "fieldName": "id"
+  },
+  "inputSchema": {
+    "type": "object",
+    "properties": {}
+  }
+}

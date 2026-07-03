@@ -1,0 +1,16 @@
+[
+  {
+    "$schema": "https://schemas.shopify.com/admin/tools/2026-04/tool.json",
+    "name": "create_superapp_module",
+    "description": "Open Super App AI's generator seeded with a natural-language prompt to create a new storefront/checkout/admin/POS/customer-account module or Shopify Function. The merchant reviews the AI-generated options and confirms before anything is saved or published — nothing changes in the store from this action alone.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "What the merchant wants to build, in their own words."
+        }
+      }
+    }
+  }
+]
