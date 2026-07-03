@@ -1,8 +1,15 @@
 import { json } from '@remix-run/node';
 import { useEffect, useRef, useState } from 'react';
+import {
+  useLoaderData,
+  useFetcher,
+  useNavigate,
+  useNavigation,
+  useLocation,
+  useSearchParams,
+  useRevalidator,
+} from '@remix-run/react';
 import { z } from 'zod';
-import { isReferenceLocalPromptRouterBaseUrl } from '~/services/ai/assistant-router-local';
-import { buildAssistantReadinessSummary } from '~/services/ai/assistant-readiness-summary';
 import type { InternalAssistantStoreService } from '~/services/ai/internal-assistant-store.server';
 import type { RouterRuntimeConfig } from '~/schemas/router-runtime-config.server';
 import { isInternalAiLocalOnlyEnabledFromEnv } from '~/services/ai/internal-ai-local-only';
@@ -14,8 +21,8 @@ import {
   StatusDot,
   KV,
   MonoChip,
-  ASSISTANT_SESSIONS,
-  ASSISTANT_THREAD,
+  Toggle,
+  Textarea,
 } from '~/components/admin/page-kit';
 
 const ActionSchema = z.object({
@@ -272,14 +279,6 @@ export async function applyImportSession(
     inserted += 1;
   }
   return { ok: true, sessionId: session.id, inserted, skipped };
-}
-
-type MarkdownPart = { type: 'text'; value: string } | { type: 'code'; value: string; language: string };
-
-function formatTimeLabel(iso: string): string {
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return '--:--';
-  return d.toISOString().slice(11, 16);
 }
 
 export function formatEstimatedCostLabel(costCents: number | null | undefined): string {
@@ -546,11 +545,6 @@ export async function action({ request }: { request: Request }) {
   return json({ ok: false, error: `Unsupported intent: ${parsed.intent}` }, { status: 400 });
 }
 
-type LiveProbe = {
-  health: { ok: boolean; message: string };
-  chatProbe: { ok: boolean; message: string };
-};
-
 type AssistantSessionListRow = { id: string; title: string; messageCount: number };
 
 type PendingSessionMutation =
@@ -624,53 +618,433 @@ function mdLite(s: string): string {
     .replace(/\n/g, '<br>');
 }
 
+function formatRelativeTime(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return '';
+  const diff = Date.now() - t;
+  const s = Math.floor(diff / 1000);
+  if (s < 45) return 'just now';
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return new Date(iso).toISOString().slice(0, 10);
+}
+
+function newClientRequestId(): string {
+  const c = (globalThis as any).crypto;
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID();
+  return 'req_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+type ThreadMsg = {
+  id?: string;
+  role: 'user' | 'assistant' | 'system';
+  text: string;
+  tools?: string[];
+  status?: 'streaming' | 'completed' | 'error';
+  error?: string | null;
+};
+
+function messagesToThread(messages: any[]): ThreadMsg[] {
+  return messages
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .map((m) => ({
+      id: m.id,
+      role: m.role,
+      text: m.content ?? '',
+      status: m.status,
+      error: m.error,
+    }));
+}
+
+/** Most recent assistant row carrying real provider metadata (for the idle observability panel). */
+function deriveLastAssistantMeta(messages: any[]): any | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    if (m.role === 'assistant' && (m.backend || m.model)) {
+      return {
+        assistantMessageId: m.id,
+        backend: m.backend,
+        model: m.model,
+        latencyMs: m.latencyMs,
+        tokensIn: m.tokensIn,
+        tokensOut: m.tokensOut,
+        hadFallback: m.hadFallback,
+      };
+    }
+  }
+  return null;
+}
+
 export default function AdminAssistant() {
+  const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
-  const [sessions] = useState(ASSISTANT_SESSIONS);
-  const [activeId, setActiveId] = useState(ASSISTANT_SESSIONS[0].id);
-  const [mode, setMode] = useState('local');
-  const [thread, setThread] = useState<any[]>(ASSISTANT_THREAD);
+  const navigate = useNavigate();
+  const navigation = useNavigation();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const revalidator = useRevalidator();
+
+  const sessionFetcher = useFetcher<{ ok?: boolean; error?: string; sessionId?: string }>();
+  const memoryFetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const importFetcher = useFetcher<{ ok?: boolean; error?: string; sessionId?: string; inserted?: number }>();
+
+  const activeSession = data.activeSession;
+  const modeKey = activeSession.mode as 'localMachine' | 'modalRemote';
+  const activeTarget = data.targets[modeKey];
+
+  const [thread, setThread] = useState<ThreadMsg[]>(() => messagesToThread(data.messages));
   const [input, setInput] = useState('');
-  const [thinking, setThinking] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+  const [sendInFlight, setSendInFlight] = useState(false);
   const [showObs, setShowObs] = useState(true);
+  const [toolCalls, setToolCalls] = useState<Array<{ tool: string; ok: boolean }>>([]);
+  const [requestMeta, setRequestMeta] = useState<any>(null);
+
+  const [memTitle, setMemTitle] = useState('');
+  const [memContent, setMemContent] = useState('');
+  const [memTags, setMemTags] = useState('');
+  const [showImport, setShowImport] = useState(false);
+  const [importJson, setImportJson] = useState('');
+
   const bodyRef = useRef<HTMLDivElement>(null);
+  const streamingRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const pendingSessionRef = useRef<PendingSessionMutation | null>(null);
+  const sessionToastRef = useRef<string>('');
+  const memoryToastRef = useRef<string>('');
+  const memoryWasAddRef = useRef(false);
+  const importPendingRef = useRef(false);
+
   useEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
-  }, [thread, thinking]);
+  }, [thread, streaming]);
 
-  const send = () => {
-    if (!input.trim()) return;
-    const q = input.trim();
-    setThread((t) => [...t, { role: 'user', text: q }]);
+  // Re-sync the rendered thread whenever the loader delivers messages (session
+  // switch or post-stream revalidation) — never while a live stream is writing.
+  useEffect(() => {
+    if (streamingRef.current) return;
+    setThread(messagesToThread(data.messages));
+  }, [data.messages]);
+
+  // Session-scoped reset: abort any in-flight stream and clear per-request panels.
+  useEffect(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    streamingRef.current = false;
+    setStreaming(false);
+    setSendInFlight(false);
+    setToolCalls([]);
+    setRequestMeta(null);
     setInput('');
-    setThinking(true);
-    setTimeout(() => {
-      setThinking(false);
-      setThread((t) => [
-        ...t,
-        {
-          role: 'assistant',
-          text:
-            'I checked the live platform snapshot. Over the last 24h there are **3 failed jobs** in the DLQ — all `PUBLISH` type, all returning upstream 502s between 09:10–09:30. The theme assets API recovered after that window.\n\nThis looks like a transient upstream incident, not a code issue. I’d recommend a bulk **Replay** of those 3 jobs.',
-          tools: ['get_jobs', 'get_errors'],
-        },
-      ]);
-    }, 1500);
+  }, [activeSession.id]);
+
+  // Abort a live stream if the component unmounts mid-response.
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  // Session CRUD follow-up (create / mode switch / memory toggle).
+  useEffect(() => {
+    if (sessionFetcher.state !== 'idle' || !sessionFetcher.data || !pendingSessionRef.current) return;
+    const pending = pendingSessionRef.current;
+    pendingSessionRef.current = null;
+    const raw = sessionFetcher.data;
+    if (raw && raw.ok === false) ctx.toast(raw.error || 'Action failed', true);
+    else ctx.toast(sessionToastRef.current || 'Done');
+    const followUp = computeSessionMutationFollowUp({ pending, raw, searchParams });
+    if (followUp.effect === 'navigate') navigate(followUp.href);
+    else revalidator.revalidate();
+  }, [sessionFetcher.state, sessionFetcher.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Memory CRUD follow-up.
+  useEffect(() => {
+    if (memoryFetcher.state !== 'idle' || !memoryFetcher.data) return;
+    const raw = memoryFetcher.data;
+    if (raw && raw.ok === false) {
+      ctx.toast(raw.error || 'Memory action failed', true);
+      return;
+    }
+    ctx.toast(memoryToastRef.current || 'Memory updated');
+    if (memoryWasAddRef.current) {
+      memoryWasAddRef.current = false;
+      setMemTitle('');
+      setMemContent('');
+      setMemTags('');
+    }
+    revalidator.revalidate();
+  }, [memoryFetcher.state, memoryFetcher.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Import session follow-up.
+  useEffect(() => {
+    if (importFetcher.state !== 'idle' || !importFetcher.data || !importPendingRef.current) return;
+    importPendingRef.current = false;
+    const raw = importFetcher.data;
+    if (raw && raw.ok === false) {
+      ctx.toast(raw.error || 'Import failed', true);
+      return;
+    }
+    ctx.toast(`Imported ${raw.inserted ?? 0} message(s)`);
+    setImportJson('');
+    setShowImport(false);
+    if (raw.sessionId) {
+      const params = new URLSearchParams(searchParams);
+      params.set('sessionId', raw.sessionId);
+      navigate('/internal/ai-assistant?' + params.toString());
+    } else {
+      revalidator.revalidate();
+    }
+  }, [importFetcher.state, importFetcher.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const routeNavigationPending = computeAssistantRouteNavigationOverlayPending({
+    navigationState: navigation.state,
+    navigationLocation: navigation.location,
+    currentPathname: location.pathname,
+    currentSearch: location.search,
+  });
+  const sendDisabledReason = computeAssistantSendDisabledReason({
+    draft: input,
+    isStreaming: streaming,
+    activeSessionId: activeSession.id,
+    sessionMutationBusy: sessionFetcher.state !== 'idle',
+    routeNavigationPending,
+    sendInFlight,
+  });
+  const canSend = sendDisabledReason === null;
+
+  const patchLastMessage = (patch: (m: ThreadMsg) => Partial<ThreadMsg>) => {
+    setThread((t) => {
+      const last = t[t.length - 1];
+      if (!last) return t;
+      const copy = t.slice();
+      copy[copy.length - 1] = { ...last, ...patch(last) };
+      return copy;
+    });
   };
+
+  const send = async () => {
+    if (!canSend) return;
+    const sessionId = activeSession.id;
+    if (sessionId === 'unavailable') return;
+    const q = input.trim();
+    const target = modeKey;
+    const clientRequestId = newClientRequestId();
+
+    setInput('');
+    setSendInFlight(true);
+    setStreaming(true);
+    streamingRef.current = true;
+    setToolCalls([]);
+    setThread((t) => [
+      ...t,
+      { role: 'user', text: q },
+      { role: 'assistant', text: '', status: 'streaming', tools: [] },
+    ]);
+
+    const ac = new AbortController();
+    abortRef.current = ac;
+    let sawError = false;
+
+    const handleEvent = (eventName: string, payload: any) => {
+      if (eventName === 'ready') {
+        setRequestMeta({ assistantMessageId: payload.assistantMessageId, target, resumed: payload.resumed });
+      } else if (eventName === 'token') {
+        if (typeof payload.text === 'string') {
+          patchLastMessage((m) => ({ text: (m.text || '') + payload.text, status: 'streaming' }));
+        }
+      } else if (eventName === 'tool') {
+        const toolName = typeof payload.tool === 'string' ? payload.tool : 'tool';
+        const ok = payload.ok !== false;
+        setToolCalls((prev) => [...prev, { tool: toolName, ok }]);
+        patchLastMessage((m) => ({ tools: [...(m.tools || []), toolName] }));
+      } else if (eventName === 'done') {
+        setRequestMeta({
+          assistantMessageId: payload.assistantMessageId,
+          target: payload.target ?? target,
+          backend: payload.backend,
+          model: payload.model,
+          latencyMs: payload.latencyMs,
+          tokensIn: payload.tokensIn,
+          tokensOut: payload.tokensOut,
+          hadFallback: payload.hadFallback,
+          resumed: payload.resumed,
+        });
+        patchLastMessage(() => ({ status: 'completed' }));
+      } else if (eventName === 'error') {
+        sawError = true;
+        const msg = typeof payload.message === 'string' ? payload.message : 'Response failed';
+        patchLastMessage((m) => ({ status: 'error', error: msg, text: m.text || '' }));
+        ctx.toast(msg, true);
+      }
+    };
+
+    const handleFrame = (raw: string) => {
+      if (!raw) return;
+      let eventName = 'message';
+      const dataLines: string[] = [];
+      for (const line of raw.split('\n')) {
+        if (line.startsWith(':')) continue; // SSE comment / keepalive
+        if (line.startsWith('event:')) eventName = line.slice(6).trim();
+        else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
+      }
+      if (dataLines.length === 0) return;
+      let payload: any;
+      try {
+        payload = JSON.parse(dataLines.join('\n'));
+      } catch {
+        return;
+      }
+      handleEvent(eventName, payload);
+    };
+
+    try {
+      const res = await fetch('/internal/ai-assistant/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+        body: JSON.stringify({ sessionId, message: q, target, clientRequestId }),
+        signal: ac.signal,
+      });
+      if (!res.ok || !res.body) {
+        let msg = `Request failed (${res.status})`;
+        try {
+          const j = await res.json();
+          if (j && typeof j.error === 'string') msg = j.error;
+        } catch {
+          /* non-JSON error body */
+        }
+        throw new Error(msg);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let sep = buffer.indexOf('\n\n');
+        while (sep !== -1) {
+          const frame = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+          handleFrame(frame);
+          sep = buffer.indexOf('\n\n');
+        }
+      }
+      buffer += decoder.decode();
+      if (buffer.trim()) handleFrame(buffer);
+    } catch (err) {
+      const aborted = (err as { name?: string })?.name === 'AbortError';
+      if (!aborted && !sawError) {
+        const msg = err instanceof Error ? err.message : 'Chat request failed';
+        patchLastMessage((m) => ({ status: 'error', error: msg, text: m.text || '' }));
+        ctx.toast(msg, true);
+      }
+    } finally {
+      streamingRef.current = false;
+      setStreaming(false);
+      setSendInFlight(false);
+      abortRef.current = null;
+      revalidator.revalidate();
+    }
+  };
+
+  const startNewChat = () => {
+    const mode: 'localMachine' | 'modalRemote' =
+      data.assistantLocalOnly || activeSession.id === 'unavailable' ? 'localMachine' : modeKey;
+    pendingSessionRef.current = { kind: 'create' };
+    sessionToastRef.current = 'New chat started';
+    sessionFetcher.submit(buildCreateSessionFormData(mode), { method: 'post' });
+  };
+
+  const switchSession = (id: string) => {
+    if (id === activeSession.id) return;
+    const params = new URLSearchParams(searchParams);
+    params.set('sessionId', id);
+    navigate('/internal/ai-assistant?' + params.toString());
+  };
+
+  const switchMode = (next: 'localMachine' | 'modalRemote') => {
+    if (activeSession.id === 'unavailable' || next === modeKey) return;
+    if (next === 'modalRemote' && data.assistantLocalOnly) {
+      ctx.toast('Cloud target is disabled while local-only mode is set.', true);
+      return;
+    }
+    pendingSessionRef.current = { kind: 'update' };
+    sessionToastRef.current = next === 'modalRemote' ? 'Switched to Cloud' : 'Switched to Local';
+    sessionFetcher.submit(buildUpdateSessionModeFormData(activeSession.id, next), { method: 'post' });
+  };
+
+  const toggleSessionMemory = () => {
+    if (activeSession.id === 'unavailable') return;
+    const next = !activeSession.memoryEnabled;
+    pendingSessionRef.current = { kind: 'update' };
+    sessionToastRef.current = next ? 'Memory enabled' : 'Memory disabled';
+    sessionFetcher.submit(buildUpdateSessionMemoryFormData(activeSession.id, next), { method: 'post' });
+  };
+
+  const addMemory = () => {
+    if (!memTitle.trim() || !memContent.trim()) return;
+    memoryToastRef.current = 'Memory saved';
+    memoryWasAddRef.current = true;
+    memoryFetcher.submit(
+      buildCreateMemoryFormData({ title: memTitle.trim(), content: memContent.trim(), tags: memTags.trim() }),
+      { method: 'post' },
+    );
+  };
+
+  const removeMemory = (id: string) => {
+    memoryToastRef.current = 'Memory deleted';
+    memoryWasAddRef.current = false;
+    memoryFetcher.submit(buildDeleteMemoryFormData(id), { method: 'post' });
+  };
+
+  const submitImport = () => {
+    let parsed: any;
+    try {
+      parsed = JSON.parse(importJson);
+    } catch {
+      ctx.toast('Import payload is not valid JSON.', true);
+      return;
+    }
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.title !== 'string' || !Array.isArray(parsed.messages)) {
+      ctx.toast('Import needs a "title" and a "messages" array.', true);
+      return;
+    }
+    importPendingRef.current = true;
+    importFetcher.submit(
+      buildImportSessionFormData({
+        title: parsed.title,
+        mode: parsed.mode === 'modalRemote' ? 'modalRemote' : 'localMachine',
+        memoryEnabled: parsed.memoryEnabled,
+        sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : undefined,
+        messages: parsed.messages,
+      }),
+      { method: 'post' },
+    );
+  };
+
+  const sessionRows =
+    activeSession.id === 'unavailable' || data.sessions.some((s) => s.id === activeSession.id)
+      ? data.sessions
+      : [activeSession, ...data.sessions];
+
+  const suggestions = [
+    'Why did the last publish job fail?',
+    'Summarize the last 24h of errors',
+    'Which stores are near their AI quota?',
+    'Show recent failed jobs in the DLQ',
+  ];
+
+  const chatReady = activeTarget.chatProbe.ok;
+  const headerModel = activeTarget.model || activeTarget.backend;
+  const reqMeta = requestMeta ?? deriveLastAssistantMeta(data.messages);
+  const sessionBusy = sessionFetcher.state !== 'idle';
 
   return (
     <div className="assistant-shell">
       <aside className="asst-sessions">
         <div style={{ padding: 14 }}>
-          <Btn
-            variant="primary"
-            icon="plus"
-            className="btn-block"
-            onClick={() => {
-              setThread([]);
-              ctx.toast('New chat');
-            }}
-          >
+          <Btn variant="primary" icon="plus" className="btn-block" onClick={startNewChat} loading={sessionBusy}>
             New chat
           </Btn>
         </div>
@@ -678,17 +1052,26 @@ export default function AdminAssistant() {
           <div className="nav-sec-title" style={{ color: 'var(--p-text-secondary)', padding: '4px 14px' }}>
             Recent
           </div>
-          {sessions.map((s) => (
-            <button key={s.id} className={'asst-session' + (s.id === activeId ? ' sel' : '')} onClick={() => setActiveId(s.id)}>
+          {sessionRows.length === 0 && (
+            <div className="t-xs t-muted" style={{ padding: '4px 14px' }}>
+              No conversations yet.
+            </div>
+          )}
+          {sessionRows.map((s) => (
+            <button
+              key={s.id}
+              className={'asst-session' + (s.id === activeSession.id ? ' sel' : '')}
+              onClick={() => switchSession(s.id)}
+            >
               <Icon name="chat" size={15} className="t-muted" />
               <div className="grow stack" style={{ gap: 0, minWidth: 0 }}>
                 <span className="t-sm t-trunc">{s.title}</span>
                 <span className="t-xs t-muted">
-                  {s.updated} · {s.messages} msgs
+                  {formatRelativeTime(s.updatedAt)} · {s.messageCount} msgs
                 </span>
               </div>
               <span className="badge" style={{ height: 17, fontSize: 10 }}>
-                {s.mode}
+                {s.mode === 'modalRemote' ? 'cloud' : 'local'}
               </span>
             </button>
           ))}
@@ -699,24 +1082,33 @@ export default function AdminAssistant() {
           <div className="stack" style={{ gap: 1 }}>
             <div className="row-2">
               <span className="t-h3">AI Assistant</span>
-              <Badge tone="magic">Qwen3 · 4B</Badge>
+              <Badge tone="magic">{headerModel}</Badge>
             </div>
             <span className="t-xs t-muted">Internal copilot for ops, traces &amp; debugging</span>
           </div>
           <div className="row-3">
             <div className="seg">
-              <button aria-selected={mode === 'local'} onClick={() => setMode('local')}>
+              <button
+                aria-selected={modeKey === 'localMachine'}
+                onClick={() => switchMode('localMachine')}
+                disabled={sessionBusy || activeSession.id === 'unavailable'}
+              >
                 <Icon name="desktop" size={14} />
                 Local
               </button>
-              <button aria-selected={mode === 'cloud'} onClick={() => setMode('cloud')}>
+              <button
+                aria-selected={modeKey === 'modalRemote'}
+                onClick={() => switchMode('modalRemote')}
+                disabled={sessionBusy || activeSession.id === 'unavailable' || data.assistantLocalOnly}
+                title={data.assistantLocalOnly ? 'Cloud target disabled (local-only mode)' : undefined}
+              >
                 <Icon name="globe" size={14} />
                 Cloud
               </button>
             </div>
-            <span className="asst-health">
-              <StatusDot ok />
-              Chat ready
+            <span className="asst-health" title={activeTarget.chatProbe.message}>
+              <StatusDot ok={chatReady} />
+              {chatReady ? 'Chat ready' : 'Chat unavailable'}
             </span>
             <Btn size="sm" icon="chart" onClick={() => setShowObs((o) => !o)}>
               Observability
@@ -736,7 +1128,7 @@ export default function AdminAssistant() {
                 I can read live jobs, logs, traces and usage. Ask me anything.
               </div>
               <div className="asst-suggest">
-                {['Why did the last publish job fail?', 'Summarize the 24h error spike', 'Which stores are near their AI quota?', 'Trace correlation cor_rs8f2'].map((s, i) => (
+                {suggestions.map((s, i) => (
                   <button key={i} className="asst-chip" onClick={() => setInput(s)}>
                     <Icon name="arrowRight" size={14} />
                     {s}
@@ -745,42 +1137,48 @@ export default function AdminAssistant() {
               </div>
             </div>
           )}
-          {thread.map((m, i) => (
-            <div key={i} className={'asst-msg ' + m.role}>
-              {m.role === 'assistant' && (
-                <span className="asst-ava">
-                  <Icon name="magic" size={15} />
-                </span>
-              )}
-              <div className="asst-bubble">
-                {m.tools && (
-                  <div className="asst-tools">
-                    {m.tools.map((t: string) => (
-                      <span key={t} className="asst-tool">
-                        <Icon name="bolt" size={12} />
-                        {t}
-                      </span>
-                    ))}
-                  </div>
+          {thread.map((m, i) => {
+            const isLast = i === thread.length - 1;
+            const showTyping = streaming && isLast && m.role === 'assistant' && !m.text;
+            return (
+              <div key={m.id ?? i} className={'asst-msg ' + m.role}>
+                {m.role === 'assistant' && (
+                  <span className="asst-ava">
+                    <Icon name="magic" size={15} />
+                  </span>
                 )}
-                <div className="asst-text" dangerouslySetInnerHTML={{ __html: mdLite(m.text) }} />
-              </div>
-            </div>
-          ))}
-          {thinking && (
-            <div className="asst-msg assistant">
-              <span className="asst-ava">
-                <Icon name="magic" size={15} />
-              </span>
-              <div className="asst-bubble">
-                <div className="asst-typing">
-                  <span />
-                  <span />
-                  <span />
+                <div className="asst-bubble">
+                  {m.tools && m.tools.length > 0 && (
+                    <div className="asst-tools">
+                      {m.tools.map((t, ti) => (
+                        <span key={t + ti} className="asst-tool">
+                          <Icon name="bolt" size={12} />
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {showTyping ? (
+                    <div className="asst-typing">
+                      <span />
+                      <span />
+                      <span />
+                    </div>
+                  ) : m.text ? (
+                    <div className="asst-text" dangerouslySetInnerHTML={{ __html: mdLite(m.text) }} />
+                  ) : m.status === 'error' ? null : (
+                    <div className="asst-text t-muted">No response.</div>
+                  )}
+                  {m.status === 'error' && (
+                    <div className="row-2 t-xs" style={{ color: 'var(--p-critical)', marginTop: m.text ? 8 : 0 }}>
+                      <Icon name="alert" size={13} />
+                      {m.error || 'Response failed.'}
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })}
         </div>
         <div className="asst-input-wrap">
           <div className="asst-input">
@@ -797,10 +1195,18 @@ export default function AdminAssistant() {
                 }
               }}
             />
-            <Btn variant="magic" icon="send" onClick={send} disabled={!input.trim()} />
+            <Btn
+              variant="magic"
+              icon="send"
+              onClick={send}
+              disabled={!canSend}
+              loading={streaming}
+              title={sendDisabledReason ?? undefined}
+            />
           </div>
           <div className="t-xs t-muted" style={{ textAlign: 'center', marginTop: 7 }}>
-            {mode === 'local' ? 'Local Ollama · qwen3:4b-instruct' : 'Cloud Qwen twin'} · responses are reviewable; tool calls are audited
+            {activeTarget.backend}
+            {activeTarget.model ? ' · ' + activeTarget.model : ''} · responses are reviewable; tool calls are audited
           </div>
         </div>
       </div>
@@ -819,52 +1225,182 @@ export default function AdminAssistant() {
               </span>
               <KV
                 rows={[
-                  ['Backend', <Badge key="b" tone="magic">ollama</Badge>],
-                  ['Model', <MonoChip key="m">qwen3:4b</MonoChip>],
+                  ['Backend', <Badge key="b" tone="magic">{activeTarget.backend}</Badge>],
+                  ['Model', <MonoChip key="m">{activeTarget.model || '—'}</MonoChip>],
                   [
                     'Health',
-                    <span key="h" className="row-2">
-                      <StatusDot ok />
-                      Live
+                    <span key="h" className="row-2" title={activeTarget.health.message}>
+                      <StatusDot ok={activeTarget.health.ok} />
+                      {activeTarget.health.ok ? 'Live' : 'Down'}
                     </span>,
                   ],
-                  ['Latency', '420 ms'],
+                  [
+                    'Chat',
+                    <span key="c" className="row-2" title={activeTarget.chatProbe.message}>
+                      <StatusDot ok={activeTarget.chatProbe.ok} />
+                      {activeTarget.chatProbe.ok ? 'Ready' : 'Unavailable'}
+                    </span>,
+                  ],
+                  activeTarget.configured
+                    ? null
+                    : ['Config', <span key="cf" className="t-xs t-muted">Not configured</span>],
                 ]}
               />
             </div>
             <div className="divider" />
             <div className="stack-2">
               <span className="nav-sec-title" style={{ color: 'var(--p-text-secondary)', padding: 0 }}>
-                This request
+                Last response
+              </span>
+              {reqMeta ? (
+                <KV
+                  rows={[
+                    reqMeta.assistantMessageId
+                      ? ['Message ID', <MonoChip key="r">{reqMeta.assistantMessageId}</MonoChip>]
+                      : null,
+                    reqMeta.backend ? ['Backend', reqMeta.backend] : null,
+                    reqMeta.model ? ['Model', <MonoChip key="mm">{reqMeta.model}</MonoChip>] : null,
+                    typeof reqMeta.latencyMs === 'number' ? ['Latency', `${reqMeta.latencyMs} ms`] : null,
+                    reqMeta.tokensIn != null || reqMeta.tokensOut != null
+                      ? ['Tokens', `${reqMeta.tokensIn ?? 0} in / ${reqMeta.tokensOut ?? 0} out`]
+                      : null,
+                    reqMeta.hadFallback ? ['Fallback', <Badge key="fb" tone="warning">used</Badge>] : null,
+                  ]}
+                />
+              ) : (
+                <span className="t-sm t-muted">No responses in this chat yet.</span>
+              )}
+            </div>
+            <div className="divider" />
+            <div className="stack-2">
+              <span className="nav-sec-title" style={{ color: 'var(--p-text-secondary)', padding: 0 }}>
+                Chat usage
               </span>
               <KV
                 rows={[
-                  ['Request ID', <MonoChip key="r">req_8a21f</MonoChip>],
-                  ['Attempts', '1'],
-                  ['Reconnects', '0'],
-                  ['Tokens', '1,284'],
-                  ['Est. cost', '$0.00'],
+                  ['Messages', String(activeSession.messageCount)],
+                  ['Tokens in', data.overview.tokensIn.toLocaleString()],
+                  ['Tokens out', data.overview.tokensOut.toLocaleString()],
+                  ['Est. cost', formatEstimatedCostLabel(data.overview.estimatedCostCents)],
                 ]}
               />
             </div>
             <div className="divider" />
             <div className="stack-2">
               <span className="nav-sec-title" style={{ color: 'var(--p-text-secondary)', padding: 0 }}>
-                Tool audit
+                Tool calls
               </span>
-              {([
-                ['get_jobs', 'ok', '38ms'],
-                ['get_errors', 'ok', '22ms'],
-                ['get_trace', 'ok', '51ms'],
-              ] as Array<[string, string, string]>).map((t, i) => (
-                <div key={i} className="row spread t-sm">
-                  <span className="row-2">
-                    <StatusDot ok />
-                    <span className="t-mono t-xs">{t[0]}</span>
-                  </span>
-                  <span className="t-xs t-muted">{t[2]}</span>
-                </div>
-              ))}
+              {toolCalls.length === 0 ? (
+                <span className="t-sm t-muted">No tool calls in this response.</span>
+              ) : (
+                toolCalls.map((t, i) => (
+                  <div key={i} className="row spread t-sm">
+                    <span className="row-2">
+                      <StatusDot ok={t.ok} />
+                      <span className="t-mono t-xs">{t.tool}</span>
+                    </span>
+                    <span className="t-xs t-muted">{t.ok ? 'ok' : 'error'}</span>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="divider" />
+            <div className="stack-2">
+              <div className="row spread">
+                <span className="nav-sec-title" style={{ color: 'var(--p-text-secondary)', padding: 0 }}>
+                  Memory
+                </span>
+                <span className="row-2 t-xs t-muted">
+                  {activeSession.memoryEnabled ? 'On' : 'Off'}
+                  <Toggle
+                    checked={activeSession.memoryEnabled}
+                    onChange={toggleSessionMemory}
+                    disabled={activeSession.id === 'unavailable' || sessionBusy}
+                  />
+                </span>
+              </div>
+              {data.memories.length === 0 ? (
+                <span className="t-sm t-muted">No saved memories.</span>
+              ) : (
+                data.memories.map((mem) => (
+                  <div key={mem.id} className="row spread t-sm" style={{ alignItems: 'flex-start', gap: 8 }}>
+                    <div className="stack" style={{ gap: 1, minWidth: 0 }}>
+                      <span className="t-sm t-trunc">
+                        {mem.title}
+                        {!mem.isEnabled && <span className="t-xs t-muted"> (off)</span>}
+                      </span>
+                      <span className="t-xs t-muted t-trunc">{mem.content}</span>
+                    </div>
+                    <button
+                      className="btn btn-icon btn-sm btn-plain"
+                      title="Delete memory"
+                      onClick={() => removeMemory(mem.id)}
+                      disabled={memoryFetcher.state !== 'idle'}
+                    >
+                      <Icon name="trash" size={14} />
+                    </button>
+                  </div>
+                ))
+              )}
+              <input
+                className="input"
+                placeholder="Memory title"
+                value={memTitle}
+                onChange={(e) => setMemTitle(e.target.value)}
+              />
+              <Textarea
+                rows={2}
+                placeholder="What should the assistant always know?"
+                value={memContent}
+                onChange={(e: any) => setMemContent(e.target.value)}
+              />
+              <input
+                className="input"
+                placeholder="tags, comma separated"
+                value={memTags}
+                onChange={(e) => setMemTags(e.target.value)}
+              />
+              <Btn
+                size="sm"
+                icon="plus"
+                onClick={addMemory}
+                disabled={!memTitle.trim() || !memContent.trim() || memoryFetcher.state !== 'idle'}
+              >
+                Save memory
+              </Btn>
+            </div>
+            <div className="divider" />
+            <div className="stack-2">
+              <div className="row spread">
+                <span className="nav-sec-title" style={{ color: 'var(--p-text-secondary)', padding: 0 }}>
+                  Import session
+                </span>
+                <Btn
+                  size="sm"
+                  icon={showImport ? 'chevronUp' : 'chevronDown'}
+                  onClick={() => setShowImport((v) => !v)}
+                />
+              </div>
+              {showImport && (
+                <>
+                  <Textarea
+                    rows={4}
+                    mono
+                    placeholder='{"title":"Imported","mode":"localMachine","messages":[{"role":"user","content":"hi"}]}'
+                    value={importJson}
+                    onChange={(e: any) => setImportJson(e.target.value)}
+                  />
+                  <Btn
+                    size="sm"
+                    icon="upload"
+                    onClick={submitImport}
+                    disabled={!importJson.trim() || importFetcher.state !== 'idle'}
+                    loading={importFetcher.state !== 'idle'}
+                  >
+                    Import
+                  </Btn>
+                </>
+              )}
             </div>
           </div>
         </aside>

@@ -3,7 +3,6 @@
 export * from './icons';
 export * from './ui';
 export * from './page-helpers';
-export * from './placeholder-data';
 export * from './store-utils';
 export { CommandPalette, superappRoute } from './CommandPalette';
 export { MerchantSubnav } from './MerchantSubnav';

@@ -1,0 +1,55 @@
+{
+  "payload": {
+    "export": "cart_validations_generate_run",
+    "target": "cart.validations.generate.run",
+    "input": {
+      "cart": {
+        "deliveryGroups": [],
+        "lines": [
+          {
+            "quantity": 2,
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "sku": "TSHIRT-M"
+            }
+          },
+          {
+            "quantity": 2,
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "sku": "TSHIRT-M"
+            }
+          }
+        ]
+      },
+      "shop": {
+        "metaobject": {
+          "field": {
+            "jsonValue": {
+              "rules": [
+                {
+                  "when": { "maxQuantityPerSku": 3 },
+                  "errorMessage": "You can order at most 3 of each item."
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": [
+        {
+          "validationAdd": {
+            "errors": [
+              {
+                "message": "You can order at most 3 of each item.",
+                "target": "$.cart"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,11 +1,10 @@
 import { json, redirect } from '@remix-run/node';
-import { useLoaderData } from '@remix-run/react';
-import { useState } from 'react';
+import { useLoaderData, useFetcher, useNavigate } from '@remix-run/react';
+import { useEffect, useState } from 'react';
 import { requireInternalAdmin, commitInternal } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import { ModuleService } from '~/services/modules/module.service';
 import { RecipeSpecSchema, MODULE_TEMPLATES, findTemplate } from '@superapp/core';
-import { getTypeDisplayLabel } from '~/utils/type-label';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { SettingsService } from '~/services/settings/settings.service';
 import {
@@ -17,8 +16,6 @@ import {
   Select,
   Banner,
   PageHead,
-  STORES,
-  TEMPLATES,
 } from '~/components/admin/page-kit';
 
 const TEMPLATES_SHOP_ID = '__templates__';
@@ -251,15 +248,83 @@ const SAMPLE_SPEC = `{
   "responsive": { "hideOnMobile": false }
 }`;
 
+type ValidateData = { validationResult?: { valid: boolean; errors: unknown } | null; error?: string | null };
+type SaveData = { error?: string | null };
+
 export default function AdminRecipeEdit() {
   const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
-  const [valid, setValid] = useState<boolean | null>(null);
+  const navigate = useNavigate();
+  const validateFetcher = useFetcher<ValidateData>();
+  const saveFetcher = useFetcher<SaveData>();
 
   const moduleName: string | null = data.moduleName ?? null;
-  const json = (data.currentSpec as string) || SAMPLE_SPEC;
-  const sourceOptions = ['All recipes (templates)'].concat(STORES.map((s) => s.name));
-  const moduleOptions = (moduleName ? [moduleName] : []).concat(TEMPLATES.map((t) => t.name));
+  const initialSpec = data.currentSpec ?? SAMPLE_SPEC;
+  const specKey = `${data.shopId}:${data.moduleId}`;
+  const [spec, setSpec] = useState<string>(initialSpec);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+
+  // Re-seed the editor buffer whenever the selected source/module changes.
+  useEffect(() => {
+    setSpec(data.currentSpec ?? SAMPLE_SPEC);
+    setBannerDismissed(false);
+  }, [data.currentSpec, data.shopId, data.moduleId]);
+
+  // Toast the real validation outcome (green success / red failure).
+  useEffect(() => {
+    if (validateFetcher.state === 'idle' && validateFetcher.data) {
+      const vr = validateFetcher.data.validationResult;
+      if (vr && vr.valid) ctx.toast('Schema validation passed');
+      else ctx.toast(validateFetcher.data.error || 'Validation failed', true);
+    }
+  }, [validateFetcher.state, validateFetcher.data, ctx]);
+
+  // Save errors come back as JSON; success redirects and surfaces via data.toast.
+  useEffect(() => {
+    if (saveFetcher.state === 'idle' && saveFetcher.data?.error) ctx.toast(saveFetcher.data.error, true);
+  }, [saveFetcher.state, saveFetcher.data, ctx]);
+
+  useEffect(() => {
+    if (data.toast?.message) ctx.toast(data.toast.message);
+  }, [data.toast, ctx]);
+
+  const valid = validateFetcher.data?.validationResult?.valid ?? null;
+  const canSave = Boolean(data.shopId && data.moduleId);
+
+  const sourceOptions = [
+    { value: '', label: 'Select a source…' },
+    { value: TEMPLATES_SHOP_ID, label: 'All recipes (templates)' },
+    ...data.shops.map((s) => ({ value: s.id, label: s.shopDomain })),
+  ];
+  const moduleOptions = [
+    { value: '', label: data.shopId ? 'Select a module / template…' : 'Select a source first' },
+    ...data.modules.map((m) => ({ value: m.id, label: m.name })),
+  ];
+
+  const selectSource = (shopId: string) =>
+    navigate(shopId ? `/internal/recipe-edit?shopId=${encodeURIComponent(shopId)}` : '/internal/recipe-edit');
+  const selectModule = (moduleId: string) => {
+    if (!data.shopId) return;
+    navigate(
+      `/internal/recipe-edit?shopId=${encodeURIComponent(data.shopId)}${
+        moduleId ? `&moduleId=${encodeURIComponent(moduleId)}` : ''
+      }`,
+    );
+  };
+
+  const runValidate = () => {
+    setBannerDismissed(false);
+    validateFetcher.submit(
+      { intent: 'validate', spec, shopId: data.shopId, moduleId: data.moduleId },
+      { method: 'post' },
+    );
+  };
+  const runSave = () => {
+    saveFetcher.submit(
+      { intent: 'save', spec, shopId: data.shopId, moduleId: data.moduleId },
+      { method: 'post' },
+    );
+  };
 
   return (
     <div className="page">
@@ -274,10 +339,16 @@ export default function AdminRecipeEdit() {
         }
         actions={
           <>
-            <Btn icon="check" onClick={() => setValid(true)}>
+            <Btn icon="check" onClick={runValidate} loading={validateFetcher.state !== 'idle'}>
               Validate
             </Btn>
-            <Btn variant="primary" icon="download" onClick={() => ctx.toast('Saved new version')}>
+            <Btn
+              variant="primary"
+              icon="download"
+              onClick={runSave}
+              disabled={!canSave}
+              loading={saveFetcher.state !== 'idle'}
+            >
               Save version
             </Btn>
           </>
@@ -295,18 +366,27 @@ export default function AdminRecipeEdit() {
       <div className="filter-bar" style={{ border: 0, padding: 0, marginBottom: 16 }}>
         <div style={{ minWidth: 240 }}>
           <Field label="Source">
-            <Select options={sourceOptions} value={moduleName ? moduleName : 'All recipes (templates)'} onChange={() => {}} />
+            <Select
+              options={sourceOptions}
+              value={data.shopId || ''}
+              onChange={(e: any) => selectSource(e.target.value)}
+            />
           </Field>
         </div>
         <div style={{ minWidth: 240 }}>
           <Field label="Module / template">
-            <Select options={moduleOptions} value={moduleName ? moduleName : moduleOptions[0]} onChange={() => {}} />
+            <Select
+              options={moduleOptions}
+              value={data.moduleId || ''}
+              onChange={(e: any) => selectModule(e.target.value)}
+              disabled={!data.shopId}
+            />
           </Field>
         </div>
       </div>
-      {valid != null && (
+      {valid === true && !bannerDismissed && (
         <div style={{ marginBottom: 16 }}>
-          <Banner tone="success" title="Valid RecipeSpec" onDismiss={() => setValid(null)}>
+          <Banner tone="success" title="Valid RecipeSpec" onDismiss={() => setBannerDismissed(true)}>
             Schema validation passed. Safe to save as a new version or template override.
           </Banner>
         </div>
@@ -316,8 +396,15 @@ export default function AdminRecipeEdit() {
           <div className="t-h3">RecipeSpec JSON</div>
           <span className="t-xs t-muted t-mono">{moduleName ? 'module.recipe.json' : 'recipe_spec.v3.json'}</span>
         </div>
-        <pre className="code-block" style={{ margin: 0, borderRadius: '0 0 12px 12px', maxHeight: 480 }} contentEditable suppressContentEditableWarning>
-          {json}
+        <pre
+          key={specKey}
+          className="code-block"
+          style={{ margin: 0, borderRadius: '0 0 12px 12px', maxHeight: 480 }}
+          contentEditable
+          suppressContentEditableWarning
+          onInput={(e) => setSpec(e.currentTarget.textContent ?? '')}
+        >
+          {initialSpec}
         </pre>
       </Card>
     </div>

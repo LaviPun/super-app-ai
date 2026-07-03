@@ -1,0 +1,54 @@
+{
+  "payload": {
+    "export": "cart_validations_generate_run",
+    "target": "cart.validations.generate.run",
+    "input": {
+      "cart": {
+        "deliveryGroups": [
+          {
+            "deliveryAddress": {
+              "countryCode": "CU"
+            }
+          }
+        ],
+        "lines": [
+          {
+            "quantity": 1,
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "sku": "TSHIRT-M"
+            }
+          }
+        ]
+      },
+      "shop": {
+        "metaobject": {
+          "field": {
+            "jsonValue": {
+              "rules": [
+                {
+                  "when": { "blockCountryCodes": ["CU", "KP"] },
+                  "errorMessage": "We are unable to ship to your region."
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": [
+        {
+          "validationAdd": {
+            "errors": [
+              {
+                "message": "We are unable to ship to your region.",
+                "target": "$.cart"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

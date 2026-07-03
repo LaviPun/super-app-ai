@@ -14,7 +14,6 @@ import {
   FilterBar,
   useTableState,
   titleCase,
-  ACTIVITY,
 } from '~/components/admin/page-kit';
 
 export async function loader({ request }: { request: Request }) {
@@ -70,9 +69,7 @@ export default function AdminActivity() {
   const ts = useTableState();
   const [actor, setActor] = useState('All');
 
-  const ROWS: any[] = data.logs.length
-    ? data.logs.map((l) => ({ id: l.id, actor: l.actor, action: l.action, resource: l.resource ?? '—', shop: l.shopDomain ?? '—', ip: l.ip ?? '—', created: rel(l.createdAt) }))
-    : ACTIVITY;
+  const ROWS: any[] = data.logs.map((l) => ({ id: l.id, actor: l.actor, action: l.action, resource: l.resource ?? '—', shop: l.shopDomain ?? '—', ip: l.ip ?? '—', created: rel(l.createdAt) }));
 
   const rows = ROWS.filter(
     (a) => (actor === 'All' || a.actor === actor) && (a.action + a.resource + a.shop).toLowerCase().includes(ts.search.toLowerCase()),

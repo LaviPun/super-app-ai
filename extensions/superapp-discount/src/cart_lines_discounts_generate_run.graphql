@@ -7,11 +7,6 @@ query Input {
     }
     lines {
       id
-      cost {
-        subtotalAmount {
-          amount
-        }
-      }
       merchandise {
         __typename
         ... on ProductVariant {
@@ -22,8 +17,14 @@ query Input {
   }
   discount {
     discountClasses
-    metafield(namespace: "$app", key: "discount_config") {
-      jsonValue
+  }
+  shop {
+    metaobject(
+      handle: { type: "$app:superapp_function_config", handle: "superapp-fn-discountRules" }
+    ) {
+      field(key: "config_json") {
+        jsonValue
+      }
     }
   }
 }

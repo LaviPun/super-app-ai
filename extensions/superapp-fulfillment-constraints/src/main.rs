@@ -5,7 +5,12 @@ pub mod cart_fulfillment_constraints_generate_run;
 
 #[typegen("schema.graphql")]
 pub mod schema {
-    #[query("src/cart_fulfillment_constraints_generate_run.graphql")]
+    #[query(
+        "src/cart_fulfillment_constraints_generate_run.graphql",
+        custom_scalar_overrides = {
+            "Input.shop.metaobject.field.jsonValue" => super::cart_fulfillment_constraints_generate_run::Configuration,
+        }
+    )]
     pub mod cart_fulfillment_constraints_generate_run {}
 }
 

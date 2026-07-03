@@ -6,7 +6,7 @@
       "cart": {
         "cost": {
           "subtotalAmount": {
-            "amount": "40.0",
+            "amount": "600.0",
             "currencyCode": "USD"
           }
         }
@@ -14,11 +14,24 @@
       "paymentMethods": [
         {
           "id": "gid://shopify/PaymentCustomizationPaymentMethod/1",
-          "name": "Credit Card"
+          "name": "Cash on Delivery"
         }
       ],
       "shop": {
-        "metaobject": null
+        "metaobject": {
+          "field": {
+            "jsonValue": {
+              "rules": [
+                {
+                  "when": { "currencyIn": ["EUR"] },
+                  "actions": {
+                    "hideMethodsContaining": ["Cash on Delivery"]
+                  }
+                }
+              ]
+            }
+          }
+        }
       }
     },
     "output": {

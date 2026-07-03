@@ -1,0 +1,289 @@
+{% # theme-check-disable OrphanedSnippet %}
+{% doc %}
+  Shared SuperApp module renderer — the single source of truth for every module
+  markup, called from all four blocks (app embed + universal/product/collection
+  slots) via {% raw %}{% render 'superapp-module', mod_ref: mod_ref %}{% endraw %}.
+  Presentation is styled by assets/superapp-modules.css and driven by
+  assets/superapp-modules.js, both wired once per page through each block's
+  schema `stylesheet` / `javascript` attributes.
+
+  Modules are stored as $app:superapp_module metaobjects. Since Module System v2
+  every storefront module compiles to `theme.section`, so `module_type` is always
+  `theme.section` and the preset is carried in `config_json.kind`
+  (banner | notification-bar | popup | contactForm | effect | floatingWidget |
+  product-bundle | …). Any other kind renders through the generic section branch.
+  Legacy metaobjects that still carry a named `theme.*` module_type are mapped to
+  the matching kind for backward compatibility.
+
+  @param {object} mod_ref - The $app:superapp_module metaobject reference to render.
+{% enddoc %}
+
+{% liquid
+  assign module_id = mod_ref.fields.module_id.value
+  assign mod_type = mod_ref.fields.module_type.value
+  assign mod_cfg = mod_ref.fields.config_json.value
+  assign mod_sty = mod_ref.fields.style_json.value
+
+  assign kind = mod_cfg.kind
+  if kind == blank
+    case mod_type
+      when 'theme.banner'
+        assign kind = 'banner'
+      when 'theme.notificationBar'
+        assign kind = 'notification-bar'
+      when 'theme.popup'
+        assign kind = 'popup'
+      when 'theme.contactForm'
+        assign kind = 'contactForm'
+      when 'theme.effect'
+        assign kind = 'effect'
+      when 'theme.floatingWidget'
+        assign kind = 'floatingWidget'
+      else
+        assign kind = 'section'
+    endcase
+  endif
+%}
+
+{% case kind %}
+  {% when 'banner' %}
+    <section class="superapp-banner superapp-banner--embed" role="region" aria-label="{{ mod_cfg.heading | escape }}" data-module-id="{{ module_id | escape }}">
+      <div class="superapp-banner__inner">
+        <div class="superapp-banner__content">
+          <h2 class="superapp-banner__heading">{{ mod_cfg.heading | escape }}</h2>
+          {% if mod_cfg.subheading != blank %}
+            <p class="superapp-banner__subheading">{{ mod_cfg.subheading | escape }}</p>
+          {% endif %}
+          {% if mod_cfg.ctaText != blank and mod_cfg.ctaUrl != blank %}
+            <a class="superapp-banner__cta" href="{{ mod_cfg.ctaUrl | escape }}">{{ mod_cfg.ctaText | escape }}</a>
+          {% endif %}
+        </div>
+        {% if mod_cfg.imageUrl != blank %}
+          {% # theme-check-disable RemoteAsset %}
+          <img class="superapp-banner__image" src="{{ mod_cfg.imageUrl | escape }}" alt="" loading="lazy" width="800" height="400">
+          {% # theme-check-enable RemoteAsset %}
+        {% endif %}
+      </div>
+    </section>
+
+  {% when 'notification-bar' %}
+    <div class="superapp-note superapp-note--embed" data-module-id="{{ module_id | escape }}">
+      <div class="superapp-note__inner">
+        <span class="superapp-note__msg">{{ mod_cfg.message | escape }}</span>
+        {% if mod_cfg.linkText != blank and mod_cfg.linkUrl != blank %}
+          <a class="superapp-note__link" href="{{ mod_cfg.linkUrl | escape }}">{{ mod_cfg.linkText | escape }}</a>
+        {% endif %}
+      </div>
+    </div>
+
+  {% when 'popup' %}
+    <div
+      class="superapp-popup superapp-popup--embed"
+      data-module-id="{{ module_id | escape }}"
+      data-trigger="{{ mod_cfg.trigger | default: 'ON_LOAD' | escape }}"
+      data-frequency="{{ mod_cfg.frequency | default: 'ONCE_PER_SESSION' | escape }}"
+      data-delay-seconds="{{ mod_cfg.delaySeconds | default: 0 }}"
+      data-auto-close-seconds="{{ mod_cfg.autoCloseSeconds | default: 0 }}"
+      hidden
+    >
+      <div class="superapp-popup__backdrop" data-superapp-close></div>
+      <div class="superapp-popup__panel" role="dialog" aria-modal="true" aria-label="{{ mod_cfg.title | escape }}">
+        <button class="superapp-popup__close" type="button" data-superapp-close aria-label="Close">&times;</button>
+        <h3 class="superapp-popup__title">{{ mod_cfg.title | escape }}</h3>
+        {% if mod_cfg.body != blank %}
+          <p class="superapp-popup__body">{{ mod_cfg.body | escape }}</p>
+        {% endif %}
+        {% if mod_cfg.ctaText != blank and mod_cfg.ctaUrl != blank %}
+          <a class="superapp-popup__cta" href="{{ mod_cfg.ctaUrl | escape }}">{{ mod_cfg.ctaText | escape }}</a>
+        {% endif %}
+      </div>
+    </div>
+
+  {% when 'contactForm' %}
+    {% assign is_proxy = false %}
+    {% if mod_cfg.submissionMode == 'APP_PROXY' %}
+      {% assign is_proxy = true %}
+    {% endif %}
+    <section class="superapp-contact" id="superapp-contact-{{ module_id | escape }}" data-module-id="{{ module_id | escape }}">
+      <div class="superapp-contact__inner">
+        <h2 class="superapp-contact__title">{{ mod_cfg.title | escape }}</h2>
+        {% if mod_cfg.subtitle != blank %}
+          <p class="superapp-contact__subtitle">{{ mod_cfg.subtitle | escape }}</p>
+        {% endif %}
+        <form
+          class="superapp-contact__form"
+          method="post"
+          action="{% if is_proxy %}{{ mod_cfg.proxyEndpointPath | default: '/apps/superapp/capture' | escape }}{% else %}/contact#superapp-contact-{{ module_id | escape }}{% endif %}"
+          {% if is_proxy %}
+            data-superapp-proxy-form
+            data-success-message="{{ mod_cfg.successMessage | default: 'Your message was submitted.' | escape }}"
+            data-error-message="{{ mod_cfg.errorMessage | default: 'Something went wrong. Please try again.' | escape }}"
+          {% endif %}
+        >
+          {% unless is_proxy %}
+            <input type="hidden" name="form_type" value="contact">
+            <input type="hidden" name="utf8" value="✓">
+          {% else %}
+            <input type="hidden" name="moduleId" value="{{ module_id | escape }}">
+            <input type="hidden" name="captureType" value="contact_form_submission">
+            <input type="hidden" name="storeKey" value="customer">
+            <input type="hidden" name="honeypotFieldName" value="{{ mod_cfg.honeypotFieldName | default: 'website' | escape }}">
+          {% endunless %}
+          {% if mod_cfg.tags != blank %}
+            <input type="hidden" name="contact[tags]" value="{{ mod_cfg.tags | join: ',' | escape }}">
+          {% endif %}
+          {% if mod_cfg.includeCustomerContext and customer %}
+            <input type="hidden" name="contact[shop_domain]" value="{{ shop.permanent_domain | escape }}">
+            <input type="hidden" name="contact[customer_id]" value="{{ customer.id | escape }}">
+            <input type="hidden" name="contact[customer_email]" value="{{ customer.email | escape }}">
+          {% endif %}
+
+          {% if mod_cfg.showName %}
+            <label class="superapp-contact__field">Name
+              <input type="text" name="contact[name]" {% if mod_cfg.nameRequired %}required{% endif %}>
+            </label>
+          {% endif %}
+          {% if mod_cfg.showEmail %}
+            <label class="superapp-contact__field">Email
+              <input type="email" name="contact[email]" {% if mod_cfg.emailRequired %}required{% endif %}>
+            </label>
+          {% endif %}
+          {% if mod_cfg.showPhone %}
+            <label class="superapp-contact__field">Phone
+              <input type="tel" name="contact[phone]" {% if mod_cfg.phoneRequired %}required{% endif %}>
+            </label>
+          {% endif %}
+          {% if mod_cfg.showCompany %}
+            <label class="superapp-contact__field">Company
+              <input type="text" name="contact[company]" {% if mod_cfg.companyRequired %}required{% endif %}>
+            </label>
+          {% endif %}
+          {% if mod_cfg.showOrderNumber %}
+            <label class="superapp-contact__field">Order number
+              <input type="text" name="contact[order_number]" {% if mod_cfg.orderNumberRequired %}required{% endif %}>
+            </label>
+          {% endif %}
+          {% if mod_cfg.showSubject %}
+            <label class="superapp-contact__field">Subject
+              <input type="text" name="contact[subject]" {% if mod_cfg.subjectRequired %}required{% endif %}>
+            </label>
+          {% endif %}
+          {% if mod_cfg.showMessage %}
+            <label class="superapp-contact__field">Message
+              <textarea name="contact[body]" rows="5" {% if mod_cfg.messageRequired %}required{% endif %}></textarea>
+            </label>
+          {% endif %}
+          {% if mod_cfg.spamProtection == 'HONEYPOT' %}
+            <label class="superapp-contact__honeypot" aria-hidden="true">
+              Leave this field empty
+              <input type="text" name="{{ mod_cfg.honeypotFieldName | default: 'website' | escape }}" tabindex="-1" autocomplete="off">
+            </label>
+          {% endif %}
+          {% if mod_cfg.consentRequired %}
+            <label class="superapp-contact__consent">
+              <input type="checkbox" required>
+              <span>{{ mod_cfg.consentLabel | default: 'I agree to be contacted about my request.' | escape }}</span>
+            </label>
+          {% endif %}
+          <button class="superapp-contact__submit" type="submit">{{ mod_cfg.submitLabel | default: 'Send message' | escape }}</button>
+          {% if is_proxy %}
+            <p class="superapp-contact__status" data-superapp-form-status role="status" aria-live="polite" hidden></p>
+          {% else %}
+            <p class="superapp-contact__help">Submission is handled by Shopify contact processing.</p>
+          {% endif %}
+        </form>
+      </div>
+    </section>
+
+  {% when 'effect' %}
+    <div class="superapp-effect superapp-effect--embed" data-module-id="{{ module_id | escape }}" data-trigger="{{ mod_cfg.startTrigger | default: 'page_load' | escape }}" role="presentation" aria-hidden="true">
+      <div class="superapp-effect__overlay superapp-effect--{{ mod_cfg.effectKind | default: 'snowfall' }}">
+        {% for i in (1..50) %}
+          <div class="superapp-effect__particle"></div>
+        {% endfor %}
+      </div>
+    </div>
+
+  {% when 'floatingWidget' %}
+    {% assign fw_anchor = mod_cfg.anchor | default: 'bottom_right' %}
+    {% assign fw_variant = mod_cfg.variant | default: 'custom' %}
+    {% assign fw_label = mod_cfg.label | default: '' %}
+    {% assign fw_action_url = mod_cfg.actionUrl | default: mod_cfg.url | default: '' %}
+    {% assign fw_action_target = mod_cfg.actionTarget | default: '_blank' %}
+    {% if mod_sty.responsive.hideOnMobile != nil %}{% assign fw_hide_mobile = mod_sty.responsive.hideOnMobile %}{% else %}{% assign fw_hide_mobile = mod_cfg.hideOnMobile %}{% endif %}
+    {% if mod_sty.responsive.hideOnDesktop != nil %}{% assign fw_hide_desktop = mod_sty.responsive.hideOnDesktop %}{% else %}{% assign fw_hide_desktop = mod_cfg.hideOnDesktop %}{% endif %}
+    {% case fw_variant %}
+      {% when 'whatsapp' %}{% assign fw_icon = '💬' %}
+      {% when 'chat' %}{% assign fw_icon = '💬' %}
+      {% when 'coupon' %}{% assign fw_icon = '🏷️' %}
+      {% when 'cart' %}{% assign fw_icon = '🛒' %}
+      {% when 'scroll_top' %}{% assign fw_icon = '↑' %}
+      {% else %}{% assign fw_icon = '⭐' %}
+    {% endcase %}
+    <div class="superapp-fw-wrap superapp-fw-wrap--{{ fw_anchor | replace: '_', '-' }}{% if fw_hide_mobile %} superapp-fw-wrap--hide-mobile{% endif %}{% if fw_hide_desktop %} superapp-fw-wrap--hide-desktop{% endif %}" data-module-id="{{ module_id | escape }}" data-anchor="{{ fw_anchor | escape }}">
+      {% if fw_action_url != blank %}
+        <a class="superapp-fw" href="{{ fw_action_url | escape }}" target="{{ fw_action_target | escape }}" aria-label="{{ fw_label | default: fw_variant | escape }}">
+      {% else %}
+        <button class="superapp-fw" type="button" aria-label="{{ fw_label | default: fw_variant | escape }}">
+      {% endif %}
+        <span class="superapp-fw__icon" aria-hidden="true">{{ fw_icon }}</span>
+        {% if fw_label != blank %}<span class="superapp-fw__label">{{ fw_label | escape }}</span>{% endif %}
+      {% if fw_action_url != blank %}
+        </a>
+      {% else %}
+        </button>
+      {% endif %}
+    </div>
+
+  {% when 'product-bundle' %}
+    {% render 'superapp-product-bundle', mod_cfg: mod_cfg, module_id: module_id %}
+
+  {% else %}
+    {% comment %}
+      Generic theme.section (any non-preset kind). Rendered from the compiler
+      config: title / subtitle / optional body + image / repeatable blocks / CTA.
+      The sanitized `advancedCustom` HTML/CSS/JS escape hatch is intentionally NOT
+      executed here (fixed-template allowlist, per DESIGN.md) — only structured,
+      declarative content is rendered.
+    {% endcomment %}
+    <section class="superapp-section superapp-section--{{ kind | handle }}" data-module-id="{{ module_id | escape }}" data-section-kind="{{ kind | escape }}">
+      <div class="superapp-section__inner">
+        {% if mod_cfg.title != blank %}
+          <h2 class="superapp-section__title">{{ mod_cfg.title | escape }}</h2>
+        {% endif %}
+        {% if mod_cfg.subtitle != blank %}
+          <p class="superapp-section__sub">{{ mod_cfg.subtitle | escape }}</p>
+        {% endif %}
+        {% if mod_cfg.imageUrl != blank %}
+          {% # theme-check-disable RemoteAsset %}
+          <img class="superapp-section__image" src="{{ mod_cfg.imageUrl | escape }}" alt="" loading="lazy" width="1200" height="600">
+          {% # theme-check-enable RemoteAsset %}
+        {% endif %}
+        {% if mod_cfg.body != blank %}
+          <div class="superapp-section__body">{{ mod_cfg.body | escape | newline_to_br }}</div>
+        {% endif %}
+        {% if mod_cfg.blocks != blank and mod_cfg.blocks.size > 0 %}
+          <div class="superapp-section__blocks">
+            {% for section_block in mod_cfg.blocks %}
+              <div class="superapp-section__block superapp-section__block--{{ section_block.kind | default: 'text' | handle }}">
+                {% if section_block.imageUrl != blank %}
+                  {% # theme-check-disable RemoteAsset %}
+                  <img class="superapp-section__block-img" src="{{ section_block.imageUrl | escape }}" alt="" loading="lazy" width="400" height="300">
+                  {% # theme-check-enable RemoteAsset %}
+                {% endif %}
+                {% if section_block.text != blank %}
+                  <p class="superapp-section__block-text">{{ section_block.text | escape | newline_to_br }}</p>
+                {% endif %}
+                {% if section_block.url != blank %}
+                  <a class="superapp-section__block-link" href="{{ section_block.url | escape }}">{{ section_block.text | default: section_block.url | escape }}</a>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% if mod_cfg.ctaText != blank and mod_cfg.ctaUrl != blank %}
+          <a class="superapp-section__cta" href="{{ mod_cfg.ctaUrl | escape }}">{{ mod_cfg.ctaText | escape }}</a>
+        {% endif %}
+      </div>
+    </section>
+{% endcase %}

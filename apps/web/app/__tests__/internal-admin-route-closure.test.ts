@@ -9,10 +9,11 @@ const {
   mockAiList,
 } = vi.hoisted(() => ({
   prismaMock: {
-    errorLog: { findUnique: vi.fn() },
+    errorLog: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn() },
     apiLog: { findUnique: vi.fn(), findMany: vi.fn() },
     shop: { findMany: vi.fn(), findUnique: vi.fn() },
     aiUsage: { findMany: vi.fn() },
+    planTierConfig: { findMany: vi.fn() },
   },
   mockDiscovery: vi.fn(),
   mockAuthorizationCodeGrant: vi.fn(),
@@ -44,6 +45,7 @@ vi.mock('~/services/activity/activity.service', () => ({
   ActivityLogService: class {
     getById = mockGetById;
     log = vi.fn().mockResolvedValue(undefined);
+    list = vi.fn().mockResolvedValue([]);
   },
 }));
 
@@ -114,11 +116,18 @@ describe('internal admin route closure (scorecard certification harness)', () =>
     vi.clearAllMocks();
     process.env.INTERNAL_ADMIN_SESSION_SECRET = SESSION_SECRET;
     prismaMock.errorLog.findUnique.mockReset();
+    prismaMock.errorLog.findMany.mockReset();
+    prismaMock.errorLog.count.mockReset();
     prismaMock.apiLog.findUnique.mockReset();
     prismaMock.apiLog.findMany.mockReset();
     prismaMock.shop.findMany.mockReset();
     prismaMock.shop.findUnique.mockReset();
     prismaMock.aiUsage.findMany.mockReset();
+    prismaMock.planTierConfig.findMany.mockReset();
+    // Sensible defaults so loaders that added related-data queries don't NPE.
+    prismaMock.errorLog.findMany.mockResolvedValue([]);
+    prismaMock.errorLog.count.mockResolvedValue(0);
+    prismaMock.planTierConfig.findMany.mockResolvedValue([]);
     mockDiscovery.mockReset();
     mockAuthorizationCodeGrant.mockReset();
     mockGetById.mockReset();
@@ -292,6 +301,7 @@ describe('internal admin route closure (scorecard certification harness)', () =>
       id: 'shop-1',
       shopDomain: 'demo.myshopify.com',
       planTier: 'FREE',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
       aiProviderOverrideId: null,
       retentionDaysDefault: 30,
       retentionDaysAi: 30,

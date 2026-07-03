@@ -2,6 +2,7 @@ import { json } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
 import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
+import { getPrisma } from '~/db.server';
 import {
   useAdminCtx,
   useAdminOps,
@@ -18,24 +19,83 @@ import {
   PageHead,
   StatTile,
   MonoChip,
-  fmtNum,
   titleCase,
-  MODULES,
-  moduleVersions,
-  moduleSpec,
 } from '~/components/admin/page-kit';
+
+const NOT_FOUND = new Response(null, { status: 404 });
+
+function rel(iso: string): string {
+  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + 'm ago';
+  const h = Math.round(m / 60);
+  if (h < 24) return h + 'h ago';
+  return Math.round(h / 24) + 'd ago';
+}
 
 export async function loader({ request, params }: { request: Request; params: { moduleId?: string } }) {
   await requireInternalAdmin(request);
-  const m = MODULES.find((x) => x.id === params.moduleId) ?? MODULES[0];
-  return json({ module: m, versions: moduleVersions(m), spec: moduleSpec(m) });
+  const id = params.moduleId;
+  if (!id) throw NOT_FOUND;
+
+  const prisma = getPrisma();
+  const m = await prisma.module.findUnique({
+    where: { id },
+    include: {
+      shop: { select: { shopDomain: true } },
+      activeVersion: { select: { specJson: true, version: true } },
+      versions: { orderBy: { version: 'desc' } },
+      _count: { select: { moduleInstances: true } },
+    },
+  });
+  if (!m) throw NOT_FOUND;
+
+  const sourceJob = m.sourceJobId
+    ? await prisma.job.findUnique({ where: { id: m.sourceJobId }, select: { correlationId: true } })
+    : null;
+
+  const specRaw = m.activeVersion?.specJson ?? m.versions[0]?.specJson ?? null;
+  let spec: string | null = null;
+  if (specRaw) {
+    try {
+      spec = JSON.stringify(JSON.parse(specRaw), null, 2);
+    } catch {
+      spec = specRaw;
+    }
+  }
+
+  return json({
+    module: {
+      id: m.id,
+      name: m.name,
+      type: m.type,
+      category: m.category,
+      status: m.status,
+      version: m.activeVersion?.version ?? m.versions[0]?.version ?? 1,
+      source: m.sourceType ?? '—',
+      updated: rel(new Date(m.updatedAt).toISOString()),
+      summary: m.summary ?? '',
+      store: m.shop.shopDomain.split('.')[0] ?? m.shop.shopDomain,
+      storeId: m.shopId,
+      instances: m._count.moduleInstances,
+    },
+    versions: m.versions.map((v) => ({
+      version: v.version,
+      status: v.status,
+      active: v.id === m.activeVersionId,
+      diff: v.diffSummary ?? 'Revision v' + v.version,
+      created: rel(new Date(v.createdAt).toISOString()),
+    })),
+    spec,
+    traceCorrelationId: sourceJob?.correlationId ?? null,
+  });
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const SOURCE_TONE: Record<string, any> = { template: 'info', recipe: 'success', scratch: undefined, image: 'magic' };
 
 export default function AdminModuleDetail() {
-  const { module: m, versions, spec } = useLoaderData<typeof loader>();
+  const { module: m, versions, spec, traceCorrelationId } = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
   const ops = useAdminOps();
   const [tab, setTab] = useState('overview');
@@ -65,21 +125,21 @@ export default function AdminModuleDetail() {
               Edit recipe
             </Btn>
             {m.status === 'DRAFT' ? (
-              <Btn variant="primary" icon="rocket" onClick={() => ops.run('publish', { id: m.id, resource: m.name, message: m.name + ' published' })}>
+              <Btn variant="primary" icon="rocket" onClick={() => ops.run('publish', { id: m.id, resource: m.name, message: 'Publishing ' + m.name })}>
                 Publish
               </Btn>
-            ) : (
-              <Btn variant="primary" icon="eye" onClick={() => ctx.toast('Opening preview…')}>
-                Preview
+            ) : traceCorrelationId ? (
+              <Btn variant="primary" icon="transfer" onClick={() => ctx.go('#/admin/trace/' + traceCorrelationId)}>
+                View trace
               </Btn>
-            )}
+            ) : null}
           </>
         }
       />
       <div className="grid grid-4" style={{ marginBottom: 16 }}>
         <StatTile label="Version" value={'v' + m.version} sub={versions.length + ' revisions'} icon="layers" tone="info" />
         <StatTile label="Live instances" value={m.instances} sub="on storefront" icon="store" tone="success" />
-        <StatTile label="AI calls (30d)" value={fmtNum(m.aiCalls30d)} icon="magic" tone="magic" />
+        <StatTile label="Type" value={m.type} icon="code" tone="info" />
         <StatTile label="Source" value={titleCase(m.source)} sub={m.category} icon="template" tone="info" />
       </div>
       <Card style={{ marginBottom: 16 }}>
@@ -117,7 +177,7 @@ export default function AdminModuleDetail() {
               Summary
             </div>
             <p className="t-sm" style={{ color: 'var(--p-text-secondary)' }}>
-              {m.summary}
+              {m.summary || 'No summary provided.'}
             </p>
             <div className="divider" style={{ margin: '14px 0' }} />
             <div className="t-h3" style={{ marginBottom: 8 }}>
@@ -129,11 +189,13 @@ export default function AdminModuleDetail() {
                 <span className="grow">Owning store · {m.store}</span>
                 <Icon name="chevronRight" size={15} className="t-muted" />
               </a>
-              <a href="/internal/trace/cor_rs8f2" className="related-link">
-                <Icon name="transfer" size={16} />
-                <span className="grow">Last generation trace</span>
-                <Icon name="chevronRight" size={15} className="t-muted" />
-              </a>
+              {traceCorrelationId ? (
+                <a href={'/internal/trace/' + traceCorrelationId} className="related-link">
+                  <Icon name="transfer" size={16} />
+                  <span className="grow">Generation trace</span>
+                  <Icon name="chevronRight" size={15} className="t-muted" />
+                </a>
+              ) : null}
               <a href={'/internal/recipe-edit/' + m.id} className="related-link">
                 <Icon name="code" size={16} />
                 <span className="grow">Open in Recipe editor</span>
@@ -157,7 +219,11 @@ export default function AdminModuleDetail() {
           <p className="t-xs t-muted" style={{ marginBottom: 12 }}>
             Internal blueprint that defines how this module is generated. Hidden from the merchant — they only ever see the rendered result.
           </p>
-          <pre className="code-block">{spec}</pre>
+          {spec ? (
+            <pre className="code-block">{spec}</pre>
+          ) : (
+            <span className="t-muted t-sm">No RecipeSpec is stored for this module yet.</span>
+          )}
         </Card>
       )}
       {tab === 'versions' && (
@@ -199,7 +265,7 @@ export default function AdminModuleDetail() {
                             confirmLabel: 'Roll back',
                             tone: 'primary',
                             icon: 'replay',
-                            onConfirm: () => ops.run('rollback', { id: m.id, resource: m.name, message: 'Rolled back to v' + r.version }),
+                            onConfirm: () => ops.run('rollback', { id: m.id, resource: m.name, message: 'Rolling back ' + m.name + ' to v' + r.version, extra: { version: String(r.version) } }),
                           })
                         }
                       >

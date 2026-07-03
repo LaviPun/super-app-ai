@@ -1,15 +1,11 @@
-/* SuperApp theme extension runtime (vanilla JS, no dependencies).
-   Loaded once per page via each block's schema "javascript" attribute.
-
-   1. Popup engine — opens .superapp-popup overlays per their configured
-      trigger (ON_LOAD | TIMED | ON_EXIT_INTENT | ON_SCROLL_25/50/75 | ON_CLICK),
-      closes on close button / scrim click / Escape, manages focus, honors
-      prefers-reduced-motion, and suppresses re-shows per module id via
-      local/session storage according to the configured frequency
-      (EVERY_VISIT | ONCE_PER_SESSION | ONCE_PER_DAY | ONCE_PER_WEEK | ONCE_EVER).
-   2. App-proxy contact forms — submits form[data-superapp-proxy-form] via
-      fetch() and shows an inline success/error status instead of navigating
-      the buyer to the proxy's raw JSON response. */
+/* SuperApp theme extension runtime (vanilla JS, no deps). Loaded once per page
+   via each block's schema "javascript" attribute. Two features:
+   1. Popup engine — opens .superapp-popup overlays on their trigger (load/timed/
+      exit-intent/scroll/click), closes on button/scrim/Escape, traps focus,
+      honors prefers-reduced-motion, and suppresses re-shows per module id in
+      local/session storage per the configured frequency.
+   2. App-proxy contact forms — submits form[data-superapp-proxy-form] via fetch()
+      with inline success/error status (no full-page nav to the raw JSON). */
 (function () {
   'use strict';
   if (window.__superappModulesRuntime) return;
@@ -138,8 +134,7 @@
     if (trigger === 'TIMED') {
       later(open, delaySeconds * 1000);
     } else if (trigger === 'ON_EXIT_INTENT') {
-      /* Pointer leaves through the top of the viewport (desktop only; touch
-         devices have no exit intent, so the popup intentionally never fires). */
+      /* Pointer leaves through the top of the viewport (desktop only). */
       var onExit = function (e) {
         if (e.relatedTarget) return;
         if (e.clientY > 8) return;

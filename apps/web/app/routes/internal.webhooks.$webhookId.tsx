@@ -1,6 +1,7 @@
 import { json } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
+import { getPrisma } from '~/db.server';
 import {
   useAdminOps,
   Btn,
@@ -10,41 +11,45 @@ import {
   PageHead,
   StatTile,
   MonoChip,
-  fmtMs,
-  WEBHOOKS,
-  webhookPayload,
 } from '~/components/admin/page-kit';
+
+const NOT_FOUND = new Response(null, { status: 404 });
+
+function rel(iso: string): string {
+  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + 'm ago';
+  const h = Math.round(m / 60);
+  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
+}
 
 export async function loader({ request, params }: { request: Request; params: { webhookId?: string } }) {
   await requireInternalAdmin(request);
-  const w0 = WEBHOOKS.find((w) => w.id === params.webhookId) ?? WEBHOOKS[0];
-  // Synthesize attempt/duration fields the design expects.
-  const w = { attempts: w0.success ? 1 : 3, durationMs: w0.success ? 240 : 30000, ...w0 };
-  return json({ webhook: w, payload: webhookPayload(w) });
-}
+  const id = params.webhookId;
+  if (!id) throw NOT_FOUND;
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-function DeliveryRow({ d }: { d: any }) {
-  return (
-    <div className="tl-item">
-      <span className={'tl-dot ' + (d.ok ? 'success' : 'critical')} />
-      <div className="row spread">
-        <span className="t-sm t-strong">Attempt {d.n}</span>
-        <span className="t-xs" style={{ color: d.ok ? 'var(--p-success-text)' : 'var(--p-critical-text)' }}>
-          {d.ok ? '200 OK' : '500 / timeout'}
-        </span>
-      </div>
-    </div>
-  );
+  const prisma = getPrisma();
+  const w = await prisma.webhookEvent.findUnique({ where: { id } });
+  if (!w) throw NOT_FOUND;
+
+  return json({
+    webhook: {
+      id: w.id,
+      topic: w.topic,
+      eventId: w.eventId,
+      shop: w.shopDomain,
+      success: w.success,
+      processedAt: w.processedAt.toISOString(),
+      received: rel(w.processedAt.toISOString()),
+      when: w.processedAt.toLocaleString(),
+    },
+  });
 }
 
 export default function AdminWebhookDetail() {
-  const { webhook: w, payload } = useLoaderData<typeof loader>();
+  const { webhook: w } = useLoaderData<typeof loader>();
   const ops = useAdminOps();
-  const deliveries = [{ n: w.attempts, ok: w.success }]
-    .concat(Array.from({ length: Math.max(0, w.attempts - 1) }, (_, i) => ({ n: w.attempts - 1 - i, ok: false })))
-    .sort((a, b) => a.n - b.n);
-  const redeliver = () => ops.run('webhook_redeliver', { id: w.id, resource: w.topic, message: 'Webhook redelivered' });
+  const redeliver = () => ops.run('webhook_redeliver', { id: w.id, resource: w.topic, message: 'Requesting redelivery' });
 
   return (
     <div className="page">
@@ -54,7 +59,7 @@ export default function AdminWebhookDetail() {
         badge={
           w.success ? (
             <Badge tone="success" dot>
-              Delivered
+              Processed
             </Badge>
           ) : (
             <Badge tone="critical" dot>
@@ -78,10 +83,10 @@ export default function AdminWebhookDetail() {
         }
       />
       <div className="grid grid-4" style={{ marginBottom: 16 }}>
-        <StatTile label="Result" value={w.success ? 'Delivered' : 'Failed'} icon={w.success ? 'check' : 'alert'} tone={w.success ? 'success' : 'critical'} />
-        <StatTile label="Attempts" value={w.attempts} icon="replay" tone={w.attempts > 1 ? 'warning' : 'info'} />
-        <StatTile label="Duration" value={fmtMs(w.durationMs)} icon="clock" tone={w.durationMs > 5000 ? 'critical' : 'info'} />
-        <StatTile label="Received" value={w.created} icon="transfer" tone="info" />
+        <StatTile label="Result" value={w.success ? 'Processed' : 'Failed'} icon={w.success ? 'check' : 'alert'} tone={w.success ? 'success' : 'critical'} />
+        <StatTile label="Topic" value={w.topic} icon="transfer" tone="info" />
+        <StatTile label="Store" value={w.shop.split('.')[0]} sub={w.shop} icon="store" tone="info" />
+        <StatTile label="Received" value={w.received} sub={w.when} icon="clock" tone="info" />
       </div>
       <div className="col-main">
         <Card pad>
@@ -93,30 +98,22 @@ export default function AdminWebhookDetail() {
               ['Event ID', <MonoChip key="e">{w.eventId}</MonoChip>],
               ['Topic', <MonoChip key="t">{w.topic}</MonoChip>],
               ['Shop', w.shop],
-              ['HMAC', <Badge key="h" tone="success">Verified</Badge>],
-              ['Attempts', w.attempts],
-              ['Latency', fmtMs(w.durationMs)],
+              ['Result', w.success ? 'Processed' : 'Failed'],
+              ['Received', w.when],
             ]}
           />
-          <div className="divider" style={{ margin: '14px 0' }} />
-          <div className="t-h3" style={{ marginBottom: 10 }}>
-            Payload
-          </div>
-          <pre className="code-block">{payload}</pre>
         </Card>
         <Card pad>
-          <div className="t-h3" style={{ marginBottom: 12 }}>
-            Delivery attempts
+          <div className="t-h3" style={{ marginBottom: 8 }}>
+            Payload
           </div>
-          <div className="timeline">
-            {deliveries.map((d, di) => (
-              <DeliveryRow key={d.n != null ? d.n : di} d={d} />
-            ))}
-          </div>
+          <p className="t-sm t-muted">
+            Webhook payloads are not persisted — only delivery metadata (topic, event ID, store, result, and time) is retained. Redelivery is therefore not available from the admin.
+          </p>
           {!w.success ? (
             <div style={{ marginTop: 12 }}>
               <Btn size="sm" icon="replay" onClick={redeliver}>
-                Redeliver now
+                Redeliver
               </Btn>
             </div>
           ) : null}

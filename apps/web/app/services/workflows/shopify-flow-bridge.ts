@@ -1,4 +1,5 @@
 import { adminGraphqlUrl } from '~/shopify-api.server';
+import { getPrisma } from '~/db.server';
 
 /**
  * Shopify Flow Bridge — integration layer between SuperApp workflow engine
@@ -86,8 +87,11 @@ export const FLOW_ACTIONS = {
     id: 'superapp-tag-order',
     name: 'SuperApp: Tag Order',
     description: 'Add tags to an order via SuperApp.',
+    // Keys mirror the Flow action payload `properties`. The order arrives under
+    // the fixed reference-field key `order_id` (order_reference in the toml);
+    // `tags` matches the toml custom field key of the same name.
     inputFields: [
-      { key: 'orderId', label: 'Order ID', type: 'string', required: true },
+      { key: 'order_id', label: 'Order ID', type: 'string', required: true },
       { key: 'tags', label: 'Tags (comma-separated)', type: 'string', required: true },
     ],
   },
@@ -192,6 +196,52 @@ export async function emitFlowTrigger(
 }
 
 /**
+ * Best-effort wrapper around {@link emitFlowTrigger} for wiring into event sites
+ * (module published, workflow completed/failed, data record created, connector
+ * synced). Emitting a Flow trigger is telemetry that must NEVER disrupt or throw
+ * into the originating operation, so this swallows every error and only logs.
+ *
+ * Skipped under NODE_ENV=test to avoid live Admin API calls in the suite — same
+ * convention as {@link writeStepLog} in flow-runner.service.ts. Call sites should
+ * fire-and-forget (`void emitFlowTriggerSafe(...)`) to avoid adding request latency.
+ */
+export async function emitFlowTriggerSafe(
+  shop: string | null | undefined,
+  accessToken: string | null | undefined,
+  topic: FlowTriggerTopic,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  if (process.env.NODE_ENV === 'test') return;
+  if (!shop || !accessToken) {
+    console.warn(`[flow-bridge] emitFlowTrigger(${topic}) skipped: missing shop or offline access token`);
+    return;
+  }
+  try {
+    const result = await emitFlowTrigger(shop, accessToken, topic, payload);
+    if (!result.emitted) {
+      console.warn(`[flow-bridge] emitFlowTrigger(${topic}) not delivered: ${result.error ?? 'unknown error'}`);
+    }
+  } catch (err) {
+    console.warn(`[flow-bridge] emitFlowTrigger(${topic}) threw: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * Coerce a Flow `order_reference` value into an Admin API order GID. Flow may
+ * deliver either a GID (`gid://shopify/Order/123`) or a bare legacyResourceId
+ * (`123`); `tagsAdd` requires a GID, so numeric ids are wrapped. Returns
+ * undefined for empty/missing input so the caller can fail loudly.
+ */
+export function toOrderGid(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const v = raw.trim();
+  if (!v) return undefined;
+  if (v.startsWith('gid://')) return v;
+  if (/^\d+$/.test(v)) return `gid://shopify/Order/${v}`;
+  return v;
+}
+
+/**
  * Resolve a Flow action handle to an internal action ID.
  */
 export function resolveFlowActionId(handle: string): string | undefined {
@@ -238,16 +288,34 @@ export async function handleFlowAction(
     case 'superapp-tag-order': {
       const connector = getConnector('shopify');
       if (!connector) return { success: false, error: 'Shopify connector not registered' };
+
+      // Flow → SuperApp action requests are HMAC-signed, not OAuth sessions, so
+      // there is no admin context on hand. Load the shop's stored offline Admin
+      // token (Shop.accessToken) to authenticate the tagsAdd mutation. An empty
+      // token is a guaranteed 401 — fail loudly rather than pretend it worked.
+      const shopRow = await getPrisma().shop.findUnique({
+        where: { shopDomain },
+        select: { accessToken: true },
+      });
+      if (!shopRow?.accessToken) {
+        return { success: false, error: `No stored Admin access token for ${shopDomain}` };
+      }
+
+      const orderGid = toOrderGid(payload.order_id);
+      if (!orderGid) {
+        return { success: false, error: 'Missing order_id in Flow action payload' };
+      }
+
       const result = await connector.invoke(
-        { type: 'shopify', shop: shopDomain, accessToken: '' }, // token resolved separately
+        { type: 'shopify', shop: shopDomain, accessToken: shopRow.accessToken },
         {
           runId: `flow-action-${Date.now()}`,
           stepId: actionId,
           tenantId: shopDomain,
           operation: 'order.addTags',
           inputs: {
-            orderId: payload.orderId,
-            tags: typeof payload.tags === 'string' ? (payload.tags as string).split(',').map(t => t.trim()) : payload.tags,
+            orderId: orderGid,
+            tags: typeof payload.tags === 'string' ? (payload.tags as string).split(',').map(t => t.trim()).filter(Boolean) : payload.tags,
           },
           timeoutMs: 10000,
         },

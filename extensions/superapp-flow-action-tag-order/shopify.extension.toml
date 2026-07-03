@@ -6,10 +6,19 @@ uid = "2583cb27-1e4d-36fc-aaee-632e1093b1310514e684"
 type = "flow_action"
 handle = "superapp-tag-order"
 description = "Add tags to an order via SuperApp."
-runtime_url = "https://localhost:3000/api/flow/action"
+# runtime_url MUST be an absolute HTTPS URL — Flow POSTs each action payload here.
+# Keep it in sync with `application_url` in ../../shopify.app.toml (the app's public host).
+# WARNING: `shopify app dev` rotates the Cloudflare tunnel and updates application_url, but it
+# does NOT auto-rewrite extension runtime_url on dev or deploy (only the app proxy `url` and
+# application_url get rewritten). Update this value by hand — ideally to a stable production
+# domain — whenever the tunnel/app URL changes, or Flow can never reach this action.
+# Path matches the Remix route apps/web/app/routes/api.flow.action.tsx.
+runtime_url = "https://distribution-episode-editors-ordinary.trycloudflare.com/api/flow/action"
 
 [settings]
 
+  # Reference fields take no `key`; Flow sends the order id under the fixed
+  # payload key `order_id` (see Flow action reference → reference field types).
   [[settings.fields]]
   type = "order_reference"
   required = true
@@ -17,7 +26,7 @@ runtime_url = "https://localhost:3000/api/flow/action"
 
   [[settings.fields]]
   type = "single_line_text_field"
-  key = "Tags"
+  key = "tags"
   name = "Tags"
   description = "Comma-separated list of tags to add to the order."
   required = true

@@ -1,0 +1,50 @@
+{
+  "payload": {
+    "export": "cart_validations_generate_run",
+    "target": "cart.validations.generate.run",
+    "input": {
+      "cart": {
+        "deliveryGroups": [],
+        "lines": [
+          {
+            "quantity": 2,
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "sku": "TSHIRT-M"
+            }
+          },
+          {
+            "quantity": 2,
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "sku": "MUG-01"
+            }
+          }
+        ]
+      },
+      "shop": {
+        "metaobject": {
+          "field": {
+            "jsonValue": {
+              "rules": [
+                {
+                  "when": { "maxQuantityPerSku": 5 },
+                  "errorMessage": "You can order at most 5 of each item."
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": [
+        {
+          "validationAdd": {
+            "errors": []
+          }
+        }
+      ]
+    }
+  }
+}

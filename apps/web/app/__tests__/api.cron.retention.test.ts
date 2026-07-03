@@ -49,8 +49,11 @@ describe('/api/cron retention loader', () => {
   });
 
   it('returns 503 when CRON_SECRET is missing', async () => {
-    delete process.env.CRON_SECRET;
+    // Import first: api.cron transitively loads the db layer which runs
+    // dotenv.config() (repopulating .env's CRON_SECRET). Delete AFTER that so
+    // the loader — which reads the env var at call time — sees it unset.
     const mod = await import('~/routes/api.cron');
+    delete process.env.CRON_SECRET;
     const res = await mod.loader({ request: new Request('http://test/api/cron') });
     expect(res.status).toBe(503);
   });

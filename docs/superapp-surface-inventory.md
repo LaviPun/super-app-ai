@@ -54,7 +54,7 @@ Primary limits live in [`packages/core/src/allowed-values.ts`](/Users/lavipun/Wo
 
 The source of truth is `RECIPE_SPEC_TYPES` in [`packages/core/src/allowed-values.ts`](/Users/lavipun/Work/ai-shopify-superapp/packages/core/src/allowed-values.ts) and the discriminated union in [`packages/core/src/recipe.ts`](/Users/lavipun/Work/ai-shopify-superapp/packages/core/src/recipe.ts).
 
-Current set: **26 module types**.
+Current set: **20 module types**.
 
 | Family | Types |
 |---|---|
@@ -75,12 +75,12 @@ Catalog families:
 
 Formula:
 
-- `type`: `RECIPE_SPEC_TYPES.length = 26`
+- `type`: `RECIPE_SPEC_TYPES.length = 20`
 - `storefront base`: `CATALOG_SURFACES × CATALOG_COMPONENTS × CATALOG_INTENTS = 12 × 14 × 10 = 1,680`
 - `storefront trigger`: `CATALOG_SURFACES × CATALOG_INTENTS × CATALOG_TRIGGERS × TRIGGER_COMPONENTS = 12 × 10 × 10 × 4 = 4,800`
-- Total = `26 + 1,680 + 4,800 = 6,506`
+- Total = `20 + 1,680 + 4,800 = 6,500`
 
-Important: these are taxonomy/discovery rows; they do not imply 6,506 unique compiler implementations.
+Important: these are taxonomy/discovery rows; they do not imply 6,500 unique compiler implementations.
 
 ## 6) Naming patterns
 
@@ -171,7 +171,7 @@ Representative stacks:
 | Area | Result | Notes |
 |---|---|---|
 | Mental model + boundaries | PASS | Present across architecture docs and code contracts; consolidated here. |
-| Canonical RecipeSpec parity (`allowed-values` vs `recipe`) | PASS | 26 types align. |
+| Canonical RecipeSpec parity (`allowed-values` vs `recipe`) | PASS | 20 types align. |
 | Expanded storefront catalog formula/cap | PASS | Generator formula and cap confirmed; cardinality test added. |
 | Naming patterns | PASS | Generator and docs use canonical formats. |
 | Theme placement editor mechanisms | PASS | Finite enums present and enforced. |

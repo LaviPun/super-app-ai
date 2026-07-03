@@ -1,40 +1,27 @@
 import { json } from '@remix-run/node';
-import { useLoaderData } from '@remix-run/react';
+import { useLoaderData, useNavigate } from '@remix-run/react';
 import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import {
   MODULE_TEMPLATES,
-  getTemplateReadiness,
+  WORKFLOW_TEMPLATES,
   getTemplateInstallability,
 } from '@superapp/core';
-import { getPrisma } from '~/db.server';
 import {
-  useAdminCtx,
   Btn,
   Badge,
   Card,
-  Field,
-  Input,
-  Textarea,
-  Select,
   Tabs,
-  Icon,
-  KV,
-  Modal,
-  ConfirmDialog,
   DataTable,
   PageHead,
   FilterBar,
   useTableState,
-  fmtNum,
-  TEMPLATES,
-  CATEGORIES,
 } from '~/components/admin/page-kit';
+
+const TEMPLATES_SHOP_ID = '__templates__';
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
-  const prisma = getPrisma();
-  const workflowCount = await prisma.workflowDef.count();
 
   return json({
     moduleTemplates: MODULE_TEMPLATES.map(t => ({
@@ -44,203 +31,175 @@ export async function loader({ request }: { request: Request }) {
       category: t.category,
       type: t.type,
       tags: t.tags ?? [],
-      readiness: getTemplateReadiness(t),
-      installability: getTemplateInstallability(t),
+      installable: getTemplateInstallability(t).ok,
     })),
-    workflowCount,
+    flowTemplates: WORKFLOW_TEMPLATES.map(w => ({
+      id: w.metadata.templateId,
+      name: w.metadata.name,
+      description: w.metadata.description,
+      categories: w.metadata.category,
+      tags: w.metadata.tags,
+      connectors: w.metadata.requiresConnectors.map(c => c.provider),
+    })),
   });
 }
 
 export default function AdminTemplates() {
   const data = useLoaderData<typeof loader>();
-  const ctx = useAdminCtx();
+  const navigate = useNavigate();
   const ts = useTableState();
   const [tab, setTab] = useState('module');
-  const [newT, setNewT] = useState(false);
-  const [preview, setPreview] = useState<any>(null);
-  const [confirm, setConfirm] = useState<any>(null);
 
-  const ROWS: any[] = data.moduleTemplates.length
-    ? data.moduleTemplates.map((t) => ({ id: t.id, name: t.name, category: t.category, tags: t.tags, uses: 0, desc: t.description ?? '' }))
-    : TEMPLATES;
-  const rows = ROWS.filter((t) => (t.name + (t.tags || []).join(' ')).toLowerCase().includes(ts.search.toLowerCase()));
+  const moduleRows = data.moduleTemplates
+    .map((t) => ({ id: t.id, name: t.name, category: t.category, tags: t.tags, installable: t.installable, desc: t.description ?? '' }))
+    .filter((t) => (t.name + (t.tags || []).join(' ')).toLowerCase().includes(ts.search.toLowerCase()));
+
+  const flowRows = data.flowTemplates.filter(
+    (t) => (t.name + (t.tags || []).join(' ') + (t.categories || []).join(' ')).toLowerCase().includes(ts.search.toLowerCase()),
+  );
+
+  const activeCount = tab === 'flow' ? flowRows.length : moduleRows.length;
 
   return (
     <div className="page">
       <PageHead
         title="Templates"
         sub="Module and flow templates merchants can start from. Edit the underlying RecipeSpec in Recipe edit."
-        actions={
-          <Btn variant="primary" icon="plus" onClick={() => setNewT(true)}>
-            New template
-          </Btn>
-        }
       />
       <Card style={{ marginBottom: 16 }}>
         <Tabs
           active={tab}
           onChange={setTab}
           tabs={[
-            { id: 'module', label: 'Module templates', badge: ROWS.length },
-            { id: 'flow', label: 'Flow templates', badge: data.workflowCount },
+            { id: 'module', label: 'Module templates', badge: data.moduleTemplates.length },
+            { id: 'flow', label: 'Flow templates', badge: data.flowTemplates.length },
           ]}
         />
       </Card>
       <Card>
-        <FilterBar search={ts.search} onSearch={ts.setSearch} placeholder="Search templates…" results={rows.length} />
-        <DataTable
-          rowKey="id"
-          columns={[
-            {
-              key: 'name',
-              label: 'Template',
-              render: (r: any) => (
-                <div className="stack" style={{ gap: 1 }}>
-                  <span className="cell-strong">{r.name}</span>
-                  <span className="cell-sub">{r.desc}</span>
-                </div>
-              ),
-            },
-            { key: 'category', label: 'Category', render: (r: any) => <Badge>{r.category}</Badge> },
-            {
-              key: 'tags',
-              label: 'Tags',
-              render: (r: any) => (
-                <div className="row-1 row-wrap">
-                  {(r.tags || []).map((t: string) => (
-                    <span key={t} className="tag" style={{ height: 22 }}>
-                      {t}
-                    </span>
-                  ))}
-                </div>
-              ),
-            },
-            { key: 'uses', label: 'Stores using', num: true, render: (r: any) => fmtNum(r.uses) },
-            {
-              key: 'act',
-              label: '',
-              render: (r: any) => (
-                <div className="dt-actions">
-                  <Btn size="sm" icon="code" onClick={() => ctx.go('#/admin/recipe-edit')}>
-                    Edit recipe
-                  </Btn>
-                  <Btn size="sm" icon="eye" className="btn-plain" onClick={() => setPreview(r)} />
-                  <Btn
-                    size="sm"
-                    icon="trash"
-                    className="btn-plain-critical"
-                    onClick={() =>
-                      setConfirm({
-                        title: 'Delete template',
-                        message: 'Delete the “' + r.name + '” template? Stores already using it keep their copy; new stores can no longer start from it.',
-                        confirmLabel: 'Delete template',
-                        tone: 'critical',
-                        icon: 'trash',
-                        onConfirm: () => ctx.toast(r.name + ' deleted'),
-                      })
-                    }
-                  />
-                </div>
-              ),
-            },
-          ]}
-          rows={rows}
-        />
-      </Card>
-      {newT && <NewTemplateModal onClose={() => setNewT(false)} />}
-      {preview && (
-        <Modal
-          title={preview.name}
-          sub={preview.category + ' template'}
-          size="lg"
-          onClose={() => setPreview(null)}
-          footer={
-            <>
-              <span className="grow" />
-              <Btn onClick={() => setPreview(null)}>Close</Btn>
-              <Btn
-                variant="primary"
-                icon="code"
-                onClick={() => {
-                  setPreview(null);
-                  ctx.go('#/admin/recipe-edit');
-                }}
-              >
-                Edit recipe
-              </Btn>
-            </>
-          }
-        >
-          <div className="stack-4">
-            <div className="tpl-thumb" style={{ background: 'var(--p-surface-secondary)', borderRadius: 12, height: 150 }}>
-              <Icon name="template" size={40} className="t-muted" />
-            </div>
-            <div className="t-sm">{preview.desc}</div>
-            <KV
-              rows={[
-                ['Category', <Badge key="c">{preview.category}</Badge>],
-                ['Stores using', fmtNum(preview.uses)],
-                [
-                  'Tags',
-                  <div key="t" className="row-1 row-wrap">
-                    {(preview.tags || []).map((t: string) => (
+        <FilterBar search={ts.search} onSearch={ts.setSearch} placeholder="Search templates…" results={activeCount} />
+        {tab === 'flow' ? (
+          <DataTable
+            rowKey="id"
+            columns={[
+              {
+                key: 'name',
+                label: 'Flow template',
+                render: (r: any) => (
+                  <div className="stack" style={{ gap: 1 }}>
+                    <span className="cell-strong">{r.name}</span>
+                    <span className="cell-sub">{r.description}</span>
+                  </div>
+                ),
+              },
+              {
+                key: 'categories',
+                label: 'Category',
+                render: (r: any) => (
+                  <div className="row-1 row-wrap">
+                    {(r.categories || []).map((c: string) => (
+                      <Badge key={c}>{c}</Badge>
+                    ))}
+                  </div>
+                ),
+              },
+              {
+                key: 'connectors',
+                label: 'Connectors',
+                render: (r: any) => (
+                  <div className="row-1 row-wrap">
+                    {(r.connectors || []).map((c: string) => (
+                      <span key={c} className="tag" style={{ height: 22 }}>
+                        {c}
+                      </span>
+                    ))}
+                  </div>
+                ),
+              },
+              {
+                key: 'tags',
+                label: 'Tags',
+                render: (r: any) => (
+                  <div className="row-1 row-wrap">
+                    {(r.tags || []).map((t: string) => (
                       <span key={t} className="tag" style={{ height: 22 }}>
                         {t}
                       </span>
                     ))}
-                  </div>,
-                ],
-              ]}
-            />
-          </div>
-        </Modal>
-      )}
-      {confirm && <ConfirmDialog {...confirm} onClose={() => setConfirm(null)} />}
+                  </div>
+                ),
+              },
+            ]}
+            rows={flowRows}
+          />
+        ) : (
+          <DataTable
+            rowKey="id"
+            onRowClick={(r: any) => navigate('/internal/templates/' + r.id)}
+            columns={[
+              {
+                key: 'name',
+                label: 'Template',
+                render: (r: any) => (
+                  <div className="stack" style={{ gap: 1 }}>
+                    <span className="cell-strong">{r.name}</span>
+                    <span className="cell-sub">{r.desc}</span>
+                  </div>
+                ),
+              },
+              { key: 'category', label: 'Category', render: (r: any) => <Badge>{r.category}</Badge> },
+              {
+                key: 'tags',
+                label: 'Tags',
+                render: (r: any) => (
+                  <div className="row-1 row-wrap">
+                    {(r.tags || []).map((t: string) => (
+                      <span key={t} className="tag" style={{ height: 22 }}>
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                ),
+              },
+              {
+                key: 'installable',
+                label: 'Status',
+                render: (r: any) => (
+                  <Badge tone={r.installable ? 'success' : 'warning'}>{r.installable ? 'Ready' : 'Needs setup'}</Badge>
+                ),
+              },
+              {
+                key: 'act',
+                label: '',
+                render: (r: any) => (
+                  <div className="dt-actions">
+                    <Btn
+                      size="sm"
+                      icon="code"
+                      onClick={(e: any) => {
+                        e.stopPropagation();
+                        navigate('/internal/recipe-edit?shopId=' + encodeURIComponent(TEMPLATES_SHOP_ID) + '&moduleId=' + encodeURIComponent(r.id));
+                      }}
+                    >
+                      Edit recipe
+                    </Btn>
+                    <Btn
+                      size="sm"
+                      icon="eye"
+                      className="btn-plain"
+                      onClick={(e: any) => {
+                        e.stopPropagation();
+                        window.open('/internal/templates/' + encodeURIComponent(r.id) + '/preview', '_blank');
+                      }}
+                    />
+                  </div>
+                ),
+              },
+            ]}
+            rows={moduleRows}
+          />
+        )}
+      </Card>
     </div>
   );
 }
-
-function NewTemplateModal({ onClose }: { onClose: () => void }) {
-  const ctx = useAdminCtx();
-  const [f, setF] = useState({ name: '', category: CATEGORIES[0] ? CATEGORIES[0].display : 'Storefront UI', tags: '', desc: '' });
-  const set = (k: string, v: string) => setF((o) => ({ ...o, [k]: v }));
-  const create = () => {
-    ctx.toast('Template created');
-    onClose();
-    ctx.go('#/admin/recipe-edit');
-  };
-  return (
-    <Modal
-      title="New template"
-      sub="Create a starter merchants can build from."
-      onClose={onClose}
-      footer={
-        <>
-          <span className="grow" />
-          <Btn onClick={onClose}>Cancel</Btn>
-          <Btn variant="primary" onClick={create}>
-            Create & edit recipe
-          </Btn>
-        </>
-      }
-    >
-      <div className="stack-4">
-        <Field label="Template name">
-          <Input value={f.name} onChange={(e: any) => set('name', e.target.value)} placeholder="Free Shipping Bar" autoFocus />
-        </Field>
-        <div className="grid grid-2">
-          <Field label="Category">
-            <Select options={CATEGORIES.map((c) => c.display)} value={f.category} onChange={(e: any) => set('category', e.target.value)} />
-          </Field>
-          <Field label="Tags" help="Comma-separated">
-            <Input value={f.tags} onChange={(e: any) => set('tags', e.target.value)} placeholder="conversion, cart" />
-          </Field>
-        </div>
-        <Field label="Description">
-          <Textarea value={f.desc} onChange={(e: any) => set('desc', e.target.value)} placeholder="What does this template do?" />
-        </Field>
-      </div>
-    </Modal>
-  );
-}
-

@@ -1,6 +1,8 @@
 import { json } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
+import { getPrisma } from '~/db.server';
+import { getPlanConfig } from '~/services/billing/plan-config.service';
 import {
   useAdminCtx,
   StoreLink,
@@ -14,18 +16,80 @@ import {
   MonoChip,
   fmtNum,
   titleCase,
-  CUSTOMERS,
-  STORES,
   storeHealth,
   healthTone,
   healthLabel,
 } from '~/components/admin/page-kit';
 
+const NOT_FOUND = new Response(null, { status: 404 });
+
+function rel(iso: string): string {
+  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + 'm ago';
+  const h = Math.round(m / 60);
+  if (h < 24) return h + 'h ago';
+  return Math.round(h / 24) + 'd ago';
+}
+
+function prettyName(domain: string): string {
+  return (domain.split('.')[0] ?? domain).replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+const LIFECYCLE: Record<string, string> = { ACTIVE: 'Customer', TRIAL: 'Trialing', CANCELLED: 'Churned', EXPIRED: 'Churned' };
+
 export async function loader({ request, params }: { request: Request; params: { customerId?: string } }) {
   await requireInternalAdmin(request);
-  const c = CUSTOMERS.find((x) => x.id === params.customerId) ?? CUSTOMERS[0];
-  const s = STORES.find((x) => x.id === c.storeId) ?? null;
-  return json({ customer: c, store: s });
+  const id = params.customerId;
+  if (!id) throw NOT_FOUND;
+
+  const prisma = getPrisma();
+  const shop = await prisma.shop.findUnique({
+    where: { id },
+    include: { subscription: true, modules: { select: { status: true } } },
+  });
+  if (!shop) throw NOT_FOUND;
+
+  const since30d = new Date(Date.now() - 30 * 86400000);
+  const [aiUsage, errCount, lastApi, planConfig] = await Promise.all([
+    prisma.aiUsage.aggregate({ where: { shopId: shop.id, createdAt: { gte: since30d } }, _sum: { requestCount: true } }),
+    prisma.errorLog.count({ where: { shopId: shop.id, level: 'ERROR', createdAt: { gte: since30d } } }),
+    prisma.apiLog.findFirst({ where: { shopId: shop.id }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } }),
+    getPlanConfig(shop.planTier).catch(() => null),
+  ]);
+
+  const status = shop.subscription?.status ?? 'ACTIVE';
+  const lifecycle = LIFECYCLE[status] ?? 'Customer';
+  const price = planConfig?.price ?? 0;
+  const mrr = lifecycle === 'Customer' && price > 0 ? price : 0;
+  const published = shop.modules.filter((m) => m.status === 'PUBLISHED').length;
+
+  return json({
+    customer: {
+      id: shop.id,
+      storeId: shop.id,
+      name: prettyName(shop.shopDomain),
+      store: prettyName(shop.shopDomain),
+      domain: shop.shopDomain,
+      plan: shop.planTier,
+      lifecycle,
+      mrr,
+      country: '—',
+      seats: '—',
+      tickets: 0,
+      signed: shop.createdAt ? new Date(shop.createdAt).toISOString().slice(0, 10) : '—',
+      lastActive: lastApi ? rel(new Date(lastApi.createdAt).toISOString()) : 'No activity',
+    },
+    store: {
+      status,
+      domain: shop.shopDomain,
+      plan: shop.planTier,
+      modules: shop.modules.length,
+      published,
+      aiCalls30d: aiUsage._sum.requestCount ?? 0,
+      errors30d: errCount,
+    },
+  });
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -35,6 +99,10 @@ const LIFECYCLE_TONE: Record<string, any> = { Customer: 'success', Trialing: 'wa
 export default function AdminCustomerDetail() {
   const { customer: c, store: s } = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
+
+  // Health from real fields + the store's real 30d ERROR count.
+  const errLogs = Array.from({ length: s.errors30d }, () => ({ level: 'ERROR', shop: s.domain }));
+  const health = storeHealth(s, errLogs);
 
   return (
     <div className="page">
@@ -47,20 +115,11 @@ export default function AdminCustomerDetail() {
             <Badge tone={PLAN_TONE[c.plan]}>{titleCase(c.plan)}</Badge>
           </span>
         }
-        sub={
-          <a href={'mailto:' + c.email} className="cell-link">
-            {c.email}
-          </a>
-        }
+        sub={<MonoChip>{c.domain}</MonoChip>}
         actions={
-          <>
-            <Btn icon="mail" onClick={() => ctx.toast('Drafting email to ' + c.email)}>
-              Email
-            </Btn>
-            <Btn variant="primary" icon="store" onClick={() => ctx.go('#/admin/stores/' + c.storeId)}>
-              Open store
-            </Btn>
-          </>
+          <Btn variant="primary" icon="store" onClick={() => ctx.go('#/admin/stores/' + c.storeId)}>
+            Open store
+          </Btn>
         }
       />
       <div className="grid grid-4" style={{ marginBottom: 16 }}>
@@ -77,12 +136,11 @@ export default function AdminCustomerDetail() {
           <KV
             rows={[
               ['Customer ID', <MonoChip key="id">{c.id}</MonoChip>],
-              ['Name', c.name],
-              ['Email', <a key="e" href={'mailto:' + c.email} className="cell-link">{c.email}</a>],
               ['Store', <StoreLink key="s" name={c.store} id={c.storeId} />],
               ['Domain', <MonoChip key="d">{c.domain}</MonoChip>],
               ['Country', c.country],
               ['Plan', <Badge key="p" tone={PLAN_TONE[c.plan]}>{titleCase(c.plan)}</Badge>],
+              ['Lifecycle', <Badge key="l" tone={LIFECYCLE_TONE[c.lifecycle]}>{c.lifecycle}</Badge>],
               ['Signed up', c.signed],
             ]}
           />
@@ -92,23 +150,19 @@ export default function AdminCustomerDetail() {
             <div className="t-h3" style={{ marginBottom: 12 }}>
               Store snapshot
             </div>
-            {s ? (
-              <KV
-                rows={[
-                  ['Status', <StatusBadge key="st" value={s.status} />],
-                  ['Modules', s.modules + ' (' + s.published + ' live)'],
-                  ['AI calls (30d)', fmtNum(s.aiCalls30d)],
-                  [
-                    'Health',
-                    <span key="h" style={{ color: 'var(--p-' + healthTone(storeHealth(s)) + '-text)' }}>
-                      {storeHealth(s)} · {healthLabel(storeHealth(s))}
-                    </span>,
-                  ],
-                ]}
-              />
-            ) : (
-              <span className="t-muted t-sm">Store not found</span>
-            )}
+            <KV
+              rows={[
+                ['Status', <StatusBadge key="st" value={s.status} />],
+                ['Modules', s.modules + ' (' + s.published + ' live)'],
+                ['AI calls (30d)', fmtNum(s.aiCalls30d)],
+                [
+                  'Health',
+                  <span key="h" style={{ color: 'var(--p-' + healthTone(health) + '-text)' }}>
+                    {health} · {healthLabel(health)}
+                  </span>,
+                ],
+              ]}
+            />
           </Card>
           <Card pad>
             <div className="t-h3" style={{ marginBottom: 12 }}>

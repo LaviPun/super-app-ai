@@ -6,7 +6,7 @@
       "cart": {
         "cost": {
           "subtotalAmount": {
-            "amount": "10.0"
+            "amount": "20.0"
           }
         },
         "deliveryGroups": [
@@ -16,6 +16,10 @@
             },
             "deliveryOptions": [
               {
+                "handle": "economy",
+                "title": "Economy"
+              },
+              {
                 "handle": "standard",
                 "title": "Standard"
               }
@@ -24,7 +28,20 @@
         ]
       },
       "shop": {
-        "metaobject": null
+        "metaobject": {
+          "field": {
+            "jsonValue": {
+              "rules": [
+                {
+                  "when": { "minSubtotal": 100 },
+                  "actions": {
+                    "hideMethodsContaining": ["Economy"]
+                  }
+                }
+              ]
+            }
+          }
+        }
       }
     },
     "output": {

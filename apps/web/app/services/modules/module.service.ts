@@ -1,6 +1,7 @@
 import { getPrisma } from '~/db.server';
 import type { RecipeSpec } from '@superapp/core';
 import { ReleaseTransitionService } from '~/services/releases/release-transition.service';
+import { emitFlowTriggerSafe, FLOW_TRIGGER_TOPICS } from '~/services/workflows/shopify-flow-bridge';
 
 export class ModuleService {
   async createDraft(
@@ -123,6 +124,27 @@ export class ModuleService {
           hydratedAt: publishedVersion.hydratedAt,
         },
       });
+    }
+
+    // Best-effort: notify Shopify Flow that a module was published. Loads the
+    // module + shop for the trigger payload and offline token; never blocks or
+    // throws into the publish path.
+    const publishedModule = await prisma.module.findUnique({
+      where: { id: moduleId },
+      select: { id: true, name: true, type: true, shop: { select: { shopDomain: true, accessToken: true } } },
+    });
+    if (publishedModule) {
+      void emitFlowTriggerSafe(
+        publishedModule.shop.shopDomain,
+        publishedModule.shop.accessToken,
+        FLOW_TRIGGER_TOPICS.MODULE_PUBLISHED,
+        {
+          'Module ID': publishedModule.id,
+          'Module Name': publishedModule.name,
+          'Module Type': publishedModule.type,
+          'Shop Domain': publishedModule.shop.shopDomain,
+        },
+      );
     }
   }
 

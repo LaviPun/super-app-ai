@@ -1,7 +1,27 @@
 query Input {
   cart {
+    deliveryGroups {
+      deliveryAddress {
+        countryCode
+      }
+    }
     lines {
       quantity
+      merchandise {
+        __typename
+        ... on ProductVariant {
+          sku
+        }
+      }
+    }
+  }
+  shop {
+    metaobject(
+      handle: { type: "$app:superapp_function_config", handle: "superapp-fn-cartAndCheckoutValidation" }
+    ) {
+      field(key: "config_json") {
+        jsonValue
+      }
     }
   }
 }

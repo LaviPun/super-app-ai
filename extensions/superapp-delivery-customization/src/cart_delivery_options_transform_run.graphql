@@ -1,7 +1,27 @@
 query CartDeliveryOptionsTransformRunInput {
-  deliveryCustomization {
-    metafield(namespace: "$app:superapp-delivery-customization", key: "function-configuration") {
-      jsonValue
+  cart {
+    cost {
+      subtotalAmount {
+        amount
+      }
+    }
+    deliveryGroups {
+      deliveryAddress {
+        countryCode
+      }
+      deliveryOptions {
+        handle
+        title
+      }
+    }
+  }
+  shop {
+    metaobject(
+      handle: { type: "$app:superapp_function_config", handle: "superapp-fn-deliveryCustomization" }
+    ) {
+      field(key: "config_json") {
+        jsonValue
+      }
     }
   }
 }

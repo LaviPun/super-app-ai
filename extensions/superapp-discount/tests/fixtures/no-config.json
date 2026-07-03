@@ -1,0 +1,33 @@
+{
+  "payload": {
+    "export": "cart_lines_discounts_generate_run",
+    "target": "cart.lines.discounts.generate.run",
+    "input": {
+      "cart": {
+        "cost": {
+          "subtotalAmount": {
+            "amount": "60.0"
+          }
+        },
+        "lines": [
+          {
+            "id": "gid://shopify/CartLine/0",
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "sku": "REVEAL-SKU"
+            }
+          }
+        ]
+      },
+      "discount": {
+        "discountClasses": ["PRODUCT"]
+      },
+      "shop": {
+        "metaobject": null
+      }
+    },
+    "output": {
+      "operations": []
+    }
+  }
+}

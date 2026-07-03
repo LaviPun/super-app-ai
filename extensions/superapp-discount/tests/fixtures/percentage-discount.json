@@ -12,11 +12,6 @@
         "lines": [
           {
             "id": "gid://shopify/CartLine/0",
-            "cost": {
-              "subtotalAmount": {
-                "amount": "60.0"
-              }
-            },
             "merchandise": {
               "__typename": "ProductVariant",
               "sku": "REVEAL-SKU"
@@ -25,15 +20,20 @@
         ]
       },
       "discount": {
-        "discountClasses": ["PRODUCT", "ORDER"],
-        "metafield": {
-          "jsonValue": {
-            "rules": [
-              {
-                "when": { "minSubtotal": 50.0, "skuIn": ["REVEAL-SKU"] },
-                "apply": { "percentageOff": 20.0 }
-              }
-            ]
+        "discountClasses": ["PRODUCT", "ORDER"]
+      },
+      "shop": {
+        "metaobject": {
+          "field": {
+            "jsonValue": {
+              "rules": [
+                {
+                  "when": { "minSubtotal": 50.0, "skuIn": ["REVEAL-SKU"] },
+                  "apply": { "percentageOff": 20.0 }
+                }
+              ],
+              "combineWithOtherDiscounts": true
+            }
           }
         }
       }

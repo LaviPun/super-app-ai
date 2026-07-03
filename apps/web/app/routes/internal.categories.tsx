@@ -1,7 +1,8 @@
 import { json } from '@remix-run/node';
-import { useLoaderData } from '@remix-run/react';
-import { useState } from 'react';
+import { useLoaderData, useFetcher } from '@remix-run/react';
+import { useEffect, useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
+import { getPrisma } from '~/db.server';
 import { SettingsService } from '~/services/settings/settings.service';
 import { TEMPLATE_CATEGORIES } from '@superapp/core';
 import { ActivityLogService } from '~/services/activity/activity.service';
@@ -21,7 +22,6 @@ import {
   MonoChip,
   fmtNum,
   titleCase,
-  CATEGORIES,
 } from '~/components/admin/page-kit';
 
 export type CategoryOverride = { displayName?: string; enabled?: boolean };
@@ -98,16 +98,24 @@ function strictParseOverrides(raw: string): StrictParseResult {
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
-  const settings = await new SettingsService().get();
+  const prisma = getPrisma();
+  const [settings, grouped] = await Promise.all([
+    new SettingsService().get(),
+    prisma.module.groupBy({ by: ['category'], _count: { _all: true } }),
+  ]);
   const overrides = parseOverrides(settings.categoryOverrides);
   const codeCategories = [...TEMPLATE_CATEGORIES];
   const codeCategoryIds = codeCategories as readonly string[];
   const customIds = Object.keys(overrides).filter(k => !codeCategoryIds.includes(k));
   const allCategoryIds = [...new Set([...codeCategories, ...customIds])];
+  // Real, cross-shop module counts per category (RecipeSpec.category === MODULE_CATEGORIES id).
+  const moduleCounts: Record<string, number> = {};
+  for (const g of grouped) moduleCounts[g.category] = g._count._all;
   return json({
     categories: codeCategories,
     allCategoryIds,
     overrides,
+    moduleCounts,
     rawOverrides: settings.categoryOverrides ?? '',
   });
 }
@@ -122,7 +130,11 @@ export async function action({ request }: { request: Request }) {
   let overrides = parseOverrides(settings.categoryOverrides);
 
   if (intent === 'add_category') {
-    const categoryId = String(form.get('categoryId') ?? '').trim().toUpperCase().replace(/\s+/g, '_');
+    const categoryId = String(form.get('categoryId') ?? '')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
     if (!categoryId) return json({ error: 'Category ID is required' }, { status: 400 });
     if (!CATEGORY_ID_RE.test(categoryId)) {
       return json(
@@ -167,22 +179,87 @@ export async function action({ request }: { request: Request }) {
     return json({ toast: { message: 'Category overrides saved' } });
   }
 
+  if (intent === 'edit_category' || intent === 'toggle_visibility') {
+    const categoryId = String(form.get('categoryId') ?? '').trim();
+    if (!categoryId || !CATEGORY_ID_RE.test(categoryId)) {
+      return json({ error: 'Invalid category ID' }, { status: 400 });
+    }
+    const enabled = form.get('enabled') === 'true';
+    const prev = overrides[categoryId] ?? {};
+    if (intent === 'edit_category') {
+      const displayName = String(form.get('displayName') ?? '').trim();
+      if (displayName.length > 80) {
+        return json({ error: 'Display name is too long (max 80 chars).' }, { status: 400 });
+      }
+      overrides[categoryId] = { displayName: displayName || undefined, enabled };
+    } else {
+      overrides[categoryId] = { ...prev, enabled };
+    }
+    await service.update({ categoryOverrides: JSON.stringify(overrides, null, 2) });
+    await new ActivityLogService().log({
+      actor: 'INTERNAL_ADMIN',
+      action: 'STORE_SETTINGS_UPDATED',
+      details: { section: 'categoryOverrides', updated: categoryId },
+    });
+    const message =
+      intent === 'toggle_visibility'
+        ? `${categoryId} ${enabled ? 'shown' : 'hidden'}`
+        : `Category ${categoryId} saved`;
+    return json({ toast: { message } });
+  }
+
+  if (intent === 'delete_category') {
+    const categoryId = String(form.get('categoryId') ?? '').trim();
+    if (!categoryId) return json({ error: 'Missing category ID' }, { status: 400 });
+    const isBuiltIn = (TEMPLATE_CATEGORIES as readonly string[]).includes(categoryId);
+    const hadOverride = Object.prototype.hasOwnProperty.call(overrides, categoryId);
+    if (isBuiltIn && !hadOverride) {
+      return json({ error: `"${categoryId}" is a built-in category and cannot be deleted.` }, { status: 400 });
+    }
+    if (hadOverride) {
+      delete overrides[categoryId];
+      const remaining = Object.keys(overrides).length ? JSON.stringify(overrides, null, 2) : null;
+      await service.update({ categoryOverrides: remaining });
+    }
+    await new ActivityLogService().log({
+      actor: 'INTERNAL_ADMIN',
+      action: 'STORE_SETTINGS_UPDATED',
+      details: { section: 'categoryOverrides', removed: categoryId },
+    });
+    return json({
+      toast: { message: isBuiltIn ? `${categoryId} reset to default` : `Category ${categoryId} deleted` },
+    });
+  }
+
   return json({ error: 'Unknown intent' }, { status: 400 });
+}
+
+type CatActionData = { toast?: { message: string }; error?: string };
+
+/** Fetcher whose toast always reflects the server response (error styling on ok:false). */
+function useCatFetcher() {
+  const fetcher = useFetcher<CatActionData>();
+  const ctx = useAdminCtx();
+  useEffect(() => {
+    if (fetcher.state === 'idle' && fetcher.data) {
+      if (fetcher.data.error) ctx.toast(fetcher.data.error, true);
+      else if (fetcher.data.toast?.message) ctx.toast(fetcher.data.toast.message);
+    }
+  }, [fetcher.state, fetcher.data, ctx]);
+  return fetcher;
 }
 
 export default function AdminCategories() {
   const data = useLoaderData<typeof loader>();
-  const ctx = useAdminCtx();
+  const rowFetcher = useCatFetcher();
   const [modal, setModal] = useState<any>(null);
   const [confirm, setConfirm] = useState<any>(null);
   const [showJson, setShowJson] = useState(false);
 
-  const ROWS: any[] = data.allCategoryIds.length
-    ? data.allCategoryIds.map((id: string) => {
-        const o = (data.overrides as Record<string, any>)[id] || {};
-        return { id, key: id.toLowerCase().replace(/_/g, '-'), display: o.displayName || titleCase(id), enabled: o.enabled !== false, modules: 0, icon: 'categories' };
-      })
-    : CATEGORIES;
+  const ROWS: any[] = data.allCategoryIds.map((id: string) => {
+    const o = (data.overrides as Record<string, any>)[id] || {};
+    return { id, key: id.toLowerCase().replace(/_/g, '-'), display: o.displayName || titleCase(id), enabled: o.enabled !== false, modules: data.moduleCounts[id] ?? 0, icon: 'categories' };
+  });
 
   return (
     <div className="page">
@@ -223,7 +300,21 @@ export default function AdminCategories() {
               },
               { key: 'key', label: 'Key', render: (r: any) => <MonoChip>{r.key}</MonoChip> },
               { key: 'modules', label: 'Modules', num: true, render: (r: any) => fmtNum(r.modules) },
-              { key: 'enabled', label: 'Visible', render: (r: any) => <Toggle checked={r.enabled} onChange={(e: any) => ctx.toast(r.display + (e.target.checked ? ' shown' : ' hidden'))} /> },
+              {
+                key: 'enabled',
+                label: 'Visible',
+                render: (r: any) => (
+                  <Toggle
+                    checked={r.enabled}
+                    onChange={(e: any) =>
+                      rowFetcher.submit(
+                        { intent: 'toggle_visibility', categoryId: r.id, enabled: String(e.target.checked) },
+                        { method: 'post' },
+                      )
+                    }
+                  />
+                ),
+              },
               {
                 key: 'act',
                 label: '',
@@ -241,7 +332,8 @@ export default function AdminCategories() {
                           confirmLabel: 'Delete category',
                           tone: 'critical',
                           icon: 'trash',
-                          onConfirm: () => ctx.toast(r.display + ' deleted'),
+                          onConfirm: () =>
+                            rowFetcher.submit({ intent: 'delete_category', categoryId: r.id }, { method: 'post' }),
                         })
                       }
                     />
@@ -260,13 +352,32 @@ export default function AdminCategories() {
 }
 
 function CategoryModal({ cat, onClose }: { cat: any; onClose: () => void }) {
-  const ctx = useAdminCtx();
+  const fetcher = useCatFetcher();
   const isNew = cat === 'new';
   const [f, setF] = useState(isNew ? { display: '', key: '', enabled: true } : { ...cat });
   const set = (k: string, v: any) => setF((o: any) => ({ ...o, [k]: v }));
+
+  // Close only after the server confirms the write.
+  useEffect(() => {
+    if (fetcher.state === 'idle' && fetcher.data && !fetcher.data.error) onClose();
+  }, [fetcher.state, fetcher.data, onClose]);
+
   const save = () => {
-    onClose();
-    ctx.toast(isNew ? 'Category added' : 'Category saved');
+    if (isNew) {
+      const categoryId = String(f.key || f.display)
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+      fetcher.submit(
+        { intent: 'add_category', categoryId, displayName: f.display, enabled: String(!!f.enabled) },
+        { method: 'post' },
+      );
+    } else {
+      fetcher.submit(
+        { intent: 'edit_category', categoryId: f.id, displayName: f.display, enabled: String(!!f.enabled) },
+        { method: 'post' },
+      );
+    }
   };
   return (
     <Modal
@@ -276,7 +387,7 @@ function CategoryModal({ cat, onClose }: { cat: any; onClose: () => void }) {
         <>
           <span className="grow" />
           <Btn onClick={onClose}>Cancel</Btn>
-          <Btn variant="primary" onClick={save}>
+          <Btn variant="primary" onClick={save} loading={fetcher.state !== 'idle'}>
             {isNew ? 'Add' : 'Save'}
           </Btn>
         </>
@@ -286,8 +397,8 @@ function CategoryModal({ cat, onClose }: { cat: any; onClose: () => void }) {
         <Field label="Display name">
           <Input value={f.display} onChange={(e: any) => set('display', e.target.value)} placeholder="Subscriptions" autoFocus />
         </Field>
-        <Field label="Key" help="lowercase-with-dashes">
-          <Input mono value={f.key} onChange={(e: any) => set('key', e.target.value)} placeholder="subscriptions" />
+        <Field label="Key" help={isNew ? 'lowercase-with-dashes' : 'Fixed identifier — not editable'}>
+          <Input mono value={f.key} onChange={(e: any) => set('key', e.target.value)} placeholder="subscriptions" readOnly={!isNew} disabled={!isNew} />
         </Field>
         <Checkbox checked={!!f.enabled} onChange={(e: any) => set('enabled', e.target.checked)} label="Visible to merchants" />
       </div>

@@ -1,0 +1,76 @@
+{
+  "payload": {
+    "export": "cart_payment_methods_transform_run",
+    "target": "cart.payment-methods.transform.run",
+    "input": {
+      "cart": {
+        "cost": {
+          "subtotalAmount": {
+            "amount": "600.0",
+            "currencyCode": "USD"
+          }
+        }
+      },
+      "paymentMethods": [
+        {
+          "id": "gid://shopify/PaymentCustomizationPaymentMethod/1",
+          "name": "Cash on Delivery"
+        },
+        {
+          "id": "gid://shopify/PaymentCustomizationPaymentMethod/2",
+          "name": "Credit Card"
+        },
+        {
+          "id": "gid://shopify/PaymentCustomizationPaymentMethod/3",
+          "name": "PayPal"
+        }
+      ],
+      "shop": {
+        "metaobject": {
+          "field": {
+            "jsonValue": {
+              "rules": [
+                {
+                  "when": { "minSubtotal": 500, "currencyIn": ["USD"] },
+                  "actions": {
+                    "hideMethodsContaining": ["Cash on Delivery"],
+                    "renameMethod": { "contains": "Credit Card", "to": "Card (Visa/MC/Amex)" },
+                    "reorderPriority": 0,
+                    "requireReview": true
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": [
+        {
+          "paymentMethodHide": {
+            "paymentMethodId": "gid://shopify/PaymentCustomizationPaymentMethod/1",
+            "placements": null
+          }
+        },
+        {
+          "paymentMethodRename": {
+            "paymentMethodId": "gid://shopify/PaymentCustomizationPaymentMethod/2",
+            "name": "Card (Visa/MC/Amex)"
+          }
+        },
+        {
+          "paymentMethodMove": {
+            "paymentMethodId": "gid://shopify/PaymentCustomizationPaymentMethod/2",
+            "index": 0
+          }
+        },
+        {
+          "orderReviewAdd": {
+            "reason": "Order flagged for manual review by store policy."
+          }
+        }
+      ]
+    }
+  }
+}

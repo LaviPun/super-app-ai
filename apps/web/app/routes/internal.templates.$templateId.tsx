@@ -1,5 +1,6 @@
-import { json, redirect } from '@remix-run/node';
-import { useLoaderData } from '@remix-run/react';
+import { json } from '@remix-run/node';
+import { useLoaderData, useFetcher, useNavigate } from '@remix-run/react';
+import { useEffect, useState } from 'react';
 import {
   findTemplate,
   getTemplateInstallability,
@@ -12,6 +13,8 @@ import {
   Btn,
   Badge,
   Card,
+  Field,
+  Select,
   KV,
   Icon,
   PageHead,
@@ -85,6 +88,7 @@ export async function loader({ request, params }: { request: Request; params: { 
       style: 'style' in resolvedSpec ? resolvedSpec.style ?? null : null,
       placement: 'placement' in resolvedSpec ? resolvedSpec.placement ?? null : null,
     },
+    fullSpec: resolvedSpec,
     previewUrl: `/internal/templates/${encodeURIComponent(templateId)}/preview`,
     stores,
   });
@@ -135,7 +139,7 @@ export async function action({ request, params }: { request: Request; params: { 
       details: { templateId, type: validated.data.type },
     });
 
-    return redirect(`/internal/templates/${encodeURIComponent(templateId)}?updated=1`);
+    return json({ toast: { message: 'Template override saved' } });
   }
 
   const storeId = String(form.get('storeId') ?? '').trim();
@@ -163,16 +167,57 @@ export async function action({ request, params }: { request: Request; params: { 
     details: { templateId, templateName: baseTemplate.name },
   });
 
-  return redirect(
-    `/internal/templates/${encodeURIComponent(templateId)}?created=1&moduleId=${encodeURIComponent(sandboxModule.id)}&storeId=${encodeURIComponent(store.id)}`,
-  );
+  return json({
+    toast: { message: `Sandbox module created on ${store.shopDomain}` },
+    moduleId: sandboxModule.id,
+    storeId: store.id,
+  });
 }
+
+type TemplateActionData = { toast?: { message: string }; error?: string; moduleId?: string; storeId?: string };
 
 export default function AdminTemplateDetail() {
   const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
+  const navigate = useNavigate();
   const t = data.template;
-  const spec = data.templateSpec;
+
+  const saveFetcher = useFetcher<TemplateActionData>();
+  const sandboxFetcher = useFetcher<TemplateActionData>();
+
+  const [specText, setSpecText] = useState<string>(() => JSON.stringify(data.fullSpec, null, 2));
+  const [storeId, setStoreId] = useState('');
+
+  // Re-seed the editor when the resolved spec changes (e.g. after a save revalidates).
+  useEffect(() => {
+    setSpecText(JSON.stringify(data.fullSpec, null, 2));
+  }, [data.fullSpec]);
+
+  // Server-driven toasts (error styling on ok:false) for both mutations.
+  useEffect(() => {
+    if (saveFetcher.state === 'idle' && saveFetcher.data) {
+      if (saveFetcher.data.error) ctx.toast(saveFetcher.data.error, true);
+      else if (saveFetcher.data.toast?.message) ctx.toast(saveFetcher.data.toast.message);
+    }
+  }, [saveFetcher.state, saveFetcher.data, ctx]);
+  useEffect(() => {
+    if (sandboxFetcher.state === 'idle' && sandboxFetcher.data) {
+      if (sandboxFetcher.data.error) ctx.toast(sandboxFetcher.data.error, true);
+      else if (sandboxFetcher.data.toast?.message) ctx.toast(sandboxFetcher.data.toast.message);
+    }
+  }, [sandboxFetcher.state, sandboxFetcher.data, ctx]);
+
+  const saveOverride = () =>
+    saveFetcher.submit({ intent: 'saveTemplateOverride', specJson: specText }, { method: 'post' });
+  const createSandbox = () => {
+    if (!storeId) return;
+    sandboxFetcher.submit({ intent: 'createSandbox', storeId }, { method: 'post' });
+  };
+
+  const storeOptions = [
+    { value: '', label: data.stores.length ? 'Select a store…' : 'No stores installed' },
+    ...data.stores.map((s) => ({ value: s.id, label: s.shopDomain })),
+  ];
 
   return (
     <div className="page">
@@ -197,7 +242,13 @@ export default function AdminTemplateDetail() {
             <Btn icon="eye" onClick={() => window.open(data.previewUrl, '_blank')}>
               Preview
             </Btn>
-            <Btn variant="primary" icon="code" onClick={() => ctx.go('#/admin/recipe-edit')}>
+            <Btn
+              variant="primary"
+              icon="code"
+              onClick={() =>
+                navigate('/internal/recipe-edit?shopId=' + encodeURIComponent('__templates__') + '&moduleId=' + encodeURIComponent(t.id))
+              }
+            >
               Edit recipe
             </Btn>
           </>
@@ -250,15 +301,56 @@ export default function AdminTemplateDetail() {
             <Badge tone="warning">Staff only</Badge>
           </div>
           <p className="t-xs t-muted" style={{ marginBottom: 12 }}>
-            Internal blueprint that defines how this template is generated. Hidden from the merchant.
+            Internal blueprint that defines how this template is generated. Hidden from the merchant. Edits are validated with
+            the Zod schema and saved as a template override.
           </p>
-          <pre className="code-block">{JSON.stringify(spec, null, 2)}</pre>
-          <div style={{ marginTop: 12 }}>
-            <a href={data.previewUrl} className="related-link" target="_blank" rel="noreferrer">
+          <pre
+            key={t.id}
+            className="code-block"
+            contentEditable
+            suppressContentEditableWarning
+            onInput={(e) => setSpecText(e.currentTarget.textContent ?? '')}
+          >
+            {JSON.stringify(data.fullSpec, null, 2)}
+          </pre>
+          <div className="row spread" style={{ marginTop: 12, gap: 10 }}>
+            <a href={data.previewUrl} className="related-link" target="_blank" rel="noreferrer" style={{ flex: 1 }}>
               <Icon name="eye" size={16} />
               <span className="grow">Open rendered preview</span>
               <Icon name="external" size={15} className="t-muted" />
             </a>
+            <Btn variant="primary" icon="download" onClick={saveOverride} loading={saveFetcher.state !== 'idle'}>
+              Save override
+            </Btn>
+          </div>
+        </Card>
+        <Card pad>
+          <div className="t-h3" style={{ marginBottom: 8 }}>
+            Create sandbox
+          </div>
+          <p className="t-xs t-muted" style={{ marginBottom: 12 }}>
+            Spin up a DRAFT module from this template on a store to test it. Merchants are not affected until it is published.
+          </p>
+          <div className="row-3" style={{ alignItems: 'flex-end' }}>
+            <div style={{ minWidth: 260, flex: 1 }}>
+              <Field label="Store">
+                <Select
+                  options={storeOptions}
+                  value={storeId}
+                  onChange={(e: any) => setStoreId(e.target.value)}
+                  disabled={data.stores.length === 0}
+                />
+              </Field>
+            </div>
+            <Btn
+              variant="primary"
+              icon="plus"
+              onClick={createSandbox}
+              disabled={!storeId}
+              loading={sandboxFetcher.state !== 'idle'}
+            >
+              Create sandbox
+            </Btn>
           </div>
         </Card>
       </div>

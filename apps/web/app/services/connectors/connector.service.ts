@@ -2,6 +2,7 @@ import { getPrisma } from '~/db.server';
 import { persistJsonSafely } from '~/services/observability/redact.server';
 import { encryptJson, decryptJson } from '~/services/security/crypto.server';
 import { assertSafeTargetUrl } from '~/services/security/ssrf.server';
+import { emitFlowTriggerSafe, FLOW_TRIGGER_TOPICS } from '~/services/workflows/shopify-flow-bridge';
 
 export type ConnectorAuth =
   | { type: 'API_KEY'; headerName: string; apiKey: string }
@@ -107,6 +108,7 @@ export class ConnectorService {
     const prisma = getPrisma();
     const connector = await prisma.connector.findFirst({
       where: { id: req.connectorId, shop: { shopDomain } },
+      include: { shop: { select: { accessToken: true } } },
     });
     if (!connector) throw new Error('Connector not found');
 
@@ -146,6 +148,16 @@ export class ConnectorService {
           sampleResponseJson: safeJsonOrNull(text),
         },
       });
+
+      // Best-effort: notify Shopify Flow that a connector finished syncing.
+      if (res.ok) {
+        void emitFlowTriggerSafe(shopDomain, connector.shop?.accessToken, FLOW_TRIGGER_TOPICS.CONNECTOR_SYNCED, {
+          'Connector ID': connector.id,
+          'Connector Name': connector.name,
+          'Sync Status': 'success',
+          'Shop Domain': shopDomain,
+        });
+      }
 
       return {
         ok: res.ok,

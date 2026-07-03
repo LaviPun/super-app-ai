@@ -4,23 +4,26 @@
     "target": "cart.validations.generate.run",
     "input": {
       "cart": {
+        "deliveryGroups": [],
         "lines": [
           {
-            "quantity": 3
+            "quantity": 5,
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "sku": "TSHIRT-M"
+            }
           }
         ]
+      },
+      "shop": {
+        "metaobject": null
       }
     },
     "output": {
       "operations": [
         {
           "validationAdd": {
-            "errors": [
-              {
-                "message": "Not possible to order more than one of each",
-                "target": "$.cart"
-              }
-            ]
+            "errors": []
           }
         }
       ]

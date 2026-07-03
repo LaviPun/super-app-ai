@@ -1,6 +1,6 @@
 import { json } from '@remix-run/node';
-import { useLoaderData } from '@remix-run/react';
-import { useState } from 'react';
+import { useLoaderData, useFetcher } from '@remix-run/react';
+import { useEffect, useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import {
   getAllPlanConfigs,
@@ -19,7 +19,6 @@ import {
   Modal,
   PageHead,
   fmtQuota,
-  PLAN_TIERS,
 } from '~/components/admin/page-kit';
 
 export async function loader({ request }: { request: Request }) {
@@ -88,30 +87,24 @@ export default function AdminPlanTiers() {
   const data = useLoaderData<typeof loader>();
   const [edit, setEdit] = useState<any>(null);
 
-  const TIERS: any[] = data.plans.length
-    ? data.plans.map((p: any) => ({
-        id: p.name,
-        name: p.name,
-        display: p.displayName ?? p.name,
-        price: p.price,
-        trialDays: p.trialDays ?? 0,
-        ai: p.quotas?.aiRequestsPerMonth ?? 0,
-        publish: p.quotas?.publishOpsPerMonth ?? 0,
-        workflows: p.quotas?.workflowRunsPerMonth ?? 0,
-        connectors: p.quotas?.connectorCallsPerMonth ?? 0,
-      }))
-    : PLAN_TIERS;
+  const TIERS: any[] = data.plans.map((p: any) => ({
+    id: p.name,
+    name: p.name,
+    display: p.displayName ?? p.name,
+    price: p.price,
+    trialDays: p.trialDays ?? 0,
+    ai: p.quotas?.aiRequestsPerMonth ?? 0,
+    publish: p.quotas?.publishOpsPerMonth ?? 0,
+    workflows: p.quotas?.workflowRunsPerMonth ?? 0,
+    connectors: p.quotas?.connectorCallsPerMonth ?? 0,
+    modules: p.quotas?.modulesTotal ?? 0,
+  }));
 
   return (
     <div className="page">
       <PageHead
         title="Plan Tiers"
         sub="Define quotas, pricing and trial length for each plan. -1 means unlimited / “Contact us”."
-        actions={
-          <Btn variant="primary" icon="plus" onClick={() => setEdit({})}>
-            Add tier
-          </Btn>
-        }
       />
       <div className="grid grid-5 plan-tier-grid">
         {TIERS.map((p) => (
@@ -162,36 +155,54 @@ export default function AdminPlanTiers() {
   );
 }
 
+type PlanActionData = { toast?: { message: string }; error?: string };
+
 function PlanModal({ tier, onClose }: { tier: any; onClose: () => void }) {
   const ctx = useAdminCtx();
-  const isNew = !tier.id;
-  const [f, setF] = useState({ name: '', display: '', price: 0, trialDays: 0, ai: 0, publish: 0, workflows: 0, connectors: 0, ...tier });
+  const fetcher = useFetcher<PlanActionData>();
+  const [f, setF] = useState({ name: '', display: '', price: 0, trialDays: 0, ai: 0, publish: 0, workflows: 0, connectors: 0, modules: 0, ...tier });
   const set = (k: string, v: any) => setF((o: any) => ({ ...o, [k]: v }));
+
+  // Toast the server response; close the modal only after a successful persist.
+  useEffect(() => {
+    if (fetcher.state === 'idle' && fetcher.data) {
+      if (fetcher.data.error) ctx.toast(fetcher.data.error, true);
+      else if (fetcher.data.toast?.message) {
+        ctx.toast(fetcher.data.toast.message);
+        onClose();
+      }
+    }
+  }, [fetcher.state, fetcher.data, ctx, onClose]);
+
   const save = () => {
-    onClose();
-    ctx.toast('Plan saved');
+    const quotas = JSON.stringify({
+      aiRequestsPerMonth: Number(f.ai) || 0,
+      publishOpsPerMonth: Number(f.publish) || 0,
+      workflowRunsPerMonth: Number(f.workflows) || 0,
+      connectorCallsPerMonth: Number(f.connectors) || 0,
+      modulesTotal: Number(f.modules) || 0,
+    });
+    fetcher.submit(
+      {
+        intent: 'update',
+        name: f.name,
+        displayName: f.display,
+        price: String(f.price),
+        trialDays: String(f.trialDays),
+        quotas,
+      },
+      { method: 'post' },
+    );
   };
   return (
     <Modal
-      title={isNew ? 'Add plan tier' : 'Edit ' + f.display + ' plan'}
+      title={'Edit ' + f.display + ' plan'}
       onClose={onClose}
       footer={
         <>
-          {!isNew && (
-            <Btn
-              className="btn-plain-critical"
-              icon="trash"
-              onClick={() => {
-                onClose();
-                ctx.toast('Plan deleted');
-              }}
-            >
-              Delete
-            </Btn>
-          )}
           <span className="grow" />
           <Btn onClick={onClose}>Cancel</Btn>
-          <Btn variant="primary" onClick={save}>
+          <Btn variant="primary" onClick={save} loading={fetcher.state !== 'idle'}>
             Save plan
           </Btn>
         </>
@@ -199,8 +210,8 @@ function PlanModal({ tier, onClose }: { tier: any; onClose: () => void }) {
     >
       <div className="stack-4">
         <div className="grid grid-2">
-          <Field label="Internal name">
-            <Input value={f.name} onChange={(e: any) => set('name', e.target.value)} placeholder="GROWTH" />
+          <Field label="Internal name" help="Fixed identifier — not editable">
+            <Input value={f.name} readOnly disabled placeholder="GROWTH" />
           </Field>
           <Field label="Display name">
             <Input value={f.display} onChange={(e: any) => set('display', e.target.value)} />

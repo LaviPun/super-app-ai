@@ -7,15 +7,16 @@ import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagin
 import type { Prisma } from '@prisma/client';
 import {
   useAdminCtx,
+  useAdminOps,
   Btn,
   Card,
   StatusDot,
+  EmptyState,
   DataTable,
   PageHead,
   FilterBar,
   MonoChip,
   useTableState,
-  WEBHOOKS,
 } from '~/components/admin/page-kit';
 
 export async function loader({ request }: { request: Request }) {
@@ -93,16 +94,16 @@ function relWh(iso: string): string {
   return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
 }
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 export default function AdminWebhooks() {
   const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
+  const ops = useAdminOps();
   const ts = useTableState();
   const [topic, setTopic] = useState('All topics');
 
-  const ROWS: any[] = data.rows.length
-    ? data.rows.map((r) => ({ id: r.id, topic: r.topic, shop: r.shopDomain ?? '—', eventId: r.eventId, success: r.success, created: relWh(r.processedAt) }))
-    : WEBHOOKS;
-  const rows = ROWS.filter((w) => (topic === 'All topics' || w.topic === topic) && (w.topic + w.shop).toLowerCase().includes(ts.search.toLowerCase()));
+  const ROWS = data.rows.map((r) => ({ id: r.id, topic: r.topic, shop: r.shopDomain ?? '—', eventId: r.eventId, success: r.success, created: relWh(r.processedAt) }));
+  const rows = ROWS.filter((w) => (topic === 'All topics' || w.topic === topic) && (w.topic + w.shop + w.eventId).toLowerCase().includes(ts.search.toLowerCase()));
 
   return (
     <div className="page">
@@ -111,49 +112,50 @@ export default function AdminWebhooks() {
         <FilterBar
           search={ts.search}
           onSearch={ts.setSearch}
-          placeholder="Search topic, store…"
+          placeholder="Search topic, store, event ID…"
           results={rows.length}
-          filters={[{ options: ['All topics', 'orders/create', 'products/update', 'customers/data_request', 'app/uninstalled'], value: topic, onChange: setTopic }]}
+          filters={[{ options: ['All topics'].concat(data.distinctTopics), value: topic, onChange: setTopic }]}
         />
-        <DataTable
-          rowKey="id"
-          onRowClick={(r: any) => ctx.go('#/admin/webhooks/' + r.id)}
-          columns={[
-            { key: 'topic', label: 'Topic', render: (r: any) => <MonoChip>{r.topic}</MonoChip> },
-            { key: 'shop', label: 'Store', render: (r: any) => <span className="cell-sub">{r.shop}</span> },
-            { key: 'eventId', label: 'Event ID', render: (r: any) => <span className="t-mono t-xs t-muted">{r.eventId}</span> },
-            {
-              key: 'success',
-              label: 'Result',
-              render: (r: any) => (
-                <span className="row-2">
-                  <StatusDot ok={r.success} />
-                  {r.success ? 'Processed' : 'Failed'}
-                </span>
-              ),
-            },
-            { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{r.created}</span> },
-            {
-              key: 'act',
-              label: '',
-              render: (r: any) => (
-                <div className="dt-actions">
-                  <Btn size="sm" icon="transfer" className="btn-plain" onClick={() => ctx.go('#/admin/trace/cor_' + String(r.eventId).replace('evt_', '') + 'f2')}>
-                    Trace
-                  </Btn>
-                  {!r.success && (
-                    <Btn size="sm" icon="replay" className="btn-plain" onClick={() => ctx.toast('Webhook ' + r.eventId + ' redelivered')}>
-                      Redeliver
-                    </Btn>
-                  )}
-                </div>
-              ),
-            },
-          ]}
-          rows={rows}
-        />
+        {rows.length ? (
+          <DataTable
+            rowKey="id"
+            onRowClick={(r: any) => ctx.go('#/admin/webhooks/' + r.id)}
+            columns={[
+              { key: 'topic', label: 'Topic', render: (r: any) => <MonoChip>{r.topic}</MonoChip> },
+              { key: 'shop', label: 'Store', render: (r: any) => <span className="cell-sub">{r.shop}</span> },
+              { key: 'eventId', label: 'Event ID', render: (r: any) => <span className="t-mono t-xs t-muted">{r.eventId}</span> },
+              {
+                key: 'success',
+                label: 'Result',
+                render: (r: any) => (
+                  <span className="row-2">
+                    <StatusDot ok={r.success} />
+                    {r.success ? 'Processed' : 'Failed'}
+                  </span>
+                ),
+              },
+              { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{r.created}</span> },
+              {
+                key: 'act',
+                label: '',
+                render: (r: any) =>
+                  !r.success ? (
+                    <div className="dt-actions">
+                      <Btn size="sm" icon="replay" className="btn-plain" onClick={() => ops.run('webhook_redeliver', { id: r.id, resource: r.topic, message: 'Requesting redelivery' })}>
+                        Redeliver
+                      </Btn>
+                    </div>
+                  ) : null,
+              },
+            ]}
+            rows={rows}
+          />
+        ) : (
+          <EmptyState icon="transfer" title="No webhook events">
+            {data.filters.topic || ts.search ? 'No deliveries match this filter.' : 'Shopify webhook deliveries are recorded here as they arrive.'}
+          </EmptyState>
+        )}
       </Card>
     </div>
   );
 }
-

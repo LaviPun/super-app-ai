@@ -8,6 +8,7 @@ import { DataStoreService } from '~/services/data/data-store.service';
 import { getRequestContext } from '~/services/observability/correlation.server';
 import { assertSafeTargetUrl } from '~/services/security/ssrf.server';
 import { getConnector } from '~/services/workflows/connectors/index';
+import { emitFlowTriggerSafe, FLOW_TRIGGER_TOPICS } from '~/services/workflows/shopify-flow-bridge';
 
 type Trigger =
   | 'MANUAL'
@@ -109,8 +110,23 @@ export class FlowRunnerService {
       try {
         await this.executeFlow(shopDomain, admin, job.id, spec as FlowAutomationSpec, event, shopRow?.id);
         await jobs.succeed(job.id, { trigger, steps: spec.config.steps.length });
+        // Best-effort: notify Shopify Flow that a SuperApp workflow completed.
+        void emitFlowTriggerSafe(shopDomain, shopRow?.accessToken, FLOW_TRIGGER_TOPICS.WORKFLOW_COMPLETED, {
+          'Workflow ID': flow.id,
+          'Workflow Name': flow.name,
+          'Run ID': job.id,
+          'Shop Domain': shopDomain,
+        });
       } catch (err) {
         await jobs.fail(job.id, err);
+        // Best-effort: notify Shopify Flow that a SuperApp workflow failed.
+        void emitFlowTriggerSafe(shopDomain, shopRow?.accessToken, FLOW_TRIGGER_TOPICS.WORKFLOW_FAILED, {
+          'Workflow ID': flow.id,
+          'Workflow Name': flow.name,
+          'Run ID': job.id,
+          'Error Message': err instanceof Error ? err.message : String(err),
+          'Shop Domain': shopDomain,
+        });
         // DLQ: mark the job so it can be replayed; no automatic re-schedule here.
         // A separate cron or admin UI can pick up FAILED FLOW_RUN jobs for replay.
       }
@@ -150,9 +166,24 @@ export class FlowRunnerService {
       await this.executeFlow(shopDomain, admin, job.id, flowSpec, event, shopRow?.id);
       const result = { jobId: job.id, steps: flowSpec.config.steps.length };
       await jobs.succeed(job.id, { trigger: 'MANUAL', steps: result.steps });
+      // Best-effort: notify Shopify Flow that a SuperApp workflow completed.
+      void emitFlowTriggerSafe(shopDomain, shopRow?.accessToken, FLOW_TRIGGER_TOPICS.WORKFLOW_COMPLETED, {
+        'Workflow ID': flow.id,
+        'Workflow Name': flow.name,
+        'Run ID': job.id,
+        'Shop Domain': shopDomain,
+      });
       return result;
     } catch (err) {
       await jobs.fail(job.id, err);
+      // Best-effort: notify Shopify Flow that a SuperApp workflow failed.
+      void emitFlowTriggerSafe(shopDomain, shopRow?.accessToken, FLOW_TRIGGER_TOPICS.WORKFLOW_FAILED, {
+        'Workflow ID': flow.id,
+        'Workflow Name': flow.name,
+        'Run ID': job.id,
+        'Error Message': err instanceof Error ? err.message : String(err),
+        'Shop Domain': shopDomain,
+      });
       throw err;
     }
   }

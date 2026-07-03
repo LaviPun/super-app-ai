@@ -2,10 +2,11 @@
    (The design's localStorage CRUD is replaced by Remix loaders/actions; only the
    pure helpers below are shared.) */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { ERROR_LOGS } from './placeholder-data';
 
-// Derived per-store health score (0-100).
-export function storeHealth(s: any, errorLogs: any[] = ERROR_LOGS): number {
+// Derived per-store health score (0-100). Pass real ErrorLog rows to apply the
+// error penalty; callers that omit them get a score with no error deduction
+// (no fabricated defaults).
+export function storeHealth(s: any, errorLogs: any[] = []): number {
   let score = 100;
   if (s.status === 'EXPIRED') score -= 64;
   else if (s.status === 'TRIAL') score -= 8;

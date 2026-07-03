@@ -1,0 +1,75 @@
+{
+  "payload": {
+    "export": "cart_delivery_options_transform_run",
+    "target": "cart.delivery-options.transform.run",
+    "input": {
+      "cart": {
+        "cost": {
+          "subtotalAmount": {
+            "amount": "60.0"
+          }
+        },
+        "deliveryGroups": [
+          {
+            "deliveryAddress": {
+              "countryCode": "US"
+            },
+            "deliveryOptions": [
+              {
+                "handle": "economy",
+                "title": "Economy"
+              },
+              {
+                "handle": "standard",
+                "title": "Standard"
+              },
+              {
+                "handle": "express",
+                "title": "Express"
+              }
+            ]
+          }
+        ]
+      },
+      "shop": {
+        "metaobject": {
+          "field": {
+            "jsonValue": {
+              "rules": [
+                {
+                  "when": { "countryCodeIn": ["US"], "minSubtotal": 50 },
+                  "actions": {
+                    "hideMethodsContaining": ["Economy"],
+                    "renameMethod": { "contains": "Standard", "to": "Standard (2-3 days)" },
+                    "reorderPriority": 0
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": [
+        {
+          "deliveryOptionHide": {
+            "deliveryOptionHandle": "economy"
+          }
+        },
+        {
+          "deliveryOptionRename": {
+            "deliveryOptionHandle": "standard",
+            "title": "Standard (2-3 days)"
+          }
+        },
+        {
+          "deliveryOptionMove": {
+            "deliveryOptionHandle": "standard",
+            "index": 0
+          }
+        }
+      ]
+    }
+  }
+}

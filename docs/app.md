@@ -142,9 +142,10 @@ SuperApp offers tiered plans with monthly usage limits:
 | Free | 10/mo | 5/mo | 50/mo | 100/mo | 3 |
 | Starter ($19/mo) | 200/mo | 50/mo | 1,000/mo | 5,000/mo | 20 |
 | Growth ($79/mo) | 1,000/mo | 500/mo | 10,000/mo | 50,000/mo | 100 |
-| Pro ($299/mo) | Unlimited | Unlimited | Unlimited | Unlimited | Unlimited |
+| Pro ($299/mo) | 10,000/mo | 5,000/mo | 100,000/mo | 500,000/mo | 1,000 |
+| Enterprise (contact us) | Unlimited | Unlimited | Unlimited | Unlimited | Unlimited |
 
-Starter and Growth plans include a 14-day free trial. You can view your current usage and switch plans from the **Billing** page inside the app.
+These are the seeded defaults (`billing.service.ts` → `PLAN_CONFIGS`); the app owner can edit any tier's quotas from the internal **Plan tiers** admin page (a quota of `-1` means unlimited). Starter and Growth include a 14-day free trial, Pro a 7-day trial. You can view your current usage and switch plans from the **Billing** page inside the app.
 
 When you reach a limit, SuperApp shows a clear message explaining which quota was hit and which plan to upgrade to. Limits are enforced server-side.
 

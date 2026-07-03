@@ -149,7 +149,9 @@ function makePrismaMock() {
 describe('GDPR redact coverage', () => {
   beforeEach(() => {
     authWebhookMock.mockReset();
-    authWebhookMock.mockResolvedValue(undefined);
+    // Real shopify.authenticate.webhook verifies HMAC and returns the parsed
+    // body as `payload` (the handler must NOT re-read the request body).
+    authWebhookMock.mockImplementation(async (req: Request) => ({ payload: await req.json() }));
     prismaMock = makePrismaMock();
   });
 

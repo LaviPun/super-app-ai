@@ -6,27 +6,34 @@ uid = "550c1a1a-04c7-10d4-c0b7-ceb52295b0f13e5fcc24"
 type = "flow_action"
 handle = "superapp-write-to-store"
 description = "Save data to a SuperApp data store."
-runtime_url = "https://localhost:3000/api/flow/action"
+# runtime_url MUST be an absolute HTTPS URL — Flow POSTs each action payload here.
+# Keep it in sync with `application_url` in ../../shopify.app.toml (the app's public host).
+# WARNING: `shopify app dev` rotates the Cloudflare tunnel and updates application_url, but it
+# does NOT auto-rewrite extension runtime_url on dev or deploy (only the app proxy `url` and
+# application_url get rewritten). Update this value by hand — ideally to a stable production
+# domain — whenever the tunnel/app URL changes, or Flow can never reach this action.
+# Path matches the Remix route apps/web/app/routes/api.flow.action.tsx.
+runtime_url = "https://distribution-episode-editors-ordinary.trycloudflare.com/api/flow/action"
 
 [settings]
 
   [[settings.fields]]
   type = "single_line_text_field"
-  key = "Store Key"
+  key = "storeKey"
   name = "Store Key"
   description = "The key of the data store to write to (e.g. analytics, product, order)."
   required = true
 
   [[settings.fields]]
   type = "single_line_text_field"
-  key = "Title"
+  key = "title"
   name = "Record Title"
   description = "Optional title for the data store record."
   required = false
 
   [[settings.fields]]
   type = "single_line_text_field"
-  key = "Payload"
+  key = "payload"
   name = "JSON Payload"
   description = "The JSON payload to store."
   required = true

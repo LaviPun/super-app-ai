@@ -1,7 +1,23 @@
 query Input {
-  paymentCustomization {
-    metafield(namespace: "$app:superapp-payment-customization", key: "function-configuration") {
-      jsonValue
+  cart {
+    cost {
+      subtotalAmount {
+        amount
+        currencyCode
+      }
+    }
+  }
+  paymentMethods {
+    id
+    name
+  }
+  shop {
+    metaobject(
+      handle: { type: "$app:superapp_function_config", handle: "superapp-fn-paymentCustomization" }
+    ) {
+      field(key: "config_json") {
+        jsonValue
+      }
     }
   }
 }

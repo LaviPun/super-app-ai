@@ -1,0 +1,59 @@
+{
+  "payload": {
+    "export": "cart_fulfillment_constraints_generate_run",
+    "target": "cart.fulfillment-constraints.generate.run",
+    "input": {
+      "cart": {
+        "deliverableLines": [
+          {
+            "id": "gid://shopify/DeliverableCartLine/1",
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "sku": "FRAGILE-1"
+            }
+          },
+          {
+            "id": "gid://shopify/DeliverableCartLine/2",
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "sku": "FRAGILE-2"
+            }
+          },
+          {
+            "id": "gid://shopify/DeliverableCartLine/3",
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "sku": "OTHER"
+            }
+          }
+        ]
+      },
+      "shop": {
+        "metaobject": {
+          "field": {
+            "jsonValue": {
+              "rules": [
+                {
+                  "when": { "skuIn": ["FRAGILE-1", "FRAGILE-2"] },
+                  "apply": { "groupWithTag": "fragile", "shipAlone": false }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": [
+        {
+          "deliverableLinesMustFulfillFromSameLocationAdd": {
+            "deliverableLineIds": [
+              "gid://shopify/DeliverableCartLine/1",
+              "gid://shopify/DeliverableCartLine/2"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

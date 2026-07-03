@@ -1,8 +1,9 @@
 import { json } from '@remix-run/node';
 import type { HeadersFunction, MetaFunction } from '@remix-run/node';
 import { Outlet, useLoaderData, useLocation, useMatches, useNavigate } from '@remix-run/react';
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { internalSessionStorage } from '~/internal-admin/session.server';
+import { getPrisma } from '~/db.server';
 import { SettingsService, type AppSettingsData } from '~/services/settings/settings.service';
 import { internalDocumentTitle } from '~/utils/internal-route-meta';
 import {
@@ -11,11 +12,10 @@ import {
   Toast,
   CommandPalette,
   superappRoute,
-  navCounts,
-  JOBS,
-  ERROR_LOGS,
-  WEBHOOKS,
 } from '~/components/superapp';
+
+/** Live nav-badge / health counts surfaced in the admin chrome. */
+type NavCounts = { dlq: number; err: number; wh: number };
 
 export const meta: MetaFunction<typeof loader> = ({ location, data }) => {
   const appName = data?.settings?.appName ?? 'SuperApp Admin';
@@ -34,19 +34,31 @@ export async function loader({ request }: { request: Request }) {
   const isAuthed = session.get('internal_admin') === true;
 
   let settings: AppSettingsData | null = null;
+  // Real cross-shop counts backing the sidebar badges + health footer.
+  // Each query is guarded so a missing table degrades to 0 rather than 500ing
+  // the whole admin shell.
+  let counts: NavCounts = { dlq: 0, err: 0, wh: 0 };
+
   if (isAuthed) {
-    try {
-      settings = await new SettingsService().get();
-    } catch {
-      // Settings table might not exist yet; use defaults
-    }
+    const prisma = getPrisma();
+    const since24h = new Date(Date.now() - 86_400_000);
+    const [settingsResult, failedJobs, errors24h, failedWebhooks24h] = await Promise.all([
+      new SettingsService().get().catch(() => null),
+      prisma.job.count({ where: { status: 'FAILED' } }).catch(() => 0),
+      prisma.errorLog.count({ where: { level: 'ERROR', createdAt: { gte: since24h } } }).catch(() => 0),
+      prisma.webhookEvent
+        .count({ where: { success: false, processedAt: { gte: since24h } } })
+        .catch(() => 0),
+    ]);
+    settings = settingsResult;
+    counts = { dlq: failedJobs, err: errors24h, wh: failedWebhooks24h };
   }
 
-  return json({ isAuthed, settings });
+  return json({ isAuthed, settings, counts });
 }
 
 export default function InternalLayout() {
-  const { isAuthed, settings } = useLoaderData<typeof loader>();
+  const { isAuthed, settings, counts } = useLoaderData<typeof loader>();
   const location = useLocation();
   const isLoginPage =
     location.pathname === '/internal/login' || location.pathname.startsWith('/internal/sso');
@@ -55,7 +67,7 @@ export default function InternalLayout() {
     return <Outlet />;
   }
 
-  return <AdminChrome settings={settings} />;
+  return <AdminChrome settings={settings} counts={counts} />;
 }
 
 /* ---------------- ADMIN_NAV — exactly mirrors the design's shell.jsx ---------------- */
@@ -122,7 +134,7 @@ function navMatch(hash: string, pathname: string, exact?: boolean): boolean {
   return pathname === target || pathname.startsWith(target + '/');
 }
 
-function AdminChrome({ settings }: { settings: AppSettingsData | null }) {
+function AdminChrome({ settings, counts }: { settings: AppSettingsData | null; counts: NavCounts }) {
   const location = useLocation();
   const navigate = useNavigate();
   const path = location.pathname;
@@ -187,9 +199,15 @@ function AdminChrome({ settings }: { settings: AppSettingsData | null }) {
     }
   }, [routeToast, showToast]);
 
-  const counts = useMemo(() => navCounts(JOBS, ERROR_LOGS, WEBHOOKS), []);
   const adminName = settings?.adminName ?? 'Lavi Admin';
   const profilePicUrl = settings?.profilePicUrl ?? undefined;
+
+  // Derive the footer health state from the real counts (no hardcoded status).
+  const healthy = counts.dlq === 0 && counts.err === 0 && counts.wh === 0;
+  const healthTone = counts.dlq > 0 ? 'critical' : counts.err > 0 || counts.wh > 0 ? 'warning' : 'success';
+  const healthDotStyle = healthy
+    ? undefined
+    : { background: `var(--p-${healthTone})`, boxShadow: `0 0 0 3px var(--p-${healthTone}-bg)` };
 
   const goHash = (hash: string) => (e: React.MouseEvent) => {
     e.preventDefault();
@@ -272,12 +290,12 @@ function AdminChrome({ settings }: { settings: AppSettingsData | null }) {
                 onClick={goHash('#/admin/release')}
                 className="nav-health"
                 style={{ textDecoration: 'none' }}
-                title={`Release gate healthy · ${counts.dlq} in DLQ · ${counts.err} errors 24h`}
+                title={`Release gate ${healthy ? 'healthy' : 'needs attention'} · ${counts.dlq} in DLQ · ${counts.err} errors 24h · ${counts.wh} webhook failures 24h`}
               >
-                <span className="nav-health-dot" />
+                <span className="nav-health-dot" style={healthDotStyle} />
                 <div className="stack grow nav-label" style={{ gap: 0, minWidth: 0 }}>
                   <span className="t-xs t-strong" style={{ color: 'var(--p-text)' }}>
-                    All systems healthy
+                    {healthy ? 'All systems healthy' : 'Attention needed'}
                   </span>
                   <span className="t-xs t-muted">{`${counts.dlq} in DLQ · ${counts.err} errors 24h`}</span>
                 </div>

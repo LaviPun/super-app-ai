@@ -6,27 +6,34 @@ uid = "d7d1d1db-0591-e3c7-6225-3965bd7ba28edd6794b2"
 type = "flow_action"
 handle = "superapp-send-http"
 description = "Send an HTTP request via SuperApp with SSRF protection."
-runtime_url = "https://localhost:3000/api/flow/action"
+# runtime_url MUST be an absolute HTTPS URL — Flow POSTs each action payload here.
+# Keep it in sync with `application_url` in ../../shopify.app.toml (the app's public host).
+# WARNING: `shopify app dev` rotates the Cloudflare tunnel and updates application_url, but it
+# does NOT auto-rewrite extension runtime_url on dev or deploy (only the app proxy `url` and
+# application_url get rewritten). Update this value by hand — ideally to a stable production
+# domain — whenever the tunnel/app URL changes, or Flow can never reach this action.
+# Path matches the Remix route apps/web/app/routes/api.flow.action.tsx.
+runtime_url = "https://distribution-episode-editors-ordinary.trycloudflare.com/api/flow/action"
 
 [settings]
 
   [[settings.fields]]
   type = "single_line_text_field"
-  key = "URL"
+  key = "url"
   name = "URL"
   description = "The HTTPS URL to send the request to."
   required = true
 
   [[settings.fields]]
   type = "single_line_text_field"
-  key = "Method"
+  key = "method"
   name = "HTTP Method"
   description = "The HTTP method (GET, POST, PUT, PATCH, DELETE)."
   required = true
 
   [[settings.fields]]
   type = "single_line_text_field"
-  key = "Body"
+  key = "body"
   name = "Request Body"
   description = "The request body (JSON string)."
   required = false

@@ -1,6 +1,7 @@
 import { getPrisma } from '~/db.server';
 import { persistJsonSafely } from '~/services/observability/redact.server';
 import { parseDataModel, validateRecord } from '@superapp/core';
+import { emitFlowTriggerSafe, FLOW_TRIGGER_TOPICS } from '~/services/workflows/shopify-flow-bridge';
 
 /** Thrown when a record payload fails the store's typed schema (DataStore.schemaJson). */
 export class RecordValidationError extends Error {
@@ -179,13 +180,17 @@ export class DataStoreService {
   ) {
     const prisma = getPrisma();
     // Typed validation when the store declares a schema (Module System v2).
-    const store = await prisma.dataStore.findUnique({ where: { id: dataStoreId }, select: { schemaJson: true } });
+    // Also pulls the store key + shop for the best-effort Flow trigger below.
+    const store = await prisma.dataStore.findUnique({
+      where: { id: dataStoreId },
+      select: { schemaJson: true, key: true, shop: { select: { shopDomain: true, accessToken: true } } },
+    });
     const model = parseDataModel(store?.schemaJson ?? null);
     if (model) {
       const result = validateRecord(model, data.payload);
       if (!result.ok) throw new RecordValidationError(result.error ?? 'Record failed validation');
     }
-    return prisma.dataStoreRecord.create({
+    const record = await prisma.dataStoreRecord.create({
       data: {
         dataStoreId,
         customerId: data.customerId ?? null,
@@ -194,6 +199,18 @@ export class DataStoreService {
         payload: persistJsonSafely(data.payload, { piiFlags: data.piiFlags }),
       },
     });
+
+    // Best-effort: notify Shopify Flow that a data store record was created.
+    if (store?.shop) {
+      void emitFlowTriggerSafe(store.shop.shopDomain, store.shop.accessToken, FLOW_TRIGGER_TOPICS.DATA_RECORD_CREATED, {
+        'Store Key': store.key,
+        'Record ID': record.id,
+        'Record Title': record.title ?? '',
+        'Shop Domain': store.shop.shopDomain,
+      });
+    }
+
+    return record;
   }
 
   async deleteRecord(recordId: string, dataStoreId: string) {
