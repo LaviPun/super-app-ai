@@ -27,8 +27,6 @@ export interface AppSettingsData {
   defaultAiProvider: 'openai' | 'claude' | null;
   /** Optional storefront site URL used as visual design reference for premium prompt guidance. */
   designReferenceUrl: string | null;
-  /** Module System engine: 'v1' (legacy) | 'v2' (control-pack composer). */
-  moduleSystemVersion: 'v1' | 'v2';
 }
 
 function coerceDefaultAiProvider(value: string | null | undefined): 'openai' | 'claude' | null {
@@ -38,11 +36,6 @@ function coerceDefaultAiProvider(value: string | null | undefined): 'openai' | '
 
 function isMissingDesignReferenceUrlColumnError(error: unknown): boolean {
   return error instanceof Error && error.message.includes('designReferenceUrl');
-}
-
-/** Tolerate the v2 flag column being absent on not-yet-migrated databases. */
-function isMissingModuleSystemVersionColumnError(error: unknown): boolean {
-  return error instanceof Error && error.message.includes('moduleSystemVersion');
 }
 
 const DEFAULTS: AppSettingsData = {
@@ -68,7 +61,6 @@ const DEFAULTS: AppSettingsData = {
   templateSpecOverrides: null,
   defaultAiProvider: null,
   designReferenceUrl: null,
-  moduleSystemVersion: 'v1',
 };
 
 export class SettingsService {
@@ -100,13 +92,8 @@ export class SettingsService {
         templateSpecOverrides: row.templateSpecOverrides,
         defaultAiProvider: coerceDefaultAiProvider(row.defaultAiProvider),
         designReferenceUrl: row.designReferenceUrl,
-        moduleSystemVersion: (row as { moduleSystemVersion?: string }).moduleSystemVersion === 'v2' ? 'v2' : 'v1',
       };
     } catch (error) {
-      if (isMissingModuleSystemVersionColumnError(error)) {
-        // Column not yet migrated: fall back to v1 (legacy behavior).
-        return { ...DEFAULTS };
-      }
       if (!isMissingDesignReferenceUrlColumnError(error)) throw error;
       const row = await prisma.appSettings.findUnique({
         where: { id: 'singleton' },
@@ -139,7 +126,6 @@ export class SettingsService {
         ...row,
         defaultAiProvider: coerceDefaultAiProvider(row.defaultAiProvider),
         designReferenceUrl: null,
-        moduleSystemVersion: 'v1',
       };
     }
   }
@@ -193,7 +179,6 @@ export class SettingsService {
       templateSpecOverrides: row.templateSpecOverrides,
       defaultAiProvider: coerceDefaultAiProvider(row.defaultAiProvider),
       designReferenceUrl: row.designReferenceUrl,
-      moduleSystemVersion: (row as { moduleSystemVersion?: string }).moduleSystemVersion === 'v2' ? 'v2' : 'v1',
     };
   }
 }

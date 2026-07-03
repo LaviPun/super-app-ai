@@ -19,17 +19,13 @@ const MANIFESTS: Partial<Record<ModuleType, ModuleManifest>> = {
   },
 };
 
-/** Returns the manifest for a module type, or undefined if not yet migrated to v2. */
+/**
+ * Returns the manifest for a module type, or undefined if not yet migrated.
+ *
+ * The composer/v2-form layer that this once fed was pruned in phase #3 R2.4;
+ * the sole remaining consumer is `requirement-spec.server.ts`, which reads a
+ * type's pack set to derive the deterministic `mustHaveControls` list.
+ */
 export function getManifest(type: ModuleType): ModuleManifest | undefined {
   return MANIFESTS[type];
-}
-
-/** Module types that currently have a v2 manifest. */
-export function listManifestTypes(): ModuleType[] {
-  return Object.keys(MANIFESTS) as ModuleType[];
-}
-
-/** Whether a module type can be generated/edited via the v2 control-pack engine. */
-export function hasManifest(type: ModuleType): boolean {
-  return Boolean(MANIFESTS[type]);
 }

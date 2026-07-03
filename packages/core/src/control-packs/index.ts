@@ -5,8 +5,6 @@
 export * from './types.js';
 export * from './registry.js';
 export * from './module-manifests.js';
-export * from './compose.js';
-export * from './presets.js';
 
 // Concrete pack schemas (exported for tests, presets, and prompt derivation).
 export { ContentPackSchema, contentPack } from './packs/content.pack.js';

@@ -4,15 +4,17 @@
  * A ControlPack is a reusable, self-describing bundle of related settings.
  * Its Zod `schema` is the single hand-written source of truth; everything
  * downstream (per-type config schema, LLM structured-output JSON Schema,
- * admin form, prompt guidance, preview inputs) is derived from it.
+ * prompt guidance, preview inputs) is derived from it.
  *
- * Packs compose into a module type via a ModuleManifest. The composed config
- * is a grouped object keyed by each pack's `namespace`, e.g.
- *   config: { content: {...}, trigger: {...}, targeting: {...}, ... }
+ * Composition is by FLAT PIN: a pack's `schema` is pinned as an `.optional()`
+ * nested key onto a recipe branch's `config`, keyed by the pack's `namespace`
+ * (e.g. `config.audience`, `config.schedule`, `config.advancedCustom`). The old
+ * grouped-composer / v2-form path was pruned in phase #3 R2.4; `namespace` is now
+ * the flat config key, not a grouped-object key.
  *
- * This file defines only the contracts. Concrete packs live in ./packs/*,
- * the registry in ./registry.ts, manifests in ./module-manifests.ts, and the
- * composition util in ./compose.ts.
+ * This file defines only the contracts. Concrete packs live in ./packs/*, the
+ * registry in ./registry.ts, and the type→pack-set manifests in
+ * ./module-manifests.ts.
  */
 import type { z } from 'zod';
 import type { ModuleType } from '../allowed-values.js';
@@ -56,15 +58,14 @@ export interface UiHints {
 
 /**
  * A reusable bundle of settings. `schema` should be object-like (a ZodObject,
- * or a ZodObject wrapped in `.default()`/`.optional()`) so it can be nested
- * under the pack's `namespace` in the composed config and converted to JSON
- * Schema. The composer nests packs by namespace rather than merging shapes, so
- * the constraint is the broad ZodTypeAny.
+ * or a ZodObject wrapped in `.default()`/`.optional()`) so it can be pinned as a
+ * flat nested key under a recipe branch's `config` and converted to JSON Schema.
+ * The constraint is the broad ZodTypeAny.
  */
 export interface ControlPack<S extends z.ZodTypeAny = z.ZodTypeAny> {
   /** Stable id used in manifests, e.g. 'trigger'. */
   id: string;
-  /** Key under recipe `config` where this pack's value lives, e.g. 'trigger'. */
+  /** Flat key under recipe `config` where this pack's value is pinned, e.g. 'audience'. */
   namespace: string;
   /** Human-readable label (also the default form section heading). */
   label: string;

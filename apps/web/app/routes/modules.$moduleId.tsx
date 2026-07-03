@@ -8,14 +8,10 @@ import { RecipeService } from '~/services/recipes/recipe.service';
 import { CapabilityService } from '~/services/shopify/capability.service';
 import { PreviewService } from '~/services/preview/preview.service';
 import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
-import { MODULE_CATALOG, isCapabilityAllowed, hasManifest } from '@superapp/core';
-import type { ModuleType } from '@superapp/core';
-import { SettingsService } from '~/services/settings/settings.service';
-import { buildAdminFormConfig } from '~/services/control-packs/admin-form.server';
+import { MODULE_CATALOG, isCapabilityAllowed } from '@superapp/core';
 import { compileRecipe } from '~/services/recipes/compiler';
 import { ThemeService } from '~/services/shopify/theme.service';
 import type { Capability, DeployTarget, RecipeSpec } from '@superapp/core';
-import { ConfigEditor, type V2Form } from '~/components/ConfigEditor';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
@@ -138,17 +134,6 @@ export async function loader({ request, params }: { request: Request; params: { 
     : (mod.versions as Array<{ hydratedAt: Date | null; adminConfigSchemaJson: string | null; adminDefaultsJson?: string | null; validationReportJson: string | null }>)
         .find(v => v.hydratedAt != null) ?? null;
 
-  // Parse AI-generated admin config schema (from hydration)
-  let adminConfig: { jsonSchema: Record<string, unknown>; uiSchema?: Record<string, unknown>; defaults: Record<string, unknown> } | null = null;
-  const adminConfigSource = hydratedSource?.adminConfigSchemaJson ?? null;
-  if (adminConfigSource) {
-    try {
-      adminConfig = JSON.parse(adminConfigSource) as typeof adminConfig;
-    } catch {
-      // ignore malformed JSON
-    }
-  }
-
   // Preview: prefer AI-generated previewHtmlJson, fall back to static PreviewService
   let previewHtml: string | null = null;
   let previewJson: unknown | null = null;
@@ -206,20 +191,7 @@ export async function loader({ request, params }: { request: Request; params: { 
       })()
     : { status: 'none' as const, hydratedAt: null, validationReport: null, everHydrated: false };
 
-  // Module System v2: when the engine flag is on and this type has a control-pack
-  // manifest, compose the grouped admin-form schema. Defaults to v1 (no change).
-  const engine = (await new SettingsService().get()).moduleSystemVersion;
-  const v2Form: V2Form | null =
-    engine === 'v2' && spec && hasManifest(spec.type as ModuleType)
-      ? (() => {
-          const built = buildAdminFormConfig(spec.type as ModuleType, 'advanced');
-          return built
-            ? ({ jsonSchema: built.jsonSchema, uiSchema: built.uiSchema, tier: 'advanced' } as unknown as V2Form)
-            : null;
-        })()
-      : null;
-
-  return json({ moduleId, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, adminConfig, engine, v2Form, blueprint });
+  return json({ moduleId, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, blueprint });
 }
 
 /**

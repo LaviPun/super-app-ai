@@ -146,13 +146,6 @@ export async function action({ request }: { request: Request }) {
     return json({ toast: { message: 'App configuration saved' }, section: 'config' });
   }
 
-  if (intent === 'saveModuleEngine') {
-    const value = form.get('moduleSystemVersion') === 'v2' ? 'v2' : 'v1';
-    await service.update({ moduleSystemVersion: value });
-    await activity.log({ actor: 'INTERNAL_ADMIN', action: 'STORE_SETTINGS_UPDATED', details: { section: 'moduleSystemVersion', moduleSystemVersion: value } });
-    return json({ toast: { message: `Module System set to ${value}` }, section: 'config' });
-  }
-
   const aiProviderService = new AiProviderService();
 
   if (intent === 'saveOpenAI') {
@@ -228,7 +221,6 @@ export default function AdminSettings() {
   const profileFetcher = useSettingsFetcher();
   const contactFetcher = useSettingsFetcher();
   const configFetcher = useSettingsFetcher();
-  const moduleEngineFetcher = useSettingsFetcher();
   const openaiFetcher = useSettingsFetcher();
   const claudeFetcher = useSettingsFetcher();
   const defaultAiFetcher = useSettingsFetcher();
@@ -584,27 +576,6 @@ export default function AdminSettings() {
                   </span>
                   <Toggle checked={emailAlertsChecked} onChange={(e: React.ChangeEvent<HTMLInputElement>) => submitConfig({ enableEmailAlerts: e.target.checked })} />
                 </label>
-                <div className="divider" />
-                <moduleEngineFetcher.Form method="post" className="row spread">
-                  <input type="hidden" name="intent" value="saveModuleEngine" />
-                  <span className="stack" style={{ gap: 1 }}>
-                    <span className="field-label">Module System engine</span>
-                    <span className="t-xs t-muted">v2 renders module settings from composable control packs</span>
-                  </span>
-                  <div className="row-2">
-                    <Select
-                      name="moduleSystemVersion"
-                      defaultValue={settings.moduleSystemVersion}
-                      options={[
-                        { label: 'v1 — legacy', value: 'v1' },
-                        { label: 'v2 — control packs', value: 'v2' },
-                      ]}
-                    />
-                    <Btn variant="primary" type="submit" loading={moduleEngineFetcher.state !== 'idle'}>
-                      Save engine
-                    </Btn>
-                  </div>
-                </moduleEngineFetcher.Form>
                 <div className="divider" />
                 <Banner tone="warning" title="Store & plan control">
                   Change any store’s plan without Shopify billing from the store detail page.

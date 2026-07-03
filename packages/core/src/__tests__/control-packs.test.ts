@@ -1,12 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
-  composeConfig,
-  composeConfigSchema,
   getManifest,
-  hasManifest,
   getPack,
   requirePack,
   listPackIds,
+  listPacks,
+  AudiencePackSchema,
+  SchedulePackSchema,
+  AdvancedCustomPackSchema,
+  TriggerPackSchema,
 } from '../control-packs/index.js';
 
 describe('control pack registry', () => {
@@ -24,89 +26,53 @@ describe('control pack registry', () => {
   });
 });
 
-describe('module manifests', () => {
+describe('module manifests (surviving requirement-spec consumer)', () => {
   it('seeds theme.section with the full storefront pack set', () => {
-    expect(hasManifest('theme.section')).toBe(true);
+    // getManifest survives the R2.4 prune because requirement-spec.server.ts
+    // reads a type's pack set to derive its deterministic mustHaveControls list.
     expect(getManifest('theme.section')?.packs).toContain('trigger');
+  });
+
+  it('returns undefined for un-manifested types', () => {
+    expect(getManifest('functions.discountRules')).toBeUndefined();
   });
 });
 
-describe('composeConfig', () => {
-  it('builds a grouped config schema keyed by pack namespace', () => {
-    const composed = composeConfig('theme.section', 'basic');
-    expect(composed.packs.map((p) => p.id)).toEqual(['content', 'style', 'trigger', 'page-targeting', 'frequency-cap', 'countdown', 'behavior']);
-    // Grouped namespaces present in the schema shape.
-    const shapeKeys = Object.keys(composed.schema.shape).sort();
-    expect(shapeKeys).toEqual(['behavior', 'content', 'countdown', 'frequencyCap', 'style', 'targeting', 'trigger']);
-    // UI hints carried through for the form renderer.
-    expect(composed.uiSchema.trigger?.groupLabel).toBe('Trigger & Timing');
-  });
-
-  it('validates a fully-specified popup config (default-only packs may be empty objects)', () => {
-    const schema = composeConfigSchema('theme.section', 'basic');
-    const parsed = schema.parse({
-      content: {
-        heading: 'Get 10% off',
-        body: 'Join our list for a welcome discount.',
-        primaryCta: { text: 'Sign up', url: 'https://example.com/signup' },
-      },
-      style: {},
-      trigger: { mode: 'ON_EXIT_INTENT', delaySeconds: 0 },
-      targeting: { pages: 'HOMEPAGE' },
-      frequencyCap: {},
-      countdown: {},
-      behavior: {},
-    }) as Record<string, any>;
-    expect(parsed.content.heading).toBe('Get 10% off');
-    expect(parsed.trigger.mode).toBe('ON_EXIT_INTENT');
-    // Pack defaults applied.
-    expect(parsed.targeting.templates).toEqual([]);
-    expect(parsed.style.layout.mode).toBe('inline');
-    expect(parsed.frequencyCap.frequency).toBe('ONCE_PER_DAY');
-    expect(parsed.behavior.showCloseButton).toBe(true);
-  });
-
-  it('applies enum + url validation from the underlying pack schemas', () => {
-    const schema = composeConfigSchema('theme.section', 'basic');
-    const bad = schema.safeParse({
-      content: { heading: 'x', primaryCta: { text: 'Go', url: 'not-a-url' } },
-      trigger: { mode: 'NOT_A_TRIGGER' },
-      targeting: {},
-      frequencyCap: {},
-      countdown: {},
-      behavior: {},
-    });
-    expect(bad.success).toBe(false);
-  });
-
-  it('covers the same key controls as the legacy popup config', () => {
-    // Coverage parity check: the composed popup exposes content, trigger,
-    // targeting, and style — the dimensions the hand-written branch had.
-    const composed = composeConfig('theme.section', 'basic');
-    const namespaces = composed.packs.map((p) => p.namespace);
-    for (const ns of ['content', 'trigger', 'targeting', 'style']) {
-      expect(namespaces).toContain(ns);
+describe('pack schemas (the surviving vocabulary)', () => {
+  it('every registered pack parses {} without throwing', () => {
+    for (const p of listPacks()) {
+      const r = p.schema.safeParse({});
+      if (r.success) expect(r.data).toBeTypeOf('object');
     }
   });
 
-  it('throws for module types without a v2 manifest', () => {
-    expect(() => composeConfig('functions.discountRules')).toThrow(/No v2 manifest/);
+  it('AudiencePackSchema applies its defaults', () => {
+    const parsed = AudiencePackSchema.parse({});
+    expect(parsed).toMatchObject({ visitor: 'any', loggedInOnly: false, customerTags: [] });
   });
 
-  it('advanced popup composes the full pack surface incl. escape hatch', () => {
-    const basic = composeConfig('theme.section', 'basic').packs.map((p) => p.id);
-    expect(basic).toEqual(['content', 'style', 'trigger', 'page-targeting', 'frequency-cap', 'countdown', 'behavior']);
+  it('SchedulePackSchema parses an empty object to an object', () => {
+    expect(SchedulePackSchema.parse({})).toBeTypeOf('object');
+  });
 
-    const advanced = composeConfig('theme.section', 'advanced').packs.map((p) => p.id);
-    expect(advanced).toContain('audience');
-    expect(advanced).toContain('schedule');
-    expect(advanced).toContain('advanced-custom');
+  it('AdvancedCustomPackSchema round-trips customHtml (live escape hatch)', () => {
+    const parsed = AdvancedCustomPackSchema.parse({ customHtml: '<b>hi</b>' });
+    expect(parsed.customHtml).toBe('<b>hi</b>');
+  });
 
-    // Advanced packs are optional at the basic tier (forward-compatible schema).
-    const basicShape = composeConfig('theme.section', 'basic').schema.shape;
-    expect('audience' in basicShape).toBe(false);
-    const advShape = composeConfig('theme.section', 'advanced').schema.shape;
-    expect('audience' in advShape).toBe(true);
-    expect('advancedCustom' in advShape).toBe(true);
+  it('TriggerPackSchema rejects an unknown mode', () => {
+    expect(TriggerPackSchema.safeParse({ mode: 'NOPE' }).success).toBe(false);
+  });
+});
+
+describe('R2.4 prune — dead composer/preset symbols are gone', () => {
+  it('composeConfig / preset / hasManifest exports are removed from @superapp/core', async () => {
+    const mod = (await import('../index.js')) as Record<string, unknown>;
+    expect(mod.composeConfig).toBeUndefined();
+    expect(mod.composeConfigSchema).toBeUndefined();
+    expect(mod.getPresetsForType).toBeUndefined();
+    expect(mod.listV2Presets).toBeUndefined();
+    expect(mod.hasManifest).toBeUndefined();
+    expect(mod.listManifestTypes).toBeUndefined();
   });
 });
