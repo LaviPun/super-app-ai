@@ -13,6 +13,12 @@ import {
   STOREFRONT_SHAPE_RADIUS,
   STOREFRONT_BORDER_WIDTHS,
   STOREFRONT_SHADOW_LEVELS,
+  STOREFRONT_ELEVATION_IDIOMS,
+  STOREFRONT_DENSITY_LEVELS,
+  STOREFRONT_MOTION_DURATIONS,
+  STOREFRONT_MOTION_EASINGS,
+  STOREFRONT_RADIUS_SCALING_MIN,
+  STOREFRONT_RADIUS_SCALING_MAX,
   STOREFRONT_OFFSET_MIN,
   STOREFRONT_OFFSET_MAX,
 } from './allowed-values.js';
@@ -48,6 +54,8 @@ export const StorefrontStyleSchema = z
         padding: z.enum(STOREFRONT_SPACING_OPTIONS).default('medium'),
         margin: z.enum(STOREFRONT_SPACING_OPTIONS).default('none'),
         gap: z.enum(STOREFRONT_SPACING_OPTIONS).default('medium'),
+        /** Density dial (design-vocabulary §1.3): airy for marketing, compact for utility. */
+        density: z.enum(STOREFRONT_DENSITY_LEVELS).optional(),
       })
       .default({}),
     typography: z
@@ -74,6 +82,15 @@ export const StorefrontStyleSchema = z
         radius: z.enum(STOREFRONT_SHAPE_RADIUS).default('md'),
         borderWidth: z.enum(STOREFRONT_BORDER_WIDTHS).default('none'),
         shadow: z.enum(STOREFRONT_SHADOW_LEVELS).default('none'),
+        /** Coherent elevation idiom (design-vocabulary §1.5) — layered/inset shadow personality. */
+        elevation: z.enum(STOREFRONT_ELEVATION_IDIOMS).optional(),
+        /** Global radius scaling % (Radix `scaling`): shift the derived radius ladder tight↔soft. */
+        scaling: z
+          .number()
+          .int()
+          .min(STOREFRONT_RADIUS_SCALING_MIN)
+          .max(STOREFRONT_RADIUS_SCALING_MAX)
+          .optional(),
       })
       .default({}),
     responsive: z
@@ -88,6 +105,17 @@ export const StorefrontStyleSchema = z
         reducedMotion: z.boolean().default(true),
       })
       .default({}),
+    /**
+     * Motion tokens (design-vocabulary §1.6). Duration + easing personality the
+     * generator emits against by name (never a raw ms/cubic-bezier). Always paired
+     * with the `accessibility.reducedMotion` fallback.
+     */
+    motion: z
+      .object({
+        duration: z.enum(STOREFRONT_MOTION_DURATIONS).default('base'),
+        easing: z.enum(STOREFRONT_MOTION_EASINGS).default('standard'),
+      })
+      .optional(),
     /** Free-form CSS additions. Sanitized + scoped at compile time. */
     customCss: CustomCssSchema,
   })

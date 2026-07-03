@@ -100,6 +100,57 @@ describe('compileStyleVars', () => {
 });
 
 // ---------------------------------------------------------------------------
+// compileStyleVars — token substrate (phase #2 / 029)
+// ---------------------------------------------------------------------------
+
+describe('compileStyleVars — token substrate (phase #2)', () => {
+  it('emits motion + easing + ambient tokens', () => {
+    const vars = compileStyleVars(undefined);
+    expect(vars).toContain('--sa-motion: 200ms;');
+    expect(vars).toContain('--sa-ease: cubic-bezier(.4,0,.2,1);');
+    expect(vars).toContain('--sa-motion-ambient: 60s;');
+  });
+
+  it('emits a derived radius ladder from the base radius', () => {
+    const vars = compileStyleVars(undefined); // radius md = 8px, scaling 100
+    expect(vars).toContain('--sa-radius-sm: 6px;');
+    expect(vars).toContain('--sa-radius-md: 8px;');
+    expect(vars).toContain('--sa-radius-lg: 12px;');
+  });
+
+  it('scales the radius ladder by shape.scaling', () => {
+    const s = {
+      ...getDefaultStorefrontStyle(),
+      shape: { ...getDefaultStorefrontStyle().shape, radius: 'md' as const, scaling: 150 },
+    };
+    const vars = compileStyleVars(s);
+    expect(vars).toContain('--sa-radius-md: 12px;'); // 8 * 1.5
+  });
+
+  it('uses a pill radius ladder for radius=full', () => {
+    const s = {
+      ...getDefaultStorefrontStyle(),
+      shape: { ...getDefaultStorefrontStyle().shape, radius: 'full' as const },
+    };
+    expect(compileStyleVars(s)).toContain('--sa-radius-md: 9999px;');
+  });
+
+  it('emits a layered elevation idiom (with inset) when set', () => {
+    const s = {
+      ...getDefaultStorefrontStyle(),
+      shape: { ...getDefaultStorefrontStyle().shape, elevation: 'emboss' as const },
+    };
+    const vars = compileStyleVars(s);
+    expect(vars).toContain('--sa-elevation:');
+    expect(vars).toContain('inset');
+  });
+
+  it('omits --sa-elevation when no idiom is set', () => {
+    expect(compileStyleVars(undefined)).not.toContain('--sa-elevation:');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // compileStyleCss
 // ---------------------------------------------------------------------------
 

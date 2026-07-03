@@ -21,20 +21,38 @@ const WIDTH_MAP = {
   wide: 'min(100%, 720px)',
   full: '100%',
 } as const;
+// ── Phase #2 (029) token substrate — motion, elevation idioms, radius ladder ──
+const MOTION_DURATION_MAP = { none: '0ms', fast: '150ms', base: '200ms', slow: '300ms' } as const;
+const EASING_MAP = {
+  standard: 'cubic-bezier(.4,0,.2,1)',
+  enter: 'cubic-bezier(0,0,.2,1)',
+  exit: 'cubic-bezier(.4,0,1,1)',
+  mechanical: 'cubic-bezier(.645,.045,.355,1)',
+} as const;
+/** Four coherent elevation idioms (design-vocabulary §1.5), each a layered multi-shadow. */
+const ELEVATION_MAP = {
+  soft: '0 1px 2px rgba(0,0,0,.05), 0 4px 16px rgba(24,24,27,.08)',
+  glow: '0 0 15px 0 rgba(0,0,0,.03), 0 0 30px 0 rgba(0,0,0,.03)',
+  border: '0 1px 2px rgba(0,0,0,.04)',
+  emboss: '0 1px 1px 0 rgba(0,0,0,.05), inset 0 1px 0 0 rgba(255,255,255,.6)',
+} as const;
+/** Numeric base radius (px) per enum, for deriving the scaled ladder. 'full' stays a pill. */
+const RADIUS_BASE_PX: Record<string, number | null> = { none: 0, sm: 4, md: 8, lg: 12, xl: 16, full: null };
 
 /** Default style (matches StorefrontStyleSchema defaults). No runtime dependency on schema. */
 export const DEFAULT_STOREFRONT_STYLE: StorefrontStyle = {
   layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'auto', zIndex: 'sticky' },
-  spacing: { padding: 'medium', margin: 'none', gap: 'medium' },
+  spacing: { padding: 'medium', margin: 'none', gap: 'medium', density: 'comfortable' },
   typography: { size: 'MD', weight: 'normal', lineHeight: 'normal', align: 'left' },
   colors: {
     text: '#111111',
     background: '#ffffff',
     overlayBackdropOpacity: 0.45,
   },
-  shape: { radius: 'md', borderWidth: 'none', shadow: 'none' },
+  shape: { radius: 'md', borderWidth: 'none', shadow: 'none', scaling: 100 },
   responsive: { hideOnMobile: false, hideOnDesktop: false },
   accessibility: { focusVisible: true, reducedMotion: true },
+  motion: { duration: 'base', easing: 'standard' },
   customCss: undefined,
 };
 
@@ -103,6 +121,23 @@ export function compileStyleVars(style: StorefrontStyle | undefined): string {
     `--sa-offset-x: ${offsetX};`,
     `--sa-offset-y: ${offsetY};`,
   ];
+
+  // ── Phase #2 token substrate: motion + derived radius ladder + elevation idiom ──
+  lines.push(`--sa-motion: ${MOTION_DURATION_MAP[s.motion?.duration ?? 'base']};`);
+  lines.push(`--sa-ease: ${EASING_MAP[s.motion?.easing ?? 'standard']};`);
+  lines.push('--sa-motion-ambient: 60s;');
+  // Derived radius ladder, scaled by `shape.scaling` (%). `--sa-radius` (above) stays
+  // unscaled for back-compat; the ladder vars are the new, scale-aware tokens.
+  const scaling = (s.shape.scaling ?? 100) / 100;
+  const baseRadius = RADIUS_BASE_PX[s.shape.radius];
+  const ladder = (delta: number): string =>
+    baseRadius == null ? '9999px' : `${Math.max(0, Math.round((baseRadius + delta) * scaling))}px`;
+  lines.push(`--sa-radius-sm: ${ladder(-2)};`);
+  lines.push(`--sa-radius-md: ${ladder(0)};`);
+  lines.push(`--sa-radius-lg: ${ladder(4)};`);
+  lines.push(`--sa-radius-xl: ${ladder(8)};`);
+  if (s.shape.elevation) lines.push(`--sa-elevation: ${ELEVATION_MAP[s.shape.elevation]};`);
+
   if (s.colors.border != null) lines.push(`--sa-border: ${s.colors.border};`);
   if (s.colors.buttonBg != null) lines.push(`--sa-btn-bg: ${s.colors.buttonBg};`);
   if (s.colors.buttonText != null) lines.push(`--sa-btn-text: ${s.colors.buttonText};`);

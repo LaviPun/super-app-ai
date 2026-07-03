@@ -909,5 +909,14 @@ export const STOREFRONT_ALIGN_OPTIONS = ['left', 'center', 'right'] as const;
 export const STOREFRONT_SHAPE_RADIUS = ['none', 'sm', 'md', 'lg', 'xl', 'full'] as const;
 export const STOREFRONT_BORDER_WIDTHS = ['none', 'thin', 'medium', 'thick'] as const;
 export const STOREFRONT_SHADOW_LEVELS = ['none', 'sm', 'md', 'lg'] as const;
+// Phase #2 (029) token substrate — the four coherent elevation idioms (design-vocabulary §1.5),
+// a density dial, and motion tokens (§1.6). All additive/optional; compiled to --sa-* vars.
+export const STOREFRONT_ELEVATION_IDIOMS = ['soft', 'glow', 'border', 'emboss'] as const;
+export const STOREFRONT_DENSITY_LEVELS = ['compact', 'comfortable', 'airy'] as const;
+export const STOREFRONT_MOTION_DURATIONS = ['none', 'fast', 'base', 'slow'] as const;
+export const STOREFRONT_MOTION_EASINGS = ['standard', 'enter', 'exit', 'mechanical'] as const;
+// Global radius scaling knob (Radix `scaling`): shift a whole module tight↔soft in one move.
+export const STOREFRONT_RADIUS_SCALING_MIN = 50;
+export const STOREFRONT_RADIUS_SCALING_MAX = 150;
 export const STOREFRONT_OFFSET_MIN = -100;
 export const STOREFRONT_OFFSET_MAX = 100;
