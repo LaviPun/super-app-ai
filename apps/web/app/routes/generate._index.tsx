@@ -1,7 +1,29 @@
 import { json } from '@remix-run/node';
 import { useNavigate, useLocation, useFetcher, useLoaderData } from '@remix-run/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RecipeSpecSchema } from '@superapp/core';
+import {
+  RecipeSpecSchema,
+  RECOMMENDATION_STRATEGIES,
+  RECOMMENDATION_FALLBACKS,
+  RECOMMENDATION_LIMITS,
+  STATIC_RECOMMENDATION_STRATEGIES,
+  RULE_OBJECTS,
+  RULE_ATTRIBUTES,
+  RULE_ATTRIBUTE_VALUE_TYPES,
+  RULE_MATCH_ACTIONS,
+  RULE_LIMITS,
+  CONDITION_OPERATORS,
+  DISCOUNT_KINDS,
+  THRESHOLD_BASIS,
+  PRICING_MODELS,
+  PRICING_MECHANISMS,
+  STOREFRONT_DENSITY_LEVELS,
+  STOREFRONT_ELEVATION_IDIOMS,
+  STOREFRONT_MOTION_DURATIONS,
+  STOREFRONT_MOTION_EASINGS,
+  STOREFRONT_RADIUS_SCALING_MIN,
+  STOREFRONT_RADIUS_SCALING_MAX,
+} from '@superapp/core';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { QuotaService } from '~/services/billing/quota.service';
@@ -392,6 +414,38 @@ function GenerateWorkspace() {
       ? { ...c, recipe: { ...c.recipe, config: { ...((c.recipe as any).config ?? {}), [key]: value } } }
       : c)));
   };
+  // Merchant config for the new packs (rule-engine / recommendation / pricing)
+  // writes the pack's whole object straight onto recipe.config[<namespace>] — the
+  // flat-pin key the compiler already reads. `undefined` deletes the key (back to
+  // "no pack", byte-identical). Additive: never touches the storefront projection.
+  const setConfigObject = (key: string, value: unknown) => {
+    if (!selected) return;
+    setCandidates((cs) => cs.map((c) => {
+      if (c.id !== selected) return c;
+      const config = { ...((c.recipe as any)?.config ?? {}) };
+      if (value === undefined) delete config[key];
+      else config[key] = value;
+      return { ...c, recipe: { ...c.recipe, config } };
+    }));
+  };
+  // Style tokens (density / elevation / motion / seed / scaling) write straight
+  // into recipe.style.<group>. Kept off the `settings` projection because those
+  // keys aren't in it; mergeSettingsIntoRecipe preserves what it doesn't overwrite
+  // (shape.elevation/scaling, motion, colors.seed all survive the merge).
+  const setStyle = (group: string, patch: Record<string, unknown>) => {
+    if (!selected) return;
+    setCandidates((cs) => cs.map((c) => {
+      if (c.id !== selected) return c;
+      const style = { ...((c.recipe as any)?.style ?? {}) };
+      const prev = { ...((style[group] as Record<string, unknown>) ?? {}) };
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === undefined) delete prev[k];
+        else prev[k] = v;
+      }
+      style[group] = prev;
+      return { ...c, recipe: { ...c.recipe, style } };
+    }));
+  };
   const thread = threadMap[selected ?? ''] || [];
   const history = historyMap[selected ?? ''] || [];
   const activeCand = candidates.find((c) => c.id === selected);
@@ -750,6 +804,8 @@ function GenerateWorkspace() {
           settings={settings} set={set} ctrlTab={ctrlTab} setCtrlTab={setCtrlTab}
           moduleType={String((activeCand?.recipe as any)?.type ?? '')}
           config={((activeCand?.recipe as any)?.config ?? {}) as Record<string, unknown>} setConfig={setConfig}
+          setConfigObject={setConfigObject}
+          style={((activeCand?.recipe as any)?.style ?? {}) as Record<string, unknown>} setStyle={setStyle}
           thread={thread} thinking={thinking} refine={refine} setRefine={setRefine} onRefine={doRefine}
           credits={credits} dockOpen={dockOpen} setDockOpen={setDockOpen} histOpen={histOpen} setHistOpen={setHistOpen} history={history}
         />
@@ -896,7 +952,11 @@ function GenCandMini({ s, accent }: any) {
 function GenBuildPanel(props: any) {
   return (
     <aside className="gen-build-panel">
-      <GenControls settings={props.settings} set={props.set} ctrlTab={props.ctrlTab} setCtrlTab={props.setCtrlTab} moduleType={props.moduleType} config={props.config} setConfig={props.setConfig} />
+      <GenControls
+        settings={props.settings} set={props.set} ctrlTab={props.ctrlTab} setCtrlTab={props.setCtrlTab}
+        moduleType={props.moduleType} config={props.config} setConfig={props.setConfig}
+        setConfigObject={props.setConfigObject} style={props.style} setStyle={props.setStyle}
+      />
       <GenBuilderDock
         credits={props.credits} costPerChange={COST_PER_CHANGE} open={props.dockOpen} setOpen={props.setDockOpen}
         thread={props.thread} thinking={props.thinking} refine={props.refine} setRefine={props.setRefine} onRefine={props.onRefine}
@@ -1087,17 +1147,28 @@ function GenPreview({ recipe, device }: { recipe: Record<string, unknown> | null
  * real shape: top-level scalar fields become editable inputs (writing straight
  * into recipe.config); structured fields are steered to the AI chat.
  */
-function GenConfigControls({ moduleType, config, setConfig }: any) {
+// New packs that get a first-class editor on non-storefront types, so they never
+// fall into the "structured — edit via chat" bucket. Keyed by the flat config key.
+const PACK_CONFIG_KEYS = new Set(['pricing', 'recommendation']);
+
+function GenConfigControls({ moduleType, config, setConfig, setConfigObject }: any) {
+  // Which pack editors apply to this type (flat-pin sites in recipe.ts):
+  //   pricing → functions.discountRules + functions.cartTransform ·
+  //   recommendation → checkout.upsell + checkout.block + postPurchase.offer.
+  const showPricing = moduleType === 'functions.discountRules' || moduleType === 'functions.cartTransform';
+  const showRecs = moduleType === 'checkout.upsell' || moduleType === 'checkout.block' || moduleType === 'postPurchase.offer';
   const entries: [string, unknown][] = Object.entries(config || {});
   const scalars = entries.filter(([, v]) => v === null || ['string', 'number', 'boolean'].includes(typeof v));
-  const complex = entries.filter(([, v]) => v !== null && typeof v === 'object');
+  // Structured fields we render with a dedicated pack editor are excluded from the
+  // "edit via chat" bucket below (they now have real controls).
+  const complex = entries.filter(([k, v]) => v !== null && typeof v === 'object' && !PACK_CONFIG_KEYS.has(k));
   const fieldLabel = (key: string) => titleCase(String(key).replace(/([A-Z])/g, ' $1').replace(/[_.]/g, ' ').trim());
   return (
     <div className="gbp-controls">
       <div className="gen-controls-head"><span className="t-h3">Settings</span><span className="t-xs t-muted">{titleCase(String(moduleType || 'module').replace(/\./g, ' '))}</span></div>
       <div className="gen-ctrl-body">
         <div className="stack-4" style={{ padding: 16 }}>
-          {scalars.length === 0 && complex.length === 0 && (
+          {scalars.length === 0 && complex.length === 0 && !showPricing && !showRecs && (
             <Banner tone="info">No editable settings on this module yet — describe changes in the Builder chat below.</Banner>
           )}
           {scalars.map(([key, val]) => {
@@ -1115,6 +1186,16 @@ function GenConfigControls({ moduleType, config, setConfig }: any) {
               </Field>
             );
           })}
+          {showPricing && (
+            <div style={{ borderTop: '1px solid var(--p-border)', paddingTop: 14 }}>
+              <PricingControls value={config?.pricing} onChange={(v: unknown) => setConfigObject('pricing', v)} />
+            </div>
+          )}
+          {showRecs && (
+            <div style={{ borderTop: '1px solid var(--p-border)', paddingTop: 14 }}>
+              <RecommendationControls value={config?.recommendation} onChange={(v: unknown) => setConfigObject('recommendation', v)} />
+            </div>
+          )}
           {complex.length > 0 && (
             <Banner tone="info" title="Structured fields">
               {complex.map(([k]) => fieldLabel(k)).join(', ')} {complex.length === 1 ? 'is' : 'are'} structured — edit by describing the change in the Builder chat below. The live preview always reflects the real module.
@@ -1126,15 +1207,19 @@ function GenConfigControls({ moduleType, config, setConfig }: any) {
   );
 }
 
-function GenControls({ settings: s, set, ctrlTab, setCtrlTab, moduleType, config, setConfig }: any) {
+function GenControls({ settings: s, set, ctrlTab, setCtrlTab, moduleType, config, setConfig, setConfigObject, style, setStyle }: any) {
   const swatches = ['#1F3A5F', '#0E9F6E', '#14213A', '#2F80ED', '#D97706', '#DC2626'];
   // The visual controls below model a storefront block (button/layout/colors).
   // For non-storefront types, drive the form off the generated config's real
   // shape (edit recipe.config directly) instead of the storefront projection.
   const isStorefront = moduleType === 'theme.section' || moduleType === 'proxy.widget';
   if (!isStorefront) {
-    return <GenConfigControls moduleType={moduleType} config={config} setConfig={setConfig} />;
+    return <GenConfigControls moduleType={moduleType} config={config} setConfig={setConfig} setConfigObject={setConfigObject} />;
   }
+  // Which new packs apply to this storefront type (flat-pin sites in recipe.ts):
+  //   ruleEngine → theme.section + proxy.widget · recommendation → theme.section.
+  const showRules = moduleType === 'theme.section' || moduleType === 'proxy.widget';
+  const showRecs = moduleType === 'theme.section';
   return (
     <div className="gbp-controls">
       <div className="gen-controls-head"><span className="t-h3">Controls</span><span className="t-xs t-muted">Changes apply live</span></div>
@@ -1167,6 +1252,8 @@ function GenControls({ settings: s, set, ctrlTab, setCtrlTab, moduleType, config
             <ToggleRow label="Show quantity stepper" checked={s.showQty} onChange={() => set({ showQty: !s.showQty })} />
             <ToggleRow label="Urgency countdown" checked={s.countdown} onChange={() => set({ countdown: !s.countdown })} />
             <ToggleRow label="Hide on mobile" checked={s.hideMobile} onChange={() => set({ hideMobile: !s.hideMobile })} />
+            <div className="divider" />
+            <StyleTokenControls style={style} setStyle={setStyle} />
           </div>
         )}
         {ctrlTab === 'css' && (
@@ -1177,7 +1264,85 @@ function GenControls({ settings: s, set, ctrlTab, setCtrlTab, moduleType, config
               onChange={(e: any) => set({ customCss: e.target.value })} />
           </div>
         )}
+        {ctrlTab === 'basic' && (showRecs || showRules) && (
+          <div className="stack-3" style={{ marginTop: 14, borderTop: '1px solid var(--p-border)', paddingTop: 14 }}>
+            {showRecs && <RecommendationControls value={config?.recommendation} onChange={(v: unknown) => setConfigObject('recommendation', v)} />}
+            {showRules && <RuleEngineControls value={config?.ruleEngine} onChange={(v: unknown) => setConfigObject('ruleEngine', v)} />}
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Phase #2 style tokens (design-vocabulary §1) — density / elevation / motion /
+ * radius scaling / brand seed. Writes straight into recipe.style.<group> via
+ * setStyle; every value is a named token from the manifest (never a raw ms /
+ * cubic-bezier / px). All optional: "Auto" clears the key so the compiler falls
+ * back to the pack/default, keeping older recipes byte-identical.
+ */
+function StyleTokenControls({ style, setStyle }: any) {
+  const spacing = style?.spacing ?? {};
+  const shape = style?.shape ?? {};
+  const motion = style?.motion ?? {};
+  const colors = style?.colors ?? {};
+  const density = spacing.density ?? '';
+  const elevation = shape.elevation ?? '';
+  const scaling = typeof shape.scaling === 'number' ? shape.scaling : 100;
+  const dur = motion.duration ?? '';
+  const ease = motion.easing ?? '';
+  const seedSwatches = ['#1F3A5F', '#0E9F6E', '#2F80ED', '#D97706', '#DC2626', '#7C3AED'];
+  const autoOpt = (label: string) => ({ value: '', label });
+  return (
+    <div className="stack-4">
+      <div className="row spread"><span className="t-sm t-strong">Design tokens</span><span className="t-xs t-muted">Phase 2</span></div>
+      <Field label="Density" help="Airy for marketing, compact for utility.">
+        <Select
+          value={density}
+          options={[autoOpt('Auto (pack default)'), ...STOREFRONT_DENSITY_LEVELS.map((d) => ({ value: d, label: titleCase(d) }))]}
+          onChange={(e: any) => setStyle('spacing', { density: e.target.value || undefined })}
+        />
+      </Field>
+      <Field label="Elevation" help="Shadow personality applied to the module surface.">
+        <Select
+          value={elevation}
+          options={[autoOpt('Auto (flat / pack default)'), ...STOREFRONT_ELEVATION_IDIOMS.map((v) => ({ value: v, label: titleCase(v) }))]}
+          onChange={(e: any) => setStyle('shape', { elevation: e.target.value || undefined })}
+        />
+      </Field>
+      <Field label="Corner scaling" help={`Shift the whole radius ladder tighter or softer (${STOREFRONT_RADIUS_SCALING_MIN}–${STOREFRONT_RADIUS_SCALING_MAX}%).`}>
+        <div className="row-2" style={{ alignItems: 'center' }}>
+          <input type="range" min={STOREFRONT_RADIUS_SCALING_MIN} max={STOREFRONT_RADIUS_SCALING_MAX} step={5} value={scaling}
+            style={{ flex: 1 }} onChange={(e) => setStyle('shape', { scaling: Number(e.target.value) })} />
+          <span className="t-mono t-xs t-muted" style={{ width: 42, textAlign: 'right' }}>{scaling}%</span>
+          {typeof shape.scaling === 'number' && (
+            <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 2 }}
+              title="Reset to default" onClick={() => setStyle('shape', { scaling: undefined })}><Icon name="x" size={13} /></button>
+          )}
+        </div>
+      </Field>
+      <Field label="Motion duration" help="Named speed; always paired with a reduced-motion fallback.">
+        <Select
+          value={dur}
+          options={[autoOpt('Auto (base)'), ...STOREFRONT_MOTION_DURATIONS.map((v) => ({ value: v, label: titleCase(v) }))]}
+          onChange={(e: any) => setStyle('motion', { duration: e.target.value || undefined })}
+        />
+      </Field>
+      <Field label="Motion easing" help="Personality of the transition curve.">
+        <Select
+          value={ease}
+          options={[autoOpt('Auto (standard)'), ...STOREFRONT_MOTION_EASINGS.map((v) => ({ value: v, label: titleCase(v) }))]}
+          onChange={(e: any) => setStyle('motion', { easing: e.target.value || undefined })}
+        />
+      </Field>
+      <Field label="Brand seed" optional help="Seeds the OKLCH semantic color ramp. Additive — flat colors above still apply.">
+        <SwatchRow value={colors.seed ?? ''} swatches={seedSwatches} onChange={(c: string) => setStyle('colors', { seed: c })} />
+        {colors.seed && (
+          <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: '4px 2px', marginTop: 4 }}
+            onClick={() => setStyle('colors', { seed: undefined })}><span className="t-xs t-muted">Clear seed</span></button>
+        )}
+      </Field>
     </div>
   );
 }
@@ -1199,6 +1364,350 @@ function SegField({ value, options, onChange }: any) {
 }
 function ToggleRow({ label, checked, onChange }: any) {
   return <label className="row spread" style={{ cursor: 'pointer' }}><span className="t-sm">{label}</span><Toggle checked={checked} onChange={onChange} /></label>;
+}
+
+/** Human label for an enum token — titleCase but hyphen-aware (fixed-amount → Fixed Amount). */
+function labelize(s: string): string {
+  return titleCase(String(s).replace(/-/g, ' '));
+}
+
+/** Section header for a pack editor with an on/off switch. */
+function PackHeader({ title, hint, enabled, onToggle }: any) {
+  return (
+    <div className="row spread" style={{ marginBottom: enabled ? 10 : 0 }}>
+      <div className="stack" style={{ gap: 1 }}>
+        <span className="t-sm t-strong">{title}</span>
+        {hint && <span className="t-xs t-muted">{hint}</span>}
+      </div>
+      <Toggle checked={enabled} onChange={onToggle} />
+    </div>
+  );
+}
+
+/** Comma-separated string[] editor backed by a single text input. */
+function TagListField({ label, help, value, onChange, placeholder }: any) {
+  const arr: string[] = Array.isArray(value) ? value : [];
+  return (
+    <Field label={label} help={help}>
+      <Input value={arr.join(', ')} placeholder={placeholder}
+        onChange={(e: any) => onChange(String(e.target.value).split(',').map((x) => x.trim()).filter(Boolean))} />
+    </Field>
+  );
+}
+
+// ── Recommendation pack (R2.3) ──────────────────────────────────────────────
+// Strategy select + its key fields (productLimit, seed/collection, fallback).
+// Writes the whole `recommendation` object to config; toggle off removes the key.
+const RECS_STATIC = new Set<string>(STATIC_RECOMMENDATION_STRATEGIES as readonly string[]);
+function RecommendationControls({ value, onChange }: any) {
+  const enabled = !!value;
+  const v = value ?? {};
+  const strategy = v.strategy ?? 'related';
+  const patch = (p: Record<string, unknown>) => onChange({ ...v, ...p });
+  const isDynamic = !RECS_STATIC.has(strategy);
+  return (
+    <div className="stack-4">
+      <PackHeader
+        title="Product recommendations"
+        hint="How this widget chooses which products to offer."
+        enabled={enabled}
+        onToggle={() => onChange(enabled ? undefined : { strategy: 'related', productLimit: 4, fallback: 'related' })}
+      />
+      {enabled && (
+        <>
+          <Field label="Strategy">
+            <Select value={strategy} options={RECOMMENDATION_STRATEGIES.map((sname) => ({ value: sname, label: labelize(sname) }))}
+              onChange={(e: any) => patch({ strategy: e.target.value })} />
+          </Field>
+          {strategy === 'manual' && (
+            <TagListField label="Manual variant GIDs" help="gid://shopify/ProductVariant/… — comma-separated."
+              value={v.manualVariantGids} placeholder="gid://shopify/ProductVariant/123"
+              onChange={(arr: string[]) => patch({ manualVariantGids: arr })} />
+          )}
+          {strategy === 'collection' && (
+            <>
+              <Field label="Collection GID" help="gid://shopify/Collection/…">
+                <Input value={v.collectionGid ?? ''} placeholder="gid://shopify/Collection/456"
+                  onChange={(e: any) => patch({ collectionGid: e.target.value || undefined })} />
+              </Field>
+              <ToggleRow label="Pick one at random" checked={!!v.collectionRandom} onChange={() => patch({ collectionRandom: !v.collectionRandom })} />
+            </>
+          )}
+          {['related', 'complementary', 'buy-it-again'].includes(strategy) && (
+            <Field label="Seed product GID" optional help="Defaults to the current PDP product.">
+              <Input value={v.seedProductGid ?? ''} placeholder="gid://shopify/Product/789"
+                onChange={(e: any) => patch({ seedProductGid: e.target.value || undefined })} />
+            </Field>
+          )}
+          <Field label="Products to show" help={`${RECOMMENDATION_LIMITS.productLimitMin}–${RECOMMENDATION_LIMITS.productLimitMax}.`}>
+            <Input type="number" min={RECOMMENDATION_LIMITS.productLimitMin} max={RECOMMENDATION_LIMITS.productLimitMax}
+              value={v.productLimit ?? 4}
+              onChange={(e: any) => patch({ productLimit: e.target.value === '' ? undefined : Number(e.target.value) })} />
+          </Field>
+          {isDynamic && (
+            <Field label="Fallback" help="Shown when a dynamic strategy has no result (empty history / service down).">
+              <Select value={v.fallback ?? 'related'} options={RECOMMENDATION_FALLBACKS.map((f) => ({ value: f, label: labelize(f) }))}
+                onChange={(e: any) => patch({ fallback: e.target.value })} />
+            </Field>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Rule-engine pack (R2.1) ─────────────────────────────────────────────────
+// Display-rules editor: condition rows {object, attribute, operator, value}
+// grouped, combined AND/OR. Writes the whole `ruleEngine` object to config.
+const VALUELESS_OPS = new Set(['is_set', 'is_not_set']);
+function attrsFor(object: string): readonly string[] {
+  return (RULE_ATTRIBUTES as Record<string, readonly string[]>)[object] ?? [];
+}
+function RuleEngineControls({ value, onChange }: any) {
+  const enabled = !!value?.enabled;
+  const v = value ?? {};
+  const groups: any[] = Array.isArray(v.groups) ? v.groups : [];
+  const emit = (p: Record<string, unknown>) => onChange({ enabled: true, logic: v.logic ?? 'AND', groups, matchAction: v.matchAction ?? 'SHOW', ...p });
+  const setGroups = (next: any[]) => emit({ groups: next });
+  const toggle = () => {
+    if (enabled) { onChange(undefined); return; }
+    // Turning on with no rows yet: seed a first group + row so it's editable.
+    const seed = { logic: 'AND', conditions: [{ object: 'product', attribute: 'tags', operator: 'contains', value: '' }] };
+    onChange({ enabled: true, logic: 'AND', groups: [seed], matchAction: 'SHOW' });
+  };
+  const addGroup = () => {
+    if (groups.length >= RULE_LIMITS.maxGroups) return;
+    setGroups([...groups, { logic: 'AND', conditions: [{ object: 'product', attribute: 'tags', operator: 'contains', value: '' }] }]);
+  };
+  return (
+    <div className="stack-4">
+      <PackHeader
+        title="Display rules"
+        hint="Conditions that decide when this module appears."
+        enabled={enabled}
+        onToggle={toggle}
+      />
+      {enabled && (
+        <>
+          <Field label="When rules match" help="Show or hide the module when the conditions pass.">
+            <SegField value={v.matchAction ?? 'SHOW'} options={RULE_MATCH_ACTIONS.map((m) => [m, labelize(m)])} onChange={(m: string) => emit({ matchAction: m })} />
+          </Field>
+          {groups.length > 1 && (
+            <Field label="Combine groups" help="Match ALL groups (AND) or ANY group (OR).">
+              <SegField value={v.logic ?? 'AND'} options={[['AND', 'All (AND)'], ['OR', 'Any (OR)']]} onChange={(l: string) => emit({ logic: l })} />
+            </Field>
+          )}
+          {groups.map((g, gi) => (
+            <RuleGroupEditor
+              key={gi}
+              group={g}
+              index={gi}
+              showOuter={groups.length > 1}
+              onChange={(next: any) => setGroups(groups.map((x, i) => (i === gi ? next : x)))}
+              onRemove={() => setGroups(groups.filter((_, i) => i !== gi))}
+            />
+          ))}
+          {groups.length < RULE_LIMITS.maxGroups && (
+            <button className="example-chip" onClick={addGroup}><Icon name="plus" size={12} />Add rule group</button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function RuleGroupEditor({ group, index, showOuter, onChange, onRemove }: any) {
+  const conditions: any[] = Array.isArray(group?.conditions) ? group.conditions : [];
+  const setConds = (next: any[]) => onChange({ ...group, conditions: next });
+  const addRow = () => {
+    if (conditions.length >= RULE_LIMITS.maxRowsPerGroup) return;
+    setConds([...conditions, { object: 'product', attribute: 'tags', operator: 'contains', value: '' }]);
+  };
+  return (
+    <div className="card" style={{ padding: 12 }}>
+      <div className="row spread" style={{ marginBottom: 8 }}>
+        <span className="t-xs t-strong">{showOuter ? `Group ${index + 1}` : 'Conditions'}</span>
+        {showOuter && (
+          <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 2 }}
+            title="Remove group" onClick={onRemove}><Icon name="trash" size={13} /></button>
+        )}
+      </div>
+      <div className="stack-3">
+        {conditions.map((c, ci) => (
+          <RuleRowEditor
+            key={ci}
+            row={c}
+            showLogic={ci > 0}
+            groupLogic={group?.logic ?? 'AND'}
+            onLogic={(l: string) => onChange({ ...group, logic: l })}
+            onChange={(next: any) => setConds(conditions.map((x, i) => (i === ci ? next : x)))}
+            onRemove={conditions.length > 1 ? () => setConds(conditions.filter((_, i) => i !== ci)) : null}
+          />
+        ))}
+        {conditions.length < RULE_LIMITS.maxRowsPerGroup && (
+          <button className="example-chip" onClick={addRow}><Icon name="plus" size={12} />Add condition</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RuleRowEditor({ row, showLogic, groupLogic, onLogic, onChange, onRemove }: any) {
+  const object = row?.object ?? 'product';
+  const attrs = attrsFor(object);
+  const attribute = attrs.includes(row?.attribute) ? row.attribute : (attrs[0] ?? '');
+  const valueType = RULE_ATTRIBUTE_VALUE_TYPES[`${object}.${attribute}`] ?? 'string';
+  const operator = row?.operator ?? 'equal_to';
+  const valueless = VALUELESS_OPS.has(operator);
+  const setObject = (obj: string) => {
+    const nextAttrs = attrsFor(obj);
+    onChange({ object: obj, attribute: nextAttrs[0] ?? '', operator: 'equal_to', value: '' });
+  };
+  return (
+    <div className="stack-2">
+      {showLogic && (
+        <div className="seg" style={{ width: 'fit-content' }}>
+          {[['AND', 'AND'], ['OR', 'OR']].map((o) => (
+            <button key={o[0]} aria-selected={groupLogic === o[0]} onClick={() => onLogic(o[0])} style={{ padding: '2px 10px' }}>{o[1]}</button>
+          ))}
+        </div>
+      )}
+      <div className="row-2" style={{ flexWrap: 'wrap', alignItems: 'flex-end', gap: 6 }}>
+        <div style={{ flex: '1 1 110px' }}>
+          <Select value={object} options={RULE_OBJECTS.map((o) => ({ value: o, label: titleCase(o) }))} onChange={(e: any) => setObject(e.target.value)} />
+        </div>
+        <div style={{ flex: '1 1 130px' }}>
+          <Select value={attribute} options={attrs.map((a) => ({ value: a, label: titleCase(a) }))} onChange={(e: any) => onChange({ ...row, object, attribute: e.target.value })} />
+        </div>
+        <div style={{ flex: '1 1 130px' }}>
+          <Select value={operator} options={CONDITION_OPERATORS.map((op) => ({ value: op, label: labelize(op) }))} onChange={(e: any) => onChange({ ...row, operator: e.target.value })} />
+        </div>
+        {!valueless && (
+          <div style={{ flex: '2 1 150px' }}>
+            {valueType === 'boolean' ? (
+              <Select value={String(row?.value ?? 'true')} options={[{ value: 'true', label: 'True' }, { value: 'false', label: 'False' }]} onChange={(e: any) => onChange({ ...row, value: e.target.value === 'true' })} />
+            ) : valueType === 'stringList' ? (
+              <Input value={Array.isArray(row?.value) ? row.value.join(', ') : (row?.value ?? '')} placeholder="a, b, c"
+                onChange={(e: any) => onChange({ ...row, value: String(e.target.value).split(',').map((x) => x.trim()).filter(Boolean) })} />
+            ) : (
+              <Input type={valueType === 'number' ? 'number' : 'text'} value={row?.value ?? ''}
+                onChange={(e: any) => onChange({ ...row, value: valueType === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value })} />
+            )}
+          </div>
+        )}
+        {onRemove && (
+          <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 6 }}
+            title="Remove condition" onClick={onRemove}><Icon name="x" size={14} /></button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Pricing pack (R2.2) ─────────────────────────────────────────────────────
+// Model select + the single-discount fields and tiered rows. Writes the whole
+// `pricing` object to config; toggle off removes the key (legacy rules[] path).
+function PricingControls({ value, onChange }: any) {
+  const enabled = !!value;
+  const v = value ?? {};
+  const model = v.model ?? 'single';
+  const emit = (p: Record<string, unknown>) => onChange({ ...v, ...p });
+  const setModel = (m: string) => {
+    // Give the newly-selected model a minimal valid body so the spec validates.
+    const body: Record<string, unknown> = { model: m };
+    if (m === 'single') body.discount = v.discount ?? { kind: 'percentage', value: 10 };
+    if (m === 'tiered') body.tiers = v.tiers ?? { basis: 'quantity', rows: [{ threshold: 2, discount: { kind: 'percentage', value: 10 } }] };
+    emit(body);
+  };
+  return (
+    <div className="stack-4">
+      <PackHeader
+        title="Pricing & discounts"
+        hint="Discount vocabulary; lowered into the Function on publish."
+        enabled={enabled}
+        onToggle={() => onChange(enabled ? undefined : { model: 'single', discount: { kind: 'percentage', value: 10 } })}
+      />
+      {enabled && (
+        <>
+          <Field label="Model">
+            <Select value={model} options={PRICING_MODELS.map((m) => ({ value: m, label: labelize(m) }))} onChange={(e: any) => setModel(e.target.value)} />
+          </Field>
+          <Field label="Mechanism" help="How the discount is enforced at checkout.">
+            <Select value={v.mechanism ?? 'shopify-function-discount'} options={PRICING_MECHANISMS.map((m) => ({ value: m, label: labelize(m) }))}
+              onChange={(e: any) => emit({ mechanism: e.target.value })} />
+          </Field>
+          {model === 'single' && (
+            <DiscountFields discount={v.discount ?? { kind: 'percentage', value: 10 }} onChange={(d: unknown) => emit({ discount: d })} />
+          )}
+          {model === 'tiered' && (
+            <PricingTiers tiers={v.tiers ?? { basis: 'quantity', rows: [] }} onChange={(t: unknown) => emit({ tiers: t })} />
+          )}
+          {(model === 'bogo' || model === 'gift') && (
+            <Banner tone="info">{labelize(model)} needs product/collection targeting — describe it in the Builder chat below; the live preview reflects the real module.</Banner>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+const KIND_NEEDS_VALUE = new Set(['percentage', 'fixed-amount', 'fixed-price']);
+function DiscountFields({ discount, onChange }: any) {
+  const d = discount ?? {};
+  const kind = d.kind ?? 'percentage';
+  const needsValue = KIND_NEEDS_VALUE.has(kind);
+  return (
+    <div className="stack-3">
+      <Field label="Discount kind">
+        <Select value={kind} options={DISCOUNT_KINDS.map((k) => ({ value: k, label: labelize(k) }))} onChange={(e: any) => onChange({ ...d, kind: e.target.value })} />
+      </Field>
+      {needsValue && (
+        <Field label={kind === 'percentage' ? 'Percent off (0–100)' : kind === 'fixed-price' ? 'Final price' : 'Amount off'}>
+          <Input type="number" min={0} max={kind === 'percentage' ? 100 : undefined} value={d.value ?? 0}
+            onChange={(e: any) => onChange({ ...d, value: e.target.value === '' ? 0 : Number(e.target.value) })} />
+        </Field>
+      )}
+      {kind === 'cheapest-free' && (
+        <Field label="How many cheapest become free">
+          <Input type="number" min={1} value={d.cheapestFreeCount ?? 1}
+            onChange={(e: any) => onChange({ ...d, cheapestFreeCount: e.target.value === '' ? undefined : Number(e.target.value) })} />
+        </Field>
+      )}
+    </div>
+  );
+}
+
+function PricingTiers({ tiers, onChange }: any) {
+  const t = tiers ?? { basis: 'quantity', rows: [] };
+  const rows: any[] = Array.isArray(t.rows) ? t.rows : [];
+  const setRows = (next: any[]) => onChange({ ...t, rows: next });
+  const addRow = () => setRows([...rows, { threshold: rows.length + 2, discount: { kind: 'percentage', value: 10 } }]);
+  return (
+    <div className="stack-3">
+      <Field label="Tier threshold basis">
+        <SegField value={t.basis ?? 'quantity'} options={THRESHOLD_BASIS.map((b) => [b, labelize(b)])} onChange={(b: string) => onChange({ ...t, basis: b })} />
+      </Field>
+      {rows.map((r, ri) => (
+        <div key={ri} className="card" style={{ padding: 12 }}>
+          <div className="row spread" style={{ marginBottom: 8 }}>
+            <span className="t-xs t-strong">Tier {ri + 1}</span>
+            {rows.length > 1 && (
+              <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 2 }}
+                title="Remove tier" onClick={() => setRows(rows.filter((_, i) => i !== ri))}><Icon name="trash" size={13} /></button>
+            )}
+          </div>
+          <div className="stack-3">
+            <Field label={`Threshold (${t.basis === 'cart-value' ? 'cart value' : 'quantity'})`}>
+              <Input type="number" min={1} value={r.threshold ?? 1}
+                onChange={(e: any) => setRows(rows.map((x, i) => (i === ri ? { ...x, threshold: Number(e.target.value) } : x)))} />
+            </Field>
+            <DiscountFields discount={r.discount} onChange={(dd: unknown) => setRows(rows.map((x, i) => (i === ri ? { ...x, discount: dd } : x)))} />
+          </div>
+        </div>
+      ))}
+      <button className="example-chip" onClick={addRow}><Icon name="plus" size={12} />Add tier</button>
+    </div>
+  );
 }
 
 // Real validation results from this route's `validate` action: RecipeSpecSchema
