@@ -5,6 +5,18 @@
 
 > Collision note: a second session is editing shared source concurrently. This plan file lives in a **new folder** and touches no shared source. **Execute Phase 0+ in a dedicated git worktree** (or after the other session lands) to avoid the clobber that already dropped some UI wiring once.
 
+## Execution status (2026-07-03) — branch `feat/027-unified-builder`
+
+- ✅ **Phase 0 committed** (`143300f`): removed the broken create-time coverage/auto-fill (it fired a wasted LLM call on every v2 create and could never match); `mustHaveControlsForType` now returns config namespaces; deleted the dead `republishDiff` loader compute. Suites green.
+- ✅ **Phase 1 — big discovery + first landing** (`f459b49`): the unified Builder **already exists** as `app/routes/generate._index.tsx` (1079 lines: prompt → generating → choosing → ready, per-concept chat refine, settings, validation tab, blueprints, save/publish, credits). Its one critical flaw: the center preview was a **hardcoded CSS mock** (same fake storefront + add-to-cart bar for every type). **Fixed** — `GenPreview` now renders the real merged recipe through `PreviewService` via `/api/preview` in a sandboxed iframe (all 20 types) with a Function/checkout simulation panel and loading/empty/error/json states. Mock code + dead CSS removed. Preview is now WYSIWYG vs publish.
+- Tree state: `tsc` clean in all three packages; web **668 passed / 16 skipped**; core 148; contracts 55.
+- Note: a true interactive e2e of the embedded builder needs a dev store + tunnel (the merchant smoke is a no-5xx contract that skips without a running server); the `/api/preview` path it depends on is unit-tested.
+
+**Remaining (revised now that the Builder exists):**
+- **1c** — settings driven by the hydrate admin schema (`SchemaForm`) instead of the lossy 12-field projection, so the right rail reflects the real config for every type; full a11y/state pass.
+- **2** — speed: stream generation to first preview (`create-module.stream`); accuracy: real pre-publish validation (theme-check / GraphQL / component) surfaced in the validation tab + publish gate.
+- **3** — Spring 2026 leverage: new generation targets (Discount UI / App Home / Bulk Action), Functions-read-metaobjects, agent-ready modules, Sidekick distribution.
+
 ---
 
 ## 0. Why this plan
