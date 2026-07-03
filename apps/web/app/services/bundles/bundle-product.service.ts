@@ -14,8 +14,20 @@
  * The merchant only generates the module; this service wires the rest. The pure
  * `buildBundleRuntimeConfig` is unit-tested; the Admin calls run at publish
  * against a live shop (verified in the admin backend).
+ *
+ * R2.2 pricing bridge: `resolveBundleWithPricing` lowers a bundle's `pricing` block
+ * (via the compiler's `lowerPricingToCartTransform`) onto the resolved bundle, and
+ * `buildBundleRuntimeConfig` threads that lowered `price`/`tiers` into the same
+ * `$app:bundle_config` metafield the wasm handler reads. This is the missing link
+ * that lets a module's lowered cart-transform pricing actually reach the running
+ * handler — the `superapp-fn-cartTransform` compiler metaobject is a separate config
+ * source the live handler never reads. (See `compiler/pricing/lower.ts` and
+ * `extensions/superapp-cart-transform/src/cart_transform_run.rs`.)
  */
 import type { AdminApiContext } from '~/types/shopify';
+import { lowerPricingToCartTransform } from '~/services/recipes/compiler/pricing/lower';
+import type { LoweredBundlePrice, LoweredTierPrice } from '~/services/recipes/compiler/pricing/lower';
+import type { PricingPack } from '@superapp/core';
 
 type AdminClient = AdminApiContext['admin'];
 
@@ -24,6 +36,12 @@ export type CartTransformBundleInput = {
   title: string;
   componentSkus: string[];
   bundleSku: string;
+  /**
+   * R2.2 lowered pricing carried on the bundle at publish. When present, the
+   * runtime config that the cart-transform wasm reads is enriched with the
+   * lowered `price`/`tiers` shape (see `resolveBundleWithPricing`).
+   */
+  pricing?: PricingPack;
 };
 
 export type ResolvedComponent = {
@@ -42,6 +60,14 @@ export type ResolvedBundle = {
   parentVariantId: string;
   discountPercentage: number;
   components: ResolvedComponent[];
+  /**
+   * R2.2 lowered single price directive (from `lowerPricingToCartTransform`).
+   * When present, it flows verbatim into the `$app:bundle_config` metafield the
+   * wasm handler reads, so a module's lowered pricing reaches the runtime.
+   */
+  price?: LoweredBundlePrice;
+  /** R2.2 lowered tiered price table (highest-threshold-first), same source. */
+  tiers?: LoweredTierPrice[];
 };
 
 /** The shape written to `$app:bundle_config` and read by the cart-transform Function. */
@@ -51,6 +77,14 @@ export type BundleFunctionConfig = {
     parentVariantId: string;
     title: string;
     discountPercentage: number;
+    /**
+     * R2.2 lowered pricing — omitted when the bundle carries none, so a
+     * pricing-free bundle serializes byte-identically to the legacy shape and
+     * the wasm handler's back-compat path is unchanged. When present, the wasm
+     * handler (`cart_transform_run.rs`) derives the merged-line discount from it.
+     */
+    price?: LoweredBundlePrice;
+    tiers?: LoweredTierPrice[];
   }>;
 };
 
@@ -67,16 +101,52 @@ export function bundleIdFromTitle(title: string): string {
 /**
  * Pure: assemble the Function-readable config from resolved bundles. Kept separate
  * from the Admin calls so it can be unit-tested without a shop.
+ *
+ * The lowered `price`/`tiers` (R2.2) are threaded through ONLY when present, so a
+ * bundle with no lowered pricing serializes to the exact legacy shape and the wasm
+ * handler's byte-for-byte back-compat path is preserved.
  */
 export function buildBundleRuntimeConfig(bundles: ResolvedBundle[]): BundleFunctionConfig {
   return {
-    bundles: bundles.map((b) => ({
-      bundleId: b.bundleId,
-      parentVariantId: b.parentVariantId,
-      title: b.title,
-      discountPercentage: b.discountPercentage,
-    })),
+    bundles: bundles.map((b) => {
+      const entry: BundleFunctionConfig['bundles'][number] = {
+        bundleId: b.bundleId,
+        parentVariantId: b.parentVariantId,
+        title: b.title,
+        discountPercentage: b.discountPercentage,
+      };
+      if (b.price) entry.price = b.price;
+      if (b.tiers && b.tiers.length > 0) entry.tiers = b.tiers;
+      return entry;
+    }),
   };
+}
+
+/**
+ * Bridge (R2.2): derive a resolved bundle's lowered `price`/`tiers` from its
+ * `pricing` block using the SAME `lowerPricingToCartTransform` the compiler uses,
+ * so the config written to `$app:bundle_config` (what the wasm reads) carries the
+ * same lowered shape the handler now parses. Returns the bundle augmented with
+ * lowered pricing; a bundle with no `pricing` is returned unchanged.
+ *
+ * This closes the gap where R2.2 pricing lowered onto the `superapp-fn-cartTransform`
+ * metaobject never reached the running handler (which reads the `$app:bundle_config`
+ * metafield). The runtime config now carries the lowered pricing.
+ */
+export function resolveBundleWithPricing(
+  bundle: ResolvedBundle,
+  pricing: PricingPack | undefined,
+): ResolvedBundle {
+  if (!pricing) return bundle;
+  const lowered = lowerPricingToCartTransform(pricing, {
+    title: bundle.title,
+    componentSkus: bundle.components.map((c) => c.sku),
+    bundleSku: bundle.bundleId,
+  });
+  const next: ResolvedBundle = { ...bundle };
+  if (lowered.price) next.price = lowered.price;
+  if (lowered.tiers) next.tiers = lowered.tiers;
+  return next;
 }
 
 const VARIANTS_BY_SKU = `#graphql

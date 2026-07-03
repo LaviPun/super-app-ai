@@ -11,9 +11,11 @@ import { blueprintIntents, getBlueprintCatalogEntry } from '~/services/ai/bluepr
 import {
   bundleIdFromTitle,
   buildBundleRuntimeConfig,
+  resolveBundleWithPricing,
   type ResolvedBundle,
 } from '~/services/bundles/bundle-product.service';
 import { injectResolvedBundle } from '~/services/blueprints/blueprint.service';
+import { PricingPackSchema } from '@superapp/core';
 
 // extensions/ lives at the repo root; vitest runs from apps/web.
 const EXTENSIONS_DIR = path.resolve(process.cwd(), '..', '..', 'extensions');
@@ -91,6 +93,60 @@ describe('bundle-product helpers', () => {
         },
       ],
     });
+  });
+
+  it('buildBundleRuntimeConfig omits price/tiers for a pricing-free bundle (legacy byte-shape)', () => {
+    // Regression guard: a bundle without lowered pricing must NOT sprout price/tiers
+    // keys, so the wasm handler's back-compat path stays byte-for-byte unchanged.
+    const cfg = buildBundleRuntimeConfig([resolvedBundle]);
+    expect(cfg.bundles[0]).not.toHaveProperty('price');
+    expect(cfg.bundles[0]).not.toHaveProperty('tiers');
+  });
+});
+
+describe('R2.2 bridge: lowered pricing reaches the $app:bundle_config runtime config', () => {
+  it('resolveBundleWithPricing threads a single lowered price into the runtime config', () => {
+    const pricing = PricingPackSchema.parse({
+      model: 'single',
+      mechanism: 'shopify-function-cart-transform',
+      discount: { kind: 'percentage', value: 20 },
+    });
+    const resolved = resolveBundleWithPricing(resolvedBundle, pricing);
+    expect(resolved.price).toEqual({ kind: 'percentage', value: 20 });
+
+    const cfg = buildBundleRuntimeConfig([resolved]);
+    // This is exactly what the wasm handler (cart_transform_run.rs) parses.
+    expect(cfg.bundles[0]!.price).toEqual({ kind: 'percentage', value: 20 });
+    expect(cfg.bundles[0]).not.toHaveProperty('tiers');
+  });
+
+  it('resolveBundleWithPricing threads a tiered price table (highest-threshold-first)', () => {
+    const pricing = PricingPackSchema.parse({
+      model: 'tiered',
+      mechanism: 'shopify-function-cart-transform',
+      tiers: {
+        basis: 'quantity',
+        rows: [
+          { threshold: 2, discount: { kind: 'percentage', value: 10 } },
+          { threshold: 6, discount: { kind: 'percentage', value: 30 } },
+          { threshold: 3, discount: { kind: 'percentage', value: 20 } },
+        ],
+      },
+    });
+    const resolved = resolveBundleWithPricing(resolvedBundle, pricing);
+    const cfg = buildBundleRuntimeConfig([resolved]);
+    const tiers = cfg.bundles[0]!.tiers!;
+    expect(tiers.map((t) => t.threshold)).toEqual([6, 3, 2]);
+    expect(tiers[0]).toMatchObject({ threshold: 6, kind: 'percentage', value: 30 });
+    expect(cfg.bundles[0]).not.toHaveProperty('price');
+  });
+
+  it('resolveBundleWithPricing is a no-op when the bundle carries no pricing', () => {
+    const resolved = resolveBundleWithPricing(resolvedBundle, undefined);
+    expect(resolved).toBe(resolvedBundle);
+    const cfg = buildBundleRuntimeConfig([resolved]);
+    expect(cfg.bundles[0]).not.toHaveProperty('price');
+    expect(cfg.bundles[0]).not.toHaveProperty('tiers');
   });
 });
 
