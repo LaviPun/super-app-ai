@@ -1,3 +1,28 @@
+## 2026-07-03 — Unified Builder + generation-uplift corrections (spec 027, branch `feat/027-unified-builder`)
+
+Follow-on branch off the repair tip. Canonical plan: [`../specs/027-unified-builder/plan.md`](../specs/027-unified-builder/plan.md). All commits green (`tsc` clean in all three packages; web 668 passed / 16 skipped; core 148; contracts 55).
+
+| Commit | Change |
+|--------|--------|
+| `143300f` | **Removed the broken 022 create-time coverage + v2 auto-fill.** It compared manifest pack *ids* against the bespoke generated config (which never uses control-pack composition — `composeConfig` is admin-form-only), so coverage could never be "complete" and on v2 it fired a wasted `modifyRecipeSpec` call on every create. Kept RequirementSpec + RAG grounding + `startFrom`. `mustHaveControlsForType` now returns pack **namespaces** (`getPack(id).namespace`). "Fill missing" lives only post-hydrate (024). Also removed the dead `republishDiff` loader compute in `modules.$moduleId.tsx`. |
+| `f459b49` | **Builder preview is now the REAL module.** The `/generate` builder's center canvas was a hardcoded CSS mock (same fake storefront + add-to-cart bar for every type). `GenPreview` now renders the merged recipe through `PreviewService` via `/api/preview` in a sandboxed iframe (all 20 types), with loading/empty/error/json states and a Function/checkout **simulation panel** (currency/country/Plus). Mock code + ~25 dead `pv-*` CSS rules removed. Preview is WYSIWYG vs publish — closes the merchant "fake preview" item the repair pass flagged as pending. |
+| `ba30bea` | **Deployability preflight surfaced in the Builder.** `/generate` `validate` action also runs `classifyModulePublishability`; the validation tab shows a "Publishability" row and, when a spec is schema-valid but `needs_runtime`, an honest "Valid — but not publishable yet" banner (draft still works) instead of a raw 422 at publish time. |
+| `fc6905c` | **No misleading controls.** The Builder right-rail visual controls (button/colors/layout/countdown) are gated to `theme.section` / `proxy.widget`; other types (functions, admin, checkout, flow) get "preview on the right, refine in the chat" guidance — the AI chat edits any config and the preview shows the real module. |
+
+**Key discovery:** the "one front" unified Builder already exists as `app/routes/generate._index.tsx` (prompt → generating → choosing → ready, per-concept AI chat refine, settings, validation, blueprints, save/publish, credits). Its critical flaw was the theatrical preview (now fixed).
+
+**Remaining (specced in 027 §Execution status — each needs a dev-store to verify interactively):** schema-driven settings (SchemaForm on the hydrate schema), stream-to-first-preview (`create-module.stream`), runtime artifact validation (theme-check / GraphQL), and new Spring 2026 generation targets (Discount UI / App Home / Bulk Action extensions).
+
+## 2026-07-02/03 — Full-app repair pass (branch `feat/superapp-redesign`)
+
+A multi-agent audit (~230 issues) drove a large repair campaign (commits `3ca5ca7`, `a949bb5`, `0fc5c95`, `a948f1c`). Full detail in the `superapp-repair-2026-07` project memory. Highlights relevant to generation/publish:
+
+- **Publish model → eligibility registry + `needs_runtime`.** `classifyModulePublishability` now delegates to the core eligibility registry; the status enum collapsed the old `gated`/`blocked` split into **`deployable | needs_runtime`** (still: never report "published" unless `willDeploy`). Stale function handle names fixed.
+- **Web pixel deploys for real.** New `apps/web/app/services/shopify/web-pixel.service.ts` + a `WEB_PIXEL_UPSERT` compiler op → `analytics.pixel` is now **deployable** (was AUDIT-only).
+- **Deployed-extension truth = manifest ∪ env.** `services/publish/deployed-extensions.server.ts` is the single source: handles checked into `extensions/` UNION `SHOPIFY_DEPLOYED_FUNCTION_EXTENSIONS`. Fixes the earlier "env empty ⇒ blocks all functions" footgun.
+- **Assistant rewrite.** `internal.ai-assistant.tsx` rebuilt on the SuperApp design system (page-kit) with a single `thread` state that is the source of truth while streaming and re-synced from the loader only when not streaming — no transient+persisted double-render.
+- **Real data everywhere.** `placeholder-data.ts` removed; admin/merchant surfaces render real backend data or an honest `EmptyState`. Prisma single-baseline re-migration, webhook double-body-read fixes, settings partial-update no longer wipes `defaultAiProvider`, 429 statusCode preserved in the parallel AI path, and more.
+
 ## 2026-06-16 (SuperApp redesign — 1:1 Internal Admin + Merchant Dashboard)
 
 - **Both surfaces rebuilt as an exact replica of the Claude Design handoff** (`admin-ui-redesign-and-system`). Design vendored, not re-derived. Branch: `feat/superapp-redesign`.

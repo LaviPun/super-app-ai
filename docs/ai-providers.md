@@ -162,6 +162,7 @@ Asserted and logged via `AiUsage`:
 - N generation (one per approach hint) + per-option repair
 - RequirementSpec extraction adds **0** always-on hops (deterministic from classify + IntentPacket + control-pack manifest); at most **1** conditional LLM escalation when `confidenceScore < CONFIDENCE_THRESHOLDS.WITH_ALTERNATIVES`.
 - Search-augment (`solution-search.server.ts`) adds **0** LLM hops (deterministic ranking of `MODULE_TEMPLATES`).
+- **2026-07-03 (spec 027):** the create path passes no `escalate` callback, so RequirementSpec extraction is **fully deterministic in production** (the escalation seam is unused, `source: 'deterministic'`). The earlier v2-only create-time "auto-fill on incomplete coverage" hop was **removed** (it was built on a broken coverage comparison — see `debug.md §21`), so create adds no coverage/fill hop; "fill missing" is a separate post-hydrate action.
 
 ### Guardrails (WS2 / 023)
 - Merchant text is wrapped in a delimited `<user_request>` envelope (`PromptEnvelopeSchema`) in every prompt compiler, with a system rule declaring the wrapped text is data, not instructions.

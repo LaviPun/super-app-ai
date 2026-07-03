@@ -189,6 +189,8 @@ Representative stacks:
 
 Source of truth: [`module-system-v2.md`](./module-system-v2.md).
 
+> **Update 2026-07-03 (spec 027):** the merchant **Builder** (`app/routes/generate._index.tsx`) now renders these real `PreviewService` outputs live — its center canvas was a hardcoded CSS storefront mock; it now POSTs the merged recipe to `/api/preview` and shows the actual module in a sandboxed iframe for every type, with a Function/checkout simulation panel. Publish status below uses the updated **`deployable | needs_runtime`** model.
+
 ### Preview (WS4 / 025)
 Every `RECIPE_SPEC_TYPES` entry now returns an **interactive** preview — none falls to the static diagram (removed). Renderers in `preview.service.ts`:
 - `theme.section` / `proxy.widget` — rich HTML (existing, per-kind).
@@ -203,8 +205,9 @@ Every `RECIPE_SPEC_TYPES` entry now returns an **interactive** preview — none 
 
 Coverage is asserted dynamically (`PREVIEW_KINDS ⊇ RECIPE_SPEC_TYPES`).
 
-### Publish (WS5 / 026)
-`classifyModulePublishability` returns one of:
-- **deployable** — `theme.section`, `proxy.widget`, `checkout.upsell`, `customerAccount.blocks`, `admin.block`, `admin.action`, and the 5 wired function types (when their extension is deployed).
-- **blocked** — wired function type with no deployed extension (fail loudly).
-- **gated** ("not publishable yet") — the 9 AUDIT-only types: `checkout.block`, `postPurchase.offer`, `pos.extension`, `analytics.pixel`, `integration.httpSync`, `flow.automation`, `platform.extensionBlueprint`, `functions.fulfillmentConstraints`, `functions.orderRoutingLocationRule`.
+### Publish (WS5 / 026 — updated 2026-07-03)
+`classifyModulePublishability` (now delegating to the **core eligibility registry**) returns one of:
+- **deployable** — has a shipped runtime: `theme.section`, `proxy.widget`, `checkout.upsell`, `customerAccount.blocks`, `admin.block`, `admin.action`, `analytics.pixel` (now via `WEB_PIXEL_UPSERT`), and function types whose wasm handle is in the deployed set (manifest ∪ env).
+- **needs_runtime** ("not publishable yet") — the runtime extension isn't shipped: the remaining AUDIT-only types (`checkout.block`, `postPurchase.offer`, `pos.extension`, `integration.httpSync`, `flow.automation`, `platform.extensionBlueprint`, `functions.fulfillmentConstraints`, `functions.orderRoutingLocationRule`) and any function type with no deployed extension. `willDeploy === false` always carries a reason; the merchant Builder shows it before publish.
+
+The prior `gated`/`blocked` split collapsed into `needs_runtime`.

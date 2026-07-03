@@ -842,3 +842,19 @@ Replaced the hardcoded field renderer with a fully generic renderer that iterate
 **Root cause.** Merchant free text was interpolated directly into prompts (`User request: ...`), giving prompt-injection a path to alter output format/type. RecipeSpec validation still bounded the result, but unknown discriminators wasted repair attempts.
 
 **Fix.** All merchant text is wrapped in a delimited `<user_request>` envelope (`PromptEnvelopeSchema`) + system rule; `injection-scan.server.ts` flags/strips override attempts; `assertKnownDiscriminator` rejects unknown/contradictory types before parse so `generateValidatedRecipe` short-circuits repair (reject, not repair). SSRF + escape-hatch boundaries unchanged and test-proven.
+
+## §21 — Coverage compared the wrong vocabularies → wasted LLM call on every v2 create (spec 027, 2026-07-03)
+
+**Root cause.** The 022 create-time coverage report fed `mustHaveControlsForType` (which returned manifest pack **ids** like `content` / `page-targeting` / `frequency-cap`) as the "required controls", and compared them against `Object.keys(recipe.config)`. But the generated `theme.section` config is a **bespoke schema** (`kind, activation, title, subtitle, fields, blocks, audience?, schedule?, advancedCustom?`) — it never uses control-pack composition (`composeConfig` is admin-form-only, consumed by the v2 admin form, not generation). Two disjoint vocabularies ⇒ coverage was **never** "complete" for theme.section ⇒ on the v2 engine the auto-fill branch fired an extra `modifyRecipeSpec` call on **every** create, and its picked-key filter (keyed by ids) could never match the model's namespace-keyed output, so it added nothing. Pure wasted latency; the "coverage is exact" code comment was wrong.
+
+**Fix.** Removed the create-time coverage report + auto-fill entirely (kept RequirementSpec + RAG grounding + `startFrom`). `mustHaveControlsForType` now maps ids → **namespaces** (`getPack(id).namespace`) so the field is at least internally honest. Completeness is a **post-hydrate** concern only, via `api.ai.fill-settings.tsx`, where the hydrated admin schema *is* the config vocabulary. Adversarially verified in a multi-agent review before the fix.
+
+## §22 — Builder preview was theater; publish gate duplicated its deployed-extension source (spec 027 / repair pass, 2026-07-03)
+
+**Root cause (preview).** The merchant Builder (`generate._index.tsx`) `GenPreview` rendered a **hardcoded CSS mock** — the same fake storefront + add-to-cart bar for every module type, driven by a lossy 12-field `settings` projection. It never showed the real generated module, so a discount function, an admin block, and a banner all previewed as the same fake PDP. (This is the merchant instance of the §19 "previewed ≠ published" class; the repair-pass audit flagged it as pending.)
+
+**Fix.** `GenPreview` now POSTs the merged recipe to `/api/preview` and renders the real `PreviewService` output in a sandboxed iframe for every type, with loading/empty/error/json states + a Function/checkout simulation panel. Mock code + dead `pv-*` CSS removed.
+
+**Root cause (publish dup).** `PublishService` had defined its **own** env-only `deployedFunctionExtensions()` that defaulted to empty — so with no env var set it classified *every* function type as not-deployable (blocked-all footgun), duplicating the canonical helper.
+
+**Fix (repair pass).** Deleted the dup; `publish.service.ts` imports the canonical `services/publish/deployed-extensions.server.ts` (manifest ∪ env). Same pass collapsed the preflight status to `deployable | needs_runtime` and made `analytics.pixel` deployable via `WEB_PIXEL_UPSERT`.
