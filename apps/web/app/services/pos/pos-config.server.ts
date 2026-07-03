@@ -15,7 +15,7 @@
  * placeholder/demo data — an unconfigured shop yields an empty block list.
  */
 import type { PrismaClient } from '@prisma/client';
-import { RecipeSpecSchema, type RecipeSpec } from '@superapp/core';
+import { RecipeSpecSchema, type RecipeSpec, posTargetPresentation } from '@superapp/core';
 
 /** Config the POS block renders. Mirrors the `pos.extension` RecipeSpec config. */
 export type PosBlockConfig = {
@@ -27,8 +27,32 @@ export type PosBlockConfig = {
   target: string;
   /** Button/section label shown in POS. */
   label: string;
-  /** How the block renders on POS: `tile` | `modal` | `block` | `action`. */
-  blockKind?: 'tile' | 'modal' | 'block' | 'action';
+  /** How the block renders on POS: `tile` | `modal` | `block` | `action` | `receipt` | `observer`. */
+  blockKind?: 'tile' | 'modal' | 'block' | 'action' | 'receipt' | 'observer';
+  /** Tile↔modal / menu-item↔action pairing this module uses (derived from target when absent). */
+  presentation?: string;
+  /** Behaviour performed when tapped (discount, note, loyalty, receipt, etc.). */
+  action?: string;
+  /** A live value the block renders (falls back to `label` when unresolvable). */
+  binding?: string;
+  /** Whether a staff PIN is required before the action runs (gates sensitive ops). */
+  staffPin?: { required: boolean; reason?: string; role?: string };
+  /** Parameters for the declared `action`. */
+  actionConfig?: {
+    discountTitle?: string;
+    discountAmount?: string;
+    discountCode?: string;
+    note?: string;
+    propertyKey?: string;
+    propertyValue?: string;
+    productVariantId?: string;
+    receiptText?: string;
+    url?: string;
+  };
+  /** App-proxy endpoint for loyalty read/write and generic writes. */
+  appProxyPath?: string;
+  /** For observer modules: the POS event subscribed to and where it forwards. */
+  observe?: { event: string; forwardTo?: string };
 };
 
 export type PosConfigResult = {
@@ -81,12 +105,22 @@ export async function readPublishedPosConfig(
     }
     if (!isPosSpec(spec)) continue;
 
+    const cfg = spec.config;
     blocks.push({
       moduleId: mod.id,
       name: mod.name,
-      target: spec.config.target,
-      label: spec.config.label,
-      blockKind: spec.config.blockKind,
+      target: cfg.target,
+      label: cfg.label,
+      blockKind: cfg.blockKind,
+      // Additive vocab (all optional). Omitted keys stay undefined so existing
+      // POS modules serialize to the exact same shape they did before.
+      presentation: cfg.presentation ?? posTargetPresentation(cfg.target),
+      action: cfg.action,
+      binding: cfg.binding,
+      staffPin: cfg.staffPin,
+      actionConfig: cfg.actionConfig,
+      appProxyPath: cfg.appProxyPath,
+      observe: cfg.observe,
     });
   }
 

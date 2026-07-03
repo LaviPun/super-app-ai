@@ -560,7 +560,15 @@ export const ADMIN_TARGETS = [
 ] as const;
 
 // ─── 4.7 POS UI targets ──────────────────────────────────────────────────────
-export const POS_TARGETS = [
+/**
+ * The 30 `*.render` POS UI extension targets (2026-04, verified via dev-MCP). Every
+ * target here is a *rendering* surface — a tile, modal, block, menu-item, or action
+ * overlay the shipped generic POS block (`extensions/superapp-pos-block`) mounts and
+ * drives from PUBLISHED config read via `/api/pos/config`. The four background
+ * `*.event.observe` targets are enumerated separately in POS_EVENT_TARGETS and folded
+ * into POS_TARGETS below.
+ */
+export const POS_RENDER_TARGETS = [
   'pos.home.tile.render',
   'pos.home.modal.render',
   'pos.cart.line-item-details.action.menu-item.render',
@@ -592,6 +600,32 @@ export const POS_TARGETS = [
   'pos.register-details.action.menu-item.render',
   'pos.register-details.action.render',
 ] as const;
+
+/**
+ * The four background `pos.*.event.observe` targets (2026-04, verified via dev-MCP).
+ * Unlike the render targets, an observer has NO UI: it runs a side-effect-only handler
+ * when the named POS event fires (cart mutated, sale/transaction completed, a cash-drawer
+ * counting session opened or closed). The shipped block mounts an observer entry that
+ * reads the module's declared `observe` config and forwards the event to the app
+ * (`/api/pos/observe`) — e.g. loyalty accrual on transaction-complete, till-audit logging
+ * on cash-tracking sessions. Observers never render and never block the POS flow.
+ */
+export const POS_EVENT_TARGETS = [
+  'pos.cart-update.event.observe',
+  'pos.transaction-complete.event.observe',
+  'pos.cash-tracking-session-start.event.observe',
+  'pos.cash-tracking-session-complete.event.observe',
+] as const;
+
+/** All 34 POS UI extension targets (30 render + 4 event.observe), 2026-04. */
+export const POS_TARGETS = [
+  ...POS_RENDER_TARGETS,
+  ...POS_EVENT_TARGETS,
+] as const;
+
+export type PosRenderTarget = (typeof POS_RENDER_TARGETS)[number];
+export type PosEventTarget = (typeof POS_EVENT_TARGETS)[number];
+export type PosTarget = (typeof POS_TARGETS)[number];
 
 // ─── 4.4 Post-purchase extension targets (doc 4.4) ──────────────────────────
 /** Post-purchase API targets (ShouldRender / Render). */
@@ -1158,8 +1192,160 @@ export const CART_TRANSFORM_MODES = ['BUNDLE', 'MERGE', 'UNBUNDLE'] as const;
 
 
 
-/** POS block kind. */
-export const POS_BLOCK_KINDS = ['tile', 'modal', 'block', 'action'] as const;
+/**
+ * POS block kind — how the module presents on its target surface.
+ * - `tile`   → a smart-grid tile on `pos.home.tile.render` (its companion `pos.home.modal.render`
+ *              opens via `shopify.action.presentModal()`).
+ * - `modal`  → a full-screen modal/action overlay (`*.action.render`, `pos.home.modal.render`).
+ * - `block`  → a persistent info section inside a details screen (`*.block.render`).
+ * - `action` → a menu-item button (`*.action.menu-item.render`) that presents the companion modal.
+ * - `receipt`→ a print-only header/footer block (`pos.receipt-header/-footer.block.render`).
+ * - `observer` → a background `*.event.observe` handler with no UI.
+ * `receipt` and `observer` are additive; the original four are retained for back-compat.
+ */
+export const POS_BLOCK_KINDS = ['tile', 'modal', 'block', 'action', 'receipt', 'observer'] as const;
+
+/**
+ * The behaviour a POS block/action performs when the staff member taps it. The config only
+ * DECLARES the action; the shipped generic POS entry resolves it at run time against the
+ * contextual API available on the surface (Cart / Cart Line Item / Customer / Order / Draft
+ * Order / Product) or the app proxy. Any action whose required API is unavailable on the
+ * current surface degrades to a no-op with an explanatory Toast — never a hard error.
+ *
+ * - `NONE`             → display only (a block that just shows data / a label).
+ * - `PRESENT_MODAL`    → open the companion modal (`shopify.action.presentModal()`); the
+ *                        tile↔modal / menu-item↔action pairing (see POS_PRESENTATIONS).
+ * - `APPLY_CART_DISCOUNT`  → Cart API `applyCartDiscount('Percentage'|'FixedAmount', title, amount)`.
+ * - `APPLY_CODE_DISCOUNT`  → Cart API `applyCartDiscount('Code', code)` (discount code, no amount).
+ * - `APPLY_LINE_DISCOUNT`  → Cart API line-item discount (`bulkSetLineItemDiscounts`) on the selected line.
+ * - `SET_CART_NOTE`        → Cart API note write via `bulkCartUpdate({ note })`.
+ * - `ADD_CART_PROPERTY`    → Cart API custom cart/line properties (`addLineItemProperties` / cart attrs).
+ * - `ADD_LINE_ITEM`        → Cart API `addLineItem` (add a configured product/variant to the cart).
+ * - `LOYALTY_READ`         → read a loyalty/points balance from the app proxy (see POS_DATA_BINDINGS).
+ * - `LOYALTY_WRITE`        → write a loyalty-ledger entry (accrue/redeem) via the app proxy.
+ * - `RECEIPT_CONTENT`      → contribute static/bound content to a receipt header/footer block.
+ * - `PRINT`                → Print API: send a document / receipt to a connected printer.
+ * - `OPEN_URL`             → Navigation to an app-proxy page or external URL.
+ * - `APP_PROXY_POST`       → POST the surface context to a declared app-proxy endpoint (generic write).
+ */
+export const POS_ACTIONS = [
+  'NONE',
+  'PRESENT_MODAL',
+  'APPLY_CART_DISCOUNT',
+  'APPLY_CODE_DISCOUNT',
+  'APPLY_LINE_DISCOUNT',
+  'SET_CART_NOTE',
+  'ADD_CART_PROPERTY',
+  'ADD_LINE_ITEM',
+  'LOYALTY_READ',
+  'LOYALTY_WRITE',
+  'RECEIPT_CONTENT',
+  'PRINT',
+  'OPEN_URL',
+  'APP_PROXY_POST',
+] as const;
+export type PosAction = (typeof POS_ACTIONS)[number];
+
+/**
+ * A live value a POS block can BIND to render. The config only DECLARES which value it wants;
+ * the shipped generic POS entry resolves it at render time via the contextual API on the
+ * surface (`cart.*`, `customer.*`, `order.*`, `product.*`, `session.*`) or the app-owned
+ * loyalty source (`loyalty.*`, served by the app proxy). Any binding that can't be resolved on
+ * the current surface degrades to the block's literal `label` (or renders nothing) — never an error.
+ */
+export const POS_DATA_BINDINGS = [
+  'cart.subtotal',
+  'cart.total',
+  'cart.itemCount',
+  'cart.note',
+  'customer.displayName',
+  'customer.email',
+  'customer.ordersCount',
+  'customer.amountSpent',
+  'order.name',
+  'order.financialStatus',
+  'order.fulfillmentStatus',
+  'order.totalPrice',
+  'product.title',
+  'product.totalInventory',
+  'lineItem.title',
+  'lineItem.quantity',
+  'session.staffMemberName',
+  'session.locationName',
+  'loyalty.points',
+  'loyalty.tier',
+] as const;
+export type PosDataBinding = (typeof POS_DATA_BINDINGS)[number];
+
+/**
+ * The tile↔modal / menu-item↔action presentation pairing a module uses. POS models
+ * multi-screen workflows as a lightweight *trigger* surface that presents a *companion*
+ * full-screen surface via `shopify.action.presentModal()`:
+ * - `STANDALONE`    → renders on a single target with no companion (a block, receipt, tile-only,
+ *                     or an observer).
+ * - `TILE_MODAL`    → a `pos.home.tile.render` tile whose tap presents `pos.home.modal.render`.
+ * - `MENUITEM_ACTION` → a `*.action.menu-item.render` button whose tap presents the paired
+ *                     `*.action.render` overlay (product/customer/order/draft-order/register/
+ *                     purchase/return/exchange details).
+ * The shipped generic extension authors the pair ONCE from config and mounts it at both the
+ * trigger and companion targets — no second module row.
+ */
+export const POS_PRESENTATIONS = ['STANDALONE', 'TILE_MODAL', 'MENUITEM_ACTION'] as const;
+export type PosPresentation = (typeof POS_PRESENTATIONS)[number];
+
+/**
+ * POS events an `*.event.observe` module can subscribe to. Mirrors POS_EVENT_TARGETS as a
+ * config-facing enum (the target string is derived from the event via `posEventToTarget`).
+ */
+export const POS_OBSERVE_EVENTS = [
+  'cart-update',
+  'transaction-complete',
+  'cash-tracking-session-start',
+  'cash-tracking-session-complete',
+] as const;
+export type PosObserveEvent = (typeof POS_OBSERVE_EVENTS)[number];
+
+/** Map a POS observe-event enum to its `*.event.observe` target string. */
+export function posEventToTarget(event: PosObserveEvent): PosEventTarget {
+  return `pos.${event}.event.observe` as PosEventTarget;
+}
+
+/**
+ * The presentation model a POS render target participates in, derived from the target string.
+ * `menu-item` targets are triggers that present the paired `action.render` overlay; `home.tile`
+ * presents `home.modal`; everything else is standalone. Lets the shipped extension pick the
+ * right companion target without a second config field.
+ */
+export function posTargetPresentation(target: string): PosPresentation {
+  if (target === 'pos.home.tile.render') return 'TILE_MODAL';
+  if (target.endsWith('.action.menu-item.render')) return 'MENUITEM_ACTION';
+  return 'STANDALONE';
+}
+
+/** True when a POS target is a background observer (no UI). */
+export function isPosEventTarget(target: string): target is PosEventTarget {
+  return target.endsWith('.event.observe');
+}
+
+/**
+ * Which contextual POS API a target carries — the data/action surface a block can bind or act
+ * against. Used to decide, at authoring/preflight time, whether a declared action/binding is
+ * resolvable on the chosen target (e.g. APPLY_CART_DISCOUNT needs a `cart` surface).
+ */
+export function posTargetSurface(
+  target: string,
+): 'home' | 'cart' | 'customer' | 'product' | 'order' | 'draft-order' | 'register' | 'receipt' | 'event' {
+  if (target.startsWith('pos.home.')) return 'home';
+  if (target.startsWith('pos.cart')) return 'cart';
+  if (target.startsWith('pos.customer-details.')) return 'customer';
+  if (target.startsWith('pos.product-details.')) return 'product';
+  if (target.startsWith('pos.draft-order-details.')) return 'draft-order';
+  if (target.startsWith('pos.register-details.')) return 'register';
+  if (target.startsWith('pos.receipt-')) return 'receipt';
+  if (isPosEventTarget(target)) return 'event';
+  // order-details, exchange.post, purchase.post, return.post all carry the Order API.
+  return 'order';
+}
 
 /** HTTP methods for flow / integration. */
 export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;

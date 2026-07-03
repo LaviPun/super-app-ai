@@ -52,6 +52,10 @@ import {
   PROXY_WIDGET_MODES,
   CART_TRANSFORM_MODES,
   POS_BLOCK_KINDS,
+  POS_ACTIONS,
+  POS_DATA_BINDINGS,
+  POS_PRESENTATIONS,
+  POS_OBSERVE_EVENTS,
   HTTP_METHODS,
   HTTP_METHODS_EXTENDED,
   HTTP_AUTH_TYPES,
@@ -918,10 +922,78 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     type: z.literal('pos.extension'),
     category: z.literal('ADMIN_UI').default('ADMIN_UI'),
     requires: z.array(z.custom<Capability>()).default([]),
+    // POS UI extension config. `target`/`label`/`blockKind` are the original shipped
+    // fields (back-compat); everything below is additive and OPTIONAL — an existing POS
+    // module that only sets those three renders exactly as before. The shipped generic
+    // block (`extensions/superapp-pos-block`) reads this via `/api/pos/config` and both
+    // renders (bound `binding`/`label`) and acts (`action`) from it; unresolvable
+    // actions/bindings degrade gracefully.
     config: z.object({
       target: z.enum(POS_TARGETS),
       label: z.string().min(LIMITS.labelMin).max(LIMITS.labelMax),
       blockKind: z.enum(POS_BLOCK_KINDS).optional(),
+      /** The tile↔modal / menu-item↔action pairing this module uses (default derived from target). */
+      presentation: z.enum(POS_PRESENTATIONS).optional(),
+      /** Behaviour performed when tapped (discount, note, loyalty, receipt, etc.). Default NONE. */
+      action: z.enum(POS_ACTIONS).optional(),
+      /** A live value the block renders (falls back to `label` when unresolvable). */
+      binding: z.enum(POS_DATA_BINDINGS).optional(),
+      /**
+       * Require a staff PIN (PinPad API) before the action runs — gates sensitive ops such as
+       * discounts, voids, or loyalty writes. `role` optionally narrows to a POS staff role/permission
+       * the app proxy verifies; `reason` is shown on the PIN prompt.
+       */
+      staffPin: z
+        .object({
+          required: z.boolean().default(true),
+          reason: z.string().max(120).optional(),
+          role: z.string().max(60).optional(),
+        })
+        .optional(),
+      /** Parameters for the declared `action` (discount amount, product to add, receipt text, etc.). */
+      actionConfig: z
+        .object({
+          /** Discount / line-discount title shown in POS. */
+          discountTitle: z.string().max(80).optional(),
+          /** Percentage (e.g. "10") or fixed amount (e.g. "5.00"); omit for Code discounts. */
+          discountAmount: z.string().max(20).optional(),
+          /** Discount code for APPLY_CODE_DISCOUNT. */
+          discountCode: z.string().max(80).optional(),
+          /** Note text for SET_CART_NOTE. */
+          note: z.string().max(500).optional(),
+          /** Property key/value for ADD_CART_PROPERTY. */
+          propertyKey: z.string().max(80).optional(),
+          propertyValue: z.string().max(500).optional(),
+          /** Product/variant GID for ADD_LINE_ITEM. */
+          productVariantId: z.string().regex(PRODUCT_VARIANT_GID_RE).optional(),
+          /** Static/bound content for RECEIPT_CONTENT (header/footer). */
+          receiptText: z.string().max(500).optional(),
+          /** Destination for OPEN_URL / PRINT (app-proxy page or external https URL). */
+          url: z.string().max(500).optional(),
+        })
+        .optional(),
+      /**
+       * App-proxy endpoint the block reads/writes for LOYALTY_READ / LOYALTY_WRITE / APP_PROXY_POST
+       * and for resolving `loyalty.*` bindings. Relative to the app; verified by the app proxy.
+       */
+      appProxyPath: z
+        .string()
+        .regex(/^\/[a-z0-9\-/]{1,200}$/)
+        .optional(),
+      /**
+       * For an `*.event.observe` module: the POS event to subscribe to and where to forward it.
+       * `target` must be the matching `pos.<event>.event.observe` target. The observer is UI-less
+       * and forwards the event context to `forwardTo` (an app-proxy path).
+       */
+      observe: z
+        .object({
+          event: z.enum(POS_OBSERVE_EVENTS),
+          forwardTo: z
+            .string()
+            .regex(/^\/[a-z0-9\-/]{1,200}$/)
+            .optional(),
+        })
+        .optional(),
     }),
   }),
 

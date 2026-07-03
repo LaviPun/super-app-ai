@@ -463,13 +463,13 @@ importers:
   extensions/superapp-pos-block:
     dependencies:
       '@preact/signals':
-        specifier: ^2.3.x
+        specifier: ^2.9.1
         version: 2.9.1(preact@10.29.2)
       '@shopify/ui-extensions':
-        specifier: 2025.10.x
-        version: 2025.10.15(@preact/signals@2.9.1(preact@10.29.2))(preact@10.29.2)
+        specifier: 2026.4.0
+        version: 2026.4.0(@preact/signals@2.9.1(preact@10.29.2))(preact@10.29.2)
       preact:
-        specifier: ^10.10.x
+        specifier: ^10.29.2
         version: 10.29.2
 
   extensions/superapp-shipping-discount: {}
@@ -2801,17 +2801,6 @@ packages:
 
   '@shopify/storefront-api-client@1.0.10':
     resolution: {integrity: sha512-A0ItFW58L5+y/jnnJDEsmt2YcQSt2BG+pNoQOYRpPBJaOLpTj7A13q1QVrE5XYVGZCA6ZQ6FqAtgosHHrkut0Q==}
-
-  '@shopify/ui-extensions@2025.10.15':
-    resolution: {integrity: sha512-yqE+jkX4uA+f2zGcU0ihFPvSnTtfJC/I/P1Kbg8oWR4kEUlZhJNJM3xn8FkupJFuEKQjqBljoFM4xs5RbFYnhw==}
-    peerDependencies:
-      '@preact/signals': '*'
-      preact: '*'
-    peerDependenciesMeta:
-      '@preact/signals':
-        optional: true
-      preact:
-        optional: true
 
   '@shopify/ui-extensions@2026.4.0':
     resolution: {integrity: sha512-17RktH0IOjPKYWxHenr8bsw9MLBX+pB92HOoHo4jEKWoIcrQY4th00xRvtA9jeG9Iw5vxrmgN8TdtdTj+uFeCQ==}
@@ -8517,13 +8506,6 @@ snapshots:
   '@shopify/storefront-api-client@1.0.10':
     dependencies:
       '@shopify/graphql-client': 1.4.2
-
-  '@shopify/ui-extensions@2025.10.15(@preact/signals@2.9.1(preact@10.29.2))(preact@10.29.2)':
-    dependencies:
-      ts-morph: 25.0.1
-    optionalDependencies:
-      '@preact/signals': 2.9.1(preact@10.29.2)
-      preact: 10.29.2
 
   '@shopify/ui-extensions@2026.4.0(@preact/signals@2.9.1(preact@10.29.2))(preact@10.29.2)':
     dependencies:
