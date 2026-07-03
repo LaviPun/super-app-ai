@@ -301,9 +301,17 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
   'platform.extensionBlueprint': {
     moduleType: 'platform.extensionBlueprint',
     runtime: 'composite',
-    runtimeShipped: true,
+    // A composite has NO runtime of its own: it deploys by publishing its MEMBERS
+    // (each a real deployable type) via the blueprint co-deploy path
+    // (BlueprintService.publishBlueprint → PublishService.publish per member). As a
+    // STANDALONE module (the AI classifier's "doesn't fit above" bucket) it compiles
+    // to a bare AUDIT op and writes NO artifact, so publishing it directly would
+    // flip status→PUBLISHED while deploying nothing (false-publish). Gate it
+    // needs_runtime so the single-publish path fails loudly; real blueprints still
+    // deploy through their members, which are individually deployable.
+    runtimeShipped: false,
     requiredScopes: [],
-    note: 'A blueprint that composes other deployable module types; deploys via its members.',
+    note: 'A blueprint that composes other deployable module types; it has no runtime of its own and deploys only by publishing its members (co-deploy). Publishing the composite directly deploys nothing, so it is gated needs_runtime.',
   },
 };
 

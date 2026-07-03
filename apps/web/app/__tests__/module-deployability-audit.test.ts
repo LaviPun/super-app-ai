@@ -10,6 +10,7 @@ import {
 import { classifyModulePublishability } from '~/services/publish/publish-preflight.server';
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
 import { compileRecipe } from '~/services/recipes/compiler';
+import { repairHydrateEnvelope } from '~/services/ai/llm.server';
 
 /**
  * MODULE COMBINATION AUDIT (machine-checked, eligibility model).
@@ -50,6 +51,11 @@ const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
   // App-proxy sync: no compiler persists its config and nothing consumes it
   // server-side yet, so publishing would deploy nothing. Gated until wired.
   'integration.httpSync',
+  // Composite blueprint: no runtime of its own. It deploys ONLY by publishing its
+  // members (co-deploy); as a standalone module it compiles to a bare AUDIT op and
+  // writes no artifact, so publishing it directly would false-publish. Gated
+  // needs_runtime so the single-publish path fails loudly. See extension-eligibility.ts.
+  'platform.extensionBlueprint',
 ]);
 // `pos.extension` is now deployable: extensions/superapp-pos-block reads its
 // published config from the app backend (/api/pos/config) via App Authentication
@@ -109,4 +115,106 @@ describe('deployable checkout-UI types compile to a real deploy (no false-publis
       expect(result.checkoutUpsellPayload?.type).toBe(type);
     });
   }
+});
+
+/**
+ * INTEGRITY GATE (build #0): PUBLISHED must be gated behind a REAL deployable
+ * artifact. A type whose compile yields ONLY a bare AUDIT op AND no payload writes
+ * nothing at publish; if such a type is still classified `willDeploy: true`, the
+ * publish path flips status→PUBLISHED while deploying nothing (false-publish).
+ *
+ * The one legitimate exception is a type that deploys via a NON-compiler artifact:
+ * `pos.extension` persists no metaobject — its shipped POS block reads the PUBLISHED
+ * ModuleVersion from the app backend (/api/pos/config, see pos-config.server.ts), so
+ * the persisted PUBLISHED version IS the artifact. It is genuinely deployable.
+ */
+const PAYLOAD_KEYS = [
+  'themeModulePayload',
+  'adminBlockPayload',
+  'adminActionPayload',
+  'checkoutUpsellPayload',
+  'customerAccountBlockPayload',
+  'proxyWidgetPayload',
+] as const;
+
+/** Types whose real deploy artifact is NOT a compiler op/payload (documented exceptions). */
+const NON_COMPILER_ARTIFACT_TYPES: ReadonlySet<ModuleType> = new Set<ModuleType>([
+  // POS reads its PUBLISHED ModuleVersion from the app backend, not a metaobject.
+  'pos.extension',
+]);
+
+describe('INTEGRITY: no AUDIT-only type false-publishes (PUBLISHED ⇒ real artifact)', () => {
+  const deployed = deployedFunctionExtensions();
+  const themeTarget = { kind: 'THEME', themeId: '1', moduleId: 'x' } as unknown as DeployTarget;
+  const platformTarget = { kind: 'PLATFORM', moduleId: 'x' } as unknown as DeployTarget;
+
+  for (const type of RECIPE_SPEC_TYPES) {
+    it(`${type}: if willDeploy, it emits a real artifact (op or payload) or is a documented non-compiler-artifact type`, () => {
+      const pf = classifyModulePublishability({ type } as RecipeSpec, { deployedExtensions: deployed });
+      if (!pf.willDeploy) return; // needs_runtime types are honestly gated — nothing to prove.
+
+      let auditOnly = false;
+      let hasPayload = false;
+      try {
+        const spec = { type, name: 'Probe', config: {} } as unknown as RecipeSpec;
+        const result = compileRecipe(spec, type === 'theme.section' ? themeTarget : platformTarget);
+        auditOnly = result.ops.length > 0 && result.ops.every((o) => o.kind === 'AUDIT');
+        hasPayload = PAYLOAD_KEYS.some((k) => (result as Record<string, unknown>)[k] != null);
+      } catch {
+        // A compile throw on an empty probe config means the compiler DOES real work
+        // for this type (it reads config) — it is not a bare AUDIT no-op.
+        return;
+      }
+
+      const noArtifact = auditOnly && !hasPayload;
+      if (noArtifact) {
+        expect(
+          NON_COMPILER_ARTIFACT_TYPES.has(type),
+          `${type} is willDeploy=true but compiles to a bare AUDIT op with no payload and no documented ` +
+            `non-compiler artifact path — it would flip PUBLISHED while deploying nothing (false-publish).`,
+        ).toBe(true);
+      }
+    });
+  }
+
+  it('platform.extensionBlueprint is gated needs_runtime (composite has no standalone artifact)', () => {
+    const pf = classifyModulePublishability({ type: 'platform.extensionBlueprint' } as RecipeSpec, {
+      deployedExtensions: deployed,
+    });
+    expect(pf.status).toBe('needs_runtime');
+    expect(pf.willDeploy).toBe(false);
+  });
+
+  it('a known-deployable type still reaches deployable (gate is not over-broad)', () => {
+    for (const type of ['functions.discountRules', 'theme.section'] as const) {
+      const pf = classifyModulePublishability({ type } as RecipeSpec, { deployedExtensions: deployed });
+      expect(pf.status, `${type} must stay deployable`).toBe('deployable');
+      expect(pf.willDeploy).toBe(true);
+    }
+  });
+});
+
+/**
+ * Casing fix: validation-report check status is a strict uppercase enum
+ * ('PASS'|'WARN'|'FAIL'). The LLM sometimes emits the wrong case; the envelope
+ * repair must normalize it BEFORE schema validation, or a lowercase 'pass' both
+ * fails the Zod enum (needless retry) and renders red in the module UI (which
+ * checks `status === 'PASS'` exactly).
+ */
+describe("INTEGRITY: validation-report status casing is normalized ('pass' → 'PASS')", () => {
+  it('uppercases lowercase/mixed-case check statuses and overall', () => {
+    const repaired = repairHydrateEnvelope({
+      validationReport: {
+        overall: 'pass',
+        checks: [
+          { id: 'A', severity: 'high', status: 'pass', description: 'ok' },
+          { id: 'B', severity: 'medium', status: 'Warn', description: 'meh' },
+          { id: 'C', severity: 'low', status: 'fail', description: 'bad' },
+        ],
+      },
+    }) as { validationReport: { overall: string; checks: Array<{ status: string }> } };
+
+    expect(repaired.validationReport.overall).toBe('PASS');
+    expect(repaired.validationReport.checks.map((c) => c.status)).toEqual(['PASS', 'WARN', 'FAIL']);
+  });
 });
