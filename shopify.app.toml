@@ -40,6 +40,22 @@ uri = "/webhooks"
 topics = [ "products/update" ]
 uri = "/webhooks"
 
+# integration.httpSync trigger topics (build #7a). Only topics whose required scope the
+# app already holds are declared, so `shopify app config validate` stays green:
+#   customers/create  → read_customers ✓   collections/create → read_products ✓
+# fulfillments/create (needs read_fulfillments) and draft_orders/create (needs
+# read_draft_orders) are SUPPORTED by the runner's trigger map but NOT declared here —
+# they require scopes the app doesn't request yet; add the scope + the subscription
+# together when that sync is needed (kept honest rather than declaring an inert topic
+# the app can't receive).
+[[webhooks.subscriptions]]
+topics = [ "customers/create" ]
+uri = "/webhooks"
+
+[[webhooks.subscriptions]]
+topics = [ "collections/create" ]
+uri = "/webhooks"
+
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 # read_themes powers theme reads (theme list, theme.files) and is required.

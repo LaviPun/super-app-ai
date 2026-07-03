@@ -330,12 +330,18 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
   'integration.httpSync': {
     moduleType: 'integration.httpSync',
     runtime: 'app-proxy',
-    // No compiler persists the sync config and nothing consumes it server-side yet,
-    // so publishing it would deploy nothing. Gate honestly (needs_runtime) until the
-    // sync runtime + compiler are wired (flip to true then) rather than false-publish.
-    runtimeShipped: false,
+    // SHIPPED (build #7a): the compiler persists the sync config (SHOP_METAFIELD_SET,
+    // non-AUDIT → deployable, not false-published) and the runtime consumes it server-
+    // side. HttpSyncRunnerService fires on the subscribed Shopify webhook (webhooks.tsx),
+    // maps the declared fields, and dispatches to the merchant's connected service
+    // (ConnectorService) with an HMAC signature header + retry/backoff/DLQ/rate-limit;
+    // /api/integration/httpsync/inbound records the service's reply into the module's
+    // typed data store. product_feeds full/incremental sync is DEFERRED (needs the
+    // read_product_listings scope + a ProductFeed resource the app doesn't hold) — the
+    // MANUAL/SCHEDULED/webhook triggers are the shipped surface.
+    runtimeShipped: true,
     requiredScopes: ['write_metaobjects'],
-    note: 'Runs server-side (scheduled/app-proxy sync). Sync runtime + compiler wiring pending before it can publish.',
+    note: 'Runs server-side: reacts to a Shopify webhook (or MANUAL/SCHEDULED) and syncs mapped fields to the merchant-connected service (signed), and records the service’s reply into the module’s typed data store. product_feeds full/incremental sync is deferred.',
   },
 
   // ── Messaging (app proxy / server, R3.4) ───────────────────────────────────

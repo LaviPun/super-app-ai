@@ -55,6 +55,30 @@ export type TestRequest = {
   body?: unknown;
 };
 
+export type DispatchRequest = {
+  connectorId: string;
+  path: string;
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  /** Extra headers merged over the connector auth (e.g. the httpSync signature). */
+  headers?: Record<string, string>;
+  /** Serialized request body (already-stringified so the signature covers the exact bytes). */
+  body?: string;
+  /** Per-request timeout (defaults to 10s). */
+  timeoutMs?: number;
+};
+
+export type DispatchResult = {
+  ok: boolean;
+  status: number;
+  bodyPreview: string;
+  durationMs: number;
+  /** True when the failure is worth retrying (429 / 5xx / network / timeout). */
+  retryable: boolean;
+  /** Server-advised retry delay (from Retry-After), in ms, when present. */
+  retryAfterMs?: number;
+  error?: string;
+};
+
 export class ConnectorService {
   async create(input: CreateConnectorInput) {
     const prisma = getPrisma();
@@ -164,6 +188,93 @@ export class ConnectorService {
         status: res.status,
         headers: Object.fromEntries(res.headers.entries()),
         bodyPreview,
+      };
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  /**
+   * Fire-and-classify a request at a merchant-connected service (build #7a: the
+   * integration.httpSync outbound leg). Like `test`, it resolves the connector by id,
+   * applies the merchant's auth, and SSRF-checks the URL against the allowlist — but
+   * it does NOT touch `lastTestedAt`/`sampleResponseJson` (this is a live sync, not a
+   * builder test), it accepts an ALREADY-serialized body (so an HMAC signature covers
+   * the exact bytes sent), and it returns a retry classification the runner uses to
+   * drive backoff / DLQ. Throws only for a missing connector or a blocked URL; a real
+   * HTTP failure comes back as `{ ok:false, retryable }` so the caller owns the policy.
+   */
+  async dispatch(shopDomain: string, req: DispatchRequest): Promise<DispatchResult> {
+    const prisma = getPrisma();
+    const connector = await prisma.connector.findFirst({
+      where: { id: req.connectorId, shop: { shopDomain } },
+    });
+    if (!connector) throw new Error('Connector not found');
+
+    const auth = decryptJson<ConnectorAuth>(connector.secretsEnc);
+    const allowlist = connector.allowlistDomains
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+
+    const rawUrl = joinUrl(connector.baseUrl, req.path);
+    // Throws (blocked URL) — the caller treats a config/SSRF error as non-retryable.
+    const url = await assertSafeTargetUrl(rawUrl, {
+      allowedHostnames: allowlist,
+      context: 'httpSync connector dispatch URL',
+    });
+
+    const headers: Record<string, string> = { ...(req.headers ?? {}) };
+    applyAuth(headers, auth);
+
+    const start = Date.now();
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), req.timeoutMs ?? 10_000);
+    try {
+      const res = await fetch(url.toString(), {
+        method: req.method ?? 'POST',
+        headers,
+        body: req.body,
+        signal: controller.signal,
+      });
+      const text = await res.text();
+      const durationMs = Date.now() - start;
+
+      if (res.status === 429) {
+        const retryAfter = res.headers.get('Retry-After');
+        return {
+          ok: false,
+          status: 429,
+          bodyPreview: text.slice(0, 4_000),
+          durationMs,
+          retryable: true,
+          retryAfterMs: retryAfter ? parseInt(retryAfter, 10) * 1000 : undefined,
+          error: `Rate limited by ${url.hostname}`,
+        };
+      }
+
+      return {
+        ok: res.ok,
+        status: res.status,
+        bodyPreview: text.slice(0, 4_000),
+        durationMs,
+        // 5xx is a transient upstream failure worth retrying; 4xx (other than 429) is
+        // a caller/config error the same retry won't fix.
+        retryable: res.status >= 500,
+        ...(res.ok ? {} : { error: `Connected service returned ${res.status}` }),
+      };
+    } catch (err) {
+      const durationMs = Date.now() - start;
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return { ok: false, status: 0, bodyPreview: '', durationMs, retryable: true, error: 'Request timed out' };
+      }
+      return {
+        ok: false,
+        status: 0,
+        bodyPreview: '',
+        durationMs,
+        retryable: true,
+        error: err instanceof Error ? err.message : String(err),
       };
     } finally {
       clearTimeout(t);

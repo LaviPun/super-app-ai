@@ -58,9 +58,11 @@ const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
   'functions.shippingDiscount',
   // Flow trigger/action extensions ship; workflow-definition publish wiring pending.
   'flow.automation',
-  // App-proxy sync: no compiler persists its config and nothing consumes it
-  // server-side yet, so publishing would deploy nothing. Gated until wired.
-  'integration.httpSync',
+  // integration.httpSync is now DEPLOYABLE (build #7a): the compiler persists the sync
+  // config (SHOP_METAFIELD_SET) and HttpSyncRunnerService consumes it server-side —
+  // webhook-triggered outbound sync to the merchant-connected service (signed) +
+  // inbound reconciliation into the typed data store. So it is intentionally NOT in
+  // this set anymore.
   // Composite blueprint: no runtime of its own. It deploys ONLY by publishing its
   // members (co-deploy); as a standalone module it compiles to a bare AUDIT op and
   // writes no artifact, so publishing it directly would false-publish. Gated

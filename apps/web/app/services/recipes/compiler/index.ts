@@ -24,6 +24,7 @@ import { compileAdminPrint } from './admin.print';
 import { compileAdminSegmentTemplate } from './admin.segmentTemplate';
 import { compileAnalyticsPixel } from './analytics.pixel';
 import { compileMessagingCampaign } from './messaging.campaign';
+import { compileIntegrationHttpSync } from './integration.httpSync';
 import { compileAgenticCatalogProfile } from './agentic.catalogProfile';
 
 export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileResult {
@@ -73,6 +74,8 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
       return compileAnalyticsPixel(spec);
     case 'messaging.campaign':
       return compileMessagingCampaign(spec);
+    case 'integration.httpSync':
+      return compileIntegrationHttpSync(spec);
     case 'agentic.catalogProfile':
       return compileAgenticCatalogProfile(spec);
     case 'checkout.block':
@@ -80,7 +83,6 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
     case 'postPurchase.offer':
       return compilePostPurchaseOffer(spec);
     case 'pos.extension':
-    case 'integration.httpSync':
     case 'flow.automation':
     case 'platform.extensionBlueprint':
       return { ops: [{ kind: 'AUDIT', action: `compile.${spec.type}` }] };
