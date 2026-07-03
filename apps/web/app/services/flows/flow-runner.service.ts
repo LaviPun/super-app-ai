@@ -47,6 +47,7 @@ type FlowStep = {
   to?: string;
   subject?: string;
   channel?: string;
+  webhookUrl?: string;
   tag?: string;
   note?: string;
   text?: string;
@@ -147,6 +148,10 @@ export class FlowRunnerService {
       include: { activeVersion: true },
     });
     if (!flow) throw new Error(`Flow ${flowId} not found for ${shopDomain}`);
+    // Respect the pause contract: flow_pause sets status DRAFT to stop a flow, so
+    // a targeted run must not execute a paused flow (matches runForTrigger, which
+    // only picks up PUBLISHED flows).
+    if (flow.status !== 'PUBLISHED') throw new Error(`${flow.name} is paused — resume it before running`);
     if (!flow.activeVersion) throw new Error(`${flow.name} has no published version to run`);
 
     const spec = new RecipeService().parse(flow.activeVersion.specJson);
@@ -317,9 +322,9 @@ export class FlowRunnerService {
       // Real send via the SlackConnector incoming webhook. The webhook URL comes
       // from the step or SLACK_WEBHOOK_URL; without one this step must fail, not
       // pretend it posted.
-      const webhookUrl = step.url || process.env.SLACK_WEBHOOK_URL;
+      const webhookUrl = step.webhookUrl || step.url || process.env.SLACK_WEBHOOK_URL;
       if (!webhookUrl) {
-        throw new Error('Slack step has no webhook URL (set the step URL or SLACK_WEBHOOK_URL)');
+        throw new Error('Slack step has no webhook URL (set the step webhook URL or SLACK_WEBHOOK_URL)');
       }
       const connector = getConnector('slack');
       if (!connector) throw new Error('Slack connector not registered');

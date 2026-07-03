@@ -62,7 +62,7 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 | `/internal/audit` | Audit log of sensitive admin/merchant actions (deletions, plan changes, overrides) for compliance review |
 | `/internal/webhooks` | Webhook events from Shopify (orders, products, customers, fulfillments, GDPR) — topic/shop/status/date filters |
 | `/internal/trace/:correlationId` | Unified timeline view: every API log, job, error, AI usage row, flow step, and activity entry that share the same correlationId/requestId |
-| `/internal/stores` | Installed stores; per-store AI provider override, retention overrides, **Change plan** (FREE/STARTER/GROWTH/PRO/ENTERPRISE). `:storeId` detail page falls back to placeholder data for unknown ids |
+| `/internal/stores` | Installed stores; per-store AI provider override, retention overrides, **Change plan** (FREE/STARTER/GROWTH/PRO/ENTERPRISE). `:storeId` detail page renders a real store or an in-shell not-found state for unknown ids (placeholder fallback removed 2026-07) |
 | `/internal/modules`, `/internal/modules/:moduleId` | **Platform** — module list + detail (versions, publish/rollback) |
 | `/internal/flows`, `/internal/flows/:flowId` | **Platform** — flow list + detail (steps visualization, run history, pause/resume, run-now) |
 | `/internal/connectors`, `/internal/connectors/:connectorId` | **Platform** — connector list + detail (endpoints, test history, config, test connection) |

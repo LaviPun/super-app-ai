@@ -8,32 +8,25 @@ import { expect, test, type Page } from '@playwright/test';
  * Uses the storageState produced by auth.setup.ts (configured in playwright.config.ts).
  */
 
-// Every admin route reachable from the design nav, plus a representative detail page each.
-const ADMIN_ROUTES: string[] = [
+// Every list/index admin route reachable from the design nav. These render the
+// design shell even on an empty DB (they show EmptyStates), so we assert the
+// shell + nav are present.
+const SHELL_ROUTES: string[] = [
   '/internal', // Dashboard
   // Operations
   '/internal/stores',
-  '/internal/stores/shp_8x21',
   '/internal/jobs',
-  '/internal/jobs/job_8x21', // detail (placeholder falls back to first job)
   '/internal/activity',
   '/internal/api-logs',
   '/internal/logs',
   '/internal/webhooks',
-  '/internal/webhooks/wh_1',
   '/internal/audit',
-  '/internal/trace/cor_rs8f2',
   // Platform
   '/internal/modules',
-  '/internal/modules/mod_a1',
   '/internal/flows',
-  '/internal/flows/flo_1',
   '/internal/connectors',
-  '/internal/connectors/con_1',
   '/internal/data-stores',
-  '/internal/data-stores/reviews',
   '/internal/customers',
-  '/internal/customers/cus_8x21',
   // AI & Models
   '/internal/ai-providers',
   '/internal/ai-assistant',
@@ -47,6 +40,23 @@ const ADMIN_ROUTES: string[] = [
   '/internal/recipe-edit',
   // Settings
   '/internal/settings',
+];
+
+// Detail routes driven with synthetic ids. On CI's empty DB these records don't
+// exist; the loaders correctly return not-found rather than fabricating a record
+// (the old placeholder-fallback behavior was removed in the 2026-07 repair pass).
+// We assert they respond gracefully (no 5xx, no uncaught console error) without
+// requiring the design shell.
+const DETAIL_ROUTES: string[] = [
+  '/internal/stores/shp_8x21',
+  '/internal/jobs/job_8x21',
+  '/internal/webhooks/wh_1',
+  '/internal/modules/mod_a1',
+  '/internal/flows/flo_1',
+  '/internal/connectors/con_1',
+  '/internal/data-stores/reviews',
+  '/internal/customers/cus_8x21',
+  '/internal/trace/cor_rs8f2',
 ];
 
 // Console messages that are noise rather than genuine app errors.
@@ -70,7 +80,7 @@ async function collectConsoleErrors(page: Page): Promise<string[]> {
   return errors;
 }
 
-for (const route of ADMIN_ROUTES) {
+for (const route of SHELL_ROUTES) {
   test(`admin route renders: ${route}`, async ({ page }) => {
     const errors = await collectConsoleErrors(page);
 
@@ -78,11 +88,25 @@ for (const route of ADMIN_ROUTES) {
     expect(response, `no response for ${route}`).not.toBeNull();
     expect(response!.status(), `5xx for ${route}`).toBeLessThan(500);
 
-    // The design shell must render on every authed admin page.
+    // The design shell must render on every authed admin list page.
     await expect(page.locator('.admin-shell'), `.admin-shell missing on ${route}`).toBeVisible();
     await expect(page.locator('.admin-nav'), `.admin-nav missing on ${route}`).toBeVisible();
 
     // No uncaught console errors.
+    expect(errors, `console errors on ${route}: ${errors.join(' | ')}`).toHaveLength(0);
+  });
+}
+
+for (const route of DETAIL_ROUTES) {
+  test(`admin detail route handles unknown id gracefully: ${route}`, async ({ page }) => {
+    const errors = await collectConsoleErrors(page);
+
+    const response = await page.goto(route, { waitUntil: 'domcontentloaded' });
+    expect(response, `no response for ${route}`).not.toBeNull();
+    // A missing record returns not-found (404), never a 5xx/crash.
+    expect(response!.status(), `5xx for ${route}`).toBeLessThan(500);
+
+    // No uncaught console errors, even on the not-found path.
     expect(errors, `console errors on ${route}: ${errors.join(' | ')}`).toHaveLength(0);
   });
 }

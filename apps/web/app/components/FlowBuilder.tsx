@@ -35,7 +35,7 @@ type FlowStep =
   | { kind: 'TAG_ORDER'; tags: string }
   | { kind: 'WRITE_TO_STORE'; storeKey: string; titleExpr: string; payloadMapping: Record<string, string> }
   | { kind: 'SEND_EMAIL_NOTIFICATION'; to: string; subject: string; body: string }
-  | { kind: 'SEND_SLACK_MESSAGE'; channel: string; text: string }
+  | { kind: 'SEND_SLACK_MESSAGE'; webhookUrl?: string; channel?: string; text: string }
   | { kind: 'CONDITION'; field: string; operator: string; value: string; thenSteps: FlowStep[]; elseSteps: FlowStep[] };
 
 type FlowSpec = {
@@ -300,7 +300,8 @@ function StepFields({ step, connectorOptions, onChange }: {
       )}
       {step.kind === 'SEND_SLACK_MESSAGE' && (
         <>
-          <TextField label="Channel" value={step.channel} onChange={(v) => onChange({ channel: v })} autoComplete="off" placeholder="#general" />
+          <TextField label="Slack incoming webhook URL" value={step.webhookUrl ?? ''} onChange={(v) => onChange({ webhookUrl: v })} autoComplete="off" placeholder="https://hooks.slack.com/services/…" helpText="Create an Incoming Webhook in Slack; it posts to the channel you chose there. Leave blank to use the app-wide SLACK_WEBHOOK_URL." />
+          <TextField label="Channel label (optional)" value={step.channel ?? ''} onChange={(v) => onChange({ channel: v })} autoComplete="off" placeholder="#general" helpText="Display only — the webhook URL determines the actual channel." />
           <TextField label="Message" value={step.text} onChange={(v) => onChange({ text: v })} autoComplete="off" multiline={3} />
         </>
       )}

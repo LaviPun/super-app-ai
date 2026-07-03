@@ -443,7 +443,11 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
         }),
         z.object({
           kind: z.literal('SEND_SLACK_MESSAGE'),
-          channel: z.string().min(1).max(100),
+          // Slack incoming webhooks are bound to a channel at creation, so the
+          // webhook URL is what routes the message; `channel` is an optional
+          // human label. Falls back to SLACK_WEBHOOK_URL when webhookUrl omitted.
+          webhookUrl: z.string().url().optional(),
+          channel: z.string().max(100).optional(),
           text: z.string().min(1).max(4000),
         }),
         z.object({

@@ -37,7 +37,8 @@ export function exportCSV(filename: string, rows: any[], columns?: string[]) {
   } catch { /* download blocked — silent */ }
 }
 
-// Live nav counts (DLQ / errors / failed webhooks) — accepts arrays, defaults to placeholders.
+// Live nav counts (DLQ / errors / failed webhooks) computed from real rows the
+// caller passes; empty arrays yield zero counts.
 export function navCounts(jobs: any[] = [], errors: any[] = [], webhooks: any[] = []) {
   return {
     dlq: jobs.filter((j) => j.status === 'FAILED').length,
