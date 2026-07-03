@@ -1,0 +1,18 @@
+api_version = "2026-04"
+
+[[extensions]]
+name = "t:name"
+handle = "superapp-shipping-discount"
+type = "function"
+uid = "b7d41f2c-9a3e-4c81-88d5-2f6e1a0c4d93a1e70044"
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "cart.delivery-options.discounts.generate.run"
+  input_query = "src/cart_delivery_options_discounts_generate_run.graphql"
+  export = "cart_delivery_options_discounts_generate_run"
+
+  [extensions.build]
+  command = "cargo build --target=wasm32-unknown-unknown --release"
+  path = "target/wasm32-unknown-unknown/release/superapp-shipping-discount.wasm"
+  watch = [ "src/**/*.rs" ]

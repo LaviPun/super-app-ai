@@ -362,6 +362,40 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     }),
   }),
 
+  // Shipping-discount Function (unified Discount API, SHIPPING class). Waives or
+  // discounts delivery via cart.delivery-options.discounts.generate.run — the ONLY
+  // Shopify Function target that can change shipping cost. Backed by the
+  // extensions/superapp-shipping-discount crate. A `free-shipping` pricing rule lowers
+  // into `config.rules` here (see compiler/pricing/lower.ts lowerPricingToShippingDiscount).
+  Base.extend({
+    type: z.literal('functions.shippingDiscount'),
+    category: z.literal('FUNCTION').default('FUNCTION'),
+    requires: z.array(z.custom<Capability>()).default(['SHIPPING_FUNCTION']),
+    config: z.object({
+      // Wire format the wasm handler reads (mirrors the crate's `Configuration`).
+      // Each rule waives/discounts delivery for groups whose gate holds.
+      rules: z.array(z.object({
+        when: z.object({
+          minSubtotal: z.number().nonnegative().optional(),
+          minQty: z.number().int().positive().optional(),
+          countryCodeIn: z.array(z.string().min(2).max(2)).optional(),
+          customerTags: z.array(z.string()).optional(),
+        }),
+        apply: z.object({
+          /** Percentage off shipping. 100 = free shipping; a partial value = discounted delivery. */
+          shippingPercentage: z.number().min(0).max(100),
+        }),
+      })).min(LIMITS.rulesMin).max(LIMITS.rulesMax),
+      /**
+       * Pricing vocabulary (R2.2). Optional; when present it SUPERSEDES `rules[]`:
+       * the compiler lowers a `free-shipping` (or discounted-delivery) pricing block
+       * into the Function's `rules` config via `lowerPricingToShippingDiscount`.
+       * Omitting it keeps the explicit `rules[]` path byte-identical.
+       */
+      pricing: PricingPackSchema.optional(),
+    }),
+  }),
+
   Base.extend({
     type: z.literal('checkout.upsell'),
     category: z.literal('STOREFRONT_UI').default('STOREFRONT_UI'),

@@ -861,6 +861,12 @@ export const RECIPE_SPEC_TYPES = [
   'functions.cartTransform',
   'functions.fulfillmentConstraints',
   'functions.orderRoutingLocationRule',
+  // Shipping-discount Function (unified Discount API, SHIPPING class): waives or
+  // discounts delivery via cart.delivery-options.discounts.generate.run. This is the
+  // runtime the product-discount Function CANNOT provide (its target has no shipping
+  // op), so a `free-shipping` pricing rule is only ever enforced here. Backed by the
+  // extensions/superapp-shipping-discount crate. See discount-packs.md §9.2.
+  'functions.shippingDiscount',
   'checkout.upsell',
   'checkout.block',
   'postPurchase.offer',
@@ -902,6 +908,7 @@ const MODULE_TYPE_ORDER: ModuleType[] = [
   'functions.cartTransform',
   'functions.fulfillmentConstraints',
   'functions.orderRoutingLocationRule',
+  'functions.shippingDiscount',
   'admin.block',
   'admin.action',
   'admin.discountUi',
@@ -960,6 +967,7 @@ export const MODULE_TYPE_TO_CATEGORY: Record<ModuleType, ModuleCategory> = {
   'functions.cartTransform': 'FUNCTION',
   'functions.fulfillmentConstraints': 'FUNCTION',
   'functions.orderRoutingLocationRule': 'FUNCTION',
+  'functions.shippingDiscount': 'FUNCTION',
   'checkout.upsell': 'STOREFRONT_UI',
   'checkout.block': 'STOREFRONT_UI',
   'postPurchase.offer': 'STOREFRONT_UI',
@@ -991,6 +999,7 @@ export const MODULE_TYPE_DEFAULT_REQUIRES: Record<ModuleType, readonly string[]>
   'functions.cartTransform': ['CART_TRANSFORM_FUNCTION_UPDATE'],
   'functions.fulfillmentConstraints': [],
   'functions.orderRoutingLocationRule': [],
+  'functions.shippingDiscount': ['SHIPPING_FUNCTION'],
   'checkout.upsell': ['CHECKOUT_UI_INFO_SHIP_PAY'],
   'checkout.block': ['CHECKOUT_UI_INFO_SHIP_PAY'],
   'postPurchase.offer': ['CHECKOUT_UI_INFO_SHIP_PAY'],
@@ -1018,6 +1027,7 @@ export const MODULE_TYPE_TO_SURFACE: Record<ModuleType, ShopifySurface> = {
   'functions.cartTransform': 'checkout',
   'functions.fulfillmentConstraints': 'checkout',
   'functions.orderRoutingLocationRule': 'checkout',
+  'functions.shippingDiscount': 'checkout',
   'checkout.upsell': 'checkout',
   'checkout.block': 'checkout',
   'postPurchase.offer': 'checkout',
@@ -1137,6 +1147,14 @@ export const CLASSIFICATION_RULES: ClassificationRule[] = [
   {
     keywords: ['discount', 'coupon', 'percentage off', 'percent off', 'discount rule', 'price rule'],
     type: 'functions.discountRules',
+  },
+  {
+    // Free / discounted shipping is a DISCOUNT of the delivery cost — the shipping-discount
+    // Function (cart.delivery-options.discounts.generate.run), NOT delivery-customization
+    // (which only renames/reorders/hides options and cannot change cost). Placed before the
+    // delivery rule so "free shipping" routes here first.
+    keywords: ['free shipping', 'free delivery', 'waive shipping', 'discounted shipping', 'shipping discount', 'discount shipping', 'shipping over', 'free shipping over', 'ship free'],
+    type: 'functions.shippingDiscount',
   },
   {
     keywords: ['delivery', 'shipping', 'shipping method', 'hide shipping', 'delivery customization'],

@@ -1,0 +1,9 @@
+{
+  "name": "superapp-shipping-discount",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "cargo test"
+  }
+}

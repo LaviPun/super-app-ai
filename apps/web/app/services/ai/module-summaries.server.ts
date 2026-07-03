@@ -53,6 +53,11 @@ No style.`,
 Settings: rules (array 1-50), each: when(inventoryLocationIds:str[], countryCode:str[2]), apply(preferLocationId:str, priority:int 0-100). Prefer warehouse by location/stock.
 No style.`,
 
+  'functions.shippingDiscount': `Module: functions.shippingDiscount | Category: FUNCTION | Requires: SHIPPING_FUNCTION
+Waives or discounts SHIPPING/delivery cost (free or discounted delivery). This is the ONLY module type that can change shipping cost — functions.deliveryCustomization only renames/reorders/hides options; functions.discountRules cannot discount shipping. Use this for "free shipping over $X", "free delivery to US/CA", etc.
+Settings: rules (array 1-50), each rule: when(minSubtotal:number>=0, minQty:int>0, countryCodeIn:str[2-char], customerTags:str[]), apply(shippingPercentage:0-100 — 100=free shipping, partial=discounted delivery).
+No style.`,
+
   'checkout.upsell': `Module: checkout.upsell | Category: STOREFRONT_UI | Requires: CHECKOUT_UI_INFO_SHIP_PAY
 Settings: offerTitle(str 1-60), productVariantGid(str min 10, e.g. gid://shopify/ProductVariant/123), discountPercent(0-100, default 0).
 No style.`,

@@ -94,6 +94,7 @@ const PLUS_ONLY_FUNCTIONS = new Set<ModuleType>([
 export const FUNCTION_RUNTIME_HANDLES: Record<string, string> = {
   'functions.cartTransform': 'cart-transform-function',
   'functions.discountRules': 'discount-function',
+  'functions.shippingDiscount': 'superapp-shipping-discount',
   'functions.deliveryCustomization': 'superapp-delivery-customization',
   'functions.paymentCustomization': 'superapp-payment-customization',
   'functions.cartAndCheckoutValidation': 'superapp-cart-checkout-validation',
@@ -145,6 +146,18 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
     'functions.orderRoutingLocationRule',
     'Influences which location fulfills an order via a Function.',
   ),
+  // Shipping-discount Function (unified Discount API, SHIPPING class). Waives/discounts
+  // delivery via cart.delivery-options.discounts.generate.run — the runtime the
+  // product-discount Function cannot provide. The crate exists
+  // (extensions/superapp-shipping-discount) but, like every Function, resolves
+  // shipped-ness from the deployed-function manifest: `isRuntimeShipped` returns false
+  // (→ needs_runtime) until `superapp-shipping-discount` appears in the deployed handles.
+  // Needs `write_discounts` in addition to `write_metaobjects` because it is an
+  // automatic discount (discount-packs.md §9.2).
+  'functions.shippingDiscount': {
+    ...fn('functions.shippingDiscount', 'Waives or discounts shipping (free/discounted delivery) via a Function.'),
+    requiredScopes: ['write_metaobjects', 'write_discounts'],
+  },
 
   // ── Checkout / post-purchase UI (shipped: extensions/checkout-ui) ──────────
   'checkout.upsell': {

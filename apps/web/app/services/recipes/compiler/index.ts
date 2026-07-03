@@ -9,6 +9,7 @@ import { compileCartAndCheckoutValidation } from './functions.cartAndCheckoutVal
 import { compileCartTransform } from './functions.cartTransform';
 import { compileFulfillmentConstraints } from './functions.fulfillmentConstraints';
 import { compileOrderRoutingLocationRule } from './functions.orderRoutingLocationRule';
+import { compileShippingDiscount } from './functions.shippingDiscount';
 import { compileCheckoutUpsell } from './checkout.upsell';
 import { compileCheckoutBlock } from './checkout.block';
 import { compilePostPurchaseOffer } from './postPurchase.offer';
@@ -40,6 +41,8 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
       return compileFulfillmentConstraints(spec);
     case 'functions.orderRoutingLocationRule':
       return compileOrderRoutingLocationRule(spec);
+    case 'functions.shippingDiscount':
+      return compileShippingDiscount(spec);
     case 'checkout.upsell':
       return compileCheckoutUpsell(spec);
     case 'customerAccount.blocks':

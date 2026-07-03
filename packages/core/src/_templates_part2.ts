@@ -665,6 +665,29 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
     },
   },
   {
+    id: 'SHP-073',
+    name: 'Free Shipping Over $50',
+    description: 'Waive shipping cost automatically once the cart subtotal reaches $50.',
+    category: 'FUNCTION',
+    type: 'functions.shippingDiscount',
+    icon: 'shipping',
+    tags: ['shipping', 'delivery', 'free-shipping', 'discount'],
+    spec: {
+      type: 'functions.shippingDiscount',
+      name: 'Free Shipping Over $50',
+      category: 'FUNCTION',
+      requires: ['SHIPPING_FUNCTION'],
+      config: {
+        rules: [
+          {
+            when: { minSubtotal: 50 },
+            apply: { shippingPercentage: 100 },
+          },
+        ],
+      },
+    },
+  },
+  {
     id: 'SHP-066',
     name: 'Checkout Shipping Option Helper',
     description: 'Guide customers through shipping options before they make a selection.',

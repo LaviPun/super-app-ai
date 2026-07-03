@@ -35,6 +35,13 @@ import { compileRecipe } from '~/services/recipes/compiler';
 const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
   // No Shopify CLI template for an order-routing Function → no wasm to ship.
   'functions.orderRoutingLocationRule',
+  // Shipping-discount Function: the crate (extensions/superapp-shipping-discount,
+  // target cart.delivery-options.discounts.generate.run) + full TS wiring are real,
+  // but its handle is not yet in the deployed-function manifest
+  // (deployed-extensions.server.ts), so it honestly reads needs_runtime until
+  // `shopify app deploy` ships the wasm and the handle is added there. See
+  // discount-packs.md §9.2.
+  'functions.shippingDiscount',
   // Flow trigger/action extensions ship; workflow-definition publish wiring pending.
   'flow.automation',
   // Spring 2026 Discount UI Extension — generatable + previewable, but the

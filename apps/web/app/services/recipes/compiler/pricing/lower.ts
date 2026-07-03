@@ -282,6 +282,100 @@ export function lowerPricingToDiscountRules(pricing: PricingPack): LoweredDiscou
   };
 }
 
+// ─── pricing → functions.shippingDiscount ────────────────────────────────────
+//
+// `free-shipping` (and discounted-delivery) is enforced ONLY on the shipping-discount
+// Function (extensions/superapp-shipping-discount, target
+// cart.delivery-options.discounts.generate.run) — the product-discount target has no
+// shipping operation. This lowering routes a `free-shipping` pricing kind into that
+// Function's `rules[]` config. See discount-packs.md §9.2.
+
+/** One lowered shipping-discount rule — the wire format the wasm handler reads. */
+export interface LoweredShippingRule {
+  when: {
+    minSubtotal?: number;
+    minQty?: number;
+    countryCodeIn?: string[];
+    customerTags?: string[];
+  };
+  apply: {
+    /** Percentage off shipping. 100 = free; a partial value = discounted delivery. */
+    shippingPercentage: number;
+  };
+}
+
+export interface LoweredShippingDiscount {
+  rules: LoweredShippingRule[];
+}
+
+/** The `when` gate for a shipping rule, from the pricing gate + an optional threshold override. */
+function gateToShippingWhen(
+  gate: PricingPack['gate'],
+  thresholdOverride?: { minQty?: number; minSubtotal?: number },
+): LoweredShippingRule['when'] {
+  const when: LoweredShippingRule['when'] = {};
+  const minQty = thresholdOverride?.minQty ?? gate.minQuantity;
+  const minSubtotal = thresholdOverride?.minSubtotal ?? gate.minSubtotal;
+  if (minSubtotal != null) when.minSubtotal = minSubtotal;
+  if (minQty != null) when.minQty = minQty;
+  if (gate.customerTags.length > 0) when.customerTags = [...gate.customerTags];
+  return when;
+}
+
+/** The shipping percentage a discount kind waives, or `null` if it does not touch shipping. */
+function discountToShippingPercentage(d: Discount): number | null {
+  if (d.kind === 'free-shipping') return 100;
+  return null;
+}
+
+/**
+ * Lower a `pricing` block to the shipped `functions.shippingDiscount` config shape. Only
+ * `free-shipping` kinds produce rules — a pricing block with no free-shipping kind lowers
+ * to an empty rule set (the compiler treats that as a no-op / mismatch). `single` and each
+ * `tiered` row are inspected; a free-shipping tier's threshold becomes the rule gate so a
+ * "free shipping over $X / N items" tier survives.
+ */
+export function lowerPricingToShippingDiscount(pricing: PricingPack): LoweredShippingDiscount {
+  const rules: LoweredShippingRule[] = [];
+
+  const pushIfShipping = (d: Discount, thresholdOverride?: { minQty?: number; minSubtotal?: number }) => {
+    const pct = discountToShippingPercentage(d);
+    if (pct == null) return;
+    rules.push({
+      when: gateToShippingWhen(pricing.gate, thresholdOverride),
+      apply: { shippingPercentage: pct },
+    });
+  };
+
+  switch (pricing.model) {
+    case 'single': {
+      if (pricing.discount) pushIfShipping(pricing.discount);
+      break;
+    }
+    case 'tiered': {
+      const tiers = pricing.tiers;
+      if (tiers) {
+        // Highest-threshold-first so a merchant's best free-shipping tier is authoritative;
+        // the handler picks the best qualifying rule per group regardless, so order is a
+        // readability convenience here.
+        const rows = [...tiers.rows].sort((a, b) => b.threshold - a.threshold);
+        for (const row of rows) {
+          const override =
+            tiers.basis === 'quantity' ? { minQty: row.threshold } : { minSubtotal: row.threshold };
+          pushIfShipping(row.discount, override);
+        }
+      }
+      break;
+    }
+    case 'bogo':
+    case 'gift':
+      // BOGO / gift models do not carry a shipping kind; no shipping rules.
+      break;
+  }
+
+  return { rules };
+}
+
 // ─── pricing → functions.cartTransform ───────────────────────────────────────
 
 /** Price directive attached to a merged bundle line. */

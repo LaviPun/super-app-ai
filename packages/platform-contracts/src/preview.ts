@@ -112,6 +112,7 @@ export const PREVIEW_KINDS = [
   'functions.cartTransform',
   'functions.fulfillmentConstraints',
   'functions.orderRoutingLocationRule',
+  'functions.shippingDiscount',
   'checkout.upsell',
   'checkout.block',
   'postPurchase.offer',

@@ -26,6 +26,7 @@ export const FUNCTION_PREVIEW_KINDS = new Set<string>([
   'functions.cartTransform',
   'functions.fulfillmentConstraints',
   'functions.orderRoutingLocationRule',
+  'functions.shippingDiscount',
 ]);
 
 export function isFunctionPreviewKind(type: string): boolean {
@@ -162,6 +163,34 @@ export function simulateFunction(
     }
     case 'functions.orderRoutingLocationRule': {
       outcomes.push({ label: 'Order routed by location rule', detail: `Evaluated ${rules.length} rule(s) against fixture cart.`, effect: 'routed' });
+      break;
+    }
+    case 'functions.shippingDiscount': {
+      const totalQty = input.lineItems.reduce((sum, li) => sum + li.quantity, 0);
+      for (const rule of rules) {
+        const when = rule.when ?? {};
+        const subtotalOk = when.minSubtotal === undefined || subtotal >= when.minSubtotal;
+        const qtyOk = when.minQty === undefined || totalQty >= when.minQty;
+        const countryOk = !when.countryCodeIn?.length || when.countryCodeIn.includes(input.countryCode);
+        // Customer-tag gates are not runtime-evaluable in the pure Function (they are
+        // skipped there); mirror that in the preview so it doesn't over-promise.
+        const tagFree = !when.customerTags?.length;
+        if (!subtotalOk || !qtyOk || !countryOk || !tagFree) continue;
+        const pct = rule.apply?.shippingPercentage ?? 0;
+        if (pct <= 0) continue;
+        const label =
+          pct >= 100
+            ? `Cart ${money(subtotal, currency)} → FREE shipping`
+            : `Cart ${money(subtotal, currency)} → ${pct}% off shipping`;
+        outcomes.push({
+          label,
+          detail:
+            pct >= 100
+              ? `Delivery waived for ${input.countryCode} (${when.minSubtotal !== undefined ? `over ${money(when.minSubtotal, currency)}` : 'no minimum'}).`
+              : `Delivery discounted ${pct}% for ${input.countryCode}.`,
+          effect: 'applied',
+        });
+      }
       break;
     }
     default:
