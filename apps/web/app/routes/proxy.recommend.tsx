@@ -7,11 +7,11 @@
  * endpoints (see `superapp-recommendations.liquid` + `superapp-modules.js`).
  * `recently-viewed` is client-only (localStorage) and also never reaches here.
  *
- * HONEST STATE: `recommendation.service.ts` returns `[]` for every dynamic
- * strategy until the analytics ranking queries land (tracked follow-up, mirroring
- * R2.2's wasm handler). So today this route always returns `{ products: [] }` for
- * a well-formed dynamic request, and the storefront JS applies the module's
- * `fallback`. It is a real, authenticated App Proxy seam — not a stub route.
+ * STATE: `recommendation.service.ts` ranks `top-sellers`, `trending`, and
+ * `buy-it-again` over live Admin order data (bounded, cached). `recently-viewed`
+ * stays client-only (never reaches here). When a ranked query yields too few
+ * products (or the customer is a guest for buy-it-again), the service returns a
+ * short/empty list and the storefront JS applies the module's `fallback`.
  *
  * Mirrors `proxy.$widgetId.tsx`: `shopify.authenticate.public.appProxy`,
  * `withApiLogging`, short cache-control.
@@ -43,6 +43,11 @@ export async function loader({ request }: { request: Request }) {
   const limit = parseLimit(url.searchParams.get('limit'));
   const moduleId = url.searchParams.get('module_id') ?? '';
   const seedProductGid = url.searchParams.get('seed') ?? undefined;
+  const excludeTagsRaw = url.searchParams.get('exclude_tags') ?? '';
+  const excludeTags = excludeTagsRaw
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
 
   return withApiLogging(
     { actor: 'APP_PROXY', method: 'GET', path: '/proxy/recommend' },
@@ -68,6 +73,9 @@ export async function loader({ request }: { request: Request }) {
         strategy: strategy as RecommendationStrategy,
         limit,
         seedProductGid,
+        excludeTags,
+        // Admin GraphQL client — required to rank the dynamic strategies.
+        admin: adminMaybe,
         // Logged-in customer is provided by App Proxy signed params when present.
         customerId: url.searchParams.get('logged_in_customer_id') ?? undefined,
       });
@@ -75,8 +83,8 @@ export async function loader({ request }: { request: Request }) {
       return json(
         { moduleId, strategy, products: products.slice(0, limit) },
         {
-          // Short cache; dynamic ranking is coarse-grained. Empty today (see file
-          // header) → storefront JS applies the module `fallback`.
+          // Short cache; dynamic ranking is coarse-grained and cached in-process too.
+          // A short/empty result → storefront JS applies the module `fallback`.
           headers: { 'cache-control': 'public, max-age=120' },
         },
       );
