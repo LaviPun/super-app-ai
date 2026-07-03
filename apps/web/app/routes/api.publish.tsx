@@ -23,6 +23,7 @@ import { runPublishPreflight } from '~/services/publish/publish-preflight.server
 import { evaluateFeatureFlag, type FeatureFlagTopology } from '~/services/releases/feature-flags.server';
 import { ProgressivePublishService } from '~/services/releases/progressive-publish.server';
 import { getRecentPublishMetrics } from '~/services/releases/release-metrics.server';
+import { provisionModuleDataStore } from '~/services/publish/provision-data-store.server';
 
 /** Turn thrown value into a string suitable for UI (avoids "[object Object]"). */
 function toErrorMessage(e: unknown): string {
@@ -223,6 +224,37 @@ export async function action({ request }: { request: Request }) {
         const previouslyPublishedVersion = module.versions.find((v) => v.status === 'PUBLISHED');
         const publisher = new PublishService(admin);
         await publisher.publish(spec, target);
+
+        // R3.3: provision the module's declared typed data store (schemaJson set →
+        // typed forms + write-time validation activate). Additive/idempotent; no-op
+        // when undeclared. Runs AFTER a successful deploy so a gated/blocked module
+        // (ModuleNotPublishableError above) never leaves a stray store. Non-fatal:
+        // the surface already deployed — a DB upsert failure must not roll back a
+        // live extension; the merchant recovers by re-publishing (idempotent).
+        if (shopRow?.id && spec.dataModel) {
+          try {
+            const provisioned = await provisionModuleDataStore(shopRow.id, module.id, spec.dataModel);
+            if (provisioned) {
+              await new ActivityLogService().log({
+                actor: 'MERCHANT',
+                action: 'DATA_STORE_PROVISIONED',
+                resource: `datastore:${provisioned.storeKey}`,
+                shopId: shopRow.id,
+                details: { moduleId: module.id, storeKey: provisioned.storeKey },
+              });
+            }
+          } catch (provisionErr) {
+            await logRequestOutcome({
+              shopId: shopRow.id,
+              pathOrIntent: '/api/publish',
+              success: false,
+              details: {
+                error: `data-store provisioning failed: ${provisionErr instanceof Error ? provisionErr.message : String(provisionErr)}`,
+                moduleId: module.id,
+              },
+            });
+          }
+        }
 
         await moduleService.markPublishedWithTransition({
           shopId: shopRow?.id,

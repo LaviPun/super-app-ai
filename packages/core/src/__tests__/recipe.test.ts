@@ -496,4 +496,64 @@ describe('RecipeSpecSchema', () => {
       expect(spec.type).toBe('flow.automation');
     }
   });
+
+  // R3.3 — the additive `dataModel` on Base (shared by every variant).
+  it('R3.3 — a Base-derived variant parses with a valid dataModel', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'proxy.widget',
+      name: 'Product Reviews',
+      category: 'STOREFRONT_UI',
+      requires: ['APP_PROXY'],
+      config: { widgetId: 'product-reviews', title: 'Reviews' },
+      dataModel: {
+        label: 'Product Reviews',
+        description: 'Customer-submitted product reviews.',
+        schema: {
+          fields: [
+            { name: 'productId', type: 'text', required: true },
+            { name: 'rating', type: 'number', required: true },
+            { name: 'status', type: 'select', required: true, options: ['pending', 'approved', 'rejected'] },
+          ],
+        },
+      },
+    });
+    expect(spec.dataModel?.label).toBe('Product Reviews');
+    expect(spec.dataModel?.schema.fields.map((f) => f.name)).toEqual(['productId', 'rating', 'status']);
+  });
+
+  it('R3.3 back-compat — a spec with dataModel OMITTED still validates (optional field)', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'proxy.widget',
+      name: 'Plain widget',
+      category: 'STOREFRONT_UI',
+      requires: ['APP_PROXY'],
+      config: { widgetId: 'plain-widget', title: 'Plain' },
+    });
+    expect(spec.dataModel).toBeUndefined();
+  });
+
+  it('R3.3 — rejects a dataModel field name violating the DataField name regex', () => {
+    const r = RecipeSpecSchema.safeParse({
+      type: 'proxy.widget',
+      name: 'Bad field name',
+      category: 'STOREFRONT_UI',
+      requires: ['APP_PROXY'],
+      config: { widgetId: 'bad-widget', title: 'Bad' },
+      dataModel: { label: 'Bad', schema: { fields: [{ name: '1nvalid', type: 'text' }] } },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('R3.3 — JSON round-trip through parse preserves dataModel (no strip)', () => {
+    const input = {
+      type: 'theme.section' as const,
+      name: 'Reviews section',
+      category: 'STOREFRONT_UI' as const,
+      requires: ['THEME_ASSETS' as const],
+      config: { kind: 'custom' },
+      dataModel: { label: 'Reviews', schema: { fields: [{ name: 'rating', type: 'number' as const }] } },
+    };
+    const spec = RecipeSpecSchema.parse(JSON.parse(JSON.stringify(input)));
+    expect(spec.dataModel?.schema.fields[0]?.name).toBe('rating');
+  });
 });

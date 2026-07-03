@@ -12,7 +12,7 @@ import { LayoutArchetypePackSchema } from './control-packs/packs/layout-archetyp
 import { RuleEnginePackSchema } from './control-packs/packs/rule-engine.pack.js';
 import { PricingPackSchema } from './control-packs/packs/pricing.pack.js';
 import { RecommendationPackSchema } from './control-packs/packs/recommendation.pack.js';
-import { DataModelSchema } from './data-model.js';
+import { DataModelSchema, ModuleDataStoreSchema } from './data-model.js';
 import type { ModuleCategory, ModuleType } from './allowed-values.js';
 import {
   LIMITS,
@@ -106,6 +106,13 @@ const Base = z.object({
   name: z.string().min(LIMITS.nameMin).max(LIMITS.nameMax),
   category: z.custom<ModuleCategory>(),
   requires: z.array(z.custom<Capability>()).default([]),
+  /**
+   * Optional module-owned typed data store (Module System v2 backend data).
+   * Additive + shared by every variant (all are `Base.extend`), so any surface
+   * type can declare a typed store. Provisioned at publish time
+   * (`provisionModuleDataStore` → `ensureTypedStore`); absent = no store.
+   */
+  dataModel: ModuleDataStoreSchema.optional(),
 });
 
 export const RecipeSpecSchema = z.discriminatedUnion('type', [

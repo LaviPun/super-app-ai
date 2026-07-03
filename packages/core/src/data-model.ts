@@ -33,6 +33,26 @@ export const DataModelSchema = z.object({
 });
 export type DataModel = z.infer<typeof DataModelSchema>;
 
+/**
+ * A module-declared typed data store (Module System v2 backend data). Pinned
+ * onto the recipe `Base` as `dataModel` so any surface type can persist
+ * first-party records. Provisioned at publish time via the canonical
+ * `ensureTypedStore` writer — one authoritative record shape, N render surfaces.
+ */
+export const ModuleDataStoreSchema = z.object({
+  /** Store label shown in the merchant Data Stores UI. */
+  label: z.string().min(1).max(80),
+  description: z.string().max(200).optional(),
+  /**
+   * Optional stable key override. When omitted, publish derives `module_<moduleId>`.
+   * Normalized by `ensureTypedStore` (lowercased, non-[a-z0-9_] → '_', ≤40 chars).
+   */
+  key: z.string().min(1).max(40).optional(),
+  /** The typed field schema. Reuses the DataField system 1:1. */
+  schema: DataModelSchema,
+});
+export type ModuleDataStore = z.infer<typeof ModuleDataStoreSchema>;
+
 /** Parse `DataStore.schemaJson` into a DataModel, or null if absent/empty/invalid. */
 export function parseDataModel(schemaJson: string | null | undefined): DataModel | null {
   if (!schemaJson) return null;
