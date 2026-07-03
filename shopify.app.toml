@@ -105,6 +105,14 @@ name = "Style JSON"
 type = "json"
 required = false
 
+# Surface-targeted placement (theme.section enabled_on/disabled_on). Optional —
+# written only when the module declares placement; absent = renders on every
+# template as before (the storefront render-gate applies no scoping).
+[metaobjects.app.superapp_module.fields.placement_json]
+name = "Placement JSON"
+type = "json"
+required = false
+
 [metaobjects.app.superapp_admin_block]
 name = "SuperApp Admin Block"
 display_name_field = "name"

@@ -49,6 +49,19 @@ export type ThemeModulePayload = {
    * absent/disabled. Convenience only; the Liquid gate also computes this inline.
    */
   ruleServerResolvable?: boolean;
+  /**
+   * Surface-targeted placement (theme.section `spec.placement`). When present, the
+   * storefront render-gate shows this module only on the declared templates
+   * (`enabled_on`) / everywhere except the declared templates (`disabled_on`),
+   * matched against Liquid's `template.name`. Threaded through publish into the
+   * `placement_json` metaobject field. OMITTED when the spec declares no placement,
+   * so a no-placement module's payload is byte-identical to before this field existed
+   * (the back-compat contract) and no gate is applied at render time.
+   */
+  placement?: {
+    enabled_on?: { templates?: string[]; groups?: string[] };
+    disabled_on?: { templates?: string[]; groups?: string[] };
+  };
 };
 
 /** Payload for an admin block stored as a $app:superapp_admin_block metaobject entry. */

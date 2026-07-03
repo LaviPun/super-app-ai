@@ -98,6 +98,11 @@ export function compileThemeModule(
   // disabled rules → `true` (server-resolvable → always show), keeping legacy
   // modules unchanged.
   const ruleEngine = (spec as { config: { ruleEngine?: RuleEnginePack } }).config.ruleEngine;
+  // Surface-targeted placement (theme.section only). Threaded verbatim so the
+  // storefront render-gate can scope this module to specific templates. Added to
+  // the payload ONLY when present — a spec with no placement produces a payload
+  // byte-identical to before this field existed (back-compat contract).
+  const placement = (spec as { placement?: ThemeModulePayload['placement'] }).placement;
   const payload: ThemeModulePayload = {
     type: spec.type,
     name: spec.name,
@@ -106,6 +111,7 @@ export function compileThemeModule(
     style: rawStyle,
     styleCss: rawStyle ? compileThemeStyleCss(rawStyle as unknown as StorefrontStyle, target.moduleId, kind) : undefined,
     ruleServerResolvable: ruleEngine ? isServerResolvable(ruleEngine) : true,
+    ...(placement ? { placement } : {}),
   };
   return {
     ops: [{ kind: 'AUDIT', action: `compile.${spec.type}`, details: JSON.stringify({ moduleId: target.moduleId }) }],

@@ -134,6 +134,12 @@ export class MetaobjectService {
             ...(payload.styleCss ? { css: payload.styleCss } : {}),
           }),
         },
+        // Surface-targeted placement (theme.section). Written ONLY when the module
+        // declares it, so a no-placement module's metaobject fields are unchanged.
+        // Read as `mod_ref.fields.placement_json.value` by the storefront render-gate.
+        ...(payload.placement
+          ? [{ key: 'placement_json', value: JSON.stringify(payload.placement) }]
+          : []),
       ],
     );
   }
