@@ -56,8 +56,12 @@ const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
   // `shopify app deploy` ships the wasm and the handle is added there. See
   // discount-packs.md §9.2.
   'functions.shippingDiscount',
-  // Flow trigger/action extensions ship; workflow-definition publish wiring pending.
-  'flow.automation',
+  // flow.automation is now DEPLOYABLE: the compiler persists the flow definition
+  // (SHOP_METAFIELD_SET, non-AUDIT → not false-published) and FlowRunnerService
+  // consumes the active-version specJson server-side — a linear runner on live
+  // webhooks / MANUAL / SCHEDULED / agent API, with long DELAY/wait steps parked on
+  // the durable scheduler (WorkflowRun WAITING + resumeAt) and resumed by the cron
+  // sweep once due (idempotent). So it is intentionally NOT in this set anymore.
   // integration.httpSync is now DEPLOYABLE (build #7a): the compiler persists the sync
   // config (SHOP_METAFIELD_SET) and HttpSyncRunnerService consumes it server-side —
   // webhook-triggered outbound sync to the merchant-connected service (signed) +

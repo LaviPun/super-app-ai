@@ -319,11 +319,24 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
   'flow.automation': {
     moduleType: 'flow.automation',
     runtime: 'flow',
-    // Flow trigger/action extensions ship; flip to true once the compiler
-    // persists the workflow definition at publish (see compileFlowAutomation).
-    runtimeShipped: false,
+    // SHIPPED: the compiler persists the flow definition (SHOP_METAFIELD_SET,
+    // non-AUDIT → deployable, not false-published — flow.automation.ts) and the
+    // runtime consumes the module's active-version specJson server-side.
+    // FlowRunnerService (the linear runner) fires on the live Shopify webhooks
+    // (webhooks.tsx), on MANUAL run-now (api.flow.run.tsx / internal.ops.tsx), on
+    // the agent API (api.agent.flows.tsx), and on SCHEDULED cron ticks
+    // (api.cron.tsx). DELAY/wait steps are wired to the durable scheduler: a long
+    // wait parks the remainder as a WorkflowRun (WAITING + resumeAt) via
+    // WorkflowEngineService.startRun, and the cron resume sweep
+    // (resumeDueWorkflowRuns) continues it once due — idempotent (P2002-guarded
+    // runId), inline-vs-park thresholded, unit-tested. Shopify Flow trigger/action
+    // CLI extensions ship (extensions/superapp-flow-*). A flow_template /
+    // marketing-activity CLI extension is a SEPARATE optional surface (Shopify has
+    // no flow_template extension type); it is not required for the linear-runner +
+    // durable-wait deployability and is not shipped.
+    runtimeShipped: true,
     requiredScopes: ['write_metaobjects'],
-    note: 'Persists a workflow definition the engine runs; Shopify Flow trigger/action extensions are shipped.',
+    note: 'Runs server-side: a linear runner fires on Shopify webhooks / MANUAL / SCHEDULED / the agent API and executes the flow steps (tag/note/email/slack/HTTP/write-to-store/condition). Long DELAY/wait steps park the remainder on the durable scheduler and resume via the cron sweep once due (idempotent). Shopify Flow trigger/action extensions are shipped.',
   },
 
   // ── Integration (app proxy / server, always available) ─────────────────────
