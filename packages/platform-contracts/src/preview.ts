@@ -123,6 +123,7 @@ export const PREVIEW_KINDS = [
   'integration.httpSync',
   'flow.automation',
   'messaging.campaign',
+  'agentic.catalogProfile',
   'platform.extensionBlueprint',
   'customerAccount.blocks',
 ] as const;

@@ -600,6 +600,8 @@ export class PreviewService {
         return this.workflowSurfacePreview(spec, surface);
       case 'messaging.campaign':
         return this.messagingCampaignPreview(spec);
+      case 'agentic.catalogProfile':
+        return this.agenticCatalogProfilePreview(spec);
       default:
         // Unknown/novel type: still interactive (mock card), not the diagram.
         return this.workflowSurfacePreview(spec, surface);
@@ -924,6 +926,65 @@ export class PreviewService {
       .msg__subj { background:#f8fafc; border-bottom:1px solid #dce3ec; padding:8px 12px; font-weight:600; color:#111827; font-size:14px; }
       .msg__html { padding:12px; font-size:14px; color:#1f2937; }
       .msg__text { border:1px solid #dce3ec; border-radius:8px; padding:12px; font-size:14px; color:#1f2937; white-space:pre-wrap; }
+    `);
+  }
+
+  /**
+   * Deterministic agentic.catalogProfile preview (M13). No AI, no live crawl —
+   * renders a summary card computed from config: the feed URL, the product source,
+   * counts (attributes mapped · disclosures), and an honest split of which artifacts
+   * are REAL (the app-served feed) vs needs_runtime (MCP/agent-profile/sponsored).
+   */
+  private agenticCatalogProfilePreview(spec: RecipeSpec): string {
+    const cfg = (spec.config ?? {}) as Record<string, unknown>;
+    const feedHandle = String(cfg.feedHandle ?? 'catalog');
+    const artifacts = Array.isArray(cfg.artifacts) ? (cfg.artifacts as string[]) : ['catalog-feed'];
+    const source = (cfg.source ?? {}) as Record<string, unknown>;
+    const sourceKind = String(source.kind ?? 'all');
+    const attributeMap = Array.isArray(cfg.attributeMap) ? (cfg.attributeMap as unknown[]) : [];
+    const disclosures = Array.isArray(cfg.disclosures) ? (cfg.disclosures as unknown[]) : [];
+
+    const SHIPPED = new Set(['catalog-feed', 'attribute-map', 'compliance-disclosure']);
+    const real = artifacts.filter((a) => SHIPPED.has(a));
+    const deferred = artifacts.filter((a) => !SHIPPED.has(a));
+
+    const sourceLabel =
+      sourceKind === 'collection'
+        ? `Collection (${Array.isArray(source.collectionIds) ? source.collectionIds.length : 0})`
+        : sourceKind === 'manual'
+          ? `Manual (${Array.isArray(source.productIds) ? source.productIds.length : 0} products)`
+          : 'All active products';
+
+    const chips = (list: string[], cls: string) =>
+      list.map((a) => `<span class="ag__chip ag__chip--${cls}">${esc(a)}</span>`).join('');
+
+    return this.surfaceCard(spec.name, `${spec.type} · agentic`, `
+      <div class="surf-panel">
+        <div class="ag__url">GET <code>/agentic/{shop}/${esc(feedHandle)}/feed.json</code></div>
+        <div class="ag__meta">
+          <div class="msg__row"><span>Product source</span><span>${esc(sourceLabel)}</span></div>
+          <div class="msg__row"><span>Attributes mapped</span><span>${attributeMap.length}</span></div>
+          <div class="msg__row"><span>Disclosures</span><span>${disclosures.length}</span></div>
+        </div>
+        <h3>Artifacts</h3>
+        <div class="ag__chips">${chips(real, 'ok') || '<span class="surf-muted">none</span>'}</div>
+        ${
+          deferred.length
+            ? `<details class="surf-state" open><summary>Not yet shipped (needs_runtime)</summary>
+                 <div class="ag__chips">${chips(deferred, 'gate')}</div>
+                 <p class="surf-muted">These artifacts (hosted MCP endpoint, agent-profile registration, sponsored products) are modeled but their runtime is not shipped. The module publishes only the feed; these are named as deferred and never faked.</p>
+               </details>`
+            : ''
+        }
+      </div>
+    `, `
+      .ag__url { font-size:13px; color:#475569; margin-bottom:12px; }
+      .ag__url code { background:#f1f5f9; padding:2px 6px; border-radius:6px; font-size:12px; }
+      .ag__meta { display:grid; gap:4px; margin-bottom:12px; }
+      .ag__chips { display:flex; gap:8px; flex-wrap:wrap; }
+      .ag__chip { border-radius:9999px; padding:3px 10px; font-size:12px; }
+      .ag__chip--ok { background:#E7F5EF; color:#0E9F6E; }
+      .ag__chip--gate { background:#FEF3C7; color:#92400E; }
     `);
   }
 

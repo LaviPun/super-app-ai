@@ -724,6 +724,72 @@ export const RECOMMENDATION_LIMITS = {
   excludeTagLen: 60,
 } as const;
 
+// ─── Agentic-commerce surface (M13 / specs/031 agentic-surface.md) ───────────
+/**
+ * `agentic.catalogProfile` — which AI-channel artifacts a module produces.
+ *
+ * Only the first three are REAL today: publishing writes the module config, and
+ * the app-served feed endpoint (`/agentic/{shop}/{handle}/feed.json`) emits the
+ * structured product data to AI channels — the SAME app-served pattern the shipped
+ * `pos.extension` uses (publish persists config → an app route reads the active
+ * PUBLISHED version → an external consumer fetches). The last three model the
+ * Spring-26 agentic stack (UCP + Catalog/Cart/Checkout MCPs, agent-profile
+ * registration in the Dev Dashboard, sponsored products) but their runtime is NOT
+ * shipped — a module requesting them publishes only the real artifacts, and the
+ * compiler names the deferred ones (never faked, never silently "published").
+ */
+export const AGENTIC_ARTIFACTS = [
+  'catalog-feed', // REAL: app-served product feed (JSON) for AI crawlers/agents
+  'attribute-map', // REAL: enriches feed rows with normalized attributes (gtin/brand/size/…)
+  'compliance-disclosure', // REAL: appends required disclosures to feed rows
+  'mcp-endpoint', // needs_runtime: a hosted Catalog-MCP endpoint (follow-up)
+  'agent-profile', // needs_runtime: Dev-Dashboard agent registration (follow-up)
+  'sponsored-products', // needs_runtime: Catalog-API sponsored placement (follow-up)
+] as const;
+export type AgenticArtifact = (typeof AGENTIC_ARTIFACTS)[number];
+
+/**
+ * Which agentic artifacts have a shipped runtime today. Single source of truth for
+ * the compiler split (real ops vs `agentic.deferred-artifacts` note). When a hosted
+ * MCP endpoint / agent-profile / sponsored-products runtime lands, add it here — no
+ * schema change, the compiler simply stops naming it as deferred.
+ */
+export const AGENTIC_ARTIFACTS_SHIPPED = [
+  'catalog-feed',
+  'attribute-map',
+  'compliance-disclosure',
+] as const;
+export type ShippedAgenticArtifact = (typeof AGENTIC_ARTIFACTS_SHIPPED)[number];
+
+/** Which product set the feed syndicates. Static, resolver-backed — no free-form query. */
+export const AGENTIC_PRODUCT_SOURCES = ['all', 'collection', 'manual'] as const;
+export type AgenticProductSource = (typeof AGENTIC_PRODUCT_SOURCES)[number];
+
+/** Normalized attribute keys an AI channel expects (feeds `attribute-map`). */
+export const AGENTIC_ATTRIBUTE_KEYS = [
+  'gtin',
+  'mpn',
+  'brand',
+  'size',
+  'color',
+  'material',
+  'gender',
+  'ageGroup',
+  'condition',
+] as const;
+export type AgenticAttributeKey = (typeof AGENTIC_ATTRIBUTE_KEYS)[number];
+
+/** Bounds for the agentic catalog-profile (schema-enforced). */
+export const AGENTIC_LIMITS = {
+  manualProductsMax: 250, // mirrors Catalog-API product-lookup ceiling posture
+  collectionsMax: 25,
+  attributeMapRowsMax: 50,
+  disclosuresMax: 20,
+  disclosureLabelMax: 80,
+  disclosureTextMax: 500,
+  attributeFromMax: 120,
+} as const;
+
 /** customerAccount.blocks block kind (doc 18.4). */
 export const CUSTOMER_ACCOUNT_BLOCK_KINDS = ['TEXT', 'LINK', 'BADGE', 'DIVIDER'] as const;
 /** customerAccount.blocks block tone (doc 18.4). */
@@ -811,6 +877,11 @@ export const RECIPE_SPEC_TYPES = [
   // First-class messaging surface (R3.4 / M5): bounded email/slack fan-out over a
   // resolved audience. SMS/push are modeled but gated needs_runtime per-channel.
   'messaging.campaign',
+  // Agentic-commerce surface (M13 / Spring-26): a structured product-data feed the
+  // merchant surfaces to AI channels, served by a real app endpoint (mirroring the
+  // pos.extension app-served model). The MCP/UCP/agent-profile stack is modeled but
+  // gated needs_runtime — never faked. See specs/031 agentic-surface.md.
+  'agentic.catalogProfile',
   'platform.extensionBlueprint',
   'customerAccount.blocks',
 ] as const;
@@ -840,6 +911,7 @@ const MODULE_TYPE_ORDER: ModuleType[] = [
   'integration.httpSync',
   'flow.automation',
   'messaging.campaign',
+  'agentic.catalogProfile',
   'customerAccount.blocks',
 ];
 
@@ -871,6 +943,9 @@ export const SHOPIFY_SURFACES = [
   'flow',
   'marketing_analytics',
   'payments',
+  // Agentic-commerce channel (M13 / Spring-26): AI-agent discovery/purchase surfaces
+  // fed by a syndicated product-data feed. Distinct from online_store (storefront).
+  'agentic_channel',
 ] as const;
 export type ShopifySurface = (typeof SHOPIFY_SURFACES)[number];
 
@@ -898,6 +973,9 @@ export const MODULE_TYPE_TO_CATEGORY: Record<ModuleType, ModuleCategory> = {
   // Messaging is a server-side integration effect (fan-out via app connectors),
   // so it reuses the INTEGRATION category (D1) — additive, no new category enum.
   'messaging.campaign': 'INTEGRATION',
+  // The catalog-profile feed is a server-side syndication effect (app-served feed),
+  // so it reuses the INTEGRATION category — additive, no new category enum.
+  'agentic.catalogProfile': 'INTEGRATION',
   'platform.extensionBlueprint': 'ADMIN_UI',
   'customerAccount.blocks': 'CUSTOMER_ACCOUNT',
 };
@@ -924,6 +1002,7 @@ export const MODULE_TYPE_DEFAULT_REQUIRES: Record<ModuleType, readonly string[]>
   'integration.httpSync': [],
   'flow.automation': [],
   'messaging.campaign': [],
+  'agentic.catalogProfile': [],
   'platform.extensionBlueprint': [],
   'customerAccount.blocks': ['CUSTOMER_ACCOUNT_UI'],
 };
@@ -951,6 +1030,9 @@ export const MODULE_TYPE_TO_SURFACE: Record<ModuleType, ShopifySurface> = {
   'flow.automation': 'flow',
   // Closest existing surface for outbound messaging (no new surface enum, D1).
   'messaging.campaign': 'marketing_analytics',
+  // Dedicated agentic-commerce channel surface (M13) — the feed targets AI channels,
+  // not the online store.
+  'agentic.catalogProfile': 'agentic_channel',
   'platform.extensionBlueprint': 'admin',
   'customerAccount.blocks': 'customer_accounts',
 };
@@ -1077,6 +1159,14 @@ export const CLASSIFICATION_RULES: ClassificationRule[] = [
   { keywords: ['pos', 'point of sale', 'pos extension', 'receipt'], type: 'pos.extension' },
   { keywords: ['pixel', 'analytics', 'tracking', 'web pixel', 'event tracking'], type: 'analytics.pixel' },
   { keywords: ['integration', 'http sync', 'api sync', 'webhook sync', 'connector'], type: 'integration.httpSync' },
+  {
+    keywords: [
+      'ai channel', 'agentic', 'agentic commerce', 'ai shopping', 'chatgpt shopping', 'ai agent',
+      'product feed', 'catalog feed', 'catalog syndication', 'ai crawler', 'ai discovery',
+      'discoverable in chatgpt', 'shop with ai', 'ai catalog',
+    ],
+    type: 'agentic.catalogProfile',
+  },
   { keywords: ['flow', 'automation', 'workflow', 'automate', 'trigger when'], type: 'flow.automation' },
   { keywords: ['extension', 'blueprint', 'scaffolding', 'extension blueprint'], type: 'platform.extensionBlueprint' },
   {

@@ -10,7 +10,9 @@ export type CapabilitySurface =
   | 'CUSTOMER_ACCOUNT'
   | 'POS'
   | 'INTEGRATION'
-  | 'FLOW';
+  | 'FLOW'
+  // Agentic-commerce channel (M13): an app-served product-data feed for AI agents.
+  | 'AGENTIC';
 
 export type CapabilityNode = {
   moduleType: ModuleType;
@@ -26,6 +28,7 @@ function inferSurface(moduleType: ModuleType): CapabilitySurface {
   if (moduleType.startsWith('functions.')) return 'FUNCTIONS';
   if (moduleType === 'customerAccount.blocks') return 'CUSTOMER_ACCOUNT';
   if (moduleType === 'pos.extension') return 'POS';
+  if (moduleType.startsWith('agentic.')) return 'AGENTIC';
   if (
     moduleType === 'integration.httpSync' ||
     moduleType === 'analytics.pixel' ||

@@ -44,6 +44,12 @@ import {
   HTTP_METHODS_EXTENDED,
   HTTP_AUTH_TYPES,
   DEPLOY_TARGET_KINDS,
+  AGENTIC_ARTIFACTS,
+  AGENTIC_PRODUCT_SOURCES,
+  AGENTIC_ATTRIBUTE_KEYS,
+  AGENTIC_LIMITS,
+  PRODUCT_GID_RE,
+  COLLECTION_GID_RE,
 } from './allowed-values.js';
 
 // Re-export doc-aligned types and enums from manifest (doc 3.2, 3.3, 4.1).
@@ -603,6 +609,64 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     category: z.literal('INTEGRATION').default('INTEGRATION'),
     requires: z.array(z.custom<Capability>()).default([]),
     config: MessagingPackSchema,
+  }),
+
+  // Agentic-commerce surface (M13 / Spring-26). A structured product-data feed the
+  // merchant surfaces to AI channels, served by a real app endpoint that mirrors the
+  // shipped pos.extension app-served model (publish persists config → an app route
+  // reads the active PUBLISHED version → an AI crawler/agent fetches over HTTP). Flat
+  // `config` with static resolvers — no runtime that doesn't exist. The `mcp-endpoint`
+  // / `agent-profile` / `sponsored-products` artifacts are accepted by the schema but
+  // their runtime is deferred (needs_runtime): the compiler names any requested one and
+  // publish surfaces the note; only the feed deploys. See specs/031 agentic-surface.md.
+  Base.extend({
+    type: z.literal('agentic.catalogProfile'),
+    category: z.literal('INTEGRATION').default('INTEGRATION'),
+    requires: z.array(z.custom<Capability>()).default([]),
+    config: z.object({
+      /** Which artifacts to produce. `catalog-feed` is the always-real default. */
+      artifacts: z.array(z.enum(AGENTIC_ARTIFACTS)).min(1).default(['catalog-feed']),
+      /** Product set the feed syndicates. Static, resolver-backed — no free-form query. */
+      source: z
+        .object({
+          kind: z.enum(AGENTIC_PRODUCT_SOURCES).default('all'),
+          collectionIds: z
+            .array(z.string().regex(COLLECTION_GID_RE))
+            .max(AGENTIC_LIMITS.collectionsMax)
+            .optional(),
+          productIds: z
+            .array(z.string().regex(PRODUCT_GID_RE))
+            .max(AGENTIC_LIMITS.manualProductsMax)
+            .optional(),
+        })
+        .default({ kind: 'all' }),
+      /** attribute-map: map a normalized key ← a product metafield / attribute path. */
+      attributeMap: z
+        .array(
+          z.object({
+            key: z.enum(AGENTIC_ATTRIBUTE_KEYS),
+            /** e.g. "metafield:custom.gtin" | "vendor" | "productType" | "variant.sku". */
+            from: z.string().min(1).max(AGENTIC_LIMITS.attributeFromMax),
+          }),
+        )
+        .max(AGENTIC_LIMITS.attributeMapRowsMax)
+        .default([]),
+      /** compliance-disclosure: rows appended verbatim to every feed item. */
+      disclosures: z
+        .array(
+          z.object({
+            label: z.string().min(1).max(AGENTIC_LIMITS.disclosureLabelMax),
+            text: z.string().min(1).max(AGENTIC_LIMITS.disclosureTextMax),
+          }),
+        )
+        .max(AGENTIC_LIMITS.disclosuresMax)
+        .default([]),
+      /** Public feed handle (URL slug under /agentic/{shop}/<handle>/feed.json). */
+      feedHandle: z
+        .string()
+        .regex(/^[a-z0-9-]{3,40}$/)
+        .default('catalog'),
+    }),
   }),
 
   Base.extend({

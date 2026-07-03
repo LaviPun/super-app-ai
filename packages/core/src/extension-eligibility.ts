@@ -38,6 +38,7 @@ export type ExtensionRuntimeKind =
   | 'pos-ui' // POS UI extension
   | 'app-proxy' // handled server-side via the app proxy (always available)
   | 'function' // Shopify Function (wasm)
+  | 'agentic-feed' // app-served read-only product feed for AI channels (M13)
   | 'composite'; // composes other module types (no runtime of its own)
 
 /** Merchant Shopify plan tier (from Shop.planTier). */
@@ -264,6 +265,23 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
     runtimeShipped: true,
     requiredScopes: ['write_metaobjects'],
     note: 'Renders on Shopify POS via a POS UI extension; reads its published config from the app backend (/api/pos/config) using a session token, since POS cannot read Storefront metaobjects.',
+  },
+
+  // ── Agentic-commerce feed (app-served read-only feed, M13) ─────────────────
+  'agentic.catalogProfile': {
+    moduleType: 'agentic.catalogProfile',
+    runtime: 'agentic-feed',
+    // Shipped: publishing persists the module config and the app route
+    // /agentic/{shop}/{handle}/feed.json serves the structured product-data feed to
+    // AI channels (the same app-served model pos.extension uses — publish config →
+    // app route reads the active PUBLISHED version → an external consumer fetches).
+    // Only the FEED (catalog-feed/attribute-map/compliance-disclosure) is real; the
+    // MCP endpoint, agent-profile registration, and sponsored products are modeled
+    // but their runtime is NOT shipped — the compiler names them as deferred and
+    // preflight surfaces the note, so they are never silently "published".
+    runtimeShipped: true,
+    requiredScopes: ['read_products'],
+    note: 'Publishes an AI-channel product feed served from the app backend (/agentic/{shop}/{handle}/feed.json). The hosted MCP endpoint, agent-profile registration, and sponsored products are modeled but not yet shipped — a published module includes only the feed and names the deferred artifacts.',
   },
 
   // ── Composite (no runtime of its own; decomposes into real members) ────────

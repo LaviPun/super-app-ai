@@ -101,6 +101,11 @@ Settings: channel(email|sms|push|slack — ONLY email+slack send today; sms/push
 Merge vars: {{record.<field>}} / {{event.<path>}} resolved per recipient at send time.
 No style.`,
 
+  'agentic.catalogProfile': `Module: agentic.catalogProfile | Category: INTEGRATION
+AGENTIC-COMMERCE surface — a structured product-data feed the merchant surfaces to AI channels (ChatGPT/Copilot/Perplexity shopping, AI agents). Use for "make my catalog discoverable in AI shopping", "optimize my products for AI channels", "AI product feed". Published, it is served at GET /agentic/{shop}/{feedHandle}/feed.json (an app-served read-only feed — the SAME model pos.extension uses; no metaobject, no Shopify write). Only PUBLIC product data (title/price/availability/images/mapped attributes) — no PII.
+Settings: artifacts(1+ of catalog-feed|attribute-map|compliance-disclosure — REAL today; mcp-endpoint|agent-profile|sponsored-products — modeled but NEEDS_RUNTIME: accepted, but a module requesting them publishes only the feed and names them as deferred, never faked). source({kind:all|collection|manual, collectionIds?(Collection GIDs, max 25), productIds?(Product GIDs, max 250)}). attributeMap(max 50, each {key:gtin|mpn|brand|size|color|material|gender|ageGroup|condition, from:"metafield:<ns>.<key>"|"vendor"|"productType"|"variant.<field>"} — unresolved keys are omitted). disclosures(max 20, each {label(str 1-80), text(str 1-500)} appended to every feed item). feedHandle(str, regex [a-z0-9-] 3-40, default 'catalog').
+No style.`,
+
   'platform.extensionBlueprint': `Module: platform.extensionBlueprint | Category: ADMIN_UI
 Settings: surface(CHECKOUT_UI|THEME_APP_EXTENSION|FUNCTION), goal(str 5-240), suggestedFiles(str[] 1-50).
 No style.`,

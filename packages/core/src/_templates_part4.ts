@@ -1068,4 +1068,30 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
       },
     } as RecipeSpec,
   },
+
+  {
+    id: 'AGT-119',
+    name: 'AI Channel — Product Feed',
+    description: 'Publish a structured product-data feed for AI shopping channels (ChatGPT/Copilot/agents), served from an app endpoint. Maps normalized attributes and appends compliance disclosures.',
+    category: 'INTEGRATION',
+    type: 'agentic.catalogProfile',
+    icon: 'sparkles',
+    tags: ['agentic', 'ai-channel', 'catalog', 'feed', 'syndication'],
+    spec: {
+      type: 'agentic.catalogProfile',
+      name: 'AI Channel — Product Feed',
+      category: 'INTEGRATION',
+      requires: [],
+      config: {
+        artifacts: ['catalog-feed', 'attribute-map', 'compliance-disclosure'],
+        source: { kind: 'all' },
+        attributeMap: [
+          { key: 'brand', from: 'vendor' },
+          { key: 'gtin', from: 'metafield:custom.gtin' },
+        ],
+        disclosures: [],
+        feedHandle: 'catalog',
+      },
+    } as RecipeSpec,
+  },
 ];
