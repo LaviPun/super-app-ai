@@ -688,6 +688,65 @@ export const PART2_TEMPLATES: TemplateEntry[] = [
     },
   },
   {
+    id: 'SHP-074',
+    name: 'In-Store Pickup (BOPIS)',
+    description: 'Offer free local pickup at your store location so customers can buy online and collect in person.',
+    category: 'FUNCTION',
+    type: 'functions.localPickupDeliveryOption',
+    icon: 'shipping',
+    tags: ['pickup', 'local-pickup', 'bopis', 'delivery'],
+    spec: {
+      type: 'functions.localPickupDeliveryOption',
+      name: 'In-Store Pickup',
+      category: 'FUNCTION',
+      requires: ['SHIPPING_FUNCTION'],
+      config: {
+        locations: [
+          {
+            locationId: 'gid://shopify/Location/1',
+            cost: 0,
+            title: 'Pick up in store',
+            pickupInstruction: 'Bring your order confirmation and a photo ID.',
+          },
+        ],
+      },
+    },
+  },
+  {
+    id: 'SHP-075',
+    name: 'Parcel Locker Pickup Point',
+    description: 'Offer a third-party parcel-locker pickup point at checkout for customers in supported countries.',
+    category: 'FUNCTION',
+    type: 'functions.pickupPointDeliveryOption',
+    icon: 'shipping',
+    tags: ['pickup', 'pickup-point', 'parcel-locker', 'delivery'],
+    spec: {
+      type: 'functions.pickupPointDeliveryOption',
+      name: 'Parcel Locker Pickup',
+      category: 'FUNCTION',
+      requires: ['SHIPPING_FUNCTION'],
+      config: {
+        points: [
+          {
+            externalId: 'LOCKER-001',
+            name: 'Central Locker',
+            cost: 2.5,
+            provider: { name: 'ParcelCo', logoUrl: 'https://cdn.shopify.com/parcelco-logo.png' },
+            address: {
+              address1: '100 Market Street',
+              city: 'New York',
+              countryCode: 'US',
+              zip: '10001',
+              latitude: 40.7128,
+              longitude: -74.006,
+            },
+            countryCodeIn: ['US'],
+          },
+        ],
+      },
+    },
+  },
+  {
     id: 'SHP-066',
     name: 'Checkout Shipping Option Helper',
     description: 'Guide customers through shipping options before they make a selection.',

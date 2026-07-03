@@ -574,6 +574,74 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     }),
   }),
 
+  // Local Pickup delivery-option generator Function (BOPIS). GENERATES local-pickup
+  // options at checkout via purchase.local-pickup-delivery-option-generator.run, backed
+  // by the extensions/superapp-local-pickup crate. NOTE: the API is currently only on
+  // Shopify's `unstable` version (verified 2026-07-04 via dev MCP; NOT in 2026-04), so
+  // eligibility classifies this type `needs_runtime` until it ships on a stable version.
+  Base.extend({
+    type: z.literal('functions.localPickupDeliveryOption'),
+    category: z.literal('FUNCTION').default('FUNCTION'),
+    requires: z.array(z.custom<Capability>()).default(['SHIPPING_FUNCTION']),
+    config: z.object({
+      // Wire format the wasm handler reads (mirrors the crate's `Configuration`). Each
+      // entry adds a local-pickup option for a store location.
+      locations: z.array(z.object({
+        /** Shopify location GID to offer local pickup at. */
+        locationId: z.string().min(1),
+        /** Optional pickup cost (major units). Absent = free. */
+        cost: z.number().nonnegative().optional(),
+        /** Optional option title (defaults to the location name). */
+        title: z.string().min(1).max(80).optional(),
+        /** Optional pickup instruction shown at checkout. */
+        pickupInstruction: z.string().min(1).max(240).optional(),
+      })).min(1).max(LIMITS.rulesMax),
+    }),
+  }),
+
+  // Pickup Point delivery-option generator Function (parcel lockers / post offices).
+  // GENERATES third-party pickup-point options at checkout via
+  // purchase.pickup-point-delivery-option-generator.run, backed by the
+  // extensions/superapp-pickup-point crate. NOTE: the API is currently only on Shopify's
+  // `unstable` version (verified 2026-07-04 via dev MCP; NOT in 2026-04), so eligibility
+  // classifies this type `needs_runtime` until it ships on a stable version.
+  Base.extend({
+    type: z.literal('functions.pickupPointDeliveryOption'),
+    category: z.literal('FUNCTION').default('FUNCTION'),
+    requires: z.array(z.custom<Capability>()).default(['SHIPPING_FUNCTION']),
+    config: z.object({
+      // Wire format the wasm handler reads (mirrors the crate's `Configuration`). Each
+      // point carries its full third-party identity because it is a real physical drop-off.
+      points: z.array(z.object({
+        /** Third-party service's unique id for the point. */
+        externalId: z.string().min(1),
+        /** Display name of the point. */
+        name: z.string().min(1).max(120),
+        /** Optional cost (major units). Absent = location's default price. */
+        cost: z.number().nonnegative().optional(),
+        provider: z.object({
+          name: z.string().min(1).max(80),
+          /** Provider logo URL (required by the output type). */
+          logoUrl: z.string().url(),
+        }),
+        address: z.object({
+          address1: z.string().min(1),
+          address2: z.string().optional(),
+          city: z.string().min(1),
+          countryCode: z.string().min(2).max(2),
+          province: z.string().optional(),
+          provinceCode: z.string().optional(),
+          zip: z.string().optional(),
+          phone: z.string().optional(),
+          latitude: z.number(),
+          longitude: z.number(),
+        }),
+        /** Destination country codes this point is offered to (empty = any). */
+        countryCodeIn: z.array(z.string().min(2).max(2)).optional(),
+      })).min(1).max(LIMITS.rulesMax),
+    }),
+  }),
+
   Base.extend({
     type: z.literal('checkout.upsell'),
     category: z.literal('STOREFRONT_UI').default('STOREFRONT_UI'),

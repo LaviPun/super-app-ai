@@ -1,0 +1,18 @@
+api_version = "2026-04"
+
+[[extensions]]
+name = "t:name"
+handle = "superapp-order-routing"
+uid = "c9a79873-02c2-af48-f95d-5e3ad83a2f5ff0d733d7"
+type = "function"
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "cart.fulfillment-groups.location-rankings.generate.run"
+  input_query = "src/cart_fulfillment_groups_location_rankings_generate_run.graphql"
+  export = "cart_fulfillment_groups_location_rankings_generate_run"
+
+  [extensions.build]
+  command = "cargo build --target=wasm32-unknown-unknown --release"
+  path = "target/wasm32-unknown-unknown/release/superapp-order-routing.wasm"
+  watch = [ "src/**/*.rs" ]

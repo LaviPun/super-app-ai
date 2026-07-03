@@ -113,6 +113,8 @@ export const PREVIEW_KINDS = [
   'functions.fulfillmentConstraints',
   'functions.orderRoutingLocationRule',
   'functions.shippingDiscount',
+  'functions.localPickupDeliveryOption',
+  'functions.pickupPointDeliveryOption',
   'checkout.upsell',
   'checkout.block',
   'postPurchase.offer',

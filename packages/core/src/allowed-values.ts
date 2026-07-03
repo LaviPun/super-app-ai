@@ -1098,6 +1098,16 @@ export const RECIPE_SPEC_TYPES = [
   // op), so a `free-shipping` pricing rule is only ever enforced here. Backed by the
   // extensions/superapp-shipping-discount crate. See discount-packs.md §9.2.
   'functions.shippingDiscount',
+  // Local Pickup delivery-option generator (BOPIS): GENERATES local-pickup options at
+  // checkout via purchase.local-pickup-delivery-option-generator.run. Backed by the
+  // extensions/superapp-local-pickup crate. The API is currently `unstable`-only
+  // (verified 2026-07-04 via dev MCP), so eligibility gates it needs_runtime.
+  'functions.localPickupDeliveryOption',
+  // Pickup Point delivery-option generator (parcel lockers / post offices): GENERATES
+  // third-party pickup-point options at checkout via
+  // purchase.pickup-point-delivery-option-generator.run. Backed by the
+  // extensions/superapp-pickup-point crate. `unstable`-only, so gated needs_runtime.
+  'functions.pickupPointDeliveryOption',
   'checkout.upsell',
   'checkout.block',
   'postPurchase.offer',
@@ -1140,6 +1150,8 @@ const MODULE_TYPE_ORDER: ModuleType[] = [
   'functions.fulfillmentConstraints',
   'functions.orderRoutingLocationRule',
   'functions.shippingDiscount',
+  'functions.localPickupDeliveryOption',
+  'functions.pickupPointDeliveryOption',
   'admin.block',
   'admin.action',
   'admin.discountUi',
@@ -1199,6 +1211,8 @@ export const MODULE_TYPE_TO_CATEGORY: Record<ModuleType, ModuleCategory> = {
   'functions.fulfillmentConstraints': 'FUNCTION',
   'functions.orderRoutingLocationRule': 'FUNCTION',
   'functions.shippingDiscount': 'FUNCTION',
+  'functions.localPickupDeliveryOption': 'FUNCTION',
+  'functions.pickupPointDeliveryOption': 'FUNCTION',
   'checkout.upsell': 'STOREFRONT_UI',
   'checkout.block': 'STOREFRONT_UI',
   'postPurchase.offer': 'STOREFRONT_UI',
@@ -1231,6 +1245,8 @@ export const MODULE_TYPE_DEFAULT_REQUIRES: Record<ModuleType, readonly string[]>
   'functions.fulfillmentConstraints': [],
   'functions.orderRoutingLocationRule': [],
   'functions.shippingDiscount': ['SHIPPING_FUNCTION'],
+  'functions.localPickupDeliveryOption': ['SHIPPING_FUNCTION'],
+  'functions.pickupPointDeliveryOption': ['SHIPPING_FUNCTION'],
   'checkout.upsell': ['CHECKOUT_UI_INFO_SHIP_PAY'],
   'checkout.block': ['CHECKOUT_UI_INFO_SHIP_PAY'],
   'postPurchase.offer': ['CHECKOUT_UI_INFO_SHIP_PAY'],
@@ -1259,6 +1275,8 @@ export const MODULE_TYPE_TO_SURFACE: Record<ModuleType, ShopifySurface> = {
   'functions.fulfillmentConstraints': 'checkout',
   'functions.orderRoutingLocationRule': 'checkout',
   'functions.shippingDiscount': 'checkout',
+  'functions.localPickupDeliveryOption': 'checkout',
+  'functions.pickupPointDeliveryOption': 'checkout',
   'checkout.upsell': 'checkout',
   'checkout.block': 'checkout',
   'postPurchase.offer': 'checkout',
@@ -1386,6 +1404,19 @@ export const CLASSIFICATION_RULES: ClassificationRule[] = [
     // delivery rule so "free shipping" routes here first.
     keywords: ['free shipping', 'free delivery', 'waive shipping', 'discounted shipping', 'shipping discount', 'discount shipping', 'shipping over', 'free shipping over', 'ship free'],
     type: 'functions.shippingDiscount',
+  },
+  {
+    // Pickup-point (parcel locker / post office / third-party drop-off) generation.
+    // Placed before local-pickup + delivery so "parcel locker" doesn't collapse to
+    // in-store pickup or generic delivery.
+    keywords: ['pickup point', 'pickup-point', 'parcel locker', 'parcel shop', 'post office pickup', 'locker delivery', 'collection point', 'inpost', 'packstation'],
+    type: 'functions.pickupPointDeliveryOption',
+  },
+  {
+    // Local-pickup / BOPIS (buy online, pick up in store) option generation. Placed
+    // before the generic delivery rule so "in-store pickup" routes here.
+    keywords: ['local pickup', 'in-store pickup', 'in store pickup', 'store pickup', 'pickup in store', 'buy online pick up in store', 'bopis', 'click and collect', 'curbside pickup'],
+    type: 'functions.localPickupDeliveryOption',
   },
   {
     keywords: ['delivery', 'shipping', 'shipping method', 'hide shipping', 'delivery customization'],

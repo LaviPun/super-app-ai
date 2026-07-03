@@ -85,6 +85,8 @@ function getRequiredDataFlagsForType(type: string): Capability[] {
     case 'functions.fulfillmentConstraints':
     case 'functions.orderRoutingLocationRule':
     case 'functions.shippingDiscount':
+    case 'functions.localPickupDeliveryOption':
+    case 'functions.pickupPointDeliveryOption':
       return ['FUNCTION_DATA', 'PRODUCT_DATA', 'ORDER_DATA', 'CART_DATA', 'CHECKOUT_DATA', 'METAFIELD_DATA', 'METAOBJECT_DATA'];
     case 'checkout.upsell':
     case 'checkout.block':

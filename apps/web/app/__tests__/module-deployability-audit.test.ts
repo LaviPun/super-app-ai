@@ -34,8 +34,21 @@ import { repairHydrateEnvelope } from '~/services/ai/llm.server';
 // Types whose runtime is NOT shipped yet. Empty is the goal; shrink this as
 // runtimes land (each removal must coincide with a real extension + compiler wiring).
 const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
-  // No Shopify CLI template for an order-routing Function → no wasm to ship.
+  // Order-routing Function: the crate (extensions/superapp-order-routing, target
+  // cart.fulfillment-groups.location-rankings.generate.run — a REAL 2026-04 API) + full
+  // TS wiring are real and its handle is wired in FUNCTION_RUNTIME_HANDLES, but the handle
+  // is not yet in the deployed-function manifest (deployed-extensions.server.ts), so it
+  // honestly reads needs_runtime until `shopify app deploy` ships the wasm and the handle
+  // is added there — the same honest state as the shipping-discount crate.
   'functions.orderRoutingLocationRule',
+  // Local-pickup / pickup-point delivery-option generators: the crates
+  // (extensions/superapp-local-pickup, extensions/superapp-pickup-point) + full TS wiring
+  // are real, but these Function APIs are currently only on Shopify's `unstable` version
+  // (verified 2026-07-04 via the dev MCP; NOT in 2026-04, which the app pins). Their
+  // handles are wired, but the crates can't ship on a stable version yet, so the handles
+  // won't be in the deployed manifest → needs_runtime until Shopify promotes these APIs.
+  'functions.localPickupDeliveryOption',
+  'functions.pickupPointDeliveryOption',
   // Shipping-discount Function: the crate (extensions/superapp-shipping-discount,
   // target cart.delivery-options.discounts.generate.run) + full TS wiring are real,
   // but its handle is not yet in the deployed-function manifest
@@ -87,7 +100,7 @@ describe('module deployability audit — every type classified (eligibility mode
     expect(needsRuntime).toEqual([...EXPECTED_NEEDS_RUNTIME].sort());
   });
 
-  it('reports the deployable surface area (most of 20)', () => {
+  it('reports the deployable surface area (most types)', () => {
     const deployableCount = RECIPE_SPEC_TYPES.filter((t) =>
       isRuntimeShipped(t, { deployedFunctionHandles: deployed }),
     ).length;

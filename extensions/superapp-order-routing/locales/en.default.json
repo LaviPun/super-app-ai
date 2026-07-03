@@ -1,0 +1,4 @@
+{
+  "name": "SuperApp Order Routing",
+  "description": "Ranks inventory locations per fulfillment group from published order-routing location rules."
+}

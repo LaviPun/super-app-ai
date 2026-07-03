@@ -10,6 +10,8 @@ import { compileCartTransform } from './functions.cartTransform';
 import { compileFulfillmentConstraints } from './functions.fulfillmentConstraints';
 import { compileOrderRoutingLocationRule } from './functions.orderRoutingLocationRule';
 import { compileShippingDiscount } from './functions.shippingDiscount';
+import { compileLocalPickupDeliveryOption } from './functions.localPickupDeliveryOption';
+import { compilePickupPointDeliveryOption } from './functions.pickupPointDeliveryOption';
 import { compileCheckoutUpsell } from './checkout.upsell';
 import { compileCheckoutBlock } from './checkout.block';
 import { compilePostPurchaseOffer } from './postPurchase.offer';
@@ -43,6 +45,10 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
       return compileOrderRoutingLocationRule(spec);
     case 'functions.shippingDiscount':
       return compileShippingDiscount(spec);
+    case 'functions.localPickupDeliveryOption':
+      return compileLocalPickupDeliveryOption(spec);
+    case 'functions.pickupPointDeliveryOption':
+      return compilePickupPointDeliveryOption(spec);
     case 'checkout.upsell':
       return compileCheckoutUpsell(spec);
     case 'customerAccount.blocks':

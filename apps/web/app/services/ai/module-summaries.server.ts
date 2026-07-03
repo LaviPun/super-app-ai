@@ -58,6 +58,18 @@ Waives or discounts SHIPPING/delivery cost (free or discounted delivery). This i
 Settings: rules (array 1-50), each rule: when(minSubtotal:number>=0, minQty:int>0, countryCodeIn:str[2-char], customerTags:str[]), apply(shippingPercentage:0-100 — 100=free shipping, partial=discounted delivery).
 No style.`,
 
+  'functions.localPickupDeliveryOption': `Module: functions.localPickupDeliveryOption | Category: FUNCTION | Requires: SHIPPING_FUNCTION
+GENERATES local pickup / BOPIS ("buy online, pick up in store") delivery options at checkout — one option per configured store location. Use for "let customers pick up in store", "in-store pickup", "click and collect".
+Settings: locations (array 1-50), each: locationId(Shopify Location GID, required), cost(number>=0, opt — absent=free), title(str 1-80, opt — defaults to location name), pickupInstruction(str 1-240, opt).
+NOTE: the Local Pickup Delivery Option Generator API is currently only on Shopify's unstable version, so this type is authorable + previewable but classified needs_runtime (not deployable on a stable release yet).
+No style.`,
+
+  'functions.pickupPointDeliveryOption': `Module: functions.pickupPointDeliveryOption | Category: FUNCTION | Requires: SHIPPING_FUNCTION
+GENERATES third-party pickup-point delivery options at checkout (parcel lockers, post offices, convenience stores). Each point carries its full carrier identity. Use for "offer parcel locker delivery", "InPost/packstation pickup", "post office collection".
+Settings: points (array 1-50), each: externalId(str, required), name(str 1-120), cost(number>=0, opt), provider({name:str 1-80, logoUrl:url}), address({address1, city, countryCode:str[2], latitude:number, longitude:number, address2?/province?/provinceCode?/zip?/phone? opt}), countryCodeIn(str[2-char][], opt — destinations offered; empty=any).
+NOTE: the Pickup Point Delivery Option Generator API is currently only on Shopify's unstable version, so this type is authorable + previewable but classified needs_runtime (not deployable on a stable release yet).
+No style.`,
+
   'checkout.upsell': `Module: checkout.upsell | Category: STOREFRONT_UI | Requires: CHECKOUT_UI_INFO_SHIP_PAY
 Settings: offerTitle(str 1-60), productVariantGid(str min 10, e.g. gid://shopify/ProductVariant/123), discountPercent(0-100, default 0).
 No style.`,

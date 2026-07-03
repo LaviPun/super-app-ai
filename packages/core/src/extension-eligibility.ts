@@ -87,9 +87,17 @@ const PLUS_ONLY_FUNCTIONS = new Set<ModuleType>([
  * the `handle` in each `extensions/<dir>/shopify.extension.toml`. A handle here is
  * only "deployable" once it's also in the deployed-extensions manifest.
  *
- * `orderRoutingLocationRule` has NO entry: the Shopify CLI offers no order-routing
- * function template, so there is no wasm to ship — it stays `needs_runtime` until
- * Shopify exposes that surface.
+ * `orderRoutingLocationRule` NOW has a crate (extensions/superapp-order-routing) targeting
+ * `cart.fulfillment-groups.location-rankings.generate.run` — a REAL 2026-04 API — so its
+ * handle is wired here; it flips deployable once the handle is in the deployed manifest.
+ *
+ * `localPickupDeliveryOption` / `pickupPointDeliveryOption` have crates
+ * (extensions/superapp-local-pickup, extensions/superapp-pickup-point) BUT their APIs are
+ * currently only on Shopify's `unstable` version (verified 2026-07-04 via the dev MCP; NOT
+ * in 2026-04, which the app pins). The handle is wired so the plumbing is complete, but the
+ * crates can't ship on a stable version yet, so the handles won't appear in the deployed
+ * manifest → both stay `needs_runtime` (see their REGISTRY notes). They flip deployable only
+ * when Shopify promotes these APIs to a stable version the app adopts.
  */
 export const FUNCTION_RUNTIME_HANDLES: Record<string, string> = {
   'functions.cartTransform': 'cart-transform-function',
@@ -99,6 +107,9 @@ export const FUNCTION_RUNTIME_HANDLES: Record<string, string> = {
   'functions.paymentCustomization': 'superapp-payment-customization',
   'functions.cartAndCheckoutValidation': 'superapp-cart-checkout-validation',
   'functions.fulfillmentConstraints': 'superapp-fulfillment-constraints',
+  'functions.orderRoutingLocationRule': 'superapp-order-routing',
+  'functions.localPickupDeliveryOption': 'superapp-local-pickup',
+  'functions.pickupPointDeliveryOption': 'superapp-pickup-point',
 };
 
 /**
@@ -144,8 +155,31 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
   ),
   'functions.orderRoutingLocationRule': fn(
     'functions.orderRoutingLocationRule',
-    'Influences which location fulfills an order via a Function.',
+    'Ranks inventory locations per fulfillment group via a Function (order routing runs on Shopify Plus).',
   ),
+  // Local Pickup delivery-option generator (BOPIS). The crate exists
+  // (extensions/superapp-local-pickup) and the compiler emits real config, BUT the
+  // Local Pickup Delivery Option Generator API is currently only on Shopify's `unstable`
+  // version (verified 2026-07-04 via dev MCP; NOT in 2026-04). Its handle won't appear in
+  // the deployed manifest until the API ships on a stable version the app adopts, so
+  // `isRuntimeShipped` returns false → needs_runtime. Honest "not shipped on stable yet".
+  'functions.localPickupDeliveryOption': {
+    ...fn(
+      'functions.localPickupDeliveryOption',
+      'Generates local pickup (BOPIS) options at checkout via a Function. The Local Pickup Delivery Option Generator API is currently only on Shopify’s unstable version, so this is not yet deployable on a stable release.',
+    ),
+    requiredScopes: ['write_metaobjects'],
+  },
+  // Pickup Point delivery-option generator (parcel lockers / post offices). Same honest
+  // state as local pickup: crate exists (extensions/superapp-pickup-point) + real config,
+  // but the Pickup Point Delivery Option Generator API is `unstable`-only, so needs_runtime.
+  'functions.pickupPointDeliveryOption': {
+    ...fn(
+      'functions.pickupPointDeliveryOption',
+      'Generates third-party pickup-point (parcel locker / post office) options at checkout via a Function. The Pickup Point Delivery Option Generator API is currently only on Shopify’s unstable version, so this is not yet deployable on a stable release.',
+    ),
+    requiredScopes: ['write_metaobjects'],
+  },
   // Shipping-discount Function (unified Discount API, SHIPPING class). Waives/discounts
   // delivery via cart.delivery-options.discounts.generate.run — the runtime the
   // product-discount Function cannot provide. The crate exists
