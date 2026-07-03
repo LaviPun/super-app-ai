@@ -26,7 +26,12 @@ function inferSurface(moduleType: ModuleType): CapabilitySurface {
   if (moduleType.startsWith('functions.')) return 'FUNCTIONS';
   if (moduleType === 'customerAccount.blocks') return 'CUSTOMER_ACCOUNT';
   if (moduleType === 'pos.extension') return 'POS';
-  if (moduleType === 'integration.httpSync' || moduleType === 'analytics.pixel') return 'INTEGRATION';
+  if (
+    moduleType === 'integration.httpSync' ||
+    moduleType === 'analytics.pixel' ||
+    moduleType === 'messaging.campaign'
+  )
+    return 'INTEGRATION';
   return 'FLOW';
 }
 

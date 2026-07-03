@@ -122,6 +122,7 @@ export const PREVIEW_KINDS = [
   'analytics.pixel',
   'integration.httpSync',
   'flow.automation',
+  'messaging.campaign',
   'platform.extensionBlueprint',
   'customerAccount.blocks',
 ] as const;

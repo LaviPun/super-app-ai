@@ -228,6 +228,21 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
     note: 'Runs server-side (scheduled/app-proxy sync). Sync runtime + compiler wiring pending before it can publish.',
   },
 
+  // ── Messaging (app proxy / server, R3.4) ───────────────────────────────────
+  'messaging.campaign': {
+    moduleType: 'messaging.campaign',
+    runtime: 'app-proxy',
+    // The EMAIL + SLACK runner is shipped: MessagingRunnerService fans out over the
+    // live EmailConnector/SlackConnector at the three trigger sites, and the compiler
+    // persists the campaign config (SHOP_METAFIELD_SET, non-AUDIT) → deployable, not
+    // false-published. Per-channel shipped-ness (email/slack real; sms/push
+    // needs_runtime) is enforced at compile preflight + runtime via
+    // MESSAGING_CHANNELS_SHIPPED, not on this per-type registry axis.
+    runtimeShipped: true,
+    requiredScopes: ['write_metaobjects'],
+    note: 'Fans out email/slack to a subscriber list via the app server (EmailConnector/SlackConnector). SMS and push channels are modeled but need their connectors shipped before they can send.',
+  },
+
   // ── Web Pixel (analytics) ──────────────────────────────────────────────────
   'analytics.pixel': {
     moduleType: 'analytics.pixel',

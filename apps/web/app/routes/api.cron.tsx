@@ -11,6 +11,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { json } from '@remix-run/node';
 import { ScheduleService } from '~/services/flows/schedule.service';
 import { FlowRunnerService } from '~/services/flows/flow-runner.service';
+import { MessagingRunnerService } from '~/services/messaging/messaging-runner.service';
 import { runInternalAiAuditRetention } from '~/services/jobs/internal-ai-audit-retention.job';
 import { runInternalAiChatRetention } from '~/services/jobs/internal-ai-chat-retention.job';
 import {
@@ -68,6 +69,7 @@ export async function loader({ request }: { request: Request }) {
 
   const scheduleService = new ScheduleService();
   const runner = new FlowRunnerService();
+  const messagingRunner = new MessagingRunnerService();
 
   const due = await scheduleService.claimDue();
 
@@ -87,6 +89,24 @@ export async function loader({ request }: { request: Request }) {
       results.push({ scheduleId: item.id, shopDomain: item.shopDomain, ok: true });
     } catch (err) {
       results.push({ scheduleId: item.id, shopDomain: item.shopDomain, ok: false, error: String(err) });
+    }
+
+    // R3.4 sibling: fan out SCHEDULED broadcast campaigns for this shop. Messaging
+    // sends via app connectors (email/slack), so it works without an admin context.
+    // Own try/catch (C6) so a messaging failure never fails the schedule tick.
+    try {
+      await messagingRunner.runForTrigger(
+        item.shopDomain,
+        null as unknown as AdminApiContext['admin'],
+        'SCHEDULED',
+        event,
+      );
+    } catch (err) {
+      logger.warn('[api.cron] scheduled messaging fan-out failed', {
+        shopDomain: item.shopDomain,
+        scheduleId: item.id,
+        ...safeErrorMeta(err),
+      });
     }
   }
 

@@ -1027,4 +1027,45 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
       },
     },
   },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Category 14: Messaging (MSG-118) — R3.4 first-class messaging surface.
+  // Email fan-out over a captured subscriber list via the shipped EmailConnector.
+  // ═══════════════════════════════════════════════════════════════════
+
+  {
+    id: 'MSG-118',
+    name: 'Back in Stock — Email Waitlist',
+    description: 'Email everyone on a back-in-stock waitlist when a product restocks, filtered to the restocked product and to consenting subscribers.',
+    category: 'INTEGRATION',
+    type: 'messaging.campaign',
+    icon: 'email',
+    tags: ['messaging', 'email', 'back-in-stock', 'waitlist', 'notification'],
+    spec: {
+      type: 'messaging.campaign',
+      name: 'Back in Stock — Email Waitlist',
+      category: 'INTEGRATION',
+      requires: [],
+      config: {
+        channel: 'email',
+        trigger: { kind: 'back_in_stock' },
+        audience: {
+          source: 'data_store',
+          storeKey: 'backinstock_waitlist',
+          addressField: 'email',
+          consentField: 'emailConsent',
+          recipients: [],
+        },
+        templates: [
+          {
+            channel: 'email',
+            subject: '{{record.product_title}} is back in stock!',
+            body: '<p>Good news — {{record.product_title}} is available again. <a href="{{record.product_url}}">Shop now</a>.</p>',
+          },
+        ],
+        batchSize: 200,
+        respectConsent: true,
+      },
+    } as RecipeSpec,
+  },
 ];

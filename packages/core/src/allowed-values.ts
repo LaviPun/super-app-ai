@@ -442,6 +442,57 @@ export const FLOW_SUPERAPP_TRIGGERS = [
 /** flow.automation RecipeSpec config trigger enum (doc 18.3). */
 export const FLOW_AUTOMATION_TRIGGERS = [...INTEGRATION_HTTP_SYNC_TRIGGERS, ...FLOW_SUPERAPP_TRIGGERS] as const;
 
+// ─── Messaging surface (R3.4 / M5, specs/031 messaging-surface.md) ───────────
+/**
+ * Delivery channels. Only `email` and `slack` have a shipped runtime today
+ * (EmailConnector / SlackConnector, reachable via the live FlowRunnerService step
+ * kinds SEND_EMAIL_NOTIFICATION / SEND_SLACK_MESSAGE). `sms` and `push` are
+ * modeled in the vocabulary but gated `needs_runtime` at compile + runtime until
+ * their connectors ship — the runner refuses them loudly, never fakes a send.
+ */
+export const MESSAGING_CHANNELS = ['email', 'sms', 'push', 'slack'] as const;
+export type MessagingChannel = (typeof MESSAGING_CHANNELS)[number];
+
+/**
+ * Channels whose runtime is ACTUALLY shipped today. Single source of truth for the
+ * compiler preflight gate + the MessagingRunnerService channel gate. When a Twilio
+ * (sms) / web-push (push) connector lands, add the channel here — no schema or
+ * runner change; the gate simply stops throwing.
+ */
+export const MESSAGING_CHANNELS_SHIPPED = ['email', 'slack'] as const;
+export type ShippedMessagingChannel = (typeof MESSAGING_CHANNELS_SHIPPED)[number];
+
+/**
+ * What causes the campaign to fan out.
+ *  - `broadcast`     one-shot blast to the resolved audience (admin "Send now" / SCHEDULED cron).
+ *  - `event`         reacts to a live FlowRunnerService trigger (order/create, product/update, …).
+ *  - `back_in_stock` event convenience preset: resolves to SHOPIFY_WEBHOOK_PRODUCT_UPDATED → notify a waitlist store.
+ * Durable multi-step drip sequences are OUT OF SCOPE — they depend on the R3.5
+ * durable scheduler (cross-run paging); modeled as a follow-up, not shipped here.
+ */
+export const MESSAGING_TRIGGER_KINDS = ['broadcast', 'event', 'back_in_stock'] as const;
+export type MessagingTriggerKind = (typeof MESSAGING_TRIGGER_KINDS)[number];
+
+/** How the recipient set is resolved. */
+export const MESSAGING_AUDIENCE_SOURCES = [
+  'data_store', // a DataStore subscriber list (the capture→persist→fan-out spine)
+  'event_recipient', // the person on the triggering event (order email, back-in-stock subscriber)
+  'literal', // an explicit address list (ops alerts; small)
+] as const;
+export type MessagingAudienceSource = (typeof MESSAGING_AUDIENCE_SOURCES)[number];
+
+/** Bounds for the messaging pack (schema-enforced). */
+export const MESSAGING_LIMITS = {
+  subjectMax: 200,
+  bodyMax: 20_000,
+  titleMax: 120,
+  literalRecipientsMax: 50,
+  templatesMax: 4, // one per channel
+  batchSizeMax: 500, // per-run fan-out cap (bounded posture; cross-run paging is R3.5)
+  fieldNameMax: 60,
+  storeKeyMax: 40,
+} as const;
+
 /** flow.automation steps kind (doc 18.3). */
 export const FLOW_STEP_KINDS = [
   'HTTP_REQUEST',
@@ -738,6 +789,9 @@ export const RECIPE_SPEC_TYPES = [
   'analytics.pixel',
   'integration.httpSync',
   'flow.automation',
+  // First-class messaging surface (R3.4 / M5): bounded email/slack fan-out over a
+  // resolved audience. SMS/push are modeled but gated needs_runtime per-channel.
+  'messaging.campaign',
   'platform.extensionBlueprint',
   'customerAccount.blocks',
 ] as const;
@@ -766,6 +820,7 @@ const MODULE_TYPE_ORDER: ModuleType[] = [
   'analytics.pixel',
   'integration.httpSync',
   'flow.automation',
+  'messaging.campaign',
   'customerAccount.blocks',
 ];
 
@@ -821,6 +876,9 @@ export const MODULE_TYPE_TO_CATEGORY: Record<ModuleType, ModuleCategory> = {
   'analytics.pixel': 'INTEGRATION',
   'integration.httpSync': 'INTEGRATION',
   'flow.automation': 'FLOW',
+  // Messaging is a server-side integration effect (fan-out via app connectors),
+  // so it reuses the INTEGRATION category (D1) — additive, no new category enum.
+  'messaging.campaign': 'INTEGRATION',
   'platform.extensionBlueprint': 'ADMIN_UI',
   'customerAccount.blocks': 'CUSTOMER_ACCOUNT',
 };
@@ -846,6 +904,7 @@ export const MODULE_TYPE_DEFAULT_REQUIRES: Record<ModuleType, readonly string[]>
   'analytics.pixel': [],
   'integration.httpSync': [],
   'flow.automation': [],
+  'messaging.campaign': [],
   'platform.extensionBlueprint': [],
   'customerAccount.blocks': ['CUSTOMER_ACCOUNT_UI'],
 };
@@ -871,6 +930,8 @@ export const MODULE_TYPE_TO_SURFACE: Record<ModuleType, ShopifySurface> = {
   'analytics.pixel': 'marketing_analytics',
   'integration.httpSync': 'online_store',
   'flow.automation': 'flow',
+  // Closest existing surface for outbound messaging (no new surface enum, D1).
+  'messaging.campaign': 'marketing_analytics',
   'platform.extensionBlueprint': 'admin',
   'customerAccount.blocks': 'customer_accounts',
 };

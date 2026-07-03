@@ -95,6 +95,12 @@ Controls: trigger(MANUAL|SHOPIFY_WEBHOOK_ORDER_CREATED|SHOPIFY_WEBHOOK_PRODUCT_U
 Steps (array 1-40, discriminated by kind): HTTP_REQUEST(connectorId, path, method, bodyMapping), SEND_HTTP_REQUEST(url https, method, headers, body, authType, authConfig), TAG_CUSTOMER(tag), ADD_ORDER_NOTE(note), WRITE_TO_STORE(storeKey, titleExpr, payloadMapping), SEND_EMAIL_NOTIFICATION(to, subject, body), TAG_ORDER(tags), SEND_SLACK_MESSAGE(channel, text), CONDITION(field, operator, value, thenSteps, elseSteps).
 No style.`,
 
+  'messaging.campaign': `Module: messaging.campaign | Category: INTEGRATION
+First-class MESSAGING surface — bounded email/slack fan-out over a resolved audience. Use for "email my back-in-stock list", "notify subscribers when X restocks", broadcast blasts, order/customer notifications.
+Settings: channel(email|sms|push|slack — ONLY email+slack send today; sms/push are modeled but need their connector shipped, so a campaign whose channel is sms/push is authorable+previewable but blocked at publish). trigger({kind:broadcast|event|back_in_stock, event?:<flow trigger> when kind=event}). audience({source:data_store|event_recipient|literal, storeKey?(data_store: subscriber list key), addressField?(default email→'email'), consentField?(skip falsy-consent recipients), recipients?(literal), ruleEngine?(per-recipient filter)}). templates(1-4, each {channel, subject?(email requires it), body(HTML/text, {{merge.vars}} allowed), title?(push), url?}). batchSize(1-500, default 200 — bounded per run; large lists page across runs). respectConsent(bool, default true).
+Merge vars: {{record.<field>}} / {{event.<path>}} resolved per recipient at send time.
+No style.`,
+
   'platform.extensionBlueprint': `Module: platform.extensionBlueprint | Category: ADMIN_UI
 Settings: surface(CHECKOUT_UI|THEME_APP_EXTENSION|FUNCTION), goal(str 5-240), suggestedFiles(str[] 1-50).
 No style.`,

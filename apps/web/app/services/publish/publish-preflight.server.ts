@@ -1,6 +1,11 @@
 import type { AdminApiContext } from '~/types/shopify';
 import type { RecipeSpec } from '@superapp/core';
-import { FUNCTION_RUNTIME_HANDLES, getExtensionEligibility, isRuntimeShipped } from '@superapp/core';
+import {
+  FUNCTION_RUNTIME_HANDLES,
+  getExtensionEligibility,
+  isRuntimeShipped,
+  MESSAGING_CHANNELS_SHIPPED,
+} from '@superapp/core';
 import {
   ModulePublishPreflightResultSchema,
   type ModulePublishPreflightResult,
@@ -107,6 +112,24 @@ export function classifyModulePublishability(
   const type = spec.type;
   const eligibility = getExtensionEligibility(type);
   const shipped = isRuntimeShipped(type, { deployedFunctionHandles: ctx.deployedExtensions ?? [] });
+
+  // R3.4 per-channel gate: messaging.campaign is a DEPLOYABLE type (email/slack ship),
+  // but a campaign whose PRIMARY channel is sms/push has no shipped connector — block
+  // PUBLISH honestly (needs_runtime), scoped to the channel, never faking a send. Only
+  // fires when the spec carries a channel (the type-level audit passes bare `{ type }`).
+  if (type === 'messaging.campaign') {
+    const channel = (spec.config as { channel?: string } | undefined)?.channel;
+    if (channel && !(MESSAGING_CHANNELS_SHIPPED as readonly string[]).includes(channel)) {
+      return ModulePublishPreflightResultSchema.parse({
+        moduleType: type,
+        status: 'needs_runtime',
+        reasons: [
+          `Messaging channel '${channel}' has no shipped connector yet — email and Slack send today; ${channel} needs its connector shipped before this campaign can publish.`,
+        ],
+        willDeploy: false,
+      });
+    }
+  }
 
   if (!shipped) {
     const detail =

@@ -123,6 +123,16 @@ export const INTENT_EXAMPLES: Record<string, string[]> = {
     'set up a Shopify Flow automation for order fulfillment',
     'trigger a discount when a customer has 5 orders',
   ],
+  'messaging.campaign': [
+    'email everyone on my back-in-stock waitlist when a product restocks',
+    'notify subscribers by email when an item is back in stock',
+    'send an email blast to my newsletter list',
+    'email my subscribers a discount code campaign',
+    'send a Slack alert to the ops channel when a big order comes in',
+    'text customers when their order ships',
+    'send a push notification for a flash sale',
+    'broadcast a message to everyone on my email list',
+  ],
   'functions.discountRules': [
     'give 20% off to customers tagged as VIP',
     'create a tiered discount based on cart total',

@@ -598,6 +598,8 @@ export class PreviewService {
       case 'integration.httpSync':
       case 'flow.automation':
         return this.workflowSurfacePreview(spec, surface);
+      case 'messaging.campaign':
+        return this.messagingCampaignPreview(spec);
       default:
         // Unknown/novel type: still interactive (mock card), not the diagram.
         return this.workflowSurfacePreview(spec, surface);
@@ -832,6 +834,96 @@ export class PreviewService {
       .wf__step { display:flex; gap:10px; align-items:flex-start; }
       .wf__n { background:#1F3A5F; color:#fff; border-radius:9999px; width:22px; height:22px; display:inline-flex; align-items:center; justify-content:center; font-size:12px; flex:0 0 auto; }
       pre { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px; font-size:12px; }
+    `);
+  }
+
+  /**
+   * Deterministic messaging.campaign preview (R3.4). No AI, no live send — renders
+   * the channel badge, the trigger, an audience summary, and the primary template
+   * with sample merge-var substitution so the merchant sees exactly what fans out.
+   * SMS/push (needs_runtime) are labelled honestly so the merchant sees the gate.
+   */
+  private messagingCampaignPreview(spec: RecipeSpec): string {
+    const cfg = (spec.config ?? {}) as Record<string, unknown>;
+    const channel = String(cfg.channel ?? 'email');
+    const shipped = channel === 'email' || channel === 'slack';
+    const trigger = (cfg.trigger ?? {}) as Record<string, unknown>;
+    const triggerKind = String(trigger.kind ?? 'broadcast');
+    const triggerLabel =
+      triggerKind === 'event'
+        ? `On event: ${String(trigger.event ?? '—')}`
+        : triggerKind === 'back_in_stock'
+          ? 'On back-in-stock (product restock)'
+          : 'Broadcast (Send now / scheduled)';
+
+    const audience = (cfg.audience ?? {}) as Record<string, unknown>;
+    const source = String(audience.source ?? 'data_store');
+    const batchSize = Number(cfg.batchSize ?? 200);
+    const audienceSummary =
+      source === 'data_store'
+        ? `Subscribers in "${String(audience.storeKey ?? '—')}" (up to ${batchSize}/run)`
+        : source === 'event_recipient'
+          ? 'The recipient on the triggering event'
+          : `${Array.isArray(audience.recipients) ? audience.recipients.length : 0} explicit recipient(s)`;
+    const ruleEngine = (audience.ruleEngine ?? {}) as Record<string, unknown>;
+    const filtered = ruleEngine.enabled === true;
+    const consentField = audience.consentField ? String(audience.consentField) : '';
+
+    const templates = Array.isArray(cfg.templates) ? (cfg.templates as Array<Record<string, unknown>>) : [];
+    const tmpl = templates.find((t) => String(t.channel) === channel) ?? templates[0];
+
+    // Sample merge-var context — deterministic, so the preview is stable.
+    const sample: Record<string, string> = {
+      'record.product_title': 'Aurora Down Jacket',
+      'record.product_url': 'https://example.com/products/aurora',
+      'record.first_name': 'Sam',
+      'record.email': 'sam@example.com',
+    };
+    const render = (s: string) =>
+      s.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, path: string) => sample[path] ?? `{{${path}}}`);
+
+    const subject = tmpl?.subject ? render(String(tmpl.subject)) : '';
+    const bodyRaw = tmpl?.body ? String(tmpl.body) : '';
+    const body = sanitizePreviewHtml(render(bodyRaw));
+
+    const channelBadge = shipped
+      ? `<span class="msg__chip msg__chip--ok">${esc(channel)} · sends now</span>`
+      : `<span class="msg__chip msg__chip--gate">${esc(channel)} · needs runtime</span>`;
+
+    const templateBody =
+      channel === 'email'
+        ? `<div class="msg__email"><div class="msg__subj">${esc(subject) || '<em>(no subject)</em>'}</div><div class="msg__html">${body || '<em>(empty body)</em>'}</div></div>`
+        : `<div class="msg__text">${esc(render(bodyRaw)) || '<em>(empty body)</em>'}</div>`;
+
+    return this.surfaceCard(spec.name, `${spec.type} · messaging`, `
+      <div class="surf-panel">
+        <div class="msg__head">${channelBadge}<span class="msg__trig">${esc(triggerLabel)}</span></div>
+        <div class="msg__meta">
+          <div class="msg__row"><span>Audience</span><span>${esc(audienceSummary)}</span></div>
+          ${filtered ? `<div class="msg__row"><span>Filter</span><span>Rule-engine per-recipient filter applied</span></div>` : ''}
+          ${consentField ? `<div class="msg__row"><span>Consent</span><span>Skips recipients where <code>${esc(consentField)}</code> is falsy</span></div>` : ''}
+        </div>
+        <h3>Rendered message (sample data)</h3>
+        ${templateBody}
+        ${
+          shipped
+            ? ''
+            : `<details class="surf-state" open><summary>Runtime</summary><p class="surf-muted">The ${esc(channel)} connector is not shipped yet — this campaign is authorable and previewable, but blocked at publish until its connector lands (needs_runtime). Email and Slack send today.</p></details>`
+        }
+      </div>
+    `, `
+      .msg__head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+      .msg__chip { border-radius:9999px; padding:3px 10px; font-size:12px; text-transform:capitalize; }
+      .msg__chip--ok { background:#E7F5EF; color:#0E9F6E; }
+      .msg__chip--gate { background:#FEF3C7; color:#92400E; }
+      .msg__trig { font-size:13px; color:#475569; }
+      .msg__meta { display:grid; gap:4px; margin-bottom:12px; }
+      .msg__row { display:flex; justify-content:space-between; gap:12px; font-size:13px; border-bottom:1px dashed #e2e8f0; padding:3px 0; }
+      .msg__row span:first-child { color:#6B7280; }
+      .msg__email { border:1px solid #dce3ec; border-radius:8px; overflow:hidden; }
+      .msg__subj { background:#f8fafc; border-bottom:1px solid #dce3ec; padding:8px 12px; font-weight:600; color:#111827; font-size:14px; }
+      .msg__html { padding:12px; font-size:14px; color:#1f2937; }
+      .msg__text { border:1px solid #dce3ec; border-radius:8px; padding:12px; font-size:14px; color:#1f2937; white-space:pre-wrap; }
     `);
   }
 

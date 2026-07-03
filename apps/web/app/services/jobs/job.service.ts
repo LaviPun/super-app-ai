@@ -1,7 +1,7 @@
 import { getPrisma } from '~/db.server';
 import { getRequestContext } from '~/services/observability/correlation.server';
 
-export type JobType = 'AI_GENERATE'|'AI_HYDRATE'|'AI_MODIFY'|'PUBLISH'|'CONNECTOR_TEST'|'FLOW_RUN'|'THEME_ANALYZE';
+export type JobType = 'AI_GENERATE'|'AI_HYDRATE'|'AI_MODIFY'|'PUBLISH'|'CONNECTOR_TEST'|'FLOW_RUN'|'MESSAGING_RUN'|'THEME_ANALYZE';
 export type JobStatus = 'QUEUED'|'RUNNING'|'SUCCESS'|'FAILED';
 
 export class JobService {

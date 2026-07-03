@@ -65,6 +65,7 @@ export const MODULE_TYPE_TO_TEMPLATE_KIND: Record<ModuleType, string> = {
   'analytics.pixel': 'analytics_pixel',
   'integration.httpSync': 'http_sync',
   'flow.automation': 'flow_automation',
+  'messaging.campaign': 'messaging_campaign',
   'platform.extensionBlueprint': 'extension_blueprint',
   'customerAccount.blocks': 'customer_account_blocks',
 };
@@ -92,6 +93,7 @@ const MODULE_TYPE_TAGS: Record<ModuleType, readonly string[]> = {
   'analytics.pixel': ['analytics', 'tracking'],
   'integration.httpSync': ['integration', 'sync'],
   'flow.automation': ['flow', 'automation'],
+  'messaging.campaign': ['messaging', 'email', 'sms', 'push', 'campaign', 'notification', 'back-in-stock'],
   'platform.extensionBlueprint': ['platform', 'blueprint'],
   'customerAccount.blocks': ['customer-account', 'block'],
 };

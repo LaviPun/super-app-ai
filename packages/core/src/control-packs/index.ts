@@ -63,3 +63,16 @@ export type {
   StaticRecommendationStrategy,
   RecommendationFallback,
 } from './packs/recommendation.pack.js';
+export {
+  MessagingPackSchema,
+  MessageTemplateSchema,
+  MessagingAudienceSchema,
+  MessagingTriggerSchema,
+  messagingPack,
+} from './packs/messaging.pack.js';
+export type {
+  MessagingPack,
+  MessageTemplate,
+  MessagingAudience,
+  MessagingTrigger,
+} from './packs/messaging.pack.js';

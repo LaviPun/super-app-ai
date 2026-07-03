@@ -16,6 +16,7 @@ import { compileCustomerAccountBlocks } from './customerAccount.blocks';
 import { compileAdminBlock } from './admin.block';
 import { compileAdminAction } from './admin.action';
 import { compileAnalyticsPixel } from './analytics.pixel';
+import { compileMessagingCampaign } from './messaging.campaign';
 
 export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileResult {
   switch (spec.type) {
@@ -48,6 +49,8 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
       return compileAdminAction(spec);
     case 'analytics.pixel':
       return compileAnalyticsPixel(spec);
+    case 'messaging.campaign':
+      return compileMessagingCampaign(spec);
     case 'checkout.block':
       return compileCheckoutBlock(spec);
     case 'postPurchase.offer':

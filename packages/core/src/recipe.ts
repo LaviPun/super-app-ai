@@ -12,6 +12,7 @@ import { LayoutArchetypePackSchema } from './control-packs/packs/layout-archetyp
 import { RuleEnginePackSchema } from './control-packs/packs/rule-engine.pack.js';
 import { PricingPackSchema } from './control-packs/packs/pricing.pack.js';
 import { RecommendationPackSchema } from './control-packs/packs/recommendation.pack.js';
+import { MessagingPackSchema } from './control-packs/packs/messaging.pack.js';
 import { DataModelSchema, ModuleDataStoreSchema } from './data-model.js';
 import type { ModuleCategory, ModuleType } from './allowed-values.js';
 import {
@@ -554,6 +555,17 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
         }),
       ])).min(LIMITS.flowStepsMin).max(LIMITS.flowStepsMax),
     }),
+  }),
+
+  Base.extend({
+    // First-class messaging surface (R3.4 / M5). The messaging pack IS the config
+    // body (flat-pin, post-R2.4 substrate) — email/slack fan-out over a resolved
+    // audience, lowering onto the shipped EmailConnector/SlackConnector. SMS/push
+    // are accepted by the schema but gated needs_runtime at compile + runtime.
+    type: z.literal('messaging.campaign'),
+    category: z.literal('INTEGRATION').default('INTEGRATION'),
+    requires: z.array(z.custom<Capability>()).default([]),
+    config: MessagingPackSchema,
   }),
 
   Base.extend({

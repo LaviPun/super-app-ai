@@ -1,6 +1,7 @@
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { FlowRunnerService } from '~/services/flows/flow-runner.service';
+import { MessagingRunnerService } from '~/services/messaging/messaging-runner.service';
 import {
   checkAndMarkWebhookEvent,
   extractWebhookEventId,
@@ -47,6 +48,26 @@ export async function action({ request }: { request: Request }) {
       // Non-2xx → Shopify redelivers; the released claim lets the retry process it.
       return new Response(undefined, { status: 500 });
     }
+
+    // Sibling to the flow runner (R3.4): fan out any PUBLISHED messaging.campaign
+    // reacting to this trigger. Best-effort — a messaging failure must NOT release
+    // the event or 500 the webhook (the flow run already succeeded and consumed the
+    // claim); it's logged for retry via the campaign's own failed job.
+    try {
+      await new MessagingRunnerService().runForTrigger(
+        shop,
+        admin as unknown as AdminApiContext['admin'],
+        trigger,
+        payload,
+      );
+    } catch (err) {
+      logger.error(`[webhooks] ${normalizedTopic} messaging fan-out failed`, {
+        shopDomain: shop,
+        eventId,
+        ...safeErrorMeta(err),
+      });
+    }
+
     return new Response(undefined, { status: 200 });
   }
 
