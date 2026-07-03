@@ -19,11 +19,16 @@
 - `fc6905c` — Phase 1c (slice): storefront controls gated to storefront types; non-storefront modules get honest "refine via chat" guidance.
 - `f11d910` — plan/status doc.
 
-**Remaining — specced, each needs a focused session + dev-store verification (not faked here):**
-- **1c-full — schema-driven settings.** Replace the lossy `BASE_SETTINGS`/`settingsFromRecipe`/`mergeSettingsIntoRecipe` projection with `SchemaForm` bound to the hydrate `adminConfigSchemaJson`, so the right rail edits the real config for every type. Files: `generate._index.tsx` (GenControls), reuse `components/SchemaForm.tsx` + `buildAdminFormConfig`. Needs the hydrate step wired into the create flow (today hydrate happens on the module-detail page). Interactive verification required.
-- **2-speed — stream to first preview.** Swap the `/api/ai/create-module` call for the SSE `create-module.stream.tsx` so options paint as they generate. Files: `generate._index.tsx` (proposeFetcher → reader loop like the assistant's). Risk: touches the polished generating→choosing transition; needs browser verification.
+**Landed 2026-07-03 (the three deferred items, all green, batch/fallback-safe):**
+- ✅ **Feature A — stream to first preview** (`0d9ac77`): Builder generates via the SSE `create-module/stream` route so concepts paint as each option validates; the stream route was brought to parity (RAG grounding + live store-palette per option + `blueprint` event); **falls back to the batch route on any stream error**, so never worse than before.
+- ✅ **Feature B — config-driven settings** (`84417b1`): non-storefront types now edit the generated `recipe.config`'s real fields (scalars → inputs; structured → chat), not the storefront projection; fixed a latent bug where `mergeSettingsIntoRecipe` overlaid storefront fields onto every type.
+- ✅ **Feature C — Spring 2026 `admin.discountUi`** (`d42c9ff`): new Discount UI Extension type wired end-to-end (recipe schema, eligibility `needs_runtime`, compiler AUDIT, dedicated preview renderer, summary, template, regenerated catalog, tests).
+
+**Still remaining (genuinely larger, specced):**
 - **2-accuracy — runtime artifact validation.** Add `@shopify/theme-check-node` (Liquid) + Admin GraphQL introspection validation into the `validate` action + publish preflight. New dep; unit-testable per validator.
-- **3 — Spring 2026 generation targets.** New `RECIPE_SPEC_TYPES` (Discount UI Extension, App Home / no-backend, Bulk Action Admin Extension) — each is a cross-cutting build: `recipe.ts` union + `MODULE_TYPE_TO_SURFACE`/`_INTENT` + capability node + compiler branch + payload + preview renderer + publish wiring + catalog/templates + summaries + prompt expectations + JSON schema + tests. Plus Functions-read-metaobjects (largely satisfied by 026's two-layer config), composable color palettes + standard storefront events in generated `theme.section` (theme-app-extension liquid), and Sidekick App Extension distribution. Do one type end-to-end at a time.
+- **1c-full — SchemaForm on hydrate schema.** Feature B drives settings off the generated config shape; the richer path (hydrate `adminConfigSchemaJson` → `SchemaForm` with widget hints/validation) still needs the hydrate step wired into the create flow.
+- **3-more — additional Spring 2026 targets** (App Home / no-backend, Bulk Action Admin Extension) following the `admin.discountUi` pattern; composable color palettes + standard storefront events in generated `theme.section`; Sidekick App Extension distribution.
+- Interactive dev-store smoke for the streaming first-paint + non-storefront settings edit flow (both are tsc + unit green and fallback-safe, but the live UX needs eyeballing).
 
 ---
 

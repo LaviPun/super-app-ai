@@ -11,7 +11,15 @@ Follow-on branch off the repair tip. Canonical plan: [`../specs/027-unified-buil
 
 **Key discovery:** the "one front" unified Builder already exists as `app/routes/generate._index.tsx` (prompt → generating → choosing → ready, per-concept AI chat refine, settings, validation, blueprints, save/publish, credits). Its critical flaw was the theatrical preview (now fixed).
 
-**Remaining (specced in 027 §Execution status — each needs a dev-store to verify interactively):** schema-driven settings (SchemaForm on the hydrate schema), stream-to-first-preview (`create-module.stream`), runtime artifact validation (theme-check / GraphQL), and new Spring 2026 generation targets (Discount UI / App Home / Bulk Action extensions).
+**Follow-on features (landed same day, all green, fallback-safe):**
+
+| Commit | Change |
+|--------|--------|
+| `d42c9ff` | **Spring 2026 `admin.discountUi` generation target** — Discount UI Extension wired end-to-end (recipe schema branch, allowed-values maps, eligibility `needs_runtime`, compiler AUDIT branch, dedicated preview renderer, module summary, `MODULE_TEMPLATES` template, regenerated `catalog.generated.json` → 21 type entries, tests). Generatable + previewable now; publishes once the discount-details extension ships. |
+| `0d9ac77` | **Stream generation to first preview.** Builder generates via the SSE `/api/ai/create-module/stream` so concepts paint as each option validates. Stream route brought to parity with batch (RAG grounding + live store-palette per option + `blueprint` event). Any stream failure falls back to the batch route — never worse than before. |
+| `84417b1` | **Config-driven settings for non-storefront modules.** Non-storefront types (functions, admin, checkout, flow, `admin.discountUi`) edit the generated `recipe.config`'s real fields instead of the storefront projection; fixed a latent `mergeSettingsIntoRecipe` bug that overlaid storefront fields onto every type. |
+
+**Still remaining (larger, specced in 027 §Execution status):** runtime artifact validation (`@shopify/theme-check-node` + GraphQL), the richer `SchemaForm`-on-hydrate-schema path, more Spring 2026 targets (App Home / Bulk Action) + composable palettes + standard storefront events, and an interactive dev-store smoke of the streaming + settings edit flows.
 
 ## 2026-07-02/03 — Full-app repair pass (branch `feat/superapp-redesign`)
 
