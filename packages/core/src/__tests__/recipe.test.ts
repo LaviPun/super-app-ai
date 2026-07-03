@@ -74,6 +74,45 @@ describe('RecipeSpecSchema', () => {
     }
   });
 
+  it('R2.5 — pins the layout archetype pack on theme.section.config', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'theme.section',
+      name: 'Featured collection grid',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: { kind: 'lookbook', layout: { layout: 'grid', columns: 3 } },
+    });
+    expect(spec.type).toBe('theme.section');
+    if (spec.type === 'theme.section') {
+      expect(spec.config.layout?.layout).toBe('grid');
+      expect(spec.config.layout?.columns).toBe(3);
+    }
+  });
+
+  it('R2.5 back-compat — a theme.section with NO layout still validates (optional pin)', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'theme.section',
+      name: 'Plain section',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: { kind: 'custom' },
+    });
+    expect(spec.type === 'theme.section' && spec.config.layout).toBeUndefined();
+  });
+
+  it('R2.5 union looseness — a cross-type value (masonry) parses via the loose z.string()', () => {
+    // The recipe union keeps `layout.layout` a loose string so cross-type recipes
+    // coexist; the tight per-type enum is enforced at generation, not here.
+    const spec = RecipeSpecSchema.parse({
+      type: 'theme.section',
+      name: 'Masonry gallery',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: { kind: 'gallery', layout: { layout: 'masonry' } },
+    });
+    expect(spec.type === 'theme.section' && spec.config.layout?.layout).toBe('masonry');
+  });
+
   it('validates a theme.section effect recipe', () => {
     const spec = RecipeSpecSchema.parse({
       type: 'theme.section',

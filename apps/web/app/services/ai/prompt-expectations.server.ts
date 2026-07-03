@@ -1,5 +1,5 @@
 import type { ModuleType } from '@superapp/core';
-import { LIMITS } from '@superapp/core';
+import { LIMITS, describeTypeEnums } from '@superapp/core';
 
 /**
  * Prompt design principles (from real-world successful AI app prompts):
@@ -158,7 +158,12 @@ config.message: string, optional, 0-${LIMITS.popupBodyMax} chars.`,
 
 /** Returns the full recipe schema spec for the given type (all Zod-level constraints as a string). */
 export function getFullRecipeSchemaSpec(moduleType: ModuleType): string {
-  return FULL_RECIPE_SCHEMA_SPECS[moduleType] ?? `Module type ${moduleType}: use type, name, category, requires, config (single object), and optionally style. No top-level settings, controls, assets, or meta.`;
+  const base = FULL_RECIPE_SCHEMA_SPECS[moduleType] ?? `Module type ${moduleType}: use type, name, category, requires, config (single object), and optionally style. No top-level settings, controls, assets, or meta.`;
+  // R2.5 — append per-type enum lines (e.g. config.layout.layout) so the prose
+  // fallback path (low-confidence / non-structured) also constrains the model to
+  // this type's option-set. No-op for types without per-type enums.
+  const typeEnumLines = describeTypeEnums(moduleType);
+  return typeEnumLines.length > 0 ? `${base}\n${typeEnumLines.join('\n')}` : base;
 }
 
 /** Returns the full StorefrontStyle schema as a string (for storefront types). */

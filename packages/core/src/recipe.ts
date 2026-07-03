@@ -8,6 +8,7 @@ import { StorefrontStyleSchema } from './storefront-style.js';
 import { AudiencePackSchema } from './control-packs/packs/audience.pack.js';
 import { SchedulePackSchema } from './control-packs/packs/schedule.pack.js';
 import { AdvancedCustomPackSchema } from './control-packs/packs/advanced-custom.pack.js';
+import { LayoutArchetypePackSchema } from './control-packs/packs/layout-archetype.pack.js';
 import { DataModelSchema } from './data-model.js';
 import type { ModuleCategory, ModuleType } from './allowed-values.js';
 import {
@@ -138,6 +139,12 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       })).max(50).default([]),
       audience: AudiencePackSchema.optional(),
       schedule: SchedulePackSchema.optional(),
+      /**
+       * Layout archetype (R2.5). `layout.layout` is a per-type enum: loose
+       * `z.string()` here (cross-type recipes coexist; old recipes without it
+       * still validate), tightened to the type's option-set at generation time.
+       */
+      layout: LayoutArchetypePackSchema.optional(),
       /** Sanitized custom markup/styles/scripts (scoped + CSP-bound at compile/preview). */
       advancedCustom: AdvancedCustomPackSchema.optional(),
     // Open section: `.catchall` accepts kind-specific keys (collapsed from the former

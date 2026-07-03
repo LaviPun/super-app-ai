@@ -218,9 +218,14 @@ export class PreviewService {
       .map(([k, v]) => `<div class="superapp-section__field"><span>${esc(k)}</span><span>${esc(typeof v === 'object' ? JSON.stringify(v) : String(v))}</span></div>`)
       .join('');
     const custom = c.advancedCustom?.customHtml ? sanitizePreviewHtml(c.advancedCustom.customHtml) : '';
+    // R2.5 — layout archetype modifier class + column count. Additive: absent
+    // `config.layout` renders no modifier (byte-identical to pre-R2.5 output).
+    const layoutClass = layoutModifierClass(c.layout?.layout);
+    const layoutCols =
+      typeof c.layout?.columns === 'number' ? ` style="--sa-cols:${Math.round(c.layout.columns)}"` : '';
 
     return pageHtml(`
-      <section class="superapp-section superapp-section--${escAttr(c.kind)}">
+      <section class="superapp-section superapp-section--${escAttr(c.kind)}${layoutClass}"${layoutCols}>
         ${c.title ? `<h2 class="superapp-section__title">${esc(c.title)}</h2>` : ''}
         ${c.subtitle ? `<p class="superapp-section__sub">${esc(c.subtitle)}</p>` : ''}
         ${blocks ? `<div class="superapp-section__blocks">${blocks}</div>` : ''}
@@ -233,6 +238,10 @@ export class PreviewService {
       .superapp-section__title { margin: 0 0 8px; font-size: 1.25em; font-weight: var(--sa-fw); }
       .superapp-section__sub { margin: 0 0 12px; opacity: 0.85; }
       .superapp-section__blocks { display: grid; gap: var(--sa-gap); grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+      .superapp-layout--grid .superapp-section__blocks { grid-template-columns: repeat(var(--sa-cols, 3), 1fr); }
+      .superapp-layout--masonry .superapp-section__blocks { display: block; column-count: var(--sa-cols, 3); column-gap: var(--sa-gap); }
+      .superapp-layout--carousel .superapp-section__blocks { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; grid-template-columns: none; }
+      .superapp-layout--carousel .superapp-section__block { flex: 0 0 auto; scroll-snap-align: start; min-width: 220px; }
       .superapp-section__block img { max-width: 100%; height: auto; border-radius: var(--sa-radius); background: #f2f2f2; }
       .superapp-section__fields { margin-top: 12px; display: grid; gap: 4px; font-size: 0.85em; }
       .superapp-section__field { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px dashed #e2e8f0; padding: 2px 0; }
@@ -893,6 +902,19 @@ function esc(input: string) {
 
 function escAttr(input: string) {
   return esc(input);
+}
+
+/**
+ * R2.5 — BEM-style layout modifier class from a layout archetype value. Returns
+ * a leading-space `" superapp-layout--<token>"` or `''` when absent. `stacked`
+ * is the default and a CSS no-op, so it emits no modifier (keeps the pre-R2.5
+ * output byte-identical). Defence-in-depth sanitization even though the value
+ * comes from a closed per-type enum.
+ */
+function layoutModifierClass(layout: unknown): string {
+  if (typeof layout !== 'string' || layout.length === 0 || layout === 'stacked') return '';
+  const token = layout.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  return ` superapp-layout--${token}`;
 }
 
 function inferSurface(type: string): PreviewSurface {

@@ -116,3 +116,11 @@
 .superapp-section__block-text { margin: .5rem 0 0; }
 .superapp-section__block-link { display: inline-block; margin: .5rem 0 0; color: inherit; }
 .superapp-section__cta { display: inline-flex; align-items: center; min-height: 44px; padding: .5rem 1rem; border: 1px solid currentColor; border-radius: 8px; text-decoration: none; }
+
+/* ── Layout archetypes (R2.5) — per-type `config.layout.layout`. `stacked` is the
+      default and emits no modifier, so it keeps the base block grid unchanged. */
+.superapp-layout--grid .superapp-section__blocks { grid-template-columns: repeat(var(--sa-cols, 3), 1fr); }
+.superapp-layout--masonry .superapp-section__blocks { display: block; column-count: var(--sa-cols, 3); column-gap: 1rem; }
+.superapp-layout--masonry .superapp-section__block { break-inside: avoid; margin: 0 0 1rem; }
+.superapp-layout--carousel .superapp-section__blocks { display: flex; grid-template-columns: none; overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+.superapp-layout--carousel .superapp-section__block { flex: 0 0 auto; min-width: 220px; scroll-snap-align: start; }

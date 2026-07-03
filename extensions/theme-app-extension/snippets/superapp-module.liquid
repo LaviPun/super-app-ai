@@ -249,7 +249,19 @@
       executed here (fixed-template allowlist, per DESIGN.md) — only structured,
       declarative content is rendered.
     {% endcomment %}
-    <section class="superapp-section superapp-section--{{ kind | handle }}" data-module-id="{{ module_id | escape }}" data-section-kind="{{ kind | escape }}">
+    {% # R2.5 layout archetype: modifier class + column count. `stacked` (default) is a no-op. %}
+    {% liquid
+      assign layout_class = ''
+      assign layout_cols = ''
+      assign layout_kind = mod_cfg.layout.layout | handle
+      if layout_kind != blank and layout_kind != 'stacked'
+        assign layout_class = ' superapp-layout--' | append: layout_kind
+      endif
+      if mod_cfg.layout.columns != blank
+        assign layout_cols = ' style="--sa-cols:' | append: mod_cfg.layout.columns | append: '"'
+      endif
+    %}
+    <section class="superapp-section superapp-section--{{ kind | handle }}{{ layout_class }}"{{ layout_cols }} data-module-id="{{ module_id | escape }}" data-section-kind="{{ kind | escape }}">
       <div class="superapp-section__inner">
         {% if mod_cfg.title != blank %}
           <h2 class="superapp-section__title">{{ mod_cfg.title | escape }}</h2>

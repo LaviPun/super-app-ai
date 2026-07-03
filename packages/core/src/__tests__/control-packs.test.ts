@@ -9,13 +9,19 @@ import {
   SchedulePackSchema,
   AdvancedCustomPackSchema,
   TriggerPackSchema,
+  LayoutArchetypePackSchema,
+  layoutArchetypePack,
+  resolveTypeEnumOptions,
+  resolveTypeEnumsForType,
+  describeTypeEnums,
 } from '../control-packs/index.js';
+import type { TypeEnumField } from '../control-packs/index.js';
 
 describe('control pack registry', () => {
   it('registers the control packs', () => {
     expect(listPackIds().sort()).toEqual([
       'advanced-custom', 'audience', 'behavior', 'content', 'countdown',
-      'frequency-cap', 'page-targeting', 'schedule', 'style', 'trigger',
+      'frequency-cap', 'layout-archetype', 'page-targeting', 'schedule', 'style', 'trigger',
     ]);
   });
 
@@ -74,5 +80,63 @@ describe('R2.4 prune — dead composer/preset symbols are gone', () => {
     expect(mod.listV2Presets).toBeUndefined();
     expect(mod.hasManifest).toBeUndefined();
     expect(mod.listManifestTypes).toBeUndefined();
+  });
+});
+
+describe('R2.5 — per-type enum enabler (flat-pin)', () => {
+  it('layout-archetype pack registers with a typeEnum on `layout`', () => {
+    expect(getPack('layout-archetype')?.namespace).toBe('layout');
+    expect(layoutArchetypePack.typeEnums?.layout?.kind).toBe('typeEnum');
+  });
+
+  it('LayoutArchetypePackSchema applies its default and accepts a value', () => {
+    expect(LayoutArchetypePackSchema.parse({}).layout).toBe('stacked');
+    expect(LayoutArchetypePackSchema.parse({ layout: 'grid', columns: 3 })).toMatchObject({
+      layout: 'grid',
+      columns: 3,
+    });
+  });
+
+  it('resolves the theme.section option-set (the proof case)', () => {
+    const resolved = resolveTypeEnumsForType('theme.section');
+    const layout = resolved.find((r) => r.packNamespace === 'layout' && r.field === 'layout');
+    expect(layout).toBeDefined();
+    const values = layout!.options.map((o) => o.value);
+    expect(values).toEqual(['stacked', 'grid', 'masonry', 'carousel']);
+    // `grid` is legal for theme.section; `sidebar` is not in the option-set.
+    expect(values).toContain('grid');
+    expect(values).not.toContain('sidebar');
+    expect(layout!.default).toBe('stacked');
+  });
+
+  it('per-type divergence — the SAME field resolves different options by type', () => {
+    // theme.section supplies a catalog entry; a type with no entry falls back.
+    const field = layoutArchetypePack.typeEnums?.layout;
+    expect(field).toBeDefined();
+    const themeSection = resolveTypeEnumOptions('theme.section', 'layout', field!).map((o) => o.value);
+    // functions.discountRules has no catalog entry → the pack fallback set.
+    const fallbackType = resolveTypeEnumOptions('functions.discountRules', 'layout', field!).map((o) => o.value);
+    expect(themeSection).toContain('masonry'); // catalog-only value
+    expect(fallbackType).not.toContain('masonry'); // fallback lacks it
+    expect(fallbackType).toEqual(['stacked', 'grid', 'carousel']); // == pack fallback
+    // Same pack, different option-sets → the whole point of R2.5.
+    expect(themeSection).not.toEqual(fallbackType);
+  });
+
+  it('resolveTypeEnumOptions throws on an empty fallback', () => {
+    const bad: TypeEnumField = { kind: 'typeEnum', enumKey: 'x', fallback: [] };
+    expect(() => resolveTypeEnumOptions('functions.discountRules', 'nope', bad)).toThrow(/empty fallback/);
+  });
+
+  it('describeTypeEnums emits one closed-enum prose line for theme.section', () => {
+    const lines = describeTypeEnums('theme.section');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('config.layout.layout');
+    expect(lines[0]).toContain('stacked | grid | masonry | carousel');
+  });
+
+  it('types without a per-type enum resolve to nothing (schema/prose unchanged)', () => {
+    expect(resolveTypeEnumsForType('functions.discountRules')).toEqual([]);
+    expect(describeTypeEnums('functions.discountRules')).toEqual([]);
   });
 });

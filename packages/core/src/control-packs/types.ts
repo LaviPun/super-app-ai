@@ -22,6 +22,48 @@ import type { ModuleType } from '../allowed-values.js';
 /** Tier gating. Advanced packs/fields only surface when the merchant opts up. */
 export type ControlTier = 'basic' | 'advanced';
 
+/**
+ * One selectable option for a per-type enum (R2.5). `value` is what's persisted
+ * and validated; `label`/`hint` are surfaced to the admin form and (via prose)
+ * to the AI. The enum is closed — the model picks a `value`, never invents one.
+ */
+export interface EnumOption {
+  /** Persisted, validated value (e.g. 'grid'). */
+  value: string;
+  /** Human label for the admin form; defaults to `value`. */
+  label?: string;
+  /** Optional help/marketing note surfaced to the AI (prose path) + form. */
+  hint?: string;
+}
+
+/**
+ * A field whose enum option-set is supplied by the module type (R2.5 enabler).
+ *
+ * The pack declares the *slot* (`enumKey`) and a safe, non-empty `fallback`; a
+ * per-type option catalog (see `type-enums.ts`) supplies the actual options for
+ * a given `ModuleType`. This replaces the pruned composer's manifest-`enums`
+ * catalog: option-sets are resolved off the recipe **type** at generation time,
+ * not composed through the deleted `composeConfig`.
+ *
+ * At the recipe-union level the field is a loose `z.string()` (cross-type
+ * recipes coexist); the tight per-type enum is enforced in the generation JSON
+ * Schema (`recipe-json-schema.server.ts`).
+ */
+export interface TypeEnumField {
+  /** Discriminator so derivation code knows this field is type-scoped. */
+  kind: 'typeEnum';
+  /** Key into the per-type option catalog. Often === the field name. */
+  enumKey: string;
+  /**
+   * Options used when the catalog supplies none for a type (back-compat + types
+   * without an entry). MUST be non-empty. The first entry is the default unless
+   * `default` is set.
+   */
+  fallback: EnumOption[];
+  /** Persisted default; must be a `value` present in the resolved option-set. */
+  default?: string;
+}
+
 /** Conditional-visibility predicate for a field (drives the admin form + tier gating). */
 export interface FieldShowWhen {
   /** Sibling field id within the same pack. */
@@ -73,6 +115,14 @@ export interface ControlPack<S extends z.ZodTypeAny = z.ZodTypeAny> {
   tier: ControlTier;
   /** Single source of truth for this pack's settings. */
   schema: S;
+  /**
+   * Declares which of this pack's fields are per-type enums (R2.5), keyed by
+   * field name. The `schema` keeps a loose validator for these fields (so the
+   * shared recipe union accepts any type's value); the tight per-type option-set
+   * is resolved from the catalog in `type-enums.ts` at generation time. Purely
+   * additive metadata — packs without per-type enums omit it.
+   */
+  typeEnums?: Record<string, TypeEnumField>;
   /** Optional rendering/visibility hints for SchemaForm. */
   uiSchema?: UiHints;
   /** Restrict the pack to specific module types. Defaults to "applies to any type that lists it". */

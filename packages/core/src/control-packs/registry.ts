@@ -14,6 +14,7 @@ import { behaviorPack } from './packs/behavior.pack.js';
 import { audiencePack } from './packs/audience.pack.js';
 import { schedulePack } from './packs/schedule.pack.js';
 import { advancedCustomPack } from './packs/advanced-custom.pack.js';
+import { layoutArchetypePack } from './packs/layout-archetype.pack.js';
 
 const ALL_PACKS: ControlPack[] = [
   contentPack,
@@ -26,6 +27,7 @@ const ALL_PACKS: ControlPack[] = [
   audiencePack,
   schedulePack,
   advancedCustomPack,
+  layoutArchetypePack,
 ];
 
 const REGISTRY = new Map<string, ControlPack>(ALL_PACKS.map((p) => [p.id, p]));

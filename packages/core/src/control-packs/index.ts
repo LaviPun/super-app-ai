@@ -5,6 +5,7 @@
 export * from './types.js';
 export * from './registry.js';
 export * from './module-manifests.js';
+export * from './type-enums.js';
 
 // Concrete pack schemas (exported for tests, presets, and prompt derivation).
 export { ContentPackSchema, contentPack } from './packs/content.pack.js';
@@ -17,3 +18,4 @@ export { BehaviorPackSchema, behaviorPack } from './packs/behavior.pack.js';
 export { AudiencePackSchema, audiencePack } from './packs/audience.pack.js';
 export { SchedulePackSchema, schedulePack } from './packs/schedule.pack.js';
 export { AdvancedCustomPackSchema, advancedCustomPack } from './packs/advanced-custom.pack.js';
+export { LayoutArchetypePackSchema, layoutArchetypePack } from './packs/layout-archetype.pack.js';
