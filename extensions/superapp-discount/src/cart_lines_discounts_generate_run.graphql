@@ -7,10 +7,22 @@ query Input {
     }
     lines {
       id
+      quantity
+      cost {
+        amountPerQuantity {
+          amount
+        }
+        subtotalAmount {
+          amount
+        }
+      }
       merchandise {
         __typename
         ... on ProductVariant {
           sku
+          product {
+            id
+          }
         }
       }
     }
