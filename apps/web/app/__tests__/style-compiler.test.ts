@@ -381,6 +381,26 @@ describe('theme compilers — style integration', () => {
     expect(out.themeModulePayload?.type).toBe('theme.section');
     expect(out.themeModulePayload?.config).toEqual(spec.config);
   });
+
+  it('theme.section compiles inline styleCss scoped to [data-module-id] (renders at storefront)', () => {
+    const spec = {
+      type: 'theme.section',
+      name: 'Banner',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: { kind: 'banner', activation: 'section', fields: { heading: 'Hi', enableAnimation: false }, blocks: [] },
+      style: {
+        colors: { text: '#222222', background: '#eeeeee' },
+        shape: { radius: 'md', borderWidth: 'none', shadow: 'none', elevation: 'soft' },
+      },
+    } as unknown as RecipeSpec;
+    const out = compileThemeSection(spec as Parameters<typeof compileThemeSection>[0], themeTarget);
+    expect(out.themeModulePayload?.styleCss).toContain('[data-module-id="test-module-1"]');
+    expect(out.themeModulePayload?.styleCss).toContain('--sa-text: #222222;');
+    expect(out.themeModulePayload?.styleCss).toContain('--sa-elevation:');
+    // payload.style stays pristine (compiled css is folded into style_json at the metaobject layer)
+    expect(out.themeModulePayload?.style).toEqual((spec as { style?: unknown }).style);
+  });
 });
 
 // ---------------------------------------------------------------------------

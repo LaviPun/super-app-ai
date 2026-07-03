@@ -45,6 +45,9 @@
   endif
 %}
 
+{% # Per-module compiled style (colors/spacing/tokens/custom CSS), scoped to [data-module-id]. Server-sanitized. %}
+{% if mod_sty.css != blank %}<style>{{ mod_sty.css }}</style>{% endif %}
+
 {% case kind %}
   {% when 'banner' %}
     <section class="superapp-banner superapp-banner--embed" role="region" aria-label="{{ mod_cfg.heading | escape }}" data-module-id="{{ module_id | escape }}">

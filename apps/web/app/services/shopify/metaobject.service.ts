@@ -125,7 +125,15 @@ export class MetaobjectService {
         { key: 'name', value: payload.name },
         { key: 'activation_type', value: payload.activationType },
         { key: 'config_json', value: JSON.stringify(payload.config) },
-        { key: 'style_json', value: JSON.stringify(payload.style ?? {}) },
+        {
+          key: 'style_json',
+          // Fold the pre-compiled inline CSS into style_json as `css` so the
+          // storefront renderer can emit it without a metaobject-schema change.
+          value: JSON.stringify({
+            ...(payload.style ?? {}),
+            ...(payload.styleCss ? { css: payload.styleCss } : {}),
+          }),
+        },
       ],
     );
   }

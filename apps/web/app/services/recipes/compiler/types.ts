@@ -35,6 +35,13 @@ export type ThemeModulePayload = {
   activationType: 'global' | 'section' | 'block';
   config: Record<string, unknown>;
   style?: Record<string, unknown>;
+  /**
+   * Pre-compiled inline CSS (vars + base rules + scoped custom CSS), scoped to the
+   * module's `[data-module-id]` root. Folded into the metaobject's `style_json.css`
+   * at publish and emitted inline by the storefront renderer so the module's style
+   * actually applies (theme sections previously stored style but never rendered it).
+   */
+  styleCss?: string;
 };
 
 /** Payload for an admin block stored as a $app:superapp_admin_block metaobject entry. */
