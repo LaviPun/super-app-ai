@@ -236,6 +236,9 @@ const DANGEROUS_CSS_PATTERNS: RegExp[] = [
   /content\s*:\s*['"]?data:/gi,
   /-moz-binding\s*:/gi,
   /behavior\s*:/gi,
+  // Prevent a module's custom CSS from escaping its container to overlay the whole
+  // storefront (design-vocabulary §5.2 hardening). Root-scoped positioning only.
+  /position\s*:\s*(fixed|sticky)/gi,
 ];
 
 /**

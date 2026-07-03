@@ -259,6 +259,11 @@ describe('sanitizeCustomCss', () => {
     expect(out).toContain('font-size: 14px');
   });
 
+  it('strips position:fixed / sticky (container-escape hardening)', () => {
+    expect(sanitizeCustomCss('.x { position: fixed; top: 0; }')).not.toContain('position: fixed');
+    expect(sanitizeCustomCss('position:sticky')).not.toContain('position:sticky');
+  });
+
   it('truncates to 2000 chars', () => {
     const long = '.foo { color: red; } '.repeat(200);
     expect(sanitizeCustomCss(long).length).toBeLessThanOrEqual(2000);

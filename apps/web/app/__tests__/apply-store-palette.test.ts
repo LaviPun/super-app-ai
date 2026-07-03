@@ -56,4 +56,16 @@ describe('applyStorePalette', () => {
     };
     expect(r.style.colors.buttonBg).toBeUndefined();
   });
+
+  it('seeds colors.seed from the brand accent (for the OKLCH ramp)', () => {
+    const r = applyStorePalette(section({}), palette) as unknown as { style: { colors: Record<string, string> } };
+    expect(r.style.colors.seed).toBe('#1773b0');
+  });
+
+  it('does not override a deliberately-set seed', () => {
+    const r = applyStorePalette(section({ seed: '#abcdef' }), palette) as unknown as {
+      style: { colors: Record<string, string> };
+    };
+    expect(r.style.colors.seed).toBe('#abcdef');
+  });
 });

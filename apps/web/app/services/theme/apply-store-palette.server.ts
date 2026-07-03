@@ -48,5 +48,13 @@ export function applyStorePalette<T extends RecipeSpec>(recipe: T, palette: Stor
     colors.buttonText = palette.buttonText;
   }
 
+  // Seed the OKLCH semantic ramp from the merchant's brand accent (phase #2 2B/2C):
+  // the compiler derives the 12-step semantic --sa-* vars from this. Fill only when
+  // unset, so a deliberately-chosen seed is respected.
+  const seed = palette.primary ?? palette.accent ?? buttonBg;
+  if (isHex6(seed) && colors.seed === undefined) {
+    colors.seed = seed;
+  }
+
   return recipe;
 }
