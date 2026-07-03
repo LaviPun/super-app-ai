@@ -282,6 +282,12 @@ function tagsFromRecipe(recipe?: Record<string, unknown> | null): string[] {
  * is an open object; strict configs simply strip unknown keys server-side).
  */
 function mergeSettingsIntoRecipe(recipe: Record<string, unknown>, s: any): Record<string, unknown> {
+  // Non-storefront modules are edited directly via GenConfigControls (setConfig
+  // writes recipe.config), so never overlay the storefront button/price/toggle
+  // projection onto them — that would clobber real config fields.
+  if (!STOREFRONT_TYPES.includes(String(recipe.type))) {
+    return { ...recipe };
+  }
   const config = { ...((recipe.config as Record<string, unknown>) ?? {}) };
   config.label = s.label;
   config.price = s.price;
@@ -289,7 +295,7 @@ function mergeSettingsIntoRecipe(recipe: Record<string, unknown>, s: any): Recor
   config.showVariants = !!s.showVariants;
   config.countdown = !!s.countdown;
   const merged: Record<string, unknown> = { ...recipe, config };
-  if (STOREFRONT_TYPES.includes(String(recipe.type))) {
+  {
     const style = { ...((recipe.style as Record<string, any>) ?? {}) };
     style.layout = { ...(style.layout ?? {}), mode: s.mode, anchor: s.anchor, width: s.width };
     style.colors = { ...(style.colors ?? {}), background: s.bg, buttonBg: s.buttonColor, buttonText: s.buttonText };
@@ -378,6 +384,14 @@ function GenerateWorkspace() {
 
   const settings = settingsMap[selected ?? ''] || BASE_SETTINGS;
   const set = (patch: any) => setSettingsMap((m) => ({ ...m, [selected!]: { ...m[selected!], ...patch } }));
+  // For non-storefront types, edit the generated recipe.config directly (schema-
+  // driven from the real config shape) so preview/validation/save all reflect it.
+  const setConfig = (key: string, value: unknown) => {
+    if (!selected) return;
+    setCandidates((cs) => cs.map((c) => (c.id === selected
+      ? { ...c, recipe: { ...c.recipe, config: { ...((c.recipe as any).config ?? {}), [key]: value } } }
+      : c)));
+  };
   const thread = threadMap[selected ?? ''] || [];
   const history = historyMap[selected ?? ''] || [];
   const activeCand = candidates.find((c) => c.id === selected);
@@ -735,6 +749,7 @@ function GenerateWorkspace() {
         <GenBuildPanel
           settings={settings} set={set} ctrlTab={ctrlTab} setCtrlTab={setCtrlTab}
           moduleType={String((activeCand?.recipe as any)?.type ?? '')}
+          config={((activeCand?.recipe as any)?.config ?? {}) as Record<string, unknown>} setConfig={setConfig}
           thread={thread} thinking={thinking} refine={refine} setRefine={setRefine} onRefine={doRefine}
           credits={credits} dockOpen={dockOpen} setDockOpen={setDockOpen} histOpen={histOpen} setHistOpen={setHistOpen} history={history}
         />
@@ -881,7 +896,7 @@ function GenCandMini({ s, accent }: any) {
 function GenBuildPanel(props: any) {
   return (
     <aside className="gen-build-panel">
-      <GenControls settings={props.settings} set={props.set} ctrlTab={props.ctrlTab} setCtrlTab={props.setCtrlTab} moduleType={props.moduleType} />
+      <GenControls settings={props.settings} set={props.set} ctrlTab={props.ctrlTab} setCtrlTab={props.setCtrlTab} moduleType={props.moduleType} config={props.config} setConfig={props.setConfig} />
       <GenBuilderDock
         credits={props.credits} costPerChange={COST_PER_CHANGE} open={props.dockOpen} setOpen={props.setDockOpen}
         thread={props.thread} thinking={props.thinking} refine={props.refine} setRefine={props.setRefine} onRefine={props.onRefine}
@@ -1067,25 +1082,58 @@ function GenPreview({ recipe, device }: { recipe: Record<string, unknown> | null
   );
 }
 
-function GenControls({ settings: s, set, ctrlTab, setCtrlTab, moduleType }: any) {
-  const swatches = ['#1F3A5F', '#0E9F6E', '#14213A', '#2F80ED', '#D97706', '#DC2626'];
-  // The visual controls below model a storefront block (button/layout/colors).
-  // For non-storefront types (functions, admin, checkout, flow, …) they don't
-  // map to the spec, so show honest guidance and steer editing to the AI chat.
-  const isStorefront = moduleType === 'theme.section' || moduleType === 'proxy.widget';
-  if (!isStorefront) {
-    return (
-      <div className="gbp-controls">
-        <div className="gen-controls-head"><span className="t-h3">Controls</span><span className="t-xs t-muted">Refine with AI</span></div>
-        <div className="gen-ctrl-body">
-          <div className="stack-3" style={{ padding: 16 }}>
-            <Banner tone="info" title={`${titleCase(String(moduleType || 'This module').replace(/\./g, ' '))} settings`}>
-              This isn’t a visual storefront block, so it has no color or layout controls. Check the live preview on the right, and describe any change in the Builder chat below — it edits the real module spec.
+/**
+ * Settings form for non-storefront modules, driven by the generated config's
+ * real shape: top-level scalar fields become editable inputs (writing straight
+ * into recipe.config); structured fields are steered to the AI chat.
+ */
+function GenConfigControls({ moduleType, config, setConfig }: any) {
+  const entries: [string, unknown][] = Object.entries(config || {});
+  const scalars = entries.filter(([, v]) => v === null || ['string', 'number', 'boolean'].includes(typeof v));
+  const complex = entries.filter(([, v]) => v !== null && typeof v === 'object');
+  const fieldLabel = (key: string) => titleCase(String(key).replace(/([A-Z])/g, ' $1').replace(/[_.]/g, ' ').trim());
+  return (
+    <div className="gbp-controls">
+      <div className="gen-controls-head"><span className="t-h3">Settings</span><span className="t-xs t-muted">{titleCase(String(moduleType || 'module').replace(/\./g, ' '))}</span></div>
+      <div className="gen-ctrl-body">
+        <div className="stack-4" style={{ padding: 16 }}>
+          {scalars.length === 0 && complex.length === 0 && (
+            <Banner tone="info">No editable settings on this module yet — describe changes in the Builder chat below.</Banner>
+          )}
+          {scalars.map(([key, val]) => {
+            if (typeof val === 'boolean') {
+              return <ToggleRow key={key} label={fieldLabel(key)} checked={val} onChange={() => setConfig(key, !val)} />;
+            }
+            const isNum = typeof val === 'number';
+            return (
+              <Field key={key} label={fieldLabel(key)}>
+                <Input
+                  type={isNum ? 'number' : 'text'}
+                  value={val == null ? '' : String(val)}
+                  onChange={(e: any) => setConfig(key, isNum ? Number(e.target.value) : e.target.value)}
+                />
+              </Field>
+            );
+          })}
+          {complex.length > 0 && (
+            <Banner tone="info" title="Structured fields">
+              {complex.map(([k]) => fieldLabel(k)).join(', ')} {complex.length === 1 ? 'is' : 'are'} structured — edit by describing the change in the Builder chat below. The live preview always reflects the real module.
             </Banner>
-          </div>
+          )}
         </div>
       </div>
-    );
+    </div>
+  );
+}
+
+function GenControls({ settings: s, set, ctrlTab, setCtrlTab, moduleType, config, setConfig }: any) {
+  const swatches = ['#1F3A5F', '#0E9F6E', '#14213A', '#2F80ED', '#D97706', '#DC2626'];
+  // The visual controls below model a storefront block (button/layout/colors).
+  // For non-storefront types, drive the form off the generated config's real
+  // shape (edit recipe.config directly) instead of the storefront projection.
+  const isStorefront = moduleType === 'theme.section' || moduleType === 'proxy.widget';
+  if (!isStorefront) {
+    return <GenConfigControls moduleType={moduleType} config={config} setConfig={setConfig} />;
   }
   return (
     <div className="gbp-controls">
