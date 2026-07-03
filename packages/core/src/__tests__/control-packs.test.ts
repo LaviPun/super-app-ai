@@ -21,7 +21,7 @@ describe('control pack registry', () => {
   it('registers the control packs', () => {
     expect(listPackIds().sort()).toEqual([
       'advanced-custom', 'audience', 'behavior', 'content', 'countdown',
-      'frequency-cap', 'layout-archetype', 'page-targeting', 'pricing', 'rule-engine', 'schedule', 'style', 'trigger',
+      'frequency-cap', 'layout-archetype', 'page-targeting', 'pricing', 'recommendation', 'rule-engine', 'schedule', 'style', 'trigger',
     ]);
   });
 
@@ -49,6 +49,13 @@ describe('module manifests (surviving requirement-spec consumer)', () => {
     // Not a basic pack (must not surface at the basic tier).
     expect(manifest?.packs).not.toContain('rule-engine');
     expect(getPack('rule-engine')?.namespace).toBe('ruleEngine');
+  });
+
+  it('R2.3 — recommendation is an ADVANCED pack on theme.section (opt-in)', () => {
+    const manifest = getManifest('theme.section');
+    expect(manifest?.advancedPacks).toContain('recommendation');
+    expect(manifest?.packs).not.toContain('recommendation');
+    expect(getPack('recommendation')?.namespace).toBe('recommendation');
   });
 });
 

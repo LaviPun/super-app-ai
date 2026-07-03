@@ -1577,6 +1577,7 @@ export async function generateValidatedBlueprint(
         `This member's job: ${m.reason}`,
         `Do the "${m.role}" job only; the other members handle their own surfaces. Keep naming/behavior consistent with them.`,
         m.kindHint ? `Prefer config.kind "${m.kindHint}" for this member.` : '',
+        m.recommendationHint ?? '',
       ]
         .filter(Boolean)
         .join(' ');

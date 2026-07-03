@@ -462,6 +462,109 @@
     });
   }
 
+  /* ── R2.3: product recommendations resolver ──────────────────────────────────
+     Third responsibility alongside popup + contact-form. Resolves DYNAMIC and
+     cart-derived strategies (static ones already rendered inline by Liquid) and
+     applies the configured `fallback` so a slot never stays empty.
+     - related/complementary  → native /recommendations/products.json (service-free)
+     - most/cheapest-in-cart  → /cart.js (service-free)
+     - recently-viewed        → localStorage (service-free)
+     - top-sellers/trending/buy-it-again → App Proxy /apps/superapp/recommend
+       (returns [] today; JS then applies `fallback`). */
+  function recCardHtml(p) {
+    var url = p && p.url ? String(p.url) : '#';
+    var title = p && (p.title || p.name) ? String(p.title || p.name) : '';
+    var img = '';
+    if (p && p.featured_image) img = String(p.featured_image);
+    else if (p && p.image) img = String(p.image);
+    else if (p && p.featuredImage) img = String(p.featuredImage);
+    var price = p && p.price != null ? String(p.price) : '';
+    return (
+      '<li class="superapp-recs__card"><a class="superapp-recs__link" href="' + escapeAttr(url) + '">' +
+      (img ? '<img class="superapp-recs__img" src="' + escapeAttr(img) + '" alt="" loading="lazy" width="150" height="150">' : '') +
+      '<span class="superapp-recs__name">' + escapeHtml(title) + '</span>' +
+      (price ? '<span class="superapp-recs__price">' + escapeHtml(price) + '</span>' : '') +
+      '</a></li>'
+    );
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function escapeAttr(s) {
+    return escapeHtml(s).replace(/"/g, '&quot;');
+  }
+
+  function renderRecs(root, products, limit) {
+    var list = (products || []).slice(0, limit);
+    if (list.length === 0) return false;
+    var html = '<ul class="superapp-recs__grid" role="list">';
+    for (var i = 0; i < list.length; i++) html += recCardHtml(list[i]);
+    html += '</ul>';
+    var skeleton = root.querySelector('.superapp-recs__skeleton');
+    if (skeleton && skeleton.parentNode) skeleton.parentNode.removeChild(skeleton);
+    root.insertAdjacentHTML('beforeend', html);
+    root.className = root.className.replace(/\s*superapp-recs--pending/, '');
+    return true;
+  }
+
+  function initRecs(root) {
+    if (root.getAttribute('data-superapp-recs-bound')) return;
+    root.setAttribute('data-superapp-recs-bound', '1');
+    var strat = root.getAttribute('data-strategy') || 'related';
+    var limit = parseInt(root.getAttribute('data-limit') || '4', 10);
+    if (isNaN(limit) || limit < 1) limit = 4;
+    var fallback = root.getAttribute('data-fallback') || 'related';
+    var seed = root.getAttribute('data-seed-product') || '';
+
+    function done(products) {
+      if (!renderRecs(root, products, limit)) resolveFallback();
+    }
+    function resolveFallback() {
+      if (fallback === 'hide') { if (root.parentNode) root.parentNode.removeChild(root); return; }
+      if (fallback === strat) { if (root.parentNode) root.parentNode.removeChild(root); return; } // avoid loop
+      root.setAttribute('data-strategy', fallback);
+      root.removeAttribute('data-superapp-recs-bound');
+      initRecs(root);
+    }
+
+    /* native, service-free intents */
+    if (strat === 'related' || strat === 'complementary') {
+      if (!seed) return resolveFallback();
+      var intent = strat === 'complementary' ? 'complementary' : 'related';
+      return fetch('/recommendations/products.json?product_id=' + encodeURIComponent(seed) + '&limit=' + limit + '&intent=' + intent)
+        .then(function (r) { return r.json(); })
+        .then(function (j) { done(j && j.products ? j.products : []); })
+        .catch(resolveFallback);
+    }
+    if (strat === 'most-expensive-in-cart' || strat === 'cheapest-in-cart') {
+      return fetch('/cart.js')
+        .then(function (r) { return r.json(); })
+        .then(function (cart) {
+          var items = (cart && cart.items) ? cart.items.slice() : [];
+          if (items.length === 0) return resolveFallback();
+          items.sort(function (a, b) { return (a.price || 0) - (b.price || 0); });
+          var pick = strat === 'most-expensive-in-cart' ? items[items.length - 1] : items[0];
+          done([{ url: pick.url, title: pick.product_title || pick.title, image: pick.image, price: (pick.price / 100).toFixed(2) }]);
+        })
+        .catch(resolveFallback);
+    }
+    if (strat === 'recently-viewed') {
+      var raw = storageGet(window.localStorage, 'superapp:recently-viewed');
+      var ids = [];
+      try { ids = raw ? JSON.parse(raw) : []; } catch (e) { ids = []; }
+      if (!ids || ids.length === 0) return resolveFallback();
+      // No product bodies stored — degrade to fallback (client can't hydrate ids alone).
+      return resolveFallback();
+    }
+
+    /* DYNAMIC — App Proxy (returns [] today → fallback) */
+    return fetch('/apps/superapp/recommend?strategy=' + encodeURIComponent(strat) + '&limit=' + limit + '&module_id=' + encodeURIComponent(root.getAttribute('data-module-id') || '') + (seed ? '&seed=' + encodeURIComponent(seed) : ''))
+      .then(function (r) { if (!r.ok) throw new Error('recs proxy ' + r.status); return r.json(); })
+      .then(function (j) { done(j && j.products ? j.products : []); })
+      .catch(resolveFallback);
+  }
+
   ready(function () {
     /* R2.1: resolve display rules first — reveal/remove deferred non-popup modules,
        and let the popup engine consult the same rules in open(). */
@@ -470,5 +573,8 @@
     Array.prototype.forEach.call(popups, setupPopup);
     var forms = document.querySelectorAll('form[data-superapp-proxy-form]');
     Array.prototype.forEach.call(forms, setupProxyForm);
+    /* R2.3: resolve dynamic / cart-derived recommendation mounts. */
+    var recs = document.querySelectorAll('[data-superapp-recs]');
+    Array.prototype.forEach.call(recs, initRecs);
   });
 })();

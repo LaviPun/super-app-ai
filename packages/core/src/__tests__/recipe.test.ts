@@ -191,6 +191,89 @@ describe('RecipeSpecSchema', () => {
     expect(r.success).toBe(false);
   });
 
+  it('R2.3 — pins the recommendation pack on theme.section.config', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'theme.section',
+      name: 'Frequently bought together',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'product-recommendations',
+        recommendation: {
+          strategy: 'complementary',
+          productLimit: 3,
+          hideCartProducts: true,
+          excludeTags: ['hidden-upsell'],
+          fallback: 'related',
+        },
+      },
+    });
+    expect(spec.type).toBe('theme.section');
+    if (spec.type === 'theme.section') {
+      expect(spec.config.recommendation?.strategy).toBe('complementary');
+      expect(spec.config.recommendation?.productLimit).toBe(3);
+    }
+  });
+
+  it('R2.3 back-compat — a theme.section with NO recommendation still validates (optional pin)', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'theme.section',
+      name: 'Plain section',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: { kind: 'custom' },
+    });
+    expect(spec.type === 'theme.section' && spec.config.recommendation).toBeUndefined();
+  });
+
+  it('R2.3 back-compat — checkout.upsell with ONLY the legacy productVariantGid parses', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'checkout.upsell',
+      name: 'Order bump',
+      category: 'STOREFRONT_UI',
+      config: { offerTitle: 'Add a warranty', productVariantGid: 'gid://shopify/ProductVariant/999' },
+    });
+    expect(spec.type === 'checkout.upsell' && spec.config.recommendation).toBeUndefined();
+  });
+
+  it('R2.3 — checkout.upsell with BOTH productVariantGid and recommendation parses', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'checkout.upsell',
+      name: 'Smart upsell',
+      category: 'STOREFRONT_UI',
+      config: {
+        offerTitle: 'You may also like',
+        productVariantGid: 'gid://shopify/ProductVariant/999',
+        recommendation: { strategy: 'related', productLimit: 2, fallback: 'related' },
+      },
+    });
+    expect(spec.type === 'checkout.upsell' && spec.config.recommendation?.strategy).toBe('related');
+  });
+
+  it('R2.3 — postPurchase.offer accepts the recommendation pin', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'postPurchase.offer',
+      name: 'Post-purchase reorder',
+      category: 'STOREFRONT_UI',
+      config: {
+        offerTitle: 'Reorder your favorites',
+        recommendation: { strategy: 'buy-it-again', fallback: 'related' },
+      },
+    });
+    expect(spec.type === 'postPurchase.offer' && spec.config.recommendation?.strategy).toBe('buy-it-again');
+  });
+
+  it('R2.3 — rejects a manual recommendation with an empty variant list (superRefine)', () => {
+    const r = RecipeSpecSchema.safeParse({
+      type: 'theme.section',
+      name: 'Bad manual recs',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: { kind: 'product-recommendations', recommendation: { strategy: 'manual' } },
+    });
+    expect(r.success).toBe(false);
+  });
+
   it('validates a theme.section effect recipe', () => {
     const spec = RecipeSpecSchema.parse({
       type: 'theme.section',

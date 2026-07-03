@@ -14,6 +14,8 @@ export type PlannedModule = {
   kindHint?: string;
   required: boolean;
   reason: string;
+  /** R2.3 — default recommendation-source hint (see PlannedModuleSpec). */
+  recommendationHint?: string;
   surface: CapabilitySurface;
 };
 

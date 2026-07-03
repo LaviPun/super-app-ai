@@ -25,6 +25,13 @@ export type PlannedModuleSpec = {
   required: boolean;
   /** Why this member exists — shown to the merchant + injected as context. */
   reason: string;
+  /**
+   * R2.3 — default recommendation-source hint for product-widget members. Injected
+   * as generation context (prose) so a plain "add an upsell" prompt produces a
+   * working `config.recommendation.strategy` instead of a blank product picker.
+   * Deterministic per this file's contract; the model still emits the full pack.
+   */
+  recommendationHint?: string;
 };
 
 export type BlueprintCatalogEntry = {
@@ -51,6 +58,10 @@ const ENTRIES: BlueprintCatalogEntry[] = [
         kindHint: 'product-bundle',
         required: true,
         reason: 'Product-page UI where shoppers see and pick the bundle.',
+        // R2.3 — default the FBT/upsell surface to a complementary strategy with a
+        // safe fallback, so a bare "add an upsell" prompt yields a working strategy.
+        recommendationHint:
+          "Set config.recommendation = { strategy: 'complementary', productLimit: 3, fallback: 'related' } so the bundle surfaces frequently-bought-together products; only use strategy 'manual' with manualVariantGids if the merchant named specific products.",
       },
       {
         role: 'cart-merge',

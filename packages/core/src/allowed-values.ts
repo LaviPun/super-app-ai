@@ -592,6 +592,68 @@ export const PRICING_LIMITS = {
   cheapestFreeMax: 20,
 } as const;
 
+// ─── Recommendation source (recommendation pack, R2.3) ───────────────────────
+
+/**
+ * `recommendation.source` strategy — how offered/recommended products are chosen
+ * (R2.3 / pack #25). Ordered by RESOLVER CLASS: the first six are STATIC (resolve
+ * in Liquid / Storefront API with NO backend service — native
+ * `recommendations`/`collections`/cart + `/recommendations/products.json`); the
+ * last four are DYNAMIC (need ranking over order/analytics data or per-session
+ * client state, so they route through the App-Proxy recommendation service and
+ * degrade to `fallback` until/where that service resolves them).
+ *
+ * Deliberately trimmed from the research list: `ai-recommended`/`endpoint`/
+ * third-party engines are out of scope for R2.3 (no service, no engine-credential
+ * vocabulary). Add later only when a resolver exists — a new enum value + a
+ * service adapter, no shape change.
+ */
+export const RECOMMENDATION_STRATEGIES = [
+  // ── STATIC (resolve in Liquid / Storefront API, no service) ──
+  'manual', // merchant-picked variants
+  'collection', // products from a chosen collection (optional random)
+  'related', // Shopify product_recommendations intent=related
+  'complementary', // Shopify product_recommendations intent=complementary
+  'most-expensive-in-cart',
+  'cheapest-in-cart',
+  // ── DYNAMIC (need the recommendation service / precomputed data) ──
+  'top-sellers', // ranked by units sold (window)
+  'trending', // ranked by recent velocity
+  'buy-it-again', // customer order history
+  'recently-viewed', // client-side view log
+] as const;
+export type RecommendationStrategy = (typeof RECOMMENDATION_STRATEGIES)[number];
+
+/**
+ * Which strategies are resolvable with NO backend recommendation service. This
+ * is the split invariant: the DYNAMIC four are exactly
+ * `RECOMMENDATION_STRATEGIES \ STATIC_RECOMMENDATION_STRATEGIES`, and the service
+ * (`recommendation.service.ts`) MUST return `[]` for every static strategy — the
+ * "renders without a service" fence.
+ */
+export const STATIC_RECOMMENDATION_STRATEGIES = [
+  'manual',
+  'collection',
+  'related',
+  'complementary',
+  'most-expensive-in-cart',
+  'cheapest-in-cart',
+] as const;
+export type StaticRecommendationStrategy = (typeof STATIC_RECOMMENDATION_STRATEGIES)[number];
+
+/** Deterministic fallback when a dynamic strategy yields nothing at render. */
+export const RECOMMENDATION_FALLBACKS = ['manual', 'collection', 'related', 'hide'] as const;
+export type RecommendationFallback = (typeof RECOMMENDATION_FALLBACKS)[number];
+
+/** Recommendation limits — bounded for prompt/JSON-Schema/token budget + runtime cost. */
+export const RECOMMENDATION_LIMITS = {
+  manualVariantsMax: 20,
+  productLimitMin: 1,
+  productLimitMax: 12,
+  excludeTagsMax: 20,
+  excludeTagLen: 60,
+} as const;
+
 /** customerAccount.blocks block kind (doc 18.4). */
 export const CUSTOMER_ACCOUNT_BLOCK_KINDS = ['TEXT', 'LINK', 'BADGE', 'DIVIDER'] as const;
 /** customerAccount.blocks block tone (doc 18.4). */

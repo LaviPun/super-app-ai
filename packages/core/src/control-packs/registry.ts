@@ -17,6 +17,7 @@ import { advancedCustomPack } from './packs/advanced-custom.pack.js';
 import { layoutArchetypePack } from './packs/layout-archetype.pack.js';
 import { ruleEnginePack } from './packs/rule-engine.pack.js';
 import { pricingPack } from './packs/pricing.pack.js';
+import { recommendationPack } from './packs/recommendation.pack.js';
 
 const ALL_PACKS: ControlPack[] = [
   contentPack,
@@ -32,6 +33,7 @@ const ALL_PACKS: ControlPack[] = [
   layoutArchetypePack,
   ruleEnginePack,
   pricingPack,
+  recommendationPack,
 ];
 
 const REGISTRY = new Map<string, ControlPack>(ALL_PACKS.map((p) => [p.id, p]));

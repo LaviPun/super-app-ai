@@ -50,3 +50,16 @@ export type {
   Bogo,
   Gift,
 } from './packs/pricing.pack.js';
+export {
+  RecommendationPackSchema,
+  recommendationPack,
+  RECOMMENDATION_STRATEGIES,
+  STATIC_RECOMMENDATION_STRATEGIES,
+  RECOMMENDATION_FALLBACKS,
+} from './packs/recommendation.pack.js';
+export type {
+  RecommendationPack,
+  RecommendationStrategy,
+  StaticRecommendationStrategy,
+  RecommendationFallback,
+} from './packs/recommendation.pack.js';

@@ -17,8 +17,9 @@ const MANIFESTS: Partial<Record<ModuleType, ModuleManifest>> = {
     // is supplied by the module type via the catalog in `type-enums.ts`.
     packs: ['content', 'style', 'layout-archetype', 'trigger', 'page-targeting', 'frequency-cap', 'countdown', 'behavior'],
     // Advanced tier unlocks audience targeting, scheduling/day-parting, the merchant
-    // condition primitive (R2.1 `rule-engine`), and the custom-code escape hatch.
-    advancedPacks: ['audience', 'schedule', 'rule-engine', 'advanced-custom'],
+    // condition primitive (R2.1 `rule-engine`), the product-recommendation source
+    // (R2.3 `recommendation`), and the custom-code escape hatch.
+    advancedPacks: ['audience', 'schedule', 'rule-engine', 'recommendation', 'advanced-custom'],
   },
 };
 

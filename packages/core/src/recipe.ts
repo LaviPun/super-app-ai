@@ -11,6 +11,7 @@ import { AdvancedCustomPackSchema } from './control-packs/packs/advanced-custom.
 import { LayoutArchetypePackSchema } from './control-packs/packs/layout-archetype.pack.js';
 import { RuleEnginePackSchema } from './control-packs/packs/rule-engine.pack.js';
 import { PricingPackSchema } from './control-packs/packs/pricing.pack.js';
+import { RecommendationPackSchema } from './control-packs/packs/recommendation.pack.js';
 import { DataModelSchema } from './data-model.js';
 import type { ModuleCategory, ModuleType } from './allowed-values.js';
 import {
@@ -155,6 +156,14 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
        * default → absent/disabled renders byte-identically (always show).
        */
       ruleEngine: RuleEnginePackSchema.optional(),
+      /**
+       * Recommendation source (R2.3). How a product-widget section chooses which
+       * products to offer: a strategy select (manual/collection/related/
+       * complementary/cart-derived resolve STATICALLY in Liquid with no service;
+       * top-sellers/trending/buy-it-again/recently-viewed are DYNAMIC and degrade
+       * to `fallback`). Optional + back-compat: absent = no recommendations widget.
+       */
+      recommendation: RecommendationPackSchema.optional(),
       /** Sanitized custom markup/styles/scripts (scoped + CSP-bound at compile/preview). */
       advancedCustom: AdvancedCustomPackSchema.optional(),
     // Open section: `.catchall` accepts kind-specific keys (collapsed from the former
@@ -345,6 +354,14 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       offerTitle: z.string().min(LIMITS.offerTitleMin).max(60),
       productVariantGid: z.string().min(10),
       discountPercent: z.number().min(0).max(100).default(0),
+      /**
+       * Recommendation source (R2.3). Lets the upsell CHOOSE its product by
+       * strategy instead of a single pasted variant. Legacy `productVariantGid`
+       * stays required (it IS `strategy:'manual'` with one variant); the checkout
+       * hook resolves static strategies via the Storefront API and degrades dynamic
+       * ones to `fallback`. Optional + back-compat.
+       */
+      recommendation: RecommendationPackSchema.optional(),
     }),
   }),
 
@@ -357,6 +374,8 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       title: z.string().min(LIMITS.headingMin).max(LIMITS.nameMax),
       message: z.string().max(LIMITS.checkoutBlockMessageMax).optional(),
       productVariantGid: z.string().min(10).optional(),
+      /** Recommendation source (R2.3). Optional + back-compat; see checkout.upsell. */
+      recommendation: RecommendationPackSchema.optional(),
     }),
   }),
 
@@ -368,6 +387,8 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       offerTitle: z.string().min(LIMITS.offerTitleMin).max(LIMITS.offerTitleMax),
       productVariantGid: z.string().min(10).optional(),
       message: z.string().max(LIMITS.offerMessageMax).optional(),
+      /** Recommendation source (R2.3). Optional + back-compat; see checkout.upsell. */
+      recommendation: RecommendationPackSchema.optional(),
     }),
   }),
 

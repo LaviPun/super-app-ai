@@ -1,4 +1,4 @@
-import type { RecipeSpec, RuleEnginePack } from '@superapp/core';
+import type { RecipeSpec, RuleEnginePack, RecommendationPack } from '@superapp/core';
 import { evaluateRuleEngine } from '@superapp/core';
 import {
   compileStyleVars,
@@ -99,9 +99,83 @@ export class PreviewService {
         return this.sectionEffect(spec);
       case 'floatingWidget':
         return this.sectionFloatingWidget(spec);
+      case 'product-recommendations':
+        return this.sectionRecommendations(spec);
       default:
+        // R2.3 — any kind that carries a recommendation source renders the
+        // strategy-labelled placeholder (recommendations compose onto other
+        // widgets). Absent recommendation → the normal generic renderer.
+        if ((spec.config as { recommendation?: RecommendationPack }).recommendation) {
+          return this.sectionRecommendations(spec);
+        }
         return this.sectionGeneric(spec);
     }
+  }
+
+  /**
+   * Kind renderer: product-recommendations (R2.3). Deterministic, no live catalog —
+   * renders N labelled skeleton cards captioned with the strategy + limit, matching
+   * the "PreviewService is deterministic, no AI" rule. Dynamic strategies note the
+   * fallback so the merchant sees the degradation contract.
+   */
+  private sectionRecommendations(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const rec = (spec.config as { recommendation?: RecommendationPack }).recommendation;
+    const strategy = rec?.strategy ?? 'related';
+    const limit = Math.min(Math.max(rec?.productLimit ?? 4, 1), 12);
+    const fallback = rec?.fallback ?? 'related';
+    const styleBlock = this.styleCss(spec, '.superapp-recs');
+    const STATIC = new Set([
+      'manual',
+      'collection',
+      'related',
+      'complementary',
+      'most-expensive-in-cart',
+      'cheapest-in-cart',
+    ]);
+    const isDynamic = !STATIC.has(strategy);
+    const title = String(this.cfg(spec, 'title') ?? spec.config.title ?? 'Recommended products');
+    const caption = `Strategy: ${strategy} · up to ${limit} product${limit === 1 ? '' : 's'}${
+      isDynamic ? ` · fallback: ${fallback}` : ''
+    }`;
+    const cards = Array.from({ length: limit })
+      .map(
+        (_, i) => `
+          <li class="superapp-recs__card">
+            <div class="superapp-recs__thumb" aria-hidden="true"></div>
+            <span class="superapp-recs__name">Product ${i + 1}</span>
+            <span class="superapp-recs__price">$—</span>
+          </li>`,
+      )
+      .join('');
+
+    return pageHtml(
+      `
+      <section class="superapp-recs">
+        <div class="preview-label">${esc(caption)}</div>
+        ${title ? `<h2 class="superapp-recs__title">${esc(title)}</h2>` : ''}
+        <ul class="superapp-recs__grid" role="list">${cards}</ul>
+        ${
+          isDynamic
+            ? `<p class="superapp-recs__note">Dynamic strategy — resolves at render via the recommendation service; degrades to <strong>${esc(
+                fallback,
+              )}</strong> when unavailable.</p>`
+            : ''
+        }
+      </section>
+    `,
+      `
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      ${styleBlock}
+      .preview-label { font-size: 0.75em; color: #6B7280; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.04em; }
+      .superapp-recs__title { margin: 0 0 12px; font-size: 1.25em; font-weight: var(--sa-fw, 600); }
+      .superapp-recs__grid { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sa-gap, 16px); grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+      .superapp-recs__card { display: flex; flex-direction: column; gap: 6px; }
+      .superapp-recs__thumb { aspect-ratio: 1 / 1; background: linear-gradient(135deg, #f1f5f9, #e2e8f0); border-radius: var(--sa-radius, 8px); }
+      .superapp-recs__name { font-size: 0.9em; font-weight: 500; }
+      .superapp-recs__price { font-size: 0.85em; color: #6B7280; }
+      .superapp-recs__note { margin-top: 12px; font-size: 0.8em; color: #6B7280; }
+    `,
+    );
   }
 
   /** Reads a config value, preferring config.fields then top-level config. */

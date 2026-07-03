@@ -115,6 +115,37 @@ function asTrimmedString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+type RecommendationConfig = {
+  strategy?: string;
+  manualVariantGids?: unknown;
+  fallback?: string;
+};
+
+/**
+ * R2.3 — resolve `config.recommendation` to a single variant GID for checkout.
+ *
+ * Checkout has NO App Proxy access and must stay ≤64KB / Storefront-API only, so
+ * only the `manual` strategy (explicit variant GIDs — semantically the legacy
+ * `productVariantGid`) is resolved here via the existing VARIANTS_QUERY path. The
+ * other static strategies (related/complementary/collection/cart-derived) would
+ * need extra Storefront queries; they and the dynamic strategies degrade to the
+ * `fallback` — and if `fallback` is `manual` with variants we resolve that, else
+ * the offer renders heading/message only (existing empty-safe behavior). This is
+ * an honest partial: `manual` resolves for real; the rest degrade, never fabricate.
+ */
+function variantGidFromRecommendation(rec: RecommendationConfig): string | undefined {
+  const manual = Array.isArray(rec.manualVariantGids)
+    ? (rec.manualVariantGids as unknown[]).find(
+        (g): g is string => typeof g === 'string' && VARIANT_GID_RE.test(g),
+      )
+    : undefined;
+  if (rec.strategy === 'manual') return manual;
+  // Non-manual strategy → degrade to fallback. Only fallback=manual is resolvable
+  // in checkout (via the manual variants); other fallbacks render heading/message.
+  if (rec.fallback === 'manual') return manual;
+  return undefined;
+}
+
 type Draft = { key: string; heading?: string; message?: string; variantGid?: string };
 
 function draftFromNode(node: MetaobjectNode, surface: Surface): Draft | null {
@@ -135,7 +166,14 @@ function draftFromNode(node: MetaobjectNode, surface: Surface): Draft | null {
   const heading = asTrimmedString(config.offerTitle) ?? asTrimmedString(config.title);
   const message = asTrimmedString(config.message);
   const rawGid = asTrimmedString(config.productVariantGid);
-  const variantGid = rawGid && VARIANT_GID_RE.test(rawGid) ? rawGid : undefined;
+  const legacyGid = rawGid && VARIANT_GID_RE.test(rawGid) ? rawGid : undefined;
+  // Legacy `productVariantGid` wins (byte-identical for existing recipes); only fall
+  // to the recommendation source when there is no legacy variant present.
+  const rec =
+    config.recommendation && typeof config.recommendation === 'object' && !Array.isArray(config.recommendation)
+      ? (config.recommendation as RecommendationConfig)
+      : undefined;
+  const variantGid = legacyGid ?? (rec ? variantGidFromRecommendation(rec) : undefined);
   if (!heading && !message && !variantGid) return null; // nothing buyer-facing
 
   return { key: node.id, heading, message, variantGid };

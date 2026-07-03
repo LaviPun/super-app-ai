@@ -200,6 +200,28 @@ const PRICING_TYPES: ReadonlySet<ModuleType> = new Set<ModuleType>([
   'functions.cartTransform',
 ]);
 
+/**
+ * R2.3 — the recommendation-source authoring contract. Appended to product-widget
+ * types that pin the `recommendation` pack (theme.section, checkout.upsell,
+ * postPurchase.offer). Enum-anchored so the model can't drift outside the closed
+ * strategy set; emphasises the static/dynamic split + the mandatory `fallback`.
+ */
+export const RECOMMENDATION_SPEC = `PRODUCT RECOMMENDATIONS (config.recommendation — optional). When a module recommends/offers products, set the strategy for HOW they are chosen:
+  config.recommendation = { strategy, manualVariantGids?, seedProductGid?, collectionGid?, collectionRandom?, productLimit?, excludeTags?, hideCartProducts?, fallback }
+strategy (exactly one of): manual, collection, related, complementary, most-expensive-in-cart, cheapest-in-cart, top-sellers, trending, buy-it-again, recently-viewed.
+  - Use 'manual' + manualVariantGids ONLY when the merchant named specific products.
+  - Prefer 'complementary' for "frequently bought together" / cross-sell, 'related' for "you may also like", 'buy-it-again' for reorder, 'trending'/'top-sellers' for "best sellers".
+  - 'collection' requires collectionGid.
+Dynamic strategies (top-sellers, trending, buy-it-again, recently-viewed) MUST also set a fallback (one of: manual, collection, related, hide) so the widget never renders empty — 'related' is a safe default.
+Do NOT invent product GIDs. Leave manualVariantGids empty unless the merchant provided products (they are Shopify ProductVariant GIDs: gid://shopify/ProductVariant/<id>); hydration/merchant fills them. Omit config.recommendation for modules that do not offer products.`;
+
+/** Types that pin the recommendation pack and therefore get the recommendation contract. */
+const RECOMMENDATION_TYPES: ReadonlySet<ModuleType> = new Set<ModuleType>([
+  'theme.section',
+  'checkout.upsell',
+  'postPurchase.offer',
+]);
+
 /** Returns the full recipe schema spec for the given type (all Zod-level constraints as a string). */
 export function getFullRecipeSchemaSpec(moduleType: ModuleType): string {
   const base = FULL_RECIPE_SCHEMA_SPECS[moduleType] ?? `Module type ${moduleType}: use type, name, category, requires, config (single object), and optionally style. No top-level settings, controls, assets, or meta.`;
@@ -211,7 +233,9 @@ export function getFullRecipeSchemaSpec(moduleType: ModuleType): string {
   // R2.1 — append the display-rules authoring contract on the types that pin the pack.
   const withRules = RULE_ENGINE_TYPES.has(moduleType) ? `${withEnums}\n${DISPLAY_RULES_SPEC}` : withEnums;
   // R2.2 — append the pricing authoring contract on the two Function types that pin the pack.
-  return PRICING_TYPES.has(moduleType) ? `${withRules}\n${PRICING_SPEC}` : withRules;
+  const withPricing = PRICING_TYPES.has(moduleType) ? `${withRules}\n${PRICING_SPEC}` : withRules;
+  // R2.3 — append the recommendation-source contract on the product-widget types that pin the pack.
+  return RECOMMENDATION_TYPES.has(moduleType) ? `${withPricing}\n${RECOMMENDATION_SPEC}` : withPricing;
 }
 
 /** Returns the full StorefrontStyle schema as a string (for storefront types). */

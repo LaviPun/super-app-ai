@@ -393,6 +393,9 @@
   {% when 'product-bundle' %}
     {% render 'superapp-product-bundle', mod_cfg: mod_cfg, module_id: module_id %}
 
+  {% when 'product-recommendations' %}
+    {% render 'superapp-recommendations', mod_cfg: mod_cfg, module_id: module_id %}
+
   {% else %}
     {% comment %}
       Generic theme.section (any non-preset kind). Rendered from the compiler
