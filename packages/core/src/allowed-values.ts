@@ -546,6 +546,10 @@ export const RECIPE_SPEC_TYPES = [
   'postPurchase.offer',
   'admin.block',
   'admin.action',
+  // Spring 2026 "Discount UI Extension" — an admin UI that configures a discount
+  // (pairs with functions.discountRules). Declarative today; needs_runtime until
+  // the discount-details extension is shipped.
+  'admin.discountUi',
   'pos.extension',
   'analytics.pixel',
   'integration.httpSync',
@@ -572,6 +576,7 @@ const MODULE_TYPE_ORDER: ModuleType[] = [
   'functions.orderRoutingLocationRule',
   'admin.block',
   'admin.action',
+  'admin.discountUi',
   'pos.extension',
   'platform.extensionBlueprint',
   'analytics.pixel',
@@ -627,6 +632,7 @@ export const MODULE_TYPE_TO_CATEGORY: Record<ModuleType, ModuleCategory> = {
   'postPurchase.offer': 'STOREFRONT_UI',
   'admin.block': 'ADMIN_UI',
   'admin.action': 'ADMIN_UI',
+  'admin.discountUi': 'ADMIN_UI',
   'pos.extension': 'ADMIN_UI',
   'analytics.pixel': 'INTEGRATION',
   'integration.httpSync': 'INTEGRATION',
@@ -651,6 +657,7 @@ export const MODULE_TYPE_DEFAULT_REQUIRES: Record<ModuleType, readonly string[]>
   'postPurchase.offer': ['CHECKOUT_UI_INFO_SHIP_PAY'],
   'admin.block': [],
   'admin.action': [],
+  'admin.discountUi': [],
   'pos.extension': [],
   'analytics.pixel': [],
   'integration.httpSync': [],
@@ -675,6 +682,7 @@ export const MODULE_TYPE_TO_SURFACE: Record<ModuleType, ShopifySurface> = {
   'postPurchase.offer': 'checkout',
   'admin.block': 'admin',
   'admin.action': 'admin',
+  'admin.discountUi': 'admin',
   'pos.extension': 'pos',
   'analytics.pixel': 'marketing_analytics',
   'integration.httpSync': 'online_store',

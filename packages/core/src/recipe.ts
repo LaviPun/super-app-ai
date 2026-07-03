@@ -354,6 +354,30 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     }),
   }),
 
+  // Spring 2026 Discount UI Extension — an admin UI that configures a discount
+  // (pairs with a functions.discountRules Function). Declarative today.
+  Base.extend({
+    type: z.literal('admin.discountUi'),
+    category: z.literal('ADMIN_UI').default('ADMIN_UI'),
+    requires: z.array(z.custom<Capability>()).default([]),
+    config: z.object({
+      /** Title shown in the discount admin UI. */
+      title: z.string().min(1).max(80),
+      /** Which discount class this UI configures. */
+      discountClass: z.enum(['product', 'order', 'shipping']).default('product'),
+      /** Handle of the paired discount Function (functions.discountRules), if any. */
+      functionHandle: z.string().max(120).optional(),
+      /** Merchant-facing description of what the discount does. */
+      description: z.string().max(400).optional(),
+      /** Admin form fields the extension exposes. */
+      fields: z.array(z.object({
+        key: z.string().min(1).max(60),
+        label: z.string().min(1).max(80),
+        kind: z.enum(['text', 'number', 'toggle', 'select']).default('text'),
+      })).max(20).default([]),
+    }),
+  }),
+
   Base.extend({
     type: z.literal('pos.extension'),
     category: z.literal('ADMIN_UI').default('ADMIN_UI'),

@@ -73,6 +73,10 @@ No style.`,
 Settings: target(enum from ADMIN_TARGETS), label(str 1-80), shouldRender(bool, opt). Admin block on resource pages.
 No style.`,
 
+  'admin.discountUi': `Module: admin.discountUi | Category: ADMIN_UI
+Settings: title(str 1-80), discountClass(product|order|shipping), functionHandle(str, opt — links a functions.discountRules Function), description(str, opt), fields([{key,label,kind:text|number|toggle|select}], opt). Spring 2026 Discount UI Extension — an admin form that configures a discount.
+No style.`,
+
   'pos.extension': `Module: pos.extension | Category: ADMIN_UI
 Settings: target(enum from POS_TARGETS), label(str 1-80), blockKind(tile|modal|block|action, opt). POS UI extension.
 No style.`,

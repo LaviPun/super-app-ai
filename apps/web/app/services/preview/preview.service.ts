@@ -497,6 +497,8 @@ export class PreviewService {
       case 'admin.action':
       case 'platform.extensionBlueprint':
         return this.adminSurfacePreview(spec);
+      case 'admin.discountUi':
+        return this.discountUiSurfacePreview(spec);
       case 'customerAccount.blocks':
         return this.accountSurfacePreview(spec);
       case 'pos.extension':
@@ -639,6 +641,47 @@ export class PreviewService {
     `, `
       .adm__row { display:flex; justify-content:space-between; font-size:13px; padding:6px 0; border-bottom:1px solid #eef2f7; }
       .adm__badge { background:#E7F5EF; color:#0E9F6E; border-radius:9999px; padding:2px 10px; font-size:12px; }
+    `);
+  }
+
+  /** Spring 2026 Discount UI Extension — an admin discount-config form (declarative). */
+  private discountUiSurfacePreview(spec: RecipeSpec): string {
+    const title = String(this.cfgVal(spec, 'title') ?? spec.name);
+    const cls = String(this.cfgVal(spec, 'discountClass') ?? 'product');
+    const desc = String(this.cfgVal(spec, 'description') ?? '');
+    const fn = String(this.cfgVal(spec, 'functionHandle') ?? '');
+    const fieldsRaw = this.cfgVal(spec, 'fields');
+    const fields = Array.isArray(fieldsRaw) ? (fieldsRaw as Array<Record<string, unknown>>) : [];
+    const rows = fields
+      .map((f) => {
+        const label = esc(String(f?.label ?? f?.key ?? 'Field'));
+        const kind = String(f?.kind ?? 'text');
+        const control =
+          kind === 'toggle'
+            ? '<span class="dui__toggle"></span>'
+            : kind === 'select'
+              ? '<span class="dui__input">Select…</span>'
+              : `<span class="dui__input">${kind === 'number' ? '0' : ''}</span>`;
+        return `<div class="dui__field"><label>${label}</label>${control}</div>`;
+      })
+      .join('');
+    return this.surfaceCard(spec.name, `${spec.type} · admin discount UI`, `
+      <div class="surf-panel">
+        <div class="dui__head"><h3>${esc(title)}</h3><span class="dui__cls">${esc(cls)} discount</span></div>
+        ${desc ? `<p class="surf-muted">${esc(desc)}</p>` : ''}
+        <div class="dui__form">${rows || '<p class="surf-muted">No fields configured yet.</p>'}</div>
+        ${fn ? `<p class="surf-muted">Paired Function: <code>${esc(fn)}</code></p>` : ''}
+        <a class="surf-btn" href="#save">Save discount</a>
+        <details class="surf-state"><summary>Runtime</summary><p class="surf-muted">Needs the Shopify discount-details admin extension shipped before it can publish (needs_runtime).</p></details>
+      </div>
+    `, `
+      .dui__head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+      .dui__cls { background:#EEF3FB; color:#1F3A5F; border-radius:9999px; padding:2px 10px; font-size:12px; text-transform:capitalize; }
+      .dui__form { display:flex; flex-direction:column; gap:10px; margin:10px 0; }
+      .dui__field { display:flex; flex-direction:column; gap:4px; }
+      .dui__field label { font-size:12px; color:#6B7280; }
+      .dui__input { border:1px solid #DCE3EC; border-radius:8px; padding:8px 10px; font-size:13px; background:#fff; color:#6B7280; }
+      .dui__toggle { width:36px; height:20px; border-radius:9999px; background:#DCE3EC; }
     `);
   }
 

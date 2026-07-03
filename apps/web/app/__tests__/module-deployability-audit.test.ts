@@ -35,6 +35,9 @@ const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
   'functions.orderRoutingLocationRule',
   // Flow trigger/action extensions ship; workflow-definition publish wiring pending.
   'flow.automation',
+  // Spring 2026 Discount UI Extension — generatable + previewable, but the
+  // discount-details admin extension isn't built in extensions/ yet.
+  'admin.discountUi',
 ]);
 // `pos.extension` is now deployable: extensions/superapp-pos-block reads its
 // published config from the app backend (/api/pos/config) via App Authentication

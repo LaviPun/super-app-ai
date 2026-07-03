@@ -52,6 +52,9 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
     case 'integration.httpSync':
     case 'flow.automation':
     case 'platform.extensionBlueprint':
+    // admin.discountUi (Spring 2026): declarative today — no admin discount-details
+    // extension shipped yet, so it AUDIT-compiles and preflight gates it needs_runtime.
+    case 'admin.discountUi':
       return { ops: [{ kind: 'AUDIT', action: `compile.${spec.type}` }] };
     default: {
       const _exhaustive: never = spec;

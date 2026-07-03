@@ -185,6 +185,16 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
     requiredScopes: ['write_metaobjects'],
     note: 'Adds an admin action via an admin UI extension.',
   },
+  // Spring 2026 Discount UI Extension. The discount-details admin UI extension is
+  // not yet built in `extensions/`, so runtimeShipped:false → needs_runtime until
+  // it ships (generatable + previewable meanwhile; pairs with functions.discountRules).
+  'admin.discountUi': {
+    moduleType: 'admin.discountUi',
+    runtime: 'admin-ui',
+    runtimeShipped: false,
+    requiredScopes: ['write_metaobjects', 'write_discounts'],
+    note: 'Discount UI Extension (Spring 2026) — configures a discount from the admin. Needs the discount-details extension shipped before it can publish.',
+  },
 
   // ── Customer account UI (shipped: extensions/customer-account-ui) ──────────
   'customerAccount.blocks': {

@@ -117,6 +117,7 @@ export const PREVIEW_KINDS = [
   'postPurchase.offer',
   'admin.block',
   'admin.action',
+  'admin.discountUi',
   'pos.extension',
   'analytics.pixel',
   'integration.httpSync',

@@ -202,6 +202,30 @@ export const PART3_TEMPLATES: TemplateEntry[] = [
       },
     },
   },
+  {
+    id: 'DUI-201',
+    name: 'Discount UI — Product Promo',
+    description: 'Admin UI (Spring 2026 Discount UI Extension) to configure a product discount, paired with a discount Function.',
+    category: 'ADMIN_UI',
+    type: 'admin.discountUi',
+    icon: 'admin',
+    tags: ['admin', 'discount', 'ui', 'pricing'],
+    spec: {
+      type: 'admin.discountUi',
+      name: 'Discount UI — Product Promo',
+      category: 'ADMIN_UI',
+      requires: [],
+      config: {
+        title: 'Product Promotion',
+        discountClass: 'product',
+        description: 'Percentage off selected products, configured from the admin.',
+        fields: [
+          { key: 'percentage', label: 'Percentage off', kind: 'number' },
+          { key: 'collection', label: 'Collection', kind: 'select' },
+        ],
+      },
+    },
+  },
 
   // ═══════════════════════════════════════════════════════════════════
   // Category 10: Trust & Messaging (TRU-082 to TRU-090)
