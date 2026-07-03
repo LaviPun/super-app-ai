@@ -10,7 +10,6 @@ import {
   mustHaveControlsForType,
 } from '~/services/ai/requirement-spec.server';
 import { searchSolutions } from '~/services/ai/solution-search.server';
-import { fillMissingSettings } from '~/services/ai/fill-missing-settings.server';
 import type { ClassifyResult } from '~/services/ai/classify.server';
 
 function classify(moduleType: string, confidenceScore: number): ClassifyResult {
@@ -35,12 +34,17 @@ describe('WS1 requirement extraction', () => {
     }
   });
 
-  it('derives mustHaveControls from the v2 manifest for theme.section', () => {
+  it('derives mustHaveControls as config namespaces (not manifest ids) for theme.section', () => {
     const controls = mustHaveControlsForType('theme.section', 'basic');
     expect(controls).toContain('content');
     expect(controls).toContain('trigger');
+    // Namespaces, not pack ids: page-targeting -> targeting, frequency-cap -> frequencyCap.
+    expect(controls).toContain('targeting');
+    expect(controls).toContain('frequencyCap');
+    expect(controls).not.toContain('page-targeting');
     const advanced = mustHaveControlsForType('theme.section', 'advanced');
-    expect(advanced).toContain('advanced-custom');
+    expect(advanced).toContain('advancedCustom');
+    expect(advanced).not.toContain('advanced-custom');
   });
 
   it('stays deterministic when confidence is high (no escalation call)', async () => {
@@ -95,48 +99,5 @@ describe('WS1 solution search', () => {
     });
     expect(report.complete).toBe(false);
     expect(report.missing.length).toBeGreaterThan(0);
-  });
-});
-
-describe('WS1 auto-fill on incomplete coverage (engine v2)', () => {
-  it('fills missing control packs and recomputes coverage to complete', async () => {
-    const requirement = buildDeterministicRequirementSpec({
-      userRequest: 'exit intent popup',
-      classification: classify('theme.section', 0.9),
-      tier: 'basic',
-    });
-    // Best option only emitted `content` — coverage is incomplete.
-    const bestConfig: Record<string, unknown> = { content: { heading: 'Hi' } };
-    const before = computeCoverageReport({
-      moduleType: requirement.moduleType,
-      mustHaveControls: requirement.mustHaveControls,
-      presentControls: Object.keys(bestConfig),
-    });
-    expect(before.complete).toBe(false);
-
-    // Proposer stands in for the one-shot LLM fill — returns values for the
-    // genuinely-missing namespaces only.
-    const fill = await fillMissingSettings(
-      {
-        moduleId: 'pending:job1',
-        moduleType: requirement.moduleType,
-        currentConfig: bestConfig,
-        expectedControls: requirement.mustHaveControls,
-        merchantSetKeys: [],
-      },
-      async (missingKeys) => Object.fromEntries(missingKeys.map((k) => [k, { _filled: true }])),
-    );
-
-    // Never overwrote the merchant/AI-set 'content'.
-    expect(fill.config.content).toEqual({ heading: 'Hi' });
-    expect(fill.diff.addedKeys).toEqual(expect.arrayContaining(['trigger']));
-
-    const after = computeCoverageReport({
-      moduleType: requirement.moduleType,
-      mustHaveControls: requirement.mustHaveControls,
-      presentControls: Object.keys(fill.config),
-    });
-    expect(after.complete).toBe(true);
-    expect(after.satisfied).toBe(before.total);
   });
 });

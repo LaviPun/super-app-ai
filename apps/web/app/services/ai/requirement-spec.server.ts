@@ -12,6 +12,7 @@ import {
   RECIPE_SPEC_TYPES,
   MODULE_TYPE_TO_SURFACE,
   getManifest,
+  getPack,
 } from '@superapp/core';
 import {
   RequirementSpecSchema,
@@ -31,11 +32,13 @@ const KNOWN_TYPES = new Set<string>(RECIPE_SPEC_TYPES);
 export function mustHaveControlsForType(type: ModuleType, tier: 'basic' | 'advanced'): string[] {
   const manifest = getManifest(type);
   if (!manifest) return [];
-  const base = [...manifest.packs];
+  const ids = [...manifest.packs];
   if (tier === 'advanced' && manifest.advancedPacks) {
-    return [...base, ...manifest.advancedPacks];
+    ids.push(...manifest.advancedPacks);
   }
-  return base;
+  // Return each pack's config **namespace** (the key it occupies under `config`),
+  // not its manifest id — so the control list matches a spec's config keys.
+  return ids.map((id) => getPack(id)?.namespace ?? id);
 }
 
 /** Pull behavioural triggers from the IntentPacket, if present. */

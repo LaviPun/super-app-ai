@@ -9,7 +9,6 @@ import { CapabilityService } from '~/services/shopify/capability.service';
 import { PreviewService } from '~/services/preview/preview.service';
 import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
 import { MODULE_CATALOG, isCapabilityAllowed, hasManifest } from '@superapp/core';
-import { computeRepublishDiff } from '@superapp/platform-contracts';
 import type { ModuleType } from '@superapp/core';
 import { SettingsService } from '~/services/settings/settings.service';
 import { buildAdminFormConfig } from '~/services/control-packs/admin-form.server';
@@ -185,31 +184,6 @@ export async function loader({ request, params }: { request: Request; params: { 
   const publishedVersion = mod.versions.find(v => v.status === 'PUBLISHED') ?? mod.activeVersion ?? null;
   const publishedThemeId = publishedVersion?.targetThemeId ?? null;
 
-  // WS5/026 + WS3/024: idempotent republish preview — what changes if the merchant
-  // republishes the current draft over the live version. Pure config diff; no I/O.
-  const republishDiff = (() => {
-    if (!spec) return null;
-    const draftConfig = ((spec as { config?: Record<string, unknown> }).config ?? {}) as Record<string, unknown>;
-    let existing: { metaobjectId: string; config: Record<string, unknown> } | null = null;
-    if (publishedVersion) {
-      try {
-        const publishedSpec = new RecipeService().parse(publishedVersion.specJson);
-        existing = {
-          metaobjectId: publishedVersion.id,
-          config: ((publishedSpec as { config?: Record<string, unknown> }).config ?? {}) as Record<string, unknown>,
-        };
-      } catch {
-        existing = null;
-      }
-    }
-    return computeRepublishDiff({
-      moduleType: spec.type,
-      metaobjectType: spec.type,
-      existing,
-      next: draftConfig,
-    });
-  })();
-
   // everHydrated: true if any version has hydration data (used client-side to skip auto-trigger)
   const everHydrated = (mod.versions as Array<{ hydratedAt: Date | null }>).some(v => v.hydratedAt != null);
 
@@ -245,7 +219,7 @@ export async function loader({ request, params }: { request: Request; params: { 
         })()
       : null;
 
-  return json({ moduleId, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, adminConfig, engine, v2Form, republishDiff, blueprint });
+  return json({ moduleId, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, adminConfig, engine, v2Form, blueprint });
 }
 
 /**

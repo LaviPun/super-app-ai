@@ -1,11 +1,9 @@
 import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
-import { generateValidatedRecipeOptions, generateValidatedBlueprint, modifyRecipeSpec, AiProviderNotConfiguredError } from '~/services/ai/llm.server';
+import { generateValidatedRecipeOptions, generateValidatedBlueprint, AiProviderNotConfiguredError } from '~/services/ai/llm.server';
 import { planBlueprint } from '~/services/ai/blueprint-planner';
 import { isBlueprintsEnabled } from '~/env.server';
-import { fillMissingSettings } from '~/services/ai/fill-missing-settings.server';
-import { SettingsService } from '~/services/settings/settings.service';
 import type { RecipeSpec } from '@superapp/core';
 import { getPrisma } from '~/db.server';
 import { JobService } from '~/services/jobs/job.service';
@@ -22,7 +20,6 @@ import { searchSolutions } from '~/services/ai/solution-search.server';
 import { ensureStoreAesthetic } from '~/services/theme/ensure-aesthetic.server';
 import { applyStorePalette } from '~/services/theme/apply-store-palette.server';
 import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
-import { computeCoverageReport } from '@superapp/platform-contracts';
 
 /** POST only; GET (e.g. prefetch or redirect) returns 405. */
 export async function loader() {
@@ -149,61 +146,6 @@ export async function action({ request }: { request: Request }) {
           groundingBlock: grounding || undefined,
         });
 
-        // WS1/022: coverage of must-have controls by the best option's config.
-        // Control-pack namespaces ARE the top-level config keys, so coverage is
-        // exact for v2 control-pack types (theme.section et al).
-        let bestConfig = (recipeOptions[0]?.recipe as { config?: Record<string, unknown> } | undefined)?.config ?? {};
-        let coverage = computeCoverageReport({
-          moduleType: requirementSpec.moduleType,
-          mustHaveControls: requirementSpec.mustHaveControls,
-          presentControls: Object.keys(bestConfig),
-        });
-
-        // WS1/022 + WS3/024: when the v2 engine is on and the best option is
-        // missing must-have control packs, auto-invoke fill-missing once to
-        // complete it (≤1 extra LLM call, only on incomplete coverage). Flag-gated
-        // so the v1 generation path is unchanged.
-        let autoFilled = false;
-        const engine = (await new SettingsService().get()).moduleSystemVersion;
-        if (engine === 'v2' && recipeOptions[0] && !coverage.complete && coverage.missing.length > 0) {
-          try {
-            const bestRecipe = recipeOptions[0].recipe as RecipeSpec;
-            const fill = await fillMissingSettings(
-              {
-                moduleId: `pending:${job.id}`,
-                moduleType: requirementSpec.moduleType,
-                currentConfig: bestConfig,
-                expectedControls: requirementSpec.mustHaveControls,
-                merchantSetKeys: [], // nothing merchant-set at create time
-              },
-              async (missingKeys) => {
-                const instruction =
-                  `Add the following missing setting groups so the module is complete: ${missingKeys.join(', ')}. ` +
-                  `Fill them with sensible, production-ready values; keep every existing field unchanged and keep the module type "${requirementSpec.moduleType}".`;
-                const modified = await modifyRecipeSpec(bestRecipe, instruction, { shopId: shopRow.id, maxAttempts: 2 });
-                const modifiedConfig = ((modified as { config?: Record<string, unknown> }).config ?? {}) as Record<string, unknown>;
-                const picked: Record<string, unknown> = {};
-                for (const key of missingKeys) {
-                  if (Object.prototype.hasOwnProperty.call(modifiedConfig, key)) picked[key] = modifiedConfig[key];
-                }
-                return picked;
-              },
-            );
-            if (fill.diff.addedKeys.length > 0) {
-              bestConfig = fill.config;
-              (recipeOptions[0].recipe as { config?: Record<string, unknown> }).config = fill.config;
-              coverage = computeCoverageReport({
-                moduleType: requirementSpec.moduleType,
-                mustHaveControls: requirementSpec.mustHaveControls,
-                presentControls: Object.keys(bestConfig),
-              });
-              autoFilled = true;
-            }
-          } catch {
-            // Auto-fill is best-effort — never fail generation if it can't complete.
-          }
-        }
-
         // Snap generated storefront sections onto the live store palette so they
         // match the merchant's theme. Conservative: never clobbers colors the
         // model chose deliberately (see applyStorePalette).
@@ -253,7 +195,7 @@ export async function action({ request }: { request: Request }) {
           }
         }
 
-        await jobs.succeed(job.id, { optionCount: recipeOptions.length, type: classification.moduleType, autoFilled, paletteMatched, blueprintModules: blueprint?.modules.length ?? 0 });
+        await jobs.succeed(job.id, { optionCount: recipeOptions.length, type: classification.moduleType, paletteMatched, blueprintModules: blueprint?.modules.length ?? 0 });
 
         const confidence = intentPacket.classification.confidence;
         const band =
@@ -275,8 +217,6 @@ export async function action({ request }: { request: Request }) {
           },
           routerDecision,
           requirementSpec,
-          coverage,
-          autoFilled,
           paletteMatched,
           startFrom,
           options: recipeOptions.map((opt, i) => ({
