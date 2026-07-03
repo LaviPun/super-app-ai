@@ -14,6 +14,8 @@ import { WebPixelService } from '~/services/shopify/web-pixel.service';
 import { computeRepublishDiff, type ModulePublishPreflightResult } from '@superapp/platform-contracts';
 import { classifyModulePublishability } from '~/services/publish/publish-preflight.server';
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
+import { ThemeFilesService } from '~/services/publish/theme-files.server';
+import { isThemeNativeSectionEnabled } from '~/env.server';
 
 const THEME_MODULES_NAMESPACE = 'superapp.theme';
 const THEME_MODULE_REFS_KEY = 'module_refs';
@@ -46,8 +48,30 @@ export class ModuleNotPublishableError extends Error {
   }
 }
 
+/**
+ * Thrown when a native-section theme push is requested but the feature is not
+ * enabled (flag off) — the app-block path remains the shipping default. Distinct
+ * from the old blanket "theme file writes are not used" throw: the seam is
+ * re-enabled (033), just flag-gated. Also fires for a delete of a native section
+ * while the flag is off, so a stale op can never silently write to a theme.
+ */
+export class ThemeNativeSectionDisabledError extends Error {
+  readonly code = 'THEME_NATIVE_SECTION_DISABLED';
+  constructor() {
+    super(
+      'Native theme-section push is disabled. Set THEME_NATIVE_SECTION_ENABLED to enable it ' +
+        '(requires write_themes + a Shopify page-builder exemption). Theme modules deploy via the app-block path by default.',
+    );
+    this.name = 'ThemeNativeSectionDisabledError';
+  }
+}
+
 export class PublishService {
-  constructor(private readonly admin: AdminApiContext['admin']) {}
+  constructor(
+    private readonly admin: AdminApiContext['admin'],
+    /** Shop domain + offline token, needed only for the native-section REST Asset fallback (033). */
+    private readonly session?: { shop?: string; accessToken?: string },
+  ) {}
 
   async publish(spec: RecipeSpec, target: DeployTarget): Promise<{ compiledJson?: string; preflight: ModulePublishPreflightResult }> {
     // WS5/026: never silently no-op. Gate before any deploy work so a caller
@@ -104,9 +128,24 @@ export class PublishService {
     // ── Compiler ops ────────────────────────────────────────────────────────
     for (const op of ops) {
       switch (op.kind) {
-        case 'THEME_ASSET_UPSERT':
-        case 'THEME_ASSET_DELETE':
-          throw new Error('Theme file writes are not used. Theme modules deploy via app extension (metaobjects).');
+        // Native-section theme push (033). Re-enabled seam, flag-gated. Every write
+        // goes through ThemeFilesService's allow-list (sections/superapp-*.liquid only)
+        // + {% schema %} JSON validation + async-job poll (GraphQL) with a REST Asset
+        // fallback. The default app-block path never produces these ops, so this
+        // branch is unreachable for existing modules.
+        case 'THEME_ASSET_UPSERT': {
+          if (!isThemeNativeSectionEnabled()) throw new ThemeNativeSectionDisabledError();
+          const themeFiles = new ThemeFilesService(this.admin, this.session?.shop, this.session?.accessToken);
+          await themeFiles.upsertSection(op.themeId, op.key, op.value);
+          break;
+        }
+
+        case 'THEME_ASSET_DELETE': {
+          if (!isThemeNativeSectionEnabled()) throw new ThemeNativeSectionDisabledError();
+          const themeFiles = new ThemeFilesService(this.admin, this.session?.shop, this.session?.accessToken);
+          await themeFiles.deleteFiles(op.themeId, [op.key]);
+          break;
+        }
 
         case 'SHOP_METAFIELD_SET':
           await mf.setShopMetafield(op.namespace, op.key, op.type, op.value);

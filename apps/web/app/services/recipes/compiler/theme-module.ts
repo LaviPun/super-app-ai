@@ -62,7 +62,7 @@ function resolveKind(specType: string, config: Record<string, unknown>): string 
  * module's colors/spacing/tokens actually apply without breaking overlay/floating
  * kinds whose root is a structural host rather than the painted surface.
  */
-function compileThemeStyleCss(style: StorefrontStyle, moduleId: string, kind: string): string {
+export function compileThemeStyleCss(style: StorefrontStyle, moduleId: string, kind: string): string {
   const root = `[data-module-id="${moduleId}"]`;
   const suffix = kind in STYLE_TARGET_SUFFIX ? STYLE_TARGET_SUFFIX[kind] : '';
   // `undefined` (kind not in map) → paint the root (default). `null` (effect) → no

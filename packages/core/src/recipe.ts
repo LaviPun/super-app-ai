@@ -68,9 +68,21 @@ export {
 /** All RecipeSpec types as array (for prompt-expectations and UI). */
 export const ALL_MODULE_TYPES: ModuleType[] = [...RECIPE_SPEC_TYPES];
 
+/**
+ * How a THEME target's `theme.section` compiles (033):
+ *  - `app_block` (default / absent) — the shipped path: a `$app:superapp_module`
+ *    metaobject rendered by the theme app extension. Fully back-compat; a THEME
+ *    target with no `mode` behaves byte-identically to before this field existed.
+ *  - `native_section` — compile to a self-contained `sections/superapp-<slug>.liquid`
+ *    file with a native `{% schema %}` and push it via the Theme Files API
+ *    (`themeFilesUpsert`). Flag-gated (`THEME_NATIVE_SECTION_ENABLED`) and only
+ *    deployable once the app holds `write_themes` + a Shopify page-builder exemption.
+ */
+export type ThemeDeployMode = 'app_block' | 'native_section';
+
 /** Where to deploy: theme app extension via metafields (themeId + moduleId) or platform extensions. Doc-aligned. */
 export type DeployTarget =
-  | { kind: (typeof DEPLOY_TARGET_KINDS)[0]; themeId: string; moduleId?: string }
+  | { kind: (typeof DEPLOY_TARGET_KINDS)[0]; themeId: string; moduleId?: string; mode?: ThemeDeployMode }
   | { kind: (typeof DEPLOY_TARGET_KINDS)[1]; moduleId?: string };
 
 export const DeployTargetSchema = z.discriminatedUnion('kind', [
@@ -78,6 +90,9 @@ export const DeployTargetSchema = z.discriminatedUnion('kind', [
     kind: z.literal(DEPLOY_TARGET_KINDS[0]),
     themeId: z.string().min(1),
     moduleId: z.string().min(1).optional(),
+    // Absent = 'app_block' (the shipped default). Same theme.section spec, two
+    // compile targets (033) — NOT a new RecipeSpec type or DEPLOY_TARGET_KINDS value.
+    mode: z.enum(['app_block', 'native_section']).optional(),
   }),
   z.object({
     kind: z.literal(DEPLOY_TARGET_KINDS[1]),

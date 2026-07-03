@@ -151,3 +151,15 @@ export function isMerchantCodeExecutionAllowed(): boolean {
 export function isBlueprintsEnabled(): boolean {
   return parseBooleanEnv(process.env.BLUEPRINTS_ENABLED, false);
 }
+
+/**
+ * Native-section theme push (033): compile a `theme.section` to a real
+ * `sections/superapp-<slug>.liquid` file and write it via the Theme Files API.
+ * OFF by default — the app-block path is the shipping default. This path also
+ * requires `write_themes` + a Shopify page-builder exemption (inert until granted),
+ * so even with the flag on it is a no-op on stores that lack the grant. See
+ * specs/033-theme-edit-api/design.md §8.
+ */
+export function isThemeNativeSectionEnabled(): boolean {
+  return parseBooleanEnv(process.env.THEME_NATIVE_SECTION_ENABLED, false);
+}

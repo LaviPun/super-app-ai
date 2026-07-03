@@ -319,6 +319,71 @@ function fn(moduleType: ModuleType, note: string): Omit<ExtensionEligibility, 's
   };
 }
 
+/**
+ * Native-section deploy MODE eligibility (033). This is NOT a module type — it is
+ * the second deploy medium for `theme.section` (`DeployTarget.mode:'native_section'`),
+ * so it lives outside `REGISTRY`. The honest state, mirroring how unenforced paths are
+ * recorded elsewhere (e.g. free-shipping/order-routing `needs_runtime`):
+ *
+ *   - The DEFAULT `theme.section` deploy (app-block/metaobject) is fully `deployable`
+ *     — that entry in REGISTRY is unchanged.
+ *   - The native-section MODE is `needs_runtime` (NOT deployable) until ALL THREE hold:
+ *       1. the app holds `write_themes`, AND
+ *       2. Shopify has granted the page-builder theme-file-write EXEMPTION, AND
+ *       3. the `THEME_NATIVE_SECTION_ENABLED` flag is on.
+ *     Until then `themeFilesUpsert` fails at the API; we do not fake deployability.
+ *
+ * `evaluateNativeSectionEligibility` returns that honest verdict + the audit trail of
+ * which of the three gates are unmet, so callers/UI can explain "not yet" without ever
+ * reporting a native-section push as published when nothing wrote.
+ */
+export const THEME_NATIVE_SECTION_ELIGIBILITY = {
+  mode: 'native_section' as const,
+  moduleType: 'theme.section' as ModuleType,
+  runtime: 'theme' as ExtensionRuntimeKind,
+  /** Requires the theme-file-write scope IN ADDITION to the app-block path's scopes. */
+  requiredScopes: ['write_themes', 'read_themes', 'write_metaobjects'] as string[],
+  /**
+   * A Shopify-granted exemption (page-builder exception, BFS §3.2.2) is mandatory
+   * on top of `write_themes`. Not code — an external approval gate. Inert until granted.
+   */
+  requiresExemption: true as const,
+  note:
+    'Pushes a native sections/superapp-*.liquid file via the Theme Files API. Deployable ONLY with ' +
+    'write_themes + a Shopify page-builder exemption + THEME_NATIVE_SECTION_ENABLED. Until all three ' +
+    'hold it is needs_runtime (the app-block path remains the shipping default).',
+} as const;
+
+export type NativeSectionEligibility = {
+  status: 'deployable' | 'needs_runtime';
+  /** Which of the three gates are currently unmet (audit trail). */
+  unmet: Array<'write_themes' | 'exemption' | 'flag'>;
+  missingScopes: string[];
+  note: string;
+};
+
+/**
+ * Honest deployability verdict for the native-section MODE. `deployable` only when
+ * write_themes is held, the Shopify exemption is granted, AND the flag is on —
+ * otherwise `needs_runtime` with the unmet gates named. Never fakes deployability.
+ */
+export function evaluateNativeSectionEligibility(
+  ctx: { grantedScopes?: Iterable<string>; exemptionGranted?: boolean; flagEnabled?: boolean } = {},
+): NativeSectionEligibility {
+  const granted = new Set(ctx.grantedScopes ?? []);
+  const missingScopes = THEME_NATIVE_SECTION_ELIGIBILITY.requiredScopes.filter((s) => !granted.has(s));
+  const unmet: NativeSectionEligibility['unmet'] = [];
+  if (ctx.grantedScopes && !granted.has('write_themes')) unmet.push('write_themes');
+  if (!ctx.exemptionGranted) unmet.push('exemption');
+  if (!ctx.flagEnabled) unmet.push('flag');
+  return {
+    status: unmet.length === 0 ? 'deployable' : 'needs_runtime',
+    unmet,
+    missingScopes,
+    note: THEME_NATIVE_SECTION_ELIGIBILITY.note,
+  };
+}
+
 /** Eligibility metadata for a module type (surface filled from the capability graph). */
 export function getExtensionEligibility(moduleType: ModuleType): ExtensionEligibility {
   const base = REGISTRY[moduleType];

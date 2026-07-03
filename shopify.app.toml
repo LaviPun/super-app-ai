@@ -42,8 +42,16 @@ uri = "/webhooks"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+# read_themes powers theme reads (theme list, theme.files) and is required.
 scopes = "read_customers,read_metaobjects,read_products,read_themes,write_app_proxy,write_customers,write_metaobjects,write_orders"
-optional_scopes = [ ]
+# write_themes (033) — required to write native sections/superapp-*.liquid files via the
+# Theme Files API (themeFilesUpsert). It is OPTIONAL here (not in `scopes`) so installs do
+# not break before the grant lands. IMPORTANT: write_themes additionally requires a Shopify
+# EXEMPTION (the "page-builder" exception, BFS §3.2.2) to actually modify theme files — the
+# scope alone is not enough. Until that exemption is granted this scope is INERT and the
+# native-section path (THEME_NATIVE_SECTION_ENABLED) stays a no-op; the app-block path is the
+# shipping default. See specs/033-theme-edit-api/design.md §2.2, §8.
+optional_scopes = [ "write_themes" ]
 use_legacy_install_flow = false
 
 [app_proxy]
