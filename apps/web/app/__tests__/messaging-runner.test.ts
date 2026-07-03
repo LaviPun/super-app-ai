@@ -241,7 +241,7 @@ describe('MessagingRunnerService — fan-out', () => {
 });
 
 describe('MessagingRunnerService — channel gate (never fakes a send)', () => {
-  it("channel:'sms' throws and never calls a connector", async () => {
+  it("channel:'sms' with NO provider credentials throws and never calls a connector", async () => {
     const email = fakeEmailConnector();
     const smsCfg = {
       ...EMAIL_BROADCAST,
@@ -250,16 +250,79 @@ describe('MessagingRunnerService — channel gate (never fakes a send)', () => {
     };
     const runner = new MessagingRunnerService({
       prisma: fakePrisma({ moduleFindFirst: fakeModule(smsCfg) }),
-      dataStore: fakeDataStore([{ email: 'a@x.com' }]),
+      dataStore: fakeDataStore([{ phone: '+15551234567' }]),
       jobs: fakeJobs(),
       getConnector: () => email as unknown as Connector,
       emailApiKey: 'key',
+      env: {}, // no SMS provider creds → refuse loudly, never fake
     });
 
     await expect(
       runner.runCampaignById('test.myshopify.com', admin, 'mod_1', {}),
-    ).rejects.toThrow(/no shipped runtime/);
+    ).rejects.toThrow(/not configured/);
     expect(email.invoke).not.toHaveBeenCalled();
+  });
+
+  it("channel:'sms' WITH credentials + consent sends via the sms connector", async () => {
+    const sms = fakeEmailConnector(); // reusable fake: an ok connector
+    const smsCfg = {
+      ...EMAIL_BROADCAST,
+      channel: 'sms',
+      // consentField on the record is the opt-in signal when there's no customer GID.
+      audience: { source: 'data_store', storeKey: 'sms_list', addressField: 'phone', consentField: 'smsConsent', recipients: [] },
+      templates: [{ channel: 'sms', body: 'Flash sale {{record.first_name}}' }],
+    };
+    const runner = new MessagingRunnerService({
+      prisma: fakePrisma({ modules: [fakeModule(smsCfg)] }),
+      dataStore: fakeDataStore([{ phone: '+15551234567', first_name: 'Ana', smsConsent: true }]),
+      jobs: fakeJobs(),
+      getConnector: () => sms as unknown as Connector,
+      env: {
+        SMS_PROVIDER_ACCOUNT_SID: 'AC123',
+        SMS_PROVIDER_AUTH_TOKEN: 'tok',
+        SMS_PROVIDER_FROM: '+15550000000',
+      },
+      // No customer GID on the record → consent resolver falls back to the record field.
+      adminGraphqlFor: async () => undefined,
+    });
+
+    const results = await runner.runForTrigger('test.myshopify.com', admin, 'MANUAL', {});
+    const result = results[0]!;
+    expect(sms.invoke).toHaveBeenCalledTimes(1);
+    expect(result.sent).toBe(1);
+    const call = sms.invoke.mock.calls[0]![1];
+    expect(call.operation).toBe('send');
+    expect(call.inputs.to).toBe('+15551234567');
+    expect(call.inputs.consentVerified).toBe(true);
+  });
+
+  it("channel:'sms' skips a recipient with NO opt-in signal (consent enforced)", async () => {
+    const sms = fakeEmailConnector();
+    const smsCfg = {
+      ...EMAIL_BROADCAST,
+      channel: 'sms',
+      audience: { source: 'data_store', storeKey: 'sms_list', addressField: 'phone', consentField: 'smsConsent', recipients: [] },
+      templates: [{ channel: 'sms', body: 'txt' }],
+    };
+    const runner = new MessagingRunnerService({
+      prisma: fakePrisma({ modules: [fakeModule(smsCfg)] }),
+      // smsConsent falsy → no opt-in → must skip.
+      dataStore: fakeDataStore([{ phone: '+15551234567', smsConsent: false }]),
+      jobs: fakeJobs(),
+      getConnector: () => sms as unknown as Connector,
+      env: {
+        SMS_PROVIDER_ACCOUNT_SID: 'AC123',
+        SMS_PROVIDER_AUTH_TOKEN: 'tok',
+        SMS_PROVIDER_FROM: '+15550000000',
+      },
+      adminGraphqlFor: async () => undefined,
+    });
+
+    const results = await runner.runForTrigger('test.myshopify.com', admin, 'MANUAL', {});
+    const result = results[0]!;
+    expect(sms.invoke).not.toHaveBeenCalled();
+    expect(result.skipped).toBe(1);
+    expect(result.sent).toBe(0);
   });
 });
 

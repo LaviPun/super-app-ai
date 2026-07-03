@@ -62,31 +62,73 @@ export class MessagingConnector implements Connector {
           },
           idempotency: { supported: true, keyHint: 'moduleId + runToken + offset (durable cursor)' },
         },
+        {
+          name: 'sendDripStep',
+          displayName: 'Send drip step',
+          description: 'Deliver one step of a multi-step drip sequence, then park the next step.',
+          inputSchema: {
+            type: 'object',
+            required: ['moduleId', 'stepIndex', 'dripToken', 'trigger'],
+            properties: {
+              moduleId: { type: 'string', description: 'The messaging.campaign module id.' },
+              stepIndex: { type: 'number', description: 'The drip step index to deliver (1-based).' },
+              dripToken: { type: 'string', description: 'Stable per-enrolment id.' },
+              trigger: { type: 'string', description: 'The entry trigger that started the sequence.' },
+              entryEvent: { type: 'object', description: 'Snapshot of the entry event (the recipient).' },
+            },
+          },
+          outputSchema: {
+            type: 'object',
+            properties: {
+              sent: { type: 'number' },
+              failed: { type: 'number' },
+              skipped: { type: 'number' },
+              parkedNextStep: { type: 'number' },
+            },
+          },
+          idempotency: { supported: true, keyHint: 'moduleId + dripToken + stepIndex' },
+        },
       ],
     };
   }
 
   validate(operation: string, inputs: Record<string, unknown>): ValidationResult {
-    if (operation !== 'sendPage') {
-      return { ok: false, errors: [{ path: 'operation', message: `Unknown operation "${operation}"` }] };
+    if (operation === 'sendPage') {
+      const errors = [];
+      if (typeof inputs.moduleId !== 'string' || !inputs.moduleId) {
+        errors.push({ path: 'moduleId', message: 'moduleId (string) is required' });
+      }
+      if (typeof inputs.runToken !== 'string' || !inputs.runToken) {
+        errors.push({ path: 'runToken', message: 'runToken (string) is required' });
+      }
+      if (!Number.isFinite(Number(inputs.offset))) {
+        errors.push({ path: 'offset', message: 'offset (number) is required' });
+      }
+      return errors.length ? { ok: false, errors } : { ok: true };
     }
-    const errors = [];
-    if (typeof inputs.moduleId !== 'string' || !inputs.moduleId) {
-      errors.push({ path: 'moduleId', message: 'moduleId (string) is required' });
+    if (operation === 'sendDripStep') {
+      const errors = [];
+      if (typeof inputs.moduleId !== 'string' || !inputs.moduleId) {
+        errors.push({ path: 'moduleId', message: 'moduleId (string) is required' });
+      }
+      if (typeof inputs.dripToken !== 'string' || !inputs.dripToken) {
+        errors.push({ path: 'dripToken', message: 'dripToken (string) is required' });
+      }
+      if (!Number.isFinite(Number(inputs.stepIndex))) {
+        errors.push({ path: 'stepIndex', message: 'stepIndex (number) is required' });
+      }
+      return errors.length ? { ok: false, errors } : { ok: true };
     }
-    if (typeof inputs.runToken !== 'string' || !inputs.runToken) {
-      errors.push({ path: 'runToken', message: 'runToken (string) is required' });
-    }
-    if (!Number.isFinite(Number(inputs.offset))) {
-      errors.push({ path: 'offset', message: 'offset (number) is required' });
-    }
-    return errors.length ? { ok: false, errors } : { ok: true };
+    return { ok: false, errors: [{ path: 'operation', message: `Unknown operation "${operation}"` }] };
   }
 
   async invoke(_auth: AuthContext, req: InvokeRequest): Promise<InvokeResult> {
-    if (req.operation !== 'sendPage') {
-      return connectorError('VALIDATION', `Unknown operation "${req.operation}"`);
-    }
+    if (req.operation === 'sendPage') return this.invokeSendPage(req);
+    if (req.operation === 'sendDripStep') return this.invokeSendDripStep(req);
+    return connectorError('VALIDATION', `Unknown operation "${req.operation}"`);
+  }
+
+  private async invokeSendPage(req: InvokeRequest): Promise<InvokeResult> {
     const moduleId = String(req.inputs.moduleId ?? '');
     const runToken = String(req.inputs.runToken ?? '');
     const offset = Number(req.inputs.offset ?? 0);
@@ -118,6 +160,42 @@ export class MessagingConnector implements Connector {
         total: result.total,
         paged: result.paged,
         parkedNextOffset: result.parkedNextOffset ?? -1,
+      });
+    } catch (err) {
+      return connectorError('UPSTREAM', err instanceof Error ? err.message : String(err), { retryable: true });
+    }
+  }
+
+  private async invokeSendDripStep(req: InvokeRequest): Promise<InvokeResult> {
+    const moduleId = String(req.inputs.moduleId ?? '');
+    const dripToken = String(req.inputs.dripToken ?? '');
+    const stepIndex = Number(req.inputs.stepIndex ?? 0);
+    const trigger = String(req.inputs.trigger ?? 'SCHEDULED');
+    const entryEvent = req.inputs.entryEvent ?? {};
+    if (!moduleId || !dripToken || !Number.isFinite(stepIndex)) {
+      return connectorError('VALIDATION', 'sendDripStep requires moduleId, dripToken and a numeric stepIndex');
+    }
+
+    const { MessagingRunnerService } = await import('~/services/messaging/messaging-runner.service');
+    const { getPrisma } = await import('~/db.server');
+
+    const shop = await getPrisma().shop.findUnique({ where: { id: req.tenantId } });
+    if (!shop) {
+      return connectorError('NOT_FOUND', `Shop ${req.tenantId} not found for messaging drip resume`);
+    }
+
+    try {
+      const result = await new MessagingRunnerService().runDripStep(shop.shopDomain, moduleId, {
+        stepIndex,
+        dripToken,
+        trigger: trigger as never,
+        entryEvent,
+      });
+      return connectorSuccess({
+        sent: result.sent,
+        failed: result.failed,
+        skipped: result.skipped,
+        parkedNextStep: result.parkedNextStep ?? -1,
       });
     } catch (err) {
       return connectorError('UPSTREAM', err instanceof Error ? err.message : String(err), { retryable: true });

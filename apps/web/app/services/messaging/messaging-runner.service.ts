@@ -19,7 +19,7 @@
  */
 import type { AdminApiContext } from '~/types/shopify';
 import type { RecipeSpec, MessagingPack, MessagingChannel, AuthContext } from '@superapp/core';
-import { MESSAGING_CHANNELS_SHIPPED, evaluateRuleEngine } from '@superapp/core';
+import { MESSAGING_CHANNELS_SHIPPED, MESSAGING_DRIP_PRESET_ENTRY, messagingChannelSendability, evaluateRuleEngine } from '@superapp/core';
 import { getPrisma } from '~/db.server';
 import { RecipeService } from '~/services/recipes/recipe.service';
 import { JobService } from '~/services/jobs/job.service';
@@ -28,6 +28,9 @@ import { getConnector } from '~/services/workflows/connectors/index';
 import { WorkflowEngineService } from '~/services/workflows/workflow-engine.service';
 import { buildShopAuthResolver } from '~/services/flows/auth-resolver.server';
 import { parkMessagingPageWorkflow, messagingPageRunId } from './messaging-page-park';
+import { parkMessagingDripStepWorkflow, messagingDripRunId } from './messaging-drip-park';
+import { resolveConsent, type AdminGraphqlFn } from './consent-resolver.server';
+import shopify from '~/shopify.server';
 
 /** Trigger vocabulary shared with FlowRunnerService (the three live sites fire these). */
 export type MessagingTrigger =
@@ -116,6 +119,20 @@ export type MessagingRunnerDeps = {
   pageDelayMs?: number;
   /** Clock seam (parked resumeAt). Default () => new Date(). */
   now?: () => Date;
+  /**
+   * Env seam for the per-channel CREDENTIALS gate (sms/push provider config). Default
+   * process.env. Injectable so a test can prove the honest "unconfigured ⇒ refuse,
+   * never fake" behaviour without setting real provider creds.
+   */
+  env?: Record<string, string | undefined>;
+  /**
+   * Build an Admin GraphQL client for a shop, used to resolve a recipient's
+   * marketing-consent state from Shopify (the source of truth for sms/email consent).
+   * Defaults to the offline `shopify.unauthenticated.admin` client. Returns undefined
+   * when no offline session exists (the runner then falls back to the record's consent
+   * field and never sends without an opt-in signal).
+   */
+  adminGraphqlFor?: (shopDomain: string) => Promise<AdminGraphqlFn | undefined>;
 };
 
 export class MessagingRunnerService {
@@ -143,6 +160,30 @@ export class MessagingRunnerService {
 
   private nowDate(): Date {
     return this.deps.now ? this.deps.now() : new Date();
+  }
+
+  private get env(): Record<string, string | undefined> {
+    return this.deps.env ?? process.env;
+  }
+
+  /** Per-run cache of the resolved Admin GraphQL client (one lookup per shop). */
+  private adminGraphqlCache = new Map<string, AdminGraphqlFn | undefined>();
+
+  private async adminGraphqlFor(shopDomain: string): Promise<AdminGraphqlFn | undefined> {
+    if (this.adminGraphqlCache.has(shopDomain)) return this.adminGraphqlCache.get(shopDomain);
+    const builder =
+      this.deps.adminGraphqlFor ??
+      (async (shop: string): Promise<AdminGraphqlFn | undefined> => {
+        try {
+          const ctx = await shopify.unauthenticated.admin(shop);
+          return ctx.admin.graphql as unknown as AdminGraphqlFn;
+        } catch {
+          return undefined;
+        }
+      });
+    const gql = await builder(shopDomain);
+    this.adminGraphqlCache.set(shopDomain, gql);
+    return gql;
   }
 
   /**
@@ -282,10 +323,21 @@ export class MessagingRunnerService {
     const runToken = opts.runToken ?? deriveRunToken(moduleId, trigger, event);
     const parkRemainder = opts.parkRemainder ?? true;
 
-    // Channel gate — refuse loudly, never fake. sms/push have no shipped connector.
+    // Channel gate — refuse loudly, never fake.
+    //  - not in the shipped set          → no connector at all.
+    //  - shipped but missing credentials → connector exists, but sending needs the
+    //    merchant's provider config (sms SID/token/from; VAPID keys). We refuse rather
+    //    than fake a send; publish preflight already blocks this state (needs_runtime).
     if (!(MESSAGING_CHANNELS_SHIPPED as readonly string[]).includes(cfg.channel)) {
       throw new Error(
-        `Messaging channel '${cfg.channel}' has no shipped runtime — no connector to send through (email/slack only until sms/push connectors ship).`,
+        `Messaging channel '${cfg.channel}' has no shipped runtime — no connector to send through.`,
+      );
+    }
+    const sendability = messagingChannelSendability(cfg.channel, this.env);
+    if (sendability.status !== 'ready') {
+      throw new Error(
+        `Messaging channel '${cfg.channel}' is not configured — missing ${sendability.missing.join(', ')}. ` +
+          `The connector ships but a send requires the provider credentials; refusing rather than faking a send.`,
       );
     }
 
@@ -313,8 +365,13 @@ export class MessagingRunnerService {
           skipped++;
           continue;
         }
-        // Consent gate (belt & suspenders — also applied server-side by respectConsent).
-        if (cfg.respectConsent && cfg.audience.consentField && !truthy(r[cfg.audience.consentField])) {
+        // Consent gate. For sms/email this is the AUTHORITATIVE marketing-consent
+        // check against Shopify (defaultPhoneNumber/defaultEmailAddress.marketingState
+        // === 'SUBSCRIBED') when the recipient carries a customer GID, falling back to
+        // the record's consent field. slack has no per-person marketing consent; push
+        // is gated by the subscription itself in sendOne. A recipient who isn't
+        // verifiably opted in is skipped — never sent.
+        if (cfg.respectConsent && (await this.isConsentBlocked(shopDomain, cfg, r, event))) {
           skipped++;
           continue;
         }
@@ -347,6 +404,23 @@ export class MessagingRunnerService {
           nextOffset: offset + cfg.batchSize,
           runToken,
           trigger,
+        });
+      }
+
+      // Drip entry: after delivering step 0 (this run), park step 1 on the durable
+      // scheduler so it lands after step 1's delay. Later steps chain from the resume
+      // (runDripStep). Only when the entry actually reached ≥1 recipient (sent>0), so a
+      // no-recipient entry doesn't schedule a phantom sequence. parkRemainder gates it
+      // off for a "Send test".
+      if (parkRemainder && cfg.trigger.kind === 'drip' && sent > 0 && offset === 0) {
+        await this.parkNextDripStep(shopRow?.id, {
+          moduleId,
+          campaignName: spec.name,
+          nextStepIndex: 1,
+          dripToken: runToken,
+          trigger,
+          entryEvent: event,
+          steps: cfg.trigger.steps,
         });
       }
 
@@ -408,6 +482,140 @@ export class MessagingRunnerService {
       if (!isUniqueViolation(err)) throw err;
     }
     return input.nextOffset;
+  }
+
+  /**
+   * Park the next DRIP step as a WAITING WorkflowRun on the durable scheduler. Reuses
+   * the same park→resume spine as paging. `resumeAt = now + steps[stepIndex].delayMs`.
+   * No-op when there is no such step (sequence complete) or no tenant. The parked runId
+   * is idempotent (module + dripToken + stepIndex) so a re-park is a P2002 no-op.
+   */
+  private async parkNextDripStep(
+    shopId: string | undefined,
+    input: {
+      moduleId: string;
+      campaignName: string;
+      nextStepIndex: number;
+      dripToken: string;
+      trigger: MessagingTrigger;
+      entryEvent: unknown;
+      steps?: MessagingPack['trigger']['steps'];
+    },
+  ): Promise<number | undefined> {
+    if (!shopId) return undefined;
+    const steps = input.steps ?? [];
+    const step = steps[input.nextStepIndex];
+    if (!step) return undefined; // sequence complete — nothing left to park.
+
+    // The step's own delay drives resumeAt. In tests pageDelayMs can force it small.
+    const delayMs = this.deps.pageDelayMs ?? step.delayMs;
+    const resumeAt = new Date(this.nowDate().getTime() + delayMs);
+    const workflow = parkMessagingDripStepWorkflow({
+      shopId,
+      moduleId: input.moduleId,
+      campaignName: input.campaignName,
+      stepIndex: input.nextStepIndex,
+      dripToken: input.dripToken,
+      trigger: input.trigger,
+      entryEvent: input.entryEvent,
+      resumeAt,
+    });
+    const runId = messagingDripRunId({ moduleId: input.moduleId, dripToken: input.dripToken, stepIndex: input.nextStepIndex });
+    const payload = {
+      moduleId: input.moduleId,
+      stepIndex: input.nextStepIndex,
+      dripToken: input.dripToken,
+      trigger: input.trigger,
+      entryEvent: input.entryEvent,
+    };
+    try {
+      await this.engine.startRun(workflow, payload as Record<string, unknown>, {
+        tenantId: shopId,
+        runId,
+        authResolver: this.authResolverFor(shopId),
+      });
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err;
+    }
+    return input.nextStepIndex;
+  }
+
+  /**
+   * Deliver ONE drip step (the resume seam the durable scheduler fires via
+   * `MessagingConnector.sendDripStep`). Sends step `stepIndex` to the recipient on the
+   * entry event, then parks step `stepIndex + 1` if the sequence continues. Consent is
+   * re-checked on every step (a customer who unsubscribed between steps is skipped).
+   */
+  async runDripStep(
+    shopDomain: string,
+    moduleId: string,
+    opts: { stepIndex: number; dripToken: string; trigger: MessagingTrigger; entryEvent: unknown },
+  ): Promise<{ sent: number; skipped: number; failed: number; parkedNextStep?: number }> {
+    const mod = await this.prisma.module.findFirst({
+      where: { id: moduleId, shop: { shopDomain }, type: 'messaging.campaign' },
+      include: { activeVersion: true },
+    });
+    if (!mod) throw new Error(`Messaging campaign ${moduleId} not found for ${shopDomain}`);
+    if (mod.status !== 'PUBLISHED') throw new Error(`${mod.name} is not published — drip stopped`);
+    if (!mod.activeVersion) throw new Error(`${mod.name} has no published version — drip stopped`);
+
+    const spec = new RecipeService().parse(mod.activeVersion.specJson);
+    if (spec.type !== 'messaging.campaign') throw new Error(`${mod.name} is not a messaging.campaign module`);
+    const cfg = spec.config;
+    if (cfg.trigger.kind !== 'drip' || !cfg.trigger.steps) {
+      throw new Error(`${mod.name} is not a drip campaign — no step to deliver`);
+    }
+    const step = cfg.trigger.steps[opts.stepIndex];
+    if (!step) return { sent: 0, skipped: 0, failed: 0 }; // out of range — nothing to do.
+
+    // A step may override the channel (e.g. email entry → SMS reminder). Build an
+    // effective config for this step: the step's channel + its matching template.
+    const stepChannel = (step.channel ?? cfg.channel) as MessagingChannel;
+    const stepCfg: MessagingPack = { ...cfg, channel: stepChannel };
+
+    // Refuse loudly if this step's channel is unconfigured — never fake a send.
+    const sendability = messagingChannelSendability(stepChannel, this.env);
+    if (sendability.status !== 'ready') {
+      throw new Error(
+        `Drip step ${opts.stepIndex} channel '${stepChannel}' is not configured — missing ${sendability.missing.join(', ')}.`,
+      );
+    }
+
+    const shopRow = await this.prisma.shop.findUnique({ where: { shopDomain } });
+    // The recipient is the person on the entry event (event_recipient semantics).
+    const { recipients } = await this.resolveAudience(shopRow?.id, { ...stepCfg, audience: { ...stepCfg.audience, source: 'event_recipient' } }, opts.entryEvent, 0);
+
+    let sent = 0;
+    let skipped = 0;
+    let failed = 0;
+    for (const r of recipients) {
+      if (stepCfg.respectConsent && (await this.isConsentBlocked(shopDomain, stepCfg, r, opts.entryEvent))) {
+        skipped++;
+        continue;
+      }
+      try {
+        await this.sendOne(shopDomain, stepCfg, r, opts.entryEvent);
+        sent++;
+      } catch {
+        failed++;
+      }
+    }
+
+    // Park the next step if the sequence continues.
+    let parkedNextStep: number | undefined;
+    if (cfg.trigger.steps[opts.stepIndex + 1]) {
+      parkedNextStep = await this.parkNextDripStep(shopRow?.id, {
+        moduleId,
+        campaignName: spec.name,
+        nextStepIndex: opts.stepIndex + 1,
+        dripToken: opts.dripToken,
+        trigger: opts.trigger,
+        entryEvent: opts.entryEvent,
+        steps: cfg.trigger.steps,
+      });
+    }
+
+    return { sent, skipped, failed, parkedNextStep };
   }
 
   /**
@@ -497,8 +705,50 @@ export class MessagingRunnerService {
   }
 
   /**
+   * True when a recipient must be SKIPPED for consent reasons.
+   *
+   *  - sms / email → resolve the customer's marketing-consent state from Shopify
+   *    (the source of truth) via `resolveConsent`; opted in iff `SUBSCRIBED`. Falls
+   *    back to the record's consent field when there's no customer GID.
+   *  - slack        → no per-person marketing consent; honour the record consent
+   *    field if the merchant set one, else allow (ops/webhook channel).
+   *  - push         → subscription IS the opt-in; the connector refuses a send with no
+   *    subscription, so we don't block here (but still honour a record consent field).
+   */
+  private async isConsentBlocked(
+    shopDomain: string,
+    cfg: MessagingPack,
+    r: Recipient,
+    event: unknown,
+  ): Promise<boolean> {
+    const channel = cfg.channel as MessagingChannel;
+    const consentField = cfg.audience.consentField;
+
+    if (channel === 'sms' || channel === 'email') {
+      const graphql = await this.adminGraphqlFor(shopDomain);
+      const verdict = await resolveConsent({ channel, record: r, event, consentField, graphql });
+      if (verdict.source === 'none') {
+        // No opt-in SIGNAL to check (no customer GID, no consent field).
+        //  - sms  → STRICT: never send to a phone with no verifiable opt-in.
+        //  - email → preserve the prior posture: the merchant owns their email list;
+        //    without a consent field configured, an email broadcast is allowed. (A
+        //    configured-but-falsy field is already `record_field` → ok:false → blocked.)
+        return channel === 'sms';
+      }
+      return !verdict.ok;
+    }
+
+    // slack / push: only the record consent field applies (when present).
+    if (consentField) return !truthy(r[consentField]);
+    return false;
+  }
+
+  /**
    * The ONLY delivery path — the same connector call the live SEND_EMAIL_NOTIFICATION /
-   * SEND_SLACK_MESSAGE steps make. sms/push are unreachable (the channel gate threw).
+   * SEND_SLACK_MESSAGE steps make, extended to sms (SmsConnector) and push
+   * (WebPushConnector). Consent is already enforced upstream (isConsentBlocked); the
+   * connectors additionally refuse to send without provider credentials / a
+   * subscription — never a fake send.
    */
   private async sendOne(
     shopDomain: string,
@@ -560,7 +810,66 @@ export class MessagingRunnerService {
       return;
     }
 
-    // Unreachable: the channel gate in runCampaign already threw for sms/push.
+    if (channel === 'sms') {
+      const connector = this.connectorFor('sms');
+      if (!connector) throw new Error('SMS connector not registered');
+      const addressField = cfg.audience.addressField ?? 'phone';
+      const to = r[addressField];
+      if (typeof to !== 'string' || !to.trim()) {
+        throw new Error(`Recipient has no phone number in field '${addressField}'`);
+      }
+      const result = await connector.invoke(
+        // The auth token comes from the provider env; api_key carries the token when set.
+        { type: 'api_key', apiKey: this.env.SMS_PROVIDER_AUTH_TOKEN ?? '' },
+        {
+          runId: `messaging-${Date.now()}`,
+          stepId: 'MESSAGING_SEND_SMS',
+          tenantId: shopDomain,
+          operation: 'send',
+          // consentVerified:true — consent was already enforced by isConsentBlocked
+          // upstream; the connector re-asserts it as a firewall, never fakes a send.
+          inputs: { to: to.trim(), body, consentVerified: true },
+          timeoutMs: 15000,
+        },
+      );
+      if (!result.ok) throw new Error(`SMS send failed: ${result.message}`);
+      return;
+    }
+
+    if (channel === 'push') {
+      const connector = this.connectorFor('webpush');
+      if (!connector) throw new Error('Web-push connector not registered');
+      // The push subscription is the opt-in; it lives on the recipient record. Accept a
+      // few common field shapes so a captured PushSubscription drops straight in.
+      const subField = cfg.audience.addressField ?? 'subscription';
+      const subscription =
+        (isRecord(r[subField]) ? r[subField] : undefined) ??
+        (isRecord(r.subscription) ? r.subscription : undefined) ??
+        (isRecord(r.pushSubscription) ? r.pushSubscription : undefined);
+      if (!isRecord(subscription)) {
+        throw new Error('Recipient has no push subscription (the subscription is the opt-in)');
+      }
+      const payload: Record<string, unknown> = {
+        title: renderMergeVars(tmpl.title ?? cfg.templates.find((t) => t.channel === 'push')?.title ?? '', ctx) || 'Notification',
+        body,
+      };
+      if (tmpl.url) payload.url = renderMergeVars(tmpl.url, ctx);
+      const result = await connector.invoke(
+        { type: 'none' },
+        {
+          runId: `messaging-${Date.now()}`,
+          stepId: 'MESSAGING_SEND_PUSH',
+          tenantId: shopDomain,
+          operation: 'send',
+          inputs: { subscription, payload },
+          timeoutMs: 15000,
+        },
+      );
+      if (!result.ok) throw new Error(`Push send failed: ${result.message}`);
+      return;
+    }
+
+    // Unreachable: the channel gate in runCampaign covers every modeled channel.
     throw new Error(`Messaging channel '${channel}' has no shipped runtime`);
   }
 
@@ -654,7 +963,34 @@ export function triggerMatches(cfg: MessagingPack, trigger: MessagingTrigger, ev
     if (trigger !== 'SHOPIFY_WEBHOOK_PRODUCT_UPDATED') return false;
     return inventoryCrossedIntoStock(event);
   }
+  if (t.kind === 'drip') {
+    // A drip campaign's ENTRY step fires when its preset's entry trigger fires. The
+    // later steps are delivered by the durable scheduler (parked between steps), NOT
+    // by re-matching the trigger — so triggerMatches only gates the entry send.
+    return dripEntryMatches(t.dripPreset, trigger, event);
+  }
   return false;
+}
+
+/**
+ * Whether a drip preset's ENTRY trigger fired. Each preset maps to a real live
+ * trigger (mirrors back_in_stock), with a preset-specific guard where one applies:
+ *  - back_in_stock  → product/update + inventory cross into positive.
+ *  - price_drop     → product/update (a price-fall guard would need the prior price;
+ *                     the per-recipient waitlist filter scopes the send, so fail-open).
+ *  - replenishment / win_back / post_purchase → order/create (timing is the point;
+ *                     the delay to the first step differentiates them).
+ *  - browse_abandon → a captured browse record (SUPERAPP_DATA_RECORD_CREATED).
+ */
+export function dripEntryMatches(
+  preset: MessagingPack['trigger']['dripPreset'],
+  trigger: MessagingTrigger,
+  event: unknown,
+): boolean {
+  const entry = preset ? MESSAGING_DRIP_PRESET_ENTRY[preset] : undefined;
+  if (!entry || entry !== trigger) return false;
+  if (preset === 'back_in_stock') return inventoryCrossedIntoStock(event);
+  return true;
 }
 
 /**
@@ -677,7 +1013,8 @@ function inventoryCrossedIntoStock(event: unknown): boolean {
 function defaultAddressField(channel: string): string {
   if (channel === 'email') return 'email';
   if (channel === 'slack') return 'webhookUrl';
-  return 'phone'; // sms/push (never reached at send time; used only for resolution shape)
+  if (channel === 'push') return 'subscription';
+  return 'phone'; // sms
 }
 
 /**

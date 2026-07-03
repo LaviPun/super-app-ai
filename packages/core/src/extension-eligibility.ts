@@ -348,15 +348,16 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
   'messaging.campaign': {
     moduleType: 'messaging.campaign',
     runtime: 'app-proxy',
-    // The EMAIL + SLACK runner is shipped: MessagingRunnerService fans out over the
-    // live EmailConnector/SlackConnector at the three trigger sites, and the compiler
+    // The runner is shipped: MessagingRunnerService fans out over the live
+    // Email/Slack/SMS/WebPush connectors at the three trigger sites, and the compiler
     // persists the campaign config (SHOP_METAFIELD_SET, non-AUDIT) → deployable, not
-    // false-published. Per-channel shipped-ness (email/slack real; sms/push
-    // needs_runtime) is enforced at compile preflight + runtime via
-    // MESSAGING_CHANNELS_SHIPPED, not on this per-type registry axis.
+    // false-published. Per-channel SENDABILITY (email/slack always; sms/push only once
+    // the merchant provider credentials are configured) is enforced at compile
+    // preflight + runtime via `messagingChannelSendability`, NOT on this per-type
+    // registry axis — the type is deployable; a channel may still be needs_runtime.
     runtimeShipped: true,
-    requiredScopes: ['write_metaobjects'],
-    note: 'Fans out email/slack to a subscriber list via the app server (EmailConnector/SlackConnector). SMS and push channels are modeled but need their connectors shipped before they can send.',
+    requiredScopes: ['write_metaobjects', 'read_customers'],
+    note: 'Fans out email/slack/sms/push to a subscriber list via the app server. SMS and web-push connectors ship but require the merchant provider credentials (SMS SID/token; VAPID keys) before they can send; consent is enforced on every message.',
   },
 
   // ── Web Pixel (analytics) ──────────────────────────────────────────────────

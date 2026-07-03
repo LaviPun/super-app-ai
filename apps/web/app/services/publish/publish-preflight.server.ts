@@ -5,6 +5,7 @@ import {
   getExtensionEligibility,
   isRuntimeShipped,
   MESSAGING_CHANNELS_SHIPPED,
+  messagingChannelSendability,
   checkoutBlockPublishNotes,
 } from '@superapp/core';
 import {
@@ -114,21 +115,38 @@ export function classifyModulePublishability(
   const eligibility = getExtensionEligibility(type);
   const shipped = isRuntimeShipped(type, { deployedFunctionHandles: ctx.deployedExtensions ?? [] });
 
-  // R3.4 per-channel gate: messaging.campaign is a DEPLOYABLE type (email/slack ship),
-  // but a campaign whose PRIMARY channel is sms/push has no shipped connector — block
-  // PUBLISH honestly (needs_runtime), scoped to the channel, never faking a send. Only
-  // fires when the spec carries a channel (the type-level audit passes bare `{ type }`).
+  // Per-channel gate (build #7b): messaging.campaign is a DEPLOYABLE type, but a
+  // campaign can only publish if its PRIMARY channel can actually send. `email`/`slack`
+  // always can; `sms`/`push` have shipped connectors but need the MERCHANT's provider
+  // credentials (SMS SID/token/from; VAPID keys) — absent those the channel is honestly
+  // `needs_runtime` (never a fake send). Only fires when the spec carries a channel (the
+  // type-level audit passes bare `{ type }`).
   if (type === 'messaging.campaign') {
     const channel = (spec.config as { channel?: string } | undefined)?.channel;
-    if (channel && !(MESSAGING_CHANNELS_SHIPPED as readonly string[]).includes(channel)) {
-      return ModulePublishPreflightResultSchema.parse({
-        moduleType: type,
-        status: 'needs_runtime',
-        reasons: [
-          `Messaging channel '${channel}' has no shipped connector yet — email and Slack send today; ${channel} needs its connector shipped before this campaign can publish.`,
-        ],
-        willDeploy: false,
-      });
+    if (channel) {
+      if (!(MESSAGING_CHANNELS_SHIPPED as readonly string[]).includes(channel)) {
+        return ModulePublishPreflightResultSchema.parse({
+          moduleType: type,
+          status: 'needs_runtime',
+          reasons: [
+            `Messaging channel '${channel}' has no shipped connector.`,
+          ],
+          willDeploy: false,
+        });
+      }
+      const sendability = messagingChannelSendability(channel as never, process.env);
+      if (sendability.status !== 'ready') {
+        return ModulePublishPreflightResultSchema.parse({
+          moduleType: type,
+          status: 'needs_runtime',
+          reasons: [
+            `Messaging channel '${channel}' has a shipped connector but is not configured — ` +
+              `missing ${sendability.missing.join(', ')}. Add the provider credentials (SMS SID/token/from; ` +
+              `VAPID keys) to send; until then this campaign is blocked at publish (needs_runtime), not faked.`,
+          ],
+          willDeploy: false,
+        });
+      }
     }
   }
 

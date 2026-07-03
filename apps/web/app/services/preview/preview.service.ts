@@ -1,5 +1,5 @@
 import type { RecipeSpec, RuleEnginePack, RecommendationPack } from '@superapp/core';
-import { evaluateRuleEngine } from '@superapp/core';
+import { evaluateRuleEngine, messagingChannelSendability } from '@superapp/core';
 import {
   compileStyleVars,
   compileStyleCss,
@@ -941,15 +941,21 @@ export class PreviewService {
   private messagingCampaignPreview(spec: RecipeSpec): string {
     const cfg = (spec.config ?? {}) as Record<string, unknown>;
     const channel = String(cfg.channel ?? 'email');
-    const shipped = channel === 'email' || channel === 'slack';
+    // Credential-aware: email/slack always send; sms/push send only when the merchant
+    // provider credentials are configured (else honestly "needs runtime").
+    const sendability = messagingChannelSendability(channel as never, process.env);
+    const shipped = sendability.status === 'ready';
     const trigger = (cfg.trigger ?? {}) as Record<string, unknown>;
     const triggerKind = String(trigger.kind ?? 'broadcast');
+    const dripSteps = Array.isArray(trigger.steps) ? (trigger.steps as unknown[]).length : 0;
     const triggerLabel =
       triggerKind === 'event'
         ? `On event: ${String(trigger.event ?? '—')}`
         : triggerKind === 'back_in_stock'
           ? 'On back-in-stock (product restock)'
-          : 'Broadcast (Send now / scheduled)';
+          : triggerKind === 'drip'
+            ? `Drip: ${String(trigger.dripPreset ?? '—')} (${dripSteps} step${dripSteps === 1 ? '' : 's'})`
+            : 'Broadcast (Send now / scheduled)';
 
     const audience = (cfg.audience ?? {}) as Record<string, unknown>;
     const source = String(audience.source ?? 'data_store');
@@ -1003,7 +1009,7 @@ export class PreviewService {
         ${
           shipped
             ? ''
-            : `<details class="surf-state" open><summary>Runtime</summary><p class="surf-muted">The ${esc(channel)} connector is not shipped yet — this campaign is authorable and previewable, but blocked at publish until its connector lands (needs_runtime). Email and Slack send today.</p></details>`
+            : `<details class="surf-state" open><summary>Runtime</summary><p class="surf-muted">The ${esc(channel)} connector ships, but this channel needs the merchant provider credentials (${esc((sendability.status === 'needs_credentials' ? sendability.missing : []).join(', ') || 'provider config')}) before it can send. Until configured this campaign is authorable and previewable, but blocked at publish (needs runtime) — never a fake send. Email and Slack send today.</p></details>`
         }
       </div>
     `, `

@@ -737,34 +737,154 @@ export const FLOW_AUTOMATION_TRIGGERS = [...INTEGRATION_HTTP_SYNC_TRIGGERS, ...F
 
 // ─── Messaging surface (R3.4 / M5, specs/031 messaging-surface.md) ───────────
 /**
- * Delivery channels. Only `email` and `slack` have a shipped runtime today
- * (EmailConnector / SlackConnector, reachable via the live FlowRunnerService step
- * kinds SEND_EMAIL_NOTIFICATION / SEND_SLACK_MESSAGE). `sms` and `push` are
- * modeled in the vocabulary but gated `needs_runtime` at compile + runtime until
- * their connectors ship — the runner refuses them loudly, never fakes a send.
+ * Delivery channels. All four now have a SHIPPED CONNECTOR:
+ *  - `email` / `slack` — EmailConnector / SlackConnector (reachable via the live
+ *    FlowRunnerService step kinds SEND_EMAIL_NOTIFICATION / SEND_SLACK_MESSAGE).
+ *  - `sms`  — SmsConnector (Twilio-style provider interface), consent-gated.
+ *  - `push` — WebPushConnector (VAPID + service-worker), subscription-gated.
+ *
+ * IMPORTANT — connector ≠ configured. `sms` / `push` can only ACTUALLY send when
+ * the merchant has supplied their provider credentials (SMS provider SID/token/from;
+ * VAPID key pair + subject). Absent those, the channel is reported `needs_runtime`
+ * at compile preflight and refused loudly at runtime — never a fake send. Consent is
+ * always enforced. See `messagingChannelSendability`.
  */
 export const MESSAGING_CHANNELS = ['email', 'sms', 'push', 'slack'] as const;
 export type MessagingChannel = (typeof MESSAGING_CHANNELS)[number];
 
 /**
- * Channels whose runtime is ACTUALLY shipped today. Single source of truth for the
- * compiler preflight gate + the MessagingRunnerService channel gate. When a Twilio
- * (sms) / web-push (push) connector lands, add the channel here — no schema or
- * runner change; the gate simply stops throwing.
+ * Channels whose CONNECTOR CODE is shipped. Single source of truth for the compiler
+ * preflight gate + the MessagingRunnerService channel gate. `email` / `slack` send
+ * with app-level credentials; `sms` / `push` additionally require the MERCHANT's
+ * provider credentials before they leave `needs_runtime` (the credential axis is
+ * `messagingChannelSendability`, NOT this set — a shipped connector still needs
+ * config). Membership here means "the runner has a real code path", not "will send
+ * unconditionally".
  */
-export const MESSAGING_CHANNELS_SHIPPED = ['email', 'slack'] as const;
+export const MESSAGING_CHANNELS_SHIPPED = ['email', 'slack', 'sms', 'push'] as const;
 export type ShippedMessagingChannel = (typeof MESSAGING_CHANNELS_SHIPPED)[number];
+
+/**
+ * Which env vars must be present for a channel's PROVIDER credentials to be
+ * configured. `email`/`slack` need none here (they use app-level credentials wired
+ * elsewhere — EMAIL_API_KEY / SLACK_WEBHOOK_URL — and are always considered ready so
+ * their behaviour is unchanged). `sms`/`push` need the MERCHANT/app to supply the
+ * listed keys; absent any, the channel stays `needs_runtime` / unconfigured.
+ *
+ * Env-var-based so the gate is inspectable and deterministic without a DB read; a
+ * future per-tenant credential store can layer on top by passing an explicit
+ * `creds` map to `messagingChannelSendability`.
+ */
+export const MESSAGING_CHANNEL_CREDENTIAL_ENV: Record<MessagingChannel, readonly string[]> = {
+  email: [],
+  slack: [],
+  sms: ['SMS_PROVIDER_ACCOUNT_SID', 'SMS_PROVIDER_AUTH_TOKEN', 'SMS_PROVIDER_FROM'],
+  push: ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT'],
+};
+
+/** Outcome of the per-channel sendability check (connector shipped + configured?). */
+export type MessagingChannelSendability =
+  | { channel: MessagingChannel; status: 'ready' }
+  | { channel: MessagingChannel; status: 'needs_connector'; missing: readonly string[] }
+  | { channel: MessagingChannel; status: 'needs_credentials'; missing: readonly string[] };
+
+/**
+ * The HONEST per-channel gate: can this channel actually deliver a message right now?
+ *
+ *  - `needs_connector`  — no shipped connector code (never happens for the four we
+ *    model, kept for forward-compat if a channel is added to MESSAGING_CHANNELS but
+ *    not to _SHIPPED).
+ *  - `needs_credentials` — connector shipped, but the required provider credentials
+ *    are absent → the channel cannot send. Publish is blocked (needs_runtime) and the
+ *    runner refuses loudly. NEVER a fake send.
+ *  - `ready`            — connector shipped AND (for sms/push) credentials present.
+ *
+ * `creds` lets a caller supply an explicit credential map (per-tenant store); when
+ * omitted the app-level env is consulted via the passed `env` (defaults to the
+ * ambient process env in the connector/runner). Pure + injectable for tests.
+ */
+export function messagingChannelSendability(
+  channel: MessagingChannel,
+  env: Record<string, string | undefined> = {},
+): MessagingChannelSendability {
+  if (!(MESSAGING_CHANNELS_SHIPPED as readonly string[]).includes(channel)) {
+    return { channel, status: 'needs_connector', missing: [] };
+  }
+  const required = MESSAGING_CHANNEL_CREDENTIAL_ENV[channel] ?? [];
+  const missing = required.filter((k) => {
+    const v = env[k];
+    return typeof v !== 'string' || v.trim() === '';
+  });
+  if (missing.length > 0) {
+    return { channel, status: 'needs_credentials', missing };
+  }
+  return { channel, status: 'ready' };
+}
 
 /**
  * What causes the campaign to fan out.
  *  - `broadcast`     one-shot blast to the resolved audience (admin "Send now" / SCHEDULED cron).
  *  - `event`         reacts to a live FlowRunnerService trigger (order/create, product/update, …).
  *  - `back_in_stock` event convenience preset: resolves to SHOPIFY_WEBHOOK_PRODUCT_UPDATED → notify a waitlist store.
- * Durable multi-step drip sequences are OUT OF SCOPE — they depend on the R3.5
- * durable scheduler (cross-run paging); modeled as a follow-up, not shipped here.
+ *  - `drip`          a multi-STEP sequence: the first step fires on `dripPreset`'s
+ *                    entry event, and each subsequent step is parked on the R3.5
+ *                    durable scheduler (DELAY-park) and delivered after its delay.
+ *                    Reuses the SAME park→resume spine as cross-run paging.
  */
-export const MESSAGING_TRIGGER_KINDS = ['broadcast', 'event', 'back_in_stock'] as const;
+export const MESSAGING_TRIGGER_KINDS = ['broadcast', 'event', 'back_in_stock', 'drip'] as const;
 export type MessagingTriggerKind = (typeof MESSAGING_TRIGGER_KINDS)[number];
+
+/**
+ * Drip ENTRY presets — each resolves to a live trigger + a first-send condition,
+ * exactly like `back_in_stock` does for the single-shot case. A drip campaign picks
+ * one preset for its entry point; the steps after it are timed relative to entry via
+ * the durable scheduler.
+ *
+ *  - `browse_abandon`      customer viewed but didn't buy → nudge (entry: order/create
+ *                          is NOT the signal; browse-abandon enters on a captured
+ *                          data_store record — SUPERAPP_DATA_RECORD_CREATED — written
+ *                          by a storefront view-capture; no fabricated browse event).
+ *  - `price_drop`          a product's price fell → notify a waitlist (entry:
+ *                          SHOPIFY_WEBHOOK_PRODUCT_UPDATED, guarded by a price-drop).
+ *  - `replenishment`       consumable re-order reminder N days post-purchase (entry:
+ *                          SHOPIFY_WEBHOOK_ORDER_CREATED; first step delayed).
+ *  - `win_back`            lapsed-customer re-engagement timer (entry:
+ *                          SHOPIFY_WEBHOOK_ORDER_CREATED; long delay to first step).
+ *  - `post_purchase`       post-purchase thank-you / cross-sell sequence (entry:
+ *                          SHOPIFY_WEBHOOK_ORDER_CREATED; short delay to first step).
+ *  - `back_in_stock`       restock waitlist as a multi-step drip (entry:
+ *                          SHOPIFY_WEBHOOK_PRODUCT_UPDATED, inventory-cross guard).
+ */
+export const MESSAGING_DRIP_PRESETS = [
+  'browse_abandon',
+  'price_drop',
+  'replenishment',
+  'win_back',
+  'post_purchase',
+  'back_in_stock',
+] as const;
+export type MessagingDripPreset = (typeof MESSAGING_DRIP_PRESETS)[number];
+
+/**
+ * The live entry trigger each drip preset resolves to. Mirrors how `back_in_stock`
+ * resolves to SHOPIFY_WEBHOOK_PRODUCT_UPDATED — no fabricated events; every entry is
+ * a real webhook or a real captured data-record.
+ */
+export const MESSAGING_DRIP_PRESET_ENTRY: Record<MessagingDripPreset, string> = {
+  browse_abandon: 'SUPERAPP_DATA_RECORD_CREATED',
+  price_drop: 'SHOPIFY_WEBHOOK_PRODUCT_UPDATED',
+  replenishment: 'SHOPIFY_WEBHOOK_ORDER_CREATED',
+  win_back: 'SHOPIFY_WEBHOOK_ORDER_CREATED',
+  post_purchase: 'SHOPIFY_WEBHOOK_ORDER_CREATED',
+  back_in_stock: 'SHOPIFY_WEBHOOK_PRODUCT_UPDATED',
+};
+
+/** Drip step bounds (schema-enforced). One entry step + up to N delayed follow-ups. */
+export const MESSAGING_DRIP_LIMITS = {
+  stepsMax: 6, // entry + up to 5 follow-ups
+  stepDelayMsMin: 60_000, // 1 minute (test/urgent floor)
+  stepDelayMsMax: 90 * 24 * 3600_000, // 90 days (matches FLOW_DELAY_LIMITS horizon)
+} as const;
 
 /** How the recipient set is resolved. */
 export const MESSAGING_AUDIENCE_SOURCES = [

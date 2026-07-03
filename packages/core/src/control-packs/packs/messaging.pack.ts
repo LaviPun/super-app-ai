@@ -23,6 +23,8 @@ import {
   MESSAGING_TRIGGER_KINDS,
   MESSAGING_AUDIENCE_SOURCES,
   MESSAGING_LIMITS,
+  MESSAGING_DRIP_PRESETS,
+  MESSAGING_DRIP_LIMITS,
   FLOW_AUTOMATION_TRIGGERS,
 } from '../../allowed-values.js';
 import { AudiencePackSchema } from './audience.pack.js';
@@ -37,12 +39,18 @@ export {
   MESSAGING_TRIGGER_KINDS,
   MESSAGING_AUDIENCE_SOURCES,
   MESSAGING_LIMITS,
+  MESSAGING_DRIP_PRESETS,
+  MESSAGING_DRIP_LIMITS,
+  MESSAGING_DRIP_PRESET_ENTRY,
+  messagingChannelSendability,
 } from '../../allowed-values.js';
 export type {
   MessagingChannel,
   ShippedMessagingChannel,
   MessagingTriggerKind,
   MessagingAudienceSource,
+  MessagingDripPreset,
+  MessagingChannelSendability,
 } from '../../allowed-values.js';
 
 /**
@@ -111,6 +119,28 @@ export const MessagingAudienceSchema = z
   });
 export type MessagingAudience = z.infer<typeof MessagingAudienceSchema>;
 
+/**
+ * One step of a `drip` sequence. Step 0 is the ENTRY send (fired immediately on the
+ * preset's entry trigger, delayMs ignored/0). Each later step is delivered `delayMs`
+ * after the PREVIOUS step, parked on the durable scheduler (DELAY-park) between steps.
+ * A step may override the channel/template (e.g. email entry → SMS reminder later);
+ * absent an override it uses the campaign's primary channel + matching template.
+ */
+export const MessagingDripStepSchema = z.object({
+  /** Delay AFTER the previous step before this one sends (ms). Ignored for step 0. */
+  delayMs: z
+    .number()
+    .int()
+    .min(MESSAGING_DRIP_LIMITS.stepDelayMsMin)
+    .max(MESSAGING_DRIP_LIMITS.stepDelayMsMax)
+    .default(MESSAGING_DRIP_LIMITS.stepDelayMsMin),
+  /** Which template channel this step uses. Defaults to the campaign's primary channel. */
+  channel: z.enum(MESSAGING_CHANNELS).optional(),
+  /** Optional human label for the step (admin/preview). */
+  label: z.string().max(MESSAGING_LIMITS.titleMax).optional(),
+});
+export type MessagingDripStep = z.infer<typeof MessagingDripStepSchema>;
+
 /** What fires the campaign. */
 export const MessagingTriggerSchema = z
   .object({
@@ -119,6 +149,13 @@ export const MessagingTriggerSchema = z
     event: z.enum(FLOW_AUTOMATION_TRIGGERS).optional(),
     // kind:'back_in_stock' is a preset resolving to SHOPIFY_WEBHOOK_PRODUCT_UPDATED
     // at runtime (no explicit `event` required).
+    /** kind:'drip' — which entry preset the sequence starts from. */
+    dripPreset: z.enum(MESSAGING_DRIP_PRESETS).optional(),
+    /**
+     * kind:'drip' — the ordered steps. Step 0 is the entry send; each later step is
+     * delayed relative to the prior one and parked on the durable scheduler.
+     */
+    steps: z.array(MessagingDripStepSchema).max(MESSAGING_DRIP_LIMITS.stepsMax).optional(),
   })
   .superRefine((t, ctx) => {
     if (t.kind === 'event' && !t.event) {
@@ -127,6 +164,22 @@ export const MessagingTriggerSchema = z
         path: ['event'],
         message: "kind:'event' requires an event",
       });
+    }
+    if (t.kind === 'drip') {
+      if (!t.dripPreset) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['dripPreset'],
+          message: "kind:'drip' requires a dripPreset",
+        });
+      }
+      if (!t.steps || t.steps.length < 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['steps'],
+          message: "kind:'drip' requires at least one step (the entry send)",
+        });
+      }
     }
   });
 export type MessagingTrigger = z.infer<typeof MessagingTriggerSchema>;
@@ -171,7 +224,7 @@ export const messagingPack: ControlPack<typeof MessagingPackSchema> = {
     groupLabel: 'Messaging',
     order: ['channel', 'trigger', 'audience', 'templates', 'batchSize', 'respectConsent'],
     fields: {
-      channel: { help: 'email and slack send today; sms and push are modeled but need their connector shipped.' },
+      channel: { help: 'email and slack send today; sms and push have connectors but need the merchant provider credentials (SMS SID/token; VAPID keys) configured before they can send.' },
       batchSize: { tier: 'advanced', help: 'Max recipients per run (bounded; large lists page across runs).' },
       respectConsent: { tier: 'advanced', help: 'Skip recipients whose consent field is falsy.' },
     },
