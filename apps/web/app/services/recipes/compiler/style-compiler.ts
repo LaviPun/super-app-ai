@@ -1,4 +1,5 @@
 import type { StorefrontStyle } from '@superapp/core';
+import { generateSemanticRamp } from '@superapp/core';
 
 const PADDING_MAP = { none: '0', tight: '8px', medium: '16px', loose: '24px' } as const;
 const GAP_MAP = { none: '0', tight: '8px', medium: '12px', loose: '20px' } as const;
@@ -137,6 +138,25 @@ export function compileStyleVars(style: StorefrontStyle | undefined): string {
   lines.push(`--sa-radius-lg: ${ladder(4)};`);
   lines.push(`--sa-radius-xl: ${ladder(8)};`);
   if (s.shape.elevation) lines.push(`--sa-elevation: ${ELEVATION_MAP[s.shape.elevation]};`);
+
+  // ── OKLCH semantic ramp, seed-derived from the merchant brand accent ──
+  // Additive: emits semantic role vars alongside the legacy flat --sa-* vars, so
+  // module templates can reference brand-consistent, contrast-guaranteed tokens.
+  if (s.colors.seed) {
+    const r = generateSemanticRamp(s.colors.seed);
+    lines.push(
+      `--sa-solid: ${r.solid};`,
+      `--sa-solid-hover: ${r.solidHover};`,
+      `--sa-solid-content: ${r.solidContent};`,
+      `--sa-bg-subtle: ${r.bgSubtle};`,
+      `--sa-surface: ${r.componentBg};`,
+      `--sa-surface-hover: ${r.componentHover};`,
+      `--sa-border-subtle: ${r.borderSubtle};`,
+      `--sa-border-strong: ${r.borderStrong};`,
+      `--sa-text-high: ${r.textHigh};`,
+      `--sa-text-low: ${r.textLow};`,
+    );
+  }
 
   if (s.colors.border != null) lines.push(`--sa-border: ${s.colors.border};`);
   if (s.colors.buttonBg != null) lines.push(`--sa-btn-bg: ${s.colors.buttonBg};`);

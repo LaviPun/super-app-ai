@@ -75,6 +75,13 @@ export const StorefrontStyleSchema = z
         buttonText: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
         overlayBackdrop: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
         overlayBackdropOpacity: z.number().min(0).max(1).default(0.45),
+        /**
+         * Merchant brand accent (hex) — seeds the OKLCH 12-step semantic ramp
+         * (design-vocabulary §1.1). Additive: the compiler derives semantic
+         * `--sa-solid/-content/-surface/-text-high/…` vars from it while the flat
+         * colors above still drive the legacy `--sa-text/-bg/…` vars.
+         */
+        seed: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
       })
       .default({}),
     shape: z

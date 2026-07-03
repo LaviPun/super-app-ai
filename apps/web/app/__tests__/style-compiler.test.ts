@@ -148,6 +148,23 @@ describe('compileStyleVars — token substrate (phase #2)', () => {
   it('omits --sa-elevation when no idiom is set', () => {
     expect(compileStyleVars(undefined)).not.toContain('--sa-elevation:');
   });
+
+  it('emits the OKLCH semantic ramp when colors.seed is set (with -content pairing)', () => {
+    const s = {
+      ...getDefaultStorefrontStyle(),
+      colors: { ...getDefaultStorefrontStyle().colors, seed: '#1f3a5f' },
+    };
+    const vars = compileStyleVars(s);
+    expect(vars).toContain('--sa-solid:');
+    expect(vars).toContain('--sa-solid-content:');
+    expect(vars).toContain('--sa-surface:');
+    expect(vars).toContain('--sa-text-high:');
+    expect(vars).toContain('--sa-text-low:');
+  });
+
+  it('omits semantic ramp vars when no seed (back-compat)', () => {
+    expect(compileStyleVars(undefined)).not.toContain('--sa-solid:');
+  });
 });
 
 // ---------------------------------------------------------------------------
