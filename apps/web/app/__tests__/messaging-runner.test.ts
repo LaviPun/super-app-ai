@@ -90,7 +90,15 @@ function fakeDataStore(records: Array<Record<string, unknown>>, total?: number):
         updatedAt: new Date().toISOString(),
       })),
     })),
+    getStoreByKey: vi.fn(async () => ({ id: 's', key: 'waitlist' })),
+    updateRecord: vi.fn(async () => ({})),
   } as unknown as DataStoreService;
+}
+
+/** A durable-scheduler seam that records park calls without touching the DB. */
+function fakeEngine() {
+  const startRun = vi.fn(async () => ({ status: 'WAITING' as const }));
+  return { engine: { startRun } as never, startRun };
 }
 
 const EMAIL_BROADCAST = {
@@ -190,6 +198,7 @@ describe('MessagingRunnerService — fan-out', () => {
   it('batchSize caps the run and records total (paging gap visible, not truncated-as-success)', async () => {
     const email = fakeEmailConnector();
     const cfg = { ...EMAIL_BROADCAST, batchSize: 1 };
+    const eng = fakeEngine();
     const runner = new MessagingRunnerService({
       prisma: fakePrisma({ modules: [fakeModule(cfg)] }),
       // 3 available, but listRecords honors limit:batchSize → returns 1; total reflects 3.
@@ -197,6 +206,7 @@ describe('MessagingRunnerService — fan-out', () => {
       jobs: fakeJobs(),
       getConnector: () => email as unknown as Connector,
       emailApiKey: 'key',
+      engine: eng.engine,
     });
 
     const results = await runner.runForTrigger('test.myshopify.com', admin, 'MANUAL', {});
@@ -204,6 +214,9 @@ describe('MessagingRunnerService — fan-out', () => {
     expect(result.sent).toBe(1);
     expect(result.total).toBe(3);
     expect(result.paged).toBe(true);
+    // Cross-run paging: the remainder is parked on the durable scheduler.
+    expect(eng.startRun).toHaveBeenCalledTimes(1);
+    expect(result.parkedNextOffset).toBe(1);
   });
 
   it('a per-recipient connector failure is counted, run continues', async () => {

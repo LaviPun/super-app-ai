@@ -4,6 +4,7 @@ import { HttpConnector } from './http.connector';
 import { SlackConnector } from './slack.connector';
 import { EmailConnector } from './email.connector';
 import { StorageConnector } from './storage.connector';
+import { MessagingConnector } from './messaging.connector';
 
 const registry = new Map<string, Connector>();
 
@@ -12,6 +13,9 @@ registry.set('http', new HttpConnector());
 registry.set('slack', new SlackConnector());
 registry.set('email', new EmailConnector());
 registry.set('storage', new StorageConnector());
+// R3.4 cross-run paging resume seam — the durable scheduler fires
+// `messaging.sendPage` to send the next page of a paged campaign fan-out.
+registry.set('messaging', new MessagingConnector());
 
 export function getConnectorRegistry(): Map<string, Connector> {
   return registry;
