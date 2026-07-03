@@ -1,5 +1,5 @@
-import { json, redirect } from '@remix-run/node';
-import { useLoaderData, useActionData, useFetcher } from '@remix-run/react';
+import { json } from '@remix-run/node';
+import { useLoaderData, useFetcher } from '@remix-run/react';
 import { useEffect } from 'react';
 import { shopify } from '~/shopify.server';
 import { BillingService, type BillingPlan } from '~/services/billing/billing.service';
@@ -26,10 +26,11 @@ export async function loader({ request }: { request: Request }) {
   const billing = new BillingService();
   const quota = new QuotaService();
 
-  const sub = await billing.getActiveSubscription(shopRow.id);
-  const usage = await quota.getUsageSummary(shopRow.id);
-
-  const plans = await getAllPlanConfigs();
+  const [sub, usage, plans] = await Promise.all([
+    billing.getActiveSubscription(shopRow.id),
+    quota.getUsageSummary(shopRow.id),
+    getAllPlanConfigs(),
+  ]);
   return json({ shopId: shopRow.id, sub, usage, plans });
 }
 
@@ -51,12 +52,18 @@ export async function action({ request }: { request: Request }) {
   const returnUrl = `${process.env.SHOPIFY_APP_URL}/billing`;
 
   try {
+    const config = await billing.getPlanConfig(plan);
+    if (config.price < 0) {
+      // "Contact us" plans can't be self-served — otherwise createSubscription
+      // would record them without any Shopify charge.
+      return json({ error: `${config.displayName} plans are set up by our team — reach out via the Help page.` }, { status: 400 });
+    }
     const { confirmationUrl } = await billing.createSubscription(admin, shopRow.id, plan, returnUrl);
     await new ActivityLogService().log({ actor: 'MERCHANT', action: 'BILLING_PLAN_CHANGED', shopId: shopRow.id, details: { plan } });
     if (confirmationUrl && confirmationUrl !== returnUrl) {
       return json({ confirmationUrl });
     }
-    return redirect('/billing');
+    return json({ ok: true, message: `Plan changed to ${config.displayName}.` });
   } catch (e) {
     return json({ error: String(e) }, { status: 500 });
   }
@@ -75,10 +82,11 @@ export default function BillingPage() {
 
 function BillingBody({ sub, usage, plans }: any) {
   const ctx = useMerchantCtx();
-  const actionData = useActionData<typeof action>();
-  const changeFetcher = useFetcher<{ confirmationUrl?: string; error?: string }>();
+  const changeFetcher = useFetcher<{ confirmationUrl?: string; error?: string; ok?: boolean; message?: string }>();
   const current = (sub?.planName ?? 'FREE').toUpperCase();
   const currentPlan = plans.find((p: any) => p.name === current);
+  // Plan currently being submitted (so only that card's button shows a spinner).
+  const pendingPlan = changeFetcher.state !== 'idle' ? changeFetcher.formData?.get('plan') : null;
 
   useEffect(() => {
     if (changeFetcher.data?.confirmationUrl) {
@@ -86,6 +94,8 @@ function BillingBody({ sub, usage, plans }: any) {
       if (typeof window !== 'undefined') window.open(changeFetcher.data.confirmationUrl, '_top');
     } else if (changeFetcher.data?.error) {
       ctx.toast(changeFetcher.data.error, { error: true });
+    } else if (changeFetcher.data?.ok) {
+      ctx.toast(changeFetcher.data.message || 'Plan updated');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [changeFetcher.data]);
@@ -99,13 +109,11 @@ function BillingBody({ sub, usage, plans }: any) {
 
   const changePlan = (name: string) => {
     changeFetcher.submit({ plan: name }, { method: 'post' });
-    ctx.toast(`Switching to ${titleCase(name)}`);
   };
 
   return (
     <div className="page">
       <PageHead title="Plan & usage" sub={`You’re on the ${titleCase(current)} plan. Track usage and upgrade any time.`} />
-      {actionData && 'error' in actionData && actionData.error && <div style={{ marginBottom: 16 }}><Card pad>{actionData.error}</Card></div>}
 
       <div className="col-main" style={{ marginBottom: 24 }}>
         <Card pad>
@@ -136,12 +144,12 @@ function BillingBody({ sub, usage, plans }: any) {
             <span className="t-h2">${currentPlan?.price ?? 0}</span><span className="t-muted">/month</span>
           </div>
           <div className="divider" style={{ margin: '16px 0' }} />
-          <Btn variant="primary" className="btn-block" onClick={() => ctx.toast('Choose a plan below')}>Change plan</Btn>
+          <Btn variant="primary" className="btn-block" onClick={() => document.getElementById('billing-plans')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Change plan</Btn>
           <Btn className="btn-block btn-plain-subdued" style={{ marginTop: 8 }} onClick={() => ctx.go('#/app/billing/history')}>Billing history</Btn>
         </Card>
       </div>
 
-      <h2 className="t-h2" style={{ marginBottom: 14 }}>Plans</h2>
+      <h2 id="billing-plans" className="t-h2" style={{ marginBottom: 14 }}>Plans</h2>
       <div className="grid grid-4">
         {plans.filter((p: any) => p.name !== 'FREE').map((p: any) => (
           <div key={p.name} className={'card card-pad plan-card' + (p.name === current ? ' active' : '')}>
@@ -158,7 +166,9 @@ function BillingBody({ sub, usage, plans }: any) {
             </div>
             {p.name === current
               ? <Btn className="btn-block" disabled>Current plan</Btn>
-              : <Btn variant={p.name === 'PRO' ? 'primary' : undefined} className="btn-block" loading={changeFetcher.state !== 'idle'} onClick={() => changePlan(p.name)}>{p.price === -1 ? 'Contact us' : `Choose ${titleCase(p.name)}`}</Btn>}
+              : p.price === -1
+                ? <Btn className="btn-block" onClick={() => ctx.go('#/app/help')}>Contact us</Btn>
+                : <Btn variant={p.name === 'PRO' ? 'primary' : undefined} className="btn-block" loading={pendingPlan === p.name} onClick={() => changePlan(p.name)}>{`Choose ${titleCase(p.name)}`}</Btn>}
           </div>
         ))}
       </div>

@@ -46,7 +46,7 @@ export async function loader({ request }: { request: Request }) {
   const [
     jobs,
     recentActivity,
-    aiUsageRows,
+    aiAgg,
   ] = await Promise.all([
     prisma.job.findMany({
       where: { shopId: shopRow.id, createdAt: { gte: since30d } },
@@ -58,11 +58,10 @@ export async function loader({ request }: { request: Request }) {
       orderBy: { createdAt: 'desc' },
       take: 50,
     }),
-    prisma.aiUsage.findMany({
+    // Exact 30d totals aggregated in the DB (the previous capped findMany undercounted).
+    prisma.aiUsage.aggregate({
       where: { shopId: shopRow.id, createdAt: { gte: since30d } },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-      include: { provider: true },
+      _sum: { requestCount: true, tokensIn: true, tokensOut: true, costCents: true },
     }),
   ]);
 
@@ -95,9 +94,9 @@ export async function loader({ request }: { request: Request }) {
   const runningCount = jobs.filter(j => j.status === 'RUNNING' || j.status === 'QUEUED').length;
   const successRate = jobs.length > 0 ? Math.round((successCount / jobs.length) * 100) : 100;
 
-  const totalAiCostCents = aiUsageRows.reduce((s, r) => s + r.costCents, 0);
-  const totalTokensIn = aiUsageRows.reduce((s, r) => s + r.tokensIn, 0);
-  const totalTokensOut = aiUsageRows.reduce((s, r) => s + r.tokensOut, 0);
+  const totalAiCostCents = aiAgg._sum.costCents ?? 0;
+  const totalTokensIn = aiAgg._sum.tokensIn ?? 0;
+  const totalTokensOut = aiAgg._sum.tokensOut ?? 0;
 
   return json({
     usage,
@@ -118,7 +117,7 @@ export async function loader({ request }: { request: Request }) {
     dailySuccess,
     dailyFailed,
     aiStats: {
-      totalRequests: aiUsageRows.length,
+      totalRequests: aiAgg._sum.requestCount ?? 0,
       totalCostCents: totalAiCostCents,
       totalTokensIn,
       totalTokensOut,

@@ -50,9 +50,37 @@ export function validateWorkflow(workflow: Workflow): WorkflowValidationResult {
     }
   }
 
-  // ─── Action / transform / delay nodes should have a "next" edge ─
+  // ─── Switch nodes need ≥1 "case:*" or "default" edge ────────────
   for (const node of workflow.nodes) {
-    if (!['action', 'transform', 'delay'].includes(node.type)) continue;
+    if (node.type !== 'switch') continue;
+    const outEdges = workflow.edges.filter(e => e.from === node.id);
+    const hasBranch = outEdges.some(e => e.label === 'default' || e.label.startsWith('case:'));
+    if (!hasBranch) {
+      issues.push({ code: 'MISSING_CASE_EDGE', message: `Switch node "${node.id}" has no "case:<value>" or "default" edge`, path: `nodes.${node.id}`, severity: 'error' });
+    }
+  }
+
+  // ─── Loop nodes need a "loop" body edge ──────────────────────────
+  for (const node of workflow.nodes) {
+    if (node.type !== 'loop') continue;
+    const labels = new Set(workflow.edges.filter(e => e.from === node.id).map(e => e.label));
+    if (!labels.has('loop')) {
+      issues.push({ code: 'MISSING_LOOP_EDGE', message: `Loop node "${node.id}" has no "loop" body edge`, path: `nodes.${node.id}`, severity: 'error' });
+    }
+  }
+
+  // ─── Parallel nodes need ≥1 "branch" edge ────────────────────────
+  for (const node of workflow.nodes) {
+    if (node.type !== 'parallel') continue;
+    const branches = workflow.edges.filter(e => e.from === node.id && e.label === 'branch');
+    if (branches.length === 0) {
+      issues.push({ code: 'MISSING_BRANCH_EDGE', message: `Parallel node "${node.id}" has no "branch" edge`, path: `nodes.${node.id}`, severity: 'error' });
+    }
+  }
+
+  // ─── Action / transform / wait / delay nodes should have a "next" edge ─
+  for (const node of workflow.nodes) {
+    if (!['action', 'transform', 'wait', 'delay'].includes(node.type)) continue;
     const outEdges = workflow.edges.filter(e => e.from === node.id);
     if (outEdges.length === 0) {
       issues.push({ code: 'NO_OUTGOING_EDGE', message: `Node "${node.id}" (${node.type}) has no outgoing edge`, path: `nodes.${node.id}`, severity: 'warning' });

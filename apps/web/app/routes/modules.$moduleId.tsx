@@ -15,12 +15,14 @@ import { SettingsService } from '~/services/settings/settings.service';
 import { buildAdminFormConfig } from '~/services/control-packs/admin-form.server';
 import { compileRecipe } from '~/services/recipes/compiler';
 import { ThemeService } from '~/services/shopify/theme.service';
-import type { Capability, DeployTarget } from '@superapp/core';
-import type { V2Form } from '~/components/ConfigEditor';
+import type { Capability, DeployTarget, RecipeSpec } from '@superapp/core';
+import { ConfigEditor, type V2Form } from '~/components/ConfigEditor';
+import { getPrisma } from '~/db.server';
+import { ActivityLogService } from '~/services/activity/activity.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
   Icon, Btn, Badge, StatusBadge, Card, CardHead, Section, Field, Input, Textarea, Select,
-  Tabs, Banner, Menu, KV, PageHead, DataTable, ConfirmDialog, Modal, titleCase,
+  Tabs, Banner, Menu, KV, PageHead, DataTable, ConfirmDialog, Modal, EmptyState, titleCase,
 } from '~/components/superapp';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -33,6 +35,27 @@ function designType(t: string): string {
   if (/connector|integration/i.test(t)) return 'Integration';
   if (/data|store/i.test(t)) return 'Data store';
   return 'Storefront UI';
+}
+
+// Real placement description derived from the module's spec — no hardcoded copy.
+function placementText(spec: any, designT: string): string {
+  const type = String(spec?.type ?? '');
+  if (type.startsWith('theme.')) {
+    const enabled = spec?.placement?.enabled_on?.templates as string[] | undefined;
+    const disabled = spec?.placement?.disabled_on?.templates as string[] | undefined;
+    if (enabled?.length) return `Shown as a theme section on the ${enabled.join(', ')} template${enabled.length > 1 ? 's' : ''}.`;
+    if (disabled?.length) return `Shown as a theme section on all templates except ${disabled.join(', ')}.`;
+    return 'Published as a section in your Online Store theme — position it in the theme editor.';
+  }
+  if (type.startsWith('checkout.')) return 'Runs inside Shopify checkout.';
+  if (type.startsWith('proxy.')) return 'Rendered on your storefront through the app proxy.';
+  switch (designT) {
+    case 'Function': return 'Runs automatically during checkout as a Shopify Function — no storefront placement.';
+    case 'Flow': return 'Runs in the background when its trigger fires — no storefront placement.';
+    case 'Integration': return 'Connects to an external service — no storefront placement.';
+    case 'Data store': return 'Stores structured data used by your modules — no storefront placement.';
+    default: return 'Rendered on your storefront.';
+  }
 }
 
 export async function loader({ request, params }: { request: Request; params: { moduleId?: string } }) {
@@ -65,6 +88,19 @@ export async function loader({ request, params }: { request: Request; params: { 
 
   const draft = mod.versions.find(v => v.status === 'DRAFT') ?? mod.activeVersion ?? mod.versions[0];
   const spec = draft ? new RecipeService().parse(draft.specJson) : null;
+
+  // Real "Export spec": ?export=spec downloads the current draft spec as JSON.
+  if (new URL(request.url).searchParams.get('export') === 'spec' && draft) {
+    let pretty = draft.specJson;
+    try { pretty = JSON.stringify(JSON.parse(draft.specJson), null, 2); } catch { /* keep raw */ }
+    const fname = `${mod.name.replace(/[^a-z0-9_-]+/gi, '-').toLowerCase() || 'module'}-spec.json`;
+    return new Response(pretty, {
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${fname}"`,
+      },
+    });
+  }
 
   const blockedCapabilities = spec
     ? (spec.requires ?? []).filter(c => !isCapabilityAllowed(planTier, c as Capability))
@@ -212,6 +248,76 @@ export async function loader({ request, params }: { request: Request; params: { 
   return json({ moduleId, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, adminConfig, engine, v2Form, republishDiff, blueprint });
 }
 
+/**
+ * Route-owned mutations: duplicate (create a draft copy), rename (Module.name +
+ * draft spec name), delete. All return JSON so the UI can toast from the server
+ * response.
+ */
+export async function action({ request, params }: { request: Request; params: { moduleId?: string } }) {
+  const { session } = await shopify.authenticate.admin(request);
+  const moduleId = params.moduleId;
+  if (!moduleId) return json({ error: 'Missing moduleId' }, { status: 400 });
+
+  const form = await request.formData();
+  const intent = String(form.get('intent') ?? '').trim();
+
+  const ms = new ModuleService();
+  const mod = await ms.getModule(session.shop, moduleId);
+  if (!mod) return json({ error: 'Module not found' }, { status: 404 });
+
+  if (intent === 'duplicate') {
+    const draft = mod.versions.find(v => v.status === 'DRAFT') ?? mod.activeVersion ?? mod.versions[0];
+    if (!draft) return json({ error: 'No version to duplicate' }, { status: 400 });
+    let spec: RecipeSpec;
+    try {
+      spec = new RecipeService().parse(draft.specJson);
+    } catch (e) {
+      return json({ error: `Module spec is invalid: ${String(e)}` }, { status: 422 });
+    }
+    const name = `${mod.name} (copy)`.slice(0, 80);
+    const copy = await ms.createDraft(session.shop, { ...spec, name });
+    await new ActivityLogService().log({
+      actor: 'MERCHANT',
+      action: 'MODULE_DUPLICATED',
+      resource: `module:${copy.id}`,
+      shopId: mod.shopId,
+      details: { sourceModuleId: mod.id, name, type: mod.type },
+    }).catch(() => { /* non-fatal */ });
+    return json({ ok: true, intent: 'duplicate', id: copy.id, name });
+  }
+
+  if (intent === 'rename') {
+    const name = String(form.get('name') ?? '').trim().slice(0, 80);
+    if (!name) return json({ error: 'Module name is required' }, { status: 400 });
+    const prisma = getPrisma();
+    await prisma.module.update({ where: { id: mod.id }, data: { name } });
+    // Keep the draft spec's name in sync so the recipe matches what merchants see.
+    const draft = mod.versions.find(v => v.status === 'DRAFT');
+    if (draft) {
+      try {
+        const s = JSON.parse(draft.specJson) as Record<string, unknown>;
+        s.name = name;
+        await prisma.moduleVersion.update({ where: { id: draft.id }, data: { specJson: JSON.stringify(s) } });
+      } catch { /* leave spec untouched if unparseable */ }
+    }
+    return json({ ok: true, intent: 'rename', name });
+  }
+
+  if (intent === 'delete') {
+    await ms.deleteModule(session.shop, moduleId);
+    await new ActivityLogService().log({
+      actor: 'MERCHANT',
+      action: 'MODULE_DELETED',
+      resource: `module:${moduleId}`,
+      shopId: mod.shopId,
+      details: { name: mod.name, type: mod.type, deleted: true },
+    }).catch(() => { /* non-fatal */ });
+    return json({ ok: true, intent: 'delete', name: mod.name });
+  }
+
+  return json({ error: 'Unknown intent' }, { status: 400 });
+}
+
 function getDefaultThemeId(
   themes: { id: number; name: string; role: string }[],
   publishedThemeId: string | null
@@ -252,11 +358,17 @@ function ModuleDetailBody() {
   const [modifyOpen, setModifyOpen] = useState(false);
   const [modifyInstruction, setModifyInstruction] = useState('');
   const [selectedThemeId, setSelectedThemeId] = useState(getDefaultThemeId(themes, publishedThemeId ?? null));
+  const [applyingIdx, setApplyingIdx] = useState<number | null>(null);
+  const [nameDraft, setNameDraft] = useState(mod.name);
 
   const publishFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const rollbackFetcher = useFetcher<{ ok?: boolean; error?: string }>();
-  const deleteFetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const deleteFetcher = useFetcher<{ ok?: boolean; error?: string; name?: string }>();
   const modifyFetcher = useFetcher<{ options?: any[]; error?: string }>();
+  const applyFetcher = useFetcher<{ ok?: boolean; version?: number; error?: string }>();
+  const duplicateFetcher = useFetcher<{ ok?: boolean; id?: string; name?: string; error?: string }>();
+  const renameFetcher = useFetcher<{ ok?: boolean; name?: string; error?: string }>();
+  const hydrateFetcher = useFetcher<{ ok?: boolean; error?: string; message?: string }>();
 
   const isPublishing = publishFetcher.state !== 'idle';
 
@@ -274,16 +386,70 @@ function ModuleDetailBody() {
     if (rollbackFetcher.data?.ok && rollbackFetcher.state === 'idle') {
       ctx.toast('Rolled back');
       revalidator.revalidate();
+    } else if (rollbackFetcher.data?.error && rollbackFetcher.state === 'idle') {
+      ctx.toast(rollbackFetcher.data.error, { error: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rollbackFetcher.data, rollbackFetcher.state]);
 
   useEffect(() => {
-    if (deleteFetcher.data?.ok && deleteFetcher.state === 'idle') {
+    if (deleteFetcher.state !== 'idle') return;
+    if (deleteFetcher.data?.ok) {
+      ctx.toast(`Deleted “${deleteFetcher.data.name ?? mod.name}”`);
       navigate('/modules');
+    } else if (deleteFetcher.data?.error) {
+      ctx.toast(deleteFetcher.data.error, { error: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deleteFetcher.data, deleteFetcher.state]);
+
+  useEffect(() => {
+    if (duplicateFetcher.state !== 'idle') return;
+    if (duplicateFetcher.data?.ok && duplicateFetcher.data.id) {
+      ctx.toast(`Duplicated as “${duplicateFetcher.data.name}”`);
+      navigate(`/modules/${duplicateFetcher.data.id}`);
+    } else if (duplicateFetcher.data?.error) {
+      ctx.toast(duplicateFetcher.data.error, { error: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [duplicateFetcher.data, duplicateFetcher.state]);
+
+  useEffect(() => {
+    if (renameFetcher.state !== 'idle') return;
+    if (renameFetcher.data?.ok) {
+      ctx.toast('Module name saved');
+      revalidator.revalidate();
+    } else if (renameFetcher.data?.error) {
+      ctx.toast(renameFetcher.data.error, { error: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renameFetcher.data, renameFetcher.state]);
+
+  useEffect(() => {
+    if (applyFetcher.state !== 'idle') return;
+    if (applyFetcher.data?.ok) {
+      ctx.toast(`Change applied — saved as v${applyFetcher.data.version}`);
+      setModifyOpen(false);
+      setModifyInstruction('');
+      setApplyingIdx(null);
+      revalidator.revalidate();
+    } else if (applyFetcher.data?.error) {
+      ctx.toast(applyFetcher.data.error, { error: true });
+      setApplyingIdx(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyFetcher.data, applyFetcher.state]);
+
+  useEffect(() => {
+    if (hydrateFetcher.state !== 'idle') return;
+    if (hydrateFetcher.data?.ok) {
+      ctx.toast('Full settings generated');
+      revalidator.revalidate();
+    } else if (hydrateFetcher.data?.error) {
+      ctx.toast(hydrateFetcher.data.message ?? hydrateFetcher.data.error, { error: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrateFetcher.data, hydrateFetcher.state]);
 
   const justPublished = searchParams.get('published') === '1';
 
@@ -296,15 +462,42 @@ function ModuleDetailBody() {
     rollbackFetcher.submit({ moduleId, version: String(version) }, { method: 'post', action: '/api/rollback' });
   };
   const doDelete = () => {
-    deleteFetcher.submit({}, { method: 'post', action: `/api/modules/${moduleId}/delete` });
-    ctx.toast(`Deleted “${mod.name}”`);
+    deleteFetcher.submit({ intent: 'delete' }, { method: 'post' });
     setDelOpen(false);
+  };
+  const duplicate = () => {
+    duplicateFetcher.submit({ intent: 'duplicate' }, { method: 'post' });
+  };
+  const exportSpec = () => {
+    // Server-side download of the current draft spec (Content-Disposition: attachment).
+    const a = document.createElement('a');
+    a.href = `/modules/${moduleId}?export=spec`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+  const openPreview = () => {
+    window.open(`/preview/${moduleId}`, '_blank', 'noopener,noreferrer');
+  };
+  const saveName = () => {
+    const name = nameDraft.trim();
+    if (!name) return;
+    renameFetcher.submit({ intent: 'rename', name }, { method: 'post' });
+  };
+  const generateSettings = () => {
+    hydrateFetcher.submit({ moduleId }, { method: 'post', action: '/api/ai/hydrate-module' });
+  };
+  const applyOption = (option: any, idx: number) => {
+    setApplyingIdx(idx);
+    applyFetcher.submit(
+      { moduleId, spec: JSON.stringify(option.recipe) },
+      { method: 'post', action: '/api/ai/modify-module-confirm' },
+    );
   };
   const submitModify = () => {
     const q = modifyInstruction.trim();
     if (!q) return;
     modifyFetcher.submit({ instruction: q }, { method: 'post', action: `/api/agent/modules/${moduleId}/modify`, encType: 'application/json' });
-    ctx.toast('Generating modification options…');
   };
 
   const tabs = [
@@ -322,11 +515,11 @@ function ModuleDetailBody() {
         sub={summary}
         actions={(
           <>
-            <Btn icon="eye" onClick={() => ctx.toast('Opening live preview')}>Preview</Btn>
+            <Btn icon="eye" onClick={openPreview}>Preview</Btn>
             <Btn icon="magic" onClick={() => setModifyOpen(true)}>Modify with AI</Btn>
             <Menu trigger={<button className="btn btn-icon"><Icon name="dotsH" size={16} /></button>} items={[
-              { icon: 'copy', label: 'Duplicate', onClick: () => ctx.toast(`Duplicated “${mod.name}”`) },
-              { icon: 'download', label: 'Export spec', onClick: () => ctx.toast('Spec exported as JSON') },
+              { icon: 'copy', label: 'Duplicate', onClick: duplicate },
+              { icon: 'download', label: 'Export spec', onClick: exportSpec },
               { divider: true },
               { icon: 'trash', label: 'Delete module', tone: 'critical', onClick: () => setDelOpen(true) },
             ]} />
@@ -341,7 +534,7 @@ function ModuleDetailBody() {
         <div style={{ marginBottom: 16 }}>
           <Banner tone="info" title={`Part of the “${data.blueprint.name}” blueprint (${data.blueprint.moduleCount} modules)`}>
             <div className="row-2" style={{ flexWrap: 'wrap', gap: 6 }}>
-              {data.blueprint.members.map((mem) => (
+              {data.blueprint.members.map((mem: { id: string; name: string; type: string }) => (
                 <a key={mem.id} href={`/modules/${mem.id}`} style={{ textDecoration: 'none' }}>
                   <Badge tone={mem.id === data.moduleId ? 'info' : undefined}>{mem.name}</Badge>
                 </a>
@@ -361,7 +554,7 @@ function ModuleDetailBody() {
         <div style={{ marginBottom: 16, maxWidth: 360 }}>
           <Field label="Publish to theme">
             <Select
-              options={themes.map(t => ({ value: String(t.id), label: `${t.name}${t.role === 'main' ? ' (live)' : ''}` }))}
+              options={themes.map((t: { id: number; name: string; role: string }) => ({ value: String(t.id), label: `${t.name}${t.role === 'main' ? ' (live)' : ''}` }))}
               value={selectedThemeId}
               onChange={(e: any) => setSelectedThemeId(e.target.value)}
             />

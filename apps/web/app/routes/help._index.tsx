@@ -1,15 +1,34 @@
 import { json } from '@remix-run/node';
-import { Link } from '@remix-run/react';
+import { Link, useLoaderData } from '@remix-run/react';
 import { useState } from 'react';
 import { shopify } from '~/shopify.server';
-import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { Icon, Btn, Card, PageHead, Progress } from '~/components/superapp';
-
- 
+import { getPrisma } from '~/db.server';
+import { MerchantShell } from '~/components/merchant/MerchantShell';
+import { Icon, Card, PageHead, Progress } from '~/components/superapp';
 
 export async function loader({ request }: { request: Request }) {
-  await shopify.authenticate.admin(request);
-  return json({ ok: true });
+  const { session } = await shopify.authenticate.admin(request);
+  const prisma = getPrisma();
+  const shop = await prisma.shop.findUnique({ where: { shopDomain: session.shop }, select: { id: true } });
+
+  const [moduleCount, publishedCount, flowCount, connectorCount] = shop
+    ? await Promise.all([
+        prisma.module.count({ where: { shopId: shop.id } }),
+        prisma.module.count({ where: { shopId: shop.id, status: 'PUBLISHED' } }),
+        prisma.workflowDef.count({ where: { tenantId: shop.id } }),
+        prisma.connector.count({ where: { shopId: shop.id } }),
+      ])
+    : [0, 0, 0, 0];
+
+  // Real onboarding progress — each step is derived from what the store has actually done.
+  const checklist: [string, boolean][] = [
+    ['Connect your store', Boolean(shop)],
+    ['Generate a module', moduleCount > 0],
+    ['Publish to storefront', publishedCount > 0],
+    ['Build your first flow', flowCount > 0],
+    ['Connect an external API', connectorCount > 0],
+  ];
+  return json({ checklist });
 }
 
 const GUIDES: [string, string, string, string][] = [
@@ -19,10 +38,6 @@ const GUIDES: [string, string, string, string][] = [
   ['database', 'Work with Data stores', 'Sync Shopify data or create custom stores for anything.', '/data'],
   ['rocket', 'Publishing & rollback', 'Every change is versioned — preview, publish, or roll back instantly.', '/modules'],
   ['plan', 'Plans, usage & billing', 'Understand credits, limits, and how to upgrade.', '/billing'],
-];
-const CHECKLIST: [string, boolean][] = [
-  ['Connect your store', true], ['Generate a module', true], ['Publish to storefront', true],
-  ['Build your first flow', false], ['Invite a teammate', false],
 ];
 const FAQS: [string, string][] = [
   ['Is anything live before I publish?', 'No. Everything you generate is a draft. It only affects your storefront after you click Publish, and you can roll back anytime.'],
@@ -40,14 +55,13 @@ export default function HelpIndex() {
 }
 
 function HelpBody() {
-  const ctx = useMerchantCtx();
-  const done = CHECKLIST.filter((c) => c[1]).length;
+  const { checklist } = useLoaderData<typeof loader>();
+  const done = checklist.filter((c) => c[1]).length;
   return (
     <div className="page">
       <PageHead
         title="Help & guides"
         sub="Everything you need to get the most out of SuperApp AI."
-        actions={<Btn variant="primary" icon="chat" onClick={() => ctx.toast('Opening support chat')}>Contact support</Btn>}
       />
       <div className="col-main" style={{ marginBottom: 18 }}>
         <div className="grid grid-2">
@@ -63,11 +77,11 @@ function HelpBody() {
         <Card pad>
           <div className="row spread" style={{ marginBottom: 12 }}>
             <div className="t-h3">Getting started</div>
-            <span className="t-xs t-muted t-num">{done} / {CHECKLIST.length}</span>
+            <span className="t-xs t-muted t-num">{done} / {checklist.length}</span>
           </div>
-          <Progress value={(done / CHECKLIST.length) * 100} />
+          <Progress value={(done / checklist.length) * 100} />
           <div className="stack-2" style={{ marginTop: 14 }}>
-            {CHECKLIST.map((c, i) => (
+            {checklist.map((c, i) => (
               <div key={i} className="row-2">
                 <span className={'check-ring' + (c[1] ? ' on' : '')}>{c[1] && <Icon name="check" size={12} />}</span>
                 <span className={'t-sm' + (c[1] ? ' t-muted' : ' t-strong')} style={c[1] ? { textDecoration: 'line-through' } : undefined}>{c[0]}</span>

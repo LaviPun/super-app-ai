@@ -13,6 +13,10 @@ import { ScheduleService } from '~/services/flows/schedule.service';
 import { FlowRunnerService } from '~/services/flows/flow-runner.service';
 import { runInternalAiAuditRetention } from '~/services/jobs/internal-ai-audit-retention.job';
 import { runInternalAiChatRetention } from '~/services/jobs/internal-ai-chat-retention.job';
+import {
+  drainShopifyMetaobjectCleanupJobs,
+  type MetaobjectCleanupDrainResult,
+} from '~/services/jobs/shopify-metaobject-cleanup.job';
 import { logger } from '~/services/observability/logger.server';
 import { safeErrorMeta } from '~/services/observability/redact.server';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
@@ -86,6 +90,14 @@ export async function loader({ request }: { request: Request }) {
     }
   }
 
+  // Bounded drain of post-uninstall cleanup jobs queued by the app/uninstalled webhook.
+  let uninstallCleanup: MetaobjectCleanupDrainResult | null = null;
+  try {
+    uninstallCleanup = await drainShopifyMetaobjectCleanupJobs();
+  } catch (err) {
+    logger.warn('[api.cron] shopify-metaobject-cleanup drain failed', safeErrorMeta(err));
+  }
+
   let auditRetention: { deleted: number; retentionDays: number; cutoff: string } | null = null;
   let chatRetention: { deleted: number; retentionDays: number; cutoff: string } | null = null;
   const now = Date.now();
@@ -106,5 +118,5 @@ export async function loader({ request }: { request: Request }) {
     }
   }
 
-  return json({ ran: results.length, results, auditRetention, chatRetention });
+  return json({ ran: results.length, results, uninstallCleanup, auditRetention, chatRetention });
 }

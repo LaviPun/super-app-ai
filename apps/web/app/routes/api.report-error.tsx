@@ -1,6 +1,7 @@
 import { json } from '@remix-run/node';
 import type { ActionFunctionArgs } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
+import { internalSessionStorage } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import { ErrorLogService } from '~/services/observability/error-log.service';
 import type { ErrorLogSource } from '~/services/observability/error-log.service';
@@ -24,6 +25,20 @@ function getClientIp(request: Request): string {
   return 'unknown';
 }
 
+/**
+ * Internal-admin pages have no Shopify session (they use their own cookie
+ * session, see ~/internal-admin/session.server.ts), so error reports from
+ * /internal/* are authorized via the internal-admin cookie instead.
+ */
+async function isInternalAdminRequest(request: Request): Promise<boolean> {
+  try {
+    const session = await internalSessionStorage.getSession(request.headers.get('cookie'));
+    return session.get('internal_admin') === true;
+  } catch {
+    return false;
+  }
+}
+
 function sanitizeMeta(meta: unknown): unknown {
   if (meta == null) return undefined;
   try {
@@ -44,12 +59,16 @@ export async function action({ request }: ActionFunctionArgs) {
     return json({ error: 'Method not allowed' }, { status: 405 });
   }
 
-  let session: { shop: string };
+  let shopDomain: string | null = null;
+  let isInternalAdmin = false;
   try {
     const auth = await shopify.authenticate.admin(request);
-    session = auth.session;
+    shopDomain = auth.session.shop;
   } catch {
-    return json({ error: 'Unauthorized' }, { status: 401 });
+    isInternalAdmin = await isInternalAdminRequest(request);
+    if (!isInternalAdmin) {
+      return json({ error: 'Unauthorized' }, { status: 401 });
+    }
   }
 
   const clientIp = getClientIp(request);
@@ -79,7 +98,7 @@ export async function action({ request }: ActionFunctionArgs) {
   const meta = sanitizeMeta(body.meta);
 
   const prisma = getPrisma();
-  const shop = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
+  const shop = shopDomain ? await prisma.shop.findUnique({ where: { shopDomain } }) : null;
   const shopId = shop?.id;
 
   const errLog = new ErrorLogService();
@@ -89,7 +108,7 @@ export async function action({ request }: ActionFunctionArgs) {
   const activity = new ActivityLogService();
   await activity
     .log({
-      actor: 'MERCHANT',
+      actor: isInternalAdmin ? 'INTERNAL_ADMIN' : 'MERCHANT',
       action: 'REQUEST_ERROR',
       resource: route ?? request.url,
       shopId,

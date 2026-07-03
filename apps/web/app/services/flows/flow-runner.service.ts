@@ -48,6 +48,7 @@ type FlowStep = {
   channel?: string;
   tag?: string;
   note?: string;
+  text?: string;
   storeKey?: string;
   titleExpr?: string;
   payloadMapping?: Record<string, unknown>;
@@ -62,7 +63,16 @@ type FlowStep = {
     headerName?: string;
     headerValue?: string;
   };
+  // CONDITION step
+  field?: string;
+  operator?: string;
+  value?: string;
+  thenSteps?: FlowStep[];
+  elseSteps?: FlowStep[];
 };
+
+/** Max nesting depth for CONDITION branches (guards handcrafted specs). */
+const MAX_CONDITION_DEPTH = 3;
 
 type FlowAutomationSpec = RecipeSpec & {
   type: 'flow.automation';
@@ -180,13 +190,21 @@ export class FlowRunnerService {
     shopDomain: string,
     admin: AdminApiContext['admin'],
     step: FlowStep,
-    event: unknown
+    event: unknown,
+    depth = 0
   ): Promise<unknown> {
+    // CONDITION runs once, without outer retries: its nested steps already
+    // retry individually, and retrying the whole branch would re-run side
+    // effects of nested steps that had already succeeded.
+    if (step.kind === 'CONDITION') {
+      return this.executeStep(shopDomain, admin, step, event, depth);
+    }
+
     let lastErr: unknown;
 
     for (let attempt = 0; attempt <= MAX_STEP_RETRIES; attempt++) {
       try {
-        return await this.executeStep(shopDomain, admin, step, event);
+        return await this.executeStep(shopDomain, admin, step, event, depth);
       } catch (err) {
         lastErr = err;
         if (attempt < MAX_STEP_RETRIES) {
@@ -198,8 +216,21 @@ export class FlowRunnerService {
     throw lastErr;
   }
 
-  private async executeStep(shopDomain: string, admin: AdminApiContext['admin'], step: FlowStep, event: unknown): Promise<unknown> {
+  private async executeStep(shopDomain: string, admin: AdminApiContext['admin'], step: FlowStep, event: unknown, depth = 0): Promise<unknown> {
     const flowEvent = (event ?? {}) as FlowEvent;
+
+    if (step.kind === 'CONDITION') {
+      if (depth >= MAX_CONDITION_DEPTH) {
+        throw new Error(`CONDITION nesting exceeds max depth of ${MAX_CONDITION_DEPTH}`);
+      }
+      const matched = evaluateCondition(event, step.field, step.operator, step.value);
+      const branch = (matched ? step.thenSteps : step.elseSteps) ?? [];
+      const outputs: unknown[] = [];
+      for (const sub of branch) {
+        outputs.push(await this.executeStepWithRetry(shopDomain, admin, sub, event, depth + 1));
+      }
+      return { condition: matched, branch: matched ? 'then' : 'else', executed: branch.length, outputs };
+    }
     if (step.kind === 'HTTP_REQUEST') {
       if (!step.connectorId || !step.path) {
         return { skipped: true, reason: 'missing connectorId or path' };
@@ -268,7 +299,8 @@ export class FlowRunnerService {
           stepId: 'SEND_SLACK_MESSAGE',
           tenantId: shopDomain,
           operation: 'webhook.send',
-          inputs: { webhookUrl, text: step.body ?? step.note ?? `Flow event from ${shopDomain}` },
+          // The builder stores the authored message in `text`; older specs used `body`/`note`.
+          inputs: { webhookUrl, text: step.text ?? step.body ?? step.note ?? `Flow event from ${shopDomain}` },
           timeoutMs: 10000,
         },
       );
@@ -302,16 +334,6 @@ export class FlowRunnerService {
         store = await dss.getStoreByKey(shopRow.id, storeKey);
       }
       if (!store) return { written: false, reason: 'store not found' };
-
-      const readPath = (root: unknown, dotted: string): unknown => {
-        const parts = dotted.split('.');
-        let val: unknown = root;
-        for (const p of parts) {
-          if (val == null || typeof val !== 'object') return undefined;
-          val = (val as Record<string, unknown>)[p];
-        }
-        return val;
-      };
 
       const title = step.titleExpr
         ? String(step.titleExpr).replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (_, path: string) => {
@@ -393,6 +415,50 @@ async function addOrderNote(admin: AdminApiContext['admin'], orderId: string, no
 
 function sleep(ms: number) {
   return new Promise(r => setTimeout(r, ms));
+}
+
+/** Read a dot-path (e.g. "customer.orders_count") out of the trigger event. */
+function readPath(root: unknown, dotted: string): unknown {
+  const parts = dotted.split('.');
+  let val: unknown = root;
+  for (const p of parts) {
+    if (val == null || typeof val !== 'object') return undefined;
+    val = (val as Record<string, unknown>)[p];
+  }
+  return val;
+}
+
+/**
+ * Evaluate a CONDITION step against the trigger event. Numeric comparison is
+ * used when both sides parse as numbers; otherwise string comparison.
+ */
+function evaluateCondition(event: unknown, field?: string, operator?: string, value?: string): boolean {
+  const raw = field ? readPath(event, field) : undefined;
+
+  if (operator === 'is_set') return raw !== undefined && raw !== null && raw !== '';
+  if (operator === 'is_not_set') return raw === undefined || raw === null || raw === '';
+
+  const expected = value ?? '';
+  const actualStr = raw == null ? '' : String(raw);
+  const actualNum = typeof raw === 'number' ? raw : Number(actualStr);
+  const expectedNum = Number(expected);
+  const bothNumeric =
+    actualStr.trim() !== '' && !Number.isNaN(actualNum) &&
+    expected.trim() !== '' && !Number.isNaN(expectedNum);
+
+  switch (operator) {
+    case 'equal_to': return bothNumeric ? actualNum === expectedNum : actualStr === expected;
+    case 'not_equal_to': return bothNumeric ? actualNum !== expectedNum : actualStr !== expected;
+    case 'greater_than': return bothNumeric && actualNum > expectedNum;
+    case 'less_than': return bothNumeric && actualNum < expectedNum;
+    case 'greater_than_or_equal': return bothNumeric && actualNum >= expectedNum;
+    case 'less_than_or_equal': return bothNumeric && actualNum <= expectedNum;
+    case 'contains': return actualStr.includes(expected);
+    case 'not_contains': return !actualStr.includes(expected);
+    case 'starts_with': return actualStr.startsWith(expected);
+    case 'ends_with': return actualStr.endsWith(expected);
+    default: throw new Error(`Unknown condition operator: ${String(operator)}`);
+  }
 }
 
 async function executeSendHttpRequest(step: FlowStep): Promise<unknown> {

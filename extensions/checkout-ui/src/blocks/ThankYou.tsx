@@ -11,7 +11,7 @@ function ThankYouBlock() {
   if (result.status === 'loading') return <s-text>Loading...</s-text>;
   if (result.status !== 'ready') return null;
 
-  return <CheckoutBlockRenderer config={result.config} />;
+  return <CheckoutBlockRenderer offers={result.offers} />;
 }
 
 export default async function extension() {

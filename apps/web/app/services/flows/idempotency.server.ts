@@ -36,6 +36,26 @@ export async function checkAndMarkWebhookEvent(opts: {
   }
 }
 
+/**
+ * Release a previously claimed webhook event.
+ *
+ * Used when processing fails after `checkAndMarkWebhookEvent` claimed the event:
+ * deleting the row lets Shopify's redelivery of the same X-Shopify-Webhook-Id be
+ * treated as new and re-processed instead of being dropped as a duplicate.
+ */
+export async function unmarkWebhookEvent(opts: {
+  shopDomain: string;
+  topic: string;
+  eventId: string;
+}): Promise<void> {
+  if (process.env.NODE_ENV === 'test') return;
+
+  const prisma = getPrisma();
+  await prisma.webhookEvent.deleteMany({
+    where: { shopDomain: opts.shopDomain, topic: opts.topic, eventId: opts.eventId },
+  });
+}
+
 /** Extract the Shopify webhook event ID from request headers. */
 export function extractWebhookEventId(request: Request): string {
   // Shopify normally provides X-Shopify-Webhook-Id. If it's missing (e.g. proxies or replay tools),

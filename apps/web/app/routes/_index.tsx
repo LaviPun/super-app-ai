@@ -6,13 +6,23 @@ import { QuotaService } from '~/services/billing/quota.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
   Icon, Card, CardHead, PageHead, Sparkline, StatusBadge, fmtNum, titleCase,
-  ACTIVITY,
 } from '~/components/superapp';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const TYPE_ICON: Record<string, string> = { 'Storefront UI': 'desktop', 'Function': 'bolt', 'Integration': 'connect', 'Flow': 'flow', 'Data store': 'database' };
 const TYPE_COLOR: Record<string, string> = { 'Storefront UI': 'info', 'Function': 'warning', 'Integration': 'magic', 'Flow': 'success', 'Data store': 'info' };
+
+function relativeTime(iso: string): string {
+  const secs = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (secs < 60) return secs + 's ago';
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return mins + 'm ago';
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  const days = Math.round(hrs / 24);
+  return days === 1 ? 'Yesterday' : days + 'd ago';
+}
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -26,7 +36,10 @@ export async function loader({ request }: { request: Request }) {
     });
   }
 
-  const [moduleCount, publishedCount, draftCount, scheduleCount, sub, recentModules, usage] = await Promise.all([
+  const since30d = new Date(Date.now() - 30 * 86400000);
+  const since14d = new Date(Date.now() - 14 * 86400000);
+
+  const [moduleCount, publishedCount, draftCount, scheduleCount, sub, recentModules, usage, views30d, viewRows14d, recentActivity] = await Promise.all([
     prisma.module.count({ where: { shopId: shopRow.id } }),
     prisma.module.count({ where: { shopId: shopRow.id, status: 'PUBLISHED' } }),
     prisma.module.count({ where: { shopId: shopRow.id, status: 'DRAFT' } }),
@@ -34,7 +47,28 @@ export async function loader({ request }: { request: Request }) {
     prisma.appSubscription.findFirst({ where: { shopId: shopRow.id, status: 'ACTIVE' } }),
     prisma.module.findMany({ where: { shopId: shopRow.id }, orderBy: { updatedAt: 'desc' }, take: 4, select: { id: true, name: true, type: true, status: true } }),
     quota.getUsageSummary(shopRow.id),
+    prisma.moduleMetricsDaily.aggregate({ where: { shopId: shopRow.id, date: { gte: since30d } }, _sum: { impressions: true } }),
+    prisma.moduleMetricsDaily.findMany({
+      where: { shopId: shopRow.id, date: { gte: since14d } },
+      select: { date: true, impressions: true },
+      orderBy: { date: 'asc' },
+      take: 2000,
+    }),
+    prisma.activityLog.findMany({
+      where: { shopId: shopRow.id },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      select: { id: true, action: true, resource: true, createdAt: true },
+    }),
   ]);
+
+  // Bucket real daily impressions into a 14-slot series for the sparkline.
+  const spark: number[] = Array.from({ length: 14 }, () => 0);
+  for (const row of viewRows14d) {
+    const idx = 13 - Math.min(13, Math.max(0, Math.floor((Date.now() - new Date(row.date).getTime()) / 86400000)));
+    spark[idx] = (spark[idx] ?? 0) + row.impressions;
+  }
+  const hasViewData = viewRows14d.length > 0;
 
   const activeSchedules = await prisma.flowSchedule.count({ where: { shopId: shopRow.id, isActive: true } });
   const aiLimit = usage.quotas?.aiRequestsPerMonth ?? 0;
@@ -50,6 +84,7 @@ export async function loader({ request }: { request: Request }) {
       activeSchedules,
       planName: sub?.planName ?? 'Free',
       workflowRuns: usage.used?.workflowRuns ?? 0,
+      views30d: views30d._sum.impressions ?? 0,
     },
     usage: {
       aiRequests: aiUsed,
@@ -57,6 +92,14 @@ export async function loader({ request }: { request: Request }) {
       aiLeft: aiLimit === -1 ? null : Math.max(0, aiLimit - aiUsed),
     },
     recentModules: recentModules.map(m => ({ id: m.id, name: m.name, type: m.type, status: m.status })),
+    spark,
+    hasViewData,
+    activity: recentActivity.map(a => ({
+      id: a.id,
+      action: a.action,
+      resource: a.resource ?? '—',
+      created: relativeTime(a.createdAt.toISOString()),
+    })),
   });
 }
 
@@ -111,12 +154,11 @@ function MStat({ label, value, sub, dir, href }: any) {
 }
 
 export default function Dashboard() {
-  const { shop, stats, usage, recentModules } = useLoaderData<typeof loader>();
+  const { shop, stats, usage, recentModules, spark, hasViewData, activity } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
   const ownerFirst = (shop.split('.')[0] ?? 'there').replace(/[-_]/g, ' ').split(' ')[0] ?? 'there';
   const greetHour = new Date().getHours();
   const greet = greetHour < 12 ? 'Good morning' : greetHour < 18 ? 'Good afternoon' : 'Good evening';
-  const spark = [18, 22, 16, 28, 24, 31, 27, 35, 30, 38, 33, 42, 39, 48];
 
   const aiLeftLabel = usage.aiLeft == null ? '—' : fmtNum(usage.aiLeft);
   const aiOfLabel = usage.aiLimit == null ? 'unlimited' : `of ${fmtNum(usage.aiLimit)} this month`;
@@ -132,7 +174,7 @@ export default function Dashboard() {
         <div style={{ marginBottom: 24 }}><MHomeQuickActions /></div>
 
         <div className="grid grid-4" style={{ marginBottom: 24 }}>
-          <MStat label="Revenue attributed" value="$18,420" sub="12.4% vs last 30 days" dir="up" href="/analytics" />
+          <MStat label="Module views" value={fmtNum(stats.views30d)} sub="last 30 days" href="/analytics" />
           <MStat label="Published modules" value={stats.published} sub={`${stats.drafts} in draft`} href="/modules" />
           <MStat label="Active flows" value={stats.activeSchedules} sub={`${fmtNum(stats.workflowRuns)} runs this month`} href="/flows" />
           <MStat label="AI credits left" value={aiLeftLabel} sub={aiOfLabel} href="/billing" />
@@ -140,13 +182,19 @@ export default function Dashboard() {
 
         <div className="col-main" style={{ marginBottom: 24 }}>
           <Card>
-            <CardHead title="Attributed revenue" sub="Last 14 days" actions={<Link to="/analytics" className="btn btn-plain btn-sm">Insights</Link>} />
-            <div style={{ padding: '12px 20px 20px' }}>
-              <Sparkline data={spark} color="var(--p-success)" w={760} h={150} />
-              <div className="row spread t-xs t-muted" style={{ marginTop: 8 }}>
-                <span>14 days ago</span><span>Today</span>
+            <CardHead title="Module views" sub="Last 14 days" actions={<Link to="/analytics" className="btn btn-plain btn-sm">Insights</Link>} />
+            {hasViewData ? (
+              <div style={{ padding: '12px 20px 20px' }}>
+                <Sparkline data={spark} color="var(--p-success)" w={760} h={150} />
+                <div className="row spread t-xs t-muted" style={{ marginTop: 8 }}>
+                  <span>14 days ago</span><span>Today</span>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div style={{ padding: '20px', color: 'var(--p-text-secondary)', fontSize: 13 }}>
+                No storefront views recorded yet — publish a module to start tracking.
+              </div>
+            )}
           </Card>
           <Card>
             <CardHead title="Your modules" actions={<Link to="/modules" className="btn btn-plain btn-sm">View all</Link>} />
@@ -174,7 +222,8 @@ export default function Dashboard() {
         <Card>
           <CardHead title="Recent activity" actions={<Link to="/activity" className="btn btn-plain btn-sm">View all</Link>} />
           <div className="rlist">
-            {ACTIVITY.filter((a: any) => a.actor === 'MERCHANT').slice(0, 5).map((a: any) => (
+            {activity.length === 0 && <div style={{ padding: '20px', color: 'var(--p-text-secondary)', fontSize: 13 }}>No activity yet — actions on your store will show up here.</div>}
+            {activity.map((a) => (
               <div key={a.id} className="ritem" onClick={() => navigate('/activity')} style={{ cursor: 'pointer' }}>
                 <span className="tile-ico" style={{ width: 32, height: 32, background: 'var(--p-surface-secondary)', color: 'var(--p-text-secondary)' }}>
                   <Icon name="live" size={15} />

@@ -1,17 +1,180 @@
 import { json } from '@remix-run/node';
-import { useNavigate, useLocation, useFetcher } from '@remix-run/react';
+import { useNavigate, useLocation, useFetcher, useLoaderData } from '@remix-run/react';
 import { useEffect, useRef, useState } from 'react';
+import { RecipeSpecSchema } from '@superapp/core';
 import { shopify } from '~/shopify.server';
+import { getPrisma } from '~/db.server';
+import { QuotaService } from '~/services/billing/quota.service';
+import { ThemeService } from '~/services/shopify/theme.service';
+import { CapabilityService } from '~/services/shopify/capability.service';
+import { enforceRateLimit } from '~/services/security/rate-limit.server';
+import { withApiLogging } from '~/services/observability/api-log.service';
+import { JobService } from '~/services/jobs/job.service';
+import { modifyRecipeSpec, AiProviderNotConfiguredError } from '~/services/ai/llm.server';
+import { validateBeforePublish } from '~/services/publish/pre-publish-validator.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { Icon, Btn, Badge, StatusBadge, Field, Input, Textarea, Select, Toggle, Banner, titleCase } from '~/components/superapp';
+import { Icon, Btn, Badge, StatusBadge, Field, Input, Textarea, Select, Toggle, Banner, EmptyState, titleCase } from '~/components/superapp';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// Embedded routes require Shopify auth; the loader just authenticates so a
-// non-authed request 302-redirects rather than 500s.
+// Embedded route: authenticates, then loads the real AI-credit balance (same
+// QuotaService source as the dashboard) and the store's themes so Publish can
+// target the live theme for theme.* modules.
 export async function loader({ request }: { request: Request }) {
-  await shopify.authenticate.admin(request);
-  return json({ ok: true });
+  const { session, admin } = await shopify.authenticate.admin(request);
+  const prisma = getPrisma();
+  let shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
+  if (!shopRow) {
+    shopRow = await prisma.shop.create({
+      data: { shopDomain: session.shop, accessToken: session.accessToken ?? '', planTier: 'FREE' },
+    });
+  }
+
+  const quota = new QuotaService();
+  const [usage, themes] = await Promise.all([
+    quota.getUsageSummary(shopRow.id),
+    (async () => {
+      // Best-effort: publish needs a theme id for theme.* modules; failure to
+      // list themes just means the server will reject publish with a real error.
+      try {
+        const raw = await new ThemeService(admin).listThemes();
+        return raw
+          .map((t) => ({ id: Number(t.id), name: String(t.name ?? ''), role: String(t.role ?? '').toLowerCase() }))
+          .filter((t) => Number.isFinite(t.id) && t.id > 0);
+      } catch {
+        return [] as { id: number; name: string; role: string }[];
+      }
+    })(),
+  ]);
+
+  const aiLimit = usage.quotas?.aiRequestsPerMonth ?? 0;
+  const aiUsed = usage.used?.aiRequests ?? 0;
+  const main = themes.find((t) => t.role === 'main');
+  return json({
+    aiLeft: aiLimit === -1 ? null : Math.max(0, aiLimit - aiUsed),
+    defaultThemeId: main ? String(main.id) : themes[0] ? String(themes[0].id) : null,
+  });
+}
+
+/**
+ * Route action — two real intents used by the workspace:
+ *  - refine:   AI-modifies the selected concept's RecipeSpec (quota-enforced,
+ *              job-logged; same service the module modify API uses).
+ *  - validate: runs the real schema + pre-publish validator on the concept.
+ */
+export async function action({ request }: { request: Request }) {
+  const { session, admin } = await shopify.authenticate.admin(request);
+
+  return withApiLogging(
+    { actor: 'MERCHANT', method: request.method, path: '/generate', request, captureRequestBody: true, captureResponseBody: true },
+    async () => {
+      const form = await request.formData();
+      const intent = String(form.get('intent') ?? '').trim();
+      const specJson = String(form.get('spec') ?? '').trim();
+      if (!specJson) return json({ error: 'Missing spec' }, { status: 400 });
+
+      let specRaw: unknown;
+      try {
+        specRaw = JSON.parse(specJson);
+      } catch {
+        return json({ error: 'Invalid spec JSON' }, { status: 400 });
+      }
+
+      if (intent === 'validate') {
+        const parsed = RecipeSpecSchema.safeParse(specRaw);
+        if (!parsed.success) {
+          return json({
+            intent: 'validate',
+            ok: false,
+            schemaOk: false,
+            planTier: null,
+            errors: parsed.error.issues.slice(0, 10).map((i) => ({
+              code: 'SCHEMA_INVALID',
+              message: `${i.path.join('.') || 'spec'}: ${i.message}`,
+            })),
+          });
+        }
+        const caps = new CapabilityService();
+        let tier = await caps.getPlanTier(session.shop);
+        if (tier === 'UNKNOWN') tier = await caps.refreshPlanTier(session.shop, admin);
+        const errors = validateBeforePublish(parsed.data, { planTier: tier });
+        return json({ intent: 'validate', ok: errors.length === 0, schemaOk: true, planTier: tier, errors });
+      }
+
+      if (intent === 'refine') {
+        await enforceRateLimit(`ai:${session.shop}`);
+        const instruction = String(form.get('instruction') ?? '').trim();
+        if (!instruction) return json({ error: 'Missing instruction' }, { status: 400 });
+
+        let spec;
+        try {
+          spec = RecipeSpecSchema.parse(specRaw);
+        } catch (err) {
+          return json({ error: `Invalid RecipeSpec: ${String(err)}` }, { status: 400 });
+        }
+
+        const prisma = getPrisma();
+        const shopRow = await prisma.shop.upsert({
+          where: { shopDomain: session.shop },
+          create: { shopDomain: session.shop, accessToken: '', planTier: 'UNKNOWN' },
+          update: {},
+        });
+
+        const quota = new QuotaService();
+        await quota.enforce(shopRow.id, 'aiRequest');
+
+        const jobs = new JobService();
+        const job = await jobs.create({
+          shopId: shopRow.id,
+          type: 'AI_MODIFY',
+          payload: { source: 'generate_refine', instructionLen: instruction.length, specType: spec.type },
+        });
+        await jobs.start(job.id);
+
+        try {
+          const modified = await modifyRecipeSpec(
+            spec,
+            `Keep the module type unchanged.\n\nInstruction: ${instruction}`,
+            { shopId: shopRow.id, maxAttempts: 2 },
+          );
+          const changedPaths = diffSpecPaths(spec, modified);
+          await jobs.succeed(job.id, { changed: changedPaths.length });
+
+          const usage = await quota.getUsageSummary(shopRow.id);
+          const aiLimit = usage.quotas?.aiRequestsPerMonth ?? 0;
+          const creditsLeft = aiLimit === -1 ? null : Math.max(0, aiLimit - (usage.used?.aiRequests ?? 0));
+          const summary = changedPaths.length
+            ? `Applied — updated ${changedPaths.slice(0, 6).join(', ')}${changedPaths.length > 6 ? ` and ${changedPaths.length - 6} more field(s)` : ''}.`
+            : 'The AI returned a revised spec with no detectable field changes — try a more specific instruction.';
+          return json({ intent: 'refine', ok: true, recipe: modified, summary, changedPaths, creditsLeft });
+        } catch (e) {
+          await jobs.fail(job.id, e);
+          if (e instanceof AiProviderNotConfiguredError) {
+            return json({ error: e.code, message: e.message }, { status: 503 });
+          }
+          return json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+        }
+      }
+
+      return json({ error: 'Unknown intent' }, { status: 400 });
+    },
+  );
+}
+
+/** Dotted paths (depth ≤ 3) where two specs differ — real change report for the refine chat. */
+function diffSpecPaths(a: unknown, b: unknown, prefix = '', depth = 0, out: string[] = []): string[] {
+  if (out.length >= 24) return out;
+  const isObj = (x: unknown) => typeof x === 'object' && x !== null && !Array.isArray(x);
+  if (depth >= 3 || !isObj(a) || !isObj(b)) {
+    if (JSON.stringify(a) !== JSON.stringify(b)) out.push(prefix || 'spec');
+    return out;
+  }
+  const keys = new Set([...Object.keys(a as object), ...Object.keys(b as object)]);
+  for (const k of keys) {
+    diffSpecPaths((a as any)[k], (b as any)[k], prefix ? `${prefix}.${k}` : k, depth + 1, out);
+    if (out.length >= 24) break;
+  }
+  return out;
 }
 
 // Multi-module blueprint returned alongside the single-module options when the
@@ -27,8 +190,8 @@ type BlueprintResult = {
 const RADIUS_MAP: Record<string, number> = { none: 0, sm: 6, md: 10, lg: 16, full: 999 };
 const SIZE_MAP: Record<string, { h: number; f: number }> = { S: { h: 38, f: 13 }, M: { h: 46, f: 15 }, L: { h: 54, f: 17 } };
 const SHADOW_MAP: Record<string, string> = { none: 'none', sm: '0 1px 2px rgba(20,33,58,.12)', md: '0 4px 12px rgba(20,33,58,.16)', lg: '0 12px 28px rgba(20,33,58,.22)' };
+// Each refine is one AI request against the monthly quota (enforced server-side).
 const COST_PER_CHANGE = 1;
-const START_CREDITS = 1138;
 
 const GEN_STEPS = [
   { icon: 'magic', label: 'Understanding your request' },
@@ -42,36 +205,114 @@ const BASE_SETTINGS = {
   label: 'Add to cart', price: '$48.00', buttonColor: '#1F3A5F', buttonText: '#FFFFFF',
   bg: '#FFFFFF', radius: 'md', size: 'M', mode: 'sticky', anchor: 'bottom', width: 'full',
   shadow: 'lg', hideMobile: false, showQty: true, showVariants: true, countdown: false,
+  customCss: '',
 };
 
-// Visual concept presets — mirror the prototype's 3 layout concepts. The real
-// AI recipe (returned by /api/ai/create-module) is attached per concept so
-// "Publish"/"Save draft" can create the real module.
+// Visual concept presets — icon/accent/default layout per slot. Real data (name,
+// tagline, tags, type) comes from the AI recipe attached to each concept.
 const CONCEPT_PRESETS = [
   {
-    id: 'sticky', name: 'Sticky Buy Bar', type: 'Storefront UI', icon: 'desktop', accent: '#6B40D8',
-    tagline: 'Locks a full-width buy bar to the bottom of every product page.',
-    tags: ['Variant picker', 'Quantity stepper', 'Add-to-cart'],
+    id: 'sticky', name: 'Concept 1', icon: 'desktop', accent: '#6B40D8',
     settings: { ...BASE_SETTINGS, mode: 'sticky', anchor: 'bottom', buttonColor: '#1F3A5F', radius: 'md', shadow: 'lg' },
-    intro: 'Done. I built a **Sticky Buy Bar** — it pins a full-width add-to-cart bar to the bottom of the product page so the buy action is always one tap away.',
   },
   {
-    id: 'floating', name: 'Floating Action Button', type: 'Storefront UI', icon: 'cart', accent: '#0E9F6E',
-    tagline: 'A compact pill that floats bottom-right and follows the shopper.',
-    tags: ['Add-to-cart', 'Price badge'],
+    id: 'floating', name: 'Concept 2', icon: 'cart', accent: '#0E9F6E',
     settings: { ...BASE_SETTINGS, mode: 'floating', buttonColor: '#0E9F6E', radius: 'full', shadow: 'lg', showVariants: false, showQty: false, size: 'L' },
-    intro: 'Done. I built a **Floating Action Button** — a compact pill anchored to the bottom-right that stays in reach as the shopper scrolls.',
   },
   {
-    id: 'inline', name: 'Inline Buy Block', type: 'Storefront UI', icon: 'layers', accent: '#2F80ED',
-    tagline: 'Sits inside the product details with urgency built in.',
-    tags: ['Variant picker', 'Quantity stepper', 'Countdown', 'Add-to-cart'],
+    id: 'inline', name: 'Concept 3', icon: 'layers', accent: '#2F80ED',
     settings: { ...BASE_SETTINGS, mode: 'inline', buttonColor: '#14213A', radius: 'lg', bg: '#F6F8FB', countdown: true },
-    intro: 'Done. I built an **Inline Buy Block** — it places the add-to-cart controls right inside the product details, framed in a soft card with an urgency countdown.',
   },
 ];
 
-type Concept = typeof CONCEPT_PRESETS[number] & { recipe?: Record<string, unknown>; explanation?: string };
+type Concept = typeof CONCEPT_PRESETS[number] & {
+  recipe?: Record<string, unknown>;
+  explanation?: string;
+  type: string;
+  tagline: string;
+  tags: string[];
+  intro: string;
+};
+
+const STOREFRONT_TYPES = ['theme.section', 'proxy.widget'];
+const SIZE_TO_TYPO: Record<string, string> = { S: 'SM', M: 'MD', L: 'LG' };
+const TYPO_TO_SIZE: Record<string, string> = { SM: 'S', MD: 'M', LG: 'L' };
+
+/** Display label for a real RecipeSpec type. */
+function displayType(t?: unknown): string {
+  const s = String(t ?? '');
+  if (!s) return 'Module';
+  if (s.startsWith('theme.') || s === 'proxy.widget') return 'Storefront UI';
+  if (/flow/i.test(s)) return 'Flow';
+  if (/function|discount|cartTransform/i.test(s)) return 'Function';
+  if (/integration|connector|webhook|pixel/i.test(s)) return 'Integration';
+  return titleCase(s.replace(/\./g, ' '));
+}
+
+/** Real tags for a concept card, derived from the recipe (never invented). */
+function tagsFromRecipe(recipe?: Record<string, unknown> | null): string[] {
+  if (!recipe) return [];
+  const cfg = (recipe.config as Record<string, unknown>) ?? {};
+  const tags = [cfg.kind, cfg.activation]
+    .filter((x): x is string => typeof x === 'string' && x.length > 0)
+    .map((x) => titleCase(x));
+  return tags.length ? tags : [displayType(recipe.type)];
+}
+
+/**
+ * Persist the merchant's control-panel tweaks into the recipe that gets saved:
+ * layout/colors/shape/typography/responsive/customCss map onto the real `style`
+ * pack (storefront types), content settings onto `config` (theme.section config
+ * is an open object; strict configs simply strip unknown keys server-side).
+ */
+function mergeSettingsIntoRecipe(recipe: Record<string, unknown>, s: any): Record<string, unknown> {
+  const config = { ...((recipe.config as Record<string, unknown>) ?? {}) };
+  config.label = s.label;
+  config.price = s.price;
+  config.showQty = !!s.showQty;
+  config.showVariants = !!s.showVariants;
+  config.countdown = !!s.countdown;
+  const merged: Record<string, unknown> = { ...recipe, config };
+  if (STOREFRONT_TYPES.includes(String(recipe.type))) {
+    const style = { ...((recipe.style as Record<string, any>) ?? {}) };
+    style.layout = { ...(style.layout ?? {}), mode: s.mode, anchor: s.anchor, width: s.width };
+    style.colors = { ...(style.colors ?? {}), background: s.bg, buttonBg: s.buttonColor, buttonText: s.buttonText };
+    style.shape = { ...(style.shape ?? {}), radius: s.radius, shadow: s.shadow };
+    style.typography = { ...(style.typography ?? {}), size: SIZE_TO_TYPO[s.size] ?? 'MD' };
+    style.responsive = { ...(style.responsive ?? {}), hideOnMobile: !!s.hideMobile };
+    const css = String(s.customCss ?? '').trim();
+    if (css) style.customCss = css.slice(0, 2000);
+    else delete style.customCss;
+    merged.style = style;
+  }
+  return merged;
+}
+
+/** Reverse mapping: seed/update the control panel from what the recipe really says. */
+function settingsFromRecipe(recipe?: Record<string, unknown> | null): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (!recipe) return out;
+  const config = (recipe.config as Record<string, unknown>) ?? {};
+  if (typeof config.label === 'string') out.label = config.label;
+  if (typeof config.price === 'string') out.price = config.price;
+  if (typeof config.showQty === 'boolean') out.showQty = config.showQty;
+  if (typeof config.showVariants === 'boolean') out.showVariants = config.showVariants;
+  if (typeof config.countdown === 'boolean') out.countdown = config.countdown;
+  const style = (recipe.style as Record<string, any>) ?? null;
+  if (style) {
+    if (style.layout?.mode && ['sticky', 'inline', 'floating'].includes(style.layout.mode)) out.mode = style.layout.mode;
+    if (style.layout?.anchor && ['top', 'bottom'].includes(style.layout.anchor)) out.anchor = style.layout.anchor;
+    if (typeof style.colors?.buttonBg === 'string') out.buttonColor = style.colors.buttonBg;
+    if (typeof style.colors?.buttonText === 'string') out.buttonText = style.colors.buttonText;
+    if (typeof style.colors?.background === 'string') out.bg = style.colors.background;
+    if (style.shape?.radius && RADIUS_MAP[style.shape.radius] !== undefined) out.radius = style.shape.radius;
+    if (style.shape?.shadow && SHADOW_MAP[style.shape.shadow] !== undefined) out.shadow = style.shape.shadow;
+    if (style.typography?.size && TYPO_TO_SIZE[style.typography.size]) out.size = TYPO_TO_SIZE[style.typography.size];
+    if (typeof style.responsive?.hideOnMobile === 'boolean') out.hideMobile = style.responsive.hideOnMobile;
+    if (typeof style.customCss === 'string') out.customCss = style.customCss;
+  }
+  return out;
+}
 
 export default function GeneratePage() {
   return (
@@ -85,10 +326,15 @@ function GenerateWorkspace() {
   const ctx = useMerchantCtx();
   const navigate = useNavigate();
   const location = useLocation();
-  const seed = (location.state as any) || { prompt: 'A sticky add-to-cart bar with a variant picker', type: 'ai' };
+  const loaderData = useLoaderData<typeof loader>();
+  const seed = (location.state as any) || null;
+  const seedPrompt = typeof seed?.prompt === 'string' ? seed.prompt.trim() : '';
 
   const proposeFetcher = useFetcher<{ options?: { index: number; explanation: string; recipe: Record<string, unknown> }[]; blueprint?: BlueprintResult | null; error?: string; message?: string }>();
   const confirmFetcher = useFetcher<{ moduleId?: string; recipeId?: string; firstModuleId?: string; moduleCount?: number; error?: string }>();
+  const refineFetcher = useFetcher<{ ok?: boolean; recipe?: Record<string, unknown>; summary?: string; changedPaths?: string[]; creditsLeft?: number | null; error?: string; message?: string }>();
+  const publishFetcher = useFetcher<{ error?: string }>();
+  const valFetcher = useFetcher<{ ok?: boolean; schemaOk?: boolean; planTier?: string | null; errors?: { code: string; message: string; field?: string }[]; error?: string }>();
   const [blueprint, setBlueprint] = useState<BlueprintResult | null>(null);
 
   const [phase, setPhase] = useState<'generating' | 'choosing' | 'ready'>('generating');
@@ -101,12 +347,18 @@ function GenerateWorkspace() {
   const [tab, setTab] = useState<'preview' | 'validation'>('preview');
   const [ctrlTab, setCtrlTab] = useState<'basic' | 'advanced' | 'css'>('basic');
   const [refine, setRefine] = useState('');
-  const [thinking, setThinking] = useState(false);
-  const [credits, setCredits] = useState(START_CREDITS);
+  // Real AI-credit balance from QuotaService (null = unlimited plan).
+  const [credits, setCredits] = useState<number | null>(loaderData.aiLeft);
   const [historyMap, setHistoryMap] = useState<Record<string, any[]>>({});
   const [dockOpen, setDockOpen] = useState(false);
   const [histOpen, setHistOpen] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
+  const finishRef = useRef<{ mode: 'draft' | 'publish'; conceptId: string } | null>(null);
+  const createdRef = useRef<{ conceptId: string; moduleId: string } | null>(null);
+  const pendingRefineRef = useRef<{ q: string; conceptId: string } | null>(null);
+  const handledConfirmRef = useRef<unknown>(null);
+  const handledRefineRef = useRef<unknown>(null);
+  const handledPublishRef = useRef<unknown>(null);
 
   const settings = settingsMap[selected ?? ''] || BASE_SETTINGS;
   const set = (patch: any) => setSettingsMap((m) => ({ ...m, [selected!]: { ...m[selected!], ...patch } }));
@@ -114,13 +366,21 @@ function GenerateWorkspace() {
   const history = historyMap[selected ?? ''] || [];
   const activeCand = candidates.find((c) => c.id === selected);
   const activeIdx = candidates.findIndex((c) => c.id === selected);
+  const thinking = refineFetcher.state !== 'idle';
+
+  // No seeded prompt (direct visit / refresh): never silently burn an AI
+  // generation on a canned prompt — send the merchant to the real prompt box.
+  useEffect(() => {
+    if (!seedPrompt) navigate('/modules?openBuilder=1', { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedPrompt]);
 
   // Kick off real generation when entering the generating phase.
   useEffect(() => {
-    if (phase !== 'generating') return;
+    if (phase !== 'generating' || !seedPrompt) return;
     if (proposeFetcher.state === 'idle' && !proposeFetcher.data) {
       const fd = new FormData();
-      fd.set('prompt', String(seed.prompt ?? ''));
+      fd.set('prompt', seedPrompt);
       fd.set('preferredType', 'Auto');
       fd.set('preferredCategory', 'Auto');
       fd.set('preferredBlockType', 'Auto');
@@ -139,7 +399,8 @@ function GenerateWorkspace() {
     return () => clearInterval(tick);
   }, [phase]);
 
-  // When real options arrive (or error), build the chooser.
+  // When real options arrive (or error), build the chooser — one concept per
+  // real AI option only (no preset-only concepts that could never be saved).
   useEffect(() => {
     if (proposeFetcher.state !== 'idle' || !proposeFetcher.data) return;
     if (proposeFetcher.data.error) {
@@ -147,19 +408,31 @@ function GenerateWorkspace() {
       navigate('/modules');
       return;
     }
-    const opts = proposeFetcher.data.options ?? [];
-    const concs: Concept[] = CONCEPT_PRESETS.map((p, i) => ({
-      ...p,
-      recipe: opts[i]?.recipe,
-      explanation: opts[i]?.explanation,
-      name: (opts[i]?.recipe?.name as string) || p.name,
-      intro: opts[i]?.explanation ? `Done. ${opts[i].explanation}` : p.intro,
-    }));
+    const opts = (proposeFetcher.data.options ?? []).slice(0, CONCEPT_PRESETS.length);
+    if (opts.length === 0) {
+      ctx.toast('The AI returned no valid concepts — please try again.', { error: true });
+      navigate('/modules');
+      return;
+    }
+    const concs: Concept[] = opts.map((opt, i) => {
+      const preset = CONCEPT_PRESETS[i]!;
+      const name = (opt.recipe?.name as string) || preset.name;
+      return {
+        ...preset,
+        recipe: opt.recipe,
+        explanation: opt.explanation,
+        name,
+        type: displayType(opt.recipe?.type),
+        tagline: opt.explanation || '',
+        tags: tagsFromRecipe(opt.recipe),
+        intro: opt.explanation ? `Done. ${opt.explanation}` : `Done. I generated “${name}” from your prompt.`,
+      };
+    });
     const sm: Record<string, any> = {}, tm: Record<string, any[]> = {}, hm: Record<string, any[]> = {};
     concs.forEach((c) => {
-      sm[c.id] = { ...c.settings };
+      sm[c.id] = { ...c.settings, ...settingsFromRecipe(c.recipe) };
       tm[c.id] = [
-        { role: 'user', text: String(seed.prompt ?? '') },
+        { role: 'user', text: seedPrompt },
         { role: 'assistant', text: c.intro + '\n\nUse the controls on the right to fine-tune it, or ask me to change anything below.' },
       ];
       hm[c.id] = [{ id: 'h_gen', label: 'Module generated', detail: `Created “${c.name}” from your prompt.`, cost: 1, time: 'Just now' }];
@@ -174,60 +447,132 @@ function GenerateWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proposeFetcher.state, proposeFetcher.data]);
 
-  // After confirm (real module created), go to the module detail.
+  // Publish the created module via the real publish pipeline. On success the
+  // server redirects to /modules/:id?published=1 (the fetcher follows it).
+  const submitPublish = (moduleId: string, conceptId: string) => {
+    const cand = candidates.find((c) => c.id === conceptId);
+    const fd = new FormData();
+    fd.set('moduleId', moduleId);
+    const isTheme = String((cand?.recipe as any)?.type ?? '').startsWith('theme.');
+    if (isTheme && loaderData.defaultThemeId) fd.set('themeId', loaderData.defaultThemeId);
+    publishFetcher.submit(fd, { method: 'post', action: '/api/publish' });
+  };
+
+  // After confirm (real module created): draft → module detail; publish → chain
+  // into /api/publish. Blueprint → first created module.
   useEffect(() => {
-    if (confirmFetcher.state === 'idle' && confirmFetcher.data?.firstModuleId) {
-      ctx.toast(`Blueprint created — ${confirmFetcher.data.moduleCount ?? 'multiple'} modules`);
-      navigate(`/modules?recipe=${confirmFetcher.data.recipeId}`);
+    if (confirmFetcher.state !== 'idle' || !confirmFetcher.data) return;
+    if (handledConfirmRef.current === confirmFetcher.data) return;
+    handledConfirmRef.current = confirmFetcher.data;
+    const data = confirmFetcher.data;
+    if (data.firstModuleId) {
+      ctx.toast(`Blueprint created — ${data.moduleCount ?? 'multiple'} modules`);
+      navigate(`/modules/${data.firstModuleId}`);
       return;
     }
-    if (confirmFetcher.state === 'idle' && confirmFetcher.data?.moduleId) {
-      ctx.toast('Module created');
-      navigate(`/modules/${confirmFetcher.data.moduleId}`);
-    } else if (confirmFetcher.state === 'idle' && confirmFetcher.data?.error) {
-      ctx.toast(confirmFetcher.data.error, { error: true });
+    if (data.moduleId) {
+      const pending = finishRef.current;
+      finishRef.current = null;
+      if (pending) createdRef.current = { conceptId: pending.conceptId, moduleId: data.moduleId };
+      if (pending?.mode === 'publish') {
+        submitPublish(data.moduleId, pending.conceptId);
+      } else {
+        ctx.toast('Draft saved');
+        navigate(`/modules/${data.moduleId}`);
+      }
+      return;
     }
+    if (data.error) ctx.toast(data.error, { error: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confirmFetcher.state, confirmFetcher.data]);
 
+  // Publish errors surface from the server; success is a server redirect.
+  useEffect(() => {
+    if (publishFetcher.state !== 'idle' || !publishFetcher.data) return;
+    if (handledPublishRef.current === publishFetcher.data) return;
+    handledPublishRef.current = publishFetcher.data;
+    const err = (publishFetcher.data as any)?.error;
+    if (err) ctx.toast(String(err), { error: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [publishFetcher.state, publishFetcher.data]);
+
+  // Refine result: update the concept's real recipe, mirror recognizable fields
+  // back into the control panel, and log the server-reported change.
+  useEffect(() => {
+    if (refineFetcher.state !== 'idle' || !refineFetcher.data) return;
+    if (handledRefineRef.current === refineFetcher.data) return;
+    handledRefineRef.current = refineFetcher.data;
+    const pending = pendingRefineRef.current;
+    pendingRefineRef.current = null;
+    const data = refineFetcher.data;
+    if (data.error || !data.ok || !data.recipe) {
+      ctx.toast(data.message || data.error || 'Refine failed', { error: true });
+      return;
+    }
+    const conceptId = pending?.conceptId;
+    if (!conceptId) return;
+    const recipe = data.recipe;
+    setCandidates((cs) => cs.map((c) => (c.id === conceptId ? { ...c, recipe, name: (recipe as any)?.name || c.name } : c)));
+    setSettingsMap((m) => ({ ...m, [conceptId]: { ...m[conceptId], ...settingsFromRecipe(recipe) } }));
+    setThreadMap((m) => ({ ...m, [conceptId]: [...(m[conceptId] || []), { role: 'assistant', text: data.summary || 'Change applied to the module spec.' }] }));
+    if (data.creditsLeft !== undefined) setCredits(data.creditsLeft);
+    setHistoryMap((m) => ({
+      ...m,
+      [conceptId]: [...(m[conceptId] || []), { id: 'h_' + Date.now(), label: pending?.q ?? 'AI refinement', detail: data.summary || 'Change applied.', cost: COST_PER_CHANGE, time: 'Just now' }],
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refineFetcher.state, refineFetcher.data]);
+
+  // Validation tab: run the real schema + pre-publish validator on the concept
+  // (including the merchant's current tweaks) whenever the tab is opened.
+  useEffect(() => {
+    if (tab !== 'validation' || !selected) return;
+    const cand = candidates.find((c) => c.id === selected);
+    if (!cand?.recipe) return;
+    const fd = new FormData();
+    fd.set('intent', 'validate');
+    fd.set('spec', JSON.stringify(mergeSettingsIntoRecipe(cand.recipe, settingsMap[selected] || BASE_SETTINGS)));
+    valFetcher.submit(fd, { method: 'post', action: '/generate' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, selected]);
+
   useEffect(() => { if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight; }, [thread, thinking, phase]);
 
+  // Real AI refine: posts the concept's current spec + instruction to this
+  // route's action, which runs the same modify pipeline as the module editor.
   const doRefine = (text?: string) => {
     const q = (text ?? refine).trim();
-    if (!q || !selected || credits <= 0) return;
+    if (!q || !selected || thinking) return;
+    if (credits !== null && credits <= 0) return;
+    const cand = candidates.find((c) => c.id === selected);
+    if (!cand?.recipe) {
+      ctx.toast('This concept has no generated spec to refine — regenerate first.', { error: true });
+      return;
+    }
     setThreadMap((m) => ({ ...m, [selected]: [...(m[selected] || []), { role: 'user', text: q }] }));
-    setRefine(''); setThinking(true);
-    const lower = q.toLowerCase();
-    setTimeout(() => {
-      let reply = 'Updated. Check the preview — let me know if you’d like anything else.';
-      let patch: any = null;
-      if (/green/.test(lower)) { patch = { buttonColor: '#0E9F6E' }; reply = 'Changed the button to brand green. The contrast still passes AA against white text.'; }
-      else if (/black|dark/.test(lower)) { patch = { buttonColor: '#14213A' }; reply = 'Switched the button to near-black for a bolder look.'; }
-      else if (/round|radius|pill/.test(lower)) { patch = { radius: 'full' }; reply = 'Made the button fully rounded (pill).'; }
-      else if (/countdown|timer|urgency/.test(lower)) { patch = { countdown: true }; reply = 'Added a small urgency countdown above the button.'; }
-      else if (/mobile/.test(lower)) { patch = { hideMobile: false, mode: 'sticky' }; reply = 'Kept the bar sticky on mobile too.'; }
-      else if (/float/.test(lower)) { patch = { mode: 'floating' }; reply = 'Switched to a floating button anchored bottom-right.'; }
-      else if (/big|large/.test(lower)) { patch = { size: 'L' }; reply = 'Bumped the button up to the large size.'; }
-      if (patch) setSettingsMap((m) => ({ ...m, [selected]: { ...m[selected], ...patch } }));
-      setThinking(false);
-      setThreadMap((m) => ({ ...m, [selected]: [...(m[selected] || []), { role: 'assistant', text: reply }] }));
-      setCredits((c) => Math.max(0, c - COST_PER_CHANGE));
-      setHistoryMap((m) => ({ ...m, [selected]: [...(m[selected] || []), { id: 'h_' + Date.now(), label: q, detail: reply, cost: COST_PER_CHANGE, time: 'Just now' }] }));
-    }, 1100);
+    setRefine('');
+    pendingRefineRef.current = { q, conceptId: selected };
+    const fd = new FormData();
+    fd.set('intent', 'refine');
+    fd.set('instruction', q);
+    fd.set('spec', JSON.stringify(mergeSettingsIntoRecipe(cand.recipe, settingsMap[selected] || BASE_SETTINGS)));
+    refineFetcher.submit(fd, { method: 'post', action: '/generate' });
   };
 
   const openConcept = (id: string) => { setSelected(id); setTab('preview'); setCtrlTab('basic'); setPhase('ready'); };
   const backToOptions = () => setPhase('choosing');
   const regenerate = () => {
     setCandidates([]); setSettingsMap({}); setThreadMap({}); setHistoryMap({}); setSelected(null);
+    createdRef.current = null;
+    finishRef.current = null;
     setPhase('generating');
     const fd = new FormData();
-    fd.set('prompt', String(seed.prompt ?? ''));
+    fd.set('prompt', seedPrompt);
     fd.set('preferredType', 'Auto'); fd.set('preferredCategory', 'Auto'); fd.set('preferredBlockType', 'Auto'); fd.set('matchStoreColors', 'true');
     proposeFetcher.submit(fd, { method: 'post', action: '/api/ai/create-module' });
   };
 
-  // Create the real module from the selected concept's AI recipe, then navigate.
+  // Create the real modules from the generated blueprint, then navigate.
   const finishBlueprint = () => {
     if (!blueprint) return;
     const fd = new FormData();
@@ -240,24 +585,39 @@ function GenerateWorkspace() {
     confirmFetcher.submit(fd, { method: 'post', action: '/api/ai/create-blueprint' });
   };
 
-  const finish = (fallbackMsg: string) => {
+  // Save/Publish: merge the merchant's tweaks into the selected concept's real
+  // recipe, create the draft module, and (for Publish) chain into /api/publish.
+  const finish = (mode: 'draft' | 'publish') => {
+    if (!selected) return;
     const recipe = activeCand?.recipe;
-    if (!recipe) { ctx.toast(fallbackMsg); navigate('/modules'); return; }
+    if (!recipe) {
+      ctx.toast('This concept has no generated spec — regenerate and pick again.', { error: true });
+      return;
+    }
+    const created = createdRef.current;
+    if (created && created.conceptId === selected) {
+      // Module already created (e.g. a previous publish attempt failed).
+      if (mode === 'publish') submitPublish(created.moduleId, selected);
+      else navigate(`/modules/${created.moduleId}`);
+      return;
+    }
+    finishRef.current = { mode, conceptId: selected };
     const fd = new FormData();
-    fd.set('spec', JSON.stringify(recipe));
+    fd.set('spec', JSON.stringify(mergeSettingsIntoRecipe(recipe, settings)));
     confirmFetcher.submit(fd, { method: 'post', action: '/api/ai/create-module-from-recipe' });
   };
 
-  if (phase === 'generating') return <GenLoading seed={seed} stepIdx={stepIdx} onCancel={() => navigate('/')} />;
-  if (phase === 'choosing') return <GenChoose seed={seed} candidates={candidates} settingsMap={settingsMap} onSelect={openConcept} onRegenerate={regenerate} onCancel={() => navigate('/')} />;
+  if (!seedPrompt) return null;
+  if (phase === 'generating') return <GenLoading prompt={seedPrompt} stepIdx={stepIdx} onCancel={() => navigate('/')} />;
+  if (phase === 'choosing') return <GenChoose prompt={seedPrompt} candidates={candidates} settingsMap={settingsMap} onSelect={openConcept} onRegenerate={regenerate} onCancel={() => navigate('/')} />;
 
-  const publishing = confirmFetcher.state !== 'idle';
+  const publishing = confirmFetcher.state !== 'idle' || publishFetcher.state !== 'idle';
 
   return (
     <div className="gen-shell">
       <header className="gen-head">
         <div className="row-3" style={{ minWidth: 0 }}>
-          <button className="gen-back-btn" onClick={backToOptions} title="Back to all 3 concepts">
+          <button className="gen-back-btn" onClick={backToOptions} title="Back to all concepts">
             <Icon name="arrowLeft" size={15} /><span>All concepts</span>
           </button>
           <span className="tile-ico" style={{ width: 34, height: 34, background: 'var(--p-info-bg)', color: 'var(--sa-secondary)' }}>
@@ -265,14 +625,14 @@ function GenerateWorkspace() {
           </span>
           <div className="stack" style={{ gap: 1, minWidth: 0 }}>
             <div className="row-2"><span className="t-h3">{activeCand ? activeCand.name : 'Module'}</span><StatusBadge value="DRAFT" /></div>
-            <span className="t-xs t-muted">{(activeCand ? activeCand.type : 'Storefront UI') + ' · concept ' + (activeIdx + 1) + ' of ' + candidates.length + ' · unsaved'}</span>
+            <span className="t-xs t-muted">{(activeCand ? activeCand.type : 'Module') + ' · concept ' + (activeIdx + 1) + ' of ' + candidates.length + ' · unsaved'}</span>
           </div>
         </div>
         <div className="row-2">
-          <Btn icon="magic" onClick={regenerate} title="Discard all 3 and generate again">Regenerate</Btn>
+          <Btn icon="magic" onClick={regenerate} title="Discard these concepts and generate again">Regenerate</Btn>
           <Btn onClick={() => navigate('/')}>Discard</Btn>
-          <Btn onClick={() => finish('Saved as draft — other concepts discarded')}>Save draft</Btn>
-          <Btn variant="primary" icon="rocket" loading={publishing} onClick={() => finish('Published — live in a few minutes')}>Publish</Btn>
+          <Btn loading={confirmFetcher.state !== 'idle' && finishRef.current?.mode === 'draft'} onClick={() => finish('draft')}>Save draft</Btn>
+          <Btn variant="primary" icon="rocket" loading={publishing} onClick={() => finish('publish')}>Publish</Btn>
         </div>
       </header>
       {blueprint && (
@@ -306,10 +666,6 @@ function GenerateWorkspace() {
               <button aria-selected={device === 'desktop'} onClick={() => setDevice('desktop')}><Icon name="desktop" size={14} />Desktop</button>
               <button aria-selected={device === 'mobile'} onClick={() => setDevice('mobile')}><Icon name="store" size={14} />Mobile</button>
             </div>
-            <div className="row-2">
-              <Btn size="sm" icon="refresh" title="Refresh preview" />
-              <Btn size="sm" icon="external">Open</Btn>
-            </div>
             <div className="grow" />
             <div className="tabs-mini">
               {(['preview', 'validation'] as const).map((x) => (
@@ -319,7 +675,7 @@ function GenerateWorkspace() {
           </div>
           <div className="gen-canvas-wrap">
             {tab === 'preview' && <GenPreview settings={settings} device={device} />}
-            {tab === 'validation' && <GenValidation />}
+            {tab === 'validation' && <GenValidation loading={valFetcher.state !== 'idle'} data={valFetcher.data} hasRecipe={!!activeCand?.recipe} />}
           </div>
         </div>
       </div>
@@ -327,7 +683,7 @@ function GenerateWorkspace() {
   );
 }
 
-function GenLoading({ seed, stepIdx, onCancel }: any) {
+function GenLoading({ prompt, stepIdx, onCancel }: any) {
   return (
     <div className="gen-loading">
       <div className="gen-loading-card">
@@ -335,9 +691,9 @@ function GenLoading({ seed, stepIdx, onCancel }: any) {
           <span className="gen-orb-halo" /><span className="gen-orb-ring r1" /><span className="gen-orb-ring r2" /><span className="gen-orb-ring r3" />
           <div className="gen-orb"><Icon name="magic" size={28} /></div>
         </div>
-        <div className="gen-loading-eyebrow"><span className="pulse-dot" />Generating 3 concepts</div>
+        <div className="gen-loading-eyebrow"><span className="pulse-dot" />Generating concepts</div>
         <div className="t-h2" style={{ marginTop: 6, textAlign: 'center' }}>Designing your module</div>
-        <div className="gen-prompt-echo">“{seed.prompt}”</div>
+        <div className="gen-prompt-echo">“{prompt}”</div>
         <div className="gen-steps">
           {GEN_STEPS.map((s, i) => {
             const done = i < stepIdx, active = i === stepIdx;
@@ -356,16 +712,17 @@ function GenLoading({ seed, stepIdx, onCancel }: any) {
   );
 }
 
-function GenChoose({ seed, candidates, settingsMap, onSelect, onRegenerate, onCancel }: any) {
+function GenChoose({ prompt, candidates, settingsMap, onSelect, onRegenerate, onCancel }: any) {
+  const n = candidates.length;
   return (
     <div className="gen-choose">
       <div className="gen-choose-aurora" />
       <div className="gen-choose-grid-bg" />
       <div className="gen-choose-inner">
         <div className="gen-choose-head">
-          <div className="gen-choose-eyebrow"><span className="pulse-dot" />3 concepts generated</div>
+          <div className="gen-choose-eyebrow"><span className="pulse-dot" />{n + ' concept' + (n === 1 ? '' : 's') + ' generated'}</div>
           <h1 className="gen-choose-title">Pick a starting point</h1>
-          <p className="gen-choose-sub">From “{seed.prompt}”. Open any concept to customize it — the other two stay right here until you save. Nothing is stored yet, so you can regenerate anytime.</p>
+          <p className="gen-choose-sub">From “{prompt}”. Open any concept to customize it — the rest stay right here until you save. Nothing is stored yet, so you can regenerate anytime.</p>
           <button className="gen-choose-close" onClick={onCancel} title="Cancel"><Icon name="x" size={16} /></button>
         </div>
         <div className="gen-cand-grid">
@@ -374,7 +731,7 @@ function GenChoose({ seed, candidates, settingsMap, onSelect, onRegenerate, onCa
           ))}
         </div>
         <div className="gen-choose-foot">
-          <button className="gen-regen-btn" onClick={onRegenerate}><Icon name="magic" size={15} />Regenerate all three</button>
+          <button className="gen-regen-btn" onClick={onRegenerate}><Icon name="magic" size={15} />Regenerate</button>
           <span className="t-xs t-muted">Nothing is saved — concepts reset when you regenerate or leave.</span>
         </div>
       </div>
@@ -454,7 +811,8 @@ function GenBuildPanel(props: any) {
 
 function GenBuilderDock({ credits, costPerChange, open, setOpen, thread, thinking, refine, setRefine, onRefine, changes, onOpenHistory }: any) {
   const last = thread.slice().reverse().find((m: any) => m.role === 'assistant');
-  const low = credits <= 40, out = credits <= 0;
+  const unlimited = credits === null;
+  const low = !unlimited && credits <= 40, out = !unlimited && credits <= 0;
   const suggestions = ['Use brand green', 'Make it a pill', 'Add a countdown'];
   return (
     <div className={'gen-dock' + (open ? ' open' : '')}>
@@ -462,10 +820,10 @@ function GenBuilderDock({ credits, costPerChange, open, setOpen, thread, thinkin
         <span className="gen-dock-ava"><Icon name="magic" size={15} /></span>
         <div className="gen-dock-id">
           <span className="t-strong t-sm">Builder</span>
-          <span className="t-xs t-muted">{open ? 'Describe a change — applied live' : 'Tap to refine with AI'}</span>
+          <span className="t-xs t-muted">{open ? 'Describe a change — applied to the spec' : 'Tap to refine with AI'}</span>
         </div>
-        <span className={'gen-credit-pill' + (low ? ' low' : '')} title={credits.toLocaleString() + ' AI credits remaining'}>
-          <Icon name="bolt" size={12} />{credits.toLocaleString()} left
+        <span className={'gen-credit-pill' + (low ? ' low' : '')} title={unlimited ? 'Unlimited AI requests on your plan' : credits.toLocaleString() + ' AI requests remaining this month'}>
+          <Icon name="bolt" size={12} />{unlimited ? 'Unlimited' : credits.toLocaleString() + ' left'}
         </span>
         <span className="gen-dock-chev"><Icon name={open ? 'chevronDown' : 'chevronUp'} size={16} /></span>
       </button>
@@ -489,10 +847,10 @@ function GenBuilderDock({ credits, costPerChange, open, setOpen, thread, thinkin
             </div>
           )}
           <div className={'gen-dock-input' + (out ? ' is-out' : '')}>
-            <textarea className="gen-refine-input" rows={1} placeholder={out ? 'Out of credits — top up to keep building' : 'Refine with AI…'}
+            <textarea className="gen-refine-input" rows={1} placeholder={out ? 'Out of AI requests — upgrade to keep building' : 'Refine with AI…'}
               value={refine} disabled={out} onChange={(e) => setRefine(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onRefine(); } }} />
-            <Btn variant="magic" icon="send" onClick={() => onRefine()} disabled={out || !refine.trim()} />
+            <Btn variant="magic" icon="send" onClick={() => onRefine()} disabled={out || thinking || !refine.trim()} />
           </div>
           {!out && (
             <div className="gen-dock-sugg">
@@ -500,7 +858,7 @@ function GenBuilderDock({ credits, costPerChange, open, setOpen, thread, thinkin
             </div>
           )}
           <div className="gen-dock-foot">
-            <span className="gen-cost-note"><Icon name="bolt" size={12} />Each change costs <b>{costPerChange === 1 ? '1 credit' : costPerChange + ' credits'}</b></span>
+            <span className="gen-cost-note"><Icon name="bolt" size={12} />Each change costs <b>{costPerChange === 1 ? '1 AI request' : costPerChange + ' AI requests'}</b></span>
             <button className="gen-hist-btn" onClick={onOpenHistory}>
               <Icon name="clock" size={13} />History{changes ? <span className="gen-hist-count">{changes}</span> : null}
             </button>
@@ -518,7 +876,7 @@ function GenHistory({ history, credits, onClose }: any) {
       <div className="gen-hist-head">
         <div className="stack" style={{ gap: 1 }}>
           <span className="t-strong t-sm">Change history</span>
-          <span className="t-xs t-muted">{history.length + ' change' + (history.length === 1 ? '' : 's') + ' · ' + spent + ' credit' + (spent === 1 ? '' : 's') + ' spent'}</span>
+          <span className="t-xs t-muted">{history.length + ' change' + (history.length === 1 ? '' : 's') + ' · ' + spent + ' AI request' + (spent === 1 ? '' : 's') + ' spent'}</span>
         </div>
         <button className="gen-hist-x" onClick={onClose} title="Close"><Icon name="x" size={15} /></button>
       </div>
@@ -537,9 +895,9 @@ function GenHistory({ history, credits, onClose }: any) {
       </div>
       <div className="gen-hist-foot">
         <Icon name="bolt" size={13} />
-        <span><b>{credits.toLocaleString()}</b> credits remaining</span>
+        <span><b>{credits === null ? 'Unlimited' : credits.toLocaleString()}</b> AI requests remaining</span>
         <span className="grow" />
-        <a className="gen-hist-topup" href="/billing">Top up</a>
+        <a className="gen-hist-topup" href="/billing">Upgrade</a>
       </div>
     </div>
   );
@@ -630,8 +988,10 @@ function GenControls({ settings: s, set, ctrlTab, setCtrlTab }: any) {
         )}
         {ctrlTab === 'css' && (
           <div className="stack-3">
-            <Banner tone="info">Scoped &amp; sanitized · max 2000 characters.</Banner>
-            <Textarea mono rows={10} defaultValue={'.sa-bar {\n  backdrop-filter: blur(8px);\n}\n.sa-bar__button:hover {\n  transform: translateY(-1px);\n}'} />
+            <Banner tone="info">Scoped &amp; sanitized · max 2000 characters. Saved with the module.</Banner>
+            <Textarea mono rows={10} maxLength={2000} value={s.customCss ?? ''}
+              placeholder={'.sa-bar {\n  backdrop-filter: blur(8px);\n}\n.sa-bar__button:hover {\n  transform: translateY(-1px);\n}'}
+              onChange={(e: any) => set({ customCss: e.target.value })} />
           </div>
         )}
       </div>
@@ -657,23 +1017,63 @@ function SegField({ value, options, onChange }: any) {
 function ToggleRow({ label, checked, onChange }: any) {
   return <label className="row spread" style={{ cursor: 'pointer' }}><span className="t-sm">{label}</span><Toggle checked={checked} onChange={onChange} /></label>;
 }
-function GenValidation() {
-  const checks = [['Build check', 'Module builds and renders cleanly'], ['Accessibility', 'Button contrast passes WCAG AA'], ['Performance', 'No render-blocking assets'], ['Theme safety', 'Scoped styles — no theme conflicts'], ['Plan capability', 'Storefront UI available on Growth']];
+
+// Real validation results from this route's `validate` action: RecipeSpecSchema
+// plus the same pre-publish validator Publish runs server-side. No fixed rows.
+function GenValidation({ loading, data, hasRecipe }: any) {
+  if (!hasRecipe) {
+    return (
+      <div style={{ padding: 20, maxWidth: 640, width: '100%', margin: '0 auto' }}>
+        <EmptyState icon="shield" title="Nothing to validate">This concept has no generated spec — regenerate and pick a concept first.</EmptyState>
+      </div>
+    );
+  }
+  if (loading || !data) {
+    return (
+      <div style={{ padding: 20, maxWidth: 640, width: '100%', margin: '0 auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span className="spinner" style={{ width: 16, height: 16 }} />
+        <span className="t-sm t-muted">Running schema and pre-publish checks…</span>
+      </div>
+    );
+  }
+  if (data.error) {
+    return (
+      <div style={{ padding: 20, maxWidth: 640, width: '100%', margin: '0 auto' }}>
+        <Banner tone="critical" title="Validation could not run">{String(data.error)}</Banner>
+      </div>
+    );
+  }
+  const errors = data.errors ?? [];
+  const failCount = errors.length || (data.ok ? 0 : 1);
+  const rows = [
+    { label: 'Schema validation', detail: data.schemaOk ? 'RecipeSpec matches the platform schema' : 'The spec does not match the platform schema', pass: !!data.schemaOk },
+    { label: 'Pre-publish checks', detail: data.planTier ? `Publish validator ran against your ${titleCase(String(data.planTier).toLowerCase())} plan` : 'Publish validator ran on this spec', pass: !!data.schemaOk && errors.length === 0 },
+  ];
   return (
     <div style={{ padding: 20, maxWidth: 640, width: '100%', margin: '0 auto' }}>
-      <Banner tone="success" title="All checks passed">This module is safe to publish. It was checked for accessibility, performance, and your plan’s capabilities.</Banner>
+      {data.ok
+        ? <Banner tone="success" title="All checks passed">Schema and pre-publish validation both passed — Publish runs these same checks server-side before going live.</Banner>
+        : <Banner tone="critical" title={failCount + ' issue' + (failCount === 1 ? '' : 's') + ' found'}>Fix these before publishing — Publish enforces the same checks server-side.</Banner>}
       <div className="card" style={{ marginTop: 16 }}>
-        {checks.map((c, i) => (
+        {rows.map((r, i) => (
           <div key={i} className="val-row">
-            <span className="val-ico"><Icon name="check" size={14} /></span>
-            <div className="grow"><div className="t-sm t-strong">{c[0]}</div><div className="t-xs t-muted">{c[1]}</div></div>
-            <Badge tone="success">Pass</Badge>
+            <span className="val-ico" style={r.pass ? undefined : { background: 'var(--p-critical-bg)', color: 'var(--p-critical)' }}><Icon name={r.pass ? 'check' : 'alert'} size={14} /></span>
+            <div className="grow"><div className="t-sm t-strong">{r.label}</div><div className="t-xs t-muted">{r.detail}</div></div>
+            <Badge tone={r.pass ? 'success' : 'critical'}>{r.pass ? 'Pass' : 'Fail'}</Badge>
+          </div>
+        ))}
+        {errors.map((e: any, i: number) => (
+          <div key={'e' + i} className="val-row">
+            <span className="val-ico" style={{ background: 'var(--p-critical-bg)', color: 'var(--p-critical)' }}><Icon name="alert" size={14} /></span>
+            <div className="grow"><div className="t-sm t-strong">{e.code}</div><div className="t-xs t-muted">{e.message}</div></div>
+            <Badge tone="critical">Fail</Badge>
           </div>
         ))}
       </div>
     </div>
   );
 }
+
 function gmd(str: string) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
 }

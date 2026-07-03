@@ -56,34 +56,44 @@ function DataStoreCard({ d, enabled, records, onToggle, onView }: any) {
 function DataBody({ stores, predefined }: any) {
   const ctx = useMerchantCtx();
   const navigate = useNavigate();
-  const fetcher = useFetcher();
+  const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const { revalidate } = useRevalidator();
   const [modal, setModal] = useState(false);
   const [customKey, setCustomKey] = useState('');
   const [customLabel, setCustomLabel] = useState('');
   const [customDesc, setCustomDesc] = useState('');
+  // Toast set at submit time, shown only once the server confirms the mutation.
+  const [pendingMsg, setPendingMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const interval = setInterval(revalidate, 30_000);
     window.addEventListener('focus', revalidate);
     return () => { clearInterval(interval); window.removeEventListener('focus', revalidate); };
   }, [revalidate]);
-  useEffect(() => { if (fetcher.state === 'idle' && fetcher.data) revalidate(); }, [fetcher.state, fetcher.data, revalidate]);
+  useEffect(() => {
+    if (fetcher.state === 'idle' && fetcher.data) {
+      if (fetcher.data.error) ctx.toast(fetcher.data.error, { error: true });
+      else if (fetcher.data.ok && pendingMsg) ctx.toast(pendingMsg);
+      if (pendingMsg) setPendingMsg(null);
+      revalidate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetcher.state, fetcher.data, revalidate]);
 
   const enabledKeys = new Set(stores.filter((s: any) => s.isEnabled).map((s: any) => s.key));
   const recordsFor = (key: string) => stores.find((s: any) => s.key === key)?.recordCount ?? 0;
 
   const toggleStore = (key: string, enable: boolean) => {
+    setPendingMsg(enable ? 'Store enabled' : 'Store disabled');
     fetcher.submit({ intent: enable ? 'enable' : 'disable', key } as any, { method: 'POST', action: '/api/data-stores', encType: 'application/json' });
-    ctx.toast(enable ? 'Store enabled' : 'Store disabled');
   };
 
   const createCustom = () => {
     const key = customKey.trim();
     if (!key || !customLabel.trim() || !KEY_REGEX.test(key)) { ctx.toast('Enter a valid key + name', { error: true }); return; }
+    setPendingMsg('Custom store created');
     fetcher.submit({ intent: 'create-custom', key, label: customLabel.trim(), description: customDesc.trim() || undefined } as any, { method: 'POST', action: '/api/data-stores', encType: 'application/json' });
     setModal(false); setCustomKey(''); setCustomLabel(''); setCustomDesc('');
-    ctx.toast('Custom store created');
   };
 
   const predefinedCards = predefined.map((p: any) => ({ key: p.key, name: p.label, desc: p.description, kind: 'predefined' as const }));

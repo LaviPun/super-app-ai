@@ -1,6 +1,6 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, useFetcher } from '@remix-run/react';
-import { useState } from 'react';
+import { useLoaderData, useFetcher, useSearchParams } from '@remix-run/react';
+import { useEffect, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { DataStoreService } from '~/services/data/data-store.service';
@@ -60,33 +60,51 @@ export default function DataStoreDetail() {
 }
 
 function DataStoreDetailBody() {
-  const { storeKey, store, records, total, recordForm } = useLoaderData<typeof loader>();
+  const { storeKey, store, records, total, page, pageSize, recordForm } = useLoaderData<typeof loader>();
   const ctx = useMerchantCtx();
-  const fetcher = useFetcher();
+  const fetcher = useFetcher<{ ok?: boolean; error?: string; recordId?: string }>();
   const ts = useTableState();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [addOpen, setAddOpen] = useState(false);
   const [viewRecord, setViewRecord] = useState<typeof records[0] | null>(null);
   const [newTitle, setNewTitle] = useState('');
   const [newPayload, setNewPayload] = useState('{}');
   const [newExternalId, setNewExternalId] = useState('');
   const [recordValue, setRecordValue] = useState<Record<string, unknown>>({ record: {} });
+  // Toast set at submit time, shown only once the server confirms the mutation.
+  const [pendingMsg, setPendingMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (fetcher.state === 'idle' && fetcher.data) {
+      if (fetcher.data.error) ctx.toast(fetcher.data.error, { error: true });
+      else if (fetcher.data.ok && pendingMsg) ctx.toast(pendingMsg);
+      if (pendingMsg) setPendingMsg(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetcher.state, fetcher.data]);
 
   const handleAdd = () => {
     let payload: unknown;
     if (recordForm) payload = (recordValue.record as Record<string, unknown>) ?? {};
     else { try { payload = JSON.parse(newPayload); } catch { payload = { raw: newPayload }; } }
+    setPendingMsg('Record added');
     fetcher.submit({ intent: 'add-record', storeKey, title: newTitle || undefined, externalId: newExternalId || undefined, payload } as any,
       { method: 'POST', action: '/api/data-stores', encType: 'application/json' });
     setAddOpen(false); setNewTitle(''); setNewPayload('{}'); setNewExternalId(''); setRecordValue({ record: {} });
-    ctx.toast('Record added');
   };
   const handleDelete = (recordId: string) => {
+    setPendingMsg('Record deleted');
     fetcher.submit({ intent: 'delete-record', storeKey, recordId } as any, { method: 'POST', action: '/api/data-stores', encType: 'application/json' });
     setViewRecord(null);
-    ctx.toast('Record deleted');
   };
 
   const rows = records.filter((r: any) => ((r.title ?? '') + (r.externalId ?? '') + r.payload).toLowerCase().includes(ts.search.toLowerCase()));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const goPage = (p: number) => {
+    const q = new URLSearchParams(searchParams);
+    if (p <= 1) q.delete('page'); else q.set('page', String(p));
+    setSearchParams(q);
+  };
 
   return (
     <div className="page">
@@ -104,9 +122,11 @@ function DataStoreDetailBody() {
         )}
       />
       <Card>
-        <FilterBar search={ts.search} onSearch={ts.setSearch} placeholder="Search records…" results={total} />
+        <FilterBar search={ts.search} onSearch={ts.setSearch} placeholder="Search records…" results={ts.search ? rows.length : total} />
         {rows.length === 0 ? (
-          <div style={{ padding: 24, color: 'var(--p-text-secondary)', fontSize: 14 }}>No records yet — added by flows, modules, or manually.</div>
+          <div style={{ padding: 24, color: 'var(--p-text-secondary)', fontSize: 14 }}>
+            {ts.search ? 'No records on this page match your search.' : 'No records yet — added by flows, modules, or manually.'}
+          </div>
         ) : (
           <DataTable rowKey="id" columns={[
             { key: 'title', label: 'Title', render: (r: any) => <span className="cell-strong">{r.title ?? '—'}</span> },
@@ -120,6 +140,15 @@ function DataStoreDetailBody() {
               </div>
             ) },
           ]} rows={rows} />
+        )}
+        {totalPages > 1 && (
+          <div className="row spread" style={{ padding: '10px 16px', borderTop: '1px solid var(--p-border)' }}>
+            <span className="t-sm t-muted t-num">Page {page} of {totalPages} · {total} records</span>
+            <div className="row-2">
+              <Btn size="sm" icon="chevronLeft" disabled={page <= 1} onClick={() => goPage(page - 1)}>Previous</Btn>
+              <Btn size="sm" iconRight="chevronRight" disabled={page >= totalPages} onClick={() => goPage(page + 1)}>Next</Btn>
+            </div>
+          </div>
         )}
       </Card>
 

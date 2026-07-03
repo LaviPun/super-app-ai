@@ -13,10 +13,15 @@ import { adminGraphqlUrl } from '~/shopify-api.server';
  * Built-in Shopify connector — executes Shopify Admin API operations.
  *
  * Operations:
- *   order.addTags     — Add tags to an order
- *   order.addNote     — Add a note to an order
- *   customer.addTags  — Add tags to a customer
- *   metafield.set     — Set a shop metafield
+ *   order.addTags           — Add tags to an order
+ *   order.addNote           — Add a note to an order
+ *   order.routeToLocation   — Our own order routing (fulfillmentOrderMove)
+ *   order.cancel            — Cancel an order
+ *   customer.addTags        — Add tags to a customer
+ *   customer.updateNote     — Update a customer's note
+ *   product.updateStatus    — Set a product's status (ACTIVE/DRAFT/ARCHIVED)
+ *   inventory.adjust        — Adjust available inventory at a location
+ *   metafield.set           — Set a shop metafield
  */
 export class ShopifyConnector implements Connector {
   manifest(): ConnectorManifest {
@@ -24,11 +29,14 @@ export class ShopifyConnector implements Connector {
       provider: 'shopify',
       displayName: 'Shopify Admin',
       version: '1.0.0',
-      description: 'Native Shopify Admin API operations (tags, notes, metafields).',
+      description: 'Native Shopify Admin API operations (tags, notes, routing, inventory, metafields).',
       icon: 'shopify',
       auth: {
         type: 'shopify',
-        scopes: ['read_orders', 'write_orders', 'read_customers', 'write_customers'],
+        scopes: [
+          'read_orders', 'write_orders', 'read_customers', 'write_customers',
+          'write_products', 'write_inventory', 'read_fulfillments', 'write_fulfillments',
+        ],
         tokenStore: 'tenant',
       },
       operations: [
@@ -68,6 +76,48 @@ export class ShopifyConnector implements Connector {
           idempotency: { supported: false },
         },
         {
+          name: 'order.routeToLocation',
+          displayName: 'Route order to location',
+          inputSchema: {
+            type: 'object',
+            required: ['orderId', 'newLocationId'],
+            properties: {
+              orderId: { type: 'string', description: 'Shopify order GID' },
+              newLocationId: { type: 'string', description: 'Destination location GID' },
+            },
+          },
+          outputSchema: {
+            type: 'object',
+            properties: {
+              movedFulfillmentOrderId: { type: 'string' },
+              locationId: { type: 'string' },
+            },
+          },
+          idempotency: { supported: true, keyHint: 'orderId + newLocationId' },
+          retryHints: { retryOn: ['429', '5xx', 'network', 'timeout'], rateLimitStrategy: 'respect-retry-after' },
+        },
+        {
+          name: 'order.cancel',
+          displayName: 'Cancel order',
+          inputSchema: {
+            type: 'object',
+            required: ['orderId'],
+            properties: {
+              orderId: { type: 'string' },
+              reason: { type: 'string', enum: ['CUSTOMER', 'DECLINED', 'FRAUD', 'INVENTORY', 'OTHER', 'STAFF'] },
+              refund: { type: 'boolean' },
+              restock: { type: 'boolean' },
+              notifyCustomer: { type: 'boolean' },
+            },
+          },
+          outputSchema: {
+            type: 'object',
+            properties: { success: { type: 'boolean' } },
+          },
+          idempotency: { supported: true, keyHint: 'orderId' },
+          retryHints: { retryOn: ['429', '5xx', 'network', 'timeout'] },
+        },
+        {
           name: 'customer.addTags',
           displayName: 'Add customer tags',
           inputSchema: {
@@ -83,6 +133,61 @@ export class ShopifyConnector implements Connector {
             properties: { success: { type: 'boolean' } },
           },
           idempotency: { supported: true, keyHint: 'customerId + tags' },
+          retryHints: { retryOn: ['429', '5xx', 'network', 'timeout'] },
+        },
+        {
+          name: 'customer.updateNote',
+          displayName: 'Update customer note',
+          inputSchema: {
+            type: 'object',
+            required: ['customerId', 'note'],
+            properties: {
+              customerId: { type: 'string' },
+              note: { type: 'string', maxLength: 5000 },
+            },
+          },
+          outputSchema: {
+            type: 'object',
+            properties: { success: { type: 'boolean' } },
+          },
+          idempotency: { supported: true, keyHint: 'customerId + note' },
+        },
+        {
+          name: 'product.updateStatus',
+          displayName: 'Update product status',
+          inputSchema: {
+            type: 'object',
+            required: ['productId', 'status'],
+            properties: {
+              productId: { type: 'string' },
+              status: { type: 'string', enum: ['ACTIVE', 'DRAFT', 'ARCHIVED'] },
+            },
+          },
+          outputSchema: {
+            type: 'object',
+            properties: { success: { type: 'boolean' } },
+          },
+          idempotency: { supported: true, keyHint: 'productId + status' },
+          retryHints: { retryOn: ['429', '5xx', 'network', 'timeout'] },
+        },
+        {
+          name: 'inventory.adjust',
+          displayName: 'Adjust inventory',
+          inputSchema: {
+            type: 'object',
+            required: ['inventoryItemId', 'locationId', 'delta'],
+            properties: {
+              inventoryItemId: { type: 'string' },
+              locationId: { type: 'string' },
+              delta: { type: 'number' },
+              reason: { type: 'string' },
+            },
+          },
+          outputSchema: {
+            type: 'object',
+            properties: { success: { type: 'boolean' } },
+          },
+          idempotency: { supported: false },
           retryHints: { retryOn: ['429', '5xx', 'network', 'timeout'] },
         },
         {
@@ -150,10 +255,132 @@ export class ShopifyConnector implements Connector {
         return this.graphql(apiUrl, headers, mutation, req.timeoutMs);
       }
 
+      case 'order.routeToLocation': {
+        // Our own order routing (docs/flow-automation.md §5): resolve the
+        // order's fulfillment order, then fulfillmentOrderMove it.
+        const { orderId, newLocationId } = req.inputs;
+        const query = `#graphql
+          query OrderFulfillmentOrders($id: ID!) {
+            order(id: $id) {
+              fulfillmentOrders(first: 10) {
+                nodes { id assignedLocation { location { id } } }
+              }
+            }
+          }
+        `;
+        const lookup = await this.graphqlInternal(apiUrl, headers, query, req.timeoutMs, { id: orderId });
+        if (!lookup.ok) return lookup.result;
+        const data = lookup.body as {
+          data?: { order?: { fulfillmentOrders?: { nodes?: Array<{ id: string; assignedLocation?: { location?: { id?: string } } }> } } };
+        };
+        const fulfillmentOrders = data?.data?.order?.fulfillmentOrders?.nodes ?? [];
+        // Prefer a fulfillment order not already assigned to the destination.
+        const target = fulfillmentOrders.find(fo => fo?.assignedLocation?.location?.id !== newLocationId) ?? fulfillmentOrders[0];
+        if (!target) {
+          return connectorError('NOT_FOUND', `No fulfillment orders found for order ${String(orderId)}`);
+        }
+
+        const mutation = `#graphql
+          mutation FulfillmentOrderMove($id: ID!, $newLocationId: ID!) {
+            fulfillmentOrderMove(id: $id, newLocationId: $newLocationId) {
+              movedFulfillmentOrder { id }
+              userErrors { field message }
+            }
+          }
+        `;
+        const move = await this.graphqlInternal(apiUrl, headers, mutation, req.timeoutMs, {
+          id: target.id,
+          newLocationId,
+        });
+        if (!move.ok) return move.result;
+        const moveData = move.body as {
+          data?: { fulfillmentOrderMove?: { movedFulfillmentOrder?: { id?: string }; userErrors?: Array<{ field?: string[]; message: string }> } };
+        };
+        const payload = moveData?.data?.fulfillmentOrderMove;
+        const userErrors = payload?.userErrors ?? [];
+        if (userErrors.length > 0) {
+          return connectorError('UPSTREAM', `fulfillmentOrderMove failed: ${userErrors.map(e => e.message).join('; ')}`);
+        }
+        return connectorSuccess(
+          {
+            movedFulfillmentOrderId: payload?.movedFulfillmentOrder?.id ?? target.id,
+            locationId: newLocationId,
+          },
+          { statusCode: 200, meta: { durationMs: lookup.durationMs + move.durationMs } },
+        );
+      }
+
+      case 'order.cancel': {
+        const { orderId, reason, refund, restock, notifyCustomer } = req.inputs;
+        const mutation = `#graphql
+          mutation OrderCancel($orderId: ID!, $reason: OrderCancelReason!, $refund: Boolean!, $restock: Boolean!, $notifyCustomer: Boolean) {
+            orderCancel(orderId: $orderId, reason: $reason, refund: $refund, restock: $restock, notifyCustomer: $notifyCustomer) {
+              job { id }
+              orderCancelUserErrors { field message }
+            }
+          }
+        `;
+        return this.graphql(apiUrl, headers, mutation, req.timeoutMs, {
+          orderId,
+          reason: reason ?? 'OTHER',
+          refund: refund ?? false,
+          restock: restock ?? true,
+          notifyCustomer: notifyCustomer ?? false,
+        });
+      }
+
       case 'customer.addTags': {
         const { customerId, tags } = req.inputs;
         const mutation = `mutation { tagsAdd(id: "${customerId}", tags: ${JSON.stringify(tags)}) { node { id } userErrors { field message } } }`;
         return this.graphql(apiUrl, headers, mutation, req.timeoutMs);
+      }
+
+      case 'customer.updateNote': {
+        const { customerId, note } = req.inputs;
+        const mutation = `#graphql
+          mutation CustomerUpdateNote($input: CustomerInput!) {
+            customerUpdate(input: $input) {
+              customer { id }
+              userErrors { field message }
+            }
+          }
+        `;
+        return this.graphql(apiUrl, headers, mutation, req.timeoutMs, {
+          input: { id: customerId, note },
+        });
+      }
+
+      case 'product.updateStatus': {
+        const { productId, status } = req.inputs;
+        const mutation = `#graphql
+          mutation ProductUpdateStatus($product: ProductUpdateInput!) {
+            productUpdate(product: $product) {
+              product { id status }
+              userErrors { field message }
+            }
+          }
+        `;
+        return this.graphql(apiUrl, headers, mutation, req.timeoutMs, {
+          product: { id: productId, status },
+        });
+      }
+
+      case 'inventory.adjust': {
+        const { inventoryItemId, locationId, delta, reason } = req.inputs;
+        const mutation = `#graphql
+          mutation InventoryAdjust($input: InventoryAdjustQuantitiesInput!) {
+            inventoryAdjustQuantities(input: $input) {
+              userErrors { field message }
+            }
+          }
+        `;
+        return this.graphql(apiUrl, headers, mutation, req.timeoutMs, {
+          input: {
+            reason: reason ?? 'correction',
+            name: 'available',
+            changes: [{ inventoryItemId, locationId, delta }],
+          },
+        });
       }
 
       case 'metafield.set': {

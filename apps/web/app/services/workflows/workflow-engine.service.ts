@@ -6,6 +6,7 @@ import type {
   StepStatus,
   StepState,
   RetryPolicy,
+  WaitSpec,
 } from '@superapp/core';
 import type { Connector, AuthContext, InvokeResult } from '@superapp/core';
 import { validateWorkflow } from '@superapp/core';
@@ -15,6 +16,46 @@ import { getConnectorRegistry } from './connectors/index';
 
 const TERMINAL_RUN_STATUSES: RunStatus[] = ['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT'];
 const TERMINAL_STEP_STATUSES: StepStatus[] = ['SUCCESS', 'FAILED', 'SKIPPED'];
+
+// ─── Safety caps (docs/flow-automation.md §9c) ───────────────────────
+/** Hard cap on node executions per run — stops a runaway/pathological loop. */
+export const MAX_NODE_EXECUTIONS = 10_000;
+/** Bounds nested loop/parallel sub-graph recursion. */
+export const MAX_RECURSION_DEPTH = 64;
+/** Durable-wait re-park guard: a run may resume at most this many times. */
+export const MAX_RESUMES = 100;
+/** Waits longer than this park the run (durable) unless the node overrides it. */
+const DEFAULT_INLINE_THRESHOLD_MS = 60_000;
+
+/**
+ * Control-flow signal (not an error): a top-level `wait`/`delay` longer than its
+ * inline threshold throws this to park the run. `finalizeRun` persists
+ * status=WAITING + resumeAt + resumeNodeId + the compiled graph (workflowJson)
+ * so the cron resume path is self-contained.
+ */
+export class WaitParkSignal extends Error {
+  constructor(
+    public readonly nodeId: string,
+    public readonly resumeAt: Date,
+  ) {
+    super(`WAIT_PARKED: node "${nodeId}" resumes at ${resumeAt.toISOString()}`);
+    this.name = 'WaitParkSignal';
+  }
+}
+
+/** Per-run execution environment shared across recursive sub-graph frames. */
+interface ExecEnv {
+  workflow: Workflow;
+  opts: {
+    tenantId: string;
+    runId: string;
+    authResolver: (provider: string) => Promise<AuthContext>;
+  };
+  prisma: ReturnType<typeof getPrisma>;
+  registry: ReturnType<typeof getConnectorRegistry>;
+  deadline: number;
+  executed: { count: number };
+}
 
 // ─── Public API ───────────────────────────────────────────────────────
 
@@ -70,23 +111,112 @@ export class WorkflowEngineService {
 
     try {
       await this.executeRun(workflow, ctx, opts);
-      await prisma.workflowRun.update({
-        where: { id: opts.runId },
-        data: { status: 'SUCCEEDED', endedAt: new Date(), contextJson: JSON.stringify(ctx) },
-      });
+      await this.finalizeRun(workflow, ctx, opts.runId, { status: 'SUCCEEDED' });
       return { status: 'SUCCEEDED', context: ctx };
     } catch (err) {
+      if (err instanceof WaitParkSignal) {
+        await this.finalizeRun(workflow, ctx, opts.runId, {
+          status: 'WAITING',
+          resumeAt: err.resumeAt,
+          resumeNodeId: err.nodeId,
+        });
+        return { status: 'WAITING', resumeAt: err.resumeAt, context: ctx };
+      }
       const errMsg = err instanceof Error ? err.message : String(err);
       ctx.lastError = errMsg;
-      await prisma.workflowRun.update({
-        where: { id: opts.runId },
-        data: { status: 'FAILED', endedAt: new Date(), error: errMsg, contextJson: JSON.stringify(ctx) },
-      });
+      await this.finalizeRun(workflow, ctx, opts.runId, { status: 'FAILED', error: errMsg });
       return { status: 'FAILED', error: errMsg, context: ctx };
     }
   }
 
-  // ─── Core Execution Loop ──────────────────────────────────────────
+  /**
+   * Resume a parked (WAITING) run: rebuilds the workflow + context from the
+   * persisted snapshot, settles the wait node, and continues from its `next`
+   * edge. Non-parked runs are reported and NOT re-executed.
+   */
+  async resumeRun(
+    runId: string,
+    authResolver: (provider: string) => Promise<AuthContext>,
+  ): Promise<WorkflowRunResult> {
+    const prisma = getPrisma();
+    const row = await prisma.workflowRun.findUnique({ where: { id: runId } });
+    if (!row) {
+      return { status: 'FAILED', error: `Run "${runId}" not found` };
+    }
+    if (row.status !== 'WAITING') {
+      return { status: row.status as RunStatus, error: 'run is not parked' };
+    }
+    if (typeof row.workflowJson !== 'string' || typeof row.resumeNodeId !== 'string' || typeof row.contextJson !== 'string') {
+      const error = 'parked run is missing its workflow/context snapshot';
+      await prisma.workflowRun.update({ where: { id: runId }, data: { status: 'FAILED', endedAt: new Date(), error } });
+      return { status: 'FAILED', error };
+    }
+
+    const resumeCount = (row.resumeCount ?? 0) + 1;
+    if (resumeCount > MAX_RESUMES) {
+      const error = `SAFETY_LIMIT: run exceeded MAX_RESUMES (${MAX_RESUMES})`;
+      await prisma.workflowRun.update({ where: { id: runId }, data: { status: 'FAILED', endedAt: new Date(), error } });
+      return { status: 'FAILED', error };
+    }
+
+    let workflow: Workflow;
+    let ctx: RunContext;
+    try {
+      workflow = JSON.parse(row.workflowJson) as Workflow;
+      ctx = JSON.parse(row.contextJson) as RunContext;
+    } catch (err) {
+      const error = `parked run snapshot is corrupt: ${err instanceof Error ? err.message : String(err)}`;
+      await prisma.workflowRun.update({ where: { id: runId }, data: { status: 'FAILED', endedAt: new Date(), error } });
+      return { status: 'FAILED', error };
+    }
+
+    // Settle the parked wait node, then continue from its `next` edge.
+    const waitNodeId = row.resumeNodeId;
+    const waitStep: StepState = ctx.steps[waitNodeId] ?? { nodeId: waitNodeId, status: 'PENDING', attempt: 0 };
+    waitStep.status = 'SUCCESS';
+    waitStep.endedAt = new Date().toISOString();
+    ctx.steps[waitNodeId] = waitStep;
+
+    await prisma.workflowRun.update({
+      where: { id: runId },
+      data: { status: 'RUNNING', resumeCount, resumeAt: null, resumeNodeId: null },
+    });
+
+    const opts = { tenantId: row.tenantId ?? workflow.tenantId, runId, authResolver };
+    const env: ExecEnv = {
+      workflow,
+      opts,
+      prisma,
+      registry: getConnectorRegistry(),
+      deadline: Date.now() + (workflow.settings?.maxRunSeconds ?? 900) * 1000,
+      executed: { count: 0 },
+    };
+
+    try {
+      const nextId = this.edgeTo(workflow, waitNodeId, 'next');
+      if (nextId) {
+        await this.executeFrom(env, ctx, nextId, null, 0);
+      }
+      await this.finalizeRun(workflow, ctx, runId, { status: 'SUCCEEDED' });
+      return { status: 'SUCCEEDED', context: ctx };
+    } catch (err) {
+      if (err instanceof WaitParkSignal) {
+        // A further long top-level wait re-parks the run for the next cron pass.
+        await this.finalizeRun(workflow, ctx, runId, {
+          status: 'WAITING',
+          resumeAt: err.resumeAt,
+          resumeNodeId: err.nodeId,
+        });
+        return { status: 'WAITING', resumeAt: err.resumeAt, context: ctx };
+      }
+      const errMsg = err instanceof Error ? err.message : String(err);
+      ctx.lastError = errMsg;
+      await this.finalizeRun(workflow, ctx, runId, { status: 'FAILED', error: errMsg });
+      return { status: 'FAILED', error: errMsg, context: ctx };
+    }
+  }
+
+  // ─── Core Execution (recursive sub-graph walker) ──────────────────
 
   private async executeRun(
     workflow: Workflow,
@@ -95,20 +225,51 @@ export class WorkflowEngineService {
   ): Promise<void> {
     const prisma = getPrisma();
     const maxRunMs = (workflow.settings?.maxRunSeconds ?? 900) * 1000;
-    const deadline = Date.now() + maxRunMs;
-    const registry = getConnectorRegistry();
 
     await prisma.workflowRun.update({
       where: { id: opts.runId },
       data: { status: 'RUNNING', startedAt: new Date() },
     });
 
-    const startNodeId = this.findStartNode(workflow);
+    const env: ExecEnv = {
+      workflow,
+      opts,
+      prisma,
+      registry: getConnectorRegistry(),
+      deadline: Date.now() + maxRunMs,
+      executed: { count: 0 },
+    };
+
+    await this.executeFrom(env, ctx, this.findStartNode(workflow), null, 0);
+  }
+
+  /**
+   * Walk the graph from `startNodeId` until the branch terminates (an `end`
+   * node, or no matching out-edge) or leaves the owned node set (`boundary`).
+   * Loop/parallel bodies recurse with their owned sub-graph as the boundary:
+   * owned = reachable(body edge) \ reachable(next edge) — the continuation is
+   * never executed by a body frame, so the DAG needs no back-edges.
+   */
+  private async executeFrom(
+    env: ExecEnv,
+    ctx: RunContext,
+    startNodeId: string,
+    boundary: Set<string> | null,
+    depth: number,
+  ): Promise<void> {
+    const { workflow, opts, prisma, registry } = env;
     let currentNodeId: string | null = startNodeId;
 
     while (currentNodeId !== null) {
-      if (Date.now() > deadline) {
+      if (boundary && !boundary.has(currentNodeId)) {
+        return; // left the owned sub-graph — the parent frame continues from here
+      }
+      if (Date.now() > env.deadline) {
         throw new Error('TIMED_OUT: workflow exceeded maxRunSeconds');
+      }
+      env.executed.count += 1;
+      if (env.executed.count > MAX_NODE_EXECUTIONS) {
+        throw new Error(`SAFETY_LIMIT: run exceeded MAX_NODE_EXECUTIONS (${MAX_NODE_EXECUTIONS})`);
       }
 
       const node = workflow.nodes.find(n => n.id === currentNodeId);
@@ -149,21 +310,129 @@ export class WorkflowEngineService {
             continue;
           }
 
-          case 'delay': {
-            const delaySpec = node.delay!;
-            let waitUntil: number;
-            if (delaySpec.mode === 'duration' && delaySpec.durationMs) {
-              waitUntil = Date.now() + delaySpec.durationMs;
-            } else if (delaySpec.mode === 'until' && delaySpec.until) {
-              const resolved = resolveValue(delaySpec.until, ctx);
-              waitUntil = new Date(String(resolved)).getTime();
-            } else {
-              waitUntil = Date.now();
+          case 'switch': {
+            const value = resolveValue(node.switchOn!.on, ctx);
+            stepState.result = { value };
+            stepState.status = 'SUCCESS';
+            stepState.endedAt = new Date().toISOString();
+            await this.persistStepLog(prisma, opts.runId, stepState, node);
+            currentNodeId =
+              this.edgeTo(workflow, node.id, `case:${String(value)}`) ??
+              this.edgeTo(workflow, node.id, 'default');
+            continue;
+          }
+
+          case 'loop': {
+            const spec = node.loop!;
+            const resolvedItems = resolveValue(spec.items, ctx);
+            if (!Array.isArray(resolvedItems)) {
+              throw new Error(`Loop node "${node.id}": "items" did not resolve to an array`);
+            }
+            const bodyStart = this.edgeTo(workflow, node.id, 'loop');
+            const nextId = this.edgeTo(workflow, node.id, 'next');
+            const items = resolvedItems.slice(0, spec.maxIterations ?? 1000);
+            const itemVar = spec.itemVar ?? 'item';
+            const indexVar = spec.indexVar ?? 'index';
+
+            if (bodyStart && items.length > 0) {
+              this.assertDepth(depth + 1);
+              const body = this.ownedSubgraph(workflow, bodyStart, nextId);
+
+              if ((spec.mode ?? 'serial') === 'parallel') {
+                const concurrency = Math.max(1, spec.concurrency ?? 1);
+                await runPool(items.map((item, i) => async () => {
+                  // Bounded-parallel: each iteration binds itemVar/indexVar in
+                  // its own vars/steps so iterations don't race each other.
+                  const iterCtx: RunContext = {
+                    ...ctx,
+                    vars: { ...ctx.vars, [itemVar]: item, [indexVar]: i },
+                    steps: { ...ctx.steps },
+                  };
+                  for (const id of body) delete iterCtx.steps[id];
+                  await this.executeFrom(env, iterCtx, bodyStart, body, depth + 1);
+                }), concurrency);
+              } else {
+                for (let i = 0; i < items.length; i++) {
+                  ctx.vars[itemVar] = items[i];
+                  ctx.vars[indexVar] = i;
+                  // Fresh step states per iteration so body nodes re-execute.
+                  for (const id of body) delete ctx.steps[id];
+                  await this.executeFrom(env, ctx, bodyStart, body, depth + 1);
+                }
+              }
             }
 
-            if (Date.now() < waitUntil) {
-              const remaining = Math.min(waitUntil - Date.now(), maxRunMs);
-              await sleep(remaining);
+            stepState.result = { iterations: items.length };
+            stepState.status = 'SUCCESS';
+            stepState.endedAt = new Date().toISOString();
+            await this.persistStepLog(prisma, opts.runId, stepState, node);
+            currentNodeId = nextId;
+            continue;
+          }
+
+          case 'parallel': {
+            const spec = node.parallel!;
+            const nextId = this.edgeTo(workflow, node.id, 'next');
+            const branchEdges = workflow.edges.filter(e => e.from === node.id && e.label === 'branch');
+
+            if (branchEdges.length > 0) {
+              this.assertDepth(depth + 1);
+              const tasks = branchEdges.map(edge => async () => {
+                const owned = this.ownedSubgraph(workflow, edge.to, nextId);
+                await this.executeFrom(env, ctx, edge.to, owned, depth + 1);
+              });
+
+              if ((spec.join ?? 'all') === 'race') {
+                const promises = tasks.map(t => t());
+                // First branch to settle wins; observe the losers so a late
+                // rejection never surfaces as an unhandled rejection.
+                for (const p of promises) p.catch(() => undefined);
+                await Promise.race(promises);
+              } else {
+                await runPool(tasks, Math.max(1, spec.maxConcurrency ?? branchEdges.length));
+              }
+            }
+
+            stepState.result = { branches: branchEdges.length };
+            stepState.status = 'SUCCESS';
+            stepState.endedAt = new Date().toISOString();
+            await this.persistStepLog(prisma, opts.runId, stepState, node);
+            currentNodeId = nextId;
+            continue;
+          }
+
+          case 'wait':
+          case 'delay': {
+            // `delay` is the legacy alias of `wait` — same durable semantics.
+            const spec = (node.type === 'wait' ? node.wait : node.delay)!;
+            let waitUntilMs: number;
+            if (spec.mode === 'duration' && spec.durationMs) {
+              waitUntilMs = Date.now() + spec.durationMs;
+            } else if (spec.mode === 'until' && spec.until) {
+              const resolved = resolveValue(spec.until, ctx);
+              waitUntilMs = new Date(String(resolved)).getTime();
+              if (Number.isNaN(waitUntilMs)) {
+                throw new Error(`Wait node "${node.id}": "until" did not resolve to a valid date`);
+              }
+            } else {
+              waitUntilMs = Date.now();
+            }
+
+            const inlineThresholdMs = (spec as Partial<WaitSpec>).inlineThresholdMs ?? DEFAULT_INLINE_THRESHOLD_MS;
+            const remaining = waitUntilMs - Date.now();
+
+            if (remaining > inlineThresholdMs && depth === 0) {
+              // Durable park: only a top-level wait parks; the run is resumed
+              // by cron (resumeDueWorkflowRuns) once resumeAt is due.
+              stepState.status = 'WAITING';
+              await this.persistStepLog(prisma, opts.runId, stepState, node);
+              throw new WaitParkSignal(node.id, new Date(waitUntilMs));
+            }
+
+            if (remaining > 0) {
+              // Nested waits (inside a loop/parallel body) sleep inline,
+              // bounded by the inline threshold and the run deadline.
+              await sleep(Math.min(remaining, inlineThresholdMs, Math.max(0, env.deadline - Date.now())));
             }
 
             stepState.status = 'SUCCESS';
@@ -236,9 +505,16 @@ export class WorkflowEngineService {
             throw new Error(`Unsupported node type "${node.type}" (node "${node.id}")`);
         }
       } catch (err) {
+        // Park is control flow, never routed through onError handlers.
+        if (err instanceof WaitParkSignal) throw err;
+
         const errMsg = err instanceof Error ? err.message : String(err);
         stepState.error = errMsg;
         ctx.lastError = errMsg;
+
+        // Guardrails (safety caps / run timeout) always fail the run — a node's
+        // onError policy must not swallow them.
+        const isGuardrail = errMsg.startsWith('SAFETY_LIMIT') || errMsg.startsWith('TIMED_OUT');
 
         const handler = node.onError ?? { mode: workflow.settings?.errorPolicy ?? 'fail_run', captureErrorAs: 'lastError' };
 
@@ -246,7 +522,7 @@ export class WorkflowEngineService {
           ctx.vars[handler.captureErrorAs] = errMsg;
         }
 
-        if (handler.mode === 'continue') {
+        if (!isGuardrail && handler.mode === 'continue') {
           stepState.status = 'FAILED';
           stepState.endedAt = new Date().toISOString();
           await this.persistStepLog(prisma, opts.runId, stepState, node);
@@ -254,7 +530,7 @@ export class WorkflowEngineService {
           continue;
         }
 
-        if (handler.mode === 'route_to_error_edge') {
+        if (!isGuardrail && handler.mode === 'route_to_error_edge') {
           stepState.status = 'FAILED';
           stepState.endedAt = new Date().toISOString();
           await this.persistStepLog(prisma, opts.runId, stepState, node);
@@ -367,6 +643,46 @@ export class WorkflowEngineService {
     };
   }
 
+  // ─── Run Finalization (terminal + parked persistence) ─────────────
+
+  private async finalizeRun(
+    workflow: Workflow,
+    ctx: RunContext,
+    runId: string,
+    outcome:
+      | { status: 'SUCCEEDED' }
+      | { status: 'FAILED'; error: string }
+      | { status: 'WAITING'; resumeAt: Date; resumeNodeId: string },
+  ): Promise<void> {
+    const prisma = getPrisma();
+
+    if (outcome.status === 'WAITING') {
+      await prisma.workflowRun.update({
+        where: { id: runId },
+        data: {
+          status: 'WAITING',
+          resumeAt: outcome.resumeAt,
+          resumeNodeId: outcome.resumeNodeId,
+          // Snapshot the compiled graph so resume is self-contained even if
+          // the source module/flow changes while the run is parked.
+          workflowJson: JSON.stringify(workflow),
+          contextJson: JSON.stringify(ctx),
+        },
+      });
+      return;
+    }
+
+    await prisma.workflowRun.update({
+      where: { id: runId },
+      data: {
+        status: outcome.status,
+        endedAt: new Date(),
+        error: outcome.status === 'FAILED' ? outcome.error : null,
+        contextJson: JSON.stringify(ctx),
+      },
+    });
+  }
+
   // ─── Graph Navigation ─────────────────────────────────────────────
 
   private findStartNode(workflow: Workflow): string {
@@ -385,7 +701,55 @@ export class WorkflowEngineService {
       const val = stepState.result?.value;
       return this.edgeTo(workflow, node.id, val ? 'true' : 'false');
     }
+    if (node.type === 'switch') {
+      const val = stepState.result?.value;
+      return (
+        this.edgeTo(workflow, node.id, `case:${String(val)}`) ??
+        this.edgeTo(workflow, node.id, 'default')
+      );
+    }
     return this.edgeTo(workflow, node.id, 'next');
+  }
+
+  /** All nodes reachable from `startId` following any out-edge. */
+  private reachableFrom(workflow: Workflow, startId: string): Set<string> {
+    const adj = new Map<string, string[]>();
+    for (const edge of workflow.edges) {
+      if (!adj.has(edge.from)) adj.set(edge.from, []);
+      adj.get(edge.from)!.push(edge.to);
+    }
+    const visited = new Set<string>();
+    const queue = [startId];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (visited.has(current)) continue;
+      visited.add(current);
+      for (const next of adj.get(current) ?? []) {
+        if (!visited.has(next)) queue.push(next);
+      }
+    }
+    return visited;
+  }
+
+  /**
+   * The owned sub-graph of a loop/parallel body:
+   * reachable(body edge) \ reachable(next edge). Partitions the body from the
+   * post-loop continuation without back-edges, keeping the DAG acyclic.
+   */
+  private ownedSubgraph(workflow: Workflow, bodyStartId: string, continuationId: string | null): Set<string> {
+    const owned = this.reachableFrom(workflow, bodyStartId);
+    if (continuationId) {
+      for (const id of this.reachableFrom(workflow, continuationId)) {
+        owned.delete(id);
+      }
+    }
+    return owned;
+  }
+
+  private assertDepth(depth: number): void {
+    if (depth > MAX_RECURSION_DEPTH) {
+      throw new Error(`SAFETY_LIMIT: run exceeded MAX_RECURSION_DEPTH (${MAX_RECURSION_DEPTH})`);
+    }
   }
 
   private getOrInitStep(ctx: RunContext, nodeId: string): StepState {
@@ -455,6 +819,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/** Run async tasks with bounded concurrency; rejects on the first failure. */
+async function runPool<T>(tasks: Array<() => Promise<T>>, limit: number): Promise<T[]> {
+  const results: T[] = new Array(tasks.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, limit), tasks.length) }, async () => {
+    while (nextIndex < tasks.length) {
+      const i = nextIndex++;
+      results[i] = await tasks[i]!();
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 // ─── Result Type ──────────────────────────────────────────────────────
 
 export interface WorkflowRunResult {
@@ -462,4 +840,6 @@ export interface WorkflowRunResult {
   error?: string;
   context?: RunContext;
   delegatedTo?: string;
+  /** Set when the run parked on a durable wait (status WAITING). */
+  resumeAt?: Date;
 }

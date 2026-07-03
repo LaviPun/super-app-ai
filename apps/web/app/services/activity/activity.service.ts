@@ -71,7 +71,8 @@ export type ActivityAction =
   | 'PROVIDER_DELETED'
   | 'PROVIDER_ACCOUNT_UPDATED'
   | 'MODEL_PRICE_SAVED'
-  | 'MODEL_PRICE_DELETED';
+  | 'MODEL_PRICE_DELETED'
+  | 'MODULE_DUPLICATED';
 
 export type ActivityActor = 'SYSTEM' | 'MERCHANT' | 'INTERNAL_ADMIN' | 'WEBHOOK' | 'CRON';
 

@@ -98,8 +98,47 @@ export const DelaySpecSchema = z.object({
 }).strict();
 export type DelaySpec = z.infer<typeof DelaySpecSchema>;
 
+// ─── Wait Spec (durable-capable; `delay` is the legacy alias) ─────────
+export const WaitSpecSchema = z.object({
+  mode: z.enum(['duration', 'until']),
+  durationMs: z.number().int().min(1).optional(),
+  until: z.union([ExpressionSchema, ValueOrTemplateSchema]).optional()
+    .describe('Expression/value resolving to an ISO date — waits until that instant'),
+  inlineThresholdMs: z.number().int().min(0).default(60000)
+    .describe('Waits longer than this park the run (durable); shorter waits sleep inline'),
+}).strict();
+export type WaitSpec = z.infer<typeof WaitSpecSchema>;
+
+// ─── Switch Spec ──────────────────────────────────────────────────────
+export const SwitchSpecSchema = z.object({
+  on: z.union([ExpressionSchema, ValueOrTemplateSchema])
+    .describe('Value to match against the outgoing "case:<value>" edges'),
+}).strict();
+export type SwitchSpec = z.infer<typeof SwitchSpecSchema>;
+
+// ─── Loop Spec (for-each over an array) ───────────────────────────────
+export const LoopSpecSchema = z.object({
+  items: z.union([ExpressionSchema, ValueOrTemplateSchema])
+    .describe('Expression/ref resolving to the array to iterate'),
+  itemVar: z.string().min(1).default('item'),
+  indexVar: z.string().min(1).default('index'),
+  maxIterations: z.number().int().min(1).max(100000).default(1000),
+  mode: z.enum(['serial', 'parallel']).default('serial'),
+  concurrency: z.number().int().min(1).max(25).default(1),
+}).strict();
+export type LoopSpec = z.infer<typeof LoopSpecSchema>;
+
+// ─── Parallel Spec (fan-out / join) ───────────────────────────────────
+export const ParallelSpecSchema = z.object({
+  join: z.enum(['all', 'race']).default('all'),
+  maxConcurrency: z.number().int().min(1).max(25).default(5),
+}).strict();
+export type ParallelSpec = z.infer<typeof ParallelSpecSchema>;
+
 // ─── Node ─────────────────────────────────────────────────────────────
-export const NodeTypeSchema = z.enum(['condition', 'action', 'transform', 'delay', 'end']);
+export const NodeTypeSchema = z.enum([
+  'condition', 'action', 'transform', 'switch', 'loop', 'parallel', 'wait', 'delay', 'end',
+]);
 export type NodeType = z.infer<typeof NodeTypeSchema>;
 
 const NodeIdPattern = /^[a-zA-Z0-9_-]{3,64}$/;
@@ -111,6 +150,10 @@ export const NodeSchema = z.object({
   condition: ExpressionSchema.optional(),
   action: ActionSpecSchema.optional(),
   transform: TransformSpecSchema.optional(),
+  switchOn: SwitchSpecSchema.optional(),
+  loop: LoopSpecSchema.optional(),
+  parallel: ParallelSpecSchema.optional(),
+  wait: WaitSpecSchema.optional(),
   delay: DelaySpecSchema.optional(),
   onError: ErrorHandlerSchema.optional(),
 }).strict().superRefine((node, ctx) => {
@@ -123,6 +166,18 @@ export const NodeSchema = z.object({
   if (node.type === 'transform' && !node.transform) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Transform node requires "transform" field', path: ['transform'] });
   }
+  if (node.type === 'switch' && !node.switchOn) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Switch node requires "switchOn" field', path: ['switchOn'] });
+  }
+  if (node.type === 'loop' && !node.loop) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Loop node requires "loop" field', path: ['loop'] });
+  }
+  if (node.type === 'parallel' && !node.parallel) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Parallel node requires "parallel" field', path: ['parallel'] });
+  }
+  if (node.type === 'wait' && !node.wait) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Wait node requires "wait" field', path: ['wait'] });
+  }
   if (node.type === 'delay' && !node.delay) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Delay node requires "delay" field', path: ['delay'] });
   }
@@ -130,7 +185,12 @@ export const NodeSchema = z.object({
 export type WorkflowNode = z.infer<typeof NodeSchema>;
 
 // ─── Edge ─────────────────────────────────────────────────────────────
-export const EdgeLabelSchema = z.enum(['next', 'true', 'false', 'error']);
+// Fixed labels plus dynamic "case:<value>" labels used by switch nodes.
+export const EdgeLabelSchema = z.union([
+  z.enum(['next', 'true', 'false', 'error', 'default', 'loop', 'branch']),
+  z.string().regex(/^case:.+$/, 'Edge label must be next|true|false|error|default|loop|branch or "case:<value>"'),
+]);
+export type EdgeLabel = z.infer<typeof EdgeLabelSchema>;
 
 export const EdgeSchema = z.object({
   from: z.string().min(1),
@@ -194,7 +254,7 @@ export const WorkflowSchema = z.object({
 export type Workflow = z.infer<typeof WorkflowSchema>;
 
 // ─── Run Context (runtime) ────────────────────────────────────────────
-export type RunStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | 'TIMED_OUT';
+export type RunStatus = 'QUEUED' | 'RUNNING' | 'WAITING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | 'TIMED_OUT';
 export type StepStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'RETRYING' | 'SKIPPED' | 'WAITING';
 
 export interface StepState {

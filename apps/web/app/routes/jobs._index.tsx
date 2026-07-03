@@ -174,46 +174,58 @@ export async function loader({ request }: { request: Request }) {
     aiUsageByCorrelation.set(corr, current);
   }
 
+  // Bounded AI-usage aggregation: groupBy in the DB instead of loading every row.
   const since30d = new Date(Date.now() - 30 * 86400000);
-  const aiStoreRows = await prisma.aiUsage.findMany({
-    where: { shopId: shopRow.id },
-    include: { provider: true },
-  });
-  const aiStoreRows30d = aiStoreRows.filter((r) => r.createdAt >= since30d);
-  const summarizeAiRows = (rows: typeof aiStoreRows) => {
-    const byProvider = new Map<string, { provider: string; model: string; requests: number; tokensIn: number; tokensOut: number; costCents: number }>();
+  const [aiGrouped30d, aiGroupedAllTime] = await Promise.all([
+    prisma.aiUsage.groupBy({
+      by: ['providerId'],
+      where: { shopId: shopRow.id, createdAt: { gte: since30d } },
+      _sum: { requestCount: true, tokensIn: true, tokensOut: true, costCents: true },
+    }),
+    prisma.aiUsage.groupBy({
+      by: ['providerId'],
+      where: { shopId: shopRow.id },
+      _sum: { requestCount: true, tokensIn: true, tokensOut: true, costCents: true },
+    }),
+  ]);
+  const providerIds = [...new Set([...aiGrouped30d, ...aiGroupedAllTime].map((g) => g.providerId))];
+  const providers = providerIds.length
+    ? await prisma.aiProvider.findMany({
+        where: { id: { in: providerIds } },
+        select: { id: true, name: true, provider: true, model: true },
+      })
+    : [];
+  const providerById = new Map(providers.map((p) => [p.id, p]));
+  const summarizeAiGroups = (groups: typeof aiGrouped30d) => {
     let totalRequests = 0;
     let totalTokensIn = 0;
     let totalTokensOut = 0;
     let totalCostCents = 0;
-    for (const row of rows) {
-      totalRequests += row.requestCount;
-      totalTokensIn += row.tokensIn;
-      totalTokensOut += row.tokensOut;
-      totalCostCents += row.costCents;
-      const providerName = row.provider?.name ?? row.provider?.provider ?? 'Unknown provider';
-      const model = row.provider?.model ?? '—';
-      const key = `${providerName}::${model}`;
-      const cur = byProvider.get(key) ?? {
-        provider: providerName,
-        model,
-        requests: 0,
-        tokensIn: 0,
-        tokensOut: 0,
-        costCents: 0,
+    const byProvider = groups.map((g) => {
+      const p = providerById.get(g.providerId);
+      const requests = g._sum.requestCount ?? 0;
+      const tokensIn = g._sum.tokensIn ?? 0;
+      const tokensOut = g._sum.tokensOut ?? 0;
+      const costCents = g._sum.costCents ?? 0;
+      totalRequests += requests;
+      totalTokensIn += tokensIn;
+      totalTokensOut += tokensOut;
+      totalCostCents += costCents;
+      return {
+        provider: p?.name ?? p?.provider ?? 'Unknown provider',
+        model: p?.model ?? '—',
+        requests,
+        tokensIn,
+        tokensOut,
+        costCents,
       };
-      cur.requests += row.requestCount;
-      cur.tokensIn += row.tokensIn;
-      cur.tokensOut += row.tokensOut;
-      cur.costCents += row.costCents;
-      byProvider.set(key, cur);
-    }
+    });
     return {
       totalRequests,
       totalTokensIn,
       totalTokensOut,
       totalCostCents,
-      byProvider: Array.from(byProvider.values()).sort((a, b) => b.costCents - a.costCents),
+      byProvider: byProvider.sort((a, b) => b.costCents - a.costCents),
     };
   };
 
@@ -277,8 +289,8 @@ export async function loader({ request }: { request: Request }) {
     distinctTypes,
     jobs: jobsData,
     events: eventsData,
-    aiSummary30d: summarizeAiRows(aiStoreRows30d),
-    aiSummaryAllTime: summarizeAiRows(aiStoreRows),
+    aiSummary30d: summarizeAiGroups(aiGrouped30d),
+    aiSummaryAllTime: summarizeAiGroups(aiGroupedAllTime),
   });
 }
 
@@ -420,9 +432,6 @@ export default function JobsPage() {
                     <code key={`c-${j.id}`} style={{ fontSize: 11 }}>{j.correlationId.slice(0, 18)}…</code>
                   ) : '—',
                   <InlineStack key={`a-${j.id}`} gap="100">
-                    {j.correlationId ? (
-                      <Button size="slim" variant="plain" url={`/internal/trace/${encodeURIComponent(j.correlationId)}`}>Trace</Button>
-                    ) : null}
                     {j.error ? (
                       <Text as="span" variant="bodySm" tone="critical" truncate>
                         {j.error.slice(0, 60)}

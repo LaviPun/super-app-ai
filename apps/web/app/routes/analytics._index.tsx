@@ -1,11 +1,11 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, useNavigate } from '@remix-run/react';
-import { useState } from 'react';
+import { useLoaderData, useNavigate, useSearchParams } from '@remix-run/react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
-  Icon, Btn, Card, CardHead, PageHead, StatTile, DataTable, Sparkline, Progress, fmtNum,
+  Icon, Btn, Card, CardHead, PageHead, StatTile, DataTable, Sparkline, Progress, EmptyState, fmtNum, fmtCents,
+  exportCSV,
 } from '~/components/superapp';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -21,46 +21,170 @@ function designType(t: string): string {
   return 'Storefront UI';
 }
 
+/** Real percent change vs the previous window, or null when there is no baseline. */
+function pctDelta(current: number, previous: number): string | null {
+  if (previous <= 0) return null;
+  const pct = ((current - previous) / previous) * 100;
+  return `${Math.abs(pct).toFixed(1)}%`;
+}
+function deltaDir(current: number, previous: number): 'up' | 'down' {
+  return current >= previous ? 'up' : 'down';
+}
+
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
+  const url = new URL(request.url);
+  const rangeParam = url.searchParams.get('range');
+  const range = rangeParam === '7d' || rangeParam === '90d' ? rangeParam : '30d';
+  const days = range === '7d' ? 7 : range === '90d' ? 90 : 30;
+
   const prisma = getPrisma();
-  const shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
-  const published = shopRow
-    ? await prisma.module.findMany({ where: { shopId: shopRow.id, status: 'PUBLISHED' }, orderBy: { updatedAt: 'desc' }, take: 50, select: { id: true, name: true, type: true } })
-    : [];
+  const shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop }, select: { id: true } });
 
-  // Storefront performance is not tracked in the DB yet; synthesize deterministic
-  // per-module figures from the real published modules (placeholder analytics layer).
-  const perf = published.map((m, i) => ({
-    id: m.id,
-    name: m.name,
-    type: designType(m.type),
-    views: 4200 + ((i * 1871) % 9000),
-    ctr: (3.5 + ((i * 7) % 50) / 10).toFixed(1),
-    revenue: 1200 + ((i * 1330) % 5200),
-    uplift: '+' + (0.4 + ((i * 3) % 20) / 10).toFixed(1) + '%',
-  })).sort((a, b) => b.revenue - a.revenue);
+  const empty = {
+    range,
+    days,
+    publishedCount: 0,
+    perf: [] as any[],
+    series: [] as number[],
+    hasMetrics: false,
+    totals: { views: 0, interactions: 0, actions: 0, conversions: 0 },
+    deltas: { views: null as string | null, viewsDir: 'up' as 'up' | 'down', engagement: null as string | null, engagementDir: 'up' as 'up' | 'down', conversions: null as string | null, conversionsDir: 'up' as 'up' | 'down', ai: null as string | null, aiDir: 'up' as 'up' | 'down' },
+    ai: { costCents: 0, requests: 0 },
+  };
+  if (!shopRow) return json(empty);
 
-  return json({ perf, publishedCount: published.length });
+  const now = Date.now();
+  const since = new Date(now - days * 86400000);
+  const prevSince = new Date(now - 2 * days * 86400000);
+
+  const [published, metricRows, prevAgg, aiAgg, aiPrevAgg] = await Promise.all([
+    prisma.module.findMany({
+      where: { shopId: shopRow.id, status: 'PUBLISHED' },
+      orderBy: { updatedAt: 'desc' },
+      take: 50,
+      select: { id: true, name: true, type: true },
+    }),
+    prisma.moduleMetricsDaily.findMany({
+      where: { shopId: shopRow.id, date: { gte: since } },
+      select: { moduleId: true, date: true, impressions: true, interactions: true, actions: true, conversions: true },
+      orderBy: { date: 'asc' },
+      take: 5000,
+    }),
+    prisma.moduleMetricsDaily.aggregate({
+      where: { shopId: shopRow.id, date: { gte: prevSince, lt: since } },
+      _sum: { impressions: true, interactions: true, conversions: true },
+    }),
+    prisma.aiUsage.aggregate({
+      where: { shopId: shopRow.id, createdAt: { gte: since } },
+      _sum: { costCents: true, requestCount: true },
+    }),
+    prisma.aiUsage.aggregate({
+      where: { shopId: shopRow.id, createdAt: { gte: prevSince, lt: since } },
+      _sum: { costCents: true, requestCount: true },
+    }),
+  ]);
+
+  // Aggregate real daily metrics per module and per day.
+  const byModule = new Map<string, { views: number; interactions: number; actions: number; conversions: number }>();
+  const series: number[] = Array.from({ length: days }, () => 0);
+  const totals = { views: 0, interactions: 0, actions: 0, conversions: 0 };
+  for (const row of metricRows) {
+    const cur = byModule.get(row.moduleId) ?? { views: 0, interactions: 0, actions: 0, conversions: 0 };
+    cur.views += row.impressions;
+    cur.interactions += row.interactions;
+    cur.actions += row.actions;
+    cur.conversions += row.conversions;
+    byModule.set(row.moduleId, cur);
+    totals.views += row.impressions;
+    totals.interactions += row.interactions;
+    totals.actions += row.actions;
+    totals.conversions += row.conversions;
+    const idx = days - 1 - Math.min(days - 1, Math.max(0, Math.floor((now - new Date(row.date).getTime()) / 86400000)));
+    series[idx] = (series[idx] ?? 0) + row.impressions;
+  }
+
+  const perf = published
+    .map((m) => {
+      const s = byModule.get(m.id) ?? { views: 0, interactions: 0, actions: 0, conversions: 0 };
+      return {
+        id: m.id,
+        name: m.name,
+        type: designType(m.type),
+        views: s.views,
+        engagedPct: s.views > 0 ? ((s.interactions / s.views) * 100).toFixed(1) : '0.0',
+        actions: s.actions,
+        conversions: s.conversions,
+      };
+    })
+    .sort((a, b) => b.views - a.views);
+
+  const prevViews = prevAgg._sum.impressions ?? 0;
+  const prevInteractions = prevAgg._sum.interactions ?? 0;
+  const prevConversions = prevAgg._sum.conversions ?? 0;
+  const engagement = totals.views > 0 ? totals.interactions / totals.views : 0;
+  const prevEngagement = prevViews > 0 ? prevInteractions / prevViews : 0;
+  const aiCost = aiAgg._sum.costCents ?? 0;
+  const aiPrevCost = aiPrevAgg._sum.costCents ?? 0;
+
+  return json({
+    range,
+    days,
+    publishedCount: published.length,
+    perf,
+    series,
+    hasMetrics: metricRows.length > 0,
+    totals,
+    deltas: {
+      views: pctDelta(totals.views, prevViews),
+      viewsDir: deltaDir(totals.views, prevViews),
+      engagement: prevEngagement > 0 ? `${Math.abs((engagement - prevEngagement) * 100).toFixed(1)} pts` : null,
+      engagementDir: deltaDir(engagement, prevEngagement),
+      conversions: pctDelta(totals.conversions, prevConversions),
+      conversionsDir: deltaDir(totals.conversions, prevConversions),
+      ai: pctDelta(aiCost, aiPrevCost),
+      aiDir: deltaDir(aiCost, aiPrevCost),
+    },
+    ai: { costCents: aiCost, requests: aiAgg._sum.requestCount ?? 0 },
+  });
 }
 
 export default function AnalyticsIndex() {
-  const { perf, publishedCount } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
   return (
     <MerchantShell>
-      <AnalyticsBody perf={perf} publishedCount={publishedCount} />
+      <AnalyticsBody {...(data as any)} />
     </MerchantShell>
   );
 }
 
-function AnalyticsBody({ perf, publishedCount }: any) {
+function AnalyticsBody({ range, days, publishedCount, perf, series, hasMetrics, totals, deltas, ai }: any) {
   const ctx = useMerchantCtx();
   const navigate = useNavigate();
-  const [range, setRange] = useState('30d');
-  const rev = [9.2, 10.1, 9.8, 11.4, 12.0, 12.8, 13.5, 13.1, 14.6, 15.2, 16.0, 16.8, 17.3, 18.4].map((v) => v * 1000);
-  const funnel: [string, number, number, string][] = [
-    ['Module views', 84200, 100, 'info'], ['Engaged', 38400, 46, 'magic'], ['Add to cart', 6580, 8, 'warning'], ['Purchased', 2410, 3, 'success'],
+  const [params, setParams] = useSearchParams();
+
+  const setRange = (r: string) => {
+    const p = new URLSearchParams(params);
+    if (r === '30d') p.delete('range'); else p.set('range', r);
+    setParams(p, { preventScrollReset: true });
+  };
+
+  const onExport = () => {
+    if (!perf.length) {
+      ctx.toast('No analytics data to export yet', { error: true });
+      return;
+    }
+    exportCSV(`analytics-${range}.csv`, perf, ['name', 'type', 'views', 'engagedPct', 'actions', 'conversions']);
+  };
+
+  const engagementRate = totals.views > 0 ? ((totals.interactions / totals.views) * 100).toFixed(1) + '%' : '—';
+  const funnel: [string, number, string][] = [
+    ['Module views', totals.views, 'info'],
+    ['Engaged', totals.interactions, 'magic'],
+    ['Actions', totals.actions, 'warning'],
+    ['Converted', totals.conversions, 'success'],
   ];
+  const funnelPct = (n: number) => (totals.views > 0 ? Math.round((n / totals.views) * 100) : 0);
 
   return (
     <div className="page">
@@ -70,44 +194,58 @@ function AnalyticsBody({ perf, publishedCount }: any) {
         actions={(
           <>
             <div className="seg">{['7d', '30d', '90d'].map((r) => <button key={r} aria-selected={range === r} onClick={() => setRange(r)}>{r}</button>)}</div>
-            <Btn icon="download" onClick={() => ctx.toast('Exported analytics to CSV')}>Export</Btn>
+            <Btn icon="download" onClick={onExport}>Export</Btn>
           </>
         )}
       />
       <div className="grid grid-4" style={{ marginBottom: 18 }}>
-        <StatTile label="Revenue attributed" value="$18,420" icon="chart" tone="success" delta="12.4%" />
-        <StatTile label="Conversion uplift" value="+2.3%" icon="rocket" tone="magic" delta="0.5 pts" />
-        <StatTile label="Module views" value="84.2k" icon="eye" tone="info" delta="6.1%" />
-        <StatTile label="Add-to-cart rate" value="7.8%" icon="cart" tone="warning" delta="0.6 pts" />
+        <StatTile label="Module views" value={fmtNum(totals.views)} icon="eye" tone="info" delta={deltas.views} deltaDir={deltas.viewsDir} />
+        <StatTile label="Engagement rate" value={engagementRate} icon="rocket" tone="magic" delta={deltas.engagement} deltaDir={deltas.engagementDir} />
+        <StatTile label="Conversions" value={fmtNum(totals.conversions)} icon="cart" tone="success" delta={deltas.conversions} deltaDir={deltas.conversionsDir} />
+        <StatTile label="AI spend" value={fmtCents(ai.costCents)} icon="magic" tone="warning" delta={deltas.ai} deltaDir={deltas.aiDir} sub={`${fmtNum(ai.requests)} requests`} />
       </div>
       <div className="col-main" style={{ marginBottom: 18 }}>
         <Card>
-          <CardHead title="Attributed revenue" sub="Last 14 days · from live modules" />
-          <div style={{ padding: '8px 16px 16px' }}>
-            <Sparkline data={rev} color="var(--p-success)" w={760} h={130} />
-            <div className="row spread t-xs t-muted" style={{ marginTop: 6 }}><span>14 days ago</span><span>Today</span></div>
-          </div>
+          <CardHead title="Module views" sub={`Last ${days} days · from live modules`} />
+          {hasMetrics ? (
+            <div style={{ padding: '8px 16px 16px' }}>
+              <Sparkline data={series} color="var(--p-success)" w={760} h={130} />
+              <div className="row spread t-xs t-muted" style={{ marginTop: 6 }}><span>{days} days ago</span><span>Today</span></div>
+            </div>
+          ) : (
+            <div style={{ padding: 24, color: 'var(--p-text-secondary)', fontSize: 14 }}>
+              No storefront metrics recorded in this period yet. Views appear once a published module is seen on your storefront.
+            </div>
+          )}
         </Card>
         <Card pad>
           <div className="t-h3" style={{ marginBottom: 12 }}>Conversion funnel</div>
-          <div className="stack-4">
-            {funnel.map((f, i) => (
-              <div key={i} className="stack-1">
-                <div className="row spread">
-                  <span className="t-sm t-strong">{f[0]}</span>
-                  <span className="t-sm t-num t-muted">{fmtNum(f[1])} · {f[2]}%</span>
+          {totals.views > 0 ? (
+            <div className="stack-4">
+              {funnel.map((f, i) => (
+                <div key={i} className="stack-1">
+                  <div className="row spread">
+                    <span className="t-sm t-strong">{f[0]}</span>
+                    <span className="t-sm t-num t-muted">{fmtNum(f[1])} · {funnelPct(f[1])}%</span>
+                  </div>
+                  <Progress value={funnelPct(f[1])} tone={f[2] === 'success' ? undefined : f[2]} />
                 </div>
-                <Progress value={f[2]} tone={f[3] === 'success' ? undefined : f[3]} />
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ padding: '8px 0', color: 'var(--p-text-secondary)', fontSize: 14 }}>
+              No funnel data yet — it builds from real module views, interactions and conversions.
+            </div>
+          )}
         </Card>
       </div>
       <Card>
         <CardHead title="Module performance" sub={`${publishedCount} published modules`}
           actions={<a href="/modules" className="btn btn-plain btn-sm">All modules</a>} />
         {perf.length === 0 ? (
-          <div style={{ padding: 24, color: 'var(--p-text-secondary)', fontSize: 14 }}>Publish a module to start seeing storefront performance.</div>
+          <EmptyState icon="chart" title="No published modules yet">
+            Publish a module to start seeing storefront performance.
+          </EmptyState>
         ) : (
           <DataTable rowKey="id" onRowClick={(r: any) => navigate(`/modules/${r.id}`)} columns={[
             { key: 'name', label: 'Module', render: (r: any) => (
@@ -117,9 +255,9 @@ function AnalyticsBody({ perf, publishedCount }: any) {
               </div>
             ) },
             { key: 'views', label: 'Views', num: true, render: (r: any) => fmtNum(r.views) },
-            { key: 'ctr', label: 'Engage %', num: true, render: (r: any) => r.ctr + '%' },
-            { key: 'uplift', label: 'Uplift', render: (r: any) => <span className="metric-delta up"><Icon name="chevronUp" size={12} />{r.uplift}</span> },
-            { key: 'revenue', label: 'Revenue', num: true, render: (r: any) => <span className="cell-strong">${fmtNum(r.revenue)}</span> },
+            { key: 'engagedPct', label: 'Engage %', num: true, render: (r: any) => r.engagedPct + '%' },
+            { key: 'actions', label: 'Actions', num: true, render: (r: any) => fmtNum(r.actions) },
+            { key: 'conversions', label: 'Conversions', num: true, render: (r: any) => <span className="cell-strong">{fmtNum(r.conversions)}</span> },
           ]} rows={perf} />
         )}
       </Card>

@@ -1,7 +1,7 @@
-import { json, redirect } from '@remix-run/node';
+import { json } from '@remix-run/node';
 import { useLoaderData, useFetcher, useNavigate } from '@remix-run/react';
-import { Page, Banner, Text, BlockStack } from '@shopify/polaris';
-import { useCallback, useEffect } from 'react';
+import { Page, Banner, Text, BlockStack, Card, TextField } from '@shopify/polaris';
+import { useCallback, useEffect, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { FlowBuilder } from '~/components/FlowBuilder';
@@ -49,24 +49,29 @@ export async function loader({ request, params }: { request: Request; params: { 
 
 export async function action({ request, params }: { request: Request; params: { flowId?: string } }) {
   const { session } = await shopify.authenticate.admin(request);
-  const body = await request.json() as { trigger: string; steps: any[] };
+  const body = await request.json() as { name?: string; trigger: string; steps: any[] };
+
+  if (typeof body?.trigger !== 'string' || !Array.isArray(body?.steps)) {
+    return json({ error: 'Invalid flow: trigger and steps are required' }, { status: 400 });
+  }
 
   const prisma = getPrisma();
   const shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
   if (!shopRow) return json({ error: 'Shop not found' }, { status: 404 });
 
-  const flowSpec = {
+  const requestedName = typeof body.name === 'string' ? body.name.trim().slice(0, 120) : '';
+  const flowId = params.flowId;
+
+  const makeSpec = (name: string) => ({
     type: 'flow.automation' as const,
-    name: 'Visual Flow',
+    name,
     category: 'FLOW' as const,
     requires: [] as string[],
     config: {
       trigger: body.trigger,
       steps: body.steps,
     },
-  };
-
-  const flowId = params.flowId;
+  });
 
   if (flowId && flowId !== 'new') {
     const mod = await prisma.module.findFirst({
@@ -74,13 +79,17 @@ export async function action({ request, params }: { request: Request; params: { 
     });
     if (!mod) return json({ error: 'Flow not found' }, { status: 404 });
 
+    const name = requestedName || mod.name;
     const ms = new ModuleService();
-    await ms.createNewVersion(session.shop, flowId, flowSpec as any);
+    await ms.createNewVersion(session.shop, flowId, makeSpec(name) as any);
+    if (name !== mod.name) {
+      await prisma.module.update({ where: { id: mod.id }, data: { name } });
+    }
     return json({ ok: true, flowId });
   }
 
   const ms = new ModuleService();
-  const mod = await ms.createDraft(session.shop, flowSpec as any);
+  const mod = await ms.createDraft(session.shop, makeSpec(requestedName || 'Untitled flow') as any);
   return json({ ok: true, flowId: mod.id });
 }
 
@@ -88,6 +97,13 @@ export default function FlowBuildPage() {
   const { flowId, spec, moduleName, connectors } = useLoaderData<typeof loader>();
   const fetcher = useFetcher();
   const navigate = useNavigate();
+  const [name, setName] = useState(moduleName ?? '');
+
+  // Keep the name field in sync when navigating between flows (or after the
+  // first save of a new flow redirects to its real URL).
+  useEffect(() => {
+    setName(moduleName ?? '');
+  }, [moduleName, flowId]);
 
   const isSaving = fetcher.state !== 'idle';
   const result = fetcher.data as { ok?: boolean; flowId?: string; error?: string } | undefined;
@@ -101,12 +117,12 @@ export default function FlowBuildPage() {
   }, [result, flowId, navigate]);
 
   const handleSave = useCallback((flowSpec: { trigger: string; steps: any[] }) => {
-    fetcher.submit(flowSpec as any, {
+    fetcher.submit({ ...flowSpec, name } as any, {
       method: 'POST',
       action: `/flows/build/${flowId ?? 'new'}`,
       encType: 'application/json',
     });
-  }, [flowId, fetcher]);
+  }, [flowId, fetcher, name]);
 
   return (
     <MerchantShell>
@@ -126,6 +142,16 @@ export default function FlowBuildPage() {
             <Text as="p">{result.error}</Text>
           </Banner>
         )}
+        <Card>
+          <TextField
+            label="Flow name"
+            value={name}
+            onChange={setName}
+            autoComplete="off"
+            placeholder="e.g. Tag big orders"
+            helpText="Saved with the flow and shown in the Flows hub."
+          />
+        </Card>
         <FlowBuilder
           initialSpec={(spec as any) ?? undefined}
           connectors={connectors}

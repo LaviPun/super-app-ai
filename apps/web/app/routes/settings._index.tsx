@@ -6,14 +6,15 @@ import { getPrisma } from '~/db.server';
 import { ActivityLogService, logRequestOutcome } from '~/services/activity/activity.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
-  Btn, Badge, Card, CardHead, PageHead, Tabs, Field, Input, Select, Toggle, Avatar,
-  DataTable, Menu, Modal, Icon, titleCase,
+  Btn, Card, PageHead, Tabs, Field, Input, Avatar, Icon,
 } from '~/components/superapp';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+type ShopInfo = { storeName: string | null; ownerName: string | null; email: string | null };
+
 export async function loader({ request }: { request: Request }) {
-  const { session } = await shopify.authenticate.admin(request);
+  const { session, admin } = await shopify.authenticate.admin(request);
   const prisma = getPrisma();
 
   let shopRow = await prisma.shop.findUnique({
@@ -28,11 +29,31 @@ export async function loader({ request }: { request: Request }) {
     });
   }
 
-  const moduleCount = await prisma.module.count({ where: { shopId: shopRow.id } });
-  const connectorCount = await prisma.connector.count({ where: { shopId: shopRow.id } });
-  const scheduleCount = await prisma.flowSchedule.count({ where: { shopId: shopRow.id } });
+  // Real account details straight from Shopify — this app has no user accounts of its own.
+  const fetchShopInfo = async (): Promise<ShopInfo> => {
+    try {
+      const res = await admin.graphql(`#graphql
+        query SettingsShopInfo { shop { name email shopOwnerName } }`);
+      const data = (await res.json()) as { data?: { shop?: { name?: string; email?: string; shopOwnerName?: string } } };
+      return {
+        storeName: data?.data?.shop?.name ?? null,
+        ownerName: data?.data?.shop?.shopOwnerName ?? null,
+        email: data?.data?.shop?.email ?? null,
+      };
+    } catch {
+      return { storeName: null, ownerName: null, email: null };
+    }
+  };
+
+  const [moduleCount, connectorCount, scheduleCount, account] = await Promise.all([
+    prisma.module.count({ where: { shopId: shopRow.id } }),
+    prisma.connector.count({ where: { shopId: shopRow.id } }),
+    prisma.flowSchedule.count({ where: { shopId: shopRow.id } }),
+    fetchShopInfo(),
+  ]);
 
   return json({
+    account,
     shop: {
       domain: session.shop,
       planTier: shopRow.planTier,
@@ -87,20 +108,20 @@ export async function action({ request }: { request: Request }) {
 }
 
 export default function SettingsPage() {
-  const { shop, counts } = useLoaderData<typeof loader>();
+  const { shop, counts, account } = useLoaderData<typeof loader>();
   return (
     <MerchantShell>
-      <SettingsBody shop={shop} counts={counts} />
+      <SettingsBody shop={shop} counts={counts} account={account} />
     </MerchantShell>
   );
 }
 
-function SettingsBody({ shop, counts }: any) {
+function SettingsBody({ shop, counts, account }: any) {
   const ctx = useMerchantCtx();
   const retentionFetcher = useFetcher<{ success?: boolean; message?: string; error?: string }>();
   const [tab, setTab] = useState('account');
-  const [invite, setInvite] = useState(false);
-  const ownerName = titleCase(shop.domain.split('.')[0].replace(/[-_]/g, ' '));
+  const storeHandle = encodeURIComponent(shop.domain.replace('.myshopify.com', ''));
+  const ownerDisplay = account.ownerName ?? account.storeName ?? shop.domain;
 
   const [retDefault, setRetDefault] = useState(String(shop.retentionDaysDefault ?? 30));
   const [retAi, setRetAi] = useState(String(shop.retentionDaysAi ?? ''));
@@ -108,7 +129,10 @@ function SettingsBody({ shop, counts }: any) {
   const [retErrors, setRetErrors] = useState(String(shop.retentionDaysErrors ?? ''));
 
   useEffect(() => {
-    if (retentionFetcher.state === 'idle' && retentionFetcher.data?.success) ctx.toast(retentionFetcher.data.message || 'Settings saved');
+    if (retentionFetcher.state === 'idle' && retentionFetcher.data) {
+      if (retentionFetcher.data.success) ctx.toast(retentionFetcher.data.message || 'Settings saved');
+      else if (retentionFetcher.data.error) ctx.toast(retentionFetcher.data.error, { error: true });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [retentionFetcher.state, retentionFetcher.data]);
 
@@ -119,23 +143,32 @@ function SettingsBody({ shop, counts }: any) {
     );
   };
 
-  const tabs = ['account', 'general', 'storefront', 'notifications', 'team'].map((x) => ({ id: x, label: titleCase(x) }));
+  // Account details are read-only mirrors of Shopify (no app-level user accounts);
+  // notifications / storefront / team tabs were removed — nothing real backs them.
+  const tabs = [{ id: 'account', label: 'Account' }, { id: 'general', label: 'General' }];
 
   return (
     <div className="page page-narrow">
-      <PageHead title="Settings" sub="Manage your account, store defaults, notifications and team." />
+      <PageHead title="Settings" sub="Manage your account details and store defaults." />
       <Card style={{ marginBottom: 18 }}><Tabs active={tab} onChange={setTab} tabs={tabs} /></Card>
 
       {tab === 'account' && (
         <Card pad>
           <div className="stack-5">
-            <div className="row-3"><Avatar name={ownerName} size={48} /><Btn size="sm" onClick={() => ctx.toast('Choose a photo')}>Change photo</Btn></div>
-            <Field label="Full name"><Input defaultValue={ownerName} /></Field>
-            <Field label="Email"><Input type="email" defaultValue={`owner@${shop.domain.split('.')[0]}.com`} /></Field>
-            <Field label="New password" optional help="Leave blank to keep your current password"><Input type="password" placeholder="••••••••" /></Field>
-            <label className="checkbox"><Toggle defaultChecked /><span className="t-sm">Two-factor authentication enabled</span></label>
+            <div className="row-3">
+              <Avatar name={ownerDisplay} size={48} />
+              <div className="stack" style={{ gap: 0 }}>
+                <span className="t-strong">{ownerDisplay}</span>
+                <span className="t-xs t-muted">Store owner</span>
+              </div>
+            </div>
+            <Field label="Store name"><Input defaultValue={account.storeName ?? shop.domain} disabled /></Field>
+            <Field label="Owner email" help="Account details come from Shopify and are managed in your Shopify admin."><Input type="email" defaultValue={account.email ?? ''} disabled /></Field>
             <div className="divider" />
-            <div className="row-2"><Btn variant="primary" onClick={() => ctx.toast('Account saved')}>Save</Btn><Btn className="btn-plain-subdued" onClick={() => ctx.go('#/app')}>Back to dashboard</Btn></div>
+            <div className="row-2">
+              <a className="btn" href={`https://admin.shopify.com/store/${storeHandle}/settings/general`} target="_blank" rel="noreferrer"><Icon name="external" size={16} /><span>Manage in Shopify</span></a>
+              <Btn className="btn-plain-subdued" onClick={() => ctx.go('#/app')}>Back to dashboard</Btn>
+            </div>
           </div>
         </Card>
       )}
@@ -144,9 +177,6 @@ function SettingsBody({ shop, counts }: any) {
         <Card pad>
           <div className="stack-5">
             <Field label="Store domain"><Input defaultValue={shop.domain} disabled /></Field>
-            <Field label="Default AI behaviour" help="How adventurous generated modules should be">
-              <Select options={['Conservative — safest defaults', 'Balanced', 'Creative']} value="Balanced" onChange={() => {}} />
-            </Field>
             <div className="divider" />
             <div className="t-h3">Data retention</div>
             <div className="t-xs t-muted">How long to keep logs and AI usage records (days). Blank disables auto-cleanup.</div>
@@ -159,56 +189,6 @@ function SettingsBody({ shop, counts }: any) {
             <div className="t-xs t-muted">{counts.modules} modules · {counts.connectors} connectors · {counts.schedules} schedules</div>
           </div>
         </Card>
-      )}
-
-      {tab === 'storefront' && (
-        <Card pad>
-          <div className="stack-5">
-            <Field label="Brand color" help="Used as the default accent in generated modules"><Input mono defaultValue="#1F3A5F" /></Field>
-            <Field label="Default corner radius"><Select options={['None', 'Small', 'Medium', 'Large']} value="Medium" onChange={() => {}} /></Field>
-            <label className="checkbox"><Toggle defaultChecked /><span className="t-sm">Respect reduced-motion preferences</span></label>
-          </div>
-        </Card>
-      )}
-
-      {tab === 'notifications' && (
-        <Card pad>
-          <div className="stack-4">
-            {([['Module published', true], ['Flow run failed', true], ['Approaching usage limit', true], ['Weekly summary email', false]] as [string, boolean][]).map((n, i) => (
-              <label key={i} className="row spread" style={{ padding: '6px 0' }}><span className="t-sm">{n[0]}</span><Toggle defaultChecked={n[1]} /></label>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {tab === 'team' && (
-        <Card>
-          <CardHead title="Team members" actions={<Btn size="sm" icon="plus" onClick={() => setInvite(true)}>Invite</Btn>} />
-          <DataTable rowKey="email" columns={[
-            { key: 'name', label: 'Member', render: (r: any) => (
-              <div className="row-3"><Avatar name={r.name} size={28} /><div className="stack" style={{ gap: 0 }}><span className="cell-strong">{r.name}</span><span className="cell-sub">{r.email}</span></div></div>
-            ) },
-            { key: 'role', label: 'Role', render: (r: any) => <Badge>{r.role}</Badge> },
-            { key: 'act', label: '', render: (r: any) => (
-              <div className="dt-actions"><Menu trigger={<button className="btn btn-icon btn-sm btn-plain"><Icon name="dotsH" size={16} /></button>} items={[
-                { icon: 'edit', label: 'Change role', onClick: () => ctx.toast(`Role updated for ${r.name}`) },
-                { icon: 'chat', label: 'Resend invite', onClick: () => ctx.toast('Invite resent') },
-                { divider: true },
-                { icon: 'trash', label: 'Remove', tone: 'critical', onClick: () => ctx.toast(`Removed ${r.name}`) },
-              ]} /></div>
-            ) },
-          ]} rows={[{ name: ownerName, email: `owner@${shop.domain.split('.')[0]}.com`, role: 'Owner' }]} />
-        </Card>
-      )}
-
-      {invite && (
-        <Modal title="Invite a teammate" sub="They’ll get an email invitation to join your store." onClose={() => setInvite(false)}
-          footer={<><span className="grow" /><Btn onClick={() => setInvite(false)}>Cancel</Btn><Btn variant="primary" onClick={() => { setInvite(false); ctx.toast('Invitation sent'); }}>Send invite</Btn></>}>
-          <div className="stack-4">
-            <Field label="Email"><Input type="email" placeholder="name@company.com" autoFocus /></Field>
-            <Field label="Role"><Select options={['Editor', 'Admin', 'Viewer']} value="Editor" onChange={() => {}} /></Field>
-          </div>
-        </Modal>
       )}
     </div>
   );
