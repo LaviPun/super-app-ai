@@ -2,6 +2,7 @@ import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { FlowRunnerService } from '~/services/flows/flow-runner.service';
 import { MessagingRunnerService } from '~/services/messaging/messaging-runner.service';
+import { accrueForOrder, type OrderPayload } from '~/services/composites/loyalty-accrual.server';
 import {
   checkAndMarkWebhookEvent,
   extractWebhookEventId,
@@ -66,6 +67,26 @@ export async function action({ request }: { request: Request }) {
         eventId,
         ...safeErrorMeta(err),
       });
+    }
+
+    // Loyalty accrual (R3.6): on an order, credit points into every loyalty-ledger
+    // composite the shop published. Best-effort — a failure must NOT release the
+    // event or 500 the webhook (the flow run already consumed the claim). Accrual
+    // is itself idempotent (keyed by the order GID in the ledger row), so it is
+    // safe even under a same-shop double-invoke on top of the WebhookEvent dedup.
+    if (normalizedTopic === 'orders/create') {
+      try {
+        const shopRow = await prisma.shop.findUnique({ where: { shopDomain: shop }, select: { id: true } });
+        if (shopRow) {
+          await accrueForOrder(shopRow.id, payload as OrderPayload);
+        }
+      } catch (err) {
+        logger.error('[webhooks] orders/create loyalty accrual failed', {
+          shopDomain: shop,
+          eventId,
+          ...safeErrorMeta(err),
+        });
+      }
     }
 
     return new Response(undefined, { status: 200 });

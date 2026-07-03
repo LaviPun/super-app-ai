@@ -245,17 +245,26 @@ describe('resolveCompositeRecord — per-backing dispatch', () => {
     // schemaJson round-trips to the ledger fields.
     const parsed = JSON.parse(opts!.schemaJson!) as { fields: Array<{ name: string }> };
     expect(parsed.fields.map((f) => f.name)).toEqual(['customerId', 'points']);
-    // ledger accrual is a documented R3.5 follow-up.
-    expect(out.deferred).toBe(true);
+    // R3.6 — the ledger accrual/expiry engine is now REAL (durable scheduler +
+    // typed store); only redemption issuance stays a scoped Shopify-API follow-up,
+    // so the resolved record is no longer `deferred`.
+    expect(out.deferred).toBe(false);
     expect(out.storeKey).toBeDefined();
   });
 
-  it('subscription-contract (SHOPIFY_CONTRACT) is modeled-only — no writes, deferred:true', async () => {
+  it('subscription-contract (SHOPIFY_CONTRACT) provisions the contract-mirror typed store (R3.6)', async () => {
     const { resolveCompositeRecord } = await import('~/services/composites/resolve-record.server');
     const out = await resolveCompositeRecord(fakeAdmin, subscriptionRecord, { shopId: 'shop_1' });
     expect(hoisted.resolveComponents).not.toHaveBeenCalled();
-    expect(hoisted.ensureTypedStore).not.toHaveBeenCalled();
-    expect(out.deferred).toBe(true);
+    // The contract-mirror is now real: the subscriber/contract state is mirrored
+    // into a typed DATA_STORE via the SAME canonical writer as the ledger.
+    expect(hoisted.ensureTypedStore).toHaveBeenCalledOnce();
+    const [shopId] = hoisted.ensureTypedStore.mock.calls[0]!;
+    expect(shopId).toBe('shop_1');
+    // The engine (mirror + scheduled reminders) is real; only the Shopify billing
+    // CHARGE stays a scoped follow-up — so the record is not `deferred`.
+    expect(out.deferred).toBe(false);
+    expect(out.storeKey).toBeDefined();
   });
 });
 

@@ -16,12 +16,14 @@
  *    (→ `ensureTypedStore`). The SAME writer the publish route uses (plan X-2), so
  *    a composite ledger and a plain module store never drift.
  *  - cart-drawer / LIVE_CART → no-op: the live Shopify cart IS the state.
- *  - subscription-contract / SHOPIFY_CONTRACT → modeled, NOT provisioned here.
- *    Contract-mirror + cron advancement need R3.5's durable layer (honesty fence,
- *    §5d). Resolves to a record with `deferred:true` and does NO admin writes.
+ *  - subscription-contract / SHOPIFY_CONTRACT → (R3.6) the contract-mirror is now
+ *    provisioned as a typed DATA_STORE (same canonical writer as the ledger) so
+ *    the advancement engine can read it + schedule dunning/renewal reminders on
+ *    the durable scheduler. The actual Shopify BILLING CHARGE stays a scoped
+ *    follow-up (honesty fence §5d) — no charge is written here.
  */
 import type { CompositeRecord } from '@superapp/core';
-import { COMPOSITE_KIND_REALITY } from '@superapp/core';
+import { isCompositeEngineDeferred } from '@superapp/core';
 import {
   BundleProductService,
   bundleIdFromTitle,
@@ -50,9 +52,11 @@ export type ResolvedCompositeRecord = {
   /** Provisioned typed-store key (DATA_STORE only). */
   storeKey?: string;
   /**
-   * True when this kind is modeled but its background/enforcement engine is a
-   * documented R3.5 follow-up (loyalty accrual, subscription advancement). The
-   * record + surfaces are real; automated earning/dunning is NOT wired here.
+   * True only when this kind has NO background/enforcement engine at all (pure
+   * record-and-surfaces model). After R3.6 loyalty + subscription have REAL
+   * engines (accrual/expiry; contract-mirror + scheduled reminders) — their
+   * remaining Shopify-API tail (redemption issuance; billing charge) is a scoped
+   * follow-up, not a deferred engine — so they resolve with `deferred:false`.
    */
   deferred: boolean;
 };
@@ -75,7 +79,12 @@ export async function resolveCompositeRecord(
   record: CompositeRecord,
   deps: ResolveRecordDeps = {},
 ): Promise<ResolvedCompositeRecord> {
-  const deferred = COMPOSITE_KIND_REALITY[record.kind] === 'record-and-surfaces-only';
+  // Deferred ⇒ the kind has NO background engine at all. After R3.6, loyalty +
+  // subscription both have real engines (accrual/expiry; contract-mirror +
+  // scheduled reminders) — their remaining Shopify-API tail (redemption issuance;
+  // billing charge) is a scoped follow-up, NOT a deferred engine — so they are
+  // no longer `deferred`. `isCompositeEngineDeferred` is the single source.
+  const deferred = isCompositeEngineDeferred(record.kind);
   const bindingKey = record.entityMap?.bindingKey;
 
   switch (record.backing) {
@@ -93,7 +102,7 @@ export async function resolveCompositeRecord(
         const result = await provisionModuleDataStore(deps.shopId, deps.moduleId ?? record.ref, {
           label: labelForRecord(record),
           description: `Composite record for "${record.ref}" (${record.kind}).`,
-          key: record.ref.replace(/-/g, '_').slice(0, 40),
+          key: compositeStoreKey(record.ref),
           schema: record.dataModel,
         });
         storeKey = result?.storeKey;
@@ -105,10 +114,26 @@ export async function resolveCompositeRecord(
       // cart-drawer: the live cart IS the state. Nothing to provision.
       return { ref: record.ref, kind: record.kind, backing: record.backing, bindingKey, deferred };
 
-    case 'SHOPIFY_CONTRACT':
-      // subscription-contract: modeled only. Contract-mirror + cron advancement
-      // are an explicit R3.5 follow-up — NO admin write here (honesty fence §5d).
-      return { ref: record.ref, kind: record.kind, backing: record.backing, bindingKey, deferred: true };
+    case 'SHOPIFY_CONTRACT': {
+      // subscription-contract (R3.6): the CONTRACT-MIRROR is now real — the
+      // subscriber/contract state is mirrored into a first-party typed DATA_STORE
+      // (the same canonical writer as the ledger), which the advancement engine
+      // reads to schedule dunning/renewal reminders on the durable scheduler.
+      // What stays gated (honesty fence §5d): the actual Shopify subscription
+      // BILLING CHARGE (SubscriptionContract API + selling plans +
+      // `write_own_subscription_contracts`) — NO charge is written here.
+      let storeKey: string | undefined;
+      if (deps.shopId && record.dataModel) {
+        const result = await provisionModuleDataStore(deps.shopId, deps.moduleId ?? record.ref, {
+          label: labelForRecord(record),
+          description: `Subscription contract-mirror for "${record.ref}" (${record.kind}).`,
+          key: compositeStoreKey(record.ref),
+          schema: record.dataModel,
+        });
+        storeKey = result?.storeKey;
+      }
+      return { ref: record.ref, kind: record.kind, backing: record.backing, bindingKey, storeKey, deferred };
+    }
   }
 }
 
@@ -146,4 +171,15 @@ async function resolveBundleRecord(
 /** A human label for the record (from a `label`-ish dataModel field, else the ref). */
 function labelForRecord(record: CompositeRecord): string {
   return record.ref.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * The typed-store key a DATA_STORE-/SHOPIFY_CONTRACT-backed composite record
+ * provisions into. Single source of truth: the `provisionModuleDataStore` calls
+ * above AND the R3.6 accrual/advancement engines (which must find the SAME store
+ * at runtime) both derive the key from the record `ref` this way. kebab → snake,
+ * capped at the 40-char store-key limit.
+ */
+export function compositeStoreKey(ref: string): string {
+  return ref.replace(/-/g, '_').slice(0, 40);
 }

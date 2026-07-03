@@ -82,7 +82,7 @@ describe('CompositeRecordSchema', () => {
   it('pins each kind to a real backing + reality tag (totality)', () => {
     for (const kind of COMPOSITE_KINDS) {
       expect(RECORD_BACKINGS).toContain(COMPOSITE_KIND_BACKING[kind]);
-      expect(['full', 'record-and-surfaces-only']).toContain(COMPOSITE_KIND_REALITY[kind]);
+      expect(['full', 'engine-real-shopify-api-gated', 'record-and-surfaces-only']).toContain(COMPOSITE_KIND_REALITY[kind]);
     }
   });
 });

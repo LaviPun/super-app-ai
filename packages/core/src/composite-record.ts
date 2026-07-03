@@ -131,15 +131,46 @@ export const COMPOSITE_KIND_BACKING: Record<CompositeKind, RecordBacking> = {
 };
 
 /**
- * Which composite kinds land fully on shipped runtime in this increment vs which
- * are modeled (record + real display/redeem surfaces + typed store) with their
- * background/enforcement engine deferred to R3.5 (loyalty accrual, subscription
- * advancement). This is the honesty fence (design §5c/§5d, plan X-4) — a caller
- * can read it to know what is enforced vs a documented follow-up.
+ * The reality tag per composite kind — the honesty fence (design §5c/§5d).
+ *
+ *  - `full`: the whole composite lands on shipped runtime (bundle enforcement,
+ *    cart-drawer rewards) — display == enforcement, nothing deferred.
+ *  - `engine-real-shopify-api-gated`: the composite's background engine IS built
+ *    and wired on the durable scheduler (R3.6 — loyalty accrual/expiry into the
+ *    typed store; subscription contract-mirror + scheduled dunning/renewal
+ *    reminders), but ONE terminal Shopify write it would ideally make is gated on
+ *    a scope/API this build cannot reach and is a documented follow-up:
+ *      · loyalty  → redemption ISSUANCE (a discount-code / gift-card mutation the
+ *        workflow connector does not yet expose). Earning + expiry are real.
+ *      · subscription → the actual Shopify BILLING CHARGE (SubscriptionContract +
+ *        selling-plan + `write_own_subscription_contracts`). Mirror + reminders
+ *        are real; NO charge is faked.
+ *  - `record-and-surfaces-only`: modeled only (record + surfaces + typed store),
+ *    no background engine. (No kind is in this state after R3.6.)
+ *
+ * A caller reads this to know what is enforced/automated vs a scoped follow-up.
  */
-export const COMPOSITE_KIND_REALITY: Record<CompositeKind, 'full' | 'record-and-surfaces-only'> = {
+export type CompositeKindReality = 'full' | 'engine-real-shopify-api-gated' | 'record-and-surfaces-only';
+
+export const COMPOSITE_KIND_REALITY: Record<CompositeKind, CompositeKindReality> = {
   'product-bundle': 'full',
   'cart-drawer': 'full',
-  'loyalty-ledger': 'record-and-surfaces-only', // accrual/expiry engine → R3.5
-  'subscription-contract': 'record-and-surfaces-only', // contract-mirror + cron → R3.5
+  // R3.6 — accrual + expiry are REAL on the durable scheduler + typed store;
+  // discount/gift-card redemption issuance stays a scoped Shopify-API follow-up.
+  'loyalty-ledger': 'engine-real-shopify-api-gated',
+  // R3.6 — contract-mirror + scheduled dunning/renewal reminders are REAL;
+  // the actual Shopify subscription billing charge stays a scoped follow-up.
+  'subscription-contract': 'engine-real-shopify-api-gated',
 };
+
+/**
+ * Whether a composite kind's background/enforcement work is DEFERRED (nothing
+ * automated) — as opposed to real-but-partially-Shopify-gated or fully shipped.
+ * `resolveCompositeRecord` stamps this on the resolved record's `deferred` flag.
+ * After R3.6 only a truly unimplemented engine would be `true`; loyalty and
+ * subscription now have real engines (their Shopify-API tail is a follow-up, not
+ * a deferred engine), so they are NOT deferred.
+ */
+export function isCompositeEngineDeferred(kind: CompositeKind): boolean {
+  return COMPOSITE_KIND_REALITY[kind] === 'record-and-surfaces-only';
+}

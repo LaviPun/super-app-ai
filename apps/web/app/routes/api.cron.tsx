@@ -16,6 +16,7 @@ import { WorkflowEngineService } from '~/services/workflows/workflow-engine.serv
 import { buildShopAuthResolver } from '~/services/flows/auth-resolver.server';
 import { runInternalAiAuditRetention } from '~/services/jobs/internal-ai-audit-retention.job';
 import { runInternalAiChatRetention } from '~/services/jobs/internal-ai-chat-retention.job';
+import { runLoyaltyExpirySweep, type LoyaltyExpiryResult } from '~/services/jobs/loyalty-expiry.job';
 import {
   drainShopifyMetaobjectCleanupJobs,
   type MetaobjectCleanupDrainResult,
@@ -27,6 +28,7 @@ import { AppError } from '~/services/errors/app-error.server';
 import type { AdminApiContext } from '~/types/shopify';
 
 let lastAuditRetentionRunAt: number | null = null;
+let lastLoyaltyExpiryRunAt: number | null = null;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 function getClientIp(request: Request): string {
@@ -154,5 +156,18 @@ export async function loader({ request }: { request: Request }) {
     }
   }
 
-  return json({ ran: results.length, results, resumeSweep, uninstallCleanup, auditRetention, chatRetention });
+  // R3.6 loyalty expiry: absolute nightly sweep that ages out due point lots across
+  // shops with a loyalty-ledger composite. Daily cadence (idempotent, like the
+  // retention jobs). Own try/catch so a sweep failure never 500s the tick.
+  let loyaltyExpiry: LoyaltyExpiryResult | null = null;
+  if (!lastLoyaltyExpiryRunAt || now - lastLoyaltyExpiryRunAt >= ONE_DAY_MS) {
+    try {
+      loyaltyExpiry = await runLoyaltyExpirySweep({ now: new Date(now) });
+      lastLoyaltyExpiryRunAt = now;
+    } catch (err) {
+      logger.warn('[api.cron] loyalty-expiry sweep failed', safeErrorMeta(err));
+    }
+  }
+
+  return json({ ran: results.length, results, resumeSweep, uninstallCleanup, auditRetention, chatRetention, loyaltyExpiry });
 }
