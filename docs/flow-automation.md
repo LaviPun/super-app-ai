@@ -135,21 +135,32 @@ touchpoint for merchants who build in Flow.
 
 ## 8. Reliability
 
+> **Implementation status (2026-07 repair pass).** Sections 8–9c describe the *designed* system. What is actually true in code today:
+> - **BUILT & TESTED (engine level):** the DAG engine — loop/switch/parallel/wait node types, sub-graph execution, the value-returning expression language, durable-wait park (`WaitParkSignal` → `WorkflowRun.status='WAITING'` + `resumeAt`/`resumeNodeId`/`workflowJson`/`resumeCount`), `resumeRun`, and the safety caps (`MAX_NODE_EXECUTIONS`/`MAX_RECURSION_DEPTH`/`MAX_RESUMES`). Covered by `workflow-engine.test.ts`, `workflow-durable-wait.test.ts`, `workflow-safety.test.ts`, `expression-evaluator.test.ts`.
+> - **BUILT & WIRED (live path):** the legacy `FlowRunnerService` is the **only** engine on the live path (webhooks + cron + `api.flow.run`). It now really sends email/Slack (via the workflow connectors, failing loudly when unconfigured), has `runFlowById`, fires scheduled flows with trigger `SCHEDULED`, and its cron parser honors all five fields with atomic claims. Shopify **Flow extension** triggers are emitted (`emitFlowTrigger` from module publish, flow succeed/fail, data-record create, connector sync) and the Flow **action** extensions have correct runtime URLs + settings.
+> - **NOT WIRED YET (primitives exist, no caller):** `FlowRunnerService` does **not** call `WorkflowEngineService` — there is **no** `FLOW_ENGINE_V2` flag and no unification (§9 is a design, not current behavior). `api.cron.tsx` does **not** call `resumeDueWorkflowRuns`, so engine-parked waits do not auto-resume in production. The `/webhooks` route dispatches **two** hardcoded topics, not the generic `topicToTrigger` catalog (§9a). `recordAdminThrottle` (rate-limit tracking) and `DeadLetterService.record`/replay (§9c) have **zero** callers; their tables exist but stay empty. The flows hub has no "parked" tile.
+>
+> Treat the subsections below as the target architecture; check the code before relying on any "(wired)"/"default-on" phrasing.
+
 - **Retry:** per-action `RetryPolicy` (max attempts, fixed/exponential backoff, jitter, `retryOn`); honors `Retry-After`.
 - **Idempotency:** per-step deterministic key (`tenant::workflow::version::run::node`) or an expression-derived key.
 - **Errors:** per-node `onError` (`fail_run` / `continue` / `route_to_error_edge`) or workflow `errorPolicy`.
-- **Durability (wired):** a top-level `wait`/`delay` longer than its per-node `inlineThresholdMs` (default 60s) **parks** the run instead of sleeping: the engine throws a `WaitParkSignal`, `finalizeRun` persists `WorkflowRun.status='WAITING'` + `resumeAt` + `resumeNodeId` + the **compiled graph** (`workflowJson`, so resume is self-contained even if the source module changes). The cron endpoint (`api.cron.tsx → resumeDueWorkflowRuns`) loads every `WAITING` run with `resumeAt ≤ now`, rebuilds the context, settles the wait node, and continues from its `next` edge with the shop's stored Admin token. Multi-day waits survive process restarts. Waits nested in a loop/parallel branch sleep inline (bounded) to keep the recursion sound. Covered by `app/__tests__/workflow-durable-wait.test.ts`.
+- **Durability (engine-level; cron resume NOT wired):** a top-level `wait`/`delay` longer than its per-node `inlineThresholdMs` (default 60s) **parks** the run instead of sleeping: the engine throws a `WaitParkSignal`, `finalizeRun` persists `WorkflowRun.status='WAITING'` + `resumeAt` + `resumeNodeId` + the **compiled graph** (`workflowJson`, so resume is self-contained even if the source module changes). `WorkflowEngineService.resumeRun` continues a parked run from its `next` edge. **Not yet wired:** `api.cron.tsx` does not call a `resumeDueWorkflowRuns` sweep, so parked runs only resume when `resumeRun` is invoked directly (as in the tests) — production auto-resume is a follow-up. Waits nested in a loop/parallel branch sleep inline (bounded) to keep the recursion sound. Covered by `app/__tests__/workflow-durable-wait.test.ts`.
 - **Persistence:** every step → `WorkflowRunStep`; the run → `WorkflowRun` (context + compiled-graph snapshot).
 
-## 9. Unifying the live path (default-on)
+## 9. Unifying the live path — DESIGN, NOT YET IMPLEMENTED
 
-`flowAutomationToWorkflow` (`services/flows/flow-compile.ts`) compiles a legacy
-`flow.automation` `{trigger, steps[]}` into a canonical `Workflow` (each step → a
-connector action, trigger → a typed event/schedule). `FlowRunnerService.runForTrigger`
-runs via `WorkflowEngineService` **by default** (`isFlowEngineV2Enabled()` defaults
-**true**); the legacy linear runner is retained as an escape hatch — set
-**`FLOW_ENGINE_V2=0`** to fall back per environment/shop. The strong engine is the
-live path: control flow, retries, idempotency, durable waits, order routing, module I/O.
+The intended end state: `flowAutomationToWorkflow` (`services/flows/flow-compile.ts`, which
+exists) compiles a legacy `flow.automation` `{trigger, steps[]}` into a canonical `Workflow`,
+and `FlowRunnerService.runForTrigger` delegates to `WorkflowEngineService` behind a
+`FLOW_ENGINE_V2` flag so the strong engine becomes the live path (control flow, durable waits,
+order routing, module I/O).
+
+**Current reality:** this unification does **not** exist. `FlowRunnerService` never references
+`WorkflowEngineService`, there is no `isFlowEngineV2Enabled()`/`FLOW_ENGINE_V2`, and the live
+path remains the legacy linear runner (§8 status note). The DAG engine is fully built and
+tested but runs only where a caller invokes it directly. Wiring the compile + delegation is the
+open task to make this section true.
 
 ## 9a. Webhook trigger catalog ("select a trigger and start working")
 
