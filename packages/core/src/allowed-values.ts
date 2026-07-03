@@ -504,7 +504,26 @@ export const FLOW_STEP_KINDS = [
   'TAG_ORDER',
   'SEND_SLACK_MESSAGE',
   'CONDITION',
+  // R3.5 durable scheduler: a relative per-entity wait. On a long delay the
+  // linear runner parks the remaining steps into a durable WorkflowRun that a
+  // cron resume sweep picks up (see specs/031 durable-scheduler.md).
+  'DELAY',
 ] as const;
+
+/**
+ * DELAY step modes (R3.5). v1 ships `duration` only (covers dunning / loyalty /
+ * review sequences); `until` (event-relative ISO / `{{ref}}`) is modeled but the
+ * live runner defers it to a follow-up per Decision A.
+ */
+export const FLOW_DELAY_MODES = ['duration', 'until'] as const;
+export type FlowDelayMode = (typeof FLOW_DELAY_MODES)[number];
+
+/** DELAY duration bounds (ms): 1 minute … 90 days (the dunning/loyalty horizon). */
+export const FLOW_DELAY_LIMITS = {
+  durationMsMin: 60_000,
+  durationMsMax: 90 * 24 * 3600_000,
+  untilMax: 200,
+} as const;
 /** CONDITION step operator (doc 18.3). */
 export const CONDITION_OPERATORS = [
   'equal_to',

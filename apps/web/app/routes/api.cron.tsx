@@ -12,6 +12,8 @@ import { json } from '@remix-run/node';
 import { ScheduleService } from '~/services/flows/schedule.service';
 import { FlowRunnerService } from '~/services/flows/flow-runner.service';
 import { MessagingRunnerService } from '~/services/messaging/messaging-runner.service';
+import { WorkflowEngineService } from '~/services/workflows/workflow-engine.service';
+import { buildShopAuthResolver } from '~/services/flows/auth-resolver.server';
 import { runInternalAiAuditRetention } from '~/services/jobs/internal-ai-audit-retention.job';
 import { runInternalAiChatRetention } from '~/services/jobs/internal-ai-chat-retention.job';
 import {
@@ -110,6 +112,20 @@ export async function loader({ request }: { request: Request }) {
     }
   }
 
+  // R3.5 durable scheduler: resume parked (WAITING) WorkflowRuns whose resumeAt is
+  // due. Runs every tick alongside the absolute-cron schedule claim above; the CAS
+  // claim inside resumeDueWorkflowRuns makes overlapping ticks idempotent. Own
+  // try/catch (C6) so a sweep failure never 500s the whole cron tick.
+  let resumeSweep: Array<{ runId: string; tenantId: string; status: string; error?: string }> = [];
+  try {
+    resumeSweep = await new WorkflowEngineService().resumeDueWorkflowRuns({
+      limit: 25,
+      authResolverFor: (tenantId) => buildShopAuthResolver(tenantId),
+    });
+  } catch (err) {
+    logger.warn('[api.cron] workflow resume sweep failed', safeErrorMeta(err));
+  }
+
   // Bounded drain of post-uninstall cleanup jobs queued by the app/uninstalled webhook.
   let uninstallCleanup: MetaobjectCleanupDrainResult | null = null;
   try {
@@ -138,5 +154,5 @@ export async function loader({ request }: { request: Request }) {
     }
   }
 
-  return json({ ran: results.length, results, uninstallCleanup, auditRetention, chatRetention });
+  return json({ ran: results.length, results, resumeSweep, uninstallCleanup, auditRetention, chatRetention });
 }

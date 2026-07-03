@@ -9,6 +9,9 @@ import { getRequestContext } from '~/services/observability/correlation.server';
 import { assertSafeTargetUrl } from '~/services/security/ssrf.server';
 import { getConnector } from '~/services/workflows/connectors/index';
 import { emitFlowTriggerSafe, FLOW_TRIGGER_TOPICS } from '~/services/workflows/shopify-flow-bridge';
+import { WorkflowEngineService } from '~/services/workflows/workflow-engine.service';
+import { computeResumeAt, parkRemainderAsWorkflow, type ParkStep } from './flow-park';
+import { buildShopAuthResolver } from './auth-resolver.server';
 
 type Trigger =
   | 'MANUAL'
@@ -71,7 +74,19 @@ type FlowStep = {
   value?: string;
   thenSteps?: FlowStep[];
   elseSteps?: FlowStep[];
+  // DELAY step (R3.5 durable scheduler)
+  mode?: 'duration' | 'until';
+  durationMs?: number;
+  until?: string;
 };
+
+/**
+ * DELAY park threshold (R3.5). A wait ≤ this sleeps inline (the step continues in
+ * the same pass); a longer wait parks the remainder as a durable WorkflowRun.
+ * Matches the engine's DEFAULT_INLINE_THRESHOLD_MS so inline vs durable behaviour
+ * is consistent across the linear runner and the engine.
+ */
+const DELAY_INLINE_THRESHOLD_MS = 60_000;
 
 /** Max nesting depth for CONDITION branches (guards handcrafted specs). */
 const MAX_CONDITION_DEPTH = 3;
@@ -109,7 +124,7 @@ export class FlowRunnerService {
       await jobs.start(job.id);
 
       try {
-        await this.executeFlow(shopDomain, admin, job.id, spec as FlowAutomationSpec, event, shopRow?.id);
+        await this.executeFlow(shopDomain, admin, job.id, spec as FlowAutomationSpec, event, shopRow?.id, flow.id);
         await jobs.succeed(job.id, { trigger, steps: spec.config.steps.length });
         // Best-effort: notify Shopify Flow that a SuperApp workflow completed.
         void emitFlowTriggerSafe(shopDomain, shopRow?.accessToken, FLOW_TRIGGER_TOPICS.WORKFLOW_COMPLETED, {
@@ -168,7 +183,7 @@ export class FlowRunnerService {
     await jobs.start(job.id);
 
     try {
-      await this.executeFlow(shopDomain, admin, job.id, flowSpec, event, shopRow?.id);
+      await this.executeFlow(shopDomain, admin, job.id, flowSpec, event, shopRow?.id, flow.id);
       const result = { jobId: job.id, steps: flowSpec.config.steps.length };
       await jobs.succeed(job.id, { trigger: 'MANUAL', steps: result.steps });
       // Best-effort: notify Shopify Flow that a SuperApp workflow completed.
@@ -199,7 +214,8 @@ export class FlowRunnerService {
     jobId: string,
     spec: FlowAutomationSpec,
     event: unknown,
-    shopId?: string
+    shopId?: string,
+    flowId?: string,
   ) {
     const prisma = getPrisma();
 
@@ -207,6 +223,18 @@ export class FlowRunnerService {
       const step = spec.config.steps[stepIdx];
       if (!step) continue;
       const start = Date.now();
+
+      // R3.5 durable scheduler: a DELAY step parks the remainder into a durable
+      // WorkflowRun (long wait) or sleeps inline (short wait) instead of running
+      // a connector. Handled before executeStepWithRetry — it is control flow,
+      // not a connector step. `parked` stops the linear run; the WorkflowRun owns
+      // the rest and the cron resume sweep continues it.
+      if (step.kind === 'DELAY') {
+        const parked = await this.handleDelayStep(prisma, jobId, spec, stepIdx, step, event, shopId, flowId);
+        if (parked) return;
+        continue;
+      }
+
       let output: unknown;
       let stepError: string | undefined;
 
@@ -220,6 +248,78 @@ export class FlowRunnerService {
 
       await writeStepLog(prisma, jobId, shopId, stepIdx, step.kind, 'SUCCESS', Date.now() - start, output);
     }
+  }
+
+  /**
+   * Handle a DELAY step (R3.5). Returns `true` when the remainder was parked as a
+   * durable WorkflowRun (the linear run must stop); `false` when the delay was
+   * consumed inline (a short wait, or a trailing DELAY with nothing after it) and
+   * the linear run should continue to the next step.
+   */
+  private async handleDelayStep(
+    prisma: ReturnType<typeof getPrisma>,
+    jobId: string,
+    spec: FlowAutomationSpec,
+    stepIdx: number,
+    step: FlowStep,
+    event: unknown,
+    shopId: string | undefined,
+    flowId: string | undefined,
+  ): Promise<boolean> {
+    const start = Date.now();
+    const resumeAt = computeResumeAt(
+      { kind: 'DELAY', mode: step.mode, durationMs: step.durationMs, until: step.until },
+      event,
+    );
+    const remainingMs = resumeAt.getTime() - Date.now();
+    const remainderSteps = spec.config.steps.slice(stepIdx + 1);
+
+    // Short wait: sleep inline (bounded), then let the loop continue in-pass.
+    if (remainingMs <= DELAY_INLINE_THRESHOLD_MS) {
+      if (remainingMs > 0) await sleep(Math.min(remainingMs, DELAY_INLINE_THRESHOLD_MS));
+      await writeStepLog(prisma, jobId, shopId, stepIdx, 'DELAY', 'SUCCESS', Date.now() - start);
+      return false;
+    }
+
+    // Trailing DELAY with nothing after it: nothing to resume, so don't park.
+    if (remainderSteps.length === 0) {
+      await writeStepLog(prisma, jobId, shopId, stepIdx, 'DELAY', 'SUCCESS', Date.now() - start);
+      return false;
+    }
+
+    // Long wait with a remainder: park it into a durable WorkflowRun.
+    if (!shopId) {
+      // Never silently drop a delay — a parked run needs a tenant to auth its
+      // resumed steps. Fail loudly so the FLOW_RUN job records it.
+      throw new Error('DELAY step cannot park without a shopId (tenant) — flow misconfigured');
+    }
+
+    const wf = parkRemainderAsWorkflow({
+      shopId,
+      flowId: flowId ?? jobId,
+      flowName: spec.name,
+      remainderSteps: remainderSteps as ParkStep[],
+      event,
+      resumeAt,
+    });
+
+    // Idempotent runId: a webhook redelivery that re-runs the same flow produces
+    // the same runId, so startRun's create throws a P2002 we swallow as "already
+    // parked" — no duplicate park.
+    const runId = `flowpark_${jobId}_${stepIdx}`;
+    try {
+      await new WorkflowEngineService().startRun(wf, (event ?? {}) as Record<string, unknown>, {
+        tenantId: shopId,
+        runId,
+        authResolver: buildShopAuthResolver(shopId),
+      });
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err;
+      // Already parked by a prior delivery — treat as success, do not re-park.
+    }
+
+    await writeStepLog(prisma, jobId, shopId, stepIdx, 'DELAY', 'SUCCESS', Date.now() - start, { parkedRunId: runId, resumeAt });
+    return true;
   }
 
   private async executeStepWithRetry(
@@ -451,6 +551,20 @@ async function addOrderNote(admin: AdminApiContext['admin'], orderId: string, no
 
 function sleep(ms: number) {
   return new Promise(r => setTimeout(r, ms));
+}
+
+/**
+ * True for a Prisma unique-constraint violation (P2002). Used to swallow a
+ * duplicate DELAY park on webhook redelivery (same idempotent runId) without a
+ * hard dependency on the Prisma error class.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  return Boolean(
+    err &&
+      typeof err === 'object' &&
+      'code' in err &&
+      (err as { code?: unknown }).code === 'P2002',
+  );
 }
 
 /** Read a dot-path (e.g. "customer.orders_count") out of the trigger event. */

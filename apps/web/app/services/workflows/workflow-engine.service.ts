@@ -146,6 +146,29 @@ export class WorkflowEngineService {
     if (row.status !== 'WAITING') {
       return { status: row.status as RunStatus, error: 'run is not parked' };
     }
+    return this.executeResume(row, authResolver);
+  }
+
+  /**
+   * Resume the run described by a parked (or sweep-claimed) row snapshot. The
+   * public `resumeRun` gates on status===WAITING then delegates here; the cron
+   * sweep (`resumeDueWorkflowRuns`) CAS-claims WAITING→RUNNING first, then calls
+   * here with the pre-claim snapshot row — so the WAITING gate lives only in the
+   * caller and the idempotency guard (the CAS) is not re-litigated here.
+   */
+  private async executeResume(
+    row: {
+      id: string;
+      tenantId: string;
+      workflowJson: string | null;
+      resumeNodeId: string | null;
+      contextJson: string | null;
+      resumeCount: number | null;
+    },
+    authResolver: (provider: string) => Promise<AuthContext>,
+  ): Promise<WorkflowRunResult> {
+    const prisma = getPrisma();
+    const runId = row.id;
     if (typeof row.workflowJson !== 'string' || typeof row.resumeNodeId !== 'string' || typeof row.contextJson !== 'string') {
       const error = 'parked run is missing its workflow/context snapshot';
       await prisma.workflowRun.update({ where: { id: runId }, data: { status: 'FAILED', endedAt: new Date(), error } });
@@ -214,6 +237,62 @@ export class WorkflowEngineService {
       await this.finalizeRun(workflow, ctx, runId, { status: 'FAILED', error: errMsg });
       return { status: 'FAILED', error: errMsg, context: ctx };
     }
+  }
+
+  /**
+   * Cron resume sweep (R3.5 durable scheduler). Finds WAITING runs whose
+   * `resumeAt` is due (using the `@@index([status, resumeAt])`), atomically
+   * claims each with a compare-and-swap (WAITING→RUNNING guarded by the exact
+   * `resumeAt` we read), and resumes it with a per-tenant auth resolver. Bounded
+   * by `limit`; the backlog drains across ticks (`orderBy: resumeAt asc`).
+   *
+   * Idempotency: the CAS claim is the double-resume guard — a concurrent tick
+   * that already claimed a row loses (`count !== 1`) and skips it, so a sweep
+   * that runs twice never double-executes a step. `resumeRun`'s own
+   * "not parked" check is the second line of defence.
+   */
+  async resumeDueWorkflowRuns(opts: {
+    now?: Date;
+    limit?: number;
+    authResolverFor: (tenantId: string) => (provider: string) => Promise<AuthContext>;
+  }): Promise<Array<{ runId: string; tenantId: string; status: RunStatus; error?: string }>> {
+    const prisma = getPrisma();
+    const now = opts.now ?? new Date();
+    const limit = Math.max(1, Math.min(opts.limit ?? 25, 100));
+
+    const due = await prisma.workflowRun.findMany({
+      where: { status: 'WAITING', resumeAt: { lte: now } },
+      orderBy: { resumeAt: 'asc' },
+      take: limit,
+    });
+
+    const out: Array<{ runId: string; tenantId: string; status: RunStatus; error?: string }> = [];
+    for (const row of due) {
+      // CAS claim: flip WAITING→RUNNING only if resumeAt is still exactly what we
+      // read. A concurrent tick that already claimed it loses (count 0) and is
+      // skipped — this is the idempotency guard against double-resume.
+      const claim = await prisma.workflowRun.updateMany({
+        where: { id: row.id, status: 'WAITING', resumeAt: row.resumeAt },
+        data: { status: 'RUNNING' },
+      });
+      if (claim.count !== 1) continue;
+
+      const tenantId = row.tenantId;
+      try {
+        // The row is already CAS-claimed (RUNNING). Call executeResume directly
+        // with the pre-claim snapshot; the public resumeRun would re-fetch and
+        // see RUNNING ("not parked"), so we must not route through it here.
+        const res = await this.executeResume(row, opts.authResolverFor(tenantId));
+        out.push({ runId: row.id, tenantId, status: res.status as RunStatus, error: res.error });
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        await prisma.workflowRun
+          .update({ where: { id: row.id }, data: { status: 'FAILED', endedAt: new Date(), error } })
+          .catch(() => undefined);
+        out.push({ runId: row.id, tenantId, status: 'FAILED', error });
+      }
+    }
+    return out;
   }
 
   // ─── Core Execution (recursive sub-graph walker) ──────────────────

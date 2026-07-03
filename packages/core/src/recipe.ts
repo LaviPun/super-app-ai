@@ -31,6 +31,8 @@ import {
   INTEGRATION_HTTP_SYNC_TRIGGERS,
   FLOW_AUTOMATION_TRIGGERS,
   FLOW_STEP_KINDS,
+  FLOW_DELAY_MODES,
+  FLOW_DELAY_LIMITS,
   CONDITION_OPERATORS,
   CUSTOMER_ACCOUNT_BLOCK_KINDS,
   CUSTOMER_ACCOUNT_BLOCK_TONES,
@@ -553,7 +555,42 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
           thenSteps: z.array(z.lazy(() => z.any())).optional(),
           elseSteps: z.array(z.lazy(() => z.any())).optional(),
         }),
+        // R3.5 durable scheduler: a relative per-entity wait. When the runner
+        // reaches a DELAY longer than an inline threshold it PARKS the remaining
+        // steps into a durable WorkflowRun (status WAITING + resumeAt) instead of
+        // blocking; a cron resume sweep continues them. Additive — a flow with no
+        // DELAY step behaves exactly as before.
+        //
+        // The mode/field pairing (duration ⇒ durationMs, until ⇒ until) is
+        // enforced by the config-level superRefine below — a per-member `.refine`
+        // would wrap this in ZodEffects, which `discriminatedUnion` rejects.
+        z.object({
+          kind: z.literal('DELAY'),
+          // Exactly one mode. `duration` = relative wait from when the step is
+          // reached (v1). `until` = an ISO-8601 instant or a {{dot.path}} ref
+          // (modeled; the live runner defers it per Decision A).
+          mode: z.enum(FLOW_DELAY_MODES).default('duration'),
+          durationMs: z.number().int()
+            .min(FLOW_DELAY_LIMITS.durationMsMin)
+            .max(FLOW_DELAY_LIMITS.durationMsMax)
+            .optional(),
+          until: z.string().max(FLOW_DELAY_LIMITS.untilMax).optional(),
+        }),
       ])).min(LIMITS.flowStepsMin).max(LIMITS.flowStepsMax),
+    }).superRefine((cfg, ctx) => {
+      // Cross-field rule for DELAY steps (kept off the union member so the
+      // discriminated union stays a union of plain objects, as Zod requires).
+      cfg.steps.forEach((step, i) => {
+        if (step.kind !== 'DELAY') return;
+        const ok = step.mode === 'duration' ? step.durationMs != null : step.until != null;
+        if (!ok) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['steps', i],
+            message: 'DELAY requires durationMs (duration mode) or until (until mode)',
+          });
+        }
+      });
     }),
   }),
 

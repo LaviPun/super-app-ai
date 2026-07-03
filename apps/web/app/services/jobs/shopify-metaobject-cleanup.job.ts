@@ -30,6 +30,8 @@ export interface UninstallCleanupSummary {
   schedulesDeactivated: number;
   moduleInstancesDisabled: number;
   sessionsDeleted: number;
+  /** R3.5 (F12): parked durable-scheduler runs cancelled so we don't resume into a dead shop. */
+  waitingRunsCancelled: number;
 }
 
 export interface MetaobjectCleanupDrainResult {
@@ -62,6 +64,7 @@ async function cleanupUninstalledShop(
     schedulesDeactivated: 0,
     moduleInstancesDisabled: 0,
     sessionsDeleted: 0,
+    waitingRunsCancelled: 0,
   };
 
   if (!shopId && !shopDomain) {
@@ -80,6 +83,15 @@ async function cleanupUninstalledShop(
       data: { enabled: false },
     });
     summary.moduleInstancesDisabled = instances.count;
+
+    // R3.5 (F12): cancel this shop's parked durable-scheduler runs so the cron
+    // resume sweep never tries to resume Shopify-touching steps into a shop whose
+    // offline token is now revoked. WorkflowRun.tenantId is the shopId.
+    const waiting = await prisma.workflowRun.updateMany({
+      where: { tenantId: shopId, status: 'WAITING' },
+      data: { status: 'CANCELLED', endedAt: new Date(), resumeAt: null },
+    });
+    summary.waitingRunsCancelled = waiting.count;
   }
 
   if (shopDomain) {

@@ -3,6 +3,8 @@ import { AppError } from '~/services/errors/app-error.server';
 
 const claimDueMock = vi.fn();
 const runForTriggerMock = vi.fn();
+const messagingRunForTriggerMock = vi.fn();
+const resumeDueWorkflowRunsMock = vi.fn();
 const runInternalAiAuditRetentionMock = vi.fn();
 const runInternalAiChatRetentionMock = vi.fn();
 const enforceRateLimitMock = vi.fn();
@@ -17,6 +19,24 @@ vi.mock('~/services/flows/flow-runner.service', () => ({
   FlowRunnerService: class {
     runForTrigger = runForTriggerMock;
   },
+}));
+
+vi.mock('~/services/messaging/messaging-runner.service', () => ({
+  MessagingRunnerService: class {
+    runForTrigger = messagingRunForTriggerMock;
+  },
+}));
+
+// R3.5: the resume sweep runs every tick; mock the engine + resolver so the cron
+// loader never touches a real DB.
+vi.mock('~/services/workflows/workflow-engine.service', () => ({
+  WorkflowEngineService: class {
+    resumeDueWorkflowRuns = resumeDueWorkflowRunsMock;
+  },
+}));
+
+vi.mock('~/services/flows/auth-resolver.server', () => ({
+  buildShopAuthResolver: () => async () => ({ type: 'none' }),
 }));
 
 vi.mock('~/services/jobs/internal-ai-audit-retention.job', () => ({
@@ -35,6 +55,8 @@ describe('/api/cron retention loader', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     claimDueMock.mockResolvedValue([]);
+    messagingRunForTriggerMock.mockResolvedValue(undefined);
+    resumeDueWorkflowRunsMock.mockResolvedValue([]);
     runInternalAiAuditRetentionMock.mockResolvedValue({
       deleted: 4,
       retentionDays: 90,
@@ -105,5 +127,36 @@ describe('/api/cron retention loader', () => {
     };
     expect(body.auditRetention.deleted).toBe(4);
     expect(body.chatRetention.deleted).toBe(2);
+  });
+
+  it('runs the durable resume sweep and returns it in the response (R3.5)', async () => {
+    process.env.CRON_SECRET = 'expected-secret';
+    resumeDueWorkflowRunsMock.mockResolvedValueOnce([
+      { runId: 'flowpark_1', tenantId: 'shop_1', status: 'SUCCEEDED' },
+    ]);
+    const mod = await import('~/routes/api.cron');
+    const res = await mod.loader({
+      request: new Request('http://test/api/cron', {
+        headers: { 'x-cron-secret': 'expected-secret' },
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect(resumeDueWorkflowRunsMock).toHaveBeenCalledTimes(1);
+    const body = (await res.json()) as { resumeSweep: Array<{ runId: string; status: string }> };
+    expect(body.resumeSweep).toEqual([{ runId: 'flowpark_1', tenantId: 'shop_1', status: 'SUCCEEDED' }]);
+  });
+
+  it('does not 500 the tick when the resume sweep throws (R3.5)', async () => {
+    process.env.CRON_SECRET = 'expected-secret';
+    resumeDueWorkflowRunsMock.mockRejectedValueOnce(new Error('db down'));
+    const mod = await import('~/routes/api.cron');
+    const res = await mod.loader({
+      request: new Request('http://test/api/cron', {
+        headers: { 'x-cron-secret': 'expected-secret' },
+      }),
+    });
+    expect(res.status).toBe(200); // sweep failure caught, tick still succeeds
+    const body = (await res.json()) as { resumeSweep: unknown[] };
+    expect(body.resumeSweep).toEqual([]); // stays empty on failure
   });
 });

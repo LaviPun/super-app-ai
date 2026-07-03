@@ -22,6 +22,8 @@ type LegacyStep = {
   tags?: string; tag?: string; note?: string; to?: string; subject?: string; channel?: string;
   storeKey?: string; titleExpr?: string; payloadMapping?: Record<string, unknown>;
   newLocationId?: string;
+  // DELAY step (R3.5)
+  mode?: string; durationMs?: number; until?: string;
 };
 
 type LegacyConfig = { trigger: string; steps: LegacyStep[] };
@@ -46,7 +48,7 @@ const ORDER_GID = { $ref: '$.trigger.payload.admin_graphql_api_id' };
 const CUSTOMER_GID = { $ref: '$.trigger.payload.customer.admin_graphql_api_id' };
 
 /** Map one legacy step to a canonical action node's `action` spec, or null to skip. */
-function stepToAction(step: LegacyStep): WorkflowNode['action'] | null {
+export function stepToAction(step: LegacyStep): WorkflowNode['action'] | null {
   switch (step.kind) {
     case 'TAG_ORDER':
       return { provider: 'shopify', operation: 'order.addTags', timeoutMs: 30000,
@@ -80,6 +82,61 @@ function stepToAction(step: LegacyStep): WorkflowNode['action'] | null {
 
 function splitTags(tags?: string): string[] {
   return typeof tags === 'string' ? tags.split(',').map((t) => t.trim()).filter(Boolean) : [];
+}
+
+/**
+ * Map a list of legacy steps into a linear chain of canonical action nodes,
+ * chained `next`→`next` with the given `idPrefix`. DELAY steps that themselves
+ * appear in the remainder are compiled to canonical `wait` nodes so a chained
+ * DELAY re-parks on resume (the engine re-parks a top-level wait > threshold).
+ * Steps that map to nothing (`stepToAction` returns null and not a DELAY) are
+ * skipped, exactly like `flowAutomationToWorkflow`.
+ *
+ * Shared by `parkRemainderAsWorkflow` (flow-park.ts) so the park path and the
+ * bridge compiler don't duplicate the step→node mapping. Returns the produced
+ * nodes/edges and the first/last node ids (null when nothing mapped).
+ */
+export function remainingStepsToNodes(
+  steps: LegacyStep[],
+  idPrefix: string,
+): { nodes: WorkflowNode[]; edges: WorkflowEdge[]; firstId: string | null; lastId: string | null } {
+  const nodes: WorkflowNode[] = [];
+  const edges: WorkflowEdge[] = [];
+  let firstId: string | null = null;
+  let prevId: string | null = null;
+
+  steps.forEach((step, i) => {
+    let node: WorkflowNode | null = null;
+    if (step.kind === 'DELAY') {
+      // A DELAY inside the remainder becomes a durable wait node. It parks again
+      // on resume (inlineThresholdMs left at engine default; a long wait > 60s
+      // re-parks at depth 0). Duration/until map straight across.
+      const s = step as LegacyStep & { mode?: string; durationMs?: number; until?: string };
+      const wait =
+        s.mode === 'until' && s.until
+          ? { mode: 'until' as const, until: s.until, inlineThresholdMs: 60_000 }
+          : { mode: 'duration' as const, durationMs: s.durationMs ?? 0, inlineThresholdMs: 60_000 };
+      node = { id: `${idPrefix}${i}`, type: 'wait', name: 'DELAY', wait };
+    } else {
+      const action = stepToAction(step);
+      if (action) {
+        node = {
+          id: `${idPrefix}${i}`,
+          type: 'action',
+          name: step.kind,
+          action,
+          onError: { mode: 'continue', captureErrorAs: 'lastError' },
+        };
+      }
+    }
+    if (!node) return;
+    nodes.push(node);
+    if (firstId === null) firstId = node.id;
+    if (prevId) edges.push({ from: prevId, to: node.id, label: 'next' });
+    prevId = node.id;
+  });
+
+  return { nodes, edges, firstId, lastId: prevId };
 }
 
 /** Compile a legacy flow.automation config into a canonical, runnable Workflow. */
