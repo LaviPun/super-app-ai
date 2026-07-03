@@ -5,9 +5,11 @@ import {
   isRuntimeShipped,
   type ModuleType,
   type RecipeSpec,
+  type DeployTarget,
 } from '@superapp/core';
 import { classifyModulePublishability } from '~/services/publish/publish-preflight.server';
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
+import { compileRecipe } from '~/services/recipes/compiler';
 
 /**
  * MODULE COMBINATION AUDIT (machine-checked, eligibility model).
@@ -38,6 +40,9 @@ const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
   // Spring 2026 Discount UI Extension — generatable + previewable, but the
   // discount-details admin extension isn't built in extensions/ yet.
   'admin.discountUi',
+  // App-proxy sync: no compiler persists its config and nothing consumes it
+  // server-side yet, so publishing would deploy nothing. Gated until wired.
+  'integration.httpSync',
 ]);
 // `pos.extension` is now deployable: extensions/superapp-pos-block reads its
 // published config from the app backend (/api/pos/config) via App Authentication
@@ -76,4 +81,25 @@ describe('module deployability audit — every type classified (eligibility mode
     // Everything except the documented pending set must be deployable end-to-end.
     expect(deployableCount).toBe(RECIPE_SPEC_TYPES.length - EXPECTED_NEEDS_RUNTIME.size);
   });
+});
+
+/**
+ * Regression guard for the false-published bug: a type classified `deployable`
+ * whose compiler returns only a bare `AUDIT` op writes NOTHING at publish, yet the
+ * module still flips to PUBLISHED. checkout.block / postPurchase.offer both have
+ * real compilers (emitting a `checkoutUpsellPayload` PublishService writes to a
+ * metaobject) — they must be wired into `compileRecipe`, not routed to the AUDIT
+ * fallthrough. This fails on the pre-fix path.
+ */
+describe('deployable checkout-UI types compile to a real deploy (no false-publish)', () => {
+  const target = { kind: 'CHECKOUT', moduleId: 'test-module' } as unknown as DeployTarget;
+
+  for (const type of ['checkout.block', 'postPurchase.offer'] as const) {
+    it(`${type} compiles to a checkoutUpsellPayload, not an AUDIT no-op`, () => {
+      const spec = { type, name: 'Test Offer', config: {} } as unknown as RecipeSpec;
+      const result = compileRecipe(spec, target);
+      expect(result.checkoutUpsellPayload).toBeDefined();
+      expect(result.checkoutUpsellPayload?.type).toBe(type);
+    });
+  }
 });

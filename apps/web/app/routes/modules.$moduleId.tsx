@@ -614,8 +614,8 @@ function ModuleDetailBody() {
                   <div className="stack-2">
                     {validationReport.checks.slice(0, 6).map((c) => (
                       <div key={c.id} className="row-2">
-                        <Icon name={c.status === 'pass' ? 'check' : 'alert'} size={14}
-                          style={{ color: c.status === 'pass' ? 'var(--p-success)' : 'var(--p-critical)' }} />
+                        <Icon name={c.status === 'PASS' ? 'check' : 'alert'} size={14}
+                          style={{ color: c.status === 'PASS' ? 'var(--p-success)' : 'var(--p-critical)' }} />
                         <span className="t-sm">{c.description}</span>
                       </div>
                     ))}

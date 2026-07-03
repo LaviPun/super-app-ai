@@ -10,6 +10,8 @@ import { compileCartTransform } from './functions.cartTransform';
 import { compileFulfillmentConstraints } from './functions.fulfillmentConstraints';
 import { compileOrderRoutingLocationRule } from './functions.orderRoutingLocationRule';
 import { compileCheckoutUpsell } from './checkout.upsell';
+import { compileCheckoutBlock } from './checkout.block';
+import { compilePostPurchaseOffer } from './postPurchase.offer';
 import { compileCustomerAccountBlocks } from './customerAccount.blocks';
 import { compileAdminBlock } from './admin.block';
 import { compileAdminAction } from './admin.action';
@@ -47,7 +49,9 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
     case 'analytics.pixel':
       return compileAnalyticsPixel(spec);
     case 'checkout.block':
+      return compileCheckoutBlock(spec);
     case 'postPurchase.offer':
+      return compilePostPurchaseOffer(spec);
     case 'pos.extension':
     case 'integration.httpSync':
     case 'flow.automation':

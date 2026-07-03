@@ -220,9 +220,12 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
   'integration.httpSync': {
     moduleType: 'integration.httpSync',
     runtime: 'app-proxy',
-    runtimeShipped: true,
+    // No compiler persists the sync config and nothing consumes it server-side yet,
+    // so publishing it would deploy nothing. Gate honestly (needs_runtime) until the
+    // sync runtime + compiler are wired (flip to true then) rather than false-publish.
+    runtimeShipped: false,
     requiredScopes: ['write_metaobjects'],
-    note: 'Runs server-side (scheduled/app-proxy sync); available on all plans.',
+    note: 'Runs server-side (scheduled/app-proxy sync). Sync runtime + compiler wiring pending before it can publish.',
   },
 
   // ── Web Pixel (analytics) ──────────────────────────────────────────────────
