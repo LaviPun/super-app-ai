@@ -18,6 +18,7 @@ import { extractRequirementSpec } from '~/services/ai/requirement-spec.server';
 import { searchSolutions } from '~/services/ai/solution-search.server';
 import { ensureStoreAesthetic } from '~/services/theme/ensure-aesthetic.server';
 import { applyStorePalette } from '~/services/theme/apply-store-palette.server';
+import { applyStylePackTokens } from '~/services/ai/apply-style-pack.server';
 import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
 import { generateValidatedBlueprint } from '~/services/ai/llm.server';
 import { planBlueprint } from '~/services/ai/blueprint-planner';
@@ -166,6 +167,7 @@ export async function action({ request }: { request: Request }) {
             if (aesthetic && event.option?.recipe) {
               try {
                 applyStorePalette(event.option.recipe as RecipeSpec, aesthetic.palette);
+                applyStylePackTokens(event.option.recipe as RecipeSpec, aesthetic.palette, aesthetic.typography);
               } catch {
                 /* palette match is best-effort */
               }
@@ -191,7 +193,7 @@ export async function action({ request }: { request: Request }) {
               if (aesthetic) {
                 for (const member of blueprint.modules) {
                   if (member.recipe.type === 'theme.section' || member.recipe.type === 'proxy.widget') {
-                    try { applyStorePalette(member.recipe as RecipeSpec, aesthetic.palette); } catch { /* best-effort */ }
+                    try { applyStorePalette(member.recipe as RecipeSpec, aesthetic.palette); applyStylePackTokens(member.recipe as RecipeSpec, aesthetic.palette, aesthetic.typography); } catch { /* best-effort */ }
                   }
                 }
               }

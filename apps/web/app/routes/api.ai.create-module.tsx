@@ -19,6 +19,7 @@ import { extractRequirementSpec } from '~/services/ai/requirement-spec.server';
 import { searchSolutions } from '~/services/ai/solution-search.server';
 import { ensureStoreAesthetic } from '~/services/theme/ensure-aesthetic.server';
 import { applyStorePalette } from '~/services/theme/apply-store-palette.server';
+import { applyStylePackTokens } from '~/services/ai/apply-style-pack.server';
 import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
 
 /** POST only; GET (e.g. prefetch or redirect) returns 405. */
@@ -155,6 +156,7 @@ export async function action({ request }: { request: Request }) {
           if (aesthetic) {
             for (const opt of recipeOptions) {
               applyStorePalette(opt.recipe as RecipeSpec, aesthetic.palette);
+              applyStylePackTokens(opt.recipe as RecipeSpec, aesthetic.palette, aesthetic.typography);
             }
             paletteMatched = true;
           }
@@ -185,6 +187,7 @@ export async function action({ request }: { request: Request }) {
                 for (const member of blueprint.modules) {
                   if (member.recipe.type === 'theme.section' || member.recipe.type === 'proxy.widget') {
                     applyStorePalette(member.recipe as RecipeSpec, aesthetic.palette);
+                    applyStylePackTokens(member.recipe as RecipeSpec, aesthetic.palette, aesthetic.typography);
                   }
                 }
               }
