@@ -29,7 +29,14 @@ export const THEME_LIQUID_TEMPLATE_NAMES = [
 ] as const;
 
 // ─── 4.2.2B Theme App Block placement templates (OS 2.0 only) ─────────────────
-/** Placeable templates for Theme App Blocks. Excludes customers/*, gift_card, robots.txt. */
+/**
+ * Placeable templates for Theme App Blocks. The finite base set (excludes
+ * gift_card, robots.txt). Classic customer templates (`customer/*`) are ALSO
+ * placeable for app blocks and are enumerated here alongside the OS-2.0 core set;
+ * dynamic-source `metaobject/<type>` templates are validated by pattern (they are
+ * open-ended by definition — one per merchant-defined metaobject type — so they
+ * cannot be a closed enum). See `isThemePlaceableTemplate`.
+ */
 export const THEME_PLACEABLE_TEMPLATES = [
   '404',
   'article',
@@ -42,14 +49,48 @@ export const THEME_PLACEABLE_TEMPLATES = [
   'password',
   'product',
   'search',
+  // Classic customer templates (placeable for app blocks; distinct from OS-2.0 core).
+  'customer/account',
+  'customer/activate_account',
+  'customer/addresses',
+  'customer/login',
+  'customer/order',
+  'customer/register',
+  'customer/reset_password',
 ] as const;
 /** Pattern for metaobject templates: metaobject/<type> e.g. metaobject/book */
 export const THEME_METAOBJECT_TEMPLATE_PREFIX = 'metaobject';
+/**
+ * A metaobject-scoped template: `metaobject/<type>` where <type> is a merchant-
+ * defined metaobject definition handle (`[a-z0-9_-]`, e.g. `metaobject/book`).
+ * Open-ended by design — cannot be a closed enum.
+ */
+const METAOBJECT_TEMPLATE_RE = /^metaobject\/[a-z0-9][a-z0-9_-]{0,48}$/;
+/**
+ * True for any template accepted by placement: a member of the finite
+ * `THEME_PLACEABLE_TEMPLATES` set OR a valid `metaobject/<type>` template.
+ */
+export function isThemePlaceableTemplate(t: string): boolean {
+  return (THEME_PLACEABLE_TEMPLATES as readonly string[]).includes(t) || METAOBJECT_TEMPLATE_RE.test(t);
+}
 
 // ─── 4.2.3 Section group types ─────────────────────────────────────────────────
 export const THEME_SECTION_GROUPS = ['header', 'footer', 'aside', '*'] as const;
 /** custom.<NAME> — NAME is unlimited; use this for validation pattern */
 export const THEME_SECTION_GROUP_CUSTOM_PREFIX = 'custom.';
+/**
+ * A custom section group: `custom.<name>` where <name> matches a theme's
+ * `sections/custom.<name>.json` group (`[a-z0-9_-]`, e.g. `custom.overlay`).
+ * Open-ended by design (themes define their own groups) — cannot be a closed enum.
+ */
+const CUSTOM_SECTION_GROUP_RE = /^custom\.[a-z0-9][a-z0-9_-]{0,48}$/;
+/**
+ * True for any section group accepted by placement: a member of the finite
+ * `THEME_SECTION_GROUPS` set OR a valid `custom.<name>` group.
+ */
+export function isThemeSectionGroup(g: string): boolean {
+  return (THEME_SECTION_GROUPS as readonly string[]).includes(g) || CUSTOM_SECTION_GROUP_RE.test(g);
+}
 
 // ─── 4.2.4 Theme Editor deep-link target modes ─────────────────────────────────
 export const THEME_DEEP_LINK_MODES = [

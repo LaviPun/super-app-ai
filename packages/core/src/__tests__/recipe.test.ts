@@ -45,6 +45,59 @@ describe('RecipeSpecSchema', () => {
     }
   });
 
+  it('placement (034 #6) — accepts metaobject/<type> templates, classic customer/* templates, and custom.<name> groups', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'theme.section',
+      name: 'Widened Placement',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: { kind: 'banner', activation: 'section' },
+      placement: {
+        enabled_on: {
+          templates: ['metaobject/book', 'customer/account', 'product'],
+          groups: ['header', 'custom.overlay'],
+        },
+      },
+    });
+    expect(spec.type === 'theme.section' && spec.placement?.enabled_on?.templates).toEqual([
+      'metaobject/book',
+      'customer/account',
+      'product',
+    ]);
+    expect(spec.type === 'theme.section' && spec.placement?.enabled_on?.groups).toEqual(['header', 'custom.overlay']);
+  });
+
+  it('placement (034 #6) — rejects a bogus template and a bogus custom group', () => {
+    const base = {
+      type: 'theme.section' as const,
+      name: 'Bad Placement',
+      category: 'STOREFRONT_UI' as const,
+      requires: ['THEME_ASSETS'],
+      config: { kind: 'banner', activation: 'section' as const },
+    };
+    expect(() =>
+      RecipeSpecSchema.parse({ ...base, placement: { enabled_on: { templates: ['gift_card'] } } }),
+    ).toThrow();
+    expect(() =>
+      RecipeSpecSchema.parse({ ...base, placement: { enabled_on: { groups: ['sidebar'] } } }),
+    ).toThrow();
+    // metaobject/ with an empty type is rejected.
+    expect(() =>
+      RecipeSpecSchema.parse({ ...base, placement: { enabled_on: { templates: ['metaobject/'] } } }),
+    ).toThrow();
+  });
+
+  it('activation (034 #6) — accepts the head activation for head-injected modules', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'theme.section',
+      name: 'JSON-LD Injector',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: { kind: 'jsonLd', activation: 'head', jsonLd: { '@context': 'https://schema.org' } },
+    });
+    expect(spec.type === 'theme.section' && spec.config.activation).toBe('head');
+  });
+
   it('accepts an arbitrary, never-before-seen section kind (no enum restriction)', () => {
     const spec = RecipeSpecSchema.parse({
       type: 'theme.section',
@@ -177,6 +230,39 @@ describe('RecipeSpecSchema', () => {
       },
     });
     expect(spec.type === 'proxy.widget' && spec.config.ruleEngine?.enabled).toBe(true);
+  });
+
+  it('proxy.widget (034 #6) — accepts a full_page surface + routed proxySubpath, defaults to embed', () => {
+    const full = RecipeSpecSchema.parse({
+      type: 'proxy.widget',
+      name: 'Lookbook',
+      category: 'STOREFRONT_UI',
+      requires: ['APP_PROXY'],
+      config: { widgetId: 'lookbook', title: 'Lookbook', surface: 'full_page', proxySubpath: 'lookbook' },
+    });
+    expect(full.type === 'proxy.widget' && full.config.surface).toBe('full_page');
+    expect(full.type === 'proxy.widget' && full.config.proxySubpath).toBe('lookbook');
+
+    // Absent surface defaults to embed (back-compat).
+    const embed = RecipeSpecSchema.parse({
+      type: 'proxy.widget',
+      name: 'Widget',
+      category: 'STOREFRONT_UI',
+      requires: ['APP_PROXY'],
+      config: { widgetId: 'plain-widget', title: 'Plain' },
+    });
+    expect(embed.type === 'proxy.widget' && embed.config.surface).toBe('embed');
+
+    // Bogus proxySubpath (uppercase / leading dash) is rejected.
+    expect(() =>
+      RecipeSpecSchema.parse({
+        type: 'proxy.widget',
+        name: 'Bad subpath',
+        category: 'STOREFRONT_UI',
+        requires: ['APP_PROXY'],
+        config: { widgetId: 'bad-sub', title: 'Bad', proxySubpath: '-Bad' },
+      }),
+    ).toThrow();
   });
 
   it('R2.1 — rejects an unknown (object, attribute) pair inside a pinned rule', () => {

@@ -289,11 +289,35 @@ export function renderNativeSection(
   };
   if (blocks.length > 0) schemaObj.blocks = blocks;
 
-  // Native section placement (config.placement.enabled_on.templates → enabled_on).
-  const placement = (spec as { placement?: { enabled_on?: { templates?: string[] } } }).placement;
-  if (placement?.enabled_on?.templates?.length) {
-    schemaObj.enabled_on = { templates: placement.enabled_on.templates };
-  }
+  // Native section placement → `{% schema %}` enabled_on / disabled_on.
+  //
+  // Threads BOTH template scoping AND section-group placement, honoring
+  // enabled_on/disabled_on symmetrically (the spec guarantees they are mutually
+  // exclusive). A section group entry (`header`/`footer`/`aside`/`*`/`custom.<name>`)
+  // lets a native section be added into a theme's section GROUPS (header/footer/etc.),
+  // not just page templates. Emitted only when non-empty, so a placement-less spec's
+  // schema is byte-identical to before this field existed (back-compat).
+  const placement = (
+    spec as {
+      placement?: {
+        enabled_on?: { templates?: string[]; groups?: string[] };
+        disabled_on?: { templates?: string[]; groups?: string[] };
+      };
+    }
+  ).placement;
+  const placementClause = (p?: { templates?: string[]; groups?: string[] }): Record<string, unknown> | undefined => {
+    if (!p) return undefined;
+    const clause: Record<string, unknown> = {};
+    if (p.templates?.length) clause.templates = p.templates;
+    if (p.groups?.length) clause.groups = p.groups;
+    return Object.keys(clause).length > 0 ? clause : undefined;
+  };
+  const enabledClause = placementClause(placement?.enabled_on);
+  const disabledClause = placementClause(placement?.disabled_on);
+  if (enabledClause) schemaObj.enabled_on = enabledClause;
+  // enabled_on and disabled_on are mutually exclusive in a Shopify schema; the spec
+  // enforces this, but guard here too so we never emit both.
+  else if (disabledClause) schemaObj.disabled_on = disabledClause;
 
   const preset: Record<string, unknown> = { name: (spec.name || 'SuperApp Section').slice(0, 25), settings: defaults };
   if (presetBlocks.length > 0) preset.blocks = presetBlocks;

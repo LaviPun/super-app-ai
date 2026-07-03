@@ -18,7 +18,10 @@ export function compileThemeSection(
   spec: Extract<RecipeSpec, { type: 'theme.section' }>,
   target: Extract<DeployTarget, { kind: 'THEME' }>,
 ): CompileResult {
-  if (target.mode === 'native_section') {
+  // A 'head' module is head-injected content (JSON-LD/meta/preload/pixel/consent),
+  // never a placeable/native section. The native_section medium is only for visible
+  // body sections, so head modules always take the app-embed (metaobject) path.
+  if (target.mode === 'native_section' && spec.config.activation !== 'head') {
     // Slug from moduleId (namespaced ownership so a push only ever overwrites a
     // prior SuperApp push), falling back to the module name.
     const slug = target.moduleId ?? spec.name;
@@ -35,6 +38,8 @@ export function compileThemeSection(
     };
   }
 
+  // 'overlay' collapses to the body app-embed ('global'); 'head' routes to the head
+  // app-embed; 'section'/'global' pass through unchanged.
   const activation = spec.config.activation === 'overlay' ? 'global' : spec.config.activation;
   return compileThemeModule(spec, target, activation);
 }

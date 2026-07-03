@@ -133,6 +133,44 @@ describe('theme.section placement — reaches the persisted metaobject write', (
   });
 });
 
+describe('theme.section head activation (034 #6) — routes to the head app embed', () => {
+  const headSpec = {
+    ...BASE_SPEC,
+    config: { kind: 'jsonLd', activation: 'head', jsonLd: { '@type': 'Organization' } },
+  } as unknown as ThemeSectionSpec;
+
+  it("compiles activation:'head' to activationType:'head' on the theme-module payload", () => {
+    const out = compileRecipe(headSpec, TARGET);
+    expect(out.themeModulePayload?.activationType).toBe('head');
+    // Still the metaobject path (never a native section).
+    expect(out.ops.some((o) => o.kind === 'THEME_ASSET_UPSERT')).toBe(false);
+  });
+
+  it('a head module NEVER compiles to a native section even in native_section mode', () => {
+    const out = compileRecipe(headSpec, { ...TARGET, mode: 'native_section' });
+    // Head modules ignore native_section mode and take the app-embed path.
+    expect(out.ops.some((o) => o.kind === 'THEME_ASSET_UPSERT')).toBe(false);
+    expect(out.themeModulePayload?.activationType).toBe('head');
+  });
+
+  it("persists activation_type:'head' so the head embed can filter for it", async () => {
+    const graphql = vi.fn().mockResolvedValueOnce(
+      graphqlJsonResponse({
+        data: { metaobjectUpsert: { userErrors: [], metaobject: { id: 'gid://shopify/Metaobject/9' } } },
+      }),
+    );
+    const admin = { graphql } as unknown as AdminApiContext['admin'];
+    const service = new MetaobjectService(admin);
+    const payload = compileRecipe(headSpec, TARGET).themeModulePayload as ThemeModulePayload;
+    await service.upsertModuleObject('mod-head-1', payload);
+    const vars = graphql.mock.calls[0]?.[1] as {
+      variables: { metaobject: { fields: Array<{ key: string; value: string }> } };
+    };
+    const act = vars.variables.metaobject.fields.find((f) => f.key === 'activation_type');
+    expect(act?.value).toBe('head');
+  });
+});
+
 /**
  * Pure mirror of the Liquid placement gate (superapp-module.liquid): render iff
  *  - no enabled_on templates OR enabled_on.templates contains the current template, AND

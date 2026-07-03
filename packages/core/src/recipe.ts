@@ -17,8 +17,8 @@ import { DataModelSchema, ModuleDataStoreSchema } from './data-model.js';
 import type { ModuleCategory, ModuleType } from './allowed-values.js';
 import {
   LIMITS,
-  THEME_PLACEABLE_TEMPLATES,
-  THEME_SECTION_GROUPS,
+  isThemePlaceableTemplate,
+  isThemeSectionGroup,
   CUSTOMER_ACCOUNT_TARGETS,
   CHECKOUT_UI_TARGETS,
   CHECKOUT_FIELD_KINDS,
@@ -109,19 +109,33 @@ export const DeployTargetSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
-/** Theme placement: only one of enabled_on or disabled_on (doc 4.2.2B, 4.2.3). */
+/**
+ * Theme placement: only one of enabled_on or disabled_on (doc 4.2.2B, 4.2.3).
+ *
+ * `templates` accepts the finite `THEME_PLACEABLE_TEMPLATES` set (now incl. classic
+ * `customer/*`) AND open-ended `metaobject/<type>` templates; `groups` accepts the
+ * finite `THEME_SECTION_GROUPS` set AND open-ended `custom.<name>` groups. Both are
+ * validated by pattern (they cannot be closed enums — one metaobject template per
+ * merchant definition, one custom group per theme).
+ */
+const PlaceableTemplate = z.string().refine(isThemePlaceableTemplate, {
+  message: 'Not a placeable template (Allowed Values Manifest 4.2.2B; or metaobject/<type>).',
+});
+const SectionGroup = z.string().refine(isThemeSectionGroup, {
+  message: 'Not a section group (Allowed Values Manifest 4.2.3; or custom.<name>).',
+});
 const PlacementSchema = z
   .object({
     enabled_on: z
       .object({
-        templates: z.array(z.enum(THEME_PLACEABLE_TEMPLATES)).optional(),
-        groups: z.array(z.enum(THEME_SECTION_GROUPS)).optional(),
+        templates: z.array(PlaceableTemplate).optional(),
+        groups: z.array(SectionGroup).optional(),
       })
       .optional(),
     disabled_on: z
       .object({
-        templates: z.array(z.enum(THEME_PLACEABLE_TEMPLATES)).optional(),
-        groups: z.array(z.enum(THEME_SECTION_GROUPS)).optional(),
+        templates: z.array(PlaceableTemplate).optional(),
+        groups: z.array(SectionGroup).optional(),
       })
       .optional(),
   })
@@ -318,8 +332,14 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     config: z.object({
       /** Free-form recommendation tag — NOT an enum. Drives preview/recommendations only. */
       kind: z.string().min(1).max(60).default('custom'),
-      /** How the section activates on the storefront. */
-      activation: z.enum(['section', 'global', 'overlay']).default('section'),
+      /**
+       * How the section activates on the storefront.
+       *  - 'section'/'global'/'overlay' → rendered in the page BODY (block or app embed).
+       *  - 'head' → injected into the document `<head>` via the head app-embed, for
+       *    head-only kinds (JSON-LD structured data, meta/OG tags, resource preload,
+       *    pixel bootstrap, consent scripts). Head modules have no visible markup.
+       */
+      activation: z.enum(['section', 'global', 'overlay', 'head']).default('section'),
       title: z.string().max(LIMITS.nameMax).optional(),
       subtitle: z.string().max(LIMITS.subheadingMax).optional(),
       /** The section's own typed settings, declared inline (reuses DataModel). */
@@ -380,6 +400,22 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       mode: z.enum(PROXY_WIDGET_MODES).default('HTML'),
       title: z.string().min(LIMITS.headingMin).max(LIMITS.nameMax),
       message: z.string().min(0).max(LIMITS.popupBodyMax).optional(),
+      /**
+       * Render surface (034 build #6). Default `'embed'` = the legacy embeddable
+       * fragment served at `/apps/<proxySubpath>/<widgetId>` (back-compat: absent =
+       * embed, byte-identical). `'full_page'` = a standalone routed page: the proxy
+       * loader renders WITHOUT the theme layout wrapper (`layout:false`) at its own
+       * routed subpath, so it reads as a first-class store page (e.g. a lookbook,
+       * stockist locator, quiz) rather than a widget embedded in another page.
+       */
+      surface: z.enum(['embed', 'full_page']).default('embed'),
+      /**
+       * Routed subpath under the app-proxy prefix (`/apps/<proxySubpath>`). A single
+       * URL segment (`^[a-z0-9][a-z0-9-]{0,38}$`, e.g. `lookbook`, `stockists`). The
+       * proxy loader keys off this so multiple full-page widgets can each own a clean
+       * `/apps/<proxySubpath>` route. Absent = the default app-proxy subpath.
+       */
+      proxySubpath: z.string().regex(/^[a-z0-9][a-z0-9-]{0,38}$/).optional(),
       /**
        * Display rules (R2.1). Same pack as theme.section — an app-proxy widget can
        * gate server-side in its proxy loader (the strongest evaluation site, since

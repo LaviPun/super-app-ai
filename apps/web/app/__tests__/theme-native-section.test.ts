@@ -99,6 +99,45 @@ describe('033 native-section compile', () => {
     }
   });
 
+  it('034 #6 — threads enabled_on section groups + templates into the {% schema %}', () => {
+    const spec = {
+      ...PRICING_SPEC,
+      placement: {
+        enabled_on: { templates: ['product', 'metaobject/book'], groups: ['header', 'custom.overlay'] },
+      },
+    } as unknown as ThemeSectionSpec;
+    const { liquid } = renderNativeSection(spec, { slug: 'mod-grp-1' });
+    const schema = validateSectionSchema(liquid) as {
+      enabled_on?: { templates?: string[]; groups?: string[] };
+      disabled_on?: unknown;
+    };
+    expect(schema.enabled_on?.templates).toEqual(['product', 'metaobject/book']);
+    expect(schema.enabled_on?.groups).toEqual(['header', 'custom.overlay']);
+    expect(schema.disabled_on).toBeUndefined();
+  });
+
+  it('034 #6 — honors disabled_on (templates + groups) in the {% schema %}', () => {
+    const spec = {
+      ...PRICING_SPEC,
+      placement: { disabled_on: { templates: ['cart'], groups: ['footer'] } },
+    } as unknown as ThemeSectionSpec;
+    const { liquid } = renderNativeSection(spec, { slug: 'mod-grp-2' });
+    const schema = validateSectionSchema(liquid) as {
+      enabled_on?: unknown;
+      disabled_on?: { templates?: string[]; groups?: string[] };
+    };
+    expect(schema.disabled_on?.templates).toEqual(['cart']);
+    expect(schema.disabled_on?.groups).toEqual(['footer']);
+    expect(schema.enabled_on).toBeUndefined();
+  });
+
+  it('034 #6 — no placement → schema has neither enabled_on nor disabled_on (back-compat)', () => {
+    const { liquid } = renderNativeSection(PRICING_SPEC, { slug: 'mod-grp-3' });
+    const schema = validateSectionSchema(liquid) as Record<string, unknown>;
+    expect(schema).not.toHaveProperty('enabled_on');
+    expect(schema).not.toHaveProperty('disabled_on');
+  });
+
   it('slug is filesystem/handle-safe (lowercase, [a-z0-9-], no unsafe chars)', () => {
     expect(toSectionSlug('My Fancy Module!! 2026')).toBe('my-fancy-module-2026');
     expect(nativeSectionFilename('WEIRD__name')).toBe('sections/superapp-weird-name.liquid');

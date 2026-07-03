@@ -28,11 +28,13 @@ export type ThemeModulePayload = {
   type: string;
   name: string;
   /** How this module is activated on the storefront.
-   *  - 'global'  → rendered automatically by the app embed block on every page
+   *  - 'global'  → rendered automatically by the body app embed block on every page
    *  - 'section' → merchant places it in any section via the universal-slot block
    *  - 'block'   → merchant places it in a product/collection section via product-slot or collection-slot
+   *  - 'head'    → injected into the document <head> by the head app embed (JSON-LD,
+   *               meta/OG, preload, pixel bootstrap, consent) — no visible markup
    */
-  activationType: 'global' | 'section' | 'block';
+  activationType: 'global' | 'section' | 'block' | 'head';
   config: Record<string, unknown>;
   style?: Record<string, unknown>;
   /**
