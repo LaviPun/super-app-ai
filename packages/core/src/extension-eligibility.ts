@@ -387,17 +387,22 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
   'agentic.catalogProfile': {
     moduleType: 'agentic.catalogProfile',
     runtime: 'agentic-feed',
-    // Shipped: publishing persists the module config and the app route
-    // /agentic/{shop}/{handle}/feed.json serves the structured product-data feed to
-    // AI channels (the same app-served model pos.extension uses — publish config →
-    // app route reads the active PUBLISHED version → an external consumer fetches).
-    // Only the FEED (catalog-feed/attribute-map/compliance-disclosure) is real; the
-    // MCP endpoint, agent-profile registration, and sponsored products are modeled
-    // but their runtime is NOT shipped — the compiler names them as deferred and
-    // preflight surfaces the note, so they are never silently "published".
+    // Shipped: publishing persists the module config and app routes under
+    // /agentic/{shop}/{handle}/… serve the merchant's catalog to AI shopping agents
+    // (the same app-served model pos.extension uses — publish config → app route reads
+    // the active PUBLISHED version → an external agent/crawler fetches). Build #7c: ALL
+    // artifacts are app-served and real —
+    //   feed.json            (catalog-feed / attribute-map / compliance-disclosure)
+    //   mcp  + .well-known/ucp (mcp-endpoint: JSON-RPC Storefront-Catalog MCP + discovery)
+    //   agent-profile.json + agents.md (agent-profile)
+    //   sponsored ranking    (sponsored-products, config-only)
+    // The canonical Shopify theme agents.md (templates/agents.md.liquid, which references
+    // the storefront-populated `agents` Liquid object) still needs write_themes + a
+    // page-builder exemption + AGENTIC_AGENTS_MD_ENABLED — the app-served agents.md is
+    // the shipping default; the theme path is honestly flag-gated (never faked).
     runtimeShipped: true,
     requiredScopes: ['read_products'],
-    note: 'Publishes an AI-channel product feed served from the app backend (/agentic/{shop}/{handle}/feed.json). The hosted MCP endpoint, agent-profile registration, and sponsored products are modeled but not yet shipped — a published module includes only the feed and names the deferred artifacts.',
+    note: 'Publishes the merchant catalog to AI shopping agents from the app backend: a product feed (/agentic/{shop}/{handle}/feed.json), a Storefront-Catalog MCP endpoint (/mcp) with UCP discovery (/.well-known/ucp), an agent profile (/agent-profile.json + /agents.md), and sponsored-product ranking. All app-served (no external registration). The canonical theme agents.md.liquid is emitted via the flag-gated Theme Edit path (AGENTIC_AGENTS_MD_ENABLED + write_themes + a page-builder exemption); until granted, the app-served agents.md is the default.',
   },
 
   // ── Composite (no runtime of its own; decomposes into real members) ────────

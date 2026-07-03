@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   projectFeedItem,
   resolveAttribute,
+  applySponsoredRanking,
   type AgenticFeedConfig,
+  type AgenticFeedItem,
   type RawProductNode,
 } from '~/services/agentic/feed-projection';
 
@@ -36,6 +38,7 @@ const cfg = (over: Partial<AgenticFeedConfig> = {}): AgenticFeedConfig => ({
   source: { kind: 'all' },
   attributeMap: [],
   disclosures: [],
+  sponsoredProductIds: [],
   ...over,
 });
 
@@ -105,5 +108,52 @@ describe('projectFeedItem (M13)', () => {
   it('falls back to a constructed product URL when onlineStoreUrl is null', () => {
     const item = projectFeedItem({ ...node, onlineStoreUrl: null }, cfg(), 'shop.myshopify.com');
     expect(item.url).toBe('https://shop.myshopify.com/products/aurora');
+  });
+});
+
+describe('applySponsoredRanking (build #7c)', () => {
+  const item = (id: string): AgenticFeedItem => ({
+    id,
+    title: id,
+    description: '',
+    url: '',
+    price: null,
+    currency: null,
+    availability: 'in_stock',
+    images: [],
+    attributes: {},
+  });
+  const items = [item('a'), item('b'), item('c'), item('d')];
+
+  it('is a no-op when the sponsored-products artifact is absent', () => {
+    const out = applySponsoredRanking(items, { artifacts: ['catalog-feed'], sponsoredProductIds: ['c'] });
+    expect(out.map((i) => i.id)).toEqual(['a', 'b', 'c', 'd']);
+    expect(out.every((i) => i.sponsored === undefined)).toBe(true);
+  });
+
+  it('is a no-op when no sponsored ids are configured', () => {
+    const out = applySponsoredRanking(items, { artifacts: ['sponsored-products'], sponsoredProductIds: [] });
+    expect(out.map((i) => i.id)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('promotes sponsored products (in configured order) to the front and flags them', () => {
+    const out = applySponsoredRanking(items, {
+      artifacts: ['sponsored-products'],
+      sponsoredProductIds: ['c', 'a'],
+    });
+    expect(out.map((i) => i.id)).toEqual(['c', 'a', 'b', 'd']);
+    expect(out[0]?.sponsored).toBe(true);
+    expect(out[1]?.sponsored).toBe(true);
+    // Non-sponsored items keep their relative order and carry no sponsored flag.
+    expect(out[2]?.id).toBe('b');
+    expect(out[2]?.sponsored).toBeUndefined();
+  });
+
+  it('ignores configured ids that are not in the result set', () => {
+    const out = applySponsoredRanking(items, {
+      artifacts: ['sponsored-products'],
+      sponsoredProductIds: ['zzz', 'b'],
+    });
+    expect(out.map((i) => i.id)).toEqual(['b', 'a', 'c', 'd']);
   });
 });

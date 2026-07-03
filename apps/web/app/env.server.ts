@@ -163,3 +163,17 @@ export function isBlueprintsEnabled(): boolean {
 export function isThemeNativeSectionEnabled(): boolean {
   return parseBooleanEnv(process.env.THEME_NATIVE_SECTION_ENABLED, false);
 }
+
+/**
+ * Agentic `agents.md` theme emit (build #7c): compile the agent-profile to a real
+ * `templates/agents.md.liquid` file and write it via the Theme Files API. OFF by
+ * default — the app-served agent-profile (`/agentic/{shop}/{handle}/agent-profile.json`)
+ * is the shipping default and works today. Like `THEME_NATIVE_SECTION_ENABLED`, this
+ * theme path also requires `write_themes` + a Shopify page-builder exemption (inert
+ * until granted), so even with the flag on it is a no-op on stores that lack the grant.
+ * The `agents` Liquid object it references is auto-populated by Shopify's storefront,
+ * so this is the ONLY honest way to emit the canonical theme agents.md.
+ */
+export function isAgenticAgentsMdEnabled(): boolean {
+  return parseBooleanEnv(process.env.AGENTIC_AGENTS_MD_ENABLED, false);
+}

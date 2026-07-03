@@ -4,12 +4,13 @@ import { compileRecipe } from '~/services/recipes/compiler';
 import { classifyModulePublishability } from '~/services/publish/publish-preflight.server';
 
 /**
- * M13 agentic.catalogProfile compiler + publishability.
+ * M13 + build #7c agentic.catalogProfile compiler + publishability.
  *
- * Persisting the config IS the deploy (the app-served /agentic/.../feed.json route
- * reads it) — like pos.extension. The compiler must emit a REAL AUDIT op (not the
- * bare fallthrough), and must NAME any deferred artifact (mcp/agent-profile/
- * sponsored) so nothing looks-done-but-isn't.
+ * Persisting the config IS the deploy (the app-served /agentic/.../* routes read it) —
+ * like pos.extension. The compiler must emit a REAL AUDIT op (not the bare fallthrough).
+ * Build #7c: mcp-endpoint / agent-profile / sponsored-products are now app-served and
+ * SHIPPED, so they are NOT named as deferred; the compiler surfaces their app-served
+ * URLs in compiledJson. Any FUTURE unshipped artifact would still be named deferred.
  */
 
 function spec(config: unknown): RecipeSpec {
@@ -42,19 +43,31 @@ describe('compileAgenticCatalogProfile (M13)', () => {
     expect(deferred).toBeUndefined();
   });
 
-  it('names the deferred artifacts (mcp/agent-profile/sponsored) when requested — never faked', () => {
+  it('does NOT defer mcp/agent-profile/sponsored (build #7c: all app-served) and surfaces their URLs', () => {
     const out = compileRecipe(
-      spec({ artifacts: ['catalog-feed', 'mcp-endpoint', 'agent-profile', 'sponsored-products'], source: { kind: 'all' }, feedHandle: 'catalog', attributeMap: [], disclosures: [] }),
+      spec({
+        artifacts: ['catalog-feed', 'mcp-endpoint', 'agent-profile', 'sponsored-products'],
+        source: { kind: 'all' },
+        feedHandle: 'catalog',
+        attributeMap: [],
+        disclosures: [],
+        sponsoredProductIds: ['gid://shopify/Product/1'],
+      }),
       { kind: 'PLATFORM' },
     );
+    // Nothing is deferred — all four requested artifacts are shipped.
     const deferred = out.ops.find((o) => o.kind === 'AUDIT' && o.action === 'agentic.deferred-artifacts');
-    expect(deferred).toBeDefined();
-    const details = (deferred as { details?: string }).details ?? '';
-    expect(details).toContain('mcp-endpoint');
-    expect(details).toContain('agent-profile');
-    expect(details).toContain('sponsored-products');
-    // The real feed still deploys (the compile op is present).
+    expect(deferred).toBeUndefined();
+    // The real compile op is present, and compiledJson carries every app-served surface URL.
     expect(out.ops.some((o) => o.kind === 'AUDIT' && o.action === 'compile.agentic.catalogProfile')).toBe(true);
+    const compiled = JSON.parse(out.compiledJson ?? '{}');
+    expect(compiled.mcpUrl).toBe('/agentic/{shop}/catalog/mcp');
+    expect(compiled.ucpDiscoveryUrl).toBe('/agentic/{shop}/catalog/.well-known/ucp');
+    expect(compiled.agentProfileUrl).toBe('/agentic/{shop}/catalog/agent-profile.json');
+    expect(compiled.agentsMdUrl).toBe('/agentic/{shop}/catalog/agents.md');
+    expect(compiled.sponsoredProductIds).toEqual(['gid://shopify/Product/1']);
+    // The theme agents.md opt-in path is honestly recorded (never faked).
+    expect(out.ops.some((o) => o.kind === 'AUDIT' && o.action === 'agentic.agents-md')).toBe(true);
   });
 
   it('classifies as deployable (the feed runtime is shipped)', () => {

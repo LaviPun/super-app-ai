@@ -19,6 +19,7 @@ import { RecipeSpecSchema, type RecipeSpec } from '@superapp/core';
 import { shopify } from '~/shopify.server';
 import {
   projectFeedItem,
+  applySponsoredRanking,
   type AgenticFeedConfig,
   type AgenticFeedItem,
   type RawProductNode,
@@ -78,6 +79,8 @@ export async function readPublishedAgenticFeed(
       source: spec.config.source,
       attributeMap: spec.config.attributeMap,
       disclosures: spec.config.disclosures,
+      sponsoredProductIds: spec.config.sponsoredProductIds ?? [],
+      agentInstructions: spec.config.agentInstructions,
     };
   }
 
@@ -132,7 +135,72 @@ export async function resolveFeedItems(
   }
 
   const nodes = await fetchProductNodes(graphql, cfg.source);
-  return nodes.slice(0, FEED_PRODUCT_CAP).map((n) => projectFeedItem(n, cfg, shopDomain));
+  const items = nodes.slice(0, FEED_PRODUCT_CAP).map((n) => projectFeedItem(n, cfg, shopDomain));
+  // sponsored-products: promoted GIDs lead the result set (no-op unless the artifact is on).
+  return applySponsoredRanking(items, cfg);
+}
+
+// ── MCP catalog tools — search + by-id resolution (reuses the same projection) ────
+
+/** Case-insensitive substring match over the fields an agent would search on. */
+function matchesQuery(it: AgenticFeedItem, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const hay = `${it.title} ${it.description} ${Object.values(it.attributes).join(' ')}`.toLowerCase();
+  return hay.includes(q);
+}
+
+/**
+ * Storefront-Catalog MCP `search_catalog`: resolve the feed's item set (same PUBLIC
+ * projection + sponsored ranking the feed uses), filter by a free-text `query`, and
+ * bound the result to `limit`. Sponsored items stay first (they were partitioned before
+ * the text filter), matching real agentic-commerce ranking semantics.
+ */
+export async function searchCatalog(
+  cfg: AgenticFeedConfig,
+  shopDomain: string,
+  query: string,
+  limit = 20,
+): Promise<AgenticFeedItem[]> {
+  const items = await resolveFeedItems(cfg, shopDomain);
+  const filtered = query ? items.filter((it) => matchesQuery(it, query)) : items;
+  return filtered.slice(0, Math.max(1, Math.min(limit, FEED_PRODUCT_CAP)));
+}
+
+/**
+ * Storefront-Catalog MCP `get_product` / `lookup_catalog`: resolve specific product
+ * GIDs directly via the offline admin client (no full-catalog scan). Applies the same
+ * projection + sponsored flagging. Unknown/invalid ids are omitted (never faked).
+ */
+export async function resolveProductsByIds(
+  cfg: AgenticFeedConfig,
+  shopDomain: string,
+  ids: string[],
+): Promise<AgenticFeedItem[]> {
+  if (ids.length === 0) return [];
+  let graphql: AdminGraphql;
+  try {
+    const ctx = await shopify.unauthenticated.admin(shopDomain);
+    graphql = ctx.admin.graphql as unknown as AdminGraphql;
+  } catch {
+    return [];
+  }
+
+  const query = `#graphql
+    ${PRODUCT_FIELDS}
+    query AgenticById($ids: [ID!]!) {
+      nodes(ids: $ids) { ... on Product { ...AgenticProduct } }
+    }
+  `;
+  try {
+    const res = await graphql(query, { variables: { ids: ids.slice(0, FEED_PRODUCT_CAP) } });
+    const body = (await res.json()) as { data?: { nodes?: Array<RawProductNode | null> } };
+    const nodes = (body.data?.nodes ?? []).filter((n): n is RawProductNode => !!n && !!n.id);
+    const items = nodes.map((n) => projectFeedItem(n, cfg, shopDomain));
+    return applySponsoredRanking(items, cfg);
+  } catch {
+    return [];
+  }
 }
 
 async function fetchProductNodes(

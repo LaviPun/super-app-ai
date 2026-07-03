@@ -1143,36 +1143,55 @@ export const RECOMMENDATION_LIMITS = {
 /**
  * `agentic.catalogProfile` — which AI-channel artifacts a module produces.
  *
- * Only the first three are REAL today: publishing writes the module config, and
- * the app-served feed endpoint (`/agentic/{shop}/{handle}/feed.json`) emits the
- * structured product data to AI channels — the SAME app-served pattern the shipped
- * `pos.extension` uses (publish persists config → an app route reads the active
- * PUBLISHED version → an external consumer fetches). The last three model the
- * Spring-26 agentic stack (UCP + Catalog/Cart/Checkout MCPs, agent-profile
- * registration in the Dev Dashboard, sponsored products) but their runtime is NOT
- * shipped — a module requesting them publishes only the real artifacts, and the
- * compiler names the deferred ones (never faked, never silently "published").
+ * ALL SIX are REAL as of build #7c: publishing writes the module config, and app
+ * routes read the active PUBLISHED version to serve each surface — the SAME app-served
+ * pattern the shipped `pos.extension` uses (publish persists config → an app route reads
+ * the active PUBLISHED version → an external consumer fetches). The Spring-26 agentic
+ * stack (UCP discovery + Storefront-Catalog MCP, agent/business profile, sponsored
+ * products) is served from THIS app's backend — no external registration, so all are
+ * genuinely `deployable`:
+ *   - catalog-feed / attribute-map / compliance-disclosure → `/agentic/{shop}/{handle}/feed.json`
+ *   - mcp-endpoint       → `/agentic/{shop}/{handle}/mcp` (JSON-RPC) + `.well-known/ucp` discovery
+ *   - agent-profile      → `/agentic/{shop}/{handle}/agent-profile.json`
+ *   - sponsored-products → config only (promoted GIDs boosted in the MCP/feed ranking)
+ * The one thing that still needs a merchant/theme grant — Shopify's storefront-populated
+ * theme `agents.md` — is emitted honestly via the flag-gated Theme Edit path (inert until
+ * `write_themes` + a page-builder exemption), with an app-served copy that works today.
  */
 export const AGENTIC_ARTIFACTS = [
   'catalog-feed', // REAL: app-served product feed (JSON) for AI crawlers/agents
   'attribute-map', // REAL: enriches feed rows with normalized attributes (gtin/brand/size/…)
   'compliance-disclosure', // REAL: appends required disclosures to feed rows
-  'mcp-endpoint', // needs_runtime: a hosted Catalog-MCP endpoint (follow-up)
-  'agent-profile', // needs_runtime: Dev-Dashboard agent registration (follow-up)
-  'sponsored-products', // needs_runtime: Catalog-API sponsored placement (follow-up)
+  'mcp-endpoint', // REAL: app-served Storefront-Catalog MCP (JSON-RPC) + /.well-known/ucp discovery
+  'agent-profile', // REAL: app-served UCP business/agent-profile document describing the store
+  'sponsored-products', // REAL: merchant-promoted products boosted in agentic (MCP/feed) results
 ] as const;
 export type AgenticArtifact = (typeof AGENTIC_ARTIFACTS)[number];
 
 /**
  * Which agentic artifacts have a shipped runtime today. Single source of truth for
- * the compiler split (real ops vs `agentic.deferred-artifacts` note). When a hosted
- * MCP endpoint / agent-profile / sponsored-products runtime lands, add it here — no
- * schema change, the compiler simply stops naming it as deferred.
+ * the compiler split (real ops vs `agentic.deferred-artifacts` note).
+ *
+ * Build #7c promoted `mcp-endpoint` / `agent-profile` / `sponsored-products` to shipped:
+ * they are ALL app-served (no external registration), exactly like the catalog-feed —
+ *   - mcp-endpoint       → `/agentic/{shop}/{handle}/mcp` (JSON-RPC 2.0: search_catalog /
+ *                          get_product / lookup_catalog) + `/agentic/{shop}/{handle}/.well-known/ucp`
+ *   - agent-profile      → `/agentic/{shop}/{handle}/agent-profile.json`
+ *   - sponsored-products → config only (promoted GIDs boosted in MCP/feed ranking)
+ * The one artifact that would need EXTERNAL registration — listing the store in a
+ * public agent directory / the Shopify-populated theme `agents.md` — is intentionally
+ * NOT modeled here as a fake-shipped artifact. `agents.md` itself is emitted honestly
+ * via the flag-gated Theme Edit path (see AGENTIC_AGENTS_MD_* below), which is inert
+ * until `write_themes` + a page-builder exemption are granted, plus an app-served copy
+ * that works today.
  */
 export const AGENTIC_ARTIFACTS_SHIPPED = [
   'catalog-feed',
   'attribute-map',
   'compliance-disclosure',
+  'mcp-endpoint',
+  'agent-profile',
+  'sponsored-products',
 ] as const;
 export type ShippedAgenticArtifact = (typeof AGENTIC_ARTIFACTS_SHIPPED)[number];
 
@@ -1203,7 +1222,33 @@ export const AGENTIC_LIMITS = {
   disclosureLabelMax: 80,
   disclosureTextMax: 500,
   attributeFromMax: 120,
+  sponsoredProductsMax: 25, // merchant-promoted GIDs boosted in agentic results
+  agentInstructionsMax: 2000, // free-text agent-profile instructions (agent-profile / agents.md)
 } as const;
+
+/**
+ * UCP (Universal Commerce Protocol) surface constants for the app-served agentic
+ * endpoints. The version string matches Shopify's 2026-04 UCP edition; the service
+ * name mirrors the `dev.ucp.shopping` namespace agents negotiate against.
+ *
+ * These describe the DISCOVERY + MCP surface the app serves per published feed:
+ *   - `/agentic/{shop}/{handle}/.well-known/ucp`  → UCP discovery (version + services)
+ *   - `/agentic/{shop}/{handle}/mcp`              → JSON-RPC 2.0 Storefront-Catalog MCP
+ *   - `/agentic/{shop}/{handle}/agent-profile.json` → the store's agent/business profile
+ */
+export const UCP_VERSION = '2026-04-08' as const;
+export const UCP_SERVICE_NAME = 'dev.ucp.shopping' as const;
+/** UCP capabilities the app-served catalog MCP implements today (read-only catalog). */
+export const UCP_CATALOG_CAPABILITY = 'dev.ucp.shopping.catalog' as const;
+
+/**
+ * The tools the app-served Storefront-Catalog MCP exposes. Names conform to the UCP
+ * Catalog capability / MCP binding (search_catalog / get_product / lookup_catalog) so
+ * a compliant agent can call them without custom glue. All READ-ONLY, product-data
+ * only (the same public projection the feed emits — no PII, no cart/checkout writes).
+ */
+export const AGENTIC_MCP_TOOLS = ['search_catalog', 'get_product', 'lookup_catalog'] as const;
+export type AgenticMcpTool = (typeof AGENTIC_MCP_TOOLS)[number];
 
 /**
  * customerAccount.blocks block kind (doc 18.4). The first four (TEXT|LINK|BADGE|

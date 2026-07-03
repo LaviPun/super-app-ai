@@ -1195,6 +1195,24 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
         .string()
         .regex(/^[a-z0-9-]{3,40}$/)
         .default('catalog'),
+      /**
+       * sponsored-products: merchant-promoted product GIDs boosted to the top of the
+       * agentic (MCP search / feed) results. Config-only, app-served — no ad exchange.
+       * Ignored unless the `sponsored-products` artifact is enabled.
+       */
+      sponsoredProductIds: z
+        .array(z.string().regex(PRODUCT_GID_RE))
+        .max(AGENTIC_LIMITS.sponsoredProductsMax)
+        .default([]),
+      /**
+       * agent-profile: free-text instructions surfaced to AI agents in the app-served
+       * agent-profile document + agents.md (e.g. "Prioritize fair-trade products.").
+       * PUBLIC — never put PII/contact details here (the profile is broadly cached).
+       */
+      agentInstructions: z
+        .string()
+        .max(AGENTIC_LIMITS.agentInstructionsMax)
+        .optional(),
     }),
   }),
 

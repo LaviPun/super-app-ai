@@ -1091,6 +1091,7 @@ export const PART4_TEMPLATES: TemplateEntry[] = [
         ],
         disclosures: [],
         feedHandle: 'catalog',
+        sponsoredProductIds: [],
       },
     } as RecipeSpec,
   },

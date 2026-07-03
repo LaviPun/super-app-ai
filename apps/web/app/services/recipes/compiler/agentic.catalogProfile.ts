@@ -3,24 +3,29 @@ import type { RecipeSpec } from '@superapp/core';
 import { AGENTIC_ARTIFACTS_SHIPPED } from '@superapp/core';
 
 /**
- * agentic.catalogProfile (M13) — a structured product-data feed the merchant
- * surfaces to AI channels. Its runtime is the app-served feed endpoint
- * `/agentic/{shop}/{handle}/feed.json`, which reads the module's active PUBLISHED
- * version and emits the feed to an external AI crawler/agent — the SAME app-served
- * model the shipped `pos.extension` uses (publish persists config → an app route
- * reads it → an external consumer fetches). So, exactly like `pos.extension`,
- * PERSISTING the config IS the deploy: there is no Shopify write and therefore no
- * new `DeployOperation` kind. We emit an AUDIT op (not a bare no-op fallthrough) so
- * the publish pipeline records a real, inspectable compile artifact — mirroring how
- * `pos.extension` AUDIT-compiles — and `compiledJson` carries the feed URL for the
- * modules UI.
+ * agentic.catalogProfile (M13 + build #7c) — the merchant's catalog surfaced to AI
+ * shopping agents. Every artifact is served from THIS app's backend (publish persists
+ * config → an app route reads the active PUBLISHED version → an AI agent/crawler
+ * fetches), the SAME app-served model the shipped `pos.extension` uses. Persisting the
+ * config IS the deploy: there is no Shopify write and therefore no new `DeployOperation`
+ * kind. We emit an AUDIT op (not a bare no-op fallthrough) so the publish pipeline
+ * records a real, inspectable compile artifact, and `compiledJson` carries every
+ * app-served surface URL for the modules UI.
  *
- * Honesty (R0.1 / needs_runtime discipline): only the feed artifacts
- * (catalog-feed / attribute-map / compliance-disclosure) are real today. If the
- * merchant requested a `mcp-endpoint` / `agent-profile` / `sponsored-products`
- * artifact — whose runtime is NOT shipped — we emit a second AUDIT op naming the
- * deferred artifacts so publish/preflight can surface them to the merchant. The
- * deferred artifacts are never faked and never silently "published".
+ * App-served surfaces per published feed (all REAL, all `deployable`):
+ *   - catalog-feed / attribute-map / compliance-disclosure → …/feed.json
+ *   - mcp-endpoint       → …/mcp (JSON-RPC) + …/.well-known/ucp discovery
+ *   - agent-profile      → …/agent-profile.json  (+ app-served …/agents.md)
+ *   - sponsored-products → config-only (promoted GIDs boosted in the MCP/feed ranking)
+ *
+ * Honesty (R0.1 / needs_runtime discipline): if a FUTURE artifact lands in the schema
+ * without a shipped runtime, it is filtered out of `SHIPPED_ARTIFACTS` and named in a
+ * second `agentic.deferred-artifacts` AUDIT op — never faked, never silently published.
+ * The canonical Shopify theme `agents.md` (`templates/agents.md.liquid`, which references
+ * the storefront-populated `agents` Liquid object an app cannot fill) is NOT emitted as a
+ * fake artifact here: it ships honestly via the app-served …/agents.md today, and via the
+ * flag-gated Theme Edit path (AGENTIC_AGENTS_MD_ENABLED) once write_themes + a page-builder
+ * exemption are granted. We record that opt-in path as a note so nothing looks-done-but-isn't.
  */
 const SHIPPED_ARTIFACTS = new Set<string>(AGENTIC_ARTIFACTS_SHIPPED);
 
@@ -29,6 +34,7 @@ export function compileAgenticCatalogProfile(
 ): CompileResult {
   const { artifacts, feedHandle, source } = spec.config;
   const deferred = artifacts.filter((a) => !SHIPPED_ARTIFACTS.has(a));
+  const base = `/agentic/{shop}/${feedHandle}`;
 
   const ops: CompileResult['ops'] = [
     {
@@ -43,10 +49,27 @@ export function compileAgenticCatalogProfile(
     ops.push({ kind: 'AUDIT', action: 'agentic.deferred-artifacts', details: deferred.join(',') });
   }
 
+  // The canonical theme agents.md is opt-in behind a flag + exemption (never faked).
+  if (artifacts.includes('agent-profile')) {
+    ops.push({
+      kind: 'AUDIT',
+      action: 'agentic.agents-md',
+      details:
+        'app-served at {base}/agents.md today; templates/agents.md.liquid via Theme Edit is gated on AGENTIC_AGENTS_MD_ENABLED + write_themes + page-builder exemption',
+    });
+  }
+
   return {
     ops,
     compiledJson: JSON.stringify({
-      feedUrl: `/agentic/{shop}/${feedHandle}/feed.json`,
+      feedUrl: `${base}/feed.json`,
+      mcpUrl: artifacts.includes('mcp-endpoint') ? `${base}/mcp` : undefined,
+      ucpDiscoveryUrl: artifacts.includes('mcp-endpoint') ? `${base}/.well-known/ucp` : undefined,
+      agentProfileUrl: artifacts.includes('agent-profile') ? `${base}/agent-profile.json` : undefined,
+      agentsMdUrl: artifacts.includes('agent-profile') ? `${base}/agents.md` : undefined,
+      sponsoredProductIds: artifacts.includes('sponsored-products')
+        ? spec.config.sponsoredProductIds
+        : undefined,
       artifacts,
       deferred,
     }),
