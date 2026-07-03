@@ -156,6 +156,27 @@ config.title: string, required, ${LIMITS.headingMin}-${LIMITS.nameMax} chars.
 config.message: string, optional, 0-${LIMITS.popupBodyMax} chars.`,
 };
 
+/**
+ * R2.1 — the display-rules (rule-engine) authoring contract. Terse + enum-anchored
+ * so the model cannot drift outside the resolver allowlist. Appended to the two
+ * storefront types that pin the `ruleEngine` pack (theme.section, proxy.widget).
+ * The pack is optional + advanced; omit it (or set enabled:false) to always show.
+ */
+export const DISPLAY_RULES_SPEC = `DISPLAY RULES (config.ruleEngine — optional, advanced). To make a storefront module appear only for some visitors, emit:
+  config.ruleEngine = { enabled: true, logic: 'AND'|'OR', matchAction: 'SHOW'|'HIDE', groups: [ { logic: 'AND'|'OR', conditions: [ { object, attribute, operator, value }, ... ] } ] }
+Use ONLY these (object, attribute) pairs — unknown pairs are REJECTED:
+  product: tags,type,vendor,handle,price,collectionIds,available
+  customer: loggedIn,tags,ordersCount,totalSpent,countryCode,acceptsMarketing
+  cart: subtotal,itemCount,lineCount,containsProductId,containsCollectionId,discountCode
+  geo: countryCode
+  temporal: date,dayOfWeek,timeOfDay
+  behavioral: recentlyViewedProductId,pagesViewedThisSession,sessionCount,utmSource,utmCampaign,referrerContains,scrollPercent,exitIntent
+Operators (exactly these): equal_to,not_equal_to,greater_than,less_than,greater_than_or_equal,less_than_or_equal,contains,not_contains,starts_with,ends_with,is_set,is_not_set. (is_set/is_not_set take no value.)
+Rules are evaluated top-to-bottom. Omit config.ruleEngine (or set enabled:false) to ALWAYS show — do this for any request that does not ask to restrict who/when the module appears. Do NOT invent objects/attributes/operators.`;
+
+/** Types that pin the rule-engine pack and therefore get the display-rules contract. */
+const RULE_ENGINE_TYPES: ReadonlySet<ModuleType> = new Set<ModuleType>(['theme.section', 'proxy.widget']);
+
 /** Returns the full recipe schema spec for the given type (all Zod-level constraints as a string). */
 export function getFullRecipeSchemaSpec(moduleType: ModuleType): string {
   const base = FULL_RECIPE_SCHEMA_SPECS[moduleType] ?? `Module type ${moduleType}: use type, name, category, requires, config (single object), and optionally style. No top-level settings, controls, assets, or meta.`;
@@ -163,7 +184,9 @@ export function getFullRecipeSchemaSpec(moduleType: ModuleType): string {
   // fallback path (low-confidence / non-structured) also constrains the model to
   // this type's option-set. No-op for types without per-type enums.
   const typeEnumLines = describeTypeEnums(moduleType);
-  return typeEnumLines.length > 0 ? `${base}\n${typeEnumLines.join('\n')}` : base;
+  const withEnums = typeEnumLines.length > 0 ? `${base}\n${typeEnumLines.join('\n')}` : base;
+  // R2.1 — append the display-rules authoring contract on the types that pin the pack.
+  return RULE_ENGINE_TYPES.has(moduleType) ? `${withEnums}\n${DISPLAY_RULES_SPEC}` : withEnums;
 }
 
 /** Returns the full StorefrontStyle schema as a string (for storefront types). */

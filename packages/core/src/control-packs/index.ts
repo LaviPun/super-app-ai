@@ -19,3 +19,10 @@ export { AudiencePackSchema, audiencePack } from './packs/audience.pack.js';
 export { SchedulePackSchema, schedulePack } from './packs/schedule.pack.js';
 export { AdvancedCustomPackSchema, advancedCustomPack } from './packs/advanced-custom.pack.js';
 export { LayoutArchetypePackSchema, layoutArchetypePack } from './packs/layout-archetype.pack.js';
+export {
+  RuleEnginePackSchema,
+  RuleConditionSchema,
+  RuleGroupSchema,
+  ruleEnginePack,
+} from './packs/rule-engine.pack.js';
+export type { RuleEnginePack, RuleCondition, RuleGroup } from './packs/rule-engine.pack.js';

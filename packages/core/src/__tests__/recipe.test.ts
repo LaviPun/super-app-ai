@@ -113,6 +113,84 @@ describe('RecipeSpecSchema', () => {
     expect(spec.type === 'theme.section' && spec.config.layout?.layout).toBe('masonry');
   });
 
+  it('R2.1 — pins the rule-engine pack on theme.section.config', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'theme.section',
+      name: 'Returning-customer upsell',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'banner',
+        ruleEngine: {
+          enabled: true,
+          logic: 'AND',
+          matchAction: 'SHOW',
+          groups: [
+            {
+              logic: 'AND',
+              conditions: [
+                { object: 'customer', attribute: 'ordersCount', operator: 'greater_than_or_equal', value: 1 },
+              ],
+            },
+          ],
+        },
+      },
+    });
+    expect(spec.type).toBe('theme.section');
+    if (spec.type === 'theme.section') {
+      expect(spec.config.ruleEngine?.enabled).toBe(true);
+      expect(spec.config.ruleEngine?.groups[0]?.conditions[0]?.attribute).toBe('ordersCount');
+    }
+  });
+
+  it('R2.1 back-compat — a theme.section with NO ruleEngine still validates (optional pin)', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'theme.section',
+      name: 'Plain banner',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: { kind: 'banner' },
+    });
+    expect(spec.type === 'theme.section' && spec.config.ruleEngine).toBeUndefined();
+  });
+
+  it('R2.1 — pins the rule-engine pack on proxy.widget.config too', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'proxy.widget',
+      name: 'Gated widget',
+      category: 'STOREFRONT_UI',
+      requires: ['APP_PROXY'],
+      config: {
+        widgetId: 'gated-widget',
+        title: 'Members only',
+        ruleEngine: {
+          enabled: true,
+          groups: [
+            { logic: 'AND', conditions: [{ object: 'customer', attribute: 'loggedIn', operator: 'equal_to', value: true }] },
+          ],
+        },
+      },
+    });
+    expect(spec.type === 'proxy.widget' && spec.config.ruleEngine?.enabled).toBe(true);
+  });
+
+  it('R2.1 — rejects an unknown (object, attribute) pair inside a pinned rule', () => {
+    const r = RecipeSpecSchema.safeParse({
+      type: 'theme.section',
+      name: 'Bad rule',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'banner',
+        ruleEngine: {
+          enabled: true,
+          groups: [{ logic: 'AND', conditions: [{ object: 'product', attribute: 'zzz', operator: 'equal_to', value: 'x' }] }],
+        },
+      },
+    });
+    expect(r.success).toBe(false);
+  });
+
   it('validates a theme.section effect recipe', () => {
     const spec = RecipeSpecSchema.parse({
       type: 'theme.section',

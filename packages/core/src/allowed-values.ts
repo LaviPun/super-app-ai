@@ -470,6 +470,63 @@ export const CONDITION_OPERATORS = [
   'is_not_set',
 ] as const;
 
+// ─── Rule-builder primitive (targeting.rule-engine, R2.1) ────────────────────
+
+/** Objects a condition row can address. Constrained allowlist — each maps to a
+ *  storefront resolver (server-side Liquid or client-side JS). No free-form objects. */
+export const RULE_OBJECTS = [
+  'product',    // current PDP / line context   (server)
+  'customer',   // logged-in customer           (server)
+  'cart',       // current cart                 (server)
+  'geo',        // storefront country/market    (server)
+  'temporal',   // date / day-of-week / time    (server or client)
+  'behavioral', // session / recently-viewed / scroll / exit / UTM (client only)
+] as const;
+export type RuleObject = (typeof RULE_OBJECTS)[number];
+
+/** Attributes per object. The pair (object, attribute) is validated against this
+ *  map at schema time AND is the resolver dispatch key at runtime. Adding a row
+ *  the resolver can't answer is a schema error, not a silent no-op. */
+export const RULE_ATTRIBUTES = {
+  product: ['tags', 'type', 'vendor', 'handle', 'price', 'collectionIds', 'available'],
+  customer: ['loggedIn', 'tags', 'ordersCount', 'totalSpent', 'countryCode', 'acceptsMarketing'],
+  cart: ['subtotal', 'itemCount', 'lineCount', 'containsProductId', 'containsCollectionId', 'discountCode'],
+  geo: ['countryCode'],
+  temporal: ['date', 'dayOfWeek', 'timeOfDay'],
+  behavioral: ['recentlyViewedProductId', 'pagesViewedThisSession', 'sessionCount', 'utmSource', 'utmCampaign', 'referrerContains', 'scrollPercent', 'exitIntent'],
+} as const satisfies Record<RuleObject, readonly string[]>;
+
+/** Value data-type per `${object}.${attribute}` — drives the value field's parse +
+ *  the admin widget. Used to reject "price contains foo" style category errors. */
+export const RULE_ATTRIBUTE_VALUE_TYPES: Record<string, 'string' | 'number' | 'boolean' | 'stringList'> = {
+  'product.tags': 'stringList', 'product.type': 'string', 'product.vendor': 'string',
+  'product.handle': 'string', 'product.price': 'number', 'product.collectionIds': 'stringList',
+  'product.available': 'boolean',
+  'customer.loggedIn': 'boolean', 'customer.tags': 'stringList', 'customer.ordersCount': 'number',
+  'customer.totalSpent': 'number', 'customer.countryCode': 'string', 'customer.acceptsMarketing': 'boolean',
+  'cart.subtotal': 'number', 'cart.itemCount': 'number', 'cart.lineCount': 'number',
+  'cart.containsProductId': 'string', 'cart.containsCollectionId': 'string', 'cart.discountCode': 'string',
+  'geo.countryCode': 'string',
+  'temporal.date': 'string' /* ISO */, 'temporal.dayOfWeek': 'number' /* 0-6 */, 'temporal.timeOfDay': 'string' /* HH:MM */,
+  'behavioral.recentlyViewedProductId': 'string', 'behavioral.pagesViewedThisSession': 'number',
+  'behavioral.sessionCount': 'number', 'behavioral.utmSource': 'string', 'behavioral.utmCampaign': 'string',
+  'behavioral.referrerContains': 'string', 'behavioral.scrollPercent': 'number', 'behavioral.exitIntent': 'boolean',
+};
+
+/** What a MATCH means when the top-to-bottom evaluation settles. */
+export const RULE_MATCH_ACTIONS = ['SHOW', 'HIDE'] as const;
+export type RuleMatchAction = (typeof RULE_MATCH_ACTIONS)[number];
+
+/** Limits — keep bounded for prompt/JSON-Schema/token budget and runtime cost. */
+export const RULE_LIMITS = {
+  maxGroups: 8,        // top-level groups combined by outer logic
+  maxRowsPerGroup: 12, // condition rows per group
+  maxValueLen: 200,
+  maxValueListLen: 30,
+} as const;
+
+/** Reuse CONDITION_OPERATORS (above) for rule rows — no parallel operator vocabulary. */
+
 /** customerAccount.blocks block kind (doc 18.4). */
 export const CUSTOMER_ACCOUNT_BLOCK_KINDS = ['TEXT', 'LINK', 'BADGE', 'DIVIDER'] as const;
 /** customerAccount.blocks block tone (doc 18.4). */

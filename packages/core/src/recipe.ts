@@ -9,6 +9,7 @@ import { AudiencePackSchema } from './control-packs/packs/audience.pack.js';
 import { SchedulePackSchema } from './control-packs/packs/schedule.pack.js';
 import { AdvancedCustomPackSchema } from './control-packs/packs/advanced-custom.pack.js';
 import { LayoutArchetypePackSchema } from './control-packs/packs/layout-archetype.pack.js';
+import { RuleEnginePackSchema } from './control-packs/packs/rule-engine.pack.js';
 import { DataModelSchema } from './data-model.js';
 import type { ModuleCategory, ModuleType } from './allowed-values.js';
 import {
@@ -145,6 +146,14 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
        * still validate), tightened to the type's option-set at generation time.
        */
       layout: LayoutArchetypePackSchema.optional(),
+      /**
+       * Display rules (R2.1). An ordered, AND/OR-combined list of constrained
+       * `{object, attribute, operator, value}` conditions that gate whether this
+       * module shows on the storefront (evaluated server-side in Liquid + finished
+       * client-side in `superapp-modules.js`). Optional + `enabled:false` by
+       * default → absent/disabled renders byte-identically (always show).
+       */
+      ruleEngine: RuleEnginePackSchema.optional(),
       /** Sanitized custom markup/styles/scripts (scoped + CSP-bound at compile/preview). */
       advancedCustom: AdvancedCustomPackSchema.optional(),
     // Open section: `.catchall` accepts kind-specific keys (collapsed from the former
@@ -167,6 +176,12 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       mode: z.enum(PROXY_WIDGET_MODES).default('HTML'),
       title: z.string().min(LIMITS.headingMin).max(LIMITS.nameMax),
       message: z.string().min(0).max(LIMITS.popupBodyMax).optional(),
+      /**
+       * Display rules (R2.1). Same pack as theme.section — an app-proxy widget can
+       * gate server-side in its proxy loader (the strongest evaluation site, since
+       * the proxy has the authenticated customer + cart). Optional + back-compat.
+       */
+      ruleEngine: RuleEnginePackSchema.optional(),
     }),
     placement: PlacementSchema,
     style: StorefrontStyleSchema.optional(),

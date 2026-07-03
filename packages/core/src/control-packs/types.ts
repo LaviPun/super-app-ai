@@ -72,10 +72,24 @@ export interface FieldShowWhen {
   equals: string | number | boolean;
 }
 
+/**
+ * Known SchemaForm widget overrides. `'rule-builder'` (R2.1) renders the ordered
+ * condition-row editor for a `RuleEnginePack.groups` value. `FieldUiHint.widget`
+ * stays a free `string` for forward-compat, but new widgets should be listed here.
+ */
+export type FieldWidget =
+  | 'textarea'
+  | 'color'
+  | 'select'
+  | 'datetime'
+  | 'toggle'
+  | 'number'
+  | 'rule-builder';
+
 /** Per-field rendering hint for the generic SchemaForm renderer. */
 export interface FieldUiHint {
-  /** Override the inferred widget, e.g. 'textarea' | 'color' | 'select' | 'datetime' | 'toggle'. */
-  widget?: string;
+  /** Override the inferred widget. See `FieldWidget` for the documented set (e.g. 'rule-builder'). */
+  widget?: FieldWidget | (string & {});
   /** Help text shown under the field. */
   help?: string;
   /** Placeholder for text-like widgets. */

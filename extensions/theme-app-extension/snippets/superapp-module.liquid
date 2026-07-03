@@ -45,8 +45,159 @@
   endif
 %}
 
+{% # ── R2.1 display-rules server gate ─────────────────────────────────────────
+   Additive + back-compat: when mod_cfg.ruleEngine is absent or disabled, no
+   sa_* vars change (sa_rules_enabled=false, sa_rule_server='pass') and NO data-sa-*
+   attributes are emitted below — the render is byte-identical to pre-R2.1.
+
+   Correctness lives client-side (superapp-modules.js). This inline gate only
+   resolves the cheap high-value server objects (customer/geo/cart) to (a) fail-fast
+   HIDE when the WHOLE set is server-resolvable and evaluates to hide, and (b) mirror
+   those values into data-sa-ctx for the client. Any behavioral row ⇒ 'defer'.
+   PRIVACY: only booleans/counts are mirrored (never tags/email). %}
+{% liquid
+  assign sa_rules = mod_cfg.ruleEngine
+  assign sa_rules_enabled = false
+  assign sa_rule_server = 'pass'
+
+  if sa_rules and sa_rules.enabled
+    assign sa_rules_enabled = true
+
+    # Cheap high-value server objects (booleans/counts only — never tags/email).
+    assign sa_customer_logged_in = false
+    if customer
+      assign sa_customer_logged_in = true
+    endif
+    assign sa_orders_count = 0
+    if customer and customer.orders_count
+      assign sa_orders_count = customer.orders_count
+    endif
+    assign sa_country = localization.country.iso_code | default: ''
+    assign sa_cart_subtotal = 0
+    assign sa_cart_items = 0
+    if cart
+      assign sa_cart_subtotal = cart.total_price | divided_by: 100.0
+      assign sa_cart_items = cart.item_count
+    endif
+
+    capture sa_ctx_json
+      echo '{'
+      echo '"customer.loggedIn":' | append: sa_customer_logged_in
+      echo ',"customer.ordersCount":' | append: sa_orders_count
+      echo ',"geo.countryCode":"' | append: sa_country | append: '"'
+      echo ',"customer.countryCode":"' | append: sa_country | append: '"'
+      echo ',"cart.subtotal":' | append: sa_cart_subtotal
+      echo ',"cart.itemCount":' | append: sa_cart_items
+      echo '}'
+    endcapture
+
+    # Server verdict — mirrors evaluateRuleEngine, but ONLY over rows this inline v1
+    # can resolve (customer.loggedIn/ordersCount/countryCode, geo.countryCode,
+    # cart.subtotal/itemCount). If ANY row is not fully server-resolvable (behavioral,
+    # product, unresolved attr, HIDE inversion), we DEFER — the client is
+    # authoritative and the module renders hidden. So the server only ever hides
+    # EARLIER (a fully-resolvable SHOW set that evaluates to hide), never shows what
+    # the client would hide.
+    assign sa_all_resolvable = true
+    assign sa_outer_and = true
+    assign sa_outer_or = false
+    for grp in sa_rules.groups
+      assign sa_group_and = true
+      assign sa_group_or = false
+      for row in grp.conditions
+        assign sa_row_known = true
+        assign sa_row_actual = ''
+        if row.object == 'customer' and row.attribute == 'loggedIn'
+          assign sa_row_actual = sa_customer_logged_in
+        elsif row.object == 'customer' and row.attribute == 'ordersCount'
+          assign sa_row_actual = sa_orders_count
+        elsif row.object == 'customer' and row.attribute == 'countryCode'
+          assign sa_row_actual = sa_country
+        elsif row.object == 'geo' and row.attribute == 'countryCode'
+          assign sa_row_actual = sa_country
+        elsif row.object == 'cart' and row.attribute == 'subtotal'
+          assign sa_row_actual = sa_cart_subtotal
+        elsif row.object == 'cart' and row.attribute == 'itemCount'
+          assign sa_row_actual = sa_cart_items
+        else
+          assign sa_row_known = false
+          assign sa_all_resolvable = false
+        endif
+
+        if sa_row_known
+          assign sa_row_pass = false
+          if row.operator == 'equal_to' and sa_row_actual == row.value
+            assign sa_row_pass = true
+          elsif row.operator == 'not_equal_to' and sa_row_actual != row.value
+            assign sa_row_pass = true
+          elsif row.operator == 'greater_than' and sa_row_actual > row.value
+            assign sa_row_pass = true
+          elsif row.operator == 'greater_than_or_equal' and sa_row_actual >= row.value
+            assign sa_row_pass = true
+          elsif row.operator == 'less_than' and sa_row_actual < row.value
+            assign sa_row_pass = true
+          elsif row.operator == 'less_than_or_equal' and sa_row_actual <= row.value
+            assign sa_row_pass = true
+          endif
+          unless sa_row_pass
+            assign sa_group_and = false
+          endunless
+          if sa_row_pass
+            assign sa_group_or = true
+          endif
+        endif
+      endfor
+
+      if grp.logic == 'OR'
+        assign sa_group_pass = sa_group_or
+      else
+        assign sa_group_pass = sa_group_and
+      endif
+      unless sa_group_pass
+        assign sa_outer_and = false
+      endunless
+      if sa_group_pass
+        assign sa_outer_or = true
+      endif
+    endfor
+
+    if sa_rules.logic == 'OR'
+      assign sa_matched = sa_outer_or
+    else
+      assign sa_matched = sa_outer_and
+    endif
+
+    # Only trust the server verdict when EVERYTHING was resolvable AND the match
+    # action is SHOW (a resolvable SHOW set can safely fail-fast to a hidden render).
+    # HIDE inversion and any unresolved row defer to the client.
+    if sa_all_resolvable and sa_rules.matchAction == 'SHOW'
+      if sa_matched
+        assign sa_rule_server = 'pass'
+      else
+        assign sa_rule_server = 'fail'
+      endif
+    else
+      assign sa_rule_server = 'defer'
+    endif
+
+    assign sa_rules_json = sa_rules | json
+  endif
+%}
+
+{% # R2.1: a fully server-resolvable SHOW rule that evaluated to hide renders
+   NOTHING (fail-fast, no flash, no client work). Every other case renders normally
+   (pass) or renders hidden and lets the client finish (defer). %}
+{% unless sa_rule_server == 'fail' %}
+
 {% # Per-module compiled style (colors/spacing/tokens/custom CSS), scoped to [data-module-id]. Server-sanitized. %}
 {% if mod_sty.css != blank %}<style>{{ mod_sty.css }}</style>{% endif %}
+
+{% # R2.1: open the gate wrapper for NON-popup kinds when rules are enabled. The
+   wrapper carries the data-sa-* payload the client sweep reads; it renders hidden
+   (client reveals or removes it). Popups gate inside their own element (see below). %}
+{% if sa_rules_enabled and kind != 'popup' %}
+  <div class="superapp-rule-gate" data-module-id="{{ module_id | escape }}" data-sa-rules="{{ sa_rules_json | escape }}" data-sa-rule-server="{{ sa_rule_server }}" data-sa-ctx="{{ sa_ctx_json | escape }}"{% if sa_rule_server == 'defer' %} hidden{% endif %}>
+{% endif %}
 
 {% case kind %}
   {% when 'banner' %}
@@ -87,6 +238,7 @@
       data-frequency="{{ mod_cfg.frequency | default: 'ONCE_PER_SESSION' | escape }}"
       data-delay-seconds="{{ mod_cfg.delaySeconds | default: 0 }}"
       data-auto-close-seconds="{{ mod_cfg.autoCloseSeconds | default: 0 }}"
+      {% if sa_rules_enabled %}data-sa-rules="{{ sa_rules_json | escape }}" data-sa-rule-server="{{ sa_rule_server }}" data-sa-ctx="{{ sa_ctx_json | escape }}"{% endif %}
       hidden
     >
       <div class="superapp-popup__backdrop" data-superapp-close></div>
@@ -302,3 +454,9 @@
       </div>
     </section>
 {% endcase %}
+
+{% # R2.1: close the gate wrapper opened for non-popup kinds. %}
+{% if sa_rules_enabled and kind != 'popup' %}
+  </div>
+{% endif %}
+{% endunless %}

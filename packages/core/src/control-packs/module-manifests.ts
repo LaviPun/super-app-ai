@@ -16,8 +16,9 @@ const MANIFESTS: Partial<Record<ModuleType, ModuleManifest>> = {
     // `layout-archetype` (R2.5) carries the per-type `layout` enum; its option-set
     // is supplied by the module type via the catalog in `type-enums.ts`.
     packs: ['content', 'style', 'layout-archetype', 'trigger', 'page-targeting', 'frequency-cap', 'countdown', 'behavior'],
-    // Advanced tier unlocks audience targeting, scheduling/day-parting, and the custom-code escape hatch.
-    advancedPacks: ['audience', 'schedule', 'advanced-custom'],
+    // Advanced tier unlocks audience targeting, scheduling/day-parting, the merchant
+    // condition primitive (R2.1 `rule-engine`), and the custom-code escape hatch.
+    advancedPacks: ['audience', 'schedule', 'rule-engine', 'advanced-custom'],
   },
 };
 

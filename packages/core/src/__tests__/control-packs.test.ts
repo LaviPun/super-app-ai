@@ -21,7 +21,7 @@ describe('control pack registry', () => {
   it('registers the control packs', () => {
     expect(listPackIds().sort()).toEqual([
       'advanced-custom', 'audience', 'behavior', 'content', 'countdown',
-      'frequency-cap', 'layout-archetype', 'page-targeting', 'schedule', 'style', 'trigger',
+      'frequency-cap', 'layout-archetype', 'page-targeting', 'rule-engine', 'schedule', 'style', 'trigger',
     ]);
   });
 
@@ -41,6 +41,14 @@ describe('module manifests (surviving requirement-spec consumer)', () => {
 
   it('returns undefined for un-manifested types', () => {
     expect(getManifest('functions.discountRules')).toBeUndefined();
+  });
+
+  it('R2.1 — rule-engine is an ADVANCED pack on theme.section (opt-in)', () => {
+    const manifest = getManifest('theme.section');
+    expect(manifest?.advancedPacks).toContain('rule-engine');
+    // Not a basic pack (must not surface at the basic tier).
+    expect(manifest?.packs).not.toContain('rule-engine');
+    expect(getPack('rule-engine')?.namespace).toBe('ruleEngine');
   });
 });
 

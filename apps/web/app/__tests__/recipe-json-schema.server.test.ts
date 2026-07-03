@@ -61,9 +61,20 @@ describe('recipe-json-schema — required-normalization bug fix (X-2 / top-risk 
     // being forced to emit a bogus pricing/layout/audience block.
     const config = (recipe?.properties as JsonObj).config as JsonObj;
     const props = config.properties as JsonObj;
-    for (const optionalKey of ['layout', 'audience', 'schedule', 'advancedCustom']) {
+    for (const optionalKey of ['layout', 'audience', 'schedule', 'advancedCustom', 'ruleEngine']) {
       expect(typeIncludesNull(props[optionalKey] as JsonObj), `${optionalKey} should be nullable`).toBe(true);
     }
+  });
+
+  it('R2.1 — pins ruleEngine on theme.section config with the constrained enums', () => {
+    const recipe = getRecipeJsonSchemaForType('theme.section');
+    const config = (recipe?.properties as JsonObj).config as JsonObj;
+    const ruleEngine = (config.properties as JsonObj).ruleEngine as JsonObj;
+    expect(ruleEngine, 'config.ruleEngine should be pinned').toBeDefined();
+    // enabled defaults false → the model can omit rules; matchAction is a closed enum.
+    const reProps = (ruleEngine.properties as JsonObj | undefined) ?? {};
+    const matchAction = reProps.matchAction as JsonObj | undefined;
+    expect(matchAction?.enum).toEqual(['SHOW', 'HIDE']);
   });
 
   it('keeps genuinely-required keys non-nullable (name has no default → required)', () => {

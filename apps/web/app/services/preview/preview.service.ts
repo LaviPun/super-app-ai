@@ -1,4 +1,5 @@
-import type { RecipeSpec } from '@superapp/core';
+import type { RecipeSpec, RuleEnginePack } from '@superapp/core';
+import { evaluateRuleEngine } from '@superapp/core';
 import {
   compileStyleVars,
   compileStyleCss,
@@ -79,6 +80,12 @@ export class PreviewService {
    * type stays open/unrestricted.
    */
   private themeSection(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    // R2.1 — reflect display rules in the preview. Under a synthetic "preview
+    // visitor" the module may be gated off; when it resolves to a definite hide we
+    // render a labelled "hidden by display rules" state instead of the module.
+    // Additive: absent/disabled ruleEngine is always-show (byte-identical preview).
+    const ruleState = ruleHiddenState((spec.config as { ruleEngine?: RuleEnginePack }).ruleEngine);
+    if (ruleState) return ruleState;
     switch (spec.config.kind) {
       case 'notification-bar':
         return this.sectionNotificationBar(spec);
@@ -915,6 +922,46 @@ function layoutModifierClass(layout: unknown): string {
   if (typeof layout !== 'string' || layout.length === 0 || layout === 'stacked') return '';
   const token = layout.toLowerCase().replace(/[^a-z0-9-]/g, '-');
   return ` superapp-layout--${token}`;
+}
+
+/**
+ * R2.1 — preview reflection of display rules. Evaluates the pack against a
+ * synthetic "preview visitor" (a logged-out first-time US shopper with an empty
+ * cart) via the SHARED evaluator. Returns a labelled "hidden by display rules"
+ * page only when the rules resolve to a DEFINITE hide (`resolvable && verdict ===
+ * 'hide'`) — so behavioral/unresolved rules (which the storefront defers to the
+ * client) still preview the module normally. Absent/disabled ruleEngine returns
+ * `null` (render the module unchanged — byte-identical to pre-R2.1).
+ */
+function ruleHiddenState(rules: RuleEnginePack | undefined): string | null {
+  if (!rules || !rules.enabled || !rules.groups || rules.groups.length === 0) return null;
+  const ctx = {
+    values: {
+      'customer.loggedIn': false,
+      'customer.ordersCount': 0,
+      'geo.countryCode': 'US',
+      'customer.countryCode': 'US',
+      'cart.subtotal': 0,
+      'cart.itemCount': 0,
+    } as Record<string, string | number | boolean | string[] | undefined>,
+  };
+  const { verdict, resolvable } = evaluateRuleEngine(rules, ctx);
+  if (!resolvable || verdict !== 'hide') return null;
+  const action = rules.matchAction === 'HIDE' ? 'HIDE when rules match' : 'SHOW when rules match';
+  return pageHtml(
+    `
+      <div class="superapp-rule-hidden" role="note">
+        <div class="superapp-rule-hidden__badge">Hidden by display rules</div>
+        <p class="superapp-rule-hidden__msg">This module is gated by <strong>display rules</strong> (${esc(action)}). For this preview visitor (logged-out, first-time, US, empty cart) the rules resolve to <strong>hide</strong>, so nothing renders on the storefront.</p>
+      </div>
+    `,
+    `
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      .superapp-rule-hidden { max-width: 560px; margin: 24px auto; padding: 20px; border: 1px dashed #cbd5e1; border-radius: 12px; background: #f8fafc; color: #334155; }
+      .superapp-rule-hidden__badge { display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: #64748b; margin-bottom: 8px; }
+      .superapp-rule-hidden__msg { margin: 0; line-height: 1.5; }
+    `,
+  );
 }
 
 function inferSurface(type: string): PreviewSurface {

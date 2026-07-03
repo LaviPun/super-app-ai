@@ -52,6 +52,244 @@
     }
   }
 
+  /* R2.1 display-rules evaluator. Hand-ported, byte-for-byte, from the TS source
+     of truth `packages/core/src/rule-engine/evaluate.ts`. The two are pinned in
+     lockstep by a fixture PARITY test (packages/core .../rule-engine-parity.test.ts)
+     which extracts THIS region (the whole-code lines strictly between the two
+     single-line BEGIN/END markers) and runs the shared fixtures through it. If you
+     change the algorithm here, change it there too.
+
+     Hard safety: no eval, no Function, no user-supplied RegExp. Operators are the
+     fixed CONDITION_OPERATORS set. Unresolved values never fabricate a verdict. */
+  /* RULE-ENGINE-EVALUATOR:BEGIN (parity marker — keep on its own line) */
+  function ruleToNum(v) {
+    if (typeof v === 'number') return v;
+    if (typeof v === 'boolean') return v ? 1 : 0;
+    if (typeof v === 'string' && v.replace(/^\s+|\s+$/g, '') !== '') {
+      var n = Number(v);
+      return isNaN(n) ? NaN : n;
+    }
+    return NaN;
+  }
+
+  function ruleToStr(v) {
+    if (v === null || v === undefined) return '';
+    return String(v).toLowerCase();
+  }
+
+  function ruleCompare(actual, operator, expected) {
+    var actualIsArray = Object.prototype.toString.call(actual) === '[object Array]';
+    var expectedIsArray = Object.prototype.toString.call(expected) === '[object Array]';
+    var i, hay, an, en, a, e;
+    switch (operator) {
+      case 'equal_to':
+        if (actualIsArray) {
+          hay = [];
+          for (i = 0; i < actual.length; i++) hay.push(ruleToStr(actual[i]));
+          if (expectedIsArray) {
+            for (i = 0; i < expected.length; i++) if (hay.indexOf(ruleToStr(expected[i])) !== -1) return true;
+            return false;
+          }
+          return hay.indexOf(ruleToStr(expected)) !== -1;
+        }
+        if (expectedIsArray) {
+          for (i = 0; i < expected.length; i++) if (ruleToStr(expected[i]) === ruleToStr(actual)) return true;
+          return false;
+        }
+        an = ruleToNum(actual);
+        en = ruleToNum(expected);
+        if (!isNaN(an) && !isNaN(en)) return an === en;
+        return ruleToStr(actual) === ruleToStr(expected);
+      case 'not_equal_to':
+        return !ruleCompare(actual, 'equal_to', expected);
+      case 'greater_than':
+        return ruleToNum(actual) > ruleToNum(expected);
+      case 'less_than':
+        return ruleToNum(actual) < ruleToNum(expected);
+      case 'greater_than_or_equal':
+        return ruleToNum(actual) >= ruleToNum(expected);
+      case 'less_than_or_equal':
+        return ruleToNum(actual) <= ruleToNum(expected);
+      case 'contains':
+        if (actualIsArray) {
+          hay = [];
+          for (i = 0; i < actual.length; i++) hay.push(ruleToStr(actual[i]));
+          if (expectedIsArray) {
+            for (i = 0; i < expected.length; i++) if (hay.indexOf(ruleToStr(expected[i])) !== -1) return true;
+            return false;
+          }
+          return hay.indexOf(ruleToStr(expected)) !== -1;
+        }
+        return ruleToStr(actual).indexOf(ruleToStr(expected)) !== -1;
+      case 'not_contains':
+        return !ruleCompare(actual, 'contains', expected);
+      case 'starts_with':
+        return ruleToStr(actual).indexOf(ruleToStr(expected)) === 0;
+      case 'ends_with':
+        a = ruleToStr(actual);
+        e = ruleToStr(expected);
+        return e.length <= a.length && a.lastIndexOf(e) === a.length - e.length;
+      default:
+        return false;
+    }
+  }
+
+  function ruleEvalRow(row, ctx) {
+    var key = row.object + '.' + row.attribute;
+    var actual = ctx.values[key];
+    if (row.operator === 'is_set') return actual !== null && actual !== undefined && actual !== '' ? 'pass' : 'fail';
+    if (row.operator === 'is_not_set') return actual === null || actual === undefined || actual === '' ? 'pass' : 'fail';
+    if (actual === undefined) return 'unresolved';
+    return ruleCompare(actual, row.operator, row.value) ? 'pass' : 'fail';
+  }
+
+  /* Returns { verdict: 'show'|'hide', resolvable: boolean }. Mirrors evaluateRuleEngine. */
+  function evaluateRules(rules, ctx) {
+    if (!rules || !rules.enabled || !rules.groups || rules.groups.length === 0) {
+      return { verdict: 'show', resolvable: true };
+    }
+    var anyUnresolved = false;
+    var groupResults = [];
+    for (var g = 0; g < rules.groups.length; g++) {
+      var group = rules.groups[g];
+      var conditions = group.conditions || [];
+      var verdicts = [];
+      for (var c = 0; c < conditions.length; c++) verdicts.push(ruleEvalRow(conditions[c], ctx));
+      if (verdicts.indexOf('unresolved') !== -1) anyUnresolved = true;
+      var resolved = [];
+      for (var v = 0; v < verdicts.length; v++) if (verdicts[v] !== 'unresolved') resolved.push(verdicts[v]);
+      var groupPass;
+      if ((group.logic || 'AND') === 'AND') {
+        groupPass = true;
+        for (var r = 0; r < resolved.length; r++) if (resolved[r] !== 'pass') { groupPass = false; break; }
+      } else {
+        groupPass = false;
+        for (var r2 = 0; r2 < resolved.length; r2++) if (resolved[r2] === 'pass') { groupPass = true; break; }
+      }
+      groupResults.push(groupPass);
+    }
+    var matched;
+    if ((rules.logic || 'AND') === 'AND') {
+      matched = true;
+      for (var i = 0; i < groupResults.length; i++) if (!groupResults[i]) { matched = false; break; }
+    } else {
+      matched = false;
+      for (var j = 0; j < groupResults.length; j++) if (groupResults[j]) { matched = true; break; }
+    }
+    var show = rules.matchAction === 'HIDE' ? !matched : matched;
+    return { verdict: show ? 'show' : 'hide', resolvable: !anyUnresolved };
+  }
+  /* ══ RULE-ENGINE-EVALUATOR:END ════════════════════════════════════════════ */
+
+  /* ── rule context: resolve client-side objects once per page ──
+     Only objects/attributes actually available on the storefront client are
+     resolved here; server-resolved customer/cart/product values are mirrored onto
+     each module's data-sa-ctx by Liquid and overlaid per-element in gateModules(). */
+  var sessionPagesKey = 'superapp:rules:pages';
+  var sessionCountKey = 'superapp:rules:sessions';
+
+  function sessionPageCount() {
+    var raw = storageGet(window.sessionStorage, sessionPagesKey);
+    var n = raw ? parseInt(raw, 10) : 0;
+    if (isNaN(n)) n = 0;
+    n += 1;
+    storageSet(window.sessionStorage, sessionPagesKey, String(n));
+    return n;
+  }
+
+  function allTimeSessionCount() {
+    /* One increment per session: bump the local counter the first time we see a
+       page in a given session (guarded by a session flag). */
+    var seen = storageGet(window.sessionStorage, sessionCountKey);
+    var raw = storageGet(window.localStorage, sessionCountKey);
+    var n = raw ? parseInt(raw, 10) : 0;
+    if (isNaN(n)) n = 0;
+    if (!seen) {
+      n += 1;
+      storageSet(window.localStorage, sessionCountKey, String(n));
+      storageSet(window.sessionStorage, sessionCountKey, '1');
+    }
+    return n || 1;
+  }
+
+  function recentlyViewed() {
+    /* Shopify stores recently-viewed product handles in a cookie the theme sets;
+       fall back to empty (unresolved-safe: the row simply doesn't constrain). */
+    try {
+      var m = document.cookie.match(/(?:^|;\s*)recently_viewed=([^;]+)/);
+      return m ? decodeURIComponent(m[1]) : '';
+    } catch (e) { return ''; }
+  }
+
+  var clientCtxCache = null;
+  function clientRuleContext() {
+    if (clientCtxCache) return clientCtxCache;
+    var params;
+    try { params = new URLSearchParams(location.search); } catch (e) { params = null; }
+    function q(k) { return params ? (params.get(k) || '') : ''; }
+    var now = new Date();
+    clientCtxCache = {
+      'geo.countryCode': (window.Shopify && window.Shopify.country) || undefined,
+      'temporal.dayOfWeek': now.getDay(),
+      'temporal.timeOfDay': ('0' + now.getHours()).slice(-2) + ':' + ('0' + now.getMinutes()).slice(-2),
+      'behavioral.utmSource': q('utm_source'),
+      'behavioral.utmCampaign': q('utm_campaign'),
+      'behavioral.referrerContains': document.referrer || '',
+      'behavioral.pagesViewedThisSession': sessionPageCount(),
+      'behavioral.sessionCount': allTimeSessionCount(),
+      'behavioral.recentlyViewedProductId': recentlyViewed()
+    };
+    return clientCtxCache;
+  }
+
+  /* Merge server-mirrored values (data-sa-ctx) UNDER the client context, so the
+     client's live values win for behavioral/temporal but server-only
+     customer/cart/product values are still available. */
+  function mergedContext(el) {
+    var values = {};
+    var server = {};
+    try { server = JSON.parse(el.getAttribute('data-sa-ctx') || '{}'); } catch (e) { server = {}; }
+    var k;
+    for (k in server) if (Object.prototype.hasOwnProperty.call(server, k)) values[k] = server[k];
+    var client = clientRuleContext();
+    for (k in client) if (Object.prototype.hasOwnProperty.call(client, k) && client[k] !== undefined) values[k] = client[k];
+    return { values: values };
+  }
+
+  /* Read the parsed rules JSON off an element, or null. */
+  function readRules(el) {
+    var raw = el.getAttribute('data-sa-rules');
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch (e) { return null; }
+  }
+
+  /* Page-init sweep: reveal/remove every rule-gated module the server deferred. */
+  function gateModules() {
+    var els = document.querySelectorAll('[data-sa-rules]');
+    Array.prototype.forEach.call(els, function (el) {
+      var rules = readRules(el);
+      if (!rules || !rules.enabled) { el.hidden = false; return; }
+      var serverVerdict = el.getAttribute('data-sa-rule-server');
+      if (serverVerdict === 'pass') { el.hidden = false; return; } /* server already OK'd */
+      /* 'defer' (or missing): the client is authoritative. Popups gate in open(). */
+      if (el.classList && el.classList.contains('superapp-popup')) return;
+      var res = evaluateRules(rules, mergedContext(el));
+      if (res.verdict === 'show') {
+        el.hidden = false;
+      } else if (el.parentNode) {
+        el.parentNode.removeChild(el); /* hide = remove from flow (reserve no space) */
+      }
+    });
+  }
+
+  /* Popup rule gate — used alongside isSuppressed inside open(). */
+  function rulesAllowOpen(el) {
+    var rules = readRules(el);
+    if (!rules || !rules.enabled) return true;
+    if (el.getAttribute('data-sa-rule-server') === 'pass') return true;
+    return evaluateRules(rules, mergedContext(el)).verdict === 'show';
+  }
+
   /* ── popup engine ── */
   var FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -92,7 +330,7 @@
     }
 
     function open() {
-      if (isOpen || isSuppressed(id, frequency)) return;
+      if (isOpen || isSuppressed(id, frequency) || !rulesAllowOpen(popup)) return;
       isOpen = true;
       clearTimers();
       markShown(id, frequency);
@@ -225,6 +463,9 @@
   }
 
   ready(function () {
+    /* R2.1: resolve display rules first — reveal/remove deferred non-popup modules,
+       and let the popup engine consult the same rules in open(). */
+    gateModules();
     var popups = document.querySelectorAll('.superapp-popup[data-module-id]');
     Array.prototype.forEach.call(popups, setupPopup);
     var forms = document.querySelectorAll('form[data-superapp-proxy-form]');

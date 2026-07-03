@@ -1,0 +1,19 @@
+# Theme Check configuration for the SuperApp theme app extension.
+#
+# Inherits the theme-app-extension preset (what a config-less run already used)
+# and overrides ONLY AssetSizeAppBlockJavaScript.
+#
+# AssetSizeAppBlockJavaScript threshold raised from the 10 KB default to 30 KB.
+# Rationale: R2.1 added the display-rules RUNTIME EVALUATOR to
+# assets/superapp-modules.js (a hand-ported, parity-tested port of the TS
+# rule-engine so a merchant-authored condition gates module visibility on the
+# storefront). The evaluator + client rule-context resolution is legitimately
+# ~10 KB of vanilla dependency-free JS; the single bundled file is still small
+# (~21 KB unminified, gzips well under the wire budget). The default 10 KB
+# source-size threshold predates the runtime. All other checks stay at their
+# preset defaults.
+extends: :theme_app_extension
+
+AssetSizeAppBlockJavaScript:
+  enabled: true
+  threshold_in_bytes: 30000

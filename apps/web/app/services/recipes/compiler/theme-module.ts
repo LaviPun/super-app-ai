@@ -1,5 +1,6 @@
 import type { CompileResult, ThemeModulePayload } from './types';
-import type { RecipeSpec, DeployTarget, StorefrontStyle } from '@superapp/core';
+import type { RecipeSpec, DeployTarget, StorefrontStyle, RuleEnginePack } from '@superapp/core';
+import { isServerResolvable } from '@superapp/core';
 import { compileStyleVars, compileStyleCss, compileCustomCss } from './style-compiler';
 
 /**
@@ -30,6 +31,11 @@ export function compileThemeModule(
     throw new Error(`${spec.type} requires moduleId (publish via app extension).`);
   }
   const rawStyle = (spec as { style?: Record<string, unknown> }).style as Record<string, unknown> | undefined;
+  // R2.1 — display rules flow through verbatim in `config.ruleEngine`; also surface
+  // a compiled convenience so the Liquid gate can skip walking the tree. Absent /
+  // disabled rules → `true` (server-resolvable → always show), keeping legacy
+  // modules unchanged.
+  const ruleEngine = (spec as { config: { ruleEngine?: RuleEnginePack } }).config.ruleEngine;
   const payload: ThemeModulePayload = {
     type: spec.type,
     name: spec.name,
@@ -37,6 +43,7 @@ export function compileThemeModule(
     config: (spec as { config: Record<string, unknown> }).config,
     style: rawStyle,
     styleCss: rawStyle ? compileThemeStyleCss(rawStyle as unknown as StorefrontStyle, target.moduleId) : undefined,
+    ruleServerResolvable: ruleEngine ? isServerResolvable(ruleEngine) : true,
   };
   return {
     ops: [{ kind: 'AUDIT', action: `compile.${spec.type}`, details: JSON.stringify({ moduleId: target.moduleId }) }],

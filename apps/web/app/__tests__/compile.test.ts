@@ -112,4 +112,64 @@ describe('compileRecipe', () => {
     expect(op).toBeDefined();
     expect((op as { functionKey: string }).functionKey).toBe('orderRoutingLocationRule');
   });
+
+  // ── R2.1 rule-engine compile wiring ────────────────────────────────────────
+  it('R2.1 — server-resolvable rules (customer/geo/cart only) → ruleServerResolvable true, config round-trips', () => {
+    const spec: RecipeSpec = {
+      type: 'theme.section',
+      name: 'US returning-customer banner',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'banner', activation: 'section', fields: {}, blocks: [],
+        ruleEngine: {
+          enabled: true, logic: 'AND', matchAction: 'SHOW', onUnresolved: 'defer',
+          groups: [{ logic: 'AND', conditions: [
+            { object: 'customer', attribute: 'ordersCount', operator: 'greater_than_or_equal', value: 1 },
+            { object: 'geo', attribute: 'countryCode', operator: 'equal_to', value: 'US' },
+          ] }],
+        },
+      },
+    } as unknown as RecipeSpec;
+
+    const out = compileRecipe(spec, { kind: 'THEME', themeId: '1', moduleId: 'rule-mod-1' });
+    expect(out.themeModulePayload?.ruleServerResolvable).toBe(true);
+    // config.ruleEngine survives verbatim into the theme-module payload (→ config_json).
+    const cfg = out.themeModulePayload?.config as { ruleEngine?: { enabled?: boolean } };
+    expect(cfg.ruleEngine?.enabled).toBe(true);
+  });
+
+  it('R2.1 — a behavioral row makes ruleServerResolvable false (must defer to client)', () => {
+    const spec: RecipeSpec = {
+      type: 'theme.section',
+      name: 'Exit-intent promo',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'banner', activation: 'section', fields: {}, blocks: [],
+        ruleEngine: {
+          enabled: true, logic: 'AND', matchAction: 'SHOW', onUnresolved: 'defer',
+          groups: [{ logic: 'AND', conditions: [
+            { object: 'behavioral', attribute: 'utmCampaign', operator: 'equal_to', value: 'spring-sale' },
+          ] }],
+        },
+      },
+    } as unknown as RecipeSpec;
+
+    const out = compileRecipe(spec, { kind: 'THEME', themeId: '1', moduleId: 'rule-mod-2' });
+    expect(out.themeModulePayload?.ruleServerResolvable).toBe(false);
+  });
+
+  it('R2.1 back-compat — a theme.section with NO ruleEngine → ruleServerResolvable true (always show)', () => {
+    const spec: RecipeSpec = {
+      type: 'theme.section',
+      name: 'Plain banner',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: { kind: 'banner', activation: 'section', fields: {}, blocks: [] },
+    } as unknown as RecipeSpec;
+
+    const out = compileRecipe(spec, { kind: 'THEME', themeId: '1', moduleId: 'rule-mod-3' });
+    expect(out.themeModulePayload?.ruleServerResolvable).toBe(true);
+  });
 });

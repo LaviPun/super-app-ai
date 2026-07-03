@@ -42,6 +42,13 @@ export type ThemeModulePayload = {
    * actually applies (theme sections previously stored style but never rendered it).
    */
   styleCss?: string;
+  /**
+   * R2.1 — true when the module's display rules (`config.ruleEngine`) are entirely
+   * server-resolvable (no `behavioral` rows), so the Liquid gate can emit a hard
+   * pass/fail verdict rather than deferring to the client. `true` when rules are
+   * absent/disabled. Convenience only; the Liquid gate also computes this inline.
+   */
+  ruleServerResolvable?: boolean;
 };
 
 /** Payload for an admin block stored as a $app:superapp_admin_block metaobject entry. */
