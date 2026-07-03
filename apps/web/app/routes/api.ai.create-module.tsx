@@ -239,6 +239,8 @@ export async function action({ request }: { request: Request }) {
                   recipe: m.recipe,
                 })),
                 links: blueprint.links ?? [],
+                // R3.1 — forward the composite manifest so the client can persist it.
+                ...(blueprint.sharedRecords?.length ? { sharedRecords: blueprint.sharedRecords, bindings: blueprint.bindings ?? [] } : {}),
               }
             : null,
         });

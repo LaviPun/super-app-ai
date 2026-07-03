@@ -5,7 +5,7 @@ import {
   type RecipeBlueprint,
 } from '@superapp/core';
 import { planBlueprint, plannedModuleCount } from '~/services/ai/blueprint-planner';
-import { getBlueprintCatalogEntry, blueprintIntents } from '~/services/ai/blueprint-catalog';
+import { getBlueprintCatalogEntry, blueprintIntents, buildCompositeManifest } from '~/services/ai/blueprint-catalog';
 
 // --- fixtures -------------------------------------------------------------
 
@@ -44,7 +44,7 @@ describe('RecipeBlueprint — schema + coherence', () => {
   it('accepts a well-formed blueprint', () => {
     const parsed = RecipeBlueprintSchema.safeParse(validBlueprint());
     expect(parsed.success).toBe(true);
-    expect(validateBlueprintCoherence(validBlueprint())).toEqual({ ok: true, issues: [] });
+    expect(validateBlueprintCoherence(validBlueprint())).toEqual({ ok: true, issues: [], warnings: [] });
   });
 
   it('rejects duplicate roles', () => {
@@ -121,6 +121,57 @@ describe('blueprint planner', () => {
   });
 });
 
+// --- R3.1 composite generation (deterministic, catalog-driven) -------------
+
+describe('composite manifest generation', () => {
+  it('the bundle intent is a composite: builds a coherent product-bundle manifest (§7.10)', () => {
+    const entry = getBlueprintCatalogEntry('upsell.bundle_builder')!;
+    expect(entry.composite?.kind).toBe('product-bundle');
+
+    // Emulate the generation assembly: all catalog roles generated.
+    const presentRoles = new Set(entry.modules.map((m) => m.role));
+    const manifest = buildCompositeManifest(entry, presentRoles);
+    expect(manifest).not.toBeNull();
+
+    // One product-bundle record, backing pinned to APP_METAFIELD (not model-chosen).
+    const record = manifest!.sharedRecords[0] as { kind: string; backing: string; entityMap: { bindingKey: string } };
+    expect(record.kind).toBe('product-bundle');
+    expect(record.backing).toBe('APP_METAFIELD');
+    expect(record.entityMap.bindingKey).toBe('_superapp_bundle_id');
+
+    // Every binding names a present role; display binds Sold-Out to real inventory.
+    const bindings = manifest!.bindings as Array<{ memberRole: string; bindingRole: string; availabilitySource?: string }>;
+    expect(bindings.every((b) => presentRoles.has(b.memberRole))).toBe(true);
+    const display = bindings.find((b) => b.memberRole === 'bundle-builder-ui');
+    expect(display?.bindingRole).toBe('display');
+    expect(display?.availabilitySource).toBe('components');
+    expect(bindings.some((b) => b.bindingRole === 'enforcement')).toBe(true);
+
+    // Assemble a full blueprint like generateValidatedBlueprint does → coherent.
+    const blueprint: RecipeBlueprint = {
+      name: entry.name,
+      summary: entry.summary,
+      modules: [
+        { role: 'bundle-builder-ui', explanation: 'UI', recipe: structuredClone(themeSectionRecipe) as never },
+        { role: 'cart-merge', explanation: 'Merge', recipe: structuredClone(cartTransformRecipe) as never },
+      ],
+      sharedRecords: manifest!.sharedRecords as RecipeBlueprint['sharedRecords'],
+      bindings: manifest!.bindings as RecipeBlueprint['bindings'],
+    };
+    // Filter bindings to present roles (checkout-display omitted here).
+    blueprint.bindings = blueprint.bindings!.filter((b) => ['bundle-builder-ui', 'cart-merge'].includes(b.memberRole));
+    const res = validateBlueprintCoherence(blueprint);
+    expect(res.ok).toBe(true);
+    expect(res.warnings).toEqual([]);
+  });
+
+  it('a non-composite intent (discount reveal) builds no manifest', () => {
+    const entry = getBlueprintCatalogEntry('promo.discount_reveal')!;
+    expect(entry.composite).toBeUndefined();
+    expect(buildCompositeManifest(entry, new Set(['reveal-popup', 'discount-rule']))).toBeNull();
+  });
+});
+
 // --- persistence (createDraft) -------------------------------------------
 
 const hoisted = vi.hoisted(() => {
@@ -168,5 +219,33 @@ describe('BlueprintService.createDraft', () => {
     expect(result.recipeId).toBe('recipe_1');
     expect(result.moduleIds).toHaveLength(2);
     expect(result.firstModuleId).toBe(result.moduleIds[0]);
+  });
+
+  it('flat blueprint writes null compositeJson (back-compat)', async () => {
+    const { BlueprintService } = await import('~/services/blueprints/blueprint.service');
+    await new BlueprintService().createDraft('test.myshopify.com', validBlueprint());
+    expect(hoisted.recipeCreate.mock.calls[0]![0].data.compositeJson).toBeNull();
+  });
+
+  it('composite blueprint persists sharedRecords/bindings/memberRoles as compositeJson (R3.1)', async () => {
+    const bp = validBlueprint();
+    bp.sharedRecords = [{
+      ref: 'product-bundle', kind: 'product-bundle', backing: 'APP_METAFIELD',
+      entityMap: { bindingKey: '_superapp_bundle_id', entries: [] },
+    }];
+    bp.bindings = [
+      { memberRole: 'bundle-builder-ui', recordRef: 'product-bundle', bindingRole: 'display', reads: [], availabilitySource: 'components' },
+      { memberRole: 'cart-merge', recordRef: 'product-bundle', bindingRole: 'enforcement', reads: [], availabilitySource: 'none' },
+    ];
+
+    const { BlueprintService, parseCompositeManifest } = await import('~/services/blueprints/blueprint.service');
+    await new BlueprintService().createDraft('test.myshopify.com', bp);
+
+    const written = hoisted.recipeCreate.mock.calls[0]![0].data.compositeJson as string;
+    const manifest = parseCompositeManifest(written);
+    expect(manifest?.sharedRecords[0]!.ref).toBe('product-bundle');
+    expect(manifest?.bindings).toHaveLength(2);
+    // memberRoles snapshot in module order → binding.memberRole resolves at publish.
+    expect(manifest?.memberRoles).toEqual(['bundle-builder-ui', 'cart-merge']);
   });
 });

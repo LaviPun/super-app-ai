@@ -224,6 +224,10 @@ type BlueprintResult = {
   moduleCount: number;
   modules: { role: string; type: string; explanation: string; recipe: Record<string, unknown> }[];
   links?: { fromRole: string; toRole: string; note: string }[];
+  // R3.1 — the shared-record manifest when this blueprint is a composite. Opaque
+  // to the client (carried verbatim to /api/ai/create-blueprint, re-validated there).
+  sharedRecords?: unknown[];
+  bindings?: unknown[];
 };
 
 const RADIUS_MAP: Record<string, number> = { none: 0, sm: 6, md: 10, lg: 16, full: 999 };
@@ -729,6 +733,8 @@ function GenerateWorkspace() {
       summary: blueprint.summary,
       modules: blueprint.modules.map((m) => ({ role: m.role, explanation: m.explanation, recipe: m.recipe })),
       links: blueprint.links ?? [],
+      // R3.1 — carry the composite manifest through so createDraft persists it.
+      ...(blueprint.sharedRecords?.length ? { sharedRecords: blueprint.sharedRecords, bindings: blueprint.bindings ?? [] } : {}),
     }));
     confirmFetcher.submit(fd, { method: 'post', action: '/api/ai/create-blueprint' });
   };

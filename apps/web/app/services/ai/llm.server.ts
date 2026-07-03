@@ -2,6 +2,7 @@ import type { RecipeSpec, ModuleType, RecipeBlueprint } from '@superapp/core';
 import crypto from 'node:crypto';
 import { RecipeSpecSchema, validateBlueprintCoherence } from '@superapp/core';
 import type { BlueprintPlan } from '~/services/ai/blueprint-planner';
+import { getBlueprintCatalogEntry, buildCompositeManifest } from '~/services/ai/blueprint-catalog';
 import { isMerchantCodeExecutionAllowed } from '~/env.server';
 import { AiUsageService } from '~/services/observability/ai-usage.service';
 import { resolveProviderIdForShop } from '~/services/ai/provider-routing.server';
@@ -1613,16 +1614,30 @@ export async function generateValidatedBlueprint(
     .filter((m) => m.role !== plan.primaryRole && presentRoles.has(m.role) && presentRoles.has(plan.primaryRole))
     .map((m) => ({ fromRole: plan.primaryRole, toRole: m.role, note: m.reason }));
 
+  // R3.1 — when this intent is a COMPOSITE, deterministically attach the
+  // shared-record manifest (record + per-member bindings). Backing is pinned per
+  // kind (never model-chosen); members leave record-derived fields as placeholders
+  // (filled at publish from the resolved record). Non-composite intents attach
+  // nothing → a flat blueprint, byte-for-byte prior behavior.
+  const catalogEntry = getBlueprintCatalogEntry(plan.intent);
+  const manifest = catalogEntry ? buildCompositeManifest(catalogEntry, presentRoles) : null;
+
   const blueprint: RecipeBlueprint = {
     name: plan.name,
     summary: plan.summary,
     modules,
     ...(links.length ? { links } : {}),
+    ...(manifest?.sharedRecords.length
+      ? { sharedRecords: manifest.sharedRecords as RecipeBlueprint['sharedRecords'], bindings: manifest.bindings as RecipeBlueprint['bindings'] }
+      : {}),
   };
 
   const coherence = validateBlueprintCoherence(blueprint);
   if (!coherence.ok) {
     console.warn(`[blueprint] coherence issues for "${plan.name}": ${coherence.issues.join(' | ')}`);
+  }
+  if (coherence.warnings.length) {
+    console.warn(`[blueprint] coherence warnings for "${plan.name}": ${coherence.warnings.join(' | ')}`);
   }
   return blueprint;
 }

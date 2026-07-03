@@ -63,6 +63,10 @@ model Recipe {
   title     String
   summary   String?  // blueprint description when this Recipe groups a multi-module blueprint
   version   Int      @default(1)
+  // R3.1 — composites-as-manifests. JSON blob of a blueprint's shared-record
+  // manifest ({ sharedRecords, bindings }) so publish can re-read it. Nullable +
+  // additive: null ⇒ a flat blueprint (byte-for-byte today's behavior).
+  compositeJson String?
   createdAt DateTime @default(now())
 
   modules   Module[]

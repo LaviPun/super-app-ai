@@ -12,8 +12,9 @@
  *  - upsell.bundle_builder  → cart-transform + product-page builder UI + checkout display
  *  - promo.discount_reveal  → discount function + reveal popup
  */
-import type { ModuleType } from '@superapp/core';
-import { getCapabilityNode, type CapabilitySurface } from '@superapp/core';
+import type { CompositeKind, ModuleType } from '@superapp/core';
+import { COMPOSITE_KIND_BACKING, getCapabilityNode, type CapabilitySurface } from '@superapp/core';
+import type { MemberBinding } from '@superapp/core';
 
 export type PlannedModuleSpec = {
   /** Stable role within the blueprint. */
@@ -34,6 +35,26 @@ export type PlannedModuleSpec = {
   recommendationHint?: string;
 };
 
+/**
+ * R3.1 — declares that an intent produces a COMPOSITE (one authoritative shared
+ * record + N bound render/enforcement surfaces), not just a flat bag of modules.
+ * Deterministic per intent: the `kind` fixes the backing (via the pinned table),
+ * the `bindings` map each member role to a `bindingRole`, and the record's scalar
+ * `dataModel` + `bindingKey` are authored here — NOT model-chosen (design §4.2).
+ */
+export type BlueprintCompositeSpec = {
+  /** Stable kebab record ref every member binds to. */
+  recordRef: string;
+  kind: CompositeKind;
+  /** Stable id stamped on runtime lines (`_superapp_bundle_id`, …). */
+  bindingKey: string;
+  /** Per-member binding roles (memberRole must match a module role above). */
+  bindings: Array<
+    Pick<MemberBinding, 'memberRole' | 'bindingRole'> &
+      Partial<Pick<MemberBinding, 'reads' | 'availabilitySource'>>
+  >;
+};
+
 export type BlueprintCatalogEntry = {
   intent: string;
   /** Display name for the blueprint group. */
@@ -43,6 +64,8 @@ export type BlueprintCatalogEntry = {
   /** Role that anchors the group (drives Recipe.category, navigation). */
   primaryRole: string;
   modules: PlannedModuleSpec[];
+  /** R3.1 — present ⇒ this intent is a composite; the manifest is derived from it. */
+  composite?: BlueprintCompositeSpec;
 };
 
 const ENTRIES: BlueprintCatalogEntry[] = [
@@ -76,6 +99,22 @@ const ENTRIES: BlueprintCatalogEntry[] = [
         reason: 'Shows the grouped bundle at checkout for a consistent presentation.',
       },
     ],
+    // R3.1 — the bundle IS a composite: one product-bundle record + a display
+    // surface + a checkout-time enforcement Function, all bound to the same id.
+    composite: {
+      recordRef: 'product-bundle',
+      kind: 'product-bundle',
+      bindingKey: '_superapp_bundle_id',
+      bindings: [
+        // Display binds Sold-Out to REAL component inventory (fixes the Fast
+        // Bundle placeholder-availability bug).
+        { memberRole: 'bundle-builder-ui', bindingRole: 'display', reads: ['discountPercentage', 'presentationMode'], availabilitySource: 'components' },
+        // The cart-transform Function enforces the merge/price at checkout.
+        { memberRole: 'cart-merge', bindingRole: 'enforcement', reads: ['presentationMode'] },
+        // The checkout display reproduces the grouped bundle.
+        { memberRole: 'checkout-display', bindingRole: 'display', reads: [], availabilitySource: 'none' },
+      ],
+    },
   },
   {
     intent: 'promo.discount_reveal',
@@ -116,4 +155,72 @@ export function blueprintIntents(): string[] {
 /** Surface for a module type (THEME/FUNCTIONS/CHECKOUT/…) via the capability graph. */
 export function surfaceForModuleType(moduleType: ModuleType): CapabilitySurface {
   return getCapabilityNode(moduleType).surface;
+}
+
+/**
+ * The record's scalar `dataModel` per composite kind (R3.1). These are the
+ * authored-once scalar knobs the display + enforcement surfaces both read
+ * (pricing/labels/thresholds) — NOT the cross-surface `entityMap` refs. Pinned
+ * here (not model-chosen) so display==enforcement always read the SAME fields.
+ */
+const COMPOSITE_DATA_MODEL: Record<CompositeKind, { fields: Array<{ name: string; type: 'text' | 'number' | 'select'; options?: string[]; required?: boolean }> }> = {
+  'product-bundle': {
+    fields: [
+      { name: 'presentationMode', type: 'select', options: ['single-bap', 'multi-bap', 'cart-transform'], required: true },
+      { name: 'discountPercentage', type: 'number', required: true },
+    ],
+  },
+  'cart-drawer': {
+    fields: [
+      { name: 'rewardThreshold', type: 'number', required: true },
+    ],
+  },
+  'loyalty-ledger': {
+    fields: [
+      { name: 'customerId', type: 'text', required: true },
+      { name: 'points', type: 'number', required: true },
+    ],
+  },
+  'subscription-contract': {
+    fields: [
+      { name: 'contractId', type: 'text', required: true },
+    ],
+  },
+};
+
+/**
+ * R3.1 — build the shared-record MANIFEST (`{ sharedRecords, bindings }`) for a
+ * composite intent, restricted to the roles that actually generated (so an
+ * optional member that failed generation doesn't leave a dangling binding). The
+ * backing is pinned per kind (never model-chosen); the record carries its scalar
+ * `dataModel`; the `entityMap` starts empty (its rows — component SKUs — are
+ * resolved at publish from the cart-transform member, or authored by the merchant).
+ * Returns null when the intent is not a composite.
+ */
+export function buildCompositeManifest(
+  entry: BlueprintCatalogEntry,
+  presentRoles: Set<string>,
+): { sharedRecords: unknown[]; bindings: unknown[] } | null {
+  const spec = entry.composite;
+  if (!spec) return null;
+
+  const bindings = spec.bindings
+    .filter((b) => presentRoles.has(b.memberRole))
+    .map((b) => ({
+      memberRole: b.memberRole,
+      recordRef: spec.recordRef,
+      bindingRole: b.bindingRole,
+      reads: b.reads ?? [],
+      availabilitySource: b.availabilitySource ?? 'none',
+    }));
+
+  const record = {
+    ref: spec.recordRef,
+    kind: spec.kind,
+    backing: COMPOSITE_KIND_BACKING[spec.kind],
+    dataModel: COMPOSITE_DATA_MODEL[spec.kind],
+    entityMap: { bindingKey: spec.bindingKey, entries: [] as unknown[] },
+  };
+
+  return { sharedRecords: [record], bindings };
 }
