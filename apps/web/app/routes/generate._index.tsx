@@ -188,7 +188,6 @@ type BlueprintResult = {
 };
 
 const RADIUS_MAP: Record<string, number> = { none: 0, sm: 6, md: 10, lg: 16, full: 999 };
-const SIZE_MAP: Record<string, { h: number; f: number }> = { S: { h: 38, f: 13 }, M: { h: 46, f: 15 }, L: { h: 54, f: 17 } };
 const SHADOW_MAP: Record<string, string> = { none: 'none', sm: '0 1px 2px rgba(20,33,58,.12)', md: '0 4px 12px rgba(20,33,58,.16)', lg: '0 12px 28px rgba(20,33,58,.22)' };
 // Each refine is one AI request against the monthly quota (enforced server-side).
 const COST_PER_CHANGE = 1;
@@ -674,7 +673,12 @@ function GenerateWorkspace() {
             </div>
           </div>
           <div className="gen-canvas-wrap">
-            {tab === 'preview' && <GenPreview settings={settings} device={device} />}
+            {tab === 'preview' && (
+              <GenPreview
+                recipe={activeCand?.recipe ? mergeSettingsIntoRecipe(activeCand.recipe, settings) : null}
+                device={device}
+              />
+            )}
             {tab === 'validation' && <GenValidation loading={valFetcher.state !== 'idle'} data={valFetcher.data} hasRecipe={!!activeCand?.recipe} />}
           </div>
         </div>
@@ -903,47 +907,81 @@ function GenHistory({ history, credits, onClose }: any) {
   );
 }
 
-function GenPreview({ settings: s, device }: any) {
-  const r = RADIUS_MAP[s.radius] ?? 10, sz = SIZE_MAP[s.size] ?? SIZE_MAP.M!;
-  const btn = (
-    <button className="pv-btn" style={{ background: s.buttonColor, color: s.buttonText, borderRadius: r, height: sz.h, fontSize: sz.f }}>
-      <Icon name="cart" size={sz.f + 2} />{s.label}{s.price && <span style={{ opacity: .85 }}>{'— ' + s.price}</span>}
-    </button>
-  );
-  const variants = s.showVariants && <div className="pv-variants">{['XS', 'S', 'M', 'L', 'XL'].map((v, i) => <span key={v} className={'pv-chip' + (i === 2 ? ' sel' : '')}>{v}</span>)}</div>;
-  const qty = s.showQty && <div className="pv-qty"><span>−</span><b>1</b><span>+</span></div>;
-  const countdown = s.countdown && <div className="pv-countdown"><Icon name="clock" size={13} />Order in 12:45 for same-day dispatch</div>;
-  const moduleBar = (
-    <div className={'pv-module pv-mode-' + s.mode + ' pv-anchor-' + s.anchor}
-      style={{ background: s.bg, borderRadius: s.mode === 'inline' ? r : undefined, boxShadow: s.mode === 'inline' ? 'none' : SHADOW_MAP[s.shadow] }}>
-      {countdown}
-      <div className="pv-module-row">
-        {s.mode !== 'floating' && variants}
-        {s.mode !== 'floating' && qty}
-        <div className="grow" />
-        {btn}
-      </div>
-    </div>
-  );
+/**
+ * Live preview of the REAL generated module. Renders the merged recipe through
+ * `PreviewService` via `/api/preview` in a sandboxed iframe, so what the merchant
+ * sees is exactly what will publish (no mock, works for every module type). For
+ * Function/checkout/post-purchase modules it drives a deterministic simulation
+ * against a representative cart/customer fixture (currency / country / Plus).
+ */
+function GenPreview({ recipe, device }: { recipe: Record<string, unknown> | null; device: 'desktop' | 'mobile' }) {
+  const type = String((recipe as { type?: unknown } | null)?.type ?? '');
+  const isSimulated = type.startsWith('functions.') || type.startsWith('checkout.') || type.startsWith('postPurchase.');
+  const [sim, setSim] = useState({ currency: 'USD', countryCode: 'US', isPlus: true });
+  const [state, setState] = useState<{ status: 'idle' | 'loading' | 'html' | 'json' | 'error'; html?: string; json?: unknown; error?: string }>({ status: 'idle' });
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const specKey = recipe ? JSON.stringify(recipe) : '';
+
+  useEffect(() => {
+    if (!recipe) { setState({ status: 'idle' }); return; }
+    let cancelled = false;
+    setState((s) => (s.status === 'idle' ? { status: 'loading' } : s));
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const fd = new FormData();
+      fd.set('spec', specKey);
+      if (isSimulated) fd.set('simulation', JSON.stringify(sim));
+      fetch('/api/preview', { method: 'POST', body: fd })
+        .then((r) => r.json())
+        .then((d: { html?: string; json?: unknown; error?: string }) => {
+          if (cancelled) return;
+          if (typeof d?.html === 'string') setState({ status: 'html', html: d.html });
+          else if (d && 'json' in d) setState({ status: 'json', json: d.json });
+          else setState({ status: 'error', error: d?.error || 'Preview unavailable' });
+        })
+        .catch((e: unknown) => { if (!cancelled) setState({ status: 'error', error: e instanceof Error ? e.message : String(e) }); });
+    }, 250);
+    return () => { cancelled = true; if (debounceRef.current) clearTimeout(debounceRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [specKey, isSimulated, sim.currency, sim.countryCode, sim.isPlus]);
+
   return (
     <div className={'gen-canvas' + (device === 'mobile' ? ' mobile' : '')}>
+      {isSimulated && (
+        <div className="pv-sim" role="group" aria-label="Simulation context">
+          <span className="t-xs t-muted">Simulate</span>
+          <select aria-label="Currency" value={sim.currency} onChange={(e) => setSim((v) => ({ ...v, currency: e.target.value }))}>
+            {['USD', 'CAD', 'GBP', 'EUR'].map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select aria-label="Country" value={sim.countryCode} onChange={(e) => setSim((v) => ({ ...v, countryCode: e.target.value }))}>
+            {['US', 'CA', 'GB', 'DE'].map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <label className="pv-sim-plus"><input type="checkbox" checked={sim.isPlus} onChange={(e) => setSim((v) => ({ ...v, isPlus: e.target.checked }))} />Plus</label>
+        </div>
+      )}
       <div className="pv-frame">
-        <div className="pv-browser"><span className="pv-dot" /><span className="pv-dot" /><span className="pv-dot" /><div className="pv-url">aurora-threads.com/products/everyday-hoodie</div></div>
-        <div className="pv-store">
-          <div className="pv-storehead"><div className="pv-logo">AURORA</div><div className="pv-nav"><span /><span /><span /><Icon name="cart" size={16} /></div></div>
-          <div className="pv-pdp">
-            <div className="pv-gallery"><div className="pv-img skel" /><div className="pv-thumbs">{[0, 1, 2].map((i) => <div key={i} className="pv-thumb skel" />)}</div></div>
-            <div className="pv-info">
-              <div className="pv-crumb">Home / Apparel / Hoodies</div>
-              <div className="pv-title">Everyday Hoodie</div>
-              <div className="pv-price">$48.00</div>
-              <div className="pv-stars">★★★★★<span className="t-muted"> 128 reviews</span></div>
-              <p className="pv-desc">Heavyweight organic cotton fleece with a relaxed fit and double-lined hood. Pre-shrunk and built to last wash after wash.</p>
-              {s.mode === 'inline' && moduleBar}
-              <div className="pv-meta"><span>Free shipping over $75</span><span>30-day returns</span></div>
-            </div>
-          </div>
-          {s.mode !== 'inline' && moduleBar}
+        <div className="pv-browser"><span className="pv-dot" /><span className="pv-dot" /><span className="pv-dot" /><div className="pv-url">Live preview · {type || 'module'}</div></div>
+        <div className="pv-live">
+          {state.status === 'idle' && (
+            <div className="pv-msg"><Icon name="layers" size={22} /><span className="t-sm t-muted">Pick a concept to preview it here.</span></div>
+          )}
+          {state.status === 'loading' && (
+            <div className="pv-msg"><span className="spinner" style={{ width: 20, height: 20 }} /><span className="t-sm t-muted">Rendering preview…</span></div>
+          )}
+          {state.status === 'error' && (
+            <div className="pv-msg"><Icon name="alert" size={22} /><span className="t-sm t-muted">{state.error}</span></div>
+          )}
+          {state.status === 'html' && (
+            <iframe
+              title="Module preview"
+              className="pv-iframe"
+              srcDoc={state.html}
+              sandbox="allow-scripts allow-same-origin allow-popups"
+            />
+          )}
+          {state.status === 'json' && (
+            <pre className="pv-json">{JSON.stringify(state.json, null, 2)}</pre>
+          )}
         </div>
       </div>
     </div>
