@@ -55,6 +55,71 @@ describe('compileDiscountRules — pricing lowering (T-C1)', () => {
     expect(auditActions(result)).toContain('compile.functions.discountRules.pricing.lowered');
   });
 
+  it('free-shipping discount kind → unenforced-kind warning AUDIT (never silently no-ops)', () => {
+    const spec = parseRecipe<DiscountRulesSpec>({
+      type: 'functions.discountRules',
+      name: 'Free shipping over $50',
+      config: {
+        rules: [{ when: {}, apply: { percentageOff: 5 } }],
+        pricing: {
+          model: 'single',
+          discount: { kind: 'free-shipping' },
+          gate: { minSubtotal: 50 },
+        },
+      },
+    });
+    const result = compileDiscountRules(spec);
+    const actions = auditActions(result);
+    expect(actions).toContain('compile.functions.discountRules.kind.unenforced');
+    const warning = result.ops.find(
+      (o) => o.kind === 'AUDIT' && o.action === 'compile.functions.discountRules.kind.unenforced',
+    ) as Record<string, unknown> | undefined;
+    expect(warning?.details as string).toMatch(/free-shipping/);
+    // Still compiles to exactly one upsert.
+    expect(result.ops.filter((o) => o.kind === 'FUNCTION_CONFIG_UPSERT')).toHaveLength(1);
+  });
+
+  it('priceEnding rounding hint → unenforced-kind warning AUDIT', () => {
+    const spec = parseRecipe<DiscountRulesSpec>({
+      type: 'functions.discountRules',
+      name: 'Charm pricing',
+      config: {
+        rules: [{ when: {}, apply: { percentageOff: 5 } }],
+        pricing: {
+          model: 'single',
+          discount: { kind: 'fixed-price', value: 100, priceEnding: 0.99 },
+        },
+      },
+    });
+    const result = compileDiscountRules(spec);
+    const warning = result.ops.find(
+      (o) => o.kind === 'AUDIT' && o.action === 'compile.functions.discountRules.kind.unenforced',
+    ) as Record<string, unknown> | undefined;
+    expect(warning).toBeDefined();
+    expect(warning?.details as string).toMatch(/priceEnding/);
+  });
+
+  it('free-gift kind does NOT warn (it is enforced via the co-emitted buyXGetY path)', () => {
+    const spec = parseRecipe<DiscountRulesSpec>({
+      type: 'functions.discountRules',
+      name: 'Gift over $75',
+      config: {
+        rules: [{ when: {}, apply: { percentageOff: 5 } }],
+        pricing: {
+          model: 'gift',
+          gift: { productIds: ['gid://shopify/Product/9'], threshold: 75, basis: 'cart-value' },
+        },
+      },
+    });
+    const result = compileDiscountRules(spec);
+    expect(auditActions(result)).not.toContain('compile.functions.discountRules.kind.unenforced');
+    // And the enforceable buyXGetY reached the upserted config.
+    const config = upsertConfig(result);
+    const rules = config.rules as Array<Record<string, unknown>>;
+    const apply = rules[0]!.apply as Record<string, unknown>;
+    expect(apply.buyXGetY).toBeDefined();
+  });
+
   it('T-C2 mechanism mismatch (cart-transform mechanism on discount recipe) → warning AUDIT, still compiles', () => {
     const spec = parseRecipe<DiscountRulesSpec>({
       type: 'functions.discountRules',

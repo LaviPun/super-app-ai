@@ -44,7 +44,13 @@ export interface LoweredApply {
     getCollectionIds: string[];
     reward: LoweredApply;
   };
-  /** New: gift-with-purchase. */
+  /**
+   * New: gift-with-purchase — the presentation/auto-add half. The storefront reads
+   * this to auto-add (or offer) the gift line; the shipped discount handler does NOT
+   * parse `freeGift`, so the CHECKOUT-side "make the gift free" is carried by the
+   * co-emitted `buyXGetY` fragment below (get arm = gift products @ 100% off). See
+   * lower.ts §free-gift note and discount-packs.md §9.
+   */
   freeGift?: {
     productIds: string[];
     threshold: number;
@@ -124,6 +130,36 @@ function isEmptyApply(a: LoweredApply): boolean {
   return Object.keys(a).length === 0;
 }
 
+/**
+ * free-gift → the ENFORCEABLE half. A gift-with-purchase is, at checkout, "once the
+ * cart qualifies, make the gift line 100% off". The shipped discount handler cannot
+ * parse `apply.freeGift`, but it DOES enforce `apply.buyXGetY` with a 100%-off reward
+ * on the get arm. So we co-emit a `buyXGetY` fragment whose GET arm is the gift
+ * product(s) at 100% off and whose BUY arm is EMPTY — the threshold gate
+ * (`when.minQty`/`when.minSubtotal`, set from the gift's threshold) is what qualifies
+ * the cart, so no specific buy product is required. The handler treats an empty buy
+ * arm as "gate already qualified" (see cart_lines_discounts_generate_run.rs
+ * `decide_bxgy`), frees the gift line, and attaches no prerequisites.
+ *
+ * Remaining gap (documented, NOT a Function concern): the handler can only discount a
+ * gift line that is ALREADY in the cart. Auto-ADDING the gift line is a storefront
+ * (theme/JS/Ajax-cart) concern driven by `apply.freeGift.autoAdd`; see
+ * discount-packs.md §9. When `selectable` is true the shopper picks among gift
+ * products — the get arm lists all candidate ids so whichever the shopper adds is
+ * freed.
+ */
+function giftToBuyXGetY(productIds: string[]): NonNullable<LoweredApply['buyXGetY']> {
+  return {
+    buyQty: 0,
+    buyProductIds: [],
+    buyCollectionIds: [],
+    getQty: 1,
+    getProductIds: [...productIds],
+    getCollectionIds: [],
+    reward: { percentageOff: 100 },
+  };
+}
+
 // ─── gate → when ─────────────────────────────────────────────────────────────
 
 function gateToWhen(gate: PricingPack['gate'], thresholdOverride?: { minQty?: number; minSubtotal?: number }): LoweredWhen {
@@ -172,6 +208,9 @@ export function lowerPricingToDiscountRules(pricing: PricingPack): LoweredDiscou
               selectable: false,
               autoAdd: true,
             };
+            // Enforceable half: free the gift line at checkout via the BXGY
+            // 100%-off path the handler already runs (empty buy arm = gate-qualified).
+            apply.buyXGetY = giftToBuyXGetY([row.gift.productId]);
           }
           const thresholdOverride =
             tiers.basis === 'quantity'
@@ -222,6 +261,12 @@ export function lowerPricingToDiscountRules(pricing: PricingPack): LoweredDiscou
               selectable: gift.selectable,
               autoAdd: gift.autoAdd,
             },
+            // Enforceable half: free the gift line(s) at checkout via the BXGY
+            // 100%-off path the handler already runs. Buy arm is empty — the
+            // threshold gate (when.minQty/minSubtotal above) qualifies the cart.
+            // When `selectable`, all candidate ids are the get arm so whichever
+            // gift the shopper adds is freed.
+            buyXGetY: giftToBuyXGetY([...gift.productIds]),
           },
         });
       }

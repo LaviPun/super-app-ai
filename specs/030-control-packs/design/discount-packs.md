@@ -630,6 +630,129 @@ Additive-by-construction:
 
 ---
 
+## 9. Close-out dispositions — `free-gift`, `free-shipping`, `priceEnding` (R2.2 follow-up)
+
+The R2.2 lowering (`compiler/pricing/lower.ts`) emits three `apply` kinds the
+shipped discount handler (`extensions/superapp-discount`, commit `042919e`) could
+not enforce, because each needs a *different* Shopify Function type. This section
+records their honest final disposition after auditing what the handler already
+does. **Rule of thumb applied: enforce what is cleanly expressible on the shipped
+target; for the rest, warn at compile so nothing silently no-ops, and document the
+exact runtime that is still required.**
+
+### 9.1 `free-gift` — ENFORCED at checkout (clean win)
+
+**Disposition: enforced.** A gift-with-purchase is, at checkout, "once the cart
+qualifies, make the gift line 100% off." The shipped handler cannot parse
+`apply.freeGift`, but it already runs a `buyXGetY` path with a 100%-off reward on
+the get arm (`decide_bxgy`). The lowering now **co-emits** an `apply.buyXGetY`
+alongside `apply.freeGift`:
+
+- get arm = the gift product id(s) at `reward: { percentageOff: 100 }`;
+- buy arm = **empty** (`buyProductIds: []`, `buyQty: 0`);
+- the cart is qualified by the rule's threshold **gate**
+  (`when.minQty` / `when.minSubtotal`, lowered from `gift.threshold` / `basis`),
+  not by a specific buy product.
+
+Handler change (`cart_lines_discounts_generate_run.rs` `decide_bxgy`): an **empty
+buy arm** now means "gate already qualified" — reward the get arm with no
+buy-quantity requirement and **no prerequisites** (there is no buy line to tie the
+reward to). `selectable` gifts list all candidate ids in the get arm, so whichever
+gift the shopper adds is freed. Covered by Rust tests
+(`free_gift_empty_buy_arm_frees_gift_line_when_gate_met`,
+`…_no_op_when_threshold_not_met`, `…_no_op_when_gift_line_absent`,
+`…_selectable_frees_whichever_candidate_is_present`) and TS lowering/compiler tests.
+
+**Remaining gap (NOT a Function concern — documented, out of scope here):** the
+discount Function can only discount a gift line that is **already in the cart**. It
+cannot **auto-ADD** the gift line — that is a storefront theme/JS/Ajax-cart concern
+driven by `apply.freeGift.autoAdd` (and the `selectable` chooser UI). So the full
+UX is: *storefront auto-adds/offers the gift line* (theme layer) **+** *this
+Function makes it free* (now enforced). Only the auto-add half remains, and it
+belongs to the storefront widget, not to any Shopify Function. `apply.freeGift`
+stays in the emitted config as the presentation/auto-add half; serde drops it in
+the handler.
+
+### 9.2 `free-shipping` — `needs_runtime` (new crate required, out of scope)
+
+**Disposition: NOT enforceable on the shipped target; a warning AUDIT is emitted so
+it never silently no-ops.** The discount target is
+`cart.lines.discounts.generate.run`, whose `CartOperation` set has **no shipping
+operation** — it can only add product/order discounts. Waiving shipping requires a
+separate Shopify Function of type **`cart.delivery-options.transform.run`**
+(SHIPPING_DISCOUNT class), which is a **new wasm crate** not present in
+`extensions/`. Standing up that crate is explicitly out of scope for this task
+(it is a whole new Function extension).
+
+**Interim (added):** `compileDiscountRules` now scans the lowered rules and emits
+an `AUDIT` op `compile.functions.discountRules.kind.unenforced` with a
+`free-shipping` detail whenever a `free-shipping` kind is lowered onto this target,
+so the publish trail records that the kind does **not** price at checkout rather
+than shipping a config that quietly does nothing.
+
+**What a future increment needs to close this:**
+- New crate `extensions/superapp-shipping-discount` targeting
+  `cart.delivery-options.transform.run`, emitting a
+  `DeliveryDiscountsAddOperation` (100% off / free) on qualifying delivery options,
+  reading its config from the same `$app:superapp_function_config` metaobject
+  pattern (a `superapp-fn-shippingDiscount` handle).
+- A new `ModuleType` (e.g. `functions.shippingDiscount`) plus an
+  **extension-eligibility registry** entry
+  (`packages/core/src/extension-eligibility.ts`): `runtime: 'function'`,
+  `functionHandle: 'superapp-shipping-discount'`, `requiresPlan` per Shopify's
+  shipping-discount availability, `requiredScopes: ['write_metaobjects', 'write_discounts']`,
+  and a `FUNCTION_RUNTIME_HANDLES` mapping. Until that handle appears in the
+  deployed-function manifest, `isRuntimeShipped` returns `false` → the type reads
+  `needs_runtime` (the registry's honest "not shipped" state), which is exactly the
+  status `free-shipping` should carry today.
+- Lowering would then route `free-shipping` (via `pricing.mechanism` or a dedicated
+  model) to that compiler instead of the product-discount compiler.
+
+Note: the discount-kind granularity (`free-shipping` is one `DISCOUNT_KIND`, not a
+`ModuleType`) means the registry entry lives at the *new Function type* level, not
+per-kind — the kind simply routes to it.
+
+### 9.3 `priceEnding` — platform limit; one viable Function path documented
+
+**Disposition: NOT enforceable as a discount; a warning AUDIT is emitted.** A
+post-calculation `x.99`-style rounding of the *final* price is not expressible as a
+`ProductDiscountCandidateValue` — a discount candidate is a percentage or a
+fixed-amount off, not "make the resulting price end in .99." There is no
+deterministic candidate value that yields an arbitrary post-discount ending, so the
+handler ignores it rather than approximating (which could round a price *up*, cf.
+§8.6).
+
+**The one viable Function path (documented, not built):** the only way to force an
+exact final price is a **cart-transform `lineUpdate.fixedPricePerUnit`** — a
+**Shopify Plus-only** `update` operation that sets an explicit per-unit price on a
+line. That is the same operation the cart-transform handler's own module note flags
+as its follow-up for `fixed-amount` / `fixed-price` on merged lines. So `priceEnding`
+is only ever enforceable through the cart-transform mechanism on Plus, by computing
+the rounded target price at lowering time and emitting it as a `fixedPricePerUnit`
+directive. It is **never** enforceable on the product-discount target.
+
+**Interim (added):** `compileDiscountRules` emits the same
+`compile.functions.discountRules.kind.unenforced` warning AUDIT with a `priceEnding`
+detail whenever a `priceEnding` hint is lowered onto the discount target, so compile
+does not imply an enforcement it lacks. `apply.priceEnding` remains in the config as
+a hint the storefront/preview may use for *display* rounding; serde drops it in the
+discount handler.
+
+### 9.4 Summary table
+
+| kind | shipped discount target | disposition | remaining runtime |
+|------|-------------------------|-------------|-------------------|
+| `free-gift` | **enforced** via co-emitted `buyXGetY` 100%-off (empty buy arm = gate-qualified) | ✅ prices at checkout | storefront auto-add of the gift line (theme/JS) — not a Function |
+| `free-shipping` | not expressible (no shipping op) → warning AUDIT | ❌ `needs_runtime` | new `cart.delivery-options.transform.run` crate + eligibility entry (§9.2) |
+| `priceEnding` | not expressible (not a candidate value) → warning AUDIT | ❌ platform limit | Plus-only cart-transform `fixedPricePerUnit` (§9.3) |
+
+All code changes are additive and back-compat: `apply.freeGift` / `apply.freeShipping`
+/ `apply.priceEnding` are still emitted (serde drops the two unenforced ones); legacy
+configs without pricing compile byte-identically; the new warning AUDITs only appear
+when the corresponding kind is actually lowered.
+
+---
+
 ## Summary
 
 - **One additive pack (`pricing`) is the whole vocabulary.** `PricingPackSchema`

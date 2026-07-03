@@ -124,6 +124,54 @@ describe('pricing lowering → functions.discountRules (T-L1..T-L5)', () => {
     expect(lowered.rules[0]!.when.minSubtotal).toBe(75);
   });
 
+  it('gift also co-emits an ENFORCEABLE buyXGetY (empty buy arm, 100%-off gift) so it prices at checkout', () => {
+    const pricing = parse({
+      model: 'gift',
+      gift: {
+        productIds: ['gid://shopify/Product/9', 'gid://shopify/Product/10'],
+        threshold: 3,
+        basis: 'quantity',
+        selectable: true,
+      },
+    });
+    const lowered = lowerPricingToDiscountRules(pricing);
+    const apply = lowered.rules[0]!.apply;
+    // Threshold gate qualifies the cart (empty buy arm).
+    expect(lowered.rules[0]!.when.minQty).toBe(3);
+    expect(apply.buyXGetY).toBeDefined();
+    expect(apply.buyXGetY!.buyProductIds).toEqual([]);
+    expect(apply.buyXGetY!.buyQty).toBe(0);
+    // All candidate gift ids are the get arm (selectable) at 100% off.
+    expect(apply.buyXGetY!.getProductIds).toEqual([
+      'gid://shopify/Product/9',
+      'gid://shopify/Product/10',
+    ]);
+    expect(apply.buyXGetY!.reward).toEqual({ percentageOff: 100 });
+  });
+
+  it('per-tier gift co-emits the enforceable buyXGetY too', () => {
+    const pricing = parse({
+      model: 'tiered',
+      tiers: {
+        basis: 'quantity',
+        rows: [
+          {
+            threshold: 4,
+            discount: { kind: 'percentage', value: 15 },
+            gift: { productId: 'gid://shopify/Product/77', quantity: 1 },
+          },
+        ],
+      },
+    });
+    const lowered = lowerPricingToDiscountRules(pricing);
+    const apply = lowered.rules[0]!.apply;
+    expect(apply.percentageOff).toBe(15);
+    expect(apply.freeGift?.productIds).toEqual(['gid://shopify/Product/77']);
+    expect(apply.buyXGetY?.getProductIds).toEqual(['gid://shopify/Product/77']);
+    expect(apply.buyXGetY?.reward).toEqual({ percentageOff: 100 });
+    expect(apply.buyXGetY?.buyProductIds).toEqual([]);
+  });
+
   it('T-L5 stacking.combinesWith.productDiscounts:true survives + discountApplication.order', () => {
     const pricing = parse({
       model: 'single',

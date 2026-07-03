@@ -30,15 +30,25 @@ use shopify_function::Result;
 /// Function cannot express, so they are deliberately NOT enforced here):
 /// - `freeShipping`: this target only exposes product/order discount operations
 ///   (`CartOperation` has no shipping op). A shipping discount needs a separate
-///   `cart.delivery-options.*` Function target.
-/// - `freeGift`: a discount Function can only reduce the price of lines already in
-///   the cart; it cannot ADD a gift product. That needs a cart-transform
-///   `lineExpand`/`linesAdd` or a storefront add-to-cart paired with a discount.
+///   `cart.delivery-options.transform.run` (SHIPPING_DISCOUNT) Function crate, which
+///   is not shipped. The compiler emits a warning AUDIT so this never silently
+///   no-ops (discount-packs.md §9). `apply.freeShipping` is dropped by serde here.
 /// - `priceEnding`: post-calc rounding to an `x.99`-style ending is not
 ///   deterministically expressible as a `ProductDiscountCandidateValue`
 ///   (percentage / fixed-amount only), so it is ignored rather than approximated.
+///   The only Function path is a Plus-only cart-transform `fixedPricePerUnit`
+///   (discount-packs.md §9). `apply.priceEnding` is dropped by serde here.
 /// - `buyXGetY` with collection-scoped arms: only product-id matching is enforced
 ///   (see collection note above).
+///
+/// # `freeGift` — the CHECKOUT half IS enforced (R2.2 close-out)
+/// A discount Function can only reduce the price of lines ALREADY in the cart; it
+/// cannot ADD a gift product (auto-add is a storefront theme/JS concern driven by
+/// `apply.freeGift.autoAdd`; see discount-packs.md §9). But making the gift line
+/// FREE at checkout IS expressible: the R2.2 lowering co-emits `apply.buyXGetY` with
+/// an empty buy arm and a 100%-off reward on the gift product(s), so `decide_bxgy`
+/// (which runs before the plain per-line kinds) frees the gift line. `apply.freeGift`
+/// itself is still dropped by serde — it is the presentation/auto-add half only.
 #[derive(Deserialize, Default, PartialEq)]
 pub struct Configuration {
     #[shopify_function(default)]
@@ -321,17 +331,34 @@ fn decide_cheapest_free(n: i64, targeted: &[&Line]) -> Option<Candidate> {
 /// get-arm lines. Product-id matching only. The reward is a percentage / fixed
 /// amount on the get lines, with the buy lines attached as prerequisites so the
 /// discount only holds while the buy arm is present.
+///
+/// Gift-with-purchase special case (empty buy arm): the R2.2 `free-gift` lowering
+/// (`compiler/pricing/lower.ts` `giftToBuyXGetY`) emits a BXGY fragment with an
+/// EMPTY `buy_product_ids` and a 100%-off reward on the gift product(s). For a
+/// gift-with-purchase the cart is qualified by the rule's threshold GATE
+/// (`when.min_qty`/`when.min_subtotal`, already checked before we get here), not by
+/// a specific buy product — so an empty buy arm means "gate already qualified":
+/// reward the get arm with no buy-quantity requirement and NO prerequisites (there
+/// is no buy line to tie the reward to). This is what makes `free-gift` real at
+/// checkout: whichever gift line is in the cart becomes free.
 fn decide_bxgy(bxgy: &BuyXGetY, lines: &[Line]) -> Option<Candidate> {
-    let buy_qty = bxgy.buy_qty.unwrap_or(1.0).max(1.0);
+    // Empty buy arm ⇒ gift-with-purchase (gate-qualified, no buy requirement).
+    let gate_qualified_gift = bxgy.buy_product_ids.is_empty();
 
-    let buy_lines: Vec<&Line> = lines
-        .iter()
-        .filter(|l| line_matches_product(l, &bxgy.buy_product_ids))
-        .collect();
-    let buy_units: i64 = buy_lines.iter().map(|l| l.quantity).sum();
-    if (buy_units as f64) < buy_qty {
-        return None;
-    }
+    let buy_lines: Vec<&Line> = if gate_qualified_gift {
+        Vec::new()
+    } else {
+        let buy_qty = bxgy.buy_qty.unwrap_or(1.0).max(1.0);
+        let matched: Vec<&Line> = lines
+            .iter()
+            .filter(|l| line_matches_product(l, &bxgy.buy_product_ids))
+            .collect();
+        let buy_units: i64 = matched.iter().map(|l| l.quantity).sum();
+        if (buy_units as f64) < buy_qty {
+            return None;
+        }
+        matched
+    };
 
     let get_lines: Vec<&Line> = lines
         .iter()
@@ -881,6 +908,141 @@ mod tests {
         ];
         let d = decide(&cfg, 90.0, &lines).unwrap();
         assert_eq!(d.value, CandidateValue::Percentage(100.0));
+    }
+
+    // ── free-gift → BXGY 100%-off with an empty buy arm (gate-qualified) ──────
+
+    #[test]
+    fn free_gift_empty_buy_arm_frees_gift_line_when_gate_met() {
+        // gift model lowers to: when.min_subtotal (threshold) + buyXGetY with an
+        // empty buy arm and a 100%-off reward on the gift product.
+        let cfg = Configuration {
+            rules: vec![rule(
+                RuleWhen {
+                    min_subtotal: Some(75.0),
+                    ..Default::default()
+                },
+                RuleApply {
+                    buy_x_get_y: Some(BuyXGetY {
+                        buy_qty: Some(0.0),
+                        buy_product_ids: vec![], // empty buy arm = gate-qualified gift
+                        get_qty: Some(1.0),
+                        get_product_ids: vec!["pGift".to_string()],
+                        reward: Some(RuleReward {
+                            percentage_off: Some(100.0),
+                            ..Default::default()
+                        }),
+                    }),
+                    ..Default::default()
+                },
+            )],
+            ..Default::default()
+        };
+        // Cart holds the gift line and meets the subtotal threshold.
+        let lines = vec![
+            line("l1", "A", "p1", 1, 50.0),
+            line("l2", "G", "pGift", 1, 30.0),
+        ];
+        let d = decide(&cfg, 80.0, &lines).unwrap();
+        assert_eq!(d.value, CandidateValue::Percentage(100.0));
+        // Only the gift line is targeted.
+        assert_eq!(d.target_line_ids, vec!["l2"]);
+        // No buy arm ⇒ no prerequisites attached.
+        assert!(d.prerequisite_line_ids.is_empty());
+    }
+
+    #[test]
+    fn free_gift_no_op_when_threshold_not_met() {
+        let cfg = Configuration {
+            rules: vec![rule(
+                RuleWhen {
+                    min_subtotal: Some(75.0),
+                    ..Default::default()
+                },
+                RuleApply {
+                    buy_x_get_y: Some(BuyXGetY {
+                        buy_qty: Some(0.0),
+                        buy_product_ids: vec![],
+                        get_qty: Some(1.0),
+                        get_product_ids: vec!["pGift".to_string()],
+                        reward: Some(RuleReward {
+                            percentage_off: Some(100.0),
+                            ..Default::default()
+                        }),
+                    }),
+                    ..Default::default()
+                },
+            )],
+            ..Default::default()
+        };
+        // Subtotal below threshold → rule gate skips before BXGY runs.
+        let lines = vec![line("l2", "G", "pGift", 1, 30.0)];
+        assert_eq!(decide(&cfg, 30.0, &lines), None);
+    }
+
+    #[test]
+    fn free_gift_no_op_when_gift_line_absent() {
+        // Gate met but the gift line is not in the cart → nothing to free (auto-add
+        // is a storefront concern, not this Function's job).
+        let cfg = Configuration {
+            rules: vec![rule(
+                RuleWhen {
+                    min_subtotal: Some(75.0),
+                    ..Default::default()
+                },
+                RuleApply {
+                    buy_x_get_y: Some(BuyXGetY {
+                        buy_qty: Some(0.0),
+                        buy_product_ids: vec![],
+                        get_qty: Some(1.0),
+                        get_product_ids: vec!["pGift".to_string()],
+                        reward: Some(RuleReward {
+                            percentage_off: Some(100.0),
+                            ..Default::default()
+                        }),
+                    }),
+                    ..Default::default()
+                },
+            )],
+            ..Default::default()
+        };
+        let lines = vec![line("l1", "A", "p1", 1, 100.0)];
+        assert_eq!(decide(&cfg, 100.0, &lines), None);
+    }
+
+    #[test]
+    fn free_gift_selectable_frees_whichever_candidate_is_present() {
+        // selectable gift lowers all candidate ids into the get arm; whichever the
+        // shopper adds is freed.
+        let cfg = Configuration {
+            rules: vec![rule(
+                RuleWhen {
+                    min_qty: Some(2.0),
+                    ..Default::default()
+                },
+                RuleApply {
+                    buy_x_get_y: Some(BuyXGetY {
+                        buy_qty: Some(0.0),
+                        buy_product_ids: vec![],
+                        get_qty: Some(1.0),
+                        get_product_ids: vec!["pG1".to_string(), "pG2".to_string()],
+                        reward: Some(RuleReward {
+                            percentage_off: Some(100.0),
+                            ..Default::default()
+                        }),
+                    }),
+                    ..Default::default()
+                },
+            )],
+            ..Default::default()
+        };
+        let lines = vec![
+            line("l1", "A", "p1", 2, 25.0),
+            line("l2", "G2", "pG2", 1, 40.0), // shopper chose the 2nd gift
+        ];
+        let d = decide(&cfg, 90.0, &lines).unwrap();
+        assert_eq!(d.value, CandidateValue::Percentage(100.0));
+        assert_eq!(d.target_line_ids, vec!["l2"]);
     }
 
     // ── Honest gaps: kinds we do NOT enforce fall through to no-op ────────────
