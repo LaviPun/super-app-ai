@@ -324,12 +324,39 @@ export const RECIPE_SURFACES = [
   'payments',
 ] as const;
 
-// ─── 18.4 customerAccount.blocks config.target (subset of CUSTOMER_ACCOUNT_TARGETS) ─
+// ─── 18.4 customerAccount.blocks config.target ────────────────────────────────
+/**
+ * Every customer-account UI extension render target the shipped generic extension
+ * (extensions/customer-account-ui) registers and can mount a config-driven block at
+ * (build #3, 034). 1:1 with CUSTOMER_ACCOUNT_TARGETS — the config target enum and
+ * the toml-registered target set are one source of truth, mirroring the checkout
+ * build's full-surface coverage. The `order.action` pair (menu-item + action) is
+ * modelled by ACTION_KINDS below rather than a distinct config target.
+ */
 export const CUSTOMER_ACCOUNT_BLOCK_TARGETS = [
-  'customer-account.order-status.block.render',
-  'customer-account.order-index.block.render',
-  'customer-account.profile.block.render',
+  'customer-account.footer.render-after',
   'customer-account.page.render',
+  'customer-account.order.page.render',
+  'customer-account.order.action.menu-item.render',
+  'customer-account.order.action.render',
+  'customer-account.order-index.announcement.render',
+  'customer-account.order-index.block.render',
+  'customer-account.order-status.announcement.render',
+  'customer-account.order-status.block.render',
+  'customer-account.order-status.cart-line-item.render-after',
+  'customer-account.order-status.cart-line-list.render-after',
+  'customer-account.order-status.customer-information.render-after',
+  'customer-account.order-status.fulfillment-details.render-after',
+  'customer-account.order-status.payment-details.render-after',
+  'customer-account.order-status.return-details.render-after',
+  'customer-account.order-status.unfulfilled-items.render-after',
+  'customer-account.profile.company-details.render-after',
+  'customer-account.profile.company-location-addresses.render-after',
+  'customer-account.profile.company-location-payment.render-after',
+  'customer-account.profile.company-location-staff.render-after',
+  'customer-account.profile.addresses.render-after',
+  'customer-account.profile.announcement.render',
+  'customer-account.profile.block.render',
 ] as const;
 
 // ─── 4.5.1 Customer account UI target enum ────────────────────────────────────
@@ -909,10 +936,95 @@ export const AGENTIC_LIMITS = {
   attributeFromMax: 120,
 } as const;
 
-/** customerAccount.blocks block kind (doc 18.4). */
-export const CUSTOMER_ACCOUNT_BLOCK_KINDS = ['TEXT', 'LINK', 'BADGE', 'DIVIDER'] as const;
+/**
+ * customerAccount.blocks block kind (doc 18.4). The first four (TEXT|LINK|BADGE|
+ * DIVIDER) are the legacy static set and render byte-identically. Build #3 (034)
+ * adds the interactive + data-bound set the shipped generic customer-account UI
+ * extension maps onto Polaris `s-*` web components (2026-04):
+ *   BUTTON  → s-button (navigate via `url`, or open a block's MODAL via `modalId`)
+ *   FORM    → s-text-field/s-text-area/s-select/etc. wrapped in an s-form; captured
+ *             values POST to the app proxy declared by the block's `submit` config
+ *   MODAL   → s-modal opened by a BUTTON with a matching `modalId`
+ *   ACTION  → the `customer-account.order.action.*` pair: a menu-item that presents
+ *             an order-scoped action overlay (see CUSTOMER_ACCOUNT_ACTION_KINDS)
+ * All new kinds degrade gracefully (render nothing / a plain label) when their
+ * required data or API surface is unavailable — never a hard error.
+ */
+export const CUSTOMER_ACCOUNT_BLOCK_KINDS = [
+  'TEXT',
+  'LINK',
+  'BADGE',
+  'DIVIDER',
+  'BUTTON',
+  'FORM',
+  'MODAL',
+  'ACTION',
+] as const;
 /** customerAccount.blocks block tone (doc 18.4). */
 export const CUSTOMER_ACCOUNT_BLOCK_TONES = ['info', 'success', 'warning', 'critical'] as const;
+
+/**
+ * A FORM block's input-field kind → Polaris customer-account `s-*` component
+ * (2026-04). Mirrors the checkout field vocab so the two builds stay aligned.
+ */
+export const CUSTOMER_ACCOUNT_FIELD_KINDS = [
+  'text', // s-text-field
+  'textarea', // s-text-area
+  'select', // s-select / s-option
+  'email', // s-email-field
+  'number', // s-number-field
+  'checkbox', // s-checkbox
+] as const;
+
+/**
+ * A live value a block can BIND to. The config only DECLARES which value it wants;
+ * the shipped generic extension resolves it at render time via the Customer Account
+ * API / Order API (`order.*`, `customer.*`, `subscription.*`) or our app-owned
+ * source (`loyalty.points`, `customer.storeCreditBalance` when app-owned). Any
+ * binding that can't be resolved on the current surface degrades to the block's
+ * literal `content` (or renders nothing) — never an error.
+ */
+export const CUSTOMER_ACCOUNT_BINDINGS = [
+  'order.trackingNumber',
+  'order.trackingUrl',
+  'order.fulfillmentStatus',
+  'order.financialStatus',
+  'order.returnStatus',
+  'order.statusPageUrl',
+  'customer.storeCreditBalance',
+  'customer.displayName',
+  'customer.ordersCount',
+  'subscription.nextOrderDate',
+  'subscription.status',
+  'loyalty.points',
+] as const;
+
+/**
+ * The overlay an `order.action` block presents when its menu-item is selected.
+ * `modal` shows an in-page s-modal; `link` navigates to a URL (e.g. a returns
+ * portal or app-proxy page). Models the order.action + menu-item pairing without a
+ * distinct config target — the block is authored once and mounted at both the
+ * `order.action.menu-item.render` (the trigger) and `order.action.render` (the
+ * overlay) targets by the shipped extension.
+ */
+export const CUSTOMER_ACCOUNT_ACTION_KINDS = ['modal', 'link'] as const;
+
+/**
+ * Whether a customer-account target can WRITE (submit a FORM / mutate). All
+ * customer-account render targets are read-first; FORM submission goes through the
+ * app proxy, not a checkout-style buyer-input API. This helper marks the surfaces
+ * that carry an order/customer context a binding can resolve against.
+ */
+export function customerAccountSurfaceScope(
+  target: string,
+): 'order' | 'profile' | 'index' | 'page' {
+  if (target.startsWith('customer-account.order-status.') || target.startsWith('customer-account.order.')) {
+    return 'order';
+  }
+  if (target.startsWith('customer-account.profile.')) return 'profile';
+  if (target.startsWith('customer-account.order-index.')) return 'index';
+  return 'page';
+}
 
 /** platform.extensionBlueprint surface (doc 18.5). */
 export const BLUEPRINT_SURFACES = ['CHECKOUT_UI', 'THEME_APP_EXTENSION', 'FUNCTION'] as const;

@@ -1,5 +1,23 @@
 api_version = "2026-04"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SuperApp generic customer-account UI extension (build #3, 034).
+# ONE config-driven renderer mounted at every customer-account render target.
+# Each per-target module (src/targets/*.tsx) is a one-line mountCaTarget call; the
+# renderer reads its content from the published $app:superapp_customer_account_block
+# metaobject and resolves live-data bindings via the Customer Account / Order API.
+# No per-target code.
+#
+# Grouping rules (2026-04):
+#  • Full-page targets (page.render, order.page.render) CANNOT coexist with any
+#    other target in the same [[extensions]] — each gets its own extension block.
+#  • The three *.block.render targets are the admin-placeable/mergeable Block set
+#    (kept on the original shipped uid/handle to preserve deployed placements).
+#  • All Static targets (render-after / announcement / order.action pair) share one
+#    extension block.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Block-render targets (SHIPPED — preserve deployed handle/UID) ──────────────
 [[extensions]]
 uid = "8c6a1d28-a11d-3b1a-82ef-9374e1c146acf00e1297"
 type = "ui_extension"
@@ -10,14 +28,123 @@ handle = "superapp-customer-blocks"
 api_access = true
 
 [[extensions.targeting]]
-module = "./src/blocks/OrderIndex.tsx"
+module = "./src/targets/OrderIndexBlockRender.tsx"
 target = "customer-account.order-index.block.render"
 
 [[extensions.targeting]]
-module = "./src/blocks/OrderStatus.tsx"
+module = "./src/targets/OrderStatusBlockRender.tsx"
 target = "customer-account.order-status.block.render"
 
 [[extensions.targeting]]
-module = "./src/blocks/Profile.tsx"
+module = "./src/targets/ProfileBlockRender.tsx"
 target = "customer-account.profile.block.render"
 
+# ── Full-page target: account page (own extension — full-page can't coexist) ───
+[[extensions]]
+uid = "a4f1c2d8-b3e5-4c6a-9d7e-1f2a3b4c5d6e"
+type = "ui_extension"
+name = "SuperApp Customer Page"
+handle = "superapp-customer-page"
+
+[extensions.capabilities]
+api_access = true
+
+[[extensions.targeting]]
+module = "./src/targets/PageRender.tsx"
+target = "customer-account.page.render"
+
+# ── Full-page target: order page (own extension — full-page can't coexist) ─────
+[[extensions]]
+uid = "b5e2d3c9-c4f6-5d7b-ae8f-2a3b4c5d6e7f"
+type = "ui_extension"
+name = "SuperApp Customer Order Page"
+handle = "superapp-customer-order-page"
+
+[extensions.capabilities]
+api_access = true
+
+[[extensions.targeting]]
+module = "./src/targets/OrderPageRender.tsx"
+target = "customer-account.order.page.render"
+
+# ── All Static targets (render-after / announcement / order.action pair) ───────
+[[extensions]]
+uid = "c6f3e4da-d5a7-6e8c-bf9a-3b4c5d6e7f8a"
+type = "ui_extension"
+name = "SuperApp Customer Surfaces"
+handle = "superapp-customer-surfaces"
+
+[extensions.capabilities]
+api_access = true
+
+[[extensions.targeting]]
+module = "./src/targets/FooterRenderAfter.tsx"
+target = "customer-account.footer.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/OrderActionMenuItemRender.tsx"
+target = "customer-account.order.action.menu-item.render"
+
+[[extensions.targeting]]
+module = "./src/targets/OrderActionRender.tsx"
+target = "customer-account.order.action.render"
+
+[[extensions.targeting]]
+module = "./src/targets/OrderIndexAnnouncementRender.tsx"
+target = "customer-account.order-index.announcement.render"
+
+[[extensions.targeting]]
+module = "./src/targets/OrderStatusAnnouncementRender.tsx"
+target = "customer-account.order-status.announcement.render"
+
+[[extensions.targeting]]
+module = "./src/targets/OrderStatusCartLineItemRenderAfter.tsx"
+target = "customer-account.order-status.cart-line-item.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/OrderStatusCartLineListRenderAfter.tsx"
+target = "customer-account.order-status.cart-line-list.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/OrderStatusCustomerInformationRenderAfter.tsx"
+target = "customer-account.order-status.customer-information.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/OrderStatusFulfillmentDetailsRenderAfter.tsx"
+target = "customer-account.order-status.fulfillment-details.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/OrderStatusPaymentDetailsRenderAfter.tsx"
+target = "customer-account.order-status.payment-details.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/OrderStatusReturnDetailsRenderAfter.tsx"
+target = "customer-account.order-status.return-details.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/OrderStatusUnfulfilledItemsRenderAfter.tsx"
+target = "customer-account.order-status.unfulfilled-items.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/ProfileAddressesRenderAfter.tsx"
+target = "customer-account.profile.addresses.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/ProfileAnnouncementRender.tsx"
+target = "customer-account.profile.announcement.render"
+
+[[extensions.targeting]]
+module = "./src/targets/ProfileCompanyDetailsRenderAfter.tsx"
+target = "customer-account.profile.company-details.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/ProfileCompanyLocationAddressesRenderAfter.tsx"
+target = "customer-account.profile.company-location-addresses.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/ProfileCompanyLocationPaymentRenderAfter.tsx"
+target = "customer-account.profile.company-location-payment.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/ProfileCompanyLocationStaffRenderAfter.tsx"
+target = "customer-account.profile.company-location-staff.render-after"

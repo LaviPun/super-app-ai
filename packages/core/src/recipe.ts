@@ -42,6 +42,9 @@ import {
   CONDITION_OPERATORS,
   CUSTOMER_ACCOUNT_BLOCK_KINDS,
   CUSTOMER_ACCOUNT_BLOCK_TONES,
+  CUSTOMER_ACCOUNT_FIELD_KINDS,
+  CUSTOMER_ACCOUNT_BINDINGS,
+  CUSTOMER_ACCOUNT_ACTION_KINDS,
   BLUEPRINT_SURFACES,
   PROXY_WIDGET_MODES,
   CART_TRANSFORM_MODES,
@@ -921,10 +924,74 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
             content: z.string().min(0).max(240).optional(),
             url: z.string().url().optional(),
             tone: z.enum(CUSTOMER_ACCOUNT_BLOCK_TONES).optional(),
+            /**
+             * Build #3 (034) — interactive + data-bound vocab. All optional so the
+             * legacy `{ kind, content?, url?, tone? }` block stays valid and renders
+             * byte-identically. The shipped generic extension reads these verbatim
+             * from the persisted metaobject and degrades gracefully when a bound
+             * value or API surface is unavailable.
+             */
+            /**
+             * Bind the rendered value to a live source (Customer Account / Order API
+             * or our app-owned points/store-credit). When set, `content` is used as
+             * a fallback if the value can't be resolved on the current surface.
+             */
+            bind: z.enum(CUSTOMER_ACCOUNT_BINDINGS).optional(),
+            /** BUTTON: id of the MODAL block this button opens (in-block overlay). */
+            modalId: z.string().min(1).max(60).optional(),
+            /** MODAL: stable id a BUTTON references via `modalId`. */
+            id: z.string().min(1).max(60).optional(),
+            /** BUTTON visual variant (Polaris s-button variants). */
+            variant: z.enum(['primary', 'secondary', 'tertiary']).optional(),
+            /**
+             * ACTION (order.action pair): how the menu-item's overlay is presented.
+             * `modal` → in-page s-modal (uses this block's `content`/nested); `link`
+             * → navigate to `url` (returns portal, app-proxy page, etc.).
+             */
+            action: z.enum(CUSTOMER_ACCOUNT_ACTION_KINDS).optional(),
+            /** FORM: input fields the block renders and submits via the app proxy. */
+            fields: z
+              .array(
+                z.object({
+                  kind: z.enum(CUSTOMER_ACCOUNT_FIELD_KINDS).default('text'),
+                  key: z
+                    .string()
+                    .min(1)
+                    .max(60)
+                    .regex(/^[a-zA-Z0-9_.\-]+$/, 'key must be alphanumeric/underscore/dot/dash'),
+                  label: z.string().min(1).max(80),
+                  placeholder: z.string().max(120).optional(),
+                  required: z.boolean().optional(),
+                  options: z
+                    .array(z.object({ value: z.string().min(1).max(80), label: z.string().min(1).max(80) }))
+                    .max(20)
+                    .optional(),
+                }),
+              )
+              .max(12)
+              .optional(),
+            /**
+             * FORM submit target. `proxyPath` is an app-proxy subpath the captured
+             * values POST to (e.g. `/apps/superapp/ca/return-request`). Omit → the
+             * form collects and displays only (no write).
+             */
+            submit: z
+              .object({
+                proxyPath: z.string().min(1).max(200),
+                submitLabel: z.string().min(1).max(60).optional(),
+              })
+              .optional(),
           }),
         )
         .min(LIMITS.customerAccountBlocksMin)
         .max(LIMITS.customerAccountBlocksMax),
+      /**
+       * Protected-customer-data access the block relies on. DECLARATION only —
+       * access is granted app-wide (shopify.app.toml scopes + Partner data-protection
+       * request); surfaced to the merchant as a note. Data bindings that read
+       * name/email/address need `level2`; id/ordersCount need `level1`.
+       */
+      protectedData: z.enum(['none', 'level1', 'level2']).optional(),
       b2bOnly: z.boolean().default(false),
     }),
   }),

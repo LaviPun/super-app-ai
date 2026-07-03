@@ -222,8 +222,18 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
     moduleType: 'customerAccount.blocks',
     runtime: 'customer-account-ui',
     runtimeShipped: true,
-    requiredScopes: ['write_metaobjects'],
-    note: 'Renders in customer accounts via a customer-account UI extension.',
+    // write_metaobjects persists the block config; the customer_read_* scopes are
+    // required only for the live data bindings (order tracking/fulfillment/returns,
+    // store credit) — declared here so publish surfaces them. Bindings degrade
+    // gracefully when a scope isn't granted, so a block without bindings needs only
+    // write_metaobjects.
+    requiredScopes: [
+      'write_metaobjects',
+      'customer_read_orders',
+      'customer_read_customers',
+      'customer_read_store_credit_accounts',
+    ],
+    note: 'Renders in customer accounts via the shipped generic customer-account UI extension (all ~23 targets registered). Interactive + data-bound blocks (button/form/modal/order.action) resolve live values via the Customer Account/Order API; unresolved bindings degrade to literal content. Protected-customer-data scopes are granted app-wide and only gate bindings, not rendering.',
   },
 
   // ── Flow (shipped: extensions/superapp-flow-*) ─────────────────────────────
