@@ -43,6 +43,7 @@
     "@shopify/shopify-app-session-storage-prisma": "^5.2.3",
     "@superapp/core": "workspace:*",
     "@superapp/job-orchestration": "workspace:*",
+    "@superapp/network-security": "workspace:*",
     "@superapp/platform-contracts": "workspace:*",
     "@superapp/rate-limit": "workspace:*",
     "@superapp/workers": "workspace:*",

@@ -80,6 +80,10 @@ export function checkNonDestructive(ops: DeployOperation[]): NonDestructiveResul
         break;
       }
 
+      case 'WEB_PIXEL_UPSERT':
+        // Creates/updates only the app's own web pixel — never merchant assets.
+        break;
+
       case 'AUDIT':
         // Audit ops have no side effects — always safe.
         break;

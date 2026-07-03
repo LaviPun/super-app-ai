@@ -1,24 +1,27 @@
 import { json } from '@remix-run/node';
-import { useLoaderData } from '@remix-run/react';
-import { useState } from 'react';
+import { useFetcher, useLoaderData } from '@remix-run/react';
+import { useEffect, useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { SettingsService } from '~/services/settings/settings.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { AiProviderService } from '~/services/internal/ai-provider.service';
+import { decryptJson } from '~/services/security/crypto.server';
 import {
   useAdminCtx,
   Btn,
   Icon,
   Field,
   Input,
+  Select,
   Checkbox,
   Toggle,
   Banner,
+  Badge,
   Avatar,
   Card,
   CardHead,
   PageHead,
-  PROVIDERS,
+  EmptyState,
 } from '~/components/admin/page-kit';
 
 function getEnvKeyStatus() {
@@ -32,20 +35,61 @@ function getEnvKeyStatus() {
   };
 }
 
+/** Real (non-secret) env reference for the Environment tab; secrets are reported set/unset only. */
+function getEnvReference() {
+  const val = (v?: string) => {
+    const t = v?.trim();
+    return t ? t : null;
+  };
+  return {
+    scopes: val(process.env.SCOPES),
+    adminPasswordSet: !!val(process.env.INTERNAL_ADMIN_PASSWORD),
+    encryptionKeySet: !!val(process.env.ENCRYPTION_KEY),
+    aiRouterUrl: val(process.env.INTERNAL_AI_ROUTER_URL),
+    ollamaBaseUrl: val(process.env.ROUTER_OLLAMA_BASE_URL),
+    aiToolAuditRetentionDays: val(process.env.INTERNAL_AI_TOOL_AUDIT_RETENTION_DAYS),
+    ssoConfigured: !!(
+      val(process.env.INTERNAL_SSO_ISSUER) &&
+      val(process.env.INTERNAL_SSO_CLIENT_ID) &&
+      val(process.env.INTERNAL_SSO_CLIENT_SECRET) &&
+      val(process.env.INTERNAL_SSO_REDIRECT_URI)
+    ),
+  };
+}
+
+/** Masked display of a provider's real (encrypted-at-rest) API key. */
+function maskProviderKey(apiKeyEnc: string): string {
+  try {
+    const { apiKey } = decryptJson<{ apiKey: string }>(apiKeyEnc);
+    if (!apiKey || apiKey.length < 4) return '••••';
+    return '••••••••' + apiKey.slice(-4);
+  } catch {
+    return '—';
+  }
+}
+
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
-  const settings = await new SettingsService().get();
   const aiProviderService = new AiProviderService();
-  const defaultProviders = await aiProviderService.getDefaultProvidersForSettings();
-  const allProviders = await aiProviderService.list();
-  const activeProvider = await aiProviderService.getActive();
-  const envKeys = getEnvKeyStatus();
+  const [settings, defaultProviders, allProviders, activeProvider] = await Promise.all([
+    new SettingsService().get(),
+    aiProviderService.getDefaultProvidersForSettings(),
+    aiProviderService.list(),
+    aiProviderService.getActive(),
+  ]);
   return json({
     settings,
     defaultProviders,
-    allProviders: allProviders.map((p) => ({ id: p.id, name: p.name, provider: p.provider, isActive: p.isActive })),
+    allProviders: allProviders.map((p) => ({
+      id: p.id,
+      name: p.name,
+      provider: p.provider,
+      isActive: p.isActive,
+      apiKeyMasked: maskProviderKey(p.apiKeyEnc),
+    })),
     activeProviderId: activeProvider?.id ?? null,
-    envKeys,
+    envKeys: getEnvKeyStatus(),
+    envRef: getEnvReference(),
   });
 }
 
@@ -159,15 +203,87 @@ export async function action({ request }: { request: Request }) {
   return json({ error: 'Unknown intent' }, { status: 400 });
 }
 
+type SettingsActionData = { toast?: { message: string }; section?: string; error?: string };
+
+/** Fetcher whose toast always reflects the server response (error styling on failure). */
+function useSettingsFetcher() {
+  const fetcher = useFetcher<SettingsActionData>();
+  const ctx = useAdminCtx();
+  useEffect(() => {
+    if (fetcher.state === 'idle' && fetcher.data) {
+      if (fetcher.data.error) ctx.toast(fetcher.data.error, true);
+      else if (fetcher.data.toast?.message) ctx.toast(fetcher.data.toast.message);
+    }
+  }, [fetcher.state, fetcher.data, ctx]);
+  return fetcher;
+}
+
 export default function AdminSettings() {
-  const data = useLoaderData<typeof loader>();
+  const { settings, defaultProviders, allProviders, activeProviderId, envKeys, envRef } = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
   const [tab, setTab] = useState('appearance');
-  const [color, setColor] = useState((data.settings as any)?.headerColor || '#1F3A5F');
+  const [color, setColor] = useState(settings.headerColor);
 
-  const adminName = (data.settings as any)?.adminName ?? 'Lavi Admin';
-  const appName = (data.settings as any)?.appName ?? 'SuperApp AI';
-  const providerRows: any[] = data.allProviders.length ? data.allProviders.map((p: any) => ({ ...p, key: '••••••••••' + String(p.id).slice(-4) })) : PROVIDERS;
+  const appearanceFetcher = useSettingsFetcher();
+  const profileFetcher = useSettingsFetcher();
+  const contactFetcher = useSettingsFetcher();
+  const configFetcher = useSettingsFetcher();
+  const moduleEngineFetcher = useSettingsFetcher();
+  const openaiFetcher = useSettingsFetcher();
+  const claudeFetcher = useSettingsFetcher();
+  const defaultAiFetcher = useSettingsFetcher();
+  const mainApiFetcher = useSettingsFetcher();
+
+  const [mainApiProviderId, setMainApiProviderId] = useState(activeProviderId ?? '');
+  useEffect(() => {
+    setMainApiProviderId(activeProviderId ?? '');
+  }, [activeProviderId]);
+
+  const [defaultAi, setDefaultAi] = useState<'openai' | 'claude' | null>(settings.defaultAiProvider);
+  useEffect(() => {
+    setDefaultAi(settings.defaultAiProvider);
+  }, [settings.defaultAiProvider]);
+
+  const claudeExtra = (() => {
+    if (!defaultProviders.claude?.extraConfig) return { skills: '', codeExecution: false };
+    try {
+      const c = JSON.parse(defaultProviders.claude.extraConfig) as { skills?: string[]; codeExecution?: boolean };
+      return { skills: c.skills?.join(', ') ?? '', codeExecution: !!c.codeExecution };
+    } catch {
+      return { skills: '', codeExecution: false };
+    }
+  })();
+  const [claudeCodeExecution, setClaudeCodeExecution] = useState(claudeExtra.codeExecution);
+
+  const mainApiOptions = allProviders.map((p) => ({
+    label:
+      p.provider === 'OPENAI'
+        ? 'OpenAI'
+        : p.provider === 'ANTHROPIC'
+          ? 'Claude (Anthropic)'
+          : p.name.replace(/\s*\(default\)\s*$/i, '').trim() || p.provider,
+    value: p.id,
+  }));
+
+  // The Advanced toggles post the full `config` payload so untouched fields
+  // (timezone, date format, recipients, maintenance message) are preserved.
+  const submitConfig = (overrides: { maintenanceMode?: boolean; enableEmailAlerts?: boolean }) => {
+    const fd = new FormData();
+    fd.set('intent', 'config');
+    fd.set('defaultTimezone', settings.defaultTimezone);
+    fd.set('dateFormat', settings.dateFormat);
+    fd.set('enableEmailAlerts', String(overrides.enableEmailAlerts ?? settings.enableEmailAlerts));
+    fd.set('alertRecipients', settings.alertRecipients ?? '');
+    fd.set('maintenanceMode', String(overrides.maintenanceMode ?? settings.maintenanceMode));
+    fd.set('maintenanceMessage', settings.maintenanceMessage ?? '');
+    configFetcher.submit(fd, { method: 'post' });
+  };
+  const maintenanceChecked = configFetcher.formData
+    ? configFetcher.formData.get('maintenanceMode') === 'true'
+    : settings.maintenanceMode;
+  const emailAlertsChecked = configFetcher.formData
+    ? configFetcher.formData.get('enableEmailAlerts') === 'true'
+    : settings.enableEmailAlerts;
 
   return (
     <div className="page page-narrow">
@@ -192,83 +308,93 @@ export default function AdminSettings() {
         <div className="grow">
           {tab === 'appearance' && (
             <Card pad>
-              <div className="stack-5">
+              <appearanceFetcher.Form method="post" className="stack-5">
+                <input type="hidden" name="intent" value="appearance" />
+                <input type="hidden" name="faviconUrl" value={settings.faviconUrl ?? ''} />
                 <div className="t-h3">Appearance</div>
                 <Field label="App name">
-                  <Input defaultValue={appName} />
+                  <Input name="appName" defaultValue={settings.appName} />
                 </Field>
                 <Field label="Header / brand color" help="Applied to the admin top bar and nav">
                   <div className="row-2">
                     {['#1F3A5F', '#14213A', '#0E9F6E', '#6B40D8'].map((c) => (
                       <button
                         key={c}
+                        type="button"
                         className="swatch"
                         style={{ width: 30, height: 30, background: c, outline: c === color ? '2px solid var(--sa-secondary)' : 'none', outlineOffset: 2 }}
                         onClick={() => setColor(c)}
                       />
                     ))}
-                    <Input mono value={color} onChange={(e: any) => setColor(e.target.value)} style={{ width: 120 }} />
+                    <Input mono name="headerColor" value={color} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setColor(e.target.value)} style={{ width: 120 }} />
                   </div>
                 </Field>
                 <Field label="Logo URL" optional>
-                  <Input mono placeholder="https://…" />
+                  <Input mono name="logoUrl" placeholder="https://…" defaultValue={settings.logoUrl ?? ''} />
                 </Field>
                 <div>
-                  <Btn variant="primary" onClick={() => ctx.toast('Appearance saved')}>
+                  <Btn variant="primary" type="submit" loading={appearanceFetcher.state !== 'idle'}>
                     Save
                   </Btn>
                 </div>
-              </div>
+              </appearanceFetcher.Form>
             </Card>
           )}
           {tab === 'profile' && (
             <Card pad>
-              <div className="stack-5">
+              <profileFetcher.Form method="post" className="stack-5">
+                <input type="hidden" name="intent" value="profile" />
                 <div className="t-h3">Profile</div>
                 <div className="row-3">
-                  <Avatar name={adminName} size={56} />
-                  <Btn icon="upload">Upload photo</Btn>
+                  <Avatar name={settings.adminName} src={settings.profilePicUrl || undefined} size={56} />
                 </div>
                 <Field label="Admin name">
-                  <Input defaultValue={adminName} />
+                  <Input name="adminName" defaultValue={settings.adminName} />
                 </Field>
                 <Field label="Email">
-                  <Input defaultValue="lavi@superapp.ai" />
+                  <Input name="adminEmail" type="email" defaultValue={settings.adminEmail ?? ''} />
+                </Field>
+                <Field label="Profile picture URL" optional help="URL to a square photo. Leave blank for the initials avatar.">
+                  <Input mono name="profilePicUrl" placeholder="https://…" defaultValue={settings.profilePicUrl ?? ''} />
                 </Field>
                 <div>
-                  <Btn variant="primary" onClick={() => ctx.toast('Profile saved')}>
+                  <Btn variant="primary" type="submit" loading={profileFetcher.state !== 'idle'}>
                     Save
                   </Btn>
                 </div>
-              </div>
+              </profileFetcher.Form>
             </Card>
           )}
           {tab === 'contact' && (
             <Card pad>
-              <div className="stack-5">
+              <contactFetcher.Form method="post" className="stack-5">
+                <input type="hidden" name="intent" value="contact" />
                 <div className="t-h3">Contact & Legal</div>
                 <div className="grid grid-2">
                   <Field label="Company name">
-                    <Input defaultValue="SuperApp AI Inc." />
+                    <Input name="companyName" defaultValue={settings.companyName ?? ''} />
                   </Field>
                   <Field label="Support email">
-                    <Input defaultValue="support@superapp.ai" />
+                    <Input name="supportEmail" type="email" defaultValue={settings.supportEmail ?? ''} />
                   </Field>
                 </div>
+                <Field label="Support URL" optional>
+                  <Input mono name="supportUrl" placeholder="https://…" defaultValue={settings.supportUrl ?? ''} />
+                </Field>
                 <div className="grid grid-2">
                   <Field label="Privacy URL">
-                    <Input mono defaultValue="https://superapp.ai/privacy" />
+                    <Input mono name="privacyUrl" defaultValue={settings.privacyUrl ?? ''} />
                   </Field>
                   <Field label="Terms URL">
-                    <Input mono defaultValue="https://superapp.ai/terms" />
+                    <Input mono name="termsUrl" defaultValue={settings.termsUrl ?? ''} />
                   </Field>
                 </div>
                 <div>
-                  <Btn variant="primary" onClick={() => ctx.toast('Saved')}>
+                  <Btn variant="primary" type="submit" loading={contactFetcher.state !== 'idle'}>
                     Save
                   </Btn>
                 </div>
-              </div>
+              </contactFetcher.Form>
             </Card>
           )}
           {tab === 'keys' && (
@@ -278,14 +404,125 @@ export default function AdminSettings() {
                 <Banner tone="info" action={<Btn size="sm" onClick={() => ctx.go('#/admin/ai-providers')}>Manage AI providers</Btn>}>
                   Provider keys (OpenAI, Claude) live under AI Providers. Internal flows always default to self-hosted Qwen3.
                 </Banner>
-                <div className="stack-2">
-                  {providerRows.map((p: any) => (
-                    <div key={p.id} className="row spread" style={{ padding: '8px 0', borderBottom: '1px solid var(--p-border)' }}>
-                      <span className="t-sm t-strong">{p.name}</span>
-                      <span className="t-mono t-xs">{p.key}</span>
+                {allProviders.length > 0 ? (
+                  <div className="stack-2">
+                    {allProviders.map((p) => (
+                      <div key={p.id} className="row spread" style={{ padding: '8px 0', borderBottom: '1px solid var(--p-border)' }}>
+                        <span className="row-2">
+                          <span className="t-sm t-strong">{p.name}</span>
+                          {p.id === activeProviderId && (
+                            <Badge tone="success" dot>
+                              Main API
+                            </Badge>
+                          )}
+                        </span>
+                        <span className="t-mono t-xs">{p.apiKeyMasked}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState icon="key" title="No providers configured yet">
+                    Save an OpenAI or Claude key below, or add providers under AI Providers.
+                  </EmptyState>
+                )}
+                {allProviders.length > 0 && (
+                  <mainApiFetcher.Form method="post">
+                    <input type="hidden" name="intent" value="setMainApi" />
+                    <Field label="Main API" help="Only the selected provider is used by default.">
+                      <div className="row-2">
+                        <Select
+                          name="mainApiProviderId"
+                          value={mainApiProviderId}
+                          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setMainApiProviderId(e.target.value)}
+                          options={[{ label: 'Select one…', value: '' }, ...mainApiOptions]}
+                        />
+                        <Btn variant="primary" type="submit" disabled={!mainApiProviderId} loading={mainApiFetcher.state !== 'idle'}>
+                          Set as main API
+                        </Btn>
+                      </div>
+                    </Field>
+                  </mainApiFetcher.Form>
+                )}
+                {allProviders.length === 0 && (envKeys.openaiEnvConfigured || envKeys.claudeEnvConfigured) && (
+                  <defaultAiFetcher.Form method="post" className="stack-2">
+                    <input type="hidden" name="intent" value="saveDefaultAi" />
+                    <input type="hidden" name="defaultAiProvider" value={defaultAi ?? ''} />
+                    <Field label="Default provider (.env keys)" help="When using .env keys only, choose which provider is preferred.">
+                      <div className="stack-2">
+                        <Checkbox
+                          label="Use OpenAI as default"
+                          checked={defaultAi === 'openai'}
+                          onChange={() => setDefaultAi((prev) => (prev === 'openai' ? null : 'openai'))}
+                        />
+                        <Checkbox
+                          label="Use Claude as default"
+                          checked={defaultAi === 'claude'}
+                          onChange={() => setDefaultAi((prev) => (prev === 'claude' ? null : 'claude'))}
+                        />
+                      </div>
+                    </Field>
+                    <div>
+                      <Btn type="submit" loading={defaultAiFetcher.state !== 'idle'}>
+                        Save
+                      </Btn>
                     </div>
-                  ))}
-                </div>
+                  </defaultAiFetcher.Form>
+                )}
+                <div className="divider" />
+                <openaiFetcher.Form method="post" className="stack-4">
+                  <input type="hidden" name="intent" value="saveOpenAI" />
+                  <div className="t-h3">OpenAI</div>
+                  <Field
+                    label="API key"
+                    help={
+                      defaultProviders.openai
+                        ? `In database: ${defaultProviders.openai.apiKeyMasked}`
+                        : envKeys.openaiEnvConfigured
+                          ? `From .env: ${envKeys.openaiEnvMasked}`
+                          : undefined
+                    }
+                  >
+                    <Input mono type="password" name="openaiApiKey" placeholder="Leave blank to keep existing" autoComplete="off" />
+                  </Field>
+                  <Field label="Default model" optional>
+                    <Input mono name="openaiModel" defaultValue={defaultProviders.openai?.model ?? ''} placeholder="gpt-4o-mini" />
+                  </Field>
+                  <div>
+                    <Btn variant="primary" type="submit" loading={openaiFetcher.state !== 'idle'}>
+                      Save OpenAI
+                    </Btn>
+                  </div>
+                </openaiFetcher.Form>
+                <div className="divider" />
+                <claudeFetcher.Form method="post" className="stack-4">
+                  <input type="hidden" name="intent" value="saveClaude" />
+                  <input type="hidden" name="claudeCodeExecution" value={claudeCodeExecution ? 'true' : 'false'} />
+                  <div className="t-h3">Claude (Anthropic)</div>
+                  <Field
+                    label="API key"
+                    help={
+                      defaultProviders.claude
+                        ? `In database: ${defaultProviders.claude.apiKeyMasked}`
+                        : envKeys.claudeEnvConfigured
+                          ? `From .env: ${envKeys.claudeEnvMasked}`
+                          : undefined
+                    }
+                  >
+                    <Input mono type="password" name="claudeApiKey" placeholder="Leave blank to keep existing" autoComplete="off" />
+                  </Field>
+                  <Field label="Default model" optional>
+                    <Input mono name="claudeModel" defaultValue={defaultProviders.claude?.model ?? ''} placeholder="claude-sonnet-4-20250514" />
+                  </Field>
+                  <Field label="Agent Skills" optional help="Comma-separated, e.g. pptx, xlsx, docx">
+                    <Input mono name="claudeSkills" defaultValue={claudeExtra.skills} placeholder="pptx, xlsx, docx" />
+                  </Field>
+                  <Checkbox label="Enable code execution" checked={claudeCodeExecution} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setClaudeCodeExecution(e.target.checked)} />
+                  <div>
+                    <Btn variant="primary" type="submit" loading={claudeFetcher.state !== 'idle'}>
+                      Save Claude
+                    </Btn>
+                  </div>
+                </claudeFetcher.Form>
               </div>
             </Card>
           )}
@@ -293,15 +530,21 @@ export default function AdminSettings() {
             <Card pad>
               <div className="stack-5">
                 <div className="t-h3">Password & SSO</div>
-                <Field label="INTERNAL_ADMIN_PASSWORD" help="Rotate the shared internal admin password">
-                  <Input type="password" placeholder="••••••••••••" />
+                <Field
+                  label="INTERNAL_ADMIN_PASSWORD"
+                  help="Set via .env (or your deployment config) and restart the app — the shared internal admin password cannot be rotated from this page."
+                >
+                  <Input mono disabled defaultValue={envRef.adminPasswordSet ? '••••••••••••' : '(not set)'} />
                 </Field>
                 <div className="divider" />
-                <Checkbox defaultChecked label="Enable OIDC SSO" sub="Google OAuth / Okta via INTERNAL_SSO_* env vars" />
-                <div>
-                  <Btn variant="primary" onClick={() => ctx.toast('Security updated')}>
-                    Save
-                  </Btn>
+                <div className="row spread">
+                  <span className="stack" style={{ gap: 1 }}>
+                    <span className="field-label">OIDC SSO</span>
+                    <span className="t-xs t-muted">Google OAuth / Okta via INTERNAL_SSO_* env vars</span>
+                  </span>
+                  <Badge tone={envRef.ssoConfigured ? 'success' : undefined} dot>
+                    {envRef.ssoConfigured ? 'Configured' : 'Not configured'}
+                  </Badge>
                 </div>
               </div>
             </Card>
@@ -310,7 +553,16 @@ export default function AdminSettings() {
             <Card>
               <CardHead title="Environment variables" sub="Reference — values are read from .env at boot" />
               <pre className="code-block" style={{ margin: 16 }}>
-                {'SCOPES=read_products,write_products,read_orders\nINTERNAL_ADMIN_PASSWORD=••••••••\nENCRYPTION_KEY=••••••••\nINTERNAL_AI_ROUTER_URL=https://…modal.run\nROUTER_OLLAMA_BASE_URL=http://127.0.0.1:11434\nINTERNAL_AI_TOOL_AUDIT_RETENTION_DAYS=90'}
+                {[
+                  `SCOPES=${envRef.scopes ?? '(not set)'}`,
+                  `INTERNAL_ADMIN_PASSWORD=${envRef.adminPasswordSet ? '••••••••' : '(not set)'}`,
+                  `ENCRYPTION_KEY=${envRef.encryptionKeySet ? '••••••••' : '(not set)'}`,
+                  `OPENAI_API_KEY=${envKeys.openaiEnvConfigured ? envKeys.openaiEnvMasked : '(not set)'}`,
+                  `ANTHROPIC_API_KEY=${envKeys.claudeEnvConfigured ? envKeys.claudeEnvMasked : '(not set)'}`,
+                  `INTERNAL_AI_ROUTER_URL=${envRef.aiRouterUrl ?? '(not set)'}`,
+                  `ROUTER_OLLAMA_BASE_URL=${envRef.ollamaBaseUrl ?? '(not set)'}`,
+                  `INTERNAL_AI_TOOL_AUDIT_RETENTION_DAYS=${envRef.aiToolAuditRetentionDays ?? '(not set)'}`,
+                ].join('\n')}
               </pre>
             </Card>
           )}
@@ -323,32 +575,40 @@ export default function AdminSettings() {
                     <span className="field-label">Maintenance mode</span>
                     <span className="t-xs t-muted">Show a maintenance banner to all merchants</span>
                   </span>
-                  <Toggle onChange={(e: any) => ctx.toast('Maintenance mode ' + (e.target.checked ? 'on' : 'off'))} />
+                  <Toggle checked={maintenanceChecked} onChange={(e: React.ChangeEvent<HTMLInputElement>) => submitConfig({ maintenanceMode: e.target.checked })} />
                 </label>
                 <label className="row spread">
                   <span className="stack" style={{ gap: 1 }}>
                     <span className="field-label">Email alerts</span>
                     <span className="t-xs t-muted">Notify on release-gate trips and DLQ growth</span>
                   </span>
-                  <Toggle defaultChecked onChange={(e: any) => ctx.toast('Email alerts ' + (e.target.checked ? 'on' : 'off'))} />
+                  <Toggle checked={emailAlertsChecked} onChange={(e: React.ChangeEvent<HTMLInputElement>) => submitConfig({ enableEmailAlerts: e.target.checked })} />
                 </label>
+                <div className="divider" />
+                <moduleEngineFetcher.Form method="post" className="row spread">
+                  <input type="hidden" name="intent" value="saveModuleEngine" />
+                  <span className="stack" style={{ gap: 1 }}>
+                    <span className="field-label">Module System engine</span>
+                    <span className="t-xs t-muted">v2 renders module settings from composable control packs</span>
+                  </span>
+                  <div className="row-2">
+                    <Select
+                      name="moduleSystemVersion"
+                      defaultValue={settings.moduleSystemVersion}
+                      options={[
+                        { label: 'v1 — legacy', value: 'v1' },
+                        { label: 'v2 — control packs', value: 'v2' },
+                      ]}
+                    />
+                    <Btn variant="primary" type="submit" loading={moduleEngineFetcher.state !== 'idle'}>
+                      Save engine
+                    </Btn>
+                  </div>
+                </moduleEngineFetcher.Form>
                 <div className="divider" />
                 <Banner tone="warning" title="Store & plan control">
                   Change any store’s plan without Shopify billing from the store detail page.
                 </Banner>
-                <div className="divider" />
-                <div className="t-h3" style={{ color: 'var(--p-critical-text)' }}>
-                  Danger zone
-                </div>
-                <div className="row spread" style={{ padding: '6px 0' }}>
-                  <span className="stack" style={{ gap: 1 }}>
-                    <span className="field-label">Reset demo data</span>
-                    <span className="t-xs t-muted">Discard every change you have made and restore the seed dataset.</span>
-                  </span>
-                  <Btn className="btn-critical" icon="refresh" onClick={() => ctx.toast('Demo data reset')}>
-                    Reset demo data
-                  </Btn>
-                </div>
               </div>
             </Card>
           )}

@@ -12,27 +12,13 @@ import {
   StatusBadge,
   Card,
   DataTable,
+  EmptyState,
   PageHead,
   FilterBar,
   MonoChip,
   useTableState,
   titleCase,
-  ERROR_LOGS,
 } from '~/components/admin/page-kit';
-
-type ErrorLogDetailData = {
-  id: string;
-  level: string;
-  message: string;
-  stack: string | null;
-  route: string | null;
-  source: string | null;
-  shopDomain: string | null;
-  metaJson: string | null;
-  createdAt: string;
-  requestId: string | null;
-  correlationId: string | null;
-};
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
@@ -105,9 +91,7 @@ export default function AdminLogs() {
   const ts = useTableState();
   const [level, setLevel] = useState('All');
 
-  const ROWS: any[] = data.logs.length
-    ? data.logs.map((l) => ({ id: l.id, level: l.level, message: l.message, source: l.source, route: l.route, shop: l.shopDomain ?? '—', created: relLog(l.createdAt), correlationId: l.correlationId ?? '' }))
-    : ERROR_LOGS;
+  const ROWS: any[] = data.logs.map((l) => ({ id: l.id, level: l.level, message: l.message, source: l.source, route: l.route, shop: l.shopDomain ?? '—', created: relLog(l.createdAt), correlationId: l.correlationId ?? '' }));
   const rows = ROWS.filter((e) => (level === 'All' || e.level === level) && (e.message + e.route).toLowerCase().includes(ts.search.toLowerCase()));
 
   return (
@@ -121,33 +105,57 @@ export default function AdminLogs() {
           results={rows.length}
           filters={[{ options: ['All', 'ERROR', 'WARN', 'INFO'].map((l) => ({ value: l, label: l === 'All' ? 'All levels' : titleCase(l) })), value: level, onChange: setLevel }]}
         />
-        <DataTable
-          rowKey="id"
-          onRowClick={(r: any) => ctx.go('#/admin/errors/' + r.id)}
-          columns={[
-            { key: 'level', label: 'Level', width: 90, render: (r: any) => <StatusBadge value={r.level} /> },
-            { key: 'message', label: 'Message', render: (r: any) => <span className="cell-strong t-trunc" style={{ maxWidth: 420, display: 'inline-block' }}>{r.message}</span> },
-            { key: 'source', label: 'Source', render: (r: any) => <Badge>{r.source}</Badge> },
-            { key: 'route', label: 'Route', render: (r: any) => <MonoChip>{r.route}</MonoChip> },
-            { key: 'shop', label: 'Store', render: (r: any) => <span className="cell-sub t-trunc" style={{ maxWidth: 180, display: 'inline-block' }}>{r.shop}</span> },
-            { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{r.created}</span> },
-            {
-              key: 'act',
-              label: '',
-              render: (r: any) => (
-                <div className="dt-actions">
-                  <Btn size="sm" icon="eye" className="btn-plain" onClick={() => ctx.go('#/admin/errors/' + r.id)}>
-                    View
-                  </Btn>
-                  <Btn size="sm" icon="transfer" className="btn-plain" onClick={() => ctx.go('#/admin/trace/' + r.correlationId)}>
-                    Trace
-                  </Btn>
-                </div>
-              ),
-            },
-          ]}
-          rows={rows}
-        />
+        {rows.length ? (
+          <DataTable
+            rowKey="id"
+            onRowClick={(r: any) => ctx.go('#/admin/logs/' + r.id)}
+            columns={[
+              { key: 'level', label: 'Level', width: 90, render: (r: any) => <StatusBadge value={r.level} /> },
+              { key: 'message', label: 'Message', render: (r: any) => <span className="cell-strong t-trunc" style={{ maxWidth: 420, display: 'inline-block' }}>{r.message}</span> },
+              { key: 'source', label: 'Source', render: (r: any) => <Badge>{r.source}</Badge> },
+              { key: 'route', label: 'Route', render: (r: any) => <MonoChip>{r.route}</MonoChip> },
+              { key: 'shop', label: 'Store', render: (r: any) => <span className="cell-sub t-trunc" style={{ maxWidth: 180, display: 'inline-block' }}>{r.shop}</span> },
+              { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{r.created}</span> },
+              {
+                key: 'act',
+                label: '',
+                render: (r: any) => (
+                  <div className="dt-actions">
+                    <Btn
+                      size="sm"
+                      icon="eye"
+                      className="btn-plain"
+                      onClick={(e: any) => {
+                        e.stopPropagation();
+                        ctx.go('#/admin/logs/' + r.id);
+                      }}
+                    >
+                      View
+                    </Btn>
+                    {r.correlationId ? (
+                      <Btn
+                        size="sm"
+                        icon="transfer"
+                        className="btn-plain"
+                        onClick={(e: any) => {
+                          e.stopPropagation();
+                          ctx.go('#/admin/trace/' + r.correlationId);
+                        }}
+                      >
+                        Trace
+                      </Btn>
+                    ) : null}
+                  </div>
+                ),
+              },
+            ]}
+            rows={rows}
+          />
+        ) : (
+          <EmptyState icon="bug" title={data.logs.length ? 'No matching errors' : 'No error logs yet'}>
+            {data.logs.length ? 'Adjust the level filter or search to see more results.' : 'Errors captured by the API, server and client will appear here.'}
+          </EmptyState>
+        )}
       </Card>
     </div>
   );

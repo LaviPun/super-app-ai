@@ -1,6 +1,6 @@
 import { json } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagination.server';
@@ -13,13 +13,13 @@ import {
   Banner,
   StatusDot,
   DataTable,
+  EmptyState,
   PageHead,
   FilterBar,
   MonoChip,
   useTableState,
   fmtMs,
   titleCase,
-  API_LOGS,
 } from '~/components/admin/page-kit';
 
 export async function loader({ request }: { request: Request }) {
@@ -93,19 +93,56 @@ function relApi(iso: string): string {
   return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
 }
 
+type LiveLog = {
+  id: string;
+  actor: string;
+  method: string;
+  path: string;
+  status: number;
+  durationMs: number;
+  shopDomain: string | null;
+  createdAt: string;
+  correlationId: string | null;
+  requestId: string | null;
+};
+
 export default function AdminApiLogs() {
   const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
   const ts = useTableState();
   const [actor, setActor] = useState('All');
   const [live, setLive] = useState(false);
+  const [liveRows, setLiveRows] = useState<LiveLog[]>([]);
 
-  const ROWS: any[] = data.logs.length
-    ? data.logs.map((l) => ({
-        id: l.id, actor: l.actor, method: l.method, path: l.path, status: l.status, durationMs: l.durationMs,
-        shop: l.shopDomain ?? '—', requestId: l.requestId ?? '—', correlationId: l.correlationId ?? '', success: l.status < 400, created: relApi(l.createdAt),
-      }))
-    : API_LOGS;
+  // Live tail: consume the real SSE endpoint. New `log` events are prepended;
+  // the EventSource is closed on toggle-off/unmount.
+  useEffect(() => {
+    if (!live) return;
+    const since = data.logs[0]?.createdAt ?? new Date().toISOString();
+    const es = new EventSource('/internal/api-logs/stream?since=' + encodeURIComponent(since));
+    es.addEventListener('log', (evt) => {
+      try {
+        const l = JSON.parse((evt as MessageEvent).data) as LiveLog;
+        setLiveRows((prev) => (prev.some((p) => p.id === l.id) ? prev : [l, ...prev].slice(0, 200)));
+      } catch {
+        // ignore malformed frames
+      }
+    });
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) {
+        setLive(false);
+        ctx.toast('Live tail disconnected', true);
+      }
+    };
+    return () => es.close();
+  }, [live, data.logs, ctx]);
+
+  const mapRow = (l: { id: string; actor: string; method: string; path: string; status: number; durationMs: number; shopDomain: string | null; createdAt: string; correlationId: string | null; requestId: string | null }) => ({
+    id: l.id, actor: l.actor, method: l.method, path: l.path, status: l.status, durationMs: l.durationMs,
+    shop: l.shopDomain ?? '—', requestId: l.requestId ?? '—', correlationId: l.correlationId ?? '', success: l.status < 400, created: relApi(l.createdAt),
+  });
+  const liveIds = new Set(liveRows.map((l) => l.id));
+  const ROWS: any[] = [...liveRows, ...data.logs.filter((l) => !liveIds.has(l.id))].map(mapRow);
   const rows = ROWS.filter((l) => (actor === 'All' || l.actor === actor) && (l.path + l.shop).toLowerCase().includes(ts.search.toLowerCase()));
 
   return (
@@ -136,41 +173,58 @@ export default function AdminApiLogs() {
             { options: ['All', 'MERCHANT', 'INTERNAL', 'WEBHOOK', 'APP_PROXY'].map((a) => ({ value: a, label: a === 'All' ? 'All actors' : titleCase(a) })), value: actor, onChange: setActor },
           ]}
         />
-        <DataTable
-          rowKey="id"
-          columns={[
-            { key: 'method', label: 'Method', width: 80, render: (r: any) => <Badge tone={METHOD_TONE[r.method]}>{r.method}</Badge> },
-            { key: 'path', label: 'Path', render: (r: any) => <MonoChip>{r.path}</MonoChip> },
-            {
-              key: 'status',
-              label: 'Status',
-              width: 80,
-              render: (r: any) => (
-                <span className="row-2">
-                  <StatusDot ok={r.success} />
-                  <span className="t-strong t-num">{r.status}</span>
-                </span>
-              ),
-            },
-            { key: 'actor', label: 'Actor', render: (r: any) => <Badge>{titleCase(r.actor)}</Badge> },
-            { key: 'durationMs', label: 'Duration', num: true, render: (r: any) => fmtMs(r.durationMs) },
-            { key: 'shop', label: 'Store', render: (r: any) => <span className="cell-sub t-trunc" style={{ maxWidth: 180, display: 'inline-block' }}>{r.shop}</span> },
-            { key: 'requestId', label: 'Request ID', render: (r: any) => <span className="t-mono t-xs t-muted">{r.requestId}</span> },
-            { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{r.created}</span> },
-            {
-              key: 'act',
-              label: '',
-              render: (r: any) => (
-                <div className="dt-actions">
-                  <Btn size="sm" icon="transfer" className="btn-plain" onClick={() => ctx.go('#/admin/trace/' + r.correlationId)}>
-                    Trace
-                  </Btn>
-                </div>
-              ),
-            },
-          ]}
-          rows={rows}
-        />
+        {rows.length ? (
+          <DataTable
+            rowKey="id"
+            onRowClick={(r: any) => ctx.go('#/admin/api-logs/' + r.id)}
+            columns={[
+              { key: 'method', label: 'Method', width: 80, render: (r: any) => <Badge tone={METHOD_TONE[r.method]}>{r.method}</Badge> },
+              { key: 'path', label: 'Path', render: (r: any) => <MonoChip>{r.path}</MonoChip> },
+              {
+                key: 'status',
+                label: 'Status',
+                width: 80,
+                render: (r: any) => (
+                  <span className="row-2">
+                    <StatusDot ok={r.success} />
+                    <span className="t-strong t-num">{r.status}</span>
+                  </span>
+                ),
+              },
+              { key: 'actor', label: 'Actor', render: (r: any) => <Badge>{titleCase(r.actor)}</Badge> },
+              { key: 'durationMs', label: 'Duration', num: true, render: (r: any) => fmtMs(r.durationMs) },
+              { key: 'shop', label: 'Store', render: (r: any) => <span className="cell-sub t-trunc" style={{ maxWidth: 180, display: 'inline-block' }}>{r.shop}</span> },
+              { key: 'requestId', label: 'Request ID', render: (r: any) => <span className="t-mono t-xs t-muted">{r.requestId}</span> },
+              { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{r.created}</span> },
+              {
+                key: 'act',
+                label: '',
+                render: (r: any) => (
+                  <div className="dt-actions">
+                    {r.correlationId ? (
+                      <Btn
+                        size="sm"
+                        icon="transfer"
+                        className="btn-plain"
+                        onClick={(e: any) => {
+                          e.stopPropagation();
+                          ctx.go('#/admin/trace/' + r.correlationId);
+                        }}
+                      >
+                        Trace
+                      </Btn>
+                    ) : null}
+                  </div>
+                ),
+              },
+            ]}
+            rows={rows}
+          />
+        ) : (
+          <EmptyState icon="table" title={ROWS.length ? 'No matching requests' : 'No API logs yet'}>
+            {ROWS.length ? 'Adjust the actor filter or search to see more results.' : 'API calls recorded by the app will appear here.'}
+          </EmptyState>
+        )}
       </Card>
     </div>
   );

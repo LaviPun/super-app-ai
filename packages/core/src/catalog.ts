@@ -1,4 +1,4 @@
-import generated from './catalog.generated.json';
+import generated from './catalog.generated.json' with { type: 'json' };
 import type { Capability } from './capabilities.js';
 import type { ModuleCategory, ModuleType } from './allowed-values.js';
 import type { CatalogFamily } from './catalog.generator.js';

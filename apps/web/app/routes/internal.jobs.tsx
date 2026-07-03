@@ -1,6 +1,6 @@
 import { json } from '@remix-run/node';
-import { useLoaderData } from '@remix-run/react';
-import { useState } from 'react';
+import { useFetcher, useLoaderData } from '@remix-run/react';
+import { useEffect, useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagination.server';
@@ -15,6 +15,7 @@ import {
   Card,
   ConfirmDialog,
   DataTable,
+  EmptyState,
   PageHead,
   FilterBar,
   StatTile,
@@ -22,46 +23,71 @@ import {
   useTableState,
   fmtMs,
   titleCase,
-  JOBS,
-  JOB_TYPES,
 } from '~/components/admin/page-kit';
 
 const KNOWN_JOB_TYPES: readonly JobType[] = [
   'AI_GENERATE', 'AI_HYDRATE', 'AI_MODIFY', 'PUBLISH', 'CONNECTOR_TEST', 'FLOW_RUN', 'THEME_ANALYZE',
 ];
 
+/** Max failed jobs re-enqueued by a single "Replay all DLQ" request. */
+const REPLAY_ALL_LIMIT = 500;
+
+function parseJobPayload(raw: string | null): unknown {
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return raw; }
+}
+
 export async function action({ request }: { request: Request }) {
   await requireInternalAdmin(request);
   const formData = await request.formData();
   const intent = String(formData.get('intent') ?? '');
-  if (intent !== 'replay') {
-    return json({ ok: false, error: 'Unknown intent' }, { status: 400 });
-  }
-  const jobId = String(formData.get('jobId') ?? '');
-  if (!jobId) return json({ ok: false, error: 'Missing jobId' }, { status: 400 });
-
   const prisma = getPrisma();
-  const original = await prisma.job.findUnique({ where: { id: jobId } });
-  if (!original) return json({ ok: false, error: 'Job not found' }, { status: 404 });
-
-  if (!(KNOWN_JOB_TYPES as readonly string[]).includes(original.type)) {
-    return json({ ok: false, error: `Unknown job type ${original.type}` }, { status: 400 });
-  }
-
-  let payload: unknown = null;
-  if (original.payload) {
-    try { payload = JSON.parse(original.payload); } catch { payload = original.payload; }
-  }
-
-  const replayCorrelation = original.correlationId ?? generateCorrelationId();
   const svc = new JobService();
-  const created = await svc.create({
-    shopId: original.shopId ?? undefined,
-    type: original.type as JobType,
-    payload,
-    correlationId: replayCorrelation,
-  });
-  return json({ ok: true, newJobId: created.id, correlationId: replayCorrelation });
+
+  if (intent === 'replay') {
+    const jobId = String(formData.get('jobId') ?? '');
+    if (!jobId) return json({ ok: false, message: 'Missing jobId' }, { status: 400 });
+
+    const original = await prisma.job.findUnique({ where: { id: jobId } });
+    if (!original) return json({ ok: false, message: 'Job not found' }, { status: 404 });
+
+    if (!(KNOWN_JOB_TYPES as readonly string[]).includes(original.type)) {
+      return json({ ok: false, message: `Unknown job type ${original.type}` }, { status: 400 });
+    }
+
+    const replayCorrelation = original.correlationId ?? generateCorrelationId();
+    const created = await svc.create({
+      shopId: original.shopId ?? undefined,
+      type: original.type as JobType,
+      payload: parseJobPayload(original.payload),
+      correlationId: replayCorrelation,
+    });
+    return json({ ok: true, message: 'Replayed ' + jobId + ' as ' + created.id, newJobId: created.id, correlationId: replayCorrelation });
+  }
+
+  if (intent === 'replay_all') {
+    const failedJobs = await prisma.job.findMany({
+      where: { status: 'FAILED', type: { in: [...KNOWN_JOB_TYPES] } },
+      orderBy: { createdAt: 'desc' },
+      take: REPLAY_ALL_LIMIT,
+    });
+    if (failedJobs.length === 0) {
+      return json({ ok: false, message: 'No failed jobs to replay' }, { status: 400 });
+    }
+    const created = await Promise.all(
+      failedJobs.map((original) =>
+        svc.create({
+          shopId: original.shopId ?? undefined,
+          type: original.type as JobType,
+          payload: parseJobPayload(original.payload),
+          correlationId: original.correlationId ?? generateCorrelationId(),
+        }),
+      ),
+    );
+    return json({ ok: true, message: 'Re-enqueued ' + created.length + ' failed jobs', replayed: created.length });
+  }
+
+  return json({ ok: false, message: 'Unknown intent' }, { status: 400 });
 }
 
 export async function loader({ request }: { request: Request }) {
@@ -93,48 +119,30 @@ export async function loader({ request }: { request: Request }) {
     };
   }
 
-  const jobs = await prisma.job.findMany({
-    where,
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: page.take,
-    skip: page.skip,
-    cursor: page.cursor,
-    include: { shop: true },
-  });
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000);
+  const [jobs, succeeded7d, running, queued, failed, typeRows] = await Promise.all([
+    prisma.job.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: page.take,
+      skip: page.skip,
+      cursor: page.cursor,
+      include: { shop: true },
+    }),
+    prisma.job.count({ where: { status: 'SUCCESS', createdAt: { gte: sevenDaysAgo } } }),
+    prisma.job.count({ where: { status: 'RUNNING' } }),
+    prisma.job.count({ where: { status: 'QUEUED' } }),
+    prisma.job.count({ where: { status: 'FAILED' } }),
+    prisma.job.findMany({ distinct: ['type'], select: { type: true }, orderBy: { type: 'asc' } }),
+  ]);
   const nextCursorHref = buildNextCursorUrl(url, jobs, page.take);
 
-  const liveJobs = jobs.filter(j => j.status === 'RUNNING' || j.status === 'QUEUED');
-  const running = liveJobs.length;
-  const failed = jobs.filter(j => j.status === 'FAILED').length;
   const sortedJobs = [...jobs].sort((a, b) => {
     const order = (s: string) => (s === 'RUNNING' ? 0 : s === 'QUEUED' ? 1 : 2);
     return order(a.status) - order(b.status) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
 
-  const stepLogs = await prisma.flowStepLog.findMany({
-    orderBy: { createdAt: 'desc' },
-    take: 100,
-    include: { shop: true },
-  });
-
-  const distinctTypes = [...new Set(jobs.map(j => j.type))].sort();
-
   return json({
-    liveJobs: liveJobs.map(j => ({
-      id: j.id,
-      type: j.type,
-      status: j.status,
-      shopDomain: j.shop?.shopDomain ?? null,
-      createdAt: j.createdAt.toISOString(),
-      payload: j.payload,
-      result: j.result,
-      attempts: j.attempts,
-      startedAt: j.startedAt?.toISOString() ?? null,
-      finishedAt: j.finishedAt?.toISOString() ?? null,
-      error: j.error,
-      correlationId: j.correlationId ?? null,
-      requestId: j.requestId ?? null,
-    })),
     jobs: sortedJobs.map(j => ({
       id: j.id,
       type: j.type,
@@ -142,27 +150,13 @@ export async function loader({ request }: { request: Request }) {
       error: j.error,
       shopDomain: j.shop?.shopDomain ?? null,
       createdAt: j.createdAt.toISOString(),
-      payload: j.payload,
-      result: j.result,
       attempts: j.attempts,
       startedAt: j.startedAt?.toISOString() ?? null,
       finishedAt: j.finishedAt?.toISOString() ?? null,
       correlationId: j.correlationId ?? null,
-      requestId: j.requestId ?? null,
     })),
-    stepLogs: stepLogs.map(s => ({
-      id: s.id,
-      step: s.step,
-      kind: s.kind,
-      status: s.status,
-      durationMs: s.durationMs,
-      error: s.error,
-      shopDomain: s.shop?.shopDomain ?? null,
-      createdAt: s.createdAt.toISOString(),
-    })),
-    running,
-    failed,
-    distinctTypes,
+    counts: { succeeded7d, running, queued, failed },
+    distinctTypes: typeRows.map(t => t.type),
     filters: { status, type, search, correlationId, dateFrom: dateFrom?.toISOString(), dateTo: dateTo?.toISOString() },
     nextCursorHref,
     pageSize: page.take,
@@ -185,19 +179,37 @@ export default function AdminJobs() {
   const [type, setType] = useState('All');
   const [confirm, setConfirm] = useState<any>(null);
 
-  const ROWS: any[] = data.jobs.length
-    ? data.jobs.map((j: any) => ({
-        id: j.id, type: j.type, status: j.status, shop: j.shopDomain ?? '—', attempts: j.attempts ?? 1,
-        durationMs: j.startedAt && j.finishedAt ? new Date(j.finishedAt).getTime() - new Date(j.startedAt).getTime() : null,
-        correlationId: j.correlationId ?? '', created: relJob(j.createdAt), error: j.error ?? null,
-      }))
-    : JOBS;
+  const replayFetcher = useFetcher<typeof action>();
+  const replayBusy = replayFetcher.state !== 'idle';
+  const pendingJobId = replayBusy ? String(replayFetcher.formData?.get('jobId') ?? '') : '';
+
+  useEffect(() => {
+    if (replayFetcher.state === 'idle' && replayFetcher.data) {
+      ctx.toast(replayFetcher.data.message, !replayFetcher.data.ok);
+    }
+  }, [replayFetcher.state, replayFetcher.data, ctx]);
+
+  const submitReplay = (jobId: string) => {
+    const fd = new FormData();
+    fd.set('intent', 'replay');
+    fd.set('jobId', jobId);
+    replayFetcher.submit(fd, { method: 'post' });
+  };
+  const submitReplayAll = () => {
+    const fd = new FormData();
+    fd.set('intent', 'replay_all');
+    replayFetcher.submit(fd, { method: 'post' });
+  };
+
+  const ROWS: any[] = data.jobs.map((j: any) => ({
+    id: j.id, type: j.type, status: j.status, shop: j.shopDomain ?? '—', attempts: j.attempts ?? 1,
+    durationMs: j.startedAt && j.finishedAt ? new Date(j.finishedAt).getTime() - new Date(j.startedAt).getTime() : null,
+    correlationId: j.correlationId ?? '', created: relJob(j.createdAt), error: j.error ?? null,
+  }));
   const rows = ROWS.filter(
     (j) => (status === 'All' || j.status === status) && (type === 'All' || j.type === type) && (j.id + j.shop + j.correlationId).toLowerCase().includes(ts.search.toLowerCase()),
   );
-  const failed = ROWS.filter((j) => j.status === 'FAILED').length;
-  const running = ROWS.filter((j) => j.status === 'RUNNING').length;
-  const queued = ROWS.filter((j) => j.status === 'QUEUED').length;
+  const { succeeded7d, running, queued, failed } = data.counts;
 
   return (
     <div className="page">
@@ -209,14 +221,16 @@ export default function AdminJobs() {
             <Btn
               variant="primary"
               icon="replay"
+              loading={replayBusy && replayFetcher.formData?.get('intent') === 'replay_all'}
+              disabled={replayBusy}
               onClick={() =>
                 setConfirm({
                   title: 'Replay all failed jobs',
-                  message: 'Re-enqueue all ' + failed + ' DLQ jobs under fresh correlation IDs. Original payloads, job types and shop linkage are preserved.',
+                  message: 'Re-enqueue all ' + failed + ' DLQ jobs. Original payloads, job types, shop linkage and correlation IDs are preserved.',
                   confirmLabel: 'Replay ' + failed + ' jobs',
                   tone: 'primary',
                   icon: 'replay',
-                  onConfirm: () => ctx.toast('Re-enqueued ' + failed + ' jobs'),
+                  onConfirm: submitReplayAll,
                 })
               }
             >
@@ -226,53 +240,81 @@ export default function AdminJobs() {
         }
       />
       <div className="grid grid-4" style={{ marginBottom: 16 }}>
-        <StatTile label="Succeeded (7d)" value={ROWS.filter((j) => j.status === 'SUCCESS').length} icon="check" tone="success" />
+        <StatTile label="Succeeded (7d)" value={succeeded7d} icon="check" tone="success" />
         <StatTile label="Running" value={running} icon="play" tone="info" />
         <StatTile label="Queued" value={queued} icon="clock" tone="warning" />
         <StatTile label="Failed (DLQ)" value={failed} icon="alert" tone="critical" />
       </div>
       <Card>
-        <FilterBar
-          search={ts.search}
-          onSearch={ts.setSearch}
-          placeholder="Search job ID, store, correlation…"
-          results={rows.length}
-          filters={[
-            { options: ['All', 'SUCCESS', 'RUNNING', 'QUEUED', 'FAILED'].map((s) => ({ value: s, label: s === 'All' ? 'All statuses' : titleCase(s) })), value: status, onChange: setStatus },
-            { options: ['All'].concat(JOB_TYPES).map((t) => ({ value: t, label: t === 'All' ? 'All types' : titleCase(t) })), value: type, onChange: setType },
-          ]}
-        />
-        <DataTable
-          rowKey="id"
-          onRowClick={(r: any) => ctx.go('#/admin/jobs/' + r.id)}
-          columns={[
-            { key: 'id', label: 'Job ID', render: (r: any) => <MonoChip>{r.id}</MonoChip> },
-            { key: 'type', label: 'Type', render: (r: any) => <Badge>{titleCase(r.type)}</Badge> },
-            { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
-            { key: 'shop', label: 'Store', render: (r: any) => <span className="cell-sub">{r.shop}</span> },
-            { key: 'attempts', label: 'Tries', num: true },
-            { key: 'durationMs', label: 'Duration', num: true, render: (r: any) => fmtMs(r.durationMs) },
-            { key: 'error', label: 'Result', render: (r: any) => (r.error ? <span className="t-xs" style={{ color: 'var(--p-critical-text)' }}>{r.error}</span> : <span className="cell-sub">—</span>) },
-            { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{r.created}</span> },
-            {
-              key: 'act',
-              label: '',
-              render: (r: any) => (
-                <div className="dt-actions">
-                  {r.status === 'FAILED' && (
-                    <Btn size="sm" icon="replay" className="btn-plain" onClick={() => ctx.toast('Replayed ' + r.id)}>
-                      Replay
-                    </Btn>
-                  )}
-                  <Btn size="sm" icon="transfer" className="btn-plain" onClick={() => ctx.go('#/admin/trace/' + r.correlationId)}>
-                    Trace
-                  </Btn>
-                </div>
-              ),
-            },
-          ]}
-          rows={rows}
-        />
+        {data.jobs.length === 0 ? (
+          <EmptyState icon="work" title="No jobs yet">
+            Background jobs will appear here as merchants generate, hydrate and publish modules.
+          </EmptyState>
+        ) : (
+          <>
+            <FilterBar
+              search={ts.search}
+              onSearch={ts.setSearch}
+              placeholder="Search job ID, store, correlation…"
+              results={rows.length}
+              filters={[
+                { options: ['All', 'SUCCESS', 'RUNNING', 'QUEUED', 'FAILED'].map((s) => ({ value: s, label: s === 'All' ? 'All statuses' : titleCase(s) })), value: status, onChange: setStatus },
+                { options: ['All'].concat(data.distinctTypes).map((t) => ({ value: t, label: t === 'All' ? 'All types' : titleCase(t) })), value: type, onChange: setType },
+              ]}
+            />
+            <DataTable
+              rowKey="id"
+              onRowClick={(r: any) => ctx.go('#/admin/jobs/' + r.id)}
+              columns={[
+                { key: 'id', label: 'Job ID', render: (r: any) => <MonoChip>{r.id}</MonoChip> },
+                { key: 'type', label: 'Type', render: (r: any) => <Badge>{titleCase(r.type)}</Badge> },
+                { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
+                { key: 'shop', label: 'Store', render: (r: any) => <span className="cell-sub">{r.shop}</span> },
+                { key: 'attempts', label: 'Tries', num: true },
+                { key: 'durationMs', label: 'Duration', num: true, render: (r: any) => fmtMs(r.durationMs) },
+                { key: 'error', label: 'Result', render: (r: any) => (r.error ? <span className="t-xs" style={{ color: 'var(--p-critical-text)' }}>{r.error}</span> : <span className="cell-sub">—</span>) },
+                { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{r.created}</span> },
+                {
+                  key: 'act',
+                  label: '',
+                  render: (r: any) => (
+                    <div className="dt-actions">
+                      {r.status === 'FAILED' && (
+                        <Btn
+                          size="sm"
+                          icon="replay"
+                          className="btn-plain"
+                          loading={pendingJobId === r.id}
+                          disabled={replayBusy}
+                          onClick={(e: any) => {
+                            e.stopPropagation();
+                            submitReplay(r.id);
+                          }}
+                        >
+                          Replay
+                        </Btn>
+                      )}
+                      {r.correlationId ? (
+                        <Btn
+                          size="sm"
+                          icon="transfer"
+                          className="btn-plain"
+                          onClick={(e: any) => {
+                            e.stopPropagation();
+                            ctx.go('#/admin/trace/' + r.correlationId);
+                          }}
+                        >
+                          Trace
+                        </Btn>
+                      ) : null}
+                    </div>
+                  ),
+                },
+              ]}
+              rows={rows}
+            />
+          </>
+        )}
       </Card>
       {confirm && <ConfirmDialog {...confirm} onClose={() => setConfirm(null)} />}
     </div>

@@ -1,5 +1,5 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, useParams } from '@remix-run/react';
+import { useLoaderData } from '@remix-run/react';
 import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
@@ -7,11 +7,14 @@ import {
   useAdminCtx,
   Btn,
   Badge,
+  Banner,
   Card,
   Tabs,
+  EmptyState,
   PageHead,
   StatTile,
   MonoChip,
+  fmtMs,
   titleCase,
 } from '~/components/admin/page-kit';
 
@@ -177,33 +180,32 @@ export async function loader({ request, params }: { request: Request; params: { 
 
 export default function AdminTrace() {
   const data = useLoaderData<typeof loader>();
-  const params = useParams();
   const ctx = useAdminCtx();
-  const cid = params.correlationId || data.correlationId || 'cor_rs8f2';
+  const cid = data.correlationId;
   const [tab, setTab] = useState('timeline');
 
-  // Prefer real timeline; fall back to the design's representative incident.
-  const realTimeline = data.timeline || [];
   const TONE: Record<string, string> = { OK: 'info', INFO: 'info', WARN: 'warning', ERROR: 'critical' };
-  const events =
-    realTimeline.length > 0
-      ? realTimeline.map((t) => ({
-          t: new Date(t.createdAt).toISOString().slice(11, 23),
-          kind: t.type.replace('_LOG', '').replace('_', ' '),
-          tone: TONE[t.status] || 'info',
-          title: t.summary,
-          detail: t.detail || '',
-        }))
-      : [
-          { t: '09:14:02.118', kind: 'API', tone: 'info', title: 'POST /api/publish', detail: 'actor=MERCHANT · 200 · 142ms · req_8a21f' },
-          { t: '09:14:02.140', kind: 'Job', tone: 'info', title: 'PUBLISH job_2f8a queued', detail: 'shop=northpeak-gear · attempt 1' },
-          { t: '09:14:02.610', kind: 'Job', tone: 'critical', title: 'PUBLISH job_2f8a failed', detail: 'Upstream 502 from theme assets API' },
-          { t: '09:14:03.002', kind: 'Error', tone: 'critical', title: 'ErrorLog captured', detail: 'Provider request failed: 502 Bad Gateway' },
-          { t: '09:14:05.300', kind: 'Job', tone: 'warning', title: 'Retry scheduled (attempt 2)', detail: 'backoff 2.3s' },
-          { t: '09:14:18.901', kind: 'Job', tone: 'critical', title: 'PUBLISH job_2f8a failed (final)', detail: '3 attempts exhausted → DLQ' },
-        ];
-  const errorCount = events.filter((e) => e.tone === 'critical').length;
-  const outcome = errorCount > 0 ? 'Failed' : 'OK';
+  const TAB_SOURCE: Record<string, TraceItem[]> = {
+    timeline: data.timeline,
+    api: data.apiLogs,
+    jobs: data.jobs,
+    errors: data.errorLogs,
+    activity: data.activity,
+  };
+  const events = (TAB_SOURCE[tab] ?? data.timeline).map((t) => ({
+    t: new Date(t.createdAt).toISOString().slice(11, 23),
+    kind: t.type.replace('_LOG', '').replace('_', ' '),
+    tone: TONE[t.status] || 'info',
+    title: t.summary,
+    detail: (t.detail || '').slice(0, 400),
+    href: t.href,
+  }));
+
+  const first = data.timeline[0];
+  const last = data.timeline[data.timeline.length - 1];
+  const durationMs = first && last ? new Date(last.createdAt).getTime() - new Date(first.createdAt).getTime() : null;
+  const errorCount = data.timeline.filter((e) => e.status === 'ERROR').length;
+  const outcome = data.timeline.length === 0 ? '—' : errorCount > 0 ? 'Failed' : 'OK';
 
   return (
     <div className="page">
@@ -213,43 +215,59 @@ export default function AdminTrace() {
         badge={<MonoChip>{cid}</MonoChip>}
         sub="Unified timeline joining every API log, job, error, AI-usage row, flow step and activity sharing this correlation ID."
         actions={
-          <>
-            <Btn icon="chat" onClick={() => ctx.go('#/admin/ai-assistant')}>
-              Ask assistant
-            </Btn>
-            <Btn variant="primary" icon="replay" onClick={() => ctx.toast('Replayed under new correlation ID')}>
-              Replay
-            </Btn>
-          </>
+          <Btn icon="chat" onClick={() => ctx.go('#/admin/ai-assistant')}>
+            Ask assistant
+          </Btn>
         }
       />
+      {data.truncated && (
+        <div style={{ marginBottom: 14 }}>
+          <Banner tone="warning" title="Trace truncated">
+            Only the first 200 events per source are shown for this correlation ID.
+          </Banner>
+        </div>
+      )}
       <div className="grid grid-4" style={{ marginBottom: 16 }}>
-        <StatTile label="Total events" value={events.length} icon="layers" tone="info" />
-        <StatTile label="Duration" value="16.8s" icon="clock" tone="warning" />
-        <StatTile label="Errors" value={errorCount} icon="bug" tone="critical" />
-        <StatTile label="Outcome" value={outcome} icon={outcome === 'Failed' ? 'alert' : 'check'} tone={outcome === 'Failed' ? 'critical' : 'success'} />
+        <StatTile label="Total events" value={data.timeline.length} icon="layers" tone="info" />
+        <StatTile label="Duration" value={fmtMs(durationMs)} icon="clock" tone={durationMs == null ? 'info' : 'warning'} />
+        <StatTile label="Errors" value={errorCount} icon="bug" tone={errorCount > 0 ? 'critical' : 'info'} />
+        <StatTile label="Outcome" value={outcome} icon={outcome === 'Failed' ? 'alert' : 'check'} tone={outcome === 'Failed' ? 'critical' : outcome === 'OK' ? 'success' : 'info'} />
       </div>
       <Card style={{ marginBottom: 16 }}>
         <Tabs active={tab} onChange={setTab} tabs={['timeline', 'api', 'jobs', 'errors', 'activity'].map((x) => ({ id: x, label: titleCase(x) }))} />
       </Card>
       <Card pad>
-        <div className="timeline">
-          {events.map((e, i) => (
-            <div key={i} className="tl-item">
-              <span className={'tl-dot ' + e.tone} />
-              <div className="row-3" style={{ alignItems: 'baseline' }}>
-                <span className="t-mono t-xs t-muted" style={{ width: 110, flex: 'none' }}>
-                  {e.t}
-                </span>
-                <Badge tone={e.tone}>{e.kind}</Badge>
-                <div className="grow">
-                  <div className="t-sm t-strong">{e.title}</div>
-                  <div className="t-xs t-muted">{e.detail}</div>
+        {events.length ? (
+          <div className="timeline">
+            {events.map((e, i) => (
+              <div key={i} className="tl-item">
+                <span className={'tl-dot ' + e.tone} />
+                <div className="row-3" style={{ alignItems: 'baseline' }}>
+                  <span className="t-mono t-xs t-muted" style={{ width: 110, flex: 'none' }}>
+                    {e.t}
+                  </span>
+                  <Badge tone={e.tone}>{e.kind}</Badge>
+                  <div className="grow">
+                    {e.href ? (
+                      <a href={e.href} className="cell-link">
+                        <div className="t-sm t-strong">{e.title}</div>
+                      </a>
+                    ) : (
+                      <div className="t-sm t-strong">{e.title}</div>
+                    )}
+                    <div className="t-xs t-muted">{e.detail}</div>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState icon="layers" title={data.timeline.length ? 'No ' + titleCase(tab) + ' events' : 'No events for this correlation ID'}>
+            {data.timeline.length
+              ? 'Nothing in this trace matches the selected tab.'
+              : 'No API logs, jobs, errors, AI usage, flow steps or activity reference this correlation ID.'}
+          </EmptyState>
+        )}
       </Card>
     </div>
   );

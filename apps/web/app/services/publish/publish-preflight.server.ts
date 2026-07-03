@@ -1,5 +1,6 @@
 import type { AdminApiContext } from '~/types/shopify';
 import type { RecipeSpec } from '@superapp/core';
+import { FUNCTION_RUNTIME_HANDLES, getExtensionEligibility, isRuntimeShipped } from '@superapp/core';
 import {
   ModulePublishPreflightResultSchema,
   type ModulePublishPreflightResult,
@@ -73,27 +74,12 @@ export async function runPublishPreflight(
 
 // ── WS5 / 026: module publishability classification ──────────────────────────
 
-/** Types whose compiler only emits AUDIT today — gated, "not publishable yet". */
-export const AUDIT_ONLY_TYPES = new Set<string>([
-  'checkout.block',
-  'postPurchase.offer',
-  'pos.extension',
-  'analytics.pixel',
-  'integration.httpSync',
-  'flow.automation',
-  'platform.extensionBlueprint',
-]);
-
-/** Function types with real compiler wiring → the wasm extension handle they need. */
-export const FUNCTION_EXTENSION_HANDLES: Record<string, string> = {
-  'functions.discountRules': 'discount-function',
-  'functions.deliveryCustomization': 'delivery-customization-function',
-  'functions.paymentCustomization': 'payment-customization-function',
-  'functions.cartAndCheckoutValidation': 'cart-checkout-validation-function',
-  'functions.cartTransform': 'cart-transform-function',
-  'functions.fulfillmentConstraints': 'fulfillment-constraints-function',
-  'functions.orderRoutingLocationRule': 'order-routing-location-rule-function',
-};
+/**
+ * Function type → wasm extension handle, straight from the eligibility registry
+ * (the single source of truth; handles match extensions/[*]/shopify.extension.toml).
+ * Re-exported for compatibility with existing consumers/tests.
+ */
+export const FUNCTION_EXTENSION_HANDLES: Record<string, string> = FUNCTION_RUNTIME_HANDLES;
 
 export interface ModulePublishabilityContext {
   /** Extension handles known to be deployed via `shopify app deploy` (layer a). */
@@ -103,56 +89,45 @@ export interface ModulePublishabilityContext {
 /**
  * Classify a module for publish so nothing silently no-ops. The caller must
  * refuse to report "published" unless `willDeploy === true`.
- *  - `deployable` — real compiler/publish wiring exists; proceed.
- *  - `gated`      — explicitly "not publishable yet" (AUDIT-only); publishes nothing.
- *  - `blocked`    — function type whose wasm extension is not deployed → fail loudly.
  *
- * Mirrors the compiler dispatch in `services/recipes/compiler/index.ts`.
+ * Delegates to the extension-eligibility registry in @superapp/core — the single
+ * source of truth for how every module type deploys (see extension-eligibility.ts):
+ *  - `deployable`    — the backing runtime is shipped (for functions: its wasm
+ *                      handle is in the deployed manifest); publish writes the
+ *                      config that runtime reads. Plan/scope requirements surface
+ *                      as merchant-facing notes in `reasons`, never a block.
+ *  - `needs_runtime` — the runtime extension is not shipped yet → fail loudly.
+ *
+ * Consistency with the registry is pinned by __tests__/module-deployability-audit.test.ts.
  */
 export function classifyModulePublishability(
   spec: RecipeSpec,
   ctx: ModulePublishabilityContext = {},
 ): ModulePublishPreflightResult {
   const type = spec.type;
-  const deployed = new Set(ctx.deployedExtensions ?? []);
+  const eligibility = getExtensionEligibility(type);
+  const shipped = isRuntimeShipped(type, { deployedFunctionHandles: ctx.deployedExtensions ?? [] });
 
-  if (AUDIT_ONLY_TYPES.has(type)) {
+  if (!shipped) {
+    const detail =
+      eligibility.runtime === 'function' && eligibility.functionHandle
+        ? `No deployed extension "${eligibility.functionHandle}" behind ${type}. Ship it via \`shopify app deploy\` before publishing (two-layer Functions contract).`
+        : `${type} needs its ${eligibility.runtime} runtime shipped before it can publish. ${eligibility.note}`;
     return ModulePublishPreflightResultSchema.parse({
       moduleType: type,
-      status: 'gated',
-      reasons: [`${type} has no publish wiring yet — gated as "not publishable yet" (publishes nothing).`],
+      status: 'needs_runtime',
+      reasons: [detail],
+      ...(eligibility.functionHandle ? { requiresExtension: eligibility.functionHandle } : {}),
       willDeploy: false,
     });
   }
 
-  const requiresExtension = FUNCTION_EXTENSION_HANDLES[type];
-  if (requiresExtension) {
-    if (!deployed.has(requiresExtension)) {
-      return ModulePublishPreflightResultSchema.parse({
-        moduleType: type,
-        status: 'blocked',
-        reasons: [
-          `No deployed extension "${requiresExtension}" behind ${type}. Ship it via \`shopify app deploy\` before publishing (two-layer Functions contract).`,
-        ],
-        requiresExtension,
-        willDeploy: false,
-      });
-    }
-    return ModulePublishPreflightResultSchema.parse({
-      moduleType: type,
-      status: 'deployable',
-      reasons: [],
-      requiresExtension,
-      willDeploy: true,
-    });
-  }
-
-  // theme.section, proxy.widget, checkout.upsell, customerAccount.blocks,
-  // admin.block, admin.action → real wiring.
   return ModulePublishPreflightResultSchema.parse({
     moduleType: type,
     status: 'deployable',
-    reasons: [],
+    // Plan requirements are notes, not blocks (e.g. "runs on Shopify Plus").
+    reasons: eligibility.requiresPlan ? [eligibility.note] : [],
+    ...(eligibility.functionHandle ? { requiresExtension: eligibility.functionHandle } : {}),
     willDeploy: true,
   });
 }

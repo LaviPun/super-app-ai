@@ -2,6 +2,7 @@ import { json } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
+import type { Prisma } from '@prisma/client';
 import {
   useAdminCtx,
   Btn,
@@ -12,7 +13,6 @@ import {
   StatTile,
   MonoChip,
   titleCase,
-  ERROR_LOGS,
 } from '~/components/admin/page-kit';
 
 const NOT_FOUND = new Response(null, { status: 404 });
@@ -39,6 +39,19 @@ export async function loader({ request, params }: { request: Request; params: { 
     }
   }
 
+  // Occurrences + related errors share the same route (fall back to same message
+  // for routeless errors) — real counts, never fabricated.
+  const relatedWhere: Prisma.ErrorLogWhereInput = log.route ? { route: log.route } : { message: log.message };
+  const [occurrences, related] = await Promise.all([
+    prisma.errorLog.count({ where: relatedWhere }),
+    prisma.errorLog.findMany({
+      where: { ...relatedWhere, id: { not: log.id } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 4,
+      select: { id: true, level: true, message: true, createdAt: true },
+    }),
+  ]);
+
   return json({
     id: log.id,
     level: log.level,
@@ -51,6 +64,8 @@ export async function loader({ request, params }: { request: Request; params: { 
     createdAt: log.createdAt.toISOString(),
     requestId: log.requestId ?? null,
     correlationId: log.correlationId ?? null,
+    occurrences,
+    related: related.map(r => ({ id: r.id, level: r.level, message: r.message, createdAt: r.createdAt.toISOString() })),
   });
 }
 
@@ -74,10 +89,7 @@ export default function AdminErrorDetail() {
     created: relErr(d.createdAt),
     correlationId: d.correlationId ?? '',
   };
-  const stack =
-    d.stack ||
-    `${e.message}\n    at handler (/app/api/${(e.route || 'route').replace(/^\//, '')}:42:17)\n    at processRequest (/app/lib/server.js:118:9)\n    at async run (/app/lib/queue.js:64:5)`;
-  const related = ERROR_LOGS.filter((x) => x.route === e.route).slice(0, 4);
+  const related = d.related;
 
   return (
     <div className="page">
@@ -93,30 +105,18 @@ export default function AdminErrorDetail() {
           </span>
         }
         actions={
-          <>
-            {e.correlationId && (
-              <Btn icon="transfer" onClick={() => ctx.go('#/admin/trace/' + e.correlationId)}>
-                View trace
-              </Btn>
-            )}
-            <Btn
-              variant="primary"
-              icon="check"
-              onClick={() => {
-                ctx.toast('Marked resolved');
-                ctx.go('#/admin/logs');
-              }}
-            >
-              Mark resolved
+          e.correlationId ? (
+            <Btn icon="transfer" onClick={() => ctx.go('#/admin/trace/' + e.correlationId)}>
+              View trace
             </Btn>
-          </>
+          ) : undefined
         }
       />
       <div className="grid grid-4" style={{ marginBottom: 16 }}>
         <StatTile label="Level" value={titleCase(e.level)} icon="bug" tone={e.level === 'ERROR' ? 'critical' : 'warning'} />
         <StatTile label="Route" value={e.route.split('/').pop() || e.route} sub={e.route} icon="code" tone="info" />
         <StatTile label="Store" value={e.shop} icon="store" tone="info" />
-        <StatTile label="Occurrences" value={related.length + 1} sub="same route" icon="alert" tone="warning" />
+        <StatTile label="Occurrences" value={d.occurrences} sub={d.route ? 'same route' : 'same message'} icon="alert" tone="warning" />
       </div>
       <div className="col-main">
         <Card pad>
@@ -146,7 +146,7 @@ export default function AdminErrorDetail() {
           <div className="t-h3" style={{ marginBottom: 10 }}>
             Stack trace
           </div>
-          <pre className="code-block">{stack}</pre>
+          {d.stack ? <pre className="code-block">{d.stack}</pre> : <span className="t-muted t-sm">No stack trace was recorded for this error.</span>}
         </Card>
         <Card pad>
           <div className="t-h3" style={{ marginBottom: 12 }}>
@@ -155,17 +155,17 @@ export default function AdminErrorDetail() {
           {related.length ? (
             <div className="rlist">
               {related.map((r) => (
-                <div key={r.id} className="ritem" onClick={() => ctx.go('#/admin/errors/' + r.id)}>
+                <div key={r.id} className="ritem" onClick={() => ctx.go('#/admin/logs/' + r.id)}>
                   <StatusBadge value={r.level} />
                   <div className="grow stack" style={{ gap: 1, minWidth: 0 }}>
                     <span className="t-sm t-trunc">{r.message}</span>
-                    <span className="t-xs t-muted">{r.created}</span>
+                    <span className="t-xs t-muted">{relErr(r.createdAt)}</span>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <span className="t-muted t-sm">No other errors on this route.</span>
+            <span className="t-muted t-sm">{d.route ? 'No other errors on this route.' : 'No other errors with this message.'}</span>
           )}
         </Card>
       </div>

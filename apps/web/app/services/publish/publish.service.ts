@@ -10,8 +10,10 @@ import type {
 } from '~/services/recipes/compiler/types';
 import { MetafieldService } from '~/services/shopify/metafield.service';
 import { MetaobjectService } from '~/services/shopify/metaobject.service';
+import { WebPixelService } from '~/services/shopify/web-pixel.service';
 import { computeRepublishDiff, type ModulePublishPreflightResult } from '@superapp/platform-contracts';
 import { classifyModulePublishability } from '~/services/publish/publish-preflight.server';
+import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
 
 const THEME_MODULES_NAMESPACE = 'superapp.theme';
 const THEME_MODULE_REFS_KEY = 'module_refs';
@@ -42,17 +44,6 @@ export class ModuleNotPublishableError extends Error {
     super(preflight.reasons[0] ?? `${preflight.moduleType} is not publishable (${preflight.status}).`);
     this.name = 'ModuleNotPublishableError';
   }
-}
-
-/**
- * Function extension handles known to be deployed via `shopify app deploy`
- * (layer a of the two-layer Functions contract). Declared by operators via
- * `SHOPIFY_DEPLOYED_FUNCTION_EXTENSIONS` (comma/space separated). Empty by
- * default, so Function publishes fail loudly until the wasm is actually shipped.
- */
-function deployedFunctionExtensions(): Set<string> {
-  const raw = process.env.SHOPIFY_DEPLOYED_FUNCTION_EXTENSIONS ?? '';
-  return new Set(raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean));
 }
 
 export class PublishService {
@@ -131,6 +122,13 @@ export class PublishService {
 
         case 'METAOBJECT_ENSURE_DEF':
           await mo.ensureMetafieldDefinition(op.namespace, op.key, op.metaobjectType, op.isList);
+          break;
+
+        case 'WEB_PIXEL_UPSERT':
+          // Idempotent: WebPixelService reads the app's current pixel and
+          // webPixelUpdate-s it when present, else webPixelCreate-s (settings
+          // must match extensions/superapp-web-pixel's [settings] schema).
+          await new WebPixelService(this.admin).upsert(op.settings);
           break;
 
         case 'AUDIT':

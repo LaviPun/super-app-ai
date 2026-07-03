@@ -1,9 +1,12 @@
 import { json } from '@remix-run/node';
-import { useState } from 'react';
+import { useFetcher, useLoaderData } from '@remix-run/react';
+import { useEffect, useRef, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import { z } from 'zod';
 import {
   useAdminCtx,
   Btn,
+  Badge,
   Card,
   Field,
   Input,
@@ -13,6 +16,9 @@ import {
   Tabs,
   StatusDot,
   PageHead,
+  KV,
+  fmtNum,
+  fmtMs,
 } from '~/components/admin/page-kit';
 import type { RouterRuntimeConfig, RouterRuntimeTarget } from '~/schemas/router-runtime-config.server';
 import type { AssistantChatProbeResult } from '~/services/ai/assistant-chat-target-probe.server';
@@ -436,9 +442,98 @@ export async function action({ request }: { request: Request }) {
   return handleModelSetupAction(request);
 }
 
+type ActionData = {
+  toast?: { message: string; error?: boolean };
+  error?: string;
+  validation?: { localMachine: ProbeResult; modalRemote: ProbeResult };
+  probe?: ProbeResult;
+};
+
 export default function AdminModelSetup() {
   const ctx = useAdminCtx();
+  const {
+    config,
+    parseError,
+    releaseGate,
+    assistantLocalOnly,
+    modalProxyWarning,
+    resolved,
+    tokenMasked,
+    metrics,
+    gates,
+  } = useLoaderData<typeof loader>();
+  const fetcher = useFetcher<ActionData>();
   const [tab, setTab] = useState('local');
+
+  // Target fields, initialized from the saved runtime config (edits survive tab switches).
+  const [localUrl, setLocalUrl] = useState(config.targets.localMachine.url ?? '');
+  const [localBackend, setLocalBackend] = useState<RouterBackend>(config.targets.localMachine.backend);
+  const [localModel, setLocalModel] = useState(config.targets.localMachine.model ?? '');
+  const [modalUrl, setModalUrl] = useState(config.targets.modalRemote.url ?? '');
+  const [modalBackend, setModalBackend] = useState<RouterBackend>(config.targets.modalRemote.backend);
+  const [modalModel, setModalModel] = useState(config.targets.modalRemote.model ?? '');
+  const [modalToken, setModalToken] = useState('');
+  const [localOnly, setLocalOnly] = useState(assistantLocalOnly || !config.dualTargetEnabled);
+
+  // Toast the server's response — success or error styling comes from the action, never the client.
+  const toastedRef = useRef<ActionData | null>(null);
+  useEffect(() => {
+    if (fetcher.state !== 'idle' || !fetcher.data || toastedRef.current === fetcher.data) return;
+    toastedRef.current = fetcher.data;
+    if (fetcher.data.toast?.message) ctx.toast(fetcher.data.toast.message, fetcher.data.toast.error === true);
+    else if (fetcher.data.error) ctx.toast(fetcher.data.error, true);
+  }, [fetcher.state, fetcher.data, ctx]);
+
+  const busy = fetcher.state !== 'idle';
+  const pendingIntent = busy ? String(fetcher.formData?.get('intent') ?? '') : '';
+  const pendingTarget = busy ? String(fetcher.formData?.get('target') ?? '') : '';
+
+  const isLocal = tab === 'local';
+  const tabTarget: RouterRuntimeTarget = isLocal ? 'localMachine' : 'modalRemote';
+  const isActive = config.activeTarget === tabTarget;
+
+  // Real probe state for the selected target (probe actions persist lastHealthCheck* and revalidate).
+  const lastHealthForTab = config.lastHealthCheckMessage?.startsWith(`${tabTarget}:`)
+    ? (config.lastHealthCheckOk ?? null)
+    : null;
+
+  const validation = fetcher.data?.validation ?? null;
+  const activeMetrics = metrics.byTarget[resolved.target];
+
+  /** Post the full runtime config to the route's own action (`save` / `validateAssistantTargets`). */
+  function submitConfig(intent: 'save' | 'validateAssistantTargets') {
+    const fd = new FormData();
+    fd.set('intent', intent);
+    fd.set('activeTarget', assistantLocalOnly ? 'localMachine' : config.activeTarget);
+    if (config.fallbackTarget && !(assistantLocalOnly && config.fallbackTarget === 'modalRemote')) {
+      fd.set('fallbackTarget', config.fallbackTarget);
+    }
+    fd.set('dualTargetEnabled', localOnly ? 'false' : 'true');
+    fd.set('shadowMode', config.shadowMode ? 'true' : 'false');
+    fd.set('canaryShops', config.canaryShops.join(', '));
+    fd.set('circuitFailureThreshold', String(config.circuitFailureThreshold));
+    fd.set('circuitCooldownMs', String(config.circuitCooldownMs));
+    fd.set('releaseGateSchemaFailRateMax', String(config.releaseGateSchemaFailRateMax));
+    fd.set('releaseGateFallbackRateMax', String(config.releaseGateFallbackRateMax));
+    fd.set('localUrl', localUrl);
+    fd.set('localBackend', localBackend);
+    fd.set('localModel', localModel);
+    fd.set('localTimeoutMs', String(config.targets.localMachine.timeoutMs));
+    fd.set('modalUrl', modalUrl);
+    fd.set('modalBackend', modalBackend);
+    fd.set('modalModel', modalModel);
+    fd.set('modalTimeoutMs', String(config.targets.modalRemote.timeoutMs));
+    if (modalToken.trim()) fd.set('modalToken', modalToken.trim());
+    fetcher.submit(fd, { method: 'post' });
+  }
+
+  function submitOp(intent: 'probeHealth' | 'probeRoute' | 'switchTarget' | 'rollback', target?: RouterRuntimeTarget) {
+    const fd = new FormData();
+    fd.set('intent', intent);
+    if (target) fd.set('target', target);
+    fetcher.submit(fd, { method: 'post' });
+  }
+
   return (
     <div className="page page-narrow">
       <PageHead
@@ -446,15 +541,66 @@ export default function AdminModelSetup() {
         sub="Configure the self-hosted Qwen3 targets used by the internal prompt router and AI Assistant."
         actions={
           <>
-            <Btn icon="check" onClick={() => ctx.toast('Targets validated — chat ready')}>
+            <Btn
+              icon="check"
+              loading={pendingIntent === 'validateAssistantTargets'}
+              disabled={busy}
+              onClick={() => submitConfig('validateAssistantTargets')}
+            >
               Validate targets
             </Btn>
-            <Btn variant="primary" onClick={() => ctx.toast('Runtime config saved')}>
+            <Btn
+              variant="primary"
+              loading={pendingIntent === 'save'}
+              disabled={busy}
+              onClick={() => submitConfig('save')}
+            >
               Save config
             </Btn>
           </>
         }
       />
+      {(parseError || releaseGate.tripped || assistantLocalOnly || validation) && (
+        <div className="stack" style={{ gap: 12, marginBottom: 16 }}>
+          {parseError && (
+            <Banner tone="critical" title="Saved router config could not be loaded">
+              Decryption/parse error — the defaults below are in effect. Re-save the config to restore.
+              <div className="t-xs t-muted" style={{ marginTop: 4 }}>{parseError}</div>
+            </Banner>
+          )}
+          {releaseGate.tripped && (
+            <Banner tone="critical" title="Release gate tripped — shadow mode forced">
+              {releaseGate.reason ??
+                'A rolling release-gate metric exceeded its threshold; router calls run in shadow mode until rates recover.'}
+              {releaseGate.metric != null && releaseGate.value != null && releaseGate.threshold != null && (
+                <div className="t-xs" style={{ marginTop: 4 }}>
+                  {releaseGate.metric}: {(releaseGate.value * 100).toFixed(2)}% (max {(releaseGate.threshold * 100).toFixed(2)}%)
+                  {releaseGate.target ? ` on ${releaseGate.target}` : ''}
+                </div>
+              )}
+            </Banner>
+          )}
+          {assistantLocalOnly && (
+            <Banner tone="info" title="INTERNAL_AI_LOCAL_ONLY — assistant is local-only">
+              Dual-target / Modal failover and switching the active target to modalRemote are disabled. Cloud target
+              validation is skipped on save.
+            </Banner>
+          )}
+          {validation && (
+            <Banner
+              tone={validation.localMachine.ok && validation.modalRemote.ok ? 'success' : 'warning'}
+              title="Assistant chat target validation (not saved)"
+            >
+              <div>
+                localMachine: {validation.localMachine.ok ? 'OK' : 'Failed'} — {validation.localMachine.message}
+              </div>
+              <div>
+                modalRemote: {validation.modalRemote.ok ? 'OK' : 'Failed'} — {validation.modalRemote.message}
+              </div>
+            </Banner>
+          )}
+        </div>
+      )}
       <Card style={{ marginBottom: 16 }}>
         <Tabs
           active={tab}
@@ -468,38 +614,154 @@ export default function AdminModelSetup() {
       <Card pad>
         <div className="stack-5">
           <div className="row spread">
-            <span className="t-h3">{tab === 'local' ? 'Local machine target' : 'Cloud remote target'}</span>
+            <span className="row" style={{ gap: 8 }}>
+              <span className="t-h3">{isLocal ? 'Local machine target' : 'Cloud remote target'}</span>
+              <Badge tone={isActive ? 'success' : undefined} dot>
+                {isActive ? 'Active' : 'Standby'}
+              </Badge>
+            </span>
             <span className="asst-health">
-              <StatusDot ok={tab === 'local'} />
-              {tab === 'local' ? 'Healthy' : 'Standby'}
+              {lastHealthForTab != null && <StatusDot ok={lastHealthForTab} />}
+              {lastHealthForTab == null ? 'Not probed' : lastHealthForTab ? 'Healthy' : 'Unhealthy'}
             </span>
           </div>
           <Field
             label="Base URL"
-            help={tab === 'local' ? 'Ollama base, or reference router base for passthrough' : 'Must be a chat-inference host, not the /route proxy'}
+            help={isLocal ? 'Ollama base, or reference router base for passthrough' : 'Must be a chat-inference host, not the /route proxy'}
           >
-            <Input mono defaultValue={tab === 'local' ? 'http://127.0.0.1:11434' : 'https://qwen-twin.modal.run'} />
+            <Input
+              mono
+              value={isLocal ? localUrl : modalUrl}
+              placeholder={isLocal ? 'http://127.0.0.1:11434' : 'https://your-chat-host.example.com'}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => (isLocal ? setLocalUrl : setModalUrl)(e.target.value)}
+            />
           </Field>
           <div className="grid grid-2">
             <Field label="Backend">
-              <Select options={['ollama', 'qwen3', 'openai', 'custom', 'anthropic']} value={tab === 'local' ? 'ollama' : 'qwen3'} onChange={() => {}} />
+              <Select
+                options={['ollama', 'qwen3', 'openai', 'custom', 'anthropic']}
+                value={isLocal ? localBackend : modalBackend}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) =>
+                  (isLocal ? setLocalBackend : setModalBackend)(e.target.value as RouterBackend)
+                }
+              />
             </Field>
             <Field label="Model">
-              <Input mono defaultValue="qwen3:4b-instruct" />
+              <Input
+                mono
+                value={isLocal ? localModel : modalModel}
+                placeholder={isLocal ? 'qwen3:4b-instruct' : 'Qwen/Qwen3-4B-Instruct'}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => (isLocal ? setLocalModel : setModalModel)(e.target.value)}
+              />
             </Field>
           </div>
           {tab === 'cloud' && (
-            <Field label="Auth token" optional>
-              <Input type="password" placeholder="••••••••" />
+            <Field
+              label="Auth token"
+              optional
+              help={tokenMasked.modalRemote ? `Current: ${tokenMasked.modalRemote} — leave blank to keep` : 'No token saved yet'}
+            >
+              <Input
+                type="password"
+                placeholder="••••••••"
+                value={modalToken}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setModalToken(e.target.value)}
+              />
             </Field>
           )}
           <div className="divider" />
-          <Checkbox defaultChecked label="Local-only guardrails" sub="New sessions default to local; never auto-route to cloud" />
-          {tab === 'cloud' && (
+          <Checkbox
+            checked={localOnly}
+            disabled={assistantLocalOnly}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => setLocalOnly(e.target.checked)}
+            label="Local-only guardrails"
+            sub="New sessions default to local; never auto-route to cloud (disables dual-target failover)"
+          />
+          {tab === 'cloud' && modalProxyWarning && (
             <Banner tone="warning" title="Check the URL">
-              If this points at a Modal /route proxy, chat will 404. Point it at a real chat host (vLLM/Ollama).
+              The saved URL points at the Modal /route proxy, so chat will 404. Point it at a real chat host (vLLM/Ollama).
             </Banner>
           )}
+          <div className="divider" />
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <Btn
+              size="sm"
+              icon="live"
+              loading={pendingIntent === 'probeHealth' && pendingTarget === tabTarget}
+              disabled={busy}
+              onClick={() => submitOp('probeHealth', tabTarget)}
+            >
+              Health check
+            </Btn>
+            <Btn
+              size="sm"
+              icon="flow"
+              loading={pendingIntent === 'probeRoute' && pendingTarget === tabTarget}
+              disabled={busy}
+              onClick={() => submitOp('probeRoute', tabTarget)}
+            >
+              Route contract check
+            </Btn>
+            <Btn
+              size="sm"
+              icon="transfer"
+              loading={pendingIntent === 'switchTarget'}
+              disabled={busy || isActive || (assistantLocalOnly && tabTarget === 'modalRemote')}
+              onClick={() => submitOp('switchTarget', tabTarget)}
+            >
+              Switch active here (shadow)
+            </Btn>
+            <Btn
+              size="sm"
+              icon="replay"
+              loading={pendingIntent === 'rollback'}
+              disabled={busy || !config.previousTarget || (assistantLocalOnly && config.previousTarget === 'modalRemote')}
+              onClick={() => submitOp('rollback')}
+            >
+              {config.previousTarget ? `Rollback to ${config.previousTarget}` : 'Rollback'}
+            </Btn>
+          </div>
+          <div className="stack" style={{ gap: 4 }}>
+            <div className="t-xs t-muted">
+              Last health: {config.lastHealthCheckAt ?? 'never'}
+              {config.lastHealthCheckMessage ? ` — ${config.lastHealthCheckMessage}` : ''}
+            </div>
+            <div className="t-xs t-muted">
+              Last route check: {config.lastRouteCheckAt ?? 'never'}
+              {config.lastRouteCheckMessage ? ` — ${config.lastRouteCheckMessage}` : ''}
+            </div>
+          </div>
+        </div>
+      </Card>
+      <Card pad style={{ marginTop: 16 }}>
+        <div className="stack-5">
+          <div className="row spread">
+            <span className="t-h3">Observability &amp; promotion gates</span>
+            <span className="t-xs t-muted">
+              Resolved now: {resolved.target} · {resolved.url ?? 'no url'} · token {resolved.tokenMasked || 'not configured'}
+            </span>
+          </div>
+          <KV
+            rows={[
+              ['Attempts', fmtNum(activeMetrics.attempts)],
+              ['Schema rejects', fmtNum(activeMetrics.schemaRejects)],
+              ['Fallbacks', fmtNum(activeMetrics.fallbacks)],
+              ['Timeouts / network', fmtNum(activeMetrics.timeoutsOrNetwork)],
+              ['p95 latency', fmtMs(activeMetrics.p95LatencyMs)],
+            ]}
+          />
+          <div className="stack" style={{ gap: 6 }}>
+            <span className="asst-health">
+              <StatusDot ok={gates.schemaPass} />
+              Schema-fail rate gate: {(gates.schemaFailRate * 100).toFixed(2)}% / max{' '}
+              {(resolved.releaseGateSchemaFailRateMax * 100).toFixed(2)}% ({gates.schemaPass ? 'PASS' : 'FAIL'})
+            </span>
+            <span className="asst-health">
+              <StatusDot ok={gates.fallbackPass} />
+              Fallback rate gate: {(gates.fallbackRate * 100).toFixed(2)}% / max{' '}
+              {(resolved.releaseGateFallbackRateMax * 100).toFixed(2)}% ({gates.fallbackPass ? 'PASS' : 'FAIL'})
+            </span>
+          </div>
         </div>
       </Card>
     </div>

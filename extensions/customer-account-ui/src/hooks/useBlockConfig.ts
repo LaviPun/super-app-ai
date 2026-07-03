@@ -76,6 +76,16 @@ export function useBlockConfig(target: string): UseBlockConfigResult {
           if (targetValue && targetValue !== target) continue;
           try {
             const config = JSON.parse(rawConfig) as BlockConfig;
+            // Enforce the merchant's "B2B customers only" setting: hide the
+            // block unless the buyer is authenticated under a purchasing company.
+            if (config.b2bOnly) {
+              const isB2B = Boolean(
+                (shopify as unknown as {
+                  authenticatedAccount?: { purchasingCompany?: { value?: unknown } };
+                }).authenticatedAccount?.purchasingCompany?.value,
+              );
+              if (!isB2B) continue;
+            }
             setResult({ status: 'ready', config });
             return;
           } catch {

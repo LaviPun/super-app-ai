@@ -9,9 +9,9 @@ import { getPrisma } from '~/db.server';
 export async function action({ request }: { request: Request }) {
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
 
-  await shopify.authenticate.webhook(request);
+  const { payload: webhookPayload } = await shopify.authenticate.webhook(request);
 
-  const payload = (await request.json()) as {
+  const payload = webhookPayload as {
     shop_id?: number;
     shop_domain?: string;
     customer?: { id: number; email?: string };

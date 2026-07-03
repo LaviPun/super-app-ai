@@ -11,9 +11,9 @@ type AppScopesUpdatePayload = {
 export async function action({ request }: { request: Request }) {
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
 
-  await shopify.authenticate.webhook(request);
+  const { payload: webhookPayload } = await shopify.authenticate.webhook(request);
 
-  const payload = (await request.json()) as AppScopesUpdatePayload;
+  const payload = webhookPayload as AppScopesUpdatePayload;
   const shopDomain = String(payload.myshopify_domain ?? payload.domain ?? '').trim().toLowerCase();
   if (!shopDomain) {
     return new Response(JSON.stringify({ error: 'Missing shop domain' }), {

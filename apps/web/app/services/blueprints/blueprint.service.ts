@@ -6,12 +6,41 @@
  * compile/preview/publish paths apply unchanged. See docs/blueprints.md.
  */
 import { getPrisma } from '~/db.server';
-import type { DeployTarget, RecipeBlueprint } from '@superapp/core';
+import type { DeployTarget, RecipeBlueprint, RecipeSpec } from '@superapp/core';
 import { RecipeSpecSchema } from '@superapp/core';
 import { ModuleService } from '~/services/modules/module.service';
 import { PublishService } from '~/services/publish/publish.service';
+import type { ResolvedBundle } from '~/services/bundles/bundle-product.service';
 
 type AdminClient = ConstructorParameters<typeof PublishService>[0];
+
+/**
+ * Wire a resolved bundle (real parent/component variant GIDs from
+ * BundleProductService) into a blueprint member's config so it deploys against
+ * live store data instead of the placeholder GIDs the AI generated:
+ *  - theme.section (kind: product-bundle) → bundleId + component variants for the widget
+ *  - checkout.upsell → offer the bundle's parent variant
+ * Unrelated members are returned unchanged (same reference).
+ */
+export function injectResolvedBundle(spec: RecipeSpec, bundle: ResolvedBundle): RecipeSpec {
+  const config = (spec as { config?: Record<string, unknown> }).config ?? {};
+
+  if (spec.type === 'theme.section' && config.kind === 'product-bundle') {
+    return {
+      ...spec,
+      config: { ...config, bundleId: bundle.bundleId, components: bundle.components },
+    } as unknown as RecipeSpec;
+  }
+
+  if (spec.type === 'checkout.upsell') {
+    return {
+      ...spec,
+      config: { ...config, offerTitle: bundle.title, productVariantGid: bundle.parentVariantId },
+    } as unknown as RecipeSpec;
+  }
+
+  return spec;
+}
 
 export type BlueprintCreateResult = {
   recipeId: string;

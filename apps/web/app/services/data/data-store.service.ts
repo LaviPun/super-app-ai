@@ -27,6 +27,24 @@ export const PREDEFINED_STORES: PredefinedStore[] = [
   { key: 'customer', label: 'Customers', description: 'Customer profiles, preferences, and interaction history.', icon: 'CustomerIcon' },
 ];
 
+type SchemaField = { name: string } & Record<string, unknown>;
+
+/** Union of existing + incoming fields by name; existing fields always win. */
+function mergeSchemaAdditively(existingJson: string, incomingJson: string): string {
+  let existing: { fields?: SchemaField[] } & Record<string, unknown>;
+  let incoming: { fields?: SchemaField[] } & Record<string, unknown>;
+  try {
+    existing = JSON.parse(existingJson);
+    incoming = JSON.parse(incomingJson);
+  } catch {
+    return incomingJson;
+  }
+  const existingFields = Array.isArray(existing.fields) ? existing.fields : [];
+  const known = new Set(existingFields.map((f) => f.name));
+  const added = (Array.isArray(incoming.fields) ? incoming.fields : []).filter((f) => !known.has(f.name));
+  return JSON.stringify({ ...incoming, fields: [...existingFields, ...added] });
+}
+
 export class DataStoreService {
   async listStores(shopId: string) {
     const prisma = getPrisma();
@@ -77,6 +95,49 @@ export class DataStoreService {
     const safeKey = key.toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 40);
     return prisma.dataStore.create({
       data: { shopId, key: safeKey, label, description: description ?? null, isEnabled: true },
+    });
+  }
+
+  /**
+   * Idempotent provisioning for module-declared typed stores (Module System v2
+   * data models): publish-time "ensure" rather than create. Re-declaring a store
+   * EXPANDS its schema additively — new fields are appended, existing fields are
+   * never dropped or retyped — so records written under the old schema stay valid.
+   * Omitting `schemaJson` never clobbers an existing schema.
+   */
+  async ensureTypedStore(
+    shopId: string,
+    key: string,
+    opts: { label: string; description?: string; schemaJson?: string },
+  ) {
+    const prisma = getPrisma();
+    const safeKey = key.toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 40);
+
+    let schemaJson = opts.schemaJson;
+    if (schemaJson) {
+      const existing = await prisma.dataStore.findUnique({
+        where: { shopId_key: { shopId, key: safeKey } },
+        select: { schemaJson: true },
+      });
+      if (existing?.schemaJson) {
+        schemaJson = mergeSchemaAdditively(existing.schemaJson, schemaJson);
+      }
+    }
+
+    return prisma.dataStore.upsert({
+      where: { shopId_key: { shopId, key: safeKey } },
+      create: {
+        shopId,
+        key: safeKey,
+        label: opts.label,
+        description: opts.description ?? null,
+        isEnabled: true,
+        ...(schemaJson ? { schemaJson } : {}),
+      },
+      update: {
+        isEnabled: true,
+        ...(schemaJson ? { schemaJson } : {}),
+      },
     });
   }
 

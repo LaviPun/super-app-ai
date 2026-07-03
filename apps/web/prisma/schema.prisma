@@ -51,6 +51,8 @@ model Shop {
   moduleEvents ModuleEvent[]
   moduleMetricsDaily ModuleMetricsDaily[]
   attributionLinks AttributionLink[]
+  flowDeadLetters FlowDeadLetter[]
+  apiRateLimit ShopApiRateLimit?
 }
 
 model Recipe {
@@ -501,6 +503,46 @@ model FlowSchedule {
   @@index([nextRunAt, isActive])
 }
 
+// Dead-letter queue for failed flow runs. Replayed by cron with bounded backoff
+// (see services/flows/dead-letter.service.ts); DISCARDED after maxAttempts.
+model FlowDeadLetter {
+  id          String    @id @default(cuid())
+  shopId      String
+  shop        Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  flowId      String?
+  trigger     String
+  eventJson   String    @default("{}")
+  error       String
+  lastError   String?
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5)
+  status      String    @default("PENDING") // PENDING | REPLAYING | RESOLVED | DISCARDED
+  nextRetryAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, nextRetryAt])
+  @@index([shopId, status])
+}
+
+// Latest Shopify Admin API throttle snapshot per shop
+// (see services/shopify/rate-limit.service.ts).
+model ShopApiRateLimit {
+  id                 String    @id @default(cuid())
+  shopId             String    @unique
+  shop               Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  currentlyAvailable Float?
+  maximumAvailable   Float?
+  restoreRate        Float?
+  lastQueryCost      Float?
+  totalCalls         Int       @default(0)
+  throttledCount     Int       @default(0)
+  lastThrottledAt    DateTime?
+  updatedAt          DateTime  @updatedAt
+
+  @@index([updatedAt])
+}
+
 model DataStore {
   id          String   @id @default(cuid())
   shopId      String
@@ -562,9 +604,16 @@ model WorkflowRun {
   workflowId      String   // logical workflow ID
   workflowVersion Int
   tenantId        String   // shopId
-  status          String   @default("QUEUED") // QUEUED | RUNNING | SUCCEEDED | FAILED | CANCELLED | TIMED_OUT
+  status          String   @default("QUEUED") // QUEUED | RUNNING | WAITING | SUCCEEDED | FAILED | CANCELLED | TIMED_OUT
   triggerRef      String?  // JSON: { provider, event }
   contextJson     String?  // full RunContext JSON (for crash recovery)
+  // Durable wait (park + resume): a long `wait` node parks the run as WAITING;
+  // cron resumes it once resumeAt is due, re-entering at resumeNodeId using the
+  // persisted workflowJson graph (self-contained resume).
+  workflowJson    String?
+  resumeAt        DateTime?
+  resumeNodeId    String?
+  resumeCount     Int      @default(0)
   error           String?
   startedAt       DateTime?
   endedAt         DateTime?
@@ -575,6 +624,7 @@ model WorkflowRun {
 
   @@index([workflowId, tenantId])
   @@index([tenantId, status])
+  @@index([status, resumeAt])
   @@index([createdAt])
 }
 

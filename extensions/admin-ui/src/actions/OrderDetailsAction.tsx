@@ -7,7 +7,9 @@ const TARGET = 'admin.order-details.action.render';
 
 function close() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (globalThis as any).shopify?.extension?.api?.close?.();
+  // ActionExtensionApi exposes close() directly on the global shopify object
+  // (the old shopify.extension.api.close path never existed — button did nothing).
+  (globalThis as any).shopify?.close?.();
 }
 
 function OrderDetailsAction() {

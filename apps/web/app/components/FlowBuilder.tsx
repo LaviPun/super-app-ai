@@ -29,7 +29,7 @@ type AuthConfig = {
 
 type FlowStep =
   | { kind: 'HTTP_REQUEST'; connectorId: string; path: string; method: string; bodyMapping: Record<string, string> }
-  | { kind: 'SEND_HTTP_REQUEST'; url: string; method: string; headers: Record<string, string>; body: string; authType: string; authConfig: AuthConfig }
+  | { kind: 'SEND_HTTP_REQUEST'; url: string; method: string; headers: Record<string, string>; headersText?: string; body: string; authType: string; authConfig: AuthConfig }
   | { kind: 'TAG_CUSTOMER'; tag: string }
   | { kind: 'ADD_ORDER_NOTE'; note: string }
   | { kind: 'TAG_ORDER'; tags: string }
@@ -306,7 +306,20 @@ export function FlowBuilder({ initialSpec, connectors = [], onSave, saving }: Pr
                         </div>
                       </InlineStack>
                     )}
-                    <TextField label="Headers (JSON)" value={JSON.stringify(step.headers)} onChange={(v) => { try { updateStep(idx, { headers: JSON.parse(v) }); } catch { /* keep current */ } }} autoComplete="off" placeholder='{"Content-Type": "application/json"}' helpText="Key-value pairs as JSON object" />
+                    <TextField
+                      label="Headers (JSON)"
+                      value={step.headersText ?? JSON.stringify(step.headers ?? {})}
+                      onChange={(v) => {
+                        // Keep the raw text so typing through invalid intermediate
+                        // JSON isn't swallowed; commit to `headers` once it parses.
+                        try { updateStep(idx, { headersText: v, headers: JSON.parse(v) }); }
+                        catch { updateStep(idx, { headersText: v }); }
+                      }}
+                      error={(() => { try { JSON.parse(step.headersText ?? '{}'); return undefined; } catch { return 'Invalid JSON — last valid headers will be used'; } })()}
+                      autoComplete="off"
+                      placeholder='{"Content-Type": "application/json"}'
+                      helpText="Key-value pairs as JSON object"
+                    />
                     <TextField label="Body" value={step.body} onChange={(v) => updateStep(idx, { body: v })} autoComplete="off" multiline={4} placeholder='{"key": "value"}' />
                   </>
                 )}

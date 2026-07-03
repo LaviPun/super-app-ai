@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { json, redirect } from '@remix-run/node';
-import { useLoaderData, useParams } from '@remix-run/react';
+import { useEffect, useState } from 'react';
+import { json } from '@remix-run/node';
+import { useLoaderData, useFetcher } from '@remix-run/react';
 import {
   useAdminCtx,
   Icon,
@@ -11,23 +11,18 @@ import {
   Field,
   Input,
   Select,
-  Toggle,
   Banner,
   Modal,
   Tabs,
   KV,
   DataTable,
+  EmptyState,
   PageHead,
   StatTile,
   MonoChip,
   fmtNum,
   fmtQuota,
   titleCase,
-  STORES,
-  MODULES,
-  PROVIDERS,
-  PLAN_TIERS,
-  ACTIVITY,
   storeHealth,
   healthTone,
   healthLabel,
@@ -37,6 +32,7 @@ import { getPrisma } from '~/db.server';
 import { AiProviderService } from '~/services/internal/ai-provider.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { BillingService, type BillingPlan } from '~/services/billing/billing.service';
+import { getAllPlanConfigs } from '~/services/billing/plan-config.service';
 import { RecipeService } from '~/services/recipes/recipe.service';
 import { compileRecipe } from '~/services/recipes/compiler';
 import type { ThemeModulePayload } from '~/services/recipes/compiler/types';
@@ -47,6 +43,7 @@ type ModuleMetaRow = {
   type: string;
   category: string;
   status: string;
+  version: number | null;
   publishedAt: string | null;
   targetThemeId: string | null;
   specSummary: string;
@@ -118,6 +115,7 @@ function buildPublishedModulesMeta(shop: {
       type: mod.type,
       category: mod.category,
       status: mod.status,
+      version: publishedVersion?.version ?? null,
       publishedAt: publishedVersion?.publishedAt?.toISOString() ?? null,
       targetThemeId: publishedVersion?.targetThemeId ?? null,
       specSummary,
@@ -142,28 +140,29 @@ export async function loader({ request, params }: { request: Request; params: { 
   if (!storeId) throw new Response('Missing store', { status: 400 });
 
   const prisma = getPrisma();
-  const shop = await prisma.shop.findUnique({
-    where: { id: storeId },
-    include: {
-      modules: {
-        include: {
-          versions: {
-            select: {
-              id: true, version: true, status: true, specJson: true, publishedAt: true, targetThemeId: true,
-              implementationPlanJson: true, adminConfigSchemaJson: true, adminDefaultsJson: true,
-              themeEditorSettingsJson: true, uiTokensJson: true, validationReportJson: true,
+  const [shop, providers, planConfigs] = await Promise.all([
+    prisma.shop.findUnique({
+      where: { id: storeId },
+      include: {
+        modules: {
+          include: {
+            versions: {
+              select: {
+                id: true, version: true, status: true, specJson: true, publishedAt: true, targetThemeId: true,
+                implementationPlanJson: true, adminConfigSchemaJson: true, adminDefaultsJson: true,
+                themeEditorSettingsJson: true, uiTokensJson: true, validationReportJson: true,
+              },
             },
           },
         },
+        aiProviderOverride: true,
+        subscription: true,
       },
-      aiProviderOverride: true,
-      subscription: true,
-    },
-  });
-  // A missing shop is NOT a 404 here — the design surface uses placeholder store ids.
-  // Compute the shop-independent options below, then (if no real shop) return shop:null
-  // so the component renders the placeholder store inside the admin shell.
-  const providers = await new AiProviderService().list();
+    }),
+    new AiProviderService().list(),
+    getAllPlanConfigs(),
+  ]);
+
   const providerOptions = [
     { label: 'Use global provider', value: '' },
     ...providers.map(p => ({ label: `${p.name} (${p.provider})${p.isActive ? ' ★' : ''}`, value: p.id })),
@@ -177,25 +176,41 @@ export async function loader({ request, params }: { request: Request; params: { 
     { label: 'Enterprise', value: 'ENTERPRISE' },
   ];
 
+  const planTiers = planConfigs.map(p => ({
+    id: p.name,
+    name: p.name,
+    display: p.displayName,
+    price: p.price,
+    ai: p.quotas.aiRequestsPerMonth,
+    publish: p.quotas.publishOpsPerMonth,
+  }));
+
   if (!shop) {
     const emptyUsage = { totalRequests: 0, totalTokensIn: 0, totalTokensOut: 0, totalCostCents: 0, byProvider: [] as any[] };
     return json({
       shop: null,
       providerOptions,
       billingPlanOptions,
+      planTiers,
       publishedModulesMeta: [] as ReturnType<typeof buildPublishedModulesMeta>,
       aiUsage30d: emptyUsage,
-      aiUsageAllTime: emptyUsage,
+      providerLabel: '—',
+      errors30d: 0,
+      recentActivity: [] as { id: string; actor: string; action: string; createdAt: string }[],
     });
   }
 
-  const publishedModulesMeta = buildPublishedModulesMeta(shop);
-  const aiUsageRows = await prisma.aiUsage.findMany({
-    where: { shopId: shop.id },
-    include: { provider: true },
-  });
   const since30d = new Date(Date.now() - 30 * 86400000);
-  const aiUsageRows30d = aiUsageRows.filter((r) => r.createdAt >= since30d);
+  const [aiUsageRows, errorCount30d, recentActivityRows] = await Promise.all([
+    prisma.aiUsage.findMany({
+      where: { shopId: shop.id, createdAt: { gte: since30d } },
+      include: { provider: true },
+    }),
+    prisma.errorLog.count({ where: { shopId: shop.id, level: 'ERROR', createdAt: { gte: since30d } } }),
+    new ActivityLogService().list({ shopId: shop.id, take: 8 }),
+  ]);
+
+  const publishedModulesMeta = buildPublishedModulesMeta(shop);
   const summarizeAiRows = (rows: typeof aiUsageRows) => {
     const byProvider = new Map<string, { provider: string; model: string; requests: number; tokensIn: number; tokensOut: number; costCents: number }>();
     let totalRequests = 0;
@@ -233,11 +248,19 @@ export async function loader({ request, params }: { request: Request; params: { 
     };
   };
 
+  const activeProvider = providers.find(p => p.isActive);
+  const providerLabel = shop.aiProviderOverride
+    ? shop.aiProviderOverride.name + ' · ' + (shop.aiProviderOverride.model ?? shop.aiProviderOverride.provider)
+    : activeProvider
+      ? 'Default · ' + (activeProvider.model ?? activeProvider.provider)
+      : 'No provider configured';
+
   return json({
     shop: {
       id: shop.id,
       shopDomain: shop.shopDomain,
       planTier: shop.planTier,
+      createdAt: shop.createdAt.toISOString(),
       aiProviderOverrideId: shop.aiProviderOverrideId,
       retentionDaysDefault: shop.retentionDaysDefault,
       retentionDaysAi: shop.retentionDaysAi,
@@ -249,9 +272,12 @@ export async function loader({ request, params }: { request: Request; params: { 
     },
     providerOptions,
     billingPlanOptions,
+    planTiers,
     publishedModulesMeta,
-    aiUsage30d: summarizeAiRows(aiUsageRows30d),
-    aiUsageAllTime: summarizeAiRows(aiUsageRows),
+    aiUsage30d: summarizeAiRows(aiUsageRows),
+    providerLabel,
+    errors30d: Math.min(errorCount30d, 13),
+    recentActivity: recentActivityRows.map(a => ({ id: a.id, actor: a.actor, action: a.action, createdAt: a.createdAt.toISOString() })),
   });
 }
 
@@ -261,7 +287,7 @@ export async function action({ request }: { request: Request }) {
   const shopId = String(form.get('shopId') ?? '');
   const intent = String(form.get('intent') ?? 'provider');
 
-  if (!shopId) return json({ error: 'Missing shopId' }, { status: 400 });
+  if (!shopId) return json({ ok: false, message: 'Missing shopId' }, { status: 400 });
 
   const prisma = getPrisma();
   const activity = new ActivityLogService();
@@ -273,72 +299,113 @@ export async function action({ request }: { request: Request }) {
       data: { aiProviderOverrideId: providerId || null },
     });
     await activity.log({ actor: 'INTERNAL_ADMIN', action: 'STORE_SETTINGS_UPDATED', resource: `shop:${shopId}`, details: { field: 'aiProviderOverride', providerId } });
+    return json({ ok: true, message: providerId ? 'AI provider override saved' : 'AI provider override cleared' });
   }
 
   if (intent === 'retention') {
-    const toIntOrUndefined = (v: FormDataEntryValue | null) => {
-      const n = parseInt(String(v ?? ''), 10);
+    // Blank → null (clear the override, fall back to default); invalid → leave unchanged.
+    const parseDays = (v: FormDataEntryValue | null): number | null | undefined => {
+      const s = String(v ?? '').trim();
+      if (!s) return null;
+      const n = parseInt(s, 10);
       return isNaN(n) || n <= 0 ? undefined : n;
     };
-    const data: Record<string, number> = {};
-    const d = toIntOrUndefined(form.get('retentionDaysDefault'));
-    if (d !== undefined) data.retentionDaysDefault = d;
-    const ai = toIntOrUndefined(form.get('retentionDaysAi'));
+    const data: Record<string, number | null> = {};
+    const d = parseDays(form.get('retentionDaysDefault'));
+    if (typeof d === 'number') data.retentionDaysDefault = d;
+    const ai = parseDays(form.get('retentionDaysAi'));
     if (ai !== undefined) data.retentionDaysAi = ai;
-    const api = toIntOrUndefined(form.get('retentionDaysApi'));
+    const api = parseDays(form.get('retentionDaysApi'));
     if (api !== undefined) data.retentionDaysApi = api;
-    const err = toIntOrUndefined(form.get('retentionDaysErrors'));
+    const err = parseDays(form.get('retentionDaysErrors'));
     if (err !== undefined) data.retentionDaysErrors = err;
     await prisma.shop.update({ where: { id: shopId }, data });
     await activity.log({ actor: 'INTERNAL_ADMIN', action: 'STORE_SETTINGS_UPDATED', resource: `shop:${shopId}`, details: { field: 'retention' } });
+    return json({ ok: true, message: 'Retention settings saved' });
   }
 
   if (intent === 'set_plan') {
     const plan = String(form.get('plan') ?? '') as BillingPlan;
     const allowed: BillingPlan[] = ['FREE', 'STARTER', 'GROWTH', 'PRO', 'ENTERPRISE'];
-    if (!allowed.includes(plan)) return json({ error: 'Invalid plan' }, { status: 400 });
+    if (!allowed.includes(plan)) return json({ ok: false, message: 'Invalid plan' }, { status: 400 });
     await new BillingService().setPlanForShop(shopId, plan);
     await activity.log({ actor: 'INTERNAL_ADMIN', action: 'STORE_PLAN_CHANGED', resource: `shop:${shopId}`, details: { plan } });
+    return json({ ok: true, message: 'Plan changed to ' + titleCase(plan) });
   }
 
-  return redirect(`/internal/stores/${shopId}`);
+  return json({ ok: false, message: 'Unknown intent' }, { status: 400 });
 }
 
 const PLAN_TONE: Record<string, any> = { FREE: undefined, STARTER: 'info', GROWTH: 'success', PRO: 'magic', ENTERPRISE: 'warning' };
 
+function rel(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.round(diff / 60000);
+  if (m < 60) return m + 'm ago';
+  const h = Math.round(m / 60);
+  if (h < 24) return h + 'h ago';
+  return Math.round(h / 24) + 'd ago';
+}
+
 export default function AdminStoreDetail() {
   const data = useLoaderData<typeof loader>();
-  const params = useParams();
   const ctx = useAdminCtx();
-  // Map the real shop onto the design's store shape; fall back to the placeholder set.
+  const fetcher = useFetcher<typeof action>();
   const real = data.shop;
-  const placeholder = STORES.find((x) => x.id === params.storeId) || STORES[0];
-  const s: any = real
-    ? {
-        id: real.id,
-        domain: real.shopDomain,
-        name: real.shopDomain.split('.')[0],
-        plan: real.planTier,
-        status: real.subscription?.status === 'ACTIVE' ? 'ACTIVE' : (real.subscription?.status ?? 'ACTIVE'),
-        modules: real.modulesCount,
-        published: real.publishedCount,
-        aiCalls30d: (data.aiUsage30d as any)?.count ?? placeholder.aiCalls30d,
-        owner: placeholder.owner,
-        country: placeholder.country,
-        installedAt: placeholder.installedAt,
-        provider: placeholder.provider,
-      }
-    : placeholder;
 
   const [tab, setTab] = useState('overview');
   const [planModal, setPlanModal] = useState(false);
-  const [planChoice, setPlanChoice] = useState(s.plan);
-  const mods = MODULES.filter((m) => m.store === s.name);
-  const h = storeHealth(s);
+  const [planChoice, setPlanChoice] = useState(real?.planTier ?? 'FREE');
+  const [providerChoice, setProviderChoice] = useState(real?.aiProviderOverrideId ?? '');
+  const busy = fetcher.state !== 'idle';
+
+  // Toast the server's response (error styling when ok:false); close the plan modal on success.
+  useEffect(() => {
+    if (fetcher.state === 'idle' && fetcher.data) {
+      ctx.toast(fetcher.data.message, !fetcher.data.ok);
+      if (fetcher.data.ok) setPlanModal(false);
+    }
+  }, [fetcher.state, fetcher.data, ctx]);
+
+  if (!real) {
+    return (
+      <div className="page">
+        <PageHead back={{ href: '/internal/stores', label: 'Stores' }} title="Store not found" />
+        <Card pad>
+          <EmptyState
+            icon="store"
+            title="Store not found"
+            action={<Btn variant="primary" onClick={() => ctx.go('#/admin/stores')}>Back to stores</Btn>}
+          >
+            This store does not exist or has been uninstalled.
+          </EmptyState>
+        </Card>
+      </div>
+    );
+  }
+
+  const s = {
+    id: real.id,
+    domain: real.shopDomain,
+    name: real.shopDomain.split('.')[0],
+    plan: real.planTier,
+    status: real.subscription?.status ?? 'ACTIVE',
+    modules: real.modulesCount,
+    published: real.publishedCount,
+    aiCalls30d: data.aiUsage30d.totalRequests,
+    installedAt: real.createdAt.slice(0, 10),
+    provider: data.providerLabel,
+  };
+
+  const mods = data.publishedModulesMeta;
+  const errLogs = Array.from({ length: data.errors30d }, () => ({ level: 'ERROR', shop: s.domain }));
+  const h = storeHealth(s, errLogs);
   const hTone = healthTone(h);
   const applyPlan = () => {
-    setPlanModal(false);
-    ctx.toast('Plan changed to ' + titleCase(planChoice));
+    fetcher.submit({ intent: 'set_plan', shopId: s.id, plan: planChoice }, { method: 'post' });
+  };
+  const saveProvider = () => {
+    fetcher.submit({ intent: 'provider', shopId: s.id, providerId: providerChoice }, { method: 'post' });
   };
 
   return (
@@ -407,7 +474,6 @@ export default function AdminStoreDetail() {
               rows={[
                 ['Store ID', <MonoChip key="id">{s.id}</MonoChip>],
                 ['Domain', <MonoChip key="dom">{s.domain}</MonoChip>],
-                ['Owner', s.owner],
                 ['Plan', <Badge key="pl" tone={PLAN_TONE[s.plan]}>{titleCase(s.plan)}</Badge>],
                 ['Status', <StatusBadge key="st" value={s.status} />],
                 ['Installed', s.installedAt],
@@ -419,55 +485,51 @@ export default function AdminStoreDetail() {
             <div className="t-h3" style={{ marginBottom: 12 }}>
               Recent activity
             </div>
-            <div className="timeline">
-              {ACTIVITY.slice(0, 4).map((a, i) => (
-                <div key={i} className="tl-item">
-                  <span className="tl-dot info" />
-                  <div className="t-sm t-strong">{titleCase(a.action)}</div>
-                  <div className="t-xs t-muted">{a.created}</div>
-                </div>
-              ))}
-            </div>
+            {data.recentActivity.length ? (
+              <div className="timeline">
+                {data.recentActivity.slice(0, 4).map((a) => (
+                  <div key={a.id} className="tl-item">
+                    <span className="tl-dot info" />
+                    <div className="t-sm t-strong">{titleCase(a.action)}</div>
+                    <div className="t-xs t-muted">{rel(a.createdAt)}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="t-sm t-muted">No activity recorded for this store yet.</div>
+            )}
           </Card>
         </div>
       )}
       {tab === 'modules' && (
         <Card className="internal-store-modules-table">
-          <DataTable
-            rowKey="id"
-            columns={[
-              { key: 'name', label: 'Module', render: (r: any) => <span className="cell-strong">{r.name}</span> },
-              { key: 'type', label: 'Type', render: (r: any) => <Badge>{r.type}</Badge> },
-              { key: 'version', label: 'Version', render: (r: any) => 'v' + r.version },
-              { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
-              { key: 'updated', label: 'Updated', render: (r: any) => <span className="cell-sub">{r.updated}</span> },
-            ]}
-            rows={mods.length ? mods : MODULES.slice(0, 3)}
-          />
+          {mods.length ? (
+            <DataTable
+              rowKey="id"
+              columns={[
+                { key: 'name', label: 'Module', render: (r: any) => <span className="cell-strong">{r.name}</span> },
+                { key: 'type', label: 'Type', render: (r: any) => <Badge>{r.type}</Badge> },
+                { key: 'version', label: 'Version', render: (r: any) => (r.version != null ? 'v' + r.version : '—') },
+                { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
+                { key: 'updated', label: 'Published', render: (r: any) => <span className="cell-sub">{r.publishedAt ? rel(r.publishedAt) : '—'}</span> },
+              ]}
+              rows={mods}
+            />
+          ) : (
+            <EmptyState icon="layers" title="No modules yet">
+              This store has not created any modules.
+            </EmptyState>
+          )}
         </Card>
       )}
       {tab === 'overrides' && (
         <Card pad>
           <div className="stack-5" style={{ maxWidth: 540 }}>
             <Field label="AI provider override" help="Force this store onto a specific provider, regardless of the global default">
-              <Select options={['Use global default'].concat(PROVIDERS.map((p) => p.name))} value="Use global default" onChange={() => ctx.toast('Override updated')} />
-            </Field>
-            <Field label="Feature flags" optional>
-              <div className="stack-2">
-                {[
-                  ['betaImageToModule', 'Beta: image-to-module'],
-                  ['betaMultiStep', 'Beta: multi-step flows'],
-                  ['allowCustomCss', 'Allow custom CSS'],
-                ].map((f, i) => (
-                  <label key={i} className="row spread">
-                    <span className="t-sm">{f[1]}</span>
-                    <Toggle onChange={(e: any) => ctx.toast(f[1] + (e.target.checked ? ' enabled' : ' disabled'))} />
-                  </label>
-                ))}
-              </div>
+              <Select options={data.providerOptions} value={providerChoice} onChange={(e: any) => setProviderChoice(e.target.value)} />
             </Field>
             <div>
-              <Btn variant="primary" onClick={() => ctx.toast('Overrides saved')}>
+              <Btn variant="primary" loading={busy} onClick={saveProvider}>
                 Save overrides
               </Btn>
             </div>
@@ -476,26 +538,30 @@ export default function AdminStoreDetail() {
       )}
       {tab === 'retention' && (
         <Card pad>
-          <div className="stack-4" style={{ maxWidth: 540 }}>
-            <Banner tone="info">Override how long logs and usage data are kept for this store. Leave blank to use the plan default.</Banner>
+          <fetcher.Form method="post" className="stack-4" style={{ maxWidth: 540 }}>
+            <input type="hidden" name="intent" value="retention" />
+            <input type="hidden" name="shopId" value={s.id} />
+            <Banner tone="info">Override how long logs and usage data are kept for this store. Leave blank to use the default retention.</Banner>
             <div className="grid grid-2">
-              {[
-                ['aiUsage', 'AI usage', '90'],
-                ['apiLogs', 'API logs', '30'],
-                ['errorLogs', 'Error logs', '30'],
-                ['jobs', 'Jobs', '14'],
-              ].map((r, i) => (
-                <Field key={i} label={r[1] + ' (days)'}>
-                  <Input type="number" defaultValue={r[2]} />
-                </Field>
-              ))}
+              <Field label="Default retention (days)">
+                <Input type="number" name="retentionDaysDefault" min={1} defaultValue={real.retentionDaysDefault} />
+              </Field>
+              <Field label="AI usage (days)">
+                <Input type="number" name="retentionDaysAi" min={1} defaultValue={real.retentionDaysAi ?? ''} />
+              </Field>
+              <Field label="API logs (days)">
+                <Input type="number" name="retentionDaysApi" min={1} defaultValue={real.retentionDaysApi ?? ''} />
+              </Field>
+              <Field label="Error logs (days)">
+                <Input type="number" name="retentionDaysErrors" min={1} defaultValue={real.retentionDaysErrors ?? ''} />
+              </Field>
             </div>
             <div>
-              <Btn variant="primary" onClick={() => ctx.toast('Retention updated')}>
+              <Btn variant="primary" type="submit" loading={busy}>
                 Save retention
               </Btn>
             </div>
-          </div>
+          </fetcher.Form>
         </Card>
       )}
       {planModal && (
@@ -507,14 +573,14 @@ export default function AdminStoreDetail() {
             <>
               <span className="grow" />
               <Btn onClick={() => setPlanModal(false)}>Cancel</Btn>
-              <Btn variant="primary" onClick={applyPlan}>
+              <Btn variant="primary" loading={busy} onClick={applyPlan}>
                 Apply plan
               </Btn>
             </>
           }
         >
           <div className="stack-2">
-            {PLAN_TIERS.map((p) => (
+            {data.planTiers.map((p) => (
               <label key={p.id} className={'plan-radio' + (p.name === planChoice ? ' active' : '')}>
                 <input type="radio" name="plan" checked={p.name === planChoice} onChange={() => setPlanChoice(p.name)} />
                 <div className="grow">
@@ -532,4 +598,3 @@ export default function AdminStoreDetail() {
     </div>
   );
 }
-

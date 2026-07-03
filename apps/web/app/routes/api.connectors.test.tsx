@@ -1,7 +1,9 @@
 import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
+import { getPrisma } from '~/db.server';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
 import { enqueueConnectorTestJob } from '~/services/connectors/connector-test-job.server';
+import { runConnectorWorkerJob } from '~/services/connectors/connector-worker.server';
 import { withApiLogging } from '~/services/observability/api-log.service';
 
 export async function action({ request }: { request: Request }) {
@@ -18,7 +20,13 @@ export async function action({ request }: { request: Request }) {
 
       try {
         const job = await enqueueConnectorTestJob(session.shop, body);
-        return json({ ok: true, queued: true, job }, { status: 202 });
+        // Execute the test now — the job row is the audit trail, but no worker
+        // polls this queue in-process and the merchant needs the result for the
+        // "Test connection" button immediately.
+        const prisma = getPrisma();
+        const row = await prisma.job.findUnique({ where: { id: job.jobId } });
+        const result = row ? await runConnectorWorkerJob(row) : null;
+        return json({ ok: true, job, result }, { status: 200 });
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Invalid connector test request';
         return json({ error: message }, { status: 400 });

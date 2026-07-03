@@ -44,6 +44,12 @@ export function mapCompileResultToPublishOutput(result: CompileResult, moduleId?
       operations.push({ kind: op.kind } as never);
       continue;
     }
+    if (op.kind === 'WEB_PIXEL_UPSERT') {
+      // Not yet part of the core PublishDeployOperation contract; pass through
+      // with its settings so the worker output stays lossless.
+      operations.push({ kind: op.kind, settings: op.settings } as never);
+      continue;
+    }
     operations.push(op);
   }
 

@@ -48,6 +48,8 @@ export async function loader({ request, params }: { request: Request; params: { 
     detailsJson,
     detailsRaw,
     ip: log.ip,
+    requestId: log.requestId ?? null,
+    correlationId: log.correlationId ?? null,
     createdAt: log.createdAt.toISOString(),
   });
 }
@@ -71,20 +73,8 @@ export default function AdminActivityDetail() {
     ip: d.ip ?? '—',
     created: rel(d.createdAt),
   };
-  const cid = 'cor_' + (a.id || 'act').replace(/[^a-z0-9]/gi, '').slice(-5) + 'f2';
-  const details = {
-    actor: a.actor,
-    action: a.action,
-    resourceId: a.resource,
-    shop: a.shop,
-    ip: a.ip,
-    userAgent: 'Mozilla/5.0 (Macintosh)',
-    requestId: 'req_' + (a.id || '0').replace(/[^a-z0-9]/gi, '').slice(-5),
-    correlationId: cid,
-    sessionId: 'ses_8a21f',
-    result: 'success',
-  };
-  const detailsText = d.detailsJson ?? JSON.stringify(details, null, 2);
+  const cid = d.correlationId;
+  const detailsText = d.detailsJson ?? d.detailsRaw;
 
   return (
     <div className="page page-narrow">
@@ -95,9 +85,11 @@ export default function AdminActivityDetail() {
         sub="Full detail for a single activity entry, including actor, target, request context and the correlation ID that joins it to logs and jobs."
         actions={
           <>
-            <Btn icon="transfer" onClick={() => ctx.go('#/admin/trace/' + cid)}>
-              Open trace
-            </Btn>
+            {cid && (
+              <Btn icon="transfer" onClick={() => ctx.go('#/admin/trace/' + cid)}>
+                Open trace
+              </Btn>
+            )}
             <Btn variant="primary" icon="chat" onClick={() => ctx.go('#/admin/ai-assistant')}>
               Ask assistant
             </Btn>
@@ -118,20 +110,20 @@ export default function AdminActivityDetail() {
                 ['Resource', a.resource],
                 ['Store', a.shop],
                 ['When', a.created],
-                [
-                  'Result',
-                  <Badge key="r" tone="success" dot>
-                    Success
-                  </Badge>,
-                ],
               ]}
             />
           </Card>
           <Card>
             <CardHead title="Details JSON" actions={<span className="t-xs t-muted t-mono">activity.details</span>} />
-            <pre className="code-block" style={{ margin: 0, borderRadius: '0 0 12px 12px' }}>
-              {detailsText}
-            </pre>
+            {detailsText ? (
+              <pre className="code-block" style={{ margin: 0, borderRadius: '0 0 12px 12px' }}>
+                {detailsText}
+              </pre>
+            ) : (
+              <div className="t-muted t-sm" style={{ padding: '12px 16px' }}>
+                No details were recorded for this entry.
+              </div>
+            )}
           </Card>
         </div>
         <div className="stack-4">
@@ -142,15 +134,17 @@ export default function AdminActivityDetail() {
             <KV
               rows={[
                 ['IP', <span key="ip" className="t-mono t-xs">{a.ip}</span>],
-                ['Request ID', <MonoChip key="rq">{details.requestId}</MonoChip>],
-                ['Correlation', <MonoChip key="co">{cid}</MonoChip>],
+                ['Request ID', d.requestId ? <MonoChip key="rq">{d.requestId}</MonoChip> : '—'],
+                ['Correlation', cid ? <MonoChip key="co">{cid}</MonoChip> : '—'],
               ]}
             />
-            <div style={{ marginTop: 14 }}>
-              <Btn className="btn-block" icon="transfer" onClick={() => ctx.go('#/admin/trace/' + cid)}>
-                View full trace
-              </Btn>
-            </div>
+            {cid && (
+              <div style={{ marginTop: 14 }}>
+                <Btn className="btn-block" icon="transfer" onClick={() => ctx.go('#/admin/trace/' + cid)}>
+                  View full trace
+                </Btn>
+              </div>
+            )}
           </Card>
           <Card pad>
             <div className="t-h3" style={{ marginBottom: 10 }}>
@@ -158,9 +152,9 @@ export default function AdminActivityDetail() {
             </div>
             <div className="stack" style={{ gap: 2 }}>
               {([
-                ['table', 'API logs for this request', '/internal/api-logs'],
-                ['work', 'Jobs in this correlation', '/internal/jobs'],
-                ['bug', 'Errors in this correlation', '/internal/logs'],
+                ['table', cid ? 'API logs in this correlation' : 'API logs', '/internal/api-logs' + (cid ? '?correlationId=' + encodeURIComponent(cid) : '')],
+                ['work', cid ? 'Jobs in this correlation' : 'Jobs', '/internal/jobs' + (cid ? '?correlationId=' + encodeURIComponent(cid) : '')],
+                ['bug', cid ? 'Errors in this correlation' : 'Error logs', '/internal/logs' + (cid ? '?correlationId=' + encodeURIComponent(cid) : '')],
               ] as Array<[string, string, string]>).map((l) => (
                 <a key={l[1]} href={l[2]} className="nav-item" style={{ color: 'var(--p-text)' }}>
                   <Icon name={l[0]} size={16} className="t-muted" />

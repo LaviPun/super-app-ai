@@ -132,16 +132,19 @@ export class ModuleService {
     versionId: string;
     targetThemeId?: string;
     source: 'merchant_api' | 'agent_api' | 'system';
+    /** Optional audit-attribution override (e.g. INTERNAL_ADMIN for /internal/ops). */
+    actor?: 'MERCHANT' | 'SYSTEM' | 'CRON' | 'WEBHOOK' | 'INTERNAL_ADMIN';
     idempotencyKey: string;
   }) {
     const prisma = getPrisma();
     const transitions = new ReleaseTransitionService(prisma);
     const actor =
-      params.source === 'merchant_api'
+      params.actor ??
+      (params.source === 'merchant_api'
         ? 'MERCHANT'
         : params.source === 'agent_api'
           ? 'SYSTEM'
-          : 'CRON';
+          : 'CRON');
 
     const moduleRow = await prisma.module.findUnique({
       where: { id: params.moduleId },
@@ -224,7 +227,7 @@ export class ModuleService {
     }
   }
 
-  async rollbackToVersion(shopDomain: string, moduleId: string, version: int) {
+  async rollbackToVersion(shopDomain: string, moduleId: string, version: number) {
     const prisma = getPrisma();
     const mv = await prisma.moduleVersion.findFirst({
       where: { moduleId, version, module: { shop: { shopDomain } } },
@@ -243,5 +246,3 @@ export class ModuleService {
     await prisma.module.delete({ where: { id: moduleId } });
   }
 }
-
-type int = number;

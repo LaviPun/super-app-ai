@@ -32,16 +32,18 @@ export const FunctionDeploymentContractSchema = z.object({
 });
 export type FunctionDeploymentContract = z.infer<typeof FunctionDeploymentContractSchema>;
 
-export const MODULE_PUBLISH_PREFLIGHT_STATUSES = ['deployable', 'gated', 'blocked'] as const;
+export const MODULE_PUBLISH_PREFLIGHT_STATUSES = ['deployable', 'needs_runtime', 'gated', 'blocked'] as const;
 export const ModulePublishPreflightStatusSchema = z.enum(MODULE_PUBLISH_PREFLIGHT_STATUSES);
 export type ModulePublishPreflightStatus = (typeof MODULE_PUBLISH_PREFLIGHT_STATUSES)[number];
 
 /**
- * Result of preflighting one module for publish.
- *  - `deployable` — real publish wiring exists; proceed.
- *  - `gated`      — explicitly "not publishable yet" (publishes nothing on purpose).
- *  - `blocked`    — would silently no-op (e.g. function with no deployed extension);
- *                   publish must fail loudly with `reasons`.
+ * Result of preflighting one module for publish (extension-eligibility model —
+ * see @superapp/core extension-eligibility.ts).
+ *  - `deployable`    — the backing runtime is shipped; publish writes config it reads.
+ *  - `needs_runtime` — the runtime extension/wasm is not shipped yet; publish must
+ *                      fail loudly with `reasons` (the only genuinely non-deployable case).
+ *  - `gated` / `blocked` — legacy statuses kept for wire compatibility with older
+ *                      persisted results; the classifier no longer emits them.
  */
 export const ModulePublishPreflightResultSchema = z.object({
   moduleType: z.string().min(1),

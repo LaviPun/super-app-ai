@@ -13,6 +13,7 @@ import { compileCheckoutUpsell } from './checkout.upsell';
 import { compileCustomerAccountBlocks } from './customerAccount.blocks';
 import { compileAdminBlock } from './admin.block';
 import { compileAdminAction } from './admin.action';
+import { compileAnalyticsPixel } from './analytics.pixel';
 
 export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileResult {
   switch (spec.type) {
@@ -43,10 +44,11 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
       return compileAdminBlock(spec);
     case 'admin.action':
       return compileAdminAction(spec);
+    case 'analytics.pixel':
+      return compileAnalyticsPixel(spec);
     case 'checkout.block':
     case 'postPurchase.offer':
     case 'pos.extension':
-    case 'analytics.pixel':
     case 'integration.httpSync':
     case 'flow.automation':
     case 'platform.extensionBlueprint':

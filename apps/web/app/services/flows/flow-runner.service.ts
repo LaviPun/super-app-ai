@@ -7,6 +7,7 @@ import { JobService } from '~/services/jobs/job.service';
 import { DataStoreService } from '~/services/data/data-store.service';
 import { getRequestContext } from '~/services/observability/correlation.server';
 import { assertSafeTargetUrl } from '~/services/security/ssrf.server';
+import { getConnector } from '~/services/workflows/connectors/index';
 
 type Trigger =
   | 'MANUAL'
@@ -106,6 +107,46 @@ export class FlowRunnerService {
     }
   }
 
+  /**
+   * Run a single flow.automation module by id (admin "Run now", targeted replay).
+   * Unlike `runForTrigger` — which fans out to every matching flow — this targets
+   * exactly one flow and requires it to have a published (active) version.
+   * Returns the FLOW_RUN job id and the number of executed steps; throws (after
+   * marking the job FAILED) when the flow is missing, unpublished, or a step fails.
+   */
+  async runFlowById(shopDomain: string, admin: AdminApiContext['admin'], flowId: string, event: unknown) {
+    const prisma = getPrisma();
+    const flow = await prisma.module.findFirst({
+      where: { id: flowId, shop: { shopDomain }, type: 'flow.automation' },
+      include: { activeVersion: true },
+    });
+    if (!flow) throw new Error(`Flow ${flowId} not found for ${shopDomain}`);
+    if (!flow.activeVersion) throw new Error(`${flow.name} has no published version to run`);
+
+    const spec = new RecipeService().parse(flow.activeVersion.specJson);
+    if (spec.type !== 'flow.automation') throw new Error(`${flow.name} is not a flow.automation module`);
+    const flowSpec = spec as FlowAutomationSpec;
+
+    const jobs = new JobService();
+    const shopRow = await prisma.shop.findUnique({ where: { shopDomain } });
+    const job = await jobs.create({
+      shopId: shopRow?.id,
+      type: 'FLOW_RUN',
+      payload: { flowId: flow.id, trigger: 'MANUAL', eventKind: (event as FlowEvent)?.kind ?? 'manual' },
+    });
+    await jobs.start(job.id);
+
+    try {
+      await this.executeFlow(shopDomain, admin, job.id, flowSpec, event, shopRow?.id);
+      const result = { jobId: job.id, steps: flowSpec.config.steps.length };
+      await jobs.succeed(job.id, { trigger: 'MANUAL', steps: result.steps });
+      return result;
+    } catch (err) {
+      await jobs.fail(job.id, err);
+      throw err;
+    }
+  }
+
   private async executeFlow(
     shopDomain: string,
     admin: AdminApiContext['admin'],
@@ -191,11 +232,48 @@ export class FlowRunnerService {
     }
 
     if (step.kind === 'SEND_EMAIL_NOTIFICATION') {
-      return { sent: true, to: step.to, subject: step.subject };
+      // Real send via the EmailConnector (same wiring as shopify-flow-bridge).
+      // Fails loudly when EMAIL_API_KEY isn't configured — never fake success.
+      const connector = getConnector('email');
+      if (!connector) throw new Error('Email connector not registered');
+      const result = await connector.invoke(
+        { type: 'api_key', apiKey: process.env.EMAIL_API_KEY ?? '' },
+        {
+          runId: `flow-step-${Date.now()}`,
+          stepId: 'SEND_EMAIL_NOTIFICATION',
+          tenantId: shopDomain,
+          operation: 'send',
+          inputs: { to: step.to, subject: step.subject, body: step.body ?? step.note ?? '' },
+          timeoutMs: 10000,
+        },
+      );
+      if (!result.ok) throw new Error(`Email send failed: ${result.message}`);
+      return { sent: true, to: step.to, subject: step.subject, output: result.output };
     }
 
     if (step.kind === 'SEND_SLACK_MESSAGE') {
-      return { sent: true, channel: step.channel };
+      // Real send via the SlackConnector incoming webhook. The webhook URL comes
+      // from the step or SLACK_WEBHOOK_URL; without one this step must fail, not
+      // pretend it posted.
+      const webhookUrl = step.url || process.env.SLACK_WEBHOOK_URL;
+      if (!webhookUrl) {
+        throw new Error('Slack step has no webhook URL (set the step URL or SLACK_WEBHOOK_URL)');
+      }
+      const connector = getConnector('slack');
+      if (!connector) throw new Error('Slack connector not registered');
+      const result = await connector.invoke(
+        { type: 'none' },
+        {
+          runId: `flow-step-${Date.now()}`,
+          stepId: 'SEND_SLACK_MESSAGE',
+          tenantId: shopDomain,
+          operation: 'webhook.send',
+          inputs: { webhookUrl, text: step.body ?? step.note ?? `Flow event from ${shopDomain}` },
+          timeoutMs: 10000,
+        },
+      );
+      if (!result.ok) throw new Error(`Slack send failed: ${result.message}`);
+      return { sent: true, channel: step.channel ?? 'webhook', output: result.output };
     }
 
     if (step.kind === 'TAG_CUSTOMER') {

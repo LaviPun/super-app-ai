@@ -1523,10 +1523,16 @@ export async function generateValidatedRecipeOptionsParallel(
   const settled = await Promise.all(calls);
   const validated = settled.filter((s): s is { ok: true; option: RecipeOption } => s.ok).map((s) => s.option);
   if (validated.length === 0) {
-    const firstErr = settled.find((s): s is { ok: false; error: unknown } => !s.ok)?.error;
-    throw new Error(
-      `AI recipe options generation failed: ${firstErr instanceof Error ? firstErr.message : String(firstErr)}`,
+    const errors = settled.filter((s): s is { ok: false; error: unknown } => !s.ok).map((s) => s.error);
+    const hasStatus = (e: unknown): e is Error & { statusCode?: number } =>
+      e instanceof Error && typeof (e as { statusCode?: unknown }).statusCode === 'number';
+    // Prefer a rate-limit error so the route's 429 handling still fires.
+    const cause = errors.find((e) => hasStatus(e) && e.statusCode === 429) ?? errors[0];
+    const wrapped = new Error(
+      `AI recipe options generation failed: ${cause instanceof Error ? cause.message : String(cause)}`,
     );
+    if (hasStatus(cause)) (wrapped as Error & { statusCode?: number }).statusCode = cause.statusCode;
+    throw wrapped;
   }
   return validated;
 }

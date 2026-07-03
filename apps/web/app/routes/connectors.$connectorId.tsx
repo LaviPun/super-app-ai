@@ -74,6 +74,7 @@ function ConnectorDetailBody() {
   const { connector, endpoints } = useLoaderData<typeof loader>();
   const ctx = useMerchantCtx();
   const updateFetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const deleteFetcher = useFetcher();
 
   const initialTab = typeof window !== 'undefined' && /tab=settings/.test(window.location.search) ? 'settings' : 'tester';
   const [tab, setTab] = useState(initialTab);
@@ -225,7 +226,14 @@ function ConnectorDetailBody() {
       {delC && (
         <ConfirmDialog title="Delete connector?" tone="critical" confirmLabel="Delete" icon="trash"
           message={`This removes “${connector.name}” and its saved endpoints. This cannot be undone.`}
-          onConfirm={() => { ctx.toast(`Deleted “${connector.name}”`); window.location.href = '/connectors'; }}
+          onConfirm={() => {
+            // Real delete via the /connectors action (shop-scoped); its redirect
+            // navigates back to the list.
+            deleteFetcher.submit(
+              { intent: 'delete', connectorId: connector.id },
+              { method: 'post', action: '/connectors' },
+            );
+          }}
           onClose={() => setDelC(false)} />
       )}
     </div>

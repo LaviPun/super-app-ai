@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { MODULE_TEMPLATES, RECIPE_SPEC_TYPES, type RecipeSpec } from '@superapp/core';
 import { computeRepublishDiff } from '@superapp/platform-contracts';
 import {
-  AUDIT_ONLY_TYPES,
   FUNCTION_EXTENSION_HANDLES,
   classifyModulePublishability,
 } from '~/services/publish/publish-preflight.server';
@@ -14,35 +13,41 @@ function specForType(type: string): RecipeSpec | undefined {
 }
 
 describe('WS5 publish preflight — SC-001 no silent no-op', () => {
-  it('every type is either deployable, gated, or blocked — never silently published', () => {
+  it('every type is either deployable or needs_runtime — never silently published', () => {
     for (const type of RECIPE_SPEC_TYPES) {
       const spec = specForType(type);
       if (!spec) continue;
       // No deployed extensions in this fixture.
       const result = classifyModulePublishability(spec, { deployedExtensions: [] });
-      expect(['deployable', 'gated', 'blocked']).toContain(result.status);
-      // If it claims it will deploy, it must not be in the AUDIT-only set.
-      if (result.willDeploy) {
-        expect(AUDIT_ONLY_TYPES.has(type)).toBe(false);
-      } else {
+      expect(['deployable', 'needs_runtime']).toContain(result.status);
+      // A non-deploying type must say WHY (fail loudly, never silently no-op).
+      if (!result.willDeploy) {
         expect(result.reasons.length).toBeGreaterThan(0);
       }
     }
   });
 
-  it('gates AUDIT-only types as "not publishable yet" (publishes nothing)', () => {
+  it('marks a type with an unshipped runtime as needs_runtime (publishes nothing)', () => {
+    const spec = specForType('flow.automation');
+    if (!spec) return;
+    const result = classifyModulePublishability(spec);
+    expect(result.status).toBe('needs_runtime');
+    expect(result.willDeploy).toBe(false);
+  });
+
+  it('marks analytics.pixel deployable (web pixel upsert wiring)', () => {
     const spec = specForType('analytics.pixel');
     if (!spec) return;
     const result = classifyModulePublishability(spec);
-    expect(result.status).toBe('gated');
-    expect(result.willDeploy).toBe(false);
+    expect(result.status).toBe('deployable');
+    expect(result.willDeploy).toBe(true);
   });
 
   it('blocks a function type whose extension is not deployed (fail loudly)', () => {
     const spec = specForType('functions.discountRules');
     if (!spec) return;
     const blocked = classifyModulePublishability(spec, { deployedExtensions: [] });
-    expect(blocked.status).toBe('blocked');
+    expect(blocked.status).toBe('needs_runtime');
     expect(blocked.requiresExtension).toBe(FUNCTION_EXTENSION_HANDLES['functions.discountRules']);
 
     const ok = classifyModulePublishability(spec, {
@@ -88,24 +93,25 @@ describe('WS5 PublishService gate — refuses to deploy gated/blocked (SC-001 wi
     },
   } as unknown as AdminApiContext['admin'];
 
-  it('throws ModuleNotPublishableError (gated) for an AUDIT-only type, doing no I/O', async () => {
-    const spec = specForType('analytics.pixel');
+  it('throws ModuleNotPublishableError (needs_runtime) for an unshipped runtime, doing no I/O', async () => {
+    const spec = specForType('flow.automation');
     if (!spec) return;
     const svc = new PublishService(explodingAdmin);
     await expect(svc.publish(spec, { kind: 'PLATFORM', moduleId: 'm1' })).rejects.toMatchObject({
       code: 'MODULE_NOT_PUBLISHABLE',
-      preflight: { status: 'gated', willDeploy: false },
+      preflight: { status: 'needs_runtime', willDeploy: false },
     });
   });
 
-  it('throws ModuleNotPublishableError (blocked) for a function type with no deployed extension', async () => {
-    const spec = specForType('functions.discountRules');
-    if (!spec) return;
+  it('throws ModuleNotPublishableError (needs_runtime) for a function type with no deployed extension', async () => {
+    // orderRoutingLocationRule has no wasm extension in extensions/ (and none in
+    // the deployed manifest), so it is the genuinely non-deployable function type.
+    const spec = { type: 'functions.orderRoutingLocationRule', name: 'route', config: {} } as unknown as RecipeSpec;
     delete process.env.SHOPIFY_DEPLOYED_FUNCTION_EXTENSIONS;
     const svc = new PublishService(explodingAdmin);
     await expect(svc.publish(spec, { kind: 'PLATFORM', moduleId: 'm1' })).rejects.toMatchObject({
       code: 'MODULE_NOT_PUBLISHABLE',
-      preflight: { status: 'blocked' },
+      preflight: { status: 'needs_runtime' },
     });
   });
 });

@@ -148,7 +148,11 @@ export class SettingsService {
     const prisma = getPrisma();
     const next = {
       ...data,
-      defaultAiProvider: coerceDefaultAiProvider(data.defaultAiProvider),
+      // Only touch defaultAiProvider when the caller explicitly sends it —
+      // otherwise a partial update (e.g. appearance save) would reset it to null.
+      ...('defaultAiProvider' in data
+        ? { defaultAiProvider: coerceDefaultAiProvider(data.defaultAiProvider) }
+        : {}),
     };
     let row;
     try {

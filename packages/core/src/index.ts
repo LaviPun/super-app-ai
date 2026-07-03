@@ -17,3 +17,5 @@ export * from './intent-graph.js';
 export * from './recipe-dsl.js';
 export * from './control-packs/index.js';
 export * from './data-model.js';
+export * from './extension-eligibility.js';
+export * from './shopify-webhook-topics.js';

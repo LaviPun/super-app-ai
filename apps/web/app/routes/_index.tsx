@@ -74,7 +74,7 @@ function MHomeQuickActions() {
   const actions = [
     { icon: 'magic', label: 'Generate module', desc: 'Describe it, get 3 concepts', tone: 'magic', onClick: () => ctx.go('#/app/modules') },
     { icon: 'template', label: 'Browse templates', desc: 'Start from a proven recipe', tone: 'info', onClick: () => ctx.go('#/app/templates') },
-    { icon: 'flow', label: 'New automation', desc: 'Build a trigger-based flow', tone: 'success', onClick: () => ctx.go('#/app/flows/new') },
+    { icon: 'flow', label: 'New automation', desc: 'Build a trigger-based flow', tone: 'success', onClick: () => ctx.go('#/app/flows/build/new') },
     { icon: 'connect', label: 'Connect a source', desc: 'Sync data & apps', tone: 'warning', onClick: () => ctx.go('#/app/connectors') },
   ];
   return (

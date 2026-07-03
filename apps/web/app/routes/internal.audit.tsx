@@ -4,17 +4,18 @@ import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagination.server';
 import type { Prisma } from '@prisma/client';
+import { useState } from 'react';
 import {
   useAdminCtx,
   Btn,
   Badge,
   Card,
   DataTable,
+  EmptyState,
   PageHead,
   FilterBar,
   useTableState,
   titleCase,
-  ACTIVITY,
   exportCSV,
 } from '~/components/admin/page-kit';
 
@@ -65,13 +66,31 @@ export async function loader({ request }: { request: Request }) {
   });
 
   return json({
-    rows: rows.map(r => ({
-      id: r.id,
-      action: r.action,
-      details: r.details,
-      shopDomain: r.shop?.shopDomain ?? null,
-      createdAt: r.createdAt.toISOString(),
-    })),
+    rows: rows.map(r => {
+      // AuditLog has no dedicated actor column; writers embed the real actor in
+      // the details JSON (see ReleaseTransitionService.logTransition). Surface it
+      // when present — never fabricate one.
+      let actor: string | null = null;
+      let resource: string | null = null;
+      if (r.details) {
+        try {
+          const parsed = JSON.parse(r.details) as Record<string, unknown>;
+          if (typeof parsed.actor === 'string' && parsed.actor) actor = parsed.actor;
+          if (typeof parsed.moduleId === 'string' && parsed.moduleId) resource = `module:${parsed.moduleId}`;
+        } catch {
+          // details is not JSON — shown raw as the resource below
+        }
+      }
+      return {
+        id: r.id,
+        action: r.action,
+        actor,
+        resource,
+        details: r.details,
+        shopDomain: r.shop?.shopDomain ?? null,
+        createdAt: r.createdAt.toISOString(),
+      };
+    }),
     distinctActions: distinctActionsRows.map(d => d.action),
     filters: { shopDomain, action, search, dateFrom: dateFrom?.toISOString(), dateTo: dateTo?.toISOString() },
     nextCursorHref,
@@ -86,20 +105,22 @@ function relAudit(iso: string): string {
   return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
 }
 
-const DESIGN_AUDIT: any[] = ACTIVITY.filter((a) => ['PLAN_CHANGED', 'PROVIDER_ACTIVATED', 'RETENTION_PURGE'].includes(a.action)).concat([
-  { id: 'au1', actor: 'INTERNAL_ADMIN', action: 'MODULE_DELETED', resource: 'Legacy popup', shop: 'Lumen Skincare', ip: '10.0.x.x', created: '6h ago' },
-  { id: 'au2', actor: 'INTERNAL_ADMIN', action: 'PROVIDER_KEY_ROTATED', resource: 'OpenAI Production', shop: '—', ip: '10.0.x.x', created: '1d ago' },
-]);
-
 export default function AdminAudit() {
   const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
   const ts = useTableState();
+  const [action, setAction] = useState('All');
 
-  const ROWS: any[] = data.rows.length
-    ? data.rows.map((r) => ({ id: r.id, actor: 'INTERNAL_ADMIN', action: r.action, resource: r.details ?? '—', shop: r.shopDomain ?? '—', ip: '10.0.x.x', created: relAudit(r.createdAt) }))
-    : DESIGN_AUDIT;
-  const rows = ROWS.filter((a) => (a.action + a.resource).toLowerCase().includes(ts.search.toLowerCase()));
+  const ROWS: any[] = data.rows.map((r) => ({
+    id: r.id,
+    actor: r.actor,
+    action: r.action,
+    resource: r.resource ?? r.details ?? '—',
+    shop: r.shopDomain ?? '—',
+    created: relAudit(r.createdAt),
+    createdAt: r.createdAt,
+  }));
+  const rows = ROWS.filter((a) => (action === 'All' || a.action === action) && (a.action + a.resource).toLowerCase().includes(ts.search.toLowerCase()));
 
   return (
     <div className="page">
@@ -110,7 +131,11 @@ export default function AdminAudit() {
           <Btn
             icon="download"
             onClick={() => {
-              exportCSV('audit-log.csv', rows, ['created', 'actor', 'action', 'resource', 'shop', 'ip']);
+              if (!rows.length) {
+                ctx.toast('No audit events to export', true);
+                return;
+              }
+              exportCSV('audit-log.csv', rows, ['createdAt', 'actor', 'action', 'resource', 'shop']);
               ctx.toast('Exported ' + rows.length + ' audit events');
             }}
           >
@@ -119,19 +144,31 @@ export default function AdminAudit() {
         }
       />
       <Card>
-        <FilterBar search={ts.search} onSearch={ts.setSearch} placeholder="Search audit events…" results={rows.length} />
-        <DataTable
-          rowKey="id"
-          columns={[
-            { key: 'created', label: 'Timestamp', render: (r: any) => <span className="t-mono t-xs">{r.created}</span> },
-            { key: 'actor', label: 'Actor', render: (r: any) => <Badge tone="magic">{titleCase(r.actor)}</Badge> },
-            { key: 'action', label: 'Action', render: (r: any) => <span className="cell-strong">{titleCase(r.action)}</span> },
-            { key: 'resource', label: 'Resource', render: (r: any) => <span className="cell-sub">{r.resource}</span> },
-            { key: 'shop', label: 'Store' },
-            { key: 'ip', label: 'IP', render: (r: any) => <span className="t-mono t-xs t-muted">{r.ip}</span> },
-          ]}
-          rows={rows}
+        <FilterBar
+          search={ts.search}
+          onSearch={ts.setSearch}
+          placeholder="Search audit events…"
+          results={rows.length}
+          filters={[{ options: ['All', ...data.distinctActions].map((a) => ({ value: a, label: a === 'All' ? 'All actions' : titleCase(a) })), value: action, onChange: setAction }]}
         />
+        {rows.length ? (
+          <DataTable
+            rowKey="id"
+            columns={[
+              { key: 'created', label: 'Timestamp', render: (r: any) => <span className="t-mono t-xs">{r.created}</span> },
+              { key: 'actor', label: 'Actor', render: (r: any) => (r.actor ? <Badge tone={r.actor === 'INTERNAL_ADMIN' ? 'magic' : undefined}>{titleCase(r.actor)}</Badge> : <span className="t-muted">—</span>) },
+              { key: 'action', label: 'Action', render: (r: any) => <span className="cell-strong">{titleCase(r.action)}</span> },
+              { key: 'resource', label: 'Resource', render: (r: any) => <span className="cell-sub t-trunc" style={{ maxWidth: 360, display: 'inline-block' }}>{r.resource}</span> },
+              { key: 'shop', label: 'Store' },
+              { key: 'ip', label: 'IP', render: () => <span className="t-mono t-xs t-muted">—</span> },
+            ]}
+            rows={rows}
+          />
+        ) : (
+          <EmptyState icon="shield" title={data.rows.length ? 'No matching audit events' : 'No audit events yet'}>
+            {data.rows.length ? 'Adjust the action filter or search to see more results.' : 'Sensitive actions recorded for compliance will appear here.'}
+          </EmptyState>
+        )}
       </Card>
     </div>
   );

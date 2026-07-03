@@ -79,16 +79,20 @@ export class ScheduleService {
       take: 50,
     });
 
-    // Advance nextRunAt atomically for each claimed schedule
+    // Compare-and-swap claim: only the tick that advances nextRunAt from the
+    // value it read owns the run — a concurrent cron tick loses the swap and
+    // skips the schedule instead of double-running it.
+    const claimed: typeof due = [];
     for (const s of due) {
       const next = computeNextRun(s.cronExpr);
-      await prisma.flowSchedule.update({
-        where: { id: s.id },
+      const res = await prisma.flowSchedule.updateMany({
+        where: { id: s.id, isActive: true, nextRunAt: s.nextRunAt },
         data: { lastRunAt: now, nextRunAt: next },
       });
+      if (res.count === 1) claimed.push(s);
     }
 
-    return due.map(s => ({
+    return claimed.map(s => ({
       id: s.id,
       shopId: s.shopId,
       shopDomain: s.shop.shopDomain,
@@ -98,47 +102,88 @@ export class ScheduleService {
 }
 
 /**
- * Minimal next-run computation for 5-field cron expressions.
- * Returns the next Date ≥ (now + 1 minute).
- *
- * Supported syntax:
+ * Next-run computation for standard 5-field cron expressions (UTC):
  *   minute  hour  day-of-month  month  day-of-week
- *   *  |  number  |  * /n  (step syntax is NOT supported in this minimal impl)
- *
- * For production-grade cron parsing, install `croner` or `cron-parser`.
+ * Supports `*`, numbers, lists (`1,15`), ranges (`1-5`), and steps (`*​/15`, `1-5/2`).
+ * Standard cron day semantics: when BOTH dom and dow are restricted, a day
+ * matches if EITHER matches. Returns the next Date ≥ (now + 1 minute).
  */
-function computeNextRun(expr: string): Date {
-  const parts = expr.trim().split(/\s+/);
-  if (parts.length !== 5) throw new Error(`Invalid cron expression: "${expr}"`);
+type CronField = { any: boolean; values: Set<number> };
 
-  const minPart = parts[0]!;
-  const hourPart = parts[1]!;
-
-  const now = new Date();
-  const candidate = new Date(now);
-  candidate.setSeconds(0, 0);
-  candidate.setMinutes(candidate.getMinutes() + 1); // at least 1 minute in the future
-
-  const targetMin = minPart === '*' ? null : parseInt(minPart, 10);
-  const targetHour = hourPart === '*' ? null : parseInt(hourPart, 10);
-
-  // Advance until we find a matching slot (max 7 days out)
-  for (let i = 0; i < 60 * 24 * 7; i++) {
-    const matches =
-      (targetMin === null || candidate.getUTCMinutes() === targetMin) &&
-      (targetHour === null || candidate.getUTCHours() === targetHour);
-
-    if (matches) return candidate;
-    candidate.setMinutes(candidate.getMinutes() + 1);
+function parseCronField(field: string, min: number, max: number, label: string): CronField {
+  if (field === '*') return { any: true, values: new Set() };
+  const values = new Set<number>();
+  for (const part of field.split(',')) {
+    const [rangePart = '', stepPart] = part.split('/');
+    const step = stepPart !== undefined ? parseInt(stepPart, 10) : 1;
+    if (!Number.isInteger(step) || step < 1) throw new Error(`Invalid ${label} step in cron field "${field}"`);
+    let lo: number;
+    let hi: number;
+    if (rangePart === '*' || rangePart === '') {
+      lo = min; hi = max;
+    } else if (rangePart.includes('-')) {
+      const [a, b] = rangePart.split('-');
+      lo = parseInt(a ?? '', 10); hi = parseInt(b ?? '', 10);
+    } else {
+      lo = parseInt(rangePart, 10);
+      hi = stepPart !== undefined ? max : lo; // Vixie "5/15" = every 15 starting at 5
+    }
+    if (!Number.isInteger(lo) || !Number.isInteger(hi) || lo < min || hi > max || lo > hi) {
+      throw new Error(`Invalid ${label} value in cron field "${field}" (expected ${min}-${max})`);
+    }
+    for (let v = lo; v <= hi; v += step) values.add(v);
   }
-
-  // Fallback: 1 hour from now
-  return new Date(Date.now() + 3_600_000);
+  return { any: false, values };
 }
 
-function validateCronExpr(expr: string) {
+function parseCronExpr(expr: string) {
   const parts = expr.trim().split(/\s+/);
   if (parts.length !== 5) {
     throw new Error(`Cron expression must have 5 fields (minute hour dom month dow), got: "${expr}"`);
   }
+  const dow = parseCronField(parts[4]!, 0, 7, 'day-of-week');
+  if (dow.values.has(7)) { dow.values.delete(7); dow.values.add(0); } // 7 ≡ Sunday
+  return {
+    minute: parseCronField(parts[0]!, 0, 59, 'minute'),
+    hour: parseCronField(parts[1]!, 0, 23, 'hour'),
+    dom: parseCronField(parts[2]!, 1, 31, 'day-of-month'),
+    month: parseCronField(parts[3]!, 1, 12, 'month'),
+    dow,
+  };
+}
+
+function computeNextRun(expr: string): Date {
+  const f = parseCronExpr(expr);
+  const matchesDay = (d: Date): boolean => {
+    if (!f.month.any && !f.month.values.has(d.getUTCMonth() + 1)) return false;
+    const domMatch = f.dom.any || f.dom.values.has(d.getUTCDate());
+    const dowMatch = f.dow.any || f.dow.values.has(d.getUTCDay());
+    // Standard cron: both restricted ⇒ OR; otherwise the restricted one decides.
+    if (!f.dom.any && !f.dow.any) return domMatch || dowMatch;
+    return domMatch && dowMatch;
+  };
+
+  const MINUTE = 60_000;
+  let t = Math.floor((Date.now() + MINUTE) / MINUTE) * MINUTE; // next whole minute
+  // Scan up to 366 days; skip whole non-matching days to keep this fast.
+  const limit = t + 366 * 24 * 3600_000;
+  while (t < limit) {
+    const d = new Date(t);
+    if (!matchesDay(d)) {
+      const nextDay = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
+      t = nextDay;
+      continue;
+    }
+    if (!f.hour.any && !f.hour.values.has(d.getUTCHours())) {
+      t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours() + 1);
+      continue;
+    }
+    if (f.minute.any || f.minute.values.has(d.getUTCMinutes())) return d;
+    t += MINUTE;
+  }
+  throw new Error(`Cron expression "${expr}" never matches within a year`);
+}
+
+function validateCronExpr(expr: string) {
+  parseCronExpr(expr); // throws with a precise message on any invalid field
 }

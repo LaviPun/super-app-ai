@@ -1,7 +1,7 @@
 import { json, redirect } from '@remix-run/node';
-import { useLoaderData, useFetcher } from '@remix-run/react';
+import { useLoaderData, useFetcher, useNavigate } from '@remix-run/react';
 import { Page, Banner, Text, BlockStack } from '@shopify/polaris';
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { FlowBuilder } from '~/components/FlowBuilder';
@@ -87,9 +87,18 @@ export async function action({ request, params }: { request: Request; params: { 
 export default function FlowBuildPage() {
   const { flowId, spec, moduleName, connectors } = useLoaderData<typeof loader>();
   const fetcher = useFetcher();
+  const navigate = useNavigate();
 
   const isSaving = fetcher.state !== 'idle';
   const result = fetcher.data as { ok?: boolean; flowId?: string; error?: string } | undefined;
+
+  // After the first save of a NEW flow, move to its real URL so subsequent
+  // saves update it instead of creating a fresh module each time.
+  useEffect(() => {
+    if (result?.ok && result.flowId && result.flowId !== flowId) {
+      navigate(`/flows/build/${result.flowId}`, { replace: true });
+    }
+  }, [result, flowId, navigate]);
 
   const handleSave = useCallback((flowSpec: { trigger: string; steps: any[] }) => {
     fetcher.submit(flowSpec as any, {

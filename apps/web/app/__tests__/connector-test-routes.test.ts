@@ -27,6 +27,16 @@ vi.mock('~/services/connectors/connector-test-job.server', () => ({
   enqueueAgentConnectorTestJob: enqueueAgentConnectorTestJobMock,
 }));
 
+const runConnectorWorkerJobMock = vi.fn(async () => ({ status: 200, ok: true }));
+vi.mock('~/services/connectors/connector-worker.server', () => ({
+  runConnectorWorkerJob: runConnectorWorkerJobMock,
+}));
+
+const jobFindUniqueMock = vi.fn(async () => ({ id: 'job_1', type: 'CONNECTOR_TEST', payload: '{}' }));
+vi.mock('~/db.server', () => ({
+  getPrisma: () => ({ job: { findUnique: jobFindUniqueMock } }),
+}));
+
 vi.mock('~/services/connectors/connector.service', () => ({
   ConnectorService: class {
     test = vi.fn();
@@ -49,7 +59,7 @@ describe('connector test routes', () => {
     });
   });
 
-  it('merchant test route returns 202 queued job shape', async () => {
+  it('merchant test route enqueues AND executes the test, returning the result', async () => {
     const mod = await import('~/routes/api.connectors.test');
     const response = await mod.action({
       request: new Request('http://test/api/connectors/test', {
@@ -59,20 +69,23 @@ describe('connector test routes', () => {
       }),
     });
 
-    expect(response.status).toBe(202);
+    expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       ok: true,
-      queued: true,
       job: {
         jobId: 'job_1',
         status: 'QUEUED',
         statusUrl: '/jobs?type=CONNECTOR_TEST&q=job_1',
       },
+      result: { status: 200, ok: true },
     });
     expect(enqueueConnectorTestJobMock).toHaveBeenCalledWith('shop.example.myshopify.com', {
       connectorId: 'connector_1',
       path: '/ping',
     });
+    // The queued job must actually run — this was the "Test connection does
+    // nothing" bug (jobs enqueued with no worker ever executing them).
+    expect(runConnectorWorkerJobMock).toHaveBeenCalledWith({ id: 'job_1', type: 'CONNECTOR_TEST', payload: '{}' });
   });
 
   it('agent test route returns 202 queued job shape', async () => {

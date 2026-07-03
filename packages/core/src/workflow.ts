@@ -28,9 +28,21 @@ export const ValueOrTemplateSchema: z.ZodType<unknown> = z.union([
 export type ValueOrTemplate = z.infer<typeof ValueOrTemplateSchema>;
 
 const ExpressionOps = z.enum([
+  // boolean
   'and', 'or', 'not',
   'eq', 'neq', 'gt', 'gte', 'lt', 'lte',
   'in', 'contains', 'exists',
+  // arithmetic (value-returning; usable in switchOn.on, transform.assign, wait.until)
+  'add', 'subtract', 'multiply', 'divide', 'modulo',
+  'round', 'abs', 'min', 'max', 'sum',
+  // string
+  'concat', 'upper', 'lower', 'trim', 'replace', 'split',
+  // array
+  'length', 'first', 'last', 'join', 'includes', 'at',
+  // date
+  'addDays', 'diffDays', 'isAfter',
+  // util
+  'coalesce', 'if',
 ]);
 
 export const ExpressionSchema: z.ZodType<{ op: string; args?: unknown[] }> = z.object({

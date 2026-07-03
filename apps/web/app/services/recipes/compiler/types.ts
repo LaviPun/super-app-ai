@@ -14,6 +14,13 @@ export type DeployOperation =
    * exists on the Shop resource before writing to it.
    */
   | { kind: 'METAOBJECT_ENSURE_DEF'; namespace: string; key: string; metaobjectType: string; isList: boolean }
+  /**
+   * Upsert the app's Web Pixel via webPixelCreate/webPixelUpdate.
+   * `settings` must match the `[settings]` schema declared in
+   * `extensions/superapp-web-pixel/shopify.extension.toml` exactly
+   * (currently a single `accountID` single_line_text_field) or Shopify rejects it.
+   */
+  | { kind: 'WEB_PIXEL_UPSERT'; settings: Record<string, string> }
   | { kind: 'AUDIT'; action: string; details?: string };
 
 /** Payload for a theme module stored as a $app:superapp_module metaobject entry. */

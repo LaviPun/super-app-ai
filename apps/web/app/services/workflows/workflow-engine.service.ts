@@ -229,6 +229,11 @@ export class WorkflowEngineService {
             await this.persistStepLog(prisma, opts.runId, stepState, node);
             return;
           }
+
+          default:
+            // An unhandled node type must FAIL the run immediately. Without this,
+            // the loop spins on the same node until maxRunSeconds (900s default).
+            throw new Error(`Unsupported node type "${node.type}" (node "${node.id}")`);
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
