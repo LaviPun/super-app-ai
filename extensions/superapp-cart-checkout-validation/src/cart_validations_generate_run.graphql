@@ -1,8 +1,14 @@
 query Input {
   cart {
+    cost {
+      subtotalAmount {
+        amount
+      }
+    }
     deliveryGroups {
       deliveryAddress {
         countryCode
+        provinceCode
       }
     }
     lines {
@@ -11,6 +17,10 @@ query Input {
         __typename
         ... on ProductVariant {
           sku
+          product {
+            id
+            productType
+          }
         }
       }
     }

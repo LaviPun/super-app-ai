@@ -868,6 +868,8 @@ export const RULE_LIMITS = {
 export const PRODUCT_GID_RE = /^gid:\/\/shopify\/Product\/\d+$/;
 export const COLLECTION_GID_RE = /^gid:\/\/shopify\/Collection\/\d+$/;
 export const PRODUCT_VARIANT_GID_RE = /^gid:\/\/shopify\/ProductVariant\/\d+$/;
+export const CUSTOMER_GID_RE = /^gid:\/\/shopify\/Customer\/\d+$/;
+export const LOCATION_GID_RE = /^gid:\/\/shopify\/Location\/\d+$/;
 
 // ─── Pricing / discount packs (pricing pack, R2.2) ───────────────────────────
 
@@ -1145,8 +1147,14 @@ export const BLUEPRINT_SURFACES = ['CHECKOUT_UI', 'THEME_APP_EXTENSION', 'FUNCTI
 /** Proxy widget mode. */
 export const PROXY_WIDGET_MODES = ['JSON', 'HTML'] as const;
 
-/** Cart transform mode. */
-export const CART_TRANSFORM_MODES = ['BUNDLE', 'UNBUNDLE'] as const;
+/**
+ * Cart transform mode.
+ * - `BUNDLE` / `MERGE` — combine ≥2 component lines into one bundle parent
+ *   (`linesMerge`). `MERGE` is the first-class name for this operation; `BUNDLE`
+ *   is retained as its back-compat alias (both compile identically).
+ * - `UNBUNDLE` — expand one line into its components (`lineExpand`); reserved.
+ */
+export const CART_TRANSFORM_MODES = ['BUNDLE', 'MERGE', 'UNBUNDLE'] as const;
 
 
 

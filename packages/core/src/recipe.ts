@@ -62,6 +62,9 @@ import {
   AGENTIC_LIMITS,
   PRODUCT_GID_RE,
   COLLECTION_GID_RE,
+  PRODUCT_VARIANT_GID_RE,
+  CUSTOMER_GID_RE,
+  LOCATION_GID_RE,
 } from './allowed-values.js';
 
 // Re-export doc-aligned types and enums from manifest (doc 3.2, 3.3, 4.1).
@@ -463,9 +466,22 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     requires: z.array(z.custom<Capability>()).default(['SHIPPING_FUNCTION']),
     config: z.object({
       rules: z.array(z.object({
+        // Predicates are ANDed; an omitted predicate is not a constraint. Beyond
+        // country/subtotal, the crate now targets by cart contents and customer
+        // (Build #14b). Tag/collection targeting is expressed via product
+        // type/vendor/id because `hasTags`/`inAnyCollection` require static input
+        // -query args and can't be config-driven — see the crate's module note.
         when: z.object({
           countryCodeIn: z.array(z.string().min(2).max(2)).optional(),
+          provinceCodeIn: z.array(z.string().min(1).max(10)).optional(),
           minSubtotal: z.number().nonnegative().optional(),
+          productVariantIdIn: z.array(z.string().regex(PRODUCT_VARIANT_GID_RE)).optional(),
+          productIdIn: z.array(z.string().regex(PRODUCT_GID_RE)).optional(),
+          productTypeIn: z.array(z.string().min(1).max(120)).optional(),
+          vendorIn: z.array(z.string().min(1).max(120)).optional(),
+          customerIdIn: z.array(z.string().regex(CUSTOMER_GID_RE)).optional(),
+          customerEmailIn: z.array(z.string().email()).optional(),
+          minCustomerOrders: z.number().int().nonnegative().optional(),
         }),
         actions: z.object({
           hideMethodsContaining: z.array(z.string()).optional(),
@@ -482,9 +498,17 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     requires: z.array(z.custom<Capability>()).default(['PAYMENT_CUSTOMIZATION_FUNCTION']),
     config: z.object({
       rules: z.array(z.object({
+        // Predicates are ANDed; an omitted predicate is not a constraint. Beyond
+        // subtotal/currency, the crate now targets by destination address and
+        // cart contents (Build #14b).
         when: z.object({
           minSubtotal: z.number().nonnegative().optional(),
           currencyIn: z.array(z.string().min(3).max(3)).optional(),
+          countryCodeIn: z.array(z.string().min(2).max(2)).optional(),
+          provinceCodeIn: z.array(z.string().min(1).max(10)).optional(),
+          productIdIn: z.array(z.string().regex(PRODUCT_GID_RE)).optional(),
+          productTypeIn: z.array(z.string().min(1).max(120)).optional(),
+          vendorIn: z.array(z.string().min(1).max(120)).optional(),
         }),
         actions: z.object({
           hideMethodsContaining: z.array(z.string()).optional(),
@@ -502,9 +526,16 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     requires: z.array(z.custom<Capability>()).default(['VALIDATION_FUNCTION']),
     config: z.object({
       rules: z.array(z.object({
+        // A rule fires only when every specified condition holds (AND) and at
+        // least one is specified. `maxQuantityPerProductType` is the runtime
+        // -evaluable stand-in for "per-collection quantity" (Build #14b).
         when: z.object({
           maxQuantityPerSku: z.number().int().positive().optional(),
+          maxQuantityPerProductType: z.number().int().positive().optional(),
+          minCartValue: z.number().nonnegative().optional(),
+          maxCartValue: z.number().nonnegative().optional(),
           blockCountryCodes: z.array(z.string().min(2).max(2)).optional(),
+          blockProvinceCodes: z.array(z.string().min(1).max(10)).optional(),
         }),
         errorMessage: z.string().min(1).max(120),
       })).min(LIMITS.rulesMin).max(LIMITS.rulesMax),
@@ -550,12 +581,17 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     config: z.object({
       rules: z.array(z.object({
         when: z.object({
+          // `productTagIn` is parsed-but-inert (tag lookups need static input
+          // -query args); `skuIn` is the supported matcher.
           productTagIn: z.array(z.string()).optional(),
           skuIn: z.array(z.string()).optional(),
         }),
         apply: z.object({
           shipAlone: z.boolean().optional(),
           groupWithTag: z.string().optional(),
+          // Build #14b: the SKU-matched lines must fulfill from one of these
+          // locations (`deliverableLinesMustFulfillFromAdd`).
+          mustFulfillFromLocationIds: z.array(z.string().regex(LOCATION_GID_RE)).optional(),
         }),
       })).min(LIMITS.rulesMin).max(LIMITS.rulesMax),
     }),
