@@ -128,6 +128,9 @@ export const INTENT_EXAMPLES: Record<string, string[]> = {
     'create a tiered discount based on cart total',
     'BOGO discount rule for a specific collection',
     'automatic discount for wholesale customers',
+    'buy 2 save 10%, buy 3 save 20%, buy 5 get the cheapest free',
+    'buy one get one free on a collection',
+    'free gift when the cart hits $75',
   ],
   'functions.deliveryCustomization': [
     'hide standard shipping for PO box addresses',

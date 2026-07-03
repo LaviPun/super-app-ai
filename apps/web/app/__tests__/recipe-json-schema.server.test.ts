@@ -103,3 +103,32 @@ describe('recipe-json-schema — required-normalization bug fix (X-2 / top-risk 
     expect(layoutField!.enum).toEqual(['stacked', 'grid', 'masonry', 'carousel']);
   });
 });
+
+describe('recipe-json-schema — R2.2 pricing pin (T-BC3)', () => {
+  it('functions.discountRules pins config.pricing and it is NULLABLE (not force-required)', () => {
+    const recipe = getRecipeJsonSchemaForType('functions.discountRules');
+    const config = (recipe?.properties as JsonObj).config as JsonObj;
+    const props = config.properties as JsonObj;
+    // Legacy keys must remain present.
+    expect(props.rules).toBeDefined();
+    expect(props.combineWithOtherDiscounts).toBeDefined();
+    // The optional `pricing` pin is present and nullable so a plain "10% off"
+    // prompt can return null rather than being forced to invent a pricing block.
+    expect(props.pricing).toBeDefined();
+    expect(typeIncludesNull(props.pricing as JsonObj)).toBe(true);
+  });
+
+  it('functions.cartTransform pins config.pricing (nullable) + keeps legacy bundles', () => {
+    const recipe = getRecipeJsonSchemaForType('functions.cartTransform');
+    const config = (recipe?.properties as JsonObj).config as JsonObj;
+    const props = config.properties as JsonObj;
+    expect(props.bundles).toBeDefined();
+    expect(props.pricing).toBeDefined();
+    expect(typeIncludesNull(props.pricing as JsonObj)).toBe(true);
+  });
+
+  it('the widened branch JSON Schema still builds (no throw for either function type)', () => {
+    expect(() => getRecipeJsonSchemaForType('functions.discountRules')).not.toThrow();
+    expect(() => getRecipeJsonSchemaForType('functions.cartTransform')).not.toThrow();
+  });
+});

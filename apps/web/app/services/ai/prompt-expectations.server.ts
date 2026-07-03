@@ -177,6 +177,29 @@ Rules are evaluated top-to-bottom. Omit config.ruleEngine (or set enabled:false)
 /** Types that pin the rule-engine pack and therefore get the display-rules contract. */
 const RULE_ENGINE_TYPES: ReadonlySet<ModuleType> = new Set<ModuleType>(['theme.section', 'proxy.widget']);
 
+/**
+ * R2.2 — the pricing (discount) authoring contract. Appended to the two Function
+ * types that pin the `pricing` pack (functions.discountRules, functions.cartTransform).
+ * The pack is optional; `pricing` SUPERSEDES the legacy `rules[]` when emitted, so
+ * the model must not emit both. Enum-anchored to keep the model in the closed set.
+ */
+export const PRICING_SPEC = `PRICING (config.pricing — optional). For any offer that changes price — bundles, quantity/volume breaks, BOGO, gift-with-purchase, spend-to-save — emit config.pricing instead of the legacy rules[]:
+  config.pricing = { model: 'single'|'tiered'|'bogo'|'gift', mechanism, discount?|tiers?|bogo?|gift?, gate?, stacking? }
+Set model and fill ONLY the matching body:
+  single → discount = { kind, value, cheapestFreeCount?, priceEnding? }
+  tiered → tiers = { basis: 'quantity'|'cart-value', rows: [ { threshold, discount, title?, subtitle?, badge?, highlighted?, preSelected? }, ... ] }  (rows MAY mix discount kinds — e.g. tier1 percentage, tier3 cheapest-free, tier4 fixed-price)
+  bogo   → bogo = { buy:{productIds,collectionIds,quantity}, get:{productIds,collectionIds,quantity,discount}, showAsFree }
+  gift   → gift = { productIds, threshold, basis, autoAdd, selectable }
+Discount kinds (exactly these): percentage (value 0..100), fixed-amount, fixed-price, cheapest-free (set cheapestFreeCount), free-shipping, free-gift, none.
+mechanism = 'shopify-function-discount' (default) unless the offer merges cart lines into ONE bundle line, then 'shopify-function-cart-transform'. Product/collection IDs must be Shopify GIDs (gid://shopify/Product/<id>, gid://shopify/Collection/<id>).
+gate.minQuantity / gate.minSubtotal set thresholds; stacking.combinable sets whether it stacks with Shopify codes. Do NOT emit the legacy rules[] array when you emit pricing — pricing supersedes it. Omit config.pricing for offers that do not change price.`;
+
+/** Types that pin the pricing pack and therefore get the pricing contract. */
+const PRICING_TYPES: ReadonlySet<ModuleType> = new Set<ModuleType>([
+  'functions.discountRules',
+  'functions.cartTransform',
+]);
+
 /** Returns the full recipe schema spec for the given type (all Zod-level constraints as a string). */
 export function getFullRecipeSchemaSpec(moduleType: ModuleType): string {
   const base = FULL_RECIPE_SCHEMA_SPECS[moduleType] ?? `Module type ${moduleType}: use type, name, category, requires, config (single object), and optionally style. No top-level settings, controls, assets, or meta.`;
@@ -186,7 +209,9 @@ export function getFullRecipeSchemaSpec(moduleType: ModuleType): string {
   const typeEnumLines = describeTypeEnums(moduleType);
   const withEnums = typeEnumLines.length > 0 ? `${base}\n${typeEnumLines.join('\n')}` : base;
   // R2.1 — append the display-rules authoring contract on the types that pin the pack.
-  return RULE_ENGINE_TYPES.has(moduleType) ? `${withEnums}\n${DISPLAY_RULES_SPEC}` : withEnums;
+  const withRules = RULE_ENGINE_TYPES.has(moduleType) ? `${withEnums}\n${DISPLAY_RULES_SPEC}` : withEnums;
+  // R2.2 — append the pricing authoring contract on the two Function types that pin the pack.
+  return PRICING_TYPES.has(moduleType) ? `${withRules}\n${PRICING_SPEC}` : withRules;
 }
 
 /** Returns the full StorefrontStyle schema as a string (for storefront types). */

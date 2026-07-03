@@ -527,6 +527,71 @@ export const RULE_LIMITS = {
 
 /** Reuse CONDITION_OPERATORS (above) for rule rows — no parallel operator vocabulary. */
 
+// ─── Shopify GID string patterns (shared, C3) ────────────────────────────────
+
+/**
+ * Canonical Shopify GID regexes. Hoisted here (per plan C3 / X-5) so every pack
+ * that validates a Product / Collection / ProductVariant GID uses the *identical*
+ * pattern — pricing (R2.2, first consumer) and recommendation (R2.3) must not
+ * hand-roll drifting variants, or blueprints that share IDs break. Anchored,
+ * numeric-id only; no query string / legacy REST paths.
+ */
+export const PRODUCT_GID_RE = /^gid:\/\/shopify\/Product\/\d+$/;
+export const COLLECTION_GID_RE = /^gid:\/\/shopify\/Collection\/\d+$/;
+export const PRODUCT_VARIANT_GID_RE = /^gid:\/\/shopify\/ProductVariant\/\d+$/;
+
+// ─── Pricing / discount packs (pricing pack, R2.2) ───────────────────────────
+
+/**
+ * Discount kinds — the union the corpus demands (fast-bundle.md:44). One tier set
+ * may MIX these across rows (percentage in tier 1, cheapest-free in tier 3, …).
+ * Additive: `percentage` / `fixed-amount` map to the legacy `apply` keys the
+ * shipped wasm handler already reads; the rest are new keys (handler fast-follow).
+ */
+export const DISCOUNT_KINDS = [
+  'percentage',    // value = 0..100
+  'fixed-amount',  // value = money off
+  'fixed-price',   // value = final price the set is sold for (Kaching "specific price")
+  'cheapest-free', // value ignored; cheapest N in set become free (mix&match tiers)
+  'free-shipping', // value ignored
+  'free-gift',     // pairs with `gift`; value ignored
+  'none',          // no price change (presentation-only tier)
+] as const;
+export type DiscountKind = (typeof DISCOUNT_KINDS)[number];
+
+/** Threshold basis for tiers / gift. Separate axis from R2.1 cart attributes (C4). */
+export const THRESHOLD_BASIS = ['quantity', 'cart-value'] as const;
+export type ThresholdBasis = (typeof THRESHOLD_BASIS)[number];
+
+/**
+ * How the price change is materialized (pack #24). Gates which shipped Function
+ * the compiler lowers into. `discount-code` / `draft-order` stay declarative
+ * (AUDIT only — no fake runtime), matching the repo's no-false-published discipline.
+ */
+export const PRICING_MECHANISMS = [
+  'shopify-function-discount',        // → functions.discountRules (default, real)
+  'shopify-function-cart-transform',  // → functions.cartTransform (bundle line merge + price)
+  'discount-code',                    // declarative today
+  'draft-order',                      // declarative today
+] as const;
+export type PricingMechanism = (typeof PRICING_MECHANISMS)[number];
+
+/** Which primitive drives a pricing block. Exactly one body is authoritative. */
+export const PRICING_MODELS = ['single', 'tiered', 'bogo', 'gift'] as const;
+export type PricingModel = (typeof PRICING_MODELS)[number];
+
+/** Pricing limits — bounded for prompt/JSON-Schema/token budget + runtime cost. */
+export const PRICING_LIMITS = {
+  tiersMax: 10,
+  bogoProductsMax: 100,
+  bogoCollectionsMax: 50,
+  prerequisiteProductsMax: 100,
+  prerequisiteCollectionsMax: 50,
+  customerTagsMax: 50,
+  giftProductsMax: 20,
+  cheapestFreeMax: 20,
+} as const;
+
 /** customerAccount.blocks block kind (doc 18.4). */
 export const CUSTOMER_ACCOUNT_BLOCK_KINDS = ['TEXT', 'LINK', 'BADGE', 'DIVIDER'] as const;
 /** customerAccount.blocks block tone (doc 18.4). */

@@ -10,6 +10,7 @@ import { SchedulePackSchema } from './control-packs/packs/schedule.pack.js';
 import { AdvancedCustomPackSchema } from './control-packs/packs/advanced-custom.pack.js';
 import { LayoutArchetypePackSchema } from './control-packs/packs/layout-archetype.pack.js';
 import { RuleEnginePackSchema } from './control-packs/packs/rule-engine.pack.js';
+import { PricingPackSchema } from './control-packs/packs/pricing.pack.js';
 import { DataModelSchema } from './data-model.js';
 import type { ModuleCategory, ModuleType } from './allowed-values.js';
 import {
@@ -204,6 +205,13 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
         }),
       })).min(LIMITS.rulesMin).max(LIMITS.rulesMax),
       combineWithOtherDiscounts: z.boolean().default(true),
+      /**
+       * Pricing vocabulary (R2.2). Optional; when present it SUPERSEDES `rules[]`:
+       * the compiler deterministically lowers `pricing` into the Function's
+       * `rules`/`combinesWith` config (tiers → one rule per row, mixed kinds
+       * survive). Omitting it keeps the legacy `rules[]` path byte-identical.
+       */
+      pricing: PricingPackSchema.optional(),
     }),
   }),
 
@@ -271,6 +279,12 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
         title: z.string().min(1).max(60),
         componentSkus: z.array(z.string()).min(2).max(20),
         bundleSku: z.string().min(1),
+        /**
+         * Per-bundle pricing (R2.2). Optional; lets a bundle carry its own
+         * tier/price. Lowered to a price directive on the merged line. Omitting it
+         * emits the bundle exactly as before (title/componentSkus/bundleSku).
+         */
+        pricing: PricingPackSchema.optional(),
       })).min(LIMITS.bundlesMin).max(LIMITS.bundlesMax),
       // If the store is not Plus, we can optionally publish a *theme-only* fallback
       // to provide UI guidance (not true cart transforms).
@@ -278,6 +292,12 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
         enabled: z.boolean().default(true),
         notificationMessage: z.string().min(1).max(140).default('Bundling requires Shopify Plus.'),
       }).default({ enabled: true, notificationMessage: 'Bundling requires Shopify Plus.' }),
+      /**
+       * Root-level pricing (R2.2). Applies to the whole cart-transform module when
+       * a single price policy governs all bundles. Per-bundle `pricing` (above)
+       * takes precedence for that bundle. Optional + back-compat.
+       */
+      pricing: PricingPackSchema.optional(),
     }),
   }),
 

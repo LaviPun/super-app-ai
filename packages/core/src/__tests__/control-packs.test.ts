@@ -21,7 +21,7 @@ describe('control pack registry', () => {
   it('registers the control packs', () => {
     expect(listPackIds().sort()).toEqual([
       'advanced-custom', 'audience', 'behavior', 'content', 'countdown',
-      'frequency-cap', 'layout-archetype', 'page-targeting', 'rule-engine', 'schedule', 'style', 'trigger',
+      'frequency-cap', 'layout-archetype', 'page-targeting', 'pricing', 'rule-engine', 'schedule', 'style', 'trigger',
     ]);
   });
 
