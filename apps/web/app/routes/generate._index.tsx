@@ -12,6 +12,8 @@ import { withApiLogging } from '~/services/observability/api-log.service';
 import { JobService } from '~/services/jobs/job.service';
 import { modifyRecipeSpec, AiProviderNotConfiguredError } from '~/services/ai/llm.server';
 import { validateBeforePublish } from '~/services/publish/pre-publish-validator.server';
+import { classifyModulePublishability } from '~/services/publish/publish-preflight.server';
+import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { Icon, Btn, Badge, StatusBadge, Field, Input, Textarea, Select, Toggle, Banner, EmptyState, titleCase } from '~/components/superapp';
 
@@ -98,7 +100,22 @@ export async function action({ request }: { request: Request }) {
         let tier = await caps.getPlanTier(session.shop);
         if (tier === 'UNKNOWN') tier = await caps.refreshPlanTier(session.shop, admin);
         const errors = validateBeforePublish(parsed.data, { planTier: tier });
-        return json({ intent: 'validate', ok: errors.length === 0, schemaOk: true, planTier: tier, errors });
+        // WS5/026: deployability preflight so the merchant sees, before publishing,
+        // whether this type actually deploys or needs a runtime shipped first.
+        const preflight = classifyModulePublishability(parsed.data, { deployedExtensions: deployedFunctionExtensions() });
+        return json({
+          intent: 'validate',
+          ok: errors.length === 0,
+          schemaOk: true,
+          planTier: tier,
+          errors,
+          publish: {
+            status: preflight.status,
+            willDeploy: preflight.willDeploy,
+            reasons: preflight.reasons,
+            requiresExtension: preflight.requiresExtension ?? null,
+          },
+        });
       }
 
       if (intent === 'refine') {
@@ -333,7 +350,7 @@ function GenerateWorkspace() {
   const confirmFetcher = useFetcher<{ moduleId?: string; recipeId?: string; firstModuleId?: string; moduleCount?: number; error?: string }>();
   const refineFetcher = useFetcher<{ ok?: boolean; recipe?: Record<string, unknown>; summary?: string; changedPaths?: string[]; creditsLeft?: number | null; error?: string; message?: string }>();
   const publishFetcher = useFetcher<{ error?: string }>();
-  const valFetcher = useFetcher<{ ok?: boolean; schemaOk?: boolean; planTier?: string | null; errors?: { code: string; message: string; field?: string }[]; error?: string }>();
+  const valFetcher = useFetcher<{ ok?: boolean; schemaOk?: boolean; planTier?: string | null; errors?: { code: string; message: string; field?: string }[]; publish?: { status: 'deployable' | 'needs_runtime'; willDeploy: boolean; reasons: string[]; requiresExtension: string | null }; error?: string }>();
   const [blueprint, setBlueprint] = useState<BlueprintResult | null>(null);
 
   const [phase, setPhase] = useState<'generating' | 'choosing' | 'ready'>('generating');
@@ -1083,15 +1100,28 @@ function GenValidation({ loading, data, hasRecipe }: any) {
   }
   const errors = data.errors ?? [];
   const failCount = errors.length || (data.ok ? 0 : 1);
+  const publish = data.publish as { status: 'deployable' | 'needs_runtime'; willDeploy: boolean; reasons: string[]; requiresExtension: string | null } | undefined;
   const rows = [
     { label: 'Schema validation', detail: data.schemaOk ? 'RecipeSpec matches the platform schema' : 'The spec does not match the platform schema', pass: !!data.schemaOk },
     { label: 'Pre-publish checks', detail: data.planTier ? `Publish validator ran against your ${titleCase(String(data.planTier).toLowerCase())} plan` : 'Publish validator ran on this spec', pass: !!data.schemaOk && errors.length === 0 },
+    ...(publish
+      ? [{
+          label: 'Publishability',
+          detail: publish.willDeploy
+            ? 'This module deploys to your store on publish'
+            : (publish.reasons[0] ?? 'This module type needs a runtime shipped before it can publish'),
+          pass: publish.willDeploy,
+        }]
+      : []),
   ];
+  const deployBlocked = !!publish && !publish.willDeploy;
   return (
     <div style={{ padding: 20, maxWidth: 640, width: '100%', margin: '0 auto' }}>
-      {data.ok
-        ? <Banner tone="success" title="All checks passed">Schema and pre-publish validation both passed — Publish runs these same checks server-side before going live.</Banner>
-        : <Banner tone="critical" title={failCount + ' issue' + (failCount === 1 ? '' : 's') + ' found'}>Fix these before publishing — Publish enforces the same checks server-side.</Banner>}
+      {!data.ok
+        ? <Banner tone="critical" title={failCount + ' issue' + (failCount === 1 ? '' : 's') + ' found'}>Fix these before publishing — Publish enforces the same checks server-side.</Banner>
+        : deployBlocked
+          ? <Banner tone="warning" title="Valid — but not publishable yet">{(publish!.reasons[0] ?? 'This module type needs its runtime shipped before it can publish.') + ' Publishing will be blocked until then; saving a draft still works.'}</Banner>
+          : <Banner tone="success" title="All checks passed">Schema and pre-publish validation both passed — Publish runs these same checks server-side before going live.</Banner>}
       <div className="card" style={{ marginTop: 16 }}>
         {rows.map((r, i) => (
           <div key={i} className="val-row">
