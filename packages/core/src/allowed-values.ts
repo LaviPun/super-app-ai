@@ -160,6 +160,123 @@ export const CHECKOUT_UI_PLUS_ONLY_TARGET_PREFIXES = [
   'purchase.checkout.header.',
 ];
 
+// ─── 4.3.2 Checkout render vocabulary (build #2, 034) ─────────────────────────
+/**
+ * Interactive buyer-input field kinds a checkout.block can render. Each maps to a
+ * Polaris checkout `s-*` web component (2026-04). Interactive kinds are honored
+ * ONLY on the checkout surface (buyer-input APIs don't exist on thank-you targets)
+ * — on thank-you the renderer degrades them to a read-only label.
+ */
+export const CHECKOUT_FIELD_KINDS = [
+  'text', // s-text-field
+  'textarea', // s-text-area
+  'checkbox', // s-checkbox
+  'choice-list', // s-choice-list / s-choice
+  'select', // s-select / s-option
+  'email', // s-email-field
+  'number', // s-number-field
+] as const;
+
+/**
+ * Where a captured field value is written back into the checkout. `attribute`
+ * (cart attribute via applyAttributeChange), `note` (buyer note via
+ * applyNoteChange), `metafield` (cart metafield via applyMetafieldChange). All
+ * are gated at runtime by the matching cart instruction and are checkout-only.
+ */
+export const CHECKOUT_INPUT_TARGET_KINDS = ['attribute', 'note', 'metafield'] as const;
+
+/**
+ * Non-interactive layout/presentation kinds a checkout.block can render. Each maps
+ * to checkout-safe Polaris `s-*` components; all render on both surfaces.
+ */
+export const CHECKOUT_LAYOUT_KINDS = [
+  'banner', // s-banner
+  'progress-bar', // s-progress (e.g. free-shipping goal)
+  'trust-badges', // s-badge cluster
+  'payment-icons', // s-payment-icon strip
+  'countdown', // urgency countdown (rendered as text; no timers in SSR)
+  'testimonial', // quote + attribution
+  'divider', // s-divider
+] as const;
+
+/** Checkout `s-badge`/`s-banner` tones (1:1 with Polaris checkout tones). */
+export const CHECKOUT_TONES = ['auto', 'info', 'success', 'warning', 'critical'] as const;
+
+/**
+ * Protected-customer-data access level a checkout.block declares it needs. Level 1
+ * = customer id / image / ordersCount; Level 2 = name / email / phone / address.
+ * This is a DECLARATION only — actual access is granted app-wide in shopify.app.toml
+ * + a Partner-dashboard data-protection request. Surfaced as a merchant-facing note.
+ */
+export const CHECKOUT_PROTECTED_DATA_LEVELS = ['none', 'level1', 'level2'] as const;
+
+/** Checkout `s-payment-icon` types the payment-icons layout kind accepts. */
+export const CHECKOUT_PAYMENT_ICON_TYPES = [
+  'visa',
+  'mastercard',
+  'amex',
+  'discover',
+  'diners',
+  'jcb',
+  'paypal',
+  'apple-pay',
+  'google-pay',
+  'shop-pay',
+] as const;
+
+/**
+ * Whether a checkout target is a buyer-input WRITE surface. Thank-you and
+ * order-status targets are read-only (no applyAttributeChange / applyNoteChange /
+ * applyMetafieldChange), so interactive fields there degrade to read-only labels.
+ */
+export function isCheckoutWriteSurface(target: string): boolean {
+  return target.startsWith('purchase.checkout.');
+}
+
+/** Whether a checkout target requires Shopify Plus to take effect at runtime. */
+export function isCheckoutPlusOnlyTarget(target: string): boolean {
+  return CHECKOUT_UI_PLUS_ONLY_TARGET_PREFIXES.some((p) => target.startsWith(p));
+}
+
+/**
+ * Merchant-facing NOTES (never blocks) for a checkout.block config: a
+ * protected-customer-data declaration and any interactive buyer-input writes. These
+ * surface real requirements honestly — protected data needs an app-level access
+ * request + Partner-dashboard approval to actually populate, and buyer-input writes
+ * only apply when the buyer isn't using an accelerated checkout (Apple/Google Pay)
+ * and the matching cart instruction is enabled. Returns [] when nothing applies.
+ */
+export function checkoutBlockPublishNotes(config: {
+  protectedData?: string;
+  fields?: Array<{ write?: { to?: string } | undefined }> | undefined;
+}): string[] {
+  const notes: string[] = [];
+  const level = config.protectedData;
+  if (level === 'level1') {
+    notes.push(
+      'This block declares Level 1 protected-customer-data (customer id / order count). ' +
+        'The data populates only once the app is granted Level 1 access (shopify.app.toml ' +
+        '[access.protected_customer_data] + Partner-dashboard approval); until then those values are empty.',
+    );
+  } else if (level === 'level2') {
+    notes.push(
+      'This block declares Level 2 protected-customer-data (name / email / phone / address). ' +
+        'The data populates only once the app is granted Level 2 access (shopify.app.toml ' +
+        '[access.protected_customer_data] with the required fields + Partner-dashboard approval); ' +
+        'until then those values are empty.',
+    );
+  }
+  const writes = (config.fields ?? []).filter((f) => f?.write?.to);
+  if (writes.length > 0) {
+    notes.push(
+      'Buyer-input fields write to the cart (attributes / note / metafield). Writes are skipped ' +
+        'when the buyer uses an accelerated checkout (Apple Pay / Google Pay) or the matching cart ' +
+        'instruction is disabled — the fields still render, they just do not persist in those cases.',
+    );
+  }
+  return notes;
+}
+
 // ─── 4.6.1 Admin surface enum (doc 4.6.1) ────────────────────────────────────
 export const ADMIN_SURFACE_KINDS = [
   'Admin actions',

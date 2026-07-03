@@ -21,6 +21,12 @@ import {
   THEME_SECTION_GROUPS,
   CUSTOMER_ACCOUNT_TARGETS,
   CHECKOUT_UI_TARGETS,
+  CHECKOUT_FIELD_KINDS,
+  CHECKOUT_INPUT_TARGET_KINDS,
+  CHECKOUT_LAYOUT_KINDS,
+  CHECKOUT_TONES,
+  CHECKOUT_PROTECTED_DATA_LEVELS,
+  CHECKOUT_PAYMENT_ICON_TYPES,
   ADMIN_TARGETS,
   ADMIN_BLOCK_TARGETS,
   ADMIN_ACTION_TARGETS,
@@ -209,6 +215,88 @@ const AdminContentShape = {
     )
     .max(10)
     .optional(),
+} as const;
+
+const CheckoutToneEnum = z.enum(CHECKOUT_TONES);
+
+/**
+ * Declarative checkout render vocab (build #2, 034). All optional so the thin
+ * `{target,title,message?,productVariantGid?}` checkout.block stays valid and
+ * renders byte-identically. The shipped generic checkout UI extension reads these
+ * verbatim from the persisted `$app:superapp_checkout_upsell` metaobject and maps
+ * them onto checkout-safe Polaris `s-*` components, branching by `target`.
+ *
+ * Interactive `fields[]` capture buyer input and (checkout surface only) write it
+ * back via applyAttributeChange / applyNoteChange / applyMetafieldChange; on
+ * thank-you targets they degrade to read-only labels. `layout[]` holds
+ * non-interactive presentation (banner / progress-bar / trust-badges /
+ * payment-icons / countdown / testimonial / divider). `protectedData` DECLARES the
+ * customer-data access level the block relies on (granted app-wide, surfaced as a
+ * note — never a silent block).
+ */
+const CheckoutContentShape = {
+  /** Interactive buyer-input fields. Checkout-surface only; read-only on thank-you. */
+  fields: z
+    .array(
+      z.object({
+        kind: z.enum(CHECKOUT_FIELD_KINDS).default('text'),
+        /** Stable key: the cart attribute / metafield key (or note discriminator). */
+        key: z
+          .string()
+          .min(1)
+          .max(60)
+          .regex(/^[a-zA-Z0-9_.\-]+$/, 'key must be alphanumeric/underscore/dot/dash'),
+        label: z.string().min(1).max(80),
+        placeholder: z.string().max(120).optional(),
+        required: z.boolean().optional(),
+        /** Options for `choice-list` / `select`. */
+        options: z
+          .array(z.object({ value: z.string().min(1).max(80), label: z.string().min(1).max(80) }))
+          .max(20)
+          .optional(),
+        /** Where the captured value is written. Omit → display/collect only, no write. */
+        write: z
+          .object({
+            to: z.enum(CHECKOUT_INPUT_TARGET_KINDS).default('attribute'),
+            /**
+             * Metafield namespace/key (only for `to: 'metafield'`). Namespace
+             * defaults to the app-reserved `$app:superapp` at compile time.
+             */
+            namespace: z.string().max(60).optional(),
+            metafieldKey: z.string().max(60).optional(),
+          })
+          .optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
+  /** Non-interactive layout/presentation blocks. Render on both surfaces. */
+  layout: z
+    .array(
+      z.object({
+        kind: z.enum(CHECKOUT_LAYOUT_KINDS),
+        text: z.string().max(400).optional(),
+        tone: CheckoutToneEnum.optional(),
+        /** progress-bar: 0..1 fraction complete. */
+        value: z.number().min(0).max(1).optional(),
+        /** trust-badges: badge labels. */
+        badges: z.array(z.string().min(1).max(40)).max(10).optional(),
+        /** payment-icons: icon type identifiers. */
+        icons: z.array(z.enum(CHECKOUT_PAYMENT_ICON_TYPES)).max(12).optional(),
+        /** countdown: ISO end timestamp (rendered as static text, no live timer). */
+        endsAt: z.string().max(40).optional(),
+        /** testimonial: attribution line. */
+        attribution: z.string().max(120).optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
+  /**
+   * Protected-customer-data access level the block relies on. DECLARATION only —
+   * access is granted app-wide (shopify.app.toml + Partner data-protection request);
+   * surfaced to the merchant as a note. Defaults to `none`.
+   */
+  protectedData: z.enum(CHECKOUT_PROTECTED_DATA_LEVELS).optional(),
 } as const;
 
 export const RecipeSpecSchema = z.discriminatedUnion('type', [
@@ -513,6 +601,12 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       productVariantGid: z.string().min(10).optional(),
       /** Recommendation source (R2.3). Optional + back-compat; see checkout.upsell. */
       recommendation: RecommendationPackSchema.optional(),
+      /**
+       * Declarative render vocab (build #2, 034) — interactive buyer-input fields,
+       * layout/presentation blocks, and a protected-customer-data declaration. All
+       * optional so the legacy heading/message/product block is byte-identical.
+       */
+      ...CheckoutContentShape,
     }),
   }),
 

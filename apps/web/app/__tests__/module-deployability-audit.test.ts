@@ -118,6 +118,39 @@ describe('deployable checkout-UI types compile to a real deploy (no false-publis
 });
 
 /**
+ * Build #2: a checkout.block stays `deployable` (checkout UI extension is shipped)
+ * and surfaces protected-customer-data + buyer-input write notes without ever
+ * blocking publish. Bare configs surface no build#2 note beyond the Plus plan note.
+ */
+describe('build#2 checkout.block preflight notes (non-blocking)', () => {
+  const deployed = deployedFunctionExtensions();
+
+  it('surfaces protected-data + buyer-input notes for a rich checkout.block, still deployable', () => {
+    const spec = {
+      type: 'checkout.block',
+      name: 'Gift options',
+      config: {
+        target: 'purchase.checkout.block.render',
+        title: 'Make it a gift',
+        protectedData: 'level2',
+        fields: [{ kind: 'text', key: 'gift_message', label: 'Gift message', write: { to: 'attribute' } }],
+      },
+    } as unknown as RecipeSpec;
+    const pf = classifyModulePublishability(spec, { deployedExtensions: deployed });
+    expect(pf.willDeploy).toBe(true);
+    expect(pf.reasons.some((r) => r.includes('Level 2'))).toBe(true);
+    expect(pf.reasons.some((r) => r.toLowerCase().includes('accelerated checkout'))).toBe(true);
+  });
+
+  it('bare checkout.block (no config) does not crash and stays deployable', () => {
+    const pf = classifyModulePublishability({ type: 'checkout.block' } as RecipeSpec, {
+      deployedExtensions: deployed,
+    });
+    expect(pf.willDeploy).toBe(true);
+  });
+});
+
+/**
  * INTEGRITY GATE (build #0): PUBLISHED must be gated behind a REAL deployable
  * artifact. A type whose compile yields ONLY a bare AUDIT op AND no payload writes
  * nothing at publish; if such a type is still classified `willDeploy: true`, the

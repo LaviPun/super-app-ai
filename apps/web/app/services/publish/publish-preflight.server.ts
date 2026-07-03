@@ -5,6 +5,7 @@ import {
   getExtensionEligibility,
   isRuntimeShipped,
   MESSAGING_CHANNELS_SHIPPED,
+  checkoutBlockPublishNotes,
 } from '@superapp/core';
 import {
   ModulePublishPreflightResultSchema,
@@ -145,11 +146,18 @@ export function classifyModulePublishability(
     });
   }
 
+  // Plan requirements are notes, not blocks (e.g. "runs on Shopify Plus").
+  const reasons: string[] = eligibility.requiresPlan ? [eligibility.note] : [];
+  // checkout.block: surface protected-customer-data + buyer-input write notes (build #2).
+  // `spec.config` may be absent in bare type-level audits — guard before reading it.
+  if (type === 'checkout.block' && spec.config) {
+    reasons.push(...checkoutBlockPublishNotes(spec.config as Parameters<typeof checkoutBlockPublishNotes>[0]));
+  }
+
   return ModulePublishPreflightResultSchema.parse({
     moduleType: type,
     status: 'deployable',
-    // Plan requirements are notes, not blocks (e.g. "runs on Shopify Plus").
-    reasons: eligibility.requiresPlan ? [eligibility.note] : [],
+    reasons,
     ...(eligibility.functionHandle ? { requiresExtension: eligibility.functionHandle } : {}),
     willDeploy: true,
   });

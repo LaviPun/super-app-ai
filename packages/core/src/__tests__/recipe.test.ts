@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { RecipeSpecSchema } from '../recipe.js';
+import {
+  checkoutBlockPublishNotes,
+  isCheckoutWriteSurface,
+  isCheckoutPlusOnlyTarget,
+} from '../allowed-values.js';
 
 describe('RecipeSpecSchema', () => {
   it('validates a theme.section banner recipe', () => {
@@ -261,6 +266,91 @@ describe('RecipeSpecSchema', () => {
       },
     });
     expect(spec.type === 'postPurchase.offer' && spec.config.recommendation?.strategy).toBe('buy-it-again');
+  });
+
+  it('build#2 back-compat — a thin checkout.block (target/title/message) parses byte-identically', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'checkout.block',
+      name: 'Trust message',
+      category: 'STOREFRONT_UI',
+      config: {
+        target: 'purchase.checkout.block.render',
+        title: 'Shop with confidence',
+        message: 'Free returns within 30 days.',
+      },
+    });
+    expect(spec.type === 'checkout.block' && spec.config.fields).toBeUndefined();
+    expect(spec.type === 'checkout.block' && spec.config.layout).toBeUndefined();
+    expect(spec.type === 'checkout.block' && spec.config.protectedData).toBeUndefined();
+  });
+
+  it('build#2 — checkout.block accepts interactive fields, layout kinds, and a protected-data level', () => {
+    const spec = RecipeSpecSchema.parse({
+      type: 'checkout.block',
+      name: 'Gift options',
+      category: 'STOREFRONT_UI',
+      config: {
+        target: 'purchase.checkout.block.render',
+        title: 'Make it a gift',
+        fields: [
+          { kind: 'text', key: 'gift_message', label: 'Gift message', write: { to: 'attribute' } },
+          { kind: 'checkbox', key: 'gift_wrap', label: 'Add gift wrap', write: { to: 'note' } },
+          {
+            kind: 'choice-list',
+            key: 'speed',
+            label: 'Delivery speed',
+            options: [
+              { value: 'standard', label: 'Standard' },
+              { value: 'express', label: 'Express' },
+            ],
+            write: { to: 'metafield', namespace: '$app:gift', metafieldKey: 'speed' },
+          },
+        ],
+        layout: [
+          { kind: 'banner', tone: 'info', text: 'Orders ship in 24h' },
+          { kind: 'progress-bar', value: 0.6, text: 'Almost at free shipping' },
+          { kind: 'trust-badges', badges: ['Secure', 'Returns'] },
+          { kind: 'payment-icons', icons: ['visa', 'mastercard'] },
+        ],
+        protectedData: 'level2',
+      },
+    });
+    if (spec.type !== 'checkout.block') throw new Error('type');
+    expect(spec.config.fields).toHaveLength(3);
+    expect(spec.config.layout).toHaveLength(4);
+    expect(spec.config.protectedData).toBe('level2');
+  });
+
+  it('build#2 — checkout.block rejects an unknown field kind', () => {
+    const r = RecipeSpecSchema.safeParse({
+      type: 'checkout.block',
+      name: 'Bad field',
+      category: 'STOREFRONT_UI',
+      config: {
+        target: 'purchase.checkout.block.render',
+        title: 'X',
+        fields: [{ kind: 'slider', key: 'k', label: 'L' }],
+      },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('build#2 — checkout surface helpers classify write-surface + Plus-only correctly', () => {
+    expect(isCheckoutWriteSurface('purchase.checkout.block.render')).toBe(true);
+    expect(isCheckoutWriteSurface('purchase.thank-you.block.render')).toBe(false);
+    expect(isCheckoutPlusOnlyTarget('purchase.checkout.contact.render-after')).toBe(true);
+    expect(isCheckoutPlusOnlyTarget('purchase.thank-you.footer.render-after')).toBe(false);
+  });
+
+  it('build#2 — checkoutBlockPublishNotes surfaces protected-data + buyer-input notes', () => {
+    const none = checkoutBlockPublishNotes({ protectedData: 'none', fields: [] });
+    expect(none).toHaveLength(0);
+    const notes = checkoutBlockPublishNotes({
+      protectedData: 'level2',
+      fields: [{ write: { to: 'attribute' } }],
+    });
+    expect(notes.some((n) => n.includes('Level 2'))).toBe(true);
+    expect(notes.some((n) => n.toLowerCase().includes('accelerated checkout'))).toBe(true);
   });
 
   it('R2.3 — rejects a manual recommendation with an empty variant list (superRefine)', () => {

@@ -63,8 +63,11 @@ Settings: offerTitle(str 1-60), productVariantGid(str min 10, e.g. gid://shopify
 No style.`,
 
   'checkout.block': `Module: checkout.block | Category: STOREFRONT_UI | Requires: CHECKOUT_UI_INFO_SHIP_PAY
-Settings: target(enum from CHECKOUT_UI_TARGETS), title(str 1-80), message(str 0-240, opt), productVariantGid(str, opt). Merchant-placeable block in checkout.
-No style.`,
+Settings: target(enum from CHECKOUT_UI_TARGETS), title(str 1-80), message(str 0-240, opt), productVariantGid(str, opt).
+Interactive fields[] (opt): {kind(text|textarea|checkbox|choice-list|select|email|number), key, label, placeholder?, required?, options?[{value,label}], write?{to(attribute|note|metafield), namespace?, metafieldKey?}}. Fields capture buyer input and write to cart on checkout targets; read-only on thank-you.
+Layout[] (opt): {kind(banner|progress-bar|trust-badges|payment-icons|countdown|testimonial|divider), text?, tone?(auto|info|success|warning|critical), value?(0-1 for progress), badges?[str], icons?[payment icon names], endsAt?(ISO), attribution?}.
+protectedData (opt): none|level1|level2 — declares the customer-data access the block needs (level1=id/orderCount, level2=name/email/phone/address); requires app-level access grant to populate.
+Merchant-placeable block in checkout. No style.`,
 
   'postPurchase.offer': `Module: postPurchase.offer | Category: STOREFRONT_UI | Requires: CHECKOUT_UI_INFO_SHIP_PAY
 Settings: offerTitle(str 1-80), productVariantGid(str, opt), message(str 0-240, opt). One-click upsell after payment.

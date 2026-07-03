@@ -1,5 +1,21 @@
 api_version = "2026-04"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SuperApp generic checkout UI extension (build #2, 034).
+# ONE config-driven renderer mounted at every checkout / thank-you RENDER target.
+# Each per-target module (src/targets/*.tsx) is a one-line mountCheckoutTarget call;
+# the renderer branches by target (interactive buyer-input writes on purchase.checkout.*,
+# read-only on thank-you/order-status) and reads its content from the published
+# \$app:superapp_checkout_upsell metaobject. No per-target code.
+#
+# The two address-autocomplete targets (purchase.address-autocomplete.suggest /
+# .format-suggestion) are deliberately NOT registered: they are data-only callbacks
+# (0 components) that require a real address-lookup service. Registering an
+# empty-suggestion no-op would fabricate a non-functional integration, so they stay
+# unregistered (they remain valid config targets for validation only).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Block-render targets (SHIPPED — preserve deployed handles/UIDs) ────────────
 [[extensions]]
 uid = "d7a1f2c6-c8b3-6d4a-af5c-1e8b2a3d7c6f"
 type = "ui_extension"
@@ -25,3 +41,121 @@ api_access = true
 [[extensions.targeting]]
 module = "./src/blocks/ThankYou.tsx"
 target = "purchase.thank-you.block.render"
+
+# ── All remaining checkout / thank-you render targets (build #2) ───────────────
+[[extensions]]
+uid = "f9c3b4e8-e0d5-8f6c-cb7e-3a0d4c5f9e8b"
+type = "ui_extension"
+name = "SuperApp Checkout Surfaces"
+handle = "superapp-checkout-surfaces"
+
+[extensions.capabilities]
+api_access = true
+
+[[extensions.targeting]]
+module = "./src/targets/ThankYouAnnouncementRender.tsx"
+target = "purchase.thank-you.announcement.render"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutFooterRenderAfter.tsx"
+target = "purchase.checkout.footer.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/ThankYouFooterRenderAfter.tsx"
+target = "purchase.thank-you.footer.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutHeaderRenderAfter.tsx"
+target = "purchase.checkout.header.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/ThankYouHeaderRenderAfter.tsx"
+target = "purchase.thank-you.header.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutContactRenderAfter.tsx"
+target = "purchase.checkout.contact.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/ThankYouCustomerInformationRenderAfter.tsx"
+target = "purchase.thank-you.customer-information.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutPickupLocationListRenderBefore.tsx"
+target = "purchase.checkout.pickup-location-list.render-before"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutPickupLocationListRenderAfter.tsx"
+target = "purchase.checkout.pickup-location-list.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutPickupLocationOptionItemRenderAfter.tsx"
+target = "purchase.checkout.pickup-location-option-item.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutActionsRenderBefore.tsx"
+target = "purchase.checkout.actions.render-before"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutCartLineItemRenderAfter.tsx"
+target = "purchase.checkout.cart-line-item.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutCartLineListRenderAfter.tsx"
+target = "purchase.checkout.cart-line-list.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutReductionsRenderBefore.tsx"
+target = "purchase.checkout.reductions.render-before"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutReductionsRenderAfter.tsx"
+target = "purchase.checkout.reductions.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/ThankYouCartLineItemRenderAfter.tsx"
+target = "purchase.thank-you.cart-line-item.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/ThankYouCartLineListRenderAfter.tsx"
+target = "purchase.thank-you.cart-line-list.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutPaymentMethodListRenderBefore.tsx"
+target = "purchase.checkout.payment-method-list.render-before"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutPaymentMethodListRenderAfter.tsx"
+target = "purchase.checkout.payment-method-list.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutPickupPointListRenderBefore.tsx"
+target = "purchase.checkout.pickup-point-list.render-before"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutPickupPointListRenderAfter.tsx"
+target = "purchase.checkout.pickup-point-list.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutDeliveryAddressRenderBefore.tsx"
+target = "purchase.checkout.delivery-address.render-before"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutDeliveryAddressRenderAfter.tsx"
+target = "purchase.checkout.delivery-address.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutShippingOptionItemDetailsRender.tsx"
+target = "purchase.checkout.shipping-option-item.details.render"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutShippingOptionItemRenderAfter.tsx"
+target = "purchase.checkout.shipping-option-item.render-after"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutShippingOptionListRenderBefore.tsx"
+target = "purchase.checkout.shipping-option-list.render-before"
+
+[[extensions.targeting]]
+module = "./src/targets/CheckoutShippingOptionListRenderAfter.tsx"
+target = "purchase.checkout.shipping-option-list.render-after"
