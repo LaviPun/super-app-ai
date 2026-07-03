@@ -398,8 +398,50 @@ describe('theme compilers — style integration', () => {
     expect(out.themeModulePayload?.styleCss).toContain('[data-module-id="test-module-1"]');
     expect(out.themeModulePayload?.styleCss).toContain('--sa-text: #222222;');
     expect(out.themeModulePayload?.styleCss).toContain('--sa-elevation:');
+    // Non-overlay kinds paint the wrapper root directly.
+    expect(out.themeModulePayload?.styleCss).toContain('[data-module-id="test-module-1"]{\ncolor: var(--sa-text);');
     // payload.style stays pristine (compiled css is folded into style_json at the metaobject layer)
     expect(out.themeModulePayload?.style).toEqual((spec as { style?: unknown }).style);
+  });
+
+  it('popup kind scopes base presentation rules to the inner panel, not the fixed overlay host', () => {
+    const spec = {
+      type: 'theme.section',
+      name: 'Popup',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: { kind: 'popup', activation: 'overlay', fields: {}, blocks: [], title: 'Hi' },
+      style: { colors: { text: '#222222', background: '#eeeeee' } },
+    } as unknown as RecipeSpec;
+    const out = compileThemeSection(spec as Parameters<typeof compileThemeSection>[0], themeTarget);
+    const css = out.themeModulePayload?.styleCss ?? '';
+    // --sa-* vars still live on the root (readable by the whole subtree).
+    expect(css).toContain('[data-module-id="test-module-1"]{--sa-text: #222222;');
+    // The background/padding block targets the PANEL — painting the full-screen host
+    // would turn the overlay into an opaque sheet that hides the page behind the scrim.
+    expect(css).toContain('[data-module-id="test-module-1"] .superapp-popup__panel{\ncolor: var(--sa-text);');
+    // ...and never applies `background: var(--sa-bg)` straight to the bare host selector.
+    expect(css).not.toContain('[data-module-id="test-module-1"]{\ncolor: var(--sa-text);');
+  });
+
+  it('floatingWidget/effect kinds emit vars only — no base rules that would distort the pill/overlay', () => {
+    for (const kind of ['floatingWidget', 'effect']) {
+      const spec = {
+        type: 'theme.section',
+        name: kind,
+        category: 'STOREFRONT_UI',
+        requires: ['THEME_ASSETS'],
+        config: { kind, activation: 'global', fields: {}, blocks: [] },
+        style: { colors: { text: '#222222', background: '#eeeeee' } },
+      } as unknown as RecipeSpec;
+      const out = compileThemeSection(spec as Parameters<typeof compileThemeSection>[0], themeTarget);
+      const css = out.themeModulePayload?.styleCss ?? '';
+      // Vars present on the root...
+      expect(css).toContain('[data-module-id="test-module-1"]{--sa-text: #222222;');
+      // ...but no `color/background/padding` base-rule block anywhere (would override the
+      // pill's signature shape / paint a card behind the floating widget or effect overlay).
+      expect(css).not.toContain('color: var(--sa-text);');
+    }
   });
 });
 
