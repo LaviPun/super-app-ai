@@ -27,11 +27,13 @@
   assign kind = mod_cfg.kind | default: 'jsonLd'
 %}
 
-{% # ── Surface-targeted placement gate (mirrors superapp-module.liquid) ─────────
-   A head module may declare `placement` (enabled_on / disabled_on templates) to
-   scope which pages inject it. Matched against `template.name`. Additive + back-
-   compat: NO placement metadata → always injects. Empty template arrays also
-   inject (never hide on absent data). %}
+{% comment %}
+  Surface-targeted placement gate (mirrors superapp-module.liquid).
+  A head module may declare `placement` (enabled_on / disabled_on templates) to
+  scope which pages inject it. Matched against `template.name`. Additive + back-
+  compat: NO placement metadata → always injects. Empty template arrays also
+  inject (never hide on absent data).
+{% endcomment %}
 {% liquid
   assign sa_placement_ok = true
   if mod_placement != blank
@@ -54,15 +56,15 @@
 {% if sa_placement_ok %}
 {% case kind %}
   {% when 'jsonLd' %}
-    {% # Structured data. `mod_cfg.jsonLd` is a server-built, sanitized object; emit
-       it as JSON so it is always well-formed (no raw string interpolation). %}
+    {% comment %} Structured data. `mod_cfg.jsonLd` is a server-built, sanitized object; emit
+       it as JSON so it is always well-formed (no raw string interpolation). {% endcomment %}
     {% if mod_cfg.jsonLd != blank %}
       <script type="application/ld+json">{{ mod_cfg.jsonLd | json }}</script>
     {% endif %}
 
   {% when 'metaTags' %}
-    {% # Generic <meta name|property content>. Open Graph / Twitter live in the same
-       list with property/name distinguished by `attr` ('name' default | 'property'). %}
+    {% comment %} Generic <meta name|property content>. Open Graph / Twitter live in the same
+       list with property/name distinguished by `attr` ('name' default | 'property'). {% endcomment %}
     {% if mod_cfg.metaTags != blank %}
       {% for tag in mod_cfg.metaTags %}
         {% if tag.content != blank %}
@@ -79,8 +81,8 @@
     {% endif %}
 
   {% when 'preload' %}
-    {% # Resource hints. Each entry: { rel: preload|preconnect|dns-prefetch,
-       href, as?, type?, crossorigin? }. `href` required; `as` required for preload. %}
+    {% comment %} Resource hints. Each entry: { rel: preload|preconnect|dns-prefetch,
+       href, as?, type?, crossorigin? }. `href` required; `as` required for preload. {% endcomment %}
     {% if mod_cfg.resources != blank %}
       {% for res in mod_cfg.resources %}
         {% if res.href != blank %}
@@ -93,9 +95,9 @@
     {% endif %}
 
   {% when 'pixelBootstrap' %}
-    {% # Small inline analytics/pixel bootstrap. `mod_cfg.pixelId` is escaped and the
+    {% comment %} Small inline analytics/pixel bootstrap. `mod_cfg.pixelId` is escaped and the
        provider is an allowlisted switch — never raw model script. Bodyless providers
-       degrade to a no-op. %}
+       degrade to a no-op. {% endcomment %}
     {% if mod_cfg.pixelId != blank %}
       {% case mod_cfg.provider %}
         {% when 'ga4' %}
@@ -111,8 +113,8 @@
     {% endif %}
 
   {% when 'consentScript' %}
-    {% # Consent Mode v2 / CMP default state. Sets consent defaults before pixels
-       load. `mod_cfg.consentDefault` is an allowlisted 'granted'|'denied'. %}
+    {% comment %} Consent Mode v2 / CMP default state. Sets consent defaults before pixels
+       load. `mod_cfg.consentDefault` is an allowlisted 'granted'|'denied'. {% endcomment %}
     {% assign consent_state = mod_cfg.consentDefault | default: 'denied' %}
     <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('consent','default',{'ad_storage':{{ consent_state | json }},'analytics_storage':{{ consent_state | json }},'ad_user_data':{{ consent_state | json }},'ad_personalization':{{ consent_state | json }}});</script>
 

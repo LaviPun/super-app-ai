@@ -46,14 +46,16 @@
   endif
 %}
 
-{% # ── Surface-targeted placement gate ────────────────────────────────────────
-   A theme.section may declare `placement` (enabled_on / disabled_on templates) to
-   scope where it renders. Matched against the current `template.name`. Additive +
-   back-compat: a module with NO placement metadata (placement_json blank/empty)
-   sets sa_placement_ok=true and renders exactly as before — no gate applied.
-   Defensive: a placement object with empty/missing template arrays also renders
-   (never hides on absent data). enabled_on/disabled_on are mutually exclusive by
-   schema, but this evaluates both independently for safety. %}
+{% comment %}
+  Surface-targeted placement gate.
+  A theme.section may declare `placement` (enabled_on / disabled_on templates) to
+  scope where it renders. Matched against the current `template.name`. Additive +
+  back-compat: a module with NO placement metadata (placement_json blank/empty)
+  sets sa_placement_ok=true and renders exactly as before — no gate applied.
+  Defensive: a placement object with empty/missing template arrays also renders
+  (never hides on absent data). enabled_on/disabled_on are mutually exclusive by
+  schema, but this evaluates both independently for safety.
+{% endcomment %}
 {% liquid
   assign sa_placement_ok = true
   if mod_placement != blank
@@ -76,7 +78,7 @@
 {% # Off-target: render nothing (the module is scoped away from this template). %}
 {% if sa_placement_ok %}
 
-{% # ── R2.1 display-rules server gate ─────────────────────────────────────────
+{% comment %} ── R2.1 display-rules server gate ─────────────────────────────────────────
    Additive + back-compat: when mod_cfg.ruleEngine is absent or disabled, no
    sa_* vars change (sa_rules_enabled=false, sa_rule_server='pass') and NO data-sa-*
    attributes are emitted below — the render is byte-identical to pre-R2.1.
@@ -85,7 +87,7 @@
    resolves the cheap high-value server objects (customer/geo/cart) to (a) fail-fast
    HIDE when the WHOLE set is server-resolvable and evaluates to hide, and (b) mirror
    those values into data-sa-ctx for the client. Any behavioral row ⇒ 'defer'.
-   PRIVACY: only booleans/counts are mirrored (never tags/email). %}
+   PRIVACY: only booleans/counts are mirrored (never tags/email). {% endcomment %}
 {% liquid
   assign sa_rules = mod_cfg.ruleEngine
   assign sa_rules_enabled = false
@@ -215,17 +217,17 @@
   endif
 %}
 
-{% # R2.1: a fully server-resolvable SHOW rule that evaluated to hide renders
+{% comment %} R2.1: a fully server-resolvable SHOW rule that evaluated to hide renders
    NOTHING (fail-fast, no flash, no client work). Every other case renders normally
-   (pass) or renders hidden and lets the client finish (defer). %}
+   (pass) or renders hidden and lets the client finish (defer). {% endcomment %}
 {% unless sa_rule_server == 'fail' %}
 
 {% # Per-module compiled style (colors/spacing/tokens/custom CSS), scoped to [data-module-id]. Server-sanitized. %}
 {% if mod_sty.css != blank %}<style>{{ mod_sty.css }}</style>{% endif %}
 
-{% # R2.1: open the gate wrapper for NON-popup kinds when rules are enabled. The
+{% comment %} R2.1: open the gate wrapper for NON-popup kinds when rules are enabled. The
    wrapper carries the data-sa-* payload the client sweep reads; it renders hidden
-   (client reveals or removes it). Popups gate inside their own element (see below). %}
+   (client reveals or removes it). Popups gate inside their own element (see below). {% endcomment %}
 {% if sa_rules_enabled and kind != 'popup' %}
   <div class="superapp-rule-gate" data-module-id="{{ module_id | escape }}" data-sa-rules="{{ sa_rules_json | escape }}" data-sa-rule-server="{{ sa_rule_server }}" data-sa-ctx="{{ sa_ctx_json | escape }}"{% if sa_rule_server == 'defer' %} hidden{% endif %}>
 {% endif %}
