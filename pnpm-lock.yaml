@@ -471,6 +471,10 @@ importers:
       preact:
         specifier: ^10.29.2
         version: 10.29.2
+    devDependencies:
+      vitest:
+        specifier: '>=3.2.6 <4'
+        version: 3.2.6(@types/debug@4.1.13)(@types/node@24.13.2)(tsx@4.22.4)(yaml@2.9.0)
 
   extensions/superapp-shipping-discount: {}
 

@@ -964,11 +964,21 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
           /** Property key/value for ADD_CART_PROPERTY. */
           propertyKey: z.string().max(80).optional(),
           propertyValue: z.string().max(500).optional(),
-          /** Product/variant GID for ADD_LINE_ITEM. */
-          productVariantId: z.string().regex(PRODUCT_VARIANT_GID_RE).optional(),
+          /**
+           * Product variant to add for ADD_LINE_ITEM. Authored as the canonical variant GID
+           * (`gid://shopify/ProductVariant/<n>`), matching the rest of the corpus; a bare
+           * numeric id is also accepted. The POS runtime (`shopify.addLineItem`) requires a
+           * NUMERIC variant id, so `posBehavior.numericIdFromGid` extracts it at call time.
+           */
+          productVariantId: z
+            .string()
+            .regex(/^(?:gid:\/\/shopify\/ProductVariant\/\d+|\d+)$/)
+            .optional(),
+          /** Discount type for APPLY_CART_DISCOUNT / APPLY_LINE_DISCOUNT ('Percentage'|'FixedAmount'). */
+          discountKind: z.enum(['Percentage', 'FixedAmount']).optional(),
           /** Static/bound content for RECEIPT_CONTENT (header/footer). */
           receiptText: z.string().max(500).optional(),
-          /** Destination for OPEN_URL / PRINT (app-proxy page or external https URL). */
+          /** Print source for PRINT: an app-proxy path or a full https URL to the app backend. */
           url: z.string().max(500).optional(),
         })
         .optional(),

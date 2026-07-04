@@ -1372,26 +1372,35 @@ export const POS_BLOCK_KINDS = ['tile', 'modal', 'block', 'action', 'receipt', '
 
 /**
  * The behaviour a POS block/action performs when the staff member taps it. The config only
- * DECLARES the action; the shipped generic POS entry resolves it at run time against the
- * contextual API available on the surface (Cart / Cart Line Item / Customer / Order / Draft
- * Order / Product) or the app proxy. Any action whose required API is unavailable on the
- * current surface degrades to a no-op with an explanatory Toast — never a hard error.
+ * DECLARES the action; the shipped generic POS entry (`extensions/superapp-pos-block/src/
+ * posBehavior.js`) resolves it at run time against the REAL 2026-04 POS UI Extensions API —
+ * every method is FLAT on `shopify` (verified via dev-MCP). Each action is gated on the
+ * real method actually being present; when absent it reports `unsupported` with a toast —
+ * it NEVER toasts success for a skipped call. Every entry here maps to a real method or a
+ * clearly-marked app-proxy path — nothing that can only no-op.
  *
  * - `NONE`             → display only (a block that just shows data / a label).
  * - `PRESENT_MODAL`    → open the companion modal (`shopify.action.presentModal()`); the
  *                        tile↔modal / menu-item↔action pairing (see POS_PRESENTATIONS).
- * - `APPLY_CART_DISCOUNT`  → Cart API `applyCartDiscount('Percentage'|'FixedAmount', title, amount)`.
- * - `APPLY_CODE_DISCOUNT`  → Cart API `applyCartDiscount('Code', code)` (discount code, no amount).
- * - `APPLY_LINE_DISCOUNT`  → Cart API line-item discount (`bulkSetLineItemDiscounts`) on the selected line.
- * - `SET_CART_NOTE`        → Cart API note write via `bulkCartUpdate({ note })`.
- * - `ADD_CART_PROPERTY`    → Cart API custom cart/line properties (`addLineItemProperties` / cart attrs).
- * - `ADD_LINE_ITEM`        → Cart API `addLineItem` (add a configured product/variant to the cart).
- * - `LOYALTY_READ`         → read a loyalty/points balance from the app proxy (see POS_DATA_BINDINGS).
+ * - `APPLY_CART_DISCOUNT`  → `shopify.applyCartDiscount('Percentage'|'FixedAmount', title, amount)`.
+ * - `APPLY_CODE_DISCOUNT`  → `shopify.addCartCodeDiscount(code)` (discount code; no amount).
+ * - `APPLY_LINE_DISCOUNT`  → `shopify.bulkSetLineItemDiscounts([...])` on the selected line
+ *                            (`shopify.cartLineItem.uuid`); cart line-item targets only.
+ * - `SET_CART_NOTE`        → `shopify.bulkCartUpdate({ note })`.
+ * - `ADD_CART_PROPERTY`    → `shopify.addLineItemProperties(uuid, props)` when a line-item
+ *                            context exists, else `shopify.addCartProperties(props)`.
+ * - `ADD_LINE_ITEM`        → `shopify.addLineItem(variantId:number, qty)` (NUMERIC variant id,
+ *                            extracted from the configured GID).
+ * - `LOYALTY_READ`         → read a loyalty/points balance from the app proxy (app-proxy path).
  * - `LOYALTY_WRITE`        → write a loyalty-ledger entry (accrue/redeem) via the app proxy.
- * - `RECEIPT_CONTENT`      → contribute static/bound content to a receipt header/footer block.
- * - `PRINT`                → Print API: send a document / receipt to a connected printer.
- * - `OPEN_URL`             → Navigation to an app-proxy page or external URL.
+ * - `RECEIPT_CONTENT`      → contribute static/bound content to a receipt header/footer block
+ *                            (declarative; rendered by Receipt.jsx, not an imperative call).
+ * - `PRINT`                → `shopify.print(src)` (FLAT Print API) — send a document to a printer.
  * - `APP_PROXY_POST`       → POST the surface context to a declared app-proxy endpoint (generic write).
+ *
+ * REMOVED (2026-04 audit): `OPEN_URL` — POS UI has NO external-URL-open capability; the
+ * Navigation API (`navigation.navigate`) is in-modal screen routing only, so an OPEN_URL
+ * action could only ever no-op. Dropped from the enum so no template can request it.
  */
 export const POS_ACTIONS = [
   'NONE',
@@ -1406,37 +1415,49 @@ export const POS_ACTIONS = [
   'LOYALTY_WRITE',
   'RECEIPT_CONTENT',
   'PRINT',
-  'OPEN_URL',
   'APP_PROXY_POST',
 ] as const;
 export type PosAction = (typeof POS_ACTIONS)[number];
 
 /**
  * A live value a POS block can BIND to render. The config only DECLARES which value it wants;
- * the shipped generic POS entry resolves it at render time via the contextual API on the
- * surface (`cart.*`, `customer.*`, `order.*`, `product.*`, `session.*`) or the app-owned
- * loyalty source (`loyalty.*`, served by the app proxy). Any binding that can't be resolved on
- * the current surface degrades to the block's literal `label` (or renders nothing) — never an error.
+ * the shipped generic POS entry (`posBehavior.js`) resolves it at render time from the REAL
+ * 2026-04 contextual API (verified via dev-MCP). Only fields the API GENUINELY exposes are
+ * here — a binding that can't be resolved on the current surface degrades to the block's
+ * literal `label`; it is NEVER a fabricated literal masquerading as a live value.
+ *
+ * KEPT-NATIVE (resolve directly from the real API):
+ *  - `cart.*`      → `shopify.cart.current.value` { subtotal, grandTotal, taxTotal, lineItems }.
+ *                    `cart.total` reads `grandTotal`; `cart.itemCount` sums `lineItems[].quantity`.
+ *  - `lineItem.*`  → `shopify.cartLineItem` { title, quantity } (cart line-item targets only).
+ *  - `order.name`  → `shopify.order.name` (Order API exposes id / name / customerId ONLY).
+ *  - `session.*`   → `shopify.session.currentSession` — IDs/currency ONLY (locationId,
+ *                    staffMemberId, currency). POS exposes NO staff/location NAMES.
+ *
+ * APP-PROXY-MARKED (app-owned; resolved by the modal via the app proxy, not inline):
+ *  - `loyalty.points`, `loyalty.tier` — served by `appProxyPath` (LOYALTY_READ).
+ *
+ * REMOVED (2026-04 audit — the real API does NOT expose these; keeping them would force a
+ * false literal-fallback pretending to be a live value):
+ *  - `cart.note`                          (POS cart read has no `note` field)
+ *  - `customer.displayName/email/ordersCount/amountSpent`  (Customer API = `{ id }` only)
+ *  - `order.financialStatus/fulfillmentStatus/totalPrice`  (Order API = `{ id,name,customerId }` only)
+ *  - `product.title/totalInventory`       (Product API = `{ id, variantId }` only)
+ *  - `session.staffMemberName/locationName`  (Session has IDs only — no name fields)
+ * The dropped customer/order/product fields could be fetched by GID via the app proxy in a
+ * follow-up (see #7); until a resolver exists they stay OUT of the enum, not faked.
  */
 export const POS_DATA_BINDINGS = [
   'cart.subtotal',
   'cart.total',
+  'cart.taxTotal',
   'cart.itemCount',
-  'cart.note',
-  'customer.displayName',
-  'customer.email',
-  'customer.ordersCount',
-  'customer.amountSpent',
-  'order.name',
-  'order.financialStatus',
-  'order.fulfillmentStatus',
-  'order.totalPrice',
-  'product.title',
-  'product.totalInventory',
   'lineItem.title',
   'lineItem.quantity',
-  'session.staffMemberName',
-  'session.locationName',
+  'order.name',
+  'session.locationId',
+  'session.staffMemberId',
+  'session.currency',
   'loyalty.points',
   'loyalty.tier',
 ] as const;

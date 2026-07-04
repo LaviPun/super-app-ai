@@ -46,6 +46,7 @@ export type PosBlockConfig = {
     propertyKey?: string;
     propertyValue?: string;
     productVariantId?: string;
+    discountKind?: 'Percentage' | 'FixedAmount';
     receiptText?: string;
     url?: string;
   };
