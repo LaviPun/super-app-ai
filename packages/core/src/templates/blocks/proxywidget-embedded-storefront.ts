@@ -14,8 +14,9 @@
  * (wishlist button + page), loyaltylion (loyalty launcher/panel), provesource
  * (inline social-proof), appikon-notify-me (back-in-stock).
  *
- * HONESTY: `mode: 'HTML'` + `surface: 'embed'` only (no `full_page` / `proxySubpath`
- * — the current compiler does not route those, 034 §7). The widget renders its shell
+ * HONESTY: these embedded blocks are `mode: 'HTML'` + `surface: 'embed'` only. The
+ * `full_page` surface is served by the proxy route (layout:false) but at the same fixed
+ * `/apps/superapp/<widgetId>` path — there is no per-widget routed subpath. The widget renders its shell
  * + copy from config; the live data (review bodies, wishlist items, recommended
  * products, loyalty balance, waitlist confirmation) is hydrated by the app-proxy
  * loader at request time and honestly DEGRADES to the shell / an empty state until

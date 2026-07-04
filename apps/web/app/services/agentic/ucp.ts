@@ -122,39 +122,3 @@ export function buildMcpToolDescriptors() {
   };
   return AGENTIC_MCP_TOOLS.map((name) => ({ name, ...byName[name] }));
 }
-
-/**
- * The canonical Shopify theme `agents.md.liquid` body. References the storefront-populated
- * `agents` Liquid object (auto-filled by Shopify — an app cannot populate it), which is
- * why this MUST go through the Theme Edit path, not app rendering. We append the
- * merchant's public instructions if configured. No PII (broadly cached + served to every agent).
- */
-export function buildAgentsMdLiquid(cfg: AgenticFeedConfig): string {
-  const extra = cfg.agentInstructions
-    ? `\n## Merchant guidance\n${cfg.agentInstructions.replace(/\{\{|\}\}|\{%|%\}/g, '')}\n`
-    : '';
-  return `# Agent Instructions — {{ agents.store_name }}
-
-This document describes how AI agents can interact with the online store at {{ agents.store_url }}.
-
-## Commerce Protocol (UCP)
-
-This store implements the Universal Commerce Protocol for agent-driven commerce:
-
-- Discovery: \`GET {{ agents.ucp_discovery_url }}\`
-- MCP endpoint: \`POST {{ agents.mcp_endpoint_url }}\`
-
-### Supported UCP versions
-{% for version in agents.ucp_versions %}
-- {{ version }}{% if forloop.first %} (latest stable){% endif %}
-{% endfor %}
-
-## Read-only browsing
-
-- All products: \`GET /collections/all\`
-- Product JSON: \`GET /products/{handle}.json\`
-- Sitemap: {{ agents.sitemap_url }}
-
-Pricing and availability are returned in {{ agents.currency }}.
-${extra}`;
-}

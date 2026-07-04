@@ -40,26 +40,25 @@ export interface ShopifyWebhookTopic {
 }
 
 /**
- * Scopes already granted by `shopify.app.toml` (write_* implies read_*). Topics whose
- * `scope` is in this set are subscribed automatically (the "select and go" set).
- * Keep in sync with the `access_scopes.scopes` line in `shopify.app.toml`.
+ * Scopes actually granted by `shopify.app.toml` (write_* implies read_*). Topics whose
+ * `scope` is in this set are subscribed automatically (the "select and go" set); topics
+ * whose scope is NOT here stay selectable-but-unsubscribed (`isTopicGranted` → false),
+ * so callers must not offer them as live.
+ *
+ * MUST mirror the `access_scopes.scopes` line in `shopify.app.toml` exactly. The toml
+ * currently grants: read_customers, read_metaobjects, read_products, read_themes,
+ * write_app_proxy, write_customers, write_metaobjects, write_orders. Do NOT list a scope
+ * here that the toml does not request — doing so lets `alwaysOnWebhookTopics()` /
+ * `isTopicGranted()` advertise topics Shopify will never deliver (e.g. fulfillments/create
+ * needs read_fulfillments, draft_orders/create needs read_draft_orders — neither is
+ * granted). Add the scope to the toml AND here together when that delivery is needed.
  */
 export const GRANTED_WEBHOOK_SCOPES = new Set<string>([
-  'read_orders', 'write_orders',
-  'read_products',
+  'read_orders', 'write_orders', // write_orders is granted (implies read_orders)
+  'read_products', // granted directly in the toml
   'read_customers', 'write_customers',
   'read_metaobjects', 'write_metaobjects',
   'read_themes',
-  'read_fulfillments',
-  'read_inventory',
-  'read_draft_orders',
-  'read_returns',
-  'read_locations',
-  'read_merchant_managed_fulfillment_orders',
-  'read_assigned_fulfillment_orders',
-  'read_third_party_fulfillment_orders',
-  'read_discounts',
-  'read_price_rules',
 ]);
 
 export const SHOPIFY_WEBHOOK_TOPICS: ShopifyWebhookTopic[] = [

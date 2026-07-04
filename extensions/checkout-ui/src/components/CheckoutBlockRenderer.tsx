@@ -32,9 +32,12 @@ function normalizePaymentIcon(type: string): PaymentIconType {
 
 type Props = {
   offers: CheckoutOffer[];
-  /** The extension target this instance is mounted at (drives surface behavior). */
-  extensionTarget: string;
-  /** Present only on the checkout surface when the cart accepts new lines. */
+  /**
+   * Present only on the checkout surface when the cart accepts new lines.
+   * Surface branching happens upstream in useCheckoutConfig (offers arrive
+   * already filtered with readOnly fields baked in), so the renderer needs
+   * no extensionTarget of its own.
+   */
   onAddToOrder?: (variantGid: string) => Promise<AddToOrderResult>;
 };
 

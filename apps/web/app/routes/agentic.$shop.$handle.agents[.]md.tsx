@@ -2,13 +2,11 @@
  * Agentic app-served agents.md (build #7c).
  *
  * `GET /agentic/{shop}/{handle}/agents.md` — an app-served agent-instructions document
- * for a published `agentic.catalogProfile` module. This is the REAL-TODAY copy of
- * agents.md: the canonical Shopify convention is the storefront-populated theme file
- * (`templates/agents.md.liquid`, emitted via the flag-gated Theme Edit path — see
- * env.server `isAgenticAgentsMdEnabled` + the compiler's THEME_ASSET_UPSERT op), but
- * that path is inert until `write_themes` + a page-builder exemption are granted. This
- * app route resolves the same UCP/MCP pointers against our app-served endpoints and
- * serves them as `text/markdown` today, no grant required. No PII.
+ * for a published `agentic.catalogProfile` module. This app route is the ENTIRE agents.md
+ * surface: it resolves the UCP/MCP pointers against our app-served endpoints and serves
+ * them as `text/markdown`, no grant required. A theme-emitted canonical
+ * `templates/agents.md.liquid` (which would reference the storefront-populated `agents`
+ * Liquid object) is NOT implemented — there is no compiler/publish path for it. No PII.
  *
  * Public, unauthenticated, READ-ONLY. Unconfigured shop / unknown handle → 404. Cached.
  */

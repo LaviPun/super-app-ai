@@ -21,11 +21,10 @@ import { AGENTIC_ARTIFACTS_SHIPPED } from '@superapp/core';
  * Honesty (R0.1 / needs_runtime discipline): if a FUTURE artifact lands in the schema
  * without a shipped runtime, it is filtered out of `SHIPPED_ARTIFACTS` and named in a
  * second `agentic.deferred-artifacts` AUDIT op — never faked, never silently published.
- * The canonical Shopify theme `agents.md` (`templates/agents.md.liquid`, which references
- * the storefront-populated `agents` Liquid object an app cannot fill) is NOT emitted as a
- * fake artifact here: it ships honestly via the app-served …/agents.md today, and via the
- * flag-gated Theme Edit path (AGENTIC_AGENTS_MD_ENABLED) once write_themes + a page-builder
- * exemption are granted. We record that opt-in path as a note so nothing looks-done-but-isn't.
+ * The `agents.md` surface ships via the app-served …/agents.md route only. A theme-emit
+ * path for the canonical `templates/agents.md.liquid` (which would reference the
+ * storefront-populated `agents` Liquid object an app cannot fill) is NOT implemented and
+ * is NOT emitted here — no fake artifact, no half-wired flag.
  */
 const SHIPPED_ARTIFACTS = new Set<string>(AGENTIC_ARTIFACTS_SHIPPED);
 
@@ -49,13 +48,12 @@ export function compileAgenticCatalogProfile(
     ops.push({ kind: 'AUDIT', action: 'agentic.deferred-artifacts', details: deferred.join(',') });
   }
 
-  // The canonical theme agents.md is opt-in behind a flag + exemption (never faked).
+  // agents.md is app-served only; there is no theme-emit path (never faked).
   if (artifacts.includes('agent-profile')) {
     ops.push({
       kind: 'AUDIT',
       action: 'agentic.agents-md',
-      details:
-        'app-served at {base}/agents.md today; templates/agents.md.liquid via Theme Edit is gated on AGENTIC_AGENTS_MD_ENABLED + write_themes + page-builder exemption',
+      details: 'app-served at {base}/agents.md; no templates/agents.md.liquid theme-emit path exists',
     });
   }
 

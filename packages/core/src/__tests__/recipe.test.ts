@@ -232,16 +232,17 @@ describe('RecipeSpecSchema', () => {
     expect(spec.type === 'proxy.widget' && spec.config.ruleEngine?.enabled).toBe(true);
   });
 
-  it('proxy.widget (034 #6) — accepts a full_page surface + routed proxySubpath, defaults to embed', () => {
+  it('proxy.widget (034 #6) — accepts a full_page surface, defaults to embed', () => {
+    // Every proxy widget is served at the app's single fixed /apps/superapp/<widgetId>
+    // path (the app has one app_proxy); there is no per-widget routed subpath.
     const full = RecipeSpecSchema.parse({
       type: 'proxy.widget',
       name: 'Lookbook',
       category: 'STOREFRONT_UI',
       requires: ['APP_PROXY'],
-      config: { widgetId: 'lookbook', title: 'Lookbook', surface: 'full_page', proxySubpath: 'lookbook' },
+      config: { widgetId: 'lookbook', title: 'Lookbook', surface: 'full_page' },
     });
     expect(full.type === 'proxy.widget' && full.config.surface).toBe('full_page');
-    expect(full.type === 'proxy.widget' && full.config.proxySubpath).toBe('lookbook');
 
     // Absent surface defaults to embed (back-compat).
     const embed = RecipeSpecSchema.parse({
@@ -252,17 +253,6 @@ describe('RecipeSpecSchema', () => {
       config: { widgetId: 'plain-widget', title: 'Plain' },
     });
     expect(embed.type === 'proxy.widget' && embed.config.surface).toBe('embed');
-
-    // Bogus proxySubpath (uppercase / leading dash) is rejected.
-    expect(() =>
-      RecipeSpecSchema.parse({
-        type: 'proxy.widget',
-        name: 'Bad subpath',
-        category: 'STOREFRONT_UI',
-        requires: ['APP_PROXY'],
-        config: { widgetId: 'bad-sub', title: 'Bad', proxySubpath: '-Bad' },
-      }),
-    ).toThrow();
   });
 
   it('R2.1 — rejects an unknown (object, attribute) pair inside a pinned rule', () => {

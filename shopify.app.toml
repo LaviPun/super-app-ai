@@ -6,6 +6,48 @@ name = "Super App AI"
 application_url = "https://distribution-episode-editors-ordinary.trycloudflare.com"
 embedded = true
 
+# Deploy scan allow-list. By default Shopify CLI scans every extensions/* dir; we pin an
+# explicit list so `shopify app deploy` EXCLUDES the two unstable-API Function extensions
+# (superapp-local-pickup, superapp-pickup-point — api_version = "unstable", needs_runtime)
+# until the local-pickup / pickup-point delivery-option APIs stabilize on a dated version.
+# They stay on disk (buildable + `config validate` green) but out of the deployed app
+# version. Re-add their dirs here once they're pinned to a stable api_version.
+# NOTE: `.shopifyignore` is a THEME-CLI mechanism and does NOT gate app-extension deploys —
+# extension_directories is the documented app control (see shopify.dev app-structure).
+extension_directories = [
+  "extensions/admin-link",
+  "extensions/admin-print",
+  "extensions/admin-segment-template",
+  "extensions/admin-ui",
+  "extensions/checkout-ui",
+  "extensions/customer-account-ui",
+  "extensions/discount-function-settings",
+  "extensions/superapp-cart-checkout-validation",
+  "extensions/superapp-cart-transform",
+  "extensions/superapp-delivery-customization",
+  "extensions/superapp-discount",
+  "extensions/superapp-flow-action-send-http",
+  "extensions/superapp-flow-action-send-notification",
+  "extensions/superapp-flow-action-tag-order",
+  "extensions/superapp-flow-action-write-store",
+  "extensions/superapp-flow-trigger-connector-synced",
+  "extensions/superapp-flow-trigger-data-record-created",
+  "extensions/superapp-flow-trigger-module-published",
+  "extensions/superapp-flow-trigger-workflow-completed",
+  "extensions/superapp-flow-trigger-workflow-failed",
+  "extensions/superapp-fulfillment-constraints",
+  "extensions/superapp-order-routing",
+  "extensions/superapp-payment-customization",
+  "extensions/superapp-pos-block",
+  "extensions/superapp-shipping-discount",
+  "extensions/superapp-sidekick-configure",
+  "extensions/superapp-sidekick-create",
+  "extensions/superapp-sidekick-data",
+  "extensions/superapp-sidekick-publish",
+  "extensions/superapp-web-pixel",
+  "extensions/theme-app-extension",
+]
+
 [build]
 automatically_update_urls_on_dev = true
 

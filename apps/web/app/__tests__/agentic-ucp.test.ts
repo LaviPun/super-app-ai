@@ -5,14 +5,14 @@ import {
   buildUcpDiscovery,
   buildAgentProfile,
   buildMcpToolDescriptors,
-  buildAgentsMdLiquid,
 } from '~/services/agentic/ucp';
 import { handleMcpRequest } from '~/services/agentic/mcp-server';
 import type { AgenticFeedConfig } from '~/services/agentic/feed-projection';
 
 /**
- * Build #7c — app-served agentic UCP surface: discovery, agent-profile, MCP dispatch,
- * agents.md. All PURE builders + the JSON-RPC dispatch paths that don't touch the DB.
+ * Build #7c — app-served agentic UCP surface: discovery, agent-profile, MCP dispatch.
+ * All PURE builders + the JSON-RPC dispatch paths that don't touch the DB. (The app
+ * serves agents.md at /agentic/{shop}/{handle}/agents.md; there is no theme-emit path.)
  */
 
 const ORIGIN = 'https://app.example.com';
@@ -82,22 +82,6 @@ describe('buildMcpToolDescriptors', () => {
       expect(typeof t.description).toBe('string');
       expect(t.inputSchema).toHaveProperty('type', 'object');
     }
-  });
-});
-
-describe('buildAgentsMdLiquid (canonical theme template body)', () => {
-  it('references the storefront-populated agents Liquid object (only honest via Theme Edit)', () => {
-    const md = buildAgentsMdLiquid(cfg());
-    expect(md).toContain('{{ agents.store_name }}');
-    expect(md).toContain('{{ agents.ucp_discovery_url }}');
-    expect(md).toContain('{{ agents.mcp_endpoint_url }}');
-  });
-
-  it('appends sanitized merchant guidance (strips Liquid delimiters)', () => {
-    const md = buildAgentsMdLiquid(cfg({ agentInstructions: 'Show {{ evil }} sales.' }));
-    expect(md).toContain('## Merchant guidance');
-    expect(md).not.toContain('{{ evil }}');
-    expect(md).toContain('Show  evil  sales.');
   });
 });
 

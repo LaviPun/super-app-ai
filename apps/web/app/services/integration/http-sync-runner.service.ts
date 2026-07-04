@@ -26,13 +26,23 @@ import { safeErrorMeta } from '~/services/observability/redact.server';
  *     replay sweep, instead of being silently dropped.
  */
 
+// Trigger enums the runner recognizes. This is a back-compat *guard* (a stored spec may
+// carry any of these), NOT a promise of delivery. Whether a Shopify-webhook trigger
+// actually fires depends on the topic being subscribed in shopify.app.toml, which in turn
+// depends on the scope being granted (see GRANTED_WEBHOOK_SCOPES in @superapp/core). Two
+// entries here are recognized but NOT deliverable with the current scopes:
+//   SHOPIFY_WEBHOOK_FULFILLMENT_CREATED  (needs read_fulfillments — not granted)
+//   SHOPIFY_WEBHOOK_DRAFT_ORDER_CREATED  (needs read_draft_orders — not granted)
+// The webhooks.tsx TOPIC_TO_TRIGGER map keeps them wired so that IF the scope+subscription
+// are added later, delivery works end-to-end without touching this runner — but until then
+// Shopify never delivers those topics, so these branches are inert (not "working").
 const HTTP_SYNC_TRIGGERS = new Set([
   'MANUAL',
   'SHOPIFY_WEBHOOK_ORDER_CREATED',
   'SHOPIFY_WEBHOOK_PRODUCT_UPDATED',
   'SHOPIFY_WEBHOOK_CUSTOMER_CREATED',
-  'SHOPIFY_WEBHOOK_FULFILLMENT_CREATED',
-  'SHOPIFY_WEBHOOK_DRAFT_ORDER_CREATED',
+  'SHOPIFY_WEBHOOK_FULFILLMENT_CREATED', // inert until read_fulfillments granted + subscribed
+  'SHOPIFY_WEBHOOK_DRAFT_ORDER_CREATED', // inert until read_draft_orders granted + subscribed
   'SHOPIFY_WEBHOOK_COLLECTION_CREATED',
   'SCHEDULED',
 ]);

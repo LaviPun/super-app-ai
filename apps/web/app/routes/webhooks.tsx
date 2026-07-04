@@ -28,6 +28,11 @@ const TOPIC_TO_TRIGGER: Record<string, HttpSyncTrigger> = {
   'orders/create': 'SHOPIFY_WEBHOOK_ORDER_CREATED',
   'products/update': 'SHOPIFY_WEBHOOK_PRODUCT_UPDATED',
   'customers/create': 'SHOPIFY_WEBHOOK_CUSTOMER_CREATED',
+  // fulfillments/create + draft_orders/create are wired here so delivery works the moment
+  // the scope (read_fulfillments / read_draft_orders) + [[webhooks.subscriptions]] are added
+  // together. Neither scope is currently in shopify.app.toml, so Shopify does NOT deliver
+  // these topics today — these two entries are inert, not working (see GRANTED_WEBHOOK_SCOPES
+  // in @superapp/core and the honest note in shopify.app.toml). Do not present them as live.
   'fulfillments/create': 'SHOPIFY_WEBHOOK_FULFILLMENT_CREATED',
   'draft_orders/create': 'SHOPIFY_WEBHOOK_DRAFT_ORDER_CREATED',
   'collections/create': 'SHOPIFY_WEBHOOK_COLLECTION_CREATED',

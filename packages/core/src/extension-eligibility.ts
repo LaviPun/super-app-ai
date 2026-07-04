@@ -409,13 +409,15 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
     //   mcp  + .well-known/ucp (mcp-endpoint: JSON-RPC Storefront-Catalog MCP + discovery)
     //   agent-profile.json + agents.md (agent-profile)
     //   sponsored ranking    (sponsored-products, config-only)
-    // The canonical Shopify theme agents.md (templates/agents.md.liquid, which references
-    // the storefront-populated `agents` Liquid object) still needs write_themes + a
-    // page-builder exemption + AGENTIC_AGENTS_MD_ENABLED — the app-served agents.md is
-    // the shipping default; the theme path is honestly flag-gated (never faked).
+    // agents.md is served from the app route only. A theme-emit path for the canonical
+    // templates/agents.md.liquid (which would reference the storefront-populated `agents`
+    // Liquid object) is NOT implemented — there is no compiler branch or publish op for it
+    // today. If it is built later it would mirror the native-section THEME_ASSET_UPSERT
+    // path and need write_themes + a page-builder exemption; until then the app-served
+    // agents.md is the whole feature.
     runtimeShipped: true,
     requiredScopes: ['read_products'],
-    note: 'Publishes the merchant catalog to AI shopping agents from the app backend: a product feed (/agentic/{shop}/{handle}/feed.json), a Storefront-Catalog MCP endpoint (/mcp) with UCP discovery (/.well-known/ucp), an agent profile (/agent-profile.json + /agents.md), and sponsored-product ranking. All app-served (no external registration). The canonical theme agents.md.liquid is emitted via the flag-gated Theme Edit path (AGENTIC_AGENTS_MD_ENABLED + write_themes + a page-builder exemption); until granted, the app-served agents.md is the default.',
+    note: 'Publishes the merchant catalog to AI shopping agents from the app backend: a product feed (/agentic/{shop}/{handle}/feed.json), a Storefront-Catalog MCP endpoint (/mcp) with UCP discovery (/.well-known/ucp), an agent profile (/agent-profile.json + /agents.md), and sponsored-product ranking. All app-served (no external registration). There is no theme-emit path for templates/agents.md.liquid — the app-served /agents.md is the entire agents.md surface today.',
   },
 
   // ── Composite (no runtime of its own; decomposes into real members) ────────

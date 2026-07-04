@@ -4,11 +4,10 @@ import { compileStyleVars, compileStyleCss, compileCustomCss, normalizeStyle } f
 
 export function compileProxyWidget(spec: Extract<RecipeSpec, { type: 'proxy.widget' }>): CompileResult {
   const { widgetId } = spec.config;
-  // Render surface + routed subpath (034 build #6). Both live in config_json (which
-  // is stored verbatim), so the proxy route reads them at request time; surfaced in
-  // the AUDIT op for traceability. Absent = embed (back-compat).
+  // Render surface (034 build #6). Lives in config_json (stored verbatim), so the proxy
+  // route at /apps/superapp/<widgetId> reads it at request time to pick embed vs full_page;
+  // surfaced in the AUDIT op for traceability. Absent = embed (back-compat).
   const surface = spec.config.surface ?? 'embed';
-  const proxySubpath = spec.config.proxySubpath;
   const style = normalizeStyle(spec.style);
   const styleVars = compileStyleVars(style);
   const styleCss = compileStyleCss(style, '.superapp-widget');
@@ -24,7 +23,7 @@ export function compileProxyWidget(spec: Extract<RecipeSpec, { type: 'proxy.widg
 
   return {
     ops: [
-      { kind: 'AUDIT', action: 'compile.proxy.widget', details: JSON.stringify({ widgetId, surface, proxySubpath }) },
+      { kind: 'AUDIT', action: 'compile.proxy.widget', details: JSON.stringify({ widgetId, surface }) },
     ],
     compiledJson: JSON.stringify({ metaobjectHandle: `superapp-proxy-${widgetId}` }),
     proxyWidgetPayload: {

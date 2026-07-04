@@ -411,21 +411,15 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       title: z.string().min(LIMITS.headingMin).max(LIMITS.nameMax),
       message: z.string().min(0).max(LIMITS.popupBodyMax).optional(),
       /**
-       * Render surface (034 build #6). Default `'embed'` = the legacy embeddable
-       * fragment served at `/apps/<proxySubpath>/<widgetId>` (back-compat: absent =
-       * embed, byte-identical). `'full_page'` = a standalone routed page: the proxy
-       * loader renders WITHOUT the theme layout wrapper (`layout:false`) at its own
-       * routed subpath, so it reads as a first-class store page (e.g. a lookbook,
+       * Render surface (034 build #6). Every proxy widget is served at the app's single,
+       * fixed app-proxy subpath — `/apps/superapp/<widgetId>` (the app has ONE app_proxy;
+       * see shopify.app.toml [app_proxy].subpath). Default `'embed'` = the embeddable
+       * fragment (back-compat: absent = embed, byte-identical). `'full_page'` = the proxy
+       * loader renders WITHOUT the theme layout wrapper (`layout:false`) so the same
+       * `/apps/superapp/<widgetId>` URL reads as a first-class store page (lookbook,
        * stockist locator, quiz) rather than a widget embedded in another page.
        */
       surface: z.enum(['embed', 'full_page']).default('embed'),
-      /**
-       * Routed subpath under the app-proxy prefix (`/apps/<proxySubpath>`). A single
-       * URL segment (`^[a-z0-9][a-z0-9-]{0,38}$`, e.g. `lookbook`, `stockists`). The
-       * proxy loader keys off this so multiple full-page widgets can each own a clean
-       * `/apps/<proxySubpath>` route. Absent = the default app-proxy subpath.
-       */
-      proxySubpath: z.string().regex(/^[a-z0-9][a-z0-9-]{0,38}$/).optional(),
       /**
        * Display rules (R2.1). Same pack as theme.section — an app-proxy widget can
        * gate server-side in its proxy loader (the strongest evaluation site, since

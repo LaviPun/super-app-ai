@@ -47,7 +47,7 @@ export function mountCheckoutTarget(target: string): void {
     const result = useCheckoutConfig(target);
     if (result.status === 'loading') return <s-text>Loading...</s-text>;
     if (result.status !== 'ready') return null;
-    return <CheckoutBlockRenderer offers={result.offers} extensionTarget={target} onAddToOrder={onAddToOrder} />;
+    return <CheckoutBlockRenderer offers={result.offers} onAddToOrder={onAddToOrder} />;
   }
 
   render(<CheckoutTarget />, document.body);

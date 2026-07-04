@@ -5,7 +5,8 @@ import { THEME_PLACEABLE_TEMPLATES } from '../../allowed-values.js';
  * proxy.widget module templates — app-proxy served, shopper-scoped storefront + order
  * surfaces. Every entry compiles the `proxy.widget` RecipeSpec member (recipe.ts):
  * an app-proxy fragment (`surface: 'embed'`) or a standalone routed page
- * (`surface: 'full_page'`, layout:false) served under `/apps/<proxySubpath>`.
+ * (`surface: 'full_page'`, layout:false). All are served at the app's single fixed
+ * app-proxy subpath, `/apps/superapp/<widgetId>` (the app has one app_proxy).
  *
  * These reflect the REAL surfaces the corpus apps route through an app proxy —
  * dynamic, per-shopper content that pure Liquid cannot render:
@@ -29,7 +30,7 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
   {
     id: 'PXY-MOD-01',
     name: 'Wishlist Page (Hosted)',
-    description: 'Standalone wishlist page served under /apps/wishlist — a shopper-scoped product grid with remove + add-to-cart, rendered from the app proxy so guest and logged-in lists sync across devices.',
+    description: 'Standalone wishlist page served from the app proxy (/apps/superapp/<widgetId>) — a shopper-scoped product grid with remove + add-to-cart, so guest and logged-in lists sync across devices.',
     category: 'STOREFRONT_UI',
     type: 'proxy.widget',
     icon: 'wishlist',
@@ -43,7 +44,6 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
         widgetId: 'swym-wishlist-page',
         mode: 'HTML',
         surface: 'full_page',
-        proxySubpath: 'wishlist',
         title: 'My Wishlist',
         message: 'Everything you have saved, in one place. Sign in to sync your list across every device.',
       },
@@ -94,7 +94,7 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
   {
     id: 'PXY-MOD-03',
     name: 'Shared Wishlist / Registry Page',
-    description: 'Public shareable wishlist page under /apps/wishlist-shared — renders a read-only registry list from a share token so gifters can view and buy, served from the app proxy so the list resolves per share link.',
+    description: 'Public shareable wishlist page served from the app proxy (/apps/superapp/<widgetId>) — renders a read-only registry list from a share token so gifters can view and buy, resolving the list per share link.',
     category: 'STOREFRONT_UI',
     type: 'proxy.widget',
     icon: 'wishlist',
@@ -108,7 +108,6 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
         widgetId: 'swym-wishlist-shared',
         mode: 'HTML',
         surface: 'full_page',
-        proxySubpath: 'wishlist-shared',
         title: 'A wishlist shared with you',
         message: 'Pick something from their saved items — purchases update the list automatically.',
       },
@@ -129,7 +128,7 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
   {
     id: 'PXY-MOD-04',
     name: 'Order Tracking Page',
-    description: 'Self-serve "where is my order" page under /apps/track — shopper enters order number + email and the app-proxy loader returns fulfillment status and tracking, rendered without the theme layout as a first-class store page.',
+    description: 'Self-serve "where is my order" page served from the app proxy (/apps/superapp/<widgetId>) — shopper enters order number + email and the app-proxy loader returns fulfillment status and tracking, rendered without the theme layout as a first-class store page.',
     category: 'STOREFRONT_UI',
     type: 'proxy.widget',
     icon: 'shipping',
@@ -143,7 +142,6 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
         widgetId: 'order-tracking-page',
         mode: 'HTML',
         surface: 'full_page',
-        proxySubpath: 'track',
         title: 'Track your order',
         message: 'Enter your order number and email to see the latest shipping status.',
       },
@@ -194,7 +192,7 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
   {
     id: 'PXY-MOD-06',
     name: 'Returns & Exchange Portal',
-    description: 'Standalone returns page under /apps/returns — the shopper looks up an order and starts a return/exchange, served from the app proxy so it renders per-order eligibility as its own store page.',
+    description: 'Standalone returns page served from the app proxy (/apps/superapp/<widgetId>) — the shopper looks up an order and starts a return/exchange, rendering per-order eligibility as its own store page.',
     category: 'STOREFRONT_UI',
     type: 'proxy.widget',
     icon: 'shipping',
@@ -208,7 +206,6 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
         widgetId: 'returns-portal',
         mode: 'HTML',
         surface: 'full_page',
-        proxySubpath: 'returns',
         title: 'Start a return or exchange',
         message: 'Find your order to see what is eligible and choose a refund or exchange.',
       },
@@ -335,7 +332,7 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
   {
     id: 'PXY-MOD-10',
     name: 'Recommendations Portal Page',
-    description: 'Standalone "recommended for you" page under /apps/for-you — a full-page personalized product feed served from the app proxy, resolving per-shopper picks (recently viewed, buy-it-again) as a first-class store page.',
+    description: 'Standalone "recommended for you" page served from the app proxy (/apps/superapp/<widgetId>) — a full-page personalized product feed resolving per-shopper picks (recently viewed, buy-it-again) as a first-class store page.',
     category: 'STOREFRONT_UI',
     type: 'proxy.widget',
     icon: 'upsell',
@@ -349,7 +346,6 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
         widgetId: 'recs-portal-page',
         mode: 'HTML',
         surface: 'full_page',
-        proxySubpath: 'for-you',
         title: 'Recommended for you',
         message: 'A personalized feed built from what you have viewed and bought before.',
         ruleEngine: {
@@ -478,7 +474,7 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
   {
     id: 'PXY-MOD-14',
     name: 'Rewards Portal Page',
-    description: 'Full-page loyalty landing under /apps/rewards — ways-to-earn, rewards catalog, tier progress, and referral share, served from the app proxy so the member\'s ledger renders as its own store page.',
+    description: 'Full-page loyalty landing served from the app proxy (/apps/superapp/<widgetId>) — ways-to-earn, rewards catalog, tier progress, and referral share, so the member\'s ledger renders as its own store page.',
     category: 'STOREFRONT_UI',
     type: 'proxy.widget',
     icon: 'loyalty',
@@ -492,7 +488,6 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
         widgetId: 'loyalty-portal-page',
         mode: 'HTML',
         surface: 'full_page',
-        proxySubpath: 'rewards',
         title: 'Rewards program',
         message: 'Earn points, unlock tiers, and redeem rewards. Sign in to see your balance.',
       },
@@ -545,7 +540,7 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
   {
     id: 'PXY-MOD-16',
     name: 'Subscription Customer Portal',
-    description: 'Standalone subscription portal under /apps/subscriptions — entered via magic link, listing active subscriptions with skip / swap / reschedule / pause actions, served from the app proxy as its own store page (Recharge / Loop pattern).',
+    description: 'Standalone subscription portal served from the app proxy (/apps/superapp/<widgetId>) — entered via magic link, listing active subscriptions with skip / swap / reschedule / pause actions, as its own store page (Recharge / Loop pattern).',
     category: 'STOREFRONT_UI',
     type: 'proxy.widget',
     icon: 'subscriptions',
@@ -559,7 +554,6 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
         widgetId: 'subscription-portal',
         mode: 'HTML',
         surface: 'full_page',
-        proxySubpath: 'subscriptions',
         title: 'Manage your subscriptions',
         message: 'Skip, swap, reschedule, or pause upcoming deliveries. Open the link from your email to sign in.',
       },

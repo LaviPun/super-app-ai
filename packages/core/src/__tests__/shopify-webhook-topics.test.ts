@@ -53,11 +53,36 @@ describe('shopify webhook topic registry', () => {
     const alwaysOn = alwaysOnWebhookTopics();
     expect(alwaysOn.length).toBeGreaterThan(0);
     for (const t of alwaysOn) expect(isTopicGranted(t)).toBe(true);
-    // order routing complete is a granted, selectable trigger (key for the user's flows)
-    const routing = getWebhookTopic('fulfillment_orders/order_routing_complete');
-    expect(routing && isTopicGranted(routing)).toBe(true);
+    // orders/create is granted (write_orders is in the toml) → always-on
+    const orderCreate = getWebhookTopic('orders/create');
+    expect(orderCreate && isTopicGranted(orderCreate)).toBe(true);
     // subscriptions require a scope we do not grant by default → not always-on
     const sub = getWebhookTopic('subscription_contracts/create');
     expect(sub && GRANTED_WEBHOOK_SCOPES.has(sub.scope as string)).toBeFalsy();
+  });
+
+  it('GRANTED_WEBHOOK_SCOPES mirrors the real toml — un-granted topics are not offered as live', () => {
+    // These scopes are NOT in shopify.app.toml [access_scopes].scopes, so their topics
+    // must report as ungranted (selectable in the catalog, but never subscribed/live).
+    for (const scope of [
+      'read_fulfillments',
+      'read_draft_orders',
+      'read_inventory',
+      'read_returns',
+      'read_merchant_managed_fulfillment_orders',
+      'read_discounts',
+    ]) {
+      expect(GRANTED_WEBHOOK_SCOPES.has(scope)).toBe(false);
+    }
+    // Concretely: the two integration.httpSync triggers the runner maps but the app can't
+    // receive (fulfillments/create, draft_orders/create) are NOT granted.
+    const fulfillment = getWebhookTopic('fulfillments/create');
+    const draftOrder = getWebhookTopic('draft_orders/create');
+    expect(fulfillment && isTopicGranted(fulfillment)).toBe(false);
+    expect(draftOrder && isTopicGranted(draftOrder)).toBe(false);
+    // …and neither appears in the always-on (subscribed) set.
+    const alwaysOnTopics = new Set(alwaysOnWebhookTopics().map((t) => t.topic));
+    expect(alwaysOnTopics.has('fulfillments/create')).toBe(false);
+    expect(alwaysOnTopics.has('draft_orders/create')).toBe(false);
   });
 });
