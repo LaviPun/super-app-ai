@@ -1,0 +1,2 @@
+# superapp-sidekick-configure
+
