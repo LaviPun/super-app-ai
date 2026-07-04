@@ -1,0 +1,370 @@
+import type { TemplateEntry } from '../types.js';
+import { THEME_PLACEABLE_TEMPLATES } from '../../allowed-values.js';
+
+/**
+ * Native-section pricing table / comparison templates (NSEC-PRICE-01..08).
+ *
+ * All are `theme.section` specs — the design-vocabulary "Pricing / plan compare"
+ * catalog entry (design-vocabulary.md §2, line ~163: "with a recommended-tier
+ * emphasis") realized as 8 layout variants driven by the SAME token set (§2 line
+ * 157). Grounded in the page-builder corpus (pagefly.md / gempages.md): every
+ * variant is a section → row → column tree of `plan`/`feature`/`row` blocks with a
+ * global-style token set, dynamic-binding-free static content, and a
+ * responsive-per-device styling model — the slice of a page-builder Pricing
+ * section that maps cleanly onto our vocabulary (pagefly.md:123-125,
+ * gempages.md:122-124).
+ *
+ * The reorderable `config.blocks[]` array IS the plan/feature list the merchant
+ * add/reorders; `blocks[].kind` is the block type, `text` the block copy, and
+ * everything richer (price, period, features[], recommended, cell values) lives in
+ * `blocks[].fields`. `config.layout.layout` selects the layout variant; the six
+ * style packs (design-vocabulary §4) supply the mood per variant.
+ *
+ * These compile via the native-section deploy MODE (recipe.ts:90-100) — a
+ * self-contained `sections/superapp-<slug>.liquid` with a native `{% schema %}` —
+ * but the RecipeSpec is an ordinary `theme.section`; native_section is a compile
+ * target, not a spec type. Every `spec` parses against RecipeSpecSchema.
+ */
+export const NATIVE_PRICING_COMPARISON_TEMPLATES: TemplateEntry[] = [
+  // 01 — 3-tier compare, recommended highlight (the canonical design-vocabulary case).
+  {
+    id: 'NSEC-PRICE-01',
+    name: 'Pricing — 3-Tier Compare (Recommended Highlight)',
+    description: 'Three-column pricing compare on the page with an emphasized "recommended" middle tier — accent border, lift, and badge. Reorderable plan blocks.',
+    category: 'STOREFRONT_UI',
+    type: 'theme.section',
+    icon: 'pricing',
+    tags: ['section', 'pricing', 'plan-compare', 'cta', 'conversion', 'bold-dtc'],
+    spec: {
+      type: 'theme.section',
+      name: 'Pricing — 3-Tier Compare',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'pricing',
+        activation: 'section',
+        title: 'Choose your plan',
+        subtitle: 'Cancel anytime. No hidden fees.',
+        layout: { layout: 'columns', columns: 3 },
+        fields: { columnsDesktop: 3, columnsMobile: 1, highlightBlockIndex: 1, currency: 'USD', billingNote: 'Billed monthly' },
+        blocks: [
+          { kind: 'plan', text: 'Starter', fields: { price: '19', period: 'mo', ctaLabel: 'Start free', ctaUrl: '/pages/signup', features: ['1 store', 'Core analytics', 'Email support'], recommended: false } },
+          { kind: 'plan', text: 'Growth', fields: { price: '49', period: 'mo', ctaLabel: 'Choose Growth', ctaUrl: '/pages/signup?plan=growth', features: ['5 stores', 'Advanced analytics', 'Priority support', 'A/B testing'], recommended: true, badge: 'Most popular' } },
+          { kind: 'plan', text: 'Scale', fields: { price: '99', period: 'mo', ctaLabel: 'Choose Scale', ctaUrl: '/pages/signup?plan=scale', features: ['Unlimited stores', 'Custom reports', 'Dedicated CSM', 'SLA'], recommended: false } },
+        ],
+      },
+      placement: { enabled_on: { templates: ['page', 'index'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
+      style: {
+        layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
+        spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
+        typography: { size: 'MD', weight: 'normal', lineHeight: 'normal', align: 'center' },
+        colors: { text: '#0f172a', background: '#ffffff', buttonBg: '#111827', buttonText: '#ffffff', overlayBackdropOpacity: 0.45, seed: '#4f46e5' },
+        shape: { radius: 'lg', borderWidth: 'thin', shadow: 'sm', elevation: 'soft' },
+        responsive: { hideOnMobile: false, hideOnDesktop: false },
+        accessibility: { focusVisible: true, reducedMotion: true },
+        motion: { duration: 'base', easing: 'standard' },
+      },
+    },
+  },
+
+  // 02 — Monthly/annual toggle framing, 2-tier simple.
+  {
+    id: 'NSEC-PRICE-02',
+    name: 'Pricing — 2-Tier Simple (Monthly / Annual)',
+    description: 'Two-column pricing block with a monthly/annual framing note and a highlighted premium tier — for a focused free-vs-pro decision on a landing page.',
+    category: 'STOREFRONT_UI',
+    type: 'theme.section',
+    icon: 'pricing',
+    tags: ['section', 'pricing', 'plan-compare', 'freemium', 'landing', 'apple-hig'],
+    spec: {
+      type: 'theme.section',
+      name: 'Pricing — 2-Tier Simple',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'pricing',
+        activation: 'section',
+        title: 'Simple, transparent pricing',
+        subtitle: 'Save 20% with annual billing',
+        layout: { layout: 'columns', columns: 2 },
+        fields: { columnsDesktop: 2, columnsMobile: 1, highlightBlockIndex: 1, currency: 'USD', billingCycle: 'annual', annualDiscountPercent: 20 },
+        blocks: [
+          { kind: 'plan', text: 'Free', fields: { price: '0', period: 'mo', ctaLabel: 'Get started', ctaUrl: '/pages/signup', features: ['Up to 100 orders/mo', 'Standard checkout', 'Community support'], recommended: false } },
+          { kind: 'plan', text: 'Pro', fields: { price: '39', period: 'mo', annualPrice: '374', ctaLabel: 'Go Pro', ctaUrl: '/pages/signup?plan=pro', features: ['Unlimited orders', 'Advanced checkout', 'Priority support', 'Custom domain'], recommended: true, badge: 'Best value' } },
+        ],
+      },
+      placement: { enabled_on: { templates: ['page', 'index'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
+      style: {
+        layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'narrow', zIndex: 'base' },
+        spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
+        typography: { size: 'MD', weight: 'normal', lineHeight: 'normal', align: 'center' },
+        colors: { text: '#1d1d1f', background: '#ffffff', buttonBg: '#0071e3', buttonText: '#ffffff', border: '#d2d2d7', overlayBackdropOpacity: 0.45, seed: '#0071e3' },
+        shape: { radius: 'md', borderWidth: 'thin', shadow: 'sm', elevation: 'soft' },
+        responsive: { hideOnMobile: false, hideOnDesktop: false },
+        accessibility: { focusVisible: true, reducedMotion: true },
+        motion: { duration: 'fast', easing: 'standard' },
+      },
+    },
+  },
+
+  // 03 — Feature comparison MATRIX (rows = features, cols = plans).
+  {
+    id: 'NSEC-PRICE-03',
+    name: 'Pricing — Feature Comparison Matrix',
+    description: 'Full feature-by-plan comparison table where each row is a feature and columns are the plans, with check/dash cells — the "compare all features" grid under a pricing block.',
+    category: 'STOREFRONT_UI',
+    type: 'theme.section',
+    icon: 'pricing',
+    tags: ['section', 'pricing', 'comparison', 'feature-matrix', 'table', 'tech-utility'],
+    spec: {
+      type: 'theme.section',
+      name: 'Pricing — Feature Comparison Matrix',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'comparison',
+        activation: 'section',
+        title: 'Compare all features',
+        subtitle: 'Everything included in each plan',
+        layout: { layout: 'stacked' },
+        fields: {
+          planNames: ['Starter', 'Growth', 'Scale'],
+          highlightColumnIndex: 1,
+          checkGlyph: '✓',
+          dashGlyph: '—',
+          stickyHeader: true,
+        },
+        blocks: [
+          { kind: 'row', text: 'Included stores', fields: { cells: ['1', '5', 'Unlimited'] } },
+          { kind: 'row', text: 'Analytics dashboard', fields: { cells: ['Basic', 'Advanced', 'Advanced'] } },
+          { kind: 'row', text: 'A/B testing', fields: { cells: ['—', '✓', '✓'] } },
+          { kind: 'row', text: 'Custom reports', fields: { cells: ['—', '—', '✓'] } },
+          { kind: 'row', text: 'Priority support', fields: { cells: ['—', '✓', '✓'] } },
+          { kind: 'row', text: 'Dedicated CSM', fields: { cells: ['—', '—', '✓'] } },
+          { kind: 'row', text: 'SLA', fields: { cells: ['—', '—', '99.9%'] } },
+        ],
+      },
+      placement: { enabled_on: { templates: ['page'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
+      style: {
+        layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
+        spacing: { padding: 'medium', margin: 'none', gap: 'tight', density: 'compact' },
+        typography: { size: 'SM', weight: 'normal', lineHeight: 'normal', align: 'left' },
+        colors: { text: '#0f172a', background: '#ffffff', border: '#e2e8f0', buttonBg: '#0f172a', buttonText: '#ffffff', overlayBackdropOpacity: 0.45, seed: '#0ea5e9' },
+        shape: { radius: 'sm', borderWidth: 'thin', shadow: 'none', elevation: 'border' },
+        responsive: { hideOnMobile: false, hideOnDesktop: false },
+        accessibility: { focusVisible: true, reducedMotion: true },
+      },
+    },
+  },
+
+  // 04 — 4-tier compact grid (enterprise ladder).
+  {
+    id: 'NSEC-PRICE-04',
+    name: 'Pricing — 4-Tier Compact Grid',
+    description: 'Dense four-column pricing grid from free to enterprise with a highlighted business tier — a compact plan ladder for SaaS-style catalogs.',
+    category: 'STOREFRONT_UI',
+    type: 'theme.section',
+    icon: 'pricing',
+    tags: ['section', 'pricing', 'plan-compare', 'grid', 'enterprise', 'tech-utility'],
+    spec: {
+      type: 'theme.section',
+      name: 'Pricing — 4-Tier Compact Grid',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'pricing',
+        activation: 'section',
+        title: 'Plans for every stage',
+        subtitle: 'Upgrade or downgrade anytime',
+        layout: { layout: 'grid', columns: 4 },
+        fields: { columnsDesktop: 4, columnsMobile: 1, highlightBlockIndex: 2, currency: 'USD' },
+        blocks: [
+          { kind: 'plan', text: 'Free', fields: { price: '0', period: 'mo', ctaLabel: 'Start', ctaUrl: '/pages/signup', features: ['1 seat', 'Core features'], recommended: false } },
+          { kind: 'plan', text: 'Starter', fields: { price: '15', period: 'mo', ctaLabel: 'Choose', ctaUrl: '/pages/signup?plan=starter', features: ['3 seats', 'Integrations'], recommended: false } },
+          { kind: 'plan', text: 'Business', fields: { price: '45', period: 'mo', ctaLabel: 'Choose', ctaUrl: '/pages/signup?plan=business', features: ['10 seats', 'Advanced controls', 'Priority support'], recommended: true, badge: 'Popular' } },
+          { kind: 'plan', text: 'Enterprise', fields: { price: 'Custom', period: '', ctaLabel: 'Contact sales', ctaUrl: '/pages/contact', features: ['Unlimited seats', 'SSO/SAML', 'Dedicated CSM', 'SLA'], recommended: false } },
+        ],
+      },
+      placement: { enabled_on: { templates: ['page', 'index'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
+      style: {
+        layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'wide', zIndex: 'base' },
+        spacing: { padding: 'medium', margin: 'none', gap: 'tight', density: 'compact' },
+        typography: { size: 'SM', weight: 'normal', lineHeight: 'normal', align: 'center' },
+        colors: { text: '#0b1120', background: '#0f172a', buttonBg: '#38bdf8', buttonText: '#0b1120', border: '#1e293b', overlayBackdropOpacity: 0.45, seed: '#38bdf8' },
+        shape: { radius: 'md', borderWidth: 'thin', shadow: 'md', elevation: 'border' },
+        responsive: { hideOnMobile: false, hideOnDesktop: false },
+        accessibility: { focusVisible: true, reducedMotion: true },
+        motion: { duration: 'fast', easing: 'standard' },
+      },
+    },
+  },
+
+  // 05 — Single hero-plan spotlight (one product, framed as a plan).
+  {
+    id: 'NSEC-PRICE-05',
+    name: 'Pricing — Single Plan Spotlight',
+    description: 'One-plan pricing spotlight card with a large price, an itemized feature list, and a prominent CTA — for a single-offer or membership page.',
+    category: 'STOREFRONT_UI',
+    type: 'theme.section',
+    icon: 'pricing',
+    tags: ['section', 'pricing', 'single-plan', 'membership', 'spotlight', 'minimal-luxe'],
+    spec: {
+      type: 'theme.section',
+      name: 'Pricing — Single Plan Spotlight',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'pricing',
+        activation: 'section',
+        title: 'Membership',
+        subtitle: 'One price. Everything unlocked.',
+        layout: { layout: 'stacked' },
+        fields: { columnsDesktop: 1, columnsMobile: 1, highlightBlockIndex: 0, currency: 'USD' },
+        blocks: [
+          { kind: 'plan', text: 'All-Access', fields: { price: '129', period: 'yr', ctaLabel: 'Become a member', ctaUrl: '/pages/join', features: ['Free shipping on every order', 'Members-only drops', 'Early access sales', 'Concierge support', 'Birthday reward'], recommended: true, badge: 'Members save 15%' } },
+        ],
+      },
+      placement: { enabled_on: { templates: ['page', 'index'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
+      style: {
+        layout: { mode: 'inline', anchor: 'center', offsetX: 0, offsetY: 0, width: 'narrow', zIndex: 'base' },
+        spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'airy' },
+        typography: { size: 'LG', weight: 'medium', lineHeight: 'relaxed', align: 'center' },
+        colors: { text: '#1c1917', background: '#faf9f7', buttonBg: '#1c1917', buttonText: '#faf9f7', border: '#e7e5e4', overlayBackdropOpacity: 0.45, seed: '#a8a29e' },
+        shape: { radius: 'sm', borderWidth: 'thin', shadow: 'sm', elevation: 'emboss' },
+        responsive: { hideOnMobile: false, hideOnDesktop: false },
+        accessibility: { focusVisible: true, reducedMotion: true },
+        motion: { duration: 'slow', easing: 'enter' },
+      },
+    },
+  },
+
+  // 06 — Two-product "this vs that" head-to-head comparison.
+  {
+    id: 'NSEC-PRICE-06',
+    name: 'Pricing — Head-to-Head Compare (This vs That)',
+    description: 'Side-by-side two-column head-to-head comparison contrasting two options attribute by attribute, with a winner-highlighted column — a "why choose us" table.',
+    category: 'STOREFRONT_UI',
+    type: 'theme.section',
+    icon: 'pricing',
+    tags: ['section', 'comparison', 'versus', 'table', 'conversion', 'bold-dtc'],
+    spec: {
+      type: 'theme.section',
+      name: 'Pricing — Head-to-Head Compare',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'comparison',
+        activation: 'section',
+        title: 'Why switch to us',
+        subtitle: 'See how we stack up',
+        layout: { layout: 'stacked' },
+        fields: {
+          columnNames: ['Us', 'The other guys'],
+          highlightColumnIndex: 0,
+          checkGlyph: '✓',
+          dashGlyph: '✕',
+        },
+        blocks: [
+          { kind: 'row', text: 'Free 2-day shipping', fields: { cells: ['✓', '✕'] } },
+          { kind: 'row', text: 'No subscription lock-in', fields: { cells: ['✓', '✕'] } },
+          { kind: 'row', text: '365-day returns', fields: { cells: ['✓', '30 days'] } },
+          { kind: 'row', text: 'Carbon-neutral delivery', fields: { cells: ['✓', '✕'] } },
+          { kind: 'row', text: 'Price', fields: { cells: ['$49', '$79'] } },
+        ],
+      },
+      placement: { enabled_on: { templates: ['page', 'product', 'index'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
+      style: {
+        layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
+        spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
+        typography: { size: 'MD', weight: 'normal', lineHeight: 'normal', align: 'center' },
+        colors: { text: '#111827', background: '#ffffff', buttonBg: '#dc2626', buttonText: '#ffffff', border: '#f3f4f6', overlayBackdropOpacity: 0.45, seed: '#dc2626' },
+        shape: { radius: 'lg', borderWidth: 'none', shadow: 'md', elevation: 'glow' },
+        responsive: { hideOnMobile: false, hideOnDesktop: false },
+        accessibility: { focusVisible: true, reducedMotion: true },
+        motion: { duration: 'base', easing: 'standard' },
+      },
+    },
+  },
+
+  // 07 — Tiered bundle / quantity pricing (buy-more-save-more, presentation only).
+  {
+    id: 'NSEC-PRICE-07',
+    name: 'Pricing — Tiered Quantity (Buy More, Save More)',
+    description: 'Quantity-tier pricing block presenting buy-more-save-more bundles (1 / 2 / 3-pack) with per-unit prices and a best-value badge — a volume-pricing display card.',
+    category: 'STOREFRONT_UI',
+    type: 'theme.section',
+    icon: 'pricing',
+    tags: ['section', 'pricing', 'bundle', 'quantity-tiers', 'product', 'playful-commerce'],
+    spec: {
+      type: 'theme.section',
+      name: 'Pricing — Tiered Quantity',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'pricing',
+        activation: 'section',
+        title: 'Buy more, save more',
+        subtitle: 'The more you bundle, the less you pay per unit',
+        layout: { layout: 'columns', columns: 3 },
+        fields: { columnsDesktop: 3, columnsMobile: 1, highlightBlockIndex: 2, currency: 'USD', basisLabel: 'per unit' },
+        blocks: [
+          { kind: 'plan', text: 'Single', fields: { quantity: 1, price: '30', unitPrice: '30', ctaLabel: 'Add 1', ctaUrl: '/cart/add', savingsLabel: '', recommended: false } },
+          { kind: 'plan', text: 'Double', fields: { quantity: 2, price: '54', unitPrice: '27', ctaLabel: 'Add 2', ctaUrl: '/cart/add', savingsLabel: 'Save 10%', recommended: false } },
+          { kind: 'plan', text: 'Triple', fields: { quantity: 3, price: '72', unitPrice: '24', ctaLabel: 'Add 3', ctaUrl: '/cart/add', savingsLabel: 'Save 20%', recommended: true, badge: 'Best value' } },
+        ],
+      },
+      placement: { enabled_on: { templates: ['product', 'page'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
+      style: {
+        layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
+        spacing: { padding: 'medium', margin: 'none', gap: 'medium', density: 'comfortable' },
+        typography: { size: 'MD', weight: 'medium', lineHeight: 'normal', align: 'center' },
+        colors: { text: '#3b0764', background: '#fdf4ff', buttonBg: '#a21caf', buttonText: '#ffffff', border: '#f5d0fe', overlayBackdropOpacity: 0.45, seed: '#a21caf' },
+        shape: { radius: 'xl', borderWidth: 'thin', shadow: 'md', elevation: 'soft' },
+        responsive: { hideOnMobile: false, hideOnDesktop: false },
+        accessibility: { focusVisible: true, reducedMotion: true },
+        motion: { duration: 'base', easing: 'enter' },
+      },
+    },
+  },
+
+  // 08 — Editorial 3-tier with per-plan descriptions and FAQ-style footnotes.
+  {
+    id: 'NSEC-PRICE-08',
+    name: 'Pricing — Editorial 3-Tier (Described Plans)',
+    description: 'Editorial three-column pricing with a one-line rationale under each plan name and a footnote row — a calm, whitespace-led plan compare for premium brands.',
+    category: 'STOREFRONT_UI',
+    type: 'theme.section',
+    icon: 'pricing',
+    tags: ['section', 'pricing', 'plan-compare', 'editorial', 'landing', 'editorial-wellness'],
+    spec: {
+      type: 'theme.section',
+      name: 'Pricing — Editorial 3-Tier',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'pricing',
+        activation: 'section',
+        title: 'Find the right fit',
+        subtitle: 'Thoughtfully priced for where you are',
+        layout: { layout: 'columns', columns: 3 },
+        fields: { columnsDesktop: 3, columnsMobile: 1, highlightBlockIndex: 1, currency: 'USD', footnote: 'Prices exclude applicable taxes. Switch plans whenever you like.' },
+        blocks: [
+          { kind: 'plan', text: 'Essentials', fields: { price: '24', period: 'mo', tagline: 'For getting started with intention', ctaLabel: 'Begin', ctaUrl: '/pages/signup', features: ['Everything to launch', 'Guided onboarding', 'Email support'], recommended: false } },
+          { kind: 'plan', text: 'Studio', fields: { price: '58', period: 'mo', tagline: 'For growing brands finding their voice', ctaLabel: 'Choose Studio', ctaUrl: '/pages/signup?plan=studio', features: ['All of Essentials', 'Advanced storytelling tools', 'Priority support', 'Seasonal reviews'], recommended: true, badge: 'Recommended' } },
+          { kind: 'plan', text: 'Atelier', fields: { price: '120', period: 'mo', tagline: 'For established houses at scale', ctaLabel: 'Choose Atelier', ctaUrl: '/pages/signup?plan=atelier', features: ['All of Studio', 'Bespoke design support', 'Dedicated partner', 'Quarterly strategy'], recommended: false } },
+        ],
+      },
+      placement: { enabled_on: { templates: ['page', 'index'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
+      style: {
+        layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'wide', zIndex: 'base' },
+        spacing: { padding: 'loose', margin: 'none', gap: 'loose', density: 'airy' },
+        typography: { size: 'LG', weight: 'normal', lineHeight: 'relaxed', align: 'center' },
+        colors: { text: '#2d2a26', background: '#f7f5f2', buttonBg: '#2d2a26', buttonText: '#f7f5f2', border: '#e4e0d9', overlayBackdropOpacity: 0.45, seed: '#8a7f6f' },
+        shape: { radius: 'md', borderWidth: 'thin', shadow: 'sm', elevation: 'soft' },
+        responsive: { hideOnMobile: false, hideOnDesktop: false },
+        accessibility: { focusVisible: true, reducedMotion: true },
+        motion: { duration: 'slow', easing: 'enter' },
+      },
+    },
+  },
+];

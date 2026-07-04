@@ -78,7 +78,7 @@ describe('RecipeDslSchema and compiler', () => {
     const result = compileRecipeDsl({
       schema_version: '1.0',
       id: 'dsl_template_banner',
-      templateId: 'UAO-001',
+      templateId: 'NSEC-HERO-01',
       recipe: {
         type: 'theme.section',
         name: 'Cart Threshold Banner',
@@ -151,7 +151,7 @@ describe('RecipeDslSchema and compiler', () => {
       compileRecipeDsl({
         schema_version: '1.0',
         id: 'dsl_bad_template',
-        templateId: 'UAO-001',
+        templateId: 'NSEC-HERO-01',
         recipe: {
           type: 'proxy.widget',
           name: 'Mismatched Widget',
