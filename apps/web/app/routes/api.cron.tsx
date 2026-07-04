@@ -12,10 +12,12 @@ import { json } from '@remix-run/node';
 import { ScheduleService } from '~/services/flows/schedule.service';
 import { FlowRunnerService } from '~/services/flows/flow-runner.service';
 import { MessagingRunnerService } from '~/services/messaging/messaging-runner.service';
+import { HttpSyncRunnerService } from '~/services/integration/http-sync-runner.service';
 import { WorkflowEngineService } from '~/services/workflows/workflow-engine.service';
 import { buildShopAuthResolver } from '~/services/flows/auth-resolver.server';
 import { runInternalAiAuditRetention } from '~/services/jobs/internal-ai-audit-retention.job';
 import { runInternalAiChatRetention } from '~/services/jobs/internal-ai-chat-retention.job';
+import { runLoyaltyExpirySweep, type LoyaltyExpiryResult } from '~/services/jobs/loyalty-expiry.job';
 import {
   drainShopifyMetaobjectCleanupJobs,
   type MetaobjectCleanupDrainResult,
@@ -27,6 +29,7 @@ import { AppError } from '~/services/errors/app-error.server';
 import type { AdminApiContext } from '~/types/shopify';
 
 let lastAuditRetentionRunAt: number | null = null;
+let lastLoyaltyExpiryRunAt: number | null = null;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 function getClientIp(request: Request): string {
@@ -72,6 +75,7 @@ export async function loader({ request }: { request: Request }) {
   const scheduleService = new ScheduleService();
   const runner = new FlowRunnerService();
   const messagingRunner = new MessagingRunnerService();
+  const httpSyncRunner = new HttpSyncRunnerService();
 
   const due = await scheduleService.claimDue();
 
@@ -110,6 +114,24 @@ export async function loader({ request }: { request: Request }) {
         ...safeErrorMeta(err),
       });
     }
+
+    // Sibling (build #7a): fan out SCHEDULED integration.httpSync modules for this shop.
+    // Dispatch is a plain outbound connector call (no admin context needed). Own
+    // try/catch so a sync failure never fails the schedule tick.
+    try {
+      await httpSyncRunner.runForTrigger(
+        item.shopDomain,
+        null as unknown as AdminApiContext['admin'],
+        'SCHEDULED',
+        event,
+      );
+    } catch (err) {
+      logger.warn('[api.cron] scheduled httpSync fan-out failed', {
+        shopDomain: item.shopDomain,
+        scheduleId: item.id,
+        ...safeErrorMeta(err),
+      });
+    }
   }
 
   // R3.5 durable scheduler: resume parked (WAITING) WorkflowRuns whose resumeAt is
@@ -124,6 +146,16 @@ export async function loader({ request }: { request: Request }) {
     });
   } catch (err) {
     logger.warn('[api.cron] workflow resume sweep failed', safeErrorMeta(err));
+  }
+
+  // integration.httpSync dead-letter replay (build #7a): re-dispatch failed outbound
+  // syncs whose bounded backoff is due (DISCARDED after maxAttempts). Own try/catch (C6)
+  // so a replay failure never 500s the tick.
+  let httpSyncReplay: Array<{ id: string; moduleId: string; ok: boolean }> = [];
+  try {
+    httpSyncReplay = await new HttpSyncRunnerService().replayDueDeadLetters(20);
+  } catch (err) {
+    logger.warn('[api.cron] httpSync dead-letter replay failed', safeErrorMeta(err));
   }
 
   // Bounded drain of post-uninstall cleanup jobs queued by the app/uninstalled webhook.
@@ -154,5 +186,18 @@ export async function loader({ request }: { request: Request }) {
     }
   }
 
-  return json({ ran: results.length, results, resumeSweep, uninstallCleanup, auditRetention, chatRetention });
+  // R3.6 loyalty expiry: absolute nightly sweep that ages out due point lots across
+  // shops with a loyalty-ledger composite. Daily cadence (idempotent, like the
+  // retention jobs). Own try/catch so a sweep failure never 500s the tick.
+  let loyaltyExpiry: LoyaltyExpiryResult | null = null;
+  if (!lastLoyaltyExpiryRunAt || now - lastLoyaltyExpiryRunAt >= ONE_DAY_MS) {
+    try {
+      loyaltyExpiry = await runLoyaltyExpirySweep({ now: new Date(now) });
+      lastLoyaltyExpiryRunAt = now;
+    } catch (err) {
+      logger.warn('[api.cron] loyalty-expiry sweep failed', safeErrorMeta(err));
+    }
+  }
+
+  return json({ ran: results.length, results, resumeSweep, httpSyncReplay, uninstallCleanup, auditRetention, chatRetention, loyaltyExpiry });
 }

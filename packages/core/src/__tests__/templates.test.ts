@@ -7,12 +7,24 @@ import {
   getTemplateInstallability,
   TEMPLATE_TYPES_REQUIRING_DATA_SAVE,
 } from '../templates.js';
+import { MODULE_APP_TEMPLATES } from '../templates/modules/index.js';
+import { BLOCK_TEMPLATES } from '../templates/blocks/index.js';
+import { SECTION_TEMPLATES } from '../templates/sections/index.js';
 import { RecipeSpecSchema } from '../recipe.js';
 import { RECIPE_SPEC_TYPES } from '../allowed-values.js';
 
 describe('MODULE_TEMPLATES integrity', () => {
-  it('has at least 126 templates', () => {
-    expect(MODULE_TEMPLATES.length).toBeGreaterThanOrEqual(126);
+  it('has at least 300 templates in aggregate', () => {
+    expect(MODULE_TEMPLATES.length).toBeGreaterThanOrEqual(300);
+  });
+
+  it('ships three real libraries, each ≥ 100 templates', () => {
+    // App-extension modules (admin/POS/checkout/functions/customer-account/…).
+    expect(MODULE_APP_TEMPLATES.length).toBeGreaterThanOrEqual(100);
+    // theme.section app-blocks (OS-2.0 theme app extension blocks + app embeds).
+    expect(BLOCK_TEMPLATES.length).toBeGreaterThanOrEqual(100);
+    // native full-page Liquid sections (activation: 'section').
+    expect(SECTION_TEMPLATES.length).toBeGreaterThanOrEqual(100);
   });
 
   it('every template has matching type and spec.type', () => {
@@ -53,15 +65,15 @@ describe('MODULE_TEMPLATES integrity', () => {
   });
 
   it('findTemplate returns the correct template by ID', () => {
-    const uao = findTemplate('UAO-001');
-    expect(uao).toBeDefined();
-    expect(uao!.spec.type).toBe('theme.section');
+    const hero = findTemplate('NSEC-HERO-01');
+    expect(hero).toBeDefined();
+    expect(hero!.spec.type).toBe('theme.section');
 
-    const chk = findTemplate('CHK-037');
-    expect(chk).toBeDefined();
-    expect(chk!.spec.type).toBe('checkout.block');
+    const pdp = findTemplate('TBLK-PDP-01');
+    expect(pdp).toBeDefined();
+    expect(pdp!.spec.type).toBe('theme.section');
 
-    const ana = findTemplate('ANA-109');
+    const ana = findTemplate('COV-ANA-01');
     expect(ana).toBeDefined();
     expect(ana!.spec.type).toBe('analytics.pixel');
   });
@@ -70,12 +82,41 @@ describe('MODULE_TEMPLATES integrity', () => {
     expect(findTemplate('nonexistent')).toBeUndefined();
   });
 
-  it('covers all 14 recipe library categories', () => {
-    const ids = MODULE_TEMPLATES.map(t => t.id);
-    const prefixes = ['UAO', 'DAP', 'BCT', 'CUX', 'CHK', 'TYO', 'ACC', 'SHP', 'PAY', 'TRU', 'SUP', 'LOY', 'ANA', 'OPS'];
-    for (const prefix of prefixes) {
-      const count = ids.filter(id => id.startsWith(prefix)).length;
-      expect(count, `Category ${prefix} should have at least 9 templates`).toBeGreaterThanOrEqual(9);
+  // ── Block/native unit lints (034 surface-coverage discipline) ────────────────
+  // Every theme.section block config.blocks[].kind is slug-safe (renderers dispatch
+  // on it and emit it into generated Liquid/section names — no spaces/special chars).
+  it('theme.section block kinds are slug-safe', () => {
+    const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+    const themeSection = [...BLOCK_TEMPLATES, ...SECTION_TEMPLATES].filter(
+      (t) => t.spec.type === 'theme.section',
+    );
+    for (const t of themeSection) {
+      const blocks = (t.spec.config as { blocks?: Array<{ kind?: unknown }> }).blocks ?? [];
+      for (const b of blocks) {
+        expect(typeof b.kind, `Template ${t.id} has a block with a non-string kind`).toBe('string');
+        expect(
+          SLUG.test(b.kind as string),
+          `Template ${t.id} block kind "${String(b.kind)}" is not slug-safe`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  // Block fields are typed: each theme.section block's optional `fields` bag must be a
+  // plain object (Record), never an array/scalar — the renderers read it as key/value.
+  it('theme.section block fields are typed as an object bag', () => {
+    const themeSection = [...BLOCK_TEMPLATES, ...SECTION_TEMPLATES].filter(
+      (t) => t.spec.type === 'theme.section',
+    );
+    for (const t of themeSection) {
+      const blocks = (t.spec.config as { blocks?: Array<{ fields?: unknown }> }).blocks ?? [];
+      for (const b of blocks) {
+        if (b.fields === undefined) continue;
+        expect(
+          typeof b.fields === 'object' && b.fields !== null && !Array.isArray(b.fields),
+          `Template ${t.id} has a block whose fields is not a plain object`,
+        ).toBe(true);
+      }
     }
   });
 

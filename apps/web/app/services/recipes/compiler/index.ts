@@ -9,14 +9,23 @@ import { compileCartAndCheckoutValidation } from './functions.cartAndCheckoutVal
 import { compileCartTransform } from './functions.cartTransform';
 import { compileFulfillmentConstraints } from './functions.fulfillmentConstraints';
 import { compileOrderRoutingLocationRule } from './functions.orderRoutingLocationRule';
+import { compileShippingDiscount } from './functions.shippingDiscount';
+import { compileLocalPickupDeliveryOption } from './functions.localPickupDeliveryOption';
+import { compilePickupPointDeliveryOption } from './functions.pickupPointDeliveryOption';
 import { compileCheckoutUpsell } from './checkout.upsell';
 import { compileCheckoutBlock } from './checkout.block';
 import { compilePostPurchaseOffer } from './postPurchase.offer';
 import { compileCustomerAccountBlocks } from './customerAccount.blocks';
 import { compileAdminBlock } from './admin.block';
 import { compileAdminAction } from './admin.action';
+import { compileAdminDiscountUi } from './admin.discountUi';
+import { compileAdminLink } from './admin.link';
+import { compileAdminPrint } from './admin.print';
+import { compileAdminSegmentTemplate } from './admin.segmentTemplate';
 import { compileAnalyticsPixel } from './analytics.pixel';
 import { compileMessagingCampaign } from './messaging.campaign';
+import { compileIntegrationHttpSync } from './integration.httpSync';
+import { compileFlowAutomation } from './flow.automation';
 import { compileAgenticCatalogProfile } from './agentic.catalogProfile';
 
 export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileResult {
@@ -40,6 +49,12 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
       return compileFulfillmentConstraints(spec);
     case 'functions.orderRoutingLocationRule':
       return compileOrderRoutingLocationRule(spec);
+    case 'functions.shippingDiscount':
+      return compileShippingDiscount(spec);
+    case 'functions.localPickupDeliveryOption':
+      return compileLocalPickupDeliveryOption(spec);
+    case 'functions.pickupPointDeliveryOption':
+      return compilePickupPointDeliveryOption(spec);
     case 'checkout.upsell':
       return compileCheckoutUpsell(spec);
     case 'customerAccount.blocks':
@@ -48,23 +63,30 @@ export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileRe
       return compileAdminBlock(spec);
     case 'admin.action':
       return compileAdminAction(spec);
+    case 'admin.discountUi':
+      return compileAdminDiscountUi(spec);
+    case 'admin.link':
+      return compileAdminLink(spec);
+    case 'admin.print':
+      return compileAdminPrint(spec);
+    case 'admin.segmentTemplate':
+      return compileAdminSegmentTemplate(spec);
     case 'analytics.pixel':
       return compileAnalyticsPixel(spec);
     case 'messaging.campaign':
       return compileMessagingCampaign(spec);
+    case 'integration.httpSync':
+      return compileIntegrationHttpSync(spec);
     case 'agentic.catalogProfile':
       return compileAgenticCatalogProfile(spec);
     case 'checkout.block':
       return compileCheckoutBlock(spec);
     case 'postPurchase.offer':
       return compilePostPurchaseOffer(spec);
-    case 'pos.extension':
-    case 'integration.httpSync':
     case 'flow.automation':
+      return compileFlowAutomation(spec);
+    case 'pos.extension':
     case 'platform.extensionBlueprint':
-    // admin.discountUi (Spring 2026): declarative today — no admin discount-details
-    // extension shipped yet, so it AUDIT-compiles and preflight gates it needs_runtime.
-    case 'admin.discountUi':
       return { ops: [{ kind: 'AUDIT', action: `compile.${spec.type}` }] };
     default: {
       const _exhaustive: never = spec;

@@ -15,10 +15,161 @@ api_access = true
 
 # module: path to the file that contains your extension’s source code
 # target: string that describes where your extension appears in POS
-[[extensions.targeting]]
-module = "./src/Action.jsx"
-target = "pos.product-details.action.render"
+#
+# One generic, config-driven extension covers the full POS surface. Every entry
+# reads the shop's PUBLISHED pos.extension config from /api/pos/config and renders
+# / acts from it (no per-module code). Entries by kind:
+#   Tile.jsx     — smart-grid tile (home)            → presents Modal via presentModal()
+#   Modal.jsx    — full-screen modal / action overlay → home.modal + every *.action.render
+#   MenuItem.jsx — action menu-item button           → every *.action.menu-item.render (presents Modal)
+#   Block.jsx    — inline details section            → every *.block.render
+#   Receipt.jsx  — print-only header/footer block    → receipt-header / receipt-footer
+#   Observer.js  — UI-less background event handler   → the 4 *.event.observe targets
 
+# ── Home smart grid: tile ↔ modal pairing ───────────────────────────────────
+[[extensions.targeting]]
+module = "./src/Tile.jsx"
+target = "pos.home.tile.render"
+
+[[extensions.targeting]]
+module = "./src/Modal.jsx"
+target = "pos.home.modal.render"
+
+# ── Product details: block · menu-item ↔ action modal ───────────────────────
 [[extensions.targeting]]
 module = "./src/Block.jsx"
 target = "pos.product-details.block.render"
+
+[[extensions.targeting]]
+module = "./src/MenuItem.jsx"
+target = "pos.product-details.action.menu-item.render"
+
+[[extensions.targeting]]
+module = "./src/Modal.jsx"
+target = "pos.product-details.action.render"
+
+# ── Customer details: block · menu-item ↔ action modal ──────────────────────
+[[extensions.targeting]]
+module = "./src/Block.jsx"
+target = "pos.customer-details.block.render"
+
+[[extensions.targeting]]
+module = "./src/MenuItem.jsx"
+target = "pos.customer-details.action.menu-item.render"
+
+[[extensions.targeting]]
+module = "./src/Modal.jsx"
+target = "pos.customer-details.action.render"
+
+# ── Cart line-item details: menu-item ↔ action modal ────────────────────────
+[[extensions.targeting]]
+module = "./src/MenuItem.jsx"
+target = "pos.cart.line-item-details.action.menu-item.render"
+
+[[extensions.targeting]]
+module = "./src/Modal.jsx"
+target = "pos.cart.line-item-details.action.render"
+
+# ── Order details: block · menu-item ↔ action modal ─────────────────────────
+[[extensions.targeting]]
+module = "./src/Block.jsx"
+target = "pos.order-details.block.render"
+
+[[extensions.targeting]]
+module = "./src/MenuItem.jsx"
+target = "pos.order-details.action.menu-item.render"
+
+[[extensions.targeting]]
+module = "./src/Modal.jsx"
+target = "pos.order-details.action.render"
+
+# ── Draft-order details: block · menu-item ↔ action modal ───────────────────
+[[extensions.targeting]]
+module = "./src/Block.jsx"
+target = "pos.draft-order-details.block.render"
+
+[[extensions.targeting]]
+module = "./src/MenuItem.jsx"
+target = "pos.draft-order-details.action.menu-item.render"
+
+[[extensions.targeting]]
+module = "./src/Modal.jsx"
+target = "pos.draft-order-details.action.render"
+
+# ── Register details: block · menu-item ↔ action modal ──────────────────────
+[[extensions.targeting]]
+module = "./src/Block.jsx"
+target = "pos.register-details.block.render"
+
+[[extensions.targeting]]
+module = "./src/MenuItem.jsx"
+target = "pos.register-details.action.menu-item.render"
+
+[[extensions.targeting]]
+module = "./src/Modal.jsx"
+target = "pos.register-details.action.render"
+
+# ── Post-purchase: block · menu-item ↔ action modal ─────────────────────────
+[[extensions.targeting]]
+module = "./src/Block.jsx"
+target = "pos.purchase.post.block.render"
+
+[[extensions.targeting]]
+module = "./src/MenuItem.jsx"
+target = "pos.purchase.post.action.menu-item.render"
+
+[[extensions.targeting]]
+module = "./src/Modal.jsx"
+target = "pos.purchase.post.action.render"
+
+# ── Post-return: block · menu-item ↔ action modal ───────────────────────────
+[[extensions.targeting]]
+module = "./src/Block.jsx"
+target = "pos.return.post.block.render"
+
+[[extensions.targeting]]
+module = "./src/MenuItem.jsx"
+target = "pos.return.post.action.menu-item.render"
+
+[[extensions.targeting]]
+module = "./src/Modal.jsx"
+target = "pos.return.post.action.render"
+
+# ── Post-exchange: block · menu-item ↔ action modal ─────────────────────────
+[[extensions.targeting]]
+module = "./src/Block.jsx"
+target = "pos.exchange.post.block.render"
+
+[[extensions.targeting]]
+module = "./src/MenuItem.jsx"
+target = "pos.exchange.post.action.menu-item.render"
+
+[[extensions.targeting]]
+module = "./src/Modal.jsx"
+target = "pos.exchange.post.action.render"
+
+# ── Receipt header / footer (print-only blocks) ─────────────────────────────
+[[extensions.targeting]]
+module = "./src/Receipt.jsx"
+target = "pos.receipt-header.block.render"
+
+[[extensions.targeting]]
+module = "./src/Receipt.jsx"
+target = "pos.receipt-footer.block.render"
+
+# ── Background observers (UI-less event.observe) ────────────────────────────
+[[extensions.targeting]]
+module = "./src/Observer.js"
+target = "pos.cart-update.event.observe"
+
+[[extensions.targeting]]
+module = "./src/Observer.js"
+target = "pos.transaction-complete.event.observe"
+
+[[extensions.targeting]]
+module = "./src/Observer.js"
+target = "pos.cash-tracking-session-start.event.observe"
+
+[[extensions.targeting]]
+module = "./src/Observer.js"
+target = "pos.cash-tracking-session-complete.event.observe"

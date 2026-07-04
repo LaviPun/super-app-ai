@@ -8,6 +8,19 @@ use shopify_function::Result;
 /// `PublishService.writeFunctionConfig`. Mirrors the
 /// `functions.paymentCustomization` recipe config. Optional keys are omitted
 /// from the stored JSON, so every field defaults when missing.
+///
+/// # Predicate widening (Build #14b)
+/// `RuleWhen` was widened beyond `minSubtotal` / `currencyIn` to target by
+/// destination address (country / province) and by cart contents (product /
+/// type / vendor), so a merchant can e.g. hide "Cash on Delivery" for a
+/// province, or hide a payment method whenever a restricted product is in the
+/// cart. Address facts come from the cart's delivery groups; contents facts
+/// from `cart.lines.merchandise.product` (both added to the input query).
+///
+/// # Honest gap — tags/collections are NOT config-drivable (see delivery crate).
+/// Address facts are only populated once the buyer has entered a shipping
+/// address (delivery groups are empty before then), so an address predicate is
+/// a safe no-op earlier in checkout — the rule simply does not fire yet.
 #[derive(Deserialize, Default, PartialEq)]
 pub struct Configuration {
     #[shopify_function(default)]
@@ -32,6 +45,21 @@ pub struct RuleWhen {
     /// Presentment currency codes the rule applies to (empty = any currency).
     #[shopify_function(default)]
     currency_in: Vec<String>,
+    /// Destination country codes the rule applies to (empty = any country).
+    #[shopify_function(default)]
+    country_code_in: Vec<String>,
+    /// Destination province/state codes the rule applies to (empty = any).
+    #[shopify_function(default)]
+    province_code_in: Vec<String>,
+    /// Cart must contain at least one line whose product id is in this list.
+    #[shopify_function(default)]
+    product_id_in: Vec<String>,
+    /// Cart must contain at least one line whose product type is in this list.
+    #[shopify_function(default)]
+    product_type_in: Vec<String>,
+    /// Cart must contain at least one line whose product vendor is in this list.
+    #[shopify_function(default)]
+    vendor_in: Vec<String>,
 }
 
 #[derive(Deserialize, Default, PartialEq, Clone)]
@@ -63,6 +91,67 @@ pub struct RenameMethod {
     to: String,
 }
 
+// ─── Pure decision core (unit-tested; no Shopify input types) ────────────────
+
+/// A snapshot of the cart facts a payment rule is evaluated against, gathered
+/// once per run. Kept a plain struct so `rule_matches` is unit-testable without
+/// the shopify_function harness (native `cargo test` is the contract).
+#[derive(Default, Clone)]
+pub struct CartFacts {
+    pub subtotal: f64,
+    pub currency: String,
+    /// Destination country codes across the cart's delivery groups.
+    pub country_codes: Vec<String>,
+    /// Destination province codes across the cart's delivery groups.
+    pub province_codes: Vec<String>,
+    pub product_ids: Vec<String>,
+    pub product_types: Vec<String>,
+    pub vendors: Vec<String>,
+}
+
+/// True when any element of `haystack` matches any element of `needles`,
+/// case-insensitively. An empty `needles` list means "no constraint" → true.
+fn any_ci(needles: &[String], haystack: &[String]) -> bool {
+    if needles.is_empty() {
+        return true;
+    }
+    haystack
+        .iter()
+        .any(|h| needles.iter().any(|n| n.eq_ignore_ascii_case(h)))
+}
+
+/// A rule applies when every condition it specifies holds (AND semantics). An
+/// unset predicate is not a constraint. Address predicates match when ANY of
+/// the cart's destination groups satisfies them.
+pub fn rule_matches(when: &RuleWhen, facts: &CartFacts) -> bool {
+    if let Some(min) = when.min_subtotal {
+        if facts.subtotal < min {
+            return false;
+        }
+    }
+    if !when.currency_in.is_empty()
+        && !when.currency_in.iter().any(|c| c.eq_ignore_ascii_case(&facts.currency))
+    {
+        return false;
+    }
+    if !any_ci(&when.country_code_in, &facts.country_codes) {
+        return false;
+    }
+    if !any_ci(&when.province_code_in, &facts.province_codes) {
+        return false;
+    }
+    if !any_ci(&when.product_id_in, &facts.product_ids) {
+        return false;
+    }
+    if !any_ci(&when.product_type_in, &facts.product_types) {
+        return false;
+    }
+    if !any_ci(&when.vendor_in, &facts.vendors) {
+        return false;
+    }
+    true
+}
+
 #[shopify_function]
 fn cart_payment_methods_transform_run(
     input: schema::cart_payment_methods_transform_run::Input,
@@ -83,13 +172,12 @@ fn cart_payment_methods_transform_run(
         return Ok(no_changes);
     }
 
-    let cart_subtotal = input.cart().cost().subtotal_amount().amount().as_f64();
-    let currency = input.cart().cost().subtotal_amount().currency_code();
+    let facts = gather_facts(&input);
     let method_count = input.payment_methods().len() as i32;
 
     let mut operations: Vec<schema::Operation> = Vec::new();
     for rule in config.rules.iter() {
-        if !rule_matches(rule, cart_subtotal, currency) {
+        if !rule_matches(&rule.when, &facts) {
             continue;
         }
 
@@ -150,25 +238,110 @@ fn cart_payment_methods_transform_run(
     Ok(schema::CartPaymentMethodsTransformRunResult { operations })
 }
 
-/// A rule applies when every condition it specifies holds: the cart subtotal
-/// meets `minSubtotal` (if set) and the presentment currency is in `currencyIn`
-/// (if set).
-fn rule_matches(rule: &PaymentRule, cart_subtotal: f64, currency: &str) -> bool {
-    if let Some(min_subtotal) = rule.when.min_subtotal {
-        if cart_subtotal < min_subtotal {
-            return false;
+/// Collect the cart snapshot from the Shopify input. Isolated so the pure
+/// `rule_matches` core stays testable without Shopify input types.
+fn gather_facts(input: &schema::cart_payment_methods_transform_run::Input) -> CartFacts {
+    use schema::cart_payment_methods_transform_run::input::cart::lines::Merchandise;
+
+    let mut facts = CartFacts {
+        subtotal: input.cart().cost().subtotal_amount().amount().as_f64(),
+        currency: input.cart().cost().subtotal_amount().currency_code().to_string(),
+        ..CartFacts::default()
+    };
+
+    for line in input.cart().lines().iter() {
+        if let Merchandise::ProductVariant(variant) = line.merchandise() {
+            let product = variant.product();
+            facts.product_ids.push(product.id().clone());
+            if let Some(pt) = product.product_type() {
+                facts.product_types.push(pt.clone());
+            }
+            if let Some(v) = product.vendor() {
+                facts.vendors.push(v.clone());
+            }
         }
     }
 
-    if !rule.when.currency_in.is_empty()
-        && !rule
-            .when
-            .currency_in
-            .iter()
-            .any(|code| code.eq_ignore_ascii_case(currency))
-    {
-        return false;
+    for group in input.cart().delivery_groups().iter() {
+        if let Some(address) = group.delivery_address() {
+            if let Some(c) = address.country_code() {
+                facts.country_codes.push(c.clone());
+            }
+            if let Some(p) = address.province_code() {
+                facts.province_codes.push(p.clone());
+            }
+        }
     }
 
-    true
+    facts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn facts() -> CartFacts {
+        CartFacts {
+            subtotal: 80.0,
+            currency: "USD".into(),
+            country_codes: vec!["US".into()],
+            province_codes: vec!["NY".into()],
+            product_ids: vec!["gid://shopify/Product/10".into()],
+            product_types: vec!["Alcohol".into()],
+            vendors: vec!["Acme".into()],
+        }
+    }
+
+    #[test]
+    fn empty_when_matches_anything() {
+        assert!(rule_matches(&RuleWhen::default(), &facts()));
+        assert!(rule_matches(&RuleWhen::default(), &CartFacts::default()));
+    }
+
+    #[test]
+    fn min_subtotal_and_currency() {
+        let w = RuleWhen { min_subtotal: Some(50.0), currency_in: vec!["usd".into()], ..Default::default() };
+        assert!(rule_matches(&w, &facts()));
+        let w2 = RuleWhen { min_subtotal: Some(100.0), ..Default::default() };
+        assert!(!rule_matches(&w2, &facts()));
+        let w3 = RuleWhen { currency_in: vec!["EUR".into()], ..Default::default() };
+        assert!(!rule_matches(&w3, &facts()));
+    }
+
+    #[test]
+    fn address_predicates() {
+        let w = RuleWhen { country_code_in: vec!["us".into()], ..Default::default() };
+        assert!(rule_matches(&w, &facts())); // case-insensitive
+        let w2 = RuleWhen { country_code_in: vec!["CA".into()], ..Default::default() };
+        assert!(!rule_matches(&w2, &facts()));
+        let w3 = RuleWhen { province_code_in: vec!["NY".into()], ..Default::default() };
+        assert!(rule_matches(&w3, &facts()));
+        let w4 = RuleWhen { province_code_in: vec!["CA".into()], ..Default::default() };
+        assert!(!rule_matches(&w4, &facts()));
+        // No address on the cart → an address predicate cannot match.
+        assert!(!rule_matches(&w, &CartFacts::default()));
+    }
+
+    #[test]
+    fn product_predicates() {
+        let w = RuleWhen { product_id_in: vec!["gid://shopify/Product/10".into()], ..Default::default() };
+        assert!(rule_matches(&w, &facts()));
+        let w2 = RuleWhen { product_type_in: vec!["alcohol".into()], ..Default::default() };
+        assert!(rule_matches(&w2, &facts())); // case-insensitive
+        let w3 = RuleWhen { vendor_in: vec!["Other".into()], ..Default::default() };
+        assert!(!rule_matches(&w3, &facts()));
+    }
+
+    #[test]
+    fn conditions_are_anded() {
+        let w = RuleWhen {
+            province_code_in: vec!["NY".into()],
+            product_type_in: vec!["Alcohol".into()],
+            ..Default::default()
+        };
+        assert!(rule_matches(&w, &facts()));
+        let mut wrong = facts();
+        wrong.province_codes = vec!["CA".into()];
+        assert!(!rule_matches(&w, &wrong)); // province fails
+    }
 }

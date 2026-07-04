@@ -310,6 +310,32 @@ importers:
         specifier: ^4.100.0
         version: 4.100.0(@cloudflare/workers-types@4.20260612.1)
 
+  extensions/admin-print:
+    dependencies:
+      '@preact/signals':
+        specifier: ^2.9.1
+        version: 2.9.1(preact@10.29.2)
+      '@shopify/ui-extensions':
+        specifier: 2026.4.0
+        version: 2026.4.0(@preact/signals@2.9.1(preact@10.29.2))(preact@10.29.2)
+      preact:
+        specifier: ^10.29.2
+        version: 10.29.2
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  extensions/admin-segment-template:
+    dependencies:
+      '@shopify/ui-extensions':
+        specifier: 2026.4.0
+        version: 2026.4.0(@preact/signals@2.9.1(preact@10.29.2))(preact@10.29.2)
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   extensions/admin-ui:
     dependencies:
       '@preact/signals':
@@ -343,6 +369,22 @@ importers:
         version: 5.9.3
 
   extensions/customer-account-ui:
+    dependencies:
+      '@preact/signals':
+        specifier: ^2.9.1
+        version: 2.9.1(preact@10.29.2)
+      '@shopify/ui-extensions':
+        specifier: 2026.4.0
+        version: 2026.4.0(@preact/signals@2.9.1(preact@10.29.2))(preact@10.29.2)
+      preact:
+        specifier: ^10.29.2
+        version: 10.29.2
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  extensions/discount-function-settings:
     dependencies:
       '@preact/signals':
         specifier: ^2.9.1
@@ -403,6 +445,10 @@ importers:
         specifier: '>=3.2.6 <4'
         version: 3.2.6(@types/debug@4.1.13)(@types/node@24.13.2)(tsx@4.22.4)(yaml@2.9.0)
 
+  extensions/superapp-local-pickup: {}
+
+  extensions/superapp-order-routing: {}
+
   extensions/superapp-payment-customization:
     devDependencies:
       '@shopify/shopify-function-test-helpers':
@@ -412,17 +458,25 @@ importers:
         specifier: '>=3.2.6 <4'
         version: 3.2.6(@types/debug@4.1.13)(@types/node@24.13.2)(tsx@4.22.4)(yaml@2.9.0)
 
+  extensions/superapp-pickup-point: {}
+
   extensions/superapp-pos-block:
     dependencies:
       '@preact/signals':
-        specifier: ^2.3.x
+        specifier: ^2.9.1
         version: 2.9.1(preact@10.29.2)
       '@shopify/ui-extensions':
-        specifier: 2025.10.x
-        version: 2025.10.15(@preact/signals@2.9.1(preact@10.29.2))(preact@10.29.2)
+        specifier: 2026.4.0
+        version: 2026.4.0(@preact/signals@2.9.1(preact@10.29.2))(preact@10.29.2)
       preact:
-        specifier: ^10.10.x
+        specifier: ^10.29.2
         version: 10.29.2
+    devDependencies:
+      vitest:
+        specifier: '>=3.2.6 <4'
+        version: 3.2.6(@types/debug@4.1.13)(@types/node@24.13.2)(tsx@4.22.4)(yaml@2.9.0)
+
+  extensions/superapp-shipping-discount: {}
 
   extensions/superapp-web-pixel:
     dependencies:
@@ -2751,17 +2805,6 @@ packages:
 
   '@shopify/storefront-api-client@1.0.10':
     resolution: {integrity: sha512-A0ItFW58L5+y/jnnJDEsmt2YcQSt2BG+pNoQOYRpPBJaOLpTj7A13q1QVrE5XYVGZCA6ZQ6FqAtgosHHrkut0Q==}
-
-  '@shopify/ui-extensions@2025.10.15':
-    resolution: {integrity: sha512-yqE+jkX4uA+f2zGcU0ihFPvSnTtfJC/I/P1Kbg8oWR4kEUlZhJNJM3xn8FkupJFuEKQjqBljoFM4xs5RbFYnhw==}
-    peerDependencies:
-      '@preact/signals': '*'
-      preact: '*'
-    peerDependenciesMeta:
-      '@preact/signals':
-        optional: true
-      preact:
-        optional: true
 
   '@shopify/ui-extensions@2026.4.0':
     resolution: {integrity: sha512-17RktH0IOjPKYWxHenr8bsw9MLBX+pB92HOoHo4jEKWoIcrQY4th00xRvtA9jeG9Iw5vxrmgN8TdtdTj+uFeCQ==}
@@ -8468,13 +8511,6 @@ snapshots:
     dependencies:
       '@shopify/graphql-client': 1.4.2
 
-  '@shopify/ui-extensions@2025.10.15(@preact/signals@2.9.1(preact@10.29.2))(preact@10.29.2)':
-    dependencies:
-      ts-morph: 25.0.1
-    optionalDependencies:
-      '@preact/signals': 2.9.1(preact@10.29.2)
-      preact: 10.29.2
-
   '@shopify/ui-extensions@2026.4.0(@preact/signals@2.9.1(preact@10.29.2))(preact@10.29.2)':
     dependencies:
       ts-morph: 25.0.1
@@ -8774,22 +8810,6 @@ snapshots:
       '@vitest/utils': 3.2.6
       chai: 5.3.3
       tinyrainbow: 2.0.0
-
-  '@vitest/mocker@3.2.6(vite@6.4.3(@types/node@20.19.43)(tsx@4.22.4)(yaml@2.9.0))':
-    dependencies:
-      '@vitest/spy': 3.2.6
-      estree-walker: 3.0.3
-      magic-string: 0.30.21
-    optionalDependencies:
-      vite: 6.4.3(@types/node@20.19.43)(tsx@4.22.4)(yaml@2.9.0)
-
-  '@vitest/mocker@3.2.6(vite@6.4.3(@types/node@22.19.21)(tsx@4.22.4)(yaml@2.9.0))':
-    dependencies:
-      '@vitest/spy': 3.2.6
-      estree-walker: 3.0.3
-      magic-string: 0.30.21
-    optionalDependencies:
-      vite: 6.4.3(@types/node@22.19.21)(tsx@4.22.4)(yaml@2.9.0)
 
   '@vitest/mocker@3.2.6(vite@6.4.3(@types/node@24.13.2)(tsx@4.22.4)(yaml@2.9.0))':
     dependencies:
@@ -12692,7 +12712,7 @@ snapshots:
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/expect': 3.2.6
-      '@vitest/mocker': 3.2.6(vite@6.4.3(@types/node@20.19.43)(tsx@4.22.4)(yaml@2.9.0))
+      '@vitest/mocker': 3.2.6(vite@6.4.3(@types/node@24.13.2)(tsx@4.22.4)(yaml@2.9.0))
       '@vitest/pretty-format': 3.2.6
       '@vitest/runner': 3.2.6
       '@vitest/snapshot': 3.2.6
@@ -12734,7 +12754,7 @@ snapshots:
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/expect': 3.2.6
-      '@vitest/mocker': 3.2.6(vite@6.4.3(@types/node@22.19.21)(tsx@4.22.4)(yaml@2.9.0))
+      '@vitest/mocker': 3.2.6(vite@6.4.3(@types/node@24.13.2)(tsx@4.22.4)(yaml@2.9.0))
       '@vitest/pretty-format': 3.2.6
       '@vitest/runner': 3.2.6
       '@vitest/snapshot': 3.2.6

@@ -1,0 +1,4 @@
+{
+  "name": "SuperApp Local Pickup",
+  "description": "Generates local pickup (BOPIS) delivery options at checkout from published pickup-location config."
+}

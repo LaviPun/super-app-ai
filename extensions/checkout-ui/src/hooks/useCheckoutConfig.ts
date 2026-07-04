@@ -11,6 +11,8 @@
  * - `postPurchase.offer` { offerTitle, productVariantGid?, message? }       → thank-you
  */
 import { useState, useEffect } from 'preact/hooks';
+import { parseCheckoutFields, parseCheckoutLayout } from '../lib/checkout-content';
+import type { CheckoutField, CheckoutLayoutItem } from '../lib/checkout-content';
 
 export type OfferProduct = {
   variantGid: string;
@@ -28,6 +30,10 @@ export type CheckoutOffer = {
   heading?: string;
   message?: string;
   product?: OfferProduct;
+  /** Interactive buyer-input fields (build #2). Empty on legacy offers. */
+  fields: CheckoutField[];
+  /** Non-interactive layout/presentation blocks (build #2). Empty on legacy offers. */
+  layout: CheckoutLayoutItem[];
 };
 
 export type UseCheckoutConfigResult =
@@ -146,7 +152,14 @@ function variantGidFromRecommendation(rec: RecommendationConfig): string | undef
   return undefined;
 }
 
-type Draft = { key: string; heading?: string; message?: string; variantGid?: string };
+type Draft = {
+  key: string;
+  heading?: string;
+  message?: string;
+  variantGid?: string;
+  fields: CheckoutField[];
+  layout: CheckoutLayoutItem[];
+};
 
 function draftFromNode(node: MetaobjectNode, surface: Surface): Draft | null {
   const raw = node?.configJson?.value;
@@ -174,9 +187,18 @@ function draftFromNode(node: MetaobjectNode, surface: Surface): Draft | null {
       ? (config.recommendation as RecommendationConfig)
       : undefined;
   const variantGid = legacyGid ?? (rec ? variantGidFromRecommendation(rec) : undefined);
-  if (!heading && !message && !variantGid) return null; // nothing buyer-facing
 
-  return { key: node.id, heading, message, variantGid };
+  // Build #2 render vocab. Fields are interactive only on the checkout surface;
+  // on thank-you they degrade to read-only labels (the renderer decides). Layout
+  // is presentational on both surfaces.
+  const fields = parseCheckoutFields(config.fields, surface === 'checkout');
+  const layout = parseCheckoutLayout(config.layout);
+
+  if (!heading && !message && !variantGid && fields.length === 0 && layout.length === 0) {
+    return null; // nothing buyer-facing
+  }
+
+  return { key: node.id, heading, message, variantGid, fields, layout };
 }
 
 function productFromVariantNode(node: VariantNode): OfferProduct | null {
@@ -247,8 +269,17 @@ export function useCheckoutConfig(extensionTarget: string): UseCheckoutConfigRes
       const offers: CheckoutOffer[] = [];
       for (const draft of drafts) {
         const product = draft.variantGid ? productsByGid.get(draft.variantGid) : undefined;
-        if (!draft.heading && !draft.message && !product) continue; // nothing left to show
-        offers.push({ key: draft.key, heading: draft.heading, message: draft.message, product });
+        const hasContent =
+          !!draft.heading || !!draft.message || !!product || draft.fields.length > 0 || draft.layout.length > 0;
+        if (!hasContent) continue; // nothing left to show
+        offers.push({
+          key: draft.key,
+          heading: draft.heading,
+          message: draft.message,
+          product,
+          fields: draft.fields,
+          layout: draft.layout,
+        });
       }
 
       if (cancelled) return;

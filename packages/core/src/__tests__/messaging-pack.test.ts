@@ -5,6 +5,8 @@ import {
   getPack,
   MESSAGING_CHANNELS,
   MESSAGING_CHANNELS_SHIPPED,
+  MESSAGING_DRIP_PRESETS,
+  messagingChannelSendability,
   RecipeSpecSchema,
   RECIPE_SPEC_TYPES,
   getExtensionEligibility,
@@ -40,9 +42,92 @@ describe('messaging pack — registry', () => {
     expect(messagingPack.tier).toBe('basic');
   });
 
-  it('exposes the channel vocabulary and the shipped subset', () => {
+  it('exposes the channel vocabulary and the shipped subset (all four connectors ship)', () => {
     expect(MESSAGING_CHANNELS).toEqual(['email', 'sms', 'push', 'slack']);
-    expect(MESSAGING_CHANNELS_SHIPPED).toEqual(['email', 'slack']);
+    // All four have a shipped CONNECTOR now; sms/push additionally need provider
+    // credentials to actually send (the sendability axis, tested below).
+    expect(MESSAGING_CHANNELS_SHIPPED).toEqual(['email', 'slack', 'sms', 'push']);
+  });
+});
+
+describe('messagingChannelSendability — the honest credentials gate', () => {
+  it('email and slack are always ready (app-level credentials)', () => {
+    expect(messagingChannelSendability('email', {}).status).toBe('ready');
+    expect(messagingChannelSendability('slack', {}).status).toBe('ready');
+  });
+
+  it('sms is needs_credentials without provider config, ready with it', () => {
+    const bare = messagingChannelSendability('sms', {});
+    expect(bare.status).toBe('needs_credentials');
+    if (bare.status === 'needs_credentials') {
+      expect(bare.missing).toContain('SMS_PROVIDER_ACCOUNT_SID');
+    }
+    const configured = messagingChannelSendability('sms', {
+      SMS_PROVIDER_ACCOUNT_SID: 'AC123',
+      SMS_PROVIDER_AUTH_TOKEN: 'tok',
+      SMS_PROVIDER_FROM: '+15551234567',
+    });
+    expect(configured.status).toBe('ready');
+  });
+
+  it('push is needs_credentials without VAPID keys, ready with them', () => {
+    expect(messagingChannelSendability('push', {}).status).toBe('needs_credentials');
+    const configured = messagingChannelSendability('push', {
+      VAPID_PUBLIC_KEY: 'pub',
+      VAPID_PRIVATE_KEY: 'priv',
+      VAPID_SUBJECT: 'mailto:ops@shop.com',
+    });
+    expect(configured.status).toBe('ready');
+  });
+});
+
+describe('messaging pack — drip presets', () => {
+  it('exposes the five presets + back_in_stock', () => {
+    expect(MESSAGING_DRIP_PRESETS).toEqual([
+      'browse_abandon',
+      'price_drop',
+      'replenishment',
+      'win_back',
+      'post_purchase',
+      'back_in_stock',
+    ]);
+  });
+
+  it('accepts a multi-step drip campaign', () => {
+    const res = MessagingPackSchema.safeParse({
+      channel: 'email',
+      trigger: {
+        kind: 'drip',
+        dripPreset: 'post_purchase',
+        steps: [
+          { label: 'thank you' },
+          { delayMs: 3 * 24 * 3600_000, label: 'cross-sell', channel: 'email' },
+        ],
+      },
+      audience: { source: 'event_recipient' },
+      templates: [{ channel: 'email', subject: 'Thanks!', body: 'Enjoy your order' }],
+    });
+    expect(res.success).toBe(true);
+  });
+
+  it("rejects kind:'drip' with no preset", () => {
+    const res = MessagingPackSchema.safeParse({
+      channel: 'email',
+      trigger: { kind: 'drip', steps: [{}] },
+      audience: { source: 'event_recipient' },
+      templates: [{ channel: 'email', subject: 's', body: 'b' }],
+    });
+    expect(res.success).toBe(false);
+  });
+
+  it("rejects kind:'drip' with no steps", () => {
+    const res = MessagingPackSchema.safeParse({
+      channel: 'email',
+      trigger: { kind: 'drip', dripPreset: 'win_back' },
+      audience: { source: 'event_recipient' },
+      templates: [{ channel: 'email', subject: 's', body: 'b' }],
+    });
+    expect(res.success).toBe(false);
   });
 });
 

@@ -70,7 +70,7 @@ export function compileDiscountRules(spec: Extract<RecipeSpec, { type: 'function
         action: 'compile.functions.discountRules.kind.unenforced',
         details:
           kind === 'free-shipping'
-            ? "pricing emits a 'free-shipping' discount, but the shipped discount Function (cart.lines.discounts.generate.run) has no shipping operation; it requires a cart.delivery-options.transform.run SHIPPING_DISCOUNT crate (not shipped). This kind does NOT price at checkout yet — see discount-packs.md §9."
+            ? "pricing emits a 'free-shipping' discount, but the product-discount Function (cart.lines.discounts.generate.run) has no shipping operation. Shipping is waived by the separate 'functions.shippingDiscount' type (cart.delivery-options.discounts.generate.run, extensions/superapp-shipping-discount). This kind does NOT price shipping on a functions.discountRules recipe — author a functions.shippingDiscount module. See discount-packs.md §9.2."
             : "pricing emits a 'priceEnding' rounding hint, but post-calc x.99 rounding is not expressible as a discount candidate value; the only Function path is a Plus-only cart-transform fixedPricePerUnit. This hint does NOT round the checkout price — see discount-packs.md §9.",
       });
     }

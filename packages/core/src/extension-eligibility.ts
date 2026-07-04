@@ -87,17 +87,29 @@ const PLUS_ONLY_FUNCTIONS = new Set<ModuleType>([
  * the `handle` in each `extensions/<dir>/shopify.extension.toml`. A handle here is
  * only "deployable" once it's also in the deployed-extensions manifest.
  *
- * `orderRoutingLocationRule` has NO entry: the Shopify CLI offers no order-routing
- * function template, so there is no wasm to ship — it stays `needs_runtime` until
- * Shopify exposes that surface.
+ * `orderRoutingLocationRule` NOW has a crate (extensions/superapp-order-routing) targeting
+ * `cart.fulfillment-groups.location-rankings.generate.run` — a REAL 2026-04 API — so its
+ * handle is wired here; it flips deployable once the handle is in the deployed manifest.
+ *
+ * `localPickupDeliveryOption` / `pickupPointDeliveryOption` have crates
+ * (extensions/superapp-local-pickup, extensions/superapp-pickup-point) BUT their APIs are
+ * currently only on Shopify's `unstable` version (verified 2026-07-04 via the dev MCP; NOT
+ * in 2026-04, which the app pins). The handle is wired so the plumbing is complete, but the
+ * crates can't ship on a stable version yet, so the handles won't appear in the deployed
+ * manifest → both stay `needs_runtime` (see their REGISTRY notes). They flip deployable only
+ * when Shopify promotes these APIs to a stable version the app adopts.
  */
 export const FUNCTION_RUNTIME_HANDLES: Record<string, string> = {
   'functions.cartTransform': 'cart-transform-function',
   'functions.discountRules': 'discount-function',
+  'functions.shippingDiscount': 'superapp-shipping-discount',
   'functions.deliveryCustomization': 'superapp-delivery-customization',
   'functions.paymentCustomization': 'superapp-payment-customization',
   'functions.cartAndCheckoutValidation': 'superapp-cart-checkout-validation',
   'functions.fulfillmentConstraints': 'superapp-fulfillment-constraints',
+  'functions.orderRoutingLocationRule': 'superapp-order-routing',
+  'functions.localPickupDeliveryOption': 'superapp-local-pickup',
+  'functions.pickupPointDeliveryOption': 'superapp-pickup-point',
 };
 
 /**
@@ -143,8 +155,43 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
   ),
   'functions.orderRoutingLocationRule': fn(
     'functions.orderRoutingLocationRule',
-    'Influences which location fulfills an order via a Function.',
+    'Ranks inventory locations per fulfillment group via a Function (order routing runs on Shopify Plus).',
   ),
+  // Local Pickup delivery-option generator (BOPIS). The crate exists
+  // (extensions/superapp-local-pickup) and the compiler emits real config, BUT the
+  // Local Pickup Delivery Option Generator API is currently only on Shopify's `unstable`
+  // version (verified 2026-07-04 via dev MCP; NOT in 2026-04). Its handle won't appear in
+  // the deployed manifest until the API ships on a stable version the app adopts, so
+  // `isRuntimeShipped` returns false → needs_runtime. Honest "not shipped on stable yet".
+  'functions.localPickupDeliveryOption': {
+    ...fn(
+      'functions.localPickupDeliveryOption',
+      'Generates local pickup (BOPIS) options at checkout via a Function. The Local Pickup Delivery Option Generator API is currently only on Shopify’s unstable version, so this is not yet deployable on a stable release.',
+    ),
+    requiredScopes: ['write_metaobjects'],
+  },
+  // Pickup Point delivery-option generator (parcel lockers / post offices). Same honest
+  // state as local pickup: crate exists (extensions/superapp-pickup-point) + real config,
+  // but the Pickup Point Delivery Option Generator API is `unstable`-only, so needs_runtime.
+  'functions.pickupPointDeliveryOption': {
+    ...fn(
+      'functions.pickupPointDeliveryOption',
+      'Generates third-party pickup-point (parcel locker / post office) options at checkout via a Function. The Pickup Point Delivery Option Generator API is currently only on Shopify’s unstable version, so this is not yet deployable on a stable release.',
+    ),
+    requiredScopes: ['write_metaobjects'],
+  },
+  // Shipping-discount Function (unified Discount API, SHIPPING class). Waives/discounts
+  // delivery via cart.delivery-options.discounts.generate.run — the runtime the
+  // product-discount Function cannot provide. The crate exists
+  // (extensions/superapp-shipping-discount) but, like every Function, resolves
+  // shipped-ness from the deployed-function manifest: `isRuntimeShipped` returns false
+  // (→ needs_runtime) until `superapp-shipping-discount` appears in the deployed handles.
+  // Needs `write_discounts` in addition to `write_metaobjects` because it is an
+  // automatic discount (discount-packs.md §9.2).
+  'functions.shippingDiscount': {
+    ...fn('functions.shippingDiscount', 'Waives or discounts shipping (free/discounted delivery) via a Function.'),
+    requiredScopes: ['write_metaobjects', 'write_discounts'],
+  },
 
   // ── Checkout / post-purchase UI (shipped: extensions/checkout-ui) ──────────
   'checkout.upsell': {
@@ -172,29 +219,81 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
   },
 
   // ── Admin UI (shipped: extensions/admin-ui) ────────────────────────────────
+  // The generic, config-driven admin UI extension is shipped and registered for the
+  // admin block/action targets (extensions/admin-ui/shopify.extension.toml, 2026-04
+  // Polaris `s-*`). Publishing an admin.block/admin.action persists its config to a
+  // `$app:superapp_admin_block` / `$app:superapp_admin_action` metaobject referenced
+  // by superapp.admin/{block_refs,action_refs}; the extension reads those refs at the
+  // matching target and renders the config (description/fields/badges/table/buttons/
+  // links) — no per-module bundle. So these are genuinely deployable, not AUDIT-only.
   'admin.block': {
     moduleType: 'admin.block',
     runtime: 'admin-ui',
     runtimeShipped: true,
     requiredScopes: ['write_metaobjects'],
-    note: 'Renders inside the Shopify admin via an admin UI extension.',
+    note: 'Renders inside the Shopify admin via the shipped generic admin UI extension (extensions/admin-ui), which reads the published module config from a superapp.admin/block_refs metaobject at the block target.',
   },
   'admin.action': {
     moduleType: 'admin.action',
     runtime: 'admin-ui',
     runtimeShipped: true,
     requiredScopes: ['write_metaobjects'],
-    note: 'Adds an admin action via an admin UI extension.',
+    note: 'Adds an admin action (More-actions modal) via the shipped generic admin UI extension (extensions/admin-ui), which reads the published module config from a superapp.admin/action_refs metaobject at the action target.',
   },
-  // Spring 2026 Discount UI Extension. The discount-details admin UI extension is
-  // not yet built in `extensions/`, so runtimeShipped:false → needs_runtime until
-  // it ships (generatable + previewable meanwhile; pairs with functions.discountRules).
+  // Spring 2026 Discount UI Extension. The discount-function-settings admin UI
+  // extension is now SHIPPED (extensions/discount-function-settings) registering
+  // admin.discount-details.function-settings.render with an s-function-settings root
+  // and an $app/function-configuration metafield. Publishing an admin.discountUi
+  // persists its config to a superapp.admin/discount_ui_refs metaobject; the extension
+  // reads that config at the target, renders the declared fields as a settings form,
+  // and writes the buyer's values to the discount's function-configuration metafield
+  // (the shape the paired functions.discountRules Function reads). So it is genuinely
+  // deployable, not AUDIT-only.
   'admin.discountUi': {
     moduleType: 'admin.discountUi',
     runtime: 'admin-ui',
-    runtimeShipped: false,
+    runtimeShipped: true,
     requiredScopes: ['write_metaobjects', 'write_discounts'],
-    note: 'Discount UI Extension (Spring 2026) — configures a discount from the admin. Needs the discount-details extension shipped before it can publish.',
+    note: 'Discount UI Extension (Spring 2026) — configures a discount from the admin via the shipped discount-function-settings extension (admin.discount-details.function-settings.render). Renders the published field config and saves values to the discount function-configuration metafield the paired discount Function reads.',
+  },
+
+  // Admin link extension (`admin_link` type). Deep links from admin resource pages to
+  // app pages. Distinct Shopify extension TYPE whose deploy IS the toml registration
+  // (target + relative url; Shopify appends store + resource-id at click). The shipped
+  // admin-link extension family (extensions/admin-link) carries the registered link
+  // targets; publishing persists the label/url config the app link page keys off.
+  // No runtime bundle — the registration itself is the deployed artifact.
+  'admin.link': {
+    moduleType: 'admin.link',
+    runtime: 'admin-ui',
+    runtimeShipped: true,
+    requiredScopes: ['write_metaobjects'],
+    note: 'Adds a deep link from an admin resource page to a page of the app via a shipped admin_link extension (extensions/admin-link). Shopify appends the store + selected-resource id to the URL at click time.',
+  },
+
+  // Admin print extension (`admin_print` / Print Action Extension API). Produces a
+  // custom print document for orders + products. The shipped admin-print extension
+  // (extensions/admin-print) registers the four print-action targets and renders an
+  // s-admin-print-action whose src points at the app's /admin-print/document route;
+  // publishing persists the documentKind/title/template config that route reads.
+  'admin.print': {
+    moduleType: 'admin.print',
+    runtime: 'admin-ui',
+    runtimeShipped: true,
+    requiredScopes: ['write_metaobjects'],
+    note: 'Adds a custom print document (packing slip / invoice / label) to the admin print-action menu via the shipped admin-print extension (extensions/admin-print), which renders the app-served print document defined by the published config.',
+  },
+
+  // Customer-segment template extension (admin.customers.segmentation-templates.data).
+  // The shipped segment-template extension (extensions/admin-segment-template) registers
+  // the single data target and returns the published segment-query templates into the
+  // segment editor gallery; publishing persists the templates the extension reads.
+  'admin.segmentTemplate': {
+    moduleType: 'admin.segmentTemplate',
+    runtime: 'admin-ui',
+    runtimeShipped: true,
+    requiredScopes: ['write_metaobjects'],
+    note: 'Adds pre-built customer-segment query templates to the segment editor via the shipped segment-template extension (extensions/admin-segment-template), which returns the published templates at the segmentation-templates.data target.',
   },
 
   // ── Customer account UI (shipped: extensions/customer-account-ui) ──────────
@@ -202,46 +301,76 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
     moduleType: 'customerAccount.blocks',
     runtime: 'customer-account-ui',
     runtimeShipped: true,
-    requiredScopes: ['write_metaobjects'],
-    note: 'Renders in customer accounts via a customer-account UI extension.',
+    // write_metaobjects persists the block config; the customer_read_* scopes are
+    // required only for the live data bindings (order tracking/fulfillment/returns,
+    // store credit) — declared here so publish surfaces them. Bindings degrade
+    // gracefully when a scope isn't granted, so a block without bindings needs only
+    // write_metaobjects.
+    requiredScopes: [
+      'write_metaobjects',
+      'customer_read_orders',
+      'customer_read_customers',
+      'customer_read_store_credit_accounts',
+    ],
+    note: 'Renders in customer accounts via the shipped generic customer-account UI extension (all ~23 targets registered). Interactive + data-bound blocks (button/form/modal/order.action) resolve live values via the Customer Account/Order API; unresolved bindings degrade to literal content. Protected-customer-data scopes are granted app-wide and only gate bindings, not rendering.',
   },
 
   // ── Flow (shipped: extensions/superapp-flow-*) ─────────────────────────────
   'flow.automation': {
     moduleType: 'flow.automation',
     runtime: 'flow',
-    // Flow trigger/action extensions ship; flip to true once the compiler
-    // persists the workflow definition at publish (see compileFlowAutomation).
-    runtimeShipped: false,
+    // SHIPPED: the compiler persists the flow definition (SHOP_METAFIELD_SET,
+    // non-AUDIT → deployable, not false-published — flow.automation.ts) and the
+    // runtime consumes the module's active-version specJson server-side.
+    // FlowRunnerService (the linear runner) fires on the live Shopify webhooks
+    // (webhooks.tsx), on MANUAL run-now (api.flow.run.tsx / internal.ops.tsx), on
+    // the agent API (api.agent.flows.tsx), and on SCHEDULED cron ticks
+    // (api.cron.tsx). DELAY/wait steps are wired to the durable scheduler: a long
+    // wait parks the remainder as a WorkflowRun (WAITING + resumeAt) via
+    // WorkflowEngineService.startRun, and the cron resume sweep
+    // (resumeDueWorkflowRuns) continues it once due — idempotent (P2002-guarded
+    // runId), inline-vs-park thresholded, unit-tested. Shopify Flow trigger/action
+    // CLI extensions ship (extensions/superapp-flow-*). A flow_template /
+    // marketing-activity CLI extension is a SEPARATE optional surface (Shopify has
+    // no flow_template extension type); it is not required for the linear-runner +
+    // durable-wait deployability and is not shipped.
+    runtimeShipped: true,
     requiredScopes: ['write_metaobjects'],
-    note: 'Persists a workflow definition the engine runs; Shopify Flow trigger/action extensions are shipped.',
+    note: 'Runs server-side: a linear runner fires on Shopify webhooks / MANUAL / SCHEDULED / the agent API and executes the flow steps (tag/note/email/slack/HTTP/write-to-store/condition). Long DELAY/wait steps park the remainder on the durable scheduler and resume via the cron sweep once due (idempotent). Shopify Flow trigger/action extensions are shipped.',
   },
 
   // ── Integration (app proxy / server, always available) ─────────────────────
   'integration.httpSync': {
     moduleType: 'integration.httpSync',
     runtime: 'app-proxy',
-    // No compiler persists the sync config and nothing consumes it server-side yet,
-    // so publishing it would deploy nothing. Gate honestly (needs_runtime) until the
-    // sync runtime + compiler are wired (flip to true then) rather than false-publish.
-    runtimeShipped: false,
+    // SHIPPED (build #7a): the compiler persists the sync config (SHOP_METAFIELD_SET,
+    // non-AUDIT → deployable, not false-published) and the runtime consumes it server-
+    // side. HttpSyncRunnerService fires on the subscribed Shopify webhook (webhooks.tsx),
+    // maps the declared fields, and dispatches to the merchant's connected service
+    // (ConnectorService) with an HMAC signature header + retry/backoff/DLQ/rate-limit;
+    // /api/integration/httpsync/inbound records the service's reply into the module's
+    // typed data store. product_feeds full/incremental sync is DEFERRED (needs the
+    // read_product_listings scope + a ProductFeed resource the app doesn't hold) — the
+    // MANUAL/SCHEDULED/webhook triggers are the shipped surface.
+    runtimeShipped: true,
     requiredScopes: ['write_metaobjects'],
-    note: 'Runs server-side (scheduled/app-proxy sync). Sync runtime + compiler wiring pending before it can publish.',
+    note: 'Runs server-side: reacts to a Shopify webhook (or MANUAL/SCHEDULED) and syncs mapped fields to the merchant-connected service (signed), and records the service’s reply into the module’s typed data store. product_feeds full/incremental sync is deferred.',
   },
 
   // ── Messaging (app proxy / server, R3.4) ───────────────────────────────────
   'messaging.campaign': {
     moduleType: 'messaging.campaign',
     runtime: 'app-proxy',
-    // The EMAIL + SLACK runner is shipped: MessagingRunnerService fans out over the
-    // live EmailConnector/SlackConnector at the three trigger sites, and the compiler
+    // The runner is shipped: MessagingRunnerService fans out over the live
+    // Email/Slack/SMS/WebPush connectors at the three trigger sites, and the compiler
     // persists the campaign config (SHOP_METAFIELD_SET, non-AUDIT) → deployable, not
-    // false-published. Per-channel shipped-ness (email/slack real; sms/push
-    // needs_runtime) is enforced at compile preflight + runtime via
-    // MESSAGING_CHANNELS_SHIPPED, not on this per-type registry axis.
+    // false-published. Per-channel SENDABILITY (email/slack always; sms/push only once
+    // the merchant provider credentials are configured) is enforced at compile
+    // preflight + runtime via `messagingChannelSendability`, NOT on this per-type
+    // registry axis — the type is deployable; a channel may still be needs_runtime.
     runtimeShipped: true,
-    requiredScopes: ['write_metaobjects'],
-    note: 'Fans out email/slack to a subscriber list via the app server (EmailConnector/SlackConnector). SMS and push channels are modeled but need their connectors shipped before they can send.',
+    requiredScopes: ['write_metaobjects', 'read_customers'],
+    note: 'Fans out email/slack/sms/push to a subscriber list via the app server. SMS and web-push connectors ship but require the merchant provider credentials (SMS SID/token; VAPID keys) before they can send; consent is enforced on every message.',
   },
 
   // ── Web Pixel (analytics) ──────────────────────────────────────────────────
@@ -271,26 +400,41 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
   'agentic.catalogProfile': {
     moduleType: 'agentic.catalogProfile',
     runtime: 'agentic-feed',
-    // Shipped: publishing persists the module config and the app route
-    // /agentic/{shop}/{handle}/feed.json serves the structured product-data feed to
-    // AI channels (the same app-served model pos.extension uses — publish config →
-    // app route reads the active PUBLISHED version → an external consumer fetches).
-    // Only the FEED (catalog-feed/attribute-map/compliance-disclosure) is real; the
-    // MCP endpoint, agent-profile registration, and sponsored products are modeled
-    // but their runtime is NOT shipped — the compiler names them as deferred and
-    // preflight surfaces the note, so they are never silently "published".
+    // Shipped: publishing persists the module config and app routes under
+    // /agentic/{shop}/{handle}/… serve the merchant's catalog to AI shopping agents
+    // (the same app-served model pos.extension uses — publish config → app route reads
+    // the active PUBLISHED version → an external agent/crawler fetches). Build #7c: ALL
+    // artifacts are app-served and real —
+    //   feed.json            (catalog-feed / attribute-map / compliance-disclosure)
+    //   mcp  + .well-known/ucp (mcp-endpoint: JSON-RPC Storefront-Catalog MCP + discovery)
+    //   agent-profile.json + agents.md (agent-profile)
+    //   sponsored ranking    (sponsored-products, config-only)
+    // agents.md is served from the app route only. A theme-emit path for the canonical
+    // templates/agents.md.liquid (which would reference the storefront-populated `agents`
+    // Liquid object) is NOT implemented — there is no compiler branch or publish op for it
+    // today. If it is built later it would mirror the native-section THEME_ASSET_UPSERT
+    // path and need write_themes + a page-builder exemption; until then the app-served
+    // agents.md is the whole feature.
     runtimeShipped: true,
     requiredScopes: ['read_products'],
-    note: 'Publishes an AI-channel product feed served from the app backend (/agentic/{shop}/{handle}/feed.json). The hosted MCP endpoint, agent-profile registration, and sponsored products are modeled but not yet shipped — a published module includes only the feed and names the deferred artifacts.',
+    note: 'Publishes the merchant catalog to AI shopping agents from the app backend: a product feed (/agentic/{shop}/{handle}/feed.json), a Storefront-Catalog MCP endpoint (/mcp) with UCP discovery (/.well-known/ucp), an agent profile (/agent-profile.json + /agents.md), and sponsored-product ranking. All app-served (no external registration). There is no theme-emit path for templates/agents.md.liquid — the app-served /agents.md is the entire agents.md surface today.',
   },
 
   // ── Composite (no runtime of its own; decomposes into real members) ────────
   'platform.extensionBlueprint': {
     moduleType: 'platform.extensionBlueprint',
     runtime: 'composite',
-    runtimeShipped: true,
+    // A composite has NO runtime of its own: it deploys by publishing its MEMBERS
+    // (each a real deployable type) via the blueprint co-deploy path
+    // (BlueprintService.publishBlueprint → PublishService.publish per member). As a
+    // STANDALONE module (the AI classifier's "doesn't fit above" bucket) it compiles
+    // to a bare AUDIT op and writes NO artifact, so publishing it directly would
+    // flip status→PUBLISHED while deploying nothing (false-publish). Gate it
+    // needs_runtime so the single-publish path fails loudly; real blueprints still
+    // deploy through their members, which are individually deployable.
+    runtimeShipped: false,
     requiredScopes: [],
-    note: 'A blueprint that composes other deployable module types; deploys via its members.',
+    note: 'A blueprint that composes other deployable module types; it has no runtime of its own and deploys only by publishing its members (co-deploy). Publishing the composite directly deploys nothing, so it is gated needs_runtime.',
   },
 };
 
@@ -303,6 +447,71 @@ function fn(moduleType: ModuleType, note: string): Omit<ExtensionEligibility, 's
     requiresPlan: PLUS_ONLY_FUNCTIONS.has(moduleType) ? 'plus' : undefined,
     requiredScopes: ['write_metaobjects'],
     note,
+  };
+}
+
+/**
+ * Native-section deploy MODE eligibility (033). This is NOT a module type — it is
+ * the second deploy medium for `theme.section` (`DeployTarget.mode:'native_section'`),
+ * so it lives outside `REGISTRY`. The honest state, mirroring how unenforced paths are
+ * recorded elsewhere (e.g. free-shipping/order-routing `needs_runtime`):
+ *
+ *   - The DEFAULT `theme.section` deploy (app-block/metaobject) is fully `deployable`
+ *     — that entry in REGISTRY is unchanged.
+ *   - The native-section MODE is `needs_runtime` (NOT deployable) until ALL THREE hold:
+ *       1. the app holds `write_themes`, AND
+ *       2. Shopify has granted the page-builder theme-file-write EXEMPTION, AND
+ *       3. the `THEME_NATIVE_SECTION_ENABLED` flag is on.
+ *     Until then `themeFilesUpsert` fails at the API; we do not fake deployability.
+ *
+ * `evaluateNativeSectionEligibility` returns that honest verdict + the audit trail of
+ * which of the three gates are unmet, so callers/UI can explain "not yet" without ever
+ * reporting a native-section push as published when nothing wrote.
+ */
+export const THEME_NATIVE_SECTION_ELIGIBILITY = {
+  mode: 'native_section' as const,
+  moduleType: 'theme.section' as ModuleType,
+  runtime: 'theme' as ExtensionRuntimeKind,
+  /** Requires the theme-file-write scope IN ADDITION to the app-block path's scopes. */
+  requiredScopes: ['write_themes', 'read_themes', 'write_metaobjects'] as string[],
+  /**
+   * A Shopify-granted exemption (page-builder exception, BFS §3.2.2) is mandatory
+   * on top of `write_themes`. Not code — an external approval gate. Inert until granted.
+   */
+  requiresExemption: true as const,
+  note:
+    'Pushes a native sections/superapp-*.liquid file via the Theme Files API. Deployable ONLY with ' +
+    'write_themes + a Shopify page-builder exemption + THEME_NATIVE_SECTION_ENABLED. Until all three ' +
+    'hold it is needs_runtime (the app-block path remains the shipping default).',
+} as const;
+
+export type NativeSectionEligibility = {
+  status: 'deployable' | 'needs_runtime';
+  /** Which of the three gates are currently unmet (audit trail). */
+  unmet: Array<'write_themes' | 'exemption' | 'flag'>;
+  missingScopes: string[];
+  note: string;
+};
+
+/**
+ * Honest deployability verdict for the native-section MODE. `deployable` only when
+ * write_themes is held, the Shopify exemption is granted, AND the flag is on —
+ * otherwise `needs_runtime` with the unmet gates named. Never fakes deployability.
+ */
+export function evaluateNativeSectionEligibility(
+  ctx: { grantedScopes?: Iterable<string>; exemptionGranted?: boolean; flagEnabled?: boolean } = {},
+): NativeSectionEligibility {
+  const granted = new Set(ctx.grantedScopes ?? []);
+  const missingScopes = THEME_NATIVE_SECTION_ELIGIBILITY.requiredScopes.filter((s) => !granted.has(s));
+  const unmet: NativeSectionEligibility['unmet'] = [];
+  if (ctx.grantedScopes && !granted.has('write_themes')) unmet.push('write_themes');
+  if (!ctx.exemptionGranted) unmet.push('exemption');
+  if (!ctx.flagEnabled) unmet.push('flag');
+  return {
+    status: unmet.length === 0 ? 'deployable' : 'needs_runtime',
+    unmet,
+    missingScopes,
+    note: THEME_NATIVE_SECTION_ELIGIBILITY.note,
   };
 }
 

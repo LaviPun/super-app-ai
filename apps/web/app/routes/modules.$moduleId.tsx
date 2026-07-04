@@ -316,6 +316,14 @@ function ModuleDetailBody() {
   const duplicateFetcher = useFetcher<{ ok?: boolean; id?: string; name?: string; error?: string }>();
   const renameFetcher = useFetcher<{ ok?: boolean; name?: string; error?: string }>();
   const hydrateFetcher = useFetcher<{ ok?: boolean; error?: string; message?: string }>();
+  const fillSettingsFetcher = useFetcher<{
+    ok?: boolean;
+    filled?: boolean;
+    version?: number;
+    message?: string;
+    error?: string;
+    diff?: { addedKeys?: string[] };
+  }>();
   const coDeployFetcher = useFetcher<{
     recipeId?: string;
     published?: { moduleId: string; type: string }[];
@@ -430,6 +438,21 @@ function ModuleDetailBody() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrateFetcher.data, hydrateFetcher.state]);
 
+  useEffect(() => {
+    if (fillSettingsFetcher.state !== 'idle' || !fillSettingsFetcher.data) return;
+    const d = fillSettingsFetcher.data;
+    if (d.ok && d.filled) {
+      const n = d.diff?.addedKeys?.length ?? 0;
+      ctx.toast(`Filled ${n} missing setting${n === 1 ? '' : 's'}${d.version ? ` — saved as v${d.version}` : ''}`);
+      revalidator.revalidate();
+    } else if (d.ok && !d.filled) {
+      ctx.toast(d.message ?? 'All settings are already filled.');
+    } else if (d.error) {
+      ctx.toast(d.message ?? d.error, { error: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fillSettingsFetcher.data, fillSettingsFetcher.state]);
+
   const justPublished = searchParams.get('published') === '1';
 
   const publish = () => {
@@ -465,6 +488,9 @@ function ModuleDetailBody() {
   };
   const generateSettings = () => {
     hydrateFetcher.submit({ moduleId }, { method: 'post', action: '/api/ai/hydrate-module' });
+  };
+  const fillMissingSettings = () => {
+    fillSettingsFetcher.submit({ moduleId }, { method: 'post', action: '/api/ai/fill-settings' });
   };
   const applyOption = (option: any, idx: number) => {
     setApplyingIdx(idx);
@@ -633,6 +659,12 @@ function ModuleDetailBody() {
                         <span className="t-sm">{c.description}</span>
                       </div>
                     ))}
+                  </div>
+                  <div className="row spread" style={{ marginTop: 12 }}>
+                    <span className="t-sm t-muted">Let AI fill any remaining empty settings — merchant-set values are never overwritten.</span>
+                    <Btn size="sm" icon="magic" loading={fillSettingsFetcher.state !== 'idle'} onClick={fillMissingSettings}>
+                      Fill missing settings
+                    </Btn>
                   </div>
                 </Section>
               </Card>

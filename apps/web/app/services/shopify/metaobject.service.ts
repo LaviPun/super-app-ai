@@ -3,6 +3,10 @@ import { ErrorLogService } from '~/services/observability/error-log.service';
 import type {
   AdminActionPayload,
   AdminBlockPayload,
+  AdminDiscountUiPayload,
+  AdminLinkPayload,
+  AdminPrintPayload,
+  AdminSegmentTemplatePayload,
   CheckoutUpsellPayload,
   CustomerAccountBlockPayload,
   ProxyWidgetPayload,
@@ -134,6 +138,12 @@ export class MetaobjectService {
             ...(payload.styleCss ? { css: payload.styleCss } : {}),
           }),
         },
+        // Surface-targeted placement (theme.section). Written ONLY when the module
+        // declares it, so a no-placement module's metaobject fields are unchanged.
+        // Read as `mod_ref.fields.placement_json.value` by the storefront render-gate.
+        ...(payload.placement
+          ? [{ key: 'placement_json', value: JSON.stringify(payload.placement) }]
+          : []),
       ],
     );
   }
@@ -164,6 +174,65 @@ export class MetaobjectService {
         { key: 'target', value: payload.target },
         { key: 'label', value: payload.label },
         { key: 'title', value: payload.title },
+        { key: 'config_json', value: JSON.stringify(payload.config) },
+      ],
+    );
+  }
+
+  /** Upsert a `$app:superapp_admin_discount_ui` metaobject. Returns its GID. */
+  async upsertAdminDiscountUiObject(moduleId: string, payload: AdminDiscountUiPayload): Promise<string> {
+    return this.upsertMetaobject(
+      { type: '$app:superapp_admin_discount_ui', handle: `superapp-discount-ui-${moduleId}` },
+      [
+        { key: 'module_id', value: moduleId },
+        { key: 'module_type', value: payload.type },
+        { key: 'name', value: payload.name },
+        { key: 'target', value: payload.target },
+        { key: 'config_json', value: JSON.stringify(payload.config) },
+      ],
+    );
+  }
+
+  /** Upsert a `$app:superapp_admin_link` metaobject. Returns its GID. */
+  async upsertAdminLinkObject(moduleId: string, payload: AdminLinkPayload): Promise<string> {
+    return this.upsertMetaobject(
+      { type: '$app:superapp_admin_link', handle: `superapp-link-${moduleId}` },
+      [
+        { key: 'module_id', value: moduleId },
+        { key: 'module_type', value: payload.type },
+        { key: 'name', value: payload.name },
+        { key: 'target', value: payload.target },
+        { key: 'label', value: payload.label },
+        { key: 'url', value: payload.url },
+        { key: 'config_json', value: JSON.stringify(payload.config) },
+      ],
+    );
+  }
+
+  /** Upsert a `$app:superapp_admin_print` metaobject. Returns its GID. */
+  async upsertAdminPrintObject(moduleId: string, payload: AdminPrintPayload): Promise<string> {
+    return this.upsertMetaobject(
+      { type: '$app:superapp_admin_print', handle: `superapp-print-${moduleId}` },
+      [
+        { key: 'module_id', value: moduleId },
+        { key: 'module_type', value: payload.type },
+        { key: 'name', value: payload.name },
+        { key: 'target', value: payload.target },
+        { key: 'label', value: payload.label },
+        { key: 'config_json', value: JSON.stringify(payload.config) },
+      ],
+    );
+  }
+
+  /** Upsert a `$app:superapp_admin_segment_template` metaobject. Returns its GID. */
+  async upsertAdminSegmentTemplateObject(moduleId: string, payload: AdminSegmentTemplatePayload): Promise<string> {
+    return this.upsertMetaobject(
+      { type: '$app:superapp_admin_segment_template', handle: `superapp-segment-template-${moduleId}` },
+      [
+        { key: 'module_id', value: moduleId },
+        { key: 'module_type', value: payload.type },
+        { key: 'name', value: payload.name },
+        { key: 'target', value: payload.target },
         { key: 'config_json', value: JSON.stringify(payload.config) },
       ],
     );

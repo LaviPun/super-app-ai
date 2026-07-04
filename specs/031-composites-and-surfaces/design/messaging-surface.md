@@ -428,12 +428,27 @@ async runForTrigger(shopDomain, admin, trigger, event) {
 }
 ```
 
-Fan-out is **bounded per run** (`batchSize`, cap 500) — this is the honest scope
-line: a 50k-contact blast needs the durable scheduler (M6) to page across runs;
-here one run sends up to `batchSize` and a `SCHEDULED` re-fire sends the next page
-(offset persisted on the job). Cross-run paging is a **follow-up** (§8), not
-faked — the first cut sends the first batch and records `total` so the gap is
-visible, never silently truncated-as-success.
+Fan-out is **bounded per run** (`batchSize`, cap 500). **Cross-run paging is now
+implemented** on the R3.5 durable scheduler (was a follow-up in the first cut):
+when the resolved audience exceeds one batch, the runner PARKS the remainder as a
+WAITING `WorkflowRun` — a `wait → messaging.sendPage → end` workflow carrying the
+next-offset cursor + a stable per-fan-out run token — via
+`WorkflowEngineService.startRun` (reused verbatim, no new queue). The existing cron
+resume sweep (`resumeDueWorkflowRuns`) fires the `messaging.sendPage` action, which
+re-enters `runCampaignPage(offset)` for the next page and parks the one after, until
+the audience is exhausted. Idempotency has two layers: the parked runId is
+`msgpage_<module>_<token>_<offset>` (a re-park is a P2002 no-op, like the R3.5 DELAY
+park), and each sent `data_store` recipient gets a per-run **sent-marker**
+(`__sentRuns` on its record, mirroring the loyalty ledger's per-GID lots) so a
+double-resume or a shifted cursor window never double-sends. Only `data_store` is
+deterministically cursor-pageable; `literal`/`event_recipient` are single-shot sets
+and are never parked (we page what is deterministic). A single-batch audience
+behaves exactly as before (no park). Files:
+`messaging-runner.service.ts` (cursor + sent-marker + `parkNextPage` + `runCampaignPage`),
+`messaging-page-park.ts` (the park-workflow builder + idempotent runId),
+`workflows/connectors/messaging.connector.ts` (the `sendPage` resume seam).
+The run still records `total` so any shortfall is visible, never
+truncated-as-success.
 
 ### 5c. Audience resolution (`resolveAudience`)
 - `source:'data_store'` → `DataStoreService.listRecords(shopId, storeKey, {limit:batchSize, offset})`

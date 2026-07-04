@@ -1,0 +1,18 @@
+api_version = "unstable"
+
+[[extensions]]
+name = "t:name"
+handle = "superapp-pickup-point"
+uid = "7450118d-9d0e-a64d-770f-3aeeaa00fa6caf6b6b88"
+type = "function"
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "purchase.pickup-point-delivery-option-generator.run"
+  input_query = "src/generate_run.graphql"
+  export = "generate_run"
+
+  [extensions.build]
+  command = "cargo build --target=wasm32-unknown-unknown --release"
+  path = "target/wasm32-unknown-unknown/release/superapp-pickup-point.wasm"
+  watch = [ "src/**/*.rs" ]

@@ -28,7 +28,10 @@ describe('WS5 publish preflight — SC-001 no silent no-op', () => {
   });
 
   it('marks a type with an unshipped runtime as needs_runtime (publishes nothing)', () => {
-    const spec = specForType('flow.automation');
+    // platform.extensionBlueprint has no runtime of its own (deploys only via its
+    // members' co-deploy), so publishing it standalone is genuinely needs_runtime.
+    // (flow.automation is now deployable — see compiler.flow.automation.test.ts.)
+    const spec = specForType('platform.extensionBlueprint');
     if (!spec) return;
     const result = classifyModulePublishability(spec);
     expect(result.status).toBe('needs_runtime');
@@ -94,7 +97,10 @@ describe('WS5 PublishService gate — refuses to deploy gated/blocked (SC-001 wi
   } as unknown as AdminApiContext['admin'];
 
   it('throws ModuleNotPublishableError (needs_runtime) for an unshipped runtime, doing no I/O', async () => {
-    const spec = specForType('flow.automation');
+    // platform.extensionBlueprint is the genuinely non-deployable standalone type
+    // (no runtime of its own). flow.automation is now deployable via its compiler +
+    // linear runner + durable-wait, so it no longer proves the gate.
+    const spec = specForType('platform.extensionBlueprint');
     if (!spec) return;
     const svc = new PublishService(explodingAdmin);
     await expect(svc.publish(spec, { kind: 'PLATFORM', moduleId: 'm1' })).rejects.toMatchObject({

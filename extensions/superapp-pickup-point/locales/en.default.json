@@ -1,0 +1,4 @@
+{
+  "name": "SuperApp Pickup Point",
+  "description": "Generates third-party pickup-point (parcel locker/post office) delivery options at checkout from published config."
+}

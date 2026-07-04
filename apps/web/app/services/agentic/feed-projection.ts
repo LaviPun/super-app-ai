@@ -25,6 +25,10 @@ export type AgenticFeedConfig = {
   attributeMap: Extract<RecipeSpec, { type: 'agentic.catalogProfile' }>['config']['attributeMap'];
   /** Disclosures appended verbatim to every feed item. */
   disclosures: Extract<RecipeSpec, { type: 'agentic.catalogProfile' }>['config']['disclosures'];
+  /** sponsored-products: promoted product GIDs boosted in agentic (MCP/feed) results. */
+  sponsoredProductIds: string[];
+  /** agent-profile: public free-text instructions surfaced to AI agents. */
+  agentInstructions?: string;
 };
 
 /** A single product row emitted in the feed. Product data only — no PII. */
@@ -39,6 +43,8 @@ export type AgenticFeedItem = {
   images: string[];
   /** Normalized attributes resolved from attributeMap (unresolved keys omitted). */
   attributes: Record<string, string>;
+  /** True when this item is a merchant-promoted (sponsored) product. */
+  sponsored?: boolean;
 };
 
 /** Raw product node shape the admin query returns (subset we project). */
@@ -134,4 +140,34 @@ export function resolveAttribute(n: RawProductNode, from: string): string | unde
     default:
       return undefined;
   }
+}
+
+/**
+ * sponsored-products: stable-partition `items` so merchant-promoted products (by GID,
+ * in the order the merchant listed them) lead the result set, each flagged
+ * `sponsored: true`. Non-sponsored items keep their original relative order. Only
+ * applies when the `sponsored-products` artifact is enabled AND ids are configured;
+ * otherwise the input is returned unchanged (no `sponsored` flag added).
+ *
+ * Pure and deterministic — no DB/network — so it is unit-testable and identical whether
+ * invoked from the feed route or the MCP search tool.
+ */
+export function applySponsoredRanking(
+  items: AgenticFeedItem[],
+  cfg: Pick<AgenticFeedConfig, 'artifacts' | 'sponsoredProductIds'>,
+): AgenticFeedItem[] {
+  if (!cfg.artifacts.includes('sponsored-products')) return items;
+  const promoted = cfg.sponsoredProductIds ?? [];
+  if (promoted.length === 0) return items;
+
+  const rank = new Map(promoted.map((id, i) => [id, i]));
+  const sponsored: AgenticFeedItem[] = [];
+  const rest: AgenticFeedItem[] = [];
+  for (const it of items) {
+    if (rank.has(it.id)) sponsored.push({ ...it, sponsored: true });
+    else rest.push(it);
+  }
+  // Order sponsored items by the merchant's configured sequence, ties broken by input order.
+  sponsored.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+  return [...sponsored, ...rest];
 }

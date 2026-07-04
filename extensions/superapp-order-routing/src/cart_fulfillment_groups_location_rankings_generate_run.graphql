@@ -1,0 +1,22 @@
+query Input {
+  cart {
+    deliveryGroups {
+      deliveryAddress {
+        countryCode
+      }
+    }
+  }
+  fulfillmentGroups {
+    handle
+    inventoryLocationHandles
+  }
+  shop {
+    metaobject(
+      handle: { type: "$app:superapp_function_config", handle: "superapp-fn-orderRoutingLocationRule" }
+    ) {
+      field(key: "config_json") {
+        jsonValue
+      }
+    }
+  }
+}

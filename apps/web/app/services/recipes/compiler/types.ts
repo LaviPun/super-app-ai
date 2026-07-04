@@ -28,11 +28,13 @@ export type ThemeModulePayload = {
   type: string;
   name: string;
   /** How this module is activated on the storefront.
-   *  - 'global'  → rendered automatically by the app embed block on every page
+   *  - 'global'  → rendered automatically by the body app embed block on every page
    *  - 'section' → merchant places it in any section via the universal-slot block
    *  - 'block'   → merchant places it in a product/collection section via product-slot or collection-slot
+   *  - 'head'    → injected into the document <head> by the head app embed (JSON-LD,
+   *               meta/OG, preload, pixel bootstrap, consent) — no visible markup
    */
-  activationType: 'global' | 'section' | 'block';
+  activationType: 'global' | 'section' | 'block' | 'head';
   config: Record<string, unknown>;
   style?: Record<string, unknown>;
   /**
@@ -49,6 +51,19 @@ export type ThemeModulePayload = {
    * absent/disabled. Convenience only; the Liquid gate also computes this inline.
    */
   ruleServerResolvable?: boolean;
+  /**
+   * Surface-targeted placement (theme.section `spec.placement`). When present, the
+   * storefront render-gate shows this module only on the declared templates
+   * (`enabled_on`) / everywhere except the declared templates (`disabled_on`),
+   * matched against Liquid's `template.name`. Threaded through publish into the
+   * `placement_json` metaobject field. OMITTED when the spec declares no placement,
+   * so a no-placement module's payload is byte-identical to before this field existed
+   * (the back-compat contract) and no gate is applied at render time.
+   */
+  placement?: {
+    enabled_on?: { templates?: string[]; groups?: string[] };
+    disabled_on?: { templates?: string[]; groups?: string[] };
+  };
 };
 
 /** Payload for an admin block stored as a $app:superapp_admin_block metaobject entry. */
@@ -71,6 +86,62 @@ export type AdminActionPayload = {
   label: string;
   /** Heading displayed inside the action modal. */
   title: string;
+  config: Record<string, unknown>;
+};
+
+/**
+ * Payload for an admin.discountUi module stored as a $app:superapp_admin_discount_ui
+ * metaobject entry. Read by the shipped discount-function-settings extension at
+ * admin.discount-details.function-settings.render to render the field form and map
+ * values onto the discount's function-configuration metafield.
+ */
+export type AdminDiscountUiPayload = {
+  type: string;
+  name: string;
+  /** The function-settings render target the extension registers. */
+  target: string;
+  config: Record<string, unknown>;
+};
+
+/**
+ * Payload for an admin.link module stored as a $app:superapp_admin_link metaobject
+ * entry. Read by the shipped admin-link extension (and the app link page) to resolve
+ * label + relative destination URL for the registered link target.
+ */
+export type AdminLinkPayload = {
+  type: string;
+  name: string;
+  /** The admin_link target the link is registered at. */
+  target: string;
+  label: string;
+  /** Relative app path the link opens. */
+  url: string;
+  config: Record<string, unknown>;
+};
+
+/**
+ * Payload for an admin.print module stored as a $app:superapp_admin_print metaobject
+ * entry. Read by the shipped admin-print extension + the app's print-document route to
+ * produce the custom printable document.
+ */
+export type AdminPrintPayload = {
+  type: string;
+  name: string;
+  /** One of the four print-action render targets. */
+  target: string;
+  label: string;
+  config: Record<string, unknown>;
+};
+
+/**
+ * Payload for an admin.segmentTemplate module stored as a
+ * $app:superapp_admin_segment_template metaobject entry. Read by the shipped
+ * segment-template extension at admin.customers.segmentation-templates.data.
+ */
+export type AdminSegmentTemplatePayload = {
+  type: string;
+  name: string;
+  target: string;
   config: Record<string, unknown>;
 };
 
@@ -108,6 +179,14 @@ export type CompileResult = {
   adminBlockPayload?: AdminBlockPayload;
   /** When set, PublishService upserts a $app:superapp_admin_action metaobject and adds it to superapp.admin/action_refs. */
   adminActionPayload?: AdminActionPayload;
+  /** When set, PublishService upserts a $app:superapp_admin_discount_ui metaobject and adds it to superapp.admin/discount_ui_refs. */
+  adminDiscountUiPayload?: AdminDiscountUiPayload;
+  /** When set, PublishService upserts a $app:superapp_admin_link metaobject and adds it to superapp.admin/link_refs. */
+  adminLinkPayload?: AdminLinkPayload;
+  /** When set, PublishService upserts a $app:superapp_admin_print metaobject and adds it to superapp.admin/print_refs. */
+  adminPrintPayload?: AdminPrintPayload;
+  /** When set, PublishService upserts a $app:superapp_admin_segment_template metaobject and adds it to superapp.admin/segment_template_refs. */
+  adminSegmentTemplatePayload?: AdminSegmentTemplatePayload;
   /** When set, PublishService upserts a $app:superapp_checkout_upsell metaobject and adds it to superapp.checkout/upsell_refs. */
   checkoutUpsellPayload?: CheckoutUpsellPayload;
   /** When set, PublishService upserts a $app:superapp_customer_account_block metaobject and adds it to superapp.customer_account/block_refs. */

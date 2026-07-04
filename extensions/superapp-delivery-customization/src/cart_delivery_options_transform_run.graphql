@@ -5,9 +5,30 @@ query CartDeliveryOptionsTransformRunInput {
         amount
       }
     }
+    buyerIdentity {
+      customer {
+        id
+        email
+        numberOfOrders
+      }
+    }
+    lines {
+      merchandise {
+        __typename
+        ... on ProductVariant {
+          id
+          product {
+            id
+            productType
+            vendor
+          }
+        }
+      }
+    }
     deliveryGroups {
       deliveryAddress {
         countryCode
+        provinceCode
       }
       deliveryOptions {
         handle

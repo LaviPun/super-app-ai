@@ -33,30 +33,46 @@ export async function loader({ request, params }: { request: Request; params: { 
         mode?: 'JSON' | 'HTML';
         title?: string;
         message?: string;
+        /** 'embed' (default) → an inline fragment the theme wraps; 'full_page' →
+         *  a standalone routed page rendered WITHOUT the theme layout (layout:false). */
+        surface?: 'embed' | 'full_page';
       };
       const styleCss: string = obj.styleCss?.value ?? '';
 
       if (cfg.mode === 'JSON') return json({ title: cfg.title ?? '', message: cfg.message ?? '' });
 
-      const html = `
+      const widgetMarkup = `
+          <div class="superapp-widget">
+            <strong>${escapeHtml(cfg.title ?? '')}</strong>
+            ${cfg.message ? `<div>${escapeHtml(cfg.message)}</div>` : ''}
+          </div>`;
+
+      // Full-page (layout:false) → a complete standalone HTML document served as its
+      // own routed store page. Embed (default) → a fragment: a scoped <style> + the
+      // widget <div>, which the theme's Liquid layout wraps (NO <html>/<head>/<body>,
+      // so it composes into an existing page). This is the real embed/full-page split.
+      const isFullPage = cfg.surface === 'full_page';
+      const html = isFullPage
+        ? `
         <!doctype html>
         <html>
         <head>
           <meta charset="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title>${escapeHtml(cfg.title ?? '')}</title>
           <style>
             ${styleCss}
             .superapp-widget strong{ display:block; margin-bottom: 6px; }
+            .superapp-widget{ max-width: 960px; margin: 0 auto; }
           </style>
         </head>
-        <body>
-          <div class="superapp-widget">
-            <strong>${escapeHtml(cfg.title ?? '')}</strong>
-            ${cfg.message ? `<div>${escapeHtml(cfg.message)}</div>` : ''}
-          </div>
+        <body>${widgetMarkup}
         </body>
-        </html>
-      `.trim();
+        </html>`.trim()
+        : `<style>
+            ${styleCss}
+            .superapp-widget strong{ display:block; margin-bottom: 6px; }
+          </style>${widgetMarkup}`.trim();
 
       return new Response(html, {
         headers: {

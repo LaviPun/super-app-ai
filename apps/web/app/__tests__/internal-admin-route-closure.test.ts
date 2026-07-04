@@ -324,17 +324,17 @@ describe('internal admin route closure (scorecard certification harness)', () =>
 
   it('internal.templates.$templateId: loader returns template payload', async () => {
     prismaMock.shop.findMany.mockResolvedValue([{ id: 'shop-1', shopDomain: 'demo.myshopify.com' }]);
-    const req = await adminRequest('http://127.0.0.1/internal/templates/UAO-001');
-    const res = await templateDetailLoader({ request: req, params: { templateId: 'UAO-001' } });
+    const req = await adminRequest('http://127.0.0.1/internal/templates/NSEC-HERO-01');
+    const res = await templateDetailLoader({ request: req, params: { templateId: 'NSEC-HERO-01' } });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.template.id).toBe('UAO-001');
-    expect(body.previewUrl).toContain('UAO-001');
+    expect(body.template.id).toBe('NSEC-HERO-01');
+    expect(body.previewUrl).toContain('NSEC-HERO-01');
   });
 
   it('internal.templates.$templateId.preview: loader returns HTML response', async () => {
-    const req = await adminRequest('http://127.0.0.1/internal/templates/UAO-001/preview');
-    const res = await templatePreviewLoader({ request: req, params: { templateId: 'UAO-001' } });
+    const req = await adminRequest('http://127.0.0.1/internal/templates/NSEC-HERO-01/preview');
+    const res = await templatePreviewLoader({ request: req, params: { templateId: 'NSEC-HERO-01' } });
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('text/html');
     const html = await res.text();

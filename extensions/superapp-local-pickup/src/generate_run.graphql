@@ -1,0 +1,15 @@
+query Input {
+  locations {
+    handle
+    name
+  }
+  shop {
+    metaobject(
+      handle: { type: "$app:superapp_function_config", handle: "superapp-fn-localPickupDeliveryOption" }
+    ) {
+      field(key: "config_json") {
+        jsonValue
+      }
+    }
+  }
+}

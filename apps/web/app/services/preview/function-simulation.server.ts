@@ -26,6 +26,9 @@ export const FUNCTION_PREVIEW_KINDS = new Set<string>([
   'functions.cartTransform',
   'functions.fulfillmentConstraints',
   'functions.orderRoutingLocationRule',
+  'functions.shippingDiscount',
+  'functions.localPickupDeliveryOption',
+  'functions.pickupPointDeliveryOption',
 ]);
 
 export function isFunctionPreviewKind(type: string): boolean {
@@ -162,6 +165,70 @@ export function simulateFunction(
     }
     case 'functions.orderRoutingLocationRule': {
       outcomes.push({ label: 'Order routed by location rule', detail: `Evaluated ${rules.length} rule(s) against fixture cart.`, effect: 'routed' });
+      break;
+    }
+    case 'functions.shippingDiscount': {
+      const totalQty = input.lineItems.reduce((sum, li) => sum + li.quantity, 0);
+      for (const rule of rules) {
+        const when = rule.when ?? {};
+        const subtotalOk = when.minSubtotal === undefined || subtotal >= when.minSubtotal;
+        const qtyOk = when.minQty === undefined || totalQty >= when.minQty;
+        const countryOk = !when.countryCodeIn?.length || when.countryCodeIn.includes(input.countryCode);
+        // Customer-tag gates are not runtime-evaluable in the pure Function (they are
+        // skipped there); mirror that in the preview so it doesn't over-promise.
+        const tagFree = !when.customerTags?.length;
+        if (!subtotalOk || !qtyOk || !countryOk || !tagFree) continue;
+        const pct = rule.apply?.shippingPercentage ?? 0;
+        if (pct <= 0) continue;
+        const label =
+          pct >= 100
+            ? `Cart ${money(subtotal, currency)} → FREE shipping`
+            : `Cart ${money(subtotal, currency)} → ${pct}% off shipping`;
+        outcomes.push({
+          label,
+          detail:
+            pct >= 100
+              ? `Delivery waived for ${input.countryCode} (${when.minSubtotal !== undefined ? `over ${money(when.minSubtotal, currency)}` : 'no minimum'}).`
+              : `Delivery discounted ${pct}% for ${input.countryCode}.`,
+          effect: 'applied',
+        });
+      }
+      break;
+    }
+    case 'functions.localPickupDeliveryOption': {
+      const locations = Array.isArray(config.locations) ? (config.locations as Array<Record<string, any>>) : [];
+      for (const loc of locations) {
+        if (!loc.locationId) continue;
+        const cost = typeof loc.cost === 'number' ? loc.cost : 0;
+        const title = loc.title || 'Local pickup';
+        outcomes.push({
+          label:
+            cost > 0
+              ? `Pickup option '${title}' added (${money(cost, currency)})`
+              : `Pickup option '${title}' added (free)`,
+          detail: `Local pickup generated for location ${String(loc.locationId).split('/').pop()}.`,
+          effect: 'applied',
+        });
+      }
+      break;
+    }
+    case 'functions.pickupPointDeliveryOption': {
+      const points = Array.isArray(config.points) ? (config.points as Array<Record<string, any>>) : [];
+      for (const pt of points) {
+        const countries: string[] = pt.countryCodeIn ?? [];
+        const applies = countries.length === 0 || countries.map((c) => c.toUpperCase()).includes(input.countryCode.toUpperCase());
+        if (!applies) continue;
+        if (!pt.externalId || !pt.name || !pt.provider?.logoUrl || !pt.address?.address1) continue;
+        const cost = typeof pt.cost === 'number' ? pt.cost : undefined;
+        outcomes.push({
+          label:
+            cost !== undefined && cost > 0
+              ? `Pickup point '${pt.name}' added (${money(cost, currency)})`
+              : `Pickup point '${pt.name}' added`,
+          detail: `${pt.provider?.name ?? 'Provider'} point in ${pt.address?.city ?? '—'} offered for ${input.countryCode}.`,
+          effect: 'applied',
+        });
+      }
       break;
     }
     default:

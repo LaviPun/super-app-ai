@@ -1,0 +1,18 @@
+api_version = "unstable"
+
+[[extensions]]
+name = "t:name"
+handle = "superapp-local-pickup"
+uid = "aa9feae3-35c1-dcfa-260a-fc799dbdd6142102770e"
+type = "function"
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "purchase.local-pickup-delivery-option-generator.run"
+  input_query = "src/generate_run.graphql"
+  export = "generate_run"
+
+  [extensions.build]
+  command = "cargo build --target=wasm32-unknown-unknown --release"
+  path = "target/wasm32-unknown-unknown/release/superapp-local-pickup.wasm"
+  watch = [ "src/**/*.rs" ]

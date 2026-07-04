@@ -1,0 +1,30 @@
+query Input {
+  cart {
+    cost {
+      subtotalAmount {
+        amount
+      }
+    }
+    lines {
+      quantity
+    }
+    deliveryGroups {
+      id
+      deliveryAddress {
+        countryCode
+      }
+    }
+  }
+  discount {
+    discountClasses
+  }
+  shop {
+    metaobject(
+      handle: { type: "$app:superapp_function_config", handle: "superapp-fn-shippingDiscount" }
+    ) {
+      field(key: "config_json") {
+        jsonValue
+      }
+    }
+  }
+}

@@ -2,10 +2,7 @@ import { RecipeSpecSchema, type RecipeSpec } from './recipe.js';
 import type { ModuleCategory } from './allowed-values.js';
 import { MODULE_CATEGORIES } from './allowed-values.js';
 import type { Capability } from './capabilities.js';
-import { PART1_TEMPLATES } from './_templates_part1.js';
-import { PART2_TEMPLATES } from './_templates_part2.js';
-import { PART3_TEMPLATES } from './_templates_part3.js';
-import { PART4_TEMPLATES } from './_templates_part4.js';
+import { ALL_TEMPLATES } from './templates/index.js';
 
 export type TemplateEntry = {
   id: string;
@@ -60,12 +57,7 @@ export const TEMPLATE_TYPES_REQUIRING_DATA_SAVE: ReadonlySet<string> = new Set([
 /** Categories that have templates; from Allowed Values Manifest (doc Section 4 + 9). */
 export const TEMPLATE_CATEGORIES = MODULE_CATEGORIES;
 
-const TEMPLATE_SOURCE: TemplateEntry[] = [
-  ...PART1_TEMPLATES,
-  ...PART2_TEMPLATES,
-  ...PART3_TEMPLATES,
-  ...PART4_TEMPLATES,
-];
+const TEMPLATE_SOURCE: TemplateEntry[] = ALL_TEMPLATES;
 
 function uniqCapabilities(flags: Capability[]): Capability[] {
   return Array.from(new Set(flags));
@@ -84,6 +76,9 @@ function getRequiredDataFlagsForType(type: string): Capability[] {
     case 'functions.cartTransform':
     case 'functions.fulfillmentConstraints':
     case 'functions.orderRoutingLocationRule':
+    case 'functions.shippingDiscount':
+    case 'functions.localPickupDeliveryOption':
+    case 'functions.pickupPointDeliveryOption':
       return ['FUNCTION_DATA', 'PRODUCT_DATA', 'ORDER_DATA', 'CART_DATA', 'CHECKOUT_DATA', 'METAFIELD_DATA', 'METAOBJECT_DATA'];
     case 'checkout.upsell':
     case 'checkout.block':

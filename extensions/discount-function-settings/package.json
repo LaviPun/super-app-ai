@@ -1,0 +1,13 @@
+{
+  "name": "superapp-discount-function-settings",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@preact/signals": "^2.9.1",
+    "@shopify/ui-extensions": "2026.4.0",
+    "preact": "^10.29.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

@@ -1969,8 +1969,9 @@ export async function modifyRecipeSpecOptions(
 /**
  * Coerce common LLM output mistakes in the hydrate envelope before Zod validation.
  * Mirrors repairRecipeForValidation but for HydrateEnvelopeV1 shape issues.
+ * Exported for the validation-report casing regression guard.
  */
-function repairHydrateEnvelope(raw: unknown): unknown {
+export function repairHydrateEnvelope(raw: unknown): unknown {
   if (!raw || typeof raw !== 'object') return raw;
   const o = JSON.parse(JSON.stringify(raw)) as Record<string, unknown>;
 
@@ -2031,11 +2032,18 @@ function repairHydrateEnvelope(raw: unknown): unknown {
       const check = c as Record<string, unknown>;
       if (!check.id) check.id = `check_${i}`;
       if (!check.severity) check.severity = 'low';
-      if (!check.status) check.status = 'PASS';
+      // Status is a strict uppercase enum ('PASS'|'WARN'|'FAIL'), but the LLM
+      // sometimes emits the wrong case ('pass'/'Fail'). Normalize case BEFORE the
+      // schema validates it: without this, a lowercase 'pass' fails the Zod enum
+      // (forcing a needless hydrate retry) and, if it slipped through, the module UI
+      // renders it red because the consumer checks `status === 'PASS'` exactly.
+      if (typeof check.status === 'string') check.status = check.status.toUpperCase();
+      if (check.status !== 'PASS' && check.status !== 'WARN' && check.status !== 'FAIL') check.status = 'PASS';
       if (!check.description) check.description = String(check.id);
       return check;
     });
-    // Ensure overall is valid
+    // Ensure overall is valid (same case-normalization: 'pass' → 'PASS').
+    if (typeof vr.overall === 'string') vr.overall = vr.overall.toUpperCase();
     if (vr.overall !== 'PASS' && vr.overall !== 'WARN') vr.overall = 'PASS';
   }
 

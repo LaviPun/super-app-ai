@@ -53,13 +53,33 @@ No style.`,
 Settings: rules (array 1-50), each: when(inventoryLocationIds:str[], countryCode:str[2]), apply(preferLocationId:str, priority:int 0-100). Prefer warehouse by location/stock.
 No style.`,
 
+  'functions.shippingDiscount': `Module: functions.shippingDiscount | Category: FUNCTION | Requires: SHIPPING_FUNCTION
+Waives or discounts SHIPPING/delivery cost (free or discounted delivery). This is the ONLY module type that can change shipping cost — functions.deliveryCustomization only renames/reorders/hides options; functions.discountRules cannot discount shipping. Use this for "free shipping over $X", "free delivery to US/CA", etc.
+Settings: rules (array 1-50), each rule: when(minSubtotal:number>=0, minQty:int>0, countryCodeIn:str[2-char], customerTags:str[]), apply(shippingPercentage:0-100 — 100=free shipping, partial=discounted delivery).
+No style.`,
+
+  'functions.localPickupDeliveryOption': `Module: functions.localPickupDeliveryOption | Category: FUNCTION | Requires: SHIPPING_FUNCTION
+GENERATES local pickup / BOPIS ("buy online, pick up in store") delivery options at checkout — one option per configured store location. Use for "let customers pick up in store", "in-store pickup", "click and collect".
+Settings: locations (array 1-50), each: locationId(Shopify Location GID, required), cost(number>=0, opt — absent=free), title(str 1-80, opt — defaults to location name), pickupInstruction(str 1-240, opt).
+NOTE: the Local Pickup Delivery Option Generator API is currently only on Shopify's unstable version, so this type is authorable + previewable but classified needs_runtime (not deployable on a stable release yet).
+No style.`,
+
+  'functions.pickupPointDeliveryOption': `Module: functions.pickupPointDeliveryOption | Category: FUNCTION | Requires: SHIPPING_FUNCTION
+GENERATES third-party pickup-point delivery options at checkout (parcel lockers, post offices, convenience stores). Each point carries its full carrier identity. Use for "offer parcel locker delivery", "InPost/packstation pickup", "post office collection".
+Settings: points (array 1-50), each: externalId(str, required), name(str 1-120), cost(number>=0, opt), provider({name:str 1-80, logoUrl:url}), address({address1, city, countryCode:str[2], latitude:number, longitude:number, address2?/province?/provinceCode?/zip?/phone? opt}), countryCodeIn(str[2-char][], opt — destinations offered; empty=any).
+NOTE: the Pickup Point Delivery Option Generator API is currently only on Shopify's unstable version, so this type is authorable + previewable but classified needs_runtime (not deployable on a stable release yet).
+No style.`,
+
   'checkout.upsell': `Module: checkout.upsell | Category: STOREFRONT_UI | Requires: CHECKOUT_UI_INFO_SHIP_PAY
 Settings: offerTitle(str 1-60), productVariantGid(str min 10, e.g. gid://shopify/ProductVariant/123), discountPercent(0-100, default 0).
 No style.`,
 
   'checkout.block': `Module: checkout.block | Category: STOREFRONT_UI | Requires: CHECKOUT_UI_INFO_SHIP_PAY
-Settings: target(enum from CHECKOUT_UI_TARGETS), title(str 1-80), message(str 0-240, opt), productVariantGid(str, opt). Merchant-placeable block in checkout.
-No style.`,
+Settings: target(enum from CHECKOUT_UI_TARGETS), title(str 1-80), message(str 0-240, opt), productVariantGid(str, opt).
+Interactive fields[] (opt): {kind(text|textarea|checkbox|choice-list|select|email|number), key, label, placeholder?, required?, options?[{value,label}], write?{to(attribute|note|metafield), namespace?, metafieldKey?}}. Fields capture buyer input and write to cart on checkout targets; read-only on thank-you.
+Layout[] (opt): {kind(banner|progress-bar|trust-badges|payment-icons|countdown|testimonial|divider), text?, tone?(auto|info|success|warning|critical), value?(0-1 for progress), badges?[str], icons?[payment icon names], endsAt?(ISO), attribution?}.
+protectedData (opt): none|level1|level2 — declares the customer-data access the block needs (level1=id/orderCount, level2=name/email/phone/address); requires app-level access grant to populate.
+Merchant-placeable block in checkout. No style.`,
 
   'postPurchase.offer': `Module: postPurchase.offer | Category: STOREFRONT_UI | Requires: CHECKOUT_UI_INFO_SHIP_PAY
 Settings: offerTitle(str 1-80), productVariantGid(str, opt), message(str 0-240, opt). One-click upsell after payment.
@@ -74,7 +94,22 @@ Settings: target(enum from ADMIN_TARGETS), label(str 1-80), shouldRender(bool, o
 No style.`,
 
   'admin.discountUi': `Module: admin.discountUi | Category: ADMIN_UI
-Settings: title(str 1-80), discountClass(product|order|shipping), functionHandle(str, opt — links a functions.discountRules Function), description(str, opt), fields([{key,label,kind:text|number|toggle|select}], opt). Spring 2026 Discount UI Extension — an admin form that configures a discount.
+Settings: title(str 1-80), discountClass(product|order|shipping), functionHandle(str, opt — links a functions.discountRules Function), description(str, opt), fields([{key,label,kind:text|number|toggle|select}], opt). Spring 2026 Discount UI Extension — an admin form (admin.discount-details.function-settings.render) that configures a discount and saves values to the discount function-configuration metafield the paired Function reads.
+No style.`,
+
+  'admin.link': `Module: admin.link | Category: ADMIN_UI
+DEEP LINK from an admin resource page to a page of the app (admin_link extension type — the toml registration IS the deploy; Shopify appends the store + selected-resource id to the URL at click). Use for "add a link on the order page to my app", "jump from a product to my app workflow".
+Settings: target(from ADMIN_LINK_TARGETS — e.g. admin.order-details.action.link|admin.product-details.action.link|admin.customer-details.action.link|admin.collection-details.action.link|admin.order-index.selection-action.link|admin.product-index.selection-action.link|admin.app.intent.link), label(str 1-80), url(relative app path starting with "/", max 2000 — no external URLs).
+No style.`,
+
+  'admin.print': `Module: admin.print | Category: ADMIN_UI
+CUSTOM PRINT DOCUMENT (packing slip / invoice / shipping label / pick list) for orders + products (admin_print / Print Action Extension API). The extension renders s-admin-print-action pointing at the app's print-document route. Use for "custom packing slip", "branded invoice", "print shipping labels".
+Settings: target(admin.order-details.print-action.render|admin.product-details.print-action.render|admin.order-index.selection-print-action.render|admin.product-index.selection-print-action.render), label(str 1-80), documentKind(packing-slip|invoice|shipping-label|pick-list|custom), title(str 1-120), subtitle(str 0-240, opt), bodyTemplate(str 0-8000, opt — {{order.name}}/{{product.title}} placeholders), includeShopHeader(bool, default true).
+No style.`,
+
+  'admin.segmentTemplate': `Module: admin.segmentTemplate | Category: ADMIN_UI
+PRE-BUILT CUSTOMER-SEGMENT QUERY TEMPLATES surfaced in the segment editor's template gallery (admin.customers.segmentation-templates.data). Merchants insert a template's query with one click. Use for "add VIP/at-risk segment templates", "pre-built customer segments".
+Settings: target(admin.customers.segmentation-templates.data, fixed), templates(array 1-20, each: title(str 1-80), description(str 1-240), query(segment editor query syntax, str 1-2000 — e.g. "number_of_orders >= 5")).
 No style.`,
 
   'pos.extension': `Module: pos.extension | Category: ADMIN_UI

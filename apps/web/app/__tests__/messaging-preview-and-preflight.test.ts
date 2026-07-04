@@ -65,16 +65,19 @@ describe('classifyModulePublishability — messaging per-channel gate', () => {
     expect(result.status).toBe('deployable');
   });
 
-  it('sms campaign is needs_runtime (blocked at publish, scoped to the channel)', () => {
+  it('sms campaign is needs_runtime when unconfigured (connector ships, creds missing — honest, not faked)', () => {
+    // No SMS provider creds in the test env → sendable check fails → needs_runtime.
     const result = classifyModulePublishability(campaign({ channel: 'sms' }));
     expect(result.status).toBe('needs_runtime');
     expect(result.willDeploy).toBe(false);
     expect(result.reasons.join(' ')).toMatch(/sms/i);
+    expect(result.reasons.join(' ')).toMatch(/credential|configured|SMS_PROVIDER/i);
   });
 
-  it('push campaign is needs_runtime', () => {
+  it('push campaign is needs_runtime when unconfigured (VAPID keys missing)', () => {
     const result = classifyModulePublishability(campaign({ channel: 'push' }));
     expect(result.status).toBe('needs_runtime');
+    expect(result.reasons.join(' ')).toMatch(/VAPID|credential|configured/i);
   });
 
   it('bare type (no config) stays deployable — the type-level audit contract holds', () => {

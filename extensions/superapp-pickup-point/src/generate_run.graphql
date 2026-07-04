@@ -1,0 +1,18 @@
+query Input {
+  cart {
+    deliveryGroups {
+      deliveryAddress {
+        countryCode
+      }
+    }
+  }
+  shop {
+    metaobject(
+      handle: { type: "$app:superapp_function_config", handle: "superapp-fn-pickupPointDeliveryOption" }
+    ) {
+      field(key: "config_json") {
+        jsonValue
+      }
+    }
+  }
+}

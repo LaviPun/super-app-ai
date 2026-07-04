@@ -23,6 +23,7 @@
   assign mod_type = mod_ref.fields.module_type.value
   assign mod_cfg = mod_ref.fields.config_json.value
   assign mod_sty = mod_ref.fields.style_json.value
+  assign mod_placement = mod_ref.fields.placement_json.value
 
   assign kind = mod_cfg.kind
   if kind == blank
@@ -44,6 +45,36 @@
     endcase
   endif
 %}
+
+{% # ── Surface-targeted placement gate ────────────────────────────────────────
+   A theme.section may declare `placement` (enabled_on / disabled_on templates) to
+   scope where it renders. Matched against the current `template.name`. Additive +
+   back-compat: a module with NO placement metadata (placement_json blank/empty)
+   sets sa_placement_ok=true and renders exactly as before — no gate applied.
+   Defensive: a placement object with empty/missing template arrays also renders
+   (never hides on absent data). enabled_on/disabled_on are mutually exclusive by
+   schema, but this evaluates both independently for safety. %}
+{% liquid
+  assign sa_placement_ok = true
+  if mod_placement != blank
+    assign sa_tpl = template.name
+    assign sa_enabled = mod_placement.enabled_on.templates
+    assign sa_disabled = mod_placement.disabled_on.templates
+    if sa_enabled != blank and sa_enabled.size > 0
+      unless sa_enabled contains sa_tpl
+        assign sa_placement_ok = false
+      endunless
+    endif
+    if sa_disabled != blank and sa_disabled.size > 0
+      if sa_disabled contains sa_tpl
+        assign sa_placement_ok = false
+      endif
+    endif
+  endif
+%}
+
+{% # Off-target: render nothing (the module is scoped away from this template). %}
+{% if sa_placement_ok %}
 
 {% # ── R2.1 display-rules server gate ─────────────────────────────────────────
    Additive + back-compat: when mod_cfg.ruleEngine is absent or disabled, no
@@ -463,3 +494,6 @@
   </div>
 {% endif %}
 {% endunless %}
+
+{% # Close the surface-targeted placement gate (renders nothing when off-target). %}
+{% endif %}

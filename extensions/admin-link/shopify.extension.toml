@@ -1,0 +1,75 @@
+# SuperApp Admin Links — deep links from admin resource pages to the SuperApp.
+#
+# `admin_link` is a distinct Shopify extension TYPE and allows exactly ONE
+# `[[extensions.targeting]]` per extension (one link = one target + relative url).
+# So each admin link is its OWN `[[extensions]]` block with a single target, mirroring
+# the shipped superapp-sidekick-* admin_link extensions. Shopify appends the store domain
+# + the selected/displayed resource id to the url at click time, so `/app/link` can key
+# off `?shop=…&id=…&resource=…` and route the merchant to the right SuperApp workflow.
+# The published admin.link module config (superapp.admin/link_refs) carries the
+# merchant-facing label + intended destination. `admin_link` extensions take no top-level
+# `api_version` (the toml registration itself is the deployed artifact).
+
+# Order pages → SuperApp order workflow.
+[[extensions]]
+name = "Open order in SuperApp"
+handle = "admin-link-order-details"
+uid = "3c9467a9-ef95-47b8-83ce-53a3e537387a"
+type = "admin_link"
+
+[[extensions.targeting]]
+target = "admin.order-details.action.link"
+url = "/app/link?resource=order"
+
+[[extensions]]
+name = "Open selected orders in SuperApp"
+handle = "admin-link-order-index"
+uid = "af5e3917-04f3-4ad1-abd4-df1f9ab847cd"
+type = "admin_link"
+
+[[extensions.targeting]]
+target = "admin.order-index.selection-action.link"
+url = "/app/link?resource=order&bulk=1"
+
+# Product pages → SuperApp product workflow.
+[[extensions]]
+name = "Open product in SuperApp"
+handle = "admin-link-product-details"
+uid = "78878419-208b-4275-b6fa-112e5398f31a"
+type = "admin_link"
+
+[[extensions.targeting]]
+target = "admin.product-details.action.link"
+url = "/app/link?resource=product"
+
+[[extensions]]
+name = "Open selected products in SuperApp"
+handle = "admin-link-product-index"
+uid = "f32667b6-2303-4fb5-9b43-d007fe18da10"
+type = "admin_link"
+
+[[extensions.targeting]]
+target = "admin.product-index.selection-action.link"
+url = "/app/link?resource=product&bulk=1"
+
+# Customer pages → SuperApp customer workflow.
+[[extensions]]
+name = "Open customer in SuperApp"
+handle = "admin-link-customer-details"
+uid = "7353a95a-cbc4-4520-8d2c-41ad8549c85d"
+type = "admin_link"
+
+[[extensions.targeting]]
+target = "admin.customer-details.action.link"
+url = "/app/link?resource=customer"
+
+# Collection pages → SuperApp collection workflow.
+[[extensions]]
+name = "Open collection in SuperApp"
+handle = "admin-link-collection-details"
+uid = "c2fab4cc-f03f-468f-836a-1f12cb2022a4"
+type = "admin_link"
+
+[[extensions.targeting]]
+target = "admin.collection-details.action.link"
+url = "/app/link?resource=collection"

@@ -5,5 +5,6 @@
   "open_action": "Open",
   "loading": "Loading…",
   "load_error": "Couldn't load configuration.",
-  "empty_state": "No POS module is published for this store yet."
+  "empty_state": "No POS module is published for this store yet.",
+  "pin_gated": "Staff PIN required"
 }

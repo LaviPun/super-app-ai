@@ -54,13 +54,34 @@ describe('agentic.catalogProfile schema (M13)', () => {
     expect(parsed.config.disclosures).toEqual([]);
   });
 
-  it('accepts the deferred artifacts in the vocabulary (they are modeled, gated at publish)', () => {
+  it('accepts the full artifact set (build #7c: mcp/agent-profile/sponsored are app-served + shipped)', () => {
     const parsed = RecipeSpecSchema.parse({
       ...base,
-      config: { artifacts: ['catalog-feed', 'mcp-endpoint', 'agent-profile', 'sponsored-products'] },
+      config: {
+        artifacts: ['catalog-feed', 'mcp-endpoint', 'agent-profile', 'sponsored-products'],
+        sponsoredProductIds: ['gid://shopify/Product/1', 'gid://shopify/Product/2'],
+        agentInstructions: 'Prioritize fair-trade products.',
+      },
     });
     if (parsed.type !== 'agentic.catalogProfile') throw new Error('narrowing');
     expect(parsed.config.artifacts).toContain('mcp-endpoint');
+    expect(parsed.config.sponsoredProductIds).toHaveLength(2);
+    expect(parsed.config.agentInstructions).toBe('Prioritize fair-trade products.');
+  });
+
+  it('defaults sponsoredProductIds to [] and leaves agentInstructions undefined', () => {
+    const parsed = RecipeSpecSchema.parse({ ...base, config: {} });
+    if (parsed.type !== 'agentic.catalogProfile') throw new Error('narrowing');
+    expect(parsed.config.sponsoredProductIds).toEqual([]);
+    expect(parsed.config.agentInstructions).toBeUndefined();
+  });
+
+  it('rejects a non-GID sponsoredProductId', () => {
+    const r = RecipeSpecSchema.safeParse({
+      ...base,
+      config: { sponsoredProductIds: ['not-a-gid'] },
+    });
+    expect(r.success).toBe(false);
   });
 
   it('rejects an uppercase feedHandle', () => {

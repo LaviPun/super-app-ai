@@ -17,13 +17,22 @@ import { DataModelSchema, ModuleDataStoreSchema } from './data-model.js';
 import type { ModuleCategory, ModuleType } from './allowed-values.js';
 import {
   LIMITS,
-  THEME_PLACEABLE_TEMPLATES,
-  THEME_SECTION_GROUPS,
+  isThemePlaceableTemplate,
+  isThemeSectionGroup,
   CUSTOMER_ACCOUNT_TARGETS,
   CHECKOUT_UI_TARGETS,
+  CHECKOUT_FIELD_KINDS,
+  CHECKOUT_INPUT_TARGET_KINDS,
+  CHECKOUT_LAYOUT_KINDS,
+  CHECKOUT_TONES,
+  CHECKOUT_PROTECTED_DATA_LEVELS,
+  CHECKOUT_PAYMENT_ICON_TYPES,
   ADMIN_TARGETS,
   ADMIN_BLOCK_TARGETS,
   ADMIN_ACTION_TARGETS,
+  ADMIN_LINK_TARGETS,
+  ADMIN_PRINT_TARGETS,
+  ADMIN_PRINT_DOCUMENT_KINDS,
   POS_TARGETS,
   PIXEL_STANDARD_EVENTS,
   MODULE_CATEGORIES,
@@ -36,10 +45,17 @@ import {
   CONDITION_OPERATORS,
   CUSTOMER_ACCOUNT_BLOCK_KINDS,
   CUSTOMER_ACCOUNT_BLOCK_TONES,
+  CUSTOMER_ACCOUNT_FIELD_KINDS,
+  CUSTOMER_ACCOUNT_BINDINGS,
+  CUSTOMER_ACCOUNT_ACTION_KINDS,
   BLUEPRINT_SURFACES,
   PROXY_WIDGET_MODES,
   CART_TRANSFORM_MODES,
   POS_BLOCK_KINDS,
+  POS_ACTIONS,
+  POS_DATA_BINDINGS,
+  POS_PRESENTATIONS,
+  POS_OBSERVE_EVENTS,
   HTTP_METHODS,
   HTTP_METHODS_EXTENDED,
   HTTP_AUTH_TYPES,
@@ -50,6 +66,9 @@ import {
   AGENTIC_LIMITS,
   PRODUCT_GID_RE,
   COLLECTION_GID_RE,
+  PRODUCT_VARIANT_GID_RE,
+  CUSTOMER_GID_RE,
+  LOCATION_GID_RE,
 } from './allowed-values.js';
 
 // Re-export doc-aligned types and enums from manifest (doc 3.2, 3.3, 4.1).
@@ -68,9 +87,21 @@ export {
 /** All RecipeSpec types as array (for prompt-expectations and UI). */
 export const ALL_MODULE_TYPES: ModuleType[] = [...RECIPE_SPEC_TYPES];
 
+/**
+ * How a THEME target's `theme.section` compiles (033):
+ *  - `app_block` (default / absent) — the shipped path: a `$app:superapp_module`
+ *    metaobject rendered by the theme app extension. Fully back-compat; a THEME
+ *    target with no `mode` behaves byte-identically to before this field existed.
+ *  - `native_section` — compile to a self-contained `sections/superapp-<slug>.liquid`
+ *    file with a native `{% schema %}` and push it via the Theme Files API
+ *    (`themeFilesUpsert`). Flag-gated (`THEME_NATIVE_SECTION_ENABLED`) and only
+ *    deployable once the app holds `write_themes` + a Shopify page-builder exemption.
+ */
+export type ThemeDeployMode = 'app_block' | 'native_section';
+
 /** Where to deploy: theme app extension via metafields (themeId + moduleId) or platform extensions. Doc-aligned. */
 export type DeployTarget =
-  | { kind: (typeof DEPLOY_TARGET_KINDS)[0]; themeId: string; moduleId?: string }
+  | { kind: (typeof DEPLOY_TARGET_KINDS)[0]; themeId: string; moduleId?: string; mode?: ThemeDeployMode }
   | { kind: (typeof DEPLOY_TARGET_KINDS)[1]; moduleId?: string };
 
 export const DeployTargetSchema = z.discriminatedUnion('kind', [
@@ -78,6 +109,9 @@ export const DeployTargetSchema = z.discriminatedUnion('kind', [
     kind: z.literal(DEPLOY_TARGET_KINDS[0]),
     themeId: z.string().min(1),
     moduleId: z.string().min(1).optional(),
+    // Absent = 'app_block' (the shipped default). Same theme.section spec, two
+    // compile targets (033) — NOT a new RecipeSpec type or DEPLOY_TARGET_KINDS value.
+    mode: z.enum(['app_block', 'native_section']).optional(),
   }),
   z.object({
     kind: z.literal(DEPLOY_TARGET_KINDS[1]),
@@ -85,19 +119,33 @@ export const DeployTargetSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
-/** Theme placement: only one of enabled_on or disabled_on (doc 4.2.2B, 4.2.3). */
+/**
+ * Theme placement: only one of enabled_on or disabled_on (doc 4.2.2B, 4.2.3).
+ *
+ * `templates` accepts the finite `THEME_PLACEABLE_TEMPLATES` set (now incl. classic
+ * `customer/*`) AND open-ended `metaobject/<type>` templates; `groups` accepts the
+ * finite `THEME_SECTION_GROUPS` set AND open-ended `custom.<name>` groups. Both are
+ * validated by pattern (they cannot be closed enums — one metaobject template per
+ * merchant definition, one custom group per theme).
+ */
+const PlaceableTemplate = z.string().refine(isThemePlaceableTemplate, {
+  message: 'Not a placeable template (Allowed Values Manifest 4.2.2B; or metaobject/<type>).',
+});
+const SectionGroup = z.string().refine(isThemeSectionGroup, {
+  message: 'Not a section group (Allowed Values Manifest 4.2.3; or custom.<name>).',
+});
 const PlacementSchema = z
   .object({
     enabled_on: z
       .object({
-        templates: z.array(z.enum(THEME_PLACEABLE_TEMPLATES)).optional(),
-        groups: z.array(z.enum(THEME_SECTION_GROUPS)).optional(),
+        templates: z.array(PlaceableTemplate).optional(),
+        groups: z.array(SectionGroup).optional(),
       })
       .optional(),
     disabled_on: z
       .object({
-        templates: z.array(z.enum(THEME_PLACEABLE_TEMPLATES)).optional(),
-        groups: z.array(z.enum(THEME_SECTION_GROUPS)).optional(),
+        templates: z.array(PlaceableTemplate).optional(),
+        groups: z.array(SectionGroup).optional(),
       })
       .optional(),
   })
@@ -124,6 +172,160 @@ const Base = z.object({
   dataModel: ModuleDataStoreSchema.optional(),
 });
 
+/**
+ * Tone vocabulary shared by admin badges/text/buttons. Mirrors the Polaris admin
+ * `s-badge`/`s-text` tone union (2026-04) so the generic admin UI extension can map
+ * a config tone straight to a component tone without translation.
+ */
+const AdminToneEnum = z.enum(['neutral', 'info', 'success', 'warning', 'critical']);
+
+/**
+ * Declarative presentational vocabulary for `admin.block` / `admin.action` modules.
+ * The generic shipped admin UI extension (extensions/admin-ui) reads these from the
+ * persisted metaobject and renders them with Polaris `s-*` web components — so a
+ * published admin module shows real fields, data rows, badges, buttons and links,
+ * not just its label. Every key is optional and additive: existing `{target,label}`
+ * blocks/actions stay valid and simply render their label + any config keys.
+ *
+ * Defined as a raw Zod shape (spread into each config `z.object`) rather than a
+ * standalone object schema so it composes with the discriminated-union variants.
+ */
+const AdminContentShape = {
+  /** Intro paragraph shown under the heading. */
+  description: z.string().max(600).optional(),
+  /** Label/value data rows (e.g. "Risk level: High"). Rendered as inline pairs. */
+  fields: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(80),
+        value: z.string().max(400),
+        tone: AdminToneEnum.optional(),
+      }),
+    )
+    .max(30)
+    .optional(),
+  /** Status badges (e.g. "Verified", "VIP"). */
+  badges: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(60),
+        tone: AdminToneEnum.optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
+  /** A simple data table: header columns + string rows. */
+  table: z
+    .object({
+      columns: z.array(z.string().min(1).max(60)).min(1).max(6),
+      rows: z.array(z.array(z.string().max(200)).max(6)).max(50),
+    })
+    .optional(),
+  /** Action buttons. A `url` renders a link-button; otherwise it is inert (display only). */
+  buttons: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(60),
+        url: z.string().max(2000).optional(),
+        tone: z.enum(['default', 'critical']).optional(),
+      }),
+    )
+    .max(10)
+    .optional(),
+  /** Plain hyperlinks (deep-links into the app or external resources). */
+  links: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(80),
+        url: z.string().min(1).max(2000),
+      }),
+    )
+    .max(10)
+    .optional(),
+} as const;
+
+const CheckoutToneEnum = z.enum(CHECKOUT_TONES);
+
+/**
+ * Declarative checkout render vocab (build #2, 034). All optional so the thin
+ * `{target,title,message?,productVariantGid?}` checkout.block stays valid and
+ * renders byte-identically. The shipped generic checkout UI extension reads these
+ * verbatim from the persisted `$app:superapp_checkout_upsell` metaobject and maps
+ * them onto checkout-safe Polaris `s-*` components, branching by `target`.
+ *
+ * Interactive `fields[]` capture buyer input and (checkout surface only) write it
+ * back via applyAttributeChange / applyNoteChange / applyMetafieldChange; on
+ * thank-you targets they degrade to read-only labels. `layout[]` holds
+ * non-interactive presentation (banner / progress-bar / trust-badges /
+ * payment-icons / countdown / testimonial / divider). `protectedData` DECLARES the
+ * customer-data access level the block relies on (granted app-wide, surfaced as a
+ * note — never a silent block).
+ */
+const CheckoutContentShape = {
+  /** Interactive buyer-input fields. Checkout-surface only; read-only on thank-you. */
+  fields: z
+    .array(
+      z.object({
+        kind: z.enum(CHECKOUT_FIELD_KINDS).default('text'),
+        /** Stable key: the cart attribute / metafield key (or note discriminator). */
+        key: z
+          .string()
+          .min(1)
+          .max(60)
+          .regex(/^[a-zA-Z0-9_.\-]+$/, 'key must be alphanumeric/underscore/dot/dash'),
+        label: z.string().min(1).max(80),
+        placeholder: z.string().max(120).optional(),
+        required: z.boolean().optional(),
+        /** Options for `choice-list` / `select`. */
+        options: z
+          .array(z.object({ value: z.string().min(1).max(80), label: z.string().min(1).max(80) }))
+          .max(20)
+          .optional(),
+        /** Where the captured value is written. Omit → display/collect only, no write. */
+        write: z
+          .object({
+            to: z.enum(CHECKOUT_INPUT_TARGET_KINDS).default('attribute'),
+            /**
+             * Metafield namespace/key (only for `to: 'metafield'`). Namespace
+             * defaults to the app-reserved `$app:superapp` at compile time.
+             */
+            namespace: z.string().max(60).optional(),
+            metafieldKey: z.string().max(60).optional(),
+          })
+          .optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
+  /** Non-interactive layout/presentation blocks. Render on both surfaces. */
+  layout: z
+    .array(
+      z.object({
+        kind: z.enum(CHECKOUT_LAYOUT_KINDS),
+        text: z.string().max(400).optional(),
+        tone: CheckoutToneEnum.optional(),
+        /** progress-bar: 0..1 fraction complete. */
+        value: z.number().min(0).max(1).optional(),
+        /** trust-badges: badge labels. */
+        badges: z.array(z.string().min(1).max(40)).max(10).optional(),
+        /** payment-icons: icon type identifiers. */
+        icons: z.array(z.enum(CHECKOUT_PAYMENT_ICON_TYPES)).max(12).optional(),
+        /** countdown: ISO end timestamp (rendered as static text, no live timer). */
+        endsAt: z.string().max(40).optional(),
+        /** testimonial: attribution line. */
+        attribution: z.string().max(120).optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
+  /**
+   * Protected-customer-data access level the block relies on. DECLARATION only —
+   * access is granted app-wide (shopify.app.toml + Partner data-protection request);
+   * surfaced to the merchant as a note. Defaults to `none`.
+   */
+  protectedData: z.enum(CHECKOUT_PROTECTED_DATA_LEVELS).optional(),
+} as const;
+
 export const RecipeSpecSchema = z.discriminatedUnion('type', [
   /**
    * Generic, unrestricted storefront section / theme app extension.
@@ -140,8 +342,14 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     config: z.object({
       /** Free-form recommendation tag — NOT an enum. Drives preview/recommendations only. */
       kind: z.string().min(1).max(60).default('custom'),
-      /** How the section activates on the storefront. */
-      activation: z.enum(['section', 'global', 'overlay']).default('section'),
+      /**
+       * How the section activates on the storefront.
+       *  - 'section'/'global'/'overlay' → rendered in the page BODY (block or app embed).
+       *  - 'head' → injected into the document `<head>` via the head app-embed, for
+       *    head-only kinds (JSON-LD structured data, meta/OG tags, resource preload,
+       *    pixel bootstrap, consent scripts). Head modules have no visible markup.
+       */
+      activation: z.enum(['section', 'global', 'overlay', 'head']).default('section'),
       title: z.string().max(LIMITS.nameMax).optional(),
       subtitle: z.string().max(LIMITS.subheadingMax).optional(),
       /** The section's own typed settings, declared inline (reuses DataModel). */
@@ -203,6 +411,16 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       title: z.string().min(LIMITS.headingMin).max(LIMITS.nameMax),
       message: z.string().min(0).max(LIMITS.popupBodyMax).optional(),
       /**
+       * Render surface (034 build #6). Every proxy widget is served at the app's single,
+       * fixed app-proxy subpath — `/apps/superapp/<widgetId>` (the app has ONE app_proxy;
+       * see shopify.app.toml [app_proxy].subpath). Default `'embed'` = the embeddable
+       * fragment (back-compat: absent = embed, byte-identical). `'full_page'` = the proxy
+       * loader renders WITHOUT the theme layout wrapper (`layout:false`) so the same
+       * `/apps/superapp/<widgetId>` URL reads as a first-class store page (lookbook,
+       * stockist locator, quiz) rather than a widget embedded in another page.
+       */
+      surface: z.enum(['embed', 'full_page']).default('embed'),
+      /**
        * Display rules (R2.1). Same pack as theme.section — an app-proxy widget can
        * gate server-side in its proxy loader (the strongest evaluation site, since
        * the proxy has the authenticated customer + cart). Optional + back-compat.
@@ -246,9 +464,22 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     requires: z.array(z.custom<Capability>()).default(['SHIPPING_FUNCTION']),
     config: z.object({
       rules: z.array(z.object({
+        // Predicates are ANDed; an omitted predicate is not a constraint. Beyond
+        // country/subtotal, the crate now targets by cart contents and customer
+        // (Build #14b). Tag/collection targeting is expressed via product
+        // type/vendor/id because `hasTags`/`inAnyCollection` require static input
+        // -query args and can't be config-driven — see the crate's module note.
         when: z.object({
           countryCodeIn: z.array(z.string().min(2).max(2)).optional(),
+          provinceCodeIn: z.array(z.string().min(1).max(10)).optional(),
           minSubtotal: z.number().nonnegative().optional(),
+          productVariantIdIn: z.array(z.string().regex(PRODUCT_VARIANT_GID_RE)).optional(),
+          productIdIn: z.array(z.string().regex(PRODUCT_GID_RE)).optional(),
+          productTypeIn: z.array(z.string().min(1).max(120)).optional(),
+          vendorIn: z.array(z.string().min(1).max(120)).optional(),
+          customerIdIn: z.array(z.string().regex(CUSTOMER_GID_RE)).optional(),
+          customerEmailIn: z.array(z.string().email()).optional(),
+          minCustomerOrders: z.number().int().nonnegative().optional(),
         }),
         actions: z.object({
           hideMethodsContaining: z.array(z.string()).optional(),
@@ -265,9 +496,17 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     requires: z.array(z.custom<Capability>()).default(['PAYMENT_CUSTOMIZATION_FUNCTION']),
     config: z.object({
       rules: z.array(z.object({
+        // Predicates are ANDed; an omitted predicate is not a constraint. Beyond
+        // subtotal/currency, the crate now targets by destination address and
+        // cart contents (Build #14b).
         when: z.object({
           minSubtotal: z.number().nonnegative().optional(),
           currencyIn: z.array(z.string().min(3).max(3)).optional(),
+          countryCodeIn: z.array(z.string().min(2).max(2)).optional(),
+          provinceCodeIn: z.array(z.string().min(1).max(10)).optional(),
+          productIdIn: z.array(z.string().regex(PRODUCT_GID_RE)).optional(),
+          productTypeIn: z.array(z.string().min(1).max(120)).optional(),
+          vendorIn: z.array(z.string().min(1).max(120)).optional(),
         }),
         actions: z.object({
           hideMethodsContaining: z.array(z.string()).optional(),
@@ -285,9 +524,16 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     requires: z.array(z.custom<Capability>()).default(['VALIDATION_FUNCTION']),
     config: z.object({
       rules: z.array(z.object({
+        // A rule fires only when every specified condition holds (AND) and at
+        // least one is specified. `maxQuantityPerProductType` is the runtime
+        // -evaluable stand-in for "per-collection quantity" (Build #14b).
         when: z.object({
           maxQuantityPerSku: z.number().int().positive().optional(),
+          maxQuantityPerProductType: z.number().int().positive().optional(),
+          minCartValue: z.number().nonnegative().optional(),
+          maxCartValue: z.number().nonnegative().optional(),
           blockCountryCodes: z.array(z.string().min(2).max(2)).optional(),
+          blockProvinceCodes: z.array(z.string().min(1).max(10)).optional(),
         }),
         errorMessage: z.string().min(1).max(120),
       })).min(LIMITS.rulesMin).max(LIMITS.rulesMax),
@@ -333,12 +579,17 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     config: z.object({
       rules: z.array(z.object({
         when: z.object({
+          // `productTagIn` is parsed-but-inert (tag lookups need static input
+          // -query args); `skuIn` is the supported matcher.
           productTagIn: z.array(z.string()).optional(),
           skuIn: z.array(z.string()).optional(),
         }),
         apply: z.object({
           shipAlone: z.boolean().optional(),
           groupWithTag: z.string().optional(),
+          // Build #14b: the SKU-matched lines must fulfill from one of these
+          // locations (`deliverableLinesMustFulfillFromAdd`).
+          mustFulfillFromLocationIds: z.array(z.string().regex(LOCATION_GID_RE)).optional(),
         }),
       })).min(LIMITS.rulesMin).max(LIMITS.rulesMax),
     }),
@@ -359,6 +610,108 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
           priority: z.number().int().min(0).max(100).optional(),
         }),
       })).min(LIMITS.rulesMin).max(LIMITS.rulesMax),
+    }),
+  }),
+
+  // Shipping-discount Function (unified Discount API, SHIPPING class). Waives or
+  // discounts delivery via cart.delivery-options.discounts.generate.run — the ONLY
+  // Shopify Function target that can change shipping cost. Backed by the
+  // extensions/superapp-shipping-discount crate. A `free-shipping` pricing rule lowers
+  // into `config.rules` here (see compiler/pricing/lower.ts lowerPricingToShippingDiscount).
+  Base.extend({
+    type: z.literal('functions.shippingDiscount'),
+    category: z.literal('FUNCTION').default('FUNCTION'),
+    requires: z.array(z.custom<Capability>()).default(['SHIPPING_FUNCTION']),
+    config: z.object({
+      // Wire format the wasm handler reads (mirrors the crate's `Configuration`).
+      // Each rule waives/discounts delivery for groups whose gate holds.
+      rules: z.array(z.object({
+        when: z.object({
+          minSubtotal: z.number().nonnegative().optional(),
+          minQty: z.number().int().positive().optional(),
+          countryCodeIn: z.array(z.string().min(2).max(2)).optional(),
+          customerTags: z.array(z.string()).optional(),
+        }),
+        apply: z.object({
+          /** Percentage off shipping. 100 = free shipping; a partial value = discounted delivery. */
+          shippingPercentage: z.number().min(0).max(100),
+        }),
+      })).min(LIMITS.rulesMin).max(LIMITS.rulesMax),
+      /**
+       * Pricing vocabulary (R2.2). Optional; when present it SUPERSEDES `rules[]`:
+       * the compiler lowers a `free-shipping` (or discounted-delivery) pricing block
+       * into the Function's `rules` config via `lowerPricingToShippingDiscount`.
+       * Omitting it keeps the explicit `rules[]` path byte-identical.
+       */
+      pricing: PricingPackSchema.optional(),
+    }),
+  }),
+
+  // Local Pickup delivery-option generator Function (BOPIS). GENERATES local-pickup
+  // options at checkout via purchase.local-pickup-delivery-option-generator.run, backed
+  // by the extensions/superapp-local-pickup crate. NOTE: the API is currently only on
+  // Shopify's `unstable` version (verified 2026-07-04 via dev MCP; NOT in 2026-04), so
+  // eligibility classifies this type `needs_runtime` until it ships on a stable version.
+  Base.extend({
+    type: z.literal('functions.localPickupDeliveryOption'),
+    category: z.literal('FUNCTION').default('FUNCTION'),
+    requires: z.array(z.custom<Capability>()).default(['SHIPPING_FUNCTION']),
+    config: z.object({
+      // Wire format the wasm handler reads (mirrors the crate's `Configuration`). Each
+      // entry adds a local-pickup option for a store location.
+      locations: z.array(z.object({
+        /** Shopify location GID to offer local pickup at. */
+        locationId: z.string().min(1),
+        /** Optional pickup cost (major units). Absent = free. */
+        cost: z.number().nonnegative().optional(),
+        /** Optional option title (defaults to the location name). */
+        title: z.string().min(1).max(80).optional(),
+        /** Optional pickup instruction shown at checkout. */
+        pickupInstruction: z.string().min(1).max(240).optional(),
+      })).min(1).max(LIMITS.rulesMax),
+    }),
+  }),
+
+  // Pickup Point delivery-option generator Function (parcel lockers / post offices).
+  // GENERATES third-party pickup-point options at checkout via
+  // purchase.pickup-point-delivery-option-generator.run, backed by the
+  // extensions/superapp-pickup-point crate. NOTE: the API is currently only on Shopify's
+  // `unstable` version (verified 2026-07-04 via dev MCP; NOT in 2026-04), so eligibility
+  // classifies this type `needs_runtime` until it ships on a stable version.
+  Base.extend({
+    type: z.literal('functions.pickupPointDeliveryOption'),
+    category: z.literal('FUNCTION').default('FUNCTION'),
+    requires: z.array(z.custom<Capability>()).default(['SHIPPING_FUNCTION']),
+    config: z.object({
+      // Wire format the wasm handler reads (mirrors the crate's `Configuration`). Each
+      // point carries its full third-party identity because it is a real physical drop-off.
+      points: z.array(z.object({
+        /** Third-party service's unique id for the point. */
+        externalId: z.string().min(1),
+        /** Display name of the point. */
+        name: z.string().min(1).max(120),
+        /** Optional cost (major units). Absent = location's default price. */
+        cost: z.number().nonnegative().optional(),
+        provider: z.object({
+          name: z.string().min(1).max(80),
+          /** Provider logo URL (required by the output type). */
+          logoUrl: z.string().url(),
+        }),
+        address: z.object({
+          address1: z.string().min(1),
+          address2: z.string().optional(),
+          city: z.string().min(1),
+          countryCode: z.string().min(2).max(2),
+          province: z.string().optional(),
+          provinceCode: z.string().optional(),
+          zip: z.string().optional(),
+          phone: z.string().optional(),
+          latitude: z.number(),
+          longitude: z.number(),
+        }),
+        /** Destination country codes this point is offered to (empty = any). */
+        countryCodeIn: z.array(z.string().min(2).max(2)).optional(),
+      })).min(1).max(LIMITS.rulesMax),
     }),
   }),
 
@@ -392,6 +745,12 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       productVariantGid: z.string().min(10).optional(),
       /** Recommendation source (R2.3). Optional + back-compat; see checkout.upsell. */
       recommendation: RecommendationPackSchema.optional(),
+      /**
+       * Declarative render vocab (build #2, 034) — interactive buyer-input fields,
+       * layout/presentation blocks, and a protected-customer-data declaration. All
+       * optional so the legacy heading/message/product block is byte-identical.
+       */
+      ...CheckoutContentShape,
     }),
   }),
 
@@ -416,6 +775,13 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       target: z.enum(ADMIN_BLOCK_TARGETS),
       label: z.string().min(LIMITS.labelMin).max(LIMITS.labelMax),
       shouldRender: z.boolean().optional(),
+      /**
+       * Declarative presentational content the generic admin UI extension renders
+       * with Polaris `s-*` web components (blocks read this from the persisted
+       * `$app:superapp_admin_block` metaobject; see extensions/admin-ui). All fields
+       * are optional so the thin `{target,label}` blocks stay valid.
+       */
+      ...AdminContentShape,
     }),
   }),
 
@@ -430,6 +796,11 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       label: z.string().min(LIMITS.labelMin).max(LIMITS.labelMax),
       /** Optional heading displayed inside the action modal. Defaults to label if omitted. */
       title: z.string().min(1).max(60).optional(),
+      /**
+       * Declarative presentational content rendered inside the action modal by the
+       * generic admin UI extension (read from `$app:superapp_admin_action`). Optional.
+       */
+      ...AdminContentShape,
     }),
   }),
 
@@ -457,14 +828,176 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
     }),
   }),
 
+  // Admin link extension (`admin_link` type). A deep link from an admin resource page
+  // to a page of the app. Distinct Shopify extension TYPE — NOT a ui_extension: the
+  // deploy IS the toml registration (`target` + relative `url`; Shopify appends the
+  // store + selected-resource id at click time). Config-driven registration in the
+  // shipped admin-link extension family. No runtime bundle to render.
+  Base.extend({
+    type: z.literal('admin.link'),
+    category: z.literal('ADMIN_UI').default('ADMIN_UI'),
+    requires: z.array(z.custom<Capability>()).default([]),
+    config: z.object({
+      /** Which admin resource page (or the resource-independent app-intent target) hosts the link. */
+      target: z.enum(ADMIN_LINK_TARGETS),
+      /** Merchant-facing link label shown in the admin. */
+      label: z.string().min(LIMITS.labelMin).max(LIMITS.labelMax),
+      /**
+       * Relative app path the link opens (e.g. `/app/orders/reconcile`). Shopify appends
+       * `shop` + selected-resource id URL params at invocation, so the app page can key
+       * off the resource. A single leading-slash relative path; no external URLs.
+       */
+      url: z.string().min(1).max(2000).regex(/^\/[^\s]*$/, 'url must be a relative app path starting with "/"'),
+    }),
+  }),
+
+  // Admin print extension (`admin_print` / Print Action Extension API). Produces a
+  // custom printable document (packing slip / invoice / label / pick list) for orders
+  // and products. The shipped admin-print extension renders an `s-admin-print-action`
+  // whose `src` points at the app's `/admin-print/document` route, parameterized by
+  // the published config (documentKind + title + which resource ids). Config-driven —
+  // no per-module bundle. Publishing persists the config the print route reads.
+  Base.extend({
+    type: z.literal('admin.print'),
+    category: z.literal('ADMIN_UI').default('ADMIN_UI'),
+    requires: z.array(z.custom<Capability>()).default([]),
+    config: z.object({
+      /** One of the four print-action render targets (order/product · details/index-selection). */
+      target: z.enum(ADMIN_PRINT_TARGETS),
+      /** Menu label shown in the admin print-action list. */
+      label: z.string().min(LIMITS.labelMin).max(LIMITS.labelMax),
+      /** Which document the app produces. Drives the print-document renderer + preview. */
+      documentKind: z.enum(ADMIN_PRINT_DOCUMENT_KINDS).default('packing-slip'),
+      /** Document title/heading printed on the page. */
+      title: z.string().min(1).max(120),
+      /** Optional sub-line / merchant note printed under the title. */
+      subtitle: z.string().max(240).optional(),
+      /**
+       * Optional print-document body template. `{{order.name}}` / `{{product.title}}`
+       * style placeholders are resolved by the app's print route at render time. Omit →
+       * the renderer uses the documentKind's default layout.
+       */
+      bodyTemplate: z.string().max(8000).optional(),
+      /** Whether to include the shop logo/header block in the printed doc. */
+      includeShopHeader: z.boolean().default(true),
+    }),
+  }),
+
+  // Customer-segment template extension (admin.customers.segmentation-templates.data).
+  // A runnable data extension that returns pre-built segment query templates into the
+  // segment editor's template gallery. Config-driven: the shipped segment-template
+  // extension reads the published templates and returns them verbatim. Each template's
+  // `query` uses ShopifyQL-style segment syntax (e.g. `number_of_orders >= 5`).
+  Base.extend({
+    type: z.literal('admin.segmentTemplate'),
+    category: z.literal('ADMIN_UI').default('ADMIN_UI'),
+    requires: z.array(z.custom<Capability>()).default([]),
+    config: z.object({
+      /** The single runnable target for segment-template data extensions. */
+      target: z.literal('admin.customers.segmentation-templates.data').default('admin.customers.segmentation-templates.data'),
+      /** The segment query templates surfaced in the editor gallery. */
+      templates: z
+        .array(
+          z.object({
+            /** Template card title. */
+            title: z.string().min(1).max(80),
+            /** One-line explanation of who the segment matches. */
+            description: z.string().min(1).max(240),
+            /** The segment query inserted on one click (segment editor syntax). */
+            query: z.string().min(1).max(2000),
+          }),
+        )
+        .min(1)
+        .max(20),
+    }),
+  }),
+
   Base.extend({
     type: z.literal('pos.extension'),
     category: z.literal('ADMIN_UI').default('ADMIN_UI'),
     requires: z.array(z.custom<Capability>()).default([]),
+    // POS UI extension config. `target`/`label`/`blockKind` are the original shipped
+    // fields (back-compat); everything below is additive and OPTIONAL — an existing POS
+    // module that only sets those three renders exactly as before. The shipped generic
+    // block (`extensions/superapp-pos-block`) reads this via `/api/pos/config` and both
+    // renders (bound `binding`/`label`) and acts (`action`) from it; unresolvable
+    // actions/bindings degrade gracefully.
     config: z.object({
       target: z.enum(POS_TARGETS),
       label: z.string().min(LIMITS.labelMin).max(LIMITS.labelMax),
       blockKind: z.enum(POS_BLOCK_KINDS).optional(),
+      /** The tile↔modal / menu-item↔action pairing this module uses (default derived from target). */
+      presentation: z.enum(POS_PRESENTATIONS).optional(),
+      /** Behaviour performed when tapped (discount, note, loyalty, receipt, etc.). Default NONE. */
+      action: z.enum(POS_ACTIONS).optional(),
+      /** A live value the block renders (falls back to `label` when unresolvable). */
+      binding: z.enum(POS_DATA_BINDINGS).optional(),
+      /**
+       * Require a staff PIN (PinPad API) before the action runs — gates sensitive ops such as
+       * discounts, voids, or loyalty writes. `role` optionally narrows to a POS staff role/permission
+       * the app proxy verifies; `reason` is shown on the PIN prompt.
+       */
+      staffPin: z
+        .object({
+          required: z.boolean().default(true),
+          reason: z.string().max(120).optional(),
+          role: z.string().max(60).optional(),
+        })
+        .optional(),
+      /** Parameters for the declared `action` (discount amount, product to add, receipt text, etc.). */
+      actionConfig: z
+        .object({
+          /** Discount / line-discount title shown in POS. */
+          discountTitle: z.string().max(80).optional(),
+          /** Percentage (e.g. "10") or fixed amount (e.g. "5.00"); omit for Code discounts. */
+          discountAmount: z.string().max(20).optional(),
+          /** Discount code for APPLY_CODE_DISCOUNT. */
+          discountCode: z.string().max(80).optional(),
+          /** Note text for SET_CART_NOTE. */
+          note: z.string().max(500).optional(),
+          /** Property key/value for ADD_CART_PROPERTY. */
+          propertyKey: z.string().max(80).optional(),
+          propertyValue: z.string().max(500).optional(),
+          /**
+           * Product variant to add for ADD_LINE_ITEM. Authored as the canonical variant GID
+           * (`gid://shopify/ProductVariant/<n>`), matching the rest of the corpus; a bare
+           * numeric id is also accepted. The POS runtime (`shopify.addLineItem`) requires a
+           * NUMERIC variant id, so `posBehavior.numericIdFromGid` extracts it at call time.
+           */
+          productVariantId: z
+            .string()
+            .regex(/^(?:gid:\/\/shopify\/ProductVariant\/\d+|\d+)$/)
+            .optional(),
+          /** Discount type for APPLY_CART_DISCOUNT / APPLY_LINE_DISCOUNT ('Percentage'|'FixedAmount'). */
+          discountKind: z.enum(['Percentage', 'FixedAmount']).optional(),
+          /** Static/bound content for RECEIPT_CONTENT (header/footer). */
+          receiptText: z.string().max(500).optional(),
+          /** Print source for PRINT: an app-proxy path or a full https URL to the app backend. */
+          url: z.string().max(500).optional(),
+        })
+        .optional(),
+      /**
+       * App-proxy endpoint the block reads/writes for LOYALTY_READ / LOYALTY_WRITE / APP_PROXY_POST
+       * and for resolving `loyalty.*` bindings. Relative to the app; verified by the app proxy.
+       */
+      appProxyPath: z
+        .string()
+        .regex(/^\/[a-z0-9\-/]{1,200}$/)
+        .optional(),
+      /**
+       * For an `*.event.observe` module: the POS event to subscribe to and where to forward it.
+       * `target` must be the matching `pos.<event>.event.observe` target. The observer is UI-less
+       * and forwards the event context to `forwardTo` (an app-proxy path).
+       */
+      observe: z
+        .object({
+          event: z.enum(POS_OBSERVE_EVENTS),
+          forwardTo: z
+            .string()
+            .regex(/^\/[a-z0-9\-/]{1,200}$/)
+            .optional(),
+        })
+        .optional(),
     }),
   }),
 
@@ -666,6 +1199,24 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
         .string()
         .regex(/^[a-z0-9-]{3,40}$/)
         .default('catalog'),
+      /**
+       * sponsored-products: merchant-promoted product GIDs boosted to the top of the
+       * agentic (MCP search / feed) results. Config-only, app-served — no ad exchange.
+       * Ignored unless the `sponsored-products` artifact is enabled.
+       */
+      sponsoredProductIds: z
+        .array(z.string().regex(PRODUCT_GID_RE))
+        .max(AGENTIC_LIMITS.sponsoredProductsMax)
+        .default([]),
+      /**
+       * agent-profile: free-text instructions surfaced to AI agents in the app-served
+       * agent-profile document + agents.md (e.g. "Prioritize fair-trade products.").
+       * PUBLIC — never put PII/contact details here (the profile is broadly cached).
+       */
+      agentInstructions: z
+        .string()
+        .max(AGENTIC_LIMITS.agentInstructionsMax)
+        .optional(),
     }),
   }),
 
@@ -694,10 +1245,74 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
             content: z.string().min(0).max(240).optional(),
             url: z.string().url().optional(),
             tone: z.enum(CUSTOMER_ACCOUNT_BLOCK_TONES).optional(),
+            /**
+             * Build #3 (034) — interactive + data-bound vocab. All optional so the
+             * legacy `{ kind, content?, url?, tone? }` block stays valid and renders
+             * byte-identically. The shipped generic extension reads these verbatim
+             * from the persisted metaobject and degrades gracefully when a bound
+             * value or API surface is unavailable.
+             */
+            /**
+             * Bind the rendered value to a live source (Customer Account / Order API
+             * or our app-owned points/store-credit). When set, `content` is used as
+             * a fallback if the value can't be resolved on the current surface.
+             */
+            bind: z.enum(CUSTOMER_ACCOUNT_BINDINGS).optional(),
+            /** BUTTON: id of the MODAL block this button opens (in-block overlay). */
+            modalId: z.string().min(1).max(60).optional(),
+            /** MODAL: stable id a BUTTON references via `modalId`. */
+            id: z.string().min(1).max(60).optional(),
+            /** BUTTON visual variant (Polaris s-button variants). */
+            variant: z.enum(['primary', 'secondary', 'tertiary']).optional(),
+            /**
+             * ACTION (order.action pair): how the menu-item's overlay is presented.
+             * `modal` → in-page s-modal (uses this block's `content`/nested); `link`
+             * → navigate to `url` (returns portal, app-proxy page, etc.).
+             */
+            action: z.enum(CUSTOMER_ACCOUNT_ACTION_KINDS).optional(),
+            /** FORM: input fields the block renders and submits via the app proxy. */
+            fields: z
+              .array(
+                z.object({
+                  kind: z.enum(CUSTOMER_ACCOUNT_FIELD_KINDS).default('text'),
+                  key: z
+                    .string()
+                    .min(1)
+                    .max(60)
+                    .regex(/^[a-zA-Z0-9_.\-]+$/, 'key must be alphanumeric/underscore/dot/dash'),
+                  label: z.string().min(1).max(80),
+                  placeholder: z.string().max(120).optional(),
+                  required: z.boolean().optional(),
+                  options: z
+                    .array(z.object({ value: z.string().min(1).max(80), label: z.string().min(1).max(80) }))
+                    .max(20)
+                    .optional(),
+                }),
+              )
+              .max(12)
+              .optional(),
+            /**
+             * FORM submit target. `proxyPath` is an app-proxy subpath the captured
+             * values POST to (e.g. `/apps/superapp/ca/return-request`). Omit → the
+             * form collects and displays only (no write).
+             */
+            submit: z
+              .object({
+                proxyPath: z.string().min(1).max(200),
+                submitLabel: z.string().min(1).max(60).optional(),
+              })
+              .optional(),
           }),
         )
         .min(LIMITS.customerAccountBlocksMin)
         .max(LIMITS.customerAccountBlocksMax),
+      /**
+       * Protected-customer-data access the block relies on. DECLARATION only —
+       * access is granted app-wide (shopify.app.toml scopes + Partner data-protection
+       * request); surfaced to the merchant as a note. Data bindings that read
+       * name/email/address need `level2`; id/ordersCount need `level1`.
+       */
+      protectedData: z.enum(['none', 'level1', 'level2']).optional(),
       b2bOnly: z.boolean().default(false),
     }),
   }),
