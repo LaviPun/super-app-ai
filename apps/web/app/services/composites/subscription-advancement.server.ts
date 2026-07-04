@@ -304,6 +304,73 @@ export function stagesFromRecord(_record: CompositeRecord): ReminderStage[] {
   return [];
 }
 
+export type CustomerSubscription = {
+  /** True when a subscription-contract composite is provisioned for this shop. */
+  configured: boolean;
+  status: ContractStatus | null;
+  /** ISO-8601 next billing/renewal instant, or null when unknown. */
+  nextOrderDate: string | null;
+  ref?: string;
+};
+
+/**
+ * Read a customer's mirrored subscription state across the shop's published
+ * subscription-contract composites. REAL read from the app-owned contract-mirror
+ * DATA_STORE (the same store the advancement engine writes) — never a fabricated
+ * status/date:
+ *  - No composite provisioned → `{ configured:false, status:null, nextOrderDate:null }`.
+ *  - Composite exists but no row for this customer → `{ configured:true, status:null }`.
+ *  - A mirrored row → the row's real status + nextBillingAt (most-recently-updated wins).
+ */
+export async function readCustomerSubscription(
+  shopId: string,
+  customerId: string,
+  deps: { service?: DataStoreService } = {},
+): Promise<CustomerSubscription> {
+  const service = deps.service ?? new DataStoreService();
+  const composites = await findShopCompositeRecords(shopId, 'subscription-contract');
+  if (composites.length === 0) {
+    return { configured: false, status: null, nextOrderDate: null };
+  }
+
+  const prisma = getPrisma();
+  const candidates = subscriptionCustomerCandidates(customerId);
+  for (const composite of composites) {
+    const storeKey = compositeStoreKey(composite.record.ref);
+    const store = await service.getStoreByKey(shopId, storeKey);
+    if (!store) continue;
+
+    const row = await prisma.dataStoreRecord.findFirst({
+      where: { dataStoreId: store.id, customerId: { in: candidates } },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (!row) continue;
+    const mirror = safeParseMirror(row.payload);
+    if (!mirror) continue;
+    return {
+      configured: true,
+      status: mirror.status,
+      nextOrderDate: mirror.nextBillingAt ?? null,
+      ref: composite.record.ref,
+    };
+  }
+
+  return { configured: true, status: null, nextOrderDate: null, ref: composites[0]?.record.ref };
+}
+
+/** The id forms a mirror row might key on: as-given, numeric tail, and GID. */
+function subscriptionCustomerCandidates(customerId: string): string[] {
+  const out = new Set<string>();
+  const raw = customerId.trim();
+  if (raw) out.add(raw);
+  const numeric = raw.match(/\/(\d+)(?:[?#].*)?$/)?.[1] ?? (/^\d+$/.test(raw) ? raw : undefined);
+  if (numeric) {
+    out.add(numeric);
+    out.add(`gid://shopify/Customer/${numeric}`);
+  }
+  return [...out];
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function mergeStages(a?: string[], b?: string[]): string[] {

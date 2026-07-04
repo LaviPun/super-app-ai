@@ -26,6 +26,11 @@ handle = "superapp-customer-blocks"
 
 [extensions.capabilities]
 api_access = true
+# Required so the block can fetch app-owned data (loyalty.points / subscription.*)
+# from the storefront app proxy (`{proxyBase}/ca/customer-data`) — extensions run in a
+# null-origin Web Worker, so any non-`shopify://` fetch needs network_access + a CORS
+# `Access-Control-Allow-Origin` on the app response (see proxy.ca.customer-data.tsx).
+network_access = true
 
 [[extensions.targeting]]
 module = "./src/targets/OrderIndexBlockRender.tsx"
@@ -48,6 +53,11 @@ handle = "superapp-customer-page"
 
 [extensions.capabilities]
 api_access = true
+# Required so the block can fetch app-owned data (loyalty.points / subscription.*)
+# from the storefront app proxy (`{proxyBase}/ca/customer-data`) — extensions run in a
+# null-origin Web Worker, so any non-`shopify://` fetch needs network_access + a CORS
+# `Access-Control-Allow-Origin` on the app response (see proxy.ca.customer-data.tsx).
+network_access = true
 
 [[extensions.targeting]]
 module = "./src/targets/PageRender.tsx"
@@ -62,6 +72,11 @@ handle = "superapp-customer-order-page"
 
 [extensions.capabilities]
 api_access = true
+# Required so the block can fetch app-owned data (loyalty.points / subscription.*)
+# from the storefront app proxy (`{proxyBase}/ca/customer-data`) — extensions run in a
+# null-origin Web Worker, so any non-`shopify://` fetch needs network_access + a CORS
+# `Access-Control-Allow-Origin` on the app response (see proxy.ca.customer-data.tsx).
+network_access = true
 
 [[extensions.targeting]]
 module = "./src/targets/OrderPageRender.tsx"
@@ -76,6 +91,11 @@ handle = "superapp-customer-surfaces"
 
 [extensions.capabilities]
 api_access = true
+# Required so the block can fetch app-owned data (loyalty.points / subscription.*)
+# from the storefront app proxy (`{proxyBase}/ca/customer-data`) — extensions run in a
+# null-origin Web Worker, so any non-`shopify://` fetch needs network_access + a CORS
+# `Access-Control-Allow-Origin` on the app response (see proxy.ca.customer-data.tsx).
+network_access = true
 
 [[extensions.targeting]]
 module = "./src/targets/FooterRenderAfter.tsx"

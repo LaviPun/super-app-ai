@@ -30,6 +30,7 @@ import { buildShopAuthResolver } from '~/services/flows/auth-resolver.server';
 import { parkMessagingPageWorkflow, messagingPageRunId } from './messaging-page-park';
 import { parkMessagingDripStepWorkflow, messagingDripRunId } from './messaging-drip-park';
 import { resolveConsent, type AdminGraphqlFn } from './consent-resolver.server';
+import { PushSubscriptionStore } from './push-subscription-store.server';
 import shopify from '~/shopify.server';
 
 /** Trigger vocabulary shared with FlowRunnerService (the three live sites fire these). */
@@ -865,7 +866,25 @@ export class MessagingRunnerService {
           timeoutMs: 15000,
         },
       );
-      if (!result.ok) throw new Error(`Push send failed: ${result.message}`);
+      if (!result.ok) {
+        // Stale subscription (410/404 from the push service): REALLY prune it so the
+        // audience stops targeting a gone endpoint. Best-effort — never masks the error.
+        const gone =
+          isRecord(result.details) && result.details.subscriptionGone === true;
+        const endpoint = typeof subscription.endpoint === 'string' ? subscription.endpoint : '';
+        if (gone && endpoint) {
+          try {
+            const shopRow = await this.prisma.shop.findUnique({
+              where: { shopDomain },
+              select: { id: true },
+            });
+            if (shopRow) await new PushSubscriptionStore(this.dataStore).prune(shopRow.id, endpoint);
+          } catch {
+            /* prune is best-effort; the send failure below is still reported */
+          }
+        }
+        throw new Error(`Push send failed: ${result.message}`);
+      }
       return;
     }
 

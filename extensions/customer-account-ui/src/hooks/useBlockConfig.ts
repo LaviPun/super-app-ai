@@ -37,6 +37,7 @@ export type UseBlockConfigResult =
 const CONFIG_QUERY = `#graphql
   query SuperAppCustomerAccountConfigRefs {
     shop {
+      primaryDomain { host }
       blockRefs: metafield(namespace: "superapp.customer_account", key: "block_refs") {
         references(first: 128) {
           nodes {
@@ -51,17 +52,33 @@ const CONFIG_QUERY = `#graphql
   }
 `;
 
+/** App-proxy prefix (shopify.app.toml [app_proxy] prefix/subpath = apps/superapp). */
+const APP_PROXY_PREFIX = '/apps/superapp';
+
 type MetaobjectNode = {
   target?: { value?: string };
   configJson?: { value?: string };
 };
 type QueryData = {
   shop?: {
+    primaryDomain?: { host?: string } | null;
     blockRefs?: {
       references?: { nodes?: MetaobjectNode[] };
     } | null;
   };
 };
+
+/**
+ * Build the absolute app-proxy base the app-owned binding resolver reads
+ * (`{proxyBase}/ca/customer-data`). Customer-account pages run cross-origin, so the
+ * base must be the shop's storefront domain where the App Proxy is mounted:
+ * `https://{primaryDomain.host}/apps/superapp`. Undefined when the host is unknown —
+ * the resolver then skips the app-owned fetch and the binding degrades to literal.
+ */
+function proxyBaseFrom(data: QueryData | undefined): string | undefined {
+  const host = data?.shop?.primaryDomain?.host;
+  return host ? `https://${host}${APP_PROXY_PREFIX}` : undefined;
+}
 
 /** Collect every binding declared across a block list. */
 function declaredBindings(blocks: CaBlock[]): Set<CaBinding> {
@@ -120,7 +137,10 @@ export function useBlockConfig(target: string): UseBlockConfigResult {
         const bindings = declaredBindings(blocks);
         if (bindings.size > 0) {
           try {
-            config.bound = await resolveBindings(bindings);
+            // Pass the storefront app-proxy base so app-owned bindings (loyalty.points,
+            // subscription.*) resolve via `{proxyBase}/ca/customer-data`. Order/customer
+            // bindings resolve through the Customer Account API and don't need it.
+            config.bound = await resolveBindings(bindings, { proxyBase: proxyBaseFrom(data) });
           } catch {
             config.bound = {};
           }

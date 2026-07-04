@@ -63,6 +63,29 @@ export type PosConfigResult = {
   blocks: PosBlockConfig[];
 };
 
+/**
+ * The ONE live app endpoint POS loyalty/app-proxy actions resolve to. Authored
+ * `appProxyPath` values in the corpus are illustrative placeholders (`/loyalty/balance`,
+ * `/apps/loyalty/pos/accrue`, …) that never had a handler. We normalize them all to the
+ * real, App-Authenticated route (`/api/pos/loyalty`) — which serves GET (LOYALTY_READ),
+ * POST (LOYALTY_WRITE / APP_PROXY_POST), and `/verify-pin` (the staff-PIN gate) — so a
+ * published POS module hits a real endpoint instead of a dead path. Modules that already
+ * point at `/api/pos/*` are passed through unchanged.
+ */
+const POS_LOYALTY_ENDPOINT = '/api/pos/loyalty';
+/** The ONE live app endpoint POS observers forward to (records + drives real accrual). */
+const POS_OBSERVE_ENDPOINT = '/api/pos/observe';
+
+function normalizeAppProxyPath(path: string | undefined): string | undefined {
+  if (path == null) return path;
+  return path.startsWith('/api/pos/') ? path : POS_LOYALTY_ENDPOINT;
+}
+
+function normalizeForwardTo(path: string | undefined): string | undefined {
+  if (path == null) return path;
+  return path.startsWith('/api/pos/') ? path : POS_OBSERVE_ENDPOINT;
+}
+
 /** Narrow a parsed RecipeSpec to the `pos.extension` variant. */
 function isPosSpec(spec: RecipeSpec): spec is Extract<RecipeSpec, { type: 'pos.extension' }> {
   return spec.type === 'pos.extension';
@@ -120,8 +143,12 @@ export async function readPublishedPosConfig(
       binding: cfg.binding,
       staffPin: cfg.staffPin,
       actionConfig: cfg.actionConfig,
-      appProxyPath: cfg.appProxyPath,
-      observe: cfg.observe,
+      // Normalize placeholder app-proxy paths to the real, App-Authenticated app routes
+      // so LOYALTY_READ/WRITE, the staff-PIN gate, and observers hit live handlers.
+      appProxyPath: normalizeAppProxyPath(cfg.appProxyPath),
+      observe: cfg.observe
+        ? { ...cfg.observe, forwardTo: normalizeForwardTo(cfg.observe.forwardTo) }
+        : cfg.observe,
     });
   }
 

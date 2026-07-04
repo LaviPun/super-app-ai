@@ -430,6 +430,79 @@ export async function redeemPoints(
   return { ref: input.ref, ok: true, points: input.points, redemptionId, needsShopifyApi: true };
 }
 
+export type LoyaltyBalance = {
+  /** True when a loyalty ledger is provisioned for this shop (a store exists). */
+  configured: boolean;
+  /** The customer's current spendable balance, or null when they have no ledger row yet. */
+  points: number | null;
+  /** Lifetime earned (never decremented), or null when no row exists. */
+  lifetimeEarned: number | null;
+  /** The composite record ref the balance was read from (first ledger, when present). */
+  ref?: string;
+};
+
+/**
+ * Read a customer's loyalty balance across the shop's published loyalty ledgers.
+ * REAL read from the app-owned DATA_STORE the accrual engine writes — never a
+ * fabricated value:
+ *  - No ledger provisioned → `{ configured:false, points:null, lifetimeEarned:null }`.
+ *  - Ledger exists but this customer has never earned → `{ configured:true, points:0 }`
+ *    (an honest zero: the ledger is real, the customer simply has no points).
+ *  - Ledger + a row → the row's real balance.
+ *
+ * Matches on the ledger row key the accrual path wrote (`customerIdOf`): the
+ * customer's Shopify GID or bare numeric id. We try the id as given AND its
+ * GID/numeric siblings so a POS-supplied numeric id resolves the same row a
+ * webhook-supplied GID created.
+ */
+export async function readLoyaltyBalance(
+  shopId: string,
+  customerId: string,
+  deps: { service?: DataStoreService } = {},
+): Promise<LoyaltyBalance> {
+  const service = deps.service ?? new DataStoreService();
+  const ledgers = await findShopCompositeRecords(shopId, 'loyalty-ledger');
+  if (ledgers.length === 0) {
+    return { configured: false, points: null, lifetimeEarned: null };
+  }
+
+  const candidates = customerIdCandidates(customerId);
+  for (const ledger of ledgers) {
+    const storeKey = compositeStoreKey(ledger.record.ref);
+    const store = await service.getStoreByKey(shopId, storeKey);
+    if (!store) continue;
+
+    for (const key of candidates) {
+      const row = await findCustomerRecord(store.id, key);
+      if (!row) continue;
+      const parsed = safeParseLedger(row.payload);
+      if (!parsed) continue;
+      return {
+        configured: true,
+        points: parsed.balance,
+        lifetimeEarned: parsed.lifetimeEarned,
+        ref: ledger.record.ref,
+      };
+    }
+  }
+
+  // A ledger is provisioned but this customer has never earned — honest zero.
+  return { configured: true, points: 0, lifetimeEarned: 0, ref: ledgers[0]?.record.ref };
+}
+
+/** The id forms a ledger row might be keyed by: as-given, its numeric tail, and its GID. */
+function customerIdCandidates(customerId: string): string[] {
+  const out = new Set<string>();
+  const raw = customerId.trim();
+  if (raw) out.add(raw);
+  const numeric = raw.match(/\/(\d+)(?:[?#].*)?$/)?.[1] ?? (/^\d+$/.test(raw) ? raw : undefined);
+  if (numeric) {
+    out.add(numeric);
+    out.add(`gid://shopify/Customer/${numeric}`);
+  }
+  return [...out];
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 const DAY_MS = 24 * 60 * 60 * 1000;
