@@ -34,8 +34,13 @@ describe('design-system contract — CSS token layer (§3.3 / §9.3)', () => {
   });
 
   it('drives CTAs from the OKLCH ramp chain, never bare currentColor/Canvas (§2.4)', () => {
-    expect(css).toContain('var(--sa-btn-bg, var(--sa-solid, var(--sa-ink)))');
+    // Terminal fallback must be CanvasText, NOT var(--sa-ink): --sa-ink is
+    // currentColor, and currentColor in `background` resolves against the
+    // element's own `color` (Canvas) → white-on-white invisible CTAs on any
+    // spec without a seed ramp. 2026-07-10 repair; keep the chain ramp-first.
+    expect(css).toContain('var(--sa-btn-bg, var(--sa-solid, CanvasText))');
     expect(css).toContain('var(--sa-btn-text, var(--sa-solid-content, Canvas))');
+    expect(css).not.toContain('var(--sa-btn-bg, var(--sa-solid, var(--sa-ink)))');
   });
 
   it('survives dark themes: color-mix hairlines + prefers-color-scheme branch (§1.4)', () => {

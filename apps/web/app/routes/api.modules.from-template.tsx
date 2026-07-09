@@ -5,24 +5,50 @@ import { getPrisma } from '~/db.server';
 import { QuotaService } from '~/services/billing/quota.service';
 import { withApiLogging } from '~/services/observability/api-log.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
-import { findTemplate, RecipeSpecSchema, getTemplateInstallability } from '@superapp/core';
+import { findTemplate, RecipeSpecSchema, getTemplateInstallability, type RecipeSpec } from '@superapp/core';
 import { SettingsService } from '~/services/settings/settings.service';
+import { resolveStorefrontPack, DEFAULT_PACK_ID } from '~/services/ai/style-packs.server';
 
-function getTemplateSpec(templateId: string, overridesJson: string | null) {
+/** Storefront layout types whose renderer stamps `data-sa-pack` from `style.pack`. */
+const STOREFRONT_LAYOUT_TYPES = new Set(['theme.section', 'proxy.widget']);
+
+/**
+ * Persist a concrete render pack on storefront specs before install so the
+ * storefront can stamp `data-sa-pack` correctly. Templates now author their pack
+ * directly, so this is a pass-through in the common case; it only fills in the
+ * legacy/override case where `pack` is missing or 'auto', biasing to Luxe (the
+ * can't-look-wrong pack) via `resolveStorefrontPack`'s low-confidence default.
+ * Returns a shallow clone so the shared in-memory template object is never mutated.
+ */
+function withResolvedPack(spec: RecipeSpec): RecipeSpec {
+  if (!STOREFRONT_LAYOUT_TYPES.has(spec.type)) return spec;
+  const style = (spec as { style?: { pack?: string } }).style;
+  const authored = style?.pack;
+  if (authored && authored !== 'auto') return spec;
+  const pack = resolveStorefrontPack({
+    packId: DEFAULT_PACK_ID,
+    confidence: 0,
+    alternatives: [],
+    reason: 'template install: no authored pack, biased to Luxe',
+  });
+  return { ...spec, style: { ...(style ?? {}), pack } } as RecipeSpec;
+}
+
+function getTemplateSpec(templateId: string, overridesJson: string | null): RecipeSpec | null {
   const template = findTemplate(templateId);
   if (!template) return null;
-  if (!overridesJson?.trim()) return template.spec;
+  if (!overridesJson?.trim()) return withResolvedPack(template.spec);
   try {
     const overrides = JSON.parse(overridesJson) as Record<string, unknown>;
     const override = overrides[templateId];
     if (override && typeof override === 'object') {
       const parsed = RecipeSpecSchema.safeParse(override);
-      if (parsed.success) return parsed.data;
+      if (parsed.success) return withResolvedPack(parsed.data);
     }
   } catch {
     /* ignore */
   }
-  return template.spec;
+  return withResolvedPack(template.spec);
 }
 
 export async function action({ request }: { request: Request }) {

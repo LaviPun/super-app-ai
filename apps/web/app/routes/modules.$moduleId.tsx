@@ -329,7 +329,7 @@ export default function ModuleDetail() {
 
 function ModuleDetailBody() {
   const data = useLoaderData<typeof loader>();
-  const { moduleId, mod, spec, versions, themes, publishedThemeId, hydration, internalNotes, deployment } = data;
+  const { moduleId, mod, spec, versions, themes, publishedThemeId, hydration, internalNotes, deployment, previewHtml, previewJson } = data;
   const ctx = useMerchantCtx();
   const navigate = useNavigate();
   const revalidator = useRevalidator();
@@ -348,6 +348,7 @@ function ModuleDetailBody() {
   const summary = (mod as any).summary || `${categoryLabel} module`;
 
   const [tab, setTab] = useState('overview');
+  const [previewLoaded, setPreviewLoaded] = useState(false);
   const [delOpen, setDelOpen] = useState(false);
   const [modifyOpen, setModifyOpen] = useState(false);
   const [modifyInstruction, setModifyInstruction] = useState('');
@@ -692,22 +693,40 @@ function ModuleDetailBody() {
         <div className="col-main">
           <div className="stack-4">
             <Card>
-              <div className="br-canvas" style={{ height: 320, borderRadius: '12px 12px 0 0' }}>
-                <div className="fake-pdp">
-                  <div className="fake-img skel" />
-                  <div className="stack-2" style={{ flex: 1 }}>
-                    <div className="skel" style={{ height: 14, width: '60%' }} />
-                    <div className="skel" style={{ height: 10, width: '40%' }} />
-                    <div className="gen-overlay">
-                      <div className="row-2"><Icon name="cart" size={16} /><span className="t-strong">Add to cart — $48.00</span></div>
+              {previewHtml ? (
+                <div style={{ position: 'relative', borderRadius: '12px 12px 0 0', overflow: 'hidden', background: '#fff' }}>
+                  <iframe
+                    title={`Preview of ${mod.name}`}
+                    srcDoc={previewHtml}
+                    sandbox="allow-scripts allow-same-origin"
+                    onLoad={() => setPreviewLoaded(true)}
+                    style={{ display: 'block', width: '100%', height: 480, border: 0, background: '#fff' }}
+                  />
+                  {!previewLoaded && (
+                    <div className="br-canvas" style={{ position: 'absolute', inset: 0, borderRadius: '12px 12px 0 0' }}>
+                      <div className="row-2"><span className="spinner" /><span className="t-sm t-muted">Rendering preview…</span></div>
                     </div>
-                  </div>
+                  )}
                 </div>
-              </div>
+              ) : previewJson ? (
+                <div style={{ borderRadius: '12px 12px 0 0', overflow: 'hidden' }}>
+                  <pre style={{
+                    margin: 0, maxHeight: 480, overflow: 'auto', padding: 18,
+                    background: 'var(--p-bg)', fontFamily: 'var(--p-font-mono, ui-monospace, monospace)',
+                    fontSize: 12, lineHeight: 1.5, color: 'var(--p-text)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                  }}>{JSON.stringify(previewJson, null, 2)}</pre>
+                </div>
+              ) : (
+                <div className="br-canvas" style={{ height: 320, borderRadius: '12px 12px 0 0' }}>
+                  <EmptyState icon="eye" title="No preview available">
+                    This module type has no visual storefront preview.
+                  </EmptyState>
+                </div>
+              )}
               <Section>
                 <div className="row spread">
-                  <div className="t-sm t-muted">Live preview · last rendered just now</div>
-                  <Btn size="sm" icon="external">Open in new tab</Btn>
+                  <div className="t-sm t-muted">Live preview</div>
+                  <Btn size="sm" icon="external" onClick={openPreview}>Open in new tab</Btn>
                 </div>
               </Section>
             </Card>

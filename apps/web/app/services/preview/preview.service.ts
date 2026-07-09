@@ -159,15 +159,61 @@ export class PreviewService {
         return this.sectionFloatingWidget(spec);
       case 'product-recommendations':
         return this.sectionRecommendations(spec);
-      default:
+      default: {
+        // R6 — per-archetype dispatch. Every native-section `kind` resolves to a
+        // canonical archetype (single source of truth: `sectionArchetype`) with a
+        // flagship renderer that emits the contract BEM class tree the storefront
+        // Liquid renders (preview ⇄ storefront parity, R0). Only truly unknown
+        // kinds fall through to the recommendation/generic tail.
+        const archetype = sectionArchetype(spec.config.kind);
+        if (archetype) return this.renderArchetype(archetype, spec);
         // R2.3 — any kind that carries a recommendation source renders the
         // strategy-labelled placeholder (recommendations compose onto other
-        // widgets). Absent recommendation → the normal generic renderer.
+        // widgets). Absent recommendation → the last-resort generic renderer.
         if ((spec.config as { recommendation?: RecommendationPack }).recommendation) {
           return this.sectionRecommendations(spec);
         }
         return this.sectionGeneric(spec);
+      }
     }
+  }
+
+  /** Dispatch a resolved archetype to its dedicated renderer. */
+  private renderArchetype(
+    archetype: SectionArchetype,
+    spec: Extract<RecipeSpec, { type: 'theme.section' }>,
+  ): string {
+    switch (archetype) {
+      case 'hero': return this.sectionHero(spec);
+      case 'feature': return this.sectionFeature(spec);
+      case 'gallery': return this.sectionGallery(spec);
+      case 'collection': return this.sectionCollection(spec);
+      case 'pricing': return this.sectionPricing(spec);
+      case 'faq': return this.sectionFaq(spec);
+      case 'testimonial': return this.sectionTestimonial(spec);
+      case 'stats': return this.sectionStats(spec);
+      case 'cta': return this.sectionCta(spec);
+      case 'trust': return this.sectionTrust(spec);
+      case 'newsletter': return this.sectionNewsletter(spec);
+      case 'launch': return this.sectionLaunch(spec);
+      case 'contact': return this.sectionContactCard(spec);
+      case 'team': return this.sectionTeam(spec);
+      case 'timeline': return this.sectionTimeline(spec);
+      case 'upsell': return this.sectionUpsell(spec);
+      case 'band': return this.sectionBand(spec);
+      case 'technical': return this.sectionTechnical(spec);
+    }
+  }
+
+  /**
+   * Per-archetype preview CSS: the base font + the spec's compiled style block
+   * (per-template --sa-* tokens incl. the seed→OKLCH semantic ramp — --sa-solid /
+   * --sa-solid-content etc. — plus radius/spacing/typography), scoped to the
+   * archetype's root class exactly like sectionBanner/sectionGeneric do. Without
+   * this the authored `style.colors.seed` never reaches archetype previews.
+   */
+  private archCss(spec: ThemeSectionSpec, rootSelector: string): string {
+    return `${previewBase()}\n${this.styleCss(spec, rootSelector)}`;
   }
 
   /**
@@ -342,51 +388,608 @@ export class PreviewService {
   }
 
   /**
-   * Generic section renderer — works for ANY `kind`. Renders title/subtitle,
-   * repeatable blocks, declared field values, and the sanitized custom-HTML
-   * escape hatch. Scripts are stripped for the preview iframe (they run only on
-   * the live storefront under the extension CSP).
+   * Last-resort generic section renderer — only reached for a `kind` that maps to
+   * NO archetype (`sectionArchetype` returned null) AND carries no recommendation
+   * pack. Renders title/subtitle, per-block-kind content (never a bare
+   * `<div><p>text</p></div>`), and the sanitized custom-HTML escape hatch. It NEVER
+   * dumps raw `config.fields` as a debug table — unknown declared fields are
+   * silently omitted (a curated summary is the `technical` archetype's job). Scripts
+   * are stripped for the preview iframe (they run only under the extension CSP).
    */
   private sectionGeneric(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
     const c = spec.config;
     const styleBlock = this.styleCss(spec, '.superapp-section');
-    const blocks = (c.blocks ?? [])
-      .map((b) => `<div class="superapp-section__block">${b.imageUrl ? `<img src="${escAttr(b.imageUrl)}" alt="" loading="lazy">` : ''}${b.text ? `<p>${esc(b.text)}</p>` : ''}${b.url && b.text ? '' : ''}</div>`)
-      .join('');
-    const fields = c.fields && typeof c.fields === 'object' ? (c.fields as Record<string, unknown>) : {};
-    const fieldRows = Object.entries(fields)
-      .map(([k, v]) => `<div class="superapp-section__field"><span>${esc(k)}</span><span>${esc(typeof v === 'object' ? JSON.stringify(v) : String(v))}</span></div>`)
-      .join('');
+    const blocks = (c.blocks ?? []).map((b) => renderGenericBlock(b)).join('');
     const custom = c.advancedCustom?.customHtml ? sanitizePreviewHtml(c.advancedCustom.customHtml) : '';
     // R2.5 — layout archetype modifier class + column count. Additive: absent
-    // `config.layout` renders no modifier (byte-identical to pre-R2.5 output).
+    // `config.layout` renders no modifier.
     const layoutClass = layoutModifierClass(c.layout?.layout);
     const layoutCols =
       typeof c.layout?.columns === 'number' ? ` style="--sa-cols:${Math.round(c.layout.columns)}"` : '';
+    const hasBody = Boolean(blocks || custom);
 
     return pageHtml(`
-      <section class="superapp-section superapp-section--${escAttr(c.kind)}${layoutClass}"${layoutCols}>
-        ${c.title ? `<h2 class="superapp-section__title">${esc(c.title)}</h2>` : ''}
-        ${c.subtitle ? `<p class="superapp-section__sub">${esc(c.subtitle)}</p>` : ''}
-        ${blocks ? `<div class="superapp-section__blocks">${blocks}</div>` : ''}
-        ${custom ? `<div class="superapp-section__custom">${custom}</div>` : ''}
-        ${fieldRows ? `<div class="superapp-section__fields">${fieldRows}</div>` : ''}
+      <section class="superapp-section superapp-section--${escAttr(c.kind)}${layoutClass}${
+        hasBody ? '' : ' superapp-section--minimal'
+      }"${layoutCols}>
+        <div class="superapp-section__inner">
+          ${c.title ? `<h2 class="superapp-section__title">${esc(c.title)}</h2>` : ''}
+          ${c.subtitle ? `<p class="superapp-section__sub">${esc(c.subtitle)}</p>` : ''}
+          ${blocks ? `<div class="superapp-section__blocks">${blocks}</div>` : ''}
+          ${custom ? `<div class="superapp-section__custom">${custom}</div>` : ''}
+        </div>
       </section>
     `, `
       body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
       ${styleBlock}
-      .superapp-section__title { margin: 0 0 8px; font-size: 1.25em; font-weight: var(--sa-fw); }
-      .superapp-section__sub { margin: 0 0 12px; opacity: 0.85; }
-      .superapp-section__blocks { display: grid; gap: var(--sa-gap); grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
-      .superapp-layout--grid .superapp-section__blocks { grid-template-columns: repeat(var(--sa-cols, 3), 1fr); }
-      .superapp-layout--masonry .superapp-section__blocks { display: block; column-count: var(--sa-cols, 3); column-gap: var(--sa-gap); }
-      .superapp-layout--carousel .superapp-section__blocks { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; grid-template-columns: none; }
-      .superapp-layout--carousel .superapp-section__block { flex: 0 0 auto; scroll-snap-align: start; min-width: 220px; }
-      .superapp-section__block img { max-width: 100%; height: auto; border-radius: var(--sa-radius); background: #f2f2f2; }
-      .superapp-section__fields { margin-top: 12px; display: grid; gap: 4px; font-size: 0.85em; }
-      .superapp-section__field { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px dashed #e2e8f0; padding: 2px 0; }
-      .superapp-section__field span:first-child { color: #6B7280; }
     `);
+  }
+
+  // ── R6 · Native-section archetype renderers ────────────────────────────────
+  // Each emits the contract BEM class tree (archetype-contract.md §"Class trees")
+  // dressed by the inlined two-pack stylesheet (superapp-modules.css). Copy comes
+  // from config.title/subtitle/fields/blocks; missing/placeholder media renders a
+  // tasteful accent SVG (never a broken <img>). Any field not consumed is omitted.
+
+  /** Hero — split/centered/overlay per layout + fields.mediaSide. */
+  private sectionHero(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const f = saFields(spec);
+    const eyebrow = saStr(spec, 'eyebrow');
+    const title = String(spec.config.title ?? saStr(spec, 'heading') ?? '');
+    const subtitle = String(spec.config.subtitle ?? saStr(spec, 'standfirst') ?? '');
+    const body = saStr(spec, 'bodyText') || saStr(spec, 'body');
+    const mediaUrl = saStr(spec, 'mediaImageUrl') || saStr(spec, 'heroImageUrl') || saStr(spec, 'imageUrl');
+    const mediaAlt = saStr(spec, 'mediaAlt') || title;
+    const mediaSide = saStr(spec, 'mediaSide') === 'left' ? 'left' : 'right';
+    const overlay = f.overlayText === true || saStr(spec, 'layoutVariant') === 'overlay';
+    const layout = String(spec.config.layout?.layout ?? 'stacked');
+    const hasMedia = Boolean(mediaUrl) || overlay || layout === 'grid';
+    const variant = overlay ? 'overlay' : hasMedia && layout === 'grid' ? 'split' : 'centered';
+
+    // CTA buttons: explicit `cta` blocks, else a single fields.ctaLabel/ctaUrl.
+    const ctaBlocks = (spec.config.blocks ?? []).filter((b) => b.kind === 'cta');
+    let ctasHtml = ctaBlocks
+      .map((b) => ctaButton(b.text ?? '', b.url, blockStyle(b), 'superapp-hero__cta'))
+      .join('');
+    if (!ctasHtml && saStr(spec, 'ctaLabel')) {
+      ctasHtml = ctaButton(saStr(spec, 'ctaLabel'), saStr(spec, 'ctaUrl'), 'primary', 'superapp-hero__cta');
+    }
+
+    // Proof chips from stat/feature blocks (centered heroes with proof stats).
+    const proofBlocks = (spec.config.blocks ?? []).filter((b) => b.kind === 'stat' || b.kind === 'feature');
+    const proofHtml = proofBlocks.length
+      ? `<div class="superapp-hero__proof">${proofBlocks
+          .map((b) => {
+            const label = String((b.fields as Record<string, unknown> | undefined)?.label ?? '');
+            return `<span class="superapp-hero__proofitem"><span class="superapp-hero__proofval">${esc(
+              b.text ?? '',
+            )}</span>${label ? `<span class="superapp-hero__prooflabel">${esc(label)}</span>` : ''}</span>`;
+          })
+          .join('')}</div>`
+      : '';
+
+    const content = `
+      <div class="superapp-hero__content">
+        ${eyebrow ? `<span class="superapp-hero__eyebrow">${esc(eyebrow)}</span>` : ''}
+        ${title ? `<h1 class="superapp-hero__title">${esc(title)}</h1>` : ''}
+        ${subtitle ? `<p class="superapp-hero__subtitle">${esc(subtitle)}</p>` : ''}
+        ${body ? `<p class="superapp-hero__body">${esc(body)}</p>` : ''}
+        ${ctasHtml ? `<div class="superapp-hero__ctas">${ctasHtml}</div>` : ''}
+        ${proofHtml}
+      </div>`;
+    const media = hasMedia ? phMedia(mediaUrl, mediaAlt, 'superapp-hero__media') : '';
+    // Split: media order follows mediaSide; overlay: media is a backdrop.
+    const inner =
+      variant === 'overlay'
+        ? `${media}${content}`
+        : variant === 'split' && mediaSide === 'left'
+          ? `${media}${content}`
+          : `${content}${media}`;
+
+    return pageHtml(
+      `<section class="superapp-hero superapp-hero--${variant}">${inner}</section>`,
+      this.archCss(spec, '.superapp-hero'),
+    );
+  }
+
+  /** Feature bento / column grid. */
+  private sectionFeature(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const layout = String(spec.config.layout?.layout ?? 'grid');
+    const variant = layout === 'masonry' || layout === 'bento' ? 'bento' : 'grid';
+    const items = (spec.config.blocks ?? [])
+      .filter((b) => b.kind === 'feature' || b.kind === 'benefit' || b.kind === 'tile')
+      .map((b) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        const eyebrow = bf.eyebrow ? String(bf.eyebrow) : '';
+        const heading = bf.heading ? String(bf.heading) : '';
+        const wide = bf.span === 'wide' ? ' superapp-feature__item--wide' : '';
+        const icon = bf.icon ? String(bf.icon) : '';
+        return `
+          <div class="superapp-feature__item${wide}">
+            ${icon ? `<span class="superapp-feature__icon" aria-hidden="true">${glyph(icon)}</span>` : ''}
+            ${eyebrow ? `<span class="superapp-feature__eyebrow">${esc(eyebrow)}</span>` : ''}
+            ${heading ? `<h3 class="superapp-feature__title">${esc(heading)}</h3>` : ''}
+            ${b.text ? `<p class="superapp-feature__text">${esc(b.text)}</p>` : ''}
+          </div>`;
+      })
+      .join('');
+    return pageHtml(
+      `<section class="superapp-feature superapp-feature--${variant}">
+        ${sectionHead(spec)}
+        <div class="superapp-feature__grid">${items}</div>
+      </section>`,
+      this.archCss(spec, '.superapp-feature'),
+    );
+  }
+
+  /** Gallery / lookbook image grid, masonry or carousel. */
+  private sectionGallery(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const layout = String(spec.config.layout?.layout ?? 'grid');
+    const variant = layout === 'masonry' ? 'masonry' : layout === 'carousel' ? 'carousel' : 'grid';
+    const items = (spec.config.blocks ?? [])
+      .filter((b) => b.kind === 'slide' || b.kind === 'media' || b.kind === 'tile' || b.kind === 'image')
+      .map((b) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        const span = bf.span === 'wide' ? ' superapp-gallery__item--wide' : bf.span === 'tall' ? ' superapp-gallery__item--tall' : '';
+        const alt = bf.alt ? String(bf.alt) : (b.text ?? '');
+        const media = phMedia(b.imageUrl ?? '', alt, 'superapp-gallery__img');
+        const inner = `${media}${b.text ? `<figcaption class="superapp-gallery__caption">${esc(b.text)}</figcaption>` : ''}`;
+        return `<figure class="superapp-gallery__item${span}">${
+          b.url ? `<a class="superapp-gallery__link" href="${escAttr(b.url)}">${inner}</a>` : inner
+        }</figure>`;
+      })
+      .join('');
+    return pageHtml(
+      `<section class="superapp-gallery superapp-gallery--${variant}">
+        ${sectionHead(spec)}
+        <div class="superapp-gallery__grid">${items}</div>
+      </section>`,
+      this.archCss(spec, '.superapp-gallery'),
+    );
+  }
+
+  /** Collection editorial — copy panel + media pair. */
+  private sectionCollection(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const eyebrow = saStr(spec, 'eyebrow');
+    const title = String(spec.config.title ?? saStr(spec, 'heading') ?? '');
+    const text = saStr(spec, 'standfirst') || saStr(spec, 'bodyText') || String(spec.config.subtitle ?? '');
+    const mediaUrl = saStr(spec, 'heroImageUrl') || saStr(spec, 'mediaImageUrl') || saStr(spec, 'imageUrl');
+    const ctaLabel = saStr(spec, 'ctaLabel');
+    const media = phMedia(mediaUrl, title, 'superapp-collection__media');
+    return pageHtml(
+      `<section class="superapp-collection">
+        ${media}
+        <div class="superapp-collection__content">
+          ${eyebrow ? `<span class="superapp-collection__eyebrow">${esc(eyebrow)}</span>` : ''}
+          ${title ? `<h2 class="superapp-collection__title">${esc(title)}</h2>` : ''}
+          ${text ? `<p class="superapp-collection__text">${esc(text)}</p>` : ''}
+          ${ctaLabel ? ctaButton(ctaLabel, saStr(spec, 'ctaUrl'), 'primary', 'superapp-collection__cta') : ''}
+        </div>
+      </section>`,
+      this.archCss(spec, '.superapp-collection'),
+    );
+  }
+
+  /** Pricing tiers / comparison — plan cards, featured highlight. */
+  private sectionPricing(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const plans = (spec.config.blocks ?? [])
+      .filter((b) => b.kind === 'plan' || b.kind === 'tile' || b.kind === 'comparison' || b.kind === 'row')
+      .map((b) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        const featured = bf.recommended === true || bf.featured === true;
+        const price = bf.price != null ? String(bf.price) : '';
+        const period = bf.period ? String(bf.period) : '';
+        const badge = bf.badge ? String(bf.badge) : featured ? 'Most popular' : '';
+        const features = Array.isArray(bf.features) ? (bf.features as unknown[]).map(String) : [];
+        const featuresHtml = features
+          .map((ft) => `<li class="superapp-pricing__feature">${esc(ft)}</li>`)
+          .join('');
+        const ctaLabel = bf.ctaLabel ? String(bf.ctaLabel) : 'Choose plan';
+        return `
+          <div class="superapp-pricing__plan${featured ? ' superapp-pricing__plan--featured' : ''}">
+            ${badge ? `<span class="superapp-pricing__badge">${esc(badge)}</span>` : ''}
+            <h3 class="superapp-pricing__name">${esc(b.text ?? '')}</h3>
+            ${
+              price
+                ? `<div class="superapp-pricing__price"><span class="superapp-pricing__amount">${esc(
+                    price.startsWith('$') ? price : `$${price}`,
+                  )}</span>${period ? `<span class="superapp-pricing__period">/${esc(period)}</span>` : ''}</div>`
+                : ''
+            }
+            ${featuresHtml ? `<ul class="superapp-pricing__features">${featuresHtml}</ul>` : ''}
+            ${ctaButton(ctaLabel, bf.ctaUrl ? String(bf.ctaUrl) : undefined, featured ? 'primary' : 'secondary', 'superapp-pricing__cta')}
+          </div>`;
+      })
+      .join('');
+    return pageHtml(
+      `<div class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-pricing">${plans}</div>
+      </div>`,
+      this.archCss(spec, '.superapp-archsection'),
+    );
+  }
+
+  /** FAQ — native <details> accordion honoring expandBehavior/defaultOpenIndex. */
+  private sectionFaq(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const f = saFields(spec);
+    const single = f.expandBehavior !== 'multi';
+    const defaultOpen = typeof f.defaultOpenIndex === 'number' ? f.defaultOpenIndex : -1;
+    const items = (spec.config.blocks ?? [])
+      .filter((b) => b.kind === 'faq-item' || b.kind === 'faq' || b.kind === 'row')
+      .map((b, i) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        const answer = bf.answer != null ? String(bf.answer) : (b.text && bf.question ? b.text : '');
+        const question = bf.question != null ? String(bf.question) : (b.text ?? '');
+        const open = bf.defaultOpen === true || i === defaultOpen;
+        // In single-open mode only the first eligible item stays open.
+        const openAttr = open ? ' open' : '';
+        return `
+          <details class="superapp-faq__item"${openAttr}${single ? ' data-single' : ''}>
+            <summary class="superapp-faq__q">${esc(question)}</summary>
+            <div class="superapp-faq__a">${esc(answer)}</div>
+          </details>`;
+      })
+      .join('');
+    return pageHtml(
+      `<div class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-faq">${items}</div>
+      </div>`,
+      this.archCss(spec, '.superapp-archsection'),
+    );
+  }
+
+  /** Testimonials / reviews — quote cards with ★ ratings. */
+  private sectionTestimonial(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const cards = (spec.config.blocks ?? [])
+      .filter((b) => b.kind === 'review-card' || b.kind === 'testimonial' || b.kind === 'review' || b.kind === 'social-proof')
+      .map((b) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        const rating = typeof bf.rating === 'number' ? bf.rating : 5;
+        const author = bf.author ? String(bf.author) : '';
+        const loc = bf.location ? String(bf.location) : bf.date ? String(bf.date) : '';
+        const verified = bf.verified === true;
+        return `
+          <figure class="superapp-testimonial__card">
+            ${starRow(rating)}
+            <blockquote class="superapp-testimonial__quote">${esc(b.text ?? '')}</blockquote>
+            ${
+              author
+                ? `<figcaption class="superapp-testimonial__author">${esc(author)}${
+                    verified ? '<span class="superapp-testimonial__meta">✓ Verified</span>' : ''
+                  }${loc ? `<span class="superapp-testimonial__meta">${esc(loc)}</span>` : ''}</figcaption>`
+                : ''
+            }
+          </figure>`;
+      })
+      .join('');
+    return pageHtml(
+      `<div class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-testimonial">${cards}</div>
+      </div>`,
+      this.archCss(spec, '.superapp-archsection'),
+    );
+  }
+
+  /** Stats band — value/label chips. */
+  private sectionStats(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const stats = (spec.config.blocks ?? [])
+      .filter((b) => b.kind === 'stat' || b.kind === 'number' || b.kind === 'percentage')
+      .map((b) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        const label = bf.label ? String(bf.label) : '';
+        return `
+          <div class="superapp-stats__stat">
+            <span class="superapp-stats__value">${esc(b.text ?? '')}</span>
+            ${label ? `<span class="superapp-stats__label">${esc(label)}</span>` : ''}
+          </div>`;
+      })
+      .join('');
+    return pageHtml(
+      `<div class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-stats">${stats}</div>
+      </div>`,
+      this.archCss(spec, '.superapp-archsection'),
+    );
+  }
+
+  /** CTA / rich-text band — headline + text + button. */
+  private sectionCta(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const title = String(spec.config.title ?? saStr(spec, 'heading') ?? '');
+    const text = String(spec.config.subtitle ?? saStr(spec, 'bodyText') ?? saStr(spec, 'body') ?? '');
+    const ctaBlock = (spec.config.blocks ?? []).find((b) => b.kind === 'cta');
+    const button = ctaBlock
+      ? ctaButton(ctaBlock.text ?? '', ctaBlock.url, blockStyle(ctaBlock), 'superapp-cta__button')
+      : saStr(spec, 'ctaLabel')
+        ? ctaButton(saStr(spec, 'ctaLabel'), saStr(spec, 'ctaUrl'), 'primary', 'superapp-cta__button')
+        : '';
+    return pageHtml(
+      `<section class="superapp-cta">
+        ${title ? `<h2 class="superapp-cta__title">${esc(title)}</h2>` : ''}
+        ${text ? `<p class="superapp-cta__text">${esc(text)}</p>` : ''}
+        ${button}
+      </section>`,
+      this.archCss(spec, '.superapp-cta'),
+    );
+  }
+
+  /** Trust — logo marquee (--logos) or trust-badge row (--badges). */
+  private sectionTrust(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const kind = spec.config.kind;
+    const badgeBlocks = (spec.config.blocks ?? []).filter((b) => b.kind === 'badge' || b.kind === 'trust-badge');
+    const logoBlocks = (spec.config.blocks ?? []).filter((b) => b.kind === 'logo');
+    const badges = kind === 'trust-badges' || kind === 'trust-badge' || (badgeBlocks.length && !logoBlocks.length);
+    let itemsHtml: string;
+    if (badges) {
+      itemsHtml = (badgeBlocks.length ? badgeBlocks : spec.config.blocks ?? [])
+        .map((b) => {
+          const bf = (b.fields ?? {}) as Record<string, unknown>;
+          const caption = bf.caption ? String(bf.caption) : '';
+          const icon = bf.icon ? String(bf.icon) : 'shield';
+          return `
+            <div class="superapp-trust__badge">
+              <span class="superapp-trust__badgeicon" aria-hidden="true">${glyph(icon)}</span>
+              <span class="superapp-trust__badgelabel">${esc(b.text ?? '')}</span>
+              ${caption ? `<span class="superapp-trust__badgecaption">${esc(caption)}</span>` : ''}
+            </div>`;
+        })
+        .join('');
+    } else {
+      itemsHtml = (logoBlocks.length ? logoBlocks : spec.config.blocks ?? [])
+        .map((b) => {
+          const alt = ((b.fields ?? {}) as Record<string, unknown>).alt;
+          // Logo images in the library are demo SVGs; render the wordmark text so
+          // the trust row reads cleanly instead of broken image icons.
+          const inner = `<span class="superapp-trust__logo">${esc(b.text ?? String(alt ?? ''))}</span>`;
+          return `<div class="superapp-trust__item">${
+            b.url ? `<a class="superapp-trust__link" href="${escAttr(b.url)}">${inner}</a>` : inner
+          }</div>`;
+        })
+        .join('');
+    }
+    return pageHtml(
+      `<div class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-trust superapp-trust--${badges ? 'badges' : 'logos'}">${itemsHtml}</div>
+      </div>`,
+      this.archCss(spec, '.superapp-archsection'),
+    );
+  }
+
+  /** Newsletter capture — email input + submit + disclaimer. */
+  private sectionNewsletter(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const title = String(spec.config.title ?? '');
+    const text = String(spec.config.subtitle ?? saStr(spec, 'bodyText') ?? '');
+    const placeholder = saStr(spec, 'emailPlaceholder') || 'you@email.com';
+    const submit = saStr(spec, 'captureCtaLabel') || saStr(spec, 'ctaLabel') || 'Subscribe';
+    const disclaimer = saStr(spec, 'consentText') || saStr(spec, 'disclaimer');
+    const benefits = (spec.config.blocks ?? [])
+      .filter((b) => b.kind === 'benefit' || b.kind === 'feature')
+      .map((b) => `<li class="superapp-newsletter__benefit">${esc(b.text ?? '')}</li>`)
+      .join('');
+    return pageHtml(
+      `<section class="superapp-newsletter">
+        ${title ? `<h2 class="superapp-newsletter__title">${esc(title)}</h2>` : ''}
+        ${text ? `<p class="superapp-newsletter__text">${esc(text)}</p>` : ''}
+        ${benefits ? `<ul class="superapp-newsletter__benefits">${benefits}</ul>` : ''}
+        <form class="superapp-newsletter__form" onsubmit="event.preventDefault();">
+          <input class="superapp-newsletter__input" type="email" placeholder="${escAttr(placeholder)}" aria-label="Email address" />
+          <button class="superapp-newsletter__submit" type="submit">${esc(submit)}</button>
+        </form>
+        ${disclaimer ? `<p class="superapp-newsletter__disclaimer">${esc(disclaimer)}</p>` : ''}
+      </section>`,
+      this.archCss(spec, '.superapp-newsletter'),
+    );
+  }
+
+  /** Launch / coming-soon / 404 — big code, countdown, optional capture. */
+  private sectionLaunch(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const f = saFields(spec);
+    const is404 = spec.config.kind === '404';
+    const code = saStr(spec, 'statusLabel') || (is404 ? '404' : '');
+    const eyebrow = saStr(spec, 'eyebrow');
+    const title = String(spec.config.title ?? '');
+    const subtitle = String(spec.config.subtitle ?? '');
+    const body = saStr(spec, 'bodyText') || saStr(spec, 'body');
+    const launchDate = saStr(spec, 'launchDate') || saStr(spec, 'countdownTo');
+    const homeCta = saStr(spec, 'homeCtaLabel');
+    const capture = f.captureEnabled === true;
+    const captureCta = saStr(spec, 'captureCtaLabel') || 'Notify me';
+    const placeholder = saStr(spec, 'emailPlaceholder') || 'you@email.com';
+    const incentive = saStr(spec, 'incentiveNote');
+
+    // 404 popular-link cards from `link` blocks.
+    const linkCards = (spec.config.blocks ?? [])
+      .filter((b) => b.kind === 'link')
+      .map((b) => {
+        const cap = ((b.fields ?? {}) as Record<string, unknown>).caption;
+        const media = phMedia(b.imageUrl ?? '', b.text ?? '', 'superapp-launch__linkimg');
+        return `<a class="superapp-launch__link" href="${escAttr(b.url ?? '#')}">${media}<span class="superapp-launch__linktitle">${esc(
+          b.text ?? '',
+        )}</span>${cap ? `<span class="superapp-launch__linkcap">${esc(String(cap))}</span>` : ''}</a>`;
+      })
+      .join('');
+
+    return pageHtml(
+      `<section class="superapp-launch">
+        ${code ? `<div class="superapp-launch__code">${esc(code)}</div>` : ''}
+        ${eyebrow ? `<span class="superapp-launch__eyebrow">${esc(eyebrow)}</span>` : ''}
+        ${title ? `<h1 class="superapp-launch__title">${esc(title)}</h1>` : ''}
+        ${subtitle ? `<p class="superapp-launch__sub">${esc(subtitle)}</p>` : ''}
+        ${body ? `<p class="superapp-launch__text">${esc(body)}</p>` : ''}
+        ${launchDate ? `<div class="superapp-launch__countdown" data-sa-countdown="${escAttr(launchDate)}">00 : 00 : 00 : 00</div>` : ''}
+        ${
+          capture
+            ? `<form class="superapp-launch__capture superapp-newsletter" onsubmit="event.preventDefault();">
+                 <div class="superapp-newsletter__form">
+                   <input class="superapp-newsletter__input" type="email" placeholder="${escAttr(placeholder)}" aria-label="Email address" />
+                   <button class="superapp-newsletter__submit" type="submit">${esc(captureCta)}</button>
+                 </div>
+               </form>`
+            : ''
+        }
+        ${homeCta ? ctaButton(homeCta, saStr(spec, 'homeCtaUrl'), 'primary', 'superapp-launch__cta') : ''}
+        ${linkCards ? `<div class="superapp-launch__links">${linkCards}</div>` : ''}
+        ${incentive ? `<p class="superapp-launch__note">${esc(incentive)}</p>` : ''}
+      </section>`,
+      this.archCss(spec, '.superapp-launch'),
+    );
+  }
+
+  /** Contact card — contact methods (Visit/Call/Hours). */
+  private sectionContactCard(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const methods = (spec.config.blocks ?? [])
+      .filter((b) => b.kind === 'contact-method' || b.kind === 'row')
+      .map((b) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        const value = bf.detail != null ? String(bf.detail) : bf.value != null ? String(bf.value) : '';
+        const icon = bf.icon ? String(bf.icon) : 'pin';
+        return `
+          <div class="superapp-contactcard__method">
+            <span class="superapp-contactcard__icon" aria-hidden="true">${glyph(icon)}</span>
+            <span class="superapp-contactcard__label">${esc(b.text ?? '')}</span>
+            ${value ? `<span class="superapp-contactcard__value">${esc(value)}</span>` : ''}
+          </div>`;
+      })
+      .join('');
+    return pageHtml(
+      `<section class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-contactcard">${methods}</div>
+      </section>`,
+      this.archCss(spec, '.superapp-archsection'),
+    );
+  }
+
+  /** Team — member cards (photo/name/role). */
+  private sectionTeam(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const members = (spec.config.blocks ?? [])
+      .filter((b) => b.kind === 'team-member' || b.kind === 'member')
+      .map((b) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        const role = bf.role ? String(bf.role) : '';
+        const bio = bf.bio ? String(bf.bio) : '';
+        return `
+          <figure class="superapp-team__member">
+            ${phMedia(b.imageUrl ?? '', b.text ?? '', 'superapp-team__photo')}
+            <figcaption>
+              <span class="superapp-team__name">${esc(b.text ?? '')}</span>
+              ${role ? `<span class="superapp-team__role">${esc(role)}</span>` : ''}
+              ${bio ? `<span class="superapp-team__bio">${esc(bio)}</span>` : ''}
+            </figcaption>
+          </figure>`;
+      })
+      .join('');
+    return pageHtml(
+      `<section class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-team">${members}</div>
+      </section>`,
+      this.archCss(spec, '.superapp-archsection'),
+    );
+  }
+
+  /** Timeline / steps — ordered markers + copy. */
+  private sectionTimeline(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const steps = (spec.config.blocks ?? [])
+      .filter((b) => b.kind === 'step' || b.kind === 'milestone' || b.kind === 'event')
+      .map((b, i) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        const marker = bf.date != null ? String(bf.date) : bf.number != null ? String(bf.number) : String(i + 1);
+        const detail = bf.detail != null ? String(bf.detail) : '';
+        return `
+          <div class="superapp-timeline__step">
+            <span class="superapp-timeline__marker">${esc(marker)}</span>
+            <div class="superapp-timeline__content">
+              <h3 class="superapp-timeline__title">${esc(b.text ?? '')}</h3>
+              ${detail ? `<p class="superapp-timeline__text">${esc(detail)}</p>` : ''}
+            </div>
+          </div>`;
+      })
+      .join('');
+    return pageHtml(
+      `<section class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-timeline">${steps}</div>
+      </section>`,
+      this.archCss(spec, '.superapp-archsection'),
+    );
+  }
+
+  /** Upsell / frequently-bought-together — product picks. */
+  private sectionUpsell(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const products = (spec.config.blocks ?? [])
+      .filter((b) => b.kind === 'product-card' || b.kind === 'feature' || b.kind === 'product')
+      .map((b) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        const price = bf.price != null ? String(bf.price) : '';
+        const priceLabel = price ? (price.startsWith('$') ? price : `$${price}`) : '';
+        return `
+          <div class="superapp-upsell__product">
+            ${phMedia(b.imageUrl ?? '', b.text ?? '', 'superapp-upsell__thumb')}
+            <span class="superapp-upsell__name">${esc(b.text ?? '')}</span>
+            ${priceLabel ? `<span class="superapp-upsell__price">${esc(priceLabel)}</span>` : ''}
+          </div>`;
+      })
+      .join('');
+    const addAll = saStr(spec, 'addAllLabel');
+    const discount = saStr(spec, 'discountLabel');
+    return pageHtml(
+      `<section class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-upsell">${products}</div>
+        ${discount ? `<p class="superapp-upsell__save">${esc(discount)}</p>` : ''}
+        ${addAll ? ctaButton(addAll, undefined, 'primary', 'superapp-upsell__cta') : ''}
+      </section>`,
+      this.archCss(spec, '.superapp-archsection'),
+    );
+  }
+
+  /** Band — announcement / countdown / free-shipping / progress bar. */
+  private sectionBand(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const message = String(spec.config.title ?? saStr(spec, 'message') ?? saStr(spec, 'text') ?? '');
+    const ctaLabel = saStr(spec, 'ctaLabel') || saStr(spec, 'linkText');
+    const ctaUrl = saStr(spec, 'ctaUrl') || saStr(spec, 'linkUrl');
+    const countdownTo = saStr(spec, 'countdownTo') || saStr(spec, 'endTime');
+    const hasProgress = spec.config.kind === 'progress' || saStr(spec, 'threshold') !== '';
+    return pageHtml(
+      `<section class="superapp-band">
+        <span class="superapp-band__text">${esc(message)}</span>
+        ${countdownTo ? `<span class="superapp-band__countdown" data-sa-countdown="${escAttr(countdownTo)}">00 : 00 : 00</span>` : ''}
+        ${hasProgress ? `<span class="superapp-band__progress"><span class="superapp-band__progressfill" style="width:64%"></span></span>` : ''}
+        ${ctaLabel ? `<a class="superapp-band__cta" href="${escAttr(ctaUrl || '#')}">${esc(ctaLabel)}</a>` : ''}
+      </section>`,
+      this.archCss(spec, '.superapp-band'),
+    );
+  }
+
+  /** Technical (consent/json-ld/meta/…) — curated, human-labeled config card. */
+  private sectionTechnical(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const kind = spec.config.kind;
+    const rows = curatedTechRows(spec);
+    const rowsHtml = rows
+      .map(
+        (r) =>
+          `<div class="superapp-techcard__row"><span class="superapp-techcard__key">${esc(r[0])}</span><span class="superapp-techcard__val">${esc(
+            r[1],
+          )}</span></div>`,
+      )
+      .join('');
+    return pageHtml(
+      `<section class="superapp-techcard">
+        <div class="superapp-techcard__type">${esc(humanizeKind(kind))}</div>
+        ${spec.config.title ? `<h3 class="superapp-techcard__title">${esc(spec.config.title)}</h3>` : ''}
+        ${
+          rowsHtml
+            ? `<div class="superapp-techcard__rows">${rowsHtml}</div>`
+            : `<p class="superapp-techcard__note">This is a technical / head-only module — it renders no visible storefront UI. It ships structured data or behavior, configured server-side.</p>`
+        }
+      </section>`,
+      this.archCss(spec, '.superapp-techcard'),
+    );
   }
 
   /** Kind renderer: contactForm (lead-capture form). */
@@ -1447,6 +2050,233 @@ function layoutModifierClass(layout: unknown): string {
   if (typeof layout !== 'string' || layout.length === 0 || layout === 'stacked') return '';
   const token = layout.toLowerCase().replace(/[^a-z0-9-]/g, '-');
   return ` superapp-layout--${token}`;
+}
+
+// ── R6 · Native-section archetype resolution + render helpers ────────────────
+// Single source of truth mapping every library `config.kind` to a canonical
+// archetype (archetype-contract.md §"Canonical archetypes and kind aliases").
+// The storefront Liquid + native-section compiler resolve the SAME table, so the
+// preview class trees below match what the storefront renders (R0 parity).
+
+type SectionArchetype =
+  | 'hero' | 'feature' | 'gallery' | 'collection' | 'pricing' | 'faq'
+  | 'testimonial' | 'stats' | 'cta' | 'trust' | 'newsletter' | 'launch'
+  | 'contact' | 'team' | 'timeline' | 'upsell' | 'band' | 'technical';
+
+const KIND_ARCHETYPE: Record<string, SectionArchetype> = {
+  hero: 'hero', 'collection-hero': 'hero',
+  feature: 'feature', benefit: 'feature',
+  gallery: 'gallery', lookbook: 'gallery', 'collection-lookbook': 'gallery', 'collection-carousel': 'gallery',
+  'collection-story': 'collection', 'collection-split': 'collection', 'collection-promo': 'collection',
+  'collection-list': 'collection', story: 'collection',
+  pricing: 'pricing', comparison: 'pricing', plan: 'pricing',
+  faq: 'faq', accordion: 'faq',
+  testimonials: 'testimonial', reviews: 'testimonial', 'social-proof': 'testimonial',
+  'review-summary': 'testimonial', testimonial: 'testimonial',
+  stats: 'stats',
+  cta: 'cta', 'rich-text': 'cta',
+  trust: 'trust', 'trust-badges': 'trust', 'trust-badge': 'trust', 'payment-badges': 'trust',
+  'usp-strip': 'trust', 'logo-marquee': 'trust',
+  newsletter: 'newsletter',
+  launch: 'launch', 'coming-soon': 'launch', '404': 'launch',
+  contact: 'contact',
+  team: 'team',
+  timeline: 'timeline', steps: 'timeline',
+  upsell: 'upsell', 'bought-together': 'upsell', 'product-addons': 'upsell',
+  announcement: 'band', 'announcement-bar': 'band', 'free-shipping-bar': 'band',
+  countdown: 'band', 'countdown-bar': 'band', progress: 'band',
+  consent: 'technical', 'json-ld': 'technical', meta: 'technical', 'pixel-bootstrap': 'technical',
+  preload: 'technical', filters: 'technical', search: 'technical', sort: 'technical',
+  'sticky-atc': 'technical', 'size-chart': 'technical', 'star-rating': 'technical',
+  'payment-icons': 'technical', footer: 'technical', rewards: 'technical', badge: 'technical',
+};
+
+function sectionArchetype(kind: string): SectionArchetype | null {
+  return KIND_ARCHETYPE[kind] ?? null;
+}
+
+type ThemeSectionSpec = Extract<RecipeSpec, { type: 'theme.section' }>;
+
+/** config.fields as a record (never undefined). */
+function saFields(spec: ThemeSectionSpec): Record<string, unknown> {
+  const f = (spec.config as { fields?: unknown }).fields;
+  return f && typeof f === 'object' ? (f as Record<string, unknown>) : {};
+}
+
+/** Read a value from config.fields then top-level config, coerced to a string. */
+function saStr(spec: ThemeSectionSpec, key: string): string {
+  const c = spec.config as Record<string, unknown>;
+  const v = saFields(spec)[key] ?? c[key];
+  return v == null ? '' : String(v);
+}
+
+/** A block's CTA style (`fields.style`), normalized to the button variant set. */
+function blockStyle(b: { fields?: Record<string, unknown> }): string {
+  const s = String((b.fields ?? {}).style ?? 'primary');
+  return ['primary', 'secondary', 'outline', 'ghost', 'link'].includes(s) ? s : 'primary';
+}
+
+/** Section head (title + subtitle) shared by archetypes that wrap a child grid. */
+function sectionHead(spec: ThemeSectionSpec): string {
+  const title = spec.config.title;
+  const sub = spec.config.subtitle;
+  if (!title && !sub) return '';
+  return `<header class="superapp-archsection__head">
+    ${title ? `<h2 class="superapp-archsection__title">${esc(String(title))}</h2>` : ''}
+    ${sub ? `<p class="superapp-archsection__sub">${esc(String(sub))}</p>` : ''}
+  </header>`;
+}
+
+/** Minimal per-renderer CSS — the archetype classes come from the inlined pack sheet. */
+function previewBase(): string {
+  return `body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }`;
+}
+
+/**
+ * A CTA anchor. Carries the archetype-specific class (`cls`, for layout) plus the
+ * shared `.superapp-btn`/`--variant` classes so one button rule-set dresses every
+ * archetype's CTAs consistently across both packs.
+ */
+function ctaButton(text: string, url: string | undefined, style: string, cls: string): string {
+  if (!text) return '';
+  const variant = ['primary', 'secondary', 'outline', 'ghost', 'link'].includes(style) ? style : 'primary';
+  return `<a class="${cls} superapp-btn superapp-btn--${variant}" href="${escAttr(url || '#')}">${esc(text)}</a>`;
+}
+
+/** ★ rating row (filled + empty stars), aria-labelled. */
+function starRow(rating: number): string {
+  const r = Math.max(0, Math.min(5, Math.round(rating)));
+  let stars = '';
+  for (let i = 1; i <= 5; i++) {
+    stars += `<span class="superapp-testimonial__star${i > r ? ' is-empty' : ''}" aria-hidden="true">★</span>`;
+  }
+  return `<span class="superapp-testimonial__rating" role="img" aria-label="${r} out of 5 stars">${stars}</span>`;
+}
+
+/** True when a media URL is a demo/placeholder (would 404) or is missing. */
+function isPlaceholderUrl(url: string): boolean {
+  if (!url) return true;
+  if (/(^|\.)example\.com/i.test(url)) return true;
+  // Library demo assets under Shopify's CDN files path are illustrative, not real.
+  if (/cdn\.shopify\.com\/s\/files\//i.test(url)) return true;
+  return false;
+}
+
+/** Tasteful placeholder SVG glyph shared by media placeholders. */
+const PH_SVG =
+  '<svg class="superapp-ph__glyph" viewBox="0 0 48 48" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="6" y="9" width="36" height="30" rx="3"/><circle cx="17" cy="19" r="3.5"/><path d="M8 34l10-9 7 6 6-6 9 9"/></svg>';
+
+/**
+ * Media element for a slot: a real `<img>` when the URL looks real, otherwise a
+ * token-accented placeholder div (never a broken image). Both carry `cls` so the
+ * archetype sizing rules apply either way.
+ */
+function phMedia(url: string, alt: string, cls: string): string {
+  if (!isPlaceholderUrl(url)) {
+    return `<img class="${cls}" src="${escAttr(url)}" alt="${escAttr(alt)}" loading="lazy" />`;
+  }
+  return `<div class="${cls} superapp-ph" role="img" aria-label="${escAttr(alt || 'Sample image')}">${PH_SVG}</div>`;
+}
+
+/** Small inline glyph for icon slots (feature/trust/contact). Accent-colored. */
+function glyph(_name: string): string {
+  return '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
+}
+
+/** Human-readable label for a technical kind. */
+function humanizeKind(kind: string): string {
+  return kind
+    .replace(/[-_]/g, ' ')
+    .replace(/\bjson ld\b/i, 'JSON-LD')
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+/**
+ * Curated, human-labeled summary rows for the `technical` archetype — a small
+ * allowlist of meaningful keys, NEVER a raw dump of every field. Values are
+ * humanized (arrays → counts, booleans → Yes/No).
+ */
+function curatedTechRows(spec: ThemeSectionSpec): Array<[string, string]> {
+  const f = saFields(spec);
+  const LABELS: Record<string, string> = {
+    schemaType: 'Schema type', type: 'Type', mode: 'Mode', position: 'Position',
+    placement: 'Placement', events: 'Events', provider: 'Provider', enabled: 'Enabled',
+    consentCategory: 'Consent category', label: 'Label', target: 'Target',
+    strategy: 'Strategy', unit: 'Unit', size: 'Size', currency: 'Currency',
+    ctaLabel: 'CTA label', showPrice: 'Show price', showThumbnail: 'Show thumbnail',
+    showOnScrollPastAtc: 'Show past ATC', columnsDesktop: 'Columns (desktop)',
+    iconStyle: 'Icon style', sortBy: 'Sort by', defaultSort: 'Default sort',
+  };
+  const rows: Array<[string, string]> = [];
+  for (const [key, label] of Object.entries(LABELS)) {
+    const v = f[key];
+    if (v == null || v === '') continue;
+    let out: string;
+    if (Array.isArray(v)) out = `${v.length} item${v.length === 1 ? '' : 's'}`;
+    else if (typeof v === 'boolean') out = v ? 'Yes' : 'No';
+    else if (typeof v === 'object') continue;
+    else out = String(v);
+    rows.push([label, out]);
+  }
+  return rows.slice(0, 6);
+}
+
+/**
+ * Render a single generic block by its kind (last-resort generic section only).
+ * Every known block kind gets meaningful markup — never a bare `<div><p>text</p></div>`.
+ */
+function renderGenericBlock(b: {
+  kind: string;
+  text?: string;
+  imageUrl?: string;
+  url?: string;
+  fields?: Record<string, unknown>;
+}): string {
+  const bf = (b.fields ?? {}) as Record<string, unknown>;
+  switch (b.kind) {
+    case 'cta':
+      return ctaButton(b.text ?? '', b.url, blockStyle(b), 'superapp-block__btn');
+    case 'stat':
+    case 'number':
+    case 'percentage':
+      return `<div class="superapp-section__block superapp-section__block--stat"><span class="superapp-block__num">${esc(
+        b.text ?? '',
+      )}</span>${bf.label ? `<span class="superapp-block__label">${esc(String(bf.label))}</span>` : ''}</div>`;
+    case 'feature':
+    case 'benefit':
+      return `<div class="superapp-section__block">${
+        bf.eyebrow ? `<span class="superapp-block__eyebrow">${esc(String(bf.eyebrow))}</span>` : ''
+      }${bf.heading ? `<h3 class="superapp-block__heading">${esc(String(bf.heading))}</h3>` : ''}${
+        b.text ? `<p class="superapp-section__block-text">${esc(b.text)}</p>` : ''
+      }</div>`;
+    case 'faq-item':
+      return `<details class="superapp-faq__item"><summary class="superapp-faq__q">${esc(
+        b.text ?? '',
+      )}</summary><div class="superapp-faq__a">${esc(String(bf.answer ?? ''))}</div></details>`;
+    case 'review-card':
+    case 'testimonial':
+      return `<figure class="superapp-section__block">${starRow(
+        typeof bf.rating === 'number' ? bf.rating : 5,
+      )}<blockquote>${esc(b.text ?? '')}</blockquote>${
+        bf.author ? `<figcaption>${esc(String(bf.author))}</figcaption>` : ''
+      }</figure>`;
+    case 'slide':
+    case 'media':
+    case 'logo':
+      return `<div class="superapp-section__block">${phMedia(
+        b.imageUrl ?? '',
+        b.text ?? '',
+        'superapp-section__block-img',
+      )}${b.text ? `<p class="superapp-section__block-text">${esc(b.text)}</p>` : ''}</div>`;
+    case 'badge':
+      return `<div class="superapp-section__block">${
+        b.text ? `<strong>${esc(b.text)}</strong>` : ''
+      }${bf.caption ? `<p class="superapp-section__block-text">${esc(String(bf.caption))}</p>` : ''}</div>`;
+    default:
+      return b.text
+        ? `<div class="superapp-section__block"><p class="superapp-section__block-text">${esc(b.text)}</p></div>`
+        : '';
+  }
 }
 
 /**

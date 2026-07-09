@@ -85,6 +85,82 @@ describe('template preview distinctness (gallery thumbnail bug)', () => {
    * current library the in-scope, description-bearing templates are admin.action,
    * admin.block, and admin.discountUi.
    */
+  /**
+   * ARCHETYPE fidelity + pack diversity — locks the 2026-07 "flagship templates"
+   * repair. Three regressions this guards:
+   *  1. sectionGeneric used to dump raw `config.fields` as key/value debug rows
+   *     (`.superapp-section__fields`) into every native-section preview.
+   *  2. Every storefront template previewed as pack 'luxe' because no template
+   *     authored `style.pack` — previews were monochrome across the gallery.
+   *  3. Section kinds (hero/faq/pricing/…) all fell through to one generic
+   *     scaffold instead of their per-archetype renderer.
+   */
+  it('never renders the raw fields debug dump in storefront previews', () => {
+    const offenders: string[] = [];
+    for (const t of MODULE_TEMPLATES) {
+      const spec = findTemplate(t.id)!.spec;
+      if (spec.type !== 'theme.section' && spec.type !== 'proxy.widget') continue;
+      if (render(spec).includes('superapp-section__fields')) offenders.push(t.id);
+    }
+    expect(offenders, `fields debug dump leaked back into: ${offenders.slice(0, 10).join(', ')}`).toEqual([]);
+  });
+
+  it('previews carry both design-system packs across the library', () => {
+    let luxe = 0;
+    let bold = 0;
+    for (const t of MODULE_TEMPLATES) {
+      const spec = findTemplate(t.id)!.spec;
+      if (spec.type !== 'theme.section' && spec.type !== 'proxy.widget') continue;
+      const html = render(spec);
+      if (html.includes('data-sa-pack="luxe"')) luxe++;
+      if (html.includes('data-sa-pack="bold"')) bold++;
+    }
+    // 220 storefront templates authored ≈96 bold / ≈124 luxe; require a healthy
+    // floor of each so a regression to a single-pack default fails loudly.
+    expect(luxe, 'expected a meaningful number of luxe-pack previews').toBeGreaterThan(30);
+    expect(bold, 'expected a meaningful number of bold-pack previews').toBeGreaterThan(30);
+  });
+
+  it('renders major section kinds through their archetype renderer, not the generic scaffold', () => {
+    const KIND_CLASS: Record<string, string> = {
+      hero: 'superapp-hero',
+      faq: 'superapp-faq',
+      accordion: 'superapp-faq',
+      pricing: 'superapp-pricing',
+      comparison: 'superapp-pricing',
+      stats: 'superapp-stats',
+      testimonials: 'superapp-testimonial',
+      reviews: 'superapp-testimonial',
+      'social-proof': 'superapp-testimonial',
+      gallery: 'superapp-gallery',
+      lookbook: 'superapp-gallery',
+      newsletter: 'superapp-newsletter',
+      'logo-marquee': 'superapp-trust',
+      'trust-badges': 'superapp-trust',
+      feature: 'superapp-feature',
+      '404': 'superapp-launch',
+      'coming-soon': 'superapp-launch',
+      team: 'superapp-team',
+      timeline: 'superapp-timeline',
+    };
+    const missing: { id: string; kind: string; expected: string }[] = [];
+    let covered = 0;
+    for (const t of MODULE_TEMPLATES) {
+      const spec = findTemplate(t.id)!.spec;
+      if (spec.type !== 'theme.section') continue;
+      const kind = String((spec.config as { kind?: unknown }).kind ?? '');
+      const expected = KIND_CLASS[kind];
+      if (!expected) continue;
+      covered++;
+      if (!render(spec).includes(expected)) missing.push({ id: t.id, kind, expected });
+    }
+    expect(covered, 'expected many archetype-kind templates in scope').toBeGreaterThan(50);
+    expect(
+      missing,
+      `These kinds regressed to the generic scaffold: ${JSON.stringify(missing.slice(0, 10))}`,
+    ).toEqual([]);
+  });
+
   it('renders each template’s real config.description into its preview (no generic scaffold)', () => {
     // Mirror preview.service.ts `esc()` exactly so we compare against what the
     // renderer emits (it entity-encodes & < > " ' and every char > 127).

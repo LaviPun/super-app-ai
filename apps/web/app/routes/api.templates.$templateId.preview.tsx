@@ -24,8 +24,21 @@ export async function loader({ request, params }: { request: Request; params: { 
   const url = new URL(request.url);
   const surface = (url.searchParams.get('surface') ?? undefined) as PreviewSurface | undefined;
 
+  // The template spec already carries its authored `style.pack` + `colors.seed`,
+  // so PreviewService.render() resolves the two-pack look + accent from the spec
+  // itself — no app-side pack/palette resolution needed here. We only forward
+  // theme fonts when they are trivially present as query params (the caller may
+  // pass the storefront's heading/body font so previews match inherited type);
+  // we never make an extra Admin/theme call for them.
+  const headingFont = url.searchParams.get('headingFont')?.trim() || undefined;
+  const bodyFont = url.searchParams.get('bodyFont')?.trim() || undefined;
+  const themeFonts = headingFont || bodyFont ? { headingFont, bodyFont } : undefined;
+
   try {
-    const preview = new PreviewService().render(template.spec, surface ? { surface } : undefined);
+    const preview = new PreviewService().render(template.spec, {
+      ...(surface ? { surface } : {}),
+      ...(themeFonts ? { themeFonts } : {}),
+    });
     if (preview.kind === 'HTML') return json({ html: preview.html });
     return json({ json: preview.json });
   } catch (e) {
