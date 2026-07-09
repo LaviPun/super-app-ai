@@ -575,7 +575,7 @@
           if sa_sec_has_blocks
             assign sa_arch = 'gallery'
           endif
-        when 'collection-story', 'collection-split', 'collection-promo', 'collection-list'
+        when 'collection-story', 'collection-split', 'collection-promo', 'collection-list', 'story'
           assign sa_arch = 'collection'
         when 'pricing', 'comparison', 'plan'
           if sa_sec_has_blocks
@@ -619,7 +619,7 @@
           endif
         when 'announcement', 'announcement-bar', 'free-shipping-bar', 'countdown', 'countdown-bar', 'progress'
           assign sa_arch = 'band'
-        when 'consent', 'json-ld', 'meta', 'pixel-bootstrap', 'preload', 'filters', 'search', 'sort', 'sticky-atc', 'size-chart', 'star-rating', 'payment-icons', 'footer', 'rewards'
+        when 'consent', 'json-ld', 'meta', 'pixel-bootstrap', 'preload', 'filters', 'search', 'sort', 'sticky-atc', 'size-chart', 'star-rating', 'payment-icons', 'footer', 'rewards', 'badge'
           assign sa_arch = 'technical'
       endcase
 

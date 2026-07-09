@@ -72,6 +72,14 @@ function loadPackCss(): string {
       // try next candidate
     }
   }
+  // None resolved: previews degrade to legacy CSS (no two-pack look) for the rest
+  // of the process. Warn once so a bad deploy layout (e.g. a server bundle that
+  // ships without the extensions/ tree, or an unexpected cwd) is visible instead
+  // of silently shipping unstyled previews merchants judge quality on.
+  console.warn(
+    `[preview] superapp-modules.css not found from cwd=${process.cwd()} (tried ${candidates.length} paths); ` +
+      `storefront previews will render without the two-pack stylesheet until restart.`,
+  );
   packCssCache = '';
   return packCssCache;
 }
@@ -2063,7 +2071,11 @@ type SectionArchetype =
   | 'testimonial' | 'stats' | 'cta' | 'trust' | 'newsletter' | 'launch'
   | 'contact' | 'team' | 'timeline' | 'upsell' | 'band' | 'technical';
 
-const KIND_ARCHETYPE: Record<string, SectionArchetype> = {
+// Exported for the drift-guard test (kind-archetype-parity.test.ts): the native
+// compiler keeps its own copy of this table (Liquid can't import a TS const), and
+// the test asserts the two stay identical so preview⇄storefront parity can't
+// silently rot. Keep any edit here mirrored in native-section.ts's KIND_ARCHETYPE.
+export const KIND_ARCHETYPE: Record<string, SectionArchetype> = {
   hero: 'hero', 'collection-hero': 'hero',
   feature: 'feature', benefit: 'feature',
   gallery: 'gallery', lookbook: 'gallery', 'collection-lookbook': 'gallery', 'collection-carousel': 'gallery',
@@ -2178,9 +2190,39 @@ function phMedia(url: string, alt: string, cls: string): string {
   return `<div class="${cls} superapp-ph" role="img" aria-label="${escAttr(alt || 'Sample image')}">${PH_SVG}</div>`;
 }
 
-/** Small inline glyph for icon slots (feature/trust/contact). Accent-colored. */
-function glyph(_name: string): string {
-  return '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
+/**
+ * Small inline glyph for icon slots (feature/trust/contact). Accent-colored.
+ * Maps a handful of common icon names (the defaults the archetype renderers pass:
+ * check/shield/pin, plus star/truck/mail/phone/lock/heart/bolt/tag) to distinct
+ * SVGs; unknown names fall back to the check so a slot never renders empty.
+ */
+const GLYPH_PATHS: Record<string, string> = {
+  check: '<polyline points="20 6 9 17 4 12"/>',
+  shield: '<path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/>',
+  pin: '<path d="M12 21s-7-6-7-11a7 7 0 0 1 14 0c0 5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
+  star: '<polygon points="12 2 15 9 22 9.5 17 14.5 18.5 22 12 18 5.5 22 7 14.5 2 9.5 9 9"/>',
+  truck: '<path d="M1 6h13v9H1z"/><path d="M14 9h4l3 3v3h-7z"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>',
+  mail: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 6l10 7 10-7"/>',
+  phone: '<path d="M4 3h4l2 5-3 2a12 12 0 0 0 5 5l2-3 5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 2 5a2 2 0 0 1 2-2z"/>',
+  lock: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
+  heart: '<path d="M12 21C7 17 3 13 3 8.5A4.5 4.5 0 0 1 12 6a4.5 4.5 0 0 1 9 2.5C21 13 17 17 12 21z"/>',
+  bolt: '<polygon points="13 2 4 14 11 14 10 22 20 9 13 9"/>',
+  tag: '<path d="M3 12l9-9 9 9-9 9z"/><circle cx="9" cy="9" r="1.5"/>',
+};
+const GLYPH_ALIASES: Record<string, string> = {
+  security: 'shield', trust: 'shield', guarantee: 'shield', warranty: 'shield',
+  location: 'pin', address: 'pin', map: 'pin',
+  rating: 'star', review: 'star', quality: 'star',
+  shipping: 'truck', delivery: 'truck', fast: 'bolt', speed: 'bolt', instant: 'bolt',
+  email: 'mail', contact: 'mail', call: 'phone', support: 'phone',
+  secure: 'lock', privacy: 'lock', love: 'heart', care: 'heart',
+  discount: 'tag', sale: 'tag', price: 'tag',
+};
+function glyph(name: string): string {
+  const key = String(name).trim().toLowerCase();
+  const resolved = GLYPH_PATHS[key] ? key : GLYPH_ALIASES[key] ?? 'check';
+  const path = GLYPH_PATHS[resolved] ?? GLYPH_PATHS.check;
+  return `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
 }
 
 /** Human-readable label for a technical kind. */

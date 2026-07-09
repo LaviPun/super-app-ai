@@ -698,7 +698,12 @@ function ModuleDetailBody() {
                   <iframe
                     title={`Preview of ${mod.name}`}
                     srcDoc={previewHtml}
-                    sandbox="allow-scripts allow-same-origin"
+                    // No allow-same-origin: previewHtml may include AI-generated
+                    // (draft.previewHtmlJson) markup. Keeping the frame at an opaque
+                    // origin means any injected script can't reach the admin app's
+                    // origin (cookies/storage/parent DOM). The self-contained preview
+                    // scripts (countdown, link-intercept) run fine without it.
+                    sandbox="allow-scripts"
                     onLoad={() => setPreviewLoaded(true)}
                     style={{ display: 'block', width: '100%', height: 480, border: 0, background: '#fff' }}
                   />

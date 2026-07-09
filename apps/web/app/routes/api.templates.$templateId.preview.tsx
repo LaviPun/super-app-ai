@@ -34,13 +34,19 @@ export async function loader({ request, params }: { request: Request; params: { 
   const bodyFont = url.searchParams.get('bodyFont')?.trim() || undefined;
   const themeFonts = headingFont || bodyFont ? { headingFont, bodyFont } : undefined;
 
+  // This response is deterministic per (templateId, surface, fonts): PreviewService
+  // renders from the static template spec with no per-request state. The payload is
+  // large (the pack stylesheet is inlined), and the gallery fetches one per card, so
+  // let the browser/CDN absorb repeat scrolls instead of re-fetching every thumbnail.
+  const cacheHeaders = { 'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400' };
+
   try {
     const preview = new PreviewService().render(template.spec, {
       ...(surface ? { surface } : {}),
       ...(themeFonts ? { themeFonts } : {}),
     });
-    if (preview.kind === 'HTML') return json({ html: preview.html });
-    return json({ json: preview.json });
+    if (preview.kind === 'HTML') return json({ html: preview.html }, { headers: cacheHeaders });
+    return json({ json: preview.json }, { headers: cacheHeaders });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
   }

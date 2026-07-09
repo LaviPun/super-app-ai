@@ -138,9 +138,11 @@ function humanize(s: string): string {
 }
 
 // ───────────────────────── Archetype resolution ─────────────────────────────
-// Single source of truth (mirrors the alias map in the Liquid snippet + preview).
-
-const KIND_ARCHETYPE: Record<string, string> = {
+// This table MUST stay identical to preview.service.ts's KIND_ARCHETYPE (and the
+// `when` table in the Liquid snippet) or preview⇄storefront parity breaks. The
+// Liquid can't import a TS const, so the two TS copies are kept in sync by
+// kind-archetype-parity.test.ts, which fails on any divergence.
+export const KIND_ARCHETYPE: Record<string, string> = {
   hero: 'hero',
   'collection-hero': 'hero',
   feature: 'feature',
@@ -203,6 +205,10 @@ const KIND_ARCHETYPE: Record<string, string> = {
   'payment-icons': 'technical',
   footer: 'technical',
   rewards: 'technical',
+  badge: 'technical',
+  // Bare `story` = a collection-editorial story block (collection-story is the
+  // hyphenated alias); keep it mapped so preview⇄native parity holds.
+  story: 'collection',
 };
 
 /** Archetypes that render nothing but an empty container without blocks → generic. */

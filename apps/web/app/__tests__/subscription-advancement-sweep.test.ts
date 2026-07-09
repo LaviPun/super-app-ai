@@ -8,7 +8,7 @@
  * Uses the same in-memory prisma + memory-connector harness as
  * workflow-durable-wait.test.ts so the engine runs for real against fakes.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
 import type { Connector, AuthContext } from '@superapp/core';
 
 const h = vi.hoisted(() => {
@@ -98,12 +98,23 @@ vi.mock('~/services/flows/auth-resolver.server', () => ({
 import { scheduleAdvancement, type ContractMirror, type ReminderStage } from '~/services/composites/subscription-advancement.server';
 import { WorkflowEngineService } from '~/services/workflows/workflow-engine.service';
 
-// Anchored to the REAL clock, not a pinned date: the engine's wait node measures
-// `remaining` against wall-clock Date.now() (workflow-engine.service.ts, by design),
-// so a hardcoded NOW turns into a time bomb — once the calendar passes the pinned
-// resumeAt, the wait is "already due", never parks, and the reminder sends inline.
-const NOW = new Date();
+// The engine's wait node measures `remaining` against wall-clock Date.now()
+// (workflow-engine.service.ts, by design). A hardcoded past NOW is a time bomb —
+// once the calendar passes the pinned resumeAt the wait is "already due", never
+// parks, and the reminder sends inline. Freeze the clock instead: vi.setSystemTime
+// (below) pins Date.now() so BOTH the test's NOW and the engine's internal
+// Date.now() see the same instant — deterministic and DST-proof.
+const FROZEN_NOW = new Date('2026-07-04T00:00:00.000Z');
+const NOW = FROZEN_NOW;
 const DAY = 24 * 60 * 60 * 1000;
+
+beforeAll(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(FROZEN_NOW);
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 const contract: ContractMirror = {
   contractId: 'gid://shopify/SubscriptionContract/900',
