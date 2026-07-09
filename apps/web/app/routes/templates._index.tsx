@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { MODULE_TEMPLATES } from '@superapp/core';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { Icon, Btn, Badge, Card, PageHead, FilterBar, EmptyState, useTableState, fmtNum } from '~/components/superapp';
+import { Icon, Btn, Badge, Card, PageHead, FilterBar, EmptyState, useTableState } from '~/components/superapp';
 import { CATEGORY_ORDER, getCategoryDisplayLabel, getCategoryTone, getCategoryIcon } from '~/utils/type-label';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -14,13 +14,12 @@ export async function loader({ request }: { request: Request }) {
   // Emit the raw library category so the UI can bucket templates by their true
   // taxonomy (STOREFRONT_UI, ADMIN_UI, CUSTOMER_ACCOUNT, FUNCTION, INTEGRATION,
   // FLOW) instead of a lossy heuristic that dumped everything into "Storefront UI".
-  const templates = (MODULE_TEMPLATES as any[]).map((t, i) => ({
+  const templates = (MODULE_TEMPLATES as any[]).map((t) => ({
     id: t.id,
     name: t.name,
     desc: t.description ?? '',
     category: t.category,
     tags: t.tags ?? [],
-    uses: 400 + ((i * 317) % 1900),
   }));
   return json({ templates });
 }
@@ -89,7 +88,6 @@ function TemplatesBody({ templates }: any) {
                   <Badge tone={getCategoryTone(t.category)}>{getCategoryDisplayLabel(t.category)}</Badge>
                 </div>
                 <div className="t-sm t-muted">{t.desc}</div>
-                <div className="t-xs t-muted" style={{ marginTop: 4 }}>{fmtNum(t.uses)} stores use this</div>
               </div>
               <div style={{ padding: 14, display: 'flex', gap: 8 }}>
                 <Btn className="btn-block" onClick={() => navigate(`/templates/${encodeURIComponent(t.id)}`)}>Open</Btn>

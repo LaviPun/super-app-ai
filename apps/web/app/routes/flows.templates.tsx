@@ -78,9 +78,10 @@ export async function action({ request }: ActionFunctionArgs) {
   return redirect('/flows');
 }
 
+// Only sorts backed by real data. "Most popular" / "Newest" were dropped:
+// there is no cross-merchant install telemetry to rank popularity, and no
+// reliable template timestamp — offering them implied a ranking that doesn't exist.
 const SORT_OPTIONS = [
-  { label: 'Most popular', value: 'popular' },
-  { label: 'Newest', value: 'newest' },
   { label: 'A → Z', value: 'az' },
   { label: 'Z → A', value: 'za' },
 ];
@@ -93,7 +94,7 @@ export default function FlowsTemplates() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedConnector, setSelectedConnector] = useState('All');
-  const [sortBy, setSortBy] = useState('popular');
+  const [sortBy, setSortBy] = useState('az');
 
   const categoryOptions = [
     { label: 'All categories', value: 'All' },
