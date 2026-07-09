@@ -60,6 +60,9 @@ export default defineConfig({
     strictPort: true,
     allowedHosts: [host],
     hmr: hmrConfig,
+    watch: {
+      ignored: ['**/.data/**'],
+    },
     fs: {
       allow: ['app', 'node_modules'],
     },

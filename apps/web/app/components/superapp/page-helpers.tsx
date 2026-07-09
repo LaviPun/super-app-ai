@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from '@remix-run/react';
 import { Icon } from './icons';
 import { Input, Select } from './ui';
 
@@ -19,11 +20,11 @@ export function PageHead({ title, sub, badge, actions, back, crumbs }: any) {
             React.Fragment,
             { key: i },
             i > 0 && React.createElement(Icon, { name: 'chevronRight', size: 12 }),
-            c.href ? React.createElement('a', { href: c.href }, c.label) : React.createElement('span', null, c.label),
+            c.href ? React.createElement(Link, { to: c.href }, c.label) : React.createElement('span', null, c.label),
           ),
         ),
       ),
-    back && React.createElement('a', { href: back.href, className: 'page-back' }, React.createElement(Icon, { name: 'arrowLeft', size: 15 }), back.label),
+    back && React.createElement(Link, { to: back.href, className: 'page-back' }, React.createElement(Icon, { name: 'arrowLeft', size: 15 }), back.label),
     React.createElement(
       'div',
       { className: 'page-head' },
