@@ -14,6 +14,7 @@
     "prisma:migrate": "prisma migrate dev",
     "retention:run": "tsx --tsconfig tsconfig.scripts.json scripts/retention.ts",
     "seed:ai-pricing": "tsx --tsconfig tsconfig.scripts.json scripts/seed-ai-pricing.ts",
+    "ai:routing-status": "tsx --tsconfig tsconfig.scripts.json scripts/ai-routing-status.ts",
     "router:internal": "tsx --tsconfig tsconfig.scripts.json scripts/internal-ai-router.ts",
     "evals": "tsx --tsconfig tsconfig.scripts.json scripts/run-evals.ts",
     "evals:strict": "pnpm evals --strict",

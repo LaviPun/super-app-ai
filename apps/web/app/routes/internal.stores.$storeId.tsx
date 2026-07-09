@@ -21,6 +21,7 @@ import {
   StatTile,
   MonoChip,
   fmtNum,
+  fmtCents,
   fmtQuota,
   titleCase,
   storeHealth,
@@ -186,7 +187,7 @@ export async function loader({ request, params }: { request: Request; params: { 
   }));
 
   if (!shop) {
-    const emptyUsage = { totalRequests: 0, totalTokensIn: 0, totalTokensOut: 0, totalCostCents: 0, byProvider: [] as any[] };
+    const emptyUsage = { totalRequests: 0, totalApiCalls: 0, totalTokensIn: 0, totalTokensOut: 0, totalCostCents: 0, unpricedCalls: 0, byProvider: [] as any[] };
     return json({
       shop: null,
       providerOptions,
@@ -194,34 +195,58 @@ export async function loader({ request, params }: { request: Request; params: { 
       planTiers,
       publishedModulesMeta: [] as ReturnType<typeof buildPublishedModulesMeta>,
       aiUsage30d: emptyUsage,
+      aiUsageRecent: [] as {
+        id: string; action: string; provider: string; model: string;
+        tokensIn: number; tokensOut: number; costCents: number; requestCount: number; unpriced: boolean; createdAt: string;
+      }[],
       providerLabel: '—',
       errors30d: 0,
       recentActivity: [] as { id: string; actor: string; action: string; createdAt: string }[],
+      activity: [] as { id: string; actor: string; action: string; resource: string | null; details: string | null; createdAt: string }[],
     });
   }
 
   const since30d = new Date(Date.now() - 30 * 86400000);
-  const [aiUsageRows, errorCount30d, recentActivityRows] = await Promise.all([
+  const [aiUsageRows, errorCount30d, activityRows] = await Promise.all([
     prisma.aiUsage.findMany({
       where: { shopId: shop.id, createdAt: { gte: since30d } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       include: { provider: true },
     }),
     prisma.errorLog.count({ where: { shopId: shop.id, level: 'ERROR', createdAt: { gte: since30d } } }),
-    new ActivityLogService().list({ shopId: shop.id, take: 8 }),
+    new ActivityLogService().list({ shopId: shop.id, take: 50 }),
   ]);
+
+  // Most-recent individual AI calls, for the Usage-history table (full audit lives in /internal/usage).
+  const aiUsageRecent = aiUsageRows.slice(0, 25).map(r => ({
+    id: r.id,
+    action: r.action,
+    provider: r.provider?.name ?? r.provider?.provider ?? '—',
+    model: r.provider?.model ?? '—',
+    tokensIn: r.tokensIn,
+    tokensOut: r.tokensOut,
+    costCents: r.costCents,
+    requestCount: r.requestCount,
+    unpriced: r.costCents === 0 && (r.tokensIn > 0 || r.tokensOut > 0),
+    createdAt: r.createdAt.toISOString(),
+  }));
 
   const publishedModulesMeta = buildPublishedModulesMeta(shop);
   const summarizeAiRows = (rows: typeof aiUsageRows) => {
-    const byProvider = new Map<string, { provider: string; model: string; requests: number; tokensIn: number; tokensOut: number; costCents: number }>();
-    let totalRequests = 0;
+    const byProvider = new Map<string, { provider: string; model: string; requests: number; apiCalls: number; tokensIn: number; tokensOut: number; costCents: number }>();
+    let totalRequests = 0; // billable requests (sum of requestCount)
+    let totalApiCalls = 0; // actual provider calls (one row each)
     let totalTokensIn = 0;
     let totalTokensOut = 0;
     let totalCostCents = 0;
+    let unpricedCalls = 0;
     for (const row of rows) {
       totalRequests += row.requestCount;
+      totalApiCalls += 1;
       totalTokensIn += row.tokensIn;
       totalTokensOut += row.tokensOut;
       totalCostCents += row.costCents;
+      if (row.costCents === 0 && (row.tokensIn > 0 || row.tokensOut > 0)) unpricedCalls += 1;
       const providerName = row.provider?.name ?? row.provider?.provider ?? 'Unknown provider';
       const model = row.provider?.model ?? '—';
       const key = `${providerName}::${model}`;
@@ -229,11 +254,13 @@ export async function loader({ request, params }: { request: Request; params: { 
         provider: providerName,
         model,
         requests: 0,
+        apiCalls: 0,
         tokensIn: 0,
         tokensOut: 0,
         costCents: 0,
       };
       cur.requests += row.requestCount;
+      cur.apiCalls += 1;
       cur.tokensIn += row.tokensIn;
       cur.tokensOut += row.tokensOut;
       cur.costCents += row.costCents;
@@ -241,10 +268,14 @@ export async function loader({ request, params }: { request: Request; params: { 
     }
     return {
       totalRequests,
+      totalApiCalls,
       totalTokensIn,
       totalTokensOut,
       totalCostCents,
-      byProvider: Array.from(byProvider.values()).sort((a, b) => b.costCents - a.costCents),
+      unpricedCalls,
+      byProvider: Array.from(byProvider.values())
+        .sort((a, b) => b.costCents - a.costCents)
+        .map(v => ({ ...v, id: v.provider + '::' + v.model })),
     };
   };
 
@@ -275,9 +306,18 @@ export async function loader({ request, params }: { request: Request; params: { 
     planTiers,
     publishedModulesMeta,
     aiUsage30d: summarizeAiRows(aiUsageRows),
+    aiUsageRecent,
     providerLabel,
     errors30d: Math.min(errorCount30d, 13),
-    recentActivity: recentActivityRows.map(a => ({ id: a.id, actor: a.actor, action: a.action, createdAt: a.createdAt.toISOString() })),
+    recentActivity: activityRows.slice(0, 8).map(a => ({ id: a.id, actor: a.actor, action: a.action, createdAt: a.createdAt.toISOString() })),
+    activity: activityRows.map(a => ({
+      id: a.id,
+      actor: a.actor,
+      action: a.action,
+      resource: a.resource ?? null,
+      details: a.details ?? null,
+      createdAt: a.createdAt.toISOString(),
+    })),
   });
 }
 
@@ -446,10 +486,11 @@ export default function AdminStoreDetail() {
           </>
         }
       />
-      <div className="grid grid-4" style={{ marginBottom: 16 }}>
+      <div className="grid grid-5" style={{ marginBottom: 16 }}>
         <StatTile label="Health score" value={h} sub={healthLabel(h)} icon="shield" tone={hTone} />
         <StatTile label="Modules" value={s.modules} sub={s.published + ' published'} icon="layers" tone="info" />
-        <StatTile label="AI calls (30d)" value={fmtNum(s.aiCalls30d)} icon="magic" tone="magic" />
+        <StatTile label="AI requests (30d)" value={fmtNum(s.aiCalls30d)} sub={fmtNum(data.aiUsage30d.totalApiCalls) + ' provider calls'} icon="magic" tone="magic" />
+        <StatTile label="AI cost (30d)" value={fmtCents(data.aiUsage30d.totalCostCents)} sub={data.aiUsage30d.unpricedCalls > 0 ? data.aiUsage30d.unpricedCalls + ' unpriced' : 'all priced'} icon="chart" tone={data.aiUsage30d.unpricedCalls > 0 ? 'warning' : 'success'} />
         <StatTile label="Provider" value={String(s.provider).split(' · ')[0]} sub={String(s.provider).split(' · ')[1]} icon="connect" tone="success" />
       </div>
       <Card style={{ marginBottom: 16 }}>
@@ -459,6 +500,8 @@ export default function AdminStoreDetail() {
           tabs={[
             { id: 'overview', label: 'Overview' },
             { id: 'modules', label: 'Modules', badge: mods.length },
+            { id: 'usage', label: 'Usage & cost' },
+            { id: 'activity', label: 'Activity log', badge: data.activity.length },
             { id: 'overrides', label: 'Overrides' },
             { id: 'retention', label: 'Retention' },
           ]}
@@ -518,6 +561,83 @@ export default function AdminStoreDetail() {
           ) : (
             <EmptyState icon="layers" title="No modules yet">
               This store has not created any modules.
+            </EmptyState>
+          )}
+        </Card>
+      )}
+      {tab === 'usage' && (
+        <div className="col-main">
+          <Card pad>
+            <div className="t-h3" style={{ marginBottom: 4 }}>AI usage & cost — last 30 days</div>
+            <div className="t-xs t-muted" style={{ marginBottom: 14 }}>
+              Real cost is computed per call from the served model's rate. "Unpriced" means a real call with no matching rate configured — its cost is not $0, it's unknown. Full cross-store audit lives in Usage & Costs.
+            </div>
+            <div className="grid grid-4" style={{ marginBottom: 4 }}>
+              <StatTile label="Billable requests" value={fmtNum(data.aiUsage30d.totalRequests)} icon="magic" tone="magic" />
+              <StatTile label="Provider calls" value={fmtNum(data.aiUsage30d.totalApiCalls)} sub={data.aiUsage30d.unpricedCalls + ' unpriced'} icon="transfer" tone={data.aiUsage30d.unpricedCalls > 0 ? 'warning' : 'info'} />
+              <StatTile label="Tokens (in / out)" value={fmtNum(data.aiUsage30d.totalTokensIn) + ' / ' + fmtNum(data.aiUsage30d.totalTokensOut)} icon="upload" tone="info" />
+              <StatTile label="Cost" value={fmtCents(data.aiUsage30d.totalCostCents)} icon="chart" tone="success" />
+            </div>
+          </Card>
+          <Card>
+            <div className="t-h3" style={{ padding: '14px 16px 0' }}>By provider &amp; model</div>
+            {data.aiUsage30d.byProvider.length ? (
+              <DataTable
+                rowKey="id"
+                columns={[
+                  { key: 'provider', label: 'Provider', render: (r: any) => <span className="cell-strong">{r.provider}</span> },
+                  { key: 'model', label: 'Model', render: (r: any) => <span className="cell-sub">{r.model}</span> },
+                  { key: 'requests', label: 'Billable', num: true, render: (r: any) => fmtNum(r.requests) },
+                  { key: 'apiCalls', label: 'Calls', num: true, render: (r: any) => fmtNum(r.apiCalls) },
+                  { key: 'tokensIn', label: 'Tokens in', num: true, render: (r: any) => fmtNum(r.tokensIn) },
+                  { key: 'tokensOut', label: 'Tokens out', num: true, render: (r: any) => fmtNum(r.tokensOut) },
+                  { key: 'costCents', label: 'Cost', num: true, render: (r: any) => <span className="t-strong">{fmtCents(r.costCents)}</span> },
+                ]}
+                rows={data.aiUsage30d.byProvider}
+              />
+            ) : (
+              <EmptyState icon="magic" title="No AI usage in the last 30 days">
+                AI calls will appear here as this store generates, hydrates and modifies modules.
+              </EmptyState>
+            )}
+          </Card>
+          <Card>
+            <div className="t-h3" style={{ padding: '14px 16px 0' }}>Recent AI calls</div>
+            {data.aiUsageRecent.length ? (
+              <DataTable
+                rowKey="id"
+                columns={[
+                  { key: 'action', label: 'Action', render: (r: any) => <Badge>{titleCase(r.action)}</Badge> },
+                  { key: 'provider', label: 'Provider', render: (r: any) => <span className="cell-sub">{r.provider}</span> },
+                  { key: 'tokensIn', label: 'In', num: true, render: (r: any) => fmtNum(r.tokensIn) },
+                  { key: 'tokensOut', label: 'Out', num: true, render: (r: any) => fmtNum(r.tokensOut) },
+                  { key: 'costCents', label: 'Cost', num: true, render: (r: any) => r.unpriced ? <Badge tone="warning">Unpriced</Badge> : <span className="t-strong">{fmtCents(r.costCents)}</span> },
+                  { key: 'createdAt', label: 'When', render: (r: any) => <span className="cell-sub">{rel(r.createdAt)}</span> },
+                ]}
+                rows={data.aiUsageRecent}
+              />
+            ) : (
+              <div className="t-sm t-muted" style={{ padding: 16 }}>No AI calls recorded for this store yet.</div>
+            )}
+          </Card>
+        </div>
+      )}
+      {tab === 'activity' && (
+        <Card>
+          {data.activity.length ? (
+            <DataTable
+              rowKey="id"
+              columns={[
+                { key: 'action', label: 'Action', render: (r: any) => <span className="cell-strong">{titleCase(r.action)}</span> },
+                { key: 'actor', label: 'Actor', render: (r: any) => <Badge tone={r.actor === 'INTERNAL_ADMIN' ? 'warning' : r.actor === 'SYSTEM' ? 'info' : undefined}>{titleCase(r.actor)}</Badge> },
+                { key: 'resource', label: 'Resource', render: (r: any) => r.resource ? <MonoChip>{r.resource}</MonoChip> : <span className="t-muted">—</span> },
+                { key: 'createdAt', label: 'When', render: (r: any) => <span className="cell-sub" title={new Date(r.createdAt).toLocaleString()}>{rel(r.createdAt)}</span> },
+              ]}
+              rows={data.activity}
+            />
+          ) : (
+            <EmptyState icon="clock" title="No activity yet">
+              Merchant actions, admin overrides, generations and system events for this store will appear here.
             </EmptyState>
           )}
         </Card>

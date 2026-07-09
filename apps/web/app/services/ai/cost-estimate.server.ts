@@ -13,31 +13,46 @@ export async function estimateCostCentsFromDbRates(options: EstimateCostOptions)
   if (!model) return 0;
 
   const prisma = getPrisma();
-  const where =
-    options.providerId && options.providerId.trim()
-      ? {
-          providerId: options.providerId.trim(),
-          model,
-          isActive: true,
-        }
-      : {
-          model,
-          isActive: true,
-          provider:
-            options.providerKinds && options.providerKinds.length > 0
-              ? { provider: { in: options.providerKinds }, isActive: true }
-              : undefined,
-        };
 
-  const price = await prisma.aiModelPrice.findFirst({
-    where,
+  if (options.providerId && options.providerId.trim()) {
+    const price = await prisma.aiModelPrice.findFirst({
+      where: { providerId: options.providerId.trim(), model, isActive: true },
+      orderBy: { effectiveFrom: 'desc' },
+    });
+    return priceToCents(price, options.tokensIn, options.tokensOut);
+  }
+
+  if (!options.providerKinds || options.providerKinds.length === 0) return 0;
+
+  // Prefer a price row attached to a currently routing-active provider of this kind.
+  const activePrice = await prisma.aiModelPrice.findFirst({
+    where: { model, isActive: true, provider: { provider: { in: options.providerKinds }, isActive: true } },
     orderBy: { effectiveFrom: 'desc' },
   });
-  if (!price) return 0;
+  if (activePrice) return priceToCents(activePrice, options.tokensIn, options.tokensOut);
 
-  const inCents = (options.tokensIn / 1_000_000) * price.inputPer1MTokensCents;
-  const outCents = (options.tokensOut / 1_000_000) * price.outputPer1MTokensCents;
-  return Math.round(inCents + outCents);
+  // Fall back to ANY priced provider of this kind, active or not. `AiProvider.isActive`
+  // gates routing selection, not pricing validity — an env-key call (no DB provider
+  // routed it at all) can still be priced off a provider row that merely holds rates.
+  const anyPrice = await prisma.aiModelPrice.findFirst({
+    where: { model, isActive: true, provider: { provider: { in: options.providerKinds } } },
+    orderBy: { effectiveFrom: 'desc' },
+  });
+  return priceToCents(anyPrice, options.tokensIn, options.tokensOut);
+}
+
+function priceToCents(
+  price: { inputPer1MTokensCents: number; outputPer1MTokensCents: number } | null,
+  tokensIn: number,
+  tokensOut: number,
+): number {
+  if (!price) return 0;
+  // Fractional cents are preserved (AiUsage.costCents is a Float). Rounding to
+  // integer cents here would zero out cheap-model calls (< 1¢) and lose real
+  // spend once summed across thousands of calls.
+  const inCents = (tokensIn / 1_000_000) * price.inputPer1MTokensCents;
+  const outCents = (tokensOut / 1_000_000) * price.outputPer1MTokensCents;
+  return inCents + outCents;
 }
 
 export function providerKindsForAssistantBackend(backend: string): string[] {

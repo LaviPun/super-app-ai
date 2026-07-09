@@ -99,7 +99,14 @@ export async function loader({ request }: { request: Request }) {
   sparkFrom.setUTCHours(0, 0, 0, 0);
   sparkFrom.setUTCDate(sparkFrom.getUTCDate() - (SPARK_DAYS - 1));
 
-  const [rows, totals, prevTotals, sparkRows, actionRows] = await Promise.all([
+  // Real API calls (some tokens moved) that priced at 0 — not "free", just unpriced.
+  // costCents=0 with zero tokens too is a genuinely failed/no-op call, not this case.
+  // AND-wraps `where` rather than spreading it, so its own `OR` (search filter) isn't clobbered.
+  const unpricedWhere: Prisma.AiUsageWhereInput = {
+    AND: [where, { costCents: 0 }, { OR: [{ tokensIn: { gt: 0 } }, { tokensOut: { gt: 0 } }] }],
+  };
+
+  const [rows, totals, prevTotals, sparkRows, actionRows, unpricedRequests] = await Promise.all([
     prisma.aiUsage.findMany({
       where,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -111,6 +118,7 @@ export async function loader({ request }: { request: Request }) {
     prisma.aiUsage.aggregate({
       where,
       _sum: { costCents: true, tokensIn: true, tokensOut: true, requestCount: true },
+      _count: true, // actual provider API calls (one row per call), vs _sum.requestCount = billable requests
     }),
     prisma.aiUsage.aggregate({
       where: prevWhere,
@@ -121,6 +129,7 @@ export async function loader({ request }: { request: Request }) {
       select: { createdAt: true, costCents: true, requestCount: true },
     }),
     prisma.aiUsage.findMany({ distinct: ['action'], select: { action: true }, orderBy: { action: 'asc' } }),
+    prisma.aiUsage.count({ where: unpricedWhere }),
   ]);
 
   const dailyCost = new Array<number>(SPARK_DAYS).fill(0);
@@ -134,7 +143,8 @@ export async function loader({ request }: { request: Request }) {
   }
 
   const totalCostCents = totals._sum.costCents ?? 0;
-  const totalRequests = totals._sum.requestCount ?? 0;
+  const totalRequests = totals._sum.requestCount ?? 0; // billable requests (what quota counts)
+  const totalApiCalls = totals._count ?? 0; // actual provider calls (fan-out siblings included)
 
   return json({
     rows: rows.map(r => ({
@@ -152,6 +162,8 @@ export async function loader({ request }: { request: Request }) {
     })),
     totalCostCents,
     totalRequests,
+    totalApiCalls,
+    unpricedRequests,
     totalTokensIn: totals._sum.tokensIn ?? 0,
     totalTokensOut: totals._sum.tokensOut ?? 0,
     deltas: {
@@ -198,6 +210,7 @@ export default function AdminUsage() {
     id: r.id, shop: r.shopDomain ?? '—', action: r.action, tokensIn: r.tokensIn ?? 0, tokensOut: r.tokensOut ?? 0,
     costCents: r.costCents ?? 0, provider: r.providerName, created: new Date(r.createdAt).toLocaleDateString(),
     correlationId: r.correlationId ?? '',
+    unpriced: (r.costCents ?? 0) === 0 && ((r.tokensIn ?? 0) > 0 || (r.tokensOut ?? 0) > 0),
   }));
   const rows = ROWS.filter((r) => (action === 'All actions' || r.action === action) && r.shop.toLowerCase().includes(ts.search.toLowerCase()));
   const spark = metric === 'cost' ? data.dailyCost : data.dailyCalls;
@@ -219,20 +232,27 @@ export default function AdminUsage() {
           </Btn>
         }
       />
-      <div className="grid grid-4" style={{ marginBottom: 16 }}>
-        <StatTile label="AI calls (30d)" value={fmtNum(data.totalRequests)} icon="magic" tone="magic" {...deltaProps(data.deltas.requests)} />
+      <div className="grid grid-5" style={{ marginBottom: 16 }}>
+        <StatTile label="AI requests (30d)" value={fmtNum(data.totalRequests)} icon="magic" tone="magic" sub={fmtNum(data.totalApiCalls) + ' provider calls (billed)'} {...deltaProps(data.deltas.requests)} />
         <StatTile label="Tokens in (30d)" value={fmtNum(data.totalTokensIn)} icon="upload" tone="info" />
         <StatTile label="Tokens out (30d)" value={fmtNum(data.totalTokensOut)} icon="download" tone="info" />
         <StatTile label="Cost (30d)" value={fmtCents(data.totalCostCents)} icon="chart" tone="success" {...deltaProps(data.deltas.cost)} />
+        <StatTile
+          label="Unpriced calls (30d)"
+          value={fmtNum(data.unpricedRequests)}
+          icon="alert"
+          tone={data.unpricedRequests > 0 ? 'warning' : 'success'}
+          sub={data.unpricedRequests > 0 ? 'Real calls with no matching AiModelPrice — cost shown as $0 is not accurate for these' : 'Every priced call has a matching rate'}
+        />
       </div>
       <Card style={{ marginBottom: 16 }}>
         <CardHead
-          title={metric === 'cost' ? 'Daily cost' : 'Daily calls'}
+          title={metric === 'cost' ? 'Daily cost' : 'Daily requests'}
           sub="Last 14 days"
           actions={
             <div className="seg">
               <button aria-selected={metric === 'cost'} onClick={() => setMetric('cost')}>Cost</button>
-              <button aria-selected={metric === 'calls'} onClick={() => setMetric('calls')}>Calls</button>
+              <button aria-selected={metric === 'calls'} onClick={() => setMetric('calls')}>Requests</button>
             </div>
           }
         />
@@ -262,7 +282,14 @@ export default function AdminUsage() {
                 { key: 'provider', label: 'Provider', render: (r: any) => <span className="cell-sub">{r.provider}</span> },
                 { key: 'tokensIn', label: 'Tokens in', num: true, render: (r: any) => fmtNum(r.tokensIn) },
                 { key: 'tokensOut', label: 'Tokens out', num: true, render: (r: any) => fmtNum(r.tokensOut) },
-                { key: 'costCents', label: 'Cost', num: true, render: (r: any) => <span className="t-strong">{fmtCents(r.costCents)}</span> },
+                {
+                  key: 'costCents',
+                  label: 'Cost',
+                  num: true,
+                  render: (r: any) => r.unpriced
+                    ? <Badge tone="warning">Unpriced</Badge>
+                    : <span className="t-strong">{fmtCents(r.costCents)}</span>,
+                },
                 { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{r.created}</span> },
                 {
                   key: 'act',

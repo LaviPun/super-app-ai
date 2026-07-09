@@ -235,7 +235,11 @@ model AiUsage {
   action      String    // e.g. RECIPE_GENERATION, MAPPING_SUGGESTION
   tokensIn    Int
   tokensOut   Int
-  costCents   Int
+  // Float, not Int: a single cheap-model call costs a fraction of a cent
+  // (e.g. gpt-5-mini ≈ 0.38¢). Integer cents rounded those to 0, so a month of
+  // cheap traffic showed $0 despite real spend. Float preserves sub-cent cost so
+  // aggregate totals in the admin usage views are accurate.
+  costCents   Float
   meta        String?   // JSON
   /// Optional cross-request correlation id (set by ApiLog/Job/AiUsage) so a single
   /// merchant-facing operation can be reconstructed from any starting point.

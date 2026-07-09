@@ -5,7 +5,8 @@ import type { BlueprintPlan } from '~/services/ai/blueprint-planner';
 import { getBlueprintCatalogEntry, buildCompositeManifest } from '~/services/ai/blueprint-catalog';
 import { isMerchantCodeExecutionAllowed } from '~/env.server';
 import { AiUsageService } from '~/services/observability/ai-usage.service';
-import { resolveProviderIdForShop } from '~/services/ai/provider-routing.server';
+import { resolveProviderIdForShop, resolveShopProviderOverrideId } from '~/services/ai/provider-routing.server';
+import { getCostRankedActiveProviders } from '~/services/ai/provider-cost-routing.server';
 import { AiProviderService } from '~/services/internal/ai-provider.service';
 import { openAiGenerateRecipe } from '~/services/ai/clients/openai-responses.client.server';
 import { anthropicGenerateRecipe } from '~/services/ai/clients/anthropic-messages.client.server';
@@ -44,7 +45,7 @@ import {
 } from '~/services/ai/recipe-json-schema.server';
 import type { PromptRouterDecision } from '~/schemas/prompt-router.server';
 import { buildDesignReferencePromptBlock, buildDesignSystemDirectiveForReference, resolveDesignReferencePack, resolveStoreDesignReferencePack, type DesignReferencePack } from '~/services/ai/design-reference.server';
-import { runDesignQa, summarizeQa } from '~/services/ai/design-qa.server';
+import { buildDesignQaCorrection, runDesignQa, summarizeQa } from '~/services/ai/design-qa.server';
 
 import { getPrisma } from '~/db.server';
 
@@ -412,27 +413,80 @@ export class FallbackLlmClient implements LlmClient {
   }
 }
 
+/**
+ * Chains ConfiguredLlmClients for the given provider ids (first = tried first)
+ * by nesting FallbackLlmClient pairs. A single id collapses to a plain
+ * ConfiguredLlmClient — identical behavior to the pre-chain code path.
+ */
+function buildProviderChain(providerIds: string[], shopId: string | null | undefined, block: boolean): LlmClient {
+  if (providerIds.length === 0) throw new Error('buildProviderChain requires at least one provider id');
+  const clients: LlmClient[] = providerIds.map((id) => new ConfiguredLlmClient(id, shopId ?? undefined, block));
+  return clients.reduceRight((laterInChain, client) => new FallbackLlmClient(client, laterInChain));
+}
+
+/**
+ * Appends the operator-assigned fallback provider (AppSettings.fallbackAiProviderId)
+ * as the last-resort leg of the chain, unless it's already covered by `excludeIds`.
+ */
+async function withManualFallback(
+  client: LlmClient,
+  shopId: string | null | undefined,
+  block: boolean,
+  excludeIds: string[],
+): Promise<LlmClient> {
+  const prisma = getPrisma();
+  const appSettings = await prisma.appSettings.findUnique({ where: { id: 'singleton' } });
+  const fallbackId = (appSettings?.fallbackAiProviderId ?? '').trim() || null;
+  if (!fallbackId || excludeIds.includes(fallbackId)) return client;
+  const fb = await prisma.aiProvider.findUnique({ where: { id: fallbackId } });
+  if (!fb) return client;
+  return new FallbackLlmClient(client, new ConfiguredLlmClient(fallbackId, shopId ?? undefined, block));
+}
+
 export async function getLlmClient(
   shopId?: string | null,
   options?: { blockMerchantCodeExecution?: boolean },
 ): Promise<{ client: LlmClient; providerId: string | null }> {
+  const block = options?.blockMerchantCodeExecution === true;
+
+  // An explicit per-shop provider pin (Shop.aiProviderOverrideId) is a deliberate
+  // merchant/operator choice — it wins outright and is never re-ranked by cost.
+  const overrideProviderId = await resolveShopProviderOverrideId(shopId);
+  if (overrideProviderId) {
+    const client = await withManualFallback(
+      buildProviderChain([overrideProviderId], shopId, block),
+      shopId,
+      block,
+      [overrideProviderId],
+    );
+    return { client, providerId: overrideProviderId };
+  }
+
+  // No override: route across every active, priced provider (Claude/OpenAI/Gemini/etc.)
+  // cheapest-first. Falls through to the legacy single-provider path below when no
+  // provider has pricing configured, so this is a no-op until AiModelPrice is populated.
+  const ranked = await getCostRankedActiveProviders();
+  const [cheapest, ...restRanked] = ranked;
+  if (cheapest) {
+    const chainProviderIds = [cheapest, ...restRanked].map((r) => r.providerId);
+    const client = await withManualFallback(
+      buildProviderChain(chainProviderIds, shopId, block),
+      shopId,
+      block,
+      chainProviderIds,
+    );
+    return { client, providerId: cheapest.providerId };
+  }
+
   const providerId = await resolveProviderIdForShop(shopId);
   if (providerId) {
-    const block = options?.blockMerchantCodeExecution === true;
-    const primary = new ConfiguredLlmClient(providerId, shopId ?? undefined, block);
-    // Operator-assigned fallback provider (AppSettings.fallbackAiProviderId):
-    // when the default (active) provider call fails, transparently retry on it.
-    const prisma = getPrisma();
-    const appSettings = await prisma.appSettings.findUnique({ where: { id: 'singleton' } });
-    const fallbackId = (appSettings?.fallbackAiProviderId ?? '').trim() || null;
-    if (fallbackId && fallbackId !== providerId) {
-      const fb = await prisma.aiProvider.findUnique({ where: { id: fallbackId } });
-      if (fb) {
-        const fallback = new ConfiguredLlmClient(fallbackId, shopId ?? undefined, block);
-        return { client: new FallbackLlmClient(primary, fallback), providerId };
-      }
-    }
-    return { client: primary, providerId };
+    const client = await withManualFallback(
+      buildProviderChain([providerId], shopId, block),
+      shopId,
+      block,
+      [providerId],
+    );
+    return { client, providerId };
   }
 
   const prisma = getPrisma();
@@ -631,6 +685,25 @@ export const APPROACH_HINTS: ReadonlyArray<{ label: string; hint: string }> = [
 ];
 
 /**
+ * Quota weight for one option-call in the fan-out generation paths.
+ *
+ * A single merchant "generate" request fans out into N parallel option calls
+ * (one per APPROACH_HINTS entry) so the merchant can pick from alternatives —
+ * that's the app's design choice, not N separate merchant requests. So only the
+ * first option call carries the billable unit toward the `aiRequestsPerMonth`
+ * quota; the siblings are still fully cost-tracked (real `costCents` per call) and
+ * still written as their own `AiUsage` rows, they just count 0 toward quota.
+ *
+ * Net effect: one create = 1 quota unit (matching how plans are marketed and how
+ * a merchant thinks about "a generation"), while every provider call remains
+ * individually visible for cost/observability. Every non-fan-out path already
+ * records exactly 1 unit per operation, so this is the only place that needed it.
+ */
+export function optionCallBillableUnits(optionIndex: number): number {
+  return optionIndex === 0 ? 1 : 0;
+}
+
+/**
  * Compile the prompt for a single-recipe generation call. Used by the parallel
  * path that fires N independent calls (one per approach hint), each with the
  * full per-type token budget.
@@ -726,8 +799,107 @@ function applyDesignQaSafe(recipe: RecipeSpec): RecipeSpec {
       .map((i) => i.id)
       .join(', ')}`);
   }
-  const safe = RecipeSpecSchema.safeParse(qa.recipe);
-  return safe.success ? safe.data : recipe;
+  return coerceValidRecipe(qa.recipe, recipe);
+}
+
+/** Re-validate a QA-produced recipe; fall back to `original` if a fix broke Zod. */
+function coerceValidRecipe(candidate: RecipeSpec, original: RecipeSpec): RecipeSpec {
+  const safe = RecipeSpecSchema.safeParse(candidate);
+  return safe.success ? safe.data : original;
+}
+
+/**
+ * Parse a raw `generateRecipe` JSON string into a validated RecipeSpec, taking
+ * the fast Zod path and only invoking the LLM repair loop when it fails. Shared
+ * by the design-QA corrective-regeneration path. May throw if the recipe is
+ * unrepairable — callers of the QA retry treat that as "regeneration failed".
+ */
+async function parseValidateAndRepairRecipe(
+  rawJson: string,
+  client: LlmClient,
+  ctx: { shopId?: string; moduleType: ModuleType },
+): Promise<RecipeSpec> {
+  const parsed = JSON.parse(rawJson);
+  const raw = unwrapRecipe(parsed);
+  const repaired = repairRecipeForValidation(raw);
+  const safe = RecipeSpecSchema.safeParse(repaired);
+  if (safe.success) return safe.data;
+  const fix = await validateAndRepairRecipe(raw, client, ctx);
+  return fix.recipe;
+}
+
+/**
+ * Design-QA gate with a bounded (**at most ONE**) corrective-regeneration loop
+ * (§9.1 stage 6 — "self-audits before returning; regenerates on `[AUTO]`
+ * failure").
+ *
+ * Runs the spec-level QA gate. When it reports a blocking `[AUTO]` failure the
+ * deterministic auto-fixes could not resolve, it asks the caller to regenerate
+ * exactly once (with a corrective instruction summarizing the failed issues),
+ * then re-validates + re-QAs the result. The single-retry cap keeps generation
+ * inside the ~60s Cloudflare timeout budget (documented project constraint).
+ *
+ * Failure-safe: if regeneration throws, returns null, or still fails QA, it
+ * returns the best auto-fixed recipe — it never throws and never blocks the
+ * response. When QA already passes it is a pass-through (fully back-compat).
+ */
+async function applyDesignQaWithRetry(
+  recipe: RecipeSpec,
+  regenerate: (correctiveInstruction: string) => Promise<RecipeSpec | null>,
+): Promise<RecipeSpec> {
+  const first = runDesignQa(recipe);
+  if (first.pass) return coerceValidRecipe(first.recipe, recipe);
+
+  const corrective = buildDesignQaCorrection(first);
+  if (!corrective) return coerceValidRecipe(first.recipe, recipe);
+  console.warn(`[design-qa] ${summarizeQa(first)} — attempting one corrective regeneration`);
+
+  let candidate: RecipeSpec | null = null;
+  try {
+    candidate = await regenerate(corrective);
+  } catch (err) {
+    console.warn(`[design-qa] corrective regeneration failed: ${err instanceof Error ? err.message : String(err)}`);
+    candidate = null;
+  }
+  if (!candidate) return coerceValidRecipe(first.recipe, recipe);
+
+  const second = runDesignQa(candidate);
+  if (second.pass) return coerceValidRecipe(second.recipe, candidate);
+
+  // Retry still blocking — keep whichever has fewer blocking issues (tie → first,
+  // i.e. the pre-retry auto-fixed recipe = current behavior).
+  const firstFails = first.issues.filter((i) => i.severity === 'fail').length;
+  const secondFails = second.issues.filter((i) => i.severity === 'fail').length;
+  console.warn(`[design-qa] corrective regeneration still failing (${secondFails} blocking) — keeping best auto-fixed recipe`);
+  return secondFails < firstFails
+    ? coerceValidRecipe(second.recipe, candidate)
+    : coerceValidRecipe(first.recipe, recipe);
+}
+
+/**
+ * One corrective single-recipe regeneration for the design-QA retry loop: it
+ * re-runs the exact single-recipe prompt with the QA correction appended, then
+ * parses/validates/repairs the result. Returns null on any failure so the retry
+ * loop can fall back to the best auto-fixed recipe.
+ */
+async function regenerateSingleRecipeForQa(args: {
+  client: LlmClient;
+  compiledPrompt: string;
+  corrective: string;
+  perBudget: number;
+  singleSchema: Record<string, unknown> | undefined;
+  moduleType: ModuleType;
+  idx: number;
+  shopId?: string;
+}): Promise<RecipeSpec | null> {
+  const { client, compiledPrompt, corrective, perBudget, singleSchema, moduleType, idx, shopId } = args;
+  const result = await client.generateRecipe(`${compiledPrompt}\n\n${corrective}`, {
+    maxTokens: perBudget,
+    responseSchema: singleSchema
+      ? { name: `RecipeSingle_${moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}_qa`, schema: singleSchema }
+      : undefined,
+  });
+  return parseValidateAndRepairRecipe(result.rawJson, client, { shopId, moduleType });
 }
 
 /** All inputs are strings; returns a single compiled prompt string to send to the AI. */
@@ -1294,7 +1466,18 @@ export async function* generateValidatedRecipeOptionsStream(
         repairedFlag = fix.repaired;
       }
 
-      recipe = applyDesignQaSafe(recipe);
+      recipe = await applyDesignQaWithRetry(recipe, (corrective) =>
+        regenerateSingleRecipeForQa({
+          client,
+          compiledPrompt,
+          corrective,
+          perBudget,
+          singleSchema,
+          moduleType: classification.moduleType,
+          idx,
+          shopId: options?.shopId,
+        }),
+      );
 
       const explanation = typeof (parsed as { explanation?: unknown })?.explanation === 'string'
         ? (parsed as { explanation: string }).explanation
@@ -1308,7 +1491,7 @@ export async function* generateValidatedRecipeOptionsStream(
         tokensOut,
         costCents,
         meta: { approach: approach.label, model, repaired: repairedFlag, durationMs: Date.now() - startedAt },
-        requestCount: 1,
+        requestCount: optionCallBillableUnits(idx),
         prompt: compiledPrompt,
       });
       return {
@@ -1327,7 +1510,7 @@ export async function* generateValidatedRecipeOptionsStream(
         tokensOut,
         costCents,
         meta: { approach: approach.label, model, error: String(err).slice(0, 500), durationMs: Date.now() - startedAt },
-        requestCount: 1,
+        requestCount: optionCallBillableUnits(idx),
         prompt: compiledPrompt,
       });
       return {
@@ -1513,7 +1696,18 @@ export async function generateValidatedRecipeOptionsParallel(
         repairedFlag = fix.repaired;
       }
 
-      recipe = applyDesignQaSafe(recipe);
+      recipe = await applyDesignQaWithRetry(recipe, (corrective) =>
+        regenerateSingleRecipeForQa({
+          client,
+          compiledPrompt,
+          corrective,
+          perBudget,
+          singleSchema,
+          moduleType: classification.moduleType,
+          idx,
+          shopId: options?.shopId,
+        }),
+      );
 
       const explanation = typeof (parsed as { explanation?: unknown })?.explanation === 'string'
         ? (parsed as { explanation: string }).explanation
@@ -1527,7 +1721,7 @@ export async function generateValidatedRecipeOptionsParallel(
         tokensOut,
         costCents,
         meta: { approach: approach.label, model, repaired: repairedFlag },
-        requestCount: 1,
+        requestCount: optionCallBillableUnits(idx),
         prompt: compiledPrompt,
       });
       return { ok: true as const, option: { explanation, recipe } };
@@ -1540,7 +1734,7 @@ export async function generateValidatedRecipeOptionsParallel(
         tokensOut,
         costCents,
         meta: { approach: approach.label, model, error: String(err).slice(0, 500) },
-        requestCount: 1,
+        requestCount: optionCallBillableUnits(idx),
         prompt: compiledPrompt,
       });
       return { ok: false as const, error: err };
@@ -2082,6 +2276,9 @@ const MAX_HYDRATE_ATTEMPTS = 2;
  * Hydrate a RecipeSpec into a full config envelope (admin schema, defaults, theme editor settings, validation report).
  * Used after the merchant confirms a recipe; runs once per chosen module version.
  */
+/** Hydration always requests the full MAX_BUDGET ceiling — the envelope's shape doesn't vary by module type. */
+const HYDRATE_TOKEN_BUDGET = 16000;
+
 export async function hydrateRecipeSpec(
   recipeSpec: RecipeSpec,
   options?: { shopId?: string; merchantContext?: { planTier?: string; locale?: string }; maxAttempts?: number },
@@ -2099,7 +2296,7 @@ export async function hydrateRecipeSpec(
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const { rawJson, tokensIn, tokensOut, model, servedProviderId } = await client.generateRecipe(
       wrappedPrompt,
-      { previousError: lastErr ? String(lastErr) : undefined, maxTokens: 16000 },
+      { previousError: lastErr ? String(lastErr) : undefined, maxTokens: HYDRATE_TOKEN_BUDGET },
     );
     try {
       const parsed = repairHydrateEnvelope(JSON.parse(rawJson));
@@ -2152,12 +2349,28 @@ async function estimateCostCentsFromDb(providerId: string, model: string, tokens
   return estimateCostCentsFromDbRates({ providerId, model, tokensIn, tokensOut });
 }
 
+/** Guesses the provider kind from a served model name, for env-key calls with no DB provider row. */
+function guessProviderKindFromModel(model: string | undefined): 'ANTHROPIC' | 'OPENAI' | 'GEMINI' | null {
+  const m = model?.trim().toLowerCase() ?? '';
+  if (!m) return null;
+  if (m.startsWith('claude')) return 'ANTHROPIC';
+  if (m.startsWith('gemini')) return 'GEMINI';
+  if (m.startsWith('gpt') || m.startsWith('o1') || m.startsWith('o3') || m.startsWith('o4')) return 'OPENAI';
+  return null;
+}
+
 /**
  * Attribute cost/usage to the provider that actually served the request. When a
  * fallback provider serves, `result.servedProviderId` names it so the rate lookup
  * uses the served model's pricing (avoids attributing a fallback call to the
  * default provider's id, which would price at 0 until that model's rate exists).
  * Falls back to the configured `defaultProviderId` for env clients / failure paths.
+ *
+ * When there's no DB provider id at all (pure env-key deployment), cost is not
+ * silently zeroed — the served model name still tells us the provider kind, so we
+ * look up real pricing by kind (see `estimateCostCentsFromDbRates`'s kind-based
+ * fallback). Only truly unpriced models (no matching AiModelPrice row anywhere)
+ * still resolve to 0.
  */
 async function attributeServedCost(
   result: { servedProviderId?: string | null; model?: string },
@@ -2166,10 +2379,15 @@ async function attributeServedCost(
   tokensOut: number,
 ): Promise<{ providerId: string | null; costCents: number }> {
   const providerId = result.servedProviderId ?? defaultProviderId;
-  const costCents = providerId
-    ? await estimateCostCentsFromDb(providerId, result.model ?? '', tokensIn, tokensOut)
+  if (providerId) {
+    const costCents = await estimateCostCentsFromDb(providerId, result.model ?? '', tokensIn, tokensOut);
+    return { providerId, costCents };
+  }
+  const kind = guessProviderKindFromModel(result.model);
+  const costCents = kind
+    ? await estimateCostCentsFromDbRates({ providerKinds: [kind], model: result.model ?? '', tokensIn, tokensOut })
     : 0;
-  return { providerId, costCents };
+  return { providerId: null, costCents };
 }
 
 /**
