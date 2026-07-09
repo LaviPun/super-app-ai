@@ -763,6 +763,10 @@ function ModuleDetailBody() {
                 <div className="t-sm t-muted">{deployment.note}</div>
               </Card>
             ) : null}
+            <Card pad>
+              <div className="t-h3" style={{ marginBottom: 10 }}>Placement</div>
+              <div className="t-sm t-muted">{placementText(spec, category)}</div>
+            </Card>
           </div>
         </div>
       )}
