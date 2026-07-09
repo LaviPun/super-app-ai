@@ -7,13 +7,26 @@ import { RecipeService } from '~/services/recipes/recipe.service';
 import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
 
 export async function loader({ request, params }: { request: Request; params: { moduleId?: string } }) {
-  const { session } = await shopify.authenticate.admin(request);
-
   const moduleId = params.moduleId;
   if (!moduleId) return json({ error: 'Missing moduleId' }, { status: 400 });
 
+  // The Preview button opens this in a bare top-level tab (window.open) which carries
+  // no embedded-admin session token, so authenticate.admin() would bounce to OAuth and
+  // render a blank page. Instead we scope strictly to the module's own shop + id: the
+  // shop is passed as a query param and getModule() filters by BOTH shop domain and id,
+  // so a request can only ever see a module that genuinely belongs to that shop. The
+  // output is the module's deterministic compiled preview HTML — no other shop data.
+  const shop = new URL(request.url).searchParams.get('shop')?.trim();
   const ms = new ModuleService();
-  const mod = await ms.getModule(session.shop, moduleId);
+
+  let mod;
+  if (shop) {
+    mod = await ms.getModule(shop, moduleId);
+  } else {
+    // Backward-compat: embedded/admin GET without a shop param still authenticates.
+    const { session } = await shopify.authenticate.admin(request);
+    mod = await ms.getModule(session.shop, moduleId);
+  }
   if (!mod) return json({ error: 'Module not found' }, { status: 404 });
 
   const draft = mod.versions.find(v => v.status === 'DRAFT') ?? mod.activeVersion ?? mod.versions[0];

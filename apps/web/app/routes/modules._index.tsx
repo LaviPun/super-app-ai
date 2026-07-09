@@ -3,10 +3,11 @@ import { useLoaderData, useNavigate, useSearchParams, useFetcher, useRevalidator
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
+import { QuotaService } from '~/services/billing/quota.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
   Icon, Btn, Badge, StatusBadge, Card, PageHead, FilterBar, StatTile, DataTable,
-  EmptyState, Menu, ConfirmDialog, useTableState, titleCase,
+  EmptyState, Menu, ConfirmDialog, useTableState, titleCase, fmtNum,
 } from '~/components/superapp';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -35,20 +36,28 @@ export async function loader({ request }: { request: Request }) {
       });
     }
 
-    const modules = await prisma.module.findMany({
-      where: { shopId: shopRow.id },
-      orderBy: { updatedAt: 'desc' },
-      include: {
-        versions: { orderBy: { version: 'desc' }, take: 1 },
-        recipe: { select: { id: true, title: true } },
-      },
-      take: 200,
-    });
+    const [modules, usage] = await Promise.all([
+      prisma.module.findMany({
+        where: { shopId: shopRow.id },
+        orderBy: { updatedAt: 'desc' },
+        include: {
+          versions: { orderBy: { version: 'desc' }, take: 1 },
+          recipe: { select: { id: true, title: true } },
+        },
+        take: 200,
+      }),
+      new QuotaService().getUsageSummary(shopRow.id),
+    ]);
 
     const published = modules.filter(m => m.status === 'PUBLISHED').length;
     const drafts = modules.filter(m => m.status === 'DRAFT').length;
 
+    const aiLimit = usage.quotas?.aiRequestsPerMonth ?? 0;
+    const aiUsed = usage.used?.aiRequests ?? 0;
+    const aiLeft = aiLimit === -1 ? null : Math.max(0, aiLimit - aiUsed);
+
     return json({
+      aiUsage: { aiLeft, aiLimit: aiLimit === -1 ? null : aiLimit },
       modules: modules.map(m => ({
         id: m.id,
         name: m.name,
@@ -67,7 +76,7 @@ export async function loader({ request }: { request: Request }) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to load modules.';
-    return json({ modules: [] as any[], stats: { total: 0, published: 0, drafts: 0 }, loaderError: message }, { status: 500 });
+    return json({ aiUsage: { aiLeft: null as number | null, aiLimit: null as number | null }, modules: [] as any[], stats: { total: 0, published: 0, drafts: 0 }, loaderError: message }, { status: 500 });
   }
 }
 
@@ -141,15 +150,15 @@ function ModuleBuilderCard({ onClose, open, aiLeftLabel }: { onClose: () => void
 }
 
 export default function ModulesIndex() {
-  const { modules, stats, loaderError } = useLoaderData<typeof loader>();
+  const { modules, stats, loaderError, aiUsage } = useLoaderData<typeof loader>();
   return (
     <MerchantShell>
-      <ModulesBody modules={modules} stats={stats} loaderError={loaderError} />
+      <ModulesBody modules={modules} stats={stats} loaderError={loaderError} aiUsage={aiUsage} />
     </MerchantShell>
   );
 }
 
-function ModulesBody({ modules, stats, loaderError }: any) {
+function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
   const ctx = useMerchantCtx();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -168,7 +177,8 @@ function ModulesBody({ modules, stats, loaderError }: any) {
     return () => { clearInterval(interval); window.removeEventListener('focus', revalidate); };
   }, [revalidate]);
 
-  const aiLeftLabel = '1,138';
+  const aiLeftLabel = aiUsage?.aiLeft == null ? '—' : fmtNum(aiUsage.aiLeft);
+  const aiOfLabel = aiUsage?.aiLimit == null ? 'unlimited' : `of ${fmtNum(aiUsage.aiLimit)} / month`;
 
   const moduleMenu = (r: any) => [
     { icon: 'edit', label: 'Edit', onClick: () => navigate(`/modules/${r.id}`) },
@@ -212,7 +222,7 @@ function ModulesBody({ modules, stats, loaderError }: any) {
         <StatTile label="Total modules" value={stats.total} icon="layers" tone="info" />
         <StatTile label="Published" value={stats.published} icon="rocket" tone="success" />
         <StatTile label="Drafts" value={stats.drafts} icon="edit" tone="warning" />
-        <StatTile label="AI credits left" value={aiLeftLabel} sub="of 1,500 / month" icon="magic" tone="magic" />
+        <StatTile label="AI credits left" value={aiLeftLabel} sub={aiOfLabel} icon="magic" tone="magic" />
       </div>
       <Card>
         <FilterBar

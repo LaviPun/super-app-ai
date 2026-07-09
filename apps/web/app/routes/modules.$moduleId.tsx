@@ -192,7 +192,14 @@ export async function loader({ request, params }: { request: Request; params: { 
       })()
     : { status: 'none' as const, hydratedAt: null, validationReport: null, everHydrated: false };
 
-  return json({ moduleId, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, blueprint });
+  // Internal notes live inside the draft spec JSON (no dedicated column) so the
+  // Settings-tab notes field can persist without a schema migration.
+  let internalNotes = '';
+  if (draft?.specJson) {
+    try { internalNotes = String((JSON.parse(draft.specJson) as Record<string, unknown>).internalNotes ?? ''); } catch { /* ignore */ }
+  }
+
+  return json({ moduleId, shop: session.shop, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, blueprint, internalNotes });
 }
 
 /**
@@ -250,6 +257,22 @@ export async function action({ request, params }: { request: Request; params: { 
     return json({ ok: true, intent: 'rename', name });
   }
 
+  if (intent === 'notes') {
+    // Internal notes are stored inside the draft spec JSON (no dedicated column).
+    const notes = String(form.get('notes') ?? '').slice(0, 2000);
+    const draft = mod.versions.find(v => v.status === 'DRAFT') ?? mod.activeVersion ?? mod.versions[0];
+    if (!draft) return json({ error: 'No version to update' }, { status: 400 });
+    const prisma = getPrisma();
+    try {
+      const s = JSON.parse(draft.specJson) as Record<string, unknown>;
+      if (notes) s.internalNotes = notes; else delete s.internalNotes;
+      await prisma.moduleVersion.update({ where: { id: draft.id }, data: { specJson: JSON.stringify(s) } });
+    } catch {
+      return json({ error: 'Module spec is invalid' }, { status: 422 });
+    }
+    return json({ ok: true, intent: 'notes' });
+  }
+
   if (intent === 'delete') {
     await ms.deleteModule(session.shop, moduleId);
     await new ActivityLogService().log({
@@ -286,7 +309,7 @@ export default function ModuleDetail() {
 
 function ModuleDetailBody() {
   const data = useLoaderData<typeof loader>();
-  const { moduleId, mod, spec, versions, themes, publishedThemeId, hydration } = data;
+  const { moduleId, mod, spec, versions, themes, publishedThemeId, hydration, internalNotes } = data;
   const ctx = useMerchantCtx();
   const navigate = useNavigate();
   const revalidator = useRevalidator();
@@ -307,6 +330,7 @@ function ModuleDetailBody() {
   const [selectedThemeId, setSelectedThemeId] = useState(getDefaultThemeId(themes, publishedThemeId ?? null));
   const [applyingIdx, setApplyingIdx] = useState<number | null>(null);
   const [nameDraft, setNameDraft] = useState(mod.name);
+  const [notesDraft, setNotesDraft] = useState(internalNotes ?? '');
 
   const publishFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const rollbackFetcher = useFetcher<{ ok?: boolean; error?: string }>();
@@ -315,6 +339,7 @@ function ModuleDetailBody() {
   const applyFetcher = useFetcher<{ ok?: boolean; version?: number; error?: string }>();
   const duplicateFetcher = useFetcher<{ ok?: boolean; id?: string; name?: string; error?: string }>();
   const renameFetcher = useFetcher<{ ok?: boolean; name?: string; error?: string }>();
+  const notesFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const hydrateFetcher = useFetcher<{ ok?: boolean; error?: string; message?: string }>();
   const fillSettingsFetcher = useFetcher<{
     ok?: boolean;
@@ -413,6 +438,16 @@ function ModuleDetailBody() {
   }, [renameFetcher.data, renameFetcher.state]);
 
   useEffect(() => {
+    if (notesFetcher.state !== 'idle') return;
+    if (notesFetcher.data?.ok) {
+      ctx.toast('Notes saved');
+    } else if (notesFetcher.data?.error) {
+      ctx.toast(notesFetcher.data.error, { error: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notesFetcher.data, notesFetcher.state]);
+
+  useEffect(() => {
     if (applyFetcher.state !== 'idle') return;
     if (applyFetcher.data?.ok) {
       ctx.toast(`Change applied — saved as v${applyFetcher.data.version}`);
@@ -479,12 +514,17 @@ function ModuleDetailBody() {
     a.remove();
   };
   const openPreview = () => {
-    window.open(`/preview/${moduleId}`, '_blank', 'noopener,noreferrer');
+    // Pass the shop so the bare top-level GET in the new tab can render the module's
+    // own compiled preview without the embedded admin session (which it doesn't have).
+    window.open(`/preview/${moduleId}?shop=${encodeURIComponent(data.shop)}`, '_blank', 'noopener,noreferrer');
   };
   const saveName = () => {
     const name = nameDraft.trim();
     if (!name) return;
     renameFetcher.submit({ intent: 'rename', name }, { method: 'post' });
+  };
+  const saveNotes = () => {
+    notesFetcher.submit({ intent: 'notes', notes: notesDraft }, { method: 'post' });
   };
   const generateSettings = () => {
     hydrateFetcher.submit({ moduleId }, { method: 'post', action: '/api/ai/hydrate-module' });
@@ -602,8 +642,16 @@ function ModuleDetailBody() {
               <div className="stack-2">
                 {modifyFetcher.data.options.map((o: any, i: number) => (
                   <div key={i} className="card card-pad">
-                    <div className="t-sm t-strong">Option {i + 1}</div>
-                    <div className="t-sm t-muted">{o.explanation}</div>
+                    <div className="row spread">
+                      <div className="t-sm t-strong">Option {i + 1}</div>
+                      <Btn size="sm" variant="primary" icon="check"
+                        loading={applyingIdx === i}
+                        disabled={applyFetcher.state !== 'idle'}
+                        onClick={() => applyOption(o, i)}>
+                        Apply
+                      </Btn>
+                    </div>
+                    <div className="t-sm t-muted" style={{ marginTop: 4 }}>{o.explanation}</div>
                   </div>
                 ))}
               </div>
@@ -706,9 +754,41 @@ function ModuleDetailBody() {
       {tab === 'settings' && (
         <Card pad>
           <div className="stack-4" style={{ maxWidth: 520 }}>
-            <Field label="Module name"><Input defaultValue={mod.name} /></Field>
-            <Field label="Internal notes" optional><Textarea placeholder="Notes for your team…" /></Field>
+            <Field label="Module name">
+              <div className="row-2">
+                <Input value={nameDraft} onChange={(e: any) => setNameDraft(e.target.value)} />
+                <Btn icon="check" loading={renameFetcher.state !== 'idle'}
+                  disabled={!nameDraft.trim() || nameDraft.trim() === mod.name}
+                  onClick={saveName}>Save</Btn>
+              </div>
+            </Field>
+            <Field label="Internal notes" optional>
+              <div className="stack-2">
+                <Textarea placeholder="Notes for your team…" rows={3}
+                  value={notesDraft} onChange={(e: any) => setNotesDraft(e.target.value)} />
+                <div className="row">
+                  <Btn size="sm" icon="check" loading={notesFetcher.state !== 'idle'}
+                    disabled={notesDraft === (internalNotes ?? '')}
+                    onClick={saveNotes}>Save notes</Btn>
+                </div>
+              </div>
+            </Field>
             <div className="divider" />
+            {hydration?.status === 'none' && (
+              <>
+                <Banner tone="info" title="Generate full settings">
+                  <div className="stack-2">
+                    <span>Let AI expand this module into a complete, validated settings schema you can fine-tune.</span>
+                    <div>
+                      <Btn variant="magic" icon="magic" loading={hydrateFetcher.state !== 'idle'} onClick={generateSettings}>
+                        Generate full settings
+                      </Btn>
+                    </div>
+                  </div>
+                </Banner>
+                <div className="divider" />
+              </>
+            )}
             <Banner tone="critical" title="Delete this module">
               <div className="stack-2">
                 <span>This removes the module and all versions. It cannot be undone.</span>

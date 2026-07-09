@@ -29,7 +29,7 @@ export async function loader({ request, params }: { request: Request; params: { 
       const obj = data?.data?.metaobjectByHandle;
       if (!obj) return new Response('', { status: 204 });
 
-      const cfg = JSON.parse(obj.configJson?.value ?? '{}') as {
+      type WidgetConfig = {
         mode?: 'JSON' | 'HTML';
         title?: string;
         message?: string;
@@ -37,6 +37,13 @@ export async function loader({ request, params }: { request: Request; params: { 
          *  a standalone routed page rendered WITHOUT the theme layout (layout:false). */
         surface?: 'embed' | 'full_page';
       };
+      // Malformed stored config must not 500 the storefront — fall back to empty.
+      let cfg: WidgetConfig;
+      try {
+        cfg = JSON.parse(obj.configJson?.value ?? '{}') as WidgetConfig;
+      } catch {
+        cfg = {};
+      }
       const styleCss: string = obj.styleCss?.value ?? '';
 
       if (cfg.mode === 'JSON') return json({ title: cfg.title ?? '', message: cfg.message ?? '' });

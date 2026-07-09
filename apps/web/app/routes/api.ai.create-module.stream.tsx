@@ -112,7 +112,9 @@ export async function action({ request }: { request: Request }) {
   const { grounding } = searchSolutions(requirementSpec);
   const isStorefrontType =
     classification.moduleType === 'theme.section' || classification.moduleType === 'proxy.widget';
-  const matchStoreColors = String(form.get('matchStoreColors') ?? '') === 'true';
+  // Default true (parity with the batch /api/ai/create-module route): storefront
+  // options should match the live store palette unless the merchant opts out.
+  const matchStoreColors = String(form.get('matchStoreColors') ?? 'true').trim() !== 'false';
   if (isStorefrontType && matchStoreColors) {
     await ensureStoreAesthetic({ admin, shopId: shopRow.id });
   }
