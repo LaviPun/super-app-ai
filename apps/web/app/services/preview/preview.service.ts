@@ -714,8 +714,20 @@ export class PreviewService {
   }
 
   private checkoutSurfacePreview(spec: RecipeSpec): string {
-    const title = String(this.cfgVal(spec, 'title') ?? this.cfgVal(spec, 'heading') ?? spec.name);
-    const body = String(this.cfgVal(spec, 'body') ?? this.cfgVal(spec, 'message') ?? '');
+    const title = String(
+      this.cfgVal(spec, 'title') ??
+        this.cfgVal(spec, 'heading') ??
+        this.cfgVal(spec, 'offerTitle') ??
+        spec.name,
+    );
+    // Surface the template's real copy (description/message) so distinct checkout
+    // templates preview distinctly instead of sharing generic body text.
+    const body = String(
+      this.cfgVal(spec, 'description') ??
+        this.cfgVal(spec, 'body') ??
+        this.cfgVal(spec, 'message') ??
+        '',
+    );
     const cta = String(this.cfgVal(spec, 'ctaText') ?? this.cfgVal(spec, 'buttonLabel') ?? 'Add to order');
     return this.surfaceCard(spec.name, `${spec.type} · checkout UI`, `
       <div class="surf-panel co">
@@ -740,8 +752,21 @@ export class PreviewService {
   }
 
   private postPurchaseSurfacePreview(spec: RecipeSpec): string {
-    const title = String(this.cfgVal(spec, 'title') ?? this.cfgVal(spec, 'heading') ?? spec.name);
-    const offer = String(this.cfgVal(spec, 'offerText') ?? this.cfgVal(spec, 'body') ?? 'Add this one-time offer to your order.');
+    // Post-purchase templates carry `offerTitle` + `message` (not title/offerText);
+    // surface them so different offers don't all show the same generic body.
+    const title = String(
+      this.cfgVal(spec, 'title') ??
+        this.cfgVal(spec, 'heading') ??
+        this.cfgVal(spec, 'offerTitle') ??
+        spec.name,
+    );
+    const offer = String(
+      this.cfgVal(spec, 'offerText') ??
+        this.cfgVal(spec, 'message') ??
+        this.cfgVal(spec, 'body') ??
+        this.cfgVal(spec, 'description') ??
+        'Add this one-time offer to your order.',
+    );
     return this.surfaceCard(spec.name, `${spec.type} · post-purchase`, `
       <div class="surf-panel">
         <h3>${esc(title)}</h3>
@@ -755,22 +780,70 @@ export class PreviewService {
   }
 
   private adminSurfacePreview(spec: RecipeSpec): string {
-    const title = String(this.cfgVal(spec, 'title') ?? this.cfgVal(spec, 'heading') ?? spec.name);
-    const action = String(this.cfgVal(spec, 'actionLabel') ?? this.cfgVal(spec, 'ctaText') ?? 'Run action');
+    // admin.block uses `label` as its heading; admin.action carries both a modal
+    // `title` and a verb `label` (the action). Prefer title, then label.
+    const labelVal = this.cfgVal(spec, 'label');
+    const heading = String(
+      this.cfgVal(spec, 'title') ?? labelVal ?? this.cfgVal(spec, 'heading') ?? spec.name,
+    );
+    // Surface the template's real, distinguishing description (was a hardcoded
+    // "Embedded admin block…" line that made every admin template look identical).
+    const description = this.cfgVal(spec, 'description');
+    // When `label` is a distinct action verb (admin.action), use it as the CTA;
+    // otherwise fall back to the generic label.
+    const action =
+      String(
+        this.cfgVal(spec, 'actionLabel') ??
+          this.cfgVal(spec, 'ctaText') ??
+          (typeof labelVal === 'string' && labelVal !== heading ? labelVal : ''),
+      ) || 'Run action';
+    // Humanize the extension target into a "where it appears" line (mirrors
+    // posSurfacePreview): 'admin.order-details.action.render' -> 'Order details'.
+    const target = String(this.cfgVal(spec, 'target') ?? '');
+    const surfaceLabel = target
+      ? target
+          .replace(/^admin\./, '')
+          .replace(/\.(action|block)\.render$/, '')
+          .replace(/\.render$/, '')
+          .replace(/[.-]/g, ' ')
+          .replace(/\b\w/g, (m) => m.toUpperCase())
+          .trim()
+      : '';
+    // Render the template's declared label/value fields (like discountUiSurfacePreview)
+    // instead of the hardcoded Status/Last-run rows.
+    const fieldsRaw = this.cfgVal(spec, 'fields');
+    const fields = Array.isArray(fieldsRaw) ? (fieldsRaw as Array<Record<string, unknown>>) : [];
+    const fieldRows = fields.length
+      ? fields
+          .map((f) => {
+            const l = esc(String(f?.label ?? f?.key ?? ''));
+            const tone = String(f?.tone ?? '');
+            const v = String(f?.value ?? '');
+            const valHtml = tone
+              ? `<span class="adm__badge adm__badge--${escAttr(tone)}">${esc(v)}</span>`
+              : `<span>${esc(v)}</span>`;
+            return `<div class="adm__row"><span>${l}</span>${valHtml}</div>`;
+          })
+          .join('')
+      : `<div class="adm__row"><span>Status</span><span class="adm__badge">Active</span></div>
+         <div class="adm__row"><span>Last run</span><span>2 minutes ago</span></div>`;
     return this.surfaceCard(spec.name, `${spec.type} · admin (Polaris)`, `
       <div class="surf-panel">
-        <h3>${esc(title)}</h3>
-        <p class="surf-muted">Embedded admin block rendered with Polaris-like primitives.</p>
-        <div class="adm__rows">
-          <div class="adm__row"><span>Status</span><span class="adm__badge">Active</span></div>
-          <div class="adm__row"><span>Last run</span><span>2 minutes ago</span></div>
-        </div>
+        <h3>${esc(heading)}</h3>
+        ${surfaceLabel ? `<p class="surf-muted">Appears on: <strong>${esc(surfaceLabel)}</strong></p>` : ''}
+        <p class="surf-muted">${
+          description ? esc(String(description)) : 'Embedded admin block rendered with Polaris-like primitives.'
+        }</p>
+        <div class="adm__rows">${fieldRows}</div>
         <a class="surf-btn" href="#action">${esc(action)}</a>
         <details class="surf-state"><summary>After action</summary><p class="surf-muted">Action dispatched; admin toast confirms success and the row updates.</p></details>
       </div>
     `, `
-      .adm__row { display:flex; justify-content:space-between; font-size:13px; padding:6px 0; border-bottom:1px solid #eef2f7; }
+      .adm__row { display:flex; justify-content:space-between; gap:12px; font-size:13px; padding:6px 0; border-bottom:1px solid #eef2f7; }
       .adm__badge { background:#E7F5EF; color:#0E9F6E; border-radius:9999px; padding:2px 10px; font-size:12px; }
+      .adm__badge--warning, .adm__badge--attention { background:#FEF3C7; color:#92400E; }
+      .adm__badge--critical { background:#FDE8E8; color:#9B1C1C; }
+      .adm__badge--info { background:#EAF1FB; color:#2F80ED; }
     `);
   }
 
@@ -905,9 +978,25 @@ export class PreviewService {
   private accountSurfacePreview(spec: RecipeSpec): string {
     const blocks = this.cfgVal(spec, 'blocks');
     const items = Array.isArray(blocks) ? (blocks as Array<Record<string, unknown>>) : [];
+    // Blocks carry their real copy in `content` (not `body`) — surface it so
+    // different customer-account templates render distinctly rather than all
+    // showing their block kind name.
     const list = items.length
-      ? items.map((b) => `<div class="surf-panel"><h3>${esc(String(b.title ?? b.kind ?? 'Block'))}</h3><p class="surf-muted">${esc(String(b.body ?? b.kind ?? ''))}</p></div>`).join('')
-      : `<div class="surf-panel"><h3>${esc(String(this.cfgVal(spec, 'title') ?? spec.name))}</h3><p class="surf-muted">Customer account block populated from account context (orders, loyalty tier).</p></div>`;
+      ? items
+          .map((b) => {
+            const bt = String(b.title ?? b.kind ?? 'Block');
+            const bc = String(b.content ?? b.body ?? '');
+            return `<div class="surf-panel"><h3>${esc(bt)}</h3>${
+              bc ? `<p class="surf-muted">${esc(bc)}</p>` : ''
+            }</div>`;
+          })
+          .join('')
+      : `<div class="surf-panel"><h3>${esc(String(this.cfgVal(spec, 'title') ?? spec.name))}</h3><p class="surf-muted">${esc(
+          String(
+            this.cfgVal(spec, 'description') ??
+              'Customer account block populated from account context (orders, loyalty tier).',
+          ),
+        )}</p></div>`;
     return this.surfaceCard(spec.name, `${spec.type} · customer account`, `<div class="acct">${list}</div>`, `
       .acct { display:grid; gap:12px; }
     `);

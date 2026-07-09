@@ -66,4 +66,86 @@ describe('template preview distinctness (gallery thumbnail bug)', () => {
       `Templates in the same category rendered identical previews (the original bug): ${JSON.stringify(collisions.slice(0, 10))}`,
     ).toEqual([]);
   });
+
+  /**
+   * VISUAL distinctness — the stronger guard. Byte-distinctness (above) can be
+   * satisfied by a one-line title change while the rest of the preview is a
+   * generic scaffold that throws away the template's real `config.description`.
+   * That was the actual reported bug ("all templates show the same preview").
+   *
+   * This asserts the template's real description text is actually rendered into
+   * the preview HTML, so any future renderer that regresses to a generic scaffold
+   * (dropping the description) fails here.
+   *
+   * Scope: only the surface renderers that are contracted to echo
+   * `config.description`. Kinds whose renderers legitimately surface OTHER
+   * distinguishing config instead (pixel events, workflow steps, function
+   * simulation outcomes, segment/link/print/messaging/agentic specifics) are
+   * excluded — asserting description there would be wrong, not stronger. In the
+   * current library the in-scope, description-bearing templates are admin.action,
+   * admin.block, and admin.discountUi.
+   */
+  it('renders each template’s real config.description into its preview (no generic scaffold)', () => {
+    // Mirror preview.service.ts `esc()` exactly so we compare against what the
+    // renderer emits (it entity-encodes & < > " ' and every char > 127).
+    const escHtml = (input: string) => {
+      let out = '';
+      for (let i = 0; i < input.length; i++) {
+        const ch = input[i];
+        const code = input.charCodeAt(i);
+        if (ch === '&') out += '&amp;';
+        else if (ch === '<') out += '&lt;';
+        else if (ch === '>') out += '&gt;';
+        else if (ch === '"') out += '&quot;';
+        else if (ch === "'") out += '&#039;';
+        else if (code > 127) out += `&#${code};`;
+        else out += ch;
+      }
+      return out;
+    };
+
+    // Renderers contracted to echo config.description into the preview body.
+    const SHOWS_DESCRIPTION = new Set<string>([
+      'admin.action',
+      'admin.block',
+      'platform.extensionBlueprint',
+      'admin.discountUi',
+      'checkout.block',
+      'checkout.upsell',
+      'postPurchase.offer',
+    ]);
+    // customerAccount.blocks only shows config.description in its no-blocks
+    // fallback branch; when it has blocks the block copy is shown instead.
+    const showsDescription = (spec: { type: string; config?: unknown }): boolean => {
+      if (SHOWS_DESCRIPTION.has(spec.type)) return true;
+      if (spec.type === 'customerAccount.blocks') {
+        const blocks = (spec.config as { blocks?: unknown })?.blocks;
+        return !(Array.isArray(blocks) && blocks.length > 0);
+      }
+      return false;
+    };
+
+    let covered = 0;
+    const missing: { id: string; type: string; chunk: string }[] = [];
+    for (const t of MODULE_TEMPLATES) {
+      const spec = findTemplate(t.id)!.spec;
+      const desc = (spec.config as { description?: unknown })?.description;
+      if (typeof desc !== 'string' || desc.trim().length === 0) continue;
+      if (!showsDescription(spec)) continue;
+      covered++;
+      const chunk = desc.trim().slice(0, 20);
+      const html = render(spec);
+      if (!html.includes(escHtml(chunk))) {
+        missing.push({ id: t.id, type: spec.type, chunk });
+      }
+    }
+
+    // Guard against the assertion silently becoming a no-op (e.g. if the library
+    // stops carrying descriptions or the scope set drifts empty).
+    expect(covered, 'expected a meaningful number of description-bearing templates in scope').toBeGreaterThan(50);
+    expect(
+      missing,
+      `These templates dropped their config.description from the preview (generic-scaffold regression): ${JSON.stringify(missing.slice(0, 10))}`,
+    ).toEqual([]);
+  });
 });
