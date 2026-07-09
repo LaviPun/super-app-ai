@@ -1,7 +1,7 @@
 import { json } from '@remix-run/node';
 import { Link, useLoaderData } from '@remix-run/react';
 import { Badge, BlockStack, Button, Card, DataTable, InlineStack, Page, Text } from '@shopify/polaris';
-import { findTemplate, getTemplateInstallability, getTemplateReadiness } from '@superapp/core';
+import { findTemplate, getTemplateInstallability, getTemplateReadiness, getExtensionEligibility } from '@superapp/core';
 import { shopify } from '~/shopify.server';
 import { PreviewService } from '~/services/preview/preview.service';
 
@@ -15,6 +15,18 @@ export async function loader({ request, params }: { request: Request; params: { 
 
   const readiness = getTemplateReadiness(template);
   const installability = getTemplateInstallability(template);
+
+  // How this template actually deploys (runtime surface, plan requirement, and
+  // whether its runtime is shipped in this app build). For Shopify Functions we
+  // don't assert shipped-ness here (that depends on the deployed-function
+  // manifest, which this route doesn't load) — the note explains deployment.
+  const eligibility = getExtensionEligibility(template.spec.type);
+  const deployment = {
+    runtime: eligibility.runtime,
+    note: eligibility.note,
+    requiresPlan: eligibility.requiresPlan ?? null,
+    runtimeShipped: eligibility.runtime === 'function' ? null : eligibility.runtimeShipped,
+  };
   const configRows = Object.entries(template.spec.config as Record<string, unknown>).map(([key, value]) => {
     const type = Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value;
     const raw = typeof value === 'object' ? JSON.stringify(value) : String(value);
@@ -44,13 +56,28 @@ export async function loader({ request, params }: { request: Request; params: { 
     readiness,
     installability,
     requires: template.spec.requires,
+    deployment,
     configRows,
     previewHtml,
   });
 }
 
+const RUNTIME_LABEL: Record<string, string> = {
+  theme: 'Theme app extension',
+  'checkout-ui': 'Checkout UI extension',
+  'customer-account-ui': 'Customer account extension',
+  'admin-ui': 'Admin UI extension',
+  flow: 'Shopify Flow',
+  'web-pixel': 'Web Pixel',
+  'pos-ui': 'POS UI extension',
+  'app-proxy': 'App proxy (always available)',
+  function: 'Shopify Function',
+  'agentic-feed': 'Agentic product feed',
+  composite: 'Composite (uses other modules)',
+};
+
 export default function MerchantTemplateDetailRoute() {
-  const { template, readiness, installability, requires, configRows, previewHtml } = useLoaderData<typeof loader>();
+  const { template, readiness, installability, requires, deployment, configRows, previewHtml } = useLoaderData<typeof loader>();
 
   return (
     <Page
@@ -121,6 +148,22 @@ export default function MerchantTemplateDetailRoute() {
                 ))}
               </BlockStack>
             )}
+          </BlockStack>
+        </Card>
+
+        <Card>
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">Deployment</Text>
+            <InlineStack gap="200" wrap blockAlign="center">
+              <Badge>{RUNTIME_LABEL[deployment.runtime] ?? deployment.runtime}</Badge>
+              {deployment.requiresPlan === 'plus' ? (
+                <Badge tone="attention">Takes effect on Shopify Plus</Badge>
+              ) : null}
+              {deployment.runtimeShipped === false ? (
+                <Badge tone="attention">Runtime pending in this app build</Badge>
+              ) : null}
+            </InlineStack>
+            <Text as="p" variant="bodySm" tone="subdued">{deployment.note}</Text>
           </BlockStack>
         </Card>
 

@@ -1318,6 +1318,9 @@ document.addEventListener('change', function(e) {
 </script>`;
 
 function pageHtml(body: string, css: string) {
+  // Every preview is rendered with illustrative SAMPLE values (the module isn't
+  // bound to real store data until published). A small persistent marker makes
+  // that explicit so merchants don't mistake demo values for their real config.
   return `
     <!doctype html>
     <html>
@@ -1325,9 +1328,18 @@ function pageHtml(body: string, css: string) {
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Preview</title>
-        <style>${css}</style>
+        <style>
+      .sa-sample-badge {
+        position: fixed; top: 8px; right: 8px; z-index: 2147483646;
+        background: rgba(17,24,39,0.06); color: #6b7280;
+        font: 600 11px/1 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        letter-spacing: 0.02em; padding: 4px 8px; border-radius: 9999px;
+        border: 1px solid rgba(17,24,39,0.08); pointer-events: none;
+      }
+      ${css}</style>
       </head>
       <body>
+        <div class="sa-sample-badge" aria-hidden="true">Sample data</div>
         <div style="padding:16px">${body}</div>
         ${LINK_INTERCEPT_SCRIPT}
       </body>

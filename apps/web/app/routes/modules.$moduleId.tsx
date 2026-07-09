@@ -8,7 +8,7 @@ import { RecipeService } from '~/services/recipes/recipe.service';
 import { CapabilityService } from '~/services/shopify/capability.service';
 import { PreviewService } from '~/services/preview/preview.service';
 import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
-import { MODULE_CATALOG, isCapabilityAllowed } from '@superapp/core';
+import { MODULE_CATALOG, isCapabilityAllowed, getExtensionEligibility } from '@superapp/core';
 import { compileRecipe } from '~/services/recipes/compiler';
 import { ThemeService } from '~/services/shopify/theme.service';
 import type { Capability, DeployTarget, RecipeSpec } from '@superapp/core';
@@ -191,8 +191,36 @@ export async function loader({ request, params }: { request: Request; params: { 
     try { internalNotes = String((JSON.parse(draft.specJson) as Record<string, unknown>).internalNotes ?? ''); } catch { /* ignore */ }
   }
 
-  return json({ moduleId, shop: session.shop, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, blueprint, internalNotes });
+  // How this module deploys (runtime surface + plan requirement). Functions
+  // don't assert shipped-ness here (depends on the deployed-function manifest).
+  const deployment = (() => {
+    try {
+      const el = getExtensionEligibility((spec as { type?: string } | null)?.type as never ?? (mod as { type: string }).type as never);
+      return {
+        runtime: el.runtime,
+        note: el.note,
+        requiresPlan: el.requiresPlan ?? null,
+        runtimeShipped: el.runtime === 'function' ? null : el.runtimeShipped,
+      };
+    } catch { return null; }
+  })();
+
+  return json({ moduleId, shop: session.shop, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, blueprint, internalNotes, deployment });
 }
+
+const RUNTIME_LABEL: Record<string, string> = {
+  theme: 'Theme app extension',
+  'checkout-ui': 'Checkout UI extension',
+  'customer-account-ui': 'Customer account extension',
+  'admin-ui': 'Admin UI extension',
+  flow: 'Shopify Flow',
+  'web-pixel': 'Web Pixel',
+  'pos-ui': 'POS UI extension',
+  'app-proxy': 'App proxy (always available)',
+  function: 'Shopify Function',
+  'agentic-feed': 'Agentic product feed',
+  composite: 'Composite (uses other modules)',
+};
 
 /**
  * Route-owned mutations: duplicate (create a draft copy), rename (Module.name +
@@ -301,7 +329,7 @@ export default function ModuleDetail() {
 
 function ModuleDetailBody() {
   const data = useLoaderData<typeof loader>();
-  const { moduleId, mod, spec, versions, themes, publishedThemeId, hydration, internalNotes } = data;
+  const { moduleId, mod, spec, versions, themes, publishedThemeId, hydration, internalNotes, deployment } = data;
   const ctx = useMerchantCtx();
   const navigate = useNavigate();
   const revalidator = useRevalidator();
@@ -724,10 +752,17 @@ function ModuleDetailBody() {
                 ['Status', <StatusBadge key="s" value={mod.status} />],
               ]} />
             </Card>
-            <Card pad>
-              <div className="t-h3" style={{ marginBottom: 10 }}>Placement</div>
-              <div className="t-sm t-muted">Shown on all product pages, sticky to the bottom of the viewport.</div>
-            </Card>
+            {deployment ? (
+              <Card pad>
+                <div className="t-h3" style={{ marginBottom: 10 }}>Deployment</div>
+                <div className="row-2" style={{ flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                  <Badge>{RUNTIME_LABEL[deployment.runtime] ?? deployment.runtime}</Badge>
+                  {deployment.requiresPlan === 'plus' ? <Badge tone="warning">Takes effect on Shopify Plus</Badge> : null}
+                  {deployment.runtimeShipped === false ? <Badge tone="warning">Runtime pending in this app build</Badge> : null}
+                </div>
+                <div className="t-sm t-muted">{deployment.note}</div>
+              </Card>
+            ) : null}
           </div>
         </div>
       )}
