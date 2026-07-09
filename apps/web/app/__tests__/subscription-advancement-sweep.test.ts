@@ -98,7 +98,11 @@ vi.mock('~/services/flows/auth-resolver.server', () => ({
 import { scheduleAdvancement, type ContractMirror, type ReminderStage } from '~/services/composites/subscription-advancement.server';
 import { WorkflowEngineService } from '~/services/workflows/workflow-engine.service';
 
-const NOW = new Date('2026-07-04T00:00:00.000Z');
+// Anchored to the REAL clock, not a pinned date: the engine's wait node measures
+// `remaining` against wall-clock Date.now() (workflow-engine.service.ts, by design),
+// so a hardcoded NOW turns into a time bomb — once the calendar passes the pinned
+// resumeAt, the wait is "already due", never parks, and the reminder sends inline.
+const NOW = new Date();
 const DAY = 24 * 60 * 60 * 1000;
 
 const contract: ContractMirror = {
