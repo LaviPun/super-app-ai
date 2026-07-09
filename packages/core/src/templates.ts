@@ -63,6 +63,41 @@ function uniqCapabilities(flags: Capability[]): Capability[] {
   return Array.from(new Set(flags));
 }
 
+/**
+ * The storefront-surface "layout types". These are the ONLY two types in the whole
+ * template library whose base config is a positioned + skinned visual surface, i.e.
+ * they carry `style` (StorefrontStyleSchema) and `placement` (recipe.ts:397-398 for
+ * `theme.section`, 430-431 for `proxy.widget`). Every other type renders from its
+ * `config` object and never uses theme style/placement, so `base.layout` must not
+ * demand those fields of them.
+ */
+const STOREFRONT_LAYOUT_TYPES: ReadonlySet<string> = new Set([
+  'theme.section',
+  'proxy.widget',
+]);
+
+/** Flow step kinds that are pure control flow (no durable effect of their own). */
+const FLOW_CONTROL_STEP_KINDS: ReadonlySet<string> = new Set(['DELAY', 'CONDITION']);
+
+type FlowStep = { kind?: string; thenSteps?: unknown; elseSteps?: unknown };
+
+/**
+ * Collect every flow step kind, recursing through `CONDITION` then/else branches.
+ * A persistence or effect step nested inside a condition (e.g. FLOW-04's
+ * WRITE_TO_STORE in `thenSteps`) must count — a top-level-only scan under-reports it.
+ */
+function collectFlowStepKinds(steps: unknown): string[] {
+  if (!Array.isArray(steps)) return [];
+  const out: string[] = [];
+  for (const raw of steps) {
+    const step = raw as FlowStep;
+    if (typeof step.kind === 'string') out.push(step.kind);
+    out.push(...collectFlowStepKinds(step.thenSteps));
+    out.push(...collectFlowStepKinds(step.elseSteps));
+  }
+  return out;
+}
+
 function getRequiredDataFlagsForType(type: string): Capability[] {
   switch (type) {
     case 'theme.section':
@@ -319,16 +354,53 @@ export function getTemplateReadiness(template: TemplateEntry): TemplateReadiness
   const specMeta = template.spec as Record<string, unknown>;
   const checks: TemplateReadiness['checks'] = [];
 
-  const hasStyle = specMeta.style != null;
-  const hasPlacement = specMeta.placement != null;
-  checks.push({
-    id: 'base.layout',
-    ok: hasStyle && hasPlacement,
-    detail: hasStyle && hasPlacement ? 'Has style + placement metadata' : 'Missing style or placement metadata',
-  });
-
   const advancedValidation = RecipeSpecSchema.safeParse(template.spec);
   const typeSpecificAdvanced = advancedValidation.success;
+
+  // ── base.layout ──────────────────────────────────────────────────────────────
+  // Does the template carry the BASE metadata its own type actually renders from?
+  //
+  // Only the storefront-surface layout types (STOREFRONT_LAYOUT_TYPES = theme.section
+  // + proxy.widget) render visible markup positioned by `placement` and skinned by
+  // `style`, so for them style+placement IS the base layout. Every other type
+  // (pos.extension, admin.*, functions.*, flow.automation, messaging.campaign,
+  // checkout.*, integration.httpSync, customerAccount.blocks, …) renders from its
+  // `config` object and never uses theme style/placement — the previous check
+  // demanded those fields of ALL types and so failed ~290 schema-complete templates
+  // on metadata that does not apply to them. This makes the check type-aware without
+  // hiding real gaps: a genuinely-empty template still fails (empty config / invalid
+  // schema / missing placement).
+  //
+  // Sub-case: a `theme.section` with `activation: 'head'` is a head app-embed that
+  // injects into the document <head> and renders NO visible markup (recipe.ts:345-351,
+  // `style` is .optional()). It legitimately has no visual `style`; it is base-complete
+  // with `placement` alone (which gates the templates it injects on). Requiring a
+  // `style` block here would fabricate visual metadata for an invisible module.
+  const hasStyle = specMeta.style != null;
+  const hasPlacement = specMeta.placement != null;
+  const isStorefrontLayout = STOREFRONT_LAYOUT_TYPES.has(template.type);
+  const isHeadEmbed = template.type === 'theme.section' && cfg.activation === 'head';
+  const hasBaseConfig = cfg != null && typeof cfg === 'object' && Object.keys(cfg).length > 0;
+
+  let baseLayoutOk: boolean;
+  let baseLayoutDetail: string;
+  if (isHeadEmbed) {
+    baseLayoutOk = hasPlacement;
+    baseLayoutDetail = hasPlacement
+      ? 'Head app-embed: placement present (injects into <head>, no visual style by design)'
+      : 'Head app-embed is missing placement metadata';
+  } else if (isStorefrontLayout) {
+    baseLayoutOk = hasStyle && hasPlacement;
+    baseLayoutDetail = baseLayoutOk
+      ? 'Storefront surface: style + placement metadata present'
+      : 'Missing style or placement metadata for this storefront surface';
+  } else {
+    baseLayoutOk = hasBaseConfig && typeSpecificAdvanced;
+    baseLayoutDetail = baseLayoutOk
+      ? 'Base configuration present for this type'
+      : 'Missing or invalid base configuration for this type';
+  }
+  checks.push({ id: 'base.layout', ok: baseLayoutOk, detail: baseLayoutDetail });
 
   checks.push({
     id: 'advanced.settings',
@@ -336,9 +408,14 @@ export function getTemplateReadiness(template: TemplateEntry): TemplateReadiness
     detail: typeSpecificAdvanced ? 'Includes type-specific advanced settings' : 'Missing some advanced settings for this type',
   });
 
-  const hasWriteToStore = template.type === 'flow.automation'
-    && Array.isArray(cfg.steps)
-    && (cfg.steps as Array<{ kind?: string }>).some((s) => s.kind === 'WRITE_TO_STORE');
+  // Flow persistence detection recurses through CONDITION branches (FLOW-04 nests
+  // its WRITE_TO_STORE inside `thenSteps`), and distinguishes concrete effect steps
+  // (tag/note/notify/sync/write) from pure control flow (DELAY/CONDITION).
+  const flowStepKinds = template.type === 'flow.automation'
+    ? collectFlowStepKinds(cfg.steps)
+    : [];
+  const hasWriteToStore = flowStepKinds.includes('WRITE_TO_STORE');
+  const flowHasEffect = flowStepKinds.some((k) => !FLOW_CONTROL_STEP_KINDS.has(k));
   const hasContactCapture = template.type === 'theme.section'
     && cfg.kind === 'contactForm'
     && (cfg.submissionMode === 'APP_PROXY' || cfg.submissionMode === 'SHOPIFY_CONTACT');
@@ -351,14 +428,39 @@ export function getTemplateReadiness(template: TemplateEntry): TemplateReadiness
   else if (hasContactCapture || hasAnalyticsCapture) storageMode = 'DATA_CAPTURE';
   else if (hasExternalSync) storageMode = 'EXTERNAL_SYNC';
 
+  // ── data.persistence ─────────────────────────────────────────────────────────
+  // Types in TEMPLATE_TYPES_REQUIRING_DATA_SAVE must do something durable, not just
+  // render output. For integration.httpSync / analytics.pixel that means a concrete
+  // capture/sync path (storageMode !== 'NONE'). flow.automation is DIFFERENT: a flow
+  // does NOT universally need APP-side persistence — many complete, honest flows just
+  // tag / annotate / notify / sync (FLOW-02/03/05/06 tag+note+email+Slack) with no
+  // DataStore, and that is their real, finished behavior. So a flow is ready when it
+  // either persists (WRITE_TO_STORE, incl. nested via collectFlowStepKinds) OR performs
+  // any concrete effect step. Only a no-op flow (DELAY/CONDITION with no effect) fails
+  // — that IS a genuine gap, not suppressed.
   const dataSaveRequired = TEMPLATE_TYPES_REQUIRING_DATA_SAVE.has(template.type);
-  const dataSaveReady = dataSaveRequired ? storageMode !== 'NONE' : true;
+  let dataSaveReady: boolean;
+  let dataDetail: string;
+  if (!dataSaveRequired) {
+    dataSaveReady = true;
+    dataDetail = 'Persistence not required for this template type';
+  } else if (template.type === 'flow.automation') {
+    dataSaveReady = storageMode !== 'NONE' || flowHasEffect;
+    dataDetail = storageMode !== 'NONE'
+      ? `Data persistence mode: ${storageMode}`
+      : (flowHasEffect
+        ? 'Flow performs store mutations / notifications (no app-side persistence required)'
+        : 'Flow has no effect steps — nothing is persisted or acted on');
+  } else {
+    dataSaveReady = storageMode !== 'NONE';
+    dataDetail = dataSaveReady
+      ? `Data persistence mode: ${storageMode}`
+      : 'No direct data persistence path in this template';
+  }
   checks.push({
     id: 'data.persistence',
     ok: dataSaveReady,
-    detail: dataSaveReady
-      ? (dataSaveRequired ? `Data persistence mode: ${storageMode}` : 'Persistence not required for this template type')
-      : 'No direct data persistence path in this template',
+    detail: dataDetail,
   });
 
   const requiredDataFlags = getRequiredDataFlagsForType(template.type);

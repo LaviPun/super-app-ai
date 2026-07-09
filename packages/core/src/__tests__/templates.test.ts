@@ -194,6 +194,48 @@ describe('MODULE_TEMPLATES integrity', () => {
     expect(['DATA_STORE', 'DATA_CAPTURE_AND_DATA_STORE']).toContain(readiness.storageMode);
   });
 
+  it('every readiness check on every template passes (zero "Needs work")', () => {
+    const failures: string[] = [];
+    for (const t of MODULE_TEMPLATES) {
+      const readiness = getTemplateReadiness(t);
+      for (const check of readiness.checks) {
+        if (!check.ok) {
+          failures.push(`${t.id} (${t.type}) → ${check.id}: ${check.detail}`);
+        }
+      }
+    }
+    expect(failures, `Templates with failing readiness checks:\n${failures.join('\n')}`).toEqual([]);
+  });
+
+  it('detects flow persistence nested inside CONDITION branches', () => {
+    // FLOW-04 writes to a store only inside a CONDITION.thenSteps; readiness must
+    // still see it as a DATA_STORE flow (recursive step-kind collection).
+    const flow04 = findTemplate('FLOW-04');
+    expect(flow04).toBeDefined();
+    const readiness = getTemplateReadiness(flow04!);
+    expect(readiness.storageMode).toBe('DATA_STORE');
+    expect(readiness.dataSaveReady).toBe(true);
+  });
+
+  it('treats effectful (tag/notify) flows without a DataStore as persistence-ready', () => {
+    // FLOW-03 only tags + Slacks — a complete automation with no app-side store.
+    const flow03 = findTemplate('FLOW-03');
+    expect(flow03).toBeDefined();
+    const readiness = getTemplateReadiness(flow03!);
+    expect(readiness.storageMode).toBe('NONE');
+    const persistence = readiness.checks.find((c) => c.id === 'data.persistence');
+    expect(persistence?.ok).toBe(true);
+  });
+
+  it('does not demand style/placement of head app-embed theme.sections', () => {
+    // Head-injection theme.sections render no visible markup and carry no `style`.
+    const headEmbed = findTemplate('EMB-HEAD-01');
+    expect(headEmbed).toBeDefined();
+    expect((headEmbed!.spec as { style?: unknown }).style).toBeUndefined();
+    const baseLayout = getTemplateReadiness(headEmbed!).checks.find((c) => c.id === 'base.layout');
+    expect(baseLayout?.ok).toBe(true);
+  });
+
   it('computes installability policy with strict advanced-settings requirement', () => {
     for (const t of MODULE_TEMPLATES) {
       const installability = getTemplateInstallability(t);
