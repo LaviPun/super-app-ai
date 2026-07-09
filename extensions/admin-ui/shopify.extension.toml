@@ -78,28 +78,9 @@ api_access = true
 module = "./src/actions/ProductDetailsAction.tsx"
 target = "admin.product-details.action.render"
 
-[[extensions]]
-uid = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
-type = "ui_extension"
-name = "SuperApp Product Reorder Block"
-handle = "superapp-admin-product-reorder-block"
-
-[extensions.capabilities]
-api_access = true
-
-[[extensions.targeting]]
-module = "./src/blocks/ProductReorder.tsx"
-target = "admin.product-details.reorder.render"
-
-[[extensions]]
-uid = "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e"
-type = "ui_extension"
-name = "SuperApp Discount Selection Action"
-handle = "superapp-admin-discount-selection-action"
-
-[extensions.capabilities]
-api_access = true
-
-[[extensions.targeting]]
-module = "./src/actions/DiscountSelectionAction.tsx"
-target = "admin.discount-index.selection-action.render"
+# Removed: superapp-admin-product-reorder-block (admin.product-details.reorder.render)
+# and superapp-admin-discount-selection-action (admin.discount-index.selection-action.render).
+# These two targets are not valid registerable admin UI extension targets — the live dev
+# preview rejects admin.product-details.reorder.render with "Invalid app_id". They were
+# speculative "missing targets" whose .render intrinsic is absent from @shopify/ui-extensions.
+# Re-add only if/when Shopify GA's them with confirmed intrinsics.

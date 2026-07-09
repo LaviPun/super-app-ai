@@ -319,7 +319,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
       category: 'ADMIN_UI',
       requires: [],
       config: {
-        target: 'admin.discount-index.selection-action.render',
+        target: 'admin.discount-index.action.render',
         label: 'Archive selected discounts',
         title: 'Archive selected discounts',
         description: 'Deactivate and archive the selected promotions in one action so only live offers remain in the active list.',
