@@ -35,12 +35,12 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
   // NSEC-GAL-01 — Masonry photo wall, Editorial Wellness.
   {
     id: 'NSEC-GAL-01',
-    name: 'Gallery — Masonry Wall (Editorial)',
+    name: 'Gallery — Masonry Wall',
     description: 'Whitespace-forward masonry photo wall of mixed-height image tiles with quiet captions — an imagery-led lookbook grid for a brand or landing page.',
     category: 'STOREFRONT_UI',
     type: 'theme.section',
     icon: 'gallery',
-    tags: ['section', 'gallery', 'lookbook', 'masonry', 'page', 'editorial-wellness'],
+    tags: ['section', 'gallery', 'lookbook', 'masonry', 'page'],
     spec: {
       type: 'theme.section',
       name: 'Gallery — Masonry Wall',
@@ -74,7 +74,7 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'airy' },
         typography: { size: 'XL', weight: 'normal', lineHeight: 'relaxed', align: 'center' },
-        colors: { text: '#3f3a34', background: '#f6f2ec', overlayBackdropOpacity: 0.45, seed: '#8a7f6d' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#8a7f6d' },
         shape: { radius: 'md', borderWidth: 'none', shadow: 'none', elevation: 'border' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -86,12 +86,12 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
   // NSEC-GAL-02 — Masonry gallery, Playful Commerce (UGC / community grid).
   {
     id: 'NSEC-GAL-02',
-    name: 'Gallery — Community Grid (Playful)',
+    name: 'Gallery — Community Grid',
     description: 'Friendly rounded masonry grid of customer and community photos with playful captions and a "shop the look" link per tile — a UGC gallery for the homepage.',
     category: 'STOREFRONT_UI',
     type: 'theme.section',
     icon: 'gallery',
-    tags: ['section', 'gallery', 'ugc', 'masonry', 'index', 'playful-commerce'],
+    tags: ['section', 'gallery', 'ugc', 'masonry', 'index'],
     spec: {
       type: 'theme.section',
       name: 'Gallery — Community Grid',
@@ -126,7 +126,7 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'tight', density: 'comfortable' },
         typography: { size: 'LG', weight: 'bold', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#7c2d12', background: '#fffbeb', buttonBg: '#f97316', buttonText: '#ffffff', overlayBackdropOpacity: 0.45, seed: '#f97316' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#f97316' },
         shape: { radius: 'xl', borderWidth: 'none', shadow: 'sm', elevation: 'soft' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -138,12 +138,12 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
   // NSEC-GAL-03 — Sticky-scroll narrative lookbook, Editorial Wellness.
   {
     id: 'NSEC-GAL-03',
-    name: 'Lookbook — Sticky Scroll Story (Editorial)',
+    name: 'Lookbook — Sticky Scroll Story',
     description: 'Story-driven lookbook where imagery pins while chapter copy scrolls past — each block is one narrative chapter with image, headline, and body, for a landing page.',
     category: 'STOREFRONT_UI',
     type: 'theme.section',
     icon: 'gallery',
-    tags: ['section', 'lookbook', 'sticky-scroll', 'narrative', 'page', 'editorial-wellness'],
+    tags: ['section', 'lookbook', 'sticky-scroll', 'narrative', 'page'],
     spec: {
       type: 'theme.section',
       name: 'Lookbook — Sticky Scroll Story',
@@ -173,7 +173,7 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'loose', density: 'airy' },
         typography: { size: 'XL', weight: 'normal', lineHeight: 'relaxed', align: 'left' },
-        colors: { text: '#2f2a24', background: '#faf7f2', overlayBackdropOpacity: 0.45, seed: '#8a7f6d' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#8a7f6d' },
         shape: { radius: 'lg', borderWidth: 'none', shadow: 'sm', elevation: 'soft' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -182,62 +182,15 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
     },
   },
 
-  // NSEC-GAL-04 — Sticky-scroll narrative lookbook, Minimal Luxe (duotone).
-  {
-    id: 'NSEC-GAL-04',
-    name: 'Lookbook — Sticky Scroll Story (Luxe)',
-    description: 'Restrained near-mono duotone lookbook where each pinned image is paired with a single line of copy as the reader scrolls — a luxury narrative section for a landing page.',
-    category: 'STOREFRONT_UI',
-    type: 'theme.section',
-    icon: 'gallery',
-    tags: ['section', 'lookbook', 'sticky-scroll', 'duotone', 'page', 'minimal-luxe'],
-    spec: {
-      type: 'theme.section',
-      name: 'Lookbook — Sticky Scroll Story (Luxe)',
-      category: 'STOREFRONT_UI',
-      requires: ['THEME_ASSETS'],
-      config: {
-        kind: 'lookbook',
-        activation: 'section',
-        title: 'The Atelier',
-        subtitle: 'Objects, considered.',
-        layout: { layout: 'stacked' },
-        fields: {
-          eyebrow: 'Editorial',
-          stickyMedia: true,
-          mediaSide: 'right',
-          treatment: 'duotone',
-          revealOnScroll: true,
-        },
-        blocks: [
-          { kind: 'slide', text: 'The material', imageUrl: 'https://cdn.example.com/atelier/story-1.jpg', url: 'https://example.com/pages/materials', fields: { alt: 'Duotone close-up of raw fabric', headline: 'Chosen for the hand' } },
-          { kind: 'slide', text: 'The making', imageUrl: 'https://cdn.example.com/atelier/story-2.jpg', url: 'https://example.com/pages/craft', fields: { alt: 'Duotone workshop at the bench', headline: 'Made to be kept' } },
-          { kind: 'slide', text: 'The wearing', imageUrl: 'https://cdn.example.com/atelier/story-3.jpg', url: 'https://example.com/collections/atelier', fields: { alt: 'Duotone editorial portrait', headline: 'Worn without thinking' } },
-        ],
-      },
-      placement: { enabled_on: { templates: ['page'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
-      style: {
-        layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
-        spacing: { padding: 'loose', margin: 'none', gap: 'loose', density: 'airy' },
-        typography: { size: 'XL', weight: 'medium', lineHeight: 'normal', align: 'left' },
-        colors: { text: '#f5f5f4', background: '#1c1917', overlayBackdrop: '#0c0a09', overlayBackdropOpacity: 0.35, seed: '#a8a29e' },
-        shape: { radius: 'sm', borderWidth: 'thin', shadow: 'none', elevation: 'emboss' },
-        responsive: { hideOnMobile: false, hideOnDesktop: false },
-        accessibility: { focusVisible: true, reducedMotion: true },
-        motion: { duration: 'slow', easing: 'enter' },
-      },
-    },
-  },
-
-  // NSEC-GAL-05 — Split lookbook (media / copy), Apple HIG Clean.
+  // NSEC-GAL-05 — Split lookbook (media / copy).
   {
     id: 'NSEC-GAL-05',
-    name: 'Lookbook — Split Feature (Clean)',
+    name: 'Lookbook — Split Feature',
     description: 'Two-column lookbook pairing a large campaign image with a caption stack of shoppable looks beside it — a content-first split section for the homepage.',
     category: 'STOREFRONT_UI',
     type: 'theme.section',
     icon: 'gallery',
-    tags: ['section', 'lookbook', 'split', 'shoppable', 'index', 'apple-hig-clean'],
+    tags: ['section', 'lookbook', 'split', 'shoppable', 'index'],
     spec: {
       type: 'theme.section',
       name: 'Lookbook — Split Feature',
@@ -268,7 +221,7 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'loose', density: 'comfortable' },
         typography: { size: 'LG', weight: 'bold', lineHeight: 'normal', align: 'left' },
-        colors: { text: '#0f172a', background: '#ffffff', buttonBg: '#0f172a', buttonText: '#ffffff', overlayBackdropOpacity: 0.45, seed: '#0f172a' },
+        colors: { overlayBackdropOpacity: 0.45 },
         shape: { radius: 'lg', borderWidth: 'none', shadow: 'sm', elevation: 'soft' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -280,12 +233,12 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
   // NSEC-GAL-06 — Split before/after gallery, Tech Utility.
   {
     id: 'NSEC-GAL-06',
-    name: 'Gallery — Before & After Split (Utility)',
+    name: 'Gallery — Before & After Split',
     description: 'Split gallery pairing before/after image sets with crisp result captions — a proof-forward, data-forward transformation section for a landing or product page.',
     category: 'STOREFRONT_UI',
     type: 'theme.section',
     icon: 'gallery',
-    tags: ['section', 'gallery', 'before-after', 'split', 'page', 'tech-utility'],
+    tags: ['section', 'gallery', 'before-after', 'split', 'page'],
     spec: {
       type: 'theme.section',
       name: 'Gallery — Before & After Split',
@@ -317,7 +270,7 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'medium', density: 'compact' },
         typography: { size: 'LG', weight: 'bold', lineHeight: 'tight', align: 'center' },
-        colors: { text: '#e5e7eb', background: '#0a0f1a', border: '#1f2937', overlayBackdropOpacity: 0.45, seed: '#22d3ee' },
+        colors: { text: '#e5e7eb', background: '#0a0f1a', overlayBackdropOpacity: 0.45, seed: '#22d3ee' },
         shape: { radius: 'sm', borderWidth: 'thin', shadow: 'none', elevation: 'border' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -329,12 +282,12 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
   // NSEC-GAL-07 — Full-bleed edge-to-edge gallery band, Bold DTC.
   {
     id: 'NSEC-GAL-07',
-    name: 'Gallery — Full-Bleed Band (Bold DTC)',
+    name: 'Gallery — Full-Bleed Band',
     description: 'Edge-to-edge full-bleed gallery band of large campaign images with high-energy overlay captions and shop links — an immersive lookbook strip for the homepage.',
     category: 'STOREFRONT_UI',
     type: 'theme.section',
     icon: 'gallery',
-    tags: ['section', 'gallery', 'lookbook', 'full-bleed', 'index', 'bold-dtc'],
+    tags: ['section', 'gallery', 'lookbook', 'full-bleed', 'index'],
     spec: {
       type: 'theme.section',
       name: 'Gallery — Full-Bleed Band',
@@ -365,7 +318,7 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'none', margin: 'none', gap: 'none', density: 'comfortable' },
         typography: { size: '2XL', weight: 'bold', lineHeight: 'tight', align: 'left' },
-        colors: { text: '#ffffff', background: '#0b0b0f', buttonBg: '#e11d48', buttonText: '#ffffff', overlayBackdrop: '#000000', overlayBackdropOpacity: 0.5, seed: '#e11d48' },
+        colors: { text: '#ffffff', background: '#0b0b0f', overlayBackdrop: '#000000', overlayBackdropOpacity: 0.5, seed: '#e11d48' },
         shape: { radius: 'none', borderWidth: 'none', shadow: 'lg', elevation: 'glow' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -377,12 +330,12 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
   // NSEC-GAL-08 — Full-bleed carousel lookbook (Instagram-style feed), Bold DTC.
   {
     id: 'NSEC-GAL-08',
-    name: 'Gallery — Shoppable Carousel Feed (Bold DTC)',
+    name: 'Gallery — Shoppable Carousel Feed',
     description: 'Swipeable full-bleed carousel of shoppable feed tiles — each reorderable slide carries an image, caption, and product link — an Instagram-style gallery for the homepage.',
     category: 'STOREFRONT_UI',
     type: 'theme.section',
     icon: 'gallery',
-    tags: ['section', 'gallery', 'shoppable', 'carousel', 'index', 'bold-dtc'],
+    tags: ['section', 'gallery', 'shoppable', 'carousel', 'index'],
     spec: {
       type: 'theme.section',
       name: 'Gallery — Shoppable Carousel Feed',
@@ -416,7 +369,7 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'tight', density: 'comfortable' },
         typography: { size: 'LG', weight: 'bold', lineHeight: 'normal', align: 'left' },
-        colors: { text: '#f8fafc', background: '#111827', buttonBg: '#e11d48', buttonText: '#ffffff', overlayBackdrop: '#000000', overlayBackdropOpacity: 0.4, seed: '#e11d48' },
+        colors: { text: '#f8fafc', background: '#111827', overlayBackdrop: '#000000', overlayBackdropOpacity: 0.4, seed: '#e11d48' },
         shape: { radius: 'lg', borderWidth: 'none', shadow: 'md', elevation: 'glow' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

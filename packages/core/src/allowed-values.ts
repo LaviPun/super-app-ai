@@ -2077,6 +2077,10 @@ export const STOREFRONT_ELEVATION_IDIOMS = ['soft', 'glow', 'border', 'emboss'] 
 export const STOREFRONT_DENSITY_LEVELS = ['compact', 'comfortable', 'airy'] as const;
 export const STOREFRONT_MOTION_DURATIONS = ['none', 'fast', 'base', 'slow'] as const;
 export const STOREFRONT_MOTION_EASINGS = ['standard', 'enter', 'exit', 'mechanical'] as const;
+// Two-pack render grammar (module-design-system.md §3.3.1). `auto` is resolved app-side
+// at generation (resolveStorefrontPack, §9.2) to a concrete pack; the storefront reads the
+// resolved value from style_json.pack and stamps `.superapp-scope[data-sa-pack]`.
+export const STOREFRONT_STYLE_PACKS = ['auto', 'luxe', 'bold'] as const;
 // Global radius scaling knob (Radix `scaling`): shift a whole module tight↔soft in one move.
 export const STOREFRONT_RADIUS_SCALING_MIN = 50;
 export const STOREFRONT_RADIUS_SCALING_MAX = 150;

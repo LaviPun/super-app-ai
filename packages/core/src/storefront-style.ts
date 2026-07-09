@@ -17,6 +17,7 @@ import {
   STOREFRONT_DENSITY_LEVELS,
   STOREFRONT_MOTION_DURATIONS,
   STOREFRONT_MOTION_EASINGS,
+  STOREFRONT_STYLE_PACKS,
   STOREFRONT_RADIUS_SCALING_MIN,
   STOREFRONT_RADIUS_SCALING_MAX,
   STOREFRONT_OFFSET_MIN,
@@ -68,8 +69,14 @@ export const StorefrontStyleSchema = z
       .default({}),
     colors: z
       .object({
-        text: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default('#111111'),
-        background: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default('#ffffff'),
+        /**
+         * Flat text/background are OPTIONAL (module-design-system.md §3.3.2):
+         * unset ⇒ the module inherits the store theme's colors at render
+         * (compiler emits no --sa-text/--sa-bg; CSS falls back to inherit /
+         * transparent). Set ⇒ a deliberate per-module override (layer 4).
+         */
+        text: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+        background: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
         border: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
         buttonBg: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
         buttonText: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
@@ -123,6 +130,14 @@ export const StorefrontStyleSchema = z
         easing: z.enum(STOREFRONT_MOTION_EASINGS).default('standard'),
       })
       .optional(),
+    /**
+     * Two-pack render grammar (module-design-system.md §3.3.1). Resolved, not
+     * authored: set app-side from the aesthetic auto-select (`resolveStorefrontPack`,
+     * §9.2) and persisted into `style_json.pack`, which the renderer reads to stamp
+     * `data-sa-pack` on the `.superapp-scope` wrapper. Merchant theme-editor
+     * `stylePack` overrides it live (precedence layer 5).
+     */
+    pack: z.enum(STOREFRONT_STYLE_PACKS).optional(),
     /** Free-form CSS additions. Sanitized + scoped at compile time. */
     customCss: CustomCssSchema,
   })

@@ -7,7 +7,7 @@ import {
   relativeLuminance,
   selectPack,
 } from '~/services/ai/style-packs.server';
-import { contrastRatio, runDesignQa } from '~/services/ai/design-qa.server';
+import { buildDesignQaCorrection, contrastRatio, runDesignQa } from '~/services/ai/design-qa.server';
 import { PreviewService, wrapThemeFonts } from '~/services/preview/preview.service';
 import {
   buildDesignSystemDirectiveForReference,
@@ -174,6 +174,81 @@ describe('design-qa — gate + auto-fixes', () => {
     });
     const qa = runDesignQa(r);
     expect(qa.pass).toBe(true);
+  });
+});
+
+function effectRecipe(style: Record<string, unknown>): RecipeSpec {
+  return {
+    type: 'theme.section',
+    name: 'Effect Module',
+    category: 'STOREFRONT_UI',
+    requires: ['THEME_ASSETS'],
+    config: { kind: 'effect', activation: 'overlay', effectKind: 'confetti', startTrigger: 'on_click' },
+    style,
+  } as unknown as RecipeSpec;
+}
+
+describe('design-qa — per-effect reduced motion (§6)', () => {
+  it('blocks an effect that explicitly disables reduced motion, but forces the flag on', () => {
+    const qa = runDesignQa(effectRecipe({ colors: { text: '#111827', background: '#FFFFFF' }, accessibility: { reducedMotion: false } }));
+    expect(qa.pass).toBe(false);
+    const issue = qa.issues.find((i) => i.id === 'reduced-motion-effect');
+    expect(issue?.severity).toBe('fail');
+    // Safety net: the stored recipe still honors prefers-reduced-motion.
+    const a11y = (qa.recipe as unknown as { style: { accessibility: { reducedMotion: boolean } } }).style.accessibility;
+    expect(a11y.reducedMotion).toBe(true);
+  });
+
+  it('does not block an effect that omits the flag (auto-defaults to true)', () => {
+    const qa = runDesignQa(effectRecipe({ colors: { text: '#111827', background: '#FFFFFF' } }));
+    expect(qa.pass).toBe(true);
+    expect(qa.issues.some((i) => i.id === 'reduced-motion-effect')).toBe(false);
+  });
+});
+
+describe('design-qa — F1–F8 micro-interaction heuristic (§7.1)', () => {
+  it('flags status-icon-text on a contact form and records the accessibility-flag gap', () => {
+    const r = {
+      type: 'theme.section',
+      name: 'Form',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: { kind: 'contactForm', submissionMode: 'APP_PROXY', fields: { email: true } },
+      style: { colors: { text: '#111827', background: '#FFFFFF' } },
+    } as unknown as RecipeSpec;
+    const qa = runDesignQa(r);
+    expect(qa.issues.some((i) => i.id === 'micro-interaction:status-icon-text' && i.severity === 'warn')).toBe(true);
+    expect(qa.issues.some((i) => i.id === 'micro-interaction:accessibility-flags')).toBe(true);
+    // Heuristic warnings must not block generation.
+    expect(qa.pass).toBe(true);
+  });
+});
+
+describe('design-qa — pack fidelity (§3)', () => {
+  it('warns when a Luxe pack uses fast motion', () => {
+    const qa = runDesignQa(baseRecipe({ colors: { text: '#111827', background: '#FFFFFF' }, pack: 'luxe', motion: { duration: 'fast' } }));
+    expect(qa.issues.some((i) => i.id === 'pack-fidelity:motion' && i.severity === 'warn')).toBe(true);
+    expect(qa.pass).toBe(true);
+  });
+
+  it('does not warn when a Bold pack uses fast motion', () => {
+    const qa = runDesignQa(baseRecipe({ colors: { text: '#111827', background: '#FFFFFF' }, pack: 'bold', motion: { duration: 'fast' } }));
+    expect(qa.issues.some((i) => i.id.startsWith('pack-fidelity'))).toBe(false);
+  });
+});
+
+describe('design-qa — corrective instruction', () => {
+  it('summarizes blocking issues for regeneration, empty when clean', () => {
+    const blocked = runDesignQa(effectRecipe({ colors: { text: '#111827', background: '#FFFFFF' }, accessibility: { reducedMotion: false } }));
+    const corr = buildDesignQaCorrection(blocked);
+    expect(corr).toContain('DESIGN-QA CORRECTION');
+    expect(corr).toContain('reduced-motion-effect');
+
+    const clean = runDesignQa(baseRecipe({
+      colors: { text: '#111827', background: '#FFFFFF', overlayBackdrop: '#0F172A', overlayBackdropOpacity: 0.5 },
+      accessibility: { focusVisible: true, reducedMotion: true },
+    }));
+    expect(buildDesignQaCorrection(clean)).toBe('');
   });
 });
 

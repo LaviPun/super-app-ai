@@ -53,6 +53,9 @@ type LooseStyle = {
     overlayBackdropOpacity?: number;
   };
   accessibility?: { focusVisible?: boolean; reducedMotion?: boolean };
+  pack?: string;
+  motion?: { duration?: string; easing?: string };
+  shape?: { radius?: string };
 };
 
 const DARK_SCRIM = '#0F172A';
@@ -88,16 +91,42 @@ export function runDesignQa(recipe: RecipeSpec): DesignQaResult {
 
   const issues: QaIssue[] = [];
 
+  // Capture what the model actually authored (pre-auto-fix) so the F1–F8
+  // presence heuristic can tell "the generator accounted for it" from
+  // "we defaulted it in".
+  const originalA11y = ((recipe as { style?: LooseStyle }).style?.accessibility ?? {}) as {
+    focusVisible?: boolean;
+    reducedMotion?: boolean;
+  };
+
   // Work on a clone so callers can compare / fall back to the original.
   const next = structuredClone(recipe) as RecipeSpec & { style?: LooseStyle; config?: Record<string, unknown> };
   const style = (next.style ?? (next.style = {})) as LooseStyle;
   const colors = (style.colors ?? (style.colors = {}));
   const a11y = (style.accessibility ?? (style.accessibility = {}));
 
-  const activation = (next.config as { activation?: string } | undefined)?.activation;
-  const kind = (next.config as { kind?: string } | undefined)?.kind;
+  const config = (next.config ?? {}) as Record<string, unknown>;
+  const activation = (config as { activation?: string }).activation;
+  const kind = (config as { kind?: string }).kind;
   const isOverlay = activation === 'overlay' || kind === 'popup' || kind === 'modal';
   const isEffect = kind === 'effect';
+
+  // Does the module carry actions or a form? Drives the F5/F8 status-signalling
+  // heuristic below (success/error must be icon+text, never color alone).
+  const configFields = (config.fields ?? {}) as Record<string, unknown>;
+  const blocks = Array.isArray(config.blocks) ? (config.blocks as Array<Record<string, unknown>>) : [];
+  const hasCta =
+    ['ctaText', 'ctaUrl', 'ctaLabel', 'actionUrl', 'linkUrl', 'linkText'].some(
+      (k) => typeof config[k] === 'string' && (config[k] as string).length > 0,
+    ) ||
+    ['ctaText', 'ctaLabel', 'linkText'].some((k) => typeof configFields[k] === 'string') ||
+    blocks.some((b) => b?.kind === 'cta');
+  const isForm =
+    kind === 'contactForm' ||
+    kind === 'newsletter' ||
+    typeof config.submissionMode === 'string' ||
+    typeof config.spamProtection === 'string';
+  const hasActionsOrForms = hasCta || isForm;
 
   // --- G1.1/G1.2 Contrast: report (do not recolor the brand) ----------------
   if (isHexColor(colors.text) && isHexColor(colors.background)) {
@@ -158,14 +187,90 @@ export function runDesignQa(recipe: RecipeSpec): DesignQaResult {
       message: 'reducedMotion was unset — defaulted to true so the module honors prefers-reduced-motion.',
       autofixed: true,
     });
-  } else if (a11y.reducedMotion === false && isEffect) {
-    // An animated effect that ignores reduced motion is an accessibility miss.
+  }
+
+  // --- §6 Per-effect reduced-motion (blocking [AUTO]) -----------------------
+  // Every `effect` module must ship a prefers-reduced-motion branch that
+  // renders nothing (§6). Anything other than an explicit `true` is a miss.
+  // We force the flag on as a safety net, but an effect that explicitly opted
+  // OUT signals a motion-heavy design that should be regenerated, so it stays a
+  // blocking failure for the caller's regenerate loop.
+  if (isEffect && a11y.reducedMotion !== true) {
+    // undefined was already coerced to true above; reaching here means === false.
+    a11y.reducedMotion = true;
     issues.push({
       id: 'reduced-motion-effect',
       severity: 'fail',
-      message: 'Animated effect explicitly disables reduced-motion handling — set accessibility.reducedMotion = true.',
+      message:
+        'Animated effect disabled reduced-motion — §6 requires every effect to render nothing under prefers-reduced-motion. Forced reducedMotion=true; regenerate a reduced-motion-safe effect.',
+      autofixed: true,
+    });
+  }
+
+  // --- §7.1 F1–F8 mandatory micro-interaction presence heuristic ------------
+  // Spec-level surfaces can't prove the rendered state set, so these are soft
+  // `warn`s that flag when the generator did not visibly account for the
+  // mandatory interaction states. focusVisible (F3) and reducedMotion are also
+  // hard-enforced above; here we document the F-set coverage gap.
+  const isInteractive = hasActionsOrForms || isEffect || kind === 'popup' || kind === 'floatingWidget';
+  if (isInteractive) {
+    const missingFlags: string[] = [];
+    if (originalA11y.focusVisible !== true) missingFlags.push('focusVisible (F3)');
+    if (originalA11y.reducedMotion !== true) missingFlags.push('reducedMotion');
+    if (missingFlags.length > 0) {
+      issues.push({
+        id: 'micro-interaction:accessibility-flags',
+        severity: 'warn',
+        message: `Interactive module did not declare ${missingFlags.join(
+          ' + ',
+        )} — the F1–F8 mandatory set (§7.1) requires them (auto-applied).`,
+        autofixed: true,
+      });
+    }
+  }
+  if (hasActionsOrForms) {
+    issues.push({
+      id: 'micro-interaction:status-icon-text',
+      severity: 'warn',
+      message:
+        'Module has actions/forms — verify success (F5) and error (F8) states are signalled by icon + text, never color alone (§1.4/§7.1), and that the full state set (idle·hover·pressed·focus·selected·disabled·entering·exiting) is covered.',
       autofixed: false,
     });
+  }
+
+  // --- §3 Pack / palette fidelity (soft warn) -------------------------------
+  // A resolved `luxe`/`bold` pack has a motion + shape personality (§3.1/§3.2).
+  // Wildly off-pack tokens read wrong; warn (never hard-fail — merchant/theme
+  // overrides can legitimately diverge).
+  const pack = style.pack;
+  const motionDuration = style.motion?.duration;
+  const shapeRadius = style.shape?.radius;
+  if (pack === 'luxe') {
+    if (motionDuration === 'fast') {
+      issues.push({
+        id: 'pack-fidelity:motion',
+        severity: 'warn',
+        message: 'Luxe pack favors slow/long fades (§3.1); motion.duration="fast" reads Bold — prefer "slow" or "base".',
+        autofixed: false,
+      });
+    }
+    if (shapeRadius && ['lg', 'xl', 'full'].includes(shapeRadius)) {
+      issues.push({
+        id: 'pack-fidelity:shape',
+        severity: 'warn',
+        message: `Luxe pack uses none–sm radius (§3.1); shape.radius="${shapeRadius}" is off-pack.`,
+        autofixed: false,
+      });
+    }
+  } else if (pack === 'bold') {
+    if (motionDuration === 'slow') {
+      issues.push({
+        id: 'pack-fidelity:motion',
+        severity: 'warn',
+        message: 'Bold pack favors fast/snappy motion (§3.2); motion.duration="slow" reads Luxe — prefer "fast" or "base".',
+        autofixed: false,
+      });
+    }
   }
 
   const pass = !issues.some((i) => i.severity === 'fail');
@@ -177,4 +282,19 @@ export function summarizeQa(result: DesignQaResult): string {
   const fails = result.issues.filter((i) => i.severity === 'fail').length;
   const fixes = result.issues.filter((i) => i.autofixed).length;
   return `design-qa: ${result.pass ? 'pass' : 'FAIL'} (${fails} blocking, ${fixes} auto-fixed, ${result.issues.length} total)`;
+}
+
+/**
+ * Build a corrective instruction summarizing the blocking `[AUTO]` failures, to
+ * append to a regeneration prompt (§9.1 stage 6 — "regenerates on `[AUTO]`
+ * failure"). Returns '' when nothing is blocking, so callers can skip the retry.
+ */
+export function buildDesignQaCorrection(result: DesignQaResult): string {
+  const fails = result.issues.filter((i) => i.severity === 'fail');
+  if (fails.length === 0) return '';
+  const lines = fails.map((i) => `- [${i.id}] ${i.message}`);
+  return [
+    '(DESIGN-QA CORRECTION — the previous output failed the non-negotiable Apple-HIG accessibility floor (module design system §1.4). Regenerate the SAME module and requirements, changing ONLY what is needed to fix these blocking issues while preserving everything else:)',
+    ...lines,
+  ].join('\n');
 }

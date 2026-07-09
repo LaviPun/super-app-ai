@@ -17,23 +17,25 @@ import type { RecipeSpec } from '@superapp/core';
 // ---------------------------------------------------------------------------
 
 describe('style-compiler – defaults & normalise', () => {
-  it('getDefaultStorefrontStyle returns full default object', () => {
+  it('getDefaultStorefrontStyle returns full default object (colors inherit from store)', () => {
     const def = getDefaultStorefrontStyle();
-    expect(def.colors.text).toBe('#111111');
+    // text/background OPTIONAL (§3.3.2): unset ⇒ store inheritance at render.
+    expect(def.colors.text).toBeUndefined();
+    expect(def.colors.background).toBeUndefined();
     expect(def.layout.zIndex).toBe('sticky');
     expect(def.customCss).toBeUndefined();
   });
 
   it('normalizeStyle(undefined) returns defaults', () => {
     const s = normalizeStyle(undefined);
-    expect(s.colors.background).toBe('#ffffff');
+    expect(s.colors.background).toBeUndefined();
     expect(s.typography.size).toBe('MD');
   });
 
   it('normalizeStyle(partial) merges with defaults', () => {
     const s = normalizeStyle({ colors: { text: '#000' } } as never as never);
     expect(s.colors.text).toBe('#000');
-    expect(s.colors.background).toBe('#ffffff');
+    expect(s.colors.background).toBeUndefined();
   });
 
   it('normalizeStyle preserves customCss', () => {
@@ -47,15 +49,57 @@ describe('style-compiler – defaults & normalise', () => {
 // ---------------------------------------------------------------------------
 
 describe('compileStyleVars', () => {
-  it('outputs all --sa-* CSS custom properties', () => {
+  it('emits layout tokens at defaults but NO color tokens (store inheritance, §3.3.2)', () => {
     const vars = compileStyleVars(undefined);
+    expect(vars).not.toContain('--sa-text:');
+    expect(vars).not.toContain('--sa-bg:');
+    expect(vars).toContain('--sa-pad: 16px;');
+    expect(vars).toContain('--sa-backdrop:');
+  });
+
+  it('emits color tokens when deliberately set (layer-4 override)', () => {
+    const vars = compileStyleVars({
+      ...getDefaultStorefrontStyle(),
+      colors: { ...getDefaultStorefrontStyle().colors, text: '#111111', background: '#ffffff' },
+    });
     expect(vars).toContain('--sa-text: #111111;');
     expect(vars).toContain('--sa-bg: #ffffff;');
-    expect(vars).toContain('--sa-pad: 16px;');
+  });
+
+  it('omits pack-owned structural tokens at defaults so the pack wrapper owns them', () => {
+    // radius md / shadow none / border none / motion base+standard are schema
+    // defaults → not emitted per-module (module-design-system.md §9.4).
+    const vars = compileStyleVars(undefined);
+    expect(vars).not.toContain('--sa-radius:');
+    expect(vars).not.toContain('--sa-shadow:');
+    expect(vars).not.toContain('--sa-border-w:');
+    expect(vars).not.toContain('--sa-motion:');
+    expect(vars).not.toContain('--sa-ease:');
+  });
+
+  it('structuralDefaults: true always emits the structural set (no-wrapper contexts: previews, proxy widgets)', () => {
+    const vars = compileStyleVars(undefined, { structuralDefaults: true });
     expect(vars).toContain('--sa-radius: 8px;');
-    expect(vars).toContain('--sa-backdrop:');
+    expect(vars).toContain('--sa-btn-radius: 8px;');
+    expect(vars).toContain('--sa-border-w: 0;');
     expect(vars).toContain('--sa-shadow: none;');
-    expect(vars).toContain('--sa-border-width: 0;');
+    expect(vars).toContain('--sa-motion: 200ms;');
+    expect(vars).toContain('--sa-ease:');
+  });
+
+  it('emits pack-owned structural tokens as overrides when non-default', () => {
+    const vars = compileStyleVars({
+      ...getDefaultStorefrontStyle(),
+      shape: { radius: 'lg', borderWidth: 'thin', shadow: 'md', scaling: 100 },
+      motion: { duration: 'slow', easing: 'enter' },
+    } as never);
+    expect(vars).toContain('--sa-radius: 12px;');
+    expect(vars).toContain('--sa-radius-lg:');
+    expect(vars).toContain('--sa-btn-radius: 12px;');
+    expect(vars).toContain('--sa-border-w: 1px;');
+    expect(vars).toContain('--sa-shadow:');
+    expect(vars).toContain('--sa-motion:');
+    expect(vars).toContain('--sa-ease:');
   });
 
   it('uses custom color overrides', () => {
@@ -104,18 +148,28 @@ describe('compileStyleVars', () => {
 // ---------------------------------------------------------------------------
 
 describe('compileStyleVars — token substrate (phase #2)', () => {
-  it('emits motion + easing + ambient tokens', () => {
-    const vars = compileStyleVars(undefined);
-    expect(vars).toContain('--sa-motion: 200ms;');
-    expect(vars).toContain('--sa-ease: cubic-bezier(.4,0,.2,1);');
-    expect(vars).toContain('--sa-motion-ambient: 60s;');
+  it('always emits the ambient token; motion/ease only when non-default', () => {
+    const def = compileStyleVars(undefined);
+    expect(def).toContain('--sa-motion-ambient: 60s;');
+    expect(def).not.toContain('--sa-motion:');
+    expect(def).not.toContain('--sa-ease:');
+    const overridden = compileStyleVars({
+      ...getDefaultStorefrontStyle(),
+      motion: { duration: 'fast', easing: 'mechanical' },
+    } as never);
+    expect(overridden).toContain('--sa-motion: 150ms;');
+    expect(overridden).toContain('--sa-ease: cubic-bezier(.645,.045,.355,1);');
   });
 
-  it('emits a derived radius ladder from the base radius', () => {
-    const vars = compileStyleVars(undefined); // radius md = 8px, scaling 100
-    expect(vars).toContain('--sa-radius-sm: 6px;');
-    expect(vars).toContain('--sa-radius-md: 8px;');
-    expect(vars).toContain('--sa-radius-lg: 12px;');
+  it('emits a derived radius ladder when radius is non-default', () => {
+    const s = {
+      ...getDefaultStorefrontStyle(),
+      shape: { ...getDefaultStorefrontStyle().shape, radius: 'lg' as const },
+    };
+    const vars = compileStyleVars(s); // radius lg = 12px, scaling 100
+    expect(vars).toContain('--sa-radius-sm: 10px;');
+    expect(vars).toContain('--sa-radius-md: 12px;');
+    expect(vars).toContain('--sa-radius-lg: 16px;');
   });
 
   it('scales the radius ladder by shape.scaling', () => {
@@ -175,11 +229,11 @@ describe('compileStyleCss', () => {
   it('outputs rules referencing var(--sa-*)', () => {
     const css = compileStyleCss(undefined, '.superapp-module');
     expect(css).toContain('.superapp-module');
-    expect(css).toContain('color: var(--sa-text)');
-    expect(css).toContain('background: var(--sa-bg)');
+    expect(css).toContain('color: var(--sa-text, inherit)');
+    expect(css).toContain('background: var(--sa-bg, transparent)');
     expect(css).toContain('padding: var(--sa-pad)');
-    expect(css).toContain('border-radius: var(--sa-radius)');
-    expect(css).toContain('box-shadow: var(--sa-shadow)');
+    expect(css).toContain('border-radius: var(--sa-radius');
+    expect(css).toContain('box-shadow: var(--sa-shadow');
   });
 
   it('adds border rule when borderWidth is not none', () => {
@@ -187,7 +241,7 @@ describe('compileStyleCss', () => {
       { ...getDefaultStorefrontStyle(), shape: { radius: 'md', borderWidth: 'thin', shadow: 'none' } },
       '.superapp-module',
     );
-    expect(css).toContain('border-width: var(--sa-border-width)');
+    expect(css).toContain('border-width: var(--sa-border-w');
     expect(css).toContain('border-style: solid');
   });
 
@@ -398,8 +452,8 @@ describe('theme compilers — style integration', () => {
     expect(out.themeModulePayload?.styleCss).toContain('[data-module-id="test-module-1"]');
     expect(out.themeModulePayload?.styleCss).toContain('--sa-text: #222222;');
     expect(out.themeModulePayload?.styleCss).toContain('--sa-elevation:');
-    // Non-overlay kinds paint the wrapper root directly.
-    expect(out.themeModulePayload?.styleCss).toContain('[data-module-id="test-module-1"]{\ncolor: var(--sa-text);');
+    // Non-overlay kinds paint the wrapper root directly (inherit-safe fallback).
+    expect(out.themeModulePayload?.styleCss).toContain('[data-module-id="test-module-1"]{\ncolor: var(--sa-text, inherit);');
     // payload.style stays pristine (compiled css is folded into style_json at the metaobject layer)
     expect(out.themeModulePayload?.style).toEqual((spec as { style?: unknown }).style);
   });
@@ -419,9 +473,9 @@ describe('theme compilers — style integration', () => {
     expect(css).toContain('[data-module-id="test-module-1"]{--sa-text: #222222;');
     // The background/padding block targets the PANEL — painting the full-screen host
     // would turn the overlay into an opaque sheet that hides the page behind the scrim.
-    expect(css).toContain('[data-module-id="test-module-1"] .superapp-popup__panel{\ncolor: var(--sa-text);');
-    // ...and never applies `background: var(--sa-bg)` straight to the bare host selector.
-    expect(css).not.toContain('[data-module-id="test-module-1"]{\ncolor: var(--sa-text);');
+    expect(css).toContain('[data-module-id="test-module-1"] .superapp-popup__panel{\ncolor: var(--sa-text, inherit);');
+    // ...and never applies the background straight to the bare host selector.
+    expect(css).not.toContain('[data-module-id="test-module-1"]{\ncolor: var(--sa-text, inherit);');
   });
 
   it('floatingWidget/effect kinds emit vars only — no base rules that would distort the pill/overlay', () => {

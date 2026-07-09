@@ -71,3 +71,4 @@ apps/web/scripts/tournament-out/
 
 # Generated per-extension bundle manifests (CLI-written; corrupt on dev-bundle write races)
 extensions/*/manifest.json
+.playwright-mcp/

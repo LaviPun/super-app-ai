@@ -1,6 +1,6 @@
 import type { RecipeSpec } from '@superapp/core';
 import type { StorePalette, StoreTypography } from '~/services/theme/theme-analyzer.service';
-import { STYLE_PACKS, type StylePackId } from '~/services/ai/style-packs.server';
+import { STYLE_PACKS, resolveStorefrontPack, type StylePackId } from '~/services/ai/style-packs.server';
 import { paletteToDesignReferencePack, selectStylePackForReference } from '~/services/ai/design-reference.server';
 
 /**
@@ -51,11 +51,13 @@ export function applyStylePackTokens<T extends RecipeSpec>(
   if (!palette || palette.source === 'none') return recipe;
 
   const refPack = paletteToDesignReferencePack(palette, typography ?? {}, 'live-theme');
-  const packId = selectStylePackForReference(refPack).packId;
+  const selection = selectStylePackForReference(refPack);
+  const packId = selection.packId;
   const pack = STYLE_PACKS[packId];
 
   const styled = recipe as unknown as {
     style?: {
+      pack?: 'auto' | 'luxe' | 'bold';
       spacing?: Record<string, unknown>;
       shape?: Record<string, unknown>;
       motion?: Record<string, unknown>;
@@ -66,6 +68,10 @@ export function applyStylePackTokens<T extends RecipeSpec>(
   st.spacing ??= {};
   st.shape ??= {};
   st.motion ??= {};
+
+  // Resolve + persist the two-pack render grammar (module-design-system.md §3.3.1)
+  // so the storefront stamps `data-sa-pack`. Respect an explicit model/merchant choice.
+  if (st.pack === undefined) st.pack = resolveStorefrontPack(selection);
 
   if (st.spacing.density === undefined) st.spacing.density = pack.density;
   if (st.shape.radius === undefined) st.shape.radius = radiusEnum(pack.radius.md);

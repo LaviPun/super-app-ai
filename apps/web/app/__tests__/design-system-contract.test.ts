@@ -1,0 +1,176 @@
+/**
+ * Design-system contract test (module-design-system.md §9.1 / R7).
+ *
+ * Codifies the spec ⇄ render-layer coverage matrix as a standing test: the
+ * render layer (theme-extension CSS/Liquid/JS) and the preview pipeline must
+ * keep delivering the two-pack contract. If a spec promise regresses out of
+ * the render layer, this file fails — the spec can't silently outrun the code.
+ *
+ * Reads the extension files from disk (vitest runs with cwd = apps/web).
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+import type { RecipeSpec } from '@superapp/core';
+import { PreviewService } from '~/services/preview/preview.service';
+
+const EXT = path.resolve(process.cwd(), '../../extensions/theme-app-extension');
+const css = fs.readFileSync(path.join(EXT, 'assets/superapp-modules.css'), 'utf8');
+const js = fs.readFileSync(path.join(EXT, 'assets/superapp-modules.js'), 'utf8');
+const snippet = fs.readFileSync(path.join(EXT, 'snippets/superapp-module.liquid'), 'utf8');
+const bundleSnippet = fs.readFileSync(path.join(EXT, 'snippets/superapp-product-bundle.liquid'), 'utf8');
+
+describe('design-system contract — CSS token layer (§3.3 / §9.3)', () => {
+  it('defines both pack token maps on the scope wrapper', () => {
+    expect(css).toContain(".superapp-scope[data-sa-pack='luxe']");
+    expect(css).toContain(".superapp-scope[data-sa-pack='bold']");
+  });
+
+  it('carries the typographic voice: fluid display scale + font roles (§1.1)', () => {
+    expect(css).toContain('--sa-display-size');
+    expect(css).toContain('--sa-font-display');
+    expect(css).toContain('--sa-font-mono');
+    expect(css).toMatch(/--sa-display-size:\s*clamp\(/);
+  });
+
+  it('drives CTAs from the OKLCH ramp chain, never bare currentColor/Canvas (§2.4)', () => {
+    expect(css).toContain('var(--sa-btn-bg, var(--sa-solid, var(--sa-ink)))');
+    expect(css).toContain('var(--sa-btn-text, var(--sa-solid-content, Canvas))');
+  });
+
+  it('survives dark themes: color-mix hairlines + prefers-color-scheme branch (§1.4)', () => {
+    expect(css).toContain('color-mix(');
+    expect(css).toContain('prefers-color-scheme: dark');
+  });
+
+  it('has the motion/state system: entrance, shimmer, shake, reduced-motion (§7.1 F4/F6/F8)', () => {
+    expect(css).toContain('@keyframes superapp-enter');
+    expect(css).toContain('@keyframes superapp-shimmer');
+    expect(css).toContain('@keyframes superapp-shake');
+    expect(css).toContain('.sa-reveal');
+    expect(css).toContain('.is-inview');
+    expect(css).toContain('prefers-reduced-motion');
+  });
+
+  it('implements the full 12-effect catalog (§6)', () => {
+    for (const kf of [
+      'superapp-fall', // snowfall
+      'superapp-rise', // embers
+      'superapp-confetti',
+      'superapp-petal',
+      'superapp-firework',
+      'superapp-twinkle', // glitter/stars
+      'superapp-rain',
+      'superapp-bubble',
+      'superapp-shoot', // shooting stars
+      'superapp-balloon',
+      'superapp-spotlight',
+      'superapp-ambient', // ambient-gradient
+    ]) {
+      expect(css, `missing effect keyframe ${kf}`).toContain(`@keyframes ${kf}`);
+    }
+  });
+
+  it('honors effect intensity/speed/auto-stop controls (§6)', () => {
+    expect(css).toContain('data-intensity');
+    expect(css).toContain('data-speed');
+    expect(css).toContain('var(--sa-loops, infinite)');
+  });
+
+  it('styles the previously-unstyled kinds: recommendations + bundle (§4.1)', () => {
+    expect(css).toContain('.superapp-recs__grid');
+    expect(css).toContain('.superapp-recs__skeleton');
+    expect(css).toContain('.superapp-bundle');
+  });
+
+  it('has the anti-slop content branches', () => {
+    expect(css).toContain('.superapp-section--minimal');
+    expect(css).toContain('.superapp-section--textonly');
+    expect(css).toContain('.superapp-section__empty');
+  });
+
+  it('never regresses to the legacy token name', () => {
+    expect(css).not.toContain('--sa-border-width');
+  });
+
+  it('keeps the popup scrim on the compiled token (audit fix)', () => {
+    expect(css).toContain('var(--sa-backdrop');
+  });
+});
+
+describe('design-system contract — Liquid render layer (§3.3.4 scoping & identity)', () => {
+  it('wraps every module in the pack scope exactly once', () => {
+    expect(snippet.match(/<div class="superapp-scope"/g)?.length).toBe(1);
+    expect(snippet).toContain('data-sa-pack=');
+    expect(snippet.match(/\/superapp-scope/g)?.length).toBe(1);
+  });
+
+  it('resolves pack precedence: block setting → style_json.pack → luxe (§3.3.1)', () => {
+    expect(snippet).toContain('mod_sty.pack');
+    expect(snippet).toMatch(/default:\s*'luxe'/);
+  });
+
+  it('carries the entrance + effect + countdown hooks (§6/§7)', () => {
+    expect(snippet).toContain('sa-reveal');
+    expect(snippet).toContain('data-intensity');
+    expect(snippet).toContain('data-speed');
+    expect(snippet).toContain('data-sa-countdown');
+  });
+
+  it('uses SVG widget icons, not emoji', () => {
+    expect(snippet).toContain('<svg');
+    expect(snippet).not.toContain('💬');
+  });
+
+  it('bundle snippet no longer carries inline styles (tokenized centrally)', () => {
+    expect(bundleSnippet).not.toContain('<style>');
+  });
+});
+
+describe('design-system contract — JS runtime (§5.4/§6/§7)', () => {
+  it('implements scroll reveal, effect triggers, countdown, celebration', () => {
+    expect(js).toContain('IntersectionObserver');
+    expect(js).toContain('sa-reveal');
+    expect(js).toContain('data-sa-countdown');
+    expect(js).toContain('superapp:celebrate');
+    expect(js).toContain('--sa-loops');
+  });
+
+  it('keeps reduced-motion guards', () => {
+    expect(js).toContain('prefers-reduced-motion');
+  });
+});
+
+describe('design-system contract — preview parity matrix (R0)', () => {
+  const service = new PreviewService();
+  const kinds: Array<{ kind: string; config: Record<string, unknown> }> = [
+    { kind: 'banner', config: { fields: { heading: 'Hi' }, blocks: [] } },
+    { kind: 'notification-bar', config: { fields: { message: 'Sale' }, blocks: [] } },
+    { kind: 'popup', config: { fields: {}, blocks: [], title: 'Welcome' } },
+    { kind: 'contactForm', config: { fields: {}, blocks: [], title: 'Contact', showEmail: true } },
+    { kind: 'effect', config: { fields: {}, blocks: [], effectKind: 'snowfall' } },
+    { kind: 'floatingWidget', config: { fields: {}, blocks: [], variant: 'chat', label: 'Chat' } },
+    { kind: 'hero', config: { fields: {}, blocks: [], title: 'Big launch' } },
+  ];
+
+  for (const { kind, config } of kinds) {
+    for (const pack of ['luxe', 'bold'] as const) {
+      it(`renders ${kind} × ${pack} inside the pack scope with the real stylesheet`, () => {
+        const spec = {
+          type: 'theme.section',
+          name: `${kind} preview`,
+          category: 'STOREFRONT_UI',
+          requires: ['THEME_ASSETS'],
+          config: { kind, activation: 'section', ...config },
+          style: { pack },
+        } as unknown as RecipeSpec;
+        const out = service.render(spec);
+        if (out.kind !== 'HTML') throw new Error('expected HTML preview');
+        expect(out.html).toContain(`data-sa-pack="${pack}"`);
+        // The real storefront stylesheet is inlined (pack map markers present).
+        expect(out.html).toContain("data-sa-pack='luxe'");
+        expect(out.html).toContain('--sa-display-size');
+      });
+    }
+  }
+});

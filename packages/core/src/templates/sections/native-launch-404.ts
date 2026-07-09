@@ -37,12 +37,12 @@ export const NATIVE_LAUNCH_404_TEMPLATES: TemplateEntry[] = [
   // NSEC-LAUNCH-01 — Coming-soon email-capture teaser on the password page, Bold DTC.
   {
     id: 'NSEC-LAUNCH-01',
-    name: 'Coming Soon — Email Capture (Bold DTC)',
+    name: 'Coming Soon — Email Capture',
     description: 'Pre-launch coming-soon section for the password page: a statement headline, launch-date line, and an email "notify me" capture with a first-order incentive — a high-energy holding page.',
     category: 'STOREFRONT_UI',
     type: 'theme.section',
     icon: 'launch',
-    tags: ['section', 'coming-soon', 'password', 'email-capture', 'bold-dtc', 'launch'],
+    tags: ['section', 'coming-soon', 'password', 'email-capture', 'launch'],
     spec: {
       type: 'theme.section',
       name: 'Coming Soon — Email Capture',
@@ -78,7 +78,7 @@ export const NATIVE_LAUNCH_404_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'center', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
         typography: { size: '2XL', weight: 'bold', lineHeight: 'tight', align: 'center' },
-        colors: { text: '#f8fafc', background: '#0b0b0f', buttonBg: '#e11d48', buttonText: '#ffffff', overlayBackdropOpacity: 0.5, seed: '#e11d48' },
+        colors: { text: '#f8fafc', background: '#0b0b0f', overlayBackdropOpacity: 0.5, seed: '#e11d48' },
         shape: { radius: 'lg', borderWidth: 'none', shadow: 'lg', elevation: 'glow' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -90,12 +90,12 @@ export const NATIVE_LAUNCH_404_TEMPLATES: TemplateEntry[] = [
   // NSEC-LAUNCH-02 — Coming-soon launch countdown on the password page, Editorial Wellness.
   {
     id: 'NSEC-LAUNCH-02',
-    name: 'Coming Soon — Launch Countdown (Editorial)',
+    name: 'Coming Soon — Launch Countdown',
     description: 'Pre-launch coming-soon section for the password page with a live countdown to the opening date, a light-weight display headline, and a quiet email reminder field — a calm, editorial holding page.',
     category: 'STOREFRONT_UI',
     type: 'theme.section',
     icon: 'countdown',
-    tags: ['section', 'coming-soon', 'password', 'countdown', 'editorial-wellness', 'launch'],
+    tags: ['section', 'coming-soon', 'password', 'countdown', 'launch'],
     spec: {
       type: 'theme.section',
       name: 'Coming Soon — Launch Countdown',
@@ -130,7 +130,7 @@ export const NATIVE_LAUNCH_404_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'center', offsetX: 0, offsetY: 0, width: 'narrow', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'airy' },
         typography: { size: 'XL', weight: 'normal', lineHeight: 'relaxed', align: 'center' },
-        colors: { text: '#3f3a34', background: '#f6f2ec', overlayBackdropOpacity: 0.45, seed: '#8a7f6d' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#8a7f6d' },
         shape: { radius: 'md', borderWidth: 'none', shadow: 'none', elevation: 'border' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -142,12 +142,12 @@ export const NATIVE_LAUNCH_404_TEMPLATES: TemplateEntry[] = [
   // NSEC-LAUNCH-03 — 404 not-found with search + shop-home recovery, Apple HIG Clean.
   {
     id: 'NSEC-LAUNCH-03',
-    name: '404 — Search & Recover (Clean)',
+    name: '404 — Search & Recover',
     description: 'Not-found section for the 404 page: a plain apology headline, a storefront search box, and clear back-to-home and shop-all CTAs — a content-first way to route a broken URL back into the catalog.',
     category: 'STOREFRONT_UI',
     type: 'theme.section',
     icon: 'not-found',
-    tags: ['section', '404', 'not-found', 'search', 'apple-hig-clean', 'recovery'],
+    tags: ['section', '404', 'not-found', 'search', 'recovery'],
     spec: {
       type: 'theme.section',
       name: '404 — Search & Recover',
@@ -178,7 +178,7 @@ export const NATIVE_LAUNCH_404_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'narrow', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
         typography: { size: 'XL', weight: 'bold', lineHeight: 'tight', align: 'center' },
-        colors: { text: '#0f172a', background: '#ffffff', buttonBg: '#0f172a', buttonText: '#ffffff', overlayBackdropOpacity: 0.45, seed: '#0f172a' },
+        colors: { overlayBackdropOpacity: 0.45 },
         shape: { radius: 'lg', borderWidth: 'none', shadow: 'sm', elevation: 'soft' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -190,12 +190,12 @@ export const NATIVE_LAUNCH_404_TEMPLATES: TemplateEntry[] = [
   // NSEC-LAUNCH-04 — 404 with popular-collection links, Playful Commerce.
   {
     id: 'NSEC-LAUNCH-04',
-    name: '404 — Popular Links (Playful)',
+    name: '404 — Popular Links',
     description: 'Friendly not-found section for the 404 page: a warm apology, a back-home CTA, and a row of reorderable popular-collection link cards — a rounded, welcoming way to keep a lost shopper browsing.',
     category: 'STOREFRONT_UI',
     type: 'theme.section',
     icon: 'not-found',
-    tags: ['section', '404', 'not-found', 'popular-links', 'playful-commerce', 'recovery'],
+    tags: ['section', '404', 'not-found', 'popular-links', 'recovery'],
     spec: {
       type: 'theme.section',
       name: '404 — Popular Links',
@@ -226,7 +226,7 @@ export const NATIVE_LAUNCH_404_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
         typography: { size: 'XL', weight: 'bold', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#7c2d12', background: '#fef3c7', buttonBg: '#f97316', buttonText: '#ffffff', overlayBackdropOpacity: 0.45, seed: '#f97316' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#f97316' },
         shape: { radius: 'xl', borderWidth: 'none', shadow: 'md', elevation: 'soft' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

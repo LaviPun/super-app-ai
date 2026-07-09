@@ -6,8 +6,10 @@ describe('StorefrontStyleSchema', () => {
   it('accepts empty object and fills defaults', () => {
     const style = StorefrontStyleSchema.parse({});
     expect(style.layout.mode).toBe('inline');
-    expect(style.colors.text).toBe('#111111');
-    expect(style.colors.background).toBe('#ffffff');
+    // text/background are OPTIONAL (module-design-system.md §3.3.2): unset ⇒
+    // the module inherits the store theme's colors at render.
+    expect(style.colors.text).toBeUndefined();
+    expect(style.colors.background).toBeUndefined();
     expect(style.typography.size).toBe('MD');
     expect(style.spacing.padding).toBe('medium');
     expect(style.shape.radius).toBe('md');

@@ -46,6 +46,75 @@
   endif
 %}
 
+{% # Design-system pack resolution (docs/design-system/module-design-system.md §3.3). %}
+{% liquid
+  # Precedence: block/embed setting → compiled style_json.pack → 'auto'.
+  assign sa_pack = style_pack | default: mod_sty.pack | default: 'auto'
+  # 'auto' is resolved app-side at publish (writes mod_sty.pack); fall back to Luxe
+  # (the can't-look-wrong pack) if it ever reaches the storefront unresolved.
+  if sa_pack == 'auto' or sa_pack == blank
+    assign sa_pack = mod_sty.pack | default: 'luxe'
+    if sa_pack == 'auto' or sa_pack == blank
+      assign sa_pack = 'luxe'
+    endif
+  endif
+  # Accent override: block/embed setting → compiled brand accent → merchant seed.
+  assign sa_accent = accent_override | default: mod_sty.colors.accent | default: mod_sty.colors.seed
+%}
+
+{% # Merchant theme-editor overrides (§3.3.3 layer 5) — emitted on the wrapper's inline
+   # style so they beat pack defaults, while per-module [data-module-id] CSS still wins.
+   # Each override is optional and only appended when the block passes a value. %}
+{% liquid
+  assign sa_ovr = ''
+  if sa_accent != blank
+    assign sa_ovr = sa_ovr | append: '--sa-accent-override:' | append: sa_accent | append: ';'
+  endif
+  if override_radius != blank
+    assign sa_rpx = ''
+    case override_radius
+      when 'none'
+        assign sa_rpx = 0
+      when 'sm'
+        assign sa_rpx = 4
+      when 'md'
+        assign sa_rpx = 8
+      when 'lg'
+        assign sa_rpx = 12
+      when 'xl'
+        assign sa_rpx = 16
+    endcase
+    if sa_rpx != blank
+      assign sa_rlg = sa_rpx | plus: 4
+      assign sa_ovr = sa_ovr | append: '--sa-radius:' | append: sa_rpx | append: 'px;--sa-btn-radius:' | append: sa_rpx | append: 'px;--sa-radius-lg:' | append: sa_rlg | append: 'px;'
+    endif
+  endif
+  if override_density != blank
+    assign sa_dpad = ''
+    case override_density
+      when 'compact'
+        assign sa_dpad = '1rem'
+      when 'comfortable'
+        assign sa_dpad = '1.25rem'
+      when 'airy'
+        assign sa_dpad = '1.75rem'
+    endcase
+    if sa_dpad != blank
+      assign sa_ovr = sa_ovr | append: '--sa-pad:' | append: sa_dpad | append: ';'
+    endif
+  endif
+  # 'inherit' is the block-schema sentinel for "unset" (selects can't default to blank).
+  if override_align != blank and override_align != 'inherit'
+    assign sa_ovr = sa_ovr | append: '--sa-align:' | append: override_align | append: ';'
+  endif
+  if override_text != blank
+    assign sa_ovr = sa_ovr | append: '--sa-ink:' | append: override_text | append: ';'
+  endif
+  if override_bg != blank
+    assign sa_ovr = sa_ovr | append: '--sa-module-bg:' | append: override_bg | append: ';'
+  endif
+%}
+
 {% comment %}
   Surface-targeted placement gate.
   A theme.section may declare `placement` (enabled_on / disabled_on templates) to
@@ -224,6 +293,7 @@
 
 {% # Per-module compiled style (colors/spacing/tokens/custom CSS), scoped to [data-module-id]. Server-sanitized. %}
 {% if mod_sty.css != blank %}<style>{{ mod_sty.css }}</style>{% endif %}
+<div class="superapp-scope" data-sa-pack="{{ sa_pack | escape }}"{% if sa_ovr != blank %} style="{{ sa_ovr | escape }}"{% endif %}>
 
 {% comment %} R2.1: open the gate wrapper for NON-popup kinds when rules are enabled. The
    wrapper carries the data-sa-* payload the client sweep reads; it renders hidden
@@ -234,7 +304,7 @@
 
 {% case kind %}
   {% when 'banner' %}
-    <section class="superapp-banner superapp-banner--embed" role="region" aria-label="{{ mod_cfg.heading | escape }}" data-module-id="{{ module_id | escape }}">
+    <section class="superapp-banner superapp-banner--embed sa-reveal" role="region" aria-label="{{ mod_cfg.heading | escape }}" data-module-id="{{ module_id | escape }}">
       <div class="superapp-banner__inner">
         <div class="superapp-banner__content">
           <h2 class="superapp-banner__heading">{{ mod_cfg.heading | escape }}</h2>
@@ -254,9 +324,12 @@
     </section>
 
   {% when 'notification-bar' %}
-    <div class="superapp-note superapp-note--embed" data-module-id="{{ module_id | escape }}">
+    <div class="superapp-note superapp-note--embed sa-reveal" data-module-id="{{ module_id | escape }}">
       <div class="superapp-note__inner">
         <span class="superapp-note__msg">{{ mod_cfg.message | escape }}</span>
+        {% if mod_cfg.countdownTo != blank %}
+          <span class="superapp-note__countdown" data-sa-countdown="{{ mod_cfg.countdownTo | escape }}" hidden></span>
+        {% endif %}
         {% if mod_cfg.linkText != blank and mod_cfg.linkUrl != blank %}
           <a class="superapp-note__link" href="{{ mod_cfg.linkUrl | escape }}">{{ mod_cfg.linkText | escape }}</a>
         {% endif %}
@@ -292,7 +365,7 @@
     {% if mod_cfg.submissionMode == 'APP_PROXY' %}
       {% assign is_proxy = true %}
     {% endif %}
-    <section class="superapp-contact" id="superapp-contact-{{ module_id | escape }}" data-module-id="{{ module_id | escape }}">
+    <section class="superapp-contact sa-reveal" id="superapp-contact-{{ module_id | escape }}" data-module-id="{{ module_id | escape }}">
       <div class="superapp-contact__inner">
         <h2 class="superapp-contact__title">{{ mod_cfg.title | escape }}</h2>
         {% if mod_cfg.subtitle != blank %}
@@ -385,7 +458,7 @@
 
   {% when 'effect' %}
     <div class="superapp-effect superapp-effect--embed" data-module-id="{{ module_id | escape }}" data-trigger="{{ mod_cfg.startTrigger | default: 'page_load' | escape }}" role="presentation" aria-hidden="true">
-      <div class="superapp-effect__overlay superapp-effect--{{ mod_cfg.effectKind | default: 'snowfall' }}">
+      <div class="superapp-effect__overlay superapp-effect--{{ mod_cfg.effectKind | default: 'snowfall' }}" data-intensity="{{ mod_cfg.intensity | default: 'medium' | escape }}" data-speed="{{ mod_cfg.speed | default: 'normal' | escape }}">
         {% for i in (1..50) %}
           <div class="superapp-effect__particle"></div>
         {% endfor %}
@@ -400,21 +473,27 @@
     {% assign fw_action_target = mod_cfg.actionTarget | default: '_blank' %}
     {% if mod_sty.responsive.hideOnMobile != nil %}{% assign fw_hide_mobile = mod_sty.responsive.hideOnMobile %}{% else %}{% assign fw_hide_mobile = mod_cfg.hideOnMobile %}{% endif %}
     {% if mod_sty.responsive.hideOnDesktop != nil %}{% assign fw_hide_desktop = mod_sty.responsive.hideOnDesktop %}{% else %}{% assign fw_hide_desktop = mod_cfg.hideOnDesktop %}{% endif %}
-    {% case fw_variant %}
-      {% when 'whatsapp' %}{% assign fw_icon = '💬' %}
-      {% when 'chat' %}{% assign fw_icon = '💬' %}
-      {% when 'coupon' %}{% assign fw_icon = '🏷️' %}
-      {% when 'cart' %}{% assign fw_icon = '🛒' %}
-      {% when 'scroll_top' %}{% assign fw_icon = '↑' %}
-      {% else %}{% assign fw_icon = '⭐' %}
-    {% endcase %}
-    <div class="superapp-fw-wrap superapp-fw-wrap--{{ fw_anchor | replace: '_', '-' }}{% if fw_hide_mobile %} superapp-fw-wrap--hide-mobile{% endif %}{% if fw_hide_desktop %} superapp-fw-wrap--hide-desktop{% endif %}" data-module-id="{{ module_id | escape }}" data-anchor="{{ fw_anchor | escape }}">
+    <div class="superapp-fw-wrap superapp-fw-wrap--{{ fw_anchor | replace: '_', '-' }}{% if fw_hide_mobile %} superapp-fw-wrap--hide-mobile{% endif %}{% if fw_hide_desktop %} superapp-fw-wrap--hide-desktop{% endif %} sa-reveal" data-module-id="{{ module_id | escape }}" data-anchor="{{ fw_anchor | escape }}">
       {% if fw_action_url != blank %}
         <a class="superapp-fw" href="{{ fw_action_url | escape }}" target="{{ fw_action_target | escape }}" aria-label="{{ fw_label | default: fw_variant | escape }}">
       {% else %}
         <button class="superapp-fw" type="button" aria-label="{{ fw_label | default: fw_variant | escape }}">
       {% endif %}
-        <span class="superapp-fw__icon" aria-hidden="true">{{ fw_icon }}</span>
+        <span class="superapp-fw__dot" aria-hidden="true"></span>
+        <span class="superapp-fw__icon" aria-hidden="true">
+          {% case fw_variant %}
+            {% when 'whatsapp', 'chat' %}
+              <svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M10 2c-4.42 0-8 3.13-8 7 0 1.66.67 3.18 1.79 4.38-.14 1.13-.6 2.16-1.29 2.98-.16.19-.2.45-.1.68.1.23.32.38.57.38 1.6 0 3.06-.55 4.24-1.35A9.6 9.6 0 0 0 10 16c4.42 0 8-3.13 8-7s-3.58-7-8-7Z"/></svg>
+            {% when 'coupon' %}
+              <svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M2.5 4A1.5 1.5 0 0 0 1 5.5v2.02a1 1 0 0 0 .55.9 1.75 1.75 0 0 1 0 3.16 1 1 0 0 0-.55.9V14.5A1.5 1.5 0 0 0 2.5 16h15a1.5 1.5 0 0 0 1.5-1.5v-2.02a1 1 0 0 0-.55-.9 1.75 1.75 0 0 1 0-3.16 1 1 0 0 0 .55-.9V5.5A1.5 1.5 0 0 0 17.5 4h-15Zm10 1.5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Zm-5 7a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm5.35-6.85-6 6a.5.5 0 0 0 .7.7l6-6a.5.5 0 0 0-.7-.7Z"/></svg>
+            {% when 'cart' %}
+              <svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M2 2.5a.5.5 0 0 1 .5-.5h1.4a1 1 0 0 1 .97.76L5.1 4H16.5a1 1 0 0 1 .97 1.24l-1.2 4.8A1.5 1.5 0 0 1 14.82 11.2H7.02a1.5 1.5 0 0 1-1.46-1.16L4.02 3.5H2.5a.5.5 0 0 1-.5-.5ZM7 14a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"/></svg>
+            {% when 'scroll_top' %}
+              <svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M10 6.5a1 1 0 0 1 .7.29l5 5a1 1 0 0 1-1.4 1.42L10 8.91l-4.3 4.3a1 1 0 0 1-1.4-1.42l5-5A1 1 0 0 1 10 6.5Z"/></svg>
+            {% else %}
+              <svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M10 1.5a.6.6 0 0 1 .56.38l1.9 4.9 4.9 1.9a.6.6 0 0 1 0 1.12l-4.9 1.9-1.9 4.9a.6.6 0 0 1-1.12 0l-1.9-4.9-4.9-1.9a.6.6 0 0 1 0-1.12l4.9-1.9 1.9-4.9A.6.6 0 0 1 10 1.5Z"/></svg>
+          {% endcase %}
+        </span>
         {% if fw_label != blank %}<span class="superapp-fw__label">{{ fw_label | escape }}</span>{% endif %}
       {% if fw_action_url != blank %}
         </a>
@@ -448,45 +527,297 @@
       if mod_cfg.layout.columns != blank
         assign layout_cols = ' style="--sa-cols:' | append: mod_cfg.layout.columns | append: '"'
       endif
+
+      # Content-shape modifiers (docs §7 F7 / §4.3): minimal when there is no image,
+      # body, or blocks (title/subtitle/cta or less); text-only when blocks exist but
+      # none carries an image; empty when there is nothing at all to show.
+      assign sa_sec_has_blocks = false
+      if mod_cfg.blocks != blank and mod_cfg.blocks.size > 0
+        assign sa_sec_has_blocks = true
+      endif
+      assign sa_sec_block_has_image = false
+      if sa_sec_has_blocks
+        for sa_blk in mod_cfg.blocks
+          if sa_blk.imageUrl != blank
+            assign sa_sec_block_has_image = true
+            break
+          endif
+        endfor
+      endif
+      assign sa_sec_variant = ''
+      unless mod_cfg.imageUrl != blank or mod_cfg.body != blank or sa_sec_has_blocks
+        assign sa_sec_variant = ' superapp-section--minimal'
+      endunless
+      if sa_sec_has_blocks and sa_sec_block_has_image == false
+        assign sa_sec_variant = sa_sec_variant | append: ' superapp-section--textonly'
+      endif
+      assign sa_sec_empty = false
+      if mod_cfg.title == blank and mod_cfg.subtitle == blank and mod_cfg.body == blank and sa_sec_has_blocks == false and mod_cfg.ctaText == blank
+        assign sa_sec_empty = true
+      endif
+
+      # R5 archetype dispatch (docs §4.2): a handful of section kinds render bespoke
+      # structure inside this generic branch. Every other kind — and any archetype
+      # with no blocks to structure — falls through to the generic rendering below.
+      assign sa_arch = 'generic'
+      assign sa_kind_h = kind | handle
+      if sa_kind_h == 'faq' and sa_sec_has_blocks
+        assign sa_arch = 'faq'
+      elsif sa_kind_h == 'pricing' and sa_sec_has_blocks
+        assign sa_arch = 'pricing'
+      elsif sa_kind_h == 'stats' and sa_sec_has_blocks
+        assign sa_arch = 'stats'
+      elsif sa_kind_h == 'testimonial' or sa_kind_h == 'testimonials' or sa_kind_h == 'reviews'
+        if sa_sec_has_blocks
+          assign sa_arch = 'testimonial'
+        endif
+      elsif sa_kind_h == 'trust' or sa_kind_h == 'logo-marquee'
+        if sa_sec_has_blocks
+          assign sa_arch = 'trust'
+        endif
+      elsif sa_kind_h == 'newsletter'
+        assign sa_arch = 'newsletter'
+      elsif sa_kind_h == 'launch' or sa_kind_h == 'coming-soon'
+        assign sa_arch = 'launch'
+      endif
     %}
-    <section class="superapp-section superapp-section--{{ kind | handle }}{{ layout_class }}"{{ layout_cols }} data-module-id="{{ module_id | escape }}" data-section-kind="{{ kind | escape }}">
+    <section class="superapp-section superapp-section--{{ kind | handle }}{{ layout_class }}{{ sa_sec_variant }} sa-reveal"{{ layout_cols }} data-module-id="{{ module_id | escape }}" data-section-kind="{{ kind | escape }}">
       <div class="superapp-section__inner">
-        {% if mod_cfg.title != blank %}
-          <h2 class="superapp-section__title">{{ mod_cfg.title | escape }}</h2>
+        {% if sa_sec_empty %}
+          <div class="superapp-section__empty" role="note">Nothing to show yet</div>
         {% endif %}
-        {% if mod_cfg.subtitle != blank %}
-          <p class="superapp-section__sub">{{ mod_cfg.subtitle | escape }}</p>
-        {% endif %}
-        {% if mod_cfg.imageUrl != blank %}
-          {% # theme-check-disable RemoteAsset %}
-          <img class="superapp-section__image" src="{{ mod_cfg.imageUrl | escape }}" alt="" loading="lazy" width="1200" height="600">
-          {% # theme-check-enable RemoteAsset %}
-        {% endif %}
-        {% if mod_cfg.body != blank %}
-          <div class="superapp-section__body">{{ mod_cfg.body | escape | newline_to_br }}</div>
-        {% endif %}
-        {% if mod_cfg.blocks != blank and mod_cfg.blocks.size > 0 %}
-          <div class="superapp-section__blocks">
-            {% for section_block in mod_cfg.blocks %}
-              <div class="superapp-section__block superapp-section__block--{{ section_block.kind | default: 'text' | handle }}">
-                {% if section_block.imageUrl != blank %}
-                  {% # theme-check-disable RemoteAsset %}
-                  <img class="superapp-section__block-img" src="{{ section_block.imageUrl | escape }}" alt="" loading="lazy" width="400" height="300">
-                  {% # theme-check-enable RemoteAsset %}
+
+        {% # Shared title/subtitle for every archetype except launch (which frames its own). %}
+        {% unless sa_arch == 'launch' %}
+          {% if mod_cfg.title != blank %}
+            <h2 class="superapp-section__title">{{ mod_cfg.title | escape }}</h2>
+          {% endif %}
+          {% if mod_cfg.subtitle != blank %}
+            <p class="superapp-section__sub">{{ mod_cfg.subtitle | escape }}</p>
+          {% endif %}
+        {% endunless %}
+
+        {% case sa_arch %}
+
+          {% when 'faq' %}
+            {% # Native accordion: block.text = question; fields.answer/detail/body = answer. %}
+            <div class="superapp-faq">
+              {% for section_block in mod_cfg.blocks %}
+                {% assign faq_q = section_block.text | default: section_block.fields.question | default: section_block.fields.heading %}
+                {% assign faq_a = section_block.fields.answer | default: section_block.fields.detail | default: section_block.fields.body | default: section_block.body %}
+                {% if faq_q != blank or faq_a != blank %}
+                  <details class="superapp-faq__item"{% if section_block.fields.defaultOpen %} open{% endif %}>
+                    <summary class="superapp-faq__q">{{ faq_q | default: 'Question' | escape }}</summary>
+                    {% if faq_a != blank %}
+                      <div class="superapp-faq__a">{{ faq_a | escape | newline_to_br }}</div>
+                    {% endif %}
+                  </details>
                 {% endif %}
+              {% endfor %}
+            </div>
+
+          {% when 'pricing' %}
+            {% # Tier cards: block.text = tier name; fields.price/period/features[]/ctaLabel; %}
+            {% # featured via fields.featured | fields.recommended | block.kind == 'featured'. %}
+            <div class="superapp-pricing">
+              {% for section_block in mod_cfg.blocks %}
+                {% assign tier_feat = false %}
+                {% if section_block.fields.featured or section_block.fields.recommended or section_block.kind == 'featured' %}
+                  {% assign tier_feat = true %}
+                {% endif %}
+                {% assign tier_url = section_block.url | default: section_block.fields.ctaUrl %}
+                {% assign tier_feats = section_block.fields.features %}
+                <div class="superapp-pricing__tier{% if tier_feat %} superapp-pricing__tier--featured{% endif %}">
+                  {% if tier_feat and section_block.fields.badge != blank %}
+                    <span class="superapp-pricing__chip">{{ section_block.fields.badge | escape }}</span>
+                  {% endif %}
+                  {% if section_block.text != blank %}
+                    <h3 class="superapp-pricing__name">{{ section_block.text | escape }}</h3>
+                  {% endif %}
+                  {% if section_block.fields.price != blank %}
+                    <div class="superapp-pricing__price">
+                      <span class="superapp-pricing__amount">{{ section_block.fields.price | escape }}</span>
+                      {% if section_block.fields.period != blank %}<span class="superapp-pricing__period">/{{ section_block.fields.period | escape }}</span>{% endif %}
+                    </div>
+                  {% endif %}
+                  {% if section_block.fields.tagline != blank %}
+                    <p class="superapp-pricing__tagline">{{ section_block.fields.tagline | escape }}</p>
+                  {% endif %}
+                  {% if tier_feats != blank and tier_feats.size > 0 %}
+                    <ul class="superapp-pricing__features">
+                      {% for feat in tier_feats %}<li>{{ feat | escape }}</li>{% endfor %}
+                    </ul>
+                  {% endif %}
+                  {% if tier_url != blank %}
+                    <a class="superapp-pricing__cta" href="{{ tier_url | escape }}">{{ section_block.fields.ctaLabel | default: 'Choose' | escape }}</a>
+                  {% endif %}
+                </div>
+              {% endfor %}
+            </div>
+
+          {% when 'stats' %}
+            {% # Stat items: oversized numeral from fields.value | block.text (+ prefix/suffix), label under. %}
+            <div class="superapp-stats">
+              {% for section_block in mod_cfg.blocks %}
+                {% assign stat_val = section_block.fields.value | default: section_block.text %}
+                {% if stat_val != blank or section_block.fields.label != blank %}
+                  <div class="superapp-stats__item">
+                    <div class="superapp-stats__value">{{ section_block.fields.prefix | escape }}{{ stat_val | escape }}{{ section_block.fields.suffix | escape }}</div>
+                    {% if section_block.fields.label != blank %}<div class="superapp-stats__label">{{ section_block.fields.label | escape }}</div>{% endif %}
+                    {% if section_block.fields.caption != blank %}<p class="superapp-stats__caption">{{ section_block.fields.caption | escape }}</p>{% endif %}
+                  </div>
+                {% endif %}
+              {% endfor %}
+            </div>
+
+          {% when 'testimonial' %}
+            {% # Quote cards: block.text = quote; fields.author/location; fields.rating (default 5) → star row. %}
+            <div class="superapp-testimonials">
+              {% for section_block in mod_cfg.blocks %}
                 {% if section_block.text != blank %}
-                  <p class="superapp-section__block-text">{{ section_block.text | escape | newline_to_br }}</p>
+                  {% assign t_rating = section_block.fields.rating | default: 5 %}
+                  <figure class="superapp-testimonial">
+                    <div class="superapp-testimonial__stars" role="img" aria-label="Rated {{ t_rating }} out of 5">
+                      {% for s in (1..5) %}<span class="superapp-testimonial__star{% if s > t_rating %} is-empty{% endif %}" aria-hidden="true">&#9733;</span>{% endfor %}
+                    </div>
+                    <blockquote class="superapp-testimonial__quote">{{ section_block.text | escape }}</blockquote>
+                    {% if section_block.fields.author != blank %}
+                      <figcaption class="superapp-testimonial__author">{{ section_block.fields.author | escape }}{% if section_block.fields.location != blank %}<span class="superapp-testimonial__loc">{{ section_block.fields.location | escape }}</span>{% endif %}</figcaption>
+                    {% endif %}
+                  </figure>
                 {% endif %}
-                {% if section_block.url != blank %}
-                  <a class="superapp-section__block-link" href="{{ section_block.url | escape }}">{{ section_block.text | default: section_block.url | escape }}</a>
-                {% endif %}
+              {% endfor %}
+            </div>
+
+          {% when 'trust' %}
+            {% # Logo/wordmark marquee: block.imageUrl = logo, block.text = wordmark/alt, block.url = link. %}
+            {% # Pure-CSS infinite scroll — the row is duplicated twice; the 2nd copy is aria-hidden. %}
+            <div class="superapp-trust">
+              <div class="superapp-trust__track">
+                {% for pass in (1..2) %}
+                  {% for section_block in mod_cfg.blocks %}
+                    {% assign logo_alt = section_block.fields.alt | default: section_block.text %}
+                    {% if section_block.imageUrl != blank %}
+                      <div class="superapp-trust__item"{% if pass == 2 %} aria-hidden="true"{% endif %}>
+                        {% if section_block.url != blank %}<a class="superapp-trust__link" href="{{ section_block.url | escape }}">{% endif %}
+                        {% # theme-check-disable RemoteAsset %}
+                        <img class="superapp-trust__logo" src="{{ section_block.imageUrl | escape }}" alt="{% if pass == 1 %}{{ logo_alt | escape }}{% endif %}" loading="lazy" width="160" height="48">
+                        {% # theme-check-enable RemoteAsset %}
+                        {% if section_block.url != blank %}</a>{% endif %}
+                      </div>
+                    {% elsif section_block.text != blank %}
+                      <div class="superapp-trust__item superapp-trust__item--word"{% if pass == 2 %} aria-hidden="true"{% endif %}>{{ section_block.text | escape }}</div>
+                    {% endif %}
+                  {% endfor %}
+                {% endfor %}
               </div>
-            {% endfor %}
-          </div>
-        {% endif %}
-        {% if mod_cfg.ctaText != blank and mod_cfg.ctaUrl != blank %}
-          <a class="superapp-section__cta" href="{{ mod_cfg.ctaUrl | escape }}">{{ mod_cfg.ctaText | escape }}</a>
-        {% endif %}
+            </div>
+
+          {% when 'newsletter' %}
+            {% # Email capture band — Shopify customer signup (contact[email] + newsletter tag). %}
+            <form class="superapp-newsletter" method="post" action="/contact#superapp-news-{{ module_id | escape }}">
+              <input type="hidden" name="form_type" value="customer">
+              <input type="hidden" name="utf8" value="&#10003;">
+              <input type="hidden" name="contact[tags]" value="newsletter">
+              <div class="superapp-newsletter__row">
+                <input class="superapp-newsletter__input" type="email" name="contact[email]" required
+                  placeholder="{{ mod_cfg.fields.emailPlaceholder | default: mod_cfg.fields.inputPlaceholder | default: 'you@email.com' | escape }}"
+                  aria-label="{{ mod_cfg.fields.emailFieldLabel | default: 'Email address' | escape }}">
+                <button class="superapp-newsletter__submit" type="submit">{{ mod_cfg.fields.ctaLabel | default: mod_cfg.fields.captureCtaLabel | default: 'Subscribe' | escape }}</button>
+              </div>
+              {% if mod_cfg.fields.consentText != blank %}
+                <p class="superapp-newsletter__consent">{{ mod_cfg.fields.consentText | escape }}</p>
+              {% endif %}
+            </form>
+
+          {% when 'launch' %}
+            {% # Centered statement + optional countdown (reuses the [data-sa-countdown] JS ticker) + optional capture. %}
+            {% assign launch_cd = mod_cfg.countdownTo | default: mod_cfg.fields.endsAt | default: mod_cfg.fields.countdownEndsAt %}
+            {% assign launch_capture = false %}
+            {% if mod_cfg.captureEmail or mod_cfg.fields.captureEnabled or mod_cfg.fields.captureMode != blank %}
+              {% assign launch_capture = true %}
+            {% endif %}
+            <div class="superapp-launch">
+              {% if mod_cfg.fields.eyebrow != blank %}<span class="superapp-launch__eyebrow">{{ mod_cfg.fields.eyebrow | escape }}</span>{% endif %}
+              {% if mod_cfg.title != blank %}<h2 class="superapp-section__title superapp-launch__title">{{ mod_cfg.title | escape }}</h2>{% endif %}
+              {% if mod_cfg.subtitle != blank %}<p class="superapp-section__sub superapp-launch__sub">{{ mod_cfg.subtitle | escape }}</p>{% endif %}
+              {% assign launch_body = mod_cfg.fields.bodyText | default: mod_cfg.body %}
+              {% if launch_body != blank %}<p class="superapp-launch__body">{{ launch_body | escape | newline_to_br }}</p>{% endif %}
+              {% if launch_cd != blank %}<span class="superapp-launch__countdown" data-sa-countdown="{{ launch_cd | escape }}" hidden></span>{% endif %}
+              {% if launch_capture %}
+                <form class="superapp-newsletter superapp-launch__capture" method="post" action="/contact#superapp-launch-{{ module_id | escape }}">
+                  <input type="hidden" name="form_type" value="customer">
+                  <input type="hidden" name="utf8" value="&#10003;">
+                  <input type="hidden" name="contact[tags]" value="launch-notify">
+                  <div class="superapp-newsletter__row">
+                    <input class="superapp-newsletter__input" type="email" name="contact[email]" required
+                      placeholder="{{ mod_cfg.fields.emailPlaceholder | default: 'you@email.com' | escape }}"
+                      aria-label="{{ mod_cfg.fields.emailFieldLabel | default: 'Email address' | escape }}">
+                    <button class="superapp-newsletter__submit" type="submit">{{ mod_cfg.fields.captureCtaLabel | default: mod_cfg.fields.ctaLabel | default: 'Notify me' | escape }}</button>
+                  </div>
+                  {% if mod_cfg.fields.consentText != blank %}<p class="superapp-newsletter__consent">{{ mod_cfg.fields.consentText | escape }}</p>{% endif %}
+                </form>
+              {% endif %}
+              {% if mod_cfg.fields.incentiveNote != blank %}<p class="superapp-launch__note">{{ mod_cfg.fields.incentiveNote | escape }}</p>{% endif %}
+            </div>
+
+          {% else %}
+            {% # Generic section (unknown kind, or archetype with no blocks): image / body / blocks / CTA. %}
+            {% if mod_cfg.imageUrl != blank %}
+              {% # theme-check-disable RemoteAsset %}
+              <img class="superapp-section__image" src="{{ mod_cfg.imageUrl | escape }}" alt="" loading="lazy" width="1200" height="600">
+              {% # theme-check-enable RemoteAsset %}
+            {% endif %}
+            {% if mod_cfg.body != blank %}
+              <div class="superapp-section__body">{{ mod_cfg.body | escape | newline_to_br }}</div>
+            {% endif %}
+            {% if mod_cfg.blocks != blank and mod_cfg.blocks.size > 0 %}
+              <div class="superapp-section__blocks">
+                {% for section_block in mod_cfg.blocks %}
+                  {% assign blk_kind = section_block.kind | default: 'media' | handle %}
+                  {% assign blk_wide = '' %}
+                  {% if section_block.fields.span == 'wide' %}{% assign blk_wide = ' superapp-block--wide' %}{% endif %}
+                  <div class="superapp-section__block superapp-section__block--{{ blk_kind }}{{ blk_wide }}">
+                    {% case blk_kind %}
+                      {% when 'stat' %}
+                        <div class="superapp-block__num">{{ section_block.fields.prefix | escape }}{{ section_block.fields.value | default: section_block.text | escape }}{{ section_block.fields.suffix | escape }}</div>
+                        {% if section_block.fields.label != blank %}<div class="superapp-block__label">{{ section_block.fields.label | escape }}</div>{% endif %}
+                      {% when 'step' %}
+                        <span class="superapp-block__chip" aria-hidden="true">{{ section_block.fields.number | default: forloop.index }}</span>
+                        {% if section_block.fields.heading != blank %}<h3 class="superapp-block__heading">{{ section_block.fields.heading | escape }}</h3>{% endif %}
+                        {% if section_block.text != blank %}<p class="superapp-section__block-text">{{ section_block.text | escape | newline_to_br }}</p>{% endif %}
+                      {% when 'feature' %}
+                        {% if section_block.fields.eyebrow != blank %}<span class="superapp-block__eyebrow">{{ section_block.fields.eyebrow | escape }}</span>{% endif %}
+                        {% if section_block.fields.heading != blank %}<h3 class="superapp-block__heading">{{ section_block.fields.heading | escape }}</h3>{% endif %}
+                        {% if section_block.text != blank %}<p class="superapp-section__block-text">{{ section_block.text | escape | newline_to_br }}</p>{% endif %}
+                      {% when 'cta' %}
+                        {% assign blk_style = section_block.fields.style | default: 'primary' | handle %}
+                        {% if section_block.url != blank %}
+                          <a class="superapp-block__btn superapp-block__btn--{{ blk_style }}" href="{{ section_block.url | escape }}">{{ section_block.text | default: 'Learn more' | escape }}</a>
+                        {% elsif section_block.text != blank %}
+                          <p class="superapp-section__block-text">{{ section_block.text | escape | newline_to_br }}</p>
+                        {% endif %}
+                      {% else %}
+                        {% if section_block.imageUrl != blank %}
+                          {% # theme-check-disable RemoteAsset %}
+                          <img class="superapp-section__block-img" src="{{ section_block.imageUrl | escape }}" alt="" loading="lazy" width="400" height="300">
+                          {% # theme-check-enable RemoteAsset %}
+                        {% endif %}
+                        {% if section_block.text != blank %}
+                          <p class="superapp-section__block-text">{{ section_block.text | escape | newline_to_br }}</p>
+                        {% endif %}
+                        {% if section_block.url != blank %}
+                          <a class="superapp-section__block-link" href="{{ section_block.url | escape }}">{{ section_block.text | default: section_block.url | escape }}</a>
+                        {% endif %}
+                    {% endcase %}
+                  </div>
+                {% endfor %}
+              </div>
+            {% endif %}
+            {% if mod_cfg.ctaText != blank and mod_cfg.ctaUrl != blank %}
+              <a class="superapp-section__cta" href="{{ mod_cfg.ctaUrl | escape }}">{{ mod_cfg.ctaText | escape }}</a>
+            {% endif %}
+        {% endcase %}
       </div>
     </section>
 {% endcase %}
@@ -495,6 +826,7 @@
 {% if sa_rules_enabled and kind != 'popup' %}
   </div>
 {% endif %}
+</div>{% # /superapp-scope — design-system token wrapper %}
 {% endunless %}
 
 {% # Close the surface-targeted placement gate (renders nothing when off-target). %}

@@ -18,13 +18,16 @@ describe('MODULE_TEMPLATES integrity', () => {
     expect(MODULE_TEMPLATES.length).toBeGreaterThanOrEqual(300);
   });
 
-  it('ships three real libraries, each ≥ 100 templates', () => {
+  it('ships three real libraries of substantial size', () => {
     // App-extension modules (admin/POS/checkout/functions/customer-account/…).
     expect(MODULE_APP_TEMPLATES.length).toBeGreaterThanOrEqual(100);
     // theme.section app-blocks (OS-2.0 theme app extension blocks + app embeds).
     expect(BLOCK_TEMPLATES.length).toBeGreaterThanOrEqual(100);
-    // native full-page Liquid sections (activation: 'section').
-    expect(SECTION_TEMPLATES.length).toBeGreaterThanOrEqual(100);
+    // Native full-page Liquid sections (activation: 'section'). Floor lowered from
+    // 100 after collapsing per-style-pack duplicate entries into pack-neutral ones
+    // (the 2-pack runtime re-skins a single template via .superapp-scope[data-sa-pack],
+    // so per-pack duplicates are obsolete).
+    expect(SECTION_TEMPLATES.length).toBeGreaterThanOrEqual(90);
   });
 
   it('every template has matching type and spec.type', () => {

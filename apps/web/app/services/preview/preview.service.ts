@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import type { RecipeSpec, RuleEnginePack, RecommendationPack } from '@superapp/core';
 import { evaluateRuleEngine, messagingChannelSendability } from '@superapp/core';
 import {
@@ -43,9 +45,63 @@ export type PreviewContext = {
   themeFonts?: { headingFont?: string; bodyFont?: string };
 };
 
+// ── Preview ⇄ storefront parity (module-design-system.md §3.3 / R0) ─────────
+// Storefront modules render inside `.superapp-scope[data-sa-pack]` with the real
+// two-pack stylesheet. Previews must show the SAME look or merchants judge
+// quality on something the storefront never renders. `render()` sets the active
+// pack for the duration of the (synchronous) render; `pageHtml` wraps the body
+// and inlines the pack stylesheet. Non-storefront surfaces get no wrapper.
+type PreviewPack = 'luxe' | 'bold';
+let activePack: PreviewPack | null = null;
+let activeAccent: string | undefined;
+
+let packCssCache: string | null = null;
+/** Load the real theme-extension stylesheet (cached). '' when unavailable (previews degrade to legacy CSS). */
+function loadPackCss(): string {
+  if (packCssCache !== null) return packCssCache;
+  const candidates = [
+    path.resolve(process.cwd(), 'extensions/theme-app-extension/assets/superapp-modules.css'),
+    path.resolve(process.cwd(), '../../extensions/theme-app-extension/assets/superapp-modules.css'),
+    path.resolve(process.cwd(), '../extensions/theme-app-extension/assets/superapp-modules.css'),
+  ];
+  for (const candidate of candidates) {
+    try {
+      packCssCache = fs.readFileSync(candidate, 'utf8');
+      return packCssCache;
+    } catch {
+      // try next candidate
+    }
+  }
+  packCssCache = '';
+  return packCssCache;
+}
+
+function previewPackOf(spec: RecipeSpec): PreviewPack {
+  const p = (spec as { style?: { pack?: string } }).style?.pack;
+  return p === 'bold' ? 'bold' : 'luxe';
+}
+
+function previewAccentOf(spec: RecipeSpec): string | undefined {
+  const colors = (spec as { style?: { colors?: { seed?: string } } }).style?.colors;
+  return colors?.seed;
+}
+
 export class PreviewService {
   render(spec: RecipeSpec, context?: PreviewContext): PreviewResult {
     const surface = context?.surface ?? inferSurface(spec.type);
+    // Storefront types carry the two-pack look; everything else previews unwrapped.
+    const isStorefront = spec.type === 'theme.section' || spec.type === 'proxy.widget';
+    activePack = isStorefront ? previewPackOf(spec) : null;
+    activeAccent = isStorefront ? previewAccentOf(spec) : undefined;
+    try {
+      return this.renderInner(spec, context, surface);
+    } finally {
+      activePack = null;
+      activeAccent = undefined;
+    }
+  }
+
+  private renderInner(spec: RecipeSpec, context: PreviewContext | undefined, surface: PreviewSurface): PreviewResult {
     let result: PreviewResult;
     switch (spec.type) {
       case 'theme.section':
@@ -67,7 +123,9 @@ export class PreviewService {
 
   private styleCss(spec: { style?: unknown }, rootSelector: string): string {
     const style = normalizeStyle(spec.style as any);
-    const vars = compileStyleVars(style);
+    // Previews render without the .superapp-scope pack wrapper — emit the full
+    // structural token set so var(--sa-radius) etc. resolve (§9.4).
+    const vars = compileStyleVars(style, { structuralDefaults: true });
     const rules = compileStyleCss(style, rootSelector);
     const varsBlock = `${rootSelector}{ ${vars.split('\n').map((s) => s.trim()).join(' ')} }`;
     return `${varsBlock}\n${rules}`;
@@ -192,7 +250,8 @@ export class PreviewService {
     const ctaText = this.cfg(spec, 'ctaText');
     const ctaUrl = this.cfg(spec, 'ctaUrl');
     const style = normalizeStyle((spec as { style?: unknown }).style as never);
-    const styleVars = compileStyleVars(style);
+    // No pack wrapper in previews — include structural defaults (§9.4).
+    const styleVars = compileStyleVars(style, { structuralDefaults: true });
     const styleCss = compileStyleCss(style, '.superapp-popup__panel');
     const overlayCss = compileOverlayPositionCss(style, '.superapp-popup', '.superapp-popup__panel');
     return pageHtml(`
@@ -337,57 +396,39 @@ export class PreviewService {
       return v == null ? fallback : String(v);
     };
     const bool = (key: string): boolean => this.cfg(spec, key) === true;
-    const styleBlock = this.styleCss(spec, '.superapp-contact-form');
+    // Preview parity (R0): use the SAME class tree as the storefront renderer
+    // (snippets/superapp-module.liquid `.superapp-contact*`) so the inlined pack
+    // stylesheet dresses the preview exactly like the storefront.
+    const styleBlock = this.styleCss(spec, '.superapp-contact');
     const required = (enabled: boolean, isRequired: boolean) => (enabled && isRequired ? 'required' : '');
+    const field = (show: boolean, label: string, input: string) =>
+      show ? `<label class="superapp-contact__field">${label} ${input}</label>` : '';
 
     const title = str('title');
     const subtitle = str('subtitle');
     return pageHtml(`
-      <section class="superapp-contact-form" aria-label="${escAttr(title)}">
-        <h2 class="superapp-contact-form__title">${esc(title)}</h2>
-        ${subtitle ? `<p class="superapp-contact-form__subtitle">${esc(subtitle)}</p>` : ''}
+      <section class="superapp-contact" aria-label="${escAttr(title)}">
+        <div class="superapp-contact__inner">
+          <h2 class="superapp-contact__title">${esc(title)}</h2>
+          ${subtitle ? `<p class="superapp-contact__subtitle">${esc(subtitle)}</p>` : ''}
 
-        <form class="superapp-contact-form__form" onsubmit="event.preventDefault(); document.querySelector('.superapp-contact-form__status').textContent='${escAttr(str('successMessage'))}';">
-          ${bool('showName') ? `<label>Name <input type="text" name="name" ${required(bool('showName'), bool('nameRequired'))} /></label>` : ''}
-          ${bool('showEmail') ? `<label>Email <input type="email" name="email" ${required(bool('showEmail'), bool('emailRequired'))} /></label>` : ''}
-          ${bool('showPhone') ? `<label>Phone <input type="tel" name="phone" ${required(bool('showPhone'), bool('phoneRequired'))} /></label>` : ''}
-          ${bool('showCompany') ? `<label>Company <input type="text" name="company" ${required(bool('showCompany'), bool('companyRequired'))} /></label>` : ''}
-          ${bool('showOrderNumber') ? `<label>Order number <input type="text" name="orderNumber" ${required(bool('showOrderNumber'), bool('orderNumberRequired'))} /></label>` : ''}
-          ${bool('showSubject') ? `<label>Subject <input type="text" name="subject" ${required(bool('showSubject'), bool('subjectRequired'))} /></label>` : ''}
-          ${bool('showMessage') ? `<label>Message <textarea name="message" rows="5" ${required(bool('showMessage'), bool('messageRequired'))}></textarea></label>` : ''}
-          ${bool('consentRequired') ? `<label class="superapp-contact-form__consent"><input type="checkbox" required /> ${esc(str('consentLabel'))}</label>` : ''}
-          <button type="submit" class="superapp-contact-form__submit">${esc(str('submitLabel'))}</button>
-          <p class="superapp-contact-form__status" aria-live="polite"></p>
-        </form>
+          <form class="superapp-contact__form" onsubmit="event.preventDefault(); var s=document.querySelector('.superapp-contact__status'); s.hidden=false; s.textContent='${escAttr(str('successMessage'))}';">
+            ${field(bool('showName'), 'Name', `<input type="text" name="name" ${required(bool('showName'), bool('nameRequired'))} />`)}
+            ${field(bool('showEmail'), 'Email', `<input type="email" name="email" ${required(bool('showEmail'), bool('emailRequired'))} />`)}
+            ${field(bool('showPhone'), 'Phone', `<input type="tel" name="phone" ${required(bool('showPhone'), bool('phoneRequired'))} />`)}
+            ${field(bool('showCompany'), 'Company', `<input type="text" name="company" ${required(bool('showCompany'), bool('companyRequired'))} />`)}
+            ${field(bool('showOrderNumber'), 'Order number', `<input type="text" name="orderNumber" ${required(bool('showOrderNumber'), bool('orderNumberRequired'))} />`)}
+            ${field(bool('showSubject'), 'Subject', `<input type="text" name="subject" ${required(bool('showSubject'), bool('subjectRequired'))} />`)}
+            ${field(bool('showMessage'), 'Message', `<textarea name="message" rows="5" ${required(bool('showMessage'), bool('messageRequired'))}></textarea>`)}
+            ${bool('consentRequired') ? `<label class="superapp-contact__consent"><input type="checkbox" required /> <span>${esc(str('consentLabel'))}</span></label>` : ''}
+            <button type="submit" class="superapp-contact__submit">${esc(str('submitLabel', 'Send message'))}</button>
+            <p class="superapp-contact__status superapp-contact__status--success" aria-live="polite" hidden></p>
+          </form>
+        </div>
       </section>
     `, `
       body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
       ${styleBlock}
-      .superapp-contact-form { max-width: 680px; margin: 0 auto; }
-      .superapp-contact-form__title { margin: 0 0 8px; }
-      .superapp-contact-form__subtitle { margin: 0 0 14px; opacity: 0.85; }
-      .superapp-contact-form__form { display: grid; gap: 10px; }
-      .superapp-contact-form__form label { display: grid; gap: 6px; font-size: 14px; }
-      .superapp-contact-form__form input,
-      .superapp-contact-form__form textarea {
-        width: 100%;
-        border: 1px solid var(--sa-border, #d1d5db);
-        border-radius: var(--sa-radius, 8px);
-        padding: 10px 12px;
-        font: inherit;
-      }
-      .superapp-contact-form__submit {
-        justify-self: start;
-        border-radius: var(--sa-radius, 8px);
-        padding: 10px 14px;
-        border: 1px solid currentColor;
-        background: var(--sa-btn-bg, #111827);
-        color: var(--sa-btn-text, #ffffff);
-        cursor: pointer;
-      }
-      .superapp-contact-form__status { min-height: 20px; margin: 0; color: #065f46; }
-      .superapp-contact-form__consent { display: flex !important; align-items: center; gap: 8px; }
-      .superapp-contact-form__consent input { width: auto; }
     `);
   }
 
@@ -1321,6 +1362,19 @@ function pageHtml(body: string, css: string) {
   // Every preview is rendered with illustrative SAMPLE values (the module isn't
   // bound to real store data until published). A small persistent marker makes
   // that explicit so merchants don't mistake demo values for their real config.
+  //
+  // Storefront previews additionally wrap the body in the SAME
+  // `.superapp-scope[data-sa-pack]` wrapper the theme extension renders and
+  // inline the real `superapp-modules.css`, so preview == storefront (R0).
+  // The pack stylesheet is injected AFTER the legacy per-kind CSS so the design
+  // system wins where selectors collide.
+  const packCss = activePack ? loadPackCss() : '';
+  const scopeOpen = activePack
+    ? `<div class="superapp-scope" data-sa-pack="${activePack}"${
+        activeAccent ? ` style="--sa-accent-override:${escAttr(activeAccent)}"` : ''
+      }>`
+    : '';
+  const scopeClose = activePack ? '</div>' : '';
   return `
     <!doctype html>
     <html>
@@ -1336,11 +1390,11 @@ function pageHtml(body: string, css: string) {
         letter-spacing: 0.02em; padding: 4px 8px; border-radius: 9999px;
         border: 1px solid rgba(17,24,39,0.08); pointer-events: none;
       }
-      ${css}</style>
+      ${css}${packCss ? `\n/* ── two-pack design system (real storefront stylesheet) ── */\n${packCss}` : ''}</style>
       </head>
       <body>
         <div class="sa-sample-badge" aria-hidden="true">Sample data</div>
-        <div style="padding:16px">${body}</div>
+        <div style="padding:16px">${scopeOpen}${body}${scopeClose}</div>
         ${LINK_INTERCEPT_SCRIPT}
       </body>
     </html>

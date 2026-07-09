@@ -45,9 +45,9 @@ export const DEFAULT_STOREFRONT_STYLE: StorefrontStyle = {
   layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'auto', zIndex: 'sticky' },
   spacing: { padding: 'medium', margin: 'none', gap: 'medium', density: 'comfortable' },
   typography: { size: 'MD', weight: 'normal', lineHeight: 'normal', align: 'left' },
+  // text/background intentionally ABSENT (module-design-system.md §3.3.2):
+  // unset ⇒ store inheritance (color: inherit / background: transparent).
   colors: {
-    text: '#111111',
-    background: '#ffffff',
     overlayBackdropOpacity: 0.45,
   },
   shape: { radius: 'md', borderWidth: 'none', shadow: 'none', scaling: 100 },
@@ -88,8 +88,17 @@ function deepMergeStyle(base: StorefrontStyle, overrides: Partial<StorefrontStyl
 /**
  * Compile style to CSS custom properties (--sa-*). Use on the module root so
  * Liquid/CSS can reference var(--sa-text), var(--sa-bg), etc. Theme-safe.
+ *
+ * `structuralDefaults` — contexts WITHOUT a `.superapp-scope[data-sa-pack]`
+ * wrapper (admin previews, proxy widgets) have no pack to supply the structural
+ * grammar, so they opt in to always emitting radius/border/shadow/motion tokens.
+ * Theme-extension renders leave it false so the pack owns those by default
+ * (module-design-system.md §9.4).
  */
-export function compileStyleVars(style: StorefrontStyle | undefined): string {
+export function compileStyleVars(
+  style: StorefrontStyle | undefined,
+  opts?: { structuralDefaults?: boolean },
+): string {
   const s = normalizeStyle(style);
   const pad = PADDING_MAP[s.spacing.padding];
   const gap = GAP_MAP[s.spacing.gap];
@@ -97,7 +106,6 @@ export function compileStyleVars(style: StorefrontStyle | undefined): string {
   const fs = FONT_SIZE_MAP[s.typography.size];
   const fw = FONT_WEIGHT_MAP[s.typography.weight];
   const lh = LINE_HEIGHT_MAP[s.typography.lineHeight];
-  const radius = RADIUS_MAP[s.shape.radius];
   const borderW = BORDER_WIDTH_MAP[s.shape.borderWidth];
   const shadow = SHADOW_MAP[s.shape.shadow];
   const z = Z_INDEX_MAP[s.layout.zIndex];
@@ -105,38 +113,54 @@ export function compileStyleVars(style: StorefrontStyle | undefined): string {
   const offsetX = `${s.layout.offsetX}px`;
   const offsetY = `${s.layout.offsetY}px`;
 
+  // ── Brand color + module-owned type/spacing/layout ──
+  // text/background emit ONLY when deliberately set (module-design-system.md
+  // §3.3.2): unset ⇒ the module inherits the store theme's colors at render.
+  // The remaining knobs are per-module layout, not pack-owned.
   const lines: string[] = [
-    `--sa-text: ${s.colors.text};`,
-    `--sa-bg: ${s.colors.background};`,
+    ...(s.colors.text ? [`--sa-text: ${s.colors.text};`] : []),
+    ...(s.colors.background ? [`--sa-bg: ${s.colors.background};`] : []),
     `--sa-pad: ${pad};`,
     `--sa-gap: ${gap};`,
     `--sa-margin: ${margin};`,
     `--sa-fs: ${fs};`,
     `--sa-fw: ${fw};`,
     `--sa-lh: ${lh};`,
-    `--sa-radius: ${radius};`,
-    `--sa-border-width: ${borderW};`,
-    `--sa-shadow: ${shadow};`,
     `--sa-z: ${z};`,
     `--sa-width: ${width};`,
     `--sa-offset-x: ${offsetX};`,
     `--sa-offset-y: ${offsetY};`,
+    '--sa-motion-ambient: 60s;',
   ];
 
-  // ── Phase #2 token substrate: motion + derived radius ladder + elevation idiom ──
-  lines.push(`--sa-motion: ${MOTION_DURATION_MAP[s.motion?.duration ?? 'base']};`);
-  lines.push(`--sa-ease: ${EASING_MAP[s.motion?.easing ?? 'standard']};`);
-  lines.push('--sa-motion-ambient: 60s;');
-  // Derived radius ladder, scaled by `shape.scaling` (%). `--sa-radius` (above) stays
-  // unscaled for back-compat; the ladder vars are the new, scale-aware tokens.
+  // ── Pack-owned structural grammar (module-design-system.md §9.4) ──
+  // The pack wrapper (.superapp-scope[data-sa-pack]) owns radius / border / shadow /
+  // motion. Emit a per-module OVERRIDE here ONLY when the token differs from the
+  // schema default, so a vanilla recipe inherits the pack grammar (premium by
+  // default) and the merchant `stylePack` toggle re-skins live — while an intentional
+  // choice still wins (it sits on the deeper [data-module-id] selector). Token names
+  // match the two-pack CSS. Contexts without the wrapper (proxy.widget) fall back to
+  // literal defaults via compileStyleCss's var() references.
   const scaling = (s.shape.scaling ?? 100) / 100;
   const baseRadius = RADIUS_BASE_PX[s.shape.radius];
   const ladder = (delta: number): string =>
     baseRadius == null ? '9999px' : `${Math.max(0, Math.round((baseRadius + delta) * scaling))}px`;
-  lines.push(`--sa-radius-sm: ${ladder(-2)};`);
-  lines.push(`--sa-radius-md: ${ladder(0)};`);
-  lines.push(`--sa-radius-lg: ${ladder(4)};`);
-  lines.push(`--sa-radius-xl: ${ladder(8)};`);
+  const always = opts?.structuralDefaults === true;
+  const radiusIsDefault = s.shape.radius === 'md' && (s.shape.scaling ?? 100) === 100;
+  if (always || !radiusIsDefault) {
+    lines.push(`--sa-radius: ${ladder(0)};`);
+    lines.push(`--sa-radius-sm: ${ladder(-2)};`);
+    lines.push(`--sa-radius-md: ${ladder(0)};`);
+    lines.push(`--sa-radius-lg: ${ladder(4)};`);
+    lines.push(`--sa-radius-xl: ${ladder(8)};`);
+    lines.push(`--sa-btn-radius: ${ladder(0)};`);
+  }
+  if (always || s.shape.borderWidth !== 'none') lines.push(`--sa-border-w: ${borderW};`);
+  if (always || s.shape.shadow !== 'none') lines.push(`--sa-shadow: ${shadow};`);
+  const motionDuration = s.motion?.duration ?? 'base';
+  const motionEasing = s.motion?.easing ?? 'standard';
+  if (always || motionDuration !== 'base') lines.push(`--sa-motion: ${MOTION_DURATION_MAP[motionDuration]};`);
+  if (always || motionEasing !== 'standard') lines.push(`--sa-ease: ${EASING_MAP[motionEasing]};`);
   if (s.shape.elevation) lines.push(`--sa-elevation: ${ELEVATION_MAP[s.shape.elevation]};`);
 
   // ── OKLCH semantic ramp, seed-derived from the merchant brand accent ──
@@ -183,8 +207,10 @@ export function compileStyleCss(style: StorefrontStyle | undefined, rootSelector
   const align = s.typography.align;
   const rules: string[] = [
     `${rootSelector}{`,
-    `color: var(--sa-text);`,
-    `background: var(--sa-bg);`,
+    // Inherit-safe fallbacks: with no per-module colors the module paints with
+    // the store theme's own text color on a transparent ground (§3.3.2).
+    `color: var(--sa-text, inherit);`,
+    `background: var(--sa-bg, transparent);`,
     `padding: var(--sa-pad);`,
     `gap: var(--sa-gap);`,
     `margin: var(--sa-margin);`,
@@ -192,13 +218,16 @@ export function compileStyleCss(style: StorefrontStyle | undefined, rootSelector
     `font-weight: var(--sa-fw);`,
     `line-height: var(--sa-lh);`,
     `text-align: ${align};`,
-    `border-radius: var(--sa-radius);`,
-    `box-shadow: var(--sa-shadow);`,
+    // Structural tokens may be pack-owned (module-design-system.md §9.4): inside a
+    // .superapp-scope wrapper these inherit the pack value; the literal fallback keeps
+    // no-wrapper contexts (proxy.widget) correct.
+    `border-radius: var(--sa-radius, ${RADIUS_MAP[s.shape.radius]});`,
+    `box-shadow: var(--sa-shadow, ${SHADOW_MAP[s.shape.shadow]});`,
     `}`,
   ];
   if (s.shape.borderWidth !== 'none') {
     rules.push(
-      `${rootSelector}{ border-width: var(--sa-border-width); border-style: solid; border-color: var(--sa-border, currentColor); }`
+      `${rootSelector}{ border-width: var(--sa-border-w, ${BORDER_WIDTH_MAP[s.shape.borderWidth]}); border-style: solid; border-color: var(--sa-border, currentColor); }`
     );
   }
   return rules.join('\n');

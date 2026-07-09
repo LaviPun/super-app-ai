@@ -3,9 +3,10 @@
  *
  * The rule evaluator exists twice: the TS source of truth
  * (`rule-engine/evaluate.ts`, used by preview + tests) and a hand-ported vanilla
- * ES5 copy in `extensions/theme-app-extension/assets/superapp-modules.js` (the
- * storefront runtime — it cannot import TS). This test extracts the vanilla
- * `evaluateRules` from the shipped extension file and asserts it returns the
+ * ES5 copy in `extensions/theme-app-extension/src/superapp-modules.src.js` (the
+ * storefront runtime source — the shipped `assets/` copy is a MINIFIED build of
+ * it, so the marker comments only exist in the source file). This test extracts
+ * the vanilla `evaluateRules` from that source and asserts it returns the
  * IDENTICAL `{ verdict, resolvable }` as the TS `evaluateRuleEngine` for every
  * shared fixture. If the two implementations drift, this test fails.
  */
@@ -19,7 +20,7 @@ import { RULE_FIXTURES } from '../rule-engine/__fixtures__/rule-fixtures.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const EXTENSION_JS = join(
   __dirname,
-  '../../../../extensions/theme-app-extension/assets/superapp-modules.js',
+  '../../../../extensions/theme-app-extension/src/superapp-modules.src.js',
 );
 
 const BEGIN = 'RULE-ENGINE-EVALUATOR:BEGIN';

@@ -1,7 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import type { RecipeSpec } from '@superapp/core';
 import { applyStylePackTokens } from '~/services/ai/apply-style-pack.server';
+import { resolveStorefrontPack, type PackSelection } from '~/services/ai/style-packs.server';
 import type { StorePalette } from '~/services/theme/theme-analyzer.service';
+
+const sel = (packId: PackSelection['packId'], confidence: number): PackSelection => ({
+  packId,
+  confidence,
+  alternatives: [],
+  reason: '',
+});
 
 const palette: StorePalette = {
   primary: '#1773b0',
@@ -21,7 +29,24 @@ const EASINGS = ['standard', 'enter', 'exit', 'mechanical'];
 function section(style: Record<string, unknown> = {}): RecipeSpec {
   return { type: 'theme.section', style } as unknown as RecipeSpec;
 }
-type Styled = { style: { spacing: Record<string, unknown>; shape: Record<string, unknown>; motion: Record<string, unknown> } };
+type Styled = {
+  style: { pack?: string; spacing: Record<string, unknown>; shape: Record<string, unknown>; motion: Record<string, unknown> };
+};
+
+describe('resolveStorefrontPack (6→2 collapse)', () => {
+  it('maps the loud/saturated aesthetic packs to bold', () => {
+    expect(resolveStorefrontPack(sel('bold-dtc', 0.8))).toBe('bold');
+    expect(resolveStorefrontPack(sel('playful-commerce', 0.8))).toBe('bold');
+  });
+  it('maps the calm/clean/premium packs to luxe', () => {
+    for (const p of ['apple-hig-clean', 'editorial-wellness', 'minimal-luxe', 'tech-utility'] as const) {
+      expect(resolveStorefrontPack(sel(p, 0.8))).toBe('luxe');
+    }
+  });
+  it('biases to luxe on low confidence even for a bold aesthetic pack', () => {
+    expect(resolveStorefrontPack(sel('bold-dtc', 0.2))).toBe('luxe');
+  });
+});
 
 describe('applyStylePackTokens', () => {
   it('fills density / elevation / motion tokens from the selected pack', () => {
@@ -30,6 +55,16 @@ describe('applyStylePackTokens', () => {
     expect(IDIOMS).toContain(r.style.shape.elevation);
     expect(DURATIONS).toContain(r.style.motion.duration);
     expect(EASINGS).toContain(r.style.motion.easing);
+  });
+
+  it('resolves + sets the two-pack render grammar (style.pack)', () => {
+    const r = applyStylePackTokens(section({}), palette, {}) as unknown as Styled;
+    expect(['luxe', 'bold']).toContain(r.style.pack);
+  });
+
+  it('respects a pack the model/merchant already chose', () => {
+    const r = applyStylePackTokens(section({ pack: 'bold' }), palette, {}) as unknown as Styled;
+    expect(r.style.pack).toBe('bold');
   });
 
   it('respects tokens the model already set', () => {

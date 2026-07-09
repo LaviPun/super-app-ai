@@ -39,7 +39,9 @@ describe('preview — rule-engine reflection (R2.1)', () => {
     expect(out.kind).toBe('HTML');
     if (out.kind === 'HTML') {
       expect(out.html).toContain('Hidden by display rules');
-      expect(out.html).not.toContain('superapp-banner');
+      // Assert on MARKUP, not the raw string — the inlined pack stylesheet
+      // legitimately contains `.superapp-banner` selectors (preview parity, R0).
+      expect(out.html).not.toContain('class="superapp-banner');
     }
   });
 

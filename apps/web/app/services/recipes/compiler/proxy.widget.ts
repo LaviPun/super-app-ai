@@ -9,7 +9,9 @@ export function compileProxyWidget(spec: Extract<RecipeSpec, { type: 'proxy.widg
   // surfaced in the AUDIT op for traceability. Absent = embed (back-compat).
   const surface = spec.config.surface ?? 'embed';
   const style = normalizeStyle(spec.style);
-  const styleVars = compileStyleVars(style);
+  // Proxy widgets render outside the theme extension — no .superapp-scope pack
+  // wrapper — so emit the full structural token set (module-design-system.md §9.4).
+  const styleVars = compileStyleVars(style, { structuralDefaults: true });
   const styleCss = compileStyleCss(style, '.superapp-widget');
   const customCss = compileCustomCss(style, '.superapp-widget');
 

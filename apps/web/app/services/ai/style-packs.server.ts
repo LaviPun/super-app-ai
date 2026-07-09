@@ -147,6 +147,28 @@ export const STYLE_PACKS: Record<StylePackId, StylePack> = {
 export const DEFAULT_PACK_ID: StylePackId = 'apple-hig-clean';
 
 // ---------------------------------------------------------------------------
+// Two-pack render grammar (module-design-system.md §3.3 / §9.2)
+// ---------------------------------------------------------------------------
+
+/** The storefront render packs — the two values of the runtime `--sa-*` token map. */
+export type StorefrontPack = 'luxe' | 'bold';
+
+/** The loud/saturated aesthetic packs collapse to Bold DTC; everything else to Minimal Luxe. */
+const BOLD_STOREFRONT_PACKS: readonly StylePackId[] = ['bold-dtc', 'playful-commerce'];
+
+/**
+ * Collapse the six aesthetic-selection packs to the two storefront render packs
+ * (module-design-system.md §9.2). `bold ← {bold-dtc, playful-commerce}`,
+ * `luxe ← {apple-hig-clean, editorial-wellness, minimal-luxe, tech-utility}`.
+ * Bias to Luxe (the "can't-look-wrong" pack) on low confidence — never ship the
+ * louder Bold grammar on weak aesthetic evidence.
+ */
+export function resolveStorefrontPack(selection: PackSelection): StorefrontPack {
+  if (selection.confidence < 0.34) return 'luxe';
+  return BOLD_STOREFRONT_PACKS.includes(selection.packId) ? 'bold' : 'luxe';
+}
+
+// ---------------------------------------------------------------------------
 // Color math (WCAG / HSL)
 // ---------------------------------------------------------------------------
 
@@ -375,12 +397,42 @@ export function selectPack(signals: AestheticSignals): PackSelection {
 // ---------------------------------------------------------------------------
 
 /**
+ * Concrete render-pack grammar (module-design-system.md §3.1 / §3.2). The model
+ * emits NAMED StorefrontStyle tokens (never raw px/ms/hex) that resolve to this
+ * grammar; the compiler lowers them to the `--sa-*` map. Returned as directive
+ * lines so the prompt teaches the exact enum values per pack.
+ */
+function storefrontPackGrammarLines(pack: StorefrontPack): string[] {
+  if (pack === 'bold') {
+    return [
+      'Render pack: BOLD DTC — heavy grotesk, saturated accent used everywhere, hard offset shadows, snappy overshoot, direct/urgent voice. Emit tokens matching:',
+      '  • Density: spacing.density "compact"→"comfortable", padding "medium".',
+      '  • Typography: display ALL-CAPS at typography.size "2XL", weight "bold", lineHeight "tight"; oversized numerals.',
+      '  • Shape: shape.radius "sm"–"lg"; shape.borderWidth "medium"–"thick" (structural 2px); shape.elevation "glow" (on dark) with a hard offset shadow — accent or ink, no blur.',
+      '  • Motion: motion.duration "fast" (~140ms), motion.easing "enter" with overshoot; press = translate + shadow-shrink.',
+      '  • CTA: accent fill on ink label, radius "sm", hard offset shadow.',
+      '  • Decoration: badge chips, inline ★ proof, accent numerals. Voice: direct, urgent ("Fuel the grind.", "Once it\'s gone, it\'s gone.").',
+    ];
+  }
+  return [
+    'Render pack: MINIMAL LUXE — near-monochrome, editorial, hairline detail, long fades, accent used sparingly, quiet/considered voice. Emit tokens matching:',
+    '  • Density: spacing.density "airy", padding "loose".',
+    '  • Typography: display serif at typography.size "XL"–"2XL", weight "normal"–"medium", lineHeight "relaxed"; labels mono-caps.',
+    '  • Shape: shape.radius "none"–"sm"; shape.borderWidth "thin" (hairline); shape.elevation "border" or "emboss" (drop shadow reserved for overlays only).',
+    '  • Motion: motion.duration "slow" (~400ms), motion.easing "enter"; hover = subtle translateY lift.',
+    '  • CTA: solid ink fill, cream label, squared (radius "none"), mono uppercase.',
+    '  • Decoration: serif numerals (01/02/03), mono-caps eyebrows, thin rules. Voice: quiet, considered ("Discover the ritual", "Considered, always").',
+  ];
+}
+
+/**
  * Build the design-system directive injected into the generation prompt.
- * Restates the Apple-HIG floor (the non-negotiables the model must honor in its
- * RecipeSpec fields), the selected pack's grammar, mobile-first rules, the
- * mandatory micro-interaction set, and a self-audit instruction so the model
- * corrects itself before returning. Brand colors/fonts (when known) are restated
- * so the model uses the store's actual values.
+ * Teaches the resolved two-pack storefront grammar (Minimal Luxe / Bold DTC,
+ * module-design-system.md §3), the named-token grammar (§2, allowed enums only —
+ * never raw px/ms/hex), the effects catalog (§6), the mandatory F1–F8
+ * micro-interactions (§7), the Apple-HIG floor (§1.4) and mobile-first rules,
+ * plus a self-audit so the model corrects itself before returning. Brand
+ * colors/fonts (when known) are restated so the model uses the store's values.
  */
 export function buildDesignSystemDirective(opts: {
   selection: PackSelection;
@@ -388,26 +440,33 @@ export function buildDesignSystemDirective(opts: {
   fontHints?: string[];
 }): string {
   const pack = STYLE_PACKS[opts.selection.packId];
+  const renderPack = resolveStorefrontPack(opts.selection);
+  const renderPackName = renderPack === 'bold' ? 'Bold DTC' : 'Minimal Luxe';
   const brand = (opts.brandColors ?? []).filter(isHexColor);
   const brandLine = brand.length
-    ? `THEME COLORS (use ONLY these — they are extracted from the merchant's live theme): ${brand.join(', ')}. Set style.colors (text/background/border/buttonBg/buttonText/overlayBackdrop) from this palette only. Do NOT invent or add off-palette colors.`
-    : 'No live store palette was available — pick a tasteful, on-pack palette and keep it consistent across the module.';
+    ? `THEME COLORS (use ONLY these — they are extracted from the merchant's live theme): ${brand.join(', ')}. Set style.colors.seed to the merchant accent and flat style.colors (text/background/border/buttonBg/buttonText/overlayBackdrop) from this palette only. Do NOT invent or add off-palette colors.`
+    : 'No live store palette was available — set style.colors.seed to a tasteful, on-pack accent and keep style.colors consistent across the module.';
   const feel = opts.fontHints && opts.fontHints.length ? ` Type feel to honor: ${opts.fontHints.join(' | ')}.` : '';
-  const fontLine = `THEME FONTS: the module inherits the store theme's fonts automatically via the storefront — do NOT set or override font-family anywhere (not in style, not in any customCss/customHtml). Express hierarchy with size + weight only.${feel}`;
+  const fontLine = `THEME FONTS: the module inherits the store theme's fonts automatically via the storefront — do NOT set or override font-family anywhere (not in style, not in any customCss/customHtml). Express hierarchy with typography.size + typography.weight only.${feel}`;
+  const effectsLine = renderPack === 'bold'
+    ? 'Effects (only for an `effect` module): Bold → loud effects — confetti burst, fireworks, glitter, balloons. Every effect ships a prefers-reduced-motion branch that renders nothing.'
+    : 'Effects (only for an `effect` module): Luxe → quiet effects — embers/fireflies, petals, soft snow, shimmer. Every effect ships a prefers-reduced-motion branch that renders nothing.';
 
   return [
     'DESIGN SYSTEM DIRECTIVE (mandatory — the module must obey this or it will be rejected by the design-QA gate):',
     '',
-    `Style pack: ${pack.name} — ${pack.personality}.`,
-    `  • Type pairing: ${pack.typePairing}. Density: ${pack.density}.`,
-    `  • Radius: use style.shape.radius matching ${pack.id === 'minimal-luxe' || pack.id === 'tech-utility' || pack.id === 'bold-dtc' ? 'sharp/sm' : 'md–lg'}; CTAs ${pack.radius.pill === 9999 ? 'may be pill-rounded where on-pack' : 'squared'}.`,
-    `  • Shadow: ${pack.shadow.rest === 'none' ? 'flat / hairline only' : 'soft'} (style.shape.shadow ${pack.shadow.rest === 'none' ? '"none"|"sm"' : '"sm"|"md"'}).`,
-    `  • Motion personality: ${pack.motion.personality}.`,
-    `  • Accent strategy: ${pack.accentStrategy}.`,
-    `  • Imagery: ${pack.imageryRule}.`,
+    `Style pack: ${pack.name} → ${renderPackName} render pack (${pack.personality}).`,
+    ...storefrontPackGrammarLines(renderPack),
     opts.selection.confidence < 0.34
-      ? `  • (Pack confidence is low — stay safe and neutral; avoid loud, personality-heavy choices.)`
+      ? '  • (Pack confidence is low — biased to Minimal Luxe, the "can\'t-look-wrong" pack. Stay quiet; avoid loud, personality-heavy choices.)'
       : '',
+    '',
+    'EMIT NAMED TOKENS ONLY — never a raw px / ms / hex / cubic-bezier. Use these allowed enums verbatim (the compiler lowers them to the --sa-* map + OKLCH ramp):',
+    '  • shape.radius ∈ none·sm·md·lg·xl·full; shape.borderWidth ∈ none·thin·medium·thick; shape.elevation ∈ soft·glow·border·emboss.',
+    '  • spacing.density ∈ compact·comfortable·airy; spacing.padding/margin/gap ∈ none·tight·medium·loose.',
+    '  • motion.duration ∈ none·fast·base·slow; motion.easing ∈ standard·enter·exit·mechanical.',
+    '  • typography.size ∈ XS·SM·MD·LG·XL·2XL; typography.weight ∈ normal·medium·bold; lineHeight ∈ tight·normal·relaxed; align ∈ left·center·right.',
+    '',
     brandLine,
     fontLine,
     '',
@@ -416,14 +475,16 @@ export function buildDesignSystemDirective(opts: {
     '  • Type: body weight ≥ medium/bold (never thin); ≤ 2 font families; hierarchy via size/weight/color.',
     '  • Buttons: exactly ONE dominant primary CTA; at most two prominent buttons; secondary is low-emphasis. Verb-first, title-case labels. Include a pressed state.',
     '  • Overlays over imagery: set style.colors.overlayBackdropOpacity ≥ 0.35 (dimming scrim).',
-    '  • Motion: subtle, purposeful, cancelable; set style.accessibility.reducedMotion = true.',
-    '  • Accessibility: set style.accessibility.focusVisible = true.',
+    '  • Motion: subtle, purposeful, cancelable, 80–500ms; set style.accessibility.reducedMotion = true.',
+    '  • Accessibility: 44×44px tap targets; visible focus ring — set style.accessibility.focusVisible = true.',
+    '',
+    effectsLine,
     '',
     'Mobile-first: design for a 375px-wide phone first, enhance up. Body text reads at ≥16px; tap targets are generous; on mobile a popup is a near-full card/bottom-sheet with a large close and the CTA in easy thumb reach. No behavior may depend on hover.',
     '',
-    'Micro-interactions (mandatory): the module must account for press, focus-ring, entrance, success, loading, empty, and error states — described in config/explanation and reflected in style.accessibility. Success and error must use icon + text, not color alone.',
+    'Micro-interactions (mandatory — the full F1–F8 set): the module must account for F1 press, F2 hover, F3 focus-ring, F4 entrance, F5 success, F6 loading, F7 empty, and F8 error states — described in config/explanation and reflected in style.accessibility. F5 success and F8 error use icon + text, never color alone. A control with only idle+hover reads "templated".',
     '',
-    'Self-audit before returning: re-check your recipe against the contrast, single-primary-CTA, scrim, reduced-motion, and focus-visible rules above; fix any violation before you output. A generic centered hero with vague copy, a rainbow palette, >2 fonts, or color-only status is "slop" and will be rejected.',
+    'Self-audit before returning: re-check your recipe against the contrast, single-primary-CTA, scrim, reduced-motion, focus-visible, named-token, and F1–F8 rules above; fix any violation before you output. A generic centered hero with vague copy, a rainbow palette, >2 fonts, raw px/hex tokens, or color-only status is "slop" and will be rejected.',
   ]
     .filter((l) => l !== '')
     .join('\n');
