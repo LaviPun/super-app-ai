@@ -849,9 +849,35 @@ function normalizeEnumValue(key: string, value: string): string {
  * Repair common AI output issues before Zod: default category/requires, normalize enums, coerce numbers, clamp name.
  * Merges AI's "settings" + "controls" into "config" and strips non-spec keys (assets, meta).
  */
+/**
+ * Recursively remove `null`-valued object properties and `null` array elements.
+ * Structured-output makes optional fields nullable so the model can opt out with
+ * `null`; Zod optionals reject `null`, so an opted-out field must be absent, not
+ * null. Preserves empty strings, 0, and false (those are meaningful values).
+ */
+function stripNulls(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.filter((v) => v !== null).map((v) => stripNulls(v));
+  }
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (v === null) continue;
+      out[k] = stripNulls(v);
+    }
+    return out;
+  }
+  return value;
+}
+
 export function repairRecipeForValidation(raw: unknown): unknown {
   if (!raw || typeof raw !== 'object') return raw;
-  const o = JSON.parse(JSON.stringify(raw)) as Record<string, unknown>;
+  // Structured-output schemas mark originally-optional fields as nullable
+  // (see recipe-json-schema.server `makeNullable`) so the model can emit `null`
+  // to opt out. Zod `.optional()` means string|undefined, NOT nullable — a
+  // literal `null` fails validation (e.g. `config.pricing.tiers.rows[].imageUrl`).
+  // Drop null-valued keys / null array elements so "opted out" reads as absent.
+  const o = stripNulls(JSON.parse(JSON.stringify(raw))) as Record<string, unknown>;
   const type = o.type as string | undefined;
   if (!type || typeof type !== 'string') return o;
 
