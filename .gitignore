@@ -72,3 +72,6 @@ apps/web/scripts/tournament-out/
 # Generated per-extension bundle manifests (CLI-written; corrupt on dev-bundle write races)
 extensions/*/manifest.json
 .playwright-mcp/
+# Shopify CLI typegen output — regenerated per dev-config state by `shopify app dev`
+extensions/*/shopify.d.ts
+extensions/*/src/shopify.d.ts
