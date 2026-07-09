@@ -1,32 +1,24 @@
 import { json } from '@remix-run/node';
 import { useLoaderData, useNavigate, useSearchParams, Form } from '@remix-run/react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { MODULE_TEMPLATES } from '@superapp/core';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { Icon, Btn, Badge, Card, PageHead, FilterBar, EmptyState, useTableState, fmtNum } from '~/components/superapp';
+import { CATEGORY_ORDER, getCategoryDisplayLabel, getCategoryTone, getCategoryIcon } from '~/utils/type-label';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const T_ICON: Record<string, string> = { 'Storefront UI': 'desktop', 'Function': 'bolt', 'Integration': 'connect', 'Flow': 'flow', 'Data store': 'database' };
-const T_COLOR: Record<string, string> = { 'Storefront UI': 'info', 'Function': 'warning', 'Integration': 'magic', 'Flow': 'success', 'Data store': 'info' };
-const DESIGN_CATS = ['Storefront UI', 'Function', 'Integration', 'Flow', 'Data store'];
-
-function designType(t: string): string {
-  if (/flow/i.test(t)) return 'Flow';
-  if (/function|discount/i.test(t)) return 'Function';
-  if (/connector|integration/i.test(t)) return 'Integration';
-  if (/data|store/i.test(t)) return 'Data store';
-  return 'Storefront UI';
-}
-
 export async function loader({ request }: { request: Request }) {
   await shopify.authenticate.admin(request);
+  // Emit the raw library category so the UI can bucket templates by their true
+  // taxonomy (STOREFRONT_UI, ADMIN_UI, CUSTOMER_ACCOUNT, FUNCTION, INTEGRATION,
+  // FLOW) instead of a lossy heuristic that dumped everything into "Storefront UI".
   const templates = (MODULE_TEMPLATES as any[]).map((t, i) => ({
     id: t.id,
     name: t.name,
     desc: t.description ?? '',
-    category: designType(t.type),
+    category: t.category,
     tags: t.tags ?? [],
     uses: 400 + ((i * 317) % 1900),
   }));
@@ -47,9 +39,10 @@ function TemplatesBody({ templates }: any) {
   const navigate = useNavigate();
   const ts = useTableState();
   const [searchParams] = useSearchParams();
-  const initial = searchParams.get('type') === 'Flow' ? 'Flow' : 'All';
+  // Legacy deep-link ?type=Flow maps to the raw FLOW bucket.
+  const initial = searchParams.get('type') === 'Flow' ? 'FLOW' : 'All';
   const [cat, setCat] = useState(initial);
-  const cats = ['All'].concat(DESIGN_CATS);
+  const cats = ['All', ...CATEGORY_ORDER];
 
   const rows = templates.filter((t: any) =>
     (cat === 'All' || t.category === cat) &&
@@ -64,7 +57,15 @@ function TemplatesBody({ templates }: any) {
       />
       <div className="row-2 row-wrap" style={{ marginBottom: 16 }}>
         {cats.map((c) => (
-          <button key={c} className="pill" aria-pressed={cat === c} onClick={() => setCat(c)}>{c}</button>
+          <button
+            key={c}
+            type="button"
+            className="pill"
+            aria-pressed={cat === c}
+            onClick={() => setCat(c)}
+          >
+            {c === 'All' ? 'All' : getCategoryDisplayLabel(c)}
+          </button>
         ))}
       </div>
       <Card style={{ marginBottom: 16 }}>
@@ -81,13 +82,11 @@ function TemplatesBody({ templates }: any) {
         <div className="grid grid-3">
           {rows.map((t: any) => (
             <div key={t.id} className="card tpl-card">
-              <div className="tpl-thumb" style={{ background: `var(--p-${T_COLOR[t.category] || 'info'}-bg)`, color: `var(--p-${T_COLOR[t.category] || 'info'})` }}>
-                <Icon name={T_ICON[t.category] || 'layers'} size={30} />
-              </div>
+              <TplThumb id={t.id} category={t.category} />
               <div className="stack-1" style={{ padding: '12px 14px 0' }}>
                 <div className="row spread">
                   <div className="t-strong">{t.name}</div>
-                  <Badge tone={T_COLOR[t.category]}>{t.category}</Badge>
+                  <Badge tone={getCategoryTone(t.category)}>{getCategoryDisplayLabel(t.category)}</Badge>
                 </div>
                 <div className="t-sm t-muted">{t.desc}</div>
                 <div className="t-xs t-muted" style={{ marginTop: 4 }}>{fmtNum(t.uses)} stores use this</div>
@@ -102,6 +101,65 @@ function TemplatesBody({ templates }: any) {
             </div>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+// Module-level cache so switching categories/search (which remounts cards)
+// doesn't re-fetch a preview we already rendered once this session.
+const previewCache = new Map<string, { html: string } | { error: true }>();
+
+/**
+ * Real per-template preview thumbnail. Renders the actual `PreviewService`
+ * output for this template (via /api/templates/:id/preview — the merchant-
+ * safe counterpart of the internal-only preview route) instead of a static
+ * category-colored placeholder, so different templates in the same category
+ * visibly render differently. With up to 518 templates in the gallery, each
+ * card only fetches its preview once it scrolls into view.
+ */
+function TplThumb({ id, category }: { id: string; category: string }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const cached = previewCache.get(id);
+  const [html, setHtml] = useState<string | null>(cached && 'html' in cached ? cached.html : null);
+  const [failed, setFailed] = useState(!!(cached && 'error' in cached));
+
+  useEffect(() => {
+    if (html || failed) return; // already resolved (cache hit or previous fetch)
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    let cancelled = false;
+    const io = new IntersectionObserver((entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      io.disconnect();
+      fetch(`/api/templates/${encodeURIComponent(id)}/preview`)
+        .then((r) => r.json())
+        .then((d: { html?: string; error?: string }) => {
+          if (cancelled) return;
+          if (typeof d?.html === 'string') {
+            previewCache.set(id, { html: d.html });
+            setHtml(d.html);
+          } else {
+            previewCache.set(id, { error: true });
+            setFailed(true);
+          }
+        })
+        .catch(() => { if (!cancelled) { previewCache.set(id, { error: true }); setFailed(true); } });
+    }, { rootMargin: '240px' });
+    io.observe(el);
+    return () => { cancelled = true; io.disconnect(); };
+  }, [id, html, failed]);
+
+  return (
+    <div
+      ref={ref}
+      className="tpl-thumb"
+      style={{ background: `var(--p-${getCategoryTone(category)}-bg)`, color: `var(--p-${getCategoryTone(category)})` }}
+    >
+      {html ? (
+        <iframe title={`Preview of ${id}`} className="tpl-thumb-frame" srcDoc={html} sandbox="allow-same-origin" scrolling="no" tabIndex={-1} />
+      ) : (
+        <Icon name={getCategoryIcon(category)} size={30} />
       )}
     </div>
   );

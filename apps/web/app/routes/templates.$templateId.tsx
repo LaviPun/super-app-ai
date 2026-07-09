@@ -3,6 +3,7 @@ import { Link, useLoaderData } from '@remix-run/react';
 import { Badge, BlockStack, Button, Card, DataTable, InlineStack, Page, Text } from '@shopify/polaris';
 import { findTemplate, getTemplateInstallability, getTemplateReadiness } from '@superapp/core';
 import { shopify } from '~/shopify.server';
+import { PreviewService } from '~/services/preview/preview.service';
 
 export async function loader({ request, params }: { request: Request; params: { templateId?: string } }) {
   await shopify.authenticate.admin(request);
@@ -20,6 +21,17 @@ export async function loader({ request, params }: { request: Request; params: { 
     return [key, type, raw.length > 120 ? `${raw.slice(0, 120)}...` : raw];
   });
 
+  // Same PreviewService the AI builder's live preview and the merchant
+  // gallery thumbnails use, so this page shows the real render for the
+  // template's canonical spec rather than a raw config dump only.
+  let previewHtml: string | null = null;
+  try {
+    const preview = new PreviewService().render(template.spec);
+    if (preview.kind === 'HTML') previewHtml = preview.html;
+  } catch {
+    previewHtml = null;
+  }
+
   return json({
     template: {
       id: template.id,
@@ -33,11 +45,12 @@ export async function loader({ request, params }: { request: Request; params: { 
     installability,
     requires: template.spec.requires,
     configRows,
+    previewHtml,
   });
 }
 
 export default function MerchantTemplateDetailRoute() {
-  const { template, readiness, installability, requires, configRows } = useLoaderData<typeof loader>();
+  const { template, readiness, installability, requires, configRows, previewHtml } = useLoaderData<typeof loader>();
 
   return (
     <Page
@@ -66,6 +79,24 @@ export default function MerchantTemplateDetailRoute() {
               </InlineStack>
             ) : null}
             <Text as="p" variant="bodySm"><strong>Requires:</strong> {requires.join(', ') || '—'}</Text>
+          </BlockStack>
+        </Card>
+
+        <Card>
+          <BlockStack gap="300">
+            <Text as="h2" variant="headingMd">Preview</Text>
+            {previewHtml ? (
+              <div style={{ border: '1px solid var(--p-color-border)', borderRadius: 8, overflow: 'hidden' }}>
+                <iframe
+                  title={`Preview of ${template.name}`}
+                  srcDoc={previewHtml}
+                  sandbox="allow-scripts allow-same-origin allow-popups"
+                  style={{ display: 'block', width: '100%', height: 480, border: 0, background: '#fff' }}
+                />
+              </div>
+            ) : (
+              <Text as="p" variant="bodySm" tone="subdued">No visual preview available for this template type.</Text>
+            )}
           </BlockStack>
         </Card>
 

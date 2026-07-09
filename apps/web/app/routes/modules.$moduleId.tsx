@@ -17,23 +17,14 @@ import { ActivityLogService } from '~/services/activity/activity.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
   Icon, Btn, Badge, StatusBadge, Card, CardHead, Section, Field, Input, Textarea, Select,
-  Tabs, Banner, Menu, KV, PageHead, DataTable, ConfirmDialog, Modal, EmptyState, titleCase,
+  Tabs, Banner, Menu, KV, PageHead, DataTable, ConfirmDialog, Modal, EmptyState,
 } from '~/components/superapp';
+import { getCategoryDisplayLabel, getCategoryTone } from '~/utils/type-label';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const TYPE_COLOR: Record<string, string> = { 'Storefront UI': 'info', 'Function': 'warning', 'Integration': 'magic', 'Flow': 'success', 'Data store': 'info' };
-
-function designType(t: string): string {
-  if (/flow/i.test(t)) return 'Flow';
-  if (/function|discount/i.test(t)) return 'Function';
-  if (/connector|integration/i.test(t)) return 'Integration';
-  if (/data|store/i.test(t)) return 'Data store';
-  return 'Storefront UI';
-}
-
-// Real placement description derived from the module's spec — no hardcoded copy.
-function placementText(spec: any, designT: string): string {
+// Real placement description derived from the module's spec + raw category — no hardcoded copy.
+function placementText(spec: any, category: string): string {
   const type = String(spec?.type ?? '');
   if (type.startsWith('theme.')) {
     const enabled = spec?.placement?.enabled_on?.templates as string[] | undefined;
@@ -44,11 +35,12 @@ function placementText(spec: any, designT: string): string {
   }
   if (type.startsWith('checkout.')) return 'Runs inside Shopify checkout.';
   if (type.startsWith('proxy.')) return 'Rendered on your storefront through the app proxy.';
-  switch (designT) {
-    case 'Function': return 'Runs automatically during checkout as a Shopify Function — no storefront placement.';
-    case 'Flow': return 'Runs in the background when its trigger fires — no storefront placement.';
-    case 'Integration': return 'Connects to an external service — no storefront placement.';
-    case 'Data store': return 'Stores structured data used by your modules — no storefront placement.';
+  switch (category) {
+    case 'FUNCTION': return 'Runs automatically during checkout as a Shopify Function — no storefront placement.';
+    case 'FLOW': return 'Runs in the background when its trigger fires — no storefront placement.';
+    case 'INTEGRATION': return 'Connects to an external service — no storefront placement.';
+    case 'ADMIN_UI': return 'Appears in the Shopify admin — no storefront placement.';
+    case 'CUSTOMER_ACCOUNT': return 'Shown in the customer account area.';
     default: return 'Rendered on your storefront.';
   }
 }
@@ -318,10 +310,14 @@ function ModuleDetailBody() {
   const validationReport = (hydration?.validationReport ?? null) as
     | { overall: string; checks: { id: string; severity: string; status: string; description: string }[] }
     | null;
-  const designT = designType(String(spec?.type ?? mod.type));
+  // Bucket on the raw library category so the "Type" badge agrees with the
+  // "Category" row (previously a lossy heuristic mislabeled admin/customer-account
+  // modules as "Storefront UI").
+  const category = String(mod.category || 'STOREFRONT_UI');
+  const categoryLabel = getCategoryDisplayLabel(category);
   const isThemeModule = String(spec?.type ?? '').startsWith('theme.');
   const isDraft = mod.status === 'DRAFT';
-  const summary = (mod as any).summary || `${designT} module`;
+  const summary = (mod as any).summary || `${categoryLabel} module`;
 
   const [tab, setTab] = useState('overview');
   const [delOpen, setDelOpen] = useState(false);
@@ -722,8 +718,8 @@ function ModuleDetailBody() {
             <Card pad>
               <div className="t-h3" style={{ marginBottom: 12 }}>Details</div>
               <KV rows={[
-                ['Type', <Badge key="t" tone={TYPE_COLOR[designT]}>{designT}</Badge>],
-                ['Category', titleCase(String(mod.category || 'General'))],
+                ['Type', <Badge key="t" tone={getCategoryTone(category)}>{categoryLabel}</Badge>],
+                ['Category', categoryLabel],
                 ['Version', 'v' + (versions[0]?.version ?? 1)],
                 ['Status', <StatusBadge key="s" value={mod.status} />],
               ]} />

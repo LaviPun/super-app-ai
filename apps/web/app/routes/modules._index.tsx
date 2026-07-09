@@ -9,21 +9,9 @@ import {
   Icon, Btn, Badge, StatusBadge, Card, PageHead, FilterBar, StatTile, DataTable,
   EmptyState, Menu, ConfirmDialog, useTableState, titleCase, fmtNum,
 } from '~/components/superapp';
+import { CATEGORY_ORDER, getCategoryDisplayLabel, getCategoryTone, getCategoryIcon } from '~/utils/type-label';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const TYPE_ICON: Record<string, string> = { 'Storefront UI': 'desktop', 'Function': 'bolt', 'Integration': 'connect', 'Flow': 'flow', 'Data store': 'database' };
-const TYPE_COLOR: Record<string, string> = { 'Storefront UI': 'info', 'Function': 'warning', 'Integration': 'magic', 'Flow': 'success', 'Data store': 'info' };
-const DESIGN_TYPES = ['Storefront UI', 'Function', 'Integration', 'Flow', 'Data store'];
-
-// Map a real Prisma module type token → design display type.
-function designType(t: string): string {
-  if (/flow/i.test(t)) return 'Flow';
-  if (/function|discount/i.test(t)) return 'Function';
-  if (/connector|integration/i.test(t)) return 'Integration';
-  if (/data|store/i.test(t)) return 'Data store';
-  return 'Storefront UI';
-}
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -58,19 +46,24 @@ export async function loader({ request }: { request: Request }) {
 
     return json({
       aiUsage: { aiLeft, aiLimit: aiLimit === -1 ? null : aiLimit },
-      modules: modules.map(m => ({
-        id: m.id,
-        name: m.name,
-        rawType: m.type,
-        type: designType(m.type),
-        category: getCategoryDisplay(m.category),
-        status: m.status,
-        version: m.versions[0]?.version ?? 1,
-        summary: m.summary ?? `${designType(m.type)} module`,
-        updated: timeAgo(m.updatedAt),
-        blueprintId: m.recipe?.id ?? null,
-        blueprintName: m.recipe?.title ?? null,
-      })),
+      modules: modules.map(m => {
+        // Bucket on the real library category, not a lossy type-string heuristic.
+        const catLabel = getCategoryDisplayLabel(m.category);
+        return {
+          id: m.id,
+          name: m.name,
+          rawType: m.type,
+          rawCategory: m.category,
+          type: catLabel,
+          category: catLabel,
+          status: m.status,
+          version: m.versions[0]?.version ?? 1,
+          summary: m.summary ?? `${catLabel} module`,
+          updated: timeAgo(m.updatedAt),
+          blueprintId: m.recipe?.id ?? null,
+          blueprintName: m.recipe?.title ?? null,
+        };
+      }),
       stats: { total: modules.length, published, drafts },
       loaderError: undefined as string | undefined,
     });
@@ -80,9 +73,6 @@ export async function loader({ request }: { request: Request }) {
   }
 }
 
-function getCategoryDisplay(c: string): string {
-  return titleCase(String(c || 'General').replace(/_/g, ' ').toLowerCase());
-}
 function timeAgo(d: Date | string): string {
   const t = new Date(d).getTime();
   const diff = Date.now() - t;
@@ -196,7 +186,7 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
   }, [del, deleteFetcher, ctx]);
 
   const rows = modules.filter((m: any) =>
-    (type === 'All' || m.type === type) &&
+    (type === 'All' || m.rawCategory === type) &&
     (status === 'All' || m.status === status) &&
     (m.name + m.summary + m.category).toLowerCase().includes(ts.search.toLowerCase()));
 
@@ -228,7 +218,7 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
         <FilterBar
           search={ts.search} onSearch={ts.setSearch} placeholder="Search modules…"
           filters={[
-            { options: ['All'].concat(DESIGN_TYPES), value: type, onChange: setType },
+            { options: [{ value: 'All', label: 'All types' }, ...CATEGORY_ORDER.map((c) => ({ value: c, label: getCategoryDisplayLabel(c) }))], value: type, onChange: setType },
             { options: ['All', 'PUBLISHED', 'DRAFT'].map((s) => ({ value: s, label: s === 'All' ? 'All statuses' : titleCase(s) })), value: status, onChange: setStatus },
           ]}
           results={rows.length}
@@ -251,8 +241,8 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
             columns={[
               { key: 'name', label: 'Module', render: (r: any) => (
                 <div className="row-3">
-                  <span className="tile-ico" style={{ width: 30, height: 30, background: `var(--p-${TYPE_COLOR[r.type]}-bg)`, color: `var(--p-${TYPE_COLOR[r.type]})` }}>
-                    <Icon name={TYPE_ICON[r.type] ?? 'layers'} size={15} />
+                  <span className="tile-ico" style={{ width: 30, height: 30, background: `var(--p-${getCategoryTone(r.rawCategory)}-bg)`, color: `var(--p-${getCategoryTone(r.rawCategory)})` }}>
+                    <Icon name={getCategoryIcon(r.rawCategory)} size={15} />
                   </span>
                   <div className="stack" style={{ gap: 1 }}>
                     <span className="cell-strong">{r.name}</span>
@@ -260,7 +250,7 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
                   </div>
                 </div>
               ) },
-              { key: 'type', label: 'Type', render: (r: any) => <Badge tone={TYPE_COLOR[r.type]}>{r.type}</Badge> },
+              { key: 'type', label: 'Type', render: (r: any) => <Badge tone={getCategoryTone(r.rawCategory)}>{r.type}</Badge> },
               { key: 'category', label: 'Category' },
               { key: 'version', label: 'Version', render: (r: any) => 'v' + r.version },
               { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
@@ -278,8 +268,8 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
             {rows.map((m: any) => (
               <a key={m.id} href={`/modules/${m.id}`} className="card module-card"
                 onClick={(e) => { e.preventDefault(); navigate(`/modules/${m.id}`); }}>
-                <div className="module-card-top" style={{ background: `var(--p-${TYPE_COLOR[m.type]}-bg)` }}>
-                  <span style={{ color: `var(--p-${TYPE_COLOR[m.type]})` }}><Icon name={TYPE_ICON[m.type] ?? 'layers'} size={26} /></span>
+                <div className="module-card-top" style={{ background: `var(--p-${getCategoryTone(m.rawCategory)}-bg)` }}>
+                  <span style={{ color: `var(--p-${getCategoryTone(m.rawCategory)})` }}><Icon name={getCategoryIcon(m.rawCategory)} size={26} /></span>
                   <StatusBadge value={m.status} />
                 </div>
                 <div className="stack-1" style={{ padding: 14 }}>
@@ -291,7 +281,7 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
                     </div>
                   )}
                   <div className="row spread" style={{ marginTop: 8 }}>
-                    <Badge tone={TYPE_COLOR[m.type]}>{m.type}</Badge>
+                    <Badge tone={getCategoryTone(m.rawCategory)}>{m.type}</Badge>
                     <span className="t-xs t-muted">v{m.version} · {m.updated}</span>
                   </div>
                 </div>

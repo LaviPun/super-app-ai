@@ -46,7 +46,8 @@
 
 .tpl-card { border: 1px solid var(--p-border); border-radius: 12px; overflow: hidden; background: var(--p-surface); transition: box-shadow .15s, transform .1s; display: flex; flex-direction: column; }
 .tpl-card:hover { box-shadow: var(--p-shadow-300); }
-.tpl-thumb { height: 96px; display: flex; align-items: center; justify-content: center; }
+.tpl-thumb { height: 96px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+.tpl-thumb-frame { position: absolute; top: 0; left: 0; width: 384px; height: 384px; transform: scale(.25); transform-origin: top left; border: 0; pointer-events: none; background: #fff; }
 
 .module-mini, .module-card { text-decoration: none; color: inherit; transition: box-shadow .15s, transform .1s; display: block; }
 .module-mini:hover, .module-card:hover { box-shadow: var(--p-shadow-300); transform: translateY(-1px); }

@@ -467,12 +467,40 @@ export class PreviewService {
       custom: '⭐',
     };
     const icon = variantIcons[variant] ?? '⭐';
-    const label = String(this.cfg(spec, 'label') ?? '');
+
+    // Anchor: prefer the explicit `anchor` key, then the `corner` key that the
+    // template library actually uses (e.g. 'bottom-right', 'left'), then the
+    // style.layout anchor. Without this, every widget collapsed to bottom_right.
+    const cornerRaw = String(this.cfg(spec, 'corner') ?? '').toLowerCase();
+    const styleAnchor = String(
+      (((spec as { style?: { layout?: { anchor?: unknown } } }).style?.layout?.anchor) ?? '') as string,
+    ).toLowerCase();
+    const resolvedAnchor = (() => {
+      const a = anchor && anchor !== 'bottom_right' ? anchor : '';
+      const c = cornerRaw.replace(/-/g, '_'); // 'bottom-right' -> 'bottom_right'
+      const pick = a || c || styleAnchor || 'bottom_right';
+      // Normalize single-edge corners ('left'/'right') to a bottom corner.
+      if (pick === 'left') return 'bottom_left';
+      if (pick === 'right') return 'bottom_right';
+      return pick;
+    })();
+
+    // Surface the widget's real copy so distinct templates preview distinctly,
+    // and reflect the configured brand colors (previously hard-coded #111/#fff).
+    const title = String(this.cfg(spec, 'title') ?? '');
+    const subtitle = String(this.cfg(spec, 'subtitle') ?? '');
+    const label = String(
+      this.cfg(spec, 'label') ?? this.cfg(spec, 'ctaLabel') ?? this.cfg(spec, 'teaserLabel') ?? title,
+    );
+    const colors = ((spec as { style?: { colors?: Record<string, unknown> } }).style?.colors ?? {}) as Record<string, unknown>;
+    const bubbleBg = String(colors.buttonBg ?? colors.background ?? '#111');
+    const bubbleText = String(colors.buttonText ?? colors.text ?? '#fff');
+    const bubbleStyle = `${''}background: ${escAttr(bubbleBg)}; color: ${escAttr(bubbleText)};`;
 
     let posX = '';
     let posY = '';
     let extraTransform = '';
-    switch (anchor) {
+    switch (resolvedAnchor) {
       case 'bottom_right': posX = `right: ${offsetX}px;`; posY = `bottom: ${offsetY}px;`; break;
       case 'bottom_left':  posX = `left: ${offsetX}px;`;  posY = `bottom: ${offsetY}px;`; break;
       case 'top_right':    posX = `right: ${offsetX}px;`; posY = `top: ${offsetY}px;`;    break;
@@ -483,15 +511,16 @@ export class PreviewService {
 
     return pageHtml(`
       <div class="preview-stage">
-        <div class="preview-label">Floating widget · ${esc(anchor.replace(/_/g, ' '))} · ${esc(variant)}</div>
+        <div class="preview-label">Floating widget · ${esc(resolvedAnchor.replace(/_/g, ' '))}${title ? ` · ${esc(title)}` : ` · ${esc(variant)}`}</div>
         <div class="preview-products">
           <div class="preview-product"><span>Product A</span><span>$29</span></div>
           <div class="preview-product"><span>Product B</span><span>$49</span></div>
           <div class="preview-product"><span>Product C</span><span>$19</span></div>
         </div>
-        <div class="superapp-fw" style="${posX} ${posY} ${extraTransform}">
+        <div class="superapp-fw" style="${posX} ${posY} ${extraTransform} ${bubbleStyle}">
           <span class="superapp-fw__icon">${icon}</span>
           ${label ? `<span class="superapp-fw__label">${esc(label)}</span>` : ''}
+          ${subtitle ? `<span class="superapp-fw__sub">${esc(subtitle)}</span>` : ''}
         </div>
       </div>
     `, `
@@ -544,7 +573,8 @@ export class PreviewService {
       }
       .superapp-fw:hover { transform: scale(1.06); box-shadow: 0 8px 28px rgba(0,0,0,0.28); }
       .superapp-fw__icon { font-size: 22px; line-height: 1; }
-      .superapp-fw__label { font-size: 14px; font-weight: 500; }
+      .superapp-fw__label { font-size: 14px; font-weight: 600; }
+      .superapp-fw__sub { font-size: 12px; font-weight: 400; opacity: 0.85; }
     `);
   }
 
@@ -885,11 +915,25 @@ export class PreviewService {
 
   private posSurfacePreview(spec: RecipeSpec): string {
     const title = String(this.cfgVal(spec, 'title') ?? spec.name);
+    // Surface the POS target + action label so different POS blocks (e.g. a
+    // customer-details vs order-details action that share a name) preview
+    // distinctly and tell the associate WHERE the block appears.
+    const target = String(this.cfgVal(spec, 'target') ?? '');
+    const actionLabel = String(this.cfgVal(spec, 'label') ?? '');
+    // 'pos.customer-details.action.render' -> 'Customer details'
+    const surfaceLabel = target
+      ? target
+          .replace(/^pos\./, '')
+          .replace(/\.(action|block)\.render$/, '')
+          .replace(/[.-]/g, ' ')
+          .replace(/\b\w/g, (m) => m.toUpperCase())
+          .trim()
+      : '';
     return this.surfaceCard(spec.name, `${spec.type} · POS`, `
       <div class="surf-panel pos">
         <h3>${esc(title)}</h3>
-        <p class="surf-muted">Smart Grid tile / POS block as it appears to a store associate.</p>
-        <a class="surf-btn" href="#tap">Tap tile</a>
+        ${surfaceLabel ? `<p class="surf-muted">Appears on: <strong>${esc(surfaceLabel)}</strong></p>` : ''}
+        <a class="surf-btn" href="#tap">${actionLabel ? esc(actionLabel) : 'Tap tile'}</a>
         <details class="surf-state"><summary>Tapped state</summary><p class="surf-muted">POS opens the block modal with cart context.</p></details>
       </div>
     `);
