@@ -1,0 +1,60 @@
+{% comment %}
+  SuperApp Theme Modules (App Embed — BODY)
+  Reads superapp.theme/module_refs (list.metaobject_reference) — API 2026-04+ compliant.
+  Each entry is a $app:superapp_module metaobject. No large JSON blobs.
+  Renders modules whose activation_type is 'global'/'overlay' (or blank) — e.g.
+  overlay popups, sitewide banners, effects, floating widgets. Section/product/
+  collection modules render via their slot blocks; 'head' modules render via the
+  separate SuperApp Theme Head (target: head) app embed instead — so they are
+  EXCLUDED here to avoid leaking head-only content (JSON-LD/meta/preload) into <body>.
+
+  Markup is produced by snippets/superapp-module.liquid; styling and runtime
+  (popup open/close/focus-trap, app-proxy form fetch) come from
+  assets/superapp-modules.css + assets/superapp-modules.js, wired once per page
+  via this block's schema `stylesheet` / `javascript` attributes.
+
+  The app-embed `style_pack` is the SITEWIDE default for global/overlay modules
+  (popups, sitewide banners, effects, floating widgets). Per-module slot blocks
+  carry their own `style_pack` override. See docs/design-system/module-design-system.md §3.3.
+{% endcomment %}
+
+{% assign mod_refs = shop.metafields['superapp.theme']['module_refs'].value %}
+{% if mod_refs != blank %}
+  <div class="superapp-theme-modules" data-superapp-embed>
+    {% for mod_ref in mod_refs %}
+      {% assign act_type = mod_ref.fields.activation_type.value %}
+      {% unless act_type == 'section' or act_type == 'block' or act_type == 'head' %}
+        {% render 'superapp-module', mod_ref: mod_ref, style_pack: block.settings.style_pack, accent_override: block.settings.accent_override %}
+      {% endunless %}
+    {% endfor %}
+  </div>
+{% endif %}
+
+{% schema %}
+{
+  "name": "SuperApp Theme Modules",
+  "target": "body",
+  "stylesheet": "superapp-modules.css",
+  "javascript": "superapp-modules.js",
+  "settings": [
+    {
+      "type": "select",
+      "id": "style_pack",
+      "label": "Style pack (sitewide default)",
+      "info": "Design direction for popups, sitewide banners, effects and floating widgets. Auto picks the best match for your theme. Colours and fonts always inherit from your theme.",
+      "options": [
+        { "value": "auto", "label": "Auto (match my theme)" },
+        { "value": "luxe", "label": "Minimal Luxe" },
+        { "value": "bold", "label": "Bold DTC" }
+      ],
+      "default": "auto"
+    },
+    {
+      "type": "color",
+      "id": "accent_override",
+      "label": "Accent colour (optional)",
+      "info": "Overrides the accent for global modules. Leave empty to inherit your brand accent."
+    }
+  ]
+}
+{% endschema %}

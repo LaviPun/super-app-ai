@@ -1,0 +1,65 @@
+{% comment %}
+  SuperApp Collection Block
+  Place inside a collection template section to render a collection-level module.
+  Finds the module by ID in superapp.theme/module_refs (list.metaobject_reference) — API 2026-04+ compliant.
+  activationType 'block' modules are designed for this slot. Markup comes from
+  snippets/superapp-module.liquid; styles + runtime are wired once per page via
+  this block's schema `stylesheet` / `javascript` attributes.
+  Style pack: docs/design-system/module-design-system.md §3.3.
+{% endcomment %}
+{% assign module_id = block.settings.module_id | strip %}
+{% if module_id != blank %}
+  {% assign mod_refs = shop.metafields['superapp.theme']['module_refs'].value %}
+  {% assign mod_ref = nil %}
+  {% for ref in mod_refs %}
+    {% if ref.fields.module_id.value == module_id %}
+      {% assign mod_ref = ref %}
+      {% break %}
+    {% endif %}
+  {% endfor %}
+
+  {% if mod_ref %}
+    <div class="superapp-slot superapp-slot--collection" data-superapp-slot data-module-id="{{ module_id | escape }}">
+      {% render 'superapp-module', mod_ref: mod_ref, style_pack: block.settings.style_pack, accent_override: block.settings.accent_override %}
+    </div>
+  {% endif %}
+{% endif %}
+
+{% schema %}
+{
+  "name": "SuperApp Collection Block",
+  "target": "section",
+  "stylesheet": "superapp-modules.css",
+  "javascript": "superapp-modules.js",
+  "settings": [
+    {
+      "type": "text",
+      "id": "module_id",
+      "label": "Module ID",
+      "info": "Paste a module ID from the app (e.g. from the module detail page). Intended for collection-level modules such as collection banners or collection-specific promotions."
+    },
+    {
+      "type": "header",
+      "content": "Style"
+    },
+    {
+      "type": "select",
+      "id": "style_pack",
+      "label": "Style pack",
+      "info": "Design direction for this module. Auto picks the best match for your theme. Colours and fonts always inherit from your theme.",
+      "options": [
+        { "value": "auto", "label": "Auto (match my theme)" },
+        { "value": "luxe", "label": "Minimal Luxe" },
+        { "value": "bold", "label": "Bold DTC" }
+      ],
+      "default": "auto"
+    },
+    {
+      "type": "color",
+      "id": "accent_override",
+      "label": "Accent colour (optional)",
+      "info": "Overrides the accent for this module. Leave empty to inherit your brand accent."
+    }
+  ]
+}
+{% endschema %}
