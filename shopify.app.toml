@@ -12,6 +12,13 @@ embedded = true
 # until the local-pickup / pickup-point delivery-option APIs stabilize on a dated version.
 # They stay on disk (buildable + `config validate` green) but out of the deployed app
 # version. Re-add their dirs here once they're pinned to a stable api_version.
+#
+# ALSO EXCLUDED: superapp-pos-block. Its config declares developer-preview-only POS
+# targets (pos.*.event.observe + pos.return.post/exchange.post.*) which can't deploy to
+# production stores and make `shopify app dev`'s "update dev preview" step fail for the
+# WHOLE app. It stays on disk with every target intact (api_version 2026-07); re-add the
+# dir once those surfaces graduate from developer preview, or once the app/store is
+# enrolled in the POS UI-extensions developer preview.
 # NOTE: `.shopifyignore` is a THEME-CLI mechanism and does NOT gate app-extension deploys —
 # extension_directories is the documented app control (see shopify.dev app-structure).
 extension_directories = [
@@ -38,7 +45,7 @@ extension_directories = [
   "extensions/superapp-fulfillment-constraints",
   "extensions/superapp-order-routing",
   "extensions/superapp-payment-customization",
-  "extensions/superapp-pos-block",
+  # "extensions/superapp-pos-block",  # dev-preview-only POS targets — see note above
   "extensions/superapp-shipping-discount",
   "extensions/superapp-sidekick-data",
   "extensions/superapp-web-pixel",
