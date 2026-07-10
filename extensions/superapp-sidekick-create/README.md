@@ -1,2 +1,0 @@
-# superapp-sidekick-create
-

@@ -40,10 +40,7 @@ extension_directories = [
   "extensions/superapp-payment-customization",
   "extensions/superapp-pos-block",
   "extensions/superapp-shipping-discount",
-  "extensions/superapp-sidekick-configure",
-  "extensions/superapp-sidekick-create",
   "extensions/superapp-sidekick-data",
-  "extensions/superapp-sidekick-publish",
   "extensions/superapp-web-pixel",
   "extensions/theme-app-extension",
 ]
@@ -120,7 +117,7 @@ subpath = "superapp"
 [sidekick]
 # Required when the app has any Sidekick-eligible extensions (256-token limit).
 # Consolidated summary Sidekick uses to route merchant questions to us.
-extensions_summary = "Search and report on Super App AI generated modules (storefront popups, banners, bundles, upsells, discount and cart-transform Functions, recommendation blocks, and admin/POS/checkout/customer-account blocks), including each module's status, type, version, and performance; and Create, Configure, and Publish those modules from a natural-language request. All create, configure, and publish actions open the app for the merchant to review and confirm — nothing changes in the store automatically."
+extensions_summary = "Search and report on Super App AI generated modules (storefront popups, banners, bundles, upsells, discount and cart-transform Functions, recommendation blocks, and admin/POS/checkout/customer-account blocks), including each module's status, type, version, and performance."
 
 [auth]
 redirect_urls = [ ]
