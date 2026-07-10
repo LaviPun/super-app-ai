@@ -20,6 +20,7 @@ import { searchSolutions } from '~/services/ai/solution-search.server';
 import { ensureStoreAesthetic } from '~/services/theme/ensure-aesthetic.server';
 import { applyStorePalette } from '~/services/theme/apply-store-palette.server';
 import { applyStylePackTokens } from '~/services/ai/apply-style-pack.server';
+import { applyCompositionRules } from '~/services/ai/apply-composition.server';
 import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
 
 /** POST only; GET (e.g. prefetch or redirect) returns 405. */
@@ -147,6 +148,12 @@ export async function action({ request }: { request: Request }) {
           groundingBlock: grounding || undefined,
         });
 
+        // Composition guardrails (§04/§6): palette-independent — a generated
+        // module can never ship an orphaned grid or a centered paragraph.
+        for (const opt of recipeOptions) {
+          applyCompositionRules(opt.recipe as RecipeSpec);
+        }
+
         // Snap generated storefront sections onto the live store palette so they
         // match the merchant's theme. Conservative: never clobbers colors the
         // model chose deliberately (see applyStorePalette).
@@ -189,6 +196,7 @@ export async function action({ request }: { request: Request }) {
                     applyStorePalette(member.recipe as RecipeSpec, aesthetic.palette);
                     applyStylePackTokens(member.recipe as RecipeSpec, aesthetic.palette, aesthetic.typography);
                   }
+                  applyCompositionRules(member.recipe as RecipeSpec);
                 }
               }
             }

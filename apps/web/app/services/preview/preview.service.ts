@@ -253,7 +253,7 @@ export class PreviewService {
       .map(
         (_, i) => `
           <li class="superapp-recs__card">
-            <div class="superapp-recs__thumb" aria-hidden="true"></div>
+            <div class="superapp-recs__skeleton" aria-hidden="true"></div>
             <span class="superapp-recs__name">Product ${i + 1}</span>
             <span class="superapp-recs__price">$—</span>
           </li>`,
@@ -278,14 +278,13 @@ export class PreviewService {
       `
       body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
       ${styleBlock}
-      .preview-label { font-size: 0.75em; color: #6B7280; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.04em; }
-      .superapp-recs__title { margin: 0 0 12px; font-size: 1.25em; font-weight: var(--sa-fw, 600); }
-      .superapp-recs__grid { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sa-gap, 16px); grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
-      .superapp-recs__card { display: flex; flex-direction: column; gap: 6px; }
-      .superapp-recs__thumb { aspect-ratio: 1 / 1; background: linear-gradient(135deg, #f1f5f9, #e2e8f0); border-radius: var(--sa-radius, 8px); }
-      .superapp-recs__name { font-size: 0.9em; font-weight: 500; }
-      .superapp-recs__price { font-size: 0.85em; color: #6B7280; }
-      .superapp-recs__note { margin-top: 12px; font-size: 0.8em; color: #6B7280; }
+      /* The inlined pack stylesheet owns .superapp-recs__grid/__card/__name/__price/
+         __title/__skeleton. Only preview-only chrome + a token-grounded degraded
+         fallback (when the pack sheet is unavailable) live here. */
+      .preview-label { font-size: 0.75em; color: color-mix(in srgb, currentColor 55%, transparent); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.04em; }
+      .superapp-recs__grid { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sa-gap, 16px); grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+      .superapp-recs__skeleton { aspect-ratio: 1 / 1; border-radius: var(--sa-radius, 8px); background: color-mix(in srgb, currentColor 8%, transparent); }
+      .superapp-recs__note { margin-top: 12px; font-size: 0.8em; color: color-mix(in srgb, currentColor 55%, transparent); }
     `,
     );
   }
@@ -364,7 +363,7 @@ export class PreviewService {
       .superapp-banner__heading { margin: 0 0 8px; font-size: 1.25em; line-height: var(--sa-lh); font-weight: var(--sa-fw); }
       .superapp-banner__subheading { margin: 0 0 12px; opacity: 0.85; }
       .superapp-banner__cta { display:inline-block; padding: 10px 14px; border: 1px solid currentColor; text-decoration:none; border-radius: var(--sa-radius); background: var(--sa-btn-bg, transparent); color: var(--sa-btn-text, var(--sa-text)); }
-      .superapp-banner__image { max-width: 420px; height: auto; border-radius: var(--sa-radius); background:#f2f2f2; }
+      .superapp-banner__image { max-width: 420px; height: auto; border-radius: var(--sa-radius); background: color-mix(in srgb, currentColor 8%, transparent); }
       @media (max-width: 900px) { .superapp-banner__inner { flex-direction: column; align-items:flex-start; } .superapp-banner__image{ max-width:100%; } }
     `);
   }
@@ -377,8 +376,11 @@ export class PreviewService {
     const linkUrl = f.linkUrl ? String(f.linkUrl) : '';
     const dismissible = f.dismissible !== false;
     const styleBlock = this.styleCss(spec, '.superapp-note');
+    // Parity (R0): emit the `--embed` modifier the inlined pack stylesheet dresses
+    // (`.superapp-note--embed` positioning + `.superapp-note__inner/__msg/__link`).
+    // The close button is preview-only chrome; it draws from tokens, not hexes.
     return pageHtml(`
-      <div class="superapp-note">
+      <div class="superapp-note superapp-note--embed">
         <div class="superapp-note__inner">
           <span class="superapp-note__msg">${esc(message)}</span>
           ${linkText && linkUrl ? `<a class="superapp-note__link" href="${escAttr(linkUrl)}">${esc(linkText)}</a>` : ''}
@@ -388,9 +390,6 @@ export class PreviewService {
     `, `
       body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
       ${styleBlock}
-      .superapp-note { position: sticky; top: 0; z-index: var(--sa-z); }
-      .superapp-note__inner { display:flex; gap: var(--sa-gap); align-items:center; justify-content:center; }
-      .superapp-note__link { color: var(--sa-text); text-decoration: underline; }
       .superapp-note__close { margin-left: 8px; border: 0; background: transparent; color: inherit; font-size: 18px; cursor: pointer; }
     `);
   }
@@ -687,11 +686,20 @@ export class PreviewService {
       .filter((b) => b.kind === 'stat' || b.kind === 'number' || b.kind === 'percentage')
       .map((b) => {
         const bf = (b.fields ?? {}) as Record<string, unknown>;
+        // Parity with the storefront Liquid (superapp-module.liquid `when 'stats'`):
+        // the numeral is `prefix + (fields.value || block.text) + suffix`, so unit
+        // affixes ($, %, /5, +, ★, -day) render instead of being silently dropped.
+        const statVal = bf.value != null && String(bf.value) !== '' ? String(bf.value) : (b.text ?? '');
+        const prefix = bf.prefix != null ? String(bf.prefix) : '';
+        const suffix = bf.suffix != null ? String(bf.suffix) : '';
         const label = bf.label ? String(bf.label) : '';
+        const caption = bf.caption ? String(bf.caption) : '';
+        if (!statVal && !label) return '';
         return `
           <div class="superapp-stats__stat">
-            <span class="superapp-stats__value">${esc(b.text ?? '')}</span>
-            ${label ? `<span class="superapp-stats__label">${esc(label)}</span>` : ''}
+            <div class="superapp-stats__value">${esc(prefix)}${esc(statVal)}${esc(suffix)}</div>
+            ${label ? `<div class="superapp-stats__label">${esc(label)}</div>` : ''}
+            ${caption ? `<p class="superapp-stats__caption">${esc(caption)}</p>` : ''}
           </div>`;
       })
       .join('');

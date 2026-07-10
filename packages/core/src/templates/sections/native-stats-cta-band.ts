@@ -56,10 +56,10 @@ export const NATIVE_STATS_CTA_BAND_TEMPLATES: TemplateEntry[] = [
           columnsMobile: 2,
         },
         blocks: [
-          { kind: 'stat', text: '12,000+', fields: { label: 'Orders shipped', prefix: '', suffix: '+', animate: true } },
+          { kind: 'stat', text: '12,000', fields: { label: 'Orders shipped', prefix: '', suffix: '+', animate: true } },
           { kind: 'stat', text: '4.9', fields: { label: 'Average rating', suffix: '★', decimals: 1, animate: true } },
           { kind: 'stat', text: '98', fields: { label: 'Would buy again', suffix: '%', animate: true } },
-          { kind: 'stat', text: '30', fields: { label: 'Day returns', suffix: '-day', animate: false } },
+          { kind: 'stat', text: '30', fields: { label: 'Return window', suffix: '-day', animate: false } },
         ],
       },
       placement: { enabled_on: { templates: ['index'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },

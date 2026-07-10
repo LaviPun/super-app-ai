@@ -458,9 +458,10 @@ export const templates: TemplateEntry[] = [
         kind: 'collection-list',
         activation: 'section',
         title: 'Shop by category',
-        layout: { layout: 'grid', columns: 3 },
+        // 4 category tiles → 4-up single row (was columns:3, which orphaned the 4th tile).
+        layout: { layout: 'grid', columns: 4 },
         fields: {
-          columnsDesktop: 3,
+          columnsDesktop: 4,
           columnsMobile: 2,
           showTitleOverlay: true,
         },

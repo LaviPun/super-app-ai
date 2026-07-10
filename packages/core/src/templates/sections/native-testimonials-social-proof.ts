@@ -300,9 +300,10 @@ export const NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES: TemplateEntry[] = [
         activation: 'section',
         title: 'Happy customers',
         subtitle: 'Tagged photos and videos from real orders',
-        layout: { layout: 'grid', columns: 4 },
+        // 6 UGC tiles → 3×2 wall (was columns:4, which left a 2-tile orphan row).
+        layout: { layout: 'grid', columns: 3 },
         fields: {
-          reviewsPerRowDesktop: 4,
+          reviewsPerRowDesktop: 3,
           reviewsPerRowMobile: 2,
           mediaOnly: true,
           openInLightbox: true,
@@ -454,10 +455,10 @@ export const NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES: TemplateEntry[] = [
           starColor: '#111111',
         },
         blocks: [
-          { kind: 'stat', text: 'Average rating', fields: { value: '4.8', suffix: '/ 5', showStars: true } },
-          { kind: 'stat', text: 'Verified reviews', fields: { value: '12,400', suffix: '+' } },
-          { kind: 'stat', text: 'Units sold', fields: { value: '86,000', suffix: '+' } },
-          { kind: 'stat', text: 'Would recommend', fields: { value: '97', suffix: '%' } },
+          { kind: 'stat', text: '4.8', fields: { label: 'Average rating', suffix: '/ 5', showStars: true } },
+          { kind: 'stat', text: '12,400', fields: { label: 'Verified reviews', suffix: '+' } },
+          { kind: 'stat', text: '86,000', fields: { label: 'Units sold', suffix: '+' } },
+          { kind: 'stat', text: '97', fields: { label: 'Would recommend', suffix: '%' } },
         ],
       },
       placement: { enabled_on: { templates: ['index'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },

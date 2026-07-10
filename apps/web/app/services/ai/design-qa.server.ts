@@ -273,6 +273,33 @@ export function runDesignQa(recipe: RecipeSpec): DesignQaResult {
     }
   }
 
+  // --- §04/§6 Composition sanity (soft warns — applyCompositionRules is the
+  // deterministic fixer; a warn here means a path skipped it) -----------------
+  const layoutCfg = (config as { layout?: { layout?: string; columns?: number } }).layout;
+  const blockCount = blocks.length;
+  if (
+    layoutCfg?.layout === 'grid' &&
+    typeof layoutCfg.columns === 'number' &&
+    blockCount > 0 &&
+    (layoutCfg.columns > blockCount || (layoutCfg.columns >= 3 && blockCount % layoutCfg.columns === 1))
+  ) {
+    issues.push({
+      id: 'composition:grid-orphan',
+      severity: 'warn',
+      message: `Grid has ${blockCount} blocks in ${layoutCfg.columns} columns — a lone item dangles in the last row (§6.1). applyCompositionRules should have clamped this.`,
+      autofixed: false,
+    });
+  }
+  const bodyText = typeof (config as { body?: string }).body === 'string' ? (config as { body?: string }).body! : '';
+  if (style.pack !== undefined && (next.style as { typography?: { align?: string } })?.typography?.align === 'center' && bodyText.length > 280) {
+    issues.push({
+      id: 'composition:centered-paragraph',
+      severity: 'warn',
+      message: 'Long body copy is centered — §04: never center a paragraph; lists/body stay left.',
+      autofixed: false,
+    });
+  }
+
   const pass = !issues.some((i) => i.severity === 'fail');
   return { pass, issues, recipe: next as RecipeSpec };
 }

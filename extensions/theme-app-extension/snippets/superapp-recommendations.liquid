@@ -47,7 +47,7 @@
 
 {% if products != blank and products.size > 0 %}
   <section
-    class="superapp-recs sa-reveal"
+    class="superapp-recs superapp-container sa-reveal"
     data-module-id="{{ module_id | escape }}"
     data-strategy="{{ strat | escape }}"
     aria-labelledby="superapp-recs-title-{{ module_id | escape }}"
@@ -81,7 +81,7 @@
 {% else %}
   {% # DYNAMIC / cart-derived / unavailable static → JS resolves + applies fallback. %}
   <section
-    class="superapp-recs superapp-recs--pending sa-reveal"
+    class="superapp-recs superapp-recs--pending superapp-container sa-reveal"
     data-superapp-recs
     data-module-id="{{ module_id | escape }}"
     data-strategy="{{ strat | escape }}"

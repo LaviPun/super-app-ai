@@ -22,7 +22,7 @@
 {% endcomment %}
 {% assign bundle_id = mod_cfg.bundleId | default: module_id %}
 <section
-  class="superapp-bundle sa-reveal"
+  class="superapp-bundle superapp-container sa-reveal"
   data-superapp-bundle
   data-bundle-id="{{ bundle_id | escape }}"
   data-module-id="{{ module_id | escape }}"
@@ -43,7 +43,7 @@
   {% if mod_cfg.components != blank %}
     <ul class="superapp-bundle__items" role="list">
       {% for component in mod_cfg.components %}
-        <li class="superapp-bundle__item" data-variant-id="{{ component.variantId | escape }}">
+        <li class="superapp-bundle__item superapp-row" data-variant-id="{{ component.variantId | escape }}">
           {% if component.imageUrl != blank %}
             {% # theme-check-disable RemoteAsset %}
             <img class="superapp-bundle__img" src="{{ component.imageUrl | escape }}" alt="" loading="lazy" width="64" height="64">

@@ -71,9 +71,11 @@ export const NATIVE_CONTACT_TEAM_TIMELINE_TEMPLATES: TemplateEntry[] = [
           submitLabel: 'Send message',
         },
         blocks: [
+          // 4 contact methods → clean 2×2 beside the map (columns:2 is the map|details split).
           { kind: 'contact-method', text: 'Visit', fields: { detail: '350 Mission St, San Francisco, CA 94105', icon: 'pin' } },
           { kind: 'contact-method', text: 'Call', fields: { detail: '+1 (415) 555-0142', icon: 'phone' }, },
           { kind: 'contact-method', text: 'Hours', fields: { detail: 'Mon–Fri, 9am–6pm PT', icon: 'clock' } },
+          { kind: 'contact-method', text: 'Email', fields: { detail: 'hello@example.com', icon: 'mail' } },
         ],
       },
       placement: { enabled_on: { templates: ['page'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
@@ -201,7 +203,8 @@ export const NATIVE_CONTACT_TEAM_TIMELINE_TEMPLATES: TemplateEntry[] = [
         activation: 'section',
         title: 'Meet the makers',
         subtitle: 'The people behind every order.',
-        layout: { layout: 'grid', columns: 3 },
+        // 4 portraits → balanced 2×2 (was columns:3, which orphaned the 4th member).
+        layout: { layout: 'grid', columns: 2 },
         fields: { showRole: true, showSocials: true },
         blocks: [
           { kind: 'team-member', text: 'Ava Nguyen', imageUrl: 'https://cdn.example.com/team/ava.jpg', url: 'https://example.com/team/ava', fields: { role: 'Founder & CEO', bio: 'Started the studio in her garage in 2016.' } },

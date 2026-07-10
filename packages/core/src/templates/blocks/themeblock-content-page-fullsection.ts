@@ -63,9 +63,11 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
           heroImageUrl: 'https://cdn.example.com/pages/hero-split.jpg',
         },
         blocks: [
+          // 4 trust badges → clean 2×2 within the copy column (columns:2 is the copy|image split).
           { kind: 'feature', text: 'Free 2-day shipping over $50', fields: { icon: 'truck' } },
           { kind: 'feature', text: '30-day easy returns', fields: { icon: 'return' } },
           { kind: 'feature', text: 'Carbon-neutral delivery', fields: { icon: 'leaf' } },
+          { kind: 'feature', text: 'Secure checkout, always', fields: { icon: 'lock' } },
         ],
       },
       placement: on('page', 'index'),
@@ -503,9 +505,11 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
           captureChannel: 'email',
         },
         blocks: [
+          // 4 benefits → clean 2×2 beside the image (columns:2 is the image|form split).
           { kind: 'feature', text: 'Early access to every new drop', fields: { icon: 'star' } },
           { kind: 'feature', text: 'Subscriber-only pricing', fields: { icon: 'tag' } },
           { kind: 'feature', text: 'Styling tips from our team', fields: { icon: 'sparkle' } },
+          { kind: 'feature', text: 'First to know about restocks', fields: { icon: 'bell' } },
         ],
       },
       placement: on('page', 'blog', 'index'),
@@ -894,7 +898,8 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
         activation: 'section',
         title: 'Loved by 40,000 customers',
         subtitle: 'Do not just take our word for it.',
-        layout: { layout: 'grid', columns: 3 },
+        // 4 quote cards → balanced 2×2 wall (was columns:3, which orphaned the 4th).
+        layout: { layout: 'grid', columns: 2 },
         fields: { showStars: true },
         blocks: [
           { kind: 'review-card', text: 'Honestly the best purchase I have made all year.', fields: { author: 'Maya R.', rating: 5 } },
@@ -985,9 +990,11 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
           submitLabel: 'Send message',
         },
         blocks: [
+          // 4 contact channels → clean 2×2 beside the form prompt (columns:2 is the info|form split).
           { kind: 'feature', text: 'Email us', url: 'https://example.com/pages/contact', fields: { icon: 'mail', value: 'help@example.com' } },
           { kind: 'feature', text: 'Live chat', url: 'https://example.com/pages/chat', fields: { icon: 'chat', value: 'Average reply under 5 min' } },
           { kind: 'feature', text: 'Help center', url: 'https://example.com/pages/help', fields: { icon: 'book', value: 'Browse 200+ articles' } },
+          { kind: 'feature', text: 'Call us', url: 'https://example.com/pages/contact', fields: { icon: 'phone', value: '+1 (555) 012-3456' } },
         ],
       },
       placement: on('page'),

@@ -634,9 +634,9 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
         layout: { layout: 'columns', columns: 3 },
         fields: { animateCounters: true },
         blocks: [
-          { kind: 'stat', text: 'Orders shipped', fields: { value: '1.2M+', prefix: '', suffix: '' } },
-          { kind: 'stat', text: 'Five-star reviews', fields: { value: '8,000', suffix: '+' } },
-          { kind: 'stat', text: 'Average rating', fields: { value: '4.9', suffix: '/5' } },
+          { kind: 'stat', text: '1.2M+', fields: { label: 'Orders shipped' } },
+          { kind: 'stat', text: '8,000', fields: { label: 'Five-star reviews', suffix: '+' } },
+          { kind: 'stat', text: '4.9', fields: { label: 'Average rating', suffix: '/5' } },
         ],
       },
       placement: { enabled_on: { templates: IDX } },

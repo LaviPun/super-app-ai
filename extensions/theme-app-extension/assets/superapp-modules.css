@@ -73,6 +73,8 @@
   --sa-display-size: clamp(28px, 4vw, 44px);
   --sa-display-lh: 1.12;
   --sa-label-spacing: 0.18em;
+  /* editorial-left personality: section inners default to left when unset (§3.1) */
+  --sa-align-content: left;
   --sa-accent: var(--sa-accent-override, #b08d57);
   --sa-border-color: color-mix(in srgb, currentColor 18%, transparent);
   --sa-radius: 0px;
@@ -121,6 +123,89 @@
     --sa-shadow: 4px 4px 0 rgba(247, 247, 245, 0.9);
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Composition primitives (§04 layout laws · §6 invariants)
+   Shared layout scaffolding consumed by the Liquid renderer, the preview
+   renderers and the generation guardrails. Token-driven, pack-agnostic,
+   opt-in classes. LAW: gap over margins — every primitive spaces its children
+   with `gap` on the parent, never per-child block margins. These make the P0
+   alignment / measure / off-pack-radius defects structurally impossible: there
+   is one container discipline, one row grammar and one centered-statement
+   opt-in, so a card can never mix "icon left + text centered".
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Container — centered measure with fluid inline padding. Default ~1200px;
+   modifiers swap the ceiling (narrow ~560 / wide ~1600 / full = edge-to-edge).
+   Auto inline margins keep it centred; padding scales with the viewport. */
+.superapp-container { width: 100%; max-width: var(--sa-container, 1200px); margin-inline: auto; padding-inline: clamp(1rem, 4vw, 2rem); }
+.superapp-container--narrow { --sa-container: 560px; }
+.superapp-container--wide   { --sa-container: 1600px; }
+.superapp-container--full   { --sa-container: none; }
+
+/* Stack — vertical flow. Children carry NO block margins; the gap owns rhythm. */
+.superapp-stack { display: flex; flex-direction: column; gap: var(--sa-stack-gap, var(--sa-pad)); }
+.superapp-stack > * { margin-block: 0; }
+
+/* Grid — auto-fit responsive columns that collapse on their own via minmax
+   (each column never narrower than --sa-col-min, never overflows at 100%). */
+.superapp-grid { display: grid; gap: var(--sa-grid-gap, var(--sa-pad)); grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--sa-col-min, 240px)), 1fr)); }
+/* Explicit column count that collapses 3 → 2 → 1 across the breakpoints (§5). */
+.superapp-grid--cols { grid-template-columns: repeat(var(--sa-cols, 3), minmax(0, 1fr)); }
+.superapp-grid--2 { --sa-cols: 2; }
+@media (max-width: 1023px) { .superapp-grid--cols { grid-template-columns: repeat(min(var(--sa-cols, 3), 2), minmax(0, 1fr)); } }
+@media (max-width: 767px)  { .superapp-grid--cols { grid-template-columns: 1fr; } }
+/* Orphan handling (§6.1): a trailing single item in a 3-up (or 2-up) row spans
+   the full width and centres its measure rather than dangling. */
+.superapp-grid--cols > *:last-child:nth-child(3n+1) { grid-column: 1 / -1; max-width: 560px; justify-self: center; }
+.superapp-grid--2 > *:last-child:nth-child(2n+1) { grid-column: 1 / -1; max-width: 560px; justify-self: center; }
+@media (max-width: 767px) { .superapp-grid--cols > *:last-child { grid-column: auto; max-width: none; justify-self: stretch; } }
+
+/* Split — asymmetric two-column (content + media), centred, stacks ≤767px. */
+.superapp-split { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: center; gap: calc(var(--sa-pad) * 1.4); }
+@media (max-width: 767px) { .superapp-split { grid-template-columns: 1fr; } }
+
+/* Cluster — inline group that wraps cleanly (CTAs, tags, meta). One CTA row
+   per section (§6.3); wraps at 320px without clipping. */
+.superapp-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
+
+/* Row — icon / marker + text, top-aligned and left-read. Kills the P0 "icon
+   left, text centred" split: the marker never detaches from multi-line copy,
+   and long text wraps under itself, not under the glyph. */
+.superapp-row { display: flex; align-items: flex-start; gap: 0.6rem; text-align: left; }
+.superapp-row > :first-child { flex: 0 0 auto; }
+
+/* Centered statement (opt-in). Caps the measure so a long paragraph can never
+   be centred (§3 alignment law): only short measures (≤46ch) centre. */
+.superapp-align-center { text-align: center; }
+.superapp-align-center :is(p, .superapp-measure) { max-width: 46ch; margin-inline: auto; }
+
+/* Measure — readable line length for body copy (§6.2, ~60ch). */
+.superapp-measure { max-width: 60ch; }
+
+/* ── §05 atoms (component library — both packs, token-driven) ────────────────
+   Cheap shared atoms so renderers stop hand-rolling badges/tabs/chips. Shape
+   follows the pack: Luxe flattens pills to its square radius (no rounded tags
+   leaking on the editorial pack); Bold keeps them rounded. */
+/* Badge — compact status / label tag. Accent hairline; pill on Bold, square on Luxe. */
+.superapp-badge { display: inline-flex; align-items: center; gap: 0.3rem; font-family: var(--sa-font-mono); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; line-height: 1.4; padding: 0.2rem 0.55rem; border: var(--sa-border-w) solid var(--sa-accent); border-radius: 999px; color: var(--sa-accent); }
+.superapp-badge--solid { background: var(--sa-accent); color: var(--sa-btn-text, #0c0c0d); border-color: var(--sa-accent); }
+.superapp-scope[data-sa-pack='luxe'] .superapp-badge { border-radius: var(--sa-radius); }
+
+/* Pill — selectable chip / tag toggle. ≥44px hit target; accent on select. */
+.superapp-pill { display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; min-height: 44px; padding: 0.5rem 1rem; font: inherit; font-size: 0.85rem; cursor: pointer; background: transparent; color: inherit; text-decoration: none; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: 999px; transition: border-color var(--sa-motion) var(--sa-ease), background var(--sa-motion) var(--sa-ease); }
+.superapp-pill:hover { border-color: var(--sa-accent); }
+.superapp-pill:focus-visible { outline: 2px solid var(--sa-accent); outline-offset: 2px; }
+.superapp-pill[aria-pressed='true'], .superapp-pill.is-selected { border-color: var(--sa-accent); background: color-mix(in srgb, var(--sa-accent) 14%, transparent); }
+.superapp-scope[data-sa-pack='luxe'] .superapp-pill { border-radius: var(--sa-radius); }
+
+/* Tabs — underline variant. Active tab carries an accent rule; ≥44px targets;
+   the row sits on a hairline and the active underline overlaps it. */
+.superapp-tabs { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; border-bottom: var(--sa-border-w) solid var(--sa-border-color); }
+.superapp-tabs__tab { display: inline-flex; align-items: center; min-height: 44px; padding: 0.5rem 0.15rem; margin-bottom: calc(-1 * var(--sa-border-w)); font: inherit; font-family: var(--sa-font-mono); font-size: 0.8rem; text-transform: var(--sa-label-transform); letter-spacing: var(--sa-label-spacing); color: inherit; opacity: 0.7; cursor: pointer; background: transparent; border: 0; border-bottom: 2px solid transparent; transition: opacity var(--sa-motion) var(--sa-ease), border-color var(--sa-motion) var(--sa-ease), color var(--sa-motion) var(--sa-ease); }
+.superapp-tabs__tab:hover { opacity: 1; }
+.superapp-tabs__tab[aria-selected='true'], .superapp-tabs__tab.is-active { opacity: 1; color: var(--sa-accent); border-bottom-color: var(--sa-accent); }
+.superapp-tabs__tab:focus-visible { outline: 2px solid var(--sa-accent); outline-offset: 2px; }
 
 /* Shared heading helper (consume type tokens). Fluid display size + line-height
    apply to every module title; popup caps to a smaller ceiling below. */
@@ -530,12 +615,15 @@
 }
 
 /* ── Merchant override hooks (§3.3.3 layer 5) ───────────────────────────────
-   --sa-align has NO fallback: unset → the declaration is invalid-at-computed-value
-   and text-align inherits (theme default), so alignment only applies when a setting
-   sets it. --sa-module-bg / --sa-ink default to transparent / currentColor, so both
-   are no-ops until the merchant picks a colour. These sit on the wrapper's inline
-   style, above the pack map; per-module [data-module-id] CSS still wins. */
-.superapp-scope :is(.superapp-section__inner, .superapp-banner__content, .superapp-contact__inner, .superapp-launch) { text-align: var(--sa-align); }
+   Generic section inners fall through --sa-align (merchant setting) → --sa-align-content
+   (pack personality: Luxe = editorial-left) → inherit (theme default), so an unset
+   section still takes its pack's alignment intent. The other inners keep the pure
+   --sa-align chain (unset → inherits theme default) so centred launch/banner/contact
+   layouts are never forced left. --sa-module-bg / --sa-ink default to transparent /
+   currentColor, so both are no-ops until the merchant picks a colour. These sit on the
+   wrapper's inline style, above the pack map; per-module [data-module-id] CSS still wins. */
+.superapp-scope .superapp-section__inner { text-align: var(--sa-align, var(--sa-align-content, inherit)); }
+.superapp-scope :is(.superapp-banner__content, .superapp-contact__inner, .superapp-launch) { text-align: var(--sa-align); }
 .superapp-scope :is(.superapp-section, .superapp-banner--embed, .superapp-contact) { background: var(--sa-module-bg, transparent); color: var(--sa-ink, currentColor); }
 
 /* ── R5 · FAQ accordion (kind: faq) ─────────────────────────────────────────
@@ -543,9 +631,11 @@
    marker rotates on open; the answer fades in (reduced-motion drops the fade). */
 .superapp-faq { display: grid; gap: 0; max-width: 780px; margin: 0 auto; }
 .superapp-faq__item { border-bottom: var(--sa-border-w) solid var(--sa-border-color); }
-.superapp-faq__q { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 44px; padding: 1rem 0.25rem; font-family: var(--sa-font-display); font-weight: var(--sa-display-weight); font-size: clamp(16px, 1.4vw, 20px); line-height: 1.35; }
+/* Summary = flex row, top-aligned so the +/- marker locks to the FIRST line of a
+   multi-line question instead of centring against the whole block (P0). */
+.superapp-faq__q { list-style: none; cursor: pointer; display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; min-height: 44px; padding: 1rem 0.25rem; font-family: var(--sa-font-display); font-weight: var(--sa-display-weight); font-size: clamp(16px, 1.4vw, 20px); line-height: 1.35; }
 .superapp-faq__q::-webkit-details-marker { display: none; }
-.superapp-faq__q::after { content: '+'; font-family: var(--sa-font-mono); font-size: 1.3rem; line-height: 1; flex: 0 0 auto; transition: transform var(--sa-motion) var(--sa-ease); }
+.superapp-faq__q::after { content: '+'; font-family: var(--sa-font-mono); font-size: 1.3rem; line-height: 1.35; flex: 0 0 auto; align-self: flex-start; transition: transform var(--sa-motion) var(--sa-ease); }
 .superapp-faq__item[open] .superapp-faq__q::after { transform: rotate(45deg); }
 .superapp-faq__q:focus-visible { outline: 2px solid var(--sa-accent); outline-offset: 2px; }
 .superapp-faq__a { padding: 0 0.25rem 1rem; opacity: 0.85; line-height: 1.6; max-width: 68ch; }
@@ -794,8 +884,8 @@
 .superapp-pricing__amount { font-size: clamp(28px, 3.5vw, 42px); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
 .superapp-pricing__period { font-size: 0.85rem; opacity: 0.7; }
 .superapp-pricing__features { list-style: none; margin: 0.25rem 0; padding: 0; display: grid; gap: 0.4rem; }
-.superapp-pricing__feature { position: relative; padding-left: 1.4rem; font-size: 0.9rem; line-height: 1.4; }
-.superapp-pricing__feature::before { content: '✓'; position: absolute; left: 0; color: var(--sa-accent); font-weight: 700; }
+.superapp-pricing__feature { display: flex; align-items: flex-start; gap: 0.5rem; text-align: left; font-size: 0.9rem; line-height: 1.4; }
+.superapp-pricing__feature::before { content: '✓'; flex: 0 0 auto; line-height: 1.4; color: var(--sa-accent); font-weight: 700; }
 .superapp-pricing__cta { margin-top: auto; }
 .superapp-pricing__plan--featured { background: var(--sa-dark-ground); color: var(--sa-dark-content); border-color: var(--sa-dark-ground); }
 .superapp-scope[data-sa-pack='luxe'] .superapp-pricing__amount { font-family: var(--sa-font-display); }
@@ -842,8 +932,8 @@
 .superapp-newsletter__title { font-family: var(--sa-font-display); font-weight: var(--sa-display-weight); letter-spacing: var(--sa-display-spacing); text-transform: var(--sa-display-transform); font-size: var(--sa-display-size); line-height: var(--sa-display-lh); margin: 0; text-align: center; }
 .superapp-newsletter__text { margin: 0; opacity: 0.82; line-height: 1.5; text-align: center; }
 .superapp-newsletter__benefits { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; justify-content: center; }
-.superapp-newsletter__benefit { position: relative; padding-left: 1.2rem; font-size: 0.85rem; opacity: 0.85; }
-.superapp-newsletter__benefit::before { content: '✓'; position: absolute; left: 0; color: var(--sa-accent); }
+.superapp-newsletter__benefit { display: inline-flex; align-items: flex-start; gap: 0.4rem; text-align: left; font-size: 0.85rem; opacity: 0.85; }
+.superapp-newsletter__benefit::before { content: '✓'; flex: 0 0 auto; color: var(--sa-accent); }
 .superapp-newsletter__form { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .superapp-newsletter__disclaimer { margin: 0; font-size: 0.75rem; opacity: 0.65; text-align: center; line-height: 1.4; }
 
@@ -912,3 +1002,65 @@
 .superapp-techcard__key { font-family: var(--sa-font-mono); opacity: 0.7; }
 .superapp-techcard__val { text-align: right; }
 .superapp-techcard__note { margin: 0; opacity: 0.75; line-height: 1.5; font-size: 0.9rem; }
+
+/* ── PDP — product-page section: gallery + buy box ───────────────────────────── */
+.superapp-pdp { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: calc(var(--sa-pad) * 1.4); align-items: start; }
+@media (max-width: 720px) { .superapp-pdp { grid-template-columns: 1fr; } }
+.superapp-pdp__gallery { display: grid; gap: 0.6rem; }
+.superapp-pdp__media { width: 100%; height: auto; aspect-ratio: 4 / 5; object-fit: cover; border-radius: var(--sa-radius-lg); border: var(--sa-border-w) solid var(--sa-border-color); }
+.superapp-pdp__thumbs { display: flex; gap: 0.6rem; }
+.superapp-pdp__thumb { width: 64px; height: 64px; object-fit: cover; border-radius: var(--sa-radius); border: var(--sa-border-w) solid var(--sa-border-color); cursor: pointer; transition: border-color var(--sa-motion) var(--sa-ease); }
+.superapp-pdp__thumb:hover { border-color: var(--sa-accent); }
+.superapp-pdp__buybox { display: flex; flex-direction: column; gap: 0.85rem; }
+.superapp-pdp__eyebrow { font-family: var(--sa-font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: var(--sa-label-spacing); color: var(--sa-accent); }
+.superapp-pdp__title { font-family: var(--sa-font-display); font-weight: var(--sa-display-weight); text-transform: var(--sa-display-transform); letter-spacing: var(--sa-display-spacing); font-size: clamp(1.5rem, 2.6vw, 2.2rem); line-height: 1.1; margin: 0; }
+.superapp-pdp__rating { display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; }
+.superapp-pdp__stars { color: var(--sa-accent); letter-spacing: 0.05em; }
+.superapp-pdp__price { display: flex; align-items: baseline; gap: 0.6rem; }
+.superapp-pdp__amount { font-family: var(--sa-font-mono); font-size: 1.3rem; font-weight: 600; }
+.superapp-pdp__compare { opacity: 0.55; font-size: 0.95rem; }
+.superapp-pdp__body { margin: 0; line-height: 1.6; opacity: 0.85; max-width: 46ch; }
+.superapp-pdp__variants { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.superapp-pdp__variant { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; padding: 0.4rem 0.9rem; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-btn-radius); font-size: 0.88rem; cursor: pointer; transition: border-color var(--sa-motion) var(--sa-ease), background var(--sa-motion) var(--sa-ease); }
+.superapp-pdp__variant:hover { border-color: var(--sa-accent); }
+.superapp-pdp__variant--selected { border-color: var(--sa-accent); background: color-mix(in srgb, var(--sa-accent) 12%, transparent); }
+.superapp-pdp__atc { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; font: inherit; cursor: pointer; text-decoration: none; text-align: center; padding: 0.85rem 1.6rem; border: var(--sa-border-w) solid var(--sa-accent); border-radius: var(--sa-btn-radius); background: var(--sa-btn-bg, var(--sa-solid, CanvasText)); color: var(--sa-btn-text, var(--sa-solid-content, Canvas)); text-transform: var(--sa-label-transform); letter-spacing: var(--sa-label-spacing); box-shadow: var(--sa-shadow); transition: transform var(--sa-motion) var(--sa-ease), box-shadow var(--sa-motion) var(--sa-ease); }
+.superapp-pdp__atc:hover { transform: var(--sa-lift); }
+.superapp-pdp__atc:active { transform: var(--sa-press); }
+.superapp-pdp__atc:focus-visible { outline: 2px solid var(--sa-accent); outline-offset: 2px; }
+.superapp-pdp__trust { list-style: none; display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; margin: 0; padding: 0; font-size: 0.82rem; opacity: 0.8; }
+.superapp-pdp__trustitem { position: relative; padding-left: 1.1rem; }
+.superapp-pdp__trustitem::before { content: '✓'; position: absolute; left: 0; color: var(--sa-accent); font-weight: 700; }
+.superapp-scope[data-sa-pack='luxe'] .superapp-pdp__media { border-radius: 0; }
+.superapp-scope[data-sa-pack='luxe'] .superapp-pdp__variant { border-radius: 999px; }
+.superapp-scope[data-sa-pack='luxe'] .superapp-pdp__amount { font-family: var(--sa-font-display); font-size: 1.45rem; font-weight: 500; }
+.superapp-scope[data-sa-pack='bold'] .superapp-pdp__media { border: 2px solid var(--sa-border-color); }
+.superapp-scope[data-sa-pack='bold'] .superapp-pdp__title { text-transform: uppercase; }
+.superapp-scope[data-sa-pack='bold'] .superapp-pdp__amount { color: var(--sa-accent); font-weight: 700; }
+.superapp-scope[data-sa-pack='bold'] .superapp-pdp__atc { background: var(--sa-btn-bg, var(--sa-accent)); color: var(--sa-btn-text, #0c0c0d); border-color: #0c0c0d; }
+.superapp-scope[data-sa-pack='bold'] .superapp-pdp__atc:active { box-shadow: 0 0 0 0 transparent; }
+
+/* ── Sticky add-to-cart bar — fixed to viewport bottom, thumb-zone CTA ──────── */
+.superapp-section--sticky-atc { position: fixed; inset-inline: 0; bottom: 0; z-index: var(--sa-z, 200); margin: 0; padding: 0; }
+.superapp-section--sticky-atc .superapp-section__inner { max-width: none; padding: 0; }
+.superapp-satc { display: flex; align-items: center; gap: 0.9rem; padding: 0.6rem clamp(0.9rem, 3vw, 1.6rem); padding-bottom: calc(0.6rem + env(safe-area-inset-bottom, 0px)); background: var(--sa-module-bg, Canvas); color: var(--sa-module-text, CanvasText); border-top: var(--sa-border-w) solid var(--sa-border-color); box-shadow: var(--sa-overlay-shadow, 0 -8px 30px -12px rgba(0,0,0,.25)); }
+.superapp-satc__thumb { width: 44px; height: 44px; object-fit: cover; border-radius: var(--sa-radius); border: var(--sa-border-w) solid var(--sa-border-color); flex: 0 0 auto; }
+.superapp-satc__meta { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; margin-right: auto; }
+.superapp-satc__name { font-family: var(--sa-font-display); font-weight: var(--sa-display-weight); text-transform: var(--sa-display-transform); font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.superapp-satc__price { font-family: var(--sa-font-mono); font-size: 0.85rem; }
+.superapp-satc__compare { opacity: 0.55; }
+.superapp-satc__atc { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; flex: 0 0 auto; font: inherit; cursor: pointer; text-decoration: none; padding: 0.65rem 1.3rem; border: var(--sa-border-w) solid var(--sa-accent); border-radius: var(--sa-btn-radius); background: var(--sa-btn-bg, var(--sa-solid, CanvasText)); color: var(--sa-btn-text, var(--sa-solid-content, Canvas)); text-transform: var(--sa-label-transform); letter-spacing: var(--sa-label-spacing); box-shadow: var(--sa-shadow); transition: transform var(--sa-motion) var(--sa-ease), box-shadow var(--sa-motion) var(--sa-ease); }
+.superapp-satc__atc:hover { transform: var(--sa-lift); }
+.superapp-satc__atc:active { transform: var(--sa-press); }
+.superapp-satc__atc:focus-visible { outline: 2px solid var(--sa-accent); outline-offset: 2px; }
+.superapp-scope[data-sa-pack='luxe'] .superapp-satc { background: var(--sa-ink, #1c1813); color: var(--sa-dark-content, #f4f1ea); border-top: 0; }
+.superapp-scope[data-sa-pack='luxe'] .superapp-satc__thumb { border-radius: 0; }
+.superapp-scope[data-sa-pack='bold'] .superapp-satc { border-top-width: 2px; }
+.superapp-scope[data-sa-pack='bold'] .superapp-satc__name { text-transform: uppercase; font-weight: 800; }
+.superapp-scope[data-sa-pack='bold'] .superapp-satc__price { color: var(--sa-accent); font-weight: 700; }
+.superapp-scope[data-sa-pack='bold'] .superapp-satc__atc { background: var(--sa-btn-bg, var(--sa-accent)); color: var(--sa-btn-text, #0c0c0d); border-color: #0c0c0d; }
+.superapp-scope[data-sa-pack='bold'] .superapp-satc__atc:active { box-shadow: 0 0 0 0 transparent; }
+@media (prefers-reduced-motion: reduce) {
+  .superapp-pdp__atc, .superapp-satc__atc, .superapp-pdp__thumb, .superapp-pdp__variant { transition: none; }
+  .superapp-pdp__atc:hover, .superapp-satc__atc:hover { transform: none; }
+}

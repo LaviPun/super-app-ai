@@ -99,6 +99,72 @@ describe('PreviewService structured fixtures', () => {
       expect(out.html).toContain("data-sa-pack='bold'");
     });
 
+    // ── Token discipline + composition (composition-rules.md §04) ─────────────
+    // Storefront archetype renderers must draw every accent/CTA/chip color from
+    // `--sa-*` tokens (dressed by the inlined pack stylesheet), never a hardcoded
+    // brand hex. This denylist is the regression guard the screenshot defects
+    // (blue icons, indigo "MOST POPULAR" chip, violet hero media) would trip.
+    const FORBIDDEN_ACCENT =
+      /#(?:2563eb|6366f1|4f46e5|7c3aed|3b82f6|818cf8|a5b4fc|8b5cf6)\b|\b(?:indigo|violet|slateblue)\b/i;
+
+    const arch = (kind: string, blocks: unknown[], pack: 'luxe' | 'bold' = 'luxe'): RecipeSpec =>
+      ({
+        type: 'theme.section',
+        name: kind,
+        category: 'STOREFRONT_UI',
+        requires: ['THEME_ASSETS'],
+        style: { pack, colors: { seed: '#8a6d3b' } },
+        config: { kind, activation: 'section', fields: {}, blocks, title: 'Title', subtitle: 'Sub' },
+      }) as unknown as RecipeSpec;
+
+    const html = (spec: RecipeSpec): string => {
+      const out = service.render(spec);
+      if (out.kind !== 'HTML') throw new Error('expected HTML');
+      return out.html;
+    };
+
+    it('emits no hardcoded accent hex in any storefront archetype preview', () => {
+      const specs: RecipeSpec[] = [
+        arch('feature', [{ kind: 'feature', text: 'Fast', fields: { heading: 'Speed', icon: 'bolt' } }]),
+        arch('pricing', [
+          { kind: 'plan', text: 'Pro', fields: { price: '29', period: 'mo', recommended: true, features: ['A', 'B'], ctaLabel: 'Go' } },
+        ]),
+        arch('stats', [{ kind: 'stat', text: 'Average rating', fields: { value: '4.9', suffix: '/5', label: 'Rating' } }]),
+        arch('faq', [{ kind: 'faq-item', text: 'Q', fields: { question: 'Why?', answer: 'Because.' } }]),
+        arch('hero', [{ kind: 'cta', text: 'Buy', url: '#' }]),
+        arch('pricing', [{ kind: 'plan', text: 'Pro', fields: { recommended: true, features: ['X'] } }], 'bold'),
+      ];
+      for (const spec of specs) {
+        expect(html(spec)).not.toMatch(FORBIDDEN_ACCENT);
+      }
+    });
+
+    it('renders pricing features as the left-aligned flex-row class the pack dresses', () => {
+      const out = html(
+        arch('pricing', [
+          { kind: 'plan', text: 'Pro', fields: { price: '29', features: ['Unlimited seats', 'Priority support'] } },
+        ]),
+      );
+      // The `.superapp-pricing__feature` list item is styled by the pack sheet as
+      // `display:flex; align-items:flex-start; text-align:left` with a ✓ ::before —
+      // emitting the class (not a bespoke centered marker) is what fixes the
+      // "✓ detached from centered text" defect.
+      expect(out).toContain('superapp-pricing__features');
+      expect(out).toContain('class="superapp-pricing__feature">Unlimited seats');
+    });
+
+    it('renders stat prefix/value/suffix (unit affixes no longer dropped)', () => {
+      const out = html(
+        arch('stats', [
+          { kind: 'stat', text: 'ignored-when-value-set', fields: { value: '4.9', suffix: '/5', prefix: '', label: 'Average rating' } },
+          { kind: 'stat', text: '$1.2M', fields: { label: 'Revenue' } },
+        ]),
+      );
+      expect(out).toContain('class="superapp-stats__value">4.9/5<');
+      expect(out).toContain('class="superapp-stats__value">$1.2M<');
+      expect(out).toContain('class="superapp-stats__label">Average rating<');
+    });
+
     it('does NOT wrap non-storefront previews', () => {
       const spec: RecipeSpec = {
         type: 'checkout.block',

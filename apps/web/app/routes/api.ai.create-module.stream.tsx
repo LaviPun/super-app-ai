@@ -19,6 +19,7 @@ import { searchSolutions } from '~/services/ai/solution-search.server';
 import { ensureStoreAesthetic } from '~/services/theme/ensure-aesthetic.server';
 import { applyStorePalette } from '~/services/theme/apply-store-palette.server';
 import { applyStylePackTokens } from '~/services/ai/apply-style-pack.server';
+import { applyCompositionRules } from '~/services/ai/apply-composition.server';
 import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
 import { generateValidatedBlueprint } from '~/services/ai/llm.server';
 import { planBlueprint } from '~/services/ai/blueprint-planner';
@@ -165,6 +166,14 @@ export async function action({ request }: { request: Request }) {
         })) {
           if (event.kind === 'option') {
             validCount++;
+            // Composition guardrails (§04/§6) — palette-independent, parity with batch.
+            if (event.option?.recipe) {
+              try {
+                applyCompositionRules(event.option.recipe as RecipeSpec);
+              } catch {
+                /* composition clamp is best-effort */
+              }
+            }
             // Snap storefront options onto the live store palette (parity with batch).
             if (aesthetic && event.option?.recipe) {
               try {

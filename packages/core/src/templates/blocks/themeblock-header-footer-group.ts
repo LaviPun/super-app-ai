@@ -563,6 +563,10 @@ export const TEMPLATES: TemplateEntry[] = [
         subtitle: 'Subscribe for new arrivals, restocks, and members-only offers.',
         layout: { layout: 'columns', columns: 2 },
         fields: {
+          // Image lives in fields (image|form split, à la TBLK-PAGE-11), not as a lone
+          // grid block — a single block in a columns:2 split would orphan the form column.
+          imageUrl: 'https://cdn.example.com/newsletter/lifestyle.jpg',
+          imageAlt: 'Lifestyle image beside the signup form',
           imagePosition: 'left',
           emailPlaceholder: 'you@example.com',
           submitLabel: 'Sign me up',
@@ -570,13 +574,7 @@ export const TEMPLATES: TemplateEntry[] = [
           consentText: 'We’ll email you occasionally. No spam, unsubscribe anytime.',
           successMessage: 'Welcome aboard — your code is on its way.',
         },
-        blocks: [
-          {
-            kind: 'slide',
-            imageUrl: 'https://cdn.example.com/newsletter/lifestyle.jpg',
-            fields: { alt: 'Lifestyle image beside the signup form' },
-          },
-        ],
+        blocks: [],
       },
       placement: { enabled_on: { groups: ['footer'], templates: ALL_PAGES } },
       style: {

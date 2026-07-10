@@ -113,7 +113,8 @@ export const templates: TemplateEntry[] = [
         kind: 'payment-badges',
         activation: 'section',
         subtitle: 'Guaranteed safe checkout',
-        layout: { layout: 'grid', columns: 6 },
+        // 5 gateway badges → single 5-up row (was columns:6, which left an orphan cell).
+        layout: { layout: 'grid', columns: 5 },
         fields: { badgeStyle: 'multicolor', badgeSize: 'medium', showCaption: true },
         blocks: [
           { kind: 'payment-icon', text: 'Visa', fields: { provider: 'visa', order: 1 } },

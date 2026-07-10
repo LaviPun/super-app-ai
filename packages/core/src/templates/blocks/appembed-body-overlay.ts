@@ -411,7 +411,7 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
           displayForSeconds: 8,
         },
         blocks: [
-          { kind: 'stat', text: '{{count}} viewing now', fields: { metric: 'live_visitors', window: '24h' } },
+          { kind: 'stat', text: '{{count}}', fields: { label: 'viewing now', metric: 'live_visitors', window: '24h' } },
         ],
       },
       placement: { enabled_on: { templates: ['product'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
