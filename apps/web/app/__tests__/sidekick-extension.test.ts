@@ -167,57 +167,25 @@ describe('Sidekick extension declarations', () => {
     expect(toml).toMatch(/api_version\s*=\s*"2026-04"/);
   });
 
-  it('each action-link extension declares an admin.app.intent.link intent with a schema that exists', () => {
+  // The action-link extensions (create/configure/publish) were removed: they declared
+  // custom `application/superapp-module-*` intent types, which Shopify rejects at deploy
+  // (only a fixed list of application/* types is supported), so they could never ship and
+  // blocked `shopify app dev`. Only the sidekick-data (search/report) extension remains.
+  it('no action-link (admin.app.intent.link) sidekick extensions remain', () => {
     for (const dir of ['superapp-sidekick-create', 'superapp-sidekick-configure', 'superapp-sidekick-publish']) {
-      const base = path.join(EXTENSIONS_DIR, dir);
-      const toml = fs.readFileSync(path.join(base, 'shopify.extension.toml'), 'utf8');
-      expect(toml).toMatch(/type\s*=\s*"admin_link"/);
-      expect(toml).toMatch(/target\s*=\s*"admin\.app\.intent\.link"/);
-      const schemaRef = toml.match(/schema\s*=\s*"\.\/([^"]+)"/)?.[1];
-      expect(schemaRef, `${dir} declares a schema`).toBeTruthy();
-      expect(fs.existsSync(path.join(base, schemaRef!)), `${dir}/${schemaRef} exists`).toBe(true);
-      const type = toml.match(/\[\[extensions\.targeting\.intents\]\][\s\S]*?type\s*=\s*"([^"]+)"/)?.[1];
-      expect(type).toMatch(/^application\/superapp-module-(create|configure|publish)$/);
+      expect(fs.existsSync(path.join(EXTENSIONS_DIR, dir)), `${dir} should be removed`).toBe(false);
     }
+    const appToml = fs.readFileSync(APP_TOML, 'utf8');
+    expect(appToml).not.toMatch(/superapp-sidekick-(create|configure|publish)/);
   });
 
-  it('action-link URLs point at real app routes; {id} placeholders have a param mapping', () => {
-    const cases: Record<string, string> = {
-      'superapp-sidekick-create': '/generate',
-      'superapp-sidekick-configure': '/modules/{id}',
-      'superapp-sidekick-publish': '/modules/{id}?publish=1',
-    };
-    for (const [dir, expectedUrl] of Object.entries(cases)) {
-      const base = path.join(EXTENSIONS_DIR, dir);
-      const toml = fs.readFileSync(path.join(base, 'shopify.extension.toml'), 'utf8');
-      const url = toml.match(/url\s*=\s*"([^"]+)"/)?.[1] ?? '';
-      expect(url).toBe(expectedUrl);
-      if (url.includes('{id}')) {
-        const schemaRef = toml.match(/schema\s*=\s*"\.\/([^"]+)"/)![1]!;
-        const schema = readJson(path.join(base, schemaRef));
-        // the value maps to the {id} path param via fieldName "id"
-        expect(schema.value?.mapTo).toBe('param');
-        expect(schema.value?.fieldName).toBe('id');
-      }
-    }
-  });
-
-  it('intent schemas declare no required fields (Sidekick treats all inputs as optional)', () => {
-    for (const dir of ['superapp-sidekick-create', 'superapp-sidekick-configure', 'superapp-sidekick-publish']) {
-      const base = path.join(EXTENSIONS_DIR, dir);
-      const schemaRef = fs.readFileSync(path.join(base, 'shopify.extension.toml'), 'utf8').match(/schema\s*=\s*"\.\/([^"]+)"/)![1]!;
-      const raw = fs.readFileSync(path.join(base, schemaRef), 'utf8');
-      expect(raw).not.toMatch(/"required"\s*:/);
-    }
-  });
-
-  it('shopify.app.toml declares the [sidekick] extensions_summary', () => {
+  it('shopify.app.toml declares the [sidekick] extensions_summary (search/report — the data extension that remains)', () => {
     const toml = fs.readFileSync(APP_TOML, 'utf8');
     expect(toml).toMatch(/\[sidekick\]/);
     const summary = toml.match(/extensions_summary\s*=\s*"([^"]+)"/)?.[1] ?? '';
     expect(summary.length).toBeGreaterThan(0);
-    // Names the operations Sidekick should route to us (Search/Create/Configure/Publish).
-    expect(summary).toMatch(/Create/);
-    expect(summary).toMatch(/Publish/);
+    // Summary reflects the remaining capability only.
+    expect(summary).toMatch(/Search/i);
+    expect(summary).toMatch(/report|performance/i);
   });
 });
