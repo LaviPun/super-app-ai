@@ -22,8 +22,11 @@ const bundleSnippet = fs.readFileSync(path.join(EXT, 'snippets/superapp-product-
 
 describe('design-system contract — CSS token layer (§3.3 / §9.3)', () => {
   it('defines both pack token maps on the scope wrapper', () => {
-    expect(css).toContain(".superapp-scope[data-sa-pack='luxe']");
-    expect(css).toContain(".superapp-scope[data-sa-pack='bold']");
+    // Quote-tolerant: the shipped asset is minified, which strips attribute-selector
+    // quotes (`[data-sa-pack=luxe]`) — still valid CSS. The `[...]` bracket keeps this
+    // matching the CSS selector, not the wrapper element (which uses double quotes).
+    expect(css).toMatch(/\.superapp-scope\[data-sa-pack=['"]?luxe['"]?\]/);
+    expect(css).toMatch(/\.superapp-scope\[data-sa-pack=['"]?bold['"]?\]/);
   });
 
   it('carries the typographic voice: fluid display scale + font roles (§1.1)', () => {
@@ -211,7 +214,8 @@ describe('design-system contract — preview parity matrix (R0)', () => {
         if (out.kind !== 'HTML') throw new Error('expected HTML preview');
         expect(out.html).toContain(`data-sa-pack="${pack}"`);
         // The real storefront stylesheet is inlined (pack map markers present).
-        expect(out.html).toContain("data-sa-pack='luxe'");
+        // Bracket form + quote-tolerant so the minified asset (unquoted selectors) matches.
+        expect(out.html).toMatch(/\[data-sa-pack=['"]?luxe['"]?\]/);
         expect(out.html).toContain('--sa-display-size');
       });
     }

@@ -1,99 +1,75 @@
 {% # theme-check-disable OrphanedSnippet %}
-{% comment %}
-  SuperApp Product Recommendations widget (R2.3).
-  Rendered from superapp-module.liquid when config.kind == 'product-recommendations'
-  (or any kind that carries config.recommendation). Resolves the recommendation
-  SOURCE — how the offered products are chosen — per the resolver split:
-
-    STATIC (resolve inline here, NO backend service):
-      manual        → pre-resolved product list stamped at hydration (recommendationProducts)
-      collection    → collections[handle].products
-      related       → recommendations.products (Shopify intent=related, if injected)
-      complementary → recommendations.products (Shopify intent=complementary, if injected)
-    DYNAMIC + cart-derived (mounted for JS — superapp-modules.js resolves):
-      most-expensive-in-cart / cheapest-in-cart → JS reads /cart.js
-      top-sellers / trending / buy-it-again     → JS calls App Proxy /apps/superapp/recommend
-      recently-viewed                           → JS reads localStorage
-
-  Any strategy that can't resolve here falls through to the JS mount, which applies
-  the configured `fallback` (related/manual/collection/hide) so a slot never renders
-  empty. Config keys are the verbatim recommendation pack JSON (camelCase).
-
-  params: mod_cfg, module_id
-{% endcomment %}
 {% liquid
-  assign rec = mod_cfg.recommendation
-  assign strat = rec.strategy | default: 'related'
-  assign limit = rec.productLimit | default: 4
-  assign products = null
-
-  case strat
-    when 'manual'
-      # Manual variants are resolved to products at hydration and stamped as
-      # `recommendationProducts` on the config (a list the storefront can render).
-      assign products = mod_cfg.recommendationProducts
-    when 'collection'
-      assign coll = collections[rec.collectionHandle]
-      assign products = coll.products
-    when 'related', 'complementary'
-      # Shopify auto-populates `recommendations.products` when the section requests
-      # recommendations; when absent (app-extension block), the JS mount fetches
-      # /recommendations/products.json instead (still service-free).
-      if recommendations.performed and recommendations.products.size > 0
-        assign products = recommendations.products
-      endif
-  endcase
+assign rec = mod_cfg.recommendation
+assign strat = rec.strategy | default: 'related'
+assign limit = rec.productLimit | default: 4
+assign products = null
+case strat
+when 'manual'
+# Manual variants are resolved to products at hydration and stamped as
+# `recommendationProducts` on the config (a list the storefront can render).
+assign products = mod_cfg.recommendationProducts
+when 'collection'
+assign coll = collections[rec.collectionHandle]
+assign products = coll.products
+when 'related', 'complementary'
+# Shopify auto-populates `recommendations.products` when the section requests
+# recommendations; when absent (app-extension block), the JS mount fetches
+# /recommendations/products.json instead (still service-free).
+if recommendations.performed and recommendations.products.size > 0
+assign products = recommendations.products
+endif
+endcase
 %}
-
 {% if products != blank and products.size > 0 %}
-  <section
-    class="superapp-recs superapp-container sa-reveal"
-    data-module-id="{{ module_id | escape }}"
-    data-strategy="{{ strat | escape }}"
-    aria-labelledby="superapp-recs-title-{{ module_id | escape }}"
-  >
-    {% if mod_cfg.title != blank %}
-      <h2 class="superapp-recs__title" id="superapp-recs-title-{{ module_id | escape }}">{{ mod_cfg.title | escape }}</h2>
-    {% endif %}
-    <ul class="superapp-recs__grid" role="list">
-      {% for p in products limit: limit %}
-        {% unless rec.hideCartProducts and cart.items contains p %}
-          <li class="superapp-recs__card">
-            <a class="superapp-recs__link" href="{{ p.url }}">
-              {% if p.featured_image %}
-                <img
-                  class="superapp-recs__img"
-                  src="{{ p.featured_image | image_url: width: 300 }}"
-                  alt="{{ p.title | escape }}"
-                  loading="lazy"
-                  width="150"
-                  height="150"
-                >
-              {% endif %}
-              <span class="superapp-recs__name">{{ p.title | escape }}</span>
-              <span class="superapp-recs__price">{{ p.price | money }}</span>
-            </a>
-          </li>
-        {% endunless %}
-      {% endfor %}
-    </ul>
-  </section>
+<section
+class="superapp-recs superapp-container sa-reveal"
+data-module-id="{{ module_id | escape }}"
+data-strategy="{{ strat | escape }}"
+aria-labelledby="superapp-recs-title-{{ module_id | escape }}"
+>
+{% if mod_cfg.title != blank %}
+<h2 class="superapp-recs__title" id="superapp-recs-title-{{ module_id | escape }}">{{ mod_cfg.title | escape }}</h2>
+{% endif %}
+<ul class="superapp-recs__grid" role="list">
+{% for p in products limit: limit %}
+{% unless rec.hideCartProducts and cart.items contains p %}
+<li class="superapp-recs__card">
+<a class="superapp-recs__link" href="{{ p.url }}">
+{% if p.featured_image %}
+<img
+class="superapp-recs__img"
+src="{{ p.featured_image | image_url: width: 300 }}"
+alt="{{ p.title | escape }}"
+loading="lazy"
+width="150"
+height="150"
+>
+{% endif %}
+<span class="superapp-recs__name">{{ p.title | escape }}</span>
+<span class="superapp-recs__price">{{ p.price | money }}</span>
+</a>
+</li>
+{% endunless %}
+{% endfor %}
+</ul>
+</section>
 {% else %}
-  {% # DYNAMIC / cart-derived / unavailable static → JS resolves + applies fallback. %}
-  <section
-    class="superapp-recs superapp-recs--pending superapp-container sa-reveal"
-    data-superapp-recs
-    data-module-id="{{ module_id | escape }}"
-    data-strategy="{{ strat | escape }}"
-    data-limit="{{ limit }}"
-    data-fallback="{{ rec.fallback | default: 'related' | escape }}"
-    data-seed-product="{{ product.id | default: '' }}"
-    data-hide-cart="{% if rec.hideCartProducts %}1{% else %}0{% endif %}"
-    aria-labelledby="superapp-recs-title-{{ module_id | escape }}"
-  >
-    {% if mod_cfg.title != blank %}
-      <h2 class="superapp-recs__title" id="superapp-recs-title-{{ module_id | escape }}">{{ mod_cfg.title | escape }}</h2>
-    {% endif %}
-    <div class="superapp-recs__skeleton" aria-hidden="true"></div>
-  </section>
+{% # DYNAMIC / cart-derived / unavailable static → JS resolves + applies fallback. %}
+<section
+class="superapp-recs superapp-recs--pending superapp-container sa-reveal"
+data-superapp-recs
+data-module-id="{{ module_id | escape }}"
+data-strategy="{{ strat | escape }}"
+data-limit="{{ limit }}"
+data-fallback="{{ rec.fallback | default: 'related' | escape }}"
+data-seed-product="{{ product.id | default: '' }}"
+data-hide-cart="{% if rec.hideCartProducts %}1{% else %}0{% endif %}"
+aria-labelledby="superapp-recs-title-{{ module_id | escape }}"
+>
+{% if mod_cfg.title != blank %}
+<h2 class="superapp-recs__title" id="superapp-recs-title-{{ module_id | escape }}">{{ mod_cfg.title | escape }}</h2>
+{% endif %}
+<div class="superapp-recs__skeleton" aria-hidden="true"></div>
+</section>
 {% endif %}

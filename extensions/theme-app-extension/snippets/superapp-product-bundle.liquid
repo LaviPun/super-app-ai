@@ -1,130 +1,102 @@
 {% # theme-check-disable OrphanedSnippet %}
-{% comment %}
-  SuperApp Product Bundle widget (interactive).
-  Rendered from blocks/product-slot.liquid and blocks/universal-slot.liquid via
-  {% raw %}{% render 'superapp-product-bundle' %}{% endraw %} (theme-check does not
-  cross-reference blocks→snippets in app extensions, hence the disable above).
-  Renders a theme.section module whose config.kind == 'product-bundle'.
-
-  Reads (config_json, injected at publish from the resolved cart-transform config):
-    - bundleId            : stable id stamped on each component line (_superapp_bundle_id)
-    - title / subtitle    : bundle heading copy
-    - ctaLabel            : add-to-cart button label
-    - discountPercentage  : informational savings badge (the real discount is applied
-                            server-side by the cart-transform Function on merge)
-    - priceLabel          : pre-formatted bundle price string (optional)
-    - components[]        : { variantId, title, priceLabel?, imageUrl? }
-
-  Inherits the theme's fonts (font: inherit) and colors (currentColor / theme button
-  classes), per DESIGN.md. Mobile-first; micro-interactions respect reduced motion.
-
-  params: mod_cfg, module_id
-{% endcomment %}
 {% assign bundle_id = mod_cfg.bundleId | default: module_id %}
 <section
-  class="superapp-bundle superapp-container sa-reveal"
-  data-superapp-bundle
-  data-bundle-id="{{ bundle_id | escape }}"
-  data-module-id="{{ module_id | escape }}"
-  aria-labelledby="superapp-bundle-title-{{ module_id | escape }}"
+class="superapp-bundle superapp-container sa-reveal"
+data-superapp-bundle
+data-bundle-id="{{ bundle_id | escape }}"
+data-module-id="{{ module_id | escape }}"
+aria-labelledby="superapp-bundle-title-{{ module_id | escape }}"
 >
-  <div class="superapp-bundle__head">
-    <h2 class="superapp-bundle__title" id="superapp-bundle-title-{{ module_id | escape }}">
-      {{ mod_cfg.title | default: 'Build your bundle' | escape }}
-    </h2>
-    {% if mod_cfg.subtitle != blank %}
-      <p class="superapp-bundle__subtitle">{{ mod_cfg.subtitle | escape }}</p>
-    {% endif %}
-    {% if mod_cfg.discountPercentage != blank and mod_cfg.discountPercentage != 0 %}
-      <span class="superapp-bundle__save">Save {{ mod_cfg.discountPercentage }}%</span>
-    {% endif %}
-  </div>
-
-  {% if mod_cfg.components != blank %}
-    <ul class="superapp-bundle__items" role="list">
-      {% for component in mod_cfg.components %}
-        <li class="superapp-bundle__item superapp-row" data-variant-id="{{ component.variantId | escape }}">
-          {% if component.imageUrl != blank %}
-            {% # theme-check-disable RemoteAsset %}
-            <img class="superapp-bundle__img" src="{{ component.imageUrl | escape }}" alt="" loading="lazy" width="64" height="64">
-            {% # theme-check-enable RemoteAsset %}
-          {% endif %}
-          <span class="superapp-bundle__item-title">{{ component.title | escape }}</span>
-          {% if component.priceLabel != blank %}
-            <span class="superapp-bundle__item-price">{{ component.priceLabel | escape }}</span>
-          {% endif %}
-        </li>
-      {% endfor %}
-    </ul>
-
-    <div class="superapp-bundle__footer">
-      {% if mod_cfg.priceLabel != blank %}
-        <span class="superapp-bundle__total">{{ mod_cfg.priceLabel | escape }}</span>
-      {% endif %}
-      <button class="superapp-bundle__cta" type="button" data-superapp-bundle-add aria-live="polite">
-        <span class="superapp-bundle__cta-label">{{ mod_cfg.ctaLabel | default: 'Add bundle to cart' | escape }}</span>
-      </button>
-    </div>
-    <p class="superapp-bundle__err" data-superapp-bundle-error role="alert" hidden></p>
-  {% else %}
-    <p class="superapp-bundle__empty">This bundle has no components yet. Publish the bundle to populate it.</p>
-  {% endif %}
+<div class="superapp-bundle__head">
+<h2 class="superapp-bundle__title" id="superapp-bundle-title-{{ module_id | escape }}">
+{{ mod_cfg.title | default: 'Build your bundle' | escape }}
+</h2>
+{% if mod_cfg.subtitle != blank %}
+<p class="superapp-bundle__subtitle">{{ mod_cfg.subtitle | escape }}</p>
+{% endif %}
+{% if mod_cfg.discountPercentage != blank and mod_cfg.discountPercentage != 0 %}
+<span class="superapp-bundle__save">Save {{ mod_cfg.discountPercentage }}%</span>
+{% endif %}
+</div>
+{% if mod_cfg.components != blank %}
+<ul class="superapp-bundle__items" role="list">
+{% for component in mod_cfg.components %}
+<li class="superapp-bundle__item superapp-row" data-variant-id="{{ component.variantId | escape }}">
+{% if component.imageUrl != blank %}
+{% # theme-check-disable RemoteAsset %}
+<img class="superapp-bundle__img" src="{{ component.imageUrl | escape }}" alt="" loading="lazy" width="64" height="64">
+{% # theme-check-enable RemoteAsset %}
+{% endif %}
+<span class="superapp-bundle__item-title">{{ component.title | escape }}</span>
+{% if component.priceLabel != blank %}
+<span class="superapp-bundle__item-price">{{ component.priceLabel | escape }}</span>
+{% endif %}
+</li>
+{% endfor %}
+</ul>
+<div class="superapp-bundle__footer">
+{% if mod_cfg.priceLabel != blank %}
+<span class="superapp-bundle__total">{{ mod_cfg.priceLabel | escape }}</span>
+{% endif %}
+<button class="superapp-bundle__cta" type="button" data-superapp-bundle-add aria-live="polite">
+<span class="superapp-bundle__cta-label">{{ mod_cfg.ctaLabel | default: 'Add bundle to cart' | escape }}</span>
+</button>
+</div>
+<p class="superapp-bundle__err" data-superapp-bundle-error role="alert" hidden></p>
+{% else %}
+<p class="superapp-bundle__empty">This bundle has no components yet. Publish the bundle to populate it.</p>
+{% endif %}
 </section>
-
 <script>
-  (function () {
-    var root = document.currentScript && document.currentScript.previousElementSibling;
-    if (!root || !root.matches('[data-superapp-bundle]')) {
-      var nodes = document.querySelectorAll('[data-superapp-bundle]');
-      root = nodes[nodes.length - 1];
-    }
-    if (!root || root.dataset.superappBundleBound) return;
-    root.dataset.superappBundleBound = '1';
-
-    var btn = root.querySelector('[data-superapp-bundle-add]');
-    var errEl = root.querySelector('[data-superapp-bundle-error]');
-    if (!btn) return;
-
-    var bundleId = root.getAttribute('data-bundle-id') || '';
-    var items = Array.prototype.map.call(
-      root.querySelectorAll('.superapp-bundle__item'),
-      function (li) {
-        var vid = (li.getAttribute('data-variant-id') || '').replace(/^gid:\/\/shopify\/ProductVariant\//, '');
-        return { id: vid, quantity: 1, properties: { _superapp_bundle_id: bundleId } };
-      }
-    ).filter(function (it) { return it.id; });
-
-    function showError(msg) {
-      if (!errEl) return;
-      errEl.textContent = msg;
-      errEl.hidden = false;
-    }
-
-    btn.addEventListener('click', function () {
-      if (!items.length) { showError('This bundle is not available.'); return; }
-      if (errEl) errEl.hidden = true;
-      btn.classList.add('is-loading');
-      btn.disabled = true;
-      fetch('/cart/add.js', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ items: items })
-      })
-        .then(function (res) {
-          if (!res.ok) return res.json().then(function (j) { throw new Error((j && j.description) || 'Add to cart failed'); });
-          return res.json();
-        })
-        .then(function () {
-          btn.classList.remove('is-loading');
-          btn.classList.add('is-done');
-          document.dispatchEvent(new CustomEvent('superapp:bundle:added', { detail: { bundleId: bundleId } }));
-          window.setTimeout(function () { window.location.href = '/cart'; }, 350);
-        })
-        .catch(function (e) {
-          btn.classList.remove('is-loading');
-          btn.disabled = false;
-          showError(e && e.message ? e.message : 'Add to cart failed. Please try again.');
-        });
-    });
-  })();
+(function () {
+var root = document.currentScript && document.currentScript.previousElementSibling;
+if (!root || !root.matches('[data-superapp-bundle]')) {
+var nodes = document.querySelectorAll('[data-superapp-bundle]');
+root = nodes[nodes.length - 1];
+}
+if (!root || root.dataset.superappBundleBound) return;
+root.dataset.superappBundleBound = '1';
+var btn = root.querySelector('[data-superapp-bundle-add]');
+var errEl = root.querySelector('[data-superapp-bundle-error]');
+if (!btn) return;
+var bundleId = root.getAttribute('data-bundle-id') || '';
+var items = Array.prototype.map.call(
+root.querySelectorAll('.superapp-bundle__item'),
+function (li) {
+var vid = (li.getAttribute('data-variant-id') || '').replace(/^gid:\/\/shopify\/ProductVariant\//, '');
+return { id: vid, quantity: 1, properties: { _superapp_bundle_id: bundleId } };
+}
+).filter(function (it) { return it.id; });
+function showError(msg) {
+if (!errEl) return;
+errEl.textContent = msg;
+errEl.hidden = false;
+}
+btn.addEventListener('click', function () {
+if (!items.length) { showError('This bundle is not available.'); return; }
+if (errEl) errEl.hidden = true;
+btn.classList.add('is-loading');
+btn.disabled = true;
+fetch('/cart/add.js', {
+method: 'POST',
+headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+body: JSON.stringify({ items: items })
+})
+.then(function (res) {
+if (!res.ok) return res.json().then(function (j) { throw new Error((j && j.description) || 'Add to cart failed'); });
+return res.json();
+})
+.then(function () {
+btn.classList.remove('is-loading');
+btn.classList.add('is-done');
+document.dispatchEvent(new CustomEvent('superapp:bundle:added', { detail: { bundleId: bundleId } }));
+window.setTimeout(function () { window.location.href = '/cart'; }, 350);
+})
+.catch(function (e) {
+btn.classList.remove('is-loading');
+btn.disabled = false;
+showError(e && e.message ? e.message : 'Add to cart failed. Please try again.');
+});
+});
+})();
 </script>

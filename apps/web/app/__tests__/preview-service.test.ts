@@ -95,8 +95,11 @@ describe('PreviewService structured fixtures', () => {
     it('inlines the real storefront stylesheet (pack token map present)', () => {
       const out = service.render(section());
       if (out.kind !== 'HTML') throw new Error('expected HTML');
-      expect(out.html).toContain("data-sa-pack='luxe'");
-      expect(out.html).toContain("data-sa-pack='bold'");
+      // Both pack maps are in the inlined stylesheet regardless of the wrapper pack.
+      // Bracket form + quote-tolerant: the shipped CSS is minified (unquoted selectors),
+      // and the `[...]` keeps this matching the CSS, not the double-quoted wrapper attr.
+      expect(out.html).toMatch(/\[data-sa-pack=['"]?luxe['"]?\]/);
+      expect(out.html).toMatch(/\[data-sa-pack=['"]?bold['"]?\]/);
     });
 
     // ── Token discipline + composition (composition-rules.md §04) ─────────────

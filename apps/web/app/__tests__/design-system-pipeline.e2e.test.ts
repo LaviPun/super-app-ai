@@ -128,6 +128,7 @@ describe('design-system pipeline e2e — library template path', () => {
     const out = new PreviewService().render(spec);
     if (out.kind !== 'HTML') throw new Error('expected HTML');
     expect(out.html).toContain('data-sa-pack="bold"');
-    expect(out.html).toContain(".superapp-scope[data-sa-pack='bold']");
+    // Quote-tolerant: shipped CSS is minified (unquoted attribute selectors).
+    expect(out.html).toMatch(/\.superapp-scope\[data-sa-pack=['"]?bold['"]?\]/);
   });
 });

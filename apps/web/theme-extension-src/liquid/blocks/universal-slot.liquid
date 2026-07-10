@@ -1,0 +1,117 @@
+{% comment %}
+  SuperApp Universal Slot (App Block)
+  Merchant pastes a module ID; this block finds and renders that module from
+  superapp.theme/module_refs (list.metaobject_reference) — API 2026-04+ compliant.
+  Markup comes from snippets/superapp-module.liquid; styles + runtime are wired
+  once per page via this block's schema `stylesheet` / `javascript` attributes.
+  See technical.md §15 + docs/design-system/module-design-system.md §3.3 (stylePack).
+{% endcomment %}
+{% assign module_id = block.settings.module_id | strip %}
+{% if module_id != blank %}
+  {% assign mod_refs = shop.metafields['superapp.theme']['module_refs'].value %}
+  {% assign mod_ref = nil %}
+  {% for ref in mod_refs %}
+    {% if ref.fields.module_id.value == module_id %}
+      {% assign mod_ref = ref %}
+      {% break %}
+    {% endif %}
+  {% endfor %}
+
+  {% if mod_ref %}
+    <div class="superapp-slot" data-superapp-slot data-module-id="{{ module_id | escape }}">
+      {% render 'superapp-module', mod_ref: mod_ref, style_pack: block.settings.style_pack, accent_override: block.settings.accent_override, override_radius: block.settings.override_radius, override_density: block.settings.override_density, override_align: block.settings.override_align, override_text: block.settings.override_text, override_bg: block.settings.override_bg %}
+    </div>
+  {% endif %}
+{% endif %}
+
+{% schema %}
+{
+  "name": "SuperApp Module Slot",
+  "target": "section",
+  "stylesheet": "superapp-modules.css",
+  "javascript": "superapp-modules.js",
+  "settings": [
+    {
+      "type": "text",
+      "id": "module_id",
+      "label": "Module ID",
+      "info": "Paste the module ID from the app (e.g. from the module detail page). The block will render that published module here."
+    },
+    {
+      "type": "header",
+      "content": "Style"
+    },
+    {
+      "type": "select",
+      "id": "style_pack",
+      "label": "Style pack",
+      "info": "Design direction for this module. Auto picks the best match for your theme. Colours and fonts always inherit from your theme.",
+      "options": [
+        { "value": "auto", "label": "Auto (match my theme)" },
+        { "value": "luxe", "label": "Minimal Luxe" },
+        { "value": "bold", "label": "Bold DTC" }
+      ],
+      "default": "auto"
+    },
+    {
+      "type": "color",
+      "id": "accent_override",
+      "label": "Accent colour (optional)",
+      "info": "Overrides the accent for this module. Leave empty to inherit your brand accent."
+    },
+    {
+      "type": "select",
+      "id": "override_radius",
+      "label": "Corner radius",
+      "info": "Leave on Inherit to use the style pack / your theme.",
+      "options": [
+        { "value": "inherit", "label": "Inherit" },
+        { "value": "none", "label": "None" },
+        { "value": "sm", "label": "Small" },
+        { "value": "md", "label": "Medium" },
+        { "value": "lg", "label": "Large" },
+        { "value": "xl", "label": "Extra large" }
+      ],
+      "default": "inherit"
+    },
+    {
+      "type": "select",
+      "id": "override_density",
+      "label": "Density",
+      "info": "Leave on Inherit to use the style pack / your theme.",
+      "options": [
+        { "value": "inherit", "label": "Inherit" },
+        { "value": "compact", "label": "Compact" },
+        { "value": "comfortable", "label": "Comfortable" },
+        { "value": "airy", "label": "Airy" }
+      ],
+      "default": "inherit"
+    },
+    {
+      "type": "select",
+      "id": "override_align",
+      "label": "Text alignment",
+      "info": "Leave on Inherit to use the style pack / your theme.",
+      "options": [
+        { "value": "inherit", "label": "Inherit" },
+        { "value": "left", "label": "Left" },
+        { "value": "center", "label": "Center" },
+        { "value": "right", "label": "Right" }
+      ],
+      "default": "inherit"
+    },
+    {
+      "type": "color",
+      "id": "override_text",
+      "label": "Text colour (optional)",
+      "info": "Leave empty to use the style pack / your theme."
+    },
+    {
+      "type": "color",
+      "id": "override_bg",
+      "label": "Background colour (optional)",
+      "info": "Leave empty to use the style pack / your theme."
+    }
+  ]
+}
+{% endschema %}

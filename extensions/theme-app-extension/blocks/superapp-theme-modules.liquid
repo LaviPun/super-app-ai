@@ -1,113 +1,92 @@
-{% comment %}
-  SuperApp Theme Modules (App Embed — BODY)
-  Reads superapp.theme/module_refs (list.metaobject_reference) — API 2026-04+ compliant.
-  Each entry is a $app:superapp_module metaobject. No large JSON blobs.
-  Renders modules whose activation_type is 'global'/'overlay' (or blank) — e.g.
-  overlay popups, sitewide banners, effects, floating widgets. Section/product/
-  collection modules render via their slot blocks; 'head' modules render via the
-  separate SuperApp Theme Head (target: head) app embed instead — so they are
-  EXCLUDED here to avoid leaking head-only content (JSON-LD/meta/preload) into <body>.
-
-  Markup is produced by snippets/superapp-module.liquid; styling and runtime
-  (popup open/close/focus-trap, app-proxy form fetch) come from
-  assets/superapp-modules.css + assets/superapp-modules.js, wired once per page
-  via this block's schema `stylesheet` / `javascript` attributes.
-
-  The app-embed `style_pack` is the SITEWIDE default for global/overlay modules
-  (popups, sitewide banners, effects, floating widgets). Per-module slot blocks
-  carry their own `style_pack` override. See docs/design-system/module-design-system.md §3.3.
-{% endcomment %}
-
 {% assign mod_refs = shop.metafields['superapp.theme']['module_refs'].value %}
 {% if mod_refs != blank %}
-  <div class="superapp-theme-modules" data-superapp-embed>
-    {% for mod_ref in mod_refs %}
-      {% assign act_type = mod_ref.fields.activation_type.value %}
-      {% unless act_type == 'section' or act_type == 'block' or act_type == 'head' %}
-        {% render 'superapp-module', mod_ref: mod_ref, style_pack: block.settings.style_pack, accent_override: block.settings.accent_override, override_radius: block.settings.override_radius, override_density: block.settings.override_density, override_align: block.settings.override_align, override_text: block.settings.override_text, override_bg: block.settings.override_bg %}
-      {% endunless %}
-    {% endfor %}
-  </div>
+<div class="superapp-theme-modules" data-superapp-embed>
+{% for mod_ref in mod_refs %}
+{% assign act_type = mod_ref.fields.activation_type.value %}
+{% unless act_type == 'section' or act_type == 'block' or act_type == 'head' %}
+{% render 'superapp-module', mod_ref: mod_ref, style_pack: block.settings.style_pack, accent_override: block.settings.accent_override, override_radius: block.settings.override_radius, override_density: block.settings.override_density, override_align: block.settings.override_align, override_text: block.settings.override_text, override_bg: block.settings.override_bg %}
+{% endunless %}
+{% endfor %}
+</div>
 {% endif %}
-
 {% schema %}
 {
-  "name": "SuperApp Theme Modules",
-  "target": "body",
-  "stylesheet": "superapp-modules.css",
-  "javascript": "superapp-modules.js",
-  "settings": [
-    {
-      "type": "select",
-      "id": "style_pack",
-      "label": "Style pack (sitewide default)",
-      "info": "Design direction for popups, sitewide banners, effects and floating widgets. Auto picks the best match for your theme. Colours and fonts always inherit from your theme.",
-      "options": [
-        { "value": "auto", "label": "Auto (match my theme)" },
-        { "value": "luxe", "label": "Minimal Luxe" },
-        { "value": "bold", "label": "Bold DTC" }
-      ],
-      "default": "auto"
-    },
-    {
-      "type": "color",
-      "id": "accent_override",
-      "label": "Accent colour (optional)",
-      "info": "Overrides the accent for global modules. Leave empty to inherit your brand accent."
-    },
-    {
-      "type": "select",
-      "id": "override_radius",
-      "label": "Corner radius (sitewide default)",
-      "info": "Sitewide default for global modules. Leave on Inherit to use the style pack / your theme.",
-      "options": [
-        { "value": "inherit", "label": "Inherit" },
-        { "value": "none", "label": "None" },
-        { "value": "sm", "label": "Small" },
-        { "value": "md", "label": "Medium" },
-        { "value": "lg", "label": "Large" },
-        { "value": "xl", "label": "Extra large" }
-      ],
-      "default": "inherit"
-    },
-    {
-      "type": "select",
-      "id": "override_density",
-      "label": "Density (sitewide default)",
-      "info": "Sitewide default for global modules. Leave on Inherit to use the style pack / your theme.",
-      "options": [
-        { "value": "inherit", "label": "Inherit" },
-        { "value": "compact", "label": "Compact" },
-        { "value": "comfortable", "label": "Comfortable" },
-        { "value": "airy", "label": "Airy" }
-      ],
-      "default": "inherit"
-    },
-    {
-      "type": "select",
-      "id": "override_align",
-      "label": "Text alignment (sitewide default)",
-      "info": "Sitewide default for global modules. Leave on Inherit to use the style pack / your theme.",
-      "options": [
-        { "value": "inherit", "label": "Inherit" },
-        { "value": "left", "label": "Left" },
-        { "value": "center", "label": "Center" },
-        { "value": "right", "label": "Right" }
-      ],
-      "default": "inherit"
-    },
-    {
-      "type": "color",
-      "id": "override_text",
-      "label": "Text colour (optional, sitewide default)",
-      "info": "Sitewide default for global modules. Leave empty to use the style pack / your theme."
-    },
-    {
-      "type": "color",
-      "id": "override_bg",
-      "label": "Background colour (optional, sitewide default)",
-      "info": "Sitewide default for global modules. Leave empty to use the style pack / your theme."
-    }
-  ]
+"name": "SuperApp Theme Modules",
+"target": "body",
+"stylesheet": "superapp-modules.css",
+"javascript": "superapp-modules.js",
+"settings": [
+{
+"type": "select",
+"id": "style_pack",
+"label": "Style pack (sitewide default)",
+"info": "Design direction for popups, sitewide banners, effects and floating widgets. Auto picks the best match for your theme. Colours and fonts always inherit from your theme.",
+"options": [
+{ "value": "auto", "label": "Auto (match my theme)" },
+{ "value": "luxe", "label": "Minimal Luxe" },
+{ "value": "bold", "label": "Bold DTC" }
+],
+"default": "auto"
+},
+{
+"type": "color",
+"id": "accent_override",
+"label": "Accent colour (optional)",
+"info": "Overrides the accent for global modules. Leave empty to inherit your brand accent."
+},
+{
+"type": "select",
+"id": "override_radius",
+"label": "Corner radius (sitewide default)",
+"info": "Sitewide default for global modules. Leave on Inherit to use the style pack / your theme.",
+"options": [
+{ "value": "inherit", "label": "Inherit" },
+{ "value": "none", "label": "None" },
+{ "value": "sm", "label": "Small" },
+{ "value": "md", "label": "Medium" },
+{ "value": "lg", "label": "Large" },
+{ "value": "xl", "label": "Extra large" }
+],
+"default": "inherit"
+},
+{
+"type": "select",
+"id": "override_density",
+"label": "Density (sitewide default)",
+"info": "Sitewide default for global modules. Leave on Inherit to use the style pack / your theme.",
+"options": [
+{ "value": "inherit", "label": "Inherit" },
+{ "value": "compact", "label": "Compact" },
+{ "value": "comfortable", "label": "Comfortable" },
+{ "value": "airy", "label": "Airy" }
+],
+"default": "inherit"
+},
+{
+"type": "select",
+"id": "override_align",
+"label": "Text alignment (sitewide default)",
+"info": "Sitewide default for global modules. Leave on Inherit to use the style pack / your theme.",
+"options": [
+{ "value": "inherit", "label": "Inherit" },
+{ "value": "left", "label": "Left" },
+{ "value": "center", "label": "Center" },
+{ "value": "right", "label": "Right" }
+],
+"default": "inherit"
+},
+{
+"type": "color",
+"id": "override_text",
+"label": "Text colour (optional, sitewide default)",
+"info": "Sitewide default for global modules. Leave empty to use the style pack / your theme."
+},
+{
+"type": "color",
+"id": "override_bg",
+"label": "Background colour (optional, sitewide default)",
+"info": "Sitewide default for global modules. Leave empty to use the style pack / your theme."
+}
+]
 }
 {% endschema %}
