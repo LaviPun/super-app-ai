@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { RecipeSpecSchema, validateBlueprintCoherence } from '@superapp/core';
 import type { BlueprintPlan } from '~/services/ai/blueprint-planner';
 import { getBlueprintCatalogEntry, buildCompositeManifest } from '~/services/ai/blueprint-catalog';
-import { isMerchantCodeExecutionAllowed } from '~/env.server';
+import { isMerchantCodeExecutionAllowed, isCostRoutingEnabled } from '~/env.server';
 import { AiUsageService } from '~/services/observability/ai-usage.service';
 import { resolveProviderIdForShop, resolveShopProviderOverrideId } from '~/services/ai/provider-routing.server';
 import { getCostRankedActiveProviders } from '~/services/ai/provider-cost-routing.server';
@@ -462,10 +462,13 @@ export async function getLlmClient(
     return { client, providerId: overrideProviderId };
   }
 
-  // No override: route across every active, priced provider (Claude/OpenAI/Gemini/etc.)
-  // cheapest-first. Falls through to the legacy single-provider path below when no
-  // provider has pricing configured, so this is a no-op until AiModelPrice is populated.
-  const ranked = await getCostRankedActiveProviders();
+  // No override: when cost routing is explicitly enabled, route across every
+  // active, priced provider (Claude/OpenAI/Gemini/etc.) cheapest-first. Gated
+  // behind AI_COST_ROUTING_ENABLED so that seeding AiModelPrice for cost
+  // observability does NOT silently reroute production traffic — pricing data
+  // and the routing switch stay separate levers. Falls through to the legacy
+  // single-provider path when disabled or when no provider has pricing.
+  const ranked = isCostRoutingEnabled() ? await getCostRankedActiveProviders() : [];
   const [cheapest, ...restRanked] = ranked;
   if (cheapest) {
     const chainProviderIds = [cheapest, ...restRanked].map((r) => r.providerId);
@@ -2429,7 +2432,7 @@ async function attributeServedCost(
  * Records AI usage even when there is no DB-configured provider — env-only keys
  * land on a synthetic provider row so quota counts stay accurate.
  */
-async function recordAiUsage(
+export async function recordAiUsage(
   usage: AiUsageService,
   params: {
     providerId: string | null;
@@ -2443,21 +2446,53 @@ async function recordAiUsage(
     prompt?: string;
   },
 ) {
-  try {
-    const accountAudit = await getProviderAccountAudit(params.providerId);
-    const promptAudit = buildPromptAudit(params.prompt);
-    const mergedMeta = {
-      ...(params.meta && typeof params.meta === 'object' ? (params.meta as Record<string, unknown>) : { value: params.meta }),
-      promptAudit,
-      accountAudit,
-    };
-    await usage.record({
-      ...params,
-      meta: mergedMeta,
-      envSource: params.providerId ? undefined : inferEnvSource(),
-    });
-  } catch {
-    // Never let usage logging fail the generation flow.
+  // Number of quota units this write carries. In the fan-out path only idx 0
+  // carries the unit (see optionCallBillableUnits), so a single swallowed write
+  // here can silently drop the merchant's whole billed generation → free
+  // generation, invisible in the data. Audit enrichment failing must never do
+  // that, so it's computed defensively and separately from the metering write.
+  const billedUnits = params.requestCount ?? 1;
+  const accountAudit = await getProviderAccountAudit(params.providerId).catch(() => null);
+  const promptAudit = buildPromptAudit(params.prompt);
+  const mergedMeta = {
+    ...(params.meta && typeof params.meta === 'object' ? (params.meta as Record<string, unknown>) : { value: params.meta }),
+    promptAudit,
+    accountAudit,
+  };
+
+  // Retry transient write failures (DB blips) with short backoff. The create is
+  // a single INSERT, so a failed attempt almost always means nothing was written
+  // — retry is safe. Bounded so a persistent failure can't stall generation.
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      await usage.record({
+        ...params,
+        meta: mergedMeta,
+        envSource: params.providerId ? undefined : inferEnvSource(),
+      });
+      return;
+    } catch (err) {
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, 50 * attempt));
+        continue;
+      }
+      // Final failure. Keep the generation flow alive (logging must never break
+      // it), but for a quota-bearing write make the lost unit LOUD so it's
+      // alertable instead of a silent free generation.
+      if (billedUnits > 0) {
+        console.error(
+          '[ai-usage] quota-bearing usage write failed after retries; quota unit not recorded',
+          {
+            action: params.action,
+            shopId: params.shopId,
+            providerId: params.providerId,
+            requestCount: billedUnits,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+      }
+    }
   }
 }
 

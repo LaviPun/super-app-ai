@@ -163,3 +163,15 @@ export function isBlueprintsEnabled(): boolean {
 export function isThemeNativeSectionEnabled(): boolean {
   return parseBooleanEnv(process.env.THEME_NATIVE_SECTION_ENABLED, false);
 }
+
+/**
+ * Cheapest-first multi-provider AI routing. OFF by default. When disabled,
+ * generation stays on the legacy single-provider path even if `AiModelPrice`
+ * rows exist — so seeding pricing for cost observability never silently reroutes
+ * production traffic to whichever provider happens to be cheapest. Turn this on
+ * only when you intend price data to also select the serving provider.
+ * See apps/web/app/services/ai/provider-cost-routing.server.ts.
+ */
+export function isCostRoutingEnabled(): boolean {
+  return parseBooleanEnv(process.env.AI_COST_ROUTING_ENABLED, false);
+}
