@@ -14,13 +14,28 @@
             "id": "gid://shopify/CartLine/0",
             "merchandise": {
               "__typename": "ProductVariant",
-              "sku": "REVEAL-SKU"
+              "sku": "REVEAL-SKU",
+              "product": {
+                "id": "gid://shopify/Product/1"
+              }
+            },
+            "quantity": 1,
+            "cost": {
+              "amountPerQuantity": {
+                "amount": "10.0"
+              },
+              "subtotalAmount": {
+                "amount": "10.0"
+              }
             }
           }
         ]
       },
       "discount": {
-        "discountClasses": ["PRODUCT", "ORDER"]
+        "discountClasses": [
+          "PRODUCT",
+          "ORDER"
+        ]
       },
       "shop": {
         "metaobject": {
@@ -28,8 +43,15 @@
             "jsonValue": {
               "rules": [
                 {
-                  "when": { "minSubtotal": 50.0, "skuIn": ["REVEAL-SKU"] },
-                  "apply": { "percentageOff": 20.0 }
+                  "when": {
+                    "minSubtotal": 50.0,
+                    "skuIn": [
+                      "REVEAL-SKU"
+                    ]
+                  },
+                  "apply": {
+                    "percentageOff": 20.0
+                  }
                 }
               ],
               "combineWithOtherDiscounts": true

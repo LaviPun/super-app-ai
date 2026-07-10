@@ -9,7 +9,9 @@
             "amount": "600.0",
             "currencyCode": "USD"
           }
-        }
+        },
+        "deliveryGroups": [],
+        "lines": []
       },
       "paymentMethods": [
         {
@@ -23,9 +25,15 @@
             "jsonValue": {
               "rules": [
                 {
-                  "when": { "currencyIn": ["EUR"] },
+                  "when": {
+                    "currencyIn": [
+                      "EUR"
+                    ]
+                  },
                   "actions": {
-                    "hideMethodsContaining": ["Cash on Delivery"]
+                    "hideMethodsContaining": [
+                      "Cash on Delivery"
+                    ]
                   }
                 }
               ]

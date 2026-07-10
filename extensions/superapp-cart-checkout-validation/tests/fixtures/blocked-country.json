@@ -7,7 +7,8 @@
         "deliveryGroups": [
           {
             "deliveryAddress": {
-              "countryCode": "CU"
+              "countryCode": "CU",
+              "provinceCode": null
             }
           }
         ],
@@ -16,10 +17,19 @@
             "quantity": 1,
             "merchandise": {
               "__typename": "ProductVariant",
-              "sku": "TSHIRT-M"
+              "sku": "TSHIRT-M",
+              "product": {
+                "id": "gid://shopify/Product/1",
+                "productType": ""
+              }
             }
           }
-        ]
+        ],
+        "cost": {
+          "subtotalAmount": {
+            "amount": "100.0"
+          }
+        }
       },
       "shop": {
         "metaobject": {
@@ -27,7 +37,12 @@
             "jsonValue": {
               "rules": [
                 {
-                  "when": { "blockCountryCodes": ["CU", "KP"] },
+                  "when": {
+                    "blockCountryCodes": [
+                      "CU",
+                      "KP"
+                    ]
+                  },
                   "errorMessage": "We are unable to ship to your region."
                 }
               ]

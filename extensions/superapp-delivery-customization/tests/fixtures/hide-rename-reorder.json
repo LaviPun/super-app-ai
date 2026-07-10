@@ -12,7 +12,8 @@
         "deliveryGroups": [
           {
             "deliveryAddress": {
-              "countryCode": "US"
+              "countryCode": "US",
+              "provinceCode": null
             },
             "deliveryOptions": [
               {
@@ -29,7 +30,9 @@
               }
             ]
           }
-        ]
+        ],
+        "buyerIdentity": null,
+        "lines": []
       },
       "shop": {
         "metaobject": {
@@ -37,10 +40,20 @@
             "jsonValue": {
               "rules": [
                 {
-                  "when": { "countryCodeIn": ["US"], "minSubtotal": 50 },
+                  "when": {
+                    "countryCodeIn": [
+                      "US"
+                    ],
+                    "minSubtotal": 50
+                  },
                   "actions": {
-                    "hideMethodsContaining": ["Economy"],
-                    "renameMethod": { "contains": "Standard", "to": "Standard (2-3 days)" },
+                    "hideMethodsContaining": [
+                      "Economy"
+                    ],
+                    "renameMethod": {
+                      "contains": "Standard",
+                      "to": "Standard (2-3 days)"
+                    },
                     "reorderPriority": 0
                   }
                 }

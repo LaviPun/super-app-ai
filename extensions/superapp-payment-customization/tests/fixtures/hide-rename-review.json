@@ -9,7 +9,9 @@
             "amount": "600.0",
             "currencyCode": "USD"
           }
-        }
+        },
+        "deliveryGroups": [],
+        "lines": []
       },
       "paymentMethods": [
         {
@@ -31,10 +33,20 @@
             "jsonValue": {
               "rules": [
                 {
-                  "when": { "minSubtotal": 500, "currencyIn": ["USD"] },
+                  "when": {
+                    "minSubtotal": 500,
+                    "currencyIn": [
+                      "USD"
+                    ]
+                  },
                   "actions": {
-                    "hideMethodsContaining": ["Cash on Delivery"],
-                    "renameMethod": { "contains": "Credit Card", "to": "Card (Visa/MC/Amex)" },
+                    "hideMethodsContaining": [
+                      "Cash on Delivery"
+                    ],
+                    "renameMethod": {
+                      "contains": "Credit Card",
+                      "to": "Card (Visa/MC/Amex)"
+                    },
                     "reorderPriority": 0,
                     "requireReview": true
                   }

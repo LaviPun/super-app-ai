@@ -2,6 +2,11 @@ import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
 import { generateValidatedRecipeOptions, AiProviderNotConfiguredError } from '~/services/ai/llm.server';
+import type { RecipeSpec } from '@superapp/core';
+import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
+import { applyStorePalette } from '~/services/theme/apply-store-palette.server';
+import { applyStylePackTokens } from '~/services/ai/apply-style-pack.server';
+import { applyCompositionRules } from '~/services/ai/apply-composition.server';
 import { classifyUserIntent, CONFIDENCE_THRESHOLDS } from '~/services/ai/classify.server';
 import { augmentWithCheapClassifier } from '~/services/ai/cheap-classifier.server';
 import { buildIntentPacket } from '~/services/ai/intent-packet.server';
@@ -127,6 +132,32 @@ export async function action({ request }: { request: Request }) {
           promptProfile: intentPacket.routing.prompt_profile,
           routerDecision,
         });
+
+        // Design-system parity with the merchant create-module routes: the agent
+        // path must produce the same on-system output — composition guardrails
+        // (§04, palette-independent) always; store palette + pack when available.
+        for (const opt of recipeOptions) {
+          try {
+            applyCompositionRules(opt.recipe as RecipeSpec);
+          } catch {
+            /* composition clamp is best-effort */
+          }
+        }
+        const isStorefrontType =
+          classification.moduleType === 'theme.section' || classification.moduleType === 'proxy.widget';
+        if (isStorefrontType) {
+          try {
+            const aesthetic = await loadStoreAesthetic(shopRow.id);
+            if (aesthetic) {
+              for (const opt of recipeOptions) {
+                applyStorePalette(opt.recipe as RecipeSpec, aesthetic.palette);
+                applyStylePackTokens(opt.recipe as RecipeSpec, aesthetic.palette, aesthetic.typography);
+              }
+            }
+          } catch {
+            /* palette match is best-effort */
+          }
+        }
 
         await jobs.succeed(job.id, { optionCount: recipeOptions.length, type: classification.moduleType });
 

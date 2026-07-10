@@ -10,10 +10,19 @@
             "quantity": 5,
             "merchandise": {
               "__typename": "ProductVariant",
-              "sku": "TSHIRT-M"
+              "sku": "TSHIRT-M",
+              "product": {
+                "id": "gid://shopify/Product/1",
+                "productType": ""
+              }
             }
           }
-        ]
+        ],
+        "cost": {
+          "subtotalAmount": {
+            "amount": "100.0"
+          }
+        }
       },
       "shop": {
         "metaobject": null

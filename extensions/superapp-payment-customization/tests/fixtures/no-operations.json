@@ -9,7 +9,9 @@
             "amount": "40.0",
             "currencyCode": "USD"
           }
-        }
+        },
+        "deliveryGroups": [],
+        "lines": []
       },
       "paymentMethods": [
         {

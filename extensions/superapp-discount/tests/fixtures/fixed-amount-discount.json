@@ -14,13 +14,27 @@
             "id": "gid://shopify/CartLine/0",
             "merchandise": {
               "__typename": "ProductVariant",
-              "sku": "ANY-SKU"
+              "sku": "ANY-SKU",
+              "product": {
+                "id": "gid://shopify/Product/1"
+              }
+            },
+            "quantity": 1,
+            "cost": {
+              "amountPerQuantity": {
+                "amount": "10.0"
+              },
+              "subtotalAmount": {
+                "amount": "10.0"
+              }
             }
           }
         ]
       },
       "discount": {
-        "discountClasses": ["PRODUCT"]
+        "discountClasses": [
+          "PRODUCT"
+        ]
       },
       "shop": {
         "metaobject": {
@@ -29,7 +43,9 @@
               "rules": [
                 {
                   "when": {},
-                  "apply": { "fixedAmountOff": 10.0 }
+                  "apply": {
+                    "fixedAmountOff": 10.0
+                  }
                 }
               ]
             }
@@ -57,7 +73,7 @@
                 "value": {
                   "fixedAmount": {
                     "amount": "10.0",
-                    "appliesToEachItem": null
+                    "appliesToEachItem": false
                   }
                 }
               }

@@ -12,7 +12,8 @@
         "deliveryGroups": [
           {
             "deliveryAddress": {
-              "countryCode": "US"
+              "countryCode": "US",
+              "provinceCode": null
             },
             "deliveryOptions": [
               {
@@ -25,7 +26,9 @@
               }
             ]
           }
-        ]
+        ],
+        "buyerIdentity": null,
+        "lines": []
       },
       "shop": {
         "metaobject": {
@@ -33,9 +36,13 @@
             "jsonValue": {
               "rules": [
                 {
-                  "when": { "minSubtotal": 100 },
+                  "when": {
+                    "minSubtotal": 100
+                  },
                   "actions": {
-                    "hideMethodsContaining": ["Economy"]
+                    "hideMethodsContaining": [
+                      "Economy"
+                    ]
                   }
                 }
               ]

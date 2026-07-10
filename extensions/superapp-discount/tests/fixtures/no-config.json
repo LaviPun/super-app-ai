@@ -14,13 +14,27 @@
             "id": "gid://shopify/CartLine/0",
             "merchandise": {
               "__typename": "ProductVariant",
-              "sku": "REVEAL-SKU"
+              "sku": "REVEAL-SKU",
+              "product": {
+                "id": "gid://shopify/Product/1"
+              }
+            },
+            "quantity": 1,
+            "cost": {
+              "amountPerQuantity": {
+                "amount": "10.0"
+              },
+              "subtotalAmount": {
+                "amount": "10.0"
+              }
             }
           }
         ]
       },
       "discount": {
-        "discountClasses": ["PRODUCT"]
+        "discountClasses": [
+          "PRODUCT"
+        ]
       },
       "shop": {
         "metaobject": null

@@ -12,7 +12,8 @@
         "deliveryGroups": [
           {
             "deliveryAddress": {
-              "countryCode": "US"
+              "countryCode": "US",
+              "provinceCode": null
             },
             "deliveryOptions": [
               {
@@ -21,7 +22,9 @@
               }
             ]
           }
-        ]
+        ],
+        "buyerIdentity": null,
+        "lines": []
       },
       "shop": {
         "metaobject": null
