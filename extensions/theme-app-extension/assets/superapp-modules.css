@@ -415,7 +415,7 @@
    below still override (later rules, equal specificity). */
 .superapp-section--minimal .superapp-section__inner { text-align: center; max-width: 720px; padding: 3rem 1rem; }
 .superapp-section--textonly .superapp-section__blocks { grid-template-columns: 1fr; max-width: 640px; }
-.superapp-section__block { border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-radius-lg); padding: 1.1rem; box-shadow: var(--sa-elevation, var(--sa-shadow)); }
+.superapp-section__block { border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-radius-lg); padding: 1.1rem; box-shadow: var(--sa-elevation, var(--sa-shadow)); text-align: left; }
 .superapp-section__block-img { max-width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--sa-radius); }
 .superapp-section__block-text { margin: .5rem 0 0; }
 .superapp-section__block-link { display: inline-block; margin: .5rem 0 0; color: var(--sa-accent); text-decoration: none; }
@@ -838,7 +838,9 @@
 .superapp-feature { max-width: 1120px; margin: 0 auto; padding: 1.5rem 1rem; }
 .superapp-feature__grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 .superapp-feature--bento .superapp-feature__grid { grid-auto-flow: dense; }
-.superapp-feature__item { display: flex; flex-direction: column; gap: 0.5rem; padding: var(--sa-pad); border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-radius-lg); box-shadow: var(--sa-elevation, var(--sa-shadow)); }
+/* Cards are READING surfaces (composition-rules.md §3): interiors always read left —
+   icon, heading and copy cohere even when the section intro is centered. */
+.superapp-feature__item { display: flex; flex-direction: column; gap: 0.5rem; padding: var(--sa-pad); border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-radius-lg); box-shadow: var(--sa-elevation, var(--sa-shadow)); text-align: left; align-items: flex-start; }
 .superapp-feature__item--wide { grid-column: span 2; }
 .superapp-feature__icon { display: inline-flex; width: 2.4rem; height: 2.4rem; align-items: center; justify-content: center; border-radius: 999px; border: var(--sa-border-w) solid var(--sa-accent); color: var(--sa-accent); }
 .superapp-feature__eyebrow { font-family: var(--sa-font-mono); text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.7rem; opacity: 0.75; }

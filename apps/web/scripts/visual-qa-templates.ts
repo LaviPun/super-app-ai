@@ -17,14 +17,36 @@ import { PreviewService } from '~/services/preview/preview.service';
 
 const OUT = path.resolve(process.cwd(), '../../test-results/design-system-templates');
 
-/** Archetype/module kinds to audit — one representative template each. */
-const KINDS = [
-  'banner', 'notification-bar', 'popup', 'contactForm', 'floatingWidget',
-  'product-bundle', 'product-recommendations',
-  'hero', 'feature', 'pricing', 'faq', 'testimonial', 'gallery', 'trust',
-  'newsletter', 'stats', 'collection', 'team', 'timeline', 'launch',
-  'cta', 'upsell', 'band', 'pdp', 'sticky-atc',
-];
+/**
+ * Archetype/module kinds to audit — one representative template each.
+ * Keys are audit labels; values are the REAL template `config.kind` values
+ * (the corpus vocabulary), first match wins.
+ */
+const KIND_ALIASES: Record<string, string[]> = {
+  banner: ['banner'],
+  'notification-bar': ['notification-bar', 'announcement-bar'],
+  popup: ['popup'],
+  floatingWidget: ['floatingWidget'],
+  recommendations: ['recommendations', 'bought-together', 'upsell'],
+  hero: ['hero', 'collection-hero'],
+  feature: ['feature'],
+  pricing: ['pricing', 'comparison'],
+  faq: ['faq', 'accordion'],
+  testimonial: ['testimonials', 'reviews', 'social-proof'],
+  gallery: ['gallery', 'lookbook'],
+  trust: ['trust', 'trust-badges', 'logo-marquee'],
+  newsletter: ['newsletter'],
+  stats: ['stats'],
+  collection: ['collection-story', 'collection-split', 'collection-list'],
+  team: ['team', 'contact'],
+  timeline: ['timeline'],
+  launch: ['coming-soon', '404'],
+  cta: ['cta'],
+  band: ['countdown', 'countdown-bar', 'free-shipping-bar', 'announcement', 'progress'],
+  'sticky-atc': ['sticky-atc'],
+  steps: ['steps'],
+};
+const KINDS = Object.keys(KIND_ALIASES);
 
 const DARK_BODY = '<style>body{background:#0d0d10;color:#e8e8e6;}</style>';
 
@@ -36,13 +58,19 @@ function kindOf(spec: RecipeSpec): string | undefined {
 
 function pickRepresentatives(): Map<string, Entry[]> {
   const byKind = new Map<string, Entry[]>();
-  for (const t of MODULE_TEMPLATES) {
-    if ((t.spec as { type?: string }).type !== 'theme.section') continue;
-    const k = kindOf(t.spec);
-    if (!k || !KINDS.includes(k)) continue;
-    const list = byKind.get(k) ?? [];
-    if (list.length < 2) list.push({ id: t.id, spec: t.spec }); // up to 2 per kind (layout variety)
-    byKind.set(k, list);
+  for (const label of KINDS) {
+    const aliases = KIND_ALIASES[label];
+    const list: Entry[] = [];
+    for (const alias of aliases) {
+      for (const t of MODULE_TEMPLATES) {
+        if ((t.spec as { type?: string }).type !== 'theme.section') continue;
+        if (kindOf(t.spec) !== alias) continue;
+        list.push({ id: t.id, spec: t.spec });
+        if (list.length >= 2) break; // up to 2 per label (layout variety)
+      }
+      if (list.length >= 2) break;
+    }
+    if (list.length) byKind.set(label, list);
   }
   return byKind;
 }

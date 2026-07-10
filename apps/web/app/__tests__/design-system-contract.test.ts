@@ -101,6 +101,32 @@ describe('design-system contract — CSS token layer (§3.3 / §9.3)', () => {
   it('keeps the popup scrim on the compiled token (audit fix)', () => {
     expect(css).toContain('var(--sa-backdrop');
   });
+
+  it('defines the §04 composition primitives (composition-rules.md)', () => {
+    for (const cls of [
+      '.superapp-container',
+      '.superapp-stack',
+      '.superapp-grid',
+      '.superapp-split',
+      '.superapp-cluster',
+      '.superapp-row',
+      '.superapp-align-center',
+      '.superapp-measure',
+    ]) {
+      expect(css, `missing primitive ${cls}`).toContain(cls);
+    }
+  });
+
+  it('styles the first-class conversion surfaces: pdp + sticky-atc (§4.2)', () => {
+    expect(css).toContain('.superapp-pdp');
+    expect(css).toContain('.superapp-satc');
+  });
+
+  it('ships the §05 atoms (badge/pill/tabs)', () => {
+    expect(css).toContain('.superapp-badge');
+    expect(css).toContain('.superapp-pill');
+    expect(css).toContain('.superapp-tabs');
+  });
 });
 
 describe('design-system contract — Liquid render layer (§3.3.4 scoping & identity)', () => {
@@ -129,6 +155,18 @@ describe('design-system contract — Liquid render layer (§3.3.4 scoping & iden
 
   it('bundle snippet no longer carries inline styles (tokenized centrally)', () => {
     expect(bundleSnippet).not.toContain('<style>');
+  });
+
+  it('renders pdp + sticky-atc as dedicated branches (§4.2 renderer note)', () => {
+    expect(snippet).toContain("{% when 'pdp' %}");
+    expect(snippet).toContain("{% when 'sticky-atc' %}");
+  });
+
+  it('composes with the §04 primitives (containers, rows, clusters, measure)', () => {
+    expect(snippet).toContain('superapp-container');
+    expect(snippet).toContain('superapp-row');
+    expect(snippet).toContain('superapp-cluster');
+    expect(snippet).toContain('superapp-measure');
   });
 });
 
