@@ -458,7 +458,7 @@
 
   {% when 'effect' %}
     <div class="superapp-effect superapp-effect--embed" data-module-id="{{ module_id | escape }}" data-trigger="{{ mod_cfg.startTrigger | default: 'page_load' | escape }}" role="presentation" aria-hidden="true">
-      <div class="superapp-effect__overlay superapp-effect--{{ mod_cfg.effectKind | default: 'snowfall' }}" data-intensity="{{ mod_cfg.intensity | default: 'medium' | escape }}" data-speed="{{ mod_cfg.speed | default: 'normal' | escape }}">
+      <div class="superapp-effect__overlay superapp-effect--{{ mod_cfg.effectKind | default: 'snowfall' | handle }}" data-intensity="{{ mod_cfg.intensity | default: 'medium' | escape }}" data-speed="{{ mod_cfg.speed | default: 'normal' | escape }}">
         {% for i in (1..50) %}
           <div class="superapp-effect__particle"></div>
         {% endfor %}
@@ -473,7 +473,7 @@
     {% assign fw_action_target = mod_cfg.actionTarget | default: '_blank' %}
     {% if mod_sty.responsive.hideOnMobile != nil %}{% assign fw_hide_mobile = mod_sty.responsive.hideOnMobile %}{% else %}{% assign fw_hide_mobile = mod_cfg.hideOnMobile %}{% endif %}
     {% if mod_sty.responsive.hideOnDesktop != nil %}{% assign fw_hide_desktop = mod_sty.responsive.hideOnDesktop %}{% else %}{% assign fw_hide_desktop = mod_cfg.hideOnDesktop %}{% endif %}
-    <div class="superapp-fw-wrap superapp-fw-wrap--{{ fw_anchor | replace: '_', '-' }}{% if fw_hide_mobile %} superapp-fw-wrap--hide-mobile{% endif %}{% if fw_hide_desktop %} superapp-fw-wrap--hide-desktop{% endif %} sa-reveal" data-module-id="{{ module_id | escape }}" data-anchor="{{ fw_anchor | escape }}">
+    <div class="superapp-fw-wrap superapp-fw-wrap--{{ fw_anchor | replace: '_', '-' | handle }}{% if fw_hide_mobile %} superapp-fw-wrap--hide-mobile{% endif %}{% if fw_hide_desktop %} superapp-fw-wrap--hide-desktop{% endif %} sa-reveal" data-module-id="{{ module_id | escape }}" data-anchor="{{ fw_anchor | escape }}">
       {% if fw_action_url != blank %}
         <a class="superapp-fw" href="{{ fw_action_url | escape }}" target="{{ fw_action_target | escape }}" aria-label="{{ fw_label | default: fw_variant | escape }}">
       {% else %}

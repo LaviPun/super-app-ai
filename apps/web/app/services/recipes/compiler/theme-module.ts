@@ -2,6 +2,7 @@ import type { CompileResult, ThemeModulePayload } from './types';
 import type { RecipeSpec, DeployTarget, StorefrontStyle, RuleEnginePack } from '@superapp/core';
 import { isServerResolvable } from '@superapp/core';
 import { compileStyleVars, compileStyleCss, compileCustomCss } from './style-compiler';
+import { sanitizeConfigUrls } from './sanitize-urls';
 
 /**
  * The visible element a module's presentation (color/bg/padding/radius/shadow)
@@ -107,7 +108,10 @@ export function compileThemeModule(
     type: spec.type,
     name: spec.name,
     activationType,
-    config: (spec as { config: Record<string, unknown> }).config,
+    // Security chokepoint: blank any dangerous-scheme URL (javascript:/data:/…)
+    // before it is persisted into config_json and rendered as an href/src by the
+    // storefront Liquid. Liquid `| escape` does not neutralize URL schemes.
+    config: sanitizeConfigUrls((spec as { config: Record<string, unknown> }).config),
     style: rawStyle,
     styleCss: rawStyle ? compileThemeStyleCss(rawStyle as unknown as StorefrontStyle, target.moduleId, kind) : undefined,
     ruleServerResolvable: ruleEngine ? isServerResolvable(ruleEngine) : true,

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { RecipeSpec, RuleEnginePack, RecommendationPack } from '@superapp/core';
+import { sanitizeConfigUrls } from '~/services/recipes/compiler/sanitize-urls';
 import { evaluateRuleEngine, messagingChannelSendability } from '@superapp/core';
 import {
   compileStyleVars,
@@ -95,7 +96,15 @@ function previewAccentOf(spec: RecipeSpec): string | undefined {
 }
 
 export class PreviewService {
-  render(spec: RecipeSpec, context?: PreviewContext): PreviewResult {
+  render(specInput: RecipeSpec, context?: PreviewContext): PreviewResult {
+    // Scheme-sanitize URLs in config before rendering (parity with the compile
+    // chokepoint) so a javascript:/data: URL can't become a clickable href in the
+    // admin preview iframe. Deep-cloned — never mutates the caller's spec.
+    const spec = ((): RecipeSpec => {
+      const cfg = (specInput as { config?: unknown }).config;
+      if (!cfg || typeof cfg !== 'object') return specInput;
+      return { ...(specInput as object), config: sanitizeConfigUrls(cfg) } as RecipeSpec;
+    })();
     const surface = context?.surface ?? inferSurface(spec.type);
     // Storefront types carry the two-pack look; everything else previews unwrapped.
     const isStorefront = spec.type === 'theme.section' || spec.type === 'proxy.widget';
