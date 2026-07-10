@@ -1,5 +1,5 @@
 // SOURCE for assets/superapp-modules.js — edit HERE, then rebuild the shipped asset with:
-//   apps/web/node_modules/.bin/esbuild extensions/theme-app-extension/src/superapp-modules.src.js --minify --outfile=extensions/theme-app-extension/assets/superapp-modules.js --allow-overwrite
+//   apps/web/node_modules/.bin/esbuild apps/web/theme-extension-src/superapp-modules.src.js --minify --outfile=extensions/theme-app-extension/assets/superapp-modules.js --allow-overwrite
 // The shipped asset is minified to stay under Shopify's 30KB app-block JS budget (AssetSizeAppBlockJavaScript).
 /* SuperApp theme extension runtime (vanilla JS, no deps). Loaded once per page
    via each block's schema "javascript" attribute. Two features:
