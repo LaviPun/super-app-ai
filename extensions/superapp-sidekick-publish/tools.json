@@ -1,6 +1,6 @@
 [
   {
-    "$schema": "https://schemas.shopify.com/admin/tools/2026-04/tool.json",
+    "$schema": "https://extensions.shopifycdn.com/shopifycloud/schemas/v1/tool.json",
     "name": "publish_superapp_module",
     "description": "Open a Super App AI module on its page to publish its latest draft and take it live. The app runs plan-gating and pre-publish validation and the merchant confirms the publish (picking a theme for storefront modules). This action only navigates the merchant there — it never publishes automatically.",
     "inputSchema": {

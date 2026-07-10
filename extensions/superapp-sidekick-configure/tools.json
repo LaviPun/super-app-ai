@@ -1,6 +1,6 @@
 [
   {
-    "$schema": "https://schemas.shopify.com/admin/tools/2026-04/tool.json",
+    "$schema": "https://extensions.shopifycdn.com/shopifycloud/schemas/v1/tool.json",
     "name": "configure_superapp_module",
     "description": "Open an existing Super App AI module in its editor so the merchant can change it (copy, styling, offer, thresholds, rules, etc.). Optionally pre-fills a requested change. The merchant makes and saves the edit in Super App AI — this action only navigates them there and never edits the module automatically.",
     "inputSchema": {

@@ -1,6 +1,6 @@
 [
   {
-    "$schema": "https://schemas.shopify.com/admin/tools/2026-04/tool.json",
+    "$schema": "https://extensions.shopifycdn.com/shopifycloud/schemas/v1/tool.json",
     "name": "search_modules",
     "description": "Search the merchant's Super App AI modules by name and/or status. Returns each module with its type, status (DRAFT or PUBLISHED), category, latest version, and last-updated time. Use to answer questions like 'what modules do I have', 'which of my modules are still drafts', or 'find my spin-to-win popup'.",
     "inputSchema": {
@@ -19,7 +19,7 @@
     }
   },
   {
-    "$schema": "https://schemas.shopify.com/admin/tools/2026-04/tool.json",
+    "$schema": "https://extensions.shopifycdn.com/shopifycloud/schemas/v1/tool.json",
     "name": "get_module_performance",
     "description": "Get a Super App AI module's performance over the last N days: impressions, interactions, actions, conversions, and conversion rate, plus a per-day breakdown. Use to answer 'how is my <module> performing'. If no analytics have been recorded yet the result reports that instead of showing zeros.",
     "inputSchema": {
