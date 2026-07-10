@@ -483,8 +483,8 @@
     else if (p && p.featuredImage) img = String(p.featuredImage);
     var price = p && p.price != null ? String(p.price) : '';
     return (
-      '<li class="superapp-recs__card"><a class="superapp-recs__link" href="' + escapeAttr(url) + '">' +
-      (img ? '<img class="superapp-recs__img" src="' + escapeAttr(img) + '" alt="" loading="lazy" width="150" height="150">' : '') +
+      '<li class="superapp-recs__card"><a class="superapp-recs__link" href="' + escapeAttr(safeUrl(url)) + '">' +
+      (img ? '<img class="superapp-recs__img" src="' + escapeAttr(safeUrl(img)) + '" alt="" loading="lazy" width="150" height="150">' : '') +
       '<span class="superapp-recs__name">' + escapeHtml(title) + '</span>' +
       (price ? '<span class="superapp-recs__price">' + escapeHtml(price) + '</span>' : '') +
       '</a></li>'
@@ -496,6 +496,12 @@
   }
   function escapeAttr(s) {
     return escapeHtml(s).replace(/"/g, '&quot;');
+  }
+  // Blank dangerous URL schemes before a value becomes a clickable href/src —
+  // escapeAttr closes quotes but not schemes. Defends the app-proxy data boundary.
+  function safeUrl(s) {
+    var v = String(s == null ? '' : s);
+    return /^\s*(javascript|data|vbscript):/i.test(v) ? '' : v;
   }
 
   function renderRecs(root, products, limit) {

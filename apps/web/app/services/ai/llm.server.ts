@@ -843,28 +843,39 @@ async function parseValidateAndRepairRecipe(
  * returns the best auto-fixed recipe — it never throws and never blocks the
  * response. When QA already passes it is a pass-through (fully back-compat).
  */
+/** Token/cost a corrective regeneration spent (always billed, even if its output is unusable). */
+type QaRegenResult = { recipe: RecipeSpec | null; tokensIn: number; tokensOut: number; costCents: number };
+/** The chosen recipe plus the EXTRA usage the retry spent, for the caller to add to recordAiUsage. */
+type QaRetryResult = { recipe: RecipeSpec; extraTokensIn: number; extraTokensOut: number; extraCostCents: number };
+const NO_EXTRA = { extraTokensIn: 0, extraTokensOut: 0, extraCostCents: 0 };
+
 async function applyDesignQaWithRetry(
   recipe: RecipeSpec,
-  regenerate: (correctiveInstruction: string) => Promise<RecipeSpec | null>,
-): Promise<RecipeSpec> {
+  regenerate: (correctiveInstruction: string) => Promise<QaRegenResult>,
+): Promise<QaRetryResult> {
   const first = runDesignQa(recipe);
-  if (first.pass) return coerceValidRecipe(first.recipe, recipe);
+  if (first.pass) return { recipe: coerceValidRecipe(first.recipe, recipe), ...NO_EXTRA };
 
   const corrective = buildDesignQaCorrection(first);
-  if (!corrective) return coerceValidRecipe(first.recipe, recipe);
+  if (!corrective) return { recipe: coerceValidRecipe(first.recipe, recipe), ...NO_EXTRA };
   console.warn(`[design-qa] ${summarizeQa(first)} — attempting one corrective regeneration`);
 
-  let candidate: RecipeSpec | null = null;
+  let regen: QaRegenResult | null = null;
   try {
-    candidate = await regenerate(corrective);
+    regen = await regenerate(corrective);
   } catch (err) {
     console.warn(`[design-qa] corrective regeneration failed: ${err instanceof Error ? err.message : String(err)}`);
-    candidate = null;
+    regen = null;
   }
-  if (!candidate) return coerceValidRecipe(first.recipe, recipe);
+  if (!regen) return { recipe: coerceValidRecipe(first.recipe, recipe), ...NO_EXTRA };
+
+  // The regeneration LLM call was billed regardless of whether its output is usable.
+  const extra = { extraTokensIn: regen.tokensIn, extraTokensOut: regen.tokensOut, extraCostCents: regen.costCents };
+  const candidate = regen.recipe;
+  if (!candidate) return { recipe: coerceValidRecipe(first.recipe, recipe), ...extra };
 
   const second = runDesignQa(candidate);
-  if (second.pass) return coerceValidRecipe(second.recipe, candidate);
+  if (second.pass) return { recipe: coerceValidRecipe(second.recipe, candidate), ...extra };
 
   // Retry still blocking — keep whichever has fewer blocking issues (tie → first,
   // i.e. the pre-retry auto-fixed recipe = current behavior).
@@ -872,8 +883,8 @@ async function applyDesignQaWithRetry(
   const secondFails = second.issues.filter((i) => i.severity === 'fail').length;
   console.warn(`[design-qa] corrective regeneration still failing (${secondFails} blocking) — keeping best auto-fixed recipe`);
   return secondFails < firstFails
-    ? coerceValidRecipe(second.recipe, candidate)
-    : coerceValidRecipe(first.recipe, recipe);
+    ? { recipe: coerceValidRecipe(second.recipe, candidate), ...extra }
+    : { recipe: coerceValidRecipe(first.recipe, recipe), ...extra };
 }
 
 /**
@@ -891,15 +902,25 @@ async function regenerateSingleRecipeForQa(args: {
   moduleType: ModuleType;
   idx: number;
   shopId?: string;
-}): Promise<RecipeSpec | null> {
-  const { client, compiledPrompt, corrective, perBudget, singleSchema, moduleType, idx, shopId } = args;
+  providerId: string | null;
+}): Promise<QaRegenResult> {
+  const { client, compiledPrompt, corrective, perBudget, singleSchema, moduleType, idx, shopId, providerId } = args;
   const result = await client.generateRecipe(`${compiledPrompt}\n\n${corrective}`, {
     maxTokens: perBudget,
     responseSchema: singleSchema
       ? { name: `RecipeSingle_${moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}_qa`, schema: singleSchema }
       : undefined,
   });
-  return parseValidateAndRepairRecipe(result.rawJson, client, { shopId, moduleType });
+  // Capture the spend BEFORE parse/repair — the LLM call is billed even if its
+  // output is unusable (the QA cost-tracking gap this closes).
+  const { costCents } = await attributeServedCost(result, providerId, result.tokensIn, result.tokensOut);
+  let recipe: RecipeSpec | null = null;
+  try {
+    recipe = await parseValidateAndRepairRecipe(result.rawJson, client, { shopId, moduleType });
+  } catch {
+    recipe = null;
+  }
+  return { recipe, tokensIn: result.tokensIn, tokensOut: result.tokensOut, costCents };
 }
 
 /** All inputs are strings; returns a single compiled prompt string to send to the AI. */
@@ -1466,7 +1487,7 @@ export async function* generateValidatedRecipeOptionsStream(
         repairedFlag = fix.repaired;
       }
 
-      recipe = await applyDesignQaWithRetry(recipe, (corrective) =>
+      const qaRetry = await applyDesignQaWithRetry(recipe, (corrective) =>
         regenerateSingleRecipeForQa({
           client,
           compiledPrompt,
@@ -1476,8 +1497,15 @@ export async function* generateValidatedRecipeOptionsStream(
           moduleType: classification.moduleType,
           idx,
           shopId: options?.shopId,
+          providerId: servedId,
         }),
       );
+      recipe = qaRetry.recipe;
+      // Fold the corrective-regeneration spend into the recorded usage so the
+      // per-call cost is accurate even when QA triggered a retry.
+      tokensIn += qaRetry.extraTokensIn;
+      tokensOut += qaRetry.extraTokensOut;
+      costCents += qaRetry.extraCostCents;
 
       const explanation = typeof (parsed as { explanation?: unknown })?.explanation === 'string'
         ? (parsed as { explanation: string }).explanation
@@ -1696,7 +1724,7 @@ export async function generateValidatedRecipeOptionsParallel(
         repairedFlag = fix.repaired;
       }
 
-      recipe = await applyDesignQaWithRetry(recipe, (corrective) =>
+      const qaRetry = await applyDesignQaWithRetry(recipe, (corrective) =>
         regenerateSingleRecipeForQa({
           client,
           compiledPrompt,
@@ -1706,8 +1734,15 @@ export async function generateValidatedRecipeOptionsParallel(
           moduleType: classification.moduleType,
           idx,
           shopId: options?.shopId,
+          providerId: servedId,
         }),
       );
+      recipe = qaRetry.recipe;
+      // Fold the corrective-regeneration spend into the recorded usage so the
+      // per-call cost is accurate even when QA triggered a retry.
+      tokensIn += qaRetry.extraTokensIn;
+      tokensOut += qaRetry.extraTokensOut;
+      costCents += qaRetry.extraCostCents;
 
       const explanation = typeof (parsed as { explanation?: unknown })?.explanation === 'string'
         ? (parsed as { explanation: string }).explanation

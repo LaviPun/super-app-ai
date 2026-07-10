@@ -608,7 +608,7 @@ export class PreviewService {
             ${
               price
                 ? `<div class="superapp-pricing__price"><span class="superapp-pricing__amount">${esc(
-                    price.startsWith('$') ? price : `$${price}`,
+                    withDollarIfBare(price),
                   )}</span>${period ? `<span class="superapp-pricing__period">/${esc(period)}</span>` : ''}</div>`
                 : ''
             }
@@ -951,7 +951,7 @@ export class PreviewService {
       .map((b) => {
         const bf = (b.fields ?? {}) as Record<string, unknown>;
         const price = bf.price != null ? String(bf.price) : '';
-        const priceLabel = price ? (price.startsWith('$') ? price : `$${price}`) : '';
+        const priceLabel = withDollarIfBare(price);
         return `
           <div class="superapp-upsell__product">
             ${phMedia(b.imageUrl ?? '', b.text ?? '', 'superapp-upsell__thumb')}
@@ -2031,17 +2031,38 @@ function pageHtml(body: string, css: string) {
 
 /**
  * Strip executable vectors from merchant/AI custom HTML for the preview iframe.
- * (The live storefront runs custom JS under the extension's own CSP; the preview
- * is HTML/CSS only.) Removes <script>/<iframe>/<object>, on* handlers, and
- * javascript: URLs. Not a full sanitizer — the preview is sandboxed + CSP-bound.
+ * The `preview.$moduleId` route serves this SAME-ORIGIN (not sandboxed), so a
+ * bypass is real app-origin XSS — hardened accordingly (2026-07-10 ship review):
+ * blocklist now includes svg/math/foreignObject (script-bearing), on* handlers in
+ * ALL quoting forms, and javascript:/data:/vbscript: in href/src whether quoted
+ * or bare. Regex sanitizer with a size cap — belt to the CSP/sandbox suspenders.
  */
 function sanitizePreviewHtml(html: string): string {
   return html
-    .replace(/<\s*(script|iframe|object|embed)[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
-    .replace(/<\s*(script|iframe|object|embed)\b[^>]*>/gi, '')
+    .slice(0, 20_000)
+    // Paired script-capable elements (svg/math can carry <script> or event attrs).
+    .replace(/<\s*(script|iframe|object|embed|svg|math|foreignobject|link|base|meta)[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    // Self-closing / unpaired forms of the same.
+    .replace(/<\s*\/?\s*(script|iframe|object|embed|svg|math|foreignobject|link|base|meta)\b[^>]*>/gi, '')
+    // Any on* event handler, quoted or bare (svg/onload=alert(1)).
     .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/(href|src)\s*=\s*("javascript:[^"]*"|'javascript:[^']*')/gi, '$1="#"')
-    .slice(0, 20_000);
+    // Dangerous URL schemes in href/src/xlink:href, quoted OR bare, with optional
+    // leading whitespace/entities before the scheme.
+    .replace(
+      /((?:xlink:)?href|src|action)\s*=\s*(?:"(?:\s|&#\w+;?)*(?:javascript|data|vbscript):[^"]*"|'(?:\s|&#\w+;?)*(?:javascript|data|vbscript):[^']*'|(?:\s|&#\w+;?)*(?:javascript|data|vbscript):[^\s>]*)/gi,
+      '$1="#"',
+    );
+}
+
+/**
+ * Prepend a `$` ONLY when the price is a bare number — so an authored `€29` /
+ * `£19` / `¥500` (or an already-`$`-prefixed value) is left intact instead of
+ * becoming `$€29`. Preview is sample data, so `$` is a reasonable default symbol
+ * for a bare number; a currency-carrying string is respected as-is.
+ */
+function withDollarIfBare(price: string): string {
+  if (!price) return '';
+  return /^[0-9]/.test(price.trim()) ? `$${price}` : price;
 }
 
 function esc(input: string) {

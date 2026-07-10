@@ -61,6 +61,27 @@ describe('sanitizeConfigUrls — recursive, url-keyed, non-mutating', () => {
     expect(input.ctaUrl).toBe('javascript:alert(1)');
   });
 
+  it('forces endpoint/action/path keys to same-origin (PII-exfil guard)', () => {
+    const out = sanitizeConfigUrls({
+      submissionMode: 'APP_PROXY',
+      proxyEndpointPath: 'https://evil.com/collect',
+      action: '//evil.com/x',
+      okPath: '/apps/superapp/capture',
+      anchorAction: '#form',
+    });
+    expect(out.proxyEndpointPath).toBe(''); // absolute off-domain → blanked
+    expect(out.action).toBe(''); // protocol-relative → blanked
+    expect(out.okPath).toBe('/apps/superapp/capture'); // same-origin kept
+    expect(out.anchorAction).toBe('#form');
+  });
+
+  it('leaves bare-token endpoint-keyed values alone (matchAction=SHOW must survive)', () => {
+    const out = sanitizeConfigUrls({
+      ruleEngine: { matchAction: 'HIDE', groups: [{ conditions: [{ attribute: 'loggedIn', value: 'SHOW' }] }] },
+    }) as { ruleEngine: { matchAction: string } };
+    expect(out.ruleEngine.matchAction).toBe('HIDE'); // not a URL → untouched
+  });
+
   it('passes through primitives/null/undefined safely', () => {
     expect(sanitizeConfigUrls(undefined)).toBeUndefined();
     expect(sanitizeConfigUrls(null)).toBeNull();
