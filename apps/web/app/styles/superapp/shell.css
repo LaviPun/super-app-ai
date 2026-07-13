@@ -59,6 +59,15 @@
    outranks every stylesheet (including the dark-theme tokens). Re-assert the
    admin's own text token at the admin roots so dark mode is actually legible. */
 .internal-admin-viewport, .cmdk { color: var(--p-text); }
+/* polaris.css loads app-wide, but the merchant embedded surfaces are light-only —
+   declaring color-scheme on :root there would give them dark native UA widgets
+   (scrollbars, <select> popups, autofill) on a light page under a dark OS preference.
+   So the native scheme is declared only at the internal-admin roots, which are the
+   surfaces that actually adopt the dark tokens. */
+.internal-admin-viewport, .cmdk { color-scheme: light; }
+@media (prefers-color-scheme: dark) {
+  .internal-admin-viewport, .cmdk { color-scheme: dark; }
+}
 /* Visible keyboard focus for every shell control (WCAG 2.2 focus appearance). */
 .nav-item:focus-visible,
 .nav-health:focus-visible,

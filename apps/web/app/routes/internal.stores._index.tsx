@@ -165,8 +165,12 @@ export async function action({ request }: { request: Request }) {
 const PLAN_TONE: Record<string, any> = { FREE: undefined, STARTER: 'info', GROWTH: 'success', PRO: 'magic', ENTERPRISE: 'warning' };
 
 // Health derived from real fields + the store's real 30d ERROR count (loader-provided).
+// Called per row + in the avg reduce + CSV export, so cap the synthesized error rows
+// at storeHealth's score-saturation point (it floors at 3 by ~13 errors) instead of
+// allocating an unbounded array per store — identical scores, no throwaway growth.
 function healthOf(s: any): number {
-  const errLogs = Array.from({ length: s.errors30d ?? 0 }, () => ({ level: 'ERROR', shop: s.domain }));
+  const errCount = Math.min(s.errors30d ?? 0, 20);
+  const errLogs = Array.from({ length: errCount }, () => ({ level: 'ERROR', shop: s.domain }));
   return storeHealth(s, errLogs);
 }
 
