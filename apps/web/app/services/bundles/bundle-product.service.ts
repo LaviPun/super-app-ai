@@ -220,9 +220,6 @@ const METAFIELDS_SET = `#graphql
   }
 `;
 
-// NOTE: automaticDiscountNodes is deprecated (→ discountNodes) but still valid in
-// Admin API 2026-04; kept to match the title-keyed lookup contract. Validated
-// against the 2026-04 schema via the shopify-dev MCP.
 // Idempotency lookup uses the `discountNodes` superset connection because it
 // reflects the write immediately — a search-index-backed connection lags for
 // several seconds after a create, so a back-to-back republish would miss the
