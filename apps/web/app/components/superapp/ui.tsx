@@ -409,9 +409,10 @@ export function DataTable({ columns, rows, onRowClick, selectable, selected, onS
               onClick: onRowClick ? () => onRowClick(r) : undefined,
               // Keyboard parity for clickable rows: focusable + Enter/Space activate.
               tabIndex: onRowClick ? 0 : undefined,
-              role: onRowClick ? 'button' : undefined,
               onKeyDown: onRowClick
                 ? (e: any) => {
+                    // Ignore keydowns bubbling up from inner interactive elements.
+                    if (e.target !== e.currentTarget) return;
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
                       onRowClick(r);

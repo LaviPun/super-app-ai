@@ -7,8 +7,6 @@ import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagin
 import type { Prisma } from '@prisma/client';
 import {
   useAdminCtx,
-  useAdminOps,
-  Btn,
   Card,
   StatusDot,
   EmptyState,
@@ -98,7 +96,6 @@ function relWh(iso: string): string {
 export default function AdminWebhooks() {
   const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
-  const ops = useAdminOps();
   const ts = useTableState();
   const [topic, setTopic] = useState('All topics');
 
@@ -107,7 +104,7 @@ export default function AdminWebhooks() {
 
   return (
     <div className="page">
-      <PageHead title="Webhooks" sub="Shopify webhook deliveries — orders, products, customers, fulfillments, and GDPR topics." />
+      <PageHead title="Webhooks" sub="Shopify webhook deliveries — orders, products, customers, fulfillments, and GDPR topics. Failed deliveries are automatically redelivered by Shopify; payloads are not persisted." />
       <Card>
         <FilterBar
           search={ts.search}
@@ -135,18 +132,6 @@ export default function AdminWebhooks() {
                 ),
               },
               { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{r.created}</span> },
-              {
-                key: 'act',
-                label: '',
-                render: (r: any) =>
-                  !r.success ? (
-                    <div className="dt-actions">
-                      <Btn size="sm" icon="replay" className="btn-plain" onClick={() => ops.run('webhook_redeliver', { id: r.id, resource: r.topic, message: 'Requesting redelivery' })}>
-                        Redeliver
-                      </Btn>
-                    </div>
-                  ) : null,
-              },
             ]}
             rows={rows}
           />

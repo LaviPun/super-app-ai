@@ -3,8 +3,6 @@ import { useLoaderData } from '@remix-run/react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import {
-  useAdminOps,
-  Btn,
   Badge,
   Card,
   KV,
@@ -48,8 +46,6 @@ export async function loader({ request, params }: { request: Request; params: { 
 
 export default function AdminWebhookDetail() {
   const { webhook: w } = useLoaderData<typeof loader>();
-  const ops = useAdminOps();
-  const redeliver = () => ops.run('webhook_redeliver', { id: w.id, resource: w.topic, message: 'Requesting redelivery' });
 
   return (
     <div className="page">
@@ -73,13 +69,6 @@ export default function AdminWebhookDetail() {
             <span className="t-muted">·</span>
             <span className="t-sm">{w.shop}</span>
           </span>
-        }
-        actions={
-          !w.success ? (
-            <Btn variant="primary" icon="replay" onClick={redeliver}>
-              Redeliver
-            </Btn>
-          ) : undefined
         }
       />
       <div className="grid grid-4" style={{ marginBottom: 16 }}>
@@ -110,13 +99,6 @@ export default function AdminWebhookDetail() {
           <p className="t-sm t-muted">
             Webhook payloads are not persisted — only delivery metadata (topic, event ID, store, result, and time) is retained. Redelivery is therefore not available from the admin.
           </p>
-          {!w.success ? (
-            <div style={{ marginTop: 12 }}>
-              <Btn size="sm" icon="replay" onClick={redeliver}>
-                Redeliver
-              </Btn>
-            </div>
-          ) : null}
         </Card>
       </div>
     </div>

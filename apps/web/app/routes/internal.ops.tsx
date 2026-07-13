@@ -36,14 +36,12 @@ type HttpMethod = (typeof HTTP_METHODS)[number];
 const INTENT_ACTION: Record<string, ActivityAction> = {
   publish: 'MODULE_PUBLISHED',
   rollback: 'MODULE_ROLLED_BACK',
-  module_modify: 'MODULE_MODIFIED_WITH_AI',
   flow_pause: 'SCHEDULE_TOGGLED',
   flow_resume: 'SCHEDULE_TOGGLED',
   flow_run: 'FLOW_RUN',
   connector_test: 'CONNECTOR_TESTED',
   connector_delete: 'CONNECTOR_DELETED',
   connector_save: 'CONNECTOR_UPDATED',
-  webhook_redeliver: 'WEBHOOK_PROCESSED',
   job_replay: 'FLOW_RUN',
 };
 
@@ -193,10 +191,6 @@ export async function action({ request }: ActionFunctionArgs) {
         return ok(`Rolled back ${moduleRow.name} to v${target}`);
       }
 
-      case 'module_modify':
-        // No safe generic server-side implementation — AI modify needs the editor's context.
-        return fail('Use the module editor to modify this module');
-
       case 'flow_pause':
       case 'flow_resume': {
         if (!id) return fail('Missing flow id');
@@ -338,11 +332,6 @@ export async function action({ request }: ActionFunctionArgs) {
         );
         return ok(`${connector.name} deleted`);
       }
-
-      case 'webhook_redeliver':
-        // WebhookEvent rows only store topic/eventId metadata — payloads are not
-        // persisted, so there is nothing to redeliver. Do not fake it.
-        return fail('Redelivery not supported yet — webhook payloads are not persisted');
 
       default:
         return fail('Unknown action', 400);

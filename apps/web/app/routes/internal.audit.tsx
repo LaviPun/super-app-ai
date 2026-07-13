@@ -160,7 +160,6 @@ export default function AdminAudit() {
               { key: 'action', label: 'Action', render: (r: any) => <span className="cell-strong">{titleCase(r.action)}</span> },
               { key: 'resource', label: 'Resource', render: (r: any) => <span className="cell-sub t-trunc" style={{ maxWidth: 360, display: 'inline-block' }}>{r.resource}</span> },
               { key: 'shop', label: 'Store' },
-              { key: 'ip', label: 'IP', render: () => <span className="t-mono t-xs t-muted">—</span> },
             ]}
             rows={rows}
           />

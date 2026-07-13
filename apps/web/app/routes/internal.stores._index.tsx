@@ -99,7 +99,7 @@ export async function loader({ request }: { request: Request }) {
       modules: s.modules.length,
       published: s.modules.filter((m: { status: string }) => m.status === 'PUBLISHED').length,
       aiCalls30d: aiByShop.get(s.id) ?? 0,
-      errors30d: Math.min(errByShop.get(s.id) ?? 0, 13),
+      errors30d: errByShop.get(s.id) ?? 0,
       installedAt: s.createdAt ? new Date(s.createdAt).toISOString().slice(0, 10) : '—',
       provider: s.aiProviderOverride
         ? s.aiProviderOverride.name + ' · ' + (s.aiProviderOverride.model ?? s.aiProviderOverride.provider)

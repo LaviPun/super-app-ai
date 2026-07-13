@@ -241,6 +241,9 @@ function PlanModal({ tier, onClose }: { tier: any; onClose: () => void }) {
           <Field label="Connectors">
             <Input type="number" value={f.connectors} onChange={(e: any) => set('connectors', e.target.value)} />
           </Field>
+          <Field label="Modules total">
+            <Input type="number" value={f.modules} onChange={(e: any) => set('modules', e.target.value)} />
+          </Field>
         </div>
       </div>
     </Modal>
