@@ -1,13 +1,25 @@
 import React from 'react';
+import type { ReactNode } from 'react';
 import { Link } from '@remix-run/react';
 import { Icon } from './icons';
 import { Input, Select } from './ui';
+import type { SelectOption, ToneProp } from './ui';
 
 const { useState: uS } = React;
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
-export function PageHead({ title, sub, badge, actions, back, crumbs }: any) {
+export interface Crumb {
+  href?: string;
+  label: ReactNode;
+}
+export interface PageHeadProps {
+  title?: ReactNode;
+  sub?: ReactNode;
+  badge?: ReactNode;
+  actions?: ReactNode;
+  back?: { href: string; label: ReactNode };
+  crumbs?: Crumb[];
+}
+export function PageHead({ title, sub, badge, actions, back, crumbs }: PageHeadProps) {
   return React.createElement(
     'div',
     null,
@@ -15,7 +27,7 @@ export function PageHead({ title, sub, badge, actions, back, crumbs }: any) {
       React.createElement(
         'div',
         { className: 'crumbs' },
-        crumbs.map((c: any, i: number) =>
+        crumbs.map((c, i) =>
           React.createElement(
             React.Fragment,
             { key: i },
@@ -40,17 +52,30 @@ export function PageHead({ title, sub, badge, actions, back, crumbs }: any) {
 }
 
 // generic filter bar: search + selects
-export function FilterBar({ search, onSearch, placeholder, filters, right, results }: any) {
+export interface FilterBarSelect {
+  options: SelectOption[];
+  value: string;
+  onChange: (value: string) => void;
+}
+export interface FilterBarProps {
+  search?: string;
+  onSearch?: (value: string) => void;
+  placeholder?: string;
+  filters?: FilterBarSelect[];
+  right?: ReactNode;
+  results?: number | null;
+}
+export function FilterBar({ search, onSearch, placeholder, filters, right, results }: FilterBarProps) {
   return React.createElement(
     'div',
     { className: 'filter-bar' },
     React.createElement(
       'div',
       { className: 'filter-search' },
-      React.createElement(Input, { icon: 'search', placeholder: placeholder || 'Search…', value: search, onChange: (e: any) => onSearch(e.target.value) }),
+      React.createElement(Input, { icon: 'search', placeholder: placeholder || 'Search…', value: search, onChange: (e: React.ChangeEvent<HTMLInputElement>) => onSearch?.(e.target.value) }),
     ),
-    (filters || []).map((f: any, i: number) =>
-      React.createElement('div', { key: i, style: { minWidth: 150 } }, React.createElement(Select, { options: f.options, value: f.value, onChange: (e: any) => f.onChange(e.target.value) })),
+    (filters || []).map((f, i) =>
+      React.createElement('div', { key: i, style: { minWidth: 150 } }, React.createElement(Select, { options: f.options, value: f.value, onChange: (e: React.ChangeEvent<HTMLSelectElement>) => f.onChange(e.target.value) })),
     ),
     React.createElement('div', { className: 'grow' }),
     results != null && React.createElement('span', { className: 't-sm t-muted t-num' }, results, ' results'),
@@ -58,7 +83,18 @@ export function FilterBar({ search, onSearch, placeholder, filters, right, resul
   );
 }
 
-export function StatTile({ label, value, delta, deltaDir, deltaTone, icon, tone = 'info', href, sub }: any) {
+export interface StatTileProps {
+  label?: ReactNode;
+  value?: ReactNode;
+  delta?: ReactNode;
+  deltaDir?: 'up' | 'down';
+  deltaTone?: string;
+  icon?: string;
+  tone?: ToneProp;
+  href?: string;
+  sub?: ReactNode;
+}
+export function StatTile({ label, value, delta, deltaDir, deltaTone, icon, tone = 'info', href, sub }: StatTileProps) {
   // `deltaDir` is the true direction of change (arrow); `deltaTone` is whether that
   // change is good (green) or bad (red). They diverge for metrics where rising is bad
   // (errors, cost): a spike shows a red up-arrow, not a green one. Defaults to deltaDir.
@@ -68,7 +104,7 @@ export function StatTile({ label, value, delta, deltaDir, deltaTone, icon, tone 
     React.createElement(
       'div',
       { className: 'row spread', style: { marginBottom: 12 } },
-      React.createElement('span', { className: 'tile-ico', style: { background: 'var(--p-' + tone + '-bg)', color: 'var(--p-' + tone + ')' } }, React.createElement(Icon, { name: icon, size: 19 })),
+      React.createElement('span', { className: 'tile-ico', style: { background: 'var(--p-' + tone + '-bg)', color: 'var(--p-' + tone + ')' } }, React.createElement(Icon, { name: icon ?? '', size: 19 })),
       delta && React.createElement('span', { className: 'metric-delta ' + (deltaTone || deltaDir || 'up') }, React.createElement(Icon, { name: deltaDir === 'down' ? 'chevronDown' : 'chevronUp', size: 13 }), delta),
     ),
     React.createElement('div', { className: 'metric-val', style: { fontSize: 26 } }, value),
@@ -79,21 +115,21 @@ export function StatTile({ label, value, delta, deltaDir, deltaTone, icon, tone 
 }
 
 // simple sparkline / bar mini chart
-export function MiniBars({ data, color = 'var(--sa-primary)', height = 44 }: any) {
+export function MiniBars({ data, color = 'var(--sa-primary)', height = 44 }: { data: number[]; color?: string; height?: number }) {
   const max = Math.max(...data, 1);
   return React.createElement(
     'div',
     { style: { display: 'flex', alignItems: 'flex-end', gap: 3, height } },
-    data.map((v: number, i: number) =>
+    data.map((v, i) =>
       React.createElement('div', { key: i, style: { flex: 1, height: Math.max(2, (v / max) * height) + 'px', background: color, borderRadius: 2, opacity: 0.35 + 0.65 * (v / max) } }),
     ),
   );
 }
 
-export function Sparkline({ data, color = 'var(--sa-secondary)', w = 220, h = 48 }: any) {
+export function Sparkline({ data, color = 'var(--sa-secondary)', w = 220, h = 48 }: { data: number[]; color?: string; w?: number; h?: number }) {
   const max = Math.max(...data, 1);
   const min = Math.min(...data, 0);
-  const pts: Array<[number, number]> = data.map((v: number, i: number) => {
+  const pts: Array<[number, number]> = data.map((v, i) => {
     const x = (i / (data.length - 1)) * w;
     const y = h - ((v - min) / (max - min || 1)) * (h - 6) - 3;
     return [x, y] as [number, number];
@@ -119,8 +155,12 @@ export function Sparkline({ data, color = 'var(--sa-secondary)', w = 220, h = 48
 }
 
 // donut
-export function Donut({ segments, size = 120, thickness = 14, center }: any) {
-  const total = segments.reduce((a: number, s: any) => a + s.value, 0) || 1;
+export interface DonutSegment {
+  value: number;
+  color: string;
+}
+export function Donut({ segments, size = 120, thickness = 14, center }: { segments: DonutSegment[]; size?: number; thickness?: number; center?: ReactNode }) {
+  const total = segments.reduce((a, s) => a + s.value, 0) || 1;
   const r = (size - thickness) / 2;
   const circ = 2 * Math.PI * r;
   let offset = 0;
@@ -130,7 +170,7 @@ export function Donut({ segments, size = 120, thickness = 14, center }: any) {
     React.createElement(
       'svg',
       { width: size, height: size, style: { transform: 'rotate(-90deg)' } },
-      segments.map((s: any, i: number) => {
+      segments.map((s, i) => {
         const len = (s.value / total) * circ;
         const el = React.createElement('circle', {
           key: i, cx: size / 2, cy: size / 2, r, fill: 'none', stroke: s.color, strokeWidth: thickness,
@@ -160,7 +200,7 @@ export function fmtNum(n: number | null | undefined) { return n == null ? '—' 
 export function fmtQuota(n: number) { return n === -1 ? 'Unlimited' : n.toLocaleString('en-US'); }
 export function fmtMs(ms: number | null | undefined) { return ms == null ? '—' : ms < 1000 ? ms + 'ms' : (ms / 1000).toFixed(1) + 's'; }
 
-export function MonoChip({ children }: any) {
+export function MonoChip({ children }: { children?: ReactNode }) {
   return React.createElement(
     'span',
     { className: 't-mono', style: { background: 'var(--p-surface-secondary)', padding: '2px 7px', borderRadius: 5, border: '1px solid var(--p-border)', whiteSpace: 'nowrap' } },

@@ -20,7 +20,7 @@ export function LogTabs({ active }: { active: LogTab }) {
       <Tabs
         tabs={TABS.map((t) => ({ id: t.id, label: t.label }))}
         active={active}
-        onChange={(id: LogTab) => {
+        onChange={(id: string) => {
           if (id === active) return;
           const tab = TABS.find((t) => t.id === id);
           if (tab) ctx.go(tab.hash);

@@ -238,7 +238,7 @@ export default function AdminModuleDetail() {
                   <span className="cell-strong">
                     v{r.version}
                     {r.active ? (
-                      <Badge tone="success" style={{ marginLeft: 8 }}>
+                      <Badge tone="success">
                         Active
                       </Badge>
                     ) : null}
