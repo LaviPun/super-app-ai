@@ -24,6 +24,10 @@ const hoisted = vi.hoisted(() => {
   const resolveComponents = vi.fn();
   const ensureParentBundleProduct = vi.fn(async (_args?: unknown) => 'gid://shopify/ProductVariant/500');
   const activateCartTransform = vi.fn(async (_config?: { bundles: Array<Record<string, unknown>> }) => 'gid://shopify/CartTransform/1');
+  const writeBundlePricingRules = vi.fn(async (_mo?: unknown, _rules?: unknown) => {});
+  const ensureAutomaticBundleDiscount = vi.fn(async () => 'gid://shopify/DiscountAutomaticNode/1');
+  // CapabilityService.getPlanTier — plan drives the pricing split at the activate site.
+  const getPlanTier = vi.fn(async (_shopDomain: string) => 'PLUS');
 
   return {
     moduleUpdate,
@@ -33,6 +37,9 @@ const hoisted = vi.hoisted(() => {
     resolveComponents,
     ensureParentBundleProduct,
     activateCartTransform,
+    writeBundlePricingRules,
+    ensureAutomaticBundleDiscount,
+    getPlanTier,
   };
 });
 
@@ -59,9 +66,23 @@ vi.mock('~/services/bundles/bundle-product.service', async (importOriginal) => {
       resolveComponents: hoisted.resolveComponents,
       ensureParentBundleProduct: hoisted.ensureParentBundleProduct,
       activateCartTransform: hoisted.activateCartTransform,
+      writeBundlePricingRules: hoisted.writeBundlePricingRules,
+      ensureAutomaticBundleDiscount: hoisted.ensureAutomaticBundleDiscount,
     })),
   };
 });
+
+// CapabilityService (plan tier, DB read) + MetaobjectService (function-config
+// writer) are both real-instantiated at the activate site; stub the class surfaces
+// the split flow touches. The real `splitBundlePricingForPlan` stays unmocked so
+// the plan→config/rules split is exercised end-to-end.
+vi.mock('~/services/shopify/capability.service', () => ({
+  CapabilityService: vi.fn().mockImplementation(() => ({ getPlanTier: hoisted.getPlanTier })),
+}));
+
+vi.mock('~/services/shopify/metaobject.service', () => ({
+  MetaobjectService: vi.fn().mockImplementation(() => ({})),
+}));
 
 // --- fixtures -------------------------------------------------------------
 
@@ -122,6 +143,7 @@ beforeEach(() => {
   hoisted.publish.mockResolvedValue({ preflight: {} });
   hoisted.resolveComponents.mockResolvedValue(resolvedBundle.components);
   hoisted.ensureParentBundleProduct.mockResolvedValue('gid://shopify/ProductVariant/500');
+  hoisted.getPlanTier.mockResolvedValue('PLUS');
 });
 
 // ==========================================================================
@@ -291,6 +313,69 @@ describe('publishBlueprint — bundle triangle co-deploy', () => {
     expect(result.resolvedBundle?.price).toEqual({ kind: 'percentage', value: 20 });
     const runtimeConfig = hoisted.activateCartTransform.mock.calls[0]![0]!;
     expect(runtimeConfig.bundles[0]!.price).toEqual({ kind: 'percentage', value: 20 });
+  });
+});
+
+// ==========================================================================
+// Plan-aware fixed-price split (Task 4) — non-Plus fallback wiring
+// ==========================================================================
+
+/** A single fixed-price bundle: `$49` per bundle via the cart-transform member. */
+function fixedPriceSpec() {
+  const priced = structuredClone(cartTransformSpec);
+  (priced.config.bundles[0] as Record<string, unknown>).pricing = {
+    model: 'single',
+    mechanism: 'shopify-function-cart-transform',
+    discount: { kind: 'fixed-price', value: 49 },
+  };
+  return priced;
+}
+
+describe('publishBlueprint — plan-aware fixed-price split at the activate site', () => {
+  it('non-Plus (BASIC): strips the fixed price from cart-transform config, ensures the discount node once, and writes the managed rule', async () => {
+    hoisted.getPlanTier.mockResolvedValue('BASIC');
+    hoisted.recipeFindFirst.mockResolvedValue(recipeRow([{ id: 'merge', type: 'functions.cartTransform', spec: fixedPriceSpec() }]));
+
+    const { BlueprintService } = await import('~/services/blueprints/blueprint.service');
+    await new BlueprintService().publishBlueprint(fakeAdmin, 'test.myshopify.com', 'recipe_1');
+
+    // Cart-transform config takes the merge path — the fixed price is stripped.
+    expect(hoisted.activateCartTransform).toHaveBeenCalledTimes(1);
+    const runtimeConfig = hoisted.activateCartTransform.mock.calls[0]![0]!;
+    expect(runtimeConfig.bundles[0]!.price).toBeUndefined();
+
+    // The discount node is ensured exactly once (there is a rule to activate).
+    expect(hoisted.ensureAutomaticBundleDiscount).toHaveBeenCalledTimes(1);
+
+    // The managed rule is written: keyed `bundle:<id>`, reducing to the fixed price.
+    expect(hoisted.writeBundlePricingRules).toHaveBeenCalledTimes(1);
+    const rules = hoisted.writeBundlePricingRules.mock.calls[0]![1] as Array<{
+      id: string;
+      apply: { fixedPricePerUnit: number };
+    }>;
+    expect(rules).toHaveLength(1);
+    expect(rules[0]!.id).toBe('bundle:starter-set');
+    expect(rules[0]!.apply.fixedPricePerUnit).toBe(49);
+  });
+
+  it('Plus: keeps the fixed price in cart-transform config, does NOT ensure the discount node, and clears managed rules (writes [])', async () => {
+    hoisted.getPlanTier.mockResolvedValue('PLUS');
+    hoisted.recipeFindFirst.mockResolvedValue(recipeRow([{ id: 'merge', type: 'functions.cartTransform', spec: fixedPriceSpec() }]));
+
+    const { BlueprintService } = await import('~/services/blueprints/blueprint.service');
+    await new BlueprintService().publishBlueprint(fakeAdmin, 'test.myshopify.com', 'recipe_1');
+
+    // Byte-identical to today: the fixed price stays on the cart-transform line.
+    const runtimeConfig = hoisted.activateCartTransform.mock.calls[0]![0]!;
+    expect(runtimeConfig.bundles[0]!.price).toEqual({ kind: 'fixed-price', value: 49 });
+
+    // No discount fallback on Plus.
+    expect(hoisted.ensureAutomaticBundleDiscount).not.toHaveBeenCalled();
+
+    // writeBundlePricingRules is still called unconditionally — with [] — so any
+    // stale managed rule from a prior non-Plus publish is cleared.
+    expect(hoisted.writeBundlePricingRules).toHaveBeenCalledTimes(1);
+    expect(hoisted.writeBundlePricingRules.mock.calls[0]![1]).toEqual([]);
   });
 });
 

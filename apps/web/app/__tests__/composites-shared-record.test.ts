@@ -23,6 +23,9 @@ const hoisted = vi.hoisted(() => {
   const resolveComponents = vi.fn();
   const ensureParentBundleProduct = vi.fn(async (_args?: unknown) => 'gid://shopify/ProductVariant/500');
   const activateCartTransform = vi.fn(async (_config?: { bundles: Array<Record<string, unknown>> }) => 'gid://shopify/CartTransform/1');
+  const writeBundlePricingRules = vi.fn(async (_mo?: unknown, _rules?: unknown) => {});
+  const ensureAutomaticBundleDiscount = vi.fn(async () => 'gid://shopify/DiscountAutomaticNode/1');
+  const getPlanTier = vi.fn(async (_shopDomain: string) => 'PLUS');
   const ensureTypedStore = vi.fn(async (_shopId: string, key: string, _opts?: { label: string; description?: string; schemaJson?: string }) => ({ key }));
 
   return {
@@ -33,6 +36,9 @@ const hoisted = vi.hoisted(() => {
     resolveComponents,
     ensureParentBundleProduct,
     activateCartTransform,
+    writeBundlePricingRules,
+    ensureAutomaticBundleDiscount,
+    getPlanTier,
     ensureTypedStore,
   };
 });
@@ -57,9 +63,21 @@ vi.mock('~/services/bundles/bundle-product.service', async (importOriginal) => {
       resolveComponents: hoisted.resolveComponents,
       ensureParentBundleProduct: hoisted.ensureParentBundleProduct,
       activateCartTransform: hoisted.activateCartTransform,
+      writeBundlePricingRules: hoisted.writeBundlePricingRules,
+      ensureAutomaticBundleDiscount: hoisted.ensureAutomaticBundleDiscount,
     })),
   };
 });
+
+// Plan-aware split at the cart-transform activate site (Task 4): stub the plan
+// read + function-config writer the split flow instantiates.
+vi.mock('~/services/shopify/capability.service', () => ({
+  CapabilityService: vi.fn().mockImplementation(() => ({ getPlanTier: hoisted.getPlanTier })),
+}));
+
+vi.mock('~/services/shopify/metaobject.service', () => ({
+  MetaobjectService: vi.fn().mockImplementation(() => ({})),
+}));
 
 // The DATA_STORE branch funnels through R3.3's canonical writer.
 vi.mock('~/services/data/data-store.service', () => ({
@@ -171,6 +189,7 @@ beforeEach(() => {
   hoisted.publish.mockResolvedValue({ preflight: {} });
   hoisted.resolveComponents.mockResolvedValue(components);
   hoisted.ensureParentBundleProduct.mockResolvedValue('gid://shopify/ProductVariant/500');
+  hoisted.getPlanTier.mockResolvedValue('PLUS');
   hoisted.ensureTypedStore.mockImplementation(async (_shopId: string, key: string) => ({ key }));
 });
 

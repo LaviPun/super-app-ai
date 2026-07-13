@@ -22,10 +22,12 @@ import {
   BundleProductService,
   bundleIdFromTitle,
   bundleParentSku,
-  buildBundleRuntimeConfig,
   resolveBundleWithPricing,
   type ResolvedBundle,
 } from '~/services/bundles/bundle-product.service';
+import { splitBundlePricingForPlan } from '~/services/bundles/bundle-pricing-split';
+import { CapabilityService } from '~/services/shopify/capability.service';
+import { MetaobjectService } from '~/services/shopify/metaobject.service';
 import {
   resolveCompositeRecord,
   type ResolvedCompositeRecord,
@@ -463,7 +465,19 @@ export class BlueprintService {
         // Identical ordering on the composite path — the `bundle` came from the same
         // resolution (the record pre-pass) rather than the member config.
         if (member.type === 'functions.cartTransform' && bundle) {
-          await new BundleProductService(admin).activateCartTransform(buildBundleRuntimeConfig([bundle]));
+          // Plan-aware split: Plus/Enterprise keep the lineUpdate-based fixed price
+          // in the cart-transform config; non-Plus shops get a merge-only config plus
+          // a managed discount rule (cart transform's per-unit lineUpdate is Plus-only).
+          const plan = await new CapabilityService().getPlanTier(shopDomain);
+          const split = splitBundlePricingForPlan([bundle], plan);
+          const bundleSvc = new BundleProductService(admin);
+          await bundleSvc.activateCartTransform(split.cartTransformConfig);
+          if (split.bundleDiscountRules.length > 0) {
+            await bundleSvc.ensureAutomaticBundleDiscount();
+          }
+          // Unconditional: an empty rule set clears any stale managed rule left by a
+          // prior non-Plus publish (e.g. after upgrading to Plus or dropping the price).
+          await bundleSvc.writeBundlePricingRules(new MetaobjectService(admin), split.bundleDiscountRules);
         }
         await this.markMemberPublished(member);
         published.push({ moduleId: member.moduleId, type: member.type });
