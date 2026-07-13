@@ -121,6 +121,7 @@ export default function App() {
     <html lang="en">
       <head>
         <meta charSet="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
         <Meta />
         <Links />
         {/* Force rounded cards/banners so Polaris’s 0-radius on small viewports never wins */}
