@@ -107,6 +107,12 @@ pub struct RuleApply {
     /// The N cheapest applicable units become free (100% off). New R2.2 kind.
     #[shopify_function(default)]
     cheapest_free: Option<i64>,
+    /// Per-unit set price for the targeted lines (Basic-plan bundle-pricing
+    /// fallback): each targeted line is reduced to `value × quantity`. Emitted by
+    /// the publish-time plan splitter as the non-Plus expression of a cart-transform
+    /// `fixed-price` bundle (targets the merged parent line by SKU).
+    #[shopify_function(default)]
+    fixed_price_per_unit: Option<f64>,
     /// Buy-X-Get-Y reward on the "get" arm. New R2.2 kind (product-id matching).
     #[shopify_function(default)]
     buy_x_get_y: Option<BuyXGetY>,
@@ -242,6 +248,24 @@ pub fn decide(config: &Configuration, cart_subtotal: f64, lines: &[Line]) -> Opt
                 if let Some(candidate) = decide_cheapest_free(n, &targeted) {
                     return Some(candidate);
                 }
+            }
+            continue;
+        }
+
+        // fixed-price-per-unit: reduce each targeted line to fp × qty. Emitted as
+        // one fixed-amount reduction across the set (per-line deltas summed).
+        if let Some(fp) = rule.apply.fixed_price_per_unit {
+            let reduction: f64 = targeted
+                .iter()
+                .map(|l| (l.subtotal - fp * l.quantity as f64).max(0.0))
+                .sum();
+            if reduction > 0.0 {
+                return Some(Candidate {
+                    target_line_ids: targeted.iter().map(|l| l.id.clone()).collect(),
+                    value: CandidateValue::FixedAmount(reduction),
+                    message: format!("Bundle price {}", format_money(fp)),
+                    prerequisite_line_ids: vec![],
+                });
             }
             continue;
         }
@@ -1075,5 +1099,83 @@ mod tests {
         let cfg = Configuration::default();
         let lines = vec![line("l1", "A", "p1", 1, 50.0)];
         assert_eq!(decide(&cfg, 50.0, &lines), None);
+    }
+
+    // ── fixedPricePerUnit (Basic-plan bundle pricing fallback) ───────────────
+
+    #[test]
+    fn fixed_price_per_unit_reduces_line_to_target() {
+        // Merged bundle line: qty 1, subtotal 30.00, target 27.00 → 3.00 off.
+        let cfg = Configuration {
+            rules: vec![rule(
+                RuleWhen { sku_in: vec!["BUNDLE-CANDLE".to_string()], ..Default::default() },
+                RuleApply { fixed_price_per_unit: Some(27.0), ..Default::default() },
+            )],
+            ..Default::default()
+        };
+        let lines = vec![
+            line("l1", "BUNDLE-CANDLE", "pB", 1, 30.0),
+            line("l2", "OTHER", "pO", 1, 10.0),
+        ];
+        let d = decide(&cfg, 40.0, &lines).unwrap();
+        match d.value {
+            CandidateValue::FixedAmount(amt) => assert!((amt - 3.0).abs() < 1e-9),
+            other => panic!("expected fixed amount, got {:?}", other),
+        }
+        assert_eq!(d.target_line_ids, vec!["l1"]);
+    }
+
+    #[test]
+    fn fixed_price_per_unit_scales_with_quantity() {
+        // qty 2 of the bundle parent: subtotal 60, target 27×2=54 → 6.00 off.
+        let cfg = Configuration {
+            rules: vec![rule(
+                RuleWhen { sku_in: vec!["BUNDLE-CANDLE".to_string()], ..Default::default() },
+                RuleApply { fixed_price_per_unit: Some(27.0), ..Default::default() },
+            )],
+            ..Default::default()
+        };
+        let lines = vec![line("l1", "BUNDLE-CANDLE", "pB", 2, 30.0)];
+        let d = decide(&cfg, 60.0, &lines).unwrap();
+        match d.value {
+            CandidateValue::FixedAmount(amt) => assert!((amt - 6.0).abs() < 1e-9),
+            other => panic!("expected fixed amount, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn fixed_price_per_unit_no_op_when_already_at_or_below_target() {
+        let cfg = Configuration {
+            rules: vec![rule(
+                RuleWhen { sku_in: vec!["BUNDLE-CANDLE".to_string()], ..Default::default() },
+                RuleApply { fixed_price_per_unit: Some(35.0), ..Default::default() },
+            )],
+            ..Default::default()
+        };
+        let lines = vec![line("l1", "BUNDLE-CANDLE", "pB", 1, 30.0)];
+        assert_eq!(decide(&cfg, 30.0, &lines), None);
+    }
+
+    #[test]
+    fn fixed_price_per_unit_takes_precedence_within_rule() {
+        // A rule carrying both keys uses fixedPricePerUnit (splitter emits one key,
+        // but precedence must be deterministic).
+        let cfg = Configuration {
+            rules: vec![rule(
+                RuleWhen { sku_in: vec!["B".to_string()], ..Default::default() },
+                RuleApply {
+                    fixed_price_per_unit: Some(27.0),
+                    percentage_off: Some(50.0),
+                    ..Default::default()
+                },
+            )],
+            ..Default::default()
+        };
+        let lines = vec![line("l1", "B", "pB", 1, 30.0)];
+        let d = decide(&cfg, 30.0, &lines).unwrap();
+        match d.value {
+            CandidateValue::FixedAmount(amt) => assert!((amt - 3.0).abs() < 1e-9),
+            other => panic!("expected fixed amount, got {:?}", other),
+        }
     }
 }
