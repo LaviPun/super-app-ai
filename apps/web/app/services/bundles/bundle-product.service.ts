@@ -28,6 +28,8 @@ import type { AdminApiContext } from '~/types/shopify';
 import { lowerPricingToCartTransform } from '~/services/recipes/compiler/pricing/lower';
 import type { LoweredBundlePrice, LoweredTierPrice } from '~/services/recipes/compiler/pricing/lower';
 import type { PricingPack } from '@superapp/core';
+import type { BundlePricingRule } from './bundle-pricing-split';
+import type { MetaobjectService } from '~/services/shopify/metaobject.service';
 
 type AdminClient = AdminApiContext['admin'];
 
@@ -218,6 +220,37 @@ const METAFIELDS_SET = `#graphql
   }
 `;
 
+// NOTE: automaticDiscountNodes is deprecated (→ discountNodes) but still valid in
+// Admin API 2026-04; kept to match the title-keyed lookup contract. Validated
+// against the 2026-04 schema via the shopify-dev MCP.
+const AUTOMATIC_DISCOUNT_NODES_QUERY = `#graphql
+  query SuperAppBundlePricingDiscountLookup {
+    automaticDiscountNodes(first: 50) {
+      nodes {
+        id
+        automaticDiscount { __typename ... on DiscountAutomaticApp { title } }
+      }
+    }
+  }
+`;
+
+const SHOPIFY_FUNCTIONS_QUERY = `#graphql
+  query SuperAppBundlePricingFunctionLookup {
+    shopifyFunctions(first: 50) {
+      nodes { id apiType title }
+    }
+  }
+`;
+
+const DISCOUNT_AUTOMATIC_APP_CREATE = `#graphql
+  mutation SuperAppBundlePricingDiscountCreate($discount: DiscountAutomaticAppInput!) {
+    discountAutomaticAppCreate(automaticAppDiscount: $discount) {
+      automaticAppDiscount { discountId }
+      userErrors { message }
+    }
+  }
+`;
+
 export class BundleProductService {
   constructor(private readonly admin: AdminClient) {}
 
@@ -328,6 +361,75 @@ export class BundleProductService {
     if (err) throw new Error(`cartTransformCreate failed: ${err.message}`);
     const id = createJson?.data?.cartTransformCreate?.cartTransform?.id;
     if (!id) throw new Error('cartTransformCreate returned no id');
+    return id;
+  }
+
+  /**
+   * Merge managed bundle-pricing rules into the `discountRules` function config
+   * (the same `$app:superapp_function_config` metaobject the discount wasm reads).
+   * Managed rules are keyed `id: "bundle:*"` — previous managed rules are replaced,
+   * module-authored rules are preserved verbatim. Idempotent on republish; a no-op
+   * when there is nothing new to write and no stale managed rules to clear.
+   */
+  async writeBundlePricingRules(mo: MetaobjectService, rules: BundlePricingRule[]): Promise<void> {
+    const existing = await mo.getFunctionConfigByKey('discountRules');
+    const config = existing?.config ?? {};
+    const prevRules = Array.isArray(config.rules)
+      ? (config.rules as Array<Record<string, unknown>>)
+      : [];
+    const unmanaged = prevRules.filter(
+      (r) => typeof r.id !== 'string' || !(r.id as string).startsWith('bundle:'),
+    );
+    const hadManaged = unmanaged.length !== prevRules.length;
+    if (rules.length === 0 && !hadManaged) return;
+    await mo.upsertFunctionConfigObject('discountRules', {
+      ...config,
+      rules: [...unmanaged, ...rules],
+    });
+  }
+
+  /**
+   * Idempotently ensure the automatic app discount node that activates the
+   * superapp-discount function for bundle pricing. Title-keyed lookup first;
+   * creates via discountAutomaticAppCreate when absent. Requires write_discounts
+   * (already in shopify.app.toml scopes). Returns the discount node GID.
+   */
+  async ensureAutomaticBundleDiscount(): Promise<string> {
+    const TITLE = 'SuperApp Bundle Pricing';
+    const lookup = await this.graphqlJson<{
+      automaticDiscountNodes: {
+        nodes: Array<{ id: string; automaticDiscount: { __typename: string; title?: string } }>;
+      };
+    }>(AUTOMATIC_DISCOUNT_NODES_QUERY);
+    const existing = (lookup.data?.automaticDiscountNodes?.nodes ?? []).find(
+      (n) => n.automaticDiscount.__typename === 'DiscountAutomaticApp' && n.automaticDiscount.title === TITLE,
+    );
+    if (existing) return existing.id;
+
+    const fns = await this.graphqlJson<{
+      shopifyFunctions: { nodes: Array<{ id: string; apiType: string; title: string }> };
+    }>(SHOPIFY_FUNCTIONS_QUERY);
+    const fn = (fns.data?.shopifyFunctions?.nodes ?? []).find((n) => n.apiType === 'product_discounts');
+    if (!fn) throw new Error('superapp-discount function not deployed (no product_discounts function found)');
+
+    const created = await this.graphqlJson<{
+      discountAutomaticAppCreate: {
+        automaticAppDiscount?: { discountId: string };
+        userErrors: Array<{ message: string }>;
+      };
+    }>(DISCOUNT_AUTOMATIC_APP_CREATE, {
+      discount: {
+        title: TITLE,
+        functionId: fn.id,
+        startsAt: new Date().toISOString(),
+        combinesWith: { orderDiscounts: false, productDiscounts: false, shippingDiscounts: true },
+      },
+    });
+    const result = created.data?.discountAutomaticAppCreate;
+    const err = result?.userErrors?.[0];
+    if (err) throw new Error(`discountAutomaticAppCreate failed: ${err.message}`);
+    const id = result?.automaticAppDiscount?.discountId;
+    if (!id) throw new Error('discountAutomaticAppCreate returned no id');
     return id;
   }
 

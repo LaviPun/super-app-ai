@@ -6,6 +6,15 @@ function graphqlJsonResponse(payload: unknown) {
   return { json: async () => payload };
 }
 
+/** Build an admin whose `graphql` returns the given payloads in order (each already the `{ data }`/`{ errors }` envelope). */
+function mockAdmin(...responses: unknown[]): AdminApiContext['admin'] {
+  const graphql = vi.fn();
+  for (const payload of responses) {
+    graphql.mockResolvedValueOnce(graphqlJsonResponse(payload));
+  }
+  return { graphql } as unknown as AdminApiContext['admin'];
+}
+
 describe('BundleProductService.ensureParentBundleProduct', () => {
   it('passes identifier:{handle} so productSet actually upserts by handle', async () => {
     const graphql = vi.fn().mockResolvedValueOnce(
@@ -96,5 +105,87 @@ describe('BundleProductService.setAppJsonMetafield', () => {
     await expect(service.setAppJsonMetafield('gid://shopify/CartTransform/1', 'bundle_config', '{}')).rejects.toThrow(
       /access denied/i,
     );
+  });
+});
+
+describe('BundleProductService.writeBundlePricingRules', () => {
+  it('replaces previous bundle:* rules and preserves module-authored rules', async () => {
+    // getFunctionConfigByKey returns { metaobjectId, config } (not the raw config).
+    const mo = {
+      getFunctionConfigByKey: vi.fn().mockResolvedValue({
+        metaobjectId: 'gid://shopify/Metaobject/9',
+        config: {
+          rules: [
+            { when: { minSubtotal: 100 }, apply: { percentageOff: 10 } }, // module-authored
+            { id: 'bundle:old-bundle', when: { skuIn: ['OLD'] }, apply: { fixedPricePerUnit: 9 } }, // stale managed
+          ],
+        },
+      }),
+      upsertFunctionConfigObject: vi.fn().mockResolvedValue('gid://shopify/Metaobject/9'),
+    };
+    const svc = new BundleProductService(mockAdmin());
+    await svc.writeBundlePricingRules(mo as never, [
+      { id: 'bundle:candle-trio', when: { skuIn: ['BUNDLE-CANDLE'] }, apply: { fixedPricePerUnit: 27 } },
+    ]);
+    expect(mo.upsertFunctionConfigObject).toHaveBeenCalledWith('discountRules', {
+      rules: [
+        { when: { minSubtotal: 100 }, apply: { percentageOff: 10 } },
+        { id: 'bundle:candle-trio', when: { skuIn: ['BUNDLE-CANDLE'] }, apply: { fixedPricePerUnit: 27 } },
+      ],
+    });
+  });
+
+  it('no-ops when there are no new rules and no stale managed rules', async () => {
+    const mo = {
+      getFunctionConfigByKey: vi.fn().mockResolvedValue({
+        metaobjectId: 'gid://shopify/Metaobject/9',
+        config: { rules: [{ apply: { percentageOff: 5 } }] },
+      }),
+      upsertFunctionConfigObject: vi.fn(),
+    };
+    const svc = new BundleProductService(mockAdmin());
+    await svc.writeBundlePricingRules(mo as never, []);
+    expect(mo.upsertFunctionConfigObject).not.toHaveBeenCalled();
+  });
+});
+
+describe('BundleProductService.ensureAutomaticBundleDiscount', () => {
+  it('returns the existing node without creating a duplicate', async () => {
+    const admin = mockAdmin({
+      // 1st call: lookup existing automatic app discounts
+      data: {
+        automaticDiscountNodes: {
+          nodes: [
+            {
+              id: 'gid://shopify/DiscountAutomaticNode/1',
+              automaticDiscount: { __typename: 'DiscountAutomaticApp', title: 'SuperApp Bundle Pricing' },
+            },
+          ],
+        },
+      },
+    });
+    const svc = new BundleProductService(admin);
+    await expect(svc.ensureAutomaticBundleDiscount()).resolves.toBe('gid://shopify/DiscountAutomaticNode/1');
+  });
+
+  it('creates the node when absent (function id looked up, then created)', async () => {
+    const admin = mockAdmin(
+      { data: { automaticDiscountNodes: { nodes: [] } } },
+      {
+        data: {
+          shopifyFunctions: { nodes: [{ id: 'fn-1', apiType: 'product_discounts', title: 'superapp-discount' }] },
+        },
+      },
+      {
+        data: {
+          discountAutomaticAppCreate: {
+            automaticAppDiscount: { discountId: 'gid://shopify/DiscountAutomaticNode/2' },
+            userErrors: [],
+          },
+        },
+      },
+    );
+    const svc = new BundleProductService(admin);
+    await expect(svc.ensureAutomaticBundleDiscount()).resolves.toBe('gid://shopify/DiscountAutomaticNode/2');
   });
 });
