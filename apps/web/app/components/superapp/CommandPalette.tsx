@@ -83,7 +83,8 @@ export function CommandPalette({ mode, onClose }: { mode: 'admin' | 'merchant'; 
   useE(() => { inputRef.current && inputRef.current.focus(); }, []);
 
   const results = useM(() => {
-    const term = q.trim().toLowerCase();
+    const raw = q.trim();
+    const term = raw.toLowerCase();
     if (!term) {
       return index.slice(0, 6);
     }
@@ -99,8 +100,21 @@ export function CommandPalette({ mode, onClose }: { mode: 'admin' | 'merchant'; 
       .filter((x: any) => x.score > 0)
       .sort((a: any, b: any) => b.score - a.score)
       .slice(0, 12);
-    return scored.map((x: any) => x.r);
-  }, [q, index]);
+    const out: any[] = scored.map((x: any) => x.r);
+    // Admin quick-jump: a query that looks like a correlation id becomes an
+    // "Open trace" entry deep-linking to the request-trace view.
+    if (mode === 'admin' && /^[a-z0-9][a-z0-9_-]{7,}$/i.test(raw)) {
+      out.push({
+        type: 'Trace',
+        icon: 'transfer',
+        title: 'Open trace: ' + raw,
+        sub: 'Jump to request trace by correlation ID',
+        route: '#/admin/trace/' + raw,
+        kw: 'trace correlation id',
+      });
+    }
+    return out;
+  }, [q, index, mode]);
 
   useE(() => { setSel(0); }, [q]);
   useE(() => {

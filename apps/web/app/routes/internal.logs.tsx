@@ -19,6 +19,7 @@ import {
   useTableState,
   titleCase,
 } from '~/components/admin/page-kit';
+import { LogTabs } from '~/components/admin/LogTabs';
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
@@ -97,6 +98,7 @@ export default function AdminLogs() {
   return (
     <div className="page">
       <PageHead title="Error Logs" sub="Auto-redacted error stream — no secrets or PII. Trace any error end-to-end via its correlation ID." />
+      <LogTabs active="logs" />
       <Card>
         <FilterBar
           search={ts.search}

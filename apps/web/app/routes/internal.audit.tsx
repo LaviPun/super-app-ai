@@ -18,6 +18,7 @@ import {
   titleCase,
   exportCSV,
 } from '~/components/admin/page-kit';
+import { LogTabs } from '~/components/admin/LogTabs';
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
@@ -143,6 +144,7 @@ export default function AdminAudit() {
           </Btn>
         }
       />
+      <LogTabs active="audit" />
       <Card>
         <FilterBar
           search={ts.search}

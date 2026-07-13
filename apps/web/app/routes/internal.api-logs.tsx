@@ -21,6 +21,7 @@ import {
   fmtMs,
   titleCase,
 } from '~/components/admin/page-kit';
+import { LogTabs } from '~/components/admin/LogTabs';
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
@@ -156,6 +157,7 @@ export default function AdminApiLogs() {
           </Btn>
         }
       />
+      <LogTabs active="api-logs" />
       {live && (
         <div style={{ marginBottom: 14 }}>
           <Banner tone="info" title="Live tail active">
