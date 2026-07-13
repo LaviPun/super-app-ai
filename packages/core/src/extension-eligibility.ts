@@ -149,15 +149,15 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
   'functions.cartTransform': fn('functions.cartTransform', 'Merges/expands cart lines via a Cart Transform Function.'),
   'functions.deliveryCustomization': fn(
     'functions.deliveryCustomization',
-    'Reorders/renames/hides delivery options via a Function (runs on Shopify Plus).',
+    'Reorders/renames/hides delivery options via a Function.',
   ),
   'functions.paymentCustomization': fn(
     'functions.paymentCustomization',
-    'Reorders/renames/hides payment methods via a Function (runs on Shopify Plus).',
+    'Reorders/renames/hides payment methods via a Function.',
   ),
   'functions.cartAndCheckoutValidation': fn(
     'functions.cartAndCheckoutValidation',
-    'Blocks cart/checkout progress on rule violations via a Function (checkout-level validation runs on Shopify Plus).',
+    'Blocks cart/checkout progress on rule violations via a Function.',
   ),
   'functions.fulfillmentConstraints': fn(
     'functions.fulfillmentConstraints',
