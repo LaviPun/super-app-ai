@@ -3,7 +3,8 @@ import { useLoaderData } from '@remix-run/react';
 import { useEffect, useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
-import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagination.server';
+import { buildNextCursorUrl } from '~/services/internal/pagination.server';
+import { parseLogFilters } from '~/services/internal/log-filters.server';
 import type { Prisma } from '@prisma/client';
 import {
   useAdminCtx,
@@ -29,43 +30,27 @@ export async function loader({ request }: { request: Request }) {
   const url = new URL(request.url);
   const actor = url.searchParams.get('actor') || undefined;
   const statusFilter = url.searchParams.get('status') || undefined;
-  const search = url.searchParams.get('q') || undefined;
-  const correlationId = url.searchParams.get('correlationId') || undefined;
-  const dateFrom = url.searchParams.get('dateFrom') ? new Date(url.searchParams.get('dateFrom')!) : undefined;
-  const dateTo = url.searchParams.get('dateTo') ? new Date(url.searchParams.get('dateTo')!) : undefined;
 
-  const prisma = getPrisma();
-  const where: Prisma.ApiLogWhereInput = {};
+  const { where, cursor, take, skip, search, correlationId, dateFrom, dateTo } = parseLogFilters<Prisma.ApiLogWhereInput>(url, {
+    searchFields: ['path', 'method'],
+  });
   if (actor) where.actor = actor;
   if (statusFilter === 'running') {
     where.finishedAt = null;
     where.status = 0;
   } else if (statusFilter === 'success') where.success = true;
   else if (statusFilter === 'error') where.success = false;
-  if (search) {
-    where.OR = [
-      { path: { contains: search } },
-      { method: { contains: search } },
-    ];
-  }
-  if (correlationId) where.correlationId = correlationId;
-  if (dateFrom || dateTo) {
-    where.createdAt = {
-      ...(dateFrom ? { gte: dateFrom } : {}),
-      ...(dateTo ? { lte: dateTo } : {}),
-    };
-  }
-  const page = parseCursorParams(url, 150);
 
+  const prisma = getPrisma();
   const logs = await prisma.apiLog.findMany({
     where,
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: page.take,
-    skip: page.skip,
-    cursor: page.cursor,
+    take,
+    skip,
+    cursor,
     include: { shop: true },
   });
-  const nextCursorHref = buildNextCursorUrl(url, logs, page.take);
+  const nextCursorHref = buildNextCursorUrl(url, logs, take);
 
   return json({
     logs: logs.map(l => ({
@@ -83,7 +68,7 @@ export async function loader({ request }: { request: Request }) {
     })),
     filters: { actor, status: statusFilter, search, correlationId, dateFrom: dateFrom?.toISOString(), dateTo: dateTo?.toISOString() },
     nextCursorHref,
-    pageSize: page.take,
+    pageSize: take,
   });
 }
 

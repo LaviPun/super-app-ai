@@ -2,7 +2,8 @@ import { json } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
-import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagination.server';
+import { buildNextCursorUrl } from '~/services/internal/pagination.server';
+import { parseLogFilters } from '~/services/internal/log-filters.server';
 import type { Prisma } from '@prisma/client';
 import { useState } from 'react';
 import {
@@ -26,39 +27,26 @@ export async function loader({ request }: { request: Request }) {
   const url = new URL(request.url);
   const shopDomain = url.searchParams.get('shopDomain') || undefined;
   const action = url.searchParams.get('action') || undefined;
-  const search = url.searchParams.get('q') || undefined;
-  const dateFrom = url.searchParams.get('dateFrom') ? new Date(url.searchParams.get('dateFrom')!) : undefined;
-  const dateTo = url.searchParams.get('dateTo') ? new Date(url.searchParams.get('dateTo')!) : undefined;
-  const page = parseCursorParams(url, 150);
 
-  const prisma = getPrisma();
-  const where: Prisma.AuditLogWhereInput = {};
+  const { where, cursor, take, skip, search, dateFrom, dateTo } = parseLogFilters<Prisma.AuditLogWhereInput>(url, {
+    searchFields: ['action', 'details'],
+    correlation: false,
+  });
   if (action) where.action = action;
-  if (search) {
-    where.OR = [
-      { action: { contains: search } },
-      { details: { contains: search } },
-    ];
-  }
   if (shopDomain) {
     where.shop = { is: { shopDomain: { contains: shopDomain } } };
   }
-  if (dateFrom || dateTo) {
-    where.createdAt = {
-      ...(dateFrom ? { gte: dateFrom } : {}),
-      ...(dateTo ? { lte: dateTo } : {}),
-    };
-  }
 
+  const prisma = getPrisma();
   const rows = await prisma.auditLog.findMany({
     where,
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: page.take,
-    skip: page.skip,
-    cursor: page.cursor,
+    take,
+    skip,
+    cursor,
     include: { shop: true },
   });
-  const nextCursorHref = buildNextCursorUrl(url, rows, page.take);
+  const nextCursorHref = buildNextCursorUrl(url, rows, take);
 
   const distinctActionsRows = await prisma.auditLog.findMany({
     select: { action: true },
@@ -96,7 +84,7 @@ export async function loader({ request }: { request: Request }) {
     distinctActions: distinctActionsRows.map(d => d.action),
     filters: { shopDomain, action, search, dateFrom: dateFrom?.toISOString(), dateTo: dateTo?.toISOString() },
     nextCursorHref,
-    pageSize: page.take,
+    pageSize: take,
   });
 }
 
