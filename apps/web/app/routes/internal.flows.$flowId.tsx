@@ -1,4 +1,5 @@
 import { json } from '@remix-run/node';
+import { payloadFlowId } from '~/utils/flow-payload';
 import { useLoaderData } from '@remix-run/react';
 import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
@@ -24,15 +25,6 @@ import {
 
 const NOT_FOUND = new Response(null, { status: 404 });
 
-function payloadFlowId(payload: string | null): string | null {
-  if (!payload) return null;
-  try {
-    const p = JSON.parse(payload);
-    return typeof p?.flowId === 'string' ? p.flowId : null;
-  } catch {
-    return null;
-  }
-}
 
 function resultSteps(result: string | null): number | null {
   if (!result) return null;

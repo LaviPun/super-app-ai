@@ -1,4 +1,5 @@
 import { json } from '@remix-run/node';
+import { prettyName } from '~/utils/pretty-name';
 import { useLoaderData } from '@remix-run/react';
 import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
@@ -25,9 +26,6 @@ import {
   formatRelativeTime,
 } from '~/components/admin/page-kit';
 
-function prettyName(domain: string): string {
-  return (domain.split('.')[0] ?? domain).replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 const LIFECYCLE: Record<string, string> = { ACTIVE: 'Customer', TRIAL: 'Trialing', CANCELLED: 'Churned', EXPIRED: 'Churned' };
 

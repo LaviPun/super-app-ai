@@ -1,4 +1,5 @@
 import { json } from '@remix-run/node';
+import { payloadFlowId } from '~/utils/flow-payload';
 import { useLoaderData } from '@remix-run/react';
 import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
@@ -36,15 +37,6 @@ function parseFlowSpec(specJson: string | null | undefined): { trigger: string; 
   }
 }
 
-function payloadFlowId(payload: string | null): string | null {
-  if (!payload) return null;
-  try {
-    const p = JSON.parse(payload);
-    return typeof p?.flowId === 'string' ? p.flowId : null;
-  } catch {
-    return null;
-  }
-}
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
