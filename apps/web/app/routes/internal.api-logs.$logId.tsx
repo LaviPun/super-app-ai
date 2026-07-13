@@ -1,11 +1,16 @@
 import { json } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
 import { useState } from 'react';
-import {
-  Page, Card, BlockStack, Text, InlineStack, Button, Divider,
-} from '@shopify/polaris';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
+import {
+  Btn,
+  Badge,
+  Card,
+  KV,
+  PageHead,
+  MonoChip,
+} from '~/components/admin/page-kit';
 
 const NOT_FOUND = new Response(null, { status: 404 });
 
@@ -64,63 +69,74 @@ function CodeBlock({ title, value }: { title: string; value: string | Record<str
   const isLong = str.length > CODE_TRUNCATE;
   const preview = isLong && !expanded ? str.slice(0, CODE_TRUNCATE) + '\n…' : str;
   return (
-    <BlockStack gap="200">
-      <Text as="h3" variant="headingSm">{title}</Text>
-      <pre className={expanded ? 'internal-code-block internal-code-block-expanded' : 'internal-code-block'}>{preview}</pre>
+    <div className="stack" style={{ gap: 8 }}>
+      <div className="t-h3">{title}</div>
+      <pre className="code-block">{preview}</pre>
       {isLong && (
-        <Button size="slim" variant="plain" onClick={() => setExpanded(e => !e)}>{expanded ? 'Collapse' : 'Expand'}</Button>
+        <div>
+          <Btn size="sm" className="btn-plain" onClick={() => setExpanded((e) => !e)}>{expanded ? 'Collapse' : 'Expand'}</Btn>
+        </div>
       )}
-    </BlockStack>
+    </div>
   );
 }
 
 export default function InternalApiLogDetail() {
   const d = useLoaderData<typeof loader>();
+  const noBodies =
+    !d.requestBody &&
+    !d.responseBody &&
+    (d.requestHeaders == null || (typeof d.requestHeaders === 'object' && Object.keys(d.requestHeaders).length === 0));
 
   return (
-    <Page
-      title="API log detail"
-      backAction={{ content: 'API logs', url: '/internal/api-logs' }}
-    >
-      <BlockStack gap="500">
-        <Card>
-          <BlockStack gap="400">
-            <InlineStack gap="200" blockAlign="center">
-              <Text as="h2" variant="headingMd">Request</Text>
-              <Text as="p" variant="bodySm" tone="subdued">ID: {d.id}</Text>
-            </InlineStack>
-            <Divider />
-            <BlockStack gap="300">
-              <Text as="p" variant="bodySm"><strong>Time</strong>: {new Date(d.createdAt).toLocaleString()}</Text>
-              <Text as="p" variant="bodySm"><strong>Method</strong>: {d.method}</Text>
-              <Text as="p" variant="bodySm"><strong>Path</strong>: {d.path}</Text>
-              <Text as="p" variant="bodySm"><strong>Status</strong>: {d.status}</Text>
-              <Text as="p" variant="bodySm"><strong>Duration</strong>: {d.durationMs} ms</Text>
-              <Text as="p" variant="bodySm"><strong>Success</strong>: {d.success ? 'Yes' : 'No'}</Text>
-              {d.requestId && <Text as="p" variant="bodySm"><strong>Request ID</strong>: {d.requestId}</Text>}
-              <Text as="p" variant="bodySm"><strong>Actor</strong>: {d.actor}</Text>
-              <Text as="p" variant="bodySm"><strong>Store</strong>: {d.shopDomain ?? '—'}</Text>
-            </BlockStack>
-
+    <div className="page">
+      <PageHead
+        back={{ href: '/internal/api-logs', label: 'API logs' }}
+        title="API log detail"
+        badge={<Badge tone={d.success ? 'success' : 'critical'}>{d.status || '—'}</Badge>}
+        sub={
+          <span className="row-2">
+            <MonoChip>{d.method} {d.path}</MonoChip>
+            <span className="t-muted">·</span>
+            <span className="t-sm">{new Date(d.createdAt).toLocaleString()}</span>
+          </span>
+        }
+      />
+      <div className="col-main">
+        <Card pad>
+          <div className="t-h3" style={{ marginBottom: 12 }}>Request</div>
+          <KV
+            rows={[
+              ['Log ID', <MonoChip key="id">{d.id}</MonoChip>],
+              ['Time', new Date(d.createdAt).toLocaleString()],
+              ['Method', d.method],
+              ['Path', <MonoChip key="p">{d.path}</MonoChip>],
+              ['Status', d.status],
+              ['Duration', d.durationMs != null ? d.durationMs + ' ms' : '—'],
+              ['Success', d.success ? 'Yes' : 'No'],
+              d.requestId ? ['Request ID', <MonoChip key="rid">{d.requestId}</MonoChip>] : null,
+              ['Actor', d.actor],
+              ['Store', d.shopDomain ?? '—'],
+            ]}
+          />
+        </Card>
+        <Card pad>
+          <div className="stack" style={{ gap: 16 }}>
             <CodeBlock title="Request headers" value={d.requestHeaders} />
             {d.requestBody != null && <CodeBlock title="Request body" value={d.requestBody} />}
             {d.responseBody != null && <CodeBlock title="Response body" value={d.responseBody} />}
-            {!d.requestBody && !d.responseBody && (d.requestHeaders == null || (typeof d.requestHeaders === 'object' && Object.keys(d.requestHeaders).length === 0)) && (
-              <Text as="p" variant="bodySm" tone="subdued">Request/response body and headers are not stored for this log. Routes can pass them in meta to see them here.</Text>
+            {noBodies && (
+              <span className="t-muted t-sm">Request/response body and headers are not stored for this log. Routes can pass them in meta to see them here.</span>
             )}
             {d.metaRest && (
               <>
-                <Divider />
+                <div className="divider" style={{ margin: '4px 0' }} />
                 <CodeBlock title="Additional meta" value={d.metaRest} />
               </>
             )}
-            <Divider />
-            <InlineStack gap="200" blockAlign="start">
-              <Button url="/internal/api-logs" variant="primary">Back to API logs</Button>
-            </InlineStack>
-          </BlockStack>
+          </div>
         </Card>
-      </BlockStack>
-    </Page>
+      </div>
+    </div>
   );
 }
