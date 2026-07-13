@@ -19,6 +19,9 @@ const KNOWN_JOB_TYPES: readonly JobType[] = [
   'AI_GENERATE', 'AI_HYDRATE', 'AI_MODIFY', 'PUBLISH', 'CONNECTOR_TEST', 'FLOW_RUN', 'THEME_ANALYZE',
 ];
 
+/** Max failed jobs re-enqueued by a single "Replay all DLQ" request. */
+const REPLAY_ALL_LIMIT = 500;
+
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 type HttpMethod = (typeof HTTP_METHODS)[number];
 
@@ -43,7 +46,25 @@ const INTENT_ACTION: Record<string, ActivityAction> = {
   connector_delete: 'CONNECTOR_DELETED',
   connector_save: 'CONNECTOR_UPDATED',
   job_replay: 'FLOW_RUN',
+  job_replay_all: 'FLOW_RUN',
 };
+
+/** Re-enqueue one failed job under a fresh correlationId, preserving lineage in
+ *  the payload. Shared by job_replay and job_replay_all. */
+function replayPayload(original: { id: string; payload: string | null; correlationId: string | null }): unknown {
+  let payload: unknown = null;
+  if (original.payload) {
+    try { payload = JSON.parse(original.payload); } catch { payload = original.payload; }
+  }
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    payload = {
+      ...(payload as Record<string, unknown>),
+      replayOf: original.id,
+      originalCorrelationId: original.correlationId ?? null,
+    };
+  }
+  return payload;
+}
 
 /** GET is not allowed — avoid Single Fetch 404 after a form submit. */
 export async function loader() {
@@ -97,25 +118,13 @@ export async function action({ request }: ActionFunctionArgs) {
           return fail(`Job type ${original.type} cannot be replayed`);
         }
 
-        let payload: unknown = null;
-        if (original.payload) {
-          try { payload = JSON.parse(original.payload); } catch { payload = original.payload; }
-        }
-        if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-          payload = {
-            ...(payload as Record<string, unknown>),
-            replayOf: original.id,
-            originalCorrelationId: original.correlationId ?? null,
-          };
-        }
-
         // Replays always run under a fresh correlationId (docs/internal-admin.md §Replay actions);
-        // the original correlation is preserved in the payload above.
+        // the original correlation is preserved in the payload.
         const correlationId = generateCorrelationId();
         const created = await new JobService().create({
           shopId: original.shopId ?? undefined,
           type: original.type as JobType,
-          payload,
+          payload: replayPayload(original),
           correlationId,
         });
         await audit(
@@ -123,6 +132,32 @@ export async function action({ request }: ActionFunctionArgs) {
           { shopId: original.shopId ?? undefined, resource: `job:${id}` },
         );
         return ok(`Replayed — new job ${created.id}`);
+      }
+
+      case 'job_replay_all': {
+        const prisma = getPrisma();
+        const failedJobs = await prisma.job.findMany({
+          where: { status: 'FAILED', type: { in: [...KNOWN_JOB_TYPES] } },
+          orderBy: { createdAt: 'desc' },
+          take: REPLAY_ALL_LIMIT,
+        });
+        if (failedJobs.length === 0) return fail('No failed jobs to replay');
+
+        const jobSvc = new JobService();
+        // Each replayed job gets its OWN fresh correlationId (mirrors job_replay).
+        const created = await Promise.all(
+          failedJobs.map((original) => {
+            const correlationId = generateCorrelationId();
+            return jobSvc.create({
+              shopId: original.shopId ?? undefined,
+              type: original.type as JobType,
+              payload: replayPayload(original),
+              correlationId,
+            });
+          }),
+        );
+        await audit({ replayed: created.length, newJobIds: created.map((j) => j.id) }, { resource: 'jobs:dlq' });
+        return ok(`Re-enqueued ${created.length} failed job${created.length === 1 ? '' : 's'}`);
       }
 
       case 'publish': {

@@ -63,5 +63,7 @@ export function useAdminOps() {
     [fetcher],
   );
 
-  return { run, busy: fetcher.state !== 'idle' };
+  // `pendingFormData` is the in-flight submission's FormData (null when idle) so
+  // callers can derive per-row busy state (e.g. which jobId is being replayed).
+  return { run, busy: fetcher.state !== 'idle', pendingFormData: fetcher.formData ?? null };
 }
