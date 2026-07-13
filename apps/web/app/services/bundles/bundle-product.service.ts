@@ -223,12 +223,12 @@ const METAFIELDS_SET = `#graphql
 // NOTE: automaticDiscountNodes is deprecated (→ discountNodes) but still valid in
 // Admin API 2026-04; kept to match the title-keyed lookup contract. Validated
 // against the 2026-04 schema via the shopify-dev MCP.
-// Idempotency lookup uses the `discountNodes` superset connection rather than
-// `automaticDiscountNodes`: the latter is search-index backed and lags for several
-// seconds after a create, so a back-to-back republish would miss the just-created
-// node and hit a "Title must be unique" error. `discountNodes` reflects the write
-// immediately. DiscountCode* nodes are filtered out by the __typename check.
-const AUTOMATIC_DISCOUNT_NODES_QUERY = `#graphql
+// Idempotency lookup uses the `discountNodes` superset connection because it
+// reflects the write immediately — a search-index-backed connection lags for
+// several seconds after a create, so a back-to-back republish would miss the
+// just-created node and hit a "Title must be unique" error. DiscountCode* nodes
+// are filtered out by the __typename check.
+const DISCOUNT_NODES_QUERY = `#graphql
   query SuperAppBundlePricingDiscountLookup {
     discountNodes(first: 50) {
       nodes {
@@ -414,7 +414,7 @@ export class BundleProductService {
       discountNodes: {
         nodes: Array<{ id: string; discount: { __typename: string; title?: string } }>;
       };
-    }>(AUTOMATIC_DISCOUNT_NODES_QUERY);
+    }>(DISCOUNT_NODES_QUERY);
     const existing = (lookup.data?.discountNodes?.nodes ?? []).find(
       (n) => n.discount.__typename === 'DiscountAutomaticApp' && n.discount.title === TITLE,
     );

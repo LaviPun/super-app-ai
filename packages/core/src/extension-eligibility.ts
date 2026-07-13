@@ -8,7 +8,7 @@
  *   1. `deployable`     — a real runtime is shipped; publish writes config the
  *                         runtime reads. (Plan/scope requirements are surfaced as
  *                         merchant-facing NOTES, never a silent block — e.g.
- *                         "delivery customization runs on Shopify Plus".)
+ *                         "checkout blocks run on Shopify Plus".)
  *   2. `needs_runtime`  — the runtime binary/extension is not shipped yet. This is
  *                         the ONLY thing that genuinely can't deploy, and the goal
  *                         is to drive this set to empty by shipping each runtime.

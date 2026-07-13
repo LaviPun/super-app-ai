@@ -333,6 +333,29 @@ export class PublishService {
     // also guarantees no duplicates).
     const next = (config && typeof config === 'object' ? (config as Record<string, unknown>) : {}) as Record<string, unknown>;
     const existing = await mo.getFunctionConfigByKey(functionKey);
+
+    // Preserve managed bundle-pricing rules (id: "bundle:*") that
+    // BundleProductService.writeBundlePricingRules merged into the SAME
+    // `discountRules` function-config metaobject. Republishing the discount module
+    // upserts its compiled config wholesale, which would otherwise silently drop
+    // those managed rules and break bundle pricing on non-Plus stores. Re-append
+    // them (module rules first, managed rules last — same ordering the writer
+    // produces) BEFORE the diff so a genuine no-op still stays a no-op.
+    if (functionKey === 'discountRules') {
+      const existingConfig = existing?.config;
+      const prevRules =
+        existingConfig && typeof existingConfig === 'object' && Array.isArray((existingConfig as Record<string, unknown>).rules)
+          ? ((existingConfig as Record<string, unknown>).rules as Array<Record<string, unknown>>)
+          : [];
+      const managed = prevRules.filter(
+        (r) => typeof r?.id === 'string' && (r.id as string).startsWith('bundle:'),
+      );
+      if (managed.length > 0) {
+        const moduleRules = Array.isArray(next.rules) ? (next.rules as unknown[]) : [];
+        next.rules = [...moduleRules, ...managed];
+      }
+    }
+
     const diff = computeRepublishDiff({
       moduleType: `functions.${functionKey}`,
       metaobjectType: '$app:superapp_function_config',

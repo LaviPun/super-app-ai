@@ -189,5 +189,15 @@ describe('BundleProductService.ensureAutomaticBundleDiscount', () => {
     );
     const svc = new BundleProductService(admin);
     await expect(svc.ensureAutomaticBundleDiscount()).resolves.toBe('gid://shopify/DiscountAutomaticNode/2');
+
+    // The create mutation MUST carry discountClasses: ['PRODUCT'] and the looked-up
+    // functionId — the missing discountClasses field is exactly what made the
+    // fallback inert on a live 2026-04 store (the unified Discounts API requires it).
+    const graphql = (admin as unknown as { graphql: ReturnType<typeof vi.fn> }).graphql;
+    const createVars = graphql.mock.calls[2]?.[1] as {
+      variables: { discount: { discountClasses?: string[]; functionId?: string } };
+    };
+    expect(createVars.variables.discount.discountClasses).toEqual(['PRODUCT']);
+    expect(createVars.variables.discount.functionId).toBe('fn-1');
   });
 });
