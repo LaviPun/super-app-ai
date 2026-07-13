@@ -17,6 +17,7 @@ import {
   useTableState,
   titleCase,
   exportCSV,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 import { LogTabs } from '~/components/admin/LogTabs';
 
@@ -99,13 +100,6 @@ export async function loader({ request }: { request: Request }) {
   });
 }
 
-function relAudit(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 60) return Math.max(1, m) + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
-
 export default function AdminAudit() {
   const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
@@ -118,7 +112,7 @@ export default function AdminAudit() {
     action: r.action,
     resource: r.resource ?? r.details ?? '—',
     shop: r.shopDomain ?? '—',
-    created: relAudit(r.createdAt),
+    created: formatRelativeTime(r.createdAt),
     createdAt: r.createdAt,
   }));
   const rows = ROWS.filter((a) => (action === 'All' || a.action === action) && (a.action + a.resource).toLowerCase().includes(ts.search.toLowerCase()));

@@ -13,6 +13,9 @@ export type { AdminCtx } from './admin-ctx';
 // ported page can import its whole toolkit from one module.
 export * from '~/components/superapp';
 
+// Shared relative-time formatter — routes import it alongside the rest of the kit.
+export { formatRelativeTime } from '~/utils/relative-time';
+
 // Real href for the design's hash routes (used by PageHead back/crumbs + inline links).
 export function href(hash: string): string {
   return superappRoute(hash);

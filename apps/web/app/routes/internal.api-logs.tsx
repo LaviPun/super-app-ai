@@ -20,6 +20,7 @@ import {
   useTableState,
   fmtMs,
   titleCase,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 import { LogTabs } from '~/components/admin/LogTabs';
 
@@ -87,13 +88,6 @@ export async function loader({ request }: { request: Request }) {
 }
 
 const METHOD_TONE: Record<string, any> = { GET: 'success', POST: 'info', PUT: 'warning', PATCH: 'warning', DELETE: 'critical' };
-function relApi(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 60) return Math.max(1, m) + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
-
 type LiveLog = {
   id: string;
   actor: string;
@@ -140,7 +134,7 @@ export default function AdminApiLogs() {
 
   const mapRow = (l: { id: string; actor: string; method: string; path: string; status: number; durationMs: number; shopDomain: string | null; createdAt: string; correlationId: string | null; requestId: string | null }) => ({
     id: l.id, actor: l.actor, method: l.method, path: l.path, status: l.status, durationMs: l.durationMs,
-    shop: l.shopDomain ?? '—', requestId: l.requestId ?? '—', correlationId: l.correlationId ?? '', success: l.status < 400, created: relApi(l.createdAt),
+    shop: l.shopDomain ?? '—', requestId: l.requestId ?? '—', correlationId: l.correlationId ?? '', success: l.status < 400, created: formatRelativeTime(l.createdAt),
   });
   const liveIds = new Set(liveRows.map((l) => l.id));
   const ROWS: any[] = [...liveRows, ...data.logs.filter((l) => !liveIds.has(l.id))].map(mapRow);

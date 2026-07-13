@@ -15,6 +15,7 @@ import {
   FilterBar,
   useTableState,
   titleCase,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 import { LogTabs } from '~/components/admin/LogTabs';
 
@@ -54,15 +55,6 @@ export async function loader({ request }: { request: Request }) {
     nextCursorHref,
     pageSize: page.take,
   });
-}
-
-function rel(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.round(diff / 60000);
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  if (h < 24) return h + 'h ago';
-  return Math.round(h / 24) + 'd ago';
 }
 
 type LiveActivity = {
@@ -109,7 +101,7 @@ export default function AdminActivity() {
   }, [live, data.logs, ctx]);
 
   const mapRow = (l: LiveActivity) => ({
-    id: l.id, actor: l.actor, action: l.action, resource: l.resource ?? '—', shop: l.shopDomain ?? '—', ip: l.ip ?? '—', created: rel(l.createdAt),
+    id: l.id, actor: l.actor, action: l.action, resource: l.resource ?? '—', shop: l.shopDomain ?? '—', ip: l.ip ?? '—', created: formatRelativeTime(l.createdAt),
   });
   const liveIds = new Set(liveRows.map((l) => l.id));
   const ROWS: any[] = [...liveRows, ...data.logs.filter((l) => !liveIds.has(l.id))].map(mapRow);

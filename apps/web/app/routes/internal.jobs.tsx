@@ -22,6 +22,7 @@ import {
   useTableState,
   fmtMs,
   titleCase,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 export async function loader({ request }: { request: Request }) {
@@ -98,13 +99,6 @@ export async function loader({ request }: { request: Request }) {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function relJob(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 60) return Math.max(1, m) + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
-
 export default function AdminJobs() {
   const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
@@ -126,7 +120,7 @@ export default function AdminJobs() {
   const ROWS: any[] = data.jobs.map((j: any) => ({
     id: j.id, type: j.type, status: j.status, shop: j.shopDomain ?? '—', attempts: j.attempts ?? 1,
     durationMs: j.startedAt && j.finishedAt ? new Date(j.finishedAt).getTime() - new Date(j.startedAt).getTime() : null,
-    correlationId: j.correlationId ?? '', created: relJob(j.createdAt), error: j.error ?? null,
+    correlationId: j.correlationId ?? '', created: formatRelativeTime(j.createdAt), error: j.error ?? null,
   }));
   const rows = ROWS.filter(
     (j) => (status === 'All' || j.status === status) && (type === 'All' || j.type === type) && (j.id + j.shop + j.correlationId).toLowerCase().includes(ts.search.toLowerCase()),

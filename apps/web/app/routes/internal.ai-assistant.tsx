@@ -23,6 +23,7 @@ import {
   MonoChip,
   Toggle,
   Textarea,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 const ActionSchema = z.object({
@@ -616,21 +617,6 @@ function mdLite(s: string): string {
     .replace(/`(.+?)`/g, '<code>$1</code>')
     .replace(/\n\n/g, '<br><br>')
     .replace(/\n/g, '<br>');
-}
-
-function formatRelativeTime(iso: string): string {
-  const t = new Date(iso).getTime();
-  if (!Number.isFinite(t)) return '';
-  const diff = Date.now() - t;
-  const s = Math.floor(diff / 1000);
-  if (s < 45) return 'just now';
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 7) return `${d}d ago`;
-  return new Date(iso).toISOString().slice(0, 10);
 }
 
 function newClientRequestId(): string {

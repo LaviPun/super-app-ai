@@ -13,6 +13,7 @@ import {
   StatTile,
   MonoChip,
   titleCase,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 const NOT_FOUND = new Response(null, { status: 404 });
@@ -69,13 +70,6 @@ export async function loader({ request, params }: { request: Request; params: { 
   });
 }
 
-function relErr(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 60) return Math.max(1, m) + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
-
 export default function AdminErrorDetail() {
   const d = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
@@ -86,7 +80,7 @@ export default function AdminErrorDetail() {
     route: d.route ?? '/',
     source: d.source,
     shop: d.shopDomain ?? '—',
-    created: relErr(d.createdAt),
+    created: formatRelativeTime(d.createdAt),
     correlationId: d.correlationId ?? '',
   };
   const related = d.related;
@@ -159,7 +153,7 @@ export default function AdminErrorDetail() {
                   <StatusBadge value={r.level} />
                   <div className="grow stack" style={{ gap: 1, minWidth: 0 }}>
                     <span className="t-sm t-trunc">{r.message}</span>
-                    <span className="t-xs t-muted">{relErr(r.createdAt)}</span>
+                    <span className="t-xs t-muted">{formatRelativeTime(r.createdAt)}</span>
                   </div>
                 </div>
               ))}

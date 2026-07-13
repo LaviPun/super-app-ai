@@ -15,6 +15,7 @@ import {
   FilterBar,
   MonoChip,
   useTableState,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 export async function loader({ request }: { request: Request }) {
@@ -85,13 +86,6 @@ export async function loader({ request }: { request: Request }) {
   });
 }
 
-function relWh(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 60) return Math.max(1, m) + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
-
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export default function AdminWebhooks() {
   const data = useLoaderData<typeof loader>();
@@ -99,7 +93,7 @@ export default function AdminWebhooks() {
   const ts = useTableState();
   const [topic, setTopic] = useState('All topics');
 
-  const ROWS = data.rows.map((r) => ({ id: r.id, topic: r.topic, shop: r.shopDomain ?? '—', eventId: r.eventId, success: r.success, created: relWh(r.processedAt) }));
+  const ROWS = data.rows.map((r) => ({ id: r.id, topic: r.topic, shop: r.shopDomain ?? '—', eventId: r.eventId, success: r.success, created: formatRelativeTime(r.processedAt) }));
   const rows = ROWS.filter((w) => (topic === 'All topics' || w.topic === topic) && (w.topic + w.shop + w.eventId).toLowerCase().includes(ts.search.toLowerCase()));
 
   return (

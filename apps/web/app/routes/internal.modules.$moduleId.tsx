@@ -20,18 +20,10 @@ import {
   StatTile,
   MonoChip,
   titleCase,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 const NOT_FOUND = new Response(null, { status: 404 });
-
-function rel(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  if (h < 24) return h + 'h ago';
-  return Math.round(h / 24) + 'd ago';
-}
 
 export async function loader({ request, params }: { request: Request; params: { moduleId?: string } }) {
   await requireInternalAdmin(request);
@@ -73,7 +65,7 @@ export async function loader({ request, params }: { request: Request; params: { 
       status: m.status,
       version: m.activeVersion?.version ?? m.versions[0]?.version ?? 1,
       source: m.sourceType ?? '—',
-      updated: rel(new Date(m.updatedAt).toISOString()),
+      updated: formatRelativeTime(new Date(m.updatedAt).toISOString()),
       summary: m.summary ?? '',
       store: m.shop.shopDomain.split('.')[0] ?? m.shop.shopDomain,
       storeId: m.shopId,
@@ -84,7 +76,7 @@ export async function loader({ request, params }: { request: Request; params: { 
       status: v.status,
       active: v.id === m.activeVersionId,
       diff: v.diffSummary ?? 'Revision v' + v.version,
-      created: rel(new Date(v.createdAt).toISOString()),
+      created: formatRelativeTime(new Date(v.createdAt).toISOString()),
     })),
     spec,
     traceCorrelationId: sourceJob?.correlationId ?? null,

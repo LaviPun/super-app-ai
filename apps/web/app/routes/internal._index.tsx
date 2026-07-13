@@ -28,6 +28,7 @@ import {
   titleCase,
   storeHealth,
   healthTone,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 const DAY_MS = 86400000;
@@ -276,15 +277,6 @@ const PLAN_COLOR: Record<string, string> = {
   PRO: 'var(--p-magic)',
   ENTERPRISE: 'var(--p-warning)',
 };
-
-function rel(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.round(diff / 60000);
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  if (h < 24) return h + 'h ago';
-  return Math.round(h / 24) + 'd ago';
-}
 
 function fmtDay(d: Date): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -651,7 +643,7 @@ export default function AdminDashboard() {
                 { key: 'action', label: 'Action', render: (r: any) => <span className="cell-strong">{titleCase(r.action)}</span> },
                 { key: 'resource', label: 'Resource', render: (r: any) => <span className="cell-sub">{r.resource}</span> },
                 { key: 'shop', label: 'Store' },
-                { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{rel(r.createdAt)}</span> },
+                { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{formatRelativeTime(r.createdAt)}</span> },
               ]}
               rows={d.recentActivity}
             />
@@ -689,7 +681,7 @@ export default function AdminDashboard() {
                       <span className="t-sm t-trunc">{e.message}</span>
                       <span className="t-xs t-muted t-mono">{e.route}</span>
                     </div>
-                    <span className="t-xs t-muted">{rel(e.createdAt)}</span>
+                    <span className="t-xs t-muted">{formatRelativeTime(e.createdAt)}</span>
                   </a>
                 );
               })}

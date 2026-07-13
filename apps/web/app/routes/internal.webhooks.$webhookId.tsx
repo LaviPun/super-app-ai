@@ -9,17 +9,10 @@ import {
   PageHead,
   StatTile,
   MonoChip,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 const NOT_FOUND = new Response(null, { status: 404 });
-
-function rel(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
 
 export async function loader({ request, params }: { request: Request; params: { webhookId?: string } }) {
   await requireInternalAdmin(request);
@@ -38,7 +31,7 @@ export async function loader({ request, params }: { request: Request; params: { 
       shop: w.shopDomain,
       success: w.success,
       processedAt: w.processedAt.toISOString(),
-      received: rel(w.processedAt.toISOString()),
+      received: formatRelativeTime(w.processedAt.toISOString()),
       when: w.processedAt.toLocaleString(),
     },
   });

@@ -18,6 +18,7 @@ import {
   MonoChip,
   useTableState,
   titleCase,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 import { LogTabs } from '~/components/admin/LogTabs';
 
@@ -79,20 +80,13 @@ export async function loader({ request }: { request: Request }) {
   });
 }
 
-function relLog(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 60) return Math.max(1, m) + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
-
 export default function AdminLogs() {
   const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
   const ts = useTableState();
   const [level, setLevel] = useState('All');
 
-  const ROWS: any[] = data.logs.map((l) => ({ id: l.id, level: l.level, message: l.message, source: l.source, route: l.route, shop: l.shopDomain ?? '—', created: relLog(l.createdAt), correlationId: l.correlationId ?? '' }));
+  const ROWS: any[] = data.logs.map((l) => ({ id: l.id, level: l.level, message: l.message, source: l.source, route: l.route, shop: l.shopDomain ?? '—', created: formatRelativeTime(l.createdAt), correlationId: l.correlationId ?? '' }));
   const rows = ROWS.filter((e) => (level === 'All' || e.level === level) && (e.message + e.route).toLowerCase().includes(ts.search.toLowerCase()));
 
   return (

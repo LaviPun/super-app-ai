@@ -21,15 +21,8 @@ import {
   fmtNum,
   titleCase,
   exportCSV,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
-
-function rel(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
 
 function parseFlowSpec(specJson: string | null | undefined): { trigger: string; steps: number } {
   if (!specJson) return { trigger: '—', steps: 0 };
@@ -110,7 +103,7 @@ export async function loader({ request }: { request: Request }) {
       storeId: m.shopId,
       runs7d: a?.runs7d ?? 0,
       fails7d: a?.fails7d ?? 0,
-      lastRun: a?.lastRun ? rel(new Date(a.lastRun).toISOString()) : '—',
+      lastRun: a?.lastRun ? formatRelativeTime(new Date(a.lastRun).toISOString()) : '—',
     };
   });
 

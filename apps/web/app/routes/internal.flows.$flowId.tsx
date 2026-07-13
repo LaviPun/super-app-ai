@@ -19,17 +19,10 @@ import {
   fmtNum,
   fmtMs,
   titleCase,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 const NOT_FOUND = new Response(null, { status: 404 });
-
-function rel(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
 
 function payloadFlowId(payload: string | null): string | null {
   if (!payload) return null;
@@ -149,7 +142,7 @@ export async function loader({ request, params }: { request: Request; params: { 
       storeId: m.shopId,
       runs7d,
       fails7d,
-      lastRun: latestJob ? rel(new Date(latestJob.createdAt).toISOString()) : '—',
+      lastRun: latestJob ? formatRelativeTime(new Date(latestJob.createdAt).toISOString()) : '—',
     },
     steps,
     runs: flowJobs.slice(0, 20).map((j) => ({
@@ -157,7 +150,7 @@ export async function loader({ request, params }: { request: Request; params: { 
       status: j.status,
       steps: resultSteps(j.result) ?? stepDefs.length,
       durationMs: j.startedAt && j.finishedAt ? new Date(j.finishedAt).getTime() - new Date(j.startedAt).getTime() : null,
-      started: rel(new Date(j.createdAt).toISOString()),
+      started: formatRelativeTime(new Date(j.createdAt).toISOString()),
       error: j.error,
     })),
   });

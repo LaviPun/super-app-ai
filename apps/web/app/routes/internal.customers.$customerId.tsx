@@ -19,18 +19,10 @@ import {
   storeHealth,
   healthTone,
   healthLabel,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 const NOT_FOUND = new Response(null, { status: 404 });
-
-function rel(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  if (h < 24) return h + 'h ago';
-  return Math.round(h / 24) + 'd ago';
-}
 
 function prettyName(domain: string): string {
   return (domain.split('.')[0] ?? domain).replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -78,7 +70,7 @@ export async function loader({ request, params }: { request: Request; params: { 
       seats: '—',
       tickets: 0,
       signed: shop.createdAt ? new Date(shop.createdAt).toISOString().slice(0, 10) : '—',
-      lastActive: lastApi ? rel(new Date(lastApi.createdAt).toISOString()) : 'No activity',
+      lastActive: lastApi ? formatRelativeTime(new Date(lastApi.createdAt).toISOString()) : 'No activity',
     },
     store: {
       status,

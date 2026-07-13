@@ -16,6 +16,7 @@ import {
   MonoChip,
   fmtMs,
   titleCase,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 const NOT_FOUND = new Response(null, { status: 404 });
@@ -58,13 +59,6 @@ export async function loader({ request, params }: { request: Request; params: { 
     durationMs:
       job.startedAt && job.finishedAt ? job.finishedAt.getTime() - job.startedAt.getTime() : null,
   });
-}
-
-function relJob(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 60) return Math.max(1, m) + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
 }
 
 function fmtWhen(iso: string): string {
@@ -166,7 +160,7 @@ export default function AdminJobDetail() {
         <StatTile label="Status" value={titleCase(j.status)} icon={j.status === 'FAILED' ? 'alert' : 'check'} tone={j.status === 'FAILED' ? 'critical' : j.status === 'QUEUED' ? 'warning' : 'success'} />
         <StatTile label="Attempts" value={j.attempts} icon="replay" tone={j.attempts > 1 ? 'warning' : 'info'} />
         <StatTile label="Duration" value={j.durationMs != null ? fmtMs(j.durationMs) : '—'} icon="clock" tone="info" />
-        <StatTile label="Created" value={relJob(j.createdAt)} sub={fmtWhen(j.createdAt)} icon="work" tone="info" />
+        <StatTile label="Created" value={formatRelativeTime(j.createdAt)} sub={fmtWhen(j.createdAt)} icon="work" tone="info" />
       </div>
       {j.status === 'FAILED' && j.error ? (
         <div style={{ marginBottom: 16 }}>

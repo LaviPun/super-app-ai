@@ -19,17 +19,10 @@ import {
   PageHead,
   StatTile,
   MonoChip,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 const NOT_FOUND = new Response(null, { status: 404 });
-
-function rel(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
 
 export async function loader({ request, params }: { request: Request; params: { connectorId?: string } }) {
   await requireInternalAdmin(request);
@@ -67,7 +60,7 @@ export async function loader({ request, params }: { request: Request; params: { 
       status,
       allowlist: allowlist.join(', '),
       allowlistCount: allowlist.length,
-      lastTested: c.lastTestedAt ? rel(new Date(c.lastTestedAt).toISOString()) : 'Never',
+      lastTested: c.lastTestedAt ? formatRelativeTime(new Date(c.lastTestedAt).toISOString()) : 'Never',
     },
     endpoints: c.endpoints.map((e) => ({
       id: e.id,
@@ -75,7 +68,7 @@ export async function loader({ request, params }: { request: Request; params: { 
       path: e.path,
       method: e.method,
       lastStatus: e.lastStatus ?? '—',
-      lastTested: e.lastTestedAt ? rel(new Date(e.lastTestedAt).toISOString()) : '—',
+      lastTested: e.lastTestedAt ? formatRelativeTime(new Date(e.lastTestedAt).toISOString()) : '—',
     })),
   });
 }
