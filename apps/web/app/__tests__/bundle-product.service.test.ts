@@ -154,11 +154,11 @@ describe('BundleProductService.ensureAutomaticBundleDiscount', () => {
     const admin = mockAdmin({
       // 1st call: lookup existing automatic app discounts
       data: {
-        automaticDiscountNodes: {
+        discountNodes: {
           nodes: [
             {
               id: 'gid://shopify/DiscountAutomaticNode/1',
-              automaticDiscount: { __typename: 'DiscountAutomaticApp', title: 'SuperApp Bundle Pricing' },
+              discount: { __typename: 'DiscountAutomaticApp', title: 'SuperApp Bundle Pricing' },
             },
           ],
         },
@@ -170,10 +170,12 @@ describe('BundleProductService.ensureAutomaticBundleDiscount', () => {
 
   it('creates the node when absent (function id looked up, then created)', async () => {
     const admin = mockAdmin(
-      { data: { automaticDiscountNodes: { nodes: [] } } },
+      { data: { discountNodes: { nodes: [] } } },
       {
         data: {
-          shopifyFunctions: { nodes: [{ id: 'fn-1', apiType: 'product_discounts', title: 'superapp-discount' }] },
+          shopifyFunctions: {
+            nodes: [{ id: 'fn-1', apiType: 'discount', title: 'SuperApp Discount', handle: 'discount-function' }],
+          },
         },
       },
       {

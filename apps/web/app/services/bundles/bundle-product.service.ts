@@ -223,12 +223,17 @@ const METAFIELDS_SET = `#graphql
 // NOTE: automaticDiscountNodes is deprecated (→ discountNodes) but still valid in
 // Admin API 2026-04; kept to match the title-keyed lookup contract. Validated
 // against the 2026-04 schema via the shopify-dev MCP.
+// Idempotency lookup uses the `discountNodes` superset connection rather than
+// `automaticDiscountNodes`: the latter is search-index backed and lags for several
+// seconds after a create, so a back-to-back republish would miss the just-created
+// node and hit a "Title must be unique" error. `discountNodes` reflects the write
+// immediately. DiscountCode* nodes are filtered out by the __typename check.
 const AUTOMATIC_DISCOUNT_NODES_QUERY = `#graphql
   query SuperAppBundlePricingDiscountLookup {
-    automaticDiscountNodes(first: 50) {
+    discountNodes(first: 50) {
       nodes {
         id
-        automaticDiscount { __typename ... on DiscountAutomaticApp { title } }
+        discount { __typename ... on DiscountAutomaticApp { title } }
       }
     }
   }
@@ -237,10 +242,19 @@ const AUTOMATIC_DISCOUNT_NODES_QUERY = `#graphql
 const SHOPIFY_FUNCTIONS_QUERY = `#graphql
   query SuperAppBundlePricingFunctionLookup {
     shopifyFunctions(first: 50) {
-      nodes { id apiType title }
+      nodes { id apiType title handle }
     }
   }
 `;
+
+/**
+ * Stable handle of the superapp-discount extension (extensions/superapp-discount/
+ * shopify.extension.toml). On API 2026-04 the unified Discounts API reports this
+ * function's `apiType` as `discount` (NOT the legacy `product_discounts`), and the
+ * shop also carries a second `discount`-type function (superapp-shipping-discount),
+ * so we key off the extension handle to bind the discount node to the right wasm.
+ */
+const DISCOUNT_FUNCTION_HANDLE = 'discount-function';
 
 const DISCOUNT_AUTOMATIC_APP_CREATE = `#graphql
   mutation SuperAppBundlePricingDiscountCreate($discount: DiscountAutomaticAppInput!) {
@@ -397,20 +411,20 @@ export class BundleProductService {
   async ensureAutomaticBundleDiscount(): Promise<string> {
     const TITLE = 'SuperApp Bundle Pricing';
     const lookup = await this.graphqlJson<{
-      automaticDiscountNodes: {
-        nodes: Array<{ id: string; automaticDiscount: { __typename: string; title?: string } }>;
+      discountNodes: {
+        nodes: Array<{ id: string; discount: { __typename: string; title?: string } }>;
       };
     }>(AUTOMATIC_DISCOUNT_NODES_QUERY);
-    const existing = (lookup.data?.automaticDiscountNodes?.nodes ?? []).find(
-      (n) => n.automaticDiscount.__typename === 'DiscountAutomaticApp' && n.automaticDiscount.title === TITLE,
+    const existing = (lookup.data?.discountNodes?.nodes ?? []).find(
+      (n) => n.discount.__typename === 'DiscountAutomaticApp' && n.discount.title === TITLE,
     );
     if (existing) return existing.id;
 
     const fns = await this.graphqlJson<{
-      shopifyFunctions: { nodes: Array<{ id: string; apiType: string; title: string }> };
+      shopifyFunctions: { nodes: Array<{ id: string; apiType: string; title: string; handle: string }> };
     }>(SHOPIFY_FUNCTIONS_QUERY);
-    const fn = (fns.data?.shopifyFunctions?.nodes ?? []).find((n) => n.apiType === 'product_discounts');
-    if (!fn) throw new Error('superapp-discount function not deployed (no product_discounts function found)');
+    const fn = (fns.data?.shopifyFunctions?.nodes ?? []).find((n) => n.handle === DISCOUNT_FUNCTION_HANDLE);
+    if (!fn) throw new Error(`superapp-discount function not deployed (no function with handle "${DISCOUNT_FUNCTION_HANDLE}" found)`);
 
     const created = await this.graphqlJson<{
       discountAutomaticAppCreate: {
@@ -421,6 +435,10 @@ export class BundleProductService {
       discount: {
         title: TITLE,
         functionId: fn.id,
+        // API 2026-04 unified Discounts: functions on the `discounts` apiType MUST
+        // declare their discountClasses. superapp-discount targets
+        // cart.lines.discounts.generate.run → PRODUCT (per-line) discounts.
+        discountClasses: ['PRODUCT'],
         startsAt: new Date().toISOString(),
         combinesWith: { orderDiscounts: false, productDiscounts: false, shippingDiscounts: true },
       },
