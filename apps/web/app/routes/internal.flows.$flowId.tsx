@@ -148,8 +148,7 @@ export async function loader({ request, params }: { request: Request; params: { 
   });
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-const NODE_TONE: Record<string, any> = { trigger: 'magic', condition: 'warning', action: 'info', transform: 'success', delay: undefined, end: undefined };
+const NODE_TONE: Record<string, string | undefined> = { trigger: 'magic', condition: 'warning', action: 'info', transform: 'success', delay: undefined, end: undefined };
 
 function FlowStepRow({ s, i, total }: { s: any; i: number; total: number }) {
   return (
@@ -247,12 +246,12 @@ export default function AdminFlowDetail() {
             <DataTable
               rowKey="id"
               columns={[
-                { key: 'id', label: 'Run', render: (r: any) => <MonoChip>{r.id}</MonoChip> },
-                { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
-                { key: 'steps', label: 'Steps', num: true, render: (r: any) => r.steps },
-                { key: 'durationMs', label: 'Duration', num: true, render: (r: any) => <span className="t-num">{fmtMs(r.durationMs)}</span> },
-                { key: 'error', label: 'Detail', render: (r: any) => (r.error ? <span className="t-xs" style={{ color: 'var(--p-critical-text)' }}>{r.error}</span> : <span className="t-muted t-xs">Completed cleanly</span>) },
-                { key: 'started', label: 'Started', render: (r: any) => <span className="cell-sub">{r.started}</span> },
+                { key: 'id', label: 'Run', render: (r) => <MonoChip>{r.id}</MonoChip> },
+                { key: 'status', label: 'Status', render: (r) => <StatusBadge value={r.status} /> },
+                { key: 'steps', label: 'Steps', num: true, render: (r) => r.steps },
+                { key: 'durationMs', label: 'Duration', num: true, render: (r) => <span className="t-num">{fmtMs(r.durationMs)}</span> },
+                { key: 'error', label: 'Detail', render: (r) => (r.error ? <span className="t-xs" style={{ color: 'var(--p-critical-text)' }}>{r.error}</span> : <span className="t-muted t-xs">Completed cleanly</span>) },
+                { key: 'started', label: 'Started', render: (r) => <span className="cell-sub">{r.started}</span> },
               ]}
               rows={runs}
             />

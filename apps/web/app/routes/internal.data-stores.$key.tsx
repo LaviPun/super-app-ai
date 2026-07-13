@@ -73,7 +73,6 @@ export async function loader({ request, params }: { request: Request; params: { 
   });
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export default function AdminDataStoreDetail() {
   const { store: d, records, schema } = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
@@ -138,10 +137,10 @@ export default function AdminDataStoreDetail() {
             <DataTable
               rowKey="id"
               columns={[
-                { key: 'title', label: 'Record', render: (r: any) => <span className="cell-strong">{r.title}</span> },
-                { key: 'externalId', label: 'External ID', render: (r: any) => <MonoChip>{r.externalId}</MonoChip> },
-                { key: 'payload', label: 'Payload', render: (r: any) => <span className="cell-sub t-mono t-trunc" style={{ maxWidth: 320, display: 'inline-block' }}>{r.payload}</span> },
-                { key: 'created', label: 'Created', render: (r: any) => <span className="cell-sub">{r.created}</span> },
+                { key: 'title', label: 'Record', render: (r) => <span className="cell-strong">{r.title}</span> },
+                { key: 'externalId', label: 'External ID', render: (r) => <MonoChip>{r.externalId}</MonoChip> },
+                { key: 'payload', label: 'Payload', render: (r) => <span className="cell-sub t-mono t-trunc" style={{ maxWidth: 320, display: 'inline-block' }}>{r.payload}</span> },
+                { key: 'created', label: 'Created', render: (r) => <span className="cell-sub">{r.created}</span> },
               ]}
               rows={records}
             />

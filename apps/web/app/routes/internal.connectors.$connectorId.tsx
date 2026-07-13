@@ -73,8 +73,7 @@ export async function loader({ request, params }: { request: Request; params: { 
   });
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-const METHOD_TONE: Record<string, any> = { GET: 'success', POST: 'info', PUT: 'warning', PATCH: 'warning', DELETE: 'critical' };
+const METHOD_TONE: Record<string, string | undefined> = { GET: 'success', POST: 'info', PUT: 'warning', PATCH: 'warning', DELETE: 'critical' };
 
 export default function AdminConnectorDetail() {
   const { connector: c, endpoints } = useLoaderData<typeof loader>();
@@ -145,15 +144,15 @@ export default function AdminConnectorDetail() {
             <DataTable
               rowKey="id"
               columns={[
-                { key: 'method', label: 'Method', render: (r: any) => <Badge tone={METHOD_TONE[r.method]}>{r.method}</Badge> },
-                { key: 'name', label: 'Endpoint', render: (r: any) => <span className="cell-strong">{r.name}</span> },
-                { key: 'path', label: 'Path', render: (r: any) => <MonoChip>{r.path}</MonoChip> },
-                { key: 'lastStatus', label: 'Last status', render: (r: any) => <span className={'http-code http-' + String(r.lastStatus)[0]}>{r.lastStatus}</span> },
-                { key: 'lastTested', label: 'Tested', render: (r: any) => <span className="cell-sub">{r.lastTested}</span> },
+                { key: 'method', label: 'Method', render: (r) => <Badge tone={METHOD_TONE[r.method]}>{r.method}</Badge> },
+                { key: 'name', label: 'Endpoint', render: (r) => <span className="cell-strong">{r.name}</span> },
+                { key: 'path', label: 'Path', render: (r) => <MonoChip>{r.path}</MonoChip> },
+                { key: 'lastStatus', label: 'Last status', render: (r) => <span className={'http-code http-' + String(r.lastStatus)[0]}>{r.lastStatus}</span> },
+                { key: 'lastTested', label: 'Tested', render: (r) => <span className="cell-sub">{r.lastTested}</span> },
                 {
                   key: 'act',
                   label: '',
-                  render: (r: any) => (
+                  render: (r) => (
                     <div className="dt-actions">
                       <Btn size="sm" className="btn-plain" icon="play" onClick={() => ops.run('connector_test', { id: c.id, resource: r.path, message: r.method + ' ' + r.path, extra: { path: r.path, method: r.method } })}>
                         Call
@@ -184,16 +183,16 @@ export default function AdminConnectorDetail() {
         <Card pad>
           <div className="stack-5" style={{ maxWidth: 540 }}>
             <Field label="Base URL">
-              <Input mono value={baseUrl} onChange={(e: any) => setBaseUrl(e.target.value)} />
+              <Input mono value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
             </Field>
             <Field label="Auth type">
-              <Select options={['API_KEY', 'BASIC', 'OAUTH2']} value={authType} onChange={(e: any) => setAuthType(e.target.value)} />
+              <Select options={['API_KEY', 'BASIC', 'OAUTH2']} value={authType} onChange={(e) => setAuthType(e.target.value)} />
             </Field>
             <Field label="Domain allowlist" help="Only these hosts can be called from flows (SSRF guard). Comma-separated.">
-              <Input mono value={allowlist} onChange={(e: any) => setAllowlist(e.target.value)} />
+              <Input mono value={allowlist} onChange={(e) => setAllowlist(e.target.value)} />
             </Field>
             <Field label="Credential" help="Encrypted at rest. Leave blank to keep current.">
-              <Input type="password" placeholder="•••••••••• (unchanged)" value={credential} onChange={(e: any) => setCredential(e.target.value)} />
+              <Input type="password" placeholder="•••••••••• (unchanged)" value={credential} onChange={(e) => setCredential(e.target.value)} />
             </Field>
             <div>
               <Btn variant="primary" onClick={saveConfig}>

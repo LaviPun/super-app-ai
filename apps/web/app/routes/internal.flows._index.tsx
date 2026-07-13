@@ -102,7 +102,6 @@ export async function loader({ request }: { request: Request }) {
   return json({ flows: rows });
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export default function AdminFlows() {
   const { flows } = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
@@ -166,7 +165,7 @@ export default function AdminFlows() {
         {rows.length ? (
           <DataTable
             rowKey="id"
-            onRowClick={(r: any) => ctx.go('#/admin/flows/' + r.id)}
+            onRowClick={(r) => ctx.go('#/admin/flows/' + r.id)}
             sortCol={ts.sortCol}
             sortDir={ts.sortDir}
             onSort={ts.onSort}
@@ -175,7 +174,7 @@ export default function AdminFlows() {
                 key: 'name',
                 label: 'Flow',
                 sortable: true,
-                render: (r: any) => (
+                render: (r) => (
                   <div className="row-3">
                     <span className="tile-ico" style={{ width: 30, height: 30, background: 'var(--p-surface-secondary)' }}>
                       <Icon name="flow" size={15} />
@@ -187,16 +186,16 @@ export default function AdminFlows() {
                   </div>
                 ),
               },
-              { key: 'store', label: 'Store', render: (r: any) => <StoreLink name={r.store} id={r.storeId} /> },
-              { key: 'trigger', label: 'Trigger', render: (r: any) => <MonoChip>{r.trigger}</MonoChip> },
-              { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
-              { key: 'runs7d', label: 'Runs (7d)', num: true, sortable: true, render: (r: any) => fmtNum(r.runs7d) },
-              { key: 'fails7d', label: 'Fails', num: true, render: (r: any) => (r.fails7d ? <span style={{ color: 'var(--p-critical-text)' }}>{r.fails7d}</span> : <span className="t-muted">0</span>) },
-              { key: 'lastRun', label: 'Last run', render: (r: any) => <span className="cell-sub">{r.lastRun}</span> },
+              { key: 'store', label: 'Store', render: (r) => <StoreLink name={r.store} id={r.storeId} /> },
+              { key: 'trigger', label: 'Trigger', render: (r) => <MonoChip>{r.trigger}</MonoChip> },
+              { key: 'status', label: 'Status', render: (r) => <StatusBadge value={r.status} /> },
+              { key: 'runs7d', label: 'Runs (7d)', num: true, sortable: true, render: (r) => fmtNum(r.runs7d) },
+              { key: 'fails7d', label: 'Fails', num: true, render: (r) => (r.fails7d ? <span style={{ color: 'var(--p-critical-text)' }}>{r.fails7d}</span> : <span className="t-muted">0</span>) },
+              { key: 'lastRun', label: 'Last run', render: (r) => <span className="cell-sub">{r.lastRun}</span> },
               {
                 key: 'act',
                 label: '',
-                render: (r: any) =>
+                render: (r) =>
                   r.status === 'ACTIVE' ? (
                     <Btn size="sm" className="btn-plain" icon="pause" onClick={() => ops.run('flow_pause', { id: r.id, resource: r.name, message: 'Pausing ' + r.name })}>
                       Pause

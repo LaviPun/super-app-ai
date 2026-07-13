@@ -86,7 +86,6 @@ export async function loader({ request }: { request: Request }) {
   });
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export default function AdminWebhooks() {
   const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
@@ -110,22 +109,22 @@ export default function AdminWebhooks() {
         {rows.length ? (
           <DataTable
             rowKey="id"
-            onRowClick={(r: any) => ctx.go('#/admin/webhooks/' + r.id)}
+            onRowClick={(r) => ctx.go('#/admin/webhooks/' + r.id)}
             columns={[
-              { key: 'topic', label: 'Topic', render: (r: any) => <MonoChip>{r.topic}</MonoChip> },
-              { key: 'shop', label: 'Store', render: (r: any) => <span className="cell-sub">{r.shop}</span> },
-              { key: 'eventId', label: 'Event ID', render: (r: any) => <span className="t-mono t-xs t-muted">{r.eventId}</span> },
+              { key: 'topic', label: 'Topic', render: (r) => <MonoChip>{r.topic}</MonoChip> },
+              { key: 'shop', label: 'Store', render: (r) => <span className="cell-sub">{r.shop}</span> },
+              { key: 'eventId', label: 'Event ID', render: (r) => <span className="t-mono t-xs t-muted">{r.eventId}</span> },
               {
                 key: 'success',
                 label: 'Result',
-                render: (r: any) => (
+                render: (r) => (
                   <span className="row-2">
                     <StatusDot ok={r.success} />
                     {r.success ? 'Processed' : 'Failed'}
                   </span>
                 ),
               },
-              { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{r.created}</span> },
+              { key: 'created', label: 'When', render: (r) => <span className="cell-sub">{r.created}</span> },
             ]}
             rows={rows}
           />

@@ -83,8 +83,7 @@ export async function loader({ request, params }: { request: Request; params: { 
   });
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-const SOURCE_TONE: Record<string, any> = { template: 'info', recipe: 'success', scratch: undefined, image: 'magic' };
+const SOURCE_TONE: Record<string, string | undefined> = { template: 'info', recipe: 'success', scratch: undefined, image: 'magic' };
 
 export default function AdminModuleDetail() {
   const { module: m, versions, spec, traceCorrelationId } = useLoaderData<typeof loader>();
@@ -226,7 +225,7 @@ export default function AdminModuleDetail() {
               {
                 key: 'version',
                 label: 'Version',
-                render: (r: any) => (
+                render: (r) => (
                   <span className="cell-strong">
                     v{r.version}
                     {r.active ? (
@@ -237,13 +236,13 @@ export default function AdminModuleDetail() {
                   </span>
                 ),
               },
-              { key: 'diff', label: 'Change', render: (r: any) => <span className="cell-sub">{r.diff}</span> },
-              { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
-              { key: 'created', label: 'Created', render: (r: any) => <span className="cell-sub">{r.created}</span> },
+              { key: 'diff', label: 'Change', render: (r) => <span className="cell-sub">{r.diff}</span> },
+              { key: 'status', label: 'Status', render: (r) => <StatusBadge value={r.status} /> },
+              { key: 'created', label: 'Created', render: (r) => <span className="cell-sub">{r.created}</span> },
               {
                 key: 'act',
                 label: '',
-                render: (r: any) => (
+                render: (r) => (
                   <div className="dt-actions">
                     {!r.active && (
                       <Btn

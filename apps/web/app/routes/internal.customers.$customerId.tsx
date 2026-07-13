@@ -82,9 +82,8 @@ export async function loader({ request, params }: { request: Request; params: { 
   });
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-const PLAN_TONE: Record<string, any> = { FREE: undefined, STARTER: 'info', GROWTH: 'success', PRO: 'magic', ENTERPRISE: 'warning' };
-const LIFECYCLE_TONE: Record<string, any> = { Customer: 'success', Trialing: 'warning', Churned: 'critical' };
+const PLAN_TONE: Record<string, string | undefined> = { FREE: undefined, STARTER: 'info', GROWTH: 'success', PRO: 'magic', ENTERPRISE: 'warning' };
+const LIFECYCLE_TONE: Record<string, string | undefined> = { Customer: 'success', Trialing: 'warning', Churned: 'critical' };
 
 export default function AdminCustomerDetail() {
   const { customer: c, store: s } = useLoaderData<typeof loader>();

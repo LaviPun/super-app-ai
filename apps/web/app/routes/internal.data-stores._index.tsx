@@ -85,7 +85,6 @@ export async function action({ request }: { request: Request }) {
   return json({ ok: false, message: 'Unknown action' }, { status: 400 });
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export default function AdminDataStores() {
   const { stores } = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
@@ -161,7 +160,7 @@ export default function AdminDataStores() {
         {rows.length ? (
           <DataTable
             rowKey="id"
-            onRowClick={(r: any) => ctx.go('#/admin/data-stores/' + r.id)}
+            onRowClick={(r) => ctx.go('#/admin/data-stores/' + r.id)}
             sortCol={ts.sortCol}
             sortDir={ts.sortDir}
             onSort={ts.onSort}
@@ -170,7 +169,7 @@ export default function AdminDataStores() {
                 key: 'name',
                 label: 'Data store',
                 sortable: true,
-                render: (r: any) => (
+                render: (r) => (
                   <div className="row-3">
                     <span className="tile-ico" style={{ width: 30, height: 30, background: 'var(--p-surface-secondary)' }}>
                       <Icon name="database" size={15} />
@@ -182,15 +181,15 @@ export default function AdminDataStores() {
                   </div>
                 ),
               },
-              { key: 'key', label: 'Key', render: (r: any) => <MonoChip>{r.key}</MonoChip> },
-              { key: 'store', label: 'Store', render: (r: any) => <StoreLink name={r.store} id={r.storeId} /> },
-              { key: 'kind', label: 'Kind', render: (r: any) => <Badge tone={r.kind === 'custom' ? 'magic' : undefined}>{titleCase(r.kind)}</Badge> },
-              { key: 'records', label: 'Records', num: true, sortable: true, render: (r: any) => fmtNum(r.records) },
-              { key: 'enabled', label: 'Enabled', render: (r: any) => <Toggle checked={r.enabled} onChange={(e: any) => toggleStore(r, e.target.checked)} /> },
+              { key: 'key', label: 'Key', render: (r) => <MonoChip>{r.key}</MonoChip> },
+              { key: 'store', label: 'Store', render: (r) => <StoreLink name={r.store} id={r.storeId} /> },
+              { key: 'kind', label: 'Kind', render: (r) => <Badge tone={r.kind === 'custom' ? 'magic' : undefined}>{titleCase(r.kind)}</Badge> },
+              { key: 'records', label: 'Records', num: true, sortable: true, render: (r) => fmtNum(r.records) },
+              { key: 'enabled', label: 'Enabled', render: (r) => <Toggle checked={r.enabled} onChange={(e) => toggleStore(r, e.target.checked)} /> },
               {
                 key: 'act',
                 label: '',
-                render: (r: any) => (
+                render: (r) => (
                   <div className="dt-actions">
                     <Btn size="sm" className="btn-plain" icon="eye" onClick={() => ctx.go('#/admin/data-stores/' + r.id)}>
                       Browse

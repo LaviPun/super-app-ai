@@ -178,7 +178,6 @@ export async function loader({ request }: { request: Request }) {
   });
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 function deltaProps(pct: number | null): { delta?: string; deltaDir?: 'up' | 'down' } {
   if (pct == null) return {};
   return { delta: Math.abs(pct) + '%', deltaDir: pct < 0 ? 'down' : 'up' };
@@ -206,7 +205,7 @@ export default function AdminUsage() {
     replayFetcher.submit(fd, { method: 'post' });
   };
 
-  const ROWS: any[] = data.rows.map((r) => ({
+  const ROWS = data.rows.map((r) => ({
     id: r.id, shop: r.shopDomain ?? '—', action: r.action, tokensIn: r.tokensIn ?? 0, tokensOut: r.tokensOut ?? 0,
     costCents: r.costCents ?? 0, provider: r.providerName, created: new Date(r.createdAt).toLocaleDateString(),
     correlationId: r.correlationId ?? '',
@@ -277,24 +276,24 @@ export default function AdminUsage() {
             <DataTable
               rowKey="id"
               columns={[
-                { key: 'shop', label: 'Store', render: (r: any) => <span className="cell-strong">{r.shop}</span> },
-                { key: 'action', label: 'Action', render: (r: any) => <Badge>{titleCase(r.action)}</Badge> },
-                { key: 'provider', label: 'Provider', render: (r: any) => <span className="cell-sub">{r.provider}</span> },
-                { key: 'tokensIn', label: 'Tokens in', num: true, render: (r: any) => fmtNum(r.tokensIn) },
-                { key: 'tokensOut', label: 'Tokens out', num: true, render: (r: any) => fmtNum(r.tokensOut) },
+                { key: 'shop', label: 'Store', render: (r) => <span className="cell-strong">{r.shop}</span> },
+                { key: 'action', label: 'Action', render: (r) => <Badge>{titleCase(r.action)}</Badge> },
+                { key: 'provider', label: 'Provider', render: (r) => <span className="cell-sub">{r.provider}</span> },
+                { key: 'tokensIn', label: 'Tokens in', num: true, render: (r) => fmtNum(r.tokensIn) },
+                { key: 'tokensOut', label: 'Tokens out', num: true, render: (r) => fmtNum(r.tokensOut) },
                 {
                   key: 'costCents',
                   label: 'Cost',
                   num: true,
-                  render: (r: any) => r.unpriced
+                  render: (r) => r.unpriced
                     ? <Badge tone="warning">Unpriced</Badge>
                     : <span className="t-strong">{fmtCents(r.costCents)}</span>,
                 },
-                { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{r.created}</span> },
+                { key: 'created', label: 'When', render: (r) => <span className="cell-sub">{r.created}</span> },
                 {
                   key: 'act',
                   label: '',
-                  render: (r: any) => (
+                  render: (r) => (
                     <div className="dt-actions">
                       <Btn
                         size="sm"

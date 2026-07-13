@@ -300,7 +300,6 @@ function healthOf(s: { domain: string; errors30d: number }): number {
   return storeHealth(s, errLogs);
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 function KpiStrip({ items }: { items: any[] }) {
   return (
     <Card className="kpi-strip">
@@ -637,13 +636,13 @@ export default function AdminDashboard() {
           ) : (
             <DataTable
               rowKey="id"
-              onRowClick={(r: any) => ctx.go('#/admin/activity/' + r.id)}
+              onRowClick={(r) => ctx.go('#/admin/activity/' + r.id)}
               columns={[
-                { key: 'actor', label: 'Actor', render: (r: any) => <Badge>{titleCase(r.actor)}</Badge> },
-                { key: 'action', label: 'Action', render: (r: any) => <span className="cell-strong">{titleCase(r.action)}</span> },
-                { key: 'resource', label: 'Resource', render: (r: any) => <span className="cell-sub">{r.resource}</span> },
+                { key: 'actor', label: 'Actor', render: (r) => <Badge>{titleCase(r.actor)}</Badge> },
+                { key: 'action', label: 'Action', render: (r) => <span className="cell-strong">{titleCase(r.action)}</span> },
+                { key: 'resource', label: 'Resource', render: (r) => <span className="cell-sub">{r.resource}</span> },
                 { key: 'shop', label: 'Store' },
-                { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{formatRelativeTime(r.createdAt)}</span> },
+                { key: 'created', label: 'When', render: (r) => <span className="cell-sub">{formatRelativeTime(r.createdAt)}</span> },
               ]}
               rows={d.recentActivity}
             />

@@ -608,7 +608,6 @@ export function computeSessionMutationFollowUp(input: {
   return { effect: 'revalidate' };
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 function mdLite(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -1338,7 +1337,7 @@ export default function AdminAssistant() {
                 rows={2}
                 placeholder="What should the assistant always know?"
                 value={memContent}
-                onChange={(e: any) => setMemContent(e.target.value)}
+                onChange={(e) => setMemContent(e.target.value)}
               />
               <input
                 className="input"
@@ -1374,7 +1373,7 @@ export default function AdminAssistant() {
                     mono
                     placeholder='{"title":"Imported","mode":"localMachine","messages":[{"role":"user","content":"hi"}]}'
                     value={importJson}
-                    onChange={(e: any) => setImportJson(e.target.value)}
+                    onChange={(e) => setImportJson(e.target.value)}
                   />
                   <Btn
                     size="sm"

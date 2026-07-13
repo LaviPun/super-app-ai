@@ -98,7 +98,6 @@ export async function loader({ request }: { request: Request }) {
   });
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export default function AdminJobs() {
   const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
@@ -117,7 +116,7 @@ export default function AdminJobs() {
   const submitReplay = (jobId: string) => ops.run('job_replay', { id: jobId, message: 'Replay job' });
   const submitReplayAll = () => ops.run('job_replay_all', { message: 'Replay all DLQ jobs' });
 
-  const ROWS: any[] = data.jobs.map((j: any) => ({
+  const ROWS = data.jobs.map((j) => ({
     id: j.id, type: j.type, status: j.status, shop: j.shopDomain ?? '—', attempts: j.attempts ?? 1,
     durationMs: j.startedAt && j.finishedAt ? new Date(j.finishedAt).getTime() - new Date(j.startedAt).getTime() : null,
     correlationId: j.correlationId ?? '', created: formatRelativeTime(j.createdAt), error: j.error ?? null,
@@ -180,20 +179,20 @@ export default function AdminJobs() {
             />
             <DataTable
               rowKey="id"
-              onRowClick={(r: any) => ctx.go('#/admin/jobs/' + r.id)}
+              onRowClick={(r) => ctx.go('#/admin/jobs/' + r.id)}
               columns={[
-                { key: 'id', label: 'Job ID', render: (r: any) => <MonoChip>{r.id}</MonoChip> },
-                { key: 'type', label: 'Type', render: (r: any) => <Badge>{titleCase(r.type)}</Badge> },
-                { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
-                { key: 'shop', label: 'Store', render: (r: any) => <span className="cell-sub">{r.shop}</span> },
+                { key: 'id', label: 'Job ID', render: (r) => <MonoChip>{r.id}</MonoChip> },
+                { key: 'type', label: 'Type', render: (r) => <Badge>{titleCase(r.type)}</Badge> },
+                { key: 'status', label: 'Status', render: (r) => <StatusBadge value={r.status} /> },
+                { key: 'shop', label: 'Store', render: (r) => <span className="cell-sub">{r.shop}</span> },
                 { key: 'attempts', label: 'Tries', num: true },
-                { key: 'durationMs', label: 'Duration', num: true, render: (r: any) => fmtMs(r.durationMs) },
-                { key: 'error', label: 'Result', render: (r: any) => (r.error ? <span className="t-xs" style={{ color: 'var(--p-critical-text)' }}>{r.error}</span> : <span className="cell-sub">—</span>) },
-                { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{r.created}</span> },
+                { key: 'durationMs', label: 'Duration', num: true, render: (r) => fmtMs(r.durationMs) },
+                { key: 'error', label: 'Result', render: (r) => (r.error ? <span className="t-xs" style={{ color: 'var(--p-critical-text)' }}>{r.error}</span> : <span className="cell-sub">—</span>) },
+                { key: 'created', label: 'When', render: (r) => <span className="cell-sub">{r.created}</span> },
                 {
                   key: 'act',
                   label: '',
-                  render: (r: any) => (
+                  render: (r) => (
                     <div className="dt-actions">
                       {r.status === 'FAILED' && (
                         <Btn
@@ -202,7 +201,7 @@ export default function AdminJobs() {
                           className="btn-plain"
                           loading={pendingJobId === r.id}
                           disabled={replayBusy}
-                          onClick={(e: any) => {
+                          onClick={(e) => {
                             e.stopPropagation();
                             submitReplay(r.id);
                           }}
@@ -215,7 +214,7 @@ export default function AdminJobs() {
                           size="sm"
                           icon="transfer"
                           className="btn-plain"
-                          onClick={(e: any) => {
+                          onClick={(e) => {
                             e.stopPropagation();
                             ctx.go('#/admin/trace/' + r.correlationId);
                           }}
