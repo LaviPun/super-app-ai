@@ -1,6 +1,6 @@
 import { json, redirect } from '@remix-run/node';
 import type { SerializeFrom } from '@remix-run/node';
-import { useFetcher, useLoaderData } from '@remix-run/react';
+import { useFetcher, useLoaderData, useSearchParams } from '@remix-run/react';
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
@@ -54,6 +54,14 @@ type ProviderRating = {
 };
 
 const ALLOWED_PROVIDERS: readonly ProviderKind[] = ['OPENAI', 'ANTHROPIC', 'GEMINI', 'AZURE_OPENAI', 'CUSTOM'];
+
+function parseOptionalNumber(raw: FormDataEntryValue | null): number | null {
+  const text = String(raw ?? '').trim();
+  if (!text) return null;
+  const num = Number(text);
+  if (!Number.isFinite(num) || num < 0) throw new Error(`Invalid number: ${text}`);
+  return num;
+}
 
 function parseModelCatalog(extraConfig: string | null): ModelCatalogMeta[] {
   if (!extraConfig) return [];
@@ -467,26 +475,18 @@ export async function action({ request }: { request: Request }) {
     const provider = await prisma.aiProvider.findUnique({ where: { id: providerId } });
     if (!provider) return json({ error: 'Provider not found' }, { status: 404 });
 
-    let parsed: { account?: Record<string, string>; billing?: Record<string, number | string> } = {};
     try {
-      parsed = provider.extraConfig ? (JSON.parse(provider.extraConfig) as typeof parsed) : {};
-    } catch {
-      parsed = {};
-    }
-    const account = parsed.account ?? {};
-    const billing = parsed.billing ?? {};
-
-    try {
+      // Single write surface: the Accounts tab now edits the full account +
+      // billing field set (previously split out to /internal/ai-accounts).
       await new AiAccountObservabilityService().updateProviderAccount(providerId, {
         accountName: String(form.get('accountName') ?? ''),
         accountEmail: String(form.get('accountEmail') ?? ''),
-        // Preserve fields the modal does not edit (managed on /internal/ai-accounts).
-        accountId: typeof account.accountId === 'string' ? account.accountId : '',
-        dashboardUrl: typeof account.dashboardUrl === 'string' ? account.dashboardUrl : '',
-        currentBalanceUsd: typeof billing.currentBalanceUsd === 'number' ? billing.currentBalanceUsd : null,
-        dailyLimitUsd: typeof billing.dailyLimitUsd === 'number' ? billing.dailyLimitUsd : null,
-        alertLimitUsd: typeof billing.alertLimitUsd === 'number' ? billing.alertLimitUsd : null,
-        currency: typeof billing.currency === 'string' ? billing.currency : 'USD',
+        accountId: String(form.get('accountId') ?? ''),
+        dashboardUrl: String(form.get('dashboardUrl') ?? ''),
+        currentBalanceUsd: parseOptionalNumber(form.get('currentBalanceUsd')),
+        dailyLimitUsd: parseOptionalNumber(form.get('dailyLimitUsd')),
+        alertLimitUsd: parseOptionalNumber(form.get('alertLimitUsd')),
+        currency: String(form.get('currency') ?? 'USD'),
       });
       const apiKey = String(form.get('apiKey') ?? '').trim();
       if (apiKey) {
@@ -752,8 +752,12 @@ export default function AdminProviders() {
     useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
   const ops = useIntentSubmit();
+  const [searchParams] = useSearchParams();
+  const initialTab = ['providers', 'accounts', 'pricing'].includes(searchParams.get('tab') ?? '')
+    ? (searchParams.get('tab') as string)
+    : 'providers';
   const [modal, setModal] = useState<ProviderRow | 'new' | null>(null);
-  const [tab, setTab] = useState('providers');
+  const [tab, setTab] = useState(initialTab);
   const [confirm, setConfirm] = useState<ConfirmSpec | null>(null);
   const [priceModal, setPriceModal] = useState<PriceRow | 'new' | null>(null);
   const [acctModal, setAcctModal] = useState<AccountRow | 'link' | null>(null);
@@ -957,9 +961,6 @@ export default function AdminProviders() {
               <div className="row-2" style={{ marginTop: 12 }}>
                 <Btn size="sm" icon="edit" onClick={() => setAcctModal(a)}>
                   Edit
-                </Btn>
-                <Btn size="sm" icon="chart" className="btn-plain" onClick={() => ctx.go('#/admin/ai-accounts')}>
-                  Limits &amp; spend
                 </Btn>
                 {a.dashboardUrl && (
                   <Btn size="sm" icon="external" className="btn-plain" onClick={() => window.open(a.dashboardUrl!, '_blank', 'noopener')}>
@@ -1214,6 +1215,12 @@ function AccountModal({ account, providers, onClose }: { account: AccountRow | n
     providerId: account?.providerId ?? providers[0]?.id ?? '',
     name: account?.accountName ?? '',
     email: account?.accountEmail ?? '',
+    accountId: account?.accountId ?? '',
+    dashboardUrl: account?.dashboardUrl ?? '',
+    currentBalanceUsd: account?.currentBalanceUsd?.toString() ?? '',
+    dailyLimitUsd: account?.dailyLimitUsd?.toString() ?? '',
+    alertLimitUsd: account?.alertLimitUsd?.toString() ?? '',
+    currency: account?.currency ?? 'USD',
     apiKey: '',
   });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((o) => ({ ...o, [k]: v }));
@@ -1223,12 +1230,18 @@ function AccountModal({ account, providers, onClose }: { account: AccountRow | n
       providerId: f.providerId,
       accountName: f.name,
       accountEmail: f.email,
+      accountId: f.accountId,
+      dashboardUrl: f.dashboardUrl,
+      currentBalanceUsd: f.currentBalanceUsd,
+      dailyLimitUsd: f.dailyLimitUsd,
+      alertLimitUsd: f.alertLimitUsd,
+      currency: f.currency,
       apiKey: f.apiKey,
     });
   return (
     <Modal
       title={account ? `${account.providerName} — account` : 'Link AI account'}
-      sub="Connect a billing account so its details appear here. Limits and balances are managed under Limits & spend."
+      sub="Connect a billing account and set its limits and balance — everything for this provider lives here."
       onClose={onClose}
       footer={
         <>
@@ -1254,9 +1267,33 @@ function AccountModal({ account, providers, onClose }: { account: AccountRow | n
             />
           </Field>
         </div>
-        <Field label="Billing email">
-          <Input value={f.email} onChange={(e: ChangeEvent<HTMLInputElement>) => set('email', e.target.value)} placeholder="billing@example.com" />
+        <div className="grid grid-2">
+          <Field label="Billing email">
+            <Input value={f.email} onChange={(e: ChangeEvent<HTMLInputElement>) => set('email', e.target.value)} placeholder="billing@example.com" />
+          </Field>
+          <Field label="Account ID" optional>
+            <Input value={f.accountId} onChange={(e: ChangeEvent<HTMLInputElement>) => set('accountId', e.target.value)} placeholder="org-…" />
+          </Field>
+        </div>
+        <Field label="Dashboard URL" optional>
+          <Input value={f.dashboardUrl} onChange={(e: ChangeEvent<HTMLInputElement>) => set('dashboardUrl', e.target.value)} placeholder="https://platform.openai.com/usage" />
         </Field>
+        <div className="grid grid-2">
+          <Field label="Current balance (USD)" optional>
+            <Input type="number" value={f.currentBalanceUsd} onChange={(e: ChangeEvent<HTMLInputElement>) => set('currentBalanceUsd', e.target.value)} placeholder="0.00" />
+          </Field>
+          <Field label="Currency" optional>
+            <Input value={f.currency} onChange={(e: ChangeEvent<HTMLInputElement>) => set('currency', e.target.value)} placeholder="USD" />
+          </Field>
+        </div>
+        <div className="grid grid-2">
+          <Field label="Daily limit (USD)" optional>
+            <Input type="number" value={f.dailyLimitUsd} onChange={(e: ChangeEvent<HTMLInputElement>) => set('dailyLimitUsd', e.target.value)} placeholder="No limit" />
+          </Field>
+          <Field label="Alert limit (USD)" optional>
+            <Input type="number" value={f.alertLimitUsd} onChange={(e: ChangeEvent<HTMLInputElement>) => set('alertLimitUsd', e.target.value)} placeholder="No alert" />
+          </Field>
+        </div>
         <Field label="API key" optional help="Encrypted at rest and masked everywhere. Leave blank to keep the existing key.">
           <Input type="password" value={f.apiKey} onChange={(e: ChangeEvent<HTMLInputElement>) => set('apiKey', e.target.value)} placeholder="sk-…" />
         </Field>
