@@ -6,6 +6,10 @@
    ============================================================ */
 
 :root {
+  /* Declare native scheme support: without this the browser treats the page as
+     light-only under a dark preference (auto-dark rewrites, light scrollbars). */
+  color-scheme: light;
+
   /* Brand / DESIGN.md */
   --sa-primary: #1F3A5F;
   --sa-primary-press: #16293f;
@@ -78,6 +82,8 @@
    radius/shadow-geometry/type/spacing are inherited from :root. */
 @media (prefers-color-scheme: dark) {
   :root {
+    color-scheme: dark;
+
     /* Brand — lightened so it reads as accent text on dark surfaces (the brand mark is a logo, exempt from text contrast). */
     --sa-primary: #5A86C0;
     --sa-primary-press: #6E97CE;

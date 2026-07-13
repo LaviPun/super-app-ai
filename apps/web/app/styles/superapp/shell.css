@@ -55,6 +55,10 @@
 .nav-item.sel::before { content: ''; position: absolute; left: -8px; top: 6px; bottom: 6px; width: 3px; border-radius: 0 3px 3px 0; background: var(--sa-primary); }
 .nav-item svg { flex: none; opacity: .85; }
 .nav-item.sel svg { opacity: 1; }
+/* Polaris's AppProvider writes an inline light-theme `color` on <body> that
+   outranks every stylesheet (including the dark-theme tokens). Re-assert the
+   admin's own text token at the admin roots so dark mode is actually legible. */
+.internal-admin-viewport, .cmdk { color: var(--p-text); }
 /* Visible keyboard focus for every shell control (WCAG 2.2 focus appearance). */
 .nav-item:focus-visible,
 .nav-health:focus-visible,
