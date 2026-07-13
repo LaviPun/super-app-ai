@@ -1,5 +1,5 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, useRevalidator } from '@remix-run/react';
+import { useLoaderData, useRevalidator, useRouteError } from '@remix-run/react';
 import { useEffect, useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
@@ -22,6 +22,7 @@ import {
   Avatar,
   Progress,
   EmptyState,
+  Banner,
   fmtNum,
   titleCase,
   storeHealth,
@@ -56,6 +57,10 @@ export async function loader({ request }: { request: Request }) {
   jobSparkFrom.setUTCHours(0, 0, 0, 0);
   jobSparkFrom.setUTCDate(jobSparkFrom.getUTCDate() - (JOB_DAYS - 1));
 
+  // Each query is guarded so one failing/slow table degrades to a zero/empty default
+  // rather than 500ing the entire dashboard — the same resilience the shell loader uses.
+  // Real failures still surface via the error log + the shell's health footer.
+  const zeroUsage = { _sum: { costCents: 0, requestCount: 0 } };
   const [
     totalStores,
     activeStores,
@@ -80,46 +85,52 @@ export async function loader({ request }: { request: Request }) {
     recentActivity,
     latestErrors,
   ] = await Promise.all([
-    prisma.shop.count(),
-    prisma.shop.count({ where: { OR: [{ subscription: { is: null } }, { subscription: { status: 'ACTIVE' } }] } }),
-    prisma.shop.count({ where: { subscription: { status: 'TRIAL' } } }),
-    prisma.shop.count({ where: { createdAt: { gte: since7d } } }),
-    prisma.shop.count({ where: { createdAt: { gte: since30d } } }),
-    prisma.aiUsage.aggregate({ where: { createdAt: { gte: since24h } }, _sum: { costCents: true, requestCount: true } }),
-    prisma.aiUsage.aggregate({ where: { createdAt: { gte: prev24hStart, lt: since24h } }, _sum: { costCents: true, requestCount: true } }),
-    prisma.aiUsage.aggregate({ where: { createdAt: { gte: since30d } }, _sum: { costCents: true, requestCount: true } }),
-    prisma.aiUsage.findMany({ where: { createdAt: { gte: sparkFrom } }, select: { createdAt: true, requestCount: true } }),
-    prisma.errorLog.count({ where: { createdAt: { gte: since24h } } }),
-    prisma.errorLog.count({ where: { createdAt: { gte: prev24hStart, lt: since24h } } }),
-    prisma.apiLog.count({ where: { createdAt: { gte: since24h } } }),
-    prisma.job.groupBy({ by: ['status'], where: { createdAt: { gte: since7d } }, _count: { id: true } }),
-    prisma.job.findMany({ where: { createdAt: { gte: jobSparkFrom } }, select: { createdAt: true } }),
-    prisma.webhookEvent.count({ where: { processedAt: { gte: since7d } } }),
-    prisma.webhookEvent.count({ where: { processedAt: { gte: since7d }, success: false } }),
-    prisma.shop.groupBy({ by: ['planTier'], _count: { _all: true } }),
-    prisma.appSubscription.groupBy({ by: ['planName'], where: { status: 'ACTIVE' }, _count: { _all: true } }),
-    getAllPlanConfigs(),
-    prisma.shop.findMany({
-      take: 50,
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        shopDomain: true,
-        planTier: true,
-        modules: { select: { status: true } },
-        subscription: { select: { status: true } },
-      },
-    }),
-    prisma.activityLog.findMany({
-      take: 6,
-      orderBy: { createdAt: 'desc' },
-      include: { shop: { select: { shopDomain: true } } },
-    }),
-    prisma.errorLog.findMany({
-      take: 4,
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, level: true, message: true, route: true, correlationId: true, createdAt: true },
-    }),
+    prisma.shop.count().catch(() => 0),
+    prisma.shop.count({ where: { OR: [{ subscription: { is: null } }, { subscription: { status: 'ACTIVE' } }] } }).catch(() => 0),
+    prisma.shop.count({ where: { subscription: { status: 'TRIAL' } } }).catch(() => 0),
+    prisma.shop.count({ where: { createdAt: { gte: since7d } } }).catch(() => 0),
+    prisma.shop.count({ where: { createdAt: { gte: since30d } } }).catch(() => 0),
+    prisma.aiUsage.aggregate({ where: { createdAt: { gte: since24h } }, _sum: { costCents: true, requestCount: true } }).catch(() => zeroUsage),
+    prisma.aiUsage.aggregate({ where: { createdAt: { gte: prev24hStart, lt: since24h } }, _sum: { costCents: true, requestCount: true } }).catch(() => zeroUsage),
+    prisma.aiUsage.aggregate({ where: { createdAt: { gte: since30d } }, _sum: { costCents: true, requestCount: true } }).catch(() => zeroUsage),
+    prisma.aiUsage.findMany({ where: { createdAt: { gte: sparkFrom } }, select: { createdAt: true, requestCount: true } }).catch(() => []),
+    prisma.errorLog.count({ where: { createdAt: { gte: since24h } } }).catch(() => 0),
+    prisma.errorLog.count({ where: { createdAt: { gte: prev24hStart, lt: since24h } } }).catch(() => 0),
+    prisma.apiLog.count({ where: { createdAt: { gte: since24h } } }).catch(() => 0),
+    prisma.job.groupBy({ by: ['status'], where: { createdAt: { gte: since7d } }, _count: { id: true } }).catch(() => []),
+    prisma.job.findMany({ where: { createdAt: { gte: jobSparkFrom } }, select: { createdAt: true } }).catch(() => []),
+    prisma.webhookEvent.count({ where: { processedAt: { gte: since7d } } }).catch(() => 0),
+    prisma.webhookEvent.count({ where: { processedAt: { gte: since7d }, success: false } }).catch(() => 0),
+    prisma.shop.groupBy({ by: ['planTier'], _count: { _all: true } }).catch(() => []),
+    prisma.appSubscription.groupBy({ by: ['planName'], where: { status: 'ACTIVE' }, _count: { _all: true } }).catch(() => []),
+    getAllPlanConfigs().catch(() => []),
+    prisma.shop
+      .findMany({
+        take: 50,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          shopDomain: true,
+          planTier: true,
+          modules: { select: { status: true } },
+          subscription: { select: { status: true } },
+        },
+      })
+      .catch(() => []),
+    prisma.activityLog
+      .findMany({
+        take: 6,
+        orderBy: { createdAt: 'desc' },
+        include: { shop: { select: { shopDomain: true } } },
+      })
+      .catch(() => []),
+    prisma.errorLog
+      .findMany({
+        take: 4,
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, level: true, message: true, route: true, correlationId: true, createdAt: true },
+      })
+      .catch(() => []),
   ]);
 
   // Per-store 30d AI calls + ERROR counts feed the same health score the stores page uses.
@@ -263,9 +274,16 @@ function fmtDay(d: Date): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function deltaProps(pct: number | null): { delta?: string; deltaDir?: 'up' | 'down' } {
+// `goodDir` is the direction that's *good news* for this metric. The arrow always
+// points the true way the number moved; the color is green only when the move is good.
+// So a rising error count (goodDir 'down') shows a red up-arrow, not a green one.
+function deltaProps(
+  pct: number | null,
+  goodDir: 'up' | 'down' = 'up',
+): { delta?: string; deltaDir?: 'up' | 'down'; deltaTone?: 'up' | 'down' } {
   if (pct == null) return {};
-  return { delta: Math.abs(pct) + '%', deltaDir: pct < 0 ? 'down' : 'up' };
+  const dir = pct < 0 ? 'down' : 'up';
+  return { delta: Math.abs(pct) + '%', deltaDir: dir, deltaTone: dir === goodDir ? 'up' : 'down' };
 }
 
 // Same health derivation the stores page uses: real fields + the store's real 30d ERROR count.
@@ -403,10 +421,10 @@ export default function AdminDashboard() {
           value={'$' + (d.cost24hCents / 100).toFixed(2)}
           icon="chart"
           tone="success"
-          {...deltaProps(d.deltas.cost)}
+          {...deltaProps(d.deltas.cost, 'down')}
           href={href('#/admin/usage')}
         />
-        <StatTile label="Errors (24h)" value={d.errors24h} icon="bug" tone="critical" {...deltaProps(d.deltas.errors)} href={href('#/admin/logs')} />
+        <StatTile label="Errors (24h)" value={d.errors24h} icon="bug" tone="critical" {...deltaProps(d.deltas.errors, 'down')} href={href('#/admin/logs')} />
       </div>
       <div className="kpi-band-label">Revenue & growth</div>
       <div style={{ marginBottom: 16 }}>
@@ -554,7 +572,15 @@ export default function AdminDashboard() {
             ) : (
               <div className="rlist">
                 {health.slice(0, 5).map(({ s, h }) => (
-                  <div key={s.id} className="ritem" onClick={() => ctx.go('#/admin/stores/' + s.id)}>
+                  <a
+                    key={s.id}
+                    className="ritem"
+                    href={href('#/admin/stores/' + s.id)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      ctx.go('#/admin/stores/' + s.id);
+                    }}
+                  >
                     <Avatar name={s.name} size={28} square color="#1F3A5F" />
                     <div className="grow stack" style={{ gap: 3, minWidth: 0 }}>
                       <span className="t-sm t-strong t-trunc">{s.name}</span>
@@ -563,7 +589,7 @@ export default function AdminDashboard() {
                     <span className="t-sm t-strong t-num" style={{ color: 'var(--p-' + healthTone(h) + '-text)', width: 32, textAlign: 'right' }}>
                       {h}
                     </span>
-                  </div>
+                  </a>
                 ))}
               </div>
             )}
@@ -614,20 +640,46 @@ export default function AdminDashboard() {
             </EmptyState>
           ) : (
             <div className="rlist">
-              {d.latestErrors.map((e) => (
-                <div key={e.id} className="ritem" onClick={() => ctx.go(e.correlationId ? '#/admin/trace/' + e.correlationId : '#/admin/logs/' + e.id)}>
-                  <StatusBadge value={e.level} />
-                  <div className="grow stack" style={{ gap: 1 }}>
-                    <span className="t-sm t-trunc">{e.message}</span>
-                    <span className="t-xs t-muted t-mono">{e.route}</span>
-                  </div>
-                  <span className="t-xs t-muted">{rel(e.createdAt)}</span>
-                </div>
-              ))}
+              {d.latestErrors.map((e) => {
+                const to = e.correlationId ? '#/admin/trace/' + e.correlationId : '#/admin/logs/' + e.id;
+                return (
+                  <a
+                    key={e.id}
+                    className="ritem"
+                    href={href(to)}
+                    onClick={(ev) => {
+                      ev.preventDefault();
+                      ctx.go(to);
+                    }}
+                  >
+                    <StatusBadge value={e.level} />
+                    <div className="grow stack" style={{ gap: 1 }}>
+                      <span className="t-sm t-trunc">{e.message}</span>
+                      <span className="t-xs t-muted t-mono">{e.route}</span>
+                    </div>
+                    <span className="t-xs t-muted">{rel(e.createdAt)}</span>
+                  </a>
+                );
+              })}
             </div>
           )}
         </Card>
       </div>
+    </div>
+  );
+}
+
+// Renders in place of the dashboard content, still inside AdminChrome, if the loader
+// or render throws — a degraded, honest state instead of a raw 500 on the primary ops page.
+export function ErrorBoundary() {
+  const error = useRouteError();
+  const detail = error instanceof Error ? error.message : 'An unexpected error occurred.';
+  return (
+    <div className="page">
+      <PageHead title="Dashboard" sub="Platform health across all merchant stores." />
+      <Banner tone="critical" title="Couldn't load the dashboard">
+        {detail} The rest of the admin is unaffected — try refreshing, or open the error logs to investigate.
+      </Banner>
     </div>
   );
 }

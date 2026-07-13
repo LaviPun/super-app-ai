@@ -58,7 +58,10 @@ export function FilterBar({ search, onSearch, placeholder, filters, right, resul
   );
 }
 
-export function StatTile({ label, value, delta, deltaDir, icon, tone = 'info', href, sub }: any) {
+export function StatTile({ label, value, delta, deltaDir, deltaTone, icon, tone = 'info', href, sub }: any) {
+  // `deltaDir` is the true direction of change (arrow); `deltaTone` is whether that
+  // change is good (green) or bad (red). They diverge for metrics where rising is bad
+  // (errors, cost): a spike shows a red up-arrow, not a green one. Defaults to deltaDir.
   const inner = React.createElement(
     'div',
     { className: 'card card-pad', style: { cursor: href ? 'pointer' : 'default', height: '100%' } },
@@ -66,7 +69,7 @@ export function StatTile({ label, value, delta, deltaDir, icon, tone = 'info', h
       'div',
       { className: 'row spread', style: { marginBottom: 12 } },
       React.createElement('span', { className: 'tile-ico', style: { background: 'var(--p-' + tone + '-bg)', color: 'var(--p-' + tone + ')' } }, React.createElement(Icon, { name: icon, size: 19 })),
-      delta && React.createElement('span', { className: 'metric-delta ' + (deltaDir || 'up') }, React.createElement(Icon, { name: deltaDir === 'down' ? 'chevronDown' : 'chevronUp', size: 13 }), delta),
+      delta && React.createElement('span', { className: 'metric-delta ' + (deltaTone || deltaDir || 'up') }, React.createElement(Icon, { name: deltaDir === 'down' ? 'chevronDown' : 'chevronUp', size: 13 }), delta),
     ),
     React.createElement('div', { className: 'metric-val', style: { fontSize: 26 } }, value),
     React.createElement('div', { className: 'metric-label', style: { marginTop: 3 } }, label),

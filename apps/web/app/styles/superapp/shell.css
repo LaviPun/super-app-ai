@@ -55,6 +55,36 @@
 .nav-item.sel::before { content: ''; position: absolute; left: -8px; top: 6px; bottom: 6px; width: 3px; border-radius: 0 3px 3px 0; background: var(--sa-primary); }
 .nav-item svg { flex: none; opacity: .85; }
 .nav-item.sel svg { opacity: 1; }
+/* Visible keyboard focus for every shell control (WCAG 2.2 focus appearance). */
+.nav-item:focus-visible,
+.nav-health:focus-visible,
+.top-icon-btn:focus-visible,
+.global-search:focus-visible,
+.nav-mobile-toggle:focus-visible,
+.nav-collapse-btn:focus-visible { outline: 2px solid var(--sa-secondary); outline-offset: 1px; }
+
+/* Mobile hamburger — hidden on desktop, shown in the top bar under 860px. */
+.nav-mobile-toggle { display: none; align-items: center; justify-content: center; width: 40px; height: 40px; flex: none; border-radius: 8px; border: 1px solid var(--p-border-strong); background: var(--p-surface); color: var(--p-icon); cursor: pointer; }
+.nav-mobile-toggle:hover { background: var(--p-surface-hover); color: var(--p-text); }
+.admin-nav-backdrop { display: none; }
+
+@media (max-width: 860px) {
+  /* The rail becomes an off-canvas drawer instead of eating half the viewport. */
+  .admin-nav { position: fixed; z-index: 60; top: 0; bottom: 0; left: 0; width: 250px; transform: translateX(-100%); transition: transform .2s ease; box-shadow: var(--p-shadow-500); }
+  .admin-shell.nav-open .admin-nav { transform: translateX(0); }
+  /* A previously-collapsed rail always opens fully expanded as a mobile drawer. */
+  .admin-shell.collapsed .admin-nav { width: 250px; }
+  .admin-shell.collapsed .nav-sec-title { display: block; }
+  .admin-shell.collapsed span.nav-label { display: inline; }
+  .admin-shell.collapsed div.nav-label { display: flex; }
+  .admin-shell.collapsed .nav-badge, .admin-shell.collapsed .nav-count { display: inline-flex; }
+  .admin-shell.collapsed .admin-brand { justify-content: flex-start; padding: 13px 14px; }
+  .admin-shell.collapsed .nav-item { justify-content: flex-start; padding: 6px 9px; }
+  .admin-shell.collapsed .nav-health { justify-content: flex-start; padding: 8px; }
+  .nav-collapse-btn { display: none; }
+  .admin-nav-backdrop { display: block; position: fixed; inset: 0; z-index: 55; background: rgba(15, 21, 32, 0.45); border: 0; }
+  .nav-mobile-toggle { display: inline-flex; }
+}
 .nav-count { margin-left: auto; min-width: 18px; height: 17px; padding: 0 5px; border-radius: 9px; font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; justify-content: center; background: var(--p-surface-tertiary); color: var(--p-text-secondary); }
 .nav-count.critical { background: var(--p-critical-bg); color: var(--p-critical-text); }
 .nav-count.warning { background: var(--p-warning-bg); color: var(--p-warning-text); }
