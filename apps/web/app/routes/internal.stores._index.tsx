@@ -365,7 +365,7 @@ export default function AdminStores() {
                   sortable: true,
                   render: (r: any) => (
                     <div className="row-3">
-                      <Avatar name={r.name} size={30} square color="#1F3A5F" />
+                      <Avatar name={r.name} size={30} square color="var(--sa-primary)" />
                       <div className="stack" style={{ gap: 0 }}>
                         <span className="cell-strong">{r.name}</span>
                         <span className="cell-sub t-mono">{r.domain}</span>

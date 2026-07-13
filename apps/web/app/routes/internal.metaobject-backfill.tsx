@@ -1,4 +1,6 @@
 import { json } from '@remix-run/node';
+import { Form, useActionData, useNavigation } from '@remix-run/react';
+import { useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { MetafieldService } from '~/services/shopify/metafield.service';
@@ -6,6 +8,15 @@ import { MetaobjectService } from '~/services/shopify/metaobject.service';
 import type { ThemeModulePayload, AdminBlockPayload, AdminActionPayload } from '~/services/recipes/compiler/types';
 import { ErrorLogService } from '~/services/observability/error-log.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import {
+  Btn,
+  Banner,
+  Card,
+  Field,
+  Input,
+  KV,
+  PageHead,
+} from '~/components/admin/page-kit';
 
 /**
  * POST /internal/metaobject-backfill
@@ -33,11 +44,21 @@ export async function action({ request }: { request: Request }) {
     return json({ error: 'Method not allowed' }, { status: 405 });
   }
 
+  // Accept both a JSON body (curl / scripts) and a form post (the admin UI form).
   let body: { shopDomain?: string; confirmShopDomain?: string };
-  try {
-    body = await request.json();
-  } catch {
-    return json({ error: 'Invalid JSON body' }, { status: 400 });
+  const contentType = request.headers.get('content-type') ?? '';
+  if (contentType.includes('application/json')) {
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+  } else {
+    const form = await request.formData();
+    body = {
+      shopDomain: String(form.get('shopDomain') ?? ''),
+      confirmShopDomain: String(form.get('confirmShopDomain') ?? ''),
+    };
   }
 
   const shopDomain = typeof body.shopDomain === 'string' ? body.shopDomain.trim() : '';
@@ -172,23 +193,68 @@ export async function loader({ request }: { request: Request }) {
   return json({ ok: true });
 }
 
+type BackfillActionData =
+  | { error: string }
+  | { ok: true; shopDomain: string; migrated: { modules: number; blocks: number; actions: number } };
+
 export default function MetaobjectBackfillPage() {
+  const result = useActionData<BackfillActionData>();
+  const navigation = useNavigation();
+  const busy = navigation.state !== 'idle';
+  const [shopDomain, setShopDomain] = useState('');
+  const [confirmShopDomain, setConfirmShopDomain] = useState('');
+  const errorMsg = result && 'error' in result ? result.error : null;
+  const success = result && 'ok' in result ? result : null;
+  const canRun = shopDomain.trim() !== '' && shopDomain.trim() === confirmShopDomain.trim();
+
   return (
-    <div style={{ padding: '2rem', fontFamily: 'monospace' }}>
-      <h1>Metaobject Backfill</h1>
-      <p>
-        Migrates a shop's module data from large JSON metafields → metaobject entries
-        + <code>list.metaobject_reference</code> shop metafields.
-      </p>
-      <p>Run via POST with <code>{'{"shopDomain":"store.myshopify.com","confirmShopDomain":"store.myshopify.com"}'}</code></p>
-      <p><strong>Migration phases:</strong></p>
-      <ol>
-        <li>Deploy dual-write (Phase 2) — done if metaobject.service.ts is live</li>
-        <li>Run this backfill per shop (Phase 3)</li>
-        <li>Verify: GID list count == legacy JSON key count (Phase 4)</li>
-        <li>Deploy Liquid + Admin UI cutover (Phase 5)</li>
-        <li>Remove legacy JSON writes from PublishService (Phase 6)</li>
-      </ol>
+    <div className="page page-narrow">
+      <PageHead
+        title="Metaobject backfill"
+        sub="One-shot maintenance tool: migrate a shop's module data from large JSON metafields to metaobject entries + list.metaobject_reference shop metafields."
+      />
+      <Card pad>
+        <Form method="post" className="stack-5">
+          <Banner tone="warning" title="Mutates shop metafields">
+            Run deliberately, per shop. Re-type the exact shop domain to confirm before running.
+          </Banner>
+          <Field label="Shop domain" help="e.g. store.myshopify.com">
+            <Input
+              name="shopDomain"
+              value={shopDomain}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setShopDomain(e.target.value)}
+              placeholder="store.myshopify.com"
+              autoComplete="off"
+            />
+          </Field>
+          <Field label="Confirm shop domain" help="Must exactly match the shop domain above.">
+            <Input
+              name="confirmShopDomain"
+              value={confirmShopDomain}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfirmShopDomain(e.target.value)}
+              placeholder="store.myshopify.com"
+              autoComplete="off"
+            />
+          </Field>
+          {errorMsg && <Banner tone="critical" title="Backfill failed">{errorMsg}</Banner>}
+          {success && (
+            <Banner tone="success" title={`Backfill complete — ${success.shopDomain}`}>
+              <KV
+                rows={[
+                  ['Modules migrated', success.migrated.modules],
+                  ['Blocks migrated', success.migrated.blocks],
+                  ['Actions migrated', success.migrated.actions],
+                ]}
+              />
+            </Banner>
+          )}
+          <div>
+            <Btn variant="primary" type="submit" icon="database" loading={busy} disabled={busy || !canRun}>
+              Run backfill
+            </Btn>
+          </div>
+        </Form>
+      </Card>
     </div>
   );
 }

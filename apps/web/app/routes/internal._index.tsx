@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import { getAllPlanConfigs } from '~/services/billing/plan-config.service';
+import { probeAssistantTargets } from '~/services/ai/assistant-probe-route.server';
 import {
   useAdminCtx,
   href,
@@ -84,6 +85,7 @@ export async function loader({ request }: { request: Request }) {
     healthShops,
     recentActivity,
     latestErrors,
+    assistantProbe,
   ] = await Promise.all([
     prisma.shop.count().catch(() => 0),
     prisma.shop.count({ where: { OR: [{ subscription: { is: null } }, { subscription: { status: 'ACTIVE' } }] } }).catch(() => 0),
@@ -131,7 +133,20 @@ export async function loader({ request }: { request: Request }) {
         select: { id: true, level: true, message: true, route: true, correlationId: true, createdAt: true },
       })
       .catch(() => []),
+    // Live assistant-target probe — honestly Online/Offline/Unknown (null on failure).
+    probeAssistantTargets().catch(() => null),
   ]);
+
+  // Assistant status is only "Online" when a target is actually reachable; a failed
+  // probe (null) stays "Unknown" rather than pretending healthy.
+  const assistantStatus: 'Online' | 'Offline' | 'Unknown' = !assistantProbe
+    ? 'Unknown'
+    : assistantProbe.localMachine.health.ok ||
+        assistantProbe.localMachine.chatProbe.ok ||
+        assistantProbe.modalRemote.health.ok ||
+        assistantProbe.modalRemote.chatProbe.ok
+      ? 'Online'
+      : 'Offline';
 
   // Per-store 30d AI calls + ERROR counts feed the same health score the stores page uses.
   const shopIds = healthShops.map((s) => s.id);
@@ -218,6 +233,7 @@ export async function loader({ request }: { request: Request }) {
     costPerCallCents,
     errorRatePct,
     jobs: { succeeded, failed, runningQueued, successPct: jobSuccessPct, daily: jobsDaily },
+    assistantStatus,
     webhooks: { total7d: webhooks7d, failed7d: webhooksFailed7d, successPct: webhookSuccessPct },
     aiDaily,
     sparkStart: sparkFrom.toISOString(),
@@ -425,6 +441,22 @@ export default function AdminDashboard() {
           href={href('#/admin/usage')}
         />
         <StatTile label="Errors (24h)" value={d.errors24h} icon="bug" tone="critical" {...deltaProps(d.deltas.errors, 'down')} href={href('#/admin/logs')} />
+        <StatTile
+          label="Failed jobs (DLQ)"
+          value={fmtNum(d.jobs.failed)}
+          sub={d.jobs.failed === 0 ? 'queue clear' : 'awaiting replay'}
+          icon="alert"
+          tone="critical"
+          href={href('#/admin/jobs')}
+        />
+        <StatTile
+          label="AI assistant"
+          value={d.assistantStatus}
+          sub="live target probe"
+          icon="chat"
+          tone={d.assistantStatus === 'Online' ? 'success' : d.assistantStatus === 'Offline' ? 'critical' : 'warning'}
+          href={href('#/admin/ai-assistant')}
+        />
       </div>
       <div className="kpi-band-label">Revenue & growth</div>
       <div style={{ marginBottom: 16 }}>
@@ -581,7 +613,7 @@ export default function AdminDashboard() {
                       ctx.go('#/admin/stores/' + s.id);
                     }}
                   >
-                    <Avatar name={s.name} size={28} square color="#1F3A5F" />
+                    <Avatar name={s.name} size={28} square color="var(--sa-primary)" />
                     <div className="grow stack" style={{ gap: 3, minWidth: 0 }}>
                       <span className="t-sm t-strong t-trunc">{s.name}</span>
                       <Progress value={h} tone={healthTone(h)} />
