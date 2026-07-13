@@ -283,7 +283,7 @@ async function sendViaOpenAiCompatible(params: {
     }
     throw new AssistantUpstreamHttpError(
       [
-        `Assistant upstream error 404: ${lastBody || 'Not Found'}`,
+        `Assistant upstream error ${lastStatus || 404}: ${lastBody || 'Not Found'}`,
         `Configured URL (${baseUrl}) does not expose a compatible chat endpoint.`,
         `Tried: ${endpointCandidates.join(', ')}`,
         `Update target URL/backend in /internal/model-setup.`,
