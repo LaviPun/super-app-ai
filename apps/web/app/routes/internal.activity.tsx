@@ -1,6 +1,6 @@
 import { json } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagination.server';
@@ -8,6 +8,7 @@ import {
   useAdminCtx,
   Btn,
   Badge,
+  Banner,
   Card,
   DataTable,
   PageHead,
@@ -63,13 +64,54 @@ function rel(iso: string): string {
   return Math.round(h / 24) + 'd ago';
 }
 
+type LiveActivity = {
+  id: string;
+  actor: string;
+  action: string;
+  resource: string | null;
+  shopDomain: string | null;
+  ip: string | null;
+  createdAt: string;
+  correlationId: string | null;
+  requestId: string | null;
+};
+
 export default function AdminActivity() {
   const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
   const ts = useTableState();
   const [actor, setActor] = useState('All');
+  const [live, setLive] = useState(false);
+  const [liveRows, setLiveRows] = useState<LiveActivity[]>([]);
 
-  const ROWS: any[] = data.logs.map((l) => ({ id: l.id, actor: l.actor, action: l.action, resource: l.resource ?? '—', shop: l.shopDomain ?? '—', ip: l.ip ?? '—', created: rel(l.createdAt) }));
+  // Live tail: consume the real SSE endpoint. New `log` events are prepended;
+  // the EventSource is closed on toggle-off/unmount.
+  useEffect(() => {
+    if (!live) return;
+    const since = data.logs[0]?.createdAt ?? new Date().toISOString();
+    const es = new EventSource('/internal/activity/stream?since=' + encodeURIComponent(since));
+    es.addEventListener('log', (evt) => {
+      try {
+        const l = JSON.parse((evt as MessageEvent).data) as LiveActivity;
+        setLiveRows((prev) => (prev.some((p) => p.id === l.id) ? prev : [l, ...prev].slice(0, 200)));
+      } catch {
+        // ignore malformed frames
+      }
+    });
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) {
+        setLive(false);
+        ctx.toast('Live tail disconnected', true);
+      }
+    };
+    return () => es.close();
+  }, [live, data.logs, ctx]);
+
+  const mapRow = (l: LiveActivity) => ({
+    id: l.id, actor: l.actor, action: l.action, resource: l.resource ?? '—', shop: l.shopDomain ?? '—', ip: l.ip ?? '—', created: rel(l.createdAt),
+  });
+  const liveIds = new Set(liveRows.map((l) => l.id));
+  const ROWS: any[] = [...liveRows, ...data.logs.filter((l) => !liveIds.has(l.id))].map(mapRow);
 
   const rows = ROWS.filter(
     (a) => (actor === 'All' || a.actor === actor) && (a.action + a.resource + a.shop).toLowerCase().includes(ts.search.toLowerCase()),
@@ -81,11 +123,18 @@ export default function AdminActivity() {
         title="Activity Log"
         sub="Every significant action — page views, clicks, settings changes, request outcomes — across the platform."
         actions={
-          <Btn icon="live" onClick={() => ctx.toast('Live tail on')}>
-            Live tail
+          <Btn icon="live" onClick={() => setLive((l) => !l)}>
+            {live ? 'Stop tail' : 'Live tail'}
           </Btn>
         }
       />
+      {live && (
+        <div style={{ marginBottom: 14 }}>
+          <Banner tone="info" title="Live tail active">
+            Streaming new activity via SSE. New rows appear at the top.
+          </Banner>
+        </div>
+      )}
       <Card>
         <FilterBar
           search={ts.search}
