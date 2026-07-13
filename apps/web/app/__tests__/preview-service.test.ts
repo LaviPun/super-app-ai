@@ -25,7 +25,8 @@ describe('PreviewService structured fixtures', () => {
       expect(preview.html).not.toContain('Workflow context');
       expect(preview.html).toContain('Order summary');
       expect(preview.html).toContain('Trust guarantee');
-      expect(preview.html).toContain('checkout UI');
+      // Surface-authentic checkout frame (2026-07-10) labels the surface in its caption.
+      expect(preview.html).toContain('Shopify Checkout');
     }
   });
 
@@ -168,17 +169,34 @@ describe('PreviewService structured fixtures', () => {
       expect(out).toContain('class="superapp-stats__label">Average rating<');
     });
 
-    it('does NOT wrap non-storefront previews', () => {
-      const spec: RecipeSpec = {
-        type: 'checkout.block',
-        name: 'Checkout Trust Block',
-        category: 'STOREFRONT_UI',
-        requires: ['CHECKOUT_UI_INFO_SHIP_PAY'],
-        config: { target: 'purchase.checkout.block.render', title: 'T', message: 'M' },
-      } as unknown as RecipeSpec;
-      const out = service.render(spec, { surface: 'checkout' });
-      if (out.kind !== 'HTML') throw new Error('expected HTML');
-      expect(out.html).not.toContain('data-sa-pack=');
+    it('wraps buyer-facing surfaces in the pack but NOT operator surfaces', () => {
+      // Buyer-facing (checkout/cart/post-purchase/customer account) carry the
+      // two-pack design system — they render in front of the shopper (2026-07-10).
+      const checkout = service.render(
+        {
+          type: 'checkout.block',
+          name: 'Checkout Trust Block',
+          category: 'STOREFRONT_UI',
+          requires: ['CHECKOUT_UI_INFO_SHIP_PAY'],
+          config: { target: 'purchase.checkout.block.render', title: 'T', message: 'M' },
+          style: { pack: 'bold', colors: { seed: '#E11D48' } },
+        } as unknown as RecipeSpec,
+        { surface: 'checkout' },
+      );
+      if (checkout.kind !== 'HTML') throw new Error('expected HTML');
+      expect(checkout.html).toContain('data-sa-pack="bold"');
+
+      // Operator surfaces (admin/POS/functions/…) stay on the neutral surface
+      // chrome — no pack wrapper.
+      const admin = service.render({
+        type: 'admin.block',
+        name: 'Admin Block',
+        category: 'ADMIN_UI',
+        requires: [],
+        config: { target: 'admin.order-details.block.render', label: 'Do thing' },
+      } as unknown as RecipeSpec);
+      if (admin.kind !== 'HTML') throw new Error('expected HTML');
+      expect(admin.html).not.toContain('data-sa-pack=');
     });
   });
 });

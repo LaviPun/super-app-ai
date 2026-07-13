@@ -12,6 +12,20 @@ import { paletteToDesignReferencePack, selectStylePackForReference } from '~/ser
  * Fills only when unset, so a deliberate model/merchant choice is respected.
  */
 
+/**
+ * Recipe types that carry the two-pack module design system: storefront modules
+ * plus the buyer-facing extension surfaces (checkout / cart / post-purchase /
+ * customer account). Mirrors BUYER_FACING_DS_TYPES in preview.service.ts.
+ */
+const DS_STYLED_TYPES = new Set<string>([
+  'theme.section',
+  'proxy.widget',
+  'checkout.upsell',
+  'checkout.block',
+  'postPurchase.offer',
+  'customerAccount.blocks',
+]);
+
 const ELEVATION_BY_PACK: Record<StylePackId, 'soft' | 'glow' | 'border' | 'emboss'> = {
   'apple-hig-clean': 'soft', // soft depth
   'editorial-wellness': 'border', // near-flat, border-carried
@@ -47,7 +61,10 @@ export function applyStylePackTokens<T extends RecipeSpec>(
   palette: StorePalette | undefined,
   typography: StoreTypography | undefined,
 ): T {
-  if (recipe.type !== 'theme.section' && recipe.type !== 'proxy.widget') return recipe;
+  // Storefront modules + buyer-facing extension surfaces (checkout / cart /
+  // post-purchase / customer account) carry the two-pack design system — keep in
+  // sync with BUYER_FACING_DS_TYPES in preview.service.ts and the install gate.
+  if (!DS_STYLED_TYPES.has(recipe.type)) return recipe;
   if (!palette || palette.source === 'none') return recipe;
 
   const refPack = paletteToDesignReferencePack(palette, typography ?? {}, 'live-theme');

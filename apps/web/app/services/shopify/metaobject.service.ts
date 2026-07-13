@@ -403,6 +403,9 @@ export class MetaobjectService {
     if (this.ensuredDefs.has(cacheKey)) return;
 
     const type = isList ? 'list.metaobject_reference' : 'metaobject_reference';
+    // MetafieldAdminAccessInput only accepts MERCHANT_READ / MERCHANT_READ_WRITE in the
+    // 2026-04 schema — PUBLIC_READ_WRITE is an *output*-only value (MetafieldAdminAccess)
+    // and is never a legal value here, so there is no third candidate to fall back to.
     const accessCandidates: Array<Record<string, string>> = [
       { admin: 'MERCHANT_READ_WRITE', storefront: 'PUBLIC_READ' },
       { admin: 'MERCHANT_READ_WRITE' },
@@ -557,17 +560,28 @@ export class MetaobjectService {
   }
 
   private async graphqlJson(query: string, variables?: Record<string, unknown>): Promise<unknown> {
+    let json: unknown;
     for (let attempt = 1; attempt <= this.maxGraphqlAttempts; attempt += 1) {
       const response = await this.admin.graphql(
         query,
         variables ? { variables } : undefined,
       );
-      const json = (await response.json()) as unknown;
+      json = await response.json();
       const retryDelayMs = this.getRetryDelayMs(json, attempt);
-      if (retryDelayMs == null || attempt === this.maxGraphqlAttempts) return json;
+      if (retryDelayMs == null || attempt === this.maxGraphqlAttempts) break;
       await this.sleep(retryDelayMs);
     }
-    throw new Error('GraphQL request retry loop exhausted');
+    // A top-level GraphQL error (as opposed to a mutation's userErrors) leaves `data`
+    // undefined. Callers that only check `data.<field>` would otherwise read that as
+    // "empty" — e.g. getModuleGidList returning [] on a transient error, followed by
+    // setModuleGidList overwriting the shop metafield with just the one new GID and
+    // silently wiping every other module's reference. Throw here so every call site
+    // fails loudly instead of inferring failure from an absent data node.
+    const errors = (json as { errors?: Array<{ message?: string }> } | undefined)?.errors;
+    if (errors?.length) {
+      throw new Error(errors.map((e) => e?.message ?? 'Unknown GraphQL error').join('; '));
+    }
+    return json;
   }
 
   private getRetryDelayMs(json: unknown, attempt: number): number | null {

@@ -732,6 +732,9 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
        */
       recommendation: RecommendationPackSchema.optional(),
     }),
+    // Buyer-facing surface → carries the two-pack module design system so the
+    // upsell block matches the merchant's storefront/checkout brand (2026-07-10).
+    style: StorefrontStyleSchema.optional(),
   }),
 
   Base.extend({
@@ -752,6 +755,8 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
        */
       ...CheckoutContentShape,
     }),
+    // Buyer-facing surface → carries the two-pack module design system.
+    style: StorefrontStyleSchema.optional(),
   }),
 
   Base.extend({
@@ -765,6 +770,8 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       /** Recommendation source (R2.3). Optional + back-compat; see checkout.upsell. */
       recommendation: RecommendationPackSchema.optional(),
     }),
+    // Buyer-facing surface → carries the two-pack module design system.
+    style: StorefrontStyleSchema.optional(),
   }),
 
   Base.extend({
@@ -1315,6 +1322,9 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
       protectedData: z.enum(['none', 'level1', 'level2']).optional(),
       b2bOnly: z.boolean().default(false),
     }),
+    // Buyer-facing surface → carries the two-pack module design system so account
+    // blocks match the merchant's customer-account brand (2026-07-10).
+    style: StorefrontStyleSchema.optional(),
   }),
 ]);
 

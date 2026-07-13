@@ -39,33 +39,24 @@ export class MetafieldService {
 
   async setShopMetafield(namespace: string, key: string, type: string, value: string): Promise<void> {
     const shopGid = await this.getShopGid();
-    const res = await this.admin.graphql(METAFIELDS_SET, {
-      variables: {
-        metafields: [{ ownerId: shopGid, namespace, key, type, value }],
-      },
+    const json = await this.graphqlJson(METAFIELDS_SET, {
+      metafields: [{ ownerId: shopGid, namespace, key, type, value }],
     });
-    const json = await res.json();
     const errs = json?.data?.metafieldsSet?.userErrors ?? [];
     if (errs.length) throw new Error(`metafieldsSet error: ${errs[0].message}`);
   }
 
   async deleteShopMetafield(namespace: string, key: string): Promise<void> {
     const shopGid = await this.getShopGid();
-    const res = await this.admin.graphql(METAFIELDS_DELETE, {
-      variables: {
-        metafields: [{ ownerId: shopGid, namespace, key }],
-      },
+    const json = await this.graphqlJson(METAFIELDS_DELETE, {
+      metafields: [{ ownerId: shopGid, namespace, key }],
     });
-    const json = await res.json();
     const errs = json?.data?.metafieldsDelete?.userErrors ?? [];
     if (errs.length) throw new Error(`metafieldsDelete error: ${errs[0].message}`);
   }
 
   async getShopMetafield(namespace: string, key: string): Promise<string | null> {
-    const res = await this.admin.graphql(SHOP_METAFIELD_QUERY, {
-      variables: { namespace, key },
-    });
-    const json = await res.json();
+    const json = await this.graphqlJson(SHOP_METAFIELD_QUERY, { namespace, key });
     const value = json?.data?.shop?.metafield?.value ?? null;
     return value;
   }
@@ -73,13 +64,30 @@ export class MetafieldService {
   private getShopGid(): Promise<string> {
     if (!this.shopGidPromise) {
       this.shopGidPromise = (async () => {
-        const res = await this.admin.graphql(SHOP_ID_QUERY);
-        const json = await res.json();
+        const json = await this.graphqlJson(SHOP_ID_QUERY);
         const id: string | undefined = json?.data?.shop?.id;
         if (!id) throw new Error('Unable to fetch shop id');
         return id;
       })();
     }
     return this.shopGidPromise;
+  }
+
+  /**
+   * A top-level GraphQL error (as opposed to a mutation's userErrors) leaves `data`
+   * undefined. Without this check, a transient error would look like "metafield not
+   * set"/"no value" to callers, so writes and deletes could silently no-op while
+   * reporting success. Throw so failures are never mistaken for empty state.
+   */
+  private async graphqlJson(
+    query: string,
+    variables?: Record<string, unknown>,
+  ): Promise<{ data?: any; errors?: Array<{ message?: string }> }> {
+    const res = await this.admin.graphql(query, variables ? { variables } : undefined);
+    const json = (await res.json()) as { data?: any; errors?: Array<{ message?: string }> };
+    if (json?.errors?.length) {
+      throw new Error(json.errors.map((e) => e?.message ?? 'Unknown GraphQL error').join('; '));
+    }
+    return json;
   }
 }

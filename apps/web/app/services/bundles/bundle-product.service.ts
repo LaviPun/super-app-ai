@@ -164,8 +164,8 @@ const VARIANTS_BY_SKU = `#graphql
 `;
 
 const PRODUCT_SET = `#graphql
-  mutation SuperAppBundleProductSet($input: ProductSetInput!) {
-    productSet(synchronous: true, input: $input) {
+  mutation SuperAppBundleProductSet($input: ProductSetInput!, $identifier: ProductSetIdentifiers) {
+    productSet(synchronous: true, input: $input, identifier: $identifier) {
       product {
         id
         handle
@@ -210,23 +210,20 @@ export class BundleProductService {
     const unique = Array.from(new Set(skus.map((s) => s.trim()).filter(Boolean)));
     if (unique.length === 0) return [];
     const query = unique.map((s) => `sku:${JSON.stringify(s)}`).join(' OR ');
-    const res = await this.admin.graphql(VARIANTS_BY_SKU, { variables: { query } });
-    const json = (await res.json()) as {
-      data?: {
-        productVariants?: {
-          nodes?: Array<{
-            id: string;
-            sku?: string | null;
+    const json = await this.graphqlJson<{
+      productVariants?: {
+        nodes?: Array<{
+          id: string;
+          sku?: string | null;
+          title?: string | null;
+          price?: string | null;
+          product?: {
             title?: string | null;
-            price?: string | null;
-            product?: {
-              title?: string | null;
-              featuredMedia?: { preview?: { image?: { url?: string | null } | null } | null } | null;
-            } | null;
-          }>;
-        };
+            featuredMedia?: { preview?: { image?: { url?: string | null } | null } | null } | null;
+          } | null;
+        }>;
       };
-    };
+    }>(VARIANTS_BY_SKU, { query });
     const bySku = new Map<string, ResolvedComponent>();
     for (const node of json?.data?.productVariants?.nodes ?? []) {
       if (!node.sku || bySku.has(node.sku)) continue;
@@ -263,15 +260,16 @@ export class BundleProductService {
       variants: [{ optionValues: [{ optionName: 'Title', name: 'Default Title' }], sku: handle }],
       tags: ['superapp-bundle'],
     };
-    const res = await this.admin.graphql(PRODUCT_SET, { variables: { input } });
-    const json = (await res.json()) as {
-      data?: {
-        productSet?: {
-          product?: { variants?: { nodes?: Array<{ id: string }> } };
-          userErrors?: Array<{ message: string }>;
-        };
+    // identifier: {handle} is required for productSet to actually look up and update
+    // the existing product by handle — without it, handle in `input` only sets the
+    // field on a would-be new product, so every publish after the first collides on
+    // "Handle has already been taken" instead of updating the existing bundle product.
+    const json = await this.graphqlJson<{
+      productSet?: {
+        product?: { variants?: { nodes?: Array<{ id: string }> } };
+        userErrors?: Array<{ message: string }>;
       };
-    };
+    }>(PRODUCT_SET, { input, identifier: { handle } });
     const err = json?.data?.productSet?.userErrors?.[0];
     if (err) throw new Error(`productSet failed: ${err.message}`);
     const variantId = json?.data?.productSet?.product?.variants?.nodes?.[0]?.id;
@@ -288,10 +286,12 @@ export class BundleProductService {
   async activateCartTransform(config: BundleFunctionConfig): Promise<string> {
     const value = JSON.stringify(config);
 
-    const existingRes = await this.admin.graphql(CART_TRANSFORMS_QUERY);
-    const existingJson = (await existingRes.json()) as {
-      data?: { cartTransforms?: { nodes?: Array<{ id: string }> } };
-    };
+    // A top-level error here must NOT be treated as "no existing transform" — an app
+    // has a single cart transform, so silently falling through to create would leave
+    // two active transforms serving conflicting/duplicate bundle config at checkout.
+    const existingJson = await this.graphqlJson<{ cartTransforms?: { nodes?: Array<{ id: string }> } }>(
+      CART_TRANSFORMS_QUERY,
+    );
     const existing = existingJson?.data?.cartTransforms?.nodes?.[0];
 
     if (existing?.id) {
@@ -299,20 +299,15 @@ export class BundleProductService {
       return existing.id;
     }
 
-    const createRes = await this.admin.graphql(CART_TRANSFORM_CREATE, {
-      variables: {
-        functionHandle: 'cart-transform-function',
-        metafields: [{ namespace: '$app', key: 'bundle_config', type: 'json', value }],
-      },
-    });
-    const createJson = (await createRes.json()) as {
-      data?: {
-        cartTransformCreate?: {
-          cartTransform?: { id?: string };
-          userErrors?: Array<{ message: string }>;
-        };
+    const createJson = await this.graphqlJson<{
+      cartTransformCreate?: {
+        cartTransform?: { id?: string };
+        userErrors?: Array<{ message: string }>;
       };
-    };
+    }>(CART_TRANSFORM_CREATE, {
+      functionHandle: 'cart-transform-function',
+      metafields: [{ namespace: '$app', key: 'bundle_config', type: 'json', value }],
+    });
     const err = createJson?.data?.cartTransformCreate?.userErrors?.[0];
     if (err) throw new Error(`cartTransformCreate failed: ${err.message}`);
     const id = createJson?.data?.cartTransformCreate?.cartTransform?.id;
@@ -322,15 +317,30 @@ export class BundleProductService {
 
   /** Write an app-owned ($app namespace) json metafield on an owner resource. */
   async setAppJsonMetafield(ownerId: string, key: string, value: string): Promise<void> {
-    const res = await this.admin.graphql(METAFIELDS_SET, {
-      variables: {
-        metafields: [{ ownerId, namespace: '$app', key, type: 'json', value }],
-      },
-    });
-    const json = (await res.json()) as {
-      data?: { metafieldsSet?: { userErrors?: Array<{ message: string }> } };
-    };
+    const json = await this.graphqlJson<{ metafieldsSet?: { userErrors?: Array<{ message: string }> } }>(
+      METAFIELDS_SET,
+      { metafields: [{ ownerId, namespace: '$app', key, type: 'json', value }] },
+    );
     const err = json?.data?.metafieldsSet?.userErrors?.[0];
     if (err) throw new Error(`metafieldsSet failed: ${err.message}`);
+  }
+
+  /**
+   * A top-level GraphQL error (as opposed to a mutation's userErrors) leaves `data`
+   * undefined. Every call site in this file must throw on that rather than reading
+   * an absent data node as "empty"/"none exist yet" — see activateCartTransform's
+   * existence check and setAppJsonMetafield for the concrete failure modes this
+   * guards against.
+   */
+  private async graphqlJson<T>(
+    query: string,
+    variables?: Record<string, unknown>,
+  ): Promise<{ data?: T; errors?: Array<{ message?: string }> }> {
+    const res = await this.admin.graphql(query, variables ? { variables } : undefined);
+    const json = (await res.json()) as { data?: T; errors?: Array<{ message?: string }> };
+    if (json?.errors?.length) {
+      throw new Error(json.errors.map((e) => e?.message ?? 'Unknown GraphQL error').join('; '));
+    }
+    return json;
   }
 }

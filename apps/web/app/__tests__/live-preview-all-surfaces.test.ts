@@ -35,8 +35,10 @@ describe('WS4 live preview — coverage', () => {
         for (const marker of PLACEHOLDER_MARKERS) {
           expect(preview.html).not.toContain(marker);
         }
-        // Interactive previews carry one of the real renderer roots.
-        expect(preview.html).toMatch(/class="(sim|surf|superapp-widget|superapp-popup|superapp-section|superapp-banner|superapp-notibar|superapp-contact|superapp-effect|superapp-floating)/);
+        // Interactive previews carry one of the real renderer roots — `sf` is the
+        // surface-authentic frame root (admin/POS/checkout/functions/messaging/…);
+        // the `superapp-*` roots are the storefront module/widget renderers.
+        expect(preview.html).toMatch(/class="(sf sf--|superapp-widget|superapp-popup|superapp-section|superapp-banner|superapp-notibar|superapp-contact|superapp-effect|superapp-floating)/);
       }
     }
     // Every type in the union must have at least one catalog template to preview.
