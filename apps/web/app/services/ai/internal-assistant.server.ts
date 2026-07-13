@@ -81,10 +81,17 @@ function getTargetPrefix(target: AssistantTarget): 'LOCAL_ROUTER' | 'MODAL_ROUTE
  * INTERNAL_AI_CHAT_TIMEOUT_MS; keep below the ~90s Cloudflare tunnel limit.
  */
 const CHAT_TIMEOUT_FLOOR_MS = 30_000;
+/** Ceiling below the ~90s Cloudflare tunnel hard timeout. */
+const CHAT_TIMEOUT_CEIL_MS = 90_000;
 
-function resolveChatTimeoutMs(configuredMs: number): number {
+export function resolveChatTimeoutMs(configuredMs: number): number {
   const env = Number(process.env.INTERNAL_AI_CHAT_TIMEOUT_MS?.trim() || '');
-  if (Number.isFinite(env) && env > 0) return env;
+  // A configured override must still respect the cold-start floor and the
+  // tunnel ceiling — a too-small value silently undercuts local cold starts;
+  // a too-large one loses the connection on the edge.
+  if (Number.isFinite(env) && env > 0) {
+    return Math.min(Math.max(env, CHAT_TIMEOUT_FLOOR_MS), CHAT_TIMEOUT_CEIL_MS);
+  }
   return Math.max(configuredMs, CHAT_TIMEOUT_FLOOR_MS);
 }
 
