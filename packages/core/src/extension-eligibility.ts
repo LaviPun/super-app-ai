@@ -71,16 +71,26 @@ export type ExtensionEligibility = {
 };
 
 /**
- * Plan-gated Shopify Function APIs: these only take effect on Shopify Plus. We
- * still build + deploy the wasm and write config; the merchant simply needs Plus
- * for it to run. Surfaced as a note so the answer is "deployable on Plus", never
- * "blocked".
+ * Per-API plan-gated Shopify Function APIs — module types whose Function API
+ * carries an intrinsic Shopify Plus restriction on its own doc page (independent
+ * of how the app is distributed).
+ *
+ * This set is INTENTIONALLY EMPTY as of the 2026-07-13 audit against shopify.dev.
+ * Delivery Customization, Payment Customization, and Cart/Checkout Validation have
+ * NO per-API Plus note on their pages
+ * (https://shopify.dev/docs/api/functions/latest and the per-API pages). The Plus
+ * gate those entries previously modeled was really the *custom-app distribution*
+ * gate, which applies to ALL Function types equally — Functions run on every
+ * Shopify plan when the app is installed from the App Store, and require Plus only
+ * under custom-app distribution
+ * (https://shopify.dev/docs/apps/build/functions, "Functions availability").
+ * That distribution caveat now lives in the shared `fn()` note instead.
+ *
+ * The set + plumbing are kept so a genuinely per-API-gated Function (e.g. Cart
+ * Transform's `lineUpdate`, if ever surfaced as its own module type) can be added
+ * here without rewiring. Still note-only: PLUS membership NEVER blocks deploy.
  */
-const PLUS_ONLY_FUNCTIONS = new Set<ModuleType>([
-  'functions.deliveryCustomization',
-  'functions.paymentCustomization',
-  'functions.cartAndCheckoutValidation',
-]);
+const PLUS_ONLY_FUNCTIONS = new Set<ModuleType>([]);
 
 /**
  * Function wasm extension handles, by module type (Layer-A runtimes). These match
@@ -446,7 +456,7 @@ function fn(moduleType: ModuleType, note: string): Omit<ExtensionEligibility, 's
     runtimeShipped: false, // functions resolve shipped-ness from the manifest
     requiresPlan: PLUS_ONLY_FUNCTIONS.has(moduleType) ? 'plus' : undefined,
     requiredScopes: ['write_metaobjects'],
-    note,
+    note: `${note} Functions run on every Shopify plan when the app is installed from the App Store; under custom-app distribution they require Shopify Plus.`,
   };
 }
 

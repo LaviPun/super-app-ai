@@ -50,7 +50,7 @@ export const FUNCTIONS_CART_TRANSFORM_TEMPLATES: TemplateEntry[] = [
         ],
         fallbackTheme: {
           enabled: true,
-          notificationMessage: 'Bundle pricing requires Shopify Plus — showing the kit as guidance.',
+          notificationMessage: 'Fixed bundle pricing applies via lineUpdate on Shopify Plus; on other plans it is applied automatically as a bundle discount at checkout.',
         },
       },
     },
