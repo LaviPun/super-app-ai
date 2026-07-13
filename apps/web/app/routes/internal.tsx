@@ -140,6 +140,7 @@ function AdminChrome({ settings, counts }: { settings: AppSettingsData | null; c
   const path = location.pathname;
 
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; error?: boolean; id: number } | null>(null);
 
@@ -175,6 +176,19 @@ function AdminChrome({ settings, counts }: { settings: AppSettingsData | null; c
     document.addEventListener('keydown', h);
     return () => document.removeEventListener('keydown', h);
   }, []);
+
+  // Mobile nav drawer: close on route change, and on Escape while open.
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [path]);
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const h = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileNavOpen(false);
+    };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, [mobileNavOpen]);
 
   const showToast = useCallback((message: string, error?: boolean) => {
     if (!message || !message.trim()) return;
@@ -259,8 +273,8 @@ function AdminChrome({ settings, counts }: { settings: AppSettingsData | null; c
         }}
       />
       <div className="internal-admin-viewport">
-        <div className={'admin-shell' + (collapsed ? ' collapsed' : '')}>
-          <aside className="admin-nav">
+        <div className={'admin-shell' + (collapsed ? ' collapsed' : '') + (mobileNavOpen ? ' nav-open' : '')}>
+          <nav className="admin-nav" aria-label="Admin">
             <div className="admin-brand">
               <div className="brand-mark">SA</div>
               <div className="stack nav-label" style={{ gap: 0, minWidth: 0 }}>
@@ -303,9 +317,23 @@ function AdminChrome({ settings, counts }: { settings: AppSettingsData | null; c
               {footLink('#/admin/settings', 'Settings', 'settings')}
               {footLink('#/admin/logout', 'Logout', 'exit')}
             </div>
-          </aside>
+          </nav>
+          {mobileNavOpen && (
+            <button
+              className="admin-nav-backdrop"
+              onClick={() => setMobileNavOpen(false)}
+              aria-label="Close navigation"
+            />
+          )}
           <div className="admin-main">
             <header className="admin-top">
+              <button
+                className="nav-mobile-toggle"
+                onClick={() => setMobileNavOpen(true)}
+                aria-label="Open navigation"
+              >
+                <Icon name="menu" size={18} />
+              </button>
               <button className="global-search" onClick={() => setCmdkOpen(true)}>
                 <Icon name="search" size={16} />
                 <span className="grow" style={{ textAlign: 'left' }}>
@@ -319,6 +347,7 @@ function AdminChrome({ settings, counts }: { settings: AppSettingsData | null; c
                   href={superappRoute('#/admin/activity')}
                   onClick={goHash('#/admin/activity')}
                   title="Notifications"
+                  aria-label="Notifications"
                 >
                   <Icon name="bell" size={18} />
                   <span className="top-dot" />

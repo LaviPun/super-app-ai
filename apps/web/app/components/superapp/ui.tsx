@@ -403,7 +403,22 @@ export function DataTable({ columns, rows, onRowClick, selectable, selected, onS
           const k = rowKey ? r[rowKey] : ri;
           return React.createElement(
             'tr',
-            { key: k, className: onRowClick ? 'clickable' : '', onClick: onRowClick ? () => onRowClick(r) : undefined },
+            {
+              key: k,
+              className: onRowClick ? 'clickable' : '',
+              onClick: onRowClick ? () => onRowClick(r) : undefined,
+              // Keyboard parity for clickable rows: focusable + Enter/Space activate.
+              tabIndex: onRowClick ? 0 : undefined,
+              role: onRowClick ? 'button' : undefined,
+              onKeyDown: onRowClick
+                ? (e: any) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onRowClick(r);
+                    }
+                  }
+                : undefined,
+            },
             selectable &&
               React.createElement(
                 'td',

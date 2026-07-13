@@ -1,9 +1,9 @@
 /* ============================================================
    SuperApp AI — Polaris-aligned design system
    Tokens derived from DESIGN.md. Recreates Polaris primitives.
+   Fonts (General Sans / Instrument Sans / IBM Plex Mono) are loaded via
+   preconnect + parallel <link> in root.tsx, not a render-blocking @import here.
    ============================================================ */
-@import url('https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 :root {
   /* Brand / DESIGN.md */
@@ -70,6 +70,57 @@
   --d-card-pad: 20px;
   --d-control-h: 36px;
   --d-font: 14px;
+}
+
+/* Dark theme (DESIGN.md §Color): preserve hierarchy, lower saturation, keep text >= AA.
+   Neutrals are tinted toward the brand navy; `-text` tokens flip to light shades and
+   `-bg` tokens to dark tints so every tone pairing stays legible. Only colors change —
+   radius/shadow-geometry/type/spacing are inherited from :root. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Brand — lightened so it reads as accent text on dark surfaces (the brand mark is a logo, exempt from text contrast). */
+    --sa-primary: #5A86C0;
+    --sa-primary-press: #6E97CE;
+    --sa-secondary: #4E93F0;
+    --sa-accent: #2DB88A;
+
+    /* Neutrals — bg darkest, surfaces step up, tinted toward the navy hue. */
+    --p-bg: #0E141F;
+    --p-surface: #161E2B;
+    --p-surface-secondary: #1E2836;
+    --p-surface-tertiary: #27323F;
+    --p-surface-hover: #202A38;
+    --p-surface-active: #26313F;
+    --p-border: #2B3646;
+    --p-border-strong: #3B4859;
+    --p-text: #EAEEF4;
+    --p-text-secondary: #A7B2C2;
+    --p-text-disabled: #7E8A9C;
+    --p-icon: #A7B2C2;
+    --p-icon-secondary: #7E8A9C;
+
+    /* Semantic — mid-bright base, dark tinted bg, light readable text. */
+    --p-success: #2DB88A;
+    --p-success-bg: #122A22;
+    --p-success-text: #5AD3A6;
+    --p-warning: #E8940E;
+    --p-warning-bg: #2C2110;
+    --p-warning-text: #F0B45E;
+    --p-critical: #F0564B;
+    --p-critical-bg: #2E1616;
+    --p-critical-text: #F58B83;
+    --p-info: #4E93F0;
+    --p-info-bg: #14243B;
+    --p-info-text: #85B6F6;
+    --p-magic: #9B7BEA;
+    --p-magic-bg: #201A38;
+
+    /* Shadows need real darkness on dark surfaces to read at all. */
+    --p-shadow-100: 0 1px 1px rgba(0,0,0,.35), 0 1px 2px rgba(0,0,0,.35);
+    --p-shadow-200: 0 1px 2px rgba(0,0,0,.4), 0 2px 6px rgba(0,0,0,.4);
+    --p-shadow-300: 0 4px 12px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.4);
+    --p-shadow-500: 0 12px 32px rgba(0,0,0,.6), 0 2px 8px rgba(0,0,0,.45);
+  }
 }
 
 [data-density="compact"] {
@@ -262,9 +313,11 @@ body {
 
 /* ---------- Resource list ---------- */
 .rlist { display: flex; flex-direction: column; }
-.ritem { display: flex; align-items: center; gap: var(--sp-3); padding: var(--d-row-pad-y) var(--d-card-pad); border-bottom: 1px solid var(--p-border); cursor: pointer; transition: background .1s; }
+.ritem { display: flex; align-items: center; gap: var(--sp-3); padding: var(--d-row-pad-y) var(--d-card-pad); border-bottom: 1px solid var(--p-border); cursor: pointer; transition: background .1s; color: inherit; text-decoration: none; }
 .ritem:last-child { border-bottom: 0; }
 .ritem:hover { background: var(--p-surface-hover); }
+.ritem:focus-visible { outline: 2px solid var(--sa-secondary); outline-offset: -2px; background: var(--p-surface-hover); }
+.dt tbody tr.clickable:focus-visible { outline: 2px solid var(--sa-secondary); outline-offset: -2px; }
 
 /* ---------- Banner ---------- */
 .banner { display: flex; gap: 12px; padding: 14px 16px; border-radius: var(--p-r-lg); background: var(--p-info-bg); position: relative; }
@@ -320,3 +373,16 @@ body {
 
 .scroll-y { overflow-y: auto; }
 .hr-scroll { overflow-x: auto; }
+
+/* Respect reduced-motion across the admin/merchant shells: neutralize transitions and
+   animations to near-instant (per PRODUCT.md a11y + DESIGN.md motion rules). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
