@@ -31,7 +31,7 @@ export class CapabilityService {
       return 'Checkout UI extensions on Information/Shipping/Payment steps require Shopify Plus.';
     }
     if (cap === 'CART_TRANSFORM_FUNCTION_UPDATE') {
-      return 'Cart Transform update operations require Shopify Plus.';
+      return 'Cart Transform lineUpdate operations run only on Shopify Plus (and dev stores). On other plans, fixed-price bundle pricing is applied automatically via a discount Function instead — the bundle still prices correctly.';
     }
     return `Requires ${min}.`;
   }

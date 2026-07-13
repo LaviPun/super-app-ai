@@ -45,19 +45,30 @@ export class WebPixelService {
         variables: { id: existingId, webPixel: { settings: settingsJson } },
       });
       const json = (await res.json()) as {
+        errors?: Array<{ message?: string }>;
         data?: { webPixelUpdate?: { webPixel?: { id?: string }; userErrors?: Array<{ message?: string }> } };
       };
+      // A top-level error leaves data undefined, so userErrors reads as "empty" and the
+      // `?? existingId` fallback below would report the stale pixel as successfully
+      // updated even though Shopify rejected the write outright (e.g. missing scope).
+      const topLevelErr = json?.errors?.[0]?.message;
+      if (topLevelErr) throw new Error(`webPixelUpdate error: ${topLevelErr}`);
       const err = json?.data?.webPixelUpdate?.userErrors?.[0]?.message;
       if (err) throw new Error(`webPixelUpdate error: ${err}`);
-      return json?.data?.webPixelUpdate?.webPixel?.id ?? existingId;
+      const updatedId = json?.data?.webPixelUpdate?.webPixel?.id;
+      if (!updatedId) throw new Error('webPixelUpdate returned no pixel id');
+      return updatedId;
     }
 
     const res = await this.admin.graphql(WEB_PIXEL_CREATE, {
       variables: { webPixel: { settings: settingsJson } },
     });
     const json = (await res.json()) as {
+      errors?: Array<{ message?: string }>;
       data?: { webPixelCreate?: { webPixel?: { id?: string }; userErrors?: Array<{ message?: string }> } };
     };
+    const topLevelErr = json?.errors?.[0]?.message;
+    if (topLevelErr) throw new Error(`webPixelCreate error: ${topLevelErr}`);
     const err = json?.data?.webPixelCreate?.userErrors?.[0]?.message;
     if (err) throw new Error(`webPixelCreate error: ${err}`);
     const id = json?.data?.webPixelCreate?.webPixel?.id;

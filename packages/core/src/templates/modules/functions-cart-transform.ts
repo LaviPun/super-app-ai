@@ -20,9 +20,12 @@ import type { TemplateEntry } from '../types.js';
  * cart-transform compiler (mechanism 'shopify-function-cart-transform');
  * `priceEnding` forces price endings (Bold "override cent values").
  *
- * Honesty: cart_transform requires Shopify Plus — every template keeps the
- * `fallbackTheme` guidance line (a theme-only notice on non-Plus stores, NOT a
- * fake cart transform).
+ * Honesty: only the cart_transform `lineUpdate` operation is Plus/dev-gated —
+ * `merge` and `expand` run on all plans. On non-Plus stores, fixed-price bundles
+ * are still priced correctly: the companion discount-Function rule emitted by
+ * `splitBundlePricingForPlan` at publish applies the bundle discount at checkout.
+ * Every template keeps the `fallbackTheme` guidance line so the merchant-facing
+ * notice states this truth (NOT a fake cart transform).
  */
 export const FUNCTIONS_CART_TRANSFORM_TEMPLATES: TemplateEntry[] = [
   // FN-CART-01 — Fixed bundle merged into one clean cart line (Fast Bundle "BAP" / Kaching)
@@ -50,7 +53,7 @@ export const FUNCTIONS_CART_TRANSFORM_TEMPLATES: TemplateEntry[] = [
         ],
         fallbackTheme: {
           enabled: true,
-          notificationMessage: 'Bundle pricing requires Shopify Plus — showing the kit as guidance.',
+          notificationMessage: 'Fixed bundle pricing applies via lineUpdate on Shopify Plus; on other plans it is applied automatically as a bundle discount at checkout.',
         },
       },
     },
@@ -92,7 +95,7 @@ export const FUNCTIONS_CART_TRANSFORM_TEMPLATES: TemplateEntry[] = [
         },
         fallbackTheme: {
           enabled: true,
-          notificationMessage: 'Fixed bundle pricing requires Shopify Plus.',
+          notificationMessage: 'Fixed bundle pricing applies via lineUpdate on Shopify Plus; on other plans it is applied automatically as a bundle discount at checkout.',
         },
       },
     },
@@ -130,7 +133,7 @@ export const FUNCTIONS_CART_TRANSFORM_TEMPLATES: TemplateEntry[] = [
         ],
         fallbackTheme: {
           enabled: true,
-          notificationMessage: 'Mix-and-match bundling requires Shopify Plus.',
+          notificationMessage: 'Fixed bundle pricing applies via lineUpdate on Shopify Plus; on other plans it is applied automatically as a bundle discount at checkout.',
         },
       },
     },
@@ -175,7 +178,7 @@ export const FUNCTIONS_CART_TRANSFORM_TEMPLATES: TemplateEntry[] = [
         },
         fallbackTheme: {
           enabled: true,
-          notificationMessage: 'Volume bundle pricing requires Shopify Plus.',
+          notificationMessage: 'Fixed bundle pricing applies via lineUpdate on Shopify Plus; on other plans it is applied automatically as a bundle discount at checkout.',
         },
       },
     },
@@ -213,7 +216,7 @@ export const FUNCTIONS_CART_TRANSFORM_TEMPLATES: TemplateEntry[] = [
         ],
         fallbackTheme: {
           enabled: true,
-          notificationMessage: 'Bundle savings require Shopify Plus.',
+          notificationMessage: 'Fixed bundle pricing applies via lineUpdate on Shopify Plus; on other plans it is applied automatically as a bundle discount at checkout.',
         },
       },
     },
@@ -257,7 +260,7 @@ export const FUNCTIONS_CART_TRANSFORM_TEMPLATES: TemplateEntry[] = [
         },
         fallbackTheme: {
           enabled: true,
-          notificationMessage: 'Gift bundling requires Shopify Plus.',
+          notificationMessage: 'Fixed bundle pricing applies via lineUpdate on Shopify Plus; on other plans it is applied automatically as a bundle discount at checkout.',
         },
       },
     },
@@ -299,7 +302,7 @@ export const FUNCTIONS_CART_TRANSFORM_TEMPLATES: TemplateEntry[] = [
         },
         fallbackTheme: {
           enabled: true,
-          notificationMessage: 'Build-a-box pricing requires Shopify Plus.',
+          notificationMessage: 'Fixed bundle pricing applies via lineUpdate on Shopify Plus; on other plans it is applied automatically as a bundle discount at checkout.',
         },
       },
     },
@@ -354,7 +357,7 @@ export const FUNCTIONS_CART_TRANSFORM_TEMPLATES: TemplateEntry[] = [
         ],
         fallbackTheme: {
           enabled: true,
-          notificationMessage: 'Bundle catalog pricing requires Shopify Plus.',
+          notificationMessage: 'Fixed bundle pricing applies via lineUpdate on Shopify Plus; on other plans it is applied automatically as a bundle discount at checkout.',
         },
       },
     },

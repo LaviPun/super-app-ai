@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MODULE_TEMPLATES, RECIPE_SPEC_TYPES, type RecipeSpec } from '@superapp/core';
 import { computeRepublishDiff } from '@superapp/platform-contracts';
 import {
@@ -119,5 +119,74 @@ describe('WS5 PublishService gate — refuses to deploy gated/blocked (SC-001 wi
       code: 'MODULE_NOT_PUBLISHABLE',
       preflight: { status: 'needs_runtime' },
     });
+  });
+});
+
+describe('PublishService.writeFunctionConfig — preserves managed bundle rules', () => {
+  const noopAdmin = {} as unknown as AdminApiContext['admin'];
+
+  it('re-appends bundle:* rules when a discountRules module is republished', async () => {
+    // Existing metaobject holds one module-authored rule + one managed bundle rule
+    // (merged in by BundleProductService.writeBundlePricingRules). The republish
+    // changes the module rule; the bundle:* rule must survive the wholesale upsert.
+    const mo = {
+      getFunctionConfigByKey: vi.fn().mockResolvedValue({
+        metaobjectId: 'gid://shopify/Metaobject/7',
+        config: {
+          rules: [
+            { id: 'mod-a', when: { minSubtotal: 100 }, apply: { percentageOff: 10 } },
+            { id: 'bundle:candle-trio', when: { skuIn: ['BUNDLE-CANDLE'] }, apply: { fixedPricePerUnit: 27 } },
+          ],
+        },
+      }),
+      ensureMetafieldDefinition: vi.fn().mockResolvedValue(undefined),
+      upsertFunctionConfigObject: vi.fn().mockResolvedValue('gid://shopify/Metaobject/7'),
+      setModuleRef: vi.fn().mockResolvedValue(undefined),
+    };
+    const svc = new PublishService(noopAdmin);
+    // Republish the module config with a CHANGED module rule.
+    const newModuleConfig = {
+      rules: [{ id: 'mod-a', when: { minSubtotal: 100 }, apply: { percentageOff: 15 } }],
+    };
+    await (
+      svc as unknown as {
+        writeFunctionConfig: (mo: unknown, key: string, config: unknown) => Promise<void>;
+      }
+    ).writeFunctionConfig(mo, 'discountRules', newModuleConfig);
+
+    expect(mo.upsertFunctionConfigObject).toHaveBeenCalledTimes(1);
+    expect(mo.upsertFunctionConfigObject).toHaveBeenCalledWith('discountRules', {
+      rules: [
+        { id: 'mod-a', when: { minSubtotal: 100 }, apply: { percentageOff: 15 } },
+        { id: 'bundle:candle-trio', when: { skuIn: ['BUNDLE-CANDLE'] }, apply: { fixedPricePerUnit: 27 } },
+      ],
+    });
+  });
+
+  it('stays a no-op when the module config is unchanged and only a bundle rule is merged', async () => {
+    // The merged `next` (module rule + preserved bundle rule) must equal `existing`
+    // so computeRepublishDiff returns noop — no oscillating rewrite.
+    const config = {
+      rules: [
+        { id: 'mod-a', when: { minSubtotal: 100 }, apply: { percentageOff: 10 } },
+        { id: 'bundle:candle-trio', when: { skuIn: ['BUNDLE-CANDLE'] }, apply: { fixedPricePerUnit: 27 } },
+      ],
+    };
+    const mo = {
+      getFunctionConfigByKey: vi.fn().mockResolvedValue({ metaobjectId: 'gid://shopify/Metaobject/7', config }),
+      ensureMetafieldDefinition: vi.fn(),
+      upsertFunctionConfigObject: vi.fn(),
+      setModuleRef: vi.fn(),
+    };
+    const svc = new PublishService(noopAdmin);
+    // Module republishes only its own rule (bundle rule not in module config).
+    await (
+      svc as unknown as {
+        writeFunctionConfig: (mo: unknown, key: string, config: unknown) => Promise<void>;
+      }
+    ).writeFunctionConfig(mo, 'discountRules', {
+      rules: [{ id: 'mod-a', when: { minSubtotal: 100 }, apply: { percentageOff: 10 } }],
+    });
+    expect(mo.upsertFunctionConfigObject).not.toHaveBeenCalled();
   });
 });

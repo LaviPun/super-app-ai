@@ -27,6 +27,7 @@ import { isCompositeEngineDeferred } from '@superapp/core';
 import {
   BundleProductService,
   bundleIdFromTitle,
+  bundleParentSku,
   resolveBundleWithPricing,
   type ResolvedBundle,
 } from '~/services/bundles/bundle-product.service';
@@ -164,7 +165,10 @@ async function resolveBundleRecord(
   const title = labelForRecord(record);
   const bundleId = bundleIdFromTitle(record.ref);
   const parentVariantId = await svc.ensureParentBundleProduct({ bundleId, title, components });
-  const base: ResolvedBundle = { bundleId, title, parentVariantId, discountPercentage: 0, components };
+  // The discount rule targets the merged parent line, whose merchandise SKU is the
+  // one `ensureParentBundleProduct` creates from this same bundleId.
+  const bundleSku = bundleParentSku(bundleId);
+  const base: ResolvedBundle = { bundleId, title, parentVariantId, bundleSku, discountPercentage: 0, components };
   return resolveBundleWithPricing(base, undefined);
 }
 

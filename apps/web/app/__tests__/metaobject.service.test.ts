@@ -35,37 +35,31 @@ describe('MetaobjectService.ensureMetafieldDefinition', () => {
     );
   });
 
+  function policyConstraintResponse() {
+    return graphqlJsonResponse({
+      data: {
+        metafieldDefinitionCreate: {
+          userErrors: [
+            {
+              message:
+                'Setting this access control is not permitted. It must be one of ["public_read_write"].',
+            },
+          ],
+        },
+      },
+    });
+  }
+
+  // NOTE: MetafieldAdminAccessInput (the type metafieldDefinitionCreate actually accepts)
+  // only has MERCHANT_READ / MERCHANT_READ_WRITE in the 2026-04 schema — PUBLIC_READ_WRITE
+  // is output-only (MetafieldAdminAccess) and is never a legal candidate to retry with. When
+  // the shop's business rules reject MERCHANT_READ_WRITE, there is no valid fallback: the
+  // function must fail loudly, not loop on values Shopify will always reject anyway.
   it('throws when merchant access is rejected and no compatible admin enum exists', async () => {
     const graphql = vi
       .fn()
-      .mockResolvedValueOnce(
-        graphqlJsonResponse({
-          data: {
-            metafieldDefinitionCreate: {
-              userErrors: [
-                {
-                  message:
-                    'Setting this access control is not permitted. It must be one of ["public_read_write"].',
-                },
-              ],
-            },
-          },
-        }),
-      )
-      .mockResolvedValueOnce(
-        graphqlJsonResponse({
-          data: {
-            metafieldDefinitionCreate: {
-              userErrors: [
-                {
-                  message:
-                    'Setting this access control is not permitted. It must be one of ["public_read_write"].',
-                },
-              ],
-            },
-          },
-        }),
-      );
+      .mockResolvedValueOnce(policyConstraintResponse())
+      .mockResolvedValueOnce(policyConstraintResponse());
     const admin = { graphql } as unknown as AdminApiContext['admin'];
     const service = new MetaobjectService(admin);
 
@@ -85,44 +79,37 @@ describe('MetaobjectService.ensureMetafieldDefinition', () => {
     });
   });
 
-  it('emits fallback telemetry when compatibility retry is used', async () => {
+  it('succeeds on the narrower MERCHANT_READ_WRITE-only candidate when the storefront-paired one is rejected', async () => {
     const graphql = vi
       .fn()
+      .mockResolvedValueOnce(policyConstraintResponse())
       .mockResolvedValueOnce(
         graphqlJsonResponse({
-          data: {
-            metafieldDefinitionCreate: {
-              userErrors: [
-                {
-                  message:
-                    'Setting this access control is not permitted. It must be one of ["public_read_write"].',
-                },
-              ],
-            },
-          },
+          data: { metafieldDefinitionCreate: { userErrors: [] } },
         }),
-      )
+      );
+    const admin = { graphql } as unknown as AdminApiContext['admin'];
+    const service = new MetaobjectService(admin);
+
+    await service.ensureMetafieldDefinition('superapp.theme', 'module_refs', '$app:superapp_module', true);
+
+    expect(graphql).toHaveBeenCalledTimes(2);
+  });
+
+  it('emits fallback telemetry once when the first candidate is rejected', async () => {
+    const graphql = vi
+      .fn()
+      .mockResolvedValueOnce(policyConstraintResponse())
       .mockResolvedValueOnce(
         graphqlJsonResponse({
-          data: {
-            metafieldDefinitionCreate: {
-              userErrors: [
-                {
-                  message:
-                    'Setting this access control is not permitted. It must be one of ["public_read_write"].',
-                },
-              ],
-            },
-          },
+          data: { metafieldDefinitionCreate: { userErrors: [] } },
         }),
       );
     const onMetafieldAccessFallback = vi.fn();
     const admin = { graphql } as unknown as AdminApiContext['admin'];
     const service = new MetaobjectService(admin, { onMetafieldAccessFallback });
 
-    await expect(
-      service.ensureMetafieldDefinition('superapp.theme', 'module_refs', '$app:superapp_module', true),
-    ).rejects.toThrow(/public_read_write/i);
+    await service.ensureMetafieldDefinition('superapp.theme', 'module_refs', '$app:superapp_module', true);
 
     expect(onMetafieldAccessFallback).toHaveBeenCalledTimes(1);
     expect(onMetafieldAccessFallback).toHaveBeenCalledWith(
@@ -135,31 +122,17 @@ describe('MetaobjectService.ensureMetafieldDefinition', () => {
     );
   });
 
-  it('fails fast when Shopify rejects admin enum at GraphQL validation level', async () => {
-    const graphql = vi
-      .fn()
-      .mockRejectedValueOnce(
-        new Error(
-          'Variable $definition of type MetafieldDefinitionInput! was provided invalid value for access.admin (Expected "MERCHANT_READ_WRITE" to be one of: PUBLIC_READ_WRITE)',
-        ),
-      )
-      .mockRejectedValueOnce(
-        new Error(
-          'Variable $definition of type MetafieldDefinitionInput! was provided invalid value for access.admin (Expected "PUBLIC_READ_WRITE" to be one of: MERCHANT_READ, MERCHANT_READ_WRITE).',
-        ),
-      );
+  it('fails fast without exhausting candidates when the error is not an access-policy constraint', async () => {
+    const unrelatedError = new Error('Internal error. Please try again in a few seconds.');
+    const graphql = vi.fn().mockRejectedValueOnce(unrelatedError);
     const admin = { graphql } as unknown as AdminApiContext['admin'];
     const service = new MetaobjectService(admin);
 
     await expect(
       service.ensureMetafieldDefinition('superapp.theme', 'module_refs', '$app:superapp_module', true),
-    ).rejects.toThrow(/invalid value for access\.admin/i);
+    ).rejects.toThrow(/internal error/i);
 
-    expect(graphql).toHaveBeenCalledTimes(2);
-    const secondCall = graphql.mock.calls[1]?.[1] as { variables: { definition: { access: unknown } } };
-    expect(secondCall.variables.definition.access).toEqual({
-      admin: 'MERCHANT_READ_WRITE',
-    });
+    expect(graphql).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -227,6 +200,37 @@ describe('MetaobjectService core operations', () => {
         }),
       }),
     );
+  });
+
+  it('throws instead of returning an empty list when the module-refs read hits a top-level GraphQL error', async () => {
+    // Regression guard: getModuleGidList used to read json.data?.shop?.metafield?.value
+    // without checking json.errors, so a transient error silently looked like "no refs
+    // yet" — and a caller that then writes back [newGid] would wipe every other
+    // published module's reference from the shop metafield.
+    const graphql = vi.fn().mockResolvedValueOnce(
+      graphqlJsonResponse({
+        errors: [{ message: 'Internal error' }],
+      }),
+    );
+    const admin = { graphql } as unknown as AdminApiContext['admin'];
+    const service = new MetaobjectService(admin);
+
+    await expect(
+      service.getModuleGidList('superapp.theme', 'module_refs'),
+    ).rejects.toThrow(/internal error/i);
+  });
+
+  it('throws instead of silently no-oping when setModuleGidList hits a top-level GraphQL error', async () => {
+    const graphql = vi
+      .fn()
+      .mockResolvedValueOnce(graphqlJsonResponse({ data: { shop: { id: 'gid://shopify/Shop/1' } } }))
+      .mockResolvedValueOnce(graphqlJsonResponse({ errors: [{ message: 'Internal error' }] }));
+    const admin = { graphql } as unknown as AdminApiContext['admin'];
+    const service = new MetaobjectService(admin);
+
+    await expect(
+      service.setModuleGidList('superapp.theme', 'module_refs', ['gid://shopify/Metaobject/11']),
+    ).rejects.toThrow(/internal error/i);
   });
 
   it('deletes a metaobject by gid', async () => {

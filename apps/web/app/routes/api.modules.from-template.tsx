@@ -9,8 +9,19 @@ import { findTemplate, RecipeSpecSchema, getTemplateInstallability, type RecipeS
 import { SettingsService } from '~/services/settings/settings.service';
 import { resolveStorefrontPack, DEFAULT_PACK_ID } from '~/services/ai/style-packs.server';
 
-/** Storefront layout types whose renderer stamps `data-sa-pack` from `style.pack`. */
-const STOREFRONT_LAYOUT_TYPES = new Set(['theme.section', 'proxy.widget']);
+/**
+ * Types whose renderer stamps `data-sa-pack` from `style.pack`: storefront modules
+ * plus the buyer-facing extension surfaces (checkout / cart / post-purchase /
+ * customer account). Mirrors BUYER_FACING_DS_TYPES in preview.service.ts.
+ */
+const STOREFRONT_LAYOUT_TYPES = new Set([
+  'theme.section',
+  'proxy.widget',
+  'checkout.upsell',
+  'checkout.block',
+  'postPurchase.offer',
+  'customerAccount.blocks',
+]);
 
 /**
  * Persist a concrete render pack on storefront specs before install so the

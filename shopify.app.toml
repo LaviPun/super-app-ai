@@ -105,7 +105,18 @@ uri = "/webhooks"
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 # read_themes powers theme reads (theme list, theme.files) and is required.
-scopes = "read_customers,read_metaobjects,read_products,read_themes,write_app_proxy,write_customers,write_metaobjects,write_orders"
+# 2026-07-10 AUDIT: commit c0dafb7 ("aded new ai model") silently shrank this list from 17
+# scopes to 8 while doing an unrelated refactor — read_checkouts, read_inventory, read_orders,
+# write_cart_transforms, write_checkouts, write_delivery_customizations, write_discounts,
+# write_payment_customizations, write_products were all dropped with no mention in the commit.
+# That regression made every bundle-product publish (productSet/cartTransformCreate in
+# bundle-product.service.ts) and every discount/payment/delivery-customization function config
+# write fail with an access-denied error, silently. Restored below, plus write_pixels +
+# read_customer_events which web-pixel.service.ts (webPixelCreate/webPixelUpdate) has always
+# needed but never had. NOTE: this scope list change requires `shopify app deploy` + existing
+# merchants to re-consent (Shopify shows an "additional permissions" banner) before it takes
+# effect live — do not deploy without confirming the re-consent rollout plan.
+scopes = "read_checkouts,read_customer_events,read_customers,read_inventory,read_metaobjects,read_orders,read_products,read_themes,write_app_proxy,write_cart_transforms,write_checkouts,write_customers,write_delivery_customizations,write_discounts,write_metaobjects,write_orders,write_payment_customizations,write_pixels,write_products"
 # write_themes (033) — required to write native sections/superapp-*.liquid files via the
 # Theme Files API (themeFilesUpsert). It is OPTIONAL here (not in `scopes`) so installs do
 # not break before the grant lands. IMPORTANT: write_themes additionally requires a Shopify

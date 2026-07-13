@@ -85,6 +85,19 @@ function loadPackCss(): string {
   return packCssCache;
 }
 
+/**
+ * Buyer-facing extension surfaces that carry the two-pack module design system
+ * (they render in front of the shopper, so they match the merchant brand — unlike
+ * admin/POS/function operator surfaces). Keep in sync with the generation gate in
+ * `apply-style-pack.server.ts` and the install gate in `api.modules.from-template.tsx`.
+ */
+const BUYER_FACING_DS_TYPES = new Set<string>([
+  'checkout.upsell',
+  'checkout.block',
+  'postPurchase.offer',
+  'customerAccount.blocks',
+]);
+
 function previewPackOf(spec: RecipeSpec): PreviewPack {
   const p = (spec as { style?: { pack?: string } }).style?.pack;
   return p === 'bold' ? 'bold' : 'luxe';
@@ -106,10 +119,14 @@ export class PreviewService {
       return { ...(specInput as object), config: sanitizeConfigUrls(cfg) } as RecipeSpec;
     })();
     const surface = context?.surface ?? inferSurface(spec.type);
-    // Storefront types carry the two-pack look; everything else previews unwrapped.
-    const isStorefront = spec.type === 'theme.section' || spec.type === 'proxy.widget';
-    activePack = isStorefront ? previewPackOf(spec) : null;
-    activeAccent = isStorefront ? previewAccentOf(spec) : undefined;
+    // Storefront modules AND the buyer-facing extension surfaces (checkout / cart /
+    // post-purchase / customer account) carry the two-pack module design system —
+    // they render in front of the shopper, so they should match the merchant's
+    // brand. Operator/technical surfaces (admin, POS, functions, flow, pixel,
+    // messaging, agentic) stay on the neutral surface-authentic chrome instead.
+    const carriesPack = spec.type === 'theme.section' || spec.type === 'proxy.widget' || BUYER_FACING_DS_TYPES.has(spec.type);
+    activePack = carriesPack ? previewPackOf(spec) : null;
+    activeAccent = carriesPack ? previewAccentOf(spec) : undefined;
     try {
       return this.renderInner(spec, context, surface);
     } finally {
@@ -1273,8 +1290,9 @@ export class PreviewService {
     simulation?: PreviewSimulationInput,
   ): string {
     if (isFunctionPreviewKind(spec.type)) {
-      const result = simulateFunction(spec as never, simulation ?? defaultSimulationInput());
-      return this.functionSimulationPreview(spec, result);
+      const fixture = simulation ?? defaultSimulationInput();
+      const result = simulateFunction(spec as never, fixture);
+      return this.functionSimulationPreview(spec, result, fixture);
     }
     switch (spec.type) {
       case 'checkout.upsell':
@@ -1317,69 +1335,66 @@ export class PreviewService {
     return (spec.config as Record<string, unknown>)?.[key];
   }
 
-  private functionSimulationPreview(spec: RecipeSpec, result: PreviewSimulationResult): string {
-    const rows = result.outcomes
+  private functionSimulationPreview(
+    spec: RecipeSpec,
+    result: PreviewSimulationResult,
+    fixture: PreviewSimulationInput,
+  ): string {
+    // Map the 9 effect kinds onto 4 visual states (green applied / red blocked /
+    // amber none / blue changed) so the outcome ledger is instantly legible.
+    const state = (e: string) =>
+      e === 'applied' ? 'applied'
+      : e === 'hidden' || e === 'blocked' ? 'blocked'
+      : e === 'none' ? 'none'
+      : 'changed';
+    const outs = result.outcomes
       .map(
         (o) => `
-        <div class="sim-row sim-${esc(o.effect)}">
-          <div class="sim-row__label">${esc(o.label)}</div>
-          <div class="sim-row__detail">${esc(o.detail)}</div>
-          <span class="sim-badge">${esc(o.effect)}</span>
+        <div class="sf-sim__out sf-out--${state(o.effect)}">
+          <div><div class="sf-sim__lbl">${esc(o.label)}</div><div class="sf-sim__det">${esc(o.detail)}</div></div>
+          <span class="sf-sim__tag">${esc(o.effect)}</span>
         </div>`,
       )
       .join('');
+    const money = (n: number) =>
+      fixture.currency === 'USD' ? `$${n.toFixed(2)}` : `${fixture.currency} ${n.toFixed(2)}`;
+    const subtotal = fixture.lineItems.reduce((s, li) => s + li.price * li.quantity, 0);
+    const fixtureRows = fixture.lineItems
+      .map(
+        (li) =>
+          `<div class="sf-sim__row"><span>${esc(li.title)} ×${li.quantity}</span><span>${money(li.price * li.quantity)}</span></div>`,
+      )
+      .join('');
+    const tags = fixture.customerTags.length ? fixture.customerTags.join(', ') : 'none';
+    const fnHandle = String(
+      this.cfgVal(spec, 'functionHandle') ?? this.cfgVal(spec, 'handle') ?? spec.type.replace('functions.', ''),
+    );
     const fallback = result.fallbackNote
-      ? `<div class="sim-fallback">Non-Plus fallback: ${esc(result.fallbackNote)}</div>`
+      ? `<div class="sf-note sf-note--gate"><b>Non-Plus fallback:</b> ${esc(result.fallbackNote)}</div>`
       : '';
-    return pageHtml(
-      `
-      <section class="sim">
-        <header class="sim__header">
-          <h2>${esc(spec.name)} <span>${esc(spec.type)}</span></h2>
-          <p>Deterministic Function simulation against a representative cart fixture.</p>
-        </header>
-        ${fallback}
-        <div class="sim__list">${rows}</div>
-      </section>`,
-      `
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#f6f8fb; margin:0; }
-      .sim__header h2 { margin:0; font-size:18px; color:#111827; }
-      .sim__header h2 span { font-size:12px; color:#6b7280; margin-left:6px; }
-      .sim__header p { margin:6px 0 12px; color:#475569; font-size:13px; }
-      .sim__list { display:grid; gap:8px; }
-      .sim-row { background:#fff; border:1px solid #dce3ec; border-left-width:4px; border-radius:8px; padding:10px 12px; position:relative; }
-      .sim-row__label { font-weight:600; color:#111827; font-size:14px; }
-      .sim-row__detail { color:#475569; font-size:13px; margin-top:2px; }
-      .sim-badge { position:absolute; top:10px; right:12px; font:11px IBM Plex Mono, ui-monospace, monospace; text-transform:uppercase; color:#6b7280; }
-      .sim-applied { border-left-color:#0E9F6E; }
-      .sim-hidden, .sim-blocked { border-left-color:#DC2626; }
-      .sim-renamed, .sim-reordered, .sim-bundled, .sim-routed, .sim-constrained { border-left-color:#2F80ED; }
-      .sim-none { border-left-color:#D97706; }
-      .sim-fallback { background:#FEF3C7; border:1px solid #F59E0B; color:#92400E; border-radius:8px; padding:8px 10px; font-size:13px; margin-bottom:10px; }
-      `,
-    );
-  }
-
-  private surfaceCard(title: string, badge: string, bodyHtml: string, css = ''): string {
-    return pageHtml(
-      `
-      <section class="surf">
-        <header class="surf__header"><h2>${esc(title)} <span>${esc(badge)}</span></h2></header>
-        <div class="surf__body">${bodyHtml}</div>
-      </section>`,
-      `
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#f6f8fb; margin:0; }
-      .surf__header h2 { margin:0 0 12px; font-size:18px; color:#111827; }
-      .surf__header h2 span { font-size:12px; color:#6b7280; margin-left:6px; }
-      .surf-panel { background:#fff; border:1px solid #dce3ec; border-radius:10px; padding:14px; }
-      .surf-panel h3 { margin:0 0 8px; font-size:14px; color:#1F3A5F; }
-      .surf-btn { display:inline-block; background:#1F3A5F; color:#fff; border:0; border-radius:8px; padding:9px 14px; font-size:14px; cursor:pointer; text-decoration:none; }
-      .surf-muted { color:#6b7280; font-size:13px; }
-      details.surf-state { margin-top:10px; border:1px solid #dce3ec; border-radius:8px; padding:8px 10px; background:#fff; }
-      details.surf-state > summary { cursor:pointer; font-size:13px; color:#2F80ED; }
-      ${css}
-      `,
-    );
+    const device = `
+      <div class="sf-device"><div style="background:#F6F8FB;padding:16px">
+        <div class="sf-sim">
+          <div class="sf-sim__title">${esc(spec.name)}</div>
+          <div class="sf-sim__panel">
+            <div class="sf-sim__phead">Cart fixture</div>
+            <div class="sf-sim__pbody">
+              ${fixtureRows}
+              <div class="sf-sim__row" style="border-top:1px solid var(--line);padding-top:5px;margin-top:1px;color:var(--ink);font-weight:600"><span>Subtotal</span><span>${money(subtotal)}</span></div>
+              <div class="sf-sim__row"><span>customer</span><span>[${esc(tags)}]</span></div>
+            </div>
+          </div>
+          <div class="sf-sim__engine"><span class="sf-sim__arrow">↓</span><span class="sf-sim__chip">${esc(fnHandle)}</span><span class="sf-sim__arrow">↓</span></div>
+          <div class="sf-sim__panel">
+            <div class="sf-sim__phead">Function output · deterministic</div>
+            <div class="sf-sim__pbody" style="display:block;font-family:var(--ui)">
+              <div class="sf-sim__list">${outs || '<div class="sf-muted">No outcomes for this fixture.</div>'}</div>
+            </div>
+          </div>
+          ${fallback}
+        </div>
+      </div></div>`;
+    return sfPage('sim', sfCaption('Shopify Function · runs on Shopify servers', spec.type), device);
   }
 
   private checkoutSurfacePreview(spec: RecipeSpec): string {
@@ -1398,26 +1413,32 @@ export class PreviewService {
         '',
     );
     const cta = String(this.cfgVal(spec, 'ctaText') ?? this.cfgVal(spec, 'buttonLabel') ?? 'Add to order');
-    return this.surfaceCard(spec.name, `${spec.type} · checkout UI`, `
-      <div class="surf-panel co">
-        <div class="co__order">
-          <h3>Order summary</h3>
-          <div class="co__line"><span>Travel Backpack</span><span>$120.00</span></div>
-          <div class="co__line"><span>Packing Cube Set</span><span>$32.00</span></div>
-          <div class="co__line co__total"><span>Subtotal</span><span>$152.00</span></div>
+    const device = `
+      <div class="sf-device">
+        <div class="sf-co__bar"><span class="sf-co__shop">Your Store</span><span class="sf-co__lock">Secure checkout</span></div>
+        <div class="sf-co__cols">
+          <div class="sf-co__main">
+            <div class="sf-co__step">Shipping</div>
+            <div class="sf-co__ghost"></div>
+            <div class="sf-co__ghost" style="width:70%"></div>
+            <div class="sf-co__step" style="margin-top:14px">App block</div>
+            <div class="sf-co__block sf-ds">
+              <h3>${esc(title)}</h3>
+              ${body ? `<p class="sf-muted" style="margin-bottom:10px">${esc(body)}</p>` : ''}
+              <a class="sf-btn sf-btn--ds" href="#add">${esc(cta)}</a>
+            </div>
+          </div>
+          <div class="sf-co__rail">
+            <div class="sf-co__step">Order summary</div>
+            <div class="sf-co__item"><span class="sf-co__thumb"></span><div style="flex:1"><div style="font-size:13px;font-weight:500">Travel Backpack</div><div class="sf-muted" style="font-size:12px">Qty 1</div></div><span style="font-size:13px">$120.00</span></div>
+            <div class="sf-co__item"><span class="sf-co__thumb"></span><div style="flex:1"><div style="font-size:13px;font-weight:500">Packing Cube Set</div><div class="sf-muted" style="font-size:12px">Qty 1</div></div><span style="font-size:13px">$32.00</span></div>
+            <div class="sf-co__line" style="margin-top:8px"><span>Subtotal</span><span>$152.00</span></div>
+            <div class="sf-co__line"><span>Shipping</span><span class="sf-muted">Calculated at next step</span></div>
+            <div class="sf-co__line sf-co__line--total"><span>Total</span><span>USD $152.00</span></div>
+          </div>
         </div>
-        <div class="co__ext">
-          <h3>${esc(title)}</h3>
-          ${body ? `<p class="surf-muted">${esc(body)}</p>` : ''}
-          <a class="surf-btn" href="#add">${esc(cta)}</a>
-          <details class="surf-state"><summary>After "added" state</summary><p class="surf-muted">Line added to order; extension shows confirmation and updated subtotal.</p></details>
-        </div>
-      </div>
-    `, `
-      .co { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
-      .co__line { display:flex; justify-content:space-between; font-size:13px; padding:4px 0; color:#334155; }
-      .co__total { border-top:1px solid #dce3ec; margin-top:6px; padding-top:8px; font-weight:600; color:#111827; }
-    `);
+      </div>`;
+    return sfPage('checkout', sfCaption('Shopify Checkout · buyer-facing', spec.type), device, this.styleCss(spec as { style?: unknown }, '.sf-ds'));
   }
 
   private postPurchaseSurfacePreview(spec: RecipeSpec): string {
@@ -1436,16 +1457,23 @@ export class PreviewService {
         this.cfgVal(spec, 'description') ??
         'Add this one-time offer to your order.',
     );
-    return this.surfaceCard(spec.name, `${spec.type} · post-purchase`, `
-      <div class="surf-panel">
-        <h3>${esc(title)}</h3>
-        <p class="surf-muted">Shown after payment, before the thank-you page.</p>
-        <p>${esc(offer)}</p>
-        <a class="surf-btn" href="#accept">Accept offer</a>
-        <a class="surf-btn" href="#decline" style="background:#6B7280;margin-left:8px">Decline</a>
-        <details class="surf-state"><summary>Accepted state</summary><p class="surf-muted">Offer charged to original payment; order updated without re-auth.</p></details>
-      </div>
-    `);
+    const device = `
+      <div class="sf-device">
+        <div class="sf-co__bar"><span class="sf-co__shop">Your Store</span><span class="sf-co__lock">Order confirmed</span></div>
+        <div class="sf-pp">
+          <div class="sf-pp__banner">Payment complete — one more thing before your receipt</div>
+          <div class="sf-pp__offer sf-ds">
+            <h3 style="font-size:15px;margin-bottom:6px">${esc(title)}</h3>
+            <p style="font-size:13.5px;color:var(--ink2);margin-bottom:14px">${esc(offer)}</p>
+            <div style="display:flex;gap:9px">
+              <a class="sf-btn sf-btn--ds" href="#accept">Accept offer</a>
+              <a class="sf-btn sf-btn--plain" href="#decline">No thanks</a>
+            </div>
+          </div>
+          <div class="sf-note"><b>One-click:</b> charged to the original payment method, no re-authentication — added before the thank-you page renders.</div>
+        </div>
+      </div>`;
+    return sfPage('checkout', sfCaption('Post-purchase page · after payment', spec.type), device, this.styleCss(spec as { style?: unknown }, '.sf-ds'));
   }
 
   private adminSurfacePreview(spec: RecipeSpec): string {
@@ -1482,6 +1510,8 @@ export class PreviewService {
     // instead of the hardcoded Status/Last-run rows.
     const fieldsRaw = this.cfgVal(spec, 'fields');
     const fields = Array.isArray(fieldsRaw) ? (fieldsRaw as Array<Record<string, unknown>>) : [];
+    const tonePill = (tone: string) =>
+      tone === 'critical' ? 'crit' : tone === 'warning' || tone === 'attention' ? 'warn' : tone === 'info' ? 'info' : 'ok';
     const fieldRows = fields.length
       ? fields
           .map((f) => {
@@ -1489,31 +1519,57 @@ export class PreviewService {
             const tone = String(f?.tone ?? '');
             const v = String(f?.value ?? '');
             const valHtml = tone
-              ? `<span class="adm__badge adm__badge--${escAttr(tone)}">${esc(v)}</span>`
+              ? `<span class="sf-pill sf-pill--${tonePill(tone)}">${esc(v)}</span>`
               : `<span>${esc(v)}</span>`;
-            return `<div class="adm__row"><span>${l}</span>${valHtml}</div>`;
+            return `<div class="sf-kv"><span>${l}</span>${valHtml}</div>`;
           })
           .join('')
-      : `<div class="adm__row"><span>Status</span><span class="adm__badge">Active</span></div>
-         <div class="adm__row"><span>Last run</span><span>2 minutes ago</span></div>`;
-    return this.surfaceCard(spec.name, `${spec.type} · admin (Polaris)`, `
-      <div class="surf-panel">
-        <h3>${esc(heading)}</h3>
-        ${surfaceLabel ? `<p class="surf-muted">Appears on: <strong>${esc(surfaceLabel)}</strong></p>` : ''}
-        <p class="surf-muted">${
-          description ? esc(String(description)) : 'Embedded admin block rendered with Polaris-like primitives.'
-        }</p>
-        <div class="adm__rows">${fieldRows}</div>
-        <a class="surf-btn" href="#action">${esc(action)}</a>
-        <details class="surf-state"><summary>After action</summary><p class="surf-muted">Action dispatched; admin toast confirms success and the row updates.</p></details>
-      </div>
-    `, `
-      .adm__row { display:flex; justify-content:space-between; gap:12px; font-size:13px; padding:6px 0; border-bottom:1px solid #eef2f7; }
-      .adm__badge { background:#E7F5EF; color:#0E9F6E; border-radius:9999px; padding:2px 10px; font-size:12px; }
-      .adm__badge--warning, .adm__badge--attention { background:#FEF3C7; color:#92400E; }
-      .adm__badge--critical { background:#FDE8E8; color:#9B1C1C; }
-      .adm__badge--info { background:#EAF1FB; color:#2F80ED; }
-    `);
+      : `<div class="sf-kv"><span>Status</span><span class="sf-pill sf-pill--ok">Active</span></div>
+         <div class="sf-kv"><span>Last run</span><span>2 minutes ago</span></div>`;
+    return this.adminFrame(spec, {
+      appears: surfaceLabel || 'Admin',
+      heading,
+      description: description ? String(description) : '',
+      body: `<div style="margin:2px 0 4px">${fieldRows}</div>`,
+      primary: action,
+    });
+  }
+
+  /**
+   * Shared Polaris-admin device frame: a dark admin top strip (Shopify mark +
+   * breadcrumb), the light `#F1F1F1` admin canvas, a white Polaris Card with a
+   * header/body/footer, and a near-black primary action — the modern Shopify
+   * admin look. Used by every `admin.*` / `platform.*` surface preview.
+   */
+  private adminFrame(
+    spec: RecipeSpec,
+    o: { appears: string; heading: string; description?: string; body: string; primary?: string; secondary?: string; foot?: string },
+  ): string {
+    const device = `
+      <div class="sf-device sf-device--admin">
+        <div class="sf-adminbar">
+          <span class="sf-adminbar__mark"></span>
+          <span class="sf-adminbar__crumb">${esc(o.appears)} › <b>${esc(spec.name)}</b></span>
+          <span class="sf-adminbar__spacer"></span>
+          <span class="sf-adminbar__save">Saved</span>
+        </div>
+        <div class="sf-admincanvas">
+          <div class="sf-pagehead"><h2>${esc(o.heading)}</h2></div>
+          <div class="sf-card">
+            <div class="sf-card__head"><h3>${esc(o.heading)}</h3></div>
+            <div class="sf-card__body">
+              ${o.description ? `<p class="sf-muted" style="margin-bottom:10px">${esc(o.description)}</p>` : ''}
+              ${o.body}
+            </div>
+            ${
+              o.primary || o.foot
+                ? `<div class="sf-card__foot">${o.foot ? `<span class="sf-muted">${esc(o.foot)}</span>` : ''}<span class="sf-spacer"></span>${o.secondary ? `<a class="sf-btn sf-btn--plain" href="#sec">${esc(o.secondary)}</a>` : ''}${o.primary ? `<a class="sf-btn sf-btn--dark" href="#action">${esc(o.primary)}</a>` : ''}</div>`
+                : ''
+            }
+          </div>
+        </div>
+      </div>`;
+    return sfPage('admin', sfCaption('Shopify Admin · Polaris', spec.type), device);
   }
 
   /** Spring 2026 Discount UI Extension — an admin discount-config form (declarative). */
@@ -1530,31 +1586,25 @@ export class PreviewService {
         const kind = String(f?.kind ?? 'text');
         const control =
           kind === 'toggle'
-            ? '<span class="dui__toggle"></span>'
+            ? '<span class="sf-toggle"></span>'
             : kind === 'select'
-              ? '<span class="dui__input">Select…</span>'
-              : `<span class="dui__input">${kind === 'number' ? '0' : ''}</span>`;
-        return `<div class="dui__field"><label>${label}</label>${control}</div>`;
+              ? '<span class="sf-input">Select…</span>'
+              : `<span class="sf-input">${kind === 'number' ? '0' : '&nbsp;'}</span>`;
+        return `<div class="sf-field" style="flex-direction:row;align-items:center;justify-content:space-between;gap:12px"><label style="margin:0">${label}</label>${control}</div>`;
       })
       .join('');
-    return this.surfaceCard(spec.name, `${spec.type} · admin discount UI`, `
-      <div class="surf-panel">
-        <div class="dui__head"><h3>${esc(title)}</h3><span class="dui__cls">${esc(cls)} discount</span></div>
-        ${desc ? `<p class="surf-muted">${esc(desc)}</p>` : ''}
-        <div class="dui__form">${rows || '<p class="surf-muted">No fields configured yet.</p>'}</div>
-        ${fn ? `<p class="surf-muted">Paired Function: <code>${esc(fn)}</code></p>` : ''}
-        <a class="surf-btn" href="#save">Save discount</a>
-        <details class="surf-state"><summary>Runtime</summary><p class="surf-muted">Needs the Shopify discount-details admin extension shipped before it can publish (needs_runtime).</p></details>
-      </div>
-    `, `
-      .dui__head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-      .dui__cls { background:#EEF3FB; color:#1F3A5F; border-radius:9999px; padding:2px 10px; font-size:12px; text-transform:capitalize; }
-      .dui__form { display:flex; flex-direction:column; gap:10px; margin:10px 0; }
-      .dui__field { display:flex; flex-direction:column; gap:4px; }
-      .dui__field label { font-size:12px; color:#6B7280; }
-      .dui__input { border:1px solid #DCE3EC; border-radius:8px; padding:8px 10px; font-size:13px; background:#fff; color:#6B7280; }
-      .dui__toggle { width:36px; height:20px; border-radius:9999px; background:#DCE3EC; }
-    `);
+    const body = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span class="sf-pill sf-pill--info" style="text-transform:capitalize">${esc(cls)} discount</span></div>
+      <div>${rows || '<p class="sf-muted">No fields configured yet.</p>'}</div>
+      ${fn ? `<p class="sf-muted" style="margin-top:10px">Paired Function: <code>${esc(fn)}</code></p>` : ''}
+      <div class="sf-note sf-note--gate"><b>needs runtime:</b> publishes once the Shopify discount-details admin extension is shipped.</div>`;
+    return this.adminFrame(spec, {
+      appears: 'Discounts',
+      heading: title,
+      description: desc,
+      body,
+      primary: 'Save discount',
+    });
   }
 
   /** Admin link extension (`admin_link`) — a deep link from an admin resource page. */
@@ -1563,24 +1613,20 @@ export class PreviewService {
     const target = String(this.cfgVal(spec, 'target') ?? '');
     const url = String(this.cfgVal(spec, 'url') ?? '/');
     const resource = target.split('.')[1] ?? 'resource';
-    return this.surfaceCard(spec.name, `${spec.type} · admin link`, `
-      <div class="surf-panel">
-        <p class="surf-muted">Shown in the ${esc(resource)} page action menu. Clicking opens your app with the store + selected-resource id appended.</p>
-        <div class="alk__menu">
-          <div class="alk__item">Edit</div>
-          <div class="alk__item">Duplicate</div>
-          <div class="alk__item alk__item--app"><span class="alk__dot"></span>${esc(label)}</div>
-        </div>
-        <p class="surf-muted">Opens: <code>${esc(url)}?shop=…&amp;id=…</code></p>
-        <details class="surf-state"><summary>Target</summary><p class="surf-muted"><code>${esc(target)}</code> — deployed as an admin_link toml registration (no runtime bundle).</p></details>
+    const body = `
+      <p class="sf-muted" style="margin-bottom:10px">Adds an item to the ${esc(resource)} page's <b>More actions</b> menu. Clicking opens your app with the shop + selected-resource id appended.</p>
+      <div class="sf-alk">
+        <div class="sf-alk__item">Edit</div>
+        <div class="sf-alk__item">Duplicate</div>
+        <div class="sf-alk__item sf-alk__item--app"><span class="sf-alk__dot"></span>${esc(label)}</div>
       </div>
-    `, `
-      .alk__menu { border:1px solid #DCE3EC; border-radius:8px; overflow:hidden; margin:10px 0; max-width:280px; }
-      .alk__item { padding:9px 12px; font-size:13px; color:#334155; border-bottom:1px solid #eef2f7; }
-      .alk__item:last-child { border-bottom:0; }
-      .alk__item--app { color:#1F3A5F; font-weight:600; display:flex; align-items:center; gap:8px; }
-      .alk__dot { width:8px; height:8px; border-radius:9999px; background:#1F3A5F; }
-    `);
+      <p class="sf-muted" style="margin-top:10px">Opens <code>${esc(url)}?shop=…&amp;id=…</code></p>`;
+    return this.adminFrame(spec, {
+      appears: titleCaseResource(resource),
+      heading: label,
+      body,
+      foot: 'admin_link registration · no runtime bundle',
+    });
   }
 
   /** Admin print extension (`admin_print`) — a custom printable document preview. */
@@ -1590,28 +1636,24 @@ export class PreviewService {
     const title = String(this.cfgVal(spec, 'title') ?? 'Document');
     const subtitle = String(this.cfgVal(spec, 'subtitle') ?? '');
     const includeHeader = this.cfgVal(spec, 'includeShopHeader') !== false;
-    return this.surfaceCard(spec.name, `${spec.type} · admin print`, `
-      <div class="surf-panel">
-        <p class="surf-muted">Print-action “${esc(label)}” — opens a print preview of an app-rendered ${esc(kind)}.</p>
-        <div class="apr__page">
-          ${includeHeader ? '<div class="apr__shop">Your Store</div>' : ''}
-          <h3 class="apr__title">${esc(title)}</h3>
-          ${subtitle ? `<p class="apr__sub">${esc(subtitle)}</p>` : ''}
-          <div class="apr__rows">
-            <div class="apr__row"><span>SKU-001 · Travel Backpack</span><span>× 1</span></div>
-            <div class="apr__row"><span>SKU-014 · Packing Cube Set</span><span>× 2</span></div>
-          </div>
+    const body = `
+      <p class="sf-muted" style="margin-bottom:10px">Print action “${esc(label)}” — opens the browser print dialog on an app-rendered ${esc(kind)}.</p>
+      <div class="sf-print">
+        ${includeHeader ? '<div class="sf-print__shop">Your Store</div>' : ''}
+        <h3 style="font-size:16px;margin-bottom:2px">${esc(title)}</h3>
+        ${subtitle ? `<p class="sf-muted" style="margin-bottom:8px">${esc(subtitle)}</p>` : ''}
+        <div style="margin-top:8px">
+          <div class="sf-print__row"><span>SKU-001 · Travel Backpack</span><span>× 1</span></div>
+          <div class="sf-print__row"><span>SKU-014 · Packing Cube Set</span><span>× 2</span></div>
         </div>
-        <a class="surf-btn" href="#print">Print</a>
-        <details class="surf-state"><summary>How it renders</summary><p class="surf-muted">s-admin-print-action src points at the app’s /admin-print/document route, parameterized by this config + the selected resource.</p></details>
-      </div>
-    `, `
-      .apr__page { border:1px solid #DCE3EC; border-radius:8px; background:#fff; padding:16px; margin:10px 0; }
-      .apr__shop { font-size:12px; color:#6B7280; text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px; }
-      .apr__title { margin:0; font-size:16px; color:#111827; }
-      .apr__sub { margin:4px 0 10px; color:#6B7280; font-size:13px; }
-      .apr__row { display:flex; justify-content:space-between; font-size:13px; padding:5px 0; border-bottom:1px dashed #eef2f7; color:#334155; }
-    `);
+      </div>`;
+    return this.adminFrame(spec, {
+      appears: 'Orders',
+      heading: label,
+      body,
+      primary: 'Print',
+      foot: 'renders /admin-print/document',
+    });
   }
 
   /** Customer-segment template extension — the segment editor template gallery. */
@@ -1622,26 +1664,23 @@ export class PreviewService {
       ? templates
           .map(
             (t) => `
-        <div class="seg__card">
-          <h3>${esc(String(t?.title ?? 'Template'))}</h3>
-          <p class="surf-muted">${esc(String(t?.description ?? ''))}</p>
-          <code class="seg__q">${esc(String(t?.query ?? ''))}</code>
+        <div class="sf-seg__card">
+          <h4>${esc(String(t?.title ?? 'Template'))}</h4>
+          <p class="sf-muted" style="font-size:12.5px">${esc(String(t?.description ?? ''))}</p>
+          <code class="sf-seg__q">${esc(String(t?.query ?? ''))}</code>
         </div>`,
           )
           .join('')
-      : '<p class="surf-muted">No segment templates configured yet.</p>';
-    return this.surfaceCard(spec.name, `${spec.type} · segment templates`, `
-      <div class="surf-panel">
-        <p class="surf-muted">Appears in the customer segment editor’s template gallery. One click inserts the query.</p>
-        <div class="seg__grid">${cards}</div>
-        <details class="surf-state"><summary>Target</summary><p class="surf-muted"><code>admin.customers.segmentation-templates.data</code> — a runnable data extension returning these templates.</p></details>
-      </div>
-    `, `
-      .seg__grid { display:grid; gap:10px; margin:10px 0; }
-      .seg__card { border:1px solid #DCE3EC; border-radius:8px; padding:12px; background:#fff; }
-      .seg__card h3 { margin:0 0 4px; font-size:14px; color:#1F3A5F; }
-      .seg__q { display:block; margin-top:8px; background:#F6F8FB; border-radius:6px; padding:6px 8px; font-size:12px; color:#334155; overflow-x:auto; }
-    `);
+      : '<p class="sf-muted">No segment templates configured yet.</p>';
+    const body = `
+      <p class="sf-muted" style="margin-bottom:10px">Appears in the customer segment editor's template gallery. One click inserts the query.</p>
+      <div class="sf-seg">${cards}</div>`;
+    return this.adminFrame(spec, {
+      appears: 'Customers › Segments',
+      heading: spec.name,
+      body,
+      foot: 'segmentation-templates data extension',
+    });
   }
 
   private accountSurfacePreview(spec: RecipeSpec): string {
@@ -1655,20 +1694,34 @@ export class PreviewService {
           .map((b) => {
             const bt = String(b.title ?? b.kind ?? 'Block');
             const bc = String(b.content ?? b.body ?? '');
-            return `<div class="surf-panel"><h3>${esc(bt)}</h3>${
-              bc ? `<p class="surf-muted">${esc(bc)}</p>` : ''
+            return `<div class="sf-acct__card"><h3>${esc(bt)}</h3>${
+              bc ? `<p class="sf-muted">${esc(bc)}</p>` : ''
             }</div>`;
           })
           .join('')
-      : `<div class="surf-panel"><h3>${esc(String(this.cfgVal(spec, 'title') ?? spec.name))}</h3><p class="surf-muted">${esc(
+      : `<div class="sf-acct__card"><h3>${esc(String(this.cfgVal(spec, 'title') ?? spec.name))}</h3><p class="sf-muted">${esc(
           String(
             this.cfgVal(spec, 'description') ??
               'Customer account block populated from account context (orders, loyalty tier).',
           ),
         )}</p></div>`;
-    return this.surfaceCard(spec.name, `${spec.type} · customer account`, `<div class="acct">${list}</div>`, `
-      .acct { display:grid; gap:12px; }
-    `);
+    const device = `
+      <div class="sf-device">
+        <div class="sf-co__bar"><span class="sf-co__shop">Your Store</span><span class="sf-muted" style="margin-left:auto;font-size:12px">Sam R.</span></div>
+        <div class="sf-acct">
+          <nav class="sf-acct__nav">
+            <div class="sf-acct__navitem sf-acct__navitem--active">Orders</div>
+            <div class="sf-acct__navitem">Profile</div>
+            <div class="sf-acct__navitem">Addresses</div>
+            <div class="sf-acct__navitem">Settings</div>
+          </nav>
+          <div class="sf-acct__body sf-ds">
+            <div class="sf-acct__hello">Welcome back, Sam</div>
+            ${list}
+          </div>
+        </div>
+      </div>`;
+    return sfPage('account', sfCaption('Customer account · buyer-facing', spec.type), device, this.styleCss(spec as { style?: unknown }, '.sf-ds'));
   }
 
   private posSurfacePreview(spec: RecipeSpec): string {
@@ -1687,51 +1740,113 @@ export class PreviewService {
           .replace(/\b\w/g, (m) => m.toUpperCase())
           .trim()
       : '';
-    return this.surfaceCard(spec.name, `${spec.type} · POS`, `
-      <div class="surf-panel pos">
-        <h3>${esc(title)}</h3>
-        ${surfaceLabel ? `<p class="surf-muted">Appears on: <strong>${esc(surfaceLabel)}</strong></p>` : ''}
-        <a class="surf-btn" href="#tap">${actionLabel ? esc(actionLabel) : 'Tap tile'}</a>
-        <details class="surf-state"><summary>Tapped state</summary><p class="surf-muted">POS opens the block modal with cart context.</p></details>
-      </div>
-    `);
+    const device = `
+      <div class="sf-pos">
+        <div class="sf-pos__screen">
+          <div class="sf-pos__status"><span>9:41</span><span>Shopify POS</span><span>100%</span></div>
+          <div class="sf-pos__bar"><span class="sf-pos__mark"></span><span class="sf-pos__title">Cart</span><span class="sf-pos__cart">2 items · $152.00</span></div>
+          <div class="sf-pos__sheet">
+            <div class="sf-cap" style="margin:0 0 8px">${surfaceLabel ? `<span class="sf-cap__where">${esc(surfaceLabel)}</span>` : '<span class="sf-cap__where">Smart grid</span>'}</div>
+            <h3 style="font-size:15px">${esc(title)}</h3>
+            <div class="sf-pos__grid">
+              <div class="sf-tile">Discounts</div>
+              <div class="sf-tile sf-tile--active">${esc(title).slice(0, 22)}</div>
+              <div class="sf-tile">Customer</div>
+              <div class="sf-tile">Notes</div>
+            </div>
+            <a class="sf-pos__cta" href="#tap">${actionLabel ? esc(actionLabel) : 'Open'}</a>
+          </div>
+        </div>
+      </div>`;
+    return sfPage('pos', sfCaption('Shopify POS · in-store staff', spec.type), device);
   }
 
   private pixelSurfacePreview(spec: RecipeSpec): string {
     const events = this.cfgVal(spec, 'events');
     const evs = Array.isArray(events) ? (events as unknown[]).map(String) : ['page_viewed', 'product_viewed', 'checkout_completed'];
-    return this.surfaceCard(spec.name, `${spec.type} · web pixel`, `
-      <div class="surf-panel">
-        <h3>Subscribed events</h3>
-        <p class="surf-muted">A web pixel has no visible UI — this shows the events it captures and a sample payload.</p>
-        <div class="px__events">${evs.map((e) => `<span class="px__chip">${esc(e)}</span>`).join('')}</div>
-        <details class="surf-state" open><summary>Sample event payload</summary><pre>${esc(JSON.stringify({ event: evs[0] ?? 'page_viewed', timestamp: '2026-06-14T12:00:00Z', clientId: 'demo-client' }, null, 2))}</pre></details>
+    const clock = ['12:00:04.118', '12:00:11.802', '12:01:37.245', '12:02:05.670', '12:02:52.913'];
+    const logLines = evs
+      .map(
+        (e, i) =>
+          `<div class="sf-console__line"><span class="sf-console__ts">${clock[i % clock.length]}</span><span class="sf-console__ev">${esc(e)}</span><span style="color:#5C6780">→ collected</span></div>`,
+      )
+      .join('');
+    const payload = JSON.stringify(
+      { name: evs[0] ?? 'page_viewed', timestamp: '2026-06-14T12:00:04Z', clientId: 'a1b2-c3d4', context: { document: { location: '/products/aurora' } } },
+      null,
+      2,
+    );
+    const device = `
+      <div class="sf-console">
+        <div class="sf-console__bar">
+          <span class="sf-console__dot" style="background:#FF5F57"></span>
+          <span class="sf-console__dot" style="background:#FEBC2E"></span>
+          <span class="sf-console__dot" style="background:#28C840"></span>
+          <span class="sf-console__title">web-pixel · event stream</span>
+        </div>
+        <div class="sf-console__log">${logLines}</div>
+        <pre class="sf-console__pre">${esc(payload)}</pre>
       </div>
-    `, `
-      .px__events { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; }
-      .px__chip { background:#EAF1FB; color:#2F80ED; border-radius:9999px; padding:3px 10px; font-size:12px; }
-      pre { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px; font-size:12px; }
-    `);
+      <div class="sf-note">A web pixel has <b>no visible UI</b> — it runs sandboxed and streams the subscribed customer events shown above to your endpoint.</div>`;
+    return sfPage('console', sfCaption('Web pixel · sandboxed collector', spec.type), device);
   }
 
-  private workflowSurfacePreview(spec: RecipeSpec, surface: PreviewSurface): string {
+  private workflowSurfacePreview(spec: RecipeSpec, _surface: PreviewSurface): string {
+    const isIntegration = spec.type === 'integration.httpSync';
     const steps = this.cfgVal(spec, 'steps');
     const stepList = Array.isArray(steps) ? (steps as Array<Record<string, unknown>>) : [];
-    const rendered = stepList.length
-      ? stepList.map((s, i) => `<div class="wf__step"><span class="wf__n">${i + 1}</span><div><strong>${esc(String(s.kind ?? s.type ?? 'step'))}</strong><div class="surf-muted">${esc(String(s.label ?? s.description ?? ''))}</div></div></div>`).join('')
-      : ['Trigger fires', 'Conditions evaluated against fixture', 'Action dispatched'].map((t, i) => `<div class="wf__step"><span class="wf__n">${i + 1}</span><div><strong>${esc(t)}</strong></div></div>`).join('');
-    return this.surfaceCard(spec.name, `${spec.type} · ${surface}`, `
-      <div class="surf-panel">
-        <h3>Workflow run (simulated)</h3>
-        <div class="wf">${rendered}</div>
-        <details class="surf-state"><summary>Run output</summary><pre>${esc(JSON.stringify({ status: 'completed', dispatched: true }, null, 2))}</pre></details>
-      </div>
-    `, `
-      .wf { display:grid; gap:8px; }
-      .wf__step { display:flex; gap:10px; align-items:flex-start; }
-      .wf__n { background:#1F3A5F; color:#fff; border-radius:9999px; width:22px; height:22px; display:inline-flex; align-items:center; justify-content:center; font-size:12px; flex:0 0 auto; }
-      pre { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px; font-size:12px; }
-    `);
+    // Classify a step into trigger / condition / action so nodes are colour-coded.
+    const kindOf = (raw: string, i: number): 'trigger' | 'condition' | 'action' => {
+      const k = raw.toLowerCase();
+      // Word-boundary matching so "notification" (contains "if") isn't a condition.
+      if (i === 0 || /\b(trigger|event|webhook|source|schedule|when)\b/.test(k)) return 'trigger';
+      if (/\b(condition|filter|check|match|map|transform)\b/.test(k) || /^if\b/.test(k)) return 'condition';
+      return 'action';
+    };
+    type Node = { kind: 'trigger' | 'condition' | 'action'; title: string; desc: string };
+    let nodes: Node[];
+    if (stepList.length) {
+      nodes = stepList.map((s, i) => {
+        const raw = String(s.kind ?? s.type ?? 'step');
+        return { kind: kindOf(raw, i), title: prettyStep(raw), desc: String(s.label ?? s.description ?? '') };
+      });
+    } else if (isIntegration) {
+      // integration.httpSync carries connectorId / trigger / endpointPath /
+      // payloadMapping — build the source→map→destination graph from those real
+      // fields so each connector template previews distinctly (and honestly).
+      const cfg = (spec.config ?? {}) as Record<string, unknown>;
+      const trigger = String(cfg.trigger ?? 'event');
+      const connectorId = String(cfg.connectorId ?? 'endpoint');
+      const endpointPath = String(cfg.endpointPath ?? '/');
+      const mapping = cfg.payloadMapping;
+      const mapCount =
+        mapping && typeof mapping === 'object' ? Object.keys(mapping as object).length : Array.isArray(mapping) ? mapping.length : 0;
+      nodes = [
+        { kind: 'trigger', title: prettyStep(trigger.replace(/^SHOPIFY_WEBHOOK_/, '')), desc: 'Shopify webhook' },
+        { kind: 'condition', title: `Map ${mapCount} field${mapCount === 1 ? '' : 's'}`, desc: 'payload → provider' },
+        { kind: 'action', title: prettyStep(connectorId), desc: `POST ${endpointPath}` },
+      ];
+    } else {
+      nodes = [
+        { kind: 'trigger', title: 'Trigger', desc: 'Event fires' },
+        { kind: 'condition', title: 'Condition', desc: 'Evaluated against fixture' },
+        { kind: 'action', title: 'Action', desc: 'Dispatched' },
+      ];
+    }
+    const graph = nodes
+      .map(
+        (n, i) =>
+          `${i > 0 ? '<span class="sf-graph__link"></span>' : ''}<div class="sf-node sf-node--${n.kind}"><div class="sf-node__kind">${n.kind}</div><div class="sf-node__title">${esc(n.title)}</div>${n.desc ? `<div class="sf-node__desc">${esc(n.desc)}</div>` : ''}</div>`,
+      )
+      .join('');
+    const device = `
+      <div class="sf-device"><div style="padding:18px 16px">
+        <div class="sf-sim__title" style="margin-bottom:12px">${esc(spec.name)}</div>
+        <div class="sf-graph">${graph}</div>
+        <div class="sf-note"><b>Simulated run:</b> the ${isIntegration ? 'sync pipeline maps and delivers the payload' : 'automation evaluates and dispatches'} deterministically against a sample event — <code>{ status: "completed" }</code>.</div>
+      </div></div>`;
+    const where = isIntegration ? 'Integration · HTTP sync' : 'Automation · Flow-style';
+    return sfPage('graph', sfCaption(where, spec.type), device);
   }
 
   /**
@@ -1775,12 +1890,23 @@ export class PreviewService {
     const templates = Array.isArray(cfg.templates) ? (cfg.templates as Array<Record<string, unknown>>) : [];
     const tmpl = templates.find((t) => String(t.channel) === channel) ?? templates[0];
 
-    // Sample merge-var context — deterministic, so the preview is stable.
+    // Sample merge-var context — deterministic, so the preview is stable. Covers
+    // both the `record.*` event shape and the common `customer.*` / `product.*` /
+    // `order.*` namespaces templates author against, so previews render real sample
+    // copy instead of leaving a raw `{{customer.first_name}}` in a flagship preview.
     const sample: Record<string, string> = {
       'record.product_title': 'Aurora Down Jacket',
       'record.product_url': 'https://example.com/products/aurora',
       'record.first_name': 'Sam',
       'record.email': 'sam@example.com',
+      'customer.first_name': 'Sam',
+      'customer.last_name': 'Rivera',
+      'customer.email': 'sam@example.com',
+      'product.title': 'Aurora Down Jacket',
+      'product.url': 'https://example.com/products/aurora',
+      'order.name': '#1024',
+      'order.total': '$152.00',
+      'shop.name': 'Your Store',
     };
     const render = (s: string) =>
       s.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, path: string) => sample[path] ?? `{{${path}}}`);
@@ -1789,45 +1915,60 @@ export class PreviewService {
     const bodyRaw = tmpl?.body ? String(tmpl.body) : '';
     const body = sanitizePreviewHtml(render(bodyRaw));
 
-    const channelBadge = shipped
-      ? `<span class="msg__chip msg__chip--ok">${esc(channel)} · sends now</span>`
-      : `<span class="msg__chip msg__chip--gate">${esc(channel)} · needs runtime</span>`;
+    const channelPill = shipped
+      ? `<span class="sf-pill sf-pill--ok"><span class="sf-pill__dot"></span>${esc(channel)} · sends now</span>`
+      : `<span class="sf-pill sf-pill--warn"><span class="sf-pill__dot"></span>${esc(channel)} · needs runtime</span>`;
 
-    const templateBody =
-      channel === 'email'
-        ? `<div class="msg__email"><div class="msg__subj">${esc(subject) || '<em>(no subject)</em>'}</div><div class="msg__html">${body || '<em>(empty body)</em>'}</div></div>`
-        : `<div class="msg__text">${esc(render(bodyRaw)) || '<em>(empty body)</em>'}</div>`;
+    const gate = shipped
+      ? ''
+      : `<div class="sf-note sf-note--gate"><b>needs runtime:</b> the ${esc(channel)} connector ships, but this channel needs the merchant provider credentials (${esc((sendability.status === 'needs_credentials' ? sendability.missing : []).join(', ') || 'provider config')}) before it can send. Authorable and previewable now; blocked at publish — never a fake send. Email and Slack send today.</div>`;
 
-    return this.surfaceCard(spec.name, `${spec.type} · messaging`, `
-      <div class="surf-panel">
-        <div class="msg__head">${channelBadge}<span class="msg__trig">${esc(triggerLabel)}</span></div>
-        <div class="msg__meta">
-          <div class="msg__row"><span>Audience</span><span>${esc(audienceSummary)}</span></div>
-          ${filtered ? `<div class="msg__row"><span>Filter</span><span>Rule-engine per-recipient filter applied</span></div>` : ''}
-          ${consentField ? `<div class="msg__row"><span>Consent</span><span>Skips recipients where <code>${esc(consentField)}</code> is falsy</span></div>` : ''}
-        </div>
-        <h3>Rendered message (sample data)</h3>
-        ${templateBody}
-        ${
-          shipped
-            ? ''
-            : `<details class="surf-state" open><summary>Runtime</summary><p class="surf-muted">The ${esc(channel)} connector ships, but this channel needs the merchant provider credentials (${esc((sendability.status === 'needs_credentials' ? sendability.missing : []).join(', ') || 'provider config')}) before it can send. Until configured this campaign is authorable and previewable, but blocked at publish (needs runtime) — never a fake send. Email and Slack send today.</p></details>`
-        }
-      </div>
-    `, `
-      .msg__head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
-      .msg__chip { border-radius:9999px; padding:3px 10px; font-size:12px; text-transform:capitalize; }
-      .msg__chip--ok { background:#E7F5EF; color:#0E9F6E; }
-      .msg__chip--gate { background:#FEF3C7; color:#92400E; }
-      .msg__trig { font-size:13px; color:#475569; }
-      .msg__meta { display:grid; gap:4px; margin-bottom:12px; }
-      .msg__row { display:flex; justify-content:space-between; gap:12px; font-size:13px; border-bottom:1px dashed #e2e8f0; padding:3px 0; }
-      .msg__row span:first-child { color:#6B7280; }
-      .msg__email { border:1px solid #dce3ec; border-radius:8px; overflow:hidden; }
-      .msg__subj { background:#f8fafc; border-bottom:1px solid #dce3ec; padding:8px 12px; font-weight:600; color:#111827; font-size:14px; }
-      .msg__html { padding:12px; font-size:14px; color:#1f2937; }
-      .msg__text { border:1px solid #dce3ec; border-radius:8px; padding:12px; font-size:14px; color:#1f2937; white-space:pre-wrap; }
-    `);
+    const metaStrip = `
+      <div class="sf-msg__meta">
+        <div class="sf-kv"><span>Trigger</span><span>${esc(triggerLabel)}</span></div>
+        <div class="sf-kv"><span>Audience</span><span>${esc(audienceSummary)}</span></div>
+        ${filtered ? `<div class="sf-kv"><span>Filter</span><span>Rule-engine per-recipient filter</span></div>` : ''}
+        ${consentField ? `<div class="sf-kv"><span>Consent</span><span>Skips where <code>${esc(consentField)}</code> is falsy</span></div>` : ''}
+      </div>`;
+
+    const textBody = esc(render(bodyRaw)) || '<em>(empty body)</em>';
+    let frame: string;
+    let where: string;
+    if (channel === 'email') {
+      where = 'Email campaign · buyer inbox';
+      frame = `
+        <div class="sf-device sf-mail">
+          <div class="sf-mail__bar">${channelPill}</div>
+          <div class="sf-mail__meta">
+            <div><span class="sf-mail__lbl">From</span> Your Store</div>
+            <div><span class="sf-mail__lbl">To</span> sam@example.com</div>
+            <div class="sf-mail__subj">${esc(subject) || '(no subject)'}</div>
+          </div>
+          <div class="sf-mail__body">${body || '<em>(empty body)</em>'}</div>
+        </div>`;
+    } else if (channel === 'sms') {
+      where = 'SMS campaign · buyer phone';
+      frame = `
+        <div class="sf-phone">
+          <div class="sf-phone__bar">${channelPill}</div>
+          <div class="sf-phone__screen"><div class="sf-bubble">${textBody}</div></div>
+        </div>`;
+    } else if (channel === 'push') {
+      where = 'Push campaign · lock screen';
+      frame = `
+        <div class="sf-phone">
+          <div class="sf-phone__bar">${channelPill}</div>
+          <div class="sf-phone__screen sf-phone__screen--lock"><div class="sf-pushcard"><div class="sf-pushcard__app">Your Store</div><div class="sf-pushcard__body">${textBody}</div></div></div>
+        </div>`;
+    } else {
+      where = `${titleCaseResource(channel)} campaign`;
+      frame = `
+        <div class="sf-device sf-mail">
+          <div class="sf-mail__bar">${channelPill}</div>
+          <div class="sf-mail__body">${textBody}</div>
+        </div>`;
+    }
+    return sfPage('email', sfCaption(where, spec.type), `${frame}${metaStrip}${gate}`);
   }
 
   /**
@@ -1856,37 +1997,27 @@ export class PreviewService {
           ? `Manual (${Array.isArray(source.productIds) ? source.productIds.length : 0} products)`
           : 'All active products';
 
-    const chips = (list: string[], cls: string) =>
-      list.map((a) => `<span class="ag__chip ag__chip--${cls}">${esc(a)}</span>`).join('');
+    const chips = (list: string[], cls: 'ok' | 'warn') =>
+      list.map((a) => `<span class="sf-pill sf-pill--${cls}">${esc(a)}</span>`).join('');
 
-    return this.surfaceCard(spec.name, `${spec.type} · agentic`, `
-      <div class="surf-panel">
-        <div class="ag__url">GET <code>/agentic/{shop}/${esc(feedHandle)}/feed.json</code></div>
-        <div class="ag__meta">
-          <div class="msg__row"><span>Product source</span><span>${esc(sourceLabel)}</span></div>
-          <div class="msg__row"><span>Attributes mapped</span><span>${attributeMap.length}</span></div>
-          <div class="msg__row"><span>Disclosures</span><span>${disclosures.length}</span></div>
+    const device = `
+      <div class="sf-device"><div style="padding:16px">
+        <div class="sf-agent__endpoint"><span class="sf-agent__verb">GET</span> /agentic/{shop}/${esc(feedHandle)}/feed.json</div>
+        <div class="sf-agent__stats">
+          <div class="sf-agent__stat"><div class="sf-agent__num">${attributeMap.length}</div><div class="sf-agent__lbl">Attributes mapped</div></div>
+          <div class="sf-agent__stat"><div class="sf-agent__num">${disclosures.length}</div><div class="sf-agent__lbl">Disclosures</div></div>
+          <div class="sf-agent__stat"><div class="sf-agent__num">${real.length}</div><div class="sf-agent__lbl">Live artifacts</div></div>
         </div>
-        <h3>Artifacts</h3>
-        <div class="ag__chips">${chips(real, 'ok') || '<span class="surf-muted">none</span>'}</div>
+        <div class="sf-kv"><span>Product source</span><span>${esc(sourceLabel)}</span></div>
+        <h3 style="font-size:13px;margin:14px 0 8px">Live artifacts</h3>
+        <div class="sf-chips">${chips(real, 'ok') || '<span class="sf-muted">none</span>'}</div>
         ${
           deferred.length
-            ? `<details class="surf-state" open><summary>Not yet shipped (needs_runtime)</summary>
-                 <div class="ag__chips">${chips(deferred, 'gate')}</div>
-                 <p class="surf-muted">These artifacts (hosted MCP endpoint, agent-profile registration, sponsored products) are modeled but their runtime is not shipped. The module publishes only the feed; these are named as deferred and never faked.</p>
-               </details>`
+            ? `<div class="sf-note sf-note--gate"><b>needs runtime — not yet shipped:</b><div class="sf-chips" style="margin:8px 0">${chips(deferred, 'warn')}</div>Hosted MCP endpoint, agent-profile registration and sponsored products are modeled but their runtime isn't shipped. The module publishes only the feed; these are named as deferred and never faked.</div>`
             : ''
         }
-      </div>
-    `, `
-      .ag__url { font-size:13px; color:#475569; margin-bottom:12px; }
-      .ag__url code { background:#f1f5f9; padding:2px 6px; border-radius:6px; font-size:12px; }
-      .ag__meta { display:grid; gap:4px; margin-bottom:12px; }
-      .ag__chips { display:flex; gap:8px; flex-wrap:wrap; }
-      .ag__chip { border-radius:9999px; padding:3px 10px; font-size:12px; }
-      .ag__chip--ok { background:#E7F5EF; color:#0E9F6E; }
-      .ag__chip--gate { background:#FEF3C7; color:#92400E; }
-    `);
+      </div></div>`;
+    return sfPage('agent', sfCaption('Agentic commerce · machine-readable feed', spec.type), device);
   }
 
 }
@@ -1985,6 +2116,267 @@ document.addEventListener('change', function(e) {
   }
 }, true);
 </script>`;
+
+/**
+ * Surface-authentic preview design system (2026-07-10).
+ *
+ * Every non-storefront extension type (admin, POS, checkout, functions, messaging,
+ * flow, pixel, agentic…) used to render through one flat `.surf` card, so the whole
+ * template gallery read as "generic" — the previews varied by copy but shared a
+ * single undesigned skin. This token set + frame vocabulary gives each family a
+ * chrome that mimics *where it actually lives* (a Polaris admin card, a POS device,
+ * the Shopify checkout, an email client, a Function simulator instrument…), all
+ * built from the DESIGN.md palette/type so the gallery reads as one polished system
+ * while each surface is instantly recognizable. Tokens mirror DESIGN.md exactly
+ * (`--sf-primary #1F3A5F`, `--sf-secondary #2F80ED`, `--sf-accent #0E9F6E`,
+ * Instrument/General Sans + IBM Plex Mono). Fonts fall back to system stacks —
+ * preview iframes are CSP/sandbox-bound and can't reliably pull webfonts, so surface
+ * identity is carried by layout + colour + chrome, never by a font file.
+ */
+const SF_CSS = `
+  .sf, .sf * { box-sizing: border-box; }
+  body { margin: 0; background: #EDF0F5; }
+  .sf {
+    --ink:#14213A; --ink2:#334155; --muted:#6B7280;
+    --line:#E3E8F0; --line2:#EEF2F7; --surface:#FFFFFF; --canvas:#F6F8FB;
+    --primary:#1F3A5F; --secondary:#2F80ED; --accent:#0E9F6E;
+    --warn:#B45309; --warn-bg:#FEF3C7; --crit:#B42318; --crit-bg:#FEE4E2;
+    --ok-bg:#E7F5EF; --info-bg:#EAF1FB;
+    --r:16px; --r2:11px; --r3:8px; --r4:6px;
+    --ui:'Instrument Sans',system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    --disp:'General Sans','Instrument Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+    --sh:0 1px 2px rgba(16,24,40,.05), 0 6px 20px rgba(16,24,40,.07);
+    --sh-lift:0 2px 4px rgba(16,24,40,.06), 0 12px 32px rgba(16,24,40,.10);
+    font-family:var(--ui); color:var(--ink); font-size:14px; line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  .sf h1,.sf h2,.sf h3,.sf h4 { font-family:var(--disp); font-weight:600; letter-spacing:-0.01em; margin:0; }
+  .sf p { margin:0; }
+  .sf code, .sf pre { font-family:var(--mono); }
+
+  /* Caption — a tiny "you are looking at" label above every device frame. */
+  .sf-cap { display:flex; align-items:center; gap:8px; margin:0 2px 10px; padding-right:92px; font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+  .sf-cap__dot { width:7px; height:7px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 3px rgba(14,159,110,.14); flex:0 0 auto; }
+  .sf-cap__where { color:var(--ink2); }
+  .sf-cap__sep { opacity:.4; }
+  .sf-cap__type { margin-left:auto; font-family:var(--mono); letter-spacing:0; text-transform:none; font-weight:500; color:#94A3B8; }
+
+  /* Generic floating device surface. */
+  .sf-device { background:var(--surface); border:1px solid var(--line); border-radius:var(--r); box-shadow:var(--sh); overflow:hidden; }
+
+  /* Shared controls. */
+  .sf-btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:36px; padding:0 16px; border-radius:var(--r3); font:600 13px/1 var(--ui); text-decoration:none; cursor:pointer; border:1px solid transparent; transition:filter .15s ease, transform .06s ease; }
+  .sf-btn:active { transform:translateY(1px); }
+  .sf-btn--primary { background:var(--primary); color:#fff; }
+  .sf-btn--primary:hover { filter:brightness(1.08); }
+  .sf-btn--accent { background:var(--accent); color:#fff; }
+  .sf-btn--dark { background:#1A1A1A; color:#fff; }
+  .sf-btn--plain { background:#fff; color:var(--ink); border-color:var(--line); }
+  .sf-btn--ghost { background:transparent; color:var(--muted); }
+  /* DS button — dressed by the merchant-matched two-pack tokens (seed→--sa-solid,
+     pack radius). Falls back to the neutral primary when no pack/seed resolves. */
+  .sf-btn--ds { background:var(--sa-solid, var(--primary)); color:var(--sa-solid-content, #fff); border-radius:var(--sa-radius, var(--r3)); }
+  .sf-btn--ds:hover { background:var(--sa-solid-hover, var(--sa-solid, var(--primary))); filter:brightness(1.02); }
+  .sf-ds.sf-co__block, .sf-ds.sf-pp__offer { border-radius:var(--sa-radius, var(--r2)); }
+  .sf-ds .sf-acct__card h3 { color:var(--sa-solid, var(--primary)); }
+  .sf-ds .sf-acct__card { border-left:3px solid var(--sa-solid, var(--line)); }
+  .sf-pill { display:inline-flex; align-items:center; gap:5px; border-radius:999px; padding:3px 10px; font-size:12px; font-weight:600; line-height:1.4; }
+  .sf-pill--ok { background:var(--ok-bg); color:var(--accent); }
+  .sf-pill--info { background:var(--info-bg); color:var(--secondary); }
+  .sf-pill--warn { background:var(--warn-bg); color:var(--warn); }
+  .sf-pill--crit { background:var(--crit-bg); color:var(--crit); }
+  .sf-pill--neutral { background:#EEF2F7; color:#475569; }
+  .sf-pill__dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+  .sf-muted { color:var(--muted); font-size:13px; }
+  .sf-kv { display:flex; justify-content:space-between; gap:12px; font-size:13px; padding:7px 0; border-bottom:1px solid var(--line2); }
+  .sf-kv:last-child { border-bottom:0; }
+  .sf-kv > span:first-child { color:var(--muted); }
+  .sf-kv > span:last-child { color:var(--ink); font-weight:500; text-align:right; }
+  .sf-note { margin-top:12px; border:1px solid var(--line); border-left:3px solid var(--secondary); border-radius:var(--r4); background:#F8FAFC; padding:9px 12px; font-size:12.5px; color:var(--ink2); }
+  .sf-note--gate { border-left-color:var(--warn); background:#FFFBEB; }
+  .sf-note b { color:var(--ink); }
+
+  /* ── Admin (Polaris) ──────────────────────────────────────────── */
+  .sf--admin .sf-device { border-radius:var(--r); }
+  .sf-adminbar { display:flex; align-items:center; gap:9px; padding:9px 14px; padding-right:96px; background:#1A1A1A; color:#E7E9EC; }
+  .sf-adminbar__mark { width:18px; height:18px; border-radius:5px; background:linear-gradient(135deg,#95BF47,#5E8E3E); flex:0 0 auto; }
+  .sf-adminbar__crumb { font-size:12.5px; font-weight:500; color:#C9CDD3; }
+  .sf-adminbar__crumb b { color:#fff; }
+  .sf-adminbar__spacer { margin-left:auto; }
+  .sf-adminbar__save { font-size:12px; color:#8C9098; }
+  .sf-admincanvas { background:#F1F1F1; padding:16px; }
+  .sf-pagehead { display:flex; align-items:center; gap:10px; margin:0 2px 12px; }
+  .sf-pagehead h2 { font-size:17px; color:#1A1A1A; }
+  .sf-card { background:#fff; border:1px solid #E3E3E3; border-radius:12px; box-shadow:0 1px 0 rgba(0,0,0,.04); overflow:hidden; }
+  .sf-card__head { display:flex; align-items:center; gap:10px; padding:13px 16px; border-bottom:1px solid #EBEBEB; }
+  .sf-card__head h3 { font-size:14px; color:#1A1A1A; }
+  .sf-card__body { padding:14px 16px; }
+  .sf-card__foot { display:flex; align-items:center; gap:8px; padding:12px 16px; border-top:1px solid #EBEBEB; background:#FAFAFA; }
+  .sf-card__foot .sf-spacer { margin-left:auto; }
+  .sf-field { display:flex; flex-direction:column; gap:5px; margin-bottom:10px; }
+  .sf-field label { font-size:12px; color:#616161; font-weight:500; }
+  .sf-input { border:1px solid #898F94; border-radius:8px; padding:7px 11px; font-size:13px; background:#fff; color:#8A8F95; box-shadow:inset 0 1px 0 rgba(0,0,0,.02); }
+  .sf-toggle { width:34px; height:20px; border-radius:999px; background:#008060; position:relative; flex:0 0 auto; }
+  .sf-toggle::after { content:''; position:absolute; top:2px; right:2px; width:16px; height:16px; border-radius:50%; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.25); }
+  .sf-alk { border:1px solid #E3E3E3; border-radius:8px; overflow:hidden; max-width:260px; box-shadow:0 2px 6px rgba(0,0,0,.06); }
+  .sf-alk__item { padding:9px 13px; font-size:13px; color:#303030; border-bottom:1px solid #F1F1F1; }
+  .sf-alk__item:last-child { border-bottom:0; }
+  .sf-alk__item--app { color:var(--primary); font-weight:600; display:flex; align-items:center; gap:8px; }
+  .sf-alk__dot { width:7px; height:7px; border-radius:50%; background:var(--primary); }
+  .sf-print { border:1px solid var(--line); border-radius:8px; background:#fff; padding:16px; box-shadow:inset 0 0 0 1px #fff, 0 1px 3px rgba(0,0,0,.06); }
+  .sf-print__shop { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin-bottom:8px; }
+  .sf-print__row { display:flex; justify-content:space-between; font-size:13px; padding:6px 0; border-bottom:1px dashed var(--line2); color:var(--ink2); }
+  .sf-seg { display:grid; gap:10px; }
+  .sf-seg__card { border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .sf-seg__card h4 { font-size:13.5px; color:var(--primary); margin-bottom:3px; }
+  .sf-seg__q { display:block; margin-top:8px; background:#0C1220; color:#9FB0C7; border-radius:6px; padding:7px 9px; font:12px/1.4 var(--mono); overflow-x:auto; }
+
+  /* ── POS device ───────────────────────────────────────────────── */
+  .sf--pos { max-width:340px; margin:0 auto; }
+  .sf-pos { background:#0B0F14; border-radius:26px; border:1px solid #1F262F; box-shadow:var(--sh-lift); padding:8px; }
+  .sf-pos__screen { background:#151A21; border-radius:19px; overflow:hidden; }
+  .sf-pos__status { display:flex; align-items:center; justify-content:space-between; padding:9px 16px 5px; font-size:11px; color:#8A93A0; font-family:var(--mono); }
+  .sf-pos__bar { display:flex; align-items:center; gap:9px; padding:6px 14px 12px; color:#fff; }
+  .sf-pos__mark { width:22px; height:22px; border-radius:6px; background:linear-gradient(135deg,#95BF47,#5E8E3E); flex:0 0 auto; }
+  .sf-pos__title { font-size:14px; font-weight:600; }
+  .sf-pos__cart { margin-left:auto; font-size:12px; color:#9AE6B4; font-family:var(--mono); }
+  .sf-pos__sheet { background:#fff; border-radius:16px 16px 0 0; margin-top:4px; padding:16px; }
+  .sf-pos__grid { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin:12px 0; }
+  .sf-tile { border:1px solid var(--line); border-radius:12px; padding:12px; background:#F8FAFC; text-align:center; font-size:12px; color:var(--ink2); font-weight:600; }
+  .sf-tile--active { border-color:#008060; background:#F0FBF7; color:#00694C; box-shadow:0 0 0 2px rgba(0,128,96,.12); }
+  .sf-pos__cta { display:block; width:100%; min-height:48px; border-radius:12px; background:#008060; color:#fff; border:0; font:600 15px/48px var(--ui); text-align:center; text-decoration:none; }
+
+  /* ── Checkout / post-purchase ─────────────────────────────────── */
+  .sf-co__bar { display:flex; align-items:center; gap:8px; padding:12px 18px; border-bottom:1px solid var(--line); background:#fff; }
+  .sf-co__shop { font-family:var(--disp); font-weight:600; font-size:15px; color:var(--ink); }
+  .sf-co__lock { margin-left:auto; font-size:11.5px; color:var(--muted); display:flex; align-items:center; gap:5px; }
+  .sf-co__lock::before { content:''; width:9px; height:9px; border:1.5px solid currentColor; border-radius:2px; }
+  .sf-co__cols { display:grid; grid-template-columns:1.35fr 1fr; }
+  .sf-co__main { padding:18px; }
+  .sf-co__rail { padding:18px; background:#FAFBFC; border-left:1px solid var(--line); }
+  .sf-co__step { font-size:12px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.04em; margin-bottom:8px; }
+  .sf-co__ghost { height:38px; border:1px solid var(--line); border-radius:8px; background:#fff; margin-bottom:9px; }
+  .sf-co__block { border:1.5px solid var(--secondary); border-radius:12px; padding:14px; background:#F5F9FF; box-shadow:0 0 0 3px rgba(47,128,237,.08); }
+  .sf-co__block h3 { font-size:14px; margin-bottom:6px; }
+  .sf-co__line { display:flex; justify-content:space-between; gap:10px; font-size:13px; padding:5px 0; color:var(--ink2); }
+  .sf-co__line--total { border-top:1px solid var(--line); margin-top:6px; padding-top:9px; font-weight:700; color:var(--ink); font-size:14px; }
+  .sf-co__thumb { width:38px; height:38px; border-radius:8px; background:#EDF1F6 center/cover; border:1px solid var(--line); flex:0 0 auto; }
+  .sf-co__item { display:flex; align-items:center; gap:10px; padding:6px 0; }
+  .sf-pp { padding:18px; }
+  .sf-pp__banner { display:flex; align-items:center; gap:9px; background:var(--ok-bg); color:#00694C; border-radius:10px; padding:10px 12px; font-size:13px; font-weight:600; margin-bottom:14px; }
+  .sf-pp__banner::before { content:'✓'; display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border-radius:50%; background:var(--accent); color:#fff; font-size:12px; }
+  .sf-pp__offer { border:1px solid var(--line); border-radius:12px; padding:16px; box-shadow:var(--sh); }
+
+  /* ── Customer account ─────────────────────────────────────────── */
+  .sf-acct { display:grid; grid-template-columns:132px 1fr; }
+  .sf-acct__nav { background:#FAFBFC; border-right:1px solid var(--line); padding:16px 10px; display:flex; flex-direction:column; gap:2px; }
+  .sf-acct__navitem { font-size:13px; color:var(--ink2); padding:7px 10px; border-radius:8px; }
+  .sf-acct__navitem--active { background:#fff; color:var(--primary); font-weight:600; border:1px solid var(--line); box-shadow:0 1px 1px rgba(0,0,0,.03); }
+  .sf-acct__body { padding:18px; display:grid; gap:12px; }
+  .sf-acct__hello { font-size:16px; margin-bottom:4px; }
+  .sf-acct__card { border:1px solid var(--line); border-radius:12px; padding:14px; }
+  .sf-acct__card h3 { font-size:13.5px; margin-bottom:6px; }
+
+  /* ── Functions simulator (instrument) ─────────────────────────── */
+  .sf-sim { display:grid; gap:12px; }
+  .sf-sim__title { font-family:var(--disp); font-weight:600; font-size:15px; color:var(--ink); }
+  .sf-sim__io { display:grid; grid-template-columns:1fr auto 1fr; gap:10px; align-items:stretch; }
+  .sf-sim__panel { border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#fff; }
+  .sf-sim__phead { display:flex; align-items:center; gap:6px; padding:8px 12px; background:#F8FAFC; border-bottom:1px solid var(--line); font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
+  .sf-sim__pbody { padding:10px 12px; font-family:var(--mono); font-size:12px; color:var(--ink2); display:grid; gap:5px; }
+  .sf-sim__row { display:flex; justify-content:space-between; gap:8px; }
+  .sf-sim__engine { align-self:center; display:flex; flex-direction:column; align-items:center; gap:6px; color:var(--muted); }
+  .sf-sim__chip { display:inline-flex; align-items:center; gap:6px; background:#101725; color:#CBD5E1; border-radius:999px; padding:6px 11px; font:600 11px/1 var(--mono); }
+  .sf-sim__chip::before { content:'ƒ'; color:#6EE7B7; font-size:13px; }
+  .sf-sim__arrow { font-size:18px; color:#CBD5E1; }
+  .sf-sim__list { display:grid; gap:7px; }
+  .sf-sim__out { display:flex; align-items:center; gap:10px; background:#fff; border:1px solid var(--line); border-left-width:3px; border-radius:9px; padding:9px 12px; }
+  .sf-sim__out .sf-sim__lbl { font-weight:600; font-size:13px; color:var(--ink); }
+  .sf-sim__out .sf-sim__det { font-size:12.5px; color:var(--muted); margin-top:1px; }
+  .sf-sim__out .sf-sim__tag { margin-left:auto; font:600 10.5px/1 var(--mono); text-transform:uppercase; letter-spacing:.04em; padding:3px 7px; border-radius:5px; }
+  .sf-out--applied { border-left-color:var(--accent); } .sf-out--applied .sf-sim__tag { background:var(--ok-bg); color:var(--accent); }
+  .sf-out--none { border-left-color:var(--warn); } .sf-out--none .sf-sim__tag { background:var(--warn-bg); color:var(--warn); }
+  .sf-out--blocked { border-left-color:var(--crit); } .sf-out--blocked .sf-sim__tag { background:var(--crit-bg); color:var(--crit); }
+  .sf-out--changed { border-left-color:var(--secondary); } .sf-out--changed .sf-sim__tag { background:var(--info-bg); color:var(--secondary); }
+
+  /* ── Flow / integration graph ─────────────────────────────────── */
+  .sf-graph { display:flex; align-items:stretch; gap:0; overflow-x:auto; padding:4px 2px; }
+  .sf-node { flex:1 1 0; min-width:120px; border:1px solid var(--line); border-radius:12px; padding:12px; background:#fff; box-shadow:0 1px 2px rgba(16,24,40,.05); }
+  .sf-node__kind { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; margin-bottom:5px; }
+  .sf-node__title { font-size:13px; font-weight:600; color:var(--ink); }
+  .sf-node__desc { font-size:12px; color:var(--muted); margin-top:3px; }
+  .sf-node--trigger .sf-node__kind { color:var(--accent); }
+  .sf-node--condition .sf-node__kind { color:var(--warn); }
+  .sf-node--action .sf-node__kind { color:var(--secondary); }
+  .sf-graph__link { flex:0 0 26px; align-self:center; height:2px; background:linear-gradient(90deg,var(--line),#C7D0DC); position:relative; }
+  .sf-graph__link::after { content:''; position:absolute; right:-1px; top:-3px; border:4px solid transparent; border-left-color:#C7D0DC; }
+
+  /* ── Pixel console ────────────────────────────────────────────── */
+  .sf-console { background:#0C1220; border-radius:12px; overflow:hidden; box-shadow:var(--sh); }
+  .sf-console__bar { display:flex; align-items:center; gap:6px; padding:9px 13px; border-bottom:1px solid #1C2536; }
+  .sf-console__dot { width:9px; height:9px; border-radius:50%; }
+  .sf-console__title { margin-left:8px; font:600 12px/1 var(--mono); color:#8A93A5; }
+  .sf-console__log { padding:12px 14px; font-family:var(--mono); font-size:12px; color:#B7C0D0; display:grid; gap:4px; max-height:none; }
+  .sf-console__line { display:flex; gap:9px; }
+  .sf-console__ts { color:#5C6780; flex:0 0 auto; }
+  .sf-console__ev { color:#6EE7B7; }
+  .sf-console__pre { margin:10px 14px 14px; background:#111A2B; border:1px solid #1C2536; border-radius:8px; padding:11px; font-size:11.5px; color:#9FB0C7; overflow-x:auto; }
+
+  /* ── Agentic feed profile ─────────────────────────────────────── */
+  .sf-agent__endpoint { display:flex; align-items:center; gap:8px; background:#0C1220; border-radius:10px; padding:10px 13px; font-family:var(--mono); font-size:12px; color:#CBD5E1; margin-bottom:14px; }
+  .sf-agent__verb { background:var(--accent); color:#fff; border-radius:5px; padding:2px 7px; font-weight:700; font-size:11px; flex:0 0 auto; }
+  .sf-agent__stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px; }
+  .sf-agent__stat { border:1px solid var(--line); border-radius:10px; padding:11px 12px; }
+  .sf-agent__num { font-family:var(--disp); font-size:22px; font-weight:600; color:var(--ink); line-height:1; }
+  .sf-agent__lbl { font-size:11.5px; color:var(--muted); margin-top:5px; }
+  .sf-chips { display:flex; flex-wrap:wrap; gap:7px; }
+
+  /* ── Messaging (email client / phone) ─────────────────────────── */
+  .sf-mail { }
+  .sf-mail__bar { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid var(--line); background:#FAFBFC; }
+  .sf-mail__meta { padding:11px 14px; border-bottom:1px solid var(--line); display:grid; gap:3px; font-size:13px; color:var(--ink2); }
+  .sf-mail__lbl { display:inline-block; width:40px; color:var(--muted); font-size:12px; }
+  .sf-mail__subj { font-family:var(--disp); font-weight:600; color:var(--ink); font-size:14px; margin-top:2px; }
+  .sf-mail__body { padding:16px; font-size:14px; color:#1f2937; line-height:1.55; }
+  .sf-phone { max-width:280px; margin:0 auto; background:#0B0F14; border-radius:30px; border:1px solid #1F262F; padding:10px; box-shadow:var(--sh-lift); }
+  .sf-phone__bar { display:flex; justify-content:center; padding:6px 0 10px; }
+  .sf-phone__screen { background:#EDEFF3; border-radius:22px; min-height:150px; padding:16px 12px; }
+  .sf-phone__screen--lock { background:linear-gradient(160deg,#233047,#0E1726); display:flex; align-items:flex-start; }
+  .sf-bubble { background:#fff; border-radius:16px 16px 16px 4px; padding:11px 14px; font-size:13.5px; color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.1); max-width:92%; }
+  .sf-pushcard { background:rgba(255,255,255,.92); backdrop-filter:blur(8px); border-radius:14px; padding:11px 13px; width:100%; box-shadow:0 4px 16px rgba(0,0,0,.2); }
+  .sf-pushcard__app { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:3px; }
+  .sf-pushcard__body { font-size:13px; color:var(--ink); }
+  .sf-msg__meta { margin-top:12px; border:1px solid var(--line); border-radius:10px; padding:4px 12px; background:#fff; }
+`;
+
+/**
+ * Wrap surface-authentic body markup in the shared shell. `family` seeds the
+ * `.sf--{family}` modifier so a frame can size/centre itself (e.g. the POS device).
+ */
+function sfPage(family: string, captionHtml: string, deviceHtml: string, extraCss = ''): string {
+  return pageHtml(
+    `<div class="sf sf--${escAttr(family)}">${captionHtml}${deviceHtml}</div>`,
+    SF_CSS + extraCss,
+  );
+}
+
+/** The little "you are looking at …" caption above each device frame. */
+function sfCaption(where: string, type: string): string {
+  return `<div class="sf-cap"><span class="sf-cap__dot"></span><span class="sf-cap__where">${esc(where)}</span><span class="sf-cap__type">${esc(type)}</span></div>`;
+}
+
+/** 'draft-order' → 'Draft order' — humanize an admin resource id for a breadcrumb. */
+function titleCaseResource(resource: string): string {
+  const s = resource.replace(/[.-]/g, ' ').trim();
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Admin';
+}
+
+/** 'send_email' / 'send-email' → 'Send email' — humanize a workflow step kind. */
+function prettyStep(raw: string): string {
+  const s = raw.replace(/[._-]+/g, ' ').trim();
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Step';
+}
 
 function pageHtml(body: string, css: string) {
   // Every preview is rendered with illustrative SAMPLE values (the module isn't
