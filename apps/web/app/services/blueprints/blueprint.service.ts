@@ -21,6 +21,7 @@ import { PublishService } from '~/services/publish/publish.service';
 import {
   BundleProductService,
   bundleIdFromTitle,
+  bundleParentSku,
   buildBundleRuntimeConfig,
   resolveBundleWithPricing,
   type ResolvedBundle,
@@ -302,7 +303,9 @@ export class BlueprintService {
     const title = String(first.title ?? 'Bundle');
     const bundleId = bundleIdFromTitle(title);
     const parentVariantId = await svc.ensureParentBundleProduct({ bundleId, title, components });
-    const bundleSku = typeof first.bundleSku === 'string' ? first.bundleSku : undefined;
+    // The discount rule targets the merged parent line, whose merchandise SKU is the
+    // one `ensureParentBundleProduct` creates — NOT the recipe-declared `first.bundleSku`.
+    const bundleSku = bundleParentSku(bundleId);
     const base: ResolvedBundle = { bundleId, title, parentVariantId, bundleSku, discountPercentage: 0, components };
     // R2.2 — thread any lowered pricing on the bundle into the runtime config.
     return resolveBundleWithPricing(base, first.pricing as PricingPack | undefined);

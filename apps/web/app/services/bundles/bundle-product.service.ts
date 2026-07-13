@@ -102,6 +102,19 @@ export function bundleIdFromTitle(title: string): string {
 }
 
 /**
+ * The real SKU of the parent bundle variant `ensureParentBundleProduct` creates
+ * (`sku: handle`, `handle = superapp-bundle-<bundleId>`). This is the merged cart
+ * line's merchandise SKU, so the non-Plus pricing fallback's discount rule
+ * (`{ when: { skuIn: [bundleSku] } }`) MUST target THIS value — never the
+ * recipe-declared `bundleSku`, which never reaches the storefront line. Single
+ * source of truth so the rule target can never drift from the created SKU.
+ * INVARIANT: `ResolvedBundle.bundleSku === ensureParentBundleProduct's variant sku`.
+ */
+export function bundleParentSku(bundleId: string): string {
+  return `superapp-bundle-${bundleId}`;
+}
+
+/**
  * Pure: assemble the Function-readable config from resolved bundles. Kept separate
  * from the Admin calls so it can be unit-tested without a shop.
  *
@@ -252,7 +265,7 @@ export class BundleProductService {
     title: string;
     components: ResolvedComponent[];
   }): Promise<string> {
-    const handle = `superapp-bundle-${args.bundleId}`;
+    const handle = bundleParentSku(args.bundleId);
     const componentTitles = args.components.map((c) => c.title).join(', ');
     const input = {
       handle,
