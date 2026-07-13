@@ -58,6 +58,9 @@ export type ResolvedBundle = {
   bundleId: string;
   title: string;
   parentVariantId: string;
+  /** SKU of the parent bundle variant (used by the non-Plus pricing fallback to
+   *  target the merged line in the discount Function). */
+  bundleSku?: string;
   discountPercentage: number;
   components: ResolvedComponent[];
   /**

@@ -302,7 +302,8 @@ export class BlueprintService {
     const title = String(first.title ?? 'Bundle');
     const bundleId = bundleIdFromTitle(title);
     const parentVariantId = await svc.ensureParentBundleProduct({ bundleId, title, components });
-    const base: ResolvedBundle = { bundleId, title, parentVariantId, discountPercentage: 0, components };
+    const bundleSku = typeof first.bundleSku === 'string' ? first.bundleSku : undefined;
+    const base: ResolvedBundle = { bundleId, title, parentVariantId, bundleSku, discountPercentage: 0, components };
     // R2.2 — thread any lowered pricing on the bundle into the runtime config.
     return resolveBundleWithPricing(base, first.pricing as PricingPack | undefined);
   }
