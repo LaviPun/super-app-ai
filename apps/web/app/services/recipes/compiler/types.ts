@@ -1,3 +1,37 @@
+import { getCapabilityNode } from '@superapp/core';
+import type { DeployTargetKind, ModuleType } from '@superapp/core';
+
+/**
+ * Thrown by `compileRecipe` when a spec is compiled against a DeployTarget its
+ * surface can never deploy to (e.g. a `functions.discountRules` or `flow.automation`
+ * recipe compiled against a THEME target, or a `theme.section` against PLATFORM).
+ *
+ * The compatibility rule is NOT hand-authored here — it is read from the capability
+ * graph (`getCapabilityNode().allowedTargetKinds`, derived once in
+ * packages/core/src/capability-graph.ts), so this guard and the publish-policy
+ * allowlist and the eval forbidden-surface gate can never drift apart.
+ */
+export class IncompatibleCompileTargetError extends Error {
+  readonly code = 'INCOMPATIBLE_COMPILE_TARGET';
+  readonly moduleType: ModuleType;
+  readonly surface: string;
+  readonly targetKind: DeployTargetKind;
+  readonly allowedTargetKinds: readonly DeployTargetKind[];
+
+  constructor(moduleType: ModuleType, targetKind: DeployTargetKind) {
+    const node = getCapabilityNode(moduleType);
+    super(
+      `Recipe type "${moduleType}" (surface ${node.surface}) cannot compile against a ` +
+        `${targetKind} deploy target. Allowed target kind(s): ${node.allowedTargetKinds.join(', ')}.`,
+    );
+    this.name = 'IncompatibleCompileTargetError';
+    this.moduleType = moduleType;
+    this.surface = node.surface;
+    this.targetKind = targetKind;
+    this.allowedTargetKinds = node.allowedTargetKinds;
+  }
+}
+
 export type DeployOperation =
   | { kind: 'THEME_ASSET_UPSERT'; themeId: string; key: string; value: string }
   | { kind: 'THEME_ASSET_DELETE'; themeId: string; key: string }

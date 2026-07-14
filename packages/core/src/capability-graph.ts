@@ -38,8 +38,25 @@ function inferSurface(moduleType: ModuleType): CapabilitySurface {
   return 'FLOW';
 }
 
-function inferAllowedTargets(surface: CapabilitySurface): DeployTargetKind[] {
-  return surface === 'THEME' ? ['THEME'] : ['PLATFORM'];
+/**
+ * A `THEME` DeployTarget means "write into a *specific merchant theme*" (themeId +
+ * moduleId, via the theme app extension). Only `theme.section` deploys that way.
+ *
+ * Everything else — including `proxy.widget`, which shares the THEME storefront
+ * *surface* but actually deploys via the App Proxy (no theme touched) — deploys
+ * through `PLATFORM` extensions. So the allowed target kind cannot be derived from
+ * `CapabilitySurface` alone (THEME surface ⊋ THEME target): `theme.section` and
+ * `proxy.widget` are both surface THEME yet split across targets.
+ *
+ * This is the single source of truth for type↔DeployTarget compatibility, consumed
+ * by the compiler guard (`compileRecipe`), the publish-policy allowlist, and the
+ * eval forbidden-surface gate. It is keyed off the `theme.` type prefix — the exact
+ * convention every real caller already uses to pick a target (`api.publish.tsx`,
+ * `publish-worker`, `modules.$moduleId`, `tournament/verify`, `evals.server`) — so
+ * it stays honest without a hand-authored 29-row table that could drift.
+ */
+function inferAllowedTargets(moduleType: ModuleType): DeployTargetKind[] {
+  return moduleType.startsWith('theme.') ? ['THEME'] : ['PLATFORM'];
 }
 
 const capabilityGraph: Record<ModuleType, CapabilityNode> = RECIPE_SPEC_TYPES.reduce(
@@ -48,7 +65,7 @@ const capabilityGraph: Record<ModuleType, CapabilityNode> = RECIPE_SPEC_TYPES.re
     acc[moduleType] = {
       moduleType,
       surface,
-      allowedTargetKinds: inferAllowedTargets(surface),
+      allowedTargetKinds: inferAllowedTargets(moduleType),
       requiredCapabilities: [...(MODULE_TYPE_DEFAULT_REQUIRES[moduleType] as Capability[])],
     };
     return acc;

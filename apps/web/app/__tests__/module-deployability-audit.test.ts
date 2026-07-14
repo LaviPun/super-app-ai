@@ -121,7 +121,10 @@ describe('module deployability audit — every type classified (eligibility mode
  * fallthrough. This fails on the pre-fix path.
  */
 describe('deployable checkout-UI types compile to a real deploy (no false-publish)', () => {
-  const target = { kind: 'CHECKOUT', moduleId: 'test-module' } as unknown as DeployTarget;
+  // Checkout-UI types deploy via PLATFORM extensions (the compiler's target guard
+  // now rejects any other kind — the old fabricated 'CHECKOUT' kind only "worked"
+  // because compileRecipe used to ignore the target entirely).
+  const target = { kind: 'PLATFORM', moduleId: 'test-module' } as unknown as DeployTarget;
 
   for (const type of ['checkout.block', 'postPurchase.offer'] as const) {
     it(`${type} compiles to a checkoutUpsellPayload, not an AUDIT no-op`, () => {
