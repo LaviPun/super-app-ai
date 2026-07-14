@@ -47,7 +47,10 @@ import {
 import type { PromptRouterDecision } from '~/schemas/prompt-router.server';
 import type { TemplateExemplar } from '~/services/ai/solution-search.server';
 import { buildDesignReferencePromptBlock, buildDesignSystemDirectiveForReference, resolveDesignReferencePack, resolveStoreDesignReferencePack, type DesignReferencePack } from '~/services/ai/design-reference.server';
-import { buildDesignQaCorrection, runDesignQa, summarizeQa } from '~/services/ai/design-qa.server';
+import { buildDesignQaCorrection, runDesignQa, summarizeQa, type DesignQaResult } from '~/services/ai/design-qa.server';
+import { runRenderQa } from '~/services/ai/design-qa-render.server';
+import { runRichnessQa, detectRichnessExempt } from '~/services/ai/richness-qa.server';
+import { mustHaveControlsForType } from '~/services/ai/requirement-spec.server';
 
 import { getPrisma } from '~/db.server';
 
@@ -877,11 +880,42 @@ type QaRegenResult = { recipe: RecipeSpec | null; tokensIn: number; tokensOut: n
 type QaRetryResult = { recipe: RecipeSpec; extraTokensIn: number; extraTokensOut: number; extraCostCents: number };
 const NO_EXTRA = { extraTokensIn: 0, extraTokensOut: 0, extraCostCents: 0 };
 
+/**
+ * Extra context threaded into the QA gate so the render-time + richness gates can
+ * run alongside the spec-level gate. `userRequest` drives the richness-exempt
+ * heuristic ("make me a SIMPLE banner" opts out of richness floors);
+ * `mustHaveControls` is the expected control-pack surface (from the module type's
+ * v2 manifest) that the basicness detector measures coverage against. Absent →
+ * only the spec-level `runDesignQa` runs (fully back-compatible).
+ */
+type QaGateContext = { userRequest?: string; mustHaveControls?: string[] };
+
+/**
+ * Run all three deterministic QA gates and MERGE their issues into one
+ * DesignQaResult so the existing single corrective-regeneration loop handles the
+ * union — zero new LLM calls, no new pipeline stage. The spec-level gate owns the
+ * (possibly auto-fixed) recipe; render + richness are read-only telemetry/floors
+ * layered on top. Failure-safe: render/richness each return `[]` on any throw.
+ */
+function runAllQaGates(recipe: RecipeSpec, ctx?: QaGateContext): DesignQaResult {
+  const base = runDesignQa(recipe);
+  if (!ctx) return base;
+  const richnessExempt = ctx.userRequest ? detectRichnessExempt(ctx.userRequest) : false;
+  const renderIssues = runRenderQa(base.recipe);
+  const richnessIssues = runRichnessQa(base.recipe, {
+    mustHaveControls: ctx.mustHaveControls,
+    richnessExempt,
+  });
+  const issues = [...base.issues, ...renderIssues, ...richnessIssues];
+  return { pass: !issues.some((i) => i.severity === 'fail'), issues, recipe: base.recipe };
+}
+
 async function applyDesignQaWithRetry(
   recipe: RecipeSpec,
   regenerate: (correctiveInstruction: string) => Promise<QaRegenResult>,
+  qaContext?: QaGateContext,
 ): Promise<QaRetryResult> {
-  const first = runDesignQa(recipe);
+  const first = runAllQaGates(recipe, qaContext);
   if (first.pass) return { recipe: coerceValidRecipe(first.recipe, recipe), ...NO_EXTRA };
 
   const corrective = buildDesignQaCorrection(first);
@@ -902,7 +936,7 @@ async function applyDesignQaWithRetry(
   const candidate = regen.recipe;
   if (!candidate) return { recipe: coerceValidRecipe(first.recipe, recipe), ...extra };
 
-  const second = runDesignQa(candidate);
+  const second = runAllQaGates(candidate, qaContext);
   if (second.pass) return { recipe: coerceValidRecipe(second.recipe, candidate), ...extra };
 
   // Retry still blocking — keep whichever has fewer blocking issues (tie → first,
@@ -1557,18 +1591,21 @@ export async function* generateValidatedRecipeOptionsStream(
         repairedFlag = fix.repaired;
       }
 
-      const qaRetry = await applyDesignQaWithRetry(recipe, (corrective) =>
-        regenerateSingleRecipeForQa({
-          client,
-          compiledPrompt,
-          corrective,
-          perBudget,
-          singleSchema,
-          moduleType: classification.moduleType,
-          idx,
-          shopId: options?.shopId,
-          providerId: servedId,
-        }),
+      const qaRetry = await applyDesignQaWithRetry(
+        recipe,
+        (corrective) =>
+          regenerateSingleRecipeForQa({
+            client,
+            compiledPrompt,
+            corrective,
+            perBudget,
+            singleSchema,
+            moduleType: classification.moduleType,
+            idx,
+            shopId: options?.shopId,
+            providerId: servedId,
+          }),
+        { userRequest: prompt, mustHaveControls: mustHaveControlsForType(classification.moduleType, 'basic') },
       );
       recipe = qaRetry.recipe;
       // Fold the corrective-regeneration spend into the recorded usage so the
@@ -1800,18 +1837,21 @@ export async function generateValidatedRecipeOptionsParallel(
         repairedFlag = fix.repaired;
       }
 
-      const qaRetry = await applyDesignQaWithRetry(recipe, (corrective) =>
-        regenerateSingleRecipeForQa({
-          client,
-          compiledPrompt,
-          corrective,
-          perBudget,
-          singleSchema,
-          moduleType: classification.moduleType,
-          idx,
-          shopId: options?.shopId,
-          providerId: servedId,
-        }),
+      const qaRetry = await applyDesignQaWithRetry(
+        recipe,
+        (corrective) =>
+          regenerateSingleRecipeForQa({
+            client,
+            compiledPrompt,
+            corrective,
+            perBudget,
+            singleSchema,
+            moduleType: classification.moduleType,
+            idx,
+            shopId: options?.shopId,
+            providerId: servedId,
+          }),
+        { userRequest: prompt, mustHaveControls: mustHaveControlsForType(classification.moduleType, 'basic') },
       );
       recipe = qaRetry.recipe;
       // Fold the corrective-regeneration spend into the recorded usage so the

@@ -60,6 +60,8 @@ export type VerifyResult = {
   nonDestructiveViolations: string[];
   designQaPass: boolean;
   designQaSummary: string;
+  /** Number of blocking richness-floor / basicness failures (035 vocab-hardening). */
+  richnessFailCount: number;
   /** Number of gates actually evaluated — the report's stand-in for "tools used". */
   gatesRun: number;
   error?: string;
