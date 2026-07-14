@@ -44,6 +44,7 @@ import {
   getRecipeSingleJsonSchemaForType,
 } from '~/services/ai/recipe-json-schema.server';
 import type { PromptRouterDecision } from '~/schemas/prompt-router.server';
+import type { TemplateExemplar } from '~/services/ai/solution-search.server';
 import { buildDesignReferencePromptBlock, buildDesignSystemDirectiveForReference, resolveDesignReferencePack, resolveStoreDesignReferencePack, type DesignReferencePack } from '~/services/ai/design-reference.server';
 import { buildDesignQaCorrection, runDesignQa, summarizeQa } from '~/services/ai/design-qa.server';
 
@@ -588,6 +589,8 @@ export function compileCreateModulePrompt(params: {
   fullSchemaSpec?: string;
   styleSchemaSpec?: string;
   catalogDetails?: string;
+  /** Tier-2 few-shot exemplar block (RAG) — already self-headed. Precedes grounding. */
+  exemplarBlock?: string;
   /** Search-augmented grounding examples (RAG) — already self-headed. */
   groundingBlock?: string;
   settingsPack?: string;
@@ -656,6 +659,9 @@ export function compileCreateModulePrompt(params: {
   if (params.catalogDetails) {
     parts.push('', 'Catalog (examples for inspiration):', params.catalogDetails);
   }
+  if (params.exemplarBlock) {
+    parts.push('', params.exemplarBlock);
+  }
   if (params.groundingBlock) {
     parts.push('', params.groundingBlock);
   }
@@ -663,6 +669,17 @@ export function compileCreateModulePrompt(params: {
     parts.push('', '(Previous validation error — fix in next response):', params.previousError);
   }
   return parts.join('\n');
+}
+
+/**
+ * Frame a Tier-2 template exemplar as a self-headed prompt block, inserted just
+ * before the RAG grounding block. The model should match the exemplar's
+ * completeness, structure, and polish without lifting its brand-specific copy.
+ * No exemplar → no block (identical prompt to before).
+ */
+function buildExemplarBlock(exemplar?: TemplateExemplar): string | undefined {
+  if (!exemplar?.specJson) return undefined;
+  return `Hand-authored production-quality example of this module type (match its completeness, structure, and level of polish — do NOT copy its copy-text, name, or brand-specific content verbatim; adapt fully to the user's request):\n${exemplar.specJson}`;
 }
 
 /**
@@ -722,6 +739,8 @@ export function compileCreateSingleRecipePrompt(params: {
   fullSchemaSpec?: string;
   styleSchemaSpec?: string;
   catalogDetails?: string;
+  /** Tier-2 few-shot exemplar block (RAG) — already self-headed. Precedes grounding. */
+  exemplarBlock?: string;
   /** Search-augmented grounding examples (RAG) — already self-headed. */
   groundingBlock?: string;
   settingsPack?: string;
@@ -779,6 +798,9 @@ export function compileCreateSingleRecipePrompt(params: {
   }
   if (params.catalogDetails) {
     parts.push('', 'Catalog (examples for inspiration):', params.catalogDetails);
+  }
+  if (params.exemplarBlock) {
+    parts.push('', params.exemplarBlock);
   }
   if (params.groundingBlock) {
     parts.push('', params.groundingBlock);
@@ -1379,6 +1401,8 @@ export async function* generateValidatedRecipeOptionsStream(
     optionCount?: number;
     /** Search-augmented grounding examples (RAG), injected into each prompt. */
     groundingBlock?: string;
+    /** Tier-2 few-shot exemplar (RAG), injected into each prompt before grounding. */
+    exemplar?: TemplateExemplar;
     /** When this module is one member of a blueprint, coordination context for the prompt. */
     blueprintContext?: string;
   },
@@ -1426,6 +1450,7 @@ export async function* generateValidatedRecipeOptionsStream(
   const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
   const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
   const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
+  const exemplarBlock = buildExemplarBlock(options?.exemplar);
 
   type OneResult =
     | { kind: 'ok'; index: number; approach: string; option: RecipeOption; durationMs: number }
@@ -1444,6 +1469,7 @@ export async function* generateValidatedRecipeOptionsStream(
       fullSchemaSpec,
       styleSchemaSpec,
       catalogDetails,
+      exemplarBlock,
       groundingBlock: options?.groundingBlock,
       settingsPack,
       intentPacketJson,
@@ -1620,6 +1646,8 @@ export async function generateValidatedRecipeOptionsParallel(
     optionCount?: number;
     /** Search-augmented grounding examples (RAG), injected into each prompt. */
     groundingBlock?: string;
+    /** Tier-2 few-shot exemplar (RAG), injected into each prompt before grounding. */
+    exemplar?: TemplateExemplar;
     /** When this module is one member of a blueprint, coordination context for the prompt. */
     blueprintContext?: string;
   },
@@ -1667,6 +1695,7 @@ export async function generateValidatedRecipeOptionsParallel(
   const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
   const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
   const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
+  const exemplarBlock = buildExemplarBlock(options?.exemplar);
 
   const calls = APPROACH_HINTS.slice(0, optionCount).map(async (approach, idx) => {
     const compiledPrompt = compileCreateSingleRecipePrompt({
@@ -1680,6 +1709,7 @@ export async function generateValidatedRecipeOptionsParallel(
       fullSchemaSpec,
       styleSchemaSpec,
       catalogDetails,
+      exemplarBlock,
       groundingBlock: options?.groundingBlock,
       settingsPack,
       intentPacketJson,
@@ -1823,6 +1853,7 @@ export async function generateValidatedBlueprint(
     promptProfile?: string;
     routerDecision?: PromptRouterDecision;
     groundingBlock?: string;
+    exemplar?: TemplateExemplar;
   },
 ): Promise<RecipeBlueprint> {
   const roleList = plan.modules.map((m) => `${m.role} (${m.moduleType})`).join(', ');
@@ -1851,6 +1882,7 @@ export async function generateValidatedBlueprint(
           promptProfile: options?.promptProfile,
           routerDecision: options?.routerDecision,
           groundingBlock: options?.groundingBlock,
+          exemplar: options?.exemplar,
           optionCount: 1,
           blueprintContext,
         },
@@ -1912,6 +1944,8 @@ export async function generateValidatedRecipeOptions(
     routerDecision?: PromptRouterDecision;
     /** Search-augmented grounding examples (RAG), injected into each prompt. */
     groundingBlock?: string;
+    /** Tier-2 few-shot exemplar (RAG), injected into each prompt before grounding. */
+    exemplar?: TemplateExemplar;
     /** When this module is one member of a blueprint, coordination context for the prompt. */
     blueprintContext?: string;
   },
@@ -1925,6 +1959,7 @@ export async function generateValidatedRecipeOptions(
       routerDecision: options?.routerDecision,
       optionCount: 3,
       groundingBlock: options?.groundingBlock,
+      exemplar: options?.exemplar,
       blueprintContext: options?.blueprintContext,
     });
   }
@@ -1957,6 +1992,7 @@ export async function generateValidatedRecipeOptions(
   const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
   const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
   const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
+  const exemplarBlock = buildExemplarBlock(options?.exemplar);
   // Skip full types list when confidence is high — the type is already known, saves ~2K tokens.
   const typesList = isHighConfidence ? `Available type: ${classification.moduleType}` : getAllTypesSummary();
 
@@ -2001,6 +2037,7 @@ export async function generateValidatedRecipeOptions(
       fullSchemaSpec,
       styleSchemaSpec,
       catalogDetails,
+      exemplarBlock,
       groundingBlock: options?.groundingBlock,
       previousError: lastErr ? String(lastErr) : undefined,
       intentPacketJson: includeIntentPacket ? options?.intentPacketJson : undefined,

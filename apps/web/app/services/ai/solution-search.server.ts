@@ -24,12 +24,31 @@ export interface StartFromOption {
   score: number;
 }
 
+/**
+ * Tier-2 few-shot exemplar: the full spec of the single best-matching template,
+ * minified for injection into the create prompt. Present only for a strong match
+ * (see EXEMPLAR_MIN_SCORE) that fits the token budget (see EXEMPLAR_MAX_CHARS).
+ */
+export interface TemplateExemplar {
+  templateId: string;
+  tier: 2;
+  /** Minified, empty-stripped JSON of the template's RecipeSpec. */
+  specJson: string;
+}
+
 export interface SolutionSearchResult {
   /** Best matches, highest score first. */
   startFrom: StartFromOption[];
   /** Compact grounding block for the prompt (empty when no matches). */
   grounding: string;
+  /** Full-spec few-shot exemplar for a strong top match (omitted otherwise). */
+  exemplar?: TemplateExemplar;
 }
+
+/** Raw match score the top template must reach to qualify as a few-shot exemplar. */
+const EXEMPLAR_MIN_SCORE = 3;
+/** JSON size ceiling for an injected exemplar (~2,000 tokens). Above this: hints only. */
+const EXEMPLAR_MAX_CHARS = 8000;
 
 const STOPWORDS = new Set([
   'a', 'an', 'the', 'with', 'for', 'and', 'or', 'to', 'of', 'in', 'on', 'that',
@@ -66,6 +85,39 @@ function scoreTemplate(template: TemplateEntry, queryTokens: Set<string>, requir
     if (surface.has(control)) score += 0.5;
   }
   return score;
+}
+
+function isEmptyValue(value: unknown): boolean {
+  if (value === undefined || value === null || value === '') return true;
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === 'object') return Object.keys(value as object).length === 0;
+  return false;
+}
+
+function stripEmpty(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stripEmpty).filter((v) => !isEmptyValue(v));
+  }
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+      const cleaned = stripEmpty(raw);
+      if (!isEmptyValue(cleaned)) out[key] = cleaned;
+    }
+    return out;
+  }
+  return value;
+}
+
+/**
+ * Compact a template spec into a minified JSON string for few-shot injection:
+ * drop undefined/null/empty-string/empty-array/empty-object values recursively,
+ * then serialize with no whitespace. Deterministic — preserves source key order,
+ * so the same spec always yields byte-identical output. Falsy-but-meaningful
+ * values (0, false) are retained.
+ */
+export function compactSpecForExemplar(spec: unknown): string {
+  return JSON.stringify(stripEmpty(spec));
 }
 
 /**
@@ -106,5 +158,16 @@ export function searchSolutions(
       ].join('\n')
     : '';
 
-  return { startFrom, grounding };
+  // Tier-2 few-shot: inject the full spec of the single best match when it scores
+  // strongly and fits the budget. Weak or oversized matches keep hints only.
+  let exemplar: TemplateExemplar | undefined;
+  const top = ranked[0];
+  if (top && top.score >= EXEMPLAR_MIN_SCORE) {
+    const specJson = compactSpecForExemplar(top.template.spec);
+    if (specJson.length <= EXEMPLAR_MAX_CHARS) {
+      exemplar = { templateId: top.template.id, tier: 2, specJson };
+    }
+  }
+
+  return { startFrom, grounding, ...(exemplar ? { exemplar } : {}) };
 }

@@ -9,7 +9,7 @@ import {
   extractRequirementSpec,
   mustHaveControlsForType,
 } from '~/services/ai/requirement-spec.server';
-import { searchSolutions } from '~/services/ai/solution-search.server';
+import { searchSolutions, compactSpecForExemplar } from '~/services/ai/solution-search.server';
 import type { ClassifyResult } from '~/services/ai/classify.server';
 
 function classify(moduleType: string, confidenceScore: number): ClassifyResult {
@@ -99,5 +99,74 @@ describe('WS1 solution search', () => {
     });
     expect(report.complete).toBe(false);
     expect(report.missing.length).toBeGreaterThan(0);
+  });
+});
+
+describe('WS1 exemplar compaction', () => {
+  it('strips undefined/null/empty-string/empty-array/empty-object recursively', () => {
+    const json = compactSpecForExemplar({
+      keep: 'x',
+      nullish: null,
+      undef: undefined,
+      empty: '',
+      emptyArr: [],
+      emptyObj: {},
+      nested: { drop: '', keep: 'y', deeper: { gone: [], stay: 1 } },
+      list: ['a', '', null, { gone: {} }, { stay: 'b' }],
+    });
+    expect(JSON.parse(json)).toEqual({
+      keep: 'x',
+      nested: { keep: 'y', deeper: { stay: 1 } },
+      list: ['a', { stay: 'b' }],
+    });
+  });
+
+  it('retains falsy-but-meaningful values (0 and false) and minifies (no whitespace)', () => {
+    const json = compactSpecForExemplar({ count: 0, on: false, label: 'q' });
+    expect(json).toBe('{"count":0,"on":false,"label":"q"}');
+    expect(json).not.toMatch(/\s/);
+  });
+
+  it('is stable: identical input yields byte-identical output', () => {
+    const spec = { config: { a: 1, b: ['x', 'y'], c: { d: true } }, type: 'demo' };
+    expect(compactSpecForExemplar(spec)).toBe(compactSpecForExemplar(spec));
+  });
+
+  it('yields a length signal the ~8,000-char exemplar cap can gate on', () => {
+    const small = compactSpecForExemplar({ type: 'demo', config: { title: 'Hello' } });
+    expect(small.length).toBeLessThan(8000);
+    const huge = compactSpecForExemplar({ blocks: Array.from({ length: 500 }, (_, i) => ({ id: `block-${i}`, text: 'lorem ipsum dolor sit amet' })) });
+    expect(huge.length).toBeGreaterThan(8000);
+  });
+});
+
+describe('WS1 solution search — Tier-2 exemplar', () => {
+  it('returns a Tier-2 exemplar for a strong (type-matched) top result', () => {
+    const requirement = buildDeterministicRequirementSpec({
+      userRequest: 'a discount for cart over $100',
+      classification: classify('functions.discountRules', 0.9),
+    });
+    const result = searchSolutions(requirement, { topK: 3 });
+    expect(result.startFrom.length).toBeGreaterThan(0);
+    expect(result.exemplar).toBeDefined();
+    expect(result.exemplar?.tier).toBe(2);
+    expect(result.exemplar?.templateId).toBe(result.startFrom[0]!.templateId);
+    expect(result.exemplar!.specJson.length).toBeLessThanOrEqual(8000);
+    // Injected JSON must parse back to an object.
+    expect(typeof JSON.parse(result.exemplar!.specJson)).toBe('object');
+  });
+
+  it('omits the exemplar for a weak match (top score below threshold), keeping hints', () => {
+    // A bogus module type earns no type-match (+3) bonus; the token overlap alone
+    // ("discount") scores below the exemplar threshold, so hints-only is expected.
+    const weak = RequirementSpecSchema.parse({
+      goal: 'discount',
+      surface: 'unknown',
+      moduleType: 'unknown.nonexistent',
+    });
+    const result = searchSolutions(weak, { topK: 3 });
+    expect(result.startFrom.length).toBeGreaterThan(0);
+    expect(result.grounding).toContain('Grounding examples');
+    expect(result.exemplar).toBeUndefined();
   });
 });

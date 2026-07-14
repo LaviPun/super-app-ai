@@ -110,7 +110,7 @@ export async function action({ request }: { request: Request }) {
   // Parity with the batch route: RAG grounding + live store-palette matching so
   // streamed storefront options look the same as the non-streaming path.
   const requirementSpec = await extractRequirementSpec({ userRequest: finalPrompt, classification, intentPacket });
-  const { grounding } = searchSolutions(requirementSpec);
+  const { grounding, exemplar } = searchSolutions(requirementSpec);
   const isStorefrontType =
     classification.moduleType === 'theme.section' || classification.moduleType === 'proxy.widget';
   // Default true (parity with the batch /api/ai/create-module route): storefront
@@ -130,6 +130,8 @@ export async function action({ request }: { request: Request }) {
       classifiedType: classification.moduleType,
       intent: intentPacket.classification.intent,
       stream: true,
+      exemplarTier: exemplar?.tier ?? null,
+      exemplarTemplateId: exemplar?.templateId ?? null,
     },
   });
   await jobs.start(job.id);
@@ -163,6 +165,7 @@ export async function action({ request }: { request: Request }) {
           routerDecision,
           optionCount: 3,
           groundingBlock: grounding || undefined,
+          exemplar,
         })) {
           if (event.kind === 'option') {
             validCount++;
@@ -199,6 +202,7 @@ export async function action({ request }: { request: Request }) {
               promptProfile: intentPacket.routing.prompt_profile,
               routerDecision,
               groundingBlock: grounding || undefined,
+              exemplar,
             });
             if (blueprint) {
               if (aesthetic) {
