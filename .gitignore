@@ -75,3 +75,4 @@ extensions/*/manifest.json
 # Shopify CLI typegen output — regenerated per dev-config state by `shopify app dev`
 extensions/*/shopify.d.ts
 extensions/*/src/shopify.d.ts
+.superpowers/
