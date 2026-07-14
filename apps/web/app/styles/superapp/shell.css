@@ -55,19 +55,15 @@
 .nav-item.sel::before { content: ''; position: absolute; left: -8px; top: 6px; bottom: 6px; width: 3px; border-radius: 0 3px 3px 0; background: var(--sa-primary); }
 .nav-item svg { flex: none; opacity: .85; }
 .nav-item.sel svg { opacity: 1; }
-/* Polaris's AppProvider writes an inline light-theme `color` on <body> that
-   outranks every stylesheet (including the dark-theme tokens). Re-assert the
-   admin's own text token at the admin roots so dark mode is actually legible. */
+/* Polaris's AppProvider writes an inline `color` on <body> that outranks every
+   stylesheet. Re-assert the admin's own text token at the admin roots so the
+   shell's text color wins over that inline value. */
 .internal-admin-viewport, .cmdk { color: var(--p-text); }
-/* polaris.css loads app-wide, but the merchant embedded surfaces are light-only —
-   declaring color-scheme on :root there would give them dark native UA widgets
-   (scrollbars, <select> popups, autofill) on a light page under a dark OS preference.
-   So the native scheme is declared only at the internal-admin roots, which are the
-   surfaces that actually adopt the dark tokens. */
+/* The internal admin is light-only (owner decision 2026-07-14 — no dark theme).
+   Pin color-scheme: light at the admin roots so dark-preferring browsers render
+   native UA widgets (scrollbars, <select> popups, autofill) light to match, and
+   Chrome's auto-dark heuristic doesn't rewrite this intentionally-light surface. */
 .internal-admin-viewport, .cmdk { color-scheme: light; }
-@media (prefers-color-scheme: dark) {
-  .internal-admin-viewport, .cmdk { color-scheme: dark; }
-}
 /* Visible keyboard focus for every shell control (WCAG 2.2 focus appearance). */
 .nav-item:focus-visible,
 .nav-health:focus-visible,
