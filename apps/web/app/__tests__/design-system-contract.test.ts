@@ -21,12 +21,27 @@ const snippet = fs.readFileSync(path.join(EXT, 'snippets/superapp-module.liquid'
 const bundleSnippet = fs.readFileSync(path.join(EXT, 'snippets/superapp-product-bundle.liquid'), 'utf8');
 
 describe('design-system contract — CSS token layer (§3.3 / §9.3)', () => {
-  it('defines both pack token maps on the scope wrapper', () => {
+  it('defines all four pack token maps on the scope wrapper', () => {
     // Quote-tolerant: the shipped asset is minified, which strips attribute-selector
     // quotes (`[data-sa-pack=luxe]`) — still valid CSS. The `[...]` bracket keeps this
     // matching the CSS selector, not the wrapper element (which uses double quotes).
-    expect(css).toMatch(/\.superapp-scope\[data-sa-pack=['"]?luxe['"]?\]/);
-    expect(css).toMatch(/\.superapp-scope\[data-sa-pack=['"]?bold['"]?\]/);
+    for (const pack of ['luxe', 'bold', 'playful', 'utility'] as const) {
+      expect(css, `missing token map for data-sa-pack=${pack}`).toMatch(
+        new RegExp(`\\.superapp-scope\\[data-sa-pack=['"]?${pack}['"]?\\]`),
+      );
+    }
+  });
+
+  it('the new packs derive their structural grammar (radius/motion) in the token map', () => {
+    // Playful → pill CTAs (9999px btn radius) + springy ease; Utility → near-zero
+    // radius (4px) + fast micro-motion. Assert the distinguishing tokens landed so a
+    // silently-empty map can't pass the selector check above.
+    const playful = css.match(/\.superapp-scope\[data-sa-pack=['"]?playful['"]?\]\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(playful).toMatch(/--sa-btn-radius:\s*9999px/);
+    const utility = css.match(/\.superapp-scope\[data-sa-pack=['"]?utility['"]?\]\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(utility).toMatch(/--sa-radius:\s*4px/);
+    // Fast micro-motion — the minifier may collapse the time unit (120ms → .12s).
+    expect(utility).toMatch(/--sa-motion:\s*(120ms|\.12s)/);
   });
 
   it('carries the typographic voice: fluid display scale + font roles (§1.1)', () => {
@@ -200,7 +215,7 @@ describe('design-system contract — preview parity matrix (R0)', () => {
   ];
 
   for (const { kind, config } of kinds) {
-    for (const pack of ['luxe', 'bold'] as const) {
+    for (const pack of ['luxe', 'bold', 'playful', 'utility'] as const) {
       it(`renders ${kind} × ${pack} inside the pack scope with the real stylesheet`, () => {
         const spec = {
           type: 'theme.section',

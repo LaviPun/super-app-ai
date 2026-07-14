@@ -128,6 +128,67 @@
   }
 }
 
+/* ── Pack C — Playful Commerce ──────────────────────────────────────────────
+   Rounded everything, springy overshoot, multi-accent, pill CTAs, soft DUAL
+   shadow (never a hard offset). Derived from STYLE_PACKS['playful-commerce']
+   (radius md 16 / lg 24, soft raised shadow, bouncy springs). Colors/fonts still
+   inherit the store; the fallbacks below only paint when extraction fails. */
+.superapp-scope[data-sa-pack='playful'] {
+  /* rounded-sans display FALLBACK — store heading stack (compiler-set) still wins */
+  --sa-font-display: 'Nunito', 'Baloo 2', 'Quicksand', system-ui, sans-serif;
+  --sa-display-weight: 800;
+  --sa-display-transform: none;
+  --sa-display-spacing: -0.01em;
+  --sa-display-size: clamp(28px, 5vw, 48px);
+  --sa-display-lh: 1.05;
+  --sa-label-transform: none;
+  --sa-label-spacing: 0.02em;
+  --sa-accent: var(--sa-accent-override, #7c5cff);
+  --sa-border-color: color-mix(in srgb, currentColor 16%, transparent);
+  --sa-radius: 16px;
+  --sa-radius-lg: 24px;
+  --sa-btn-radius: 9999px; /* pill CTAs */
+  --sa-border-w: 1px;
+  --sa-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --sa-overlay-shadow: 0 24px 60px -20px rgba(80, 40, 160, 0.35);
+  --sa-pad: 1.35rem;
+  --sa-motion: 240ms;
+  --sa-ease: cubic-bezier(0.34, 1.56, 0.64, 1); /* springy overshoot */
+  --sa-lift: -3px;
+  --sa-press: scale(0.97);
+}
+
+/* ── Pack D — Tech Utility ──────────────────────────────────────────────────
+   Compact, gridded, geometric/neo-grotesk + mono, near-zero radius, fast
+   MECHANICAL micro-motion (no springs). Derived from STYLE_PACKS['tech-utility']
+   (radius sm 6 / md 8, 1px-ring rest shadow, fast micro-only motion). */
+.superapp-scope[data-sa-pack='utility'] {
+  /* geometric/neo-grotesk display FALLBACK — store heading stack still wins */
+  --sa-font-display: system-ui, 'Helvetica Neue', 'Segoe UI', Arial, sans-serif;
+  --sa-display-weight: 600;
+  --sa-display-transform: none;
+  --sa-display-spacing: -0.02em;
+  --sa-display-size: clamp(22px, 2.6vw, 34px);
+  --sa-display-lh: 1.15;
+  --sa-label-transform: uppercase;
+  --sa-label-spacing: 0.08em;
+  /* cool accent fallback (only paints when the store has no accent) — deliberately
+     NOT Tailwind blue-600 #2563eb, which the anti-slop accent denylist targets. */
+  --sa-accent: var(--sa-accent-override, #0284c7);
+  --sa-border-color: color-mix(in srgb, currentColor 22%, transparent);
+  --sa-radius: 4px; /* near-zero */
+  --sa-radius-lg: 6px;
+  --sa-btn-radius: 4px;
+  --sa-border-w: 1px;
+  --sa-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --sa-overlay-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.25);
+  --sa-pad: 1rem;
+  --sa-motion: 120ms;
+  --sa-ease: cubic-bezier(0.645, 0.045, 0.355, 1); /* mechanical, near-linear */
+  --sa-lift: -1px;
+  --sa-press: translateY(1px);
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    Composition primitives (§04 layout laws · §6 invariants)
    Shared layout scaffolding consumed by the Liquid renderer, the preview

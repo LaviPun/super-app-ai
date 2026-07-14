@@ -53,7 +53,7 @@ export type PreviewContext = {
 // quality on something the storefront never renders. `render()` sets the active
 // pack for the duration of the (synchronous) render; `pageHtml` wraps the body
 // and inlines the pack stylesheet. Non-storefront surfaces get no wrapper.
-type PreviewPack = 'luxe' | 'bold';
+type PreviewPack = 'luxe' | 'bold' | 'playful' | 'utility';
 let activePack: PreviewPack | null = null;
 let activeAccent: string | undefined;
 
@@ -99,9 +99,11 @@ const BUYER_FACING_DS_TYPES = new Set<string>([
   'customerAccount.blocks',
 ]);
 
+const PREVIEW_PACKS: readonly PreviewPack[] = ['luxe', 'bold', 'playful', 'utility'];
 function previewPackOf(spec: RecipeSpec): PreviewPack {
   const p = (spec as { style?: { pack?: string } }).style?.pack;
-  return p === 'bold' ? 'bold' : 'luxe';
+  // 'auto' (unresolved) + anything unknown fall back to Luxe (the can't-look-wrong pack).
+  return PREVIEW_PACKS.includes(p as PreviewPack) ? (p as PreviewPack) : 'luxe';
 }
 
 function previewAccentOf(spec: RecipeSpec): string | undefined {

@@ -123,7 +123,7 @@ export const STOREFRONT_STYLE_SCHEMA_SPEC = `Storefront style (optional object).
 - layout: mode = "inline"|"overlay"|"sticky"|"floating"; anchor = "top"|"bottom"|"left"|"right"|"center"; offsetX, offsetY = -100..100; width = "auto"|"container"|"narrow"|"wide"|"full"; zIndex = "base"|"dropdown"|"sticky"|"overlay"|"modal".
 - spacing: padding, margin, gap = "none"|"tight"|"medium"|"loose".
 - typography: size = "XS"|"SM"|"MD"|"LG"|"XL"|"2XL"; weight = "normal"|"medium"|"bold"; lineHeight = "tight"|"normal"|"relaxed"; align = "left"|"center"|"right".
-- colors: text, background, border, buttonBg, buttonText, overlayBackdrop = hex #RRGGBB; overlayBackdropOpacity = 0-1.
+- colors: ALWAYS set seed = the merchant/brand accent hex #RRGGBB — it seeds the OKLCH semantic ramp (solid / -content / surface / border / text-high / text-low) that the compiler resolves with GUARANTEED contrast, so status/CTA colors are safe by construction. Prefer that ramp over flat hexes: leave buttonBg/buttonText/border UNSET so the accent-derived ramp paints them, and set flat text/background only when deliberately going OFF-ramp for a specific brand surface. text, background, border, buttonBg, buttonText, overlayBackdrop = hex #RRGGBB (optional); overlayBackdropOpacity = 0-1.
 - shape: radius = "none"|"sm"|"md"|"lg"|"xl"|"full"; borderWidth = "none"|"thin"|"medium"|"thick"; shadow = "none"|"sm"|"md"|"lg".
 - responsive: hideOnMobile, hideOnDesktop = boolean.
 - accessibility: focusVisible, reducedMotion = boolean.

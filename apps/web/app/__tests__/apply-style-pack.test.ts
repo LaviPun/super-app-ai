@@ -33,18 +33,21 @@ type Styled = {
   style: { pack?: string; spacing: Record<string, unknown>; shape: Record<string, unknown>; motion: Record<string, unknown> };
 };
 
-describe('resolveStorefrontPack (6→2 collapse)', () => {
-  it('maps the loud/saturated aesthetic packs to bold', () => {
+describe('resolveStorefrontPack (6→4 collapse)', () => {
+  it('maps each personality-explicit aesthetic pack to its own render pack', () => {
     expect(resolveStorefrontPack(sel('bold-dtc', 0.8))).toBe('bold');
-    expect(resolveStorefrontPack(sel('playful-commerce', 0.8))).toBe('bold');
+    expect(resolveStorefrontPack(sel('playful-commerce', 0.8))).toBe('playful');
+    expect(resolveStorefrontPack(sel('tech-utility', 0.8))).toBe('utility');
   });
-  it('maps the calm/clean/premium packs to luxe', () => {
-    for (const p of ['apple-hig-clean', 'editorial-wellness', 'minimal-luxe', 'tech-utility'] as const) {
+  it('collapses the calm/clean/premium packs to luxe', () => {
+    for (const p of ['apple-hig-clean', 'editorial-wellness', 'minimal-luxe'] as const) {
       expect(resolveStorefrontPack(sel(p, 0.8))).toBe('luxe');
     }
   });
-  it('biases to luxe on low confidence even for a bold aesthetic pack', () => {
+  it('biases to luxe on low confidence for every personality-heavy pack', () => {
     expect(resolveStorefrontPack(sel('bold-dtc', 0.2))).toBe('luxe');
+    expect(resolveStorefrontPack(sel('playful-commerce', 0.2))).toBe('luxe');
+    expect(resolveStorefrontPack(sel('tech-utility', 0.2))).toBe('luxe');
   });
 });
 
@@ -57,9 +60,9 @@ describe('applyStylePackTokens', () => {
     expect(EASINGS).toContain(r.style.motion.easing);
   });
 
-  it('resolves + sets the two-pack render grammar (style.pack)', () => {
+  it('resolves + sets the render grammar (style.pack ∈ the four render packs)', () => {
     const r = applyStylePackTokens(section({}), palette, {}) as unknown as Styled;
-    expect(['luxe', 'bold']).toContain(r.style.pack);
+    expect(['luxe', 'bold', 'playful', 'utility']).toContain(r.style.pack);
   });
 
   it('respects a pack the model/merchant already chose', () => {

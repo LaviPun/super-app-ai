@@ -235,6 +235,80 @@ describe('design-qa — pack fidelity (§3)', () => {
     const qa = runDesignQa(baseRecipe({ colors: { text: '#111827', background: '#FFFFFF' }, pack: 'bold', motion: { duration: 'fast' } }));
     expect(qa.issues.some((i) => i.id.startsWith('pack-fidelity'))).toBe(false);
   });
+
+  it('warns when a Playful pack uses slow motion or square (none) radius', () => {
+    const slow = runDesignQa(baseRecipe({ colors: { text: '#111827', background: '#FFFFFF' }, pack: 'playful', motion: { duration: 'slow' } }));
+    expect(slow.issues.some((i) => i.id === 'pack-fidelity:motion' && i.severity === 'warn')).toBe(true);
+    const square = runDesignQa(baseRecipe({ colors: { text: '#111827', background: '#FFFFFF' }, pack: 'playful', shape: { radius: 'none' } }));
+    expect(square.issues.some((i) => i.id === 'pack-fidelity:shape' && i.severity === 'warn')).toBe(true);
+  });
+
+  it('warns when a Utility pack uses slow motion or large radius', () => {
+    const slow = runDesignQa(baseRecipe({ colors: { text: '#111827', background: '#FFFFFF' }, pack: 'utility', motion: { duration: 'slow' } }));
+    expect(slow.issues.some((i) => i.id === 'pack-fidelity:motion' && i.severity === 'warn')).toBe(true);
+    const round = runDesignQa(baseRecipe({ colors: { text: '#111827', background: '#FFFFFF' }, pack: 'utility', shape: { radius: 'xl' } }));
+    expect(round.issues.some((i) => i.id === 'pack-fidelity:shape' && i.severity === 'warn')).toBe(true);
+  });
+});
+
+function gamePopup(blocks: Array<Record<string, unknown>>, style: Record<string, unknown> = {}): RecipeSpec {
+  return {
+    type: 'theme.section',
+    name: 'Spin to win',
+    category: 'STOREFRONT_UI',
+    requires: ['THEME_ASSETS'],
+    config: { kind: 'popup', activation: 'overlay', title: 'Spin', blocks },
+    style: { colors: { text: '#111827', background: '#FFFFFF' }, ...style },
+  } as unknown as RecipeSpec;
+}
+
+describe('design-qa — gamified popup rules (§4.1)', () => {
+  it('warns when no slice carries a positive oddsWeight (uniform fallback)', () => {
+    const qa = runDesignQa(
+      gamePopup([
+        { kind: 'slice', text: '10% off', fields: { couponCode: 'A', oddsWeight: 0 } },
+        { kind: 'slice', text: 'Free ship', fields: { couponCode: 'B' } },
+      ]),
+    );
+    expect(qa.issues.some((i) => i.id === 'game-odds:uniform' && i.severity === 'warn')).toBe(true);
+  });
+
+  it('warns when a single slice dominates ≥95% of the odds weight', () => {
+    const qa = runDesignQa(
+      gamePopup([
+        { kind: 'slice', text: 'Almost always', fields: { couponCode: 'A', oddsWeight: 99 } },
+        { kind: 'slice', text: 'Rare', fields: { couponCode: 'B', oddsWeight: 1 } },
+      ]),
+    );
+    expect(qa.issues.some((i) => i.id === 'game-odds:dominant' && i.severity === 'warn')).toBe(true);
+  });
+
+  it('does not warn for balanced slice weights', () => {
+    const qa = runDesignQa(
+      gamePopup([
+        { kind: 'slice', text: '10% off', fields: { couponCode: 'A', oddsWeight: 30 } },
+        { kind: 'slice', text: 'Free ship', fields: { couponCode: 'B', oddsWeight: 20 } },
+        { kind: 'slice', text: 'Try again', fields: { couponCode: '', oddsWeight: 5 } },
+      ]),
+    );
+    expect(qa.issues.some((i) => i.id.startsWith('game-odds'))).toBe(false);
+  });
+
+  it('blocks a game popup that disabled reduced-motion (mirrors §6 effect severity)', () => {
+    const qa = runDesignQa(
+      gamePopup(
+        [{ kind: 'scratch', text: 'Mystery 20%', fields: { couponCode: 'SCRATCH20' } }],
+        { accessibility: { reducedMotion: false } },
+      ),
+    );
+    expect(qa.pass).toBe(false);
+    expect(qa.issues.some((i) => i.id === 'reduced-motion-game' && i.severity === 'fail')).toBe(true);
+  });
+
+  it('leaves a classic popup (no game blocks) untouched by game rules', () => {
+    const qa = runDesignQa(gamePopup([{ kind: 'field', text: 'Email', fields: { input: 'email' } }]));
+    expect(qa.issues.some((i) => i.id.startsWith('game-odds') || i.id === 'reduced-motion-game')).toBe(false);
+  });
 });
 
 describe('design-qa — corrective instruction', () => {
