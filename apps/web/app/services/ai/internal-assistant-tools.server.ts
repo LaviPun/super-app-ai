@@ -1,3 +1,10 @@
+import {
+  MODULE_TEMPLATES,
+  findTemplate,
+  getTemplateInstallability,
+  RecipeSpecSchema,
+  type TemplateEntry,
+} from '@superapp/core';
 import { getPrisma } from '~/db.server';
 import { getDocsIndex, resolveDocsDir, searchDocs } from '~/services/ai/app-docs-index.server';
 import { redactString } from '~/services/observability/redact.server';
@@ -12,7 +19,10 @@ export type AssistantToolName =
   | 'investigateLogEntry'
   | 'getActivityEvents'
   | 'getWebhookStatus'
-  | 'getJobStatus';
+  | 'getJobStatus'
+  | 'searchTemplates'
+  | 'inspectRecipe'
+  | 'getOpsBriefing';
 
 export type AssistantToolRunResult = {
   toolName: AssistantToolName;
@@ -80,6 +90,32 @@ export function extractInvestigationTarget(prompt: string): InvestigationTarget 
   return null;
 }
 
+/** Template-library trigger + a search-ish verb ⇒ {@link searchTemplates}. */
+const TEMPLATE_LIBRARY_RE = /\b(templates?|library|catalog)\b/i;
+const SEARCHISH_RE = /\b(find|search|show|browse|list|recommend|looking|need|want|suggest|which|any|for an?)\b/i;
+
+/**
+ * Explicit template-id token shape (e.g. `CHKU-01`, `ADMA-ORD-05`): 2+ leading
+ * uppercase letters then one or more dash-separated uppercase/digit segments.
+ */
+const TEMPLATE_ID_RE = /\b[A-Z]{2,}[A-Z0-9]*(?:-[A-Z0-9]+)+\b/;
+/** "inspect/analyze/validate/review (the) recipe/spec/template/module" verb form. */
+const INSPECT_VERB_RE =
+  /\b(inspect|analy[sz]e|validate|review|check)\s+(?:this\s+|the\s+|a\s+|my\s+)?(recipe|spec|template|module)\b/i;
+/** Bare recipe/spec/module keyword — needs an id/name signal to fire inspectRecipe. */
+const RECIPE_KEYWORD_RE = /\b(recipe|spec|module)\b/i;
+
+/** Composed daily ops briefing trigger ⇒ {@link getOpsBriefing}. */
+const BRIEFING_RE =
+  /\b(briefing|daily (?:summary|brief)|morning (?:brief|summary|report)|what happened (?:today|yesterday|overnight)|status report)\b/i;
+
+/** Does the prompt carry an explicit template-id / cuid / inspect-verb signal? */
+function hasInspectSignal(prompt: string): boolean {
+  if (INSPECT_VERB_RE.test(prompt)) return true;
+  if (!RECIPE_KEYWORD_RE.test(prompt)) return false;
+  return CUID_RE.test(prompt) || TEMPLATE_ID_RE.test(prompt);
+}
+
 /**
  * App/domain keywords that make a *question-shaped* prompt worth grounding in the
  * docs corpus. Gated by {@link looksLikeQuestion} so generative imperatives that
@@ -114,6 +150,19 @@ function summarizeStatusCodeDistribution(values: number[]) {
 }
 
 export function selectToolsForPrompt(prompt: string): AssistantToolName[] {
+  // A daily-ops-briefing prompt is a distinct top-level intent: the composed
+  // getOpsBriefing snapshot REPLACES the individual keyword ops tools (it already
+  // covers fleet/DLQ/errors/webhooks/spend/activity), so short-circuit here to avoid
+  // wasting the max-3 window on overlapping tools. Investigation still takes slot 0
+  // if an explicit target is present, and getAppOverview may accompany it.
+  if (BRIEFING_RE.test(prompt)) {
+    const briefing: AssistantToolName[] = [];
+    if (extractInvestigationTarget(prompt)) briefing.push('investigateLogEntry');
+    briefing.push('getOpsBriefing');
+    if (APP_OVERVIEW_PATTERN.test(prompt)) briefing.push('getAppOverview');
+    return Array.from(new Set(briefing)).slice(0, 3);
+  }
+
   const selected: AssistantToolName[] = [];
   // 0. Specific-entry investigation is the priority tool: whenever the prompt
   //    carries an investigation target it goes FIRST so the max-3 slice can never
@@ -129,6 +178,10 @@ export function selectToolsForPrompt(prompt: string): AssistantToolName[] {
   for (const entry of FAMILY_TOOL_KEYWORDS) {
     if (entry.patterns.some((pattern) => pattern.test(prompt))) selected.push(entry.tool);
   }
+  // 1c. Recipe/template capability tools. Placed ahead of docs/overview so a
+  //     crowded prompt can't evict them from the max-3 window.
+  if (TEMPLATE_LIBRARY_RE.test(prompt) && SEARCHISH_RE.test(prompt)) selected.push('searchTemplates');
+  if (hasInspectSignal(prompt)) selected.push('inspectRecipe');
   const questionish = looksLikeQuestion(prompt);
   // 2. Documentation search for app/domain questions. Also the default-grounding
   //    rule: any question that matched no other tool still gets the docs search.
@@ -530,6 +583,384 @@ async function runInvestigateLogEntry(prisma: PrismaClient, prompt: string): Pro
   return { toolName: 'investigateLogEntry', ok: true, data: payload };
 }
 
+// ─── Recipes & templates ──────────────────────────────────────────────────────
+
+/** Query stopwords stripped before ranking (routing/domain filler, not content). */
+const TEMPLATE_SEARCH_STOPWORDS = new Set([
+  'the', 'and', 'for', 'with', 'that', 'this', 'from', 'into', 'your', 'you', 'are',
+  'can', 'find', 'show', 'list', 'need', 'want', 'template', 'templates', 'recipe',
+  'recipes', 'library', 'catalog', 'give', 'get', 'please', 'how', 'what', 'which',
+  'one', 'some', 'about', 'make', 'build', 'create', 'add', 'use', 'using', 'have',
+  'has', 'all', 'any', 'looking', 'recommend', 'suggest',
+]);
+
+export type TemplateSearchHit = { id: string; name: string; type: string; category?: string; pack?: string };
+
+/** Distinct ≥3-char content tokens from the prompt (stopwords removed). */
+function tokenizeQuery(prompt: string): string[] {
+  const words = (prompt.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(
+    (w) => w.length >= 3 && !TEMPLATE_SEARCH_STOPWORDS.has(w),
+  );
+  return Array.from(new Set(words));
+}
+
+function templatePack(t: TemplateEntry): string | undefined {
+  const style = (t.spec as { style?: { pack?: unknown } }).style;
+  const pack = style?.pack;
+  return typeof pack === 'string' ? pack : undefined;
+}
+
+/** Weighted substring score across name/tags/type/id/category/description. */
+function scoreTemplate(t: TemplateEntry, tokens: string[]): number {
+  const name = t.name.toLowerCase();
+  const id = t.id.toLowerCase();
+  const type = t.type.toLowerCase();
+  const category = String(t.category).toLowerCase();
+  const tags = (t.tags ?? []).map((x) => x.toLowerCase());
+  const description = (t.description ?? '').toLowerCase();
+  let score = 0;
+  for (const tok of tokens) {
+    if (name.includes(tok)) score += 5;
+    if (id.includes(tok)) score += 4;
+    if (tags.some((tag) => tag.includes(tok))) score += 3;
+    if (type.includes(tok)) score += 3;
+    if (category.includes(tok)) score += 2;
+    if (description.includes(tok)) score += 1;
+  }
+  return score;
+}
+
+/**
+ * Pure ranking over the exported template library ({@link MODULE_TEMPLATES}, the
+ * modernized union of app-extension modules + app-blocks + native sections). Returns
+ * the top `limit` hits and the total number of templates that matched at all.
+ */
+export function rankTemplates(prompt: string, limit = 6): { hits: TemplateSearchHit[]; totalMatches: number } {
+  const tokens = tokenizeQuery(prompt);
+  if (tokens.length === 0) return { hits: [], totalMatches: 0 };
+  const scored = MODULE_TEMPLATES.map((t) => ({ t, score: scoreTemplate(t, tokens) }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || a.t.name.localeCompare(b.t.name));
+  const hits = scored.slice(0, limit).map(({ t }) => {
+    const hit: TemplateSearchHit = { id: t.id, name: t.name, type: t.type, category: String(t.category) };
+    const pack = templatePack(t);
+    if (pack) hit.pack = pack;
+    return hit;
+  });
+  return { hits, totalMatches: scored.length };
+}
+
+export type InspectTarget =
+  | { kind: 'template'; template: TemplateEntry }
+  | { kind: 'moduleId'; id: string };
+
+/**
+ * Resolve what the prompt asked to inspect: an explicit template-id token → a cuid
+ * (module, resolved at run time) → a template name appearing verbatim in the prompt.
+ * Reuses {@link CUID_RE}/{@link TEMPLATE_ID_RE} from the shared routing signals.
+ */
+export function resolveInspectTarget(prompt: string): InspectTarget | null {
+  const idMatch = prompt.match(TEMPLATE_ID_RE);
+  if (idMatch) {
+    const tpl = findTemplate(idMatch[0]);
+    if (tpl) return { kind: 'template', template: tpl };
+  }
+  const cuid = prompt.match(CUID_RE);
+  if (cuid) return { kind: 'moduleId', id: cuid[0] };
+  const lower = prompt.toLowerCase();
+  let best: TemplateEntry | null = null;
+  for (const t of MODULE_TEMPLATES) {
+    const name = t.name.toLowerCase();
+    if (name.length >= 6 && lower.includes(name) && (!best || t.name.length > best.name.length)) best = t;
+  }
+  return best ? { kind: 'template', template: best } : null;
+}
+
+/** Per-payload cap for the inspect snapshot; deployability then issues trim to fit. */
+const INSPECT_PAYLOAD_CAP = 2000;
+const INSPECT_ISSUE_CAP = 5;
+
+/** Key-structure summary derived from the actual spec shape (never assumes fields). */
+function summarizeRecipeSpec(spec: unknown) {
+  const s = (spec ?? {}) as Record<string, unknown>;
+  const config = (s.config ?? {}) as Record<string, unknown>;
+  const settingKeys = Object.keys(config);
+  const style = s.style as { pack?: unknown } | undefined;
+  const placement = s.placement as { enabled_on?: { templates?: unknown } } | undefined;
+  const theme = s.theme as { mode?: unknown } | undefined;
+  const enabledTemplates = Array.isArray(placement?.enabled_on?.templates)
+    ? (placement!.enabled_on!.templates as unknown[]).map(String).slice(0, 8)
+    : null;
+  return {
+    type: typeof s.type === 'string' ? s.type : 'unknown',
+    category: typeof s.category === 'string' ? s.category : null,
+    requires: Array.isArray(s.requires) ? (s.requires as unknown[]).map(String).slice(0, 12) : [],
+    settingsCount: settingKeys.length,
+    settingKeys: settingKeys.slice(0, 8),
+    pack: typeof style?.pack === 'string' ? style.pack : null,
+    deployMode: typeof theme?.mode === 'string' ? theme.mode : null,
+    surfaces: enabledTemplates,
+  };
+}
+
+/** RecipeSpecSchema verdict: valid flag + first N issues (path + redacted message). */
+function validateRecipeVerdict(spec: unknown): {
+  valid: boolean;
+  issues: Array<{ path: string; message: string }>;
+} {
+  const parsed = RecipeSpecSchema.safeParse(spec);
+  if (parsed.success) return { valid: true, issues: [] };
+  const issues = parsed.error.issues.slice(0, INSPECT_ISSUE_CAP).map((issue) => ({
+    path: issue.path.join('.') || '(root)',
+    message: redactString(issue.message).slice(0, 160),
+  }));
+  return { valid: false, issues };
+}
+
+/** Cheap, pure per-spec deployability verdict via the eligibility helper. */
+function deployabilityVerdict(entry: TemplateEntry): { ok: boolean; reasons: string[] } | null {
+  try {
+    const inst = getTemplateInstallability(entry);
+    return { ok: inst.ok, reasons: inst.reasons.slice(0, 3).map((r) => redactString(r).slice(0, 160)) };
+  } catch {
+    return null;
+  }
+}
+
+type ModuleInspectRow = {
+  id: string;
+  shopId: string;
+  name: string;
+  type: string;
+  category: string;
+  activeVersion?: { specJson: string } | null;
+  versions?: Array<{ specJson: string }>;
+};
+
+/** inspectRecipe: resolve template/module → summary + validation (+ deployability), budgeted. */
+async function runInspectRecipe(prisma: PrismaClient, prompt: string): Promise<AssistantToolRunResult> {
+  const target = resolveInspectTarget(prompt);
+  if (!target) {
+    return {
+      toolName: 'inspectRecipe',
+      ok: false,
+      data: {
+        found: false,
+        reason:
+          'No recipe target found. Include a template id (e.g. CHKU-01), a template name, or a module id (cuid).',
+      },
+    };
+  }
+
+  let source: 'template' | 'module';
+  let id: string;
+  let shopId: string | undefined;
+  let name: string;
+  let spec: unknown;
+  let entry: TemplateEntry;
+
+  if (target.kind === 'template') {
+    source = 'template';
+    id = target.template.id;
+    name = target.template.name;
+    spec = target.template.spec;
+    entry = target.template;
+  } else {
+    const mod = (await prisma.module
+      .findFirst({
+        where: { id: target.id },
+        select: {
+          id: true,
+          shopId: true,
+          name: true,
+          type: true,
+          category: true,
+          activeVersion: { select: { specJson: true } },
+          versions: { orderBy: { version: 'desc' }, take: 1, select: { specJson: true } },
+        },
+      })
+      .catch(() => null)) as ModuleInspectRow | null;
+    if (!mod) {
+      return {
+        toolName: 'inspectRecipe',
+        ok: false,
+        data: { found: false, target: target.id, reason: 'No module matches that id.' },
+      };
+    }
+    source = 'module';
+    id = mod.id;
+    shopId = mod.shopId;
+    name = mod.name;
+    const specJson = mod.activeVersion?.specJson ?? mod.versions?.[0]?.specJson ?? null;
+    try {
+      spec = specJson ? JSON.parse(specJson) : {};
+    } catch {
+      spec = {};
+    }
+    entry = {
+      id: mod.id,
+      name: mod.name,
+      description: '',
+      category: mod.category as TemplateEntry['category'],
+      type: mod.type,
+      spec: spec as TemplateEntry['spec'],
+    };
+  }
+
+  const summary = summarizeRecipeSpec(spec);
+  const validation = validateRecipeVerdict(spec);
+  const deployability = deployabilityVerdict(entry);
+
+  const payload: Record<string, unknown> = {
+    found: true,
+    source,
+    id,
+    ...(shopId ? { shopId } : {}),
+    name: redactString(String(name)).slice(0, 80),
+    summary,
+    validation,
+    ...(deployability ? { deployability } : {}),
+  };
+
+  // Enforce the payload cap: drop deployability first (secondary), then trim issues.
+  if (JSON.stringify(payload).length > INSPECT_PAYLOAD_CAP) delete payload.deployability;
+  while (
+    JSON.stringify(payload).length > INSPECT_PAYLOAD_CAP &&
+    Array.isArray(validation.issues) &&
+    validation.issues.length > 0
+  ) {
+    validation.issues.pop();
+  }
+
+  return { toolName: 'inspectRecipe', ok: true, data: payload };
+}
+
+// ─── Composed daily ops briefing ────────────────────────────────────────────────
+
+/** Cap for the whole briefing payload (terse key/value lines the model narrates). */
+const BRIEFING_PAYLOAD_CAP = 2500;
+
+/**
+ * One composed, all-`.catch`-guarded platform snapshot: fleet, DLQ, errors, webhooks,
+ * AI spend and activity. Each sub-query mirrors the underlying query logic of the
+ * dedicated tools (getAppOverview/getJobStatus/getRecentErrors/getWebhookStatus/…)
+ * so the model can narrate a single briefing without spending three tool slots.
+ */
+async function runOpsBriefing(prisma: PrismaClient, since24h: Date): Promise<AssistantToolRunResult> {
+  const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const asCount = (p: Promise<number>) => p.catch(() => 0);
+
+  const [
+    shopsTotal,
+    shopsActive,
+    dlqFailed,
+    newestFailure,
+    errors24hRows,
+    webhookTotal7d,
+    webhookFailed7d,
+    ai24h,
+    ai30d,
+    latestAudit,
+    activityRows,
+  ] = await Promise.all([
+    asCount(prisma.shop.count()),
+    asCount(prisma.appSubscription.count({ where: { status: 'ACTIVE' } })),
+    asCount(prisma.job.count({ where: { status: 'FAILED' } })),
+    prisma.job
+      .findFirst({
+        where: { status: 'FAILED' },
+        orderBy: { createdAt: 'desc' },
+        select: { type: true, error: true, result: true, payload: true, createdAt: true },
+      })
+      .catch(() => null),
+    prisma.errorLog
+      .findMany({
+        where: { createdAt: { gte: since24h }, level: 'ERROR' },
+        orderBy: { createdAt: 'desc' },
+        take: 300,
+        select: { route: true, source: true },
+      })
+      .catch(() => [] as Array<{ route: string | null; source: string | null }>),
+    asCount(prisma.webhookEvent.count({ where: { processedAt: { gte: since7d } } })),
+    asCount(prisma.webhookEvent.count({ where: { processedAt: { gte: since7d }, success: false } })),
+    prisma.aiUsage
+      .aggregate({ where: { createdAt: { gte: since24h } }, _sum: { requestCount: true, costCents: true } })
+      .catch(() => ({ _sum: { requestCount: 0, costCents: 0 } })),
+    prisma.aiUsage
+      .aggregate({ where: { createdAt: { gte: since30d } }, _sum: { requestCount: true, costCents: true } })
+      .catch(() => ({ _sum: { requestCount: 0, costCents: 0 } })),
+    prisma.auditLog
+      .findFirst({ orderBy: { createdAt: 'desc' }, select: { action: true, createdAt: true } })
+      .catch(() => null),
+    prisma.activityLog
+      .findMany({
+        where: { createdAt: { gte: since24h } },
+        orderBy: { createdAt: 'desc' },
+        take: 300,
+        select: { action: true },
+      })
+      .catch(() => [] as Array<{ action: string }>),
+  ]);
+
+  const topRoute = (() => {
+    const counts = new Map<string, number>();
+    for (const row of errors24hRows) {
+      const key = row.route || row.source || 'unknown';
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    let top: { route: string; count: number } | null = null;
+    for (const [route, count] of counts) if (!top || count > top.count) top = { route: sanitizePath(route), count };
+    return top;
+  })();
+
+  const topActions = (() => {
+    const counts = new Map<string, number>();
+    for (const row of activityRows) counts.set(row.action, (counts.get(row.action) ?? 0) + 1);
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([action, count]) => ({ action, count }));
+  })();
+
+  const failureExcerpt = newestFailure
+    ? investigateExcerpt(newestFailure.error ?? newestFailure.result ?? newestFailure.payload ?? '')
+    : null;
+
+  const data: Record<string, unknown> = {
+    generatedAt: new Date().toISOString(),
+    stores: { total: shopsTotal, active: shopsActive },
+    dlq: {
+      failedTotal: dlqFailed,
+      newestFailure: newestFailure
+        ? { type: newestFailure.type, when: newestFailure.createdAt.toISOString(), excerpt: failureExcerpt }
+        : null,
+    },
+    errors24h: { total: errors24hRows.length, topRoute },
+    webhooks7d: {
+      processed: Math.max(webhookTotal7d - webhookFailed7d, 0),
+      failed: webhookFailed7d,
+      total: webhookTotal7d,
+    },
+    ai: {
+      requests24h: ai24h._sum.requestCount ?? 0,
+      costCents24h: Number((ai24h._sum.costCents ?? 0).toFixed(2)),
+      requests30d: ai30d._sum.requestCount ?? 0,
+      costCents30d: Number((ai30d._sum.costCents ?? 0).toFixed(2)),
+    },
+    latestAudit: latestAudit ? { action: latestAudit.action, when: latestAudit.createdAt.toISOString() } : null,
+    activity24h: { topActions },
+  };
+
+  // Enforce the payload cap by shedding the most trimmable detail first.
+  if (JSON.stringify(data).length > BRIEFING_PAYLOAD_CAP) {
+    const dlqDetail = (data.dlq as { newestFailure?: { excerpt?: unknown } }).newestFailure;
+    if (dlqDetail && dlqDetail.excerpt) dlqDetail.excerpt = null;
+  }
+
+  return { toolName: 'getOpsBriefing', ok: true, data };
+}
+
 export async function runAssistantTool(
   toolName: AssistantToolName,
   options: AssistantToolRunOptions = {},
@@ -688,6 +1119,26 @@ export async function runAssistantTool(
 
   if (toolName === 'investigateLogEntry') {
     return runInvestigateLogEntry(prisma, options.prompt ?? '');
+  }
+
+  if (toolName === 'searchTemplates') {
+    const query = (options.prompt ?? '').slice(0, 200);
+    const { hits, totalMatches } = rankTemplates(options.prompt ?? '');
+    // Budget the payload (~1200 chars): drop the lowest-ranked hits until it fits.
+    let results = hits;
+    const build = () => ({ query, totalMatches, results });
+    while (results.length > 1 && JSON.stringify(build()).length > 1200) {
+      results = results.slice(0, -1);
+    }
+    return { toolName, ok: true, data: build() };
+  }
+
+  if (toolName === 'inspectRecipe') {
+    return runInspectRecipe(prisma, options.prompt ?? '');
+  }
+
+  if (toolName === 'getOpsBriefing') {
+    return runOpsBriefing(prisma, since24h);
   }
 
   if (toolName === 'getActivityEvents') {
@@ -1058,6 +1509,104 @@ function formatFamilyBlock(result: AssistantToolRunResult): string {
   return `${result.toolName}: ${JSON.stringify(d).slice(0, 1000)}`;
 }
 
+/** Render searchTemplates hits as terse lines. */
+function formatSearchTemplatesBlock(result: AssistantToolRunResult): string {
+  if (!result.ok) return 'Template search: unavailable.';
+  const d = result.data as {
+    query?: string;
+    totalMatches?: number;
+    results?: Array<{ id: string; name: string; type: string; category?: string; pack?: string }>;
+  };
+  const results = d.results ?? [];
+  const lines = [`Template search (${d.totalMatches ?? 0} match${(d.totalMatches ?? 0) === 1 ? '' : 'es'}, top ${results.length}):`];
+  if (results.length === 0) lines.push('no matching templates.');
+  for (const r of results) {
+    lines.push(`- ${r.id} · ${r.name} [${r.type}${r.pack ? `, pack ${r.pack}` : ''}]`);
+  }
+  return lines.join('\n');
+}
+
+/** Render the inspectRecipe snapshot: summary, validation verdict, deployability. */
+function formatInspectRecipeBlock(result: AssistantToolRunResult): string {
+  const d = result.data as {
+    found?: boolean;
+    reason?: string;
+    source?: string;
+    id?: string;
+    name?: string;
+    summary?: {
+      type?: string;
+      category?: string | null;
+      requires?: string[];
+      settingsCount?: number;
+      settingKeys?: string[];
+      pack?: string | null;
+      deployMode?: string | null;
+      surfaces?: string[] | null;
+    };
+    validation?: { valid?: boolean; issues?: Array<{ path: string; message: string }> };
+    deployability?: { ok?: boolean; reasons?: string[] };
+  };
+  if (!result.ok || !d.found || !d.summary) {
+    return `Recipe inspection: ${d.reason ?? 'no matching recipe found.'}`;
+  }
+  const s = d.summary;
+  const lines = [`Recipe inspection (${d.source} ${d.id}${d.name ? ` · ${d.name}` : ''}):`];
+  lines.push(`type: ${s.type}${s.category ? ` · category ${s.category}` : ''}`);
+  if (s.pack || s.deployMode) {
+    lines.push(`${s.pack ? `pack: ${s.pack}` : ''}${s.pack && s.deployMode ? ' · ' : ''}${s.deployMode ? `deployMode: ${s.deployMode}` : ''}`.trim());
+  }
+  lines.push(
+    `settings: ${s.settingsCount ?? 0}${s.settingKeys && s.settingKeys.length ? ` (${s.settingKeys.join(', ')})` : ''}`,
+  );
+  if (s.requires && s.requires.length) lines.push(`requires: ${s.requires.join(', ')}`);
+  if (s.surfaces && s.surfaces.length) lines.push(`surfaces: ${s.surfaces.join(', ')}`);
+  const v = d.validation;
+  if (v) {
+    lines.push(`validation: ${v.valid ? 'valid RecipeSpec' : 'INVALID'}`);
+    for (const issue of v.issues ?? []) lines.push(`  ✗ ${issue.path}: ${issue.message}`);
+  }
+  if (d.deployability) {
+    lines.push(`deployable: ${d.deployability.ok ? 'yes' : 'no'}${d.deployability.reasons?.length ? ` — ${d.deployability.reasons.join('; ')}` : ''}`);
+  }
+  return lines.join('\n');
+}
+
+/** Render the composed ops briefing as grouped terse lines. */
+function formatBriefingBlock(result: AssistantToolRunResult): string {
+  if (!result.ok) return 'Ops briefing: unavailable.';
+  const d = result.data as {
+    stores?: { total?: number; active?: number };
+    dlq?: { failedTotal?: number; newestFailure?: { type?: string; when?: string; excerpt?: string | null } | null };
+    errors24h?: { total?: number; topRoute?: { route?: string; count?: number } | null };
+    webhooks7d?: { processed?: number; failed?: number; total?: number };
+    ai?: { requests24h?: number; costCents24h?: number; requests30d?: number; costCents30d?: number };
+    latestAudit?: { action?: string; when?: string } | null;
+    activity24h?: { topActions?: Array<{ action: string; count: number }> };
+  };
+  const lines = ['Ops briefing (live):'];
+  lines.push(`fleet: ${d.stores?.total ?? 0} stores, ${d.stores?.active ?? 0} active`);
+  const dlq = d.dlq;
+  const dlqFail = dlq?.newestFailure;
+  lines.push(
+    `dlq: ${dlq?.failedTotal ?? 0} failed${dlqFail ? ` · newest ${dlqFail.type ?? 'job'}${dlqFail.excerpt ? `: ${dlqFail.excerpt}` : ''}` : ''}`,
+  );
+  const err = d.errors24h;
+  lines.push(
+    `errors24h: ${err?.total ?? 0}${err?.topRoute ? ` · top ${err.topRoute.route} (${err.topRoute.count})` : ''}`,
+  );
+  const wh = d.webhooks7d;
+  lines.push(`webhooks7d: ${wh?.processed ?? 0} ok / ${wh?.failed ?? 0} failed of ${wh?.total ?? 0}`);
+  const ai = d.ai;
+  lines.push(
+    `ai: ${ai?.requests24h ?? 0} req / ${((ai?.costCents24h ?? 0) / 100).toFixed(2)} USD (24h), ${ai?.requests30d ?? 0} req / ${((ai?.costCents30d ?? 0) / 100).toFixed(2)} USD (30d)`,
+  );
+  if (d.latestAudit) lines.push(`latestAudit: ${d.latestAudit.action} @ ${d.latestAudit.when}`);
+  const acts = d.activity24h?.topActions ?? [];
+  if (acts.length) lines.push(`activity24h: ${acts.map((a) => `${a.action} ${a.count}`).join(', ')}`);
+  return lines.join('\n');
+}
+
 const FAMILY_TOOL_NAMES = new Set<AssistantToolName>(['getActivityEvents', 'getWebhookStatus', 'getJobStatus']);
 
 export function formatToolContext(results: AssistantToolRunResult[]): string {
@@ -1066,20 +1615,30 @@ export function formatToolContext(results: AssistantToolRunResult[]): string {
   let docsResult: AssistantToolRunResult | undefined;
   let overviewResult: AssistantToolRunResult | undefined;
   let investigateResult: AssistantToolRunResult | undefined;
+  let briefingResult: AssistantToolRunResult | undefined;
+  let inspectResult: AssistantToolRunResult | undefined;
+  let searchResult: AssistantToolRunResult | undefined;
   const familyResults: AssistantToolRunResult[] = [];
   for (const result of results) {
     if (result.toolName === 'searchAppDocs') docsResult = result;
     else if (result.toolName === 'getAppOverview') overviewResult = result;
     else if (result.toolName === 'investigateLogEntry') investigateResult = result;
+    else if (result.toolName === 'getOpsBriefing') briefingResult = result;
+    else if (result.toolName === 'inspectRecipe') inspectResult = result;
+    else if (result.toolName === 'searchTemplates') searchResult = result;
     else if (FAMILY_TOOL_NAMES.has(result.toolName)) familyResults.push(result);
     else snapshotLines.push(`- ${result.toolName}: ${JSON.stringify(result.data).slice(0, 3000)}`);
   }
 
   // Investigation snapshot is the highest-priority block (never sacrificial),
-  // followed by family coverage, the ops snapshot, and overview. Docs excerpts
-  // fill the remaining budget and are trimmed (lowest-ranked snippet first).
+  // followed by the composed briefing, recipe/template snapshots, family coverage,
+  // the ops snapshot, and overview. Docs excerpts fill the remaining budget and are
+  // trimmed (lowest-ranked snippet first).
   const blocks: string[] = [];
   if (investigateResult) blocks.push(formatInvestigationBlock(investigateResult));
+  if (briefingResult) blocks.push(formatBriefingBlock(briefingResult));
+  if (inspectResult) blocks.push(formatInspectRecipeBlock(inspectResult));
+  if (searchResult) blocks.push(formatSearchTemplatesBlock(searchResult));
   for (const family of familyResults) blocks.push(formatFamilyBlock(family));
   if (snapshotLines.length) blocks.push(['Internal tools snapshot (sanitized):', ...snapshotLines].join('\n'));
   if (overviewResult) blocks.push(formatOverviewBlock(overviewResult));
