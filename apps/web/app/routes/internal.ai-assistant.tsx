@@ -724,14 +724,20 @@ function doneVerbForIntent(intent: string): string {
 
 /** Arm window: first click arms; a second click within this window executes. */
 const ACTION_ARM_MS = 4000;
+// Minimum dwell between arming and accepting the confirm click. Below this the
+// second click is treated as part of the same gesture (double-click / held Enter),
+// not a separate decision.
+const ACTION_ARM_DWELL_MS = 250;
 
 /**
  * Confirm-to-run action cards under an assistant reply. Each proposal is
  * re-validated against the allowlist before its button is wired. Execution goes
  * exclusively through {@link useAdminOps} → the audited `/internal/ops` path — no
  * new mutation route. Two-step: first click arms ("Confirm: …" for ~4s), second
- * click submits; while pending the button spins and its siblings disable; the
- * settled outcome is shown inline (✓ / ✗) and the card stays disabled.
+ * click submits (but a click within ACTION_ARM_DWELL_MS of arming is ignored so a
+ * double-click / held Enter can't confirm in one gesture); while pending the button
+ * spins and its siblings disable; the settled outcome is shown inline (✓ / ✗) and
+ * the card stays disabled.
  */
 function ActionCards({ proposals }: { proposals: ActionProposal[] }) {
   // Render-time allowlist gate: never wire a button for a non-allowlisted intent.
@@ -741,6 +747,11 @@ function ActionCards({ proposals }: { proposals: ActionProposal[] }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, { ok: boolean; message: string }>>({});
   const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // When the card armed. The confirm branch ignores clicks that land within
+  // ACTION_ARM_DWELL_MS of arming so a physical double-click or a held Enter key
+  // (whose second event arrives while armed) can't execute without a deliberate
+  // second decision.
+  const armedAtRef = useRef(0);
 
   useEffect(() => () => {
     if (armTimerRef.current) clearTimeout(armTimerRef.current);
@@ -761,6 +772,9 @@ function ActionCards({ proposals }: { proposals: ActionProposal[] }) {
   const onCardClick = (p: ActionProposal) => {
     if (results[p.id] || busy) return; // done, or another card mid-flight
     if (armedId === p.id) {
+      // Dwell guard: swallow the second click of a double-click / held-Enter
+      // gesture so confirmation requires a distinct, deliberate action.
+      if (Date.now() - armedAtRef.current < ACTION_ARM_DWELL_MS) return;
       clearArm();
       setArmedId(null);
       setActiveId(p.id);
@@ -770,6 +784,7 @@ function ActionCards({ proposals }: { proposals: ActionProposal[] }) {
     }
     clearArm();
     setArmedId(p.id);
+    armedAtRef.current = Date.now();
     armTimerRef.current = setTimeout(() => {
       setArmedId((current) => (current === p.id ? null : current));
     }, ACTION_ARM_MS);
