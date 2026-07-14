@@ -16,6 +16,7 @@ import type { RouterRuntimeConfig } from '~/schemas/router-runtime-config.server
 import { isInternalAiLocalOnlyEnabledFromEnv } from '~/services/ai/internal-ai-local-only';
 import {
   useAdminCtx,
+  useAdminOps,
   Icon,
   Btn,
   Badge,
@@ -26,6 +27,11 @@ import {
   Textarea,
   formatRelativeTime,
 } from '~/components/admin/page-kit';
+import {
+  parseStoredActionProposals,
+  validateActionProposal,
+  type ActionProposal,
+} from '~/services/ai/internal-assistant-actions';
 
 const ActionSchema = z.object({
   intent: z.enum([
@@ -671,6 +677,8 @@ type ThreadMsg = {
   tools?: string[];
   status?: 'streaming' | 'completed' | 'error';
   error?: string | null;
+  /** Confirm-to-run action proposals attached to an assistant reply. */
+  actions?: ActionProposal[];
 };
 
 function messagesToThread(messages: any[]): ThreadMsg[] {
@@ -682,6 +690,9 @@ function messagesToThread(messages: any[]): ThreadMsg[] {
       text: m.content ?? '',
       status: m.status,
       error: m.error,
+      // Persisted proposals are re-validated through the allowlist on parse so a
+      // tampered row can never render an arbitrary intent (defense in depth).
+      actions: m.role === 'assistant' ? parseStoredActionProposals(m.actionsJson) : undefined,
     }));
 }
 
@@ -702,6 +713,119 @@ function deriveLastAssistantMeta(messages: any[]): any | null {
     }
   }
   return null;
+}
+
+/** Past-tense confirmation verb shown after a successful ops run, per intent. */
+function doneVerbForIntent(intent: string): string {
+  if (intent === 'job_replay') return 'Replayed';
+  if (intent === 'job_replay_all') return 'Replayed all';
+  return 'Done';
+}
+
+/** Arm window: first click arms; a second click within this window executes. */
+const ACTION_ARM_MS = 4000;
+
+/**
+ * Confirm-to-run action cards under an assistant reply. Each proposal is
+ * re-validated against the allowlist before its button is wired. Execution goes
+ * exclusively through {@link useAdminOps} → the audited `/internal/ops` path — no
+ * new mutation route. Two-step: first click arms ("Confirm: …" for ~4s), second
+ * click submits; while pending the button spins and its siblings disable; the
+ * settled outcome is shown inline (✓ / ✗) and the card stays disabled.
+ */
+function ActionCards({ proposals }: { proposals: ActionProposal[] }) {
+  // Render-time allowlist gate: never wire a button for a non-allowlisted intent.
+  const valid = proposals.filter((p) => validateActionProposal(p));
+  const { run, busy, data } = useAdminOps();
+  const [armedId, setArmedId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [results, setResults] = useState<Record<string, { ok: boolean; message: string }>>({});
+  const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (armTimerRef.current) clearTimeout(armTimerRef.current);
+  }, []);
+
+  // Record the settled ops outcome against the card that submitted it.
+  useEffect(() => {
+    if (!activeId || busy || !data) return;
+    setResults((prev) => ({ ...prev, [activeId]: { ok: Boolean(data.ok), message: data.message } }));
+    setActiveId(null);
+  }, [activeId, busy, data]);
+
+  const clearArm = () => {
+    if (armTimerRef.current) clearTimeout(armTimerRef.current);
+    armTimerRef.current = null;
+  };
+
+  const onCardClick = (p: ActionProposal) => {
+    if (results[p.id] || busy) return; // done, or another card mid-flight
+    if (armedId === p.id) {
+      clearArm();
+      setArmedId(null);
+      setActiveId(p.id);
+      const { id, ...rest } = p.params;
+      run(p.intent, { id, message: p.label, extra: rest });
+      return;
+    }
+    clearArm();
+    setArmedId(p.id);
+    armTimerRef.current = setTimeout(() => {
+      setArmedId((current) => (current === p.id ? null : current));
+    }, ACTION_ARM_MS);
+  };
+
+  if (valid.length === 0) return null;
+
+  return (
+    <div
+      className="asst-actions"
+      role="group"
+      aria-label="Suggested actions"
+      style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 12 }}
+    >
+      {valid.map((p) => {
+        const result = results[p.id];
+        const isArmed = armedId === p.id;
+        const isPending = activeId === p.id && busy;
+        const label = result
+          ? result.ok
+            ? `✓ ${doneVerbForIntent(p.intent)}`
+            : `✗ ${result.message}`
+          : isArmed
+            ? `Confirm: ${p.label}`
+            : p.label;
+        return (
+          <div
+            key={p.id}
+            className="stack"
+            style={{ gap: 3, minWidth: 0, maxWidth: 320 }}
+          >
+            <Btn
+              size="sm"
+              variant={result ? undefined : isArmed ? 'primary' : 'magic'}
+              icon={result ? undefined : 'bolt'}
+              loading={isPending}
+              disabled={Boolean(result) || (busy && !isPending)}
+              onClick={() => onCardClick(p)}
+              title={result ? result.message : p.reason}
+              aria-label={result ? label : isArmed ? `Confirm ${p.label}` : `${p.label} — ${p.reason}`}
+              style={
+                result
+                  ? { color: result.ok ? 'var(--p-success)' : 'var(--p-critical)' }
+                  : undefined
+              }
+            >
+              {label}
+            </Btn>
+            <span className="t-xs t-muted t-trunc" title={p.reason}>
+              {p.reason}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function AdminAssistant() {
@@ -921,6 +1045,10 @@ export default function AdminAssistant() {
         const ok = payload.ok !== false;
         setToolCalls((prev) => [...prev, { tool: toolName, ok }]);
         patchLastMessage((m) => ({ tools: [...(m.tools || []), toolName] }));
+      } else if (eventName === 'actions') {
+        // Validate through the allowlist before attaching — never trust the wire.
+        const proposals = parseStoredActionProposals(payload?.proposals);
+        if (proposals.length > 0) patchLastMessage(() => ({ actions: proposals }));
       } else if (eventName === 'done') {
         setRequestMeta({
           assistantMessageId: payload.assistantMessageId,
@@ -1254,6 +1382,9 @@ export default function AdminAssistant() {
                       <Icon name="alert" size={13} />
                       {m.error || 'Response failed.'}
                     </div>
+                  )}
+                  {m.role === 'assistant' && m.actions && m.actions.length > 0 && (
+                    <ActionCards proposals={m.actions} />
                   )}
                 </div>
               </div>
