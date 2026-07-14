@@ -11,12 +11,19 @@ import {
   TriggerPackSchema,
   LayoutArchetypePackSchema,
   layoutArchetypePack,
+  recommendationPack,
   resolveTypeEnumOptions,
   resolveTypeEnumsForType,
   describeTypeEnums,
   validateTypeEnums,
 } from '../control-packs/index.js';
 import type { TypeEnumField } from '../control-packs/index.js';
+import { RecipeSpecSchema } from '../recipe.js';
+import type { ModuleType } from '../allowed-values.js';
+import {
+  RECOMMENDATION_STRATEGIES,
+  STATIC_RECOMMENDATION_STRATEGIES,
+} from '../allowed-values.js';
 
 describe('control pack registry', () => {
   it('registers the control packs', () => {
@@ -156,11 +163,17 @@ describe('R2.5 — per-type enum enabler (flat-pin)', () => {
     expect(() => resolveTypeEnumOptions('functions.discountRules', 'nope', bad)).toThrow(/empty fallback/);
   });
 
-  it('describeTypeEnums emits one closed-enum prose line for theme.section', () => {
+  it('describeTypeEnums emits a closed-enum prose line per per-type enum for theme.section', () => {
+    // theme.section now resolves TWO per-type enums: layout (R2.5) + recommendation
+    // strategy (plan 3a, full set on this app-proxy-capable surface).
     const lines = describeTypeEnums('theme.section');
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain('config.layout.layout');
-    expect(lines[0]).toContain('stacked | grid | masonry | carousel');
+    expect(lines).toHaveLength(2);
+    const layoutLine = lines.find((l) => l.includes('config.layout.layout'));
+    expect(layoutLine).toContain('stacked | grid | masonry | carousel');
+    const strategyLine = lines.find((l) => l.includes('config.recommendation.strategy'));
+    expect(strategyLine).toBeDefined();
+    // Full set on theme.section — a DYNAMIC strategy is present here.
+    expect(strategyLine).toContain('top-sellers');
   });
 
   it('types without a per-type enum resolve to nothing (schema/prose unchanged)', () => {
@@ -187,6 +200,135 @@ describe('R2.5 — per-type enum enabler (flat-pin)', () => {
       expect(values).not.toContain('discount-code');
       expect(values).not.toContain('draft-order');
     }
+  });
+});
+
+describe('plan 3a — recommendation strategy per-type enum + manifests', () => {
+  it('recommendation pack declares a typeEnum on `strategy` (fallback = full set)', () => {
+    const field = recommendationPack.typeEnums?.strategy;
+    expect(field?.kind).toBe('typeEnum');
+    expect(field?.enumKey).toBe('strategy');
+    expect(field?.fallback.map((o) => o.value)).toEqual([...RECOMMENDATION_STRATEGIES]);
+    expect(field?.default).toBe('related');
+  });
+
+  it('proxy.widget manifest pins only rule-engine (advanced); basic stays empty', () => {
+    const m = getManifest('proxy.widget');
+    expect(m?.packs).toEqual([]);
+    expect(m?.advancedPacks).toEqual(['rule-engine']);
+  });
+
+  it('checkout/upsell & postPurchase carry recommendation at BASIC; checkout.block at ADVANCED', () => {
+    expect(getManifest('checkout.upsell')?.packs).toEqual(['recommendation']);
+    expect(getManifest('postPurchase.offer')?.packs).toEqual(['recommendation']);
+    const block = getManifest('checkout.block');
+    expect(block?.packs).toEqual([]);
+    expect(block?.advancedPacks).toEqual(['recommendation']);
+  });
+
+  it('theme.section resolves the FULL strategy set (app-proxy-capable surface)', () => {
+    const r = resolveTypeEnumsForType('theme.section').find(
+      (x) => x.packNamespace === 'recommendation' && x.field === 'strategy',
+    );
+    expect(r?.options.map((o) => o.value)).toEqual([...RECOMMENDATION_STRATEGIES]);
+    expect(r?.options.map((o) => o.value)).toContain('top-sellers'); // dynamic kept here
+  });
+
+  it('checkout/post-purchase surfaces resolve ONLY the static six (dynamics dropped)', () => {
+    for (const type of ['checkout.upsell', 'checkout.block', 'postPurchase.offer'] as const) {
+      const r = resolveTypeEnumsForType(type).find(
+        (x) => x.packNamespace === 'recommendation' && x.field === 'strategy',
+      );
+      expect(r?.options.map((o) => o.value), type).toEqual([...STATIC_RECOMMENDATION_STRATEGIES]);
+      for (const dyn of ['top-sellers', 'trending', 'buy-it-again', 'recently-viewed']) {
+        expect(r?.options.map((o) => o.value), `${type} excludes ${dyn}`).not.toContain(dyn);
+      }
+    }
+  });
+});
+
+/**
+ * Structural guards (plan 3a). Every per-type enum the catalog resolves must be
+ * (a) actually pinnable on that type's RecipeSpec union branch, and (b) a subset
+ * of the pack schema's full closed enum for that field — otherwise a catalog entry
+ * could name a `config.<ns>` node the branch never accepts, or a value the pack
+ * itself rejects. Introspects the Zod union directly so a future stray entry fails.
+ */
+describe('plan 3a — catalog integrity guards', () => {
+  // Unwrap ZodEffects/ZodOptional/ZodDefault to the underlying schema.
+  function unwrap(schema: unknown): any {
+    let s: any = schema;
+    while (s?._def && (s._def.schema || s._def.innerType)) {
+      s = s._def.schema ?? s._def.innerType;
+    }
+    return s;
+  }
+  const BRANCHES = (RecipeSpecSchema as unknown as { options: readonly any[] }).options;
+  const ALL_TYPES = BRANCHES.map((b) => b.shape.type._def.value as ModuleType);
+  const branchFor = (type: ModuleType) =>
+    BRANCHES.find((b) => b.shape.type._def.value === type);
+  const packByNamespace = new Map(listPacks().map((p) => [p.namespace, p]));
+
+  /** The `config` object shape for a branch, or undefined. */
+  function configShapeOf(type: ModuleType): Record<string, unknown> | undefined {
+    const branch = branchFor(type);
+    const cfg = unwrap((branch?.shape as Record<string, unknown> | undefined)?.config);
+    return cfg?.shape as Record<string, unknown> | undefined;
+  }
+
+  /** The pack schema's closed enum values for a field, or undefined if not a ZodEnum. */
+  function packFieldEnum(namespace: string, field: string): string[] | undefined {
+    const pack = packByNamespace.get(namespace);
+    const obj = unwrap(pack?.schema);
+    const fieldNode = unwrap(obj?.shape?.[field]);
+    return fieldNode?._def?.values as string[] | undefined;
+  }
+
+  it('(a) every resolved per-type enum packNamespace is pinned on that type\'s config branch', () => {
+    let checked = 0;
+    for (const type of ALL_TYPES) {
+      const resolved = resolveTypeEnumsForType(type);
+      if (resolved.length === 0) continue;
+      const shape = configShapeOf(type);
+      expect(shape, `${type}: config should be an object shape`).toBeDefined();
+      for (const r of resolved) {
+        expect(
+          Object.prototype.hasOwnProperty.call(shape!, r.packNamespace),
+          `${type}: config.${r.packNamespace} must be pinned on the recipe branch`,
+        ).toBe(true);
+        checked++;
+      }
+    }
+    // theme.section(layout+recommendation) + 2 pricing mechanisms + 3 checkout recs.
+    expect(checked).toBeGreaterThanOrEqual(7);
+  });
+
+  it('(b) every resolved per-type enum value is a subset of the pack field enum', () => {
+    let checkedClosed = 0;
+    for (const type of ALL_TYPES) {
+      for (const r of resolveTypeEnumsForType(type)) {
+        const full = packFieldEnum(r.packNamespace, r.field);
+        if (!full) continue; // loose string field (e.g. layout) — no closed enum to bound.
+        for (const opt of r.options) {
+          expect(full, `${type}: ${r.packNamespace}.${r.field}='${opt.value}' not in pack enum`).toContain(
+            opt.value,
+          );
+        }
+        checkedClosed++;
+      }
+    }
+    // At least the pricing mechanisms + recommendation strategies are closed enums.
+    expect(checkedClosed).toBeGreaterThanOrEqual(5);
+  });
+
+  it('(c) validateTypeEnums flags a dynamic strategy on checkout.upsell but allows it on theme.section', () => {
+    const cfg = { recommendation: { strategy: 'top-sellers' } };
+    const flagged = validateTypeEnums({ type: 'checkout.upsell', config: cfg });
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0]).toMatchObject({ path: 'config.recommendation.strategy', value: 'top-sellers' });
+    expect(flagged[0]!.allowed).toEqual([...STATIC_RECOMMENDATION_STRATEGIES]);
+    // Same value is legal on the app-proxy-capable storefront surface.
+    expect(validateTypeEnums({ type: 'theme.section', config: cfg })).toEqual([]);
   });
 });
 

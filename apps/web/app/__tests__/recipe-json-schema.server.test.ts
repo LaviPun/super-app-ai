@@ -159,6 +159,26 @@ describe('recipe-json-schema — catalog↔schema parity (drift guard, plan 1b)'
       }
     }
     // Guard against the test silently checking nothing (e.g. a schema-shape change).
-    expect(checked).toBeGreaterThanOrEqual(3); // theme.section layout + 2 pricing mechanisms
+    // theme.section (layout + recommendation.strategy) + functions.discountRules &
+    // functions.cartTransform (pricing.mechanism) + checkout.upsell / checkout.block /
+    // postPurchase.offer (recommendation.strategy) = 7 resolved per-type enums.
+    expect(checked).toBeGreaterThanOrEqual(7);
+  });
+
+  it('narrows recommendation.strategy to the static set on checkout surfaces, full set on theme.section', () => {
+    // Buyer-facing checkout/post-purchase branches drop the four DYNAMIC strategies
+    // (no App-Proxy access) — the overlay must tighten config.recommendation.strategy.
+    for (const type of ['checkout.upsell', 'checkout.block', 'postPurchase.offer'] as const) {
+      const node = configField(getRecipeJsonSchemaForType(type), 'recommendation', 'strategy');
+      expect(node, `${type} recommendation.strategy`).toBeDefined();
+      const values = node!.enum as string[];
+      expect(values).toContain('manual');
+      for (const dyn of ['top-sellers', 'trending', 'buy-it-again', 'recently-viewed']) {
+        expect(values, `${type} excludes ${dyn}`).not.toContain(dyn);
+      }
+    }
+    // theme.section keeps the full set (app-proxy widget can rank server-side).
+    const themeNode = configField(getRecipeJsonSchemaForType('theme.section'), 'recommendation', 'strategy');
+    expect(themeNode!.enum).toContain('top-sellers');
   });
 });

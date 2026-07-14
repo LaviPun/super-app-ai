@@ -16,9 +16,13 @@
  * recipes coexist and old recipes keep validating.
  */
 import type { ModuleType } from '../allowed-values.js';
+import { RECOMMENDATION_STRATEGIES, STATIC_RECOMMENDATION_STRATEGIES } from '../allowed-values.js';
 import type { EnumOption, TypeEnumField } from './types.js';
 import { getPack } from './registry.js';
 import { getManifest } from './module-manifests.js';
+
+/** Map an ordered value list to bare {@link EnumOption}s (label defaults to value). */
+const asOptions = (values: readonly string[]): EnumOption[] => values.map((value) => ({ value }));
 
 /**
  * Per-type option catalog. Outer key = ModuleType, then pack namespace, then the
@@ -39,6 +43,29 @@ const TYPE_ENUM_CATALOG: Partial<
         { value: 'carousel', label: 'Carousel', hint: 'Horizontal scroll-snap row.' },
       ],
     },
+    // Intent-documenting entry: a storefront app-proxy widget CAN rank server-side,
+    // so it resolves the FULL strategy set — nothing is restricted (this equals the
+    // pack `fallback`; declared explicitly so the surface is self-documenting and the
+    // catalog↔schema parity guard exercises it).
+    recommendation: {
+      strategy: asOptions(RECOMMENDATION_STRATEGIES),
+    },
+  },
+  // Buyer-facing surfaces (plan 3a). checkout/post-purchase extensions have NO
+  // App-Proxy access (extensions/checkout-ui/src/hooks/useCheckoutConfig.ts: "Checkout
+  // has NO App Proxy access"), so the four DYNAMIC strategies (top-sellers / trending /
+  // buy-it-again / recently-viewed) can never resolve there — they always degrade to
+  // `fallback`. Restrict generation to the STATIC six (manual / collection / related /
+  // complementary / most-expensive-in-cart / cheapest-in-cart) so it never emits a
+  // strategy that silently no-ops on these surfaces. Mirrors the pricing-mechanism drop.
+  'checkout.upsell': {
+    recommendation: { strategy: asOptions(STATIC_RECOMMENDATION_STRATEGIES) },
+  },
+  'checkout.block': {
+    recommendation: { strategy: asOptions(STATIC_RECOMMENDATION_STRATEGIES) },
+  },
+  'postPurchase.offer': {
+    recommendation: { strategy: asOptions(STATIC_RECOMMENDATION_STRATEGIES) },
   },
   // Pricing MECHANISM is type-scoped (plan 1c). Each Function type may claim ONLY
   // the one real runtime it actually lowers into (compiler/pricing/lower.ts). The
