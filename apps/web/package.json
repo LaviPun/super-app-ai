@@ -42,6 +42,7 @@
     "@shopify/shopify-api": "^11.14.1",
     "@shopify/shopify-app-remix": "^3.8.5",
     "@shopify/shopify-app-session-storage-prisma": "^5.2.3",
+    "@shopify/theme-check-node": "^3.26.1",
     "@superapp/core": "workspace:*",
     "@superapp/job-orchestration": "workspace:*",
     "@superapp/network-security": "workspace:*",

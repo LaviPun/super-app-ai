@@ -165,6 +165,19 @@ export function isThemeNativeSectionEnabled(): boolean {
 }
 
 /**
+ * Pre-publish theme-check gate (035). When ON (the default), `error`-severity
+ * Theme Check offenses on compiled native-section Liquid BLOCK the publish; when
+ * OFF the same offenses are logged non-blocking (warn-only). Kept as an env flag
+ * so a false-positive in a new theme-check version can be defused to warn-only
+ * WITHOUT a code deploy (set THEME_CHECK_GATE=off|false|no|0). Warnings/infos are
+ * always non-blocking regardless of this flag, and any theme-check runtime failure
+ * degrades to warn-only (the gate protects, it never bricks publishing).
+ */
+export function isThemeCheckGateBlocking(): boolean {
+  return parseBooleanEnv(process.env.THEME_CHECK_GATE, true);
+}
+
+/**
  * Cheapest-first multi-provider AI routing. OFF by default. When disabled,
  * generation stays on the legacy single-provider path even if `AiModelPrice`
  * rows exist — so seeding pricing for cost observability never silently reroutes
