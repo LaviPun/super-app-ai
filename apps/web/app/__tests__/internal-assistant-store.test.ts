@@ -383,6 +383,68 @@ describe('chat content redaction', () => {
   });
 });
 
+describe('actionsJson round-trip', () => {
+  const proposalsJson = JSON.stringify([
+    { id: 'sap_a', intent: 'job_replay', params: { id: 'cmrezggie001m11h4wulhkams' }, label: 'Replay', reason: 'r' },
+  ]);
+
+  it('forwards actionsJson into the create data', async () => {
+    const now = new Date();
+    prismaMock.internalAiMessage.create.mockResolvedValueOnce({
+      id: 'msg-a', role: 'assistant', content: 'ok', mode: 'localMachine', backend: null, model: null,
+      latencyMs: null, tokensIn: null, tokensOut: null, estimatedCostCents: 0, hadFallback: false,
+      retryCount: 0, status: 'completed', clientRequestId: null, responseToMessageId: 'user-1',
+      error: null, actionsJson: proposalsJson, createdAt: now,
+    });
+    prismaMock.internalAiSession.update.mockResolvedValueOnce({ id: 'sess-1' });
+    const { InternalAssistantStoreService } = await import('~/services/ai/internal-assistant-store.server');
+    const store = new InternalAssistantStoreService();
+    const record = await store.createMessage({
+      sessionId: 'sess-1', role: 'assistant', content: 'ok', actionsJson: proposalsJson,
+    });
+    expect(prismaMock.internalAiMessage.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ actionsJson: proposalsJson }) }),
+    );
+    expect(record.actionsJson).toBe(proposalsJson);
+  });
+
+  it('only writes actionsJson on update when provided (undefined leaves it untouched)', async () => {
+    const now = new Date();
+    prismaMock.internalAiMessage.update.mockResolvedValue({
+      id: 'msg-a', role: 'assistant', content: 'x', mode: 'localMachine', backend: null, model: null,
+      latencyMs: null, tokensIn: null, tokensOut: null, estimatedCostCents: 0, hadFallback: false,
+      retryCount: 0, status: 'completed', clientRequestId: null, responseToMessageId: 'user-1',
+      error: null, actionsJson: proposalsJson, createdAt: now,
+    });
+    const { InternalAssistantStoreService } = await import('~/services/ai/internal-assistant-store.server');
+    const store = new InternalAssistantStoreService();
+
+    await store.updateMessage('msg-a', { status: 'streaming' });
+    const dataWithout = prismaMock.internalAiMessage.update.mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect('actionsJson' in dataWithout.data).toBe(false);
+
+    await store.updateMessage('msg-a', { actionsJson: proposalsJson });
+    const dataWith = prismaMock.internalAiMessage.update.mock.calls[1]![0] as { data: Record<string, unknown> };
+    expect(dataWith.data.actionsJson).toBe(proposalsJson);
+  });
+
+  it('maps row.actionsJson through listMessages', async () => {
+    const now = new Date();
+    prismaMock.internalAiMessage.findMany.mockResolvedValueOnce([
+      {
+        id: 'msg-a', role: 'assistant', content: 'x', mode: 'localMachine', backend: null, model: null,
+        latencyMs: null, tokensIn: null, tokensOut: null, estimatedCostCents: 0, hadFallback: false,
+        retryCount: 0, status: 'completed', clientRequestId: null, responseToMessageId: 'user-1',
+        error: null, actionsJson: proposalsJson, createdAt: now,
+      },
+    ]);
+    const { InternalAssistantStoreService } = await import('~/services/ai/internal-assistant-store.server');
+    const store = new InternalAssistantStoreService();
+    const rows = await store.listMessages('sess-1');
+    expect(rows[0]!.actionsJson).toBe(proposalsJson);
+  });
+});
+
 describe('purgeOldMessages', () => {
   it('deletes chat messages older than retentionDays', async () => {
     prismaMock.internalAiMessage.deleteMany.mockResolvedValueOnce({ count: 11 });
