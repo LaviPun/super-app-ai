@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { RecipeSpec, RuleEnginePack, RecommendationPack } from '@superapp/core';
 import { sanitizeConfigUrls } from '~/services/recipes/compiler/sanitize-urls';
+import { KIND_ARCHETYPE, type SectionArchetype } from '~/services/recipes/kind-archetype';
 import { evaluateRuleEngine, messagingChannelSendability } from '@superapp/core';
 import {
   compileStyleVars,
@@ -2491,47 +2492,10 @@ function layoutModifierClass(layout: unknown): string {
 }
 
 // ── R6 · Native-section archetype resolution + render helpers ────────────────
-// Single source of truth mapping every library `config.kind` to a canonical
-// archetype (archetype-contract.md §"Canonical archetypes and kind aliases").
-// The storefront Liquid + native-section compiler resolve the SAME table, so the
-// preview class trees below match what the storefront renders (R0 parity).
-
-type SectionArchetype =
-  | 'hero' | 'feature' | 'gallery' | 'collection' | 'pricing' | 'faq'
-  | 'testimonial' | 'stats' | 'cta' | 'trust' | 'newsletter' | 'launch'
-  | 'contact' | 'team' | 'timeline' | 'upsell' | 'band' | 'technical';
-
-// Exported for the drift-guard test (kind-archetype-parity.test.ts): the native
-// compiler keeps its own copy of this table (Liquid can't import a TS const), and
-// the test asserts the two stay identical so preview⇄storefront parity can't
-// silently rot. Keep any edit here mirrored in native-section.ts's KIND_ARCHETYPE.
-export const KIND_ARCHETYPE: Record<string, SectionArchetype> = {
-  hero: 'hero', 'collection-hero': 'hero',
-  feature: 'feature', benefit: 'feature',
-  gallery: 'gallery', lookbook: 'gallery', 'collection-lookbook': 'gallery', 'collection-carousel': 'gallery',
-  'collection-story': 'collection', 'collection-split': 'collection', 'collection-promo': 'collection',
-  'collection-list': 'collection', story: 'collection',
-  pricing: 'pricing', comparison: 'pricing', plan: 'pricing',
-  faq: 'faq', accordion: 'faq',
-  testimonials: 'testimonial', reviews: 'testimonial', 'social-proof': 'testimonial',
-  'review-summary': 'testimonial', testimonial: 'testimonial',
-  stats: 'stats',
-  cta: 'cta', 'rich-text': 'cta',
-  trust: 'trust', 'trust-badges': 'trust', 'trust-badge': 'trust', 'payment-badges': 'trust',
-  'usp-strip': 'trust', 'logo-marquee': 'trust',
-  newsletter: 'newsletter',
-  launch: 'launch', 'coming-soon': 'launch', '404': 'launch',
-  contact: 'contact',
-  team: 'team',
-  timeline: 'timeline', steps: 'timeline',
-  upsell: 'upsell', 'bought-together': 'upsell', 'product-addons': 'upsell',
-  announcement: 'band', 'announcement-bar': 'band', 'free-shipping-bar': 'band',
-  countdown: 'band', 'countdown-bar': 'band', progress: 'band',
-  consent: 'technical', 'json-ld': 'technical', meta: 'technical', 'pixel-bootstrap': 'technical',
-  preload: 'technical', filters: 'technical', search: 'technical', sort: 'technical',
-  'sticky-atc': 'technical', 'size-chart': 'technical', 'star-rating': 'technical',
-  'payment-icons': 'technical', footer: 'technical', rewards: 'technical', badge: 'technical',
-};
+// The kind→archetype alias table is single-sourced in ~/services/recipes/kind-archetype
+// (imported at the top of this file). The native-section compiler and the storefront
+// Liquid resolve the SAME table, so the preview class trees below match what the
+// storefront renders (R0 parity).
 
 function sectionArchetype(kind: string): SectionArchetype | null {
   return KIND_ARCHETYPE[kind] ?? null;
