@@ -694,7 +694,8 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
         motion: { duration: 'slow', easing: 'enter' },
-        pack: 'bold',
+        // Festive multi-prize wheel — playful render pack (pill buttons, springy motion).
+        pack: 'playful',
       },
     },
   },
