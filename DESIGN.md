@@ -30,7 +30,7 @@
 - **Accent:** `#0E9F6E` - positive action and confirmations.
 - **Neutrals:** `#F6F8FB` (bg), `#FFFFFF` (surface), `#DCE3EC` (borders), `#6B7280` (muted), `#111827` (body text).
 - **Semantic:** success `#0E9F6E`, warning `#D97706`, error `#DC2626`, info `#2F80ED`.
-- **Dark mode:** Preserve hierarchy, lower saturation slightly, keep contrast above AA targets for all text and controls.
+- **Dark mode:** The internal admin and merchant shells are **light-only** — there is no dark theme (owner decision 2026-07-14). This scope covers only the app's own frontend; the Generated-Module Design System governs storefront modules independently and keeps its own dark-mode handling.
 
 ## Spacing
 - **Base unit:** 8px.

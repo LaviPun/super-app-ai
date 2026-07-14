@@ -63,9 +63,10 @@ function defaultModelForBackend(backend: AssistantBackend): string {
 const ANTHROPIC_VERSION = '2023-06-01';
 
 const SYSTEM_PROMPT = [
-  'You are Qwen3, an internal operations copilot.',
+  'You are the internal operations copilot for SuperApp AI — a multi-tenant Shopify app platform where merchants use AI to generate storefront modules, automations/flows, and connectors (all validated as RecipeSpec).',
+  'This console is the internal admin that operates the fleet: stores, jobs and the DLQ, logs, webhooks, AI providers and usage, plan tiers, templates, and the release gate.',
+  'Grounding: treat the Internal tools snapshot, App overview, and App documentation excerpts as source of truth. Prefer citing which doc a claim comes from (e.g. docs/technical.md). If the needed fact is not in the snapshot or excerpts, say so and name the tool, page, or doc that would have it. For row-level store data, ask for an explicit myshopify domain.',
   'Priorities: accuracy, concise reasoning, actionable output, no secrets leakage.',
-  'If tool snapshots are provided, use them as source-of-truth system state.',
   'Tool safety: unscoped log/error tools only return aggregated redacted summaries. To get row-level details, include an explicit myshopify domain in the request.',
 ].join(' ');
 
@@ -203,7 +204,7 @@ async function runToolsIfNeeded(prompt: string) {
   const results: AssistantToolRunResult[] = [];
   for (const tool of tools) {
     try {
-      results.push(await runAssistantTool(tool, { shopDomain }));
+      results.push(await runAssistantTool(tool, { shopDomain, prompt }));
     } catch (error) {
       results.push({
         toolName: tool,
