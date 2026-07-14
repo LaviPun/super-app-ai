@@ -465,6 +465,326 @@
     });
   }
 
+  /* ── gamified popup: spin-to-win wheel + scratch card ────────────────────────
+     Feature-gated in Liquid on blocks kind:'slice' / kind:'scratch'. All coupon
+     codes are merchant-configured (read from the DOM data attributes Liquid wrote);
+     nothing is fabricated. A slice with an empty code — or a lose-ish label — is an
+     honest no-prize. Reduced-motion → no spin / no scratch-erase, instant reveal. */
+
+  /* The two PURE game functions (winner pick + no-prize detection) are pinned to a
+     node-side test by an extraction PARITY test, exactly like the rule-engine
+     evaluator above: the test slices the whole-code region strictly between the
+     single-line BEGIN/END markers and runs the shared fixtures through it. If you
+     change either function, the test re-derives from THIS source — no second copy. */
+  /* SPIN-GAME-LOGIC:BEGIN (parity marker — keep on its own line) */
+  /* Lose-ish labels signal a no-prize slice even if a (stray) code is present. */
+  var LOSE_RE = /\b(no luck|try again|better luck|no win|no prize|sorry|not this time)\b/i;
+
+  /* A slice/card is a no-prize when it has no code, or its label reads lose-ish. */
+  function isNoPrize(code, label) {
+    if (code && String(code).trim() !== '') return LOSE_RE.test(String(label || ''));
+    return true;
+  }
+
+  /* Pure winner selection — weighted random over the slice list. `rand` is an
+     injectable [0,1) source (defaults to Math.random) for deterministic tests.
+     Returns the chosen index. Non-positive / NaN weights are treated as 0; an
+     all-zero (or empty-weight) set falls back to a uniform pick. */
+  function pickWeightedIndex(weights, rand) {
+    var r = typeof rand === 'function' ? rand : Math.random;
+    var n = weights ? weights.length : 0;
+    if (n === 0) return -1;
+    var norm = [];
+    var total = 0;
+    for (var i = 0; i < n; i++) {
+      var w = Number(weights[i]);
+      if (isNaN(w) || w < 0) w = 0;
+      norm.push(w);
+      total += w;
+    }
+    if (total <= 0) return Math.floor(r() * n) % n; /* uniform fallback */
+    var target = r() * total;
+    var acc = 0;
+    for (var j = 0; j < n; j++) {
+      acc += norm[j];
+      if (target < acc) return j;
+    }
+    return n - 1; /* float-rounding safety */
+  }
+  /* ══ SPIN-GAME-LOGIC:END ══════════════════════════════════════════════════ */
+
+  /* Copy-to-clipboard with a graceful execCommand fallback; toggles the button. */
+  function copyCode(code, btn) {
+    function done() {
+      if (!btn) return;
+      var prev = btn.getAttribute('data-label') || btn.textContent;
+      btn.setAttribute('data-label', prev);
+      btn.textContent = 'Copied ✓';
+      window.setTimeout(function () { btn.textContent = prev; }, 1800);
+    }
+    if (window.navigator && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(code).then(done, function () { legacyCopy(code); done(); });
+    } else {
+      legacyCopy(code);
+      done();
+    }
+  }
+  function legacyCopy(code) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = code;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'absolute';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (e) { /* noop — reveal still shows the code to copy manually */ }
+  }
+
+  /* Render the shared coupon result (win or honest no-prize) and move focus to it. */
+  function revealCoupon(resultEl, code, label) {
+    if (!resultEl) return;
+    var noPrize = isNoPrize(code, label);
+    var html;
+    if (noPrize) {
+      html =
+        '<div class="superapp-coupon superapp-coupon--lose">' +
+        '<p class="superapp-coupon__headline">— ' + escapeHtml(label || 'No prize this time') + '</p>' +
+        '<span class="superapp-coupon__code">Better luck next time</span>' +
+        '</div>';
+    } else {
+      var c = String(code);
+      html =
+        '<div class="superapp-coupon">' +
+        '<p class="superapp-coupon__headline">✓ ' + escapeHtml(label || 'You won') + '</p>' +
+        '<span class="superapp-coupon__code" data-superapp-code>' + escapeHtml(c) + '</span>' +
+        '<button class="superapp-coupon__copy" type="button" data-superapp-copy>Copy code</button>' +
+        '</div>';
+    }
+    resultEl.innerHTML = html;
+    resultEl.hidden = false;
+    if (!noPrize) {
+      var copyBtn = resultEl.querySelector('[data-superapp-copy]');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', function () { copyCode(String(code), copyBtn); });
+      }
+    }
+    /* focus management: move focus to the result on state change (aria-live announces it) */
+    var focusTarget = resultEl.querySelector('[data-superapp-copy]') || resultEl.querySelector('.superapp-coupon__headline');
+    if (focusTarget) {
+      if (!focusTarget.hasAttribute('tabindex')) focusTarget.setAttribute('tabindex', '-1');
+      try { focusTarget.focus({ preventScroll: true }); } catch (e) { focusTarget.focus(); }
+    }
+  }
+
+  /* Optional email gate: reuse the app-proxy capture path. Best-effort — the
+     merchant captures the email, but a flaky network never traps the visitor
+     behind the prize (advance on completion, success or fail). */
+  function bindGate(gameEl, onPass) {
+    var gate = gameEl.querySelector('[data-superapp-gate]');
+    if (!gate) { onPass(); return; }
+    var status = gate.querySelector('[data-superapp-gate-status]');
+    var stage = gameEl.querySelector('.superapp-game__stage');
+    function advance() {
+      gate.hidden = true;
+      if (stage) stage.hidden = false;
+      onPass();
+    }
+    gate.addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (!gate.checkValidity || gate.checkValidity()) {
+        var btn = gate.querySelector('[type="submit"]');
+        if (btn) { btn.disabled = true; btn.classList.add('is-loading'); }
+        var action = gate.getAttribute('action');
+        var doAdvance = function () { advance(); };
+        if (action) {
+          fetch(action, { method: 'POST', body: new FormData(gate), headers: { Accept: 'application/json' }, credentials: 'same-origin' })
+            .then(doAdvance, doAdvance);
+        } else {
+          doAdvance();
+        }
+      } else if (gate.reportValidity) {
+        gate.reportValidity();
+      }
+      if (status) { status.hidden = true; }
+    });
+  }
+
+  function setupWheel(gameEl) {
+    if (gameEl.dataset.superappGameBound) return;
+    gameEl.dataset.superappGameBound = '1';
+    var wheel = gameEl.querySelector('[data-superapp-wheel]');
+    var dial = gameEl.querySelector('[data-superapp-wheel-dial]');
+    var spinBtn = gameEl.querySelector('[data-superapp-wheel-spin]');
+    var result = gameEl.querySelector('[data-superapp-result]');
+    var labels = gameEl.querySelectorAll('[data-superapp-slice]');
+    if (!wheel || !dial || !spinBtn || labels.length === 0) return;
+
+    var slices = [];
+    Array.prototype.forEach.call(labels, function (el) {
+      slices.push({
+        code: el.getAttribute('data-code') || '',
+        label: el.getAttribute('data-label') || '',
+        weight: el.getAttribute('data-weight'),
+      });
+    });
+    var n = slices.length;
+    var seg = 360 / n;
+    var spun = false;
+
+    bindGate(gameEl, function () { if (spinBtn.focus) try { spinBtn.focus({ preventScroll: true }); } catch (e) { spinBtn.focus(); } });
+
+    function finish(idx) {
+      revealCoupon(result, slices[idx].code, slices[idx].label);
+      spinBtn.disabled = true;
+    }
+
+    spinBtn.addEventListener('click', function () {
+      if (spun) return;
+      spun = true;
+      var idx = pickWeightedIndex(slices.map(function (s) { return s.weight; }));
+      if (idx < 0) idx = 0;
+
+      if (reducedMotion) { finish(idx); return; }
+
+      /* Bring the chosen slice's center under the top pointer: rotate so that
+         (idx*seg + seg/2) sits at 0deg, plus several full turns. A small jitter
+         within the slice keeps repeat spins from looking identical. */
+      var jitter = (Math.random() - 0.5) * seg * 0.6;
+      var target = 360 * 5 - (idx * seg + seg / 2) + jitter;
+      wheel.classList.add('is-spinning');
+      dial.style.transform = 'rotate(' + target + 'deg)';
+      var settled = false;
+      var onEnd = function () {
+        if (settled) return;
+        settled = true;
+        wheel.classList.remove('is-spinning');
+        finish(idx);
+      };
+      dial.addEventListener('transitionend', onEnd, { once: true });
+      /* fallback if transitionend never fires (e.g. tab backgrounded) */
+      window.setTimeout(onEnd, 4600);
+    });
+  }
+
+  function setupScratch(gameEl) {
+    if (gameEl.dataset.superappGameBound) return;
+    gameEl.dataset.superappGameBound = '1';
+    var scratch = gameEl.querySelector('[data-superapp-scratch]');
+    var canvas = gameEl.querySelector('[data-superapp-scratch-canvas]');
+    var revealBtn = gameEl.querySelector('[data-superapp-scratch-reveal]');
+    var result = gameEl.querySelector('[data-superapp-result]');
+    if (!scratch) return;
+    var code = scratch.getAttribute('data-code') || '';
+    var label = scratch.getAttribute('data-label') || '';
+    var done = false;
+
+    function reveal() {
+      if (done) return;
+      done = true;
+      scratch.classList.add('is-cleared');
+      if (canvas) canvas.classList.add('is-cleared');
+      revealCoupon(result, code, label);
+    }
+
+    bindGate(gameEl, function () { initScratchSurface(); });
+
+    var ctx = null;
+    function initScratchSurface() {
+      /* Reduced-motion or no canvas support → tap-to-reveal button. */
+      var supported = canvas && canvas.getContext && !reducedMotion;
+      if (!supported) {
+        scratch.classList.add('superapp-scratch--tap');
+        if (revealBtn) revealBtn.addEventListener('click', reveal);
+        return;
+      }
+      if (revealBtn) revealBtn.addEventListener('click', reveal); /* keyboard-accessible path */
+      /* The canvas lives inside a popup that may be display:none until opened, so
+         it has no size yet. Paint (and repaint) the moment it first gets a box. */
+      var painted = false;
+      function paint() {
+        if (painted) return;
+        var rect = canvas.getBoundingClientRect();
+        if (rect.width < 2 || rect.height < 2) return;
+        painted = true;
+        var dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.round(rect.width * dpr);
+        canvas.height = Math.round(rect.height * dpr);
+        ctx = canvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+        ctx.fillStyle = '#b9bcc4';
+        ctx.fillRect(0, 0, rect.width, rect.height);
+        ctx.font = '600 13px system-ui, -apple-system, sans-serif';
+        ctx.fillStyle = '#5c6070';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Scratch here', rect.width / 2, rect.height / 2);
+        ctx.globalCompositeOperation = 'destination-out';
+      }
+      paint();
+      if (!painted && typeof window.ResizeObserver === 'function') {
+        var ro = new window.ResizeObserver(function () { paint(); if (painted) ro.disconnect(); });
+        ro.observe(canvas);
+      }
+
+      var drawing = false;
+      function erodeAt(x, y) {
+        if (!ctx) return;
+        ctx.beginPath();
+        ctx.arc(x, y, 18, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      function pos(e) {
+        var rect = canvas.getBoundingClientRect();
+        var pt = (e.touches && e.touches[0]) || e;
+        return { x: pt.clientX - rect.left, y: pt.clientY - rect.top };
+      }
+      function clearedRatio() {
+        if (!ctx) return 0;
+        try {
+          var img = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+          var clear = 0;
+          var step = 40; /* sample every 10th pixel (RGBA*10) for speed */
+          for (var i = 3; i < img.length; i += step) if (img[i] === 0) clear++;
+          return clear / (img.length / step);
+        } catch (e) { return 0; }
+      }
+      function onMove(e) {
+        if (!drawing) return;
+        e.preventDefault();
+        var p = pos(e);
+        erodeAt(p.x, p.y);
+      }
+      function onUp() {
+        drawing = false;
+        if (clearedRatio() >= 0.5) reveal();
+      }
+      function onDown(e) {
+        if (done) return;
+        drawing = true;
+        var p = pos(e);
+        erodeAt(p.x, p.y);
+      }
+      canvas.addEventListener('mousedown', onDown);
+      canvas.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+      canvas.addEventListener('touchstart', onDown, { passive: false });
+      canvas.addEventListener('touchmove', onMove, { passive: false });
+      canvas.addEventListener('touchend', onUp);
+    }
+
+    /* If ungated, bindGate calls initScratchSurface immediately (no gate present). */
+  }
+
+  function initGames() {
+    var wheels = document.querySelectorAll('[data-superapp-game="wheel"]');
+    Array.prototype.forEach.call(wheels, setupWheel);
+    var scratches = document.querySelectorAll('[data-superapp-game="scratch"]');
+    Array.prototype.forEach.call(scratches, setupScratch);
+  }
+
   /* ── R2.3: product recommendations resolver ──────────────────────────────────
      Third responsibility alongside popup + contact-form. Resolves DYNAMIC and
      cart-derived strategies (static ones already rendered inline by Liquid) and
@@ -759,6 +1079,8 @@
     Array.prototype.forEach.call(popups, setupPopup);
     var forms = document.querySelectorAll('form[data-superapp-proxy-form]');
     Array.prototype.forEach.call(forms, setupProxyForm);
+    /* Gamified popups: spin-to-win wheel + scratch card. */
+    initGames();
     /* R2.3: resolve dynamic / cart-derived recommendation mounts. */
     var recs = document.querySelectorAll('[data-superapp-recs]');
     Array.prototype.forEach.call(recs, initRecs);

@@ -334,6 +334,37 @@ export class PreviewService {
     const styleVars = compileStyleVars(style, { structuralDefaults: true });
     const styleCss = compileStyleCss(style, '.superapp-popup__panel');
     const overlayCss = compileOverlayPositionCss(style, '.superapp-popup', '.superapp-popup__panel');
+
+    // Gamified popup parity (storefront: superapp-module.liquid). When blocks[]
+    // carry kind:'slice' the storefront renders a spin-to-win wheel; kind:'scratch'
+    // renders a scratch card. Mirror both here as a static representation (the live
+    // spin/scratch runs in superapp-modules.js) so the builder preview never shows
+    // a plain popup for a wheel/scratch config.
+    const blocks = (spec.config.blocks ?? []) as Array<{
+      kind?: string;
+      text?: string;
+      fields?: Record<string, unknown>;
+    }>;
+    const slices = blocks.filter((b) => b?.kind === 'slice');
+    const firstScratch = blocks.find((b) => b?.kind === 'scratch');
+    const gameBody = slices.length > 0
+      ? this.popupWheelPreview(slices)
+      : firstScratch
+        ? this.popupScratchPreview(firstScratch)
+        : '';
+    // Emit ONLY the game CSS actually used, so a classic popup stays free of
+    // wheel/scratch rules (the feature-gate is observable in the output too).
+    const gameCss = slices.length > 0
+      ? POPUP_WHEEL_PREVIEW_CSS
+      : firstScratch
+        ? POPUP_SCRATCH_PREVIEW_CSS
+        : '';
+
+    const panelInner = gameBody
+      ? gameBody
+      : `${body ? `<p class="superapp-popup__body">${esc(String(body))}</p>` : ''}
+          ${ctaText && ctaUrl ? `<a class="superapp-popup__cta" href="${escAttr(String(ctaUrl))}">${esc(String(ctaText))}</a>` : ''}`;
+
     return pageHtml(`
       <button class="demo-open" onclick="document.querySelector('.superapp-popup').hidden=false">Open popup preview</button>
       <div class="superapp-popup" hidden>
@@ -341,8 +372,7 @@ export class PreviewService {
         <div class="superapp-popup__panel" role="dialog" aria-modal="true" aria-label="${escAttr(title)}">
           <button class="superapp-popup__close" type="button" onclick="document.querySelector('.superapp-popup').hidden=true" aria-label="Close">×</button>
           <h3 class="superapp-popup__title">${esc(title)}</h3>
-          ${body ? `<p class="superapp-popup__body">${esc(String(body))}</p>` : ''}
-          ${ctaText && ctaUrl ? `<a class="superapp-popup__cta" href="${escAttr(String(ctaUrl))}">${esc(String(ctaText))}</a>` : ''}
+          ${panelInner}
         </div>
       </div>
     `, `
@@ -357,7 +387,62 @@ export class PreviewService {
       .superapp-popup__title { margin: 0 0 10px; font-size: 1.25em; font-weight: var(--sa-fw); }
       .superapp-popup__body { margin: 0 0 12px; opacity: .85; }
       .superapp-popup__cta { display:inline-block; padding: 10px 14px; border: 1px solid currentColor; text-decoration:none; border-radius: var(--sa-radius); background: var(--sa-btn-bg, transparent); color: var(--sa-btn-text, var(--sa-text)); }
+      ${gameCss}
     `);
+  }
+
+  /**
+   * Static spin-to-win wheel preview (storefront parity for a popup whose blocks
+   * carry kind:'slice'). Renders the conic-gradient dial with each slice's label
+   * around the hub, a pointer, a disabled spin control, and a "spins on the
+   * storefront" affordance. Deterministic — no live spin (that runs client-side).
+   */
+  private popupWheelPreview(
+    slices: Array<{ text?: string; fields?: Record<string, unknown> }>,
+  ): string {
+    const seg = 360 / slices.length;
+    const stops = slices
+      .map((_, i) => {
+        const a = (i * seg).toFixed(3);
+        const b = ((i + 1) * seg).toFixed(3);
+        const color = i % 2 === 0 ? 'var(--sa-accent)' : 'color-mix(in srgb, var(--sa-accent) 30%, Canvas)';
+        return `${color} ${a}deg ${b}deg`;
+      })
+      .join(', ');
+    const grad = `conic-gradient(from -90deg, ${stops})`;
+    const labels = slices
+      .map(
+        (s, i) =>
+          `<span class="superapp-wheel__label" style="--sa-wheel-i:${i};"><span class="superapp-wheel__labeltext">${esc(String(s.text ?? ''))}</span></span>`,
+      )
+      .join('');
+    return `
+      <div class="superapp-game">
+        <div class="preview-label">Spins on the storefront</div>
+        <div class="superapp-wheel" style="--sa-wheel-n:${slices.length};">
+          <span class="superapp-wheel__pointer" aria-hidden="true"></span>
+          <div class="superapp-wheel__dial" role="img" aria-label="Prize wheel with ${slices.length} segments" style="background:${grad};">
+            ${labels}
+            <span class="superapp-wheel__hub" aria-hidden="true"></span>
+          </div>
+        </div>
+        <button class="superapp-popup__cta" type="button" disabled>Spin the wheel</button>
+      </div>`;
+  }
+
+  /** Static scratch-card preview (storefront parity for blocks kind:'scratch'). */
+  private popupScratchPreview(card: { text?: string; fields?: Record<string, unknown> }): string {
+    const code = String((card.fields ?? {}).couponCode ?? '');
+    const label = String(card.text ?? code ?? 'Your prize');
+    return `
+      <div class="superapp-game">
+        <div class="preview-label">Scratches on the storefront</div>
+        <div class="superapp-scratch">
+          <div class="superapp-scratch__prize">${esc(label || code || 'Your prize')}</div>
+          <div class="superapp-scratch__overlay" aria-hidden="true">Scratch here</div>
+        </div>
+        <p class="superapp-scratch__hint">Reveals the code once ~50% is scratched.</p>
+      </div>`;
   }
 
   /** Kind renderer: banner. Reads from config.fields, falling back to top-level config. */
@@ -2537,6 +2622,30 @@ function sectionHead(spec: ThemeSectionSpec): string {
 function previewBase(): string {
   return `body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }`;
 }
+
+/**
+ * Inline CSS for the static spin-to-win wheel / scratch-card popup previews. A
+ * self-contained subset of the storefront `.superapp-wheel` / `.superapp-scratch`
+ * rules (the pack stylesheet is not loaded in previews). Split per game so a
+ * classic popup (and a wheel, and a scratch) each emit ONLY the CSS they use —
+ * the feature-gate stays observable in the output.
+ */
+const POPUP_GAME_SHARED_CSS = `
+      .superapp-game { display:flex; flex-direction:column; align-items:center; gap:14px; text-align:center; }
+      .preview-label { font-size:0.72em; letter-spacing:0.04em; text-transform:uppercase; opacity:0.6; }`;
+const POPUP_WHEEL_PREVIEW_CSS = `${POPUP_GAME_SHARED_CSS}
+      .superapp-wheel { position:relative; width:min(72vw,240px); aspect-ratio:1; --sa-wheel-seg: calc(360deg / var(--sa-wheel-n, 4)); }
+      .superapp-wheel__dial { position:absolute; inset:0; border-radius:50%; border:3px solid currentColor; box-shadow:var(--sa-shadow, 0 6px 20px rgba(0,0,0,.18)); }
+      .superapp-wheel__label { position:absolute; top:50%; left:50%; width:46%; transform-origin:0 0; transform:rotate(calc(var(--sa-wheel-seg) * (var(--sa-wheel-i) + 0.5))); font-size:clamp(9px,2.2vw,12px); font-weight:600; color:#0c0c0d; pointer-events:none; }
+      .superapp-wheel__labeltext { display:inline-block; transform:translateY(-50%); padding-left:14%; white-space:nowrap; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+      .superapp-wheel__hub { position:absolute; top:50%; left:50%; width:22%; height:22%; transform:translate(-50%,-50%); border-radius:50%; background:Canvas; border:3px solid currentColor; }
+      .superapp-wheel__pointer { position:absolute; top:-4px; left:50%; z-index:2; width:0; height:0; transform:translateX(-50%); border-left:11px solid transparent; border-right:11px solid transparent; border-top:18px solid var(--sa-accent, currentColor); }
+      .superapp-popup__cta[disabled] { opacity:0.55; cursor:default; }`;
+const POPUP_SCRATCH_PREVIEW_CSS = `${POPUP_GAME_SHARED_CSS}
+      .superapp-scratch { position:relative; width:100%; max-width:300px; aspect-ratio:5/2; margin:0 auto; border-radius:var(--sa-radius-lg, 12px); overflow:hidden; border:1px solid currentColor; }
+      .superapp-scratch__prize { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:clamp(18px,5vw,26px); font-weight:700; letter-spacing:0.04em; background:color-mix(in srgb, var(--sa-accent, gray) 12%, Canvas); }
+      .superapp-scratch__overlay { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:0.85em; letter-spacing:0.06em; text-transform:uppercase; color:#5c6070; background:repeating-linear-gradient(45deg,#b9bcc4,#b9bcc4 8px,#adb0b9 8px,#adb0b9 16px); }
+      .superapp-scratch__hint { margin:8px 0 0; font-size:0.8em; opacity:0.7; }`;
 
 /**
  * A CTA anchor. Carries the archetype-specific class (`cls`, for layout) plus the
