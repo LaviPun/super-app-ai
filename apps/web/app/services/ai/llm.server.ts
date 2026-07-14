@@ -48,6 +48,7 @@ import {
 } from '~/services/ai/recipe-json-schema.server';
 import type { PromptRouterDecision } from '~/schemas/prompt-router.server';
 import type { TemplateExemplar } from '~/services/ai/solution-search.server';
+import { getShopifyDocsBlock } from '~/services/ai/shopify-docs-grounding.server';
 import { buildDesignReferencePromptBlock, buildDesignSystemDirectiveForReference, resolveDesignReferencePack, resolveStoreDesignReferencePack, type DesignReferencePack } from '~/services/ai/design-reference.server';
 import { buildDesignQaCorrection, runDesignQa, summarizeQa, type DesignQaResult } from '~/services/ai/design-qa.server';
 import { runRenderQa } from '~/services/ai/design-qa-render.server';
@@ -616,6 +617,8 @@ export function compileCreateModulePrompt(params: {
   exemplarBlock?: string;
   /** Search-augmented grounding examples (RAG) — already self-headed. */
   groundingBlock?: string;
+  /** Current Shopify platform constraints for this module family (self-headed). */
+  platformBlock?: string;
   settingsPack?: string;
   previousError?: string;
   /** IntentPacket JSON (doc 15.8): structured intent so heavy AI only fills layout/copy/settings. */
@@ -687,6 +690,9 @@ export function compileCreateModulePrompt(params: {
   }
   if (params.groundingBlock) {
     parts.push('', params.groundingBlock);
+  }
+  if (params.platformBlock) {
+    parts.push('', params.platformBlock);
   }
   if (params.previousError) {
     parts.push('', '(Previous validation error — fix in next response):', params.previousError);
@@ -766,6 +772,8 @@ export function compileCreateSingleRecipePrompt(params: {
   exemplarBlock?: string;
   /** Search-augmented grounding examples (RAG) — already self-headed. */
   groundingBlock?: string;
+  /** Current Shopify platform constraints for this module family (self-headed). */
+  platformBlock?: string;
   settingsPack?: string;
   previousError?: string;
   intentPacketJson?: string;
@@ -827,6 +835,9 @@ export function compileCreateSingleRecipePrompt(params: {
   }
   if (params.groundingBlock) {
     parts.push('', params.groundingBlock);
+  }
+  if (params.platformBlock) {
+    parts.push('', params.platformBlock);
   }
   if (params.previousError) {
     parts.push('', '(Previous validation error — fix in next response):', params.previousError);
@@ -1658,6 +1669,10 @@ export async function* generateValidatedRecipeOptionsStream(
   const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
   const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
   const exemplarBlock = buildExemplarBlock(options?.exemplar);
+  // Current Shopify platform constraints for this module family. Small and
+  // correctness-critical, so injected by default across all confidence tiers
+  // (only the SHOPIFY_DOCS_GROUNDING_DISABLED off-switch suppresses it).
+  const platformBlock = getShopifyDocsBlock(classification.moduleType);
 
   type OneResult =
     | { kind: 'ok'; index: number; approach: string; option: RecipeOption; durationMs: number }
@@ -1678,6 +1693,7 @@ export async function* generateValidatedRecipeOptionsStream(
       catalogDetails,
       exemplarBlock,
       groundingBlock: options?.groundingBlock,
+      platformBlock,
       settingsPack,
       intentPacketJson,
       promptProfile: options?.promptProfile,
@@ -1901,6 +1917,10 @@ export async function generateValidatedRecipeOptionsParallel(
   const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
   const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
   const exemplarBlock = buildExemplarBlock(options?.exemplar);
+  // Current Shopify platform constraints for this module family. Small and
+  // correctness-critical, so injected by default across all confidence tiers
+  // (only the SHOPIFY_DOCS_GROUNDING_DISABLED off-switch suppresses it).
+  const platformBlock = getShopifyDocsBlock(classification.moduleType);
 
   const calls = APPROACH_HINTS.slice(0, optionCount).map(async (approach, idx) => {
     const compiledPrompt = compileCreateSingleRecipePrompt({
@@ -1916,6 +1936,7 @@ export async function generateValidatedRecipeOptionsParallel(
       catalogDetails,
       exemplarBlock,
       groundingBlock: options?.groundingBlock,
+      platformBlock,
       settingsPack,
       intentPacketJson,
       promptProfile: options?.promptProfile,
@@ -2197,6 +2218,10 @@ export async function generateValidatedRecipeOptions(
   const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
   const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
   const exemplarBlock = buildExemplarBlock(options?.exemplar);
+  // Current Shopify platform constraints for this module family. Small and
+  // correctness-critical, so injected by default across all confidence tiers
+  // (only the SHOPIFY_DOCS_GROUNDING_DISABLED off-switch suppresses it).
+  const platformBlock = getShopifyDocsBlock(classification.moduleType);
   // Skip full types list when confidence is high — the type is already known, saves ~2K tokens.
   const typesList = isHighConfidence ? `Available type: ${classification.moduleType}` : getAllTypesSummary();
 
@@ -2243,6 +2268,7 @@ export async function generateValidatedRecipeOptions(
       catalogDetails,
       exemplarBlock,
       groundingBlock: options?.groundingBlock,
+      platformBlock,
       previousError: lastErr ? String(lastErr) : undefined,
       intentPacketJson: includeIntentPacket ? options?.intentPacketJson : undefined,
       promptProfile: options?.promptProfile,
