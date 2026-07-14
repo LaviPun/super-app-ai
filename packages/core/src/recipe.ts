@@ -13,6 +13,7 @@ import { RuleEnginePackSchema } from './control-packs/packs/rule-engine.pack.js'
 import { PricingPackSchema } from './control-packs/packs/pricing.pack.js';
 import { RecommendationPackSchema } from './control-packs/packs/recommendation.pack.js';
 import { ProgressGoalPackSchema } from './control-packs/packs/progress-goal.pack.js';
+import { DevicePackSchema } from './control-packs/packs/device.pack.js';
 import { MessagingPackSchema } from './control-packs/packs/messaging.pack.js';
 import { DataModelSchema, ModuleDataStoreSchema } from './data-model.js';
 import type { ModuleCategory, ModuleType } from './allowed-values.js';
@@ -396,6 +397,16 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
        * no progress bar (the older `kind: 'progress'` announcement band is untouched).
        */
       progressGoal: ProgressGoalPackSchema.optional(),
+      /**
+       * Per-device visibility (V-A A7). `device.desktop`/`device.mobile` (both
+       * default true) lower to the module-root `sa-hide-desktop`/`sa-hide-mobile`
+       * utility classes; `device.mobileColumns` (1|2) narrows a grid on mobile.
+       * This is the pack-vocabulary FACE of the same rendering path that
+       * `style.responsive.hideOnMobile/hideOnDesktop` now lowers into on the
+       * section/widget surfaces (previously floating-widget-only — see
+       * device.pack.ts). Optional + back-compat: absent = shown everywhere.
+       */
+      device: DevicePackSchema.optional(),
       /** Sanitized custom markup/styles/scripts (scoped + CSP-bound at compile/preview). */
       advancedCustom: AdvancedCustomPackSchema.optional(),
     // Open section: `.catchall` accepts kind-specific keys (collapsed from the former
@@ -434,6 +445,12 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
        * the proxy has the authenticated customer + cart). Optional + back-compat.
        */
       ruleEngine: RuleEnginePackSchema.optional(),
+      /**
+       * Per-device visibility (V-A A7). Same pack as theme.section — an app-proxy
+       * widget lowers `device`/`style.responsive` into the module-root
+       * `sa-hide-*` classes (see device.pack.ts). Optional + back-compat.
+       */
+      device: DevicePackSchema.optional(),
     }),
     placement: PlacementSchema,
     style: StorefrontStyleSchema.optional(),

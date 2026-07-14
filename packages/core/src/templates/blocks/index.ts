@@ -20,6 +20,7 @@ import { TBLK_PAGE_TEMPLATES } from './themeblock-content-page-fullsection.js';
 import { TEMPLATES as THEMEBLOCK_HEADER_FOOTER_GROUP_TEMPLATES } from './themeblock-header-footer-group.js';
 import { TBLK_IDX_TEMPLATES } from './themeblock-index-fullsection.js';
 import { templates as THEMEBLOCK_PDP_SURFACE_TEMPLATES } from './themeblock-pdp-surface.js';
+import { SIZE_CHART_TEMPLATES } from './themeblock-size-chart.js';
 
 export const BLOCK_TEMPLATES: TemplateEntry[] = [
   ...EMB_BODY_TEMPLATES,
@@ -32,4 +33,5 @@ export const BLOCK_TEMPLATES: TemplateEntry[] = [
   ...THEMEBLOCK_HEADER_FOOTER_GROUP_TEMPLATES,
   ...TBLK_IDX_TEMPLATES,
   ...THEMEBLOCK_PDP_SURFACE_TEMPLATES,
+  ...SIZE_CHART_TEMPLATES,
 ];

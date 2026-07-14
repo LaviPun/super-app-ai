@@ -122,6 +122,31 @@
   endif
 %}
 
+{% comment %} A7 per-device visibility (device pack + style.responsive) — ONE rendering path.
+   `config.device` (the pack-vocabulary face) AND the pre-existing
+   `style.responsive.hideOnMobile/hideOnDesktop` BOTH lower into a single pair of
+   module-root flags carried on data-sa-device (`hide-desktop` / `hide-mobile`), read
+   by two CSS media queries. Before A7 the style.responsive field rendered for the
+   floatingWidget kind ONLY (superapp-fw-wrap--hide-*); it was inert for a
+   theme.section / proxy.widget — so this fills a real gap and is not a duplicate.
+   Both sources default to "show", so an absent/default value emits NO attribute and
+   the render is byte-identical to pre-A7. `mobileColumns` (1|2) lowers to a
+   --sa-mobile-cols override consumed under the mobile query. The flags ride a data
+   attribute (not the class list) so `class="superapp-scope"` stays literal. {% endcomment %}
+{% liquid
+  assign sa_dev = mod_cfg.device
+  assign sa_device_attr = ''
+  if sa_dev.desktop == false or mod_sty.responsive.hideOnDesktop
+    assign sa_device_attr = 'hide-desktop'
+  endif
+  if sa_dev.mobile == false or mod_sty.responsive.hideOnMobile
+    assign sa_device_attr = sa_device_attr | append: ' hide-mobile' | strip
+  endif
+  if sa_dev.mobileColumns != blank
+    assign sa_ovr = sa_ovr | append: '--sa-mobile-cols:' | append: sa_dev.mobileColumns | append: ';'
+  endif
+%}
+
 {% comment %}
   Surface-targeted placement gate.
   A theme.section may declare `placement` (enabled_on / disabled_on templates) to
@@ -300,7 +325,7 @@
 
 {% # Per-module compiled style (colors/spacing/tokens/custom CSS), scoped to [data-module-id]. Server-sanitized. %}
 {% if mod_sty.css != blank %}<style>{{ mod_sty.css }}</style>{% endif %}
-<div class="superapp-scope" data-sa-pack="{{ sa_pack | escape }}"{% if sa_ovr != blank %} style="{{ sa_ovr | escape }}"{% endif %}>
+<div class="superapp-scope" data-sa-pack="{{ sa_pack | escape }}"{% if sa_device_attr != blank %} data-sa-device="{{ sa_device_attr | escape }}"{% endif %}{% if sa_ovr != blank %} style="{{ sa_ovr | escape }}"{% endif %}>
 
 {% comment %} R2.1: open the gate wrapper for NON-popup kinds when rules are enabled. The
    wrapper carries the data-sa-* payload the client sweep reads; it renders hidden
@@ -669,7 +694,7 @@
           if sa_sec_has_blocks
             assign sa_arch = 'feature'
           endif
-        when 'gallery', 'lookbook', 'collection-lookbook', 'collection-carousel'
+        when 'gallery', 'lookbook', 'collection-lookbook', 'collection-carousel', 'ugc-grid'
           if sa_sec_has_blocks
             assign sa_arch = 'gallery'
           endif
@@ -761,7 +786,32 @@
             {% if mod_cfg.fields.mediaImageUrl != blank or mod_cfg.layout.layout == 'grid' %}{% assign hero_variant = 'split' %}{% endif %}
             {% if mod_cfg.fields.backgroundImageUrl != blank or mod_cfg.fields.videoUrl != blank or mod_cfg.fields.overlayStrength != blank %}{% assign hero_variant = 'overlay' %}{% endif %}
             <div class="superapp-hero superapp-hero--{{ hero_variant }}">
-              {% if hero_media != blank %}
+              {% # A5 video hero: mp4 → <video> with poster; YouTube/Vimeo watch URL → privacy-enhanced lite embed (id parsed server-side). Reduced-motion: the mp4 keeps its poster (runtime pauses autoplaying hero videos when prefers-reduced-motion). Absent videoUrl falls through to the original <img> (byte-identical for old specs). %}
+              {% assign hero_video = mod_cfg.fields.videoUrl %}
+              {% if hero_video != blank %}
+                {% assign hero_poster = hero_media | default: mod_cfg.imageUrl %}
+                {% assign hero_ov = mod_cfg.fields.overlayOpacity | default: 0.4 %}
+                {% assign yt_id = '' %}
+                {% if hero_video contains 'youtu' %}
+                  {% if hero_video contains 'watch?v=' %}{% assign yt_id = hero_video | split: 'watch?v=' | last | split: '&' | first %}{% elsif hero_video contains 'youtu.be/' %}{% assign yt_id = hero_video | split: 'youtu.be/' | last | split: '?' | first %}{% elsif hero_video contains '/embed/' %}{% assign yt_id = hero_video | split: '/embed/' | last | split: '?' | first %}{% endif %}
+                {% endif %}
+                {% assign vim_id = '' %}
+                {% if yt_id == blank and hero_video contains 'vimeo.com/' %}{% assign vim_id = hero_video | split: '/' | last | split: '?' | first %}{% endif %}
+                {% assign v_src = '' %}
+                {% if yt_id != blank %}
+                  {% assign v_src = 'https://www.youtube-nocookie.com/embed/' | append: yt_id | append: '?rel=0&playsinline=1&modestbranding=1' %}
+                  {% if mod_cfg.fields.autoplay %}{% assign v_src = v_src | append: '&autoplay=1&mute=1' %}{% if mod_cfg.fields.loop %}{% assign v_src = v_src | append: '&loop=1&playlist=' | append: yt_id %}{% endif %}{% endif %}
+                {% elsif vim_id != blank %}
+                  {% assign v_src = 'https://player.vimeo.com/video/' | append: vim_id | append: '?dnt=1&playsinline=1' %}
+                  {% if mod_cfg.fields.autoplay %}{% assign v_src = v_src | append: '&autoplay=1&muted=1' %}{% if mod_cfg.fields.loop %}{% assign v_src = v_src | append: '&loop=1' %}{% endif %}{% endif %}
+                {% endif %}
+                {% if v_src != blank %}
+                  <iframe class="superapp-hero__video" src="{{ v_src }}" title="{{ mod_cfg.title | escape }}" loading="lazy" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+                {% else %}
+                  <video class="superapp-hero__video" data-sa-hero-video{% if hero_poster != blank %} poster="{{ hero_poster | escape }}"{% endif %}{% unless mod_cfg.fields.muted == false %} muted{% endunless %}{% if mod_cfg.fields.loop %} loop{% endif %} playsinline preload="metadata"{% if mod_cfg.fields.autoplay %} autoplay{% endif %}><source src="{{ hero_video | escape }}" type="video/mp4"></video>
+                {% endif %}
+                <span class="superapp-hero__scrim" aria-hidden="true" style="opacity:{{ hero_ov }}"></span>
+              {% elsif hero_media != blank %}
                 <img class="superapp-hero__media" src="{{ hero_media | escape }}" alt="{{ mod_cfg.fields.mediaAlt | default: mod_cfg.fields.backgroundAlt | escape }}" loading="lazy" width="1200" height="900">
               {% endif %}
               <div class="superapp-hero__content">
@@ -819,18 +869,26 @@
             </div>
 
           {% when 'gallery' %}
-            {% # Image gallery/lookbook: block.imageUrl = image, fields.caption/alt, fields.span for masonry. %}
+            {% # Image gallery/lookbook + A6 UGC/Instagram grid (kind:'ugc-grid'): block.imageUrl = image, fields.caption/alt/authorHandle/productUrl, fields.span for masonry. For UGC a hover/focus overlay surfaces caption + @handle + an optional 'Shop this' link. %}
             {% assign gal_variant = mod_cfg.layout.layout | default: 'grid' | handle %}
             {% if gal_variant == blank or gal_variant == 'stacked' %}{% assign gal_variant = 'grid' %}{% endif %}
-            <div class="superapp-gallery superapp-gallery--{{ gal_variant }}">
+            {% assign gal_ugc = false %}{% if sa_kind_h == 'ugc-grid' %}{% assign gal_ugc = true %}{% endif %}
+            <div class="superapp-gallery superapp-gallery--{{ gal_variant }}{% if gal_ugc %} superapp-gallery--ugc{% endif %}">
               {% for section_block in mod_cfg.blocks %}
                 {% if section_block.imageUrl != blank %}
-                  <figure class="superapp-gallery__item{% if section_block.fields.span != blank %} superapp-gallery__item--{{ section_block.fields.span | handle }}{% endif %}">
-                    {% if section_block.url != blank %}<a class="superapp-gallery__link" href="{{ section_block.url | escape }}">{% endif %}
+                  {% assign gal_cap = section_block.fields.caption | default: section_block.text %}
+                  <figure class="superapp-gallery__item{% if gal_ugc %} superapp-gallery__item--ugc{% endif %}{% if section_block.fields.span != blank %} superapp-gallery__item--{{ section_block.fields.span | handle }}{% endif %}">
+                    {% if section_block.url != blank and gal_ugc == false %}<a class="superapp-gallery__link" href="{{ section_block.url | escape }}">{% endif %}
                     <img src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.fields.alt | default: section_block.text | escape }}" loading="lazy" width="600" height="600">
-                    {% if section_block.url != blank %}</a>{% endif %}
-                    {% assign gal_cap = section_block.fields.caption | default: section_block.text %}
-                    {% if gal_cap != blank %}<figcaption class="superapp-gallery__caption">{{ gal_cap | escape }}</figcaption>{% endif %}
+                    {% if section_block.url != blank and gal_ugc == false %}</a>{% endif %}
+                    {% if gal_ugc %}
+                      {% assign gal_shop = section_block.fields.productUrl | default: section_block.url %}
+                      <figcaption class="superapp-gallery__ugc" tabindex="0">
+                        {% if gal_cap != blank %}<span class="superapp-gallery__ugccap">{{ gal_cap | escape }}</span>{% endif %}
+                        {% if section_block.fields.authorHandle != blank %}<span class="superapp-gallery__ugchandle">@{{ section_block.fields.authorHandle | remove: '@' | escape }}</span>{% endif %}
+                        {% if gal_shop != blank %}<a class="superapp-gallery__ugcshop" href="{{ gal_shop | escape }}">{{ section_block.fields.shopLabel | default: 'Shop this' | escape }}</a>{% endif %}
+                      </figcaption>
+                    {% elsif gal_cap != blank %}<figcaption class="superapp-gallery__caption">{{ gal_cap | escape }}</figcaption>{% endif %}
                   </figure>
                 {% endif %}
               {% endfor %}
@@ -1004,12 +1062,43 @@
           {% endif %}
 
           {% when 'technical' %}
+          {% if sa_kind_h == 'size-chart' %}
+            {% # A8 size-chart modal (FoxKit/Globo-class). A trigger button opens a modal (reuses the .superapp-popup chrome + focus trap from the runtime) holding a table built from blocks kind:'row' — block.text = row header, fields.cells (array, same encoding as the pricing-matrix rows). Column headers from fields.columns. HONEST: render nothing when there are no rows. %}
+            {% assign sc_rows = mod_cfg.blocks | where: 'kind', 'row' %}
+            {% if sc_rows.size > 0 %}
+              {% assign sc_cols = mod_cfg.fields.columns | default: mod_cfg.fields.columnNames %}
+              <div class="superapp-sizechart" data-sa-sizechart>
+                <button class="superapp-sizechart__trigger" type="button" data-sa-sizechart-open aria-haspopup="dialog">{{ mod_cfg.fields.triggerLabel | default: mod_cfg.triggerLabel | default: 'Size guide' | escape }}</button>
+                <div class="superapp-popup superapp-popup--embed superapp-sizechart__modal" data-sa-sizechart-modal hidden>
+                  <div class="superapp-popup__backdrop" data-superapp-close></div>
+                  <div class="superapp-popup__panel" role="dialog" aria-modal="true" aria-label="{{ mod_cfg.title | default: 'Size chart' | escape }}">
+                    <button class="superapp-popup__close" type="button" data-superapp-close aria-label="Close">&times;</button>
+                    {% if mod_cfg.title != blank %}<h3 class="superapp-popup__title">{{ mod_cfg.title | escape }}</h3>{% endif %}
+                    {% if mod_cfg.subtitle != blank %}<p class="superapp-popup__body superapp-measure">{{ mod_cfg.subtitle | escape }}</p>{% endif %}
+                    <div class="superapp-sizechart__scroll">
+                      <table class="superapp-sizechart__table">
+                        {% if sc_cols != blank and sc_cols.size > 0 %}
+                          <thead><tr><th scope="col"></th>{% for col in sc_cols %}<th scope="col">{{ col | escape }}</th>{% endfor %}</tr></thead>
+                        {% endif %}
+                        <tbody>
+                          {% for section_block in sc_rows %}
+                            <tr><th scope="row">{{ section_block.text | escape }}</th>{% if section_block.fields.cells != blank %}{% for cell in section_block.fields.cells %}<td>{{ cell | escape }}</td>{% endfor %}{% endif %}</tr>
+                          {% endfor %}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            {% endif %}
+          {% else %}
             {% # Non-visual/technical kinds: a labelled config-summary card (never a raw key/value dump). %}
             <div class="superapp-techcard">
               <span class="superapp-techcard__type">{{ kind | escape }}</span>
               {% if mod_cfg.title != blank %}<div class="superapp-techcard__row"><span class="superapp-techcard__key">Title</span><span class="superapp-techcard__val">{{ mod_cfg.title | escape }}</span></div>{% endif %}
               {% if mod_cfg.subtitle != blank %}<div class="superapp-techcard__row"><span class="superapp-techcard__key">Summary</span><span class="superapp-techcard__val">{{ mod_cfg.subtitle | escape }}</span></div>{% endif %}
             </div>
+          {% endif %}
 
           {% when 'pdp' %}
             {% # Product-page section: media gallery + buy box (price / rating / variant pills / qty / ATC). %}

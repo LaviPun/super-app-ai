@@ -1272,3 +1272,44 @@
 .superapp-testimonial__avatar--initials { display: inline-flex; align-items: center; justify-content: center; font-family: var(--sa-font-display); font-weight: 700; background: color-mix(in srgb, var(--sa-accent) 16%, transparent); color: var(--sa-accent); }
 .superapp-testimonial__verified { display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.7rem; color: var(--sa-accent); letter-spacing: 0.03em; text-transform: none; }
 .superapp-scope[data-sa-pack='bold'] .superapp-testimonial__starsfill { color: var(--sa-accent); }
+
+/* ── V-A A5 · Video hero (mp4 <video> or YouTube/Vimeo lite embed) ────────────
+   Fills the overlay hero like the image media; a flat, opacity-controlled scrim
+   sits between the video and the content for text legibility. Content keeps its
+   z-index:1 (from .superapp-hero--overlay) so it stays above both. */
+.superapp-hero__video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border: 0; z-index: 0; }
+.superapp-hero__scrim { position: absolute; inset: 0; background: #000; z-index: 0; pointer-events: none; }
+
+/* ── V-A A6 · UGC / Instagram grid (kind:'ugc-grid') ─────────────────────────
+   Aspect-ratio tile grid; hover/focus reveals caption + @handle + Shop-this.
+   (.superapp-gallery has no grid of its own on the storefront, so the UGC
+   variant declares its own — keyboard users reach the overlay via focus.) */
+.superapp-gallery--ugc { display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+.superapp-gallery__item--ugc { aspect-ratio: 1 / 1; }
+.superapp-gallery__item--ugc img { width: 100%; height: 100%; object-fit: cover; }
+.superapp-gallery__ugc { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 0.25rem; padding: 0.6rem; color: #fff; background: linear-gradient(0deg, rgba(0,0,0,0.72), rgba(0,0,0,0.05)); opacity: 0; transition: opacity var(--sa-motion, 0.2s) var(--sa-ease, ease); }
+.superapp-gallery__item--ugc:hover .superapp-gallery__ugc, .superapp-gallery__ugc:focus, .superapp-gallery__ugc:focus-within { opacity: 1; }
+.superapp-gallery__ugccap { font-size: 0.8rem; line-height: 1.3; }
+.superapp-gallery__ugchandle { font-family: var(--sa-font-mono); font-size: 0.72rem; opacity: 0.9; }
+.superapp-gallery__ugcshop { align-self: flex-start; margin-top: 0.15rem; font-size: 0.72rem; font-weight: 700; color: #fff; text-decoration: underline; }
+@media (prefers-reduced-motion: reduce) { .superapp-gallery__ugc { transition: none; } }
+
+/* ── V-A A7 · Per-device visibility (device pack + style.responsive, one path) ─
+   Flags ride data-sa-device on the module root; mobileColumns rides --sa-mobile-cols. */
+@media (max-width: 749px) { .superapp-scope[data-sa-device~='hide-mobile'] { display: none !important; } }
+@media (min-width: 750px) { .superapp-scope[data-sa-device~='hide-desktop'] { display: none !important; } }
+@media (max-width: 749px) {
+  .superapp-scope[style*='--sa-mobile-cols'] .superapp-gallery--ugc,
+  .superapp-scope[style*='--sa-mobile-cols'] .superapp-feature__grid,
+  .superapp-scope[style*='--sa-mobile-cols'] .superapp-section__blocks { grid-template-columns: repeat(var(--sa-mobile-cols), minmax(0, 1fr)) !important; column-count: var(--sa-mobile-cols) !important; }
+}
+
+/* ── V-A A8 · Size-chart modal (reuses .superapp-popup chrome + focus trap) ──── */
+.superapp-sizechart__trigger { display: inline-flex; align-items: center; gap: 0.35rem; background: transparent; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-btn-radius, var(--sa-radius)); color: inherit; font: inherit; font-size: 0.85rem; padding: 0.4rem 0.85rem; cursor: pointer; }
+.superapp-sizechart__trigger:hover { border-color: var(--sa-accent); color: var(--sa-accent); }
+.superapp-sizechart__scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 0.5rem; }
+.superapp-sizechart__modal .superapp-popup__panel { max-width: 560px; }
+.superapp-sizechart__table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.superapp-sizechart__table th, .superapp-sizechart__table td { padding: 0.5rem 0.7rem; text-align: center; border-bottom: var(--sa-border-w) solid var(--sa-border-color); white-space: nowrap; }
+.superapp-sizechart__table thead th { font-family: var(--sa-font-mono); text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.72rem; }
+.superapp-sizechart__table tbody th { text-align: left; font-weight: 700; }

@@ -176,8 +176,10 @@ describe('design-system contract — Liquid render layer (§3.3.4 scoping & iden
   });
 
   it('renders pdp + sticky-atc as dedicated branches (§4.2 renderer note)', () => {
-    expect(snippet).toContain("{% when 'pdp' %}");
-    expect(snippet).toContain("{% when 'sticky-atc' %}");
+    // Minify-tolerant: the build now trims tag-delimiter whitespace, so the shipped
+    // form is `{%when 'pdp'%}` (theme-check-valid). Match with or without spaces.
+    expect(snippet).toMatch(/\{%-?\s*when 'pdp'\s*-?%\}/);
+    expect(snippet).toMatch(/\{%-?\s*when 'sticky-atc'\s*-?%\}/);
   });
 
   it('composes with the §04 primitives (containers, rows, clusters, measure)', () => {

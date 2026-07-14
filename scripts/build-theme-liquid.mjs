@@ -79,7 +79,75 @@ function minifyLiquid(src) {
     } while (chunk !== prev);
     return chunk;
   });
+  // 5. Trim the spaces/tabs immediately INSIDE `{{ … }}` output-tag delimiters —
+  //    Liquid strips leading/trailing whitespace of an output tag's markup before
+  //    evaluating it, so `{{ x | escape }}` and `{{x | escape}}` render the SAME
+  //    bytes (output-preserving). Whitespace-control markers (`{{-` / `-}}`) are
+  //    preserved; only [ \t] (never newlines) adjacent to the braces is removed, so
+  //    a rare multi-line output tag and the internal `| filter` spacing are left
+  //    intact. `{% … %}` tags are deliberately NOT touched (tag-name lexing is more
+  //    fragile); `{% liquid %}` blocks never contain `{{ }}`, so this is global-safe.
+  out = out.replace(/(\{\{-?)[ \t]+/g, '$1').replace(/[ \t]+(-?\}\})/g, '$1');
+  // 6. Same edge-trim for `{% … %}` tag delimiters. Liquid strips the leading/
+  //    trailing whitespace of a tag's markup before splitting the tag name, so
+  //    `{% if x %}` and `{%if x%}` are equivalent (standard Liquid minification;
+  //    Shopify's own shipped assets use the no-space form). Only [ \t] adjacent to
+  //    the braces is removed — INTERNAL token spacing (around operators/`=`, inside
+  //    quoted strings) is untouched, and `-`/whitespace-control markers survive.
+  //    The `{% liquid %}` opener/closer keep their protected newlines (a newline is
+  //    not [ \t], so the `%}` that closes a liquid block is never touched here).
+  out = out.replace(/(\{%-?)[ \t]+/g, '$1').replace(/[ \t]+(-?%\})/g, '$1');
+  // 7. Collapse redundant internal whitespace INSIDE each `{{ … }}` / `{% … %}`
+  //    tag (never HTML text), skipping quoted string literals: runs of spaces/tabs
+  //    collapse to one, and the spaces around a `|` filter pipe are dropped
+  //    (`{{ a | b }}` → `{{a|b}}` — the ubiquitous Shopify filter-minify form).
+  //    Single inter-token spaces (around `=`, operators, keywords) are KEPT, so
+  //    tag lexing is untouched. `{% liquid %}` blocks are skipped wholesale — their
+  //    newline-separated statements are load-bearing.
+  out = trimTagInternals(out);
   return out.endsWith('\n') ? out : out + '\n';
+}
+
+/**
+ * Collapse redundant whitespace inside `{{ … }}` and `{% … %}` tags (see rule 7).
+ * Quoted string literals inside a tag are preserved verbatim; `{% liquid %}` blocks
+ * are skipped entirely (their internal newlines separate statements). This only
+ * removes whitespace Liquid already ignores when lexing a tag, so it is
+ * output-preserving.
+ */
+function trimTagInternals(src) {
+  return src.replace(/\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}/g, (tag) => {
+    // NB: `{% liquid %}` blocks are NOT skipped — the transforms below only touch
+    // [ \t] (never newlines) and only outside quoted strings, so the newline-
+    // separated statements inside a liquid block are preserved byte-for-byte while
+    // their ignorable filter-pipe/colon/comma spacing is still reclaimed.
+    let out = '';
+    let i = 0;
+    while (i < tag.length) {
+      const ch = tag[i];
+      if (ch === '"' || ch === "'") {
+        const j = tag.indexOf(ch, i + 1);
+        const end = j === -1 ? tag.length : j + 1;
+        out += tag.slice(i, end); // copy the quoted string literal verbatim
+        i = end;
+      } else {
+        let k = i;
+        while (k < tag.length && tag[k] !== '"' && tag[k] !== "'") k++;
+        out += tag
+          .slice(i, k)
+          .replace(/[ \t]{2,}/g, ' ')
+          // Filter separators: `| a`, `: b`, `, c` all tolerate zero surrounding
+          // whitespace in Liquid (the ubiquitous `{{a|default:'x','y'}}` form).
+          // These punctuators only appear OUTSIDE string literals here (URLs/labels
+          // with `:` or `,` live inside the protected quotes), so this is safe.
+          .replace(/[ \t]*\|[ \t]*/g, '|')
+          .replace(/[ \t]*:[ \t]*/g, ':')
+          .replace(/[ \t]*,[ \t]*/g, ',');
+        i = k;
+      }
+    }
+    return out;
+  });
 }
 
 /**

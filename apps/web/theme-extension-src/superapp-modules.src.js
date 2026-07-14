@@ -815,6 +815,70 @@
     Array.prototype.forEach.call(groups, setupVolumeTiers);
   }
 
+  /* ── V-A A8: size-chart modal ────────────────────────────────────────────────
+     A trigger button opens a modal that reuses the .superapp-popup chrome (+ the
+     same Escape/scrim close and Tab focus-trap as setupPopup). Reopenable — no
+     frequency suppression (a size guide is on-demand). Graceful: no-op if the
+     trigger or modal is absent (the Liquid renders nothing when there are no rows). */
+  function setupSizeChart(root) {
+    var trigger = root.querySelector('[data-sa-sizechart-open]');
+    var modal = root.querySelector('[data-sa-sizechart-modal]');
+    if (!trigger || !modal) return;
+    var panel = modal.querySelector('.superapp-popup__panel');
+    var lastFocused = null;
+    function onKeydown(e) {
+      if (e.key === 'Escape' || e.key === 'Esc') { e.preventDefault(); close(); return; }
+      if (e.key === 'Tab' && panel) {
+        var nodes = panel.querySelectorAll(FOCUSABLE);
+        if (!nodes.length) { e.preventDefault(); return; }
+        var first = nodes[0];
+        var last = nodes[nodes.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    }
+    function open() {
+      lastFocused = document.activeElement;
+      modal.hidden = false;
+      void modal.offsetWidth; // eslint-disable-line no-void
+      modal.classList.add('is-open');
+      var c = modal.querySelector('.superapp-popup__close') || panel;
+      if (c && c.focus) { try { c.focus({ preventScroll: true }); } catch (e) { c.focus(); } }
+      document.addEventListener('keydown', onKeydown, true);
+    }
+    function close() {
+      document.removeEventListener('keydown', onKeydown, true);
+      modal.classList.remove('is-open');
+      var finish = function () { modal.classList.remove('is-closing'); modal.hidden = true; };
+      if (reducedMotion) finish();
+      else { modal.classList.add('is-closing'); window.setTimeout(finish, 180); }
+      if (lastFocused && lastFocused.focus) { try { lastFocused.focus({ preventScroll: true }); } catch (e) { /* noop */ } }
+      lastFocused = null;
+    }
+    trigger.addEventListener('click', function (e) { e.preventDefault(); open(); });
+    modal.addEventListener('click', function (e) {
+      var closer = e.target.closest ? e.target.closest('[data-superapp-close]') : null;
+      if (closer && modal.contains(closer)) { e.preventDefault(); close(); }
+    });
+  }
+  function initSizeCharts() {
+    var els = document.querySelectorAll('[data-sa-sizechart]');
+    Array.prototype.forEach.call(els, setupSizeChart);
+  }
+
+  /* V-A A5: reduced-motion guard for autoplaying hero videos. Pure CSS cannot
+     strip the <video autoplay> attribute, so when prefers-reduced-motion is set we
+     remove it and pause — the poster frame stays visible. (mp4 only; iframe embeds
+     only autoplay when the merchant opts in, and are click-to-play otherwise.) */
+  function guardReducedMotionVideos() {
+    if (!reducedMotion) return;
+    var vids = document.querySelectorAll('video[data-sa-hero-video][autoplay]');
+    Array.prototype.forEach.call(vids, function (v) {
+      v.removeAttribute('autoplay');
+      try { v.pause(); } catch (e) { /* noop */ }
+    });
+  }
+
   /* ── R2.3: product recommendations resolver ──────────────────────────────────
      Third responsibility alongside popup + contact-form. Resolves DYNAMIC and
      cart-derived strategies (static ones already rendered inline by Liquid) and
@@ -1537,6 +1601,9 @@
     initGames();
     /* V-A A1: volume/quantity-break tier selection → product quantity input. */
     initVolumeTiers();
+    /* V-A A8: size-chart modal triggers; A5: reduced-motion hero-video guard. */
+    initSizeCharts();
+    guardReducedMotionVideos();
     /* R2.3: resolve dynamic / cart-derived recommendation mounts. */
     var recs = document.querySelectorAll('[data-superapp-recs]');
     Array.prototype.forEach.call(recs, initRecs);

@@ -91,3 +91,9 @@ export type {
   ProgressRewardType,
   ProgressBarStyle,
 } from './packs/progress-goal.pack.js';
+export {
+  DevicePackSchema,
+  devicePack,
+  DEVICE_MOBILE_COLUMNS,
+} from './packs/device.pack.js';
+export type { DevicePack, DeviceMobileColumns } from './packs/device.pack.js';

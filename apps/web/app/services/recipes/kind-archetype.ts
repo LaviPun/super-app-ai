@@ -28,6 +28,7 @@ export const KIND_ARCHETYPE: Record<string, SectionArchetype> = {
   hero: 'hero', 'collection-hero': 'hero',
   feature: 'feature', benefit: 'feature',
   gallery: 'gallery', lookbook: 'gallery', 'collection-lookbook': 'gallery', 'collection-carousel': 'gallery',
+  'ugc-grid': 'gallery',
   'collection-story': 'collection', 'collection-split': 'collection', 'collection-promo': 'collection',
   'collection-list': 'collection', story: 'collection',
   pricing: 'pricing', comparison: 'pricing', plan: 'pricing', 'volume-tiers': 'pricing',

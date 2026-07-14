@@ -56,6 +56,8 @@ export type PreviewContext = {
 type PreviewPack = 'luxe' | 'bold' | 'playful' | 'utility';
 let activePack: PreviewPack | null = null;
 let activeAccent: string | undefined;
+/** A7 — device-visibility affordance note shown on the preview when device rules are set. */
+let activeDeviceNote: string | null = null;
 
 let packCssCache: string | null = null;
 /** Load the real theme-extension stylesheet (cached). '' when unavailable (previews degrade to legacy CSS). */
@@ -130,11 +132,14 @@ export class PreviewService {
     const carriesPack = spec.type === 'theme.section' || spec.type === 'proxy.widget' || BUYER_FACING_DS_TYPES.has(spec.type);
     activePack = carriesPack ? previewPackOf(spec) : null;
     activeAccent = carriesPack ? previewAccentOf(spec) : undefined;
+    activeDeviceNote =
+      spec.type === 'theme.section' || spec.type === 'proxy.widget' ? deviceNoteOf(spec) : null;
     try {
       return this.renderInner(spec, context, surface);
     } finally {
       activePack = null;
       activeAccent = undefined;
+      activeDeviceNote = null;
     }
   }
 
@@ -562,7 +567,15 @@ export class PreviewService {
     const mediaUrl = saStr(spec, 'mediaImageUrl') || saStr(spec, 'heroImageUrl') || saStr(spec, 'imageUrl');
     const mediaAlt = saStr(spec, 'mediaAlt') || title;
     const mediaSide = saStr(spec, 'mediaSide') === 'left' ? 'left' : 'right';
-    const overlay = f.overlayText === true || saStr(spec, 'layoutVariant') === 'overlay';
+    // A5 — video hero. The storefront renders an mp4 <video> or a YouTube/Vimeo
+    // lite embed; the deterministic preview shows the poster + a play glyph over a
+    // scrim (static parity — no live playback in the builder).
+    const videoUrl = saStr(spec, 'videoUrl');
+    const isVideo = Boolean(videoUrl);
+    const posterUrl = saStr(spec, 'posterImageUrl') || saStr(spec, 'backgroundImageUrl') || mediaUrl;
+    const ovRaw = saFields(spec).overlayOpacity;
+    const overlayOpacity = typeof ovRaw === 'number' ? Math.max(0, Math.min(1, ovRaw)) : 0.4;
+    const overlay = isVideo || f.overlayText === true || saStr(spec, 'layoutVariant') === 'overlay';
     const layout = String(spec.config.layout?.layout ?? 'stacked');
     const hasMedia = Boolean(mediaUrl) || overlay || layout === 'grid';
     const variant = overlay ? 'overlay' : hasMedia && layout === 'grid' ? 'split' : 'centered';
@@ -598,7 +611,15 @@ export class PreviewService {
         ${ctasHtml ? `<div class="superapp-hero__ctas">${ctasHtml}</div>` : ''}
         ${proofHtml}
       </div>`;
-    const media = hasMedia ? phMedia(mediaUrl, mediaAlt, 'superapp-hero__media') : '';
+    const media = isVideo
+      ? `<div class="superapp-hero__video superapp-hero__video--preview">${phMedia(
+          posterUrl,
+          mediaAlt,
+          'superapp-hero__poster',
+        )}<span class="superapp-hero__scrim" aria-hidden="true" style="opacity:${overlayOpacity}"></span><span class="superapp-hero__play" aria-hidden="true">▶</span></div>`
+      : hasMedia
+        ? phMedia(mediaUrl, mediaAlt, 'superapp-hero__media')
+        : '';
     // Split: media order follows mediaSide; overlay: media is a backdrop.
     const inner =
       variant === 'overlay'
@@ -607,9 +628,13 @@ export class PreviewService {
           ? `${media}${content}`
           : `${content}${media}`;
 
+    // Preview-only chrome for the video poster (the pack sheet owns .superapp-hero*).
+    const videoCss = isVideo
+      ? '.superapp-hero__video--preview{position:absolute;inset:0;z-index:0;}.superapp-hero__poster{width:100%;height:100%;object-fit:cover;}.superapp-hero__scrim{position:absolute;inset:0;background:#000;}.superapp-hero__play{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1;display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:999px;background:rgba(255,255,255,.9);color:#111;font-size:24px;}'
+      : '';
     return pageHtml(
       `<section class="superapp-hero superapp-hero--${variant}">${inner}</section>`,
-      this.archCss(spec, '.superapp-hero'),
+      this.archCss(spec, '.superapp-hero') + videoCss,
     );
   }
 
@@ -643,8 +668,11 @@ export class PreviewService {
     );
   }
 
-  /** Gallery / lookbook image grid, masonry or carousel. */
+  /** Gallery / lookbook image grid, masonry or carousel (+ A6 UGC grid). */
   private sectionGallery(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    // A6 — UGC / Instagram grid (kind: ugc-grid): aspect-ratio tiles whose
+    // hover/focus overlay surfaces caption + @handle + a 'Shop this' link.
+    if (spec.config.kind === 'ugc-grid') return this.sectionUgcGrid(spec);
     const layout = String(spec.config.layout?.layout ?? 'grid');
     const variant = layout === 'masonry' ? 'masonry' : layout === 'carousel' ? 'carousel' : 'grid';
     const items = (spec.config.blocks ?? [])
@@ -666,6 +694,37 @@ export class PreviewService {
         <div class="superapp-gallery__grid">${items}</div>
       </section>`,
       this.archCss(spec, '.superapp-gallery'),
+    );
+  }
+
+  /** A6 — UGC / Instagram grid: aspect-ratio tiles with a hover/focus overlay. */
+  private sectionUgcGrid(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const items = (spec.config.blocks ?? [])
+      .filter((b) => b.kind === 'slide' || b.kind === 'media' || b.kind === 'tile' || b.kind === 'image')
+      .map((b) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        const cap = bf.caption != null ? String(bf.caption) : (b.text ?? '');
+        const handle = bf.authorHandle != null ? String(bf.authorHandle).replace(/^@/, '') : '';
+        const shop = bf.productUrl != null ? String(bf.productUrl) : (b.url ?? '');
+        const shopLabel = bf.shopLabel != null ? String(bf.shopLabel) : 'Shop this';
+        const alt = bf.alt != null ? String(bf.alt) : cap;
+        return `
+          <figure class="superapp-gallery__item superapp-gallery__item--ugc">
+            ${phMedia(b.imageUrl ?? '', alt, 'superapp-gallery__img')}
+            <figcaption class="superapp-gallery__ugc" tabindex="0">
+              ${cap ? `<span class="superapp-gallery__ugccap">${esc(cap)}</span>` : ''}
+              ${handle ? `<span class="superapp-gallery__ugchandle">@${esc(handle)}</span>` : ''}
+              ${shop ? `<a class="superapp-gallery__ugcshop" href="${escAttr(shop)}">${esc(shopLabel)}</a>` : ''}
+            </figcaption>
+          </figure>`;
+      })
+      .join('');
+    return pageHtml(
+      `<div class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-gallery superapp-gallery--ugc">${items}</div>
+      </div>`,
+      this.archCss(spec, '.superapp-archsection'),
     );
   }
 
@@ -1300,6 +1359,8 @@ export class PreviewService {
   private sectionTechnical(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
     // B3 — sticky ATC v2 lives under the `technical` archetype (kind: sticky-atc).
     if (spec.config.kind === 'sticky-atc') return this.sectionStickyAtc(spec);
+    // A8 — size-chart modal (kind: size-chart): static table + trigger mock.
+    if (spec.config.kind === 'size-chart') return this.sectionSizeChart(spec);
     const kind = spec.config.kind;
     const rows = curatedTechRows(spec);
     const rowsHtml = rows
@@ -1321,6 +1382,49 @@ export class PreviewService {
         }
       </section>`,
       this.archCss(spec, '.superapp-techcard'),
+    );
+  }
+
+  /** A8 — size-chart modal preview: static table + a mock "Size guide" trigger. */
+  private sectionSizeChart(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const rows = (spec.config.blocks ?? []).filter((b) => b.kind === 'row');
+    const trigger = saStr(spec, 'triggerLabel') || 'Size guide';
+    if (rows.length === 0) {
+      // Honest parity with the storefront: no rows → nothing to show.
+      return pageHtml(
+        `<section class="superapp-techcard"><div class="superapp-techcard__type">Size chart</div><p class="superapp-techcard__note">Add rows (blocks of kind <code>row</code> with <code>fields.cells</code>) to populate the size table.</p></section>`,
+        this.archCss(spec, '.superapp-techcard'),
+      );
+    }
+    const colsRaw = saFields(spec).columns ?? saFields(spec).columnNames;
+    const cols = Array.isArray(colsRaw) ? colsRaw.map(String) : [];
+    const thead = cols.length
+      ? `<thead><tr><th scope="col"></th>${cols.map((c) => `<th scope="col">${esc(c)}</th>`).join('')}</tr></thead>`
+      : '';
+    const tbody = rows
+      .map((b) => {
+        const cellsRaw = (b.fields as Record<string, unknown> | undefined)?.cells;
+        const cells = Array.isArray(cellsRaw) ? cellsRaw.map(String) : [];
+        return `<tr><th scope="row">${esc(b.text ?? '')}</th>${cells
+          .map((c) => `<td>${esc(c)}</td>`)
+          .join('')}</tr>`;
+      })
+      .join('');
+    return pageHtml(
+      `<section class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-sizechart superapp-sizechart--preview">
+          <button class="superapp-sizechart__trigger" type="button" disabled>${esc(trigger)}</button>
+          <div class="superapp-sizechart__scroll">
+            <table class="superapp-sizechart__table">${thead}<tbody>${tbody}</tbody></table>
+          </div>
+          <p class="superapp-band__affordance">Opens as a modal from the “${esc(
+            trigger,
+          )}” trigger on the product page.</p>
+        </div>
+      </section>`,
+      this.archCss(spec, '.superapp-archsection') +
+        '.superapp-sizechart--preview{max-width:560px;margin:0 auto;text-align:center;}.superapp-sizechart--preview .superapp-sizechart__scroll{margin-top:0.75rem;overflow-x:auto;}',
     );
   }
 
@@ -2724,10 +2828,18 @@ function pageHtml(body: string, css: string) {
         letter-spacing: 0.02em; padding: 4px 8px; border-radius: 9999px;
         border: 1px solid rgba(17,24,39,0.08); pointer-events: none;
       }
+      .sa-device-note {
+        position: fixed; top: 8px; left: 8px; z-index: 2147483646;
+        background: rgba(17,24,39,0.06); color: #6b7280;
+        font: 600 11px/1 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        letter-spacing: 0.02em; padding: 4px 8px; border-radius: 9999px;
+        border: 1px solid rgba(17,24,39,0.08); pointer-events: none;
+      }
       ${css}${packCss ? `\n/* ── two-pack design system (real storefront stylesheet) ── */\n${packCss}` : ''}</style>
       </head>
       <body>
         <div class="sa-sample-badge" aria-hidden="true">Sample data</div>
+        ${activeDeviceNote ? `<div class="sa-device-note" aria-hidden="true">${esc(activeDeviceNote)}</div>` : ''}
         <div style="padding:16px">${scopeOpen}${body}${scopeClose}</div>
         ${LINK_INTERCEPT_SCRIPT}
       </body>
@@ -2812,6 +2924,25 @@ function layoutModifierClass(layout: unknown): string {
 
 function sectionArchetype(kind: string): SectionArchetype | null {
   return KIND_ARCHETYPE[kind] ?? null;
+}
+
+/**
+ * A7 — a short device-visibility affordance string from `config.device` (the pack)
+ * and `style.responsive` (the same rendering path), or null when nothing is set.
+ * Both sources default to "show everywhere", so an absent/default value → no note.
+ */
+function deviceNoteOf(spec: RecipeSpec): string | null {
+  const c = (spec as { config?: unknown }).config as Record<string, unknown> | undefined;
+  const dev = (c?.device ?? {}) as Record<string, unknown>;
+  const resp = (((spec as { style?: unknown }).style as { responsive?: unknown } | undefined)
+    ?.responsive ?? {}) as Record<string, unknown>;
+  const parts: string[] = [];
+  if (dev.desktop === false || resp.hideOnDesktop === true) parts.push('Hidden on desktop');
+  if (dev.mobile === false || resp.hideOnMobile === true) parts.push('Hidden on mobile');
+  if (dev.mobileColumns === 1 || dev.mobileColumns === 2) {
+    parts.push(`Mobile: ${dev.mobileColumns} column${dev.mobileColumns === 1 ? '' : 's'}`);
+  }
+  return parts.length ? parts.join(' · ') : null;
 }
 
 type ThemeSectionSpec = Extract<RecipeSpec, { type: 'theme.section' }>;
