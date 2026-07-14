@@ -2,6 +2,7 @@ import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
 import { generateValidatedRecipeOptions, generateValidatedBlueprint, AiProviderNotConfiguredError } from '~/services/ai/llm.server';
+import { rankOptions } from '~/services/ai/option-ranking.server';
 import { planBlueprint } from '~/services/ai/blueprint-planner';
 import { isBlueprintsEnabled } from '~/env.server';
 import type { RecipeSpec } from '@superapp/core';
@@ -210,6 +211,11 @@ export async function action({ request }: { request: Request }) {
           }
         }
 
+        // Deterministic "Recommended" ranking (Phase 2c) — zero-latency, runs on
+        // the FINAL recipes (after composition + palette mutations above).
+        const ranking = rankOptions(recipeOptions);
+        const badgesByIndex = new Map(ranking.scores.map((s) => [s.index, s]));
+
         await jobs.succeed(job.id, { optionCount: recipeOptions.length, type: classification.moduleType, paletteMatched, blueprintModules: blueprint?.modules.length ?? 0 });
 
         const confidence = intentPacket.classification.confidence;
@@ -234,11 +240,14 @@ export async function action({ request }: { request: Request }) {
           requirementSpec,
           paletteMatched,
           startFrom,
+          recommendedIndex: ranking.recommendedIndex,
           options: recipeOptions.map((opt, i) => ({
             index: i,
             explanation: opt.explanation,
             recipe: opt.recipe,
             ...(opt.generationMode ? { generationMode: opt.generationMode } : {}),
+            score: badgesByIndex.get(i)?.score,
+            qualityBadges: badgesByIndex.get(i)?.badges ?? [],
           })),
           blueprint: blueprint
             ? {

@@ -52,6 +52,7 @@ import { buildDesignReferencePromptBlock, buildDesignSystemDirectiveForReference
 import { buildDesignQaCorrection, runDesignQa, summarizeQa, type DesignQaResult } from '~/services/ai/design-qa.server';
 import { runRenderQa } from '~/services/ai/design-qa-render.server';
 import { runRichnessQa, detectRichnessExempt } from '~/services/ai/richness-qa.server';
+import type { OptionQaSummary } from '~/services/ai/option-ranking.server';
 import { mustHaveControlsForType } from '~/services/ai/requirement-spec.server';
 
 import { getPrisma } from '~/db.server';
@@ -65,6 +66,13 @@ export type RecipeOption = {
    * additive — absent on legacy paths that never branch on it.
    */
   generationMode?: 'delta' | 'freeform';
+  /**
+   * QA outcome of this option's FINAL recipe (the design/render/richness gates
+   * merged by `runAllQaGates`, after any corrective regeneration). Feeds the
+   * deterministic option ranker (`option-ranking.server.ts`). Optional/additive —
+   * absent on paths that don't run `applyDesignQaWithRetry`.
+   */
+  qaSummary?: OptionQaSummary;
 };
 
 /** JSON Schema hint passed to providers that support structured output. */
@@ -888,8 +896,28 @@ async function parseValidateAndRepairRecipe(
 /** Token/cost a corrective regeneration spent (always billed, even if its output is unusable). */
 type QaRegenResult = { recipe: RecipeSpec | null; tokensIn: number; tokensOut: number; costCents: number };
 /** The chosen recipe plus the EXTRA usage the retry spent, for the caller to add to recordAiUsage. */
-type QaRetryResult = { recipe: RecipeSpec; extraTokensIn: number; extraTokensOut: number; extraCostCents: number };
+type QaRetryResult = {
+  recipe: RecipeSpec;
+  extraTokensIn: number;
+  extraTokensOut: number;
+  extraCostCents: number;
+  /** QA counts of the CHOSEN recipe's final gate pass — fed to the option ranker. */
+  qaSummary: OptionQaSummary;
+};
 const NO_EXTRA = { extraTokensIn: 0, extraTokensOut: 0, extraCostCents: 0 };
+
+/** Reduce a merged QA result to the ranker's fails/warns/autofixes counts. */
+function qaCounts(result: DesignQaResult): OptionQaSummary {
+  let fails = 0;
+  let warns = 0;
+  let autofixes = 0;
+  for (const issue of result.issues) {
+    if (issue.severity === 'fail') fails++;
+    else if (issue.severity === 'warn') warns++;
+    if (issue.autofixed) autofixes++;
+  }
+  return { fails, warns, autofixes };
+}
 
 /**
  * Extra context threaded into the QA gate so the render-time + richness gates can
@@ -927,10 +955,10 @@ async function applyDesignQaWithRetry(
   qaContext?: QaGateContext,
 ): Promise<QaRetryResult> {
   const first = runAllQaGates(recipe, qaContext);
-  if (first.pass) return { recipe: coerceValidRecipe(first.recipe, recipe), ...NO_EXTRA };
+  if (first.pass) return { recipe: coerceValidRecipe(first.recipe, recipe), ...NO_EXTRA, qaSummary: qaCounts(first) };
 
   const corrective = buildDesignQaCorrection(first);
-  if (!corrective) return { recipe: coerceValidRecipe(first.recipe, recipe), ...NO_EXTRA };
+  if (!corrective) return { recipe: coerceValidRecipe(first.recipe, recipe), ...NO_EXTRA, qaSummary: qaCounts(first) };
   console.warn(`[design-qa] ${summarizeQa(first)} — attempting one corrective regeneration`);
 
   let regen: QaRegenResult | null = null;
@@ -940,15 +968,15 @@ async function applyDesignQaWithRetry(
     console.warn(`[design-qa] corrective regeneration failed: ${err instanceof Error ? err.message : String(err)}`);
     regen = null;
   }
-  if (!regen) return { recipe: coerceValidRecipe(first.recipe, recipe), ...NO_EXTRA };
+  if (!regen) return { recipe: coerceValidRecipe(first.recipe, recipe), ...NO_EXTRA, qaSummary: qaCounts(first) };
 
   // The regeneration LLM call was billed regardless of whether its output is usable.
   const extra = { extraTokensIn: regen.tokensIn, extraTokensOut: regen.tokensOut, extraCostCents: regen.costCents };
   const candidate = regen.recipe;
-  if (!candidate) return { recipe: coerceValidRecipe(first.recipe, recipe), ...extra };
+  if (!candidate) return { recipe: coerceValidRecipe(first.recipe, recipe), ...extra, qaSummary: qaCounts(first) };
 
   const second = runAllQaGates(candidate, qaContext);
-  if (second.pass) return { recipe: coerceValidRecipe(second.recipe, candidate), ...extra };
+  if (second.pass) return { recipe: coerceValidRecipe(second.recipe, candidate), ...extra, qaSummary: qaCounts(second) };
 
   // Retry still blocking — keep whichever has fewer blocking issues (tie → first,
   // i.e. the pre-retry auto-fixed recipe = current behavior).
@@ -956,8 +984,8 @@ async function applyDesignQaWithRetry(
   const secondFails = second.issues.filter((i) => i.severity === 'fail').length;
   console.warn(`[design-qa] corrective regeneration still failing (${secondFails} blocking) — keeping best auto-fixed recipe`);
   return secondFails < firstFails
-    ? { recipe: coerceValidRecipe(second.recipe, candidate), ...extra }
-    : { recipe: coerceValidRecipe(first.recipe, recipe), ...extra };
+    ? { recipe: coerceValidRecipe(second.recipe, candidate), ...extra, qaSummary: qaCounts(second) }
+    : { recipe: coerceValidRecipe(first.recipe, recipe), ...extra, qaSummary: qaCounts(first) };
 }
 
 /**
@@ -1732,7 +1760,7 @@ export async function* generateValidatedRecipeOptionsStream(
         kind: 'ok' as const,
         index: idx,
         approach: approach.label,
-        option: { explanation, recipe, generationMode: produced.generationMode },
+        option: { explanation, recipe, generationMode: produced.generationMode, qaSummary: qaRetry.qaSummary },
         durationMs: Date.now() - startedAt,
       };
     } catch (err) {
@@ -1967,7 +1995,7 @@ export async function generateValidatedRecipeOptionsParallel(
         requestCount: optionCallBillableUnits(idx),
         prompt: compiledPrompt,
       });
-      const option: RecipeOption = { explanation, recipe, generationMode: produced.generationMode };
+      const option: RecipeOption = { explanation, recipe, generationMode: produced.generationMode, qaSummary: qaRetry.qaSummary };
       return { ok: true as const, option };
     } catch (err) {
       await recordAiUsage(usage, {

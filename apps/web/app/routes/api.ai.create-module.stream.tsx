@@ -4,7 +4,9 @@ import { enforceRateLimit } from '~/services/security/rate-limit.server';
 import {
   generateValidatedRecipeOptionsStream,
   AiProviderNotConfiguredError,
+  type RecipeOption,
 } from '~/services/ai/llm.server';
+import { rankOptions } from '~/services/ai/option-ranking.server';
 import { getPrisma } from '~/db.server';
 import { JobService } from '~/services/jobs/job.service';
 import { QuotaService } from '~/services/billing/quota.service';
@@ -38,8 +40,13 @@ export async function loader() {
  *   event: started     data: { index, approach, total }
  *   event: option      data: { index, approach, explanation, recipe }
  *   event: option_failed data: { index, approach, error }
+ *   event: ranking     data: { recommendedIndex, scores: [{ index, score, badges }] }
  *   event: done        data: { valid, total }
  *   event: error       data: { code, message }   (terminal)
+ *
+ * The `ranking` event (Phase 2c) is emitted once, right before `done`, when at
+ * least one option validated. It is purely additive — clients that ignore it are
+ * unaffected. `recommendedIndex`/`scores[].index` are REAL option indices.
  *
  * Use when the merchant UI wants progressive option rendering. The non-streaming
  * `/api/ai/create-module` route still works for clients that prefer batch.
@@ -156,6 +163,10 @@ export async function action({ request }: { request: Request }) {
       });
 
       let validCount = 0;
+      // Collect the FINAL (post-mutation) options so we can emit a deterministic
+      // `ranking` frame once all options have arrived (Phase 2c). Keyed by real
+      // option index — failed options simply never enter the map.
+      const collected = new Map<number, RecipeOption>();
       try {
         for await (const event of generateValidatedRecipeOptionsStream(finalPrompt, classification, {
           shopId: shopRow.id,
@@ -186,6 +197,22 @@ export async function action({ request }: { request: Request }) {
                 /* palette match is best-effort */
               }
             }
+            if (event.option) collected.set(event.index, event.option);
+          }
+          // Emit the deterministic ranking just before `done` so the client can
+          // preselect the recommended option. A client that ignores this event is
+          // unaffected (purely additive).
+          if (event.kind === 'done' && collected.size > 0) {
+            const entries = [...collected.entries()].sort((a, b) => a[0] - b[0]);
+            const ranking = rankOptions(entries.map(([, opt]) => opt));
+            send('ranking', {
+              recommendedIndex: entries[ranking.recommendedIndex]?.[0] ?? entries[0]![0],
+              scores: ranking.scores.map((s) => ({
+                index: entries[s.index]![0],
+                score: s.score,
+                badges: s.badges,
+              })),
+            });
           }
           send(event.kind, event);
         }

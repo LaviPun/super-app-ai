@@ -2,6 +2,7 @@ import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
 import { generateValidatedRecipeOptions, AiProviderNotConfiguredError } from '~/services/ai/llm.server';
+import { rankOptions } from '~/services/ai/option-ranking.server';
 import type { RecipeSpec } from '@superapp/core';
 import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
 import { applyStorePalette } from '~/services/theme/apply-store-palette.server';
@@ -159,6 +160,11 @@ export async function action({ request }: { request: Request }) {
           }
         }
 
+        // Deterministic ranking (Phase 2c) — runs on the FINAL recipes so the
+        // agent has a default pick without a second LLM round-trip.
+        const ranking = rankOptions(recipeOptions);
+        const scoreByIndex = new Map(ranking.scores.map((s) => [s.index, s]));
+
         await jobs.succeed(job.id, { optionCount: recipeOptions.length, type: classification.moduleType });
 
         return json({
@@ -172,12 +178,15 @@ export async function action({ request }: { request: Request }) {
             alternatives: intentPacket.classification.alternatives ?? [],
           },
           routerDecision,
+          recommendedIndex: ranking.recommendedIndex,
           options: recipeOptions.map((opt, i) => ({
             index: i,
             explanation: opt.explanation,
             recipe: opt.recipe,
+            score: scoreByIndex.get(i)?.score,
+            qualityBadges: scoreByIndex.get(i)?.badges ?? [],
           })),
-          hint: 'Call POST /api/agent/modules with { spec: <selected recipe> } to save the chosen option.',
+          hint: `Options are ranked; index ${ranking.recommendedIndex} is recommended. Call POST /api/agent/modules with { spec: <selected recipe> } to save the chosen option (default to the recommended one unless you have a reason to prefer another).`,
         });
       } catch (e) {
         await jobs.fail(job.id, e);
