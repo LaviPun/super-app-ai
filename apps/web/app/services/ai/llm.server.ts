@@ -1,6 +1,7 @@
 import type { RecipeSpec, ModuleType, RecipeBlueprint } from '@superapp/core';
 import crypto from 'node:crypto';
-import { RecipeSpecSchema, validateBlueprintCoherence } from '@superapp/core';
+import { RecipeSpecSchema, validateBlueprintCoherence, validateTypeEnums } from '@superapp/core';
+import type { TypeEnumViolation } from '@superapp/core';
 import type { BlueprintPlan } from '~/services/ai/blueprint-planner';
 import { getBlueprintCatalogEntry, buildCompositeManifest } from '~/services/ai/blueprint-catalog';
 import { isMerchantCodeExecutionAllowed, isCostRoutingEnabled } from '~/env.server';
@@ -848,7 +849,9 @@ async function parseValidateAndRepairRecipe(
   const raw = unwrapRecipe(parsed);
   const repaired = repairRecipeForValidation(raw);
   const safe = RecipeSpecSchema.safeParse(repaired);
-  if (safe.success) return safe.data;
+  // Fast path only when BOTH Zod and the per-type enum catalog pass; a drift
+  // violation falls through to the repair loop (which re-checks the same catalog).
+  if (safe.success && validateTypeEnums(safe.data).length === 0) return safe.data;
   const fix = await validateAndRepairRecipe(raw, client, ctx);
   return fix.recipe;
 }
@@ -1181,6 +1184,20 @@ export function repairRecipeForValidation(raw: unknown): unknown {
 const MAX_REPAIR_ATTEMPTS = 2;
 
 /**
+ * Render per-type enum violations as a single repair-prompt error line — the
+ * offending path plus its allowed set — so the model can correct the value in the
+ * next pass, exactly like a Zod error message.
+ */
+function formatTypeEnumViolations(violations: TypeEnumViolation[]): string {
+  return (
+    'Per-type enum violation — fix the field(s) below to an allowed value: ' +
+    violations
+      .map((v) => `${v.path}="${v.value}" is not valid for this module type (use one of: ${v.allowed.join(' | ')})`)
+      .join('; ')
+  );
+}
+
+/**
  * Validate with RecipeSpecSchema; if invalid, run repair prompt (doc 15.9) and re-validate.
  * Caps at MAX_REPAIR_ATTEMPTS to keep cost predictable.
  */
@@ -1196,9 +1213,17 @@ async function validateAndRepairRecipe(
   for (let i = 0; i <= MAX_REPAIR_ATTEMPTS; i++) {
     const result = RecipeSpecSchema.safeParse(current);
     if (result.success) {
-      return { recipe: result.data, repaired: i > 0 };
+      // Drift closure (plan 1b): Zod's loose `z.string()`/full-enum validators let a
+      // per-type enum value through that the generation JSON Schema forbids. Treat any
+      // such value as a validation failure and feed it into the SAME repair loop.
+      const enumViolations = validateTypeEnums(result.data);
+      if (enumViolations.length === 0) {
+        return { recipe: result.data, repaired: i > 0 };
+      }
+      lastError = formatTypeEnumViolations(enumViolations);
+    } else {
+      lastError = result.error.message;
     }
-    lastError = result.error.message;
     if (i === MAX_REPAIR_ATTEMPTS) break;
     if (isFatalValidationError(lastError)) break;
     const repairPrompt = compileRepairPrompt(JSON.stringify(current), lastError);
@@ -1255,6 +1280,13 @@ export async function generateValidatedRecipe(
       // Schema-bound invariant: wrong/unknown discriminator → reject, not repair.
       assertKnownDiscriminator(candidate, options?.expectedType);
       const parsed = RecipeSpecSchema.parse(candidate);
+      // Drift closure (plan 1b): a per-type enum value Zod's loose validator let
+      // through is treated like any validation failure — throw so the next attempt
+      // carries it as `previousError` (billed like other failed attempts: not at all).
+      const enumViolations = validateTypeEnums(parsed);
+      if (enumViolations.length > 0) {
+        throw new Error(formatTypeEnumViolations(enumViolations));
+      }
       const { providerId: servedId, costCents } = await attributeServedCost(
         { servedProviderId, model },
         providerId,
@@ -1328,6 +1360,13 @@ Output a JSON object with a single key "recipe" whose value is the complete upda
       const parsed = RecipeSpecSchema.parse(unwrapRecipe(JSON.parse(result.rawJson)));
       if (!options?.allowTypeChange && parsed.type !== currentSpec.type) {
         throw new Error(`AI changed module type from "${currentSpec.type}" to "${parsed.type}". Type changes are not allowed in modify mode.`);
+      }
+      // Drift closure (plan 1b): reject a per-type enum value the loose schema let
+      // through, feeding it back as `previousError` so the next attempt corrects it
+      // (mirrors generateValidatedRecipe; avoids a later persist-time rejection).
+      const enumViolations = validateTypeEnums(parsed);
+      if (enumViolations.length > 0) {
+        throw new Error(formatTypeEnumViolations(enumViolations));
       }
       const { providerId: servedId, costCents } = await attributeServedCost(
         { servedProviderId, model },
@@ -1505,7 +1544,9 @@ export async function* generateValidatedRecipeOptionsStream(
       const safe = RecipeSpecSchema.safeParse(repaired);
       let recipe: RecipeSpec;
       let repairedFlag = false;
-      if (safe.success) {
+      // Accept the fast path only when the per-type enum catalog also passes; a
+      // drift violation routes to validateAndRepairRecipe, which loops on it.
+      if (safe.success && validateTypeEnums(safe.data).length === 0) {
         recipe = safe.data;
       } else {
         const fix = await validateAndRepairRecipe(raw, client, {
@@ -1746,7 +1787,9 @@ export async function generateValidatedRecipeOptionsParallel(
       const safe = RecipeSpecSchema.safeParse(repaired);
       let recipe: RecipeSpec;
       let repairedFlag = false;
-      if (safe.success) {
+      // Accept the fast path only when the per-type enum catalog also passes; a
+      // drift violation routes to validateAndRepairRecipe, which loops on it.
+      if (safe.success && validateTypeEnums(safe.data).length === 0) {
         recipe = safe.data;
       } else {
         const fix = await validateAndRepairRecipe(raw, client, {

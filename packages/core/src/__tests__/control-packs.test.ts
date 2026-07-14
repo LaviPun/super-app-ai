@@ -14,6 +14,7 @@ import {
   resolveTypeEnumOptions,
   resolveTypeEnumsForType,
   describeTypeEnums,
+  validateTypeEnums,
 } from '../control-packs/index.js';
 import type { TypeEnumField } from '../control-packs/index.js';
 
@@ -40,7 +41,19 @@ describe('module manifests (surviving requirement-spec consumer)', () => {
   });
 
   it('returns undefined for un-manifested types', () => {
-    expect(getManifest('functions.discountRules')).toBeUndefined();
+    // functions.discountRules / functions.cartTransform now carry a minimal manifest
+    // (pricing-mechanism enum, plan 1c); pick a still-un-manifested type here.
+    expect(getManifest('functions.deliveryCustomization')).toBeUndefined();
+  });
+
+  it('1c — discountRules/cartTransform carry a minimal pricing manifest (advanced only)', () => {
+    // Basic tier composes NO packs → mustHaveControls stays [] (no requirement-spec
+    // change); pricing rides at advanced purely to surface the mechanism enum.
+    for (const t of ['functions.discountRules', 'functions.cartTransform'] as const) {
+      const m = getManifest(t);
+      expect(m?.packs).toEqual([]);
+      expect(m?.advancedPacks).toEqual(['pricing']);
+    }
   });
 
   it('R2.1 — rule-engine is an ADVANCED pack on theme.section (opt-in)', () => {
@@ -151,7 +164,81 @@ describe('R2.5 — per-type enum enabler (flat-pin)', () => {
   });
 
   it('types without a per-type enum resolve to nothing (schema/prose unchanged)', () => {
-    expect(resolveTypeEnumsForType('functions.discountRules')).toEqual([]);
-    expect(describeTypeEnums('functions.discountRules')).toEqual([]);
+    expect(resolveTypeEnumsForType('functions.deliveryCustomization')).toEqual([]);
+    expect(describeTypeEnums('functions.deliveryCustomization')).toEqual([]);
+  });
+
+  it('1c — resolves the pricing MECHANISM option-set per Function type', () => {
+    const discount = resolveTypeEnumsForType('functions.discountRules').find(
+      (r) => r.packNamespace === 'pricing' && r.field === 'mechanism',
+    );
+    expect(discount?.options.map((o) => o.value)).toEqual(['shopify-function-discount']);
+    expect(discount?.default).toBe('shopify-function-discount');
+
+    const cart = resolveTypeEnumsForType('functions.cartTransform').find(
+      (r) => r.packNamespace === 'pricing' && r.field === 'mechanism',
+    );
+    expect(cart?.options.map((o) => o.value)).toEqual(['shopify-function-cart-transform']);
+    expect(cart?.default).toBe('shopify-function-cart-transform');
+
+    // The declarative-only mechanisms are absent from BOTH sets (the honesty gap).
+    for (const set of [discount, cart]) {
+      const values = set?.options.map((o) => o.value) ?? [];
+      expect(values).not.toContain('discount-code');
+      expect(values).not.toContain('draft-order');
+    }
+  });
+});
+
+describe('validateTypeEnums — drift-closure validator (plan 1b)', () => {
+  it('passes a spec whose per-type enum value is within the option-set', () => {
+    expect(validateTypeEnums({ type: 'theme.section', config: { layout: { layout: 'grid' } } })).toEqual([]);
+    expect(
+      validateTypeEnums({
+        type: 'functions.discountRules',
+        config: { pricing: { mechanism: 'shopify-function-discount' } },
+      }),
+    ).toEqual([]);
+  });
+
+  it('flags a layout value outside the option-set (path + allowed)', () => {
+    const v = validateTypeEnums({ type: 'theme.section', config: { layout: { layout: 'sidebar' } } });
+    expect(v).toHaveLength(1);
+    expect(v[0]).toMatchObject({ path: 'config.layout.layout', value: 'sidebar' });
+    expect(v[0]!.allowed).toEqual(['stacked', 'grid', 'masonry', 'carousel']);
+  });
+
+  it('flags a declarative pricing mechanism on a Function type', () => {
+    const v = validateTypeEnums({
+      type: 'functions.discountRules',
+      config: { pricing: { mechanism: 'discount-code' } },
+    });
+    expect(v).toEqual([
+      { path: 'config.pricing.mechanism', value: 'discount-code', allowed: ['shopify-function-discount'] },
+    ]);
+  });
+
+  it('flags a cross-type mechanism (discount mechanism on a cartTransform)', () => {
+    const v = validateTypeEnums({
+      type: 'functions.cartTransform',
+      config: { pricing: { mechanism: 'shopify-function-discount' } },
+    });
+    expect(v.map((x) => x.value)).toEqual(['shopify-function-discount']);
+    expect(v[0]!.allowed).toEqual(['shopify-function-cart-transform']);
+  });
+
+  it('ABSENT field/pack passes (optional pins never force a value)', () => {
+    expect(validateTypeEnums({ type: 'theme.section', config: {} })).toEqual([]);
+    expect(validateTypeEnums({ type: 'theme.section', config: { layout: {} } })).toEqual([]);
+    expect(validateTypeEnums({ type: 'functions.discountRules', config: { rules: [] } })).toEqual([]);
+  });
+
+  it('a type with no per-type enum always passes (no manifest → no enforcement)', () => {
+    expect(
+      validateTypeEnums({
+        type: 'functions.deliveryCustomization',
+        config: { pricing: { mechanism: 'discount-code' } },
+      }),
+    ).toEqual([]);
   });
 });

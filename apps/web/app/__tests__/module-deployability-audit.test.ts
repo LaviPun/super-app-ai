@@ -248,6 +248,69 @@ describe('INTEGRITY: no AUDIT-only type false-publishes (PUBLISHED ⇒ real arti
 });
 
 /**
+ * Pricing-mechanism honesty (plan 1c): a Function spec pinned to a DECLARATIVE-ONLY
+ * pricing mechanism (`discount-code` / `draft-order`) has no shipped runtime — the
+ * compiler lowers only the two `shopify-function-*` mechanisms — so it must classify
+ * `needs_runtime` (never willDeploy), or it would false-publish an inert discount.
+ * A bare spec (no pricing) for the same type stays deployable — the gate is narrow.
+ */
+describe('INTEGRITY: declarative pricing mechanism ⇒ needs_runtime (no inert false-publish)', () => {
+  const deployed = deployedFunctionExtensions();
+
+  for (const mechanism of ['discount-code', 'draft-order'] as const) {
+    it(`functions.discountRules with '${mechanism}' classifies needs_runtime`, () => {
+      const spec = {
+        type: 'functions.discountRules',
+        name: 'Inert discount',
+        config: {
+          rules: [{ when: {}, apply: { percentageOff: 10 } }],
+          pricing: { model: 'single', mechanism, discount: { kind: 'percentage', value: 10 } },
+        },
+      } as unknown as RecipeSpec;
+      const pf = classifyModulePublishability(spec, { deployedExtensions: deployed });
+      expect(pf.status).toBe('needs_runtime');
+      expect(pf.willDeploy).toBe(false);
+      expect(pf.reasons.some((r) => r.includes(mechanism) && r.toLowerCase().includes('declarative'))).toBe(true);
+    });
+  }
+
+  it("functions.cartTransform with a per-bundle 'draft-order' mechanism classifies needs_runtime", () => {
+    const spec = {
+      type: 'functions.cartTransform',
+      name: 'Inert bundle',
+      config: {
+        mode: 'BUNDLE',
+        bundles: [
+          {
+            title: 'Kit',
+            componentSkus: ['A', 'B'],
+            bundleSku: 'KIT',
+            pricing: { model: 'single', mechanism: 'draft-order', discount: { kind: 'fixed-price', value: 50 } },
+          },
+        ],
+      },
+    } as unknown as RecipeSpec;
+    const pf = classifyModulePublishability(spec, { deployedExtensions: deployed });
+    expect(pf.status).toBe('needs_runtime');
+    expect(pf.willDeploy).toBe(false);
+  });
+
+  it('functions.discountRules with a REAL Function mechanism stays deployable (gate is narrow)', () => {
+    const spec = {
+      type: 'functions.discountRules',
+      name: 'Real discount',
+      config: {
+        rules: [{ when: {}, apply: { percentageOff: 10 } }],
+        pricing: { model: 'single', mechanism: 'shopify-function-discount', discount: { kind: 'percentage', value: 10 } },
+      },
+    } as unknown as RecipeSpec;
+    const pf = classifyModulePublishability(spec, { deployedExtensions: deployed });
+    expect(pf.status).toBe('deployable');
+    expect(pf.willDeploy).toBe(true);
+  });
+});
+
+/**
  * Casing fix: validation-report check status is a strict uppercase enum
  * ('PASS'|'WARN'|'FAIL'). The LLM sometimes emits the wrong case; the envelope
  * repair must normalize it BEFORE schema validation, or a lowercase 'pass' both

@@ -40,6 +40,32 @@ const TYPE_ENUM_CATALOG: Partial<
       ],
     },
   },
+  // Pricing MECHANISM is type-scoped (plan 1c). Each Function type may claim ONLY
+  // the one real runtime it actually lowers into (compiler/pricing/lower.ts). The
+  // declarative-only mechanisms (`discount-code` / `draft-order`) are intentionally
+  // ABSENT from every set, so generation cannot emit a mechanism no runtime honours.
+  'functions.discountRules': {
+    pricing: {
+      mechanism: [
+        {
+          value: 'shopify-function-discount',
+          label: 'Shopify Function (discount)',
+          hint: 'Lowers into the discountRules Function.',
+        },
+      ],
+    },
+  },
+  'functions.cartTransform': {
+    pricing: {
+      mechanism: [
+        {
+          value: 'shopify-function-cart-transform',
+          label: 'Shopify Function (cart transform)',
+          hint: 'Lowers into the cartTransform Function.',
+        },
+      ],
+    },
+  },
 };
 
 /**
@@ -119,4 +145,72 @@ export function describeTypeEnums(type: ModuleType): string[] {
     const values = r.options.map((o) => o.value).join(' | ');
     return `config.${r.packNamespace}.${r.field} — one of: ${values} (this module type only). Default: ${r.default}.`;
   });
+}
+
+/** A single per-type enum violation found by {@link validateTypeEnums}. */
+export interface TypeEnumViolation {
+  /** Dotted config path of the offending field, e.g. `config.pricing.mechanism`. */
+  path: string;
+  /** The value present on the spec that is outside the type's option-set. */
+  value: string;
+  /** The legal values for this field on this module type. */
+  allowed: string[];
+}
+
+/**
+ * Drift-closure validator (plan 1b). Checks a recipe spec's per-type enum fields
+ * against the catalog, returning one {@link TypeEnumViolation} per offending value.
+ *
+ * This closes the gap where the shared `RecipeSpecSchema` keeps a LOOSE validator
+ * for these fields (`z.string()` for `layout`, the full `z.enum` for `mechanism`)
+ * so cross-type/legacy specs coexist — meaning a persisted or validated spec could
+ * otherwise hold a value the generation JSON Schema forbids. It walks
+ * `resolveTypeEnumsForType(spec.type)` and, for each resolved enum, checks
+ * `spec.config.<packNamespace>.<field>` against the option-set. It mirrors the
+ * generation-time overlay (`recipe-json-schema.server.ts:overlayTypeEnums`), which
+ * tightens the SAME `config.<ns>.<field>` nodes, so a spec that satisfies one
+ * satisfies the other (pinned by the apps/web parity guard).
+ *
+ * Semantics:
+ *  - ABSENT fields/packs PASS — every pinned pack is `.optional()`, so a spec that
+ *    omits `config.pricing`, or includes it but leaves `mechanism` unset, is fine.
+ *  - Only a PRESENT string value outside the option-set is a violation. Non-string
+ *    values are left to Zod (this is enum-only, not a type checker).
+ *  - `mode` controls behaviour on a MISCONFIGURED catalog (an entry that resolves to
+ *    zero options). `'warn'` swallows it and returns `[]` (never break existing data
+ *    on the persist path); `'strict'` (default) rethrows so tests/generation surface
+ *    the config bug. It does NOT change which VALUE violations are reported.
+ */
+export function validateTypeEnums(
+  spec: { type: ModuleType; config?: unknown },
+  mode: 'warn' | 'strict' = 'strict',
+): TypeEnumViolation[] {
+  let resolved: ResolvedTypeEnum[];
+  try {
+    resolved = resolveTypeEnumsForType(spec.type);
+  } catch (err) {
+    if (mode === 'warn') return [];
+    throw err;
+  }
+  if (resolved.length === 0) return [];
+
+  const config = spec.config;
+  if (!config || typeof config !== 'object') return [];
+
+  const violations: TypeEnumViolation[] = [];
+  for (const r of resolved) {
+    const packValue = (config as Record<string, unknown>)[r.packNamespace];
+    // Absent/optional pack → nothing to validate.
+    if (!packValue || typeof packValue !== 'object') continue;
+    const fieldValue = (packValue as Record<string, unknown>)[r.field];
+    // Absent field → the `.optional()`/default backstop applies; pass.
+    if (fieldValue === undefined || fieldValue === null) continue;
+    // Only closed string enums are catalog-checked; leave other types to Zod.
+    if (typeof fieldValue !== 'string') continue;
+    const allowed = r.options.map((o) => o.value);
+    if (!allowed.includes(fieldValue)) {
+      violations.push({ path: `config.${r.packNamespace}.${r.field}`, value: fieldValue, allowed });
+    }
+  }
+  return violations;
 }

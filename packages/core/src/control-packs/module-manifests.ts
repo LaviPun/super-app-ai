@@ -21,6 +21,27 @@ const MANIFESTS: Partial<Record<ModuleType, ModuleManifest>> = {
     // (R2.3 `recommendation`), and the custom-code escape hatch.
     advancedPacks: ['audience', 'schedule', 'rule-engine', 'recommendation', 'advanced-custom'],
   },
+
+  // Function types that carry the R2.2 `pricing` control pack (plan 1c). They
+  // compose NO basic control packs — their core config (`rules[]` / `bundles[]`)
+  // is hand-written zod on the recipe branch, not pack-derived — so
+  // `mustHaveControlsForType(type, 'basic')` stays `[]`, byte-identical to before
+  // these manifests existed. `pricing` rides at the ADVANCED tier purely so
+  // `resolveTypeEnumsForType` surfaces its per-type `mechanism` enum: the catalog
+  // in `type-enums.ts` restricts `mechanism` to the ONE real runtime each type
+  // lowers into (drops the declarative-only mechanisms from generation). Nothing
+  // else keys off these manifests — the sole reader, `requirement-spec.server.ts`,
+  // only derives `mustHaveControls`, which is unchanged at the default (basic) tier.
+  'functions.discountRules': {
+    type: 'functions.discountRules',
+    packs: [],
+    advancedPacks: ['pricing'],
+  },
+  'functions.cartTransform': {
+    type: 'functions.cartTransform',
+    packs: [],
+    advancedPacks: ['pricing'],
+  },
 };
 
 /**

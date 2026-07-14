@@ -7,6 +7,7 @@ import {
   MESSAGING_CHANNELS_SHIPPED,
   messagingChannelSendability,
   checkoutBlockPublishNotes,
+  DECLARATIVE_PRICING_MECHANISMS,
 } from '@superapp/core';
 import {
   ModulePublishPreflightResultSchema,
@@ -94,6 +95,34 @@ export interface ModulePublishabilityContext {
 }
 
 /**
+ * Return the first DECLARATIVE-ONLY pricing mechanism a spec is pinned to, if any.
+ * The pricing pack can ride at the root (`config.pricing`) or per-bundle
+ * (`config.bundles[].pricing`, cartTransform); a declarative mechanism in EITHER
+ * place would publish and enforce nothing (plan 1c). Returns undefined when every
+ * pricing block uses a real Shopify-Function mechanism (or carries no pricing).
+ */
+function declarativePricingMechanism(config: unknown): string | undefined {
+  if (!config || typeof config !== 'object') return undefined;
+  const c = config as {
+    pricing?: { mechanism?: unknown };
+    bundles?: Array<{ pricing?: { mechanism?: unknown } } | null>;
+  };
+  const candidates: unknown[] = [
+    c.pricing?.mechanism,
+    ...(Array.isArray(c.bundles) ? c.bundles.map((b) => b?.pricing?.mechanism) : []),
+  ];
+  for (const mechanism of candidates) {
+    if (
+      typeof mechanism === 'string' &&
+      (DECLARATIVE_PRICING_MECHANISMS as readonly string[]).includes(mechanism)
+    ) {
+      return mechanism;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Classify a module for publish so nothing silently no-ops. The caller must
  * refuse to report "published" unless `willDeploy === true`.
  *
@@ -148,6 +177,26 @@ export function classifyModulePublishability(
         });
       }
     }
+  }
+
+  // Pricing-mechanism honesty (plan 1c): a spec pinned to a DECLARATIVE-ONLY pricing
+  // mechanism (`discount-code` / `draft-order`) has no shipped runtime — the compiler
+  // lowers only the two `shopify-function-*` mechanisms — so publishing it would flip
+  // the module to PUBLISHED while changing nothing at checkout. Classify it honestly as
+  // `needs_runtime` (never a fake-published discount). Only fires when the spec actually
+  // carries a pricing block; bare type-level audits pass `{ type }` and are unaffected.
+  const declarativeMechanism = declarativePricingMechanism(spec.config);
+  if (declarativeMechanism) {
+    return ModulePublishPreflightResultSchema.parse({
+      moduleType: type,
+      status: 'needs_runtime',
+      reasons: [
+        `Pricing mechanism '${declarativeMechanism}' is declarative-only — no shipped runtime enforces it, ` +
+          `so publishing would change nothing at checkout. Use a Shopify Function mechanism ` +
+          `('shopify-function-discount' or 'shopify-function-cart-transform') to deploy this discount.`,
+      ],
+      willDeploy: false,
+    });
   }
 
   if (!shipped) {

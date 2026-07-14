@@ -1,7 +1,30 @@
 import { getPrisma } from '~/db.server';
 import type { RecipeSpec } from '@superapp/core';
+import { validateTypeEnums } from '@superapp/core';
 import { ReleaseTransitionService } from '~/services/releases/release-transition.service';
 import { emitFlowTriggerSafe, FLOW_TRIGGER_TOPICS } from '~/services/workflows/shopify-flow-bridge';
+
+/**
+ * Drift-closure gate (plan 1b) for NEW writes. A spec's per-type enum fields
+ * (e.g. `config.pricing.mechanism`) can hold a value the generation JSON Schema
+ * forbids, because the shared `RecipeSpecSchema` keeps a loose validator for them.
+ * Reject such a spec at the persist boundary so it never enters the store.
+ *
+ * Warn-mode semantics: this runs ONLY when AUTHORING a new draft/version — reads of
+ * existing rows (getModule) and the `markPublished` copy-forward are never revalidated,
+ * so pre-existing data is never broken. `'warn'` also means a MISCONFIGURED catalog
+ * (should never happen) can't wedge saves — it only ever rejects a genuine value drift.
+ */
+function assertTypeEnumsForWrite(spec: RecipeSpec): void {
+  const violations = validateTypeEnums(spec, 'warn');
+  if (violations.length === 0) return;
+  const detail = violations
+    .map((v) => `${v.path}="${v.value}" (allowed: ${v.allowed.join(', ')})`)
+    .join('; ');
+  throw new Error(
+    `Cannot save module: value(s) outside this module type's allowed set — ${detail}.`,
+  );
+}
 
 export class ModuleService {
   async createDraft(
@@ -9,6 +32,7 @@ export class ModuleService {
     spec: RecipeSpec,
     opts?: { recipeId?: string; sourceType?: string },
   ) {
+    assertTypeEnumsForWrite(spec);
     const prisma = getPrisma();
     const shop = await prisma.shop.findUnique({ where: { shopDomain } });
     if (!shop) throw new Error('Shop not found');
@@ -52,6 +76,7 @@ export class ModuleService {
   }
 
   async createNewVersion(shopDomain: string, moduleId: string, spec: RecipeSpec) {
+    assertTypeEnumsForWrite(spec);
     const prisma = getPrisma();
     const module = await prisma.module.findFirst({ where: { id: moduleId, shop: { shopDomain } }, include: { versions: true }});
     if (!module) throw new Error('Module not found');

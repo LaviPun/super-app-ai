@@ -29,7 +29,7 @@ import {
   PRODUCT_GID_RE,
   COLLECTION_GID_RE,
 } from '../../allowed-values.js';
-import type { ControlPack } from '../types.js';
+import type { ControlPack, TypeEnumField } from '../types.js';
 
 // Re-export the manifest-centralized enums so consumers can `import from the pack`
 // (mirrors how rule-engine surfaces its enums via the pack). Single source stays
@@ -190,12 +190,38 @@ export const PricingPackSchema = z
   });
 export type PricingPack = z.infer<typeof PricingPackSchema>;
 
+/**
+ * The `mechanism` field is a per-type enum (R2.5 / plan 1c). At the union level
+ * `PricingPackSchema.mechanism` keeps the full `z.enum(PRICING_MECHANISMS)` (all
+ * four values) so already-persisted specs — including declarative `discount-code`
+ * / `draft-order` ones — keep validating. The TIGHT per-type option-set is supplied
+ * by the catalog in `type-enums.ts`: `functions.discountRules` resolves
+ * `['shopify-function-discount']` and `functions.cartTransform` resolves
+ * `['shopify-function-cart-transform']`, so generation can only emit the ONE real
+ * runtime each type lowers into — the declarative-only mechanisms are removed from
+ * generation without touching `RecipeSpecSchema`.
+ *
+ * `fallback` (the two real runtime mechanisms) covers any pricing-bearing type that
+ * lists this pack but supplies no catalog entry — it never includes the declarative
+ * mechanisms. No `default` is set, so `resolveTypeEnumsForType` uses each type's
+ * first resolved option as the default (correct per type).
+ */
+const mechanismField: TypeEnumField = {
+  kind: 'typeEnum',
+  enumKey: 'mechanism',
+  fallback: [
+    { value: 'shopify-function-discount', label: 'Shopify Function (discount)' },
+    { value: 'shopify-function-cart-transform', label: 'Shopify Function (cart transform)' },
+  ],
+};
+
 export const pricingPack: ControlPack<typeof PricingPackSchema> = {
   id: 'pricing',
   namespace: 'pricing',
   label: 'Pricing & Discounts',
   tier: 'basic',
   schema: PricingPackSchema,
+  typeEnums: { mechanism: mechanismField },
   uiSchema: {
     groupLabel: 'Pricing & Discounts',
     order: ['model', 'discount', 'tiers', 'bogo', 'gift', 'mechanism', 'gate', 'stacking'],

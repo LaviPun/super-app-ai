@@ -1059,6 +1059,21 @@ export const PRICING_MECHANISMS = [
 ] as const;
 export type PricingMechanism = (typeof PRICING_MECHANISMS)[number];
 
+/**
+ * The subset of {@link PRICING_MECHANISMS} that is DECLARATIVE-ONLY: no shipped
+ * runtime materializes them. `compiler/pricing/lower.ts` lowers only the two
+ * `shopify-function-*` mechanisms into live Function config; `discount-code` /
+ * `draft-order` change nothing at checkout today.
+ *
+ * Single source of truth for the honesty rules layered on top (plan 1c): the
+ * per-type enum catalog (`control-packs/type-enums.ts`) omits these from what
+ * generation may emit for a Function type, and publish classifies a spec pinned
+ * to one of them as `needs_runtime` (never a fake-published discount). The shared
+ * `RecipeSpecSchema` still ACCEPTS them so already-persisted specs keep validating.
+ */
+export const DECLARATIVE_PRICING_MECHANISMS = ['discount-code', 'draft-order'] as const;
+export type DeclarativePricingMechanism = (typeof DECLARATIVE_PRICING_MECHANISMS)[number];
+
 /** Which primitive drives a pricing block. Exactly one body is authoritative. */
 export const PRICING_MODELS = ['single', 'tiered', 'bogo', 'gift'] as const;
 export type PricingModel = (typeof PRICING_MODELS)[number];
