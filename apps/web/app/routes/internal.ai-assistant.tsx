@@ -1095,9 +1095,9 @@ export default function AdminAssistant() {
       : [activeSession, ...data.sessions];
 
   const suggestions = [
+    'Explain how this app works',
     'Why did the last publish job fail?',
     'Summarize the last 24h of errors',
-    'Which stores are near their AI quota?',
     'Show recent failed jobs in the DLQ',
   ];
 
