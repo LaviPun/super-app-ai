@@ -108,6 +108,10 @@
 .asst-text { font-size: 14px; line-height: 1.6; }
 .asst-text code { font-family: var(--p-font-mono); font-size: 12.5px; background: var(--p-surface-secondary); padding: 1px 5px; border-radius: 4px; }
 .asst-msg.user .asst-text code { background: rgba(255,255,255,.18); }
+.asst-codeblock { margin: 8px 0; padding: 10px 12px; background: var(--p-surface-secondary); border: 1px solid var(--p-border); border-radius: 8px; overflow-x: auto; }
+.asst-codeblock code { font-family: var(--p-font-mono); font-size: 12px; line-height: 1.5; white-space: pre; background: none; padding: 0; }
+.asst-msg.user .asst-codeblock { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.25); }
+.asst-link-card.btn-default { background: transparent; border-style: dashed; }
 .asst-tools { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 9px; }
 .asst-tool { display: inline-flex; align-items: center; gap: 4px; font-family: var(--p-font-mono); font-size: 11px; background: var(--p-magic-bg); color: var(--p-magic); padding: 2px 7px; border-radius: 5px; }
 .asst-typing { display: flex; gap: 4px; padding: 4px 0; }

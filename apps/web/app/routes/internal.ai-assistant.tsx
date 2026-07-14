@@ -30,7 +30,9 @@ import {
 import {
   parseStoredActionProposals,
   validateActionProposal,
+  isLinkProposal,
   type ActionProposal,
+  type OpsActionProposal,
 } from '~/services/ai/internal-assistant-actions';
 
 const ActionSchema = z.object({
@@ -596,7 +598,8 @@ export type MdLiteInline = { type: 'text'; value: string } | { type: 'code'; val
 export type MdLiteToken =
   | MdLiteInline
   | { type: 'bold'; children: MdLiteInline[] }
-  | { type: 'br' };
+  | { type: 'br' }
+  | { type: 'codeblock'; value: string };
 
 /** Split a single line (no newlines) into `text`/`code` inline tokens. */
 function tokenizeInlineCode(line: string): MdLiteInline[] {
@@ -628,18 +631,40 @@ function tokenizeLine(line: string): MdLiteToken[] {
   return out;
 }
 
+/** True when a line opens/closes a ``` fenced code block (language tag ignored). */
+function isFenceLine(line: string): boolean {
+  return line.trimStart().startsWith('```');
+}
+
 /**
  * Tokenize the lightweight markdown the assistant emits (`**bold**`, `` `code` ``,
- * newlines) into a flat token list. Pure + unit-tested; the renderer maps each
- * token to a React element so nothing is ever injected as HTML.
+ * newlines, and ``` fenced code blocks) into a flat token list. Pure + unit-tested;
+ * the renderer maps each token to a React element so nothing is ever injected as
+ * HTML — fenced-block content becomes a plain text node inside `<pre><code>`, so a
+ * `<script>` (or any markup) in a drafted RecipeSpec surfaces as literal text.
  */
 export function tokenizeMdLite(s: string): MdLiteToken[] {
   const lines = s.split('\n');
   const out: MdLiteToken[] = [];
-  lines.forEach((line, i) => {
-    if (i > 0) out.push({ type: 'br' });
-    out.push(...tokenizeLine(line));
-  });
+  let i = 0;
+  let unit = 0; // line-unit index (a normal line OR a whole code block)
+  while (i < lines.length) {
+    if (unit > 0) out.push({ type: 'br' });
+    if (isFenceLine(lines[i]!)) {
+      const body: string[] = [];
+      i += 1; // consume the opening fence
+      while (i < lines.length && !isFenceLine(lines[i]!)) {
+        body.push(lines[i]!);
+        i += 1;
+      }
+      if (i < lines.length) i += 1; // consume the closing fence, if any
+      out.push({ type: 'codeblock', value: body.join('\n') });
+    } else {
+      out.push(...tokenizeLine(lines[i]!));
+      i += 1;
+    }
+    unit += 1;
+  }
   return out;
 }
 
@@ -655,6 +680,13 @@ function MdLite({ text }: { text: string }) {
     <>
       {tokens.map((token, i) => {
         if (token.type === 'br') return <br key={i} />;
+        if (token.type === 'codeblock') {
+          return (
+            <pre key={i} className="asst-codeblock">
+              <code>{token.value}</code>
+            </pre>
+          );
+        }
         if (token.type === 'bold') {
           return <b key={i}>{token.children.map((child, ci) => renderInline(child, ci))}</b>;
         }
@@ -740,8 +772,10 @@ const ACTION_ARM_DWELL_MS = 250;
  * the card stays disabled.
  */
 function ActionCards({ proposals }: { proposals: ActionProposal[] }) {
-  // Render-time allowlist gate: never wire a button for a non-allowlisted intent.
+  // Render-time allowlist gate: never wire a button for a non-allowlisted intent or
+  // a non-allowlisted link href (validateActionProposal enforces both).
   const valid = proposals.filter((p) => validateActionProposal(p));
+  const ctx = useAdminCtx();
   const { run, busy, data } = useAdminOps();
   const [armedId, setArmedId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -769,7 +803,7 @@ function ActionCards({ proposals }: { proposals: ActionProposal[] }) {
     armTimerRef.current = null;
   };
 
-  const onCardClick = (p: ActionProposal) => {
+  const onCardClick = (p: OpsActionProposal) => {
     if (results[p.id] || busy) return; // done, or another card mid-flight
     if (armedId === p.id) {
       // Dwell guard: swallow the second click of a double-click / held-Enter
@@ -800,6 +834,28 @@ function ActionCards({ proposals }: { proposals: ActionProposal[] }) {
       style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 12 }}
     >
       {valid.map((p) => {
+        // Link cards navigate immediately (no confirm — navigation is safe) and are
+        // visually distinct from confirm-to-run ops cards (outline + ↗).
+        if (isLinkProposal(p)) {
+          return (
+            <div key={p.id} className="stack" style={{ gap: 3, minWidth: 0, maxWidth: 320 }}>
+              <Btn
+                size="sm"
+                variant="default"
+                icon="external"
+                className="asst-link-card"
+                onClick={() => ctx.go(p.href)}
+                title={p.reason}
+                aria-label={`${p.label} — ${p.reason}`}
+              >
+                {p.label} ↗
+              </Btn>
+              <span className="t-xs t-muted t-trunc" title={p.reason}>
+                {p.reason}
+              </span>
+            </div>
+          );
+        }
         const result = results[p.id];
         const isArmed = armedId === p.id;
         const isPending = activeId === p.id && busy;
@@ -1238,10 +1294,10 @@ export default function AdminAssistant() {
       : [activeSession, ...data.sessions];
 
   const suggestions = [
+    'Morning briefing',
     'Explain how this app works',
     'Why did the last publish job fail?',
-    'Summarize the last 24h of errors',
-    'Show recent failed jobs in the DLQ',
+    'Find me a template for a cart upsell',
   ];
 
   // Manual "Re-check" overlays the loader probe until the next revalidation.

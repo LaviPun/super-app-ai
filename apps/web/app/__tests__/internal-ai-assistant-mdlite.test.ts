@@ -68,4 +68,28 @@ describe('tokenizeMdLite', () => {
       { type: 'text', value: 'a `code' },
     ]);
   });
+
+  it('parses a fenced code block into a single codeblock token (language tag dropped)', () => {
+    const src = 'Draft:\n```json\n{\n  "type": "STOREFRONT_UI"\n}\n```\ndone';
+    expect(tokenizeMdLite(src)).toEqual<MdLiteToken[]>([
+      { type: 'text', value: 'Draft:' },
+      { type: 'br' },
+      { type: 'codeblock', value: '{\n  "type": "STOREFRONT_UI"\n}' },
+      { type: 'br' },
+      { type: 'text', value: 'done' },
+    ]);
+  });
+
+  it('keeps fenced-block content as literal text — markup never becomes tokens (injection safety)', () => {
+    const src = '```\n<script>alert(1)</script>\n```';
+    expect(tokenizeMdLite(src)).toEqual<MdLiteToken[]>([
+      { type: 'codeblock', value: '<script>alert(1)</script>' },
+    ]);
+  });
+
+  it('handles an unterminated fence by consuming the rest as a code block', () => {
+    expect(tokenizeMdLite('```\nline1\nline2')).toEqual<MdLiteToken[]>([
+      { type: 'codeblock', value: 'line1\nline2' },
+    ]);
+  });
 });

@@ -15,8 +15,14 @@
 
 import type { AssistantToolRunResult } from '~/services/ai/internal-assistant-tools.server';
 
-/** A single confirm-to-run action the operator can execute via `/internal/ops`. */
-export type ActionProposal = {
+/**
+ * A single confirm-to-run ops action the operator can execute via `/internal/ops`.
+ * `kind` is optional and defaults to `'ops'` so pre-existing persisted rows (written
+ * before the link kind existed) and existing callers stay valid.
+ */
+export type OpsActionProposal = {
+  /** Discriminant. Absent = `'ops'` (back-compat). */
+  kind?: 'ops';
   /** Stable, deterministic id (hash of intent + params) — safe as a React key. */
   id: string;
   /** Ops intent — MUST be a key of {@link ACTION_INTENT_ALLOWLIST}. */
@@ -28,6 +34,59 @@ export type ActionProposal = {
   /** Short "why this is offered" line, sourced from the resolving tool result. */
   reason: string;
 };
+
+/**
+ * A navigation-only proposal: no server mutation, just a deep link into the internal
+ * console. `href` MUST pass {@link isAllowedLinkHref} at EVERY boundary (derive / SSE
+ * emit / persist / render) — a tampered persisted row must never render a non-allowlisted
+ * href (e.g. `javascript:` or an external URL). There is no `intent`/`params`.
+ */
+export type LinkActionProposal = {
+  kind: 'link';
+  /** Stable, deterministic id (hash of href) — safe as a React key. */
+  id: string;
+  /** Allowlisted internal path (see {@link LINK_HREF_ALLOWED_PREFIXES}). */
+  href: string;
+  /** Operator-facing link label. */
+  label: string;
+  /** Short "why this is offered" line. */
+  reason: string;
+};
+
+export type ActionProposal = OpsActionProposal | LinkActionProposal;
+
+/** True when a proposal is the navigation-only link kind. */
+export function isLinkProposal(p: ActionProposal): p is LinkActionProposal {
+  return (p as { kind?: string }).kind === 'link';
+}
+
+/**
+ * Allowlisted href prefixes for {@link LinkActionProposal}. A prefix ending in `/`
+ * matches any deeper path segment; a prefix without a trailing slash matches only at
+ * a boundary (`?`, `/`, `#`, or end) so `/internal/recipe-editEVIL` is rejected.
+ */
+export const LINK_HREF_ALLOWED_PREFIXES = ['/internal/recipe-edit', '/internal/templates/'] as const;
+
+/**
+ * Strict href validator — the single choke point for link proposals. An href is
+ * allowed ONLY if it: is a non-empty ≤512-char string; contains no whitespace,
+ * quotes, angle brackets or backslashes; contains no `..` traversal; starts with
+ * `/internal/`; and matches an allowlisted prefix at a segment boundary. This
+ * rejects `javascript:`, `http(s)://…`, protocol-relative `//host`, and any path
+ * outside the allowlist by construction.
+ */
+export function isAllowedLinkHref(href: unknown): href is string {
+  if (typeof href !== 'string' || href.length === 0 || href.length > 512) return false;
+  if (/[\s<>"'`\\]/.test(href)) return false;
+  if (href.includes('..')) return false;
+  if (!href.startsWith('/internal/')) return false;
+  return LINK_HREF_ALLOWED_PREFIXES.some((prefix) => {
+    if (!href.startsWith(prefix)) return false;
+    if (prefix.endsWith('/')) return true;
+    const rest = href.slice(prefix.length);
+    return rest === '' || rest.startsWith('?') || rest.startsWith('/') || rest.startsWith('#');
+  });
+}
 
 /** Max proposals surfaced under one assistant reply. */
 export const MAX_ACTION_PROPOSALS = 3;
@@ -105,9 +164,23 @@ export function validateActionProposal(value: unknown): value is ActionProposal 
   if (!value || typeof value !== 'object') return false;
   const p = value as Record<string, unknown>;
   if (typeof p.id !== 'string' || !p.id) return false;
-  if (typeof p.intent !== 'string') return false;
   if (typeof p.label !== 'string' || !p.label) return false;
   if (typeof p.reason !== 'string') return false;
+
+  // Link kind: navigation only. Reject any ops fields (tamper resistance) and gate
+  // the href through the strict allowlist — the same choke point at every boundary.
+  if (p.kind === 'link') {
+    if ('intent' in p || 'params' in p) return false;
+    const allowedKeys = new Set(['kind', 'id', 'href', 'label', 'reason']);
+    for (const key of Object.keys(p)) {
+      if (!allowedKeys.has(key)) return false;
+    }
+    return isAllowedLinkHref(p.href);
+  }
+
+  // Ops kind (default). `kind`, if present, must be exactly 'ops'.
+  if (p.kind !== undefined && p.kind !== 'ops') return false;
+  if (typeof p.intent !== 'string') return false;
   if (!p.params || typeof p.params !== 'object' || Array.isArray(p.params)) return false;
   const params = p.params as Record<string, unknown>;
   for (const v of Object.values(params)) {
@@ -164,8 +237,82 @@ function shortId(id: string): string {
   return id.length > 12 ? `${id.slice(0, 12)}…` : id;
 }
 
-function makeProposal(intent: string, params: Record<string, string>, label: string, reason: string): ActionProposal {
-  return { id: proposalId(intent, params), intent, params, label, reason };
+function makeProposal(intent: string, params: Record<string, string>, label: string, reason: string): OpsActionProposal {
+  return { kind: 'ops', id: proposalId(intent, params), intent, params, label, reason };
+}
+
+function makeLinkProposal(href: string, label: string, reason: string): LinkActionProposal {
+  return { kind: 'link', id: `sap_${stableHash(`link|${href}`)}`, href, label, reason };
+}
+
+const TEMPLATES_SHOP_ID = '__templates__';
+
+/** Reusable id shape for recipe-edit params (module cuid / template id). */
+const RECIPE_ENTITY_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{1,63}$/;
+
+/**
+ * Build the recipe-edit deep link for a resolved template or module. Returns null
+ * (no card) when the ids are missing or malformed — the href is still re-validated
+ * by {@link isAllowedLinkHref} before it is emitted, so this only avoids obviously
+ * broken links early.
+ */
+function recipeEditHref(source: 'template' | 'module', id: string, shopId?: string): string | null {
+  if (!RECIPE_ENTITY_ID_RE.test(id)) return null;
+  if (source === 'template') {
+    return `/internal/recipe-edit?shopId=${encodeURIComponent(TEMPLATES_SHOP_ID)}&moduleId=${encodeURIComponent(id)}`;
+  }
+  if (!shopId || !RECIPE_ENTITY_ID_RE.test(shopId)) return null;
+  return `/internal/recipe-edit?shopId=${encodeURIComponent(shopId)}&moduleId=${encodeURIComponent(id)}`;
+}
+
+type InspectResolved = {
+  found?: boolean;
+  source?: 'template' | 'module';
+  id?: string;
+  shopId?: string;
+  name?: string;
+};
+
+type SearchTemplatesData = {
+  results?: Array<{ id?: string; name?: string }>;
+};
+
+/**
+ * Derive navigation-only link cards from the recipe/template tools run this turn:
+ *  - `inspectRecipe` resolved a template  → "Open <name> in Recipe Editor".
+ *  - `inspectRecipe` resolved a module    → "Open <name> in Recipe Editor" (module URL).
+ *  - `searchTemplates` returned results   → "View <name> template" (best match detail page).
+ * Each href is re-validated through {@link isAllowedLinkHref}; anything malformed is
+ * dropped. PURE + unit-tested.
+ */
+export function deriveLinkProposals(toolResults: AssistantToolRunResult[]): LinkActionProposal[] {
+  if (!Array.isArray(toolResults) || toolResults.length === 0) return [];
+  const out: LinkActionProposal[] = [];
+
+  for (const result of toolResults) {
+    if (!result || result.ok !== true || result.toolName !== 'inspectRecipe') continue;
+    const d = result.data as InspectResolved | undefined;
+    if (!d || d.found !== true || !d.source || !d.id) continue;
+    const href = recipeEditHref(d.source, d.id, d.shopId);
+    if (!href || !isAllowedLinkHref(href)) continue;
+    const name = typeof d.name === 'string' && d.name.trim() ? d.name.trim().slice(0, 60) : d.id;
+    out.push(makeLinkProposal(href, `Open ${name} in Recipe Editor`, `Edit the ${d.source}'s RecipeSpec JSON in the Recipe Editor.`));
+    break; // one inspect link per turn
+  }
+
+  for (const result of toolResults) {
+    if (!result || result.ok !== true || result.toolName !== 'searchTemplates') continue;
+    const d = result.data as SearchTemplatesData | undefined;
+    const best = Array.isArray(d?.results) ? d!.results![0] : undefined;
+    if (!best || typeof best.id !== 'string' || !RECIPE_ENTITY_ID_RE.test(best.id)) continue;
+    const href = `/internal/templates/${encodeURIComponent(best.id)}`;
+    if (!isAllowedLinkHref(href)) continue;
+    const name = typeof best.name === 'string' && best.name.trim() ? best.name.trim().slice(0, 60) : best.id;
+    out.push(makeLinkProposal(href, `View ${name} template`, 'Open the best-matching template detail page.'));
+    break; // one search link per turn
+  }
+
+  return out;
 }
 
 type InvestigateEntry = {
@@ -251,10 +398,14 @@ export function deriveActionProposals(toolResults: AssistantToolRunResult[]): Ac
     }
   }
 
-  // Validate (defense in depth), dedupe by intent+params, cap.
+  // Navigation link cards (recipe/template tools) come AFTER ops proposals so a
+  // crowded turn keeps the higher-priority confirm-to-run ops cards within the cap.
+  const linkProposals = deriveLinkProposals(toolResults);
+
+  // Validate (defense in depth), dedupe by id, cap.
   const seenKeys = new Set<string>();
   const out: ActionProposal[] = [];
-  for (const proposal of proposals) {
+  for (const proposal of [...proposals, ...linkProposals]) {
     if (!validateActionProposal(proposal)) continue;
     const key = proposal.id;
     if (seenKeys.has(key)) continue;
