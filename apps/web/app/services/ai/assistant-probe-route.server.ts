@@ -57,6 +57,7 @@ export async function probeAssistantTargets(
       url: config.targets.localMachine.url,
       token: config.targets.localMachine.token,
       timeoutMs: config.targets.localMachine.timeoutMs,
+      model: config.targets.localMachine.model,
     }),
   ]);
   const [modalHealth, modalChatProbe] = assistantLocalOnly
@@ -77,6 +78,7 @@ export async function probeAssistantTargets(
           url: config.targets.modalRemote.url,
           token: config.targets.modalRemote.token,
           timeoutMs: config.targets.modalRemote.timeoutMs,
+          model: config.targets.modalRemote.model,
         }),
       ]);
 

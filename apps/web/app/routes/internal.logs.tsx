@@ -3,7 +3,8 @@ import { useLoaderData } from '@remix-run/react';
 import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
-import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagination.server';
+import { buildNextCursorUrl } from '~/services/internal/pagination.server';
+import { parseLogFilters } from '~/services/internal/log-filters.server';
 import type { Prisma } from '@prisma/client';
 import {
   useAdminCtx,
@@ -18,47 +19,32 @@ import {
   MonoChip,
   useTableState,
   titleCase,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
+import { LogTabs } from '~/components/admin/LogTabs';
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
   const url = new URL(request.url);
   const level = url.searchParams.get('level') || undefined;
-  const search = url.searchParams.get('q') || undefined;
-  const correlationId = url.searchParams.get('correlationId') || undefined;
-  const dateFrom = url.searchParams.get('dateFrom') ? new Date(url.searchParams.get('dateFrom')!) : undefined;
-  const dateTo = url.searchParams.get('dateTo') ? new Date(url.searchParams.get('dateTo')!) : undefined;
+  const sourceFilter = url.searchParams.get('source') || undefined;
+
+  const { where, cursor, take, skip, search, correlationId, dateFrom, dateTo } = parseLogFilters<Prisma.ErrorLogWhereInput>(url, {
+    searchFields: ['message', 'route', 'source'],
+  });
+  if (level) where.level = level;
+  if (sourceFilter) where.source = sourceFilter;
 
   const prisma = getPrisma();
-  const where: Prisma.ErrorLogWhereInput = {};
-  if (level) where.level = level;
-  const sourceFilter = url.searchParams.get('source') || undefined;
-  if (sourceFilter) where.source = sourceFilter;
-  if (search) {
-    where.OR = [
-      { message: { contains: search } },
-      { route: { contains: search } },
-      { source: { contains: search } },
-    ];
-  }
-  if (correlationId) where.correlationId = correlationId;
-  if (dateFrom || dateTo) {
-    where.createdAt = {
-      ...(dateFrom ? { gte: dateFrom } : {}),
-      ...(dateTo ? { lte: dateTo } : {}),
-    };
-  }
-  const page = parseCursorParams(url, 150);
-
   const logs = await prisma.errorLog.findMany({
     where,
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: page.take,
-    skip: page.skip,
-    cursor: page.cursor,
+    take,
+    skip,
+    cursor,
     include: { shop: true },
   });
-  const nextCursorHref = buildNextCursorUrl(url, logs, page.take);
+  const nextCursorHref = buildNextCursorUrl(url, logs, take);
 
   return json({
     logs: logs.map(l => ({
@@ -74,15 +60,8 @@ export async function loader({ request }: { request: Request }) {
     })),
     filters: { level, source: sourceFilter, search, correlationId, dateFrom: dateFrom?.toISOString(), dateTo: dateTo?.toISOString() },
     nextCursorHref,
-    pageSize: page.take,
+    pageSize: take,
   });
-}
-
-function relLog(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 60) return Math.max(1, m) + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
 }
 
 export default function AdminLogs() {
@@ -91,12 +70,13 @@ export default function AdminLogs() {
   const ts = useTableState();
   const [level, setLevel] = useState('All');
 
-  const ROWS: any[] = data.logs.map((l) => ({ id: l.id, level: l.level, message: l.message, source: l.source, route: l.route, shop: l.shopDomain ?? '—', created: relLog(l.createdAt), correlationId: l.correlationId ?? '' }));
+  const ROWS: any[] = data.logs.map((l) => ({ id: l.id, level: l.level, message: l.message, source: l.source, route: l.route, shop: l.shopDomain ?? '—', created: formatRelativeTime(l.createdAt), correlationId: l.correlationId ?? '' }));
   const rows = ROWS.filter((e) => (level === 'All' || e.level === level) && (e.message + e.route).toLowerCase().includes(ts.search.toLowerCase()));
 
   return (
     <div className="page">
       <PageHead title="Error Logs" sub="Auto-redacted error stream — no secrets or PII. Trace any error end-to-end via its correlation ID." />
+      <LogTabs active="logs" />
       <Card>
         <FilterBar
           search={ts.search}

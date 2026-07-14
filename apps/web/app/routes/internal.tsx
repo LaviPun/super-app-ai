@@ -79,6 +79,8 @@ type NavItem = {
   badge?: string;
   countKey?: 'dlq' | 'err' | 'wh';
   countTone?: string;
+  /** Extra hash routes that should also highlight this item (consolidated pages). */
+  also?: string[];
 };
 type NavSection = { title: string; items: NavItem[] };
 
@@ -89,11 +91,15 @@ const ADMIN_NAV: NavSection[] = [
     items: [
       { url: '#/admin/stores', label: 'Stores', icon: 'store' },
       { url: '#/admin/jobs', label: 'Jobs', icon: 'work', countKey: 'dlq', countTone: 'critical' },
-      { url: '#/admin/activity', label: 'Activity Log', icon: 'live' },
-      { url: '#/admin/api-logs', label: 'API Logs', icon: 'table' },
-      { url: '#/admin/logs', label: 'Error Logs', icon: 'bug', countKey: 'err', countTone: 'critical' },
+      {
+        url: '#/admin/activity',
+        label: 'Logs',
+        icon: 'live',
+        countKey: 'err',
+        countTone: 'critical',
+        also: ['#/admin/api-logs', '#/admin/logs', '#/admin/audit'],
+      },
       { url: '#/admin/webhooks', label: 'Webhooks', icon: 'transfer', countKey: 'wh', countTone: 'warning' },
-      { url: '#/admin/audit', label: 'Audit Log', icon: 'shield' },
     ],
   },
   {
@@ -128,10 +134,15 @@ const ADMIN_NAV: NavSection[] = [
 ];
 
 // Does the current real pathname match a design hash route?
-function navMatch(hash: string, pathname: string, exact?: boolean): boolean {
-  const target = superappRoute(hash);
-  if (exact) return pathname === target;
-  return pathname === target || pathname.startsWith(target + '/');
+// `also` lets a consolidated item (e.g. "Logs") highlight for sibling routes.
+function navMatch(hash: string, pathname: string, exact?: boolean, also?: string[]): boolean {
+  const hit = (h: string) => {
+    const target = superappRoute(h);
+    if (exact) return pathname === target;
+    return pathname === target || pathname.startsWith(target + '/');
+  };
+  if (hit(hash)) return true;
+  return (also ?? []).some(hit);
 }
 
 function AdminChrome({ settings, counts }: { settings: AppSettingsData | null; counts: NavCounts }) {
@@ -229,7 +240,7 @@ function AdminChrome({ settings, counts }: { settings: AppSettingsData | null; c
   };
 
   const navLink = (it: NavItem) => {
-    const sel = navMatch(it.url, path, it.exact);
+    const sel = navMatch(it.url, path, it.exact, it.also);
     const count = it.countKey ? counts[it.countKey] : null;
     return (
       <a

@@ -1,12 +1,24 @@
 import React from 'react';
+import type { ReactNode, ReactElement } from 'react';
 import { Icon } from './icons';
 
 const { useState: uiState, useRef: uiRef, useEffect: uiEffect } = React;
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/** Semantic tone shared across badges, banners, tiles and menu items. */
+export type Tone = 'success' | 'info' | 'critical' | 'warning' | 'magic';
+/** A tone prop that keeps IDE autocomplete for the known tones while still
+    accepting the arbitrary strings that consumers derive from tone maps. */
+export type ToneProp = Tone | (string & {});
 
 /* ---------- Button ---------- */
-export function Btn({ variant, size, icon, iconRight, children, className = '', loading, ...rest }: any) {
+export interface BtnProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: string;
+  size?: string;
+  icon?: string;
+  iconRight?: string;
+  loading?: boolean;
+}
+export function Btn({ variant, size, icon, iconRight, children, className = '', loading, ...rest }: BtnProps) {
   const cls = ['btn'];
   if (variant) cls.push('btn-' + variant);
   if (size) cls.push('btn-' + size);
@@ -24,7 +36,12 @@ export function Btn({ variant, size, icon, iconRight, children, className = '', 
 }
 
 /* ---------- Badge ---------- */
-export function Badge({ tone, dot, children }: any) {
+export interface BadgeProps {
+  tone?: ToneProp;
+  dot?: boolean;
+  children?: ReactNode;
+}
+export function Badge({ tone, dot, children }: BadgeProps) {
   return React.createElement(
     'span',
     { className: 'badge' + (tone ? ' badge-' + tone : '') },
@@ -42,7 +59,7 @@ const STATUS_TONE: Record<string, string | undefined> = {
   DISABLED: undefined, INACTIVE: undefined, OFFLINE: undefined,
 };
 
-export function StatusBadge({ value }: { value: any }) {
+export function StatusBadge({ value }: { value: unknown }) {
   const key = String(value || '').toUpperCase();
   const tone = STATUS_TONE[key];
   return React.createElement(
@@ -53,7 +70,7 @@ export function StatusBadge({ value }: { value: any }) {
   );
 }
 
-export function titleCase(s: any) {
+export function titleCase(s: unknown): string {
   return String(s || '')
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase())
@@ -61,10 +78,19 @@ export function titleCase(s: any) {
 }
 
 /* ---------- Card ---------- */
-export function Card({ children, className = '', pad, ...rest }: any) {
+export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+  pad?: boolean;
+}
+export function Card({ children, className = '', pad, ...rest }: CardProps) {
   return React.createElement('div', { className: 'card ' + (pad ? 'card-pad ' : '') + className, ...rest }, children);
 }
-export function CardHead({ title, sub, actions, children }: any) {
+export interface CardHeadProps {
+  title?: ReactNode;
+  sub?: ReactNode;
+  actions?: ReactNode;
+  children?: ReactNode;
+}
+export function CardHead({ title, sub, actions, children }: CardHeadProps) {
   return React.createElement(
     'div',
     { className: 'card-head' },
@@ -77,12 +103,20 @@ export function CardHead({ title, sub, actions, children }: any) {
     actions || children,
   );
 }
-export function Section({ children, className = '' }: any) {
+export function Section({ children, className = '' }: { children?: ReactNode; className?: string }) {
   return React.createElement('div', { className: 'card-sec ' + className }, children);
 }
 
 /* ---------- Fields ---------- */
-export function Field({ label, optional, help, error, children, action }: any) {
+export interface FieldProps {
+  label?: ReactNode;
+  optional?: boolean;
+  help?: ReactNode;
+  error?: ReactNode;
+  children?: ReactNode;
+  action?: ReactNode;
+}
+export function Field({ label, optional, help, error, children, action }: FieldProps) {
   return React.createElement(
     'div',
     { className: 'field' },
@@ -99,7 +133,11 @@ export function Field({ label, optional, help, error, children, action }: any) {
       : help && React.createElement('div', { className: 'field-help' }, help),
   );
 }
-export function Input({ icon, mono, ...rest }: any) {
+export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  icon?: string;
+  mono?: boolean;
+}
+export function Input({ icon, mono, ...rest }: InputProps) {
   const input = React.createElement('input', { className: 'input' + (mono ? ' input-mono' : ''), ...rest });
   if (!icon) return input;
   return React.createElement(
@@ -109,17 +147,26 @@ export function Input({ icon, mono, ...rest }: any) {
     React.createElement('input', { className: 'input' + (mono ? ' input-mono' : ''), ...rest }),
   );
 }
-export function Textarea({ mono, ...rest }: any) {
+export interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
+  mono?: boolean;
+}
+export function Textarea({ mono, ...rest }: TextareaProps) {
   return React.createElement('textarea', { className: 'textarea' + (mono ? ' input-mono' : ''), ...rest });
 }
-export function Select({ options, value, onChange, ...rest }: any) {
+export type SelectOption = string | { value: string; label: ReactNode };
+export interface SelectProps extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'value' | 'onChange'> {
+  options: SelectOption[];
+  value?: string;
+  onChange?: React.ChangeEventHandler<HTMLSelectElement>;
+}
+export function Select({ options, value, onChange, ...rest }: SelectProps) {
   return React.createElement(
     'div',
     { className: 'select' },
     React.createElement(
       'select',
       { value, onChange, ...rest },
-      options.map((o: any) => {
+      options.map((o) => {
         const val = typeof o === 'string' ? o : o.value;
         const lab = typeof o === 'string' ? o : o.label;
         return React.createElement('option', { key: val, value: val }, lab);
@@ -127,8 +174,11 @@ export function Select({ options, value, onChange, ...rest }: any) {
     ),
   );
 }
-export function Toggle({ checked, onChange, ...rest }: any) {
-  const inputProps: any = { type: 'checkbox', onChange, ...rest };
+export interface ToggleProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  checked?: boolean;
+}
+export function Toggle({ checked, onChange, ...rest }: ToggleProps) {
+  const inputProps: React.InputHTMLAttributes<HTMLInputElement> & { type: string } = { type: 'checkbox', onChange, ...rest };
   if (checked !== undefined) inputProps.checked = !!checked;
   return React.createElement(
     'label',
@@ -138,7 +188,11 @@ export function Toggle({ checked, onChange, ...rest }: any) {
     React.createElement('span', { className: 'knob' }),
   );
 }
-export function Checkbox({ label, checked, onChange, sub, ...rest }: any) {
+export interface CheckboxProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  label?: ReactNode;
+  sub?: ReactNode;
+}
+export function Checkbox({ label, checked, onChange, sub, ...rest }: CheckboxProps) {
   return React.createElement(
     'label',
     { className: 'checkbox' },
@@ -154,11 +208,17 @@ export function Checkbox({ label, checked, onChange, sub, ...rest }: any) {
 }
 
 /* ---------- Tabs ---------- */
-export function Tabs({ tabs, active, onChange }: any) {
+export type TabItem = string | { id: string; label: ReactNode; badge?: ReactNode };
+export interface TabsProps {
+  tabs: TabItem[];
+  active?: string;
+  onChange: (id: string) => void;
+}
+export function Tabs({ tabs, active, onChange }: TabsProps) {
   return React.createElement(
     'div',
     { className: 'tabs row', style: { gap: 2, borderBottom: '1px solid var(--p-border)', padding: '0 4px' } },
-    tabs.map((t: any) => {
+    tabs.map((t) => {
       const id = typeof t === 'string' ? t : t.id;
       const label = typeof t === 'string' ? t : t.label;
       const badge = typeof t === 'object' ? t.badge : null;
@@ -183,8 +243,16 @@ export function Tabs({ tabs, active, onChange }: any) {
 }
 
 /* ---------- Banner ---------- */
-export function Banner({ tone = 'info', title, children, onDismiss, action }: any) {
-  const icon = ({ info: 'info', success: 'check', warning: 'alert', critical: 'alert' } as any)[tone];
+export interface BannerProps {
+  tone?: ToneProp;
+  title?: ReactNode;
+  children?: ReactNode;
+  onDismiss?: () => void;
+  action?: ReactNode;
+}
+export function Banner({ tone = 'info', title, children, onDismiss, action }: BannerProps) {
+  const icons: Record<string, string> = { info: 'info', success: 'check', warning: 'alert', critical: 'alert' };
+  const icon = icons[tone] ?? 'info';
   return React.createElement(
     'div',
     { className: 'banner banner-' + tone },
@@ -206,7 +274,13 @@ export function Banner({ tone = 'info', title, children, onDismiss, action }: an
 }
 
 /* ---------- EmptyState ---------- */
-export function EmptyState({ icon = 'layers', title, children, action }: any) {
+export interface EmptyStateProps {
+  icon?: string;
+  title?: ReactNode;
+  children?: ReactNode;
+  action?: ReactNode;
+}
+export function EmptyState({ icon = 'layers', title, children, action }: EmptyStateProps) {
   return React.createElement(
     'div',
     { className: 'empty' },
@@ -218,8 +292,15 @@ export function EmptyState({ icon = 'layers', title, children, action }: any) {
 }
 
 /* ---------- Avatar ---------- */
-export function Avatar({ name, src, size = 28, square, color }: any) {
-  const initials = String(name || '?').split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2);
+export interface AvatarProps {
+  name?: string;
+  src?: string;
+  size?: number;
+  square?: boolean;
+  color?: string;
+}
+export function Avatar({ name, src, size = 28, square, color }: AvatarProps) {
+  const initials = String(name || '?').split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2);
   return React.createElement(
     'span',
     { className: 'avatar' + (square ? ' avatar-sq' : ''), style: { width: size, height: size, fontSize: size * 0.4, background: color } },
@@ -228,14 +309,21 @@ export function Avatar({ name, src, size = 28, square, color }: any) {
 }
 
 /* ---------- Progress / Metric ---------- */
-export function Progress({ value, tone }: any) {
+export function Progress({ value, tone }: { value: number; tone?: string }) {
   return React.createElement(
     'div',
     { className: 'progress' + (tone ? ' ' + tone : '') },
     React.createElement('i', { style: { width: Math.max(0, Math.min(100, value)) + '%' } }),
   );
 }
-export function Metric({ label, value, delta, deltaDir, icon, sub }: any) {
+export interface MetricProps {
+  label?: ReactNode;
+  value?: ReactNode;
+  delta?: ReactNode;
+  deltaDir?: 'up' | 'down';
+  sub?: ReactNode;
+}
+export function Metric({ label, value, delta, deltaDir, sub }: MetricProps) {
   return React.createElement(
     'div',
     { className: 'metric' },
@@ -257,23 +345,36 @@ export function Metric({ label, value, delta, deltaDir, icon, sub }: any) {
 }
 
 /* ---------- KV ---------- */
-export function KV({ rows }: any) {
+export type KVRow = [ReactNode, ReactNode];
+export function KV({ rows }: { rows: Array<KVRow | false | null | undefined> }) {
   return React.createElement(
     'dl',
     { className: 'kv' },
-    rows.filter(Boolean).map((r: any, i: number) =>
+    rows.filter((r): r is KVRow => Boolean(r)).map((r, i) =>
       React.createElement(React.Fragment, { key: i }, React.createElement('dt', null, r[0]), React.createElement('dd', null, r[1])),
     ),
   );
 }
 
 /* ---------- Tooltip ---------- */
-export function Tooltip({ content, children }: any) {
+export function Tooltip({ content, children }: { content?: ReactNode; children?: ReactNode }) {
   return React.createElement('span', { className: 'tip' }, children, React.createElement('span', { className: 'tip-bub' }, content));
 }
 
 /* ---------- Popover menu ---------- */
-export function Menu({ trigger, items, align = 'right' }: any) {
+export interface MenuItem {
+  icon?: string;
+  label?: ReactNode;
+  onClick?: () => void;
+  tone?: string;
+  divider?: boolean;
+}
+export interface MenuProps {
+  trigger: ReactElement;
+  items: Array<MenuItem | false | null | undefined>;
+  align?: 'left' | 'right';
+}
+export function Menu({ trigger, items, align = 'right' }: MenuProps) {
   const [open, setOpen] = uiState(false);
   const ref = uiRef<HTMLDivElement>(null);
   uiEffect(() => {
@@ -285,7 +386,7 @@ export function Menu({ trigger, items, align = 'right' }: any) {
   return React.createElement(
     'div',
     { ref, style: { position: 'relative', display: 'inline-flex' } },
-    React.cloneElement(trigger, { onClick: (e: any) => { e.stopPropagation(); setOpen((o) => !o); } }),
+    React.cloneElement(trigger, { onClick: (e: React.MouseEvent) => { e.stopPropagation(); setOpen((o) => !o); } }),
     open &&
       React.createElement(
         'div',
@@ -296,21 +397,21 @@ export function Menu({ trigger, items, align = 'right' }: any) {
             border: '1px solid var(--p-border)', padding: 4,
           },
         },
-        items.filter(Boolean).map((it: any, i: number) =>
+        items.filter((it): it is MenuItem => Boolean(it)).map((it, i) =>
           it.divider
             ? React.createElement('div', { key: i, className: 'divider', style: { margin: '4px 0' } })
             : React.createElement(
                 'button',
                 {
                   key: i,
-                  onClick: (e: any) => { e.stopPropagation(); setOpen(false); it.onClick && it.onClick(); },
+                  onClick: (e: React.MouseEvent) => { e.stopPropagation(); setOpen(false); it.onClick && it.onClick(); },
                   style: {
                     display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left',
                     border: 0, background: 'none', cursor: 'pointer', padding: '8px 10px', borderRadius: 6,
                     font: 'inherit', fontSize: 13.5, color: it.tone === 'critical' ? 'var(--p-critical)' : 'var(--p-text)',
                   },
-                  onMouseEnter: (e: any) => (e.currentTarget.style.background = 'var(--p-surface-hover)'),
-                  onMouseLeave: (e: any) => (e.currentTarget.style.background = 'none'),
+                  onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = 'var(--p-surface-hover)'),
+                  onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => (e.currentTarget.style.background = 'none'),
                 },
                 it.icon && React.createElement(Icon, { name: it.icon, size: 16 }),
                 it.label,
@@ -321,7 +422,15 @@ export function Menu({ trigger, items, align = 'right' }: any) {
 }
 
 /* ---------- Modal ---------- */
-export function Modal({ title, children, onClose, footer, size = 'md', sub }: any) {
+export interface ModalProps {
+  title?: ReactNode;
+  children?: ReactNode;
+  onClose: () => void;
+  footer?: ReactNode;
+  size?: 'sm' | 'md' | 'lg' | 'xl';
+  sub?: ReactNode;
+}
+export function Modal({ title, children, onClose, footer, size = 'md', sub }: ModalProps) {
   uiEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', h);
@@ -334,7 +443,7 @@ export function Modal({ title, children, onClose, footer, size = 'md', sub }: an
     {
       className: 'modal-overlay',
       style: { position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(20,33,58,.42)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 20px 40px', overflowY: 'auto' },
-      onMouseDown: (e: any) => { if (e.target === e.currentTarget) onClose(); },
+      onMouseDown: (e: React.MouseEvent) => { if (e.target === e.currentTarget) onClose(); },
     },
     React.createElement(
       'div',
@@ -361,7 +470,29 @@ export function Modal({ title, children, onClose, footer, size = 'md', sub }: an
 }
 
 /* ---------- DataTable ---------- */
-export function DataTable({ columns, rows, onRowClick, selectable, selected, onSelectChange, sortCol, sortDir, onSort, rowKey }: any) {
+export type Column<Row> = {
+  key: string;
+  label: ReactNode;
+  render?: (row: Row) => ReactNode;
+  sortable?: boolean;
+  num?: boolean;
+  width?: number | string;
+};
+/** onSelectChange receives 'all' / 'none' for the header checkbox, or a row key to toggle one row. */
+export type SelectChange = 'all' | 'none' | React.Key;
+export interface DataTableProps<Row> {
+  columns: Column<Row>[];
+  rows: Row[];
+  onRowClick?: (row: Row) => void;
+  selectable?: boolean;
+  selected?: Set<React.Key>;
+  onSelectChange?: (value: SelectChange) => void;
+  sortCol?: string | null;
+  sortDir?: 'asc' | 'desc';
+  onSort?: (key: string) => void;
+  rowKey?: string;
+}
+export function DataTable<Row>({ columns, rows, onRowClick, selectable, selected, onSelectChange, sortCol, sortDir, onSort, rowKey }: DataTableProps<Row>) {
   const allSel = selectable && rows.length > 0 && selected && selected.size === rows.length;
   return React.createElement(
     'div',
@@ -379,16 +510,16 @@ export function DataTable({ columns, rows, onRowClick, selectable, selected, onS
             React.createElement(
               'th',
               { className: 'dt-check' },
-              React.createElement('input', { type: 'checkbox', checked: !!allSel, onChange: (e: any) => onSelectChange(e.target.checked ? 'all' : 'none') }),
+              React.createElement('input', { type: 'checkbox', checked: !!allSel, onChange: (e: React.ChangeEvent<HTMLInputElement>) => onSelectChange?.(e.target.checked ? 'all' : 'none') }),
             ),
-          columns.map((c: any) =>
+          columns.map((c) =>
             React.createElement(
               'th',
               {
                 key: c.key,
                 className: (c.num ? 'num ' : '') + (c.sortable ? 'sortable' : ''),
                 style: c.width ? { width: c.width } : undefined,
-                onClick: c.sortable ? () => onSort(c.key) : undefined,
+                onClick: c.sortable ? () => onSort?.(c.key) : undefined,
               },
               c.label,
               c.sortable && sortCol === c.key && React.createElement('span', { className: 'dt-sort-ind' }, sortDir === 'asc' ? '▲' : '▼'),
@@ -399,8 +530,8 @@ export function DataTable({ columns, rows, onRowClick, selectable, selected, onS
       React.createElement(
         'tbody',
         null,
-        rows.map((r: any, ri: number) => {
-          const k = rowKey ? r[rowKey] : ri;
+        rows.map((r, ri) => {
+          const k = (rowKey ? (r as Record<string, unknown>)[rowKey] : ri) as React.Key;
           return React.createElement(
             'tr',
             {
@@ -409,9 +540,10 @@ export function DataTable({ columns, rows, onRowClick, selectable, selected, onS
               onClick: onRowClick ? () => onRowClick(r) : undefined,
               // Keyboard parity for clickable rows: focusable + Enter/Space activate.
               tabIndex: onRowClick ? 0 : undefined,
-              role: onRowClick ? 'button' : undefined,
               onKeyDown: onRowClick
-                ? (e: any) => {
+                ? (e: React.KeyboardEvent) => {
+                    // Ignore keydowns bubbling up from inner interactive elements.
+                    if (e.target !== e.currentTarget) return;
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
                       onRowClick(r);
@@ -422,10 +554,10 @@ export function DataTable({ columns, rows, onRowClick, selectable, selected, onS
             selectable &&
               React.createElement(
                 'td',
-                { className: 'dt-check', onClick: (e: any) => e.stopPropagation() },
-                React.createElement('input', { type: 'checkbox', checked: selected ? selected.has(k) : false, onChange: () => onSelectChange(k) }),
+                { className: 'dt-check', onClick: (e: React.MouseEvent) => e.stopPropagation() },
+                React.createElement('input', { type: 'checkbox', checked: selected ? selected.has(k) : false, onChange: () => onSelectChange?.(k) }),
               ),
-            columns.map((c: any) => React.createElement('td', { key: c.key, className: c.num ? 'num' : '' }, c.render ? c.render(r) : r[c.key])),
+            columns.map((c) => React.createElement('td', { key: c.key, className: c.num ? 'num' : '' }, c.render ? c.render(r) : ((r as Record<string, unknown>)[c.key] as ReactNode))),
           );
         }),
       ),
@@ -434,7 +566,16 @@ export function DataTable({ columns, rows, onRowClick, selectable, selected, onS
 }
 
 /* ---------- Confirm dialog ---------- */
-export function ConfirmDialog({ title, message, confirmLabel = 'Confirm', tone = 'primary', icon = 'alert', onConfirm, onClose }: any) {
+export interface ConfirmDialogProps {
+  title?: ReactNode;
+  message?: ReactNode;
+  confirmLabel?: string;
+  tone?: string;
+  icon?: string;
+  onConfirm?: () => void;
+  onClose: () => void;
+}
+export function ConfirmDialog({ title, message, confirmLabel = 'Confirm', tone = 'primary', icon = 'alert', onConfirm, onClose }: ConfirmDialogProps) {
   return React.createElement(
     Modal,
     {
@@ -463,7 +604,11 @@ export function ConfirmDialog({ title, message, confirmLabel = 'Confirm', tone =
 }
 
 /* ---------- Toast ---------- */
-export function Toast({ toast }: any) {
+export interface ToastData {
+  message?: ReactNode;
+  error?: boolean;
+}
+export function Toast({ toast }: { toast?: ToastData | null }) {
   if (!toast) return null;
   return React.createElement(
     'div',

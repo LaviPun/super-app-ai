@@ -1,14 +1,13 @@
 import { json } from '@remix-run/node';
-import { useFetcher, useLoaderData } from '@remix-run/react';
-import { useEffect, useState } from 'react';
+import { useLoaderData } from '@remix-run/react';
+import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagination.server';
-import { JobService, type JobType } from '~/services/jobs/job.service';
-import { generateCorrelationId } from '~/services/observability/correlation.server';
 import type { Prisma } from '@prisma/client';
 import {
   useAdminCtx,
+  useAdminOps,
   Btn,
   Badge,
   StatusBadge,
@@ -23,72 +22,8 @@ import {
   useTableState,
   fmtMs,
   titleCase,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
-
-const KNOWN_JOB_TYPES: readonly JobType[] = [
-  'AI_GENERATE', 'AI_HYDRATE', 'AI_MODIFY', 'PUBLISH', 'CONNECTOR_TEST', 'FLOW_RUN', 'THEME_ANALYZE',
-];
-
-/** Max failed jobs re-enqueued by a single "Replay all DLQ" request. */
-const REPLAY_ALL_LIMIT = 500;
-
-function parseJobPayload(raw: string | null): unknown {
-  if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return raw; }
-}
-
-export async function action({ request }: { request: Request }) {
-  await requireInternalAdmin(request);
-  const formData = await request.formData();
-  const intent = String(formData.get('intent') ?? '');
-  const prisma = getPrisma();
-  const svc = new JobService();
-
-  if (intent === 'replay') {
-    const jobId = String(formData.get('jobId') ?? '');
-    if (!jobId) return json({ ok: false, message: 'Missing jobId' }, { status: 400 });
-
-    const original = await prisma.job.findUnique({ where: { id: jobId } });
-    if (!original) return json({ ok: false, message: 'Job not found' }, { status: 404 });
-
-    if (!(KNOWN_JOB_TYPES as readonly string[]).includes(original.type)) {
-      return json({ ok: false, message: `Unknown job type ${original.type}` }, { status: 400 });
-    }
-
-    const replayCorrelation = original.correlationId ?? generateCorrelationId();
-    const created = await svc.create({
-      shopId: original.shopId ?? undefined,
-      type: original.type as JobType,
-      payload: parseJobPayload(original.payload),
-      correlationId: replayCorrelation,
-    });
-    return json({ ok: true, message: 'Replayed ' + jobId + ' as ' + created.id, newJobId: created.id, correlationId: replayCorrelation });
-  }
-
-  if (intent === 'replay_all') {
-    const failedJobs = await prisma.job.findMany({
-      where: { status: 'FAILED', type: { in: [...KNOWN_JOB_TYPES] } },
-      orderBy: { createdAt: 'desc' },
-      take: REPLAY_ALL_LIMIT,
-    });
-    if (failedJobs.length === 0) {
-      return json({ ok: false, message: 'No failed jobs to replay' }, { status: 400 });
-    }
-    const created = await Promise.all(
-      failedJobs.map((original) =>
-        svc.create({
-          shopId: original.shopId ?? undefined,
-          type: original.type as JobType,
-          payload: parseJobPayload(original.payload),
-          correlationId: original.correlationId ?? generateCorrelationId(),
-        }),
-      ),
-    );
-    return json({ ok: true, message: 'Re-enqueued ' + created.length + ' failed jobs', replayed: created.length });
-  }
-
-  return json({ ok: false, message: 'Unknown intent' }, { status: 400 });
-}
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
@@ -163,14 +98,6 @@ export async function loader({ request }: { request: Request }) {
   });
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-function relJob(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 60) return Math.max(1, m) + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
-
 export default function AdminJobs() {
   const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
@@ -179,32 +106,20 @@ export default function AdminJobs() {
   const [type, setType] = useState('All');
   const [confirm, setConfirm] = useState<any>(null);
 
-  const replayFetcher = useFetcher<typeof action>();
-  const replayBusy = replayFetcher.state !== 'idle';
-  const pendingJobId = replayBusy ? String(replayFetcher.formData?.get('jobId') ?? '') : '';
+  // Replays go through the audited /internal/ops path (job_replay / job_replay_all).
+  const ops = useAdminOps();
+  const replayBusy = ops.busy;
+  const pendingIntent = String(ops.pendingFormData?.get('intent') ?? '');
+  const pendingJobId = pendingIntent === 'job_replay' ? String(ops.pendingFormData?.get('id') ?? '') : '';
+  const replayAllBusy = pendingIntent === 'job_replay_all';
 
-  useEffect(() => {
-    if (replayFetcher.state === 'idle' && replayFetcher.data) {
-      ctx.toast(replayFetcher.data.message, !replayFetcher.data.ok);
-    }
-  }, [replayFetcher.state, replayFetcher.data, ctx]);
+  const submitReplay = (jobId: string) => ops.run('job_replay', { id: jobId, message: 'Replay job' });
+  const submitReplayAll = () => ops.run('job_replay_all', { message: 'Replay all DLQ jobs' });
 
-  const submitReplay = (jobId: string) => {
-    const fd = new FormData();
-    fd.set('intent', 'replay');
-    fd.set('jobId', jobId);
-    replayFetcher.submit(fd, { method: 'post' });
-  };
-  const submitReplayAll = () => {
-    const fd = new FormData();
-    fd.set('intent', 'replay_all');
-    replayFetcher.submit(fd, { method: 'post' });
-  };
-
-  const ROWS: any[] = data.jobs.map((j: any) => ({
+  const ROWS = data.jobs.map((j) => ({
     id: j.id, type: j.type, status: j.status, shop: j.shopDomain ?? '—', attempts: j.attempts ?? 1,
     durationMs: j.startedAt && j.finishedAt ? new Date(j.finishedAt).getTime() - new Date(j.startedAt).getTime() : null,
-    correlationId: j.correlationId ?? '', created: relJob(j.createdAt), error: j.error ?? null,
+    correlationId: j.correlationId ?? '', created: formatRelativeTime(j.createdAt), error: j.error ?? null,
   }));
   const rows = ROWS.filter(
     (j) => (status === 'All' || j.status === status) && (type === 'All' || j.type === type) && (j.id + j.shop + j.correlationId).toLowerCase().includes(ts.search.toLowerCase()),
@@ -221,7 +136,7 @@ export default function AdminJobs() {
             <Btn
               variant="primary"
               icon="replay"
-              loading={replayBusy && replayFetcher.formData?.get('intent') === 'replay_all'}
+              loading={replayAllBusy}
               disabled={replayBusy}
               onClick={() =>
                 setConfirm({
@@ -264,20 +179,20 @@ export default function AdminJobs() {
             />
             <DataTable
               rowKey="id"
-              onRowClick={(r: any) => ctx.go('#/admin/jobs/' + r.id)}
+              onRowClick={(r) => ctx.go('#/admin/jobs/' + r.id)}
               columns={[
-                { key: 'id', label: 'Job ID', render: (r: any) => <MonoChip>{r.id}</MonoChip> },
-                { key: 'type', label: 'Type', render: (r: any) => <Badge>{titleCase(r.type)}</Badge> },
-                { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
-                { key: 'shop', label: 'Store', render: (r: any) => <span className="cell-sub">{r.shop}</span> },
+                { key: 'id', label: 'Job ID', render: (r) => <MonoChip>{r.id}</MonoChip> },
+                { key: 'type', label: 'Type', render: (r) => <Badge>{titleCase(r.type)}</Badge> },
+                { key: 'status', label: 'Status', render: (r) => <StatusBadge value={r.status} /> },
+                { key: 'shop', label: 'Store', render: (r) => <span className="cell-sub">{r.shop}</span> },
                 { key: 'attempts', label: 'Tries', num: true },
-                { key: 'durationMs', label: 'Duration', num: true, render: (r: any) => fmtMs(r.durationMs) },
-                { key: 'error', label: 'Result', render: (r: any) => (r.error ? <span className="t-xs" style={{ color: 'var(--p-critical-text)' }}>{r.error}</span> : <span className="cell-sub">—</span>) },
-                { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{r.created}</span> },
+                { key: 'durationMs', label: 'Duration', num: true, render: (r) => fmtMs(r.durationMs) },
+                { key: 'error', label: 'Result', render: (r) => (r.error ? <span className="t-xs" style={{ color: 'var(--p-critical-text)' }}>{r.error}</span> : <span className="cell-sub">—</span>) },
+                { key: 'created', label: 'When', render: (r) => <span className="cell-sub">{r.created}</span> },
                 {
                   key: 'act',
                   label: '',
-                  render: (r: any) => (
+                  render: (r) => (
                     <div className="dt-actions">
                       {r.status === 'FAILED' && (
                         <Btn
@@ -286,7 +201,7 @@ export default function AdminJobs() {
                           className="btn-plain"
                           loading={pendingJobId === r.id}
                           disabled={replayBusy}
-                          onClick={(e: any) => {
+                          onClick={(e) => {
                             e.stopPropagation();
                             submitReplay(r.id);
                           }}
@@ -299,7 +214,7 @@ export default function AdminJobs() {
                           size="sm"
                           icon="transfer"
                           className="btn-plain"
-                          onClick={(e: any) => {
+                          onClick={(e) => {
                             e.stopPropagation();
                             ctx.go('#/admin/trace/' + r.correlationId);
                           }}

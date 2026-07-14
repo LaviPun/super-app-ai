@@ -7,8 +7,6 @@ import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagin
 import type { Prisma } from '@prisma/client';
 import {
   useAdminCtx,
-  useAdminOps,
-  Btn,
   Card,
   StatusDot,
   EmptyState,
@@ -17,6 +15,7 @@ import {
   FilterBar,
   MonoChip,
   useTableState,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 export async function loader({ request }: { request: Request }) {
@@ -87,27 +86,18 @@ export async function loader({ request }: { request: Request }) {
   });
 }
 
-function relWh(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 60) return Math.max(1, m) + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
-
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export default function AdminWebhooks() {
   const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
-  const ops = useAdminOps();
   const ts = useTableState();
   const [topic, setTopic] = useState('All topics');
 
-  const ROWS = data.rows.map((r) => ({ id: r.id, topic: r.topic, shop: r.shopDomain ?? '—', eventId: r.eventId, success: r.success, created: relWh(r.processedAt) }));
+  const ROWS = data.rows.map((r) => ({ id: r.id, topic: r.topic, shop: r.shopDomain ?? '—', eventId: r.eventId, success: r.success, created: formatRelativeTime(r.processedAt) }));
   const rows = ROWS.filter((w) => (topic === 'All topics' || w.topic === topic) && (w.topic + w.shop + w.eventId).toLowerCase().includes(ts.search.toLowerCase()));
 
   return (
     <div className="page">
-      <PageHead title="Webhooks" sub="Shopify webhook deliveries — orders, products, customers, fulfillments, and GDPR topics." />
+      <PageHead title="Webhooks" sub="Shopify webhook deliveries — orders, products, customers, fulfillments, and GDPR topics. Failed deliveries are automatically redelivered by Shopify; payloads are not persisted." />
       <Card>
         <FilterBar
           search={ts.search}
@@ -119,34 +109,22 @@ export default function AdminWebhooks() {
         {rows.length ? (
           <DataTable
             rowKey="id"
-            onRowClick={(r: any) => ctx.go('#/admin/webhooks/' + r.id)}
+            onRowClick={(r) => ctx.go('#/admin/webhooks/' + r.id)}
             columns={[
-              { key: 'topic', label: 'Topic', render: (r: any) => <MonoChip>{r.topic}</MonoChip> },
-              { key: 'shop', label: 'Store', render: (r: any) => <span className="cell-sub">{r.shop}</span> },
-              { key: 'eventId', label: 'Event ID', render: (r: any) => <span className="t-mono t-xs t-muted">{r.eventId}</span> },
+              { key: 'topic', label: 'Topic', render: (r) => <MonoChip>{r.topic}</MonoChip> },
+              { key: 'shop', label: 'Store', render: (r) => <span className="cell-sub">{r.shop}</span> },
+              { key: 'eventId', label: 'Event ID', render: (r) => <span className="t-mono t-xs t-muted">{r.eventId}</span> },
               {
                 key: 'success',
                 label: 'Result',
-                render: (r: any) => (
+                render: (r) => (
                   <span className="row-2">
                     <StatusDot ok={r.success} />
                     {r.success ? 'Processed' : 'Failed'}
                   </span>
                 ),
               },
-              { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{r.created}</span> },
-              {
-                key: 'act',
-                label: '',
-                render: (r: any) =>
-                  !r.success ? (
-                    <div className="dt-actions">
-                      <Btn size="sm" icon="replay" className="btn-plain" onClick={() => ops.run('webhook_redeliver', { id: r.id, resource: r.topic, message: 'Requesting redelivery' })}>
-                        Redeliver
-                      </Btn>
-                    </div>
-                  ) : null,
-              },
+              { key: 'created', label: 'When', render: (r) => <span className="cell-sub">{r.created}</span> },
             ]}
             rows={rows}
           />

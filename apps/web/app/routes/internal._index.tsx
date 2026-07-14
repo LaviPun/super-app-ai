@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import { getAllPlanConfigs } from '~/services/billing/plan-config.service';
+import { probeAssistantTargets } from '~/services/ai/assistant-probe-route.server';
 import {
   useAdminCtx,
   href,
@@ -27,6 +28,7 @@ import {
   titleCase,
   storeHealth,
   healthTone,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 const DAY_MS = 86400000;
@@ -84,6 +86,7 @@ export async function loader({ request }: { request: Request }) {
     healthShops,
     recentActivity,
     latestErrors,
+    assistantProbe,
   ] = await Promise.all([
     prisma.shop.count().catch(() => 0),
     prisma.shop.count({ where: { OR: [{ subscription: { is: null } }, { subscription: { status: 'ACTIVE' } }] } }).catch(() => 0),
@@ -131,7 +134,20 @@ export async function loader({ request }: { request: Request }) {
         select: { id: true, level: true, message: true, route: true, correlationId: true, createdAt: true },
       })
       .catch(() => []),
+    // Live assistant-target probe — honestly Online/Offline/Unknown (null on failure).
+    probeAssistantTargets().catch(() => null),
   ]);
+
+  // Assistant status is only "Online" when a target is actually reachable; a failed
+  // probe (null) stays "Unknown" rather than pretending healthy.
+  const assistantStatus: 'Online' | 'Offline' | 'Unknown' = !assistantProbe
+    ? 'Unknown'
+    : assistantProbe.localMachine.health.ok ||
+        assistantProbe.localMachine.chatProbe.ok ||
+        assistantProbe.modalRemote.health.ok ||
+        assistantProbe.modalRemote.chatProbe.ok
+      ? 'Online'
+      : 'Offline';
 
   // Per-store 30d AI calls + ERROR counts feed the same health score the stores page uses.
   const shopIds = healthShops.map((s) => s.id);
@@ -218,6 +234,7 @@ export async function loader({ request }: { request: Request }) {
     costPerCallCents,
     errorRatePct,
     jobs: { succeeded, failed, runningQueued, successPct: jobSuccessPct, daily: jobsDaily },
+    assistantStatus,
     webhooks: { total7d: webhooks7d, failed7d: webhooksFailed7d, successPct: webhookSuccessPct },
     aiDaily,
     sparkStart: sparkFrom.toISOString(),
@@ -261,15 +278,6 @@ const PLAN_COLOR: Record<string, string> = {
   ENTERPRISE: 'var(--p-warning)',
 };
 
-function rel(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.round(diff / 60000);
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  if (h < 24) return h + 'h ago';
-  return Math.round(h / 24) + 'd ago';
-}
-
 function fmtDay(d: Date): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
@@ -292,7 +300,6 @@ function healthOf(s: { domain: string; errors30d: number }): number {
   return storeHealth(s, errLogs);
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 function KpiStrip({ items }: { items: any[] }) {
   return (
     <Card className="kpi-strip">
@@ -425,6 +432,22 @@ export default function AdminDashboard() {
           href={href('#/admin/usage')}
         />
         <StatTile label="Errors (24h)" value={d.errors24h} icon="bug" tone="critical" {...deltaProps(d.deltas.errors, 'down')} href={href('#/admin/logs')} />
+        <StatTile
+          label="Failed jobs (DLQ)"
+          value={fmtNum(d.jobs.failed)}
+          sub={d.jobs.failed === 0 ? 'queue clear' : 'awaiting replay'}
+          icon="alert"
+          tone="critical"
+          href={href('#/admin/jobs')}
+        />
+        <StatTile
+          label="AI assistant"
+          value={d.assistantStatus}
+          sub="live target probe"
+          icon="chat"
+          tone={d.assistantStatus === 'Online' ? 'success' : d.assistantStatus === 'Offline' ? 'critical' : 'warning'}
+          href={href('#/admin/ai-assistant')}
+        />
       </div>
       <div className="kpi-band-label">Revenue & growth</div>
       <div style={{ marginBottom: 16 }}>
@@ -581,7 +604,7 @@ export default function AdminDashboard() {
                       ctx.go('#/admin/stores/' + s.id);
                     }}
                   >
-                    <Avatar name={s.name} size={28} square color="#1F3A5F" />
+                    <Avatar name={s.name} size={28} square color="var(--sa-primary)" />
                     <div className="grow stack" style={{ gap: 3, minWidth: 0 }}>
                       <span className="t-sm t-strong t-trunc">{s.name}</span>
                       <Progress value={h} tone={healthTone(h)} />
@@ -613,13 +636,13 @@ export default function AdminDashboard() {
           ) : (
             <DataTable
               rowKey="id"
-              onRowClick={(r: any) => ctx.go('#/admin/activity/' + r.id)}
+              onRowClick={(r) => ctx.go('#/admin/activity/' + r.id)}
               columns={[
-                { key: 'actor', label: 'Actor', render: (r: any) => <Badge>{titleCase(r.actor)}</Badge> },
-                { key: 'action', label: 'Action', render: (r: any) => <span className="cell-strong">{titleCase(r.action)}</span> },
-                { key: 'resource', label: 'Resource', render: (r: any) => <span className="cell-sub">{r.resource}</span> },
+                { key: 'actor', label: 'Actor', render: (r) => <Badge>{titleCase(r.actor)}</Badge> },
+                { key: 'action', label: 'Action', render: (r) => <span className="cell-strong">{titleCase(r.action)}</span> },
+                { key: 'resource', label: 'Resource', render: (r) => <span className="cell-sub">{r.resource}</span> },
                 { key: 'shop', label: 'Store' },
-                { key: 'created', label: 'When', render: (r: any) => <span className="cell-sub">{rel(r.createdAt)}</span> },
+                { key: 'created', label: 'When', render: (r) => <span className="cell-sub">{formatRelativeTime(r.createdAt)}</span> },
               ]}
               rows={d.recentActivity}
             />
@@ -657,7 +680,7 @@ export default function AdminDashboard() {
                       <span className="t-sm t-trunc">{e.message}</span>
                       <span className="t-xs t-muted t-mono">{e.route}</span>
                     </div>
-                    <span className="t-xs t-muted">{rel(e.createdAt)}</span>
+                    <span className="t-xs t-muted">{formatRelativeTime(e.createdAt)}</span>
                   </a>
                 );
               })}

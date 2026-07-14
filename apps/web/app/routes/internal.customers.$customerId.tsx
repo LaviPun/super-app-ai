@@ -1,4 +1,5 @@
 import { json } from '@remix-run/node';
+import { prettyName } from '~/utils/pretty-name';
 import { useLoaderData } from '@remix-run/react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
@@ -19,22 +20,11 @@ import {
   storeHealth,
   healthTone,
   healthLabel,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 const NOT_FOUND = new Response(null, { status: 404 });
 
-function rel(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  if (h < 24) return h + 'h ago';
-  return Math.round(h / 24) + 'd ago';
-}
-
-function prettyName(domain: string): string {
-  return (domain.split('.')[0] ?? domain).replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 const LIFECYCLE: Record<string, string> = { ACTIVE: 'Customer', TRIAL: 'Trialing', CANCELLED: 'Churned', EXPIRED: 'Churned' };
 
@@ -78,7 +68,7 @@ export async function loader({ request, params }: { request: Request; params: { 
       seats: '—',
       tickets: 0,
       signed: shop.createdAt ? new Date(shop.createdAt).toISOString().slice(0, 10) : '—',
-      lastActive: lastApi ? rel(new Date(lastApi.createdAt).toISOString()) : 'No activity',
+      lastActive: lastApi ? formatRelativeTime(new Date(lastApi.createdAt).toISOString()) : 'No activity',
     },
     store: {
       status,
@@ -92,9 +82,8 @@ export async function loader({ request, params }: { request: Request; params: { 
   });
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-const PLAN_TONE: Record<string, any> = { FREE: undefined, STARTER: 'info', GROWTH: 'success', PRO: 'magic', ENTERPRISE: 'warning' };
-const LIFECYCLE_TONE: Record<string, any> = { Customer: 'success', Trialing: 'warning', Churned: 'critical' };
+const PLAN_TONE: Record<string, string | undefined> = { FREE: undefined, STARTER: 'info', GROWTH: 'success', PRO: 'magic', ENTERPRISE: 'warning' };
+const LIFECYCLE_TONE: Record<string, string | undefined> = { Customer: 'success', Trialing: 'warning', Churned: 'critical' };
 
 export default function AdminCustomerDetail() {
   const { customer: c, store: s } = useLoaderData<typeof loader>();

@@ -2,7 +2,8 @@ import { json } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
-import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagination.server';
+import { buildNextCursorUrl } from '~/services/internal/pagination.server';
+import { parseLogFilters } from '~/services/internal/log-filters.server';
 import type { Prisma } from '@prisma/client';
 import { useState } from 'react';
 import {
@@ -17,46 +18,35 @@ import {
   useTableState,
   titleCase,
   exportCSV,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
+import { LogTabs } from '~/components/admin/LogTabs';
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
   const url = new URL(request.url);
   const shopDomain = url.searchParams.get('shopDomain') || undefined;
   const action = url.searchParams.get('action') || undefined;
-  const search = url.searchParams.get('q') || undefined;
-  const dateFrom = url.searchParams.get('dateFrom') ? new Date(url.searchParams.get('dateFrom')!) : undefined;
-  const dateTo = url.searchParams.get('dateTo') ? new Date(url.searchParams.get('dateTo')!) : undefined;
-  const page = parseCursorParams(url, 150);
 
-  const prisma = getPrisma();
-  const where: Prisma.AuditLogWhereInput = {};
+  const { where, cursor, take, skip, search, dateFrom, dateTo } = parseLogFilters<Prisma.AuditLogWhereInput>(url, {
+    searchFields: ['action', 'details'],
+    correlation: false,
+  });
   if (action) where.action = action;
-  if (search) {
-    where.OR = [
-      { action: { contains: search } },
-      { details: { contains: search } },
-    ];
-  }
   if (shopDomain) {
     where.shop = { is: { shopDomain: { contains: shopDomain } } };
   }
-  if (dateFrom || dateTo) {
-    where.createdAt = {
-      ...(dateFrom ? { gte: dateFrom } : {}),
-      ...(dateTo ? { lte: dateTo } : {}),
-    };
-  }
 
+  const prisma = getPrisma();
   const rows = await prisma.auditLog.findMany({
     where,
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: page.take,
-    skip: page.skip,
-    cursor: page.cursor,
+    take,
+    skip,
+    cursor,
     include: { shop: true },
   });
-  const nextCursorHref = buildNextCursorUrl(url, rows, page.take);
+  const nextCursorHref = buildNextCursorUrl(url, rows, take);
 
   const distinctActionsRows = await prisma.auditLog.findMany({
     select: { action: true },
@@ -94,15 +84,8 @@ export async function loader({ request }: { request: Request }) {
     distinctActions: distinctActionsRows.map(d => d.action),
     filters: { shopDomain, action, search, dateFrom: dateFrom?.toISOString(), dateTo: dateTo?.toISOString() },
     nextCursorHref,
-    pageSize: page.take,
+    pageSize: take,
   });
-}
-
-function relAudit(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 60) return Math.max(1, m) + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
 }
 
 export default function AdminAudit() {
@@ -117,7 +100,7 @@ export default function AdminAudit() {
     action: r.action,
     resource: r.resource ?? r.details ?? '—',
     shop: r.shopDomain ?? '—',
-    created: relAudit(r.createdAt),
+    created: formatRelativeTime(r.createdAt),
     createdAt: r.createdAt,
   }));
   const rows = ROWS.filter((a) => (action === 'All' || a.action === action) && (a.action + a.resource).toLowerCase().includes(ts.search.toLowerCase()));
@@ -143,6 +126,7 @@ export default function AdminAudit() {
           </Btn>
         }
       />
+      <LogTabs active="audit" />
       <Card>
         <FilterBar
           search={ts.search}
@@ -160,7 +144,6 @@ export default function AdminAudit() {
               { key: 'action', label: 'Action', render: (r: any) => <span className="cell-strong">{titleCase(r.action)}</span> },
               { key: 'resource', label: 'Resource', render: (r: any) => <span className="cell-sub t-trunc" style={{ maxWidth: 360, display: 'inline-block' }}>{r.resource}</span> },
               { key: 'shop', label: 'Store' },
-              { key: 'ip', label: 'IP', render: () => <span className="t-mono t-xs t-muted">—</span> },
             ]}
             rows={rows}
           />

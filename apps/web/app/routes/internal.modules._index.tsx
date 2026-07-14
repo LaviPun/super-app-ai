@@ -21,16 +21,8 @@ import {
   fmtNum,
   titleCase,
   exportCSV,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
-
-function rel(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  if (h < 24) return h + 'h ago';
-  return Math.round(h / 24) + 'd ago';
-}
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
@@ -60,7 +52,7 @@ export async function loader({ request }: { request: Request }) {
       status: m.status,
       version: m.activeVersion?.version ?? m.versions[0]?.version ?? 1,
       source: m.sourceType ?? '—',
-      updated: rel(new Date(m.updatedAt).toISOString()),
+      updated: formatRelativeTime(new Date(m.updatedAt).toISOString()),
       summary: m.summary ?? '',
       store: m.shop.shopDomain.split('.')[0] ?? m.shop.shopDomain,
       storeId: m.shopId,
@@ -70,8 +62,7 @@ export async function loader({ request }: { request: Request }) {
   });
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-const SOURCE_TONE: Record<string, any> = { template: 'info', recipe: 'success', scratch: undefined, image: 'magic' };
+const SOURCE_TONE: Record<string, string | undefined> = { template: 'info', recipe: 'success', scratch: undefined, image: 'magic' };
 
 export default function AdminModules() {
   const { modules, aiCalls30d } = useLoaderData<typeof loader>();
@@ -141,7 +132,7 @@ export default function AdminModules() {
         {rows.length ? (
           <DataTable
             rowKey="id"
-            onRowClick={(r: any) => ctx.go('#/admin/modules/' + r.id)}
+            onRowClick={(r) => ctx.go('#/admin/modules/' + r.id)}
             sortCol={ts.sortCol}
             sortDir={ts.sortDir}
             onSort={ts.onSort}
@@ -150,24 +141,24 @@ export default function AdminModules() {
                 key: 'name',
                 label: 'Module',
                 sortable: true,
-                render: (r: any) => (
+                render: (r) => (
                   <div className="stack" style={{ gap: 1, minWidth: 0 }}>
                     <span className="cell-strong">{r.name}</span>
                     <span className="cell-sub t-trunc">{r.summary}</span>
                   </div>
                 ),
               },
-              { key: 'store', label: 'Store', render: (r: any) => <StoreLink name={r.store} id={r.storeId} /> },
-              { key: 'type', label: 'Type', render: (r: any) => <Badge>{r.type}</Badge> },
-              { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
-              { key: 'version', label: 'Ver', num: true, sortable: true, render: (r: any) => 'v' + r.version },
-              { key: 'source', label: 'Source', render: (r: any) => <Badge tone={SOURCE_TONE[r.source]}>{titleCase(r.source)}</Badge> },
-              { key: 'instances', label: 'Instances', num: true, sortable: true, render: (r: any) => fmtNum(r.instances) },
-              { key: 'updated', label: 'Updated', sortable: true, render: (r: any) => <span className="cell-sub">{r.updated}</span> },
+              { key: 'store', label: 'Store', render: (r) => <StoreLink name={r.store} id={r.storeId} /> },
+              { key: 'type', label: 'Type', render: (r) => <Badge>{r.type}</Badge> },
+              { key: 'status', label: 'Status', render: (r) => <StatusBadge value={r.status} /> },
+              { key: 'version', label: 'Ver', num: true, sortable: true, render: (r) => 'v' + r.version },
+              { key: 'source', label: 'Source', render: (r) => <Badge tone={SOURCE_TONE[r.source]}>{titleCase(r.source)}</Badge> },
+              { key: 'instances', label: 'Instances', num: true, sortable: true, render: (r) => fmtNum(r.instances) },
+              { key: 'updated', label: 'Updated', sortable: true, render: (r) => <span className="cell-sub">{r.updated}</span> },
               {
                 key: 'act',
                 label: '',
-                render: (r: any) => (
+                render: (r) => (
                   <div className="dt-actions">
                     <Menu
                       trigger={

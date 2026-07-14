@@ -3,25 +3,16 @@ import { useLoaderData } from '@remix-run/react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import {
-  useAdminOps,
-  Btn,
   Badge,
   Card,
   KV,
   PageHead,
   StatTile,
   MonoChip,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 const NOT_FOUND = new Response(null, { status: 404 });
-
-function rel(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
 
 export async function loader({ request, params }: { request: Request; params: { webhookId?: string } }) {
   await requireInternalAdmin(request);
@@ -40,7 +31,7 @@ export async function loader({ request, params }: { request: Request; params: { 
       shop: w.shopDomain,
       success: w.success,
       processedAt: w.processedAt.toISOString(),
-      received: rel(w.processedAt.toISOString()),
+      received: formatRelativeTime(w.processedAt.toISOString()),
       when: w.processedAt.toLocaleString(),
     },
   });
@@ -48,8 +39,6 @@ export async function loader({ request, params }: { request: Request; params: { 
 
 export default function AdminWebhookDetail() {
   const { webhook: w } = useLoaderData<typeof loader>();
-  const ops = useAdminOps();
-  const redeliver = () => ops.run('webhook_redeliver', { id: w.id, resource: w.topic, message: 'Requesting redelivery' });
 
   return (
     <div className="page">
@@ -73,13 +62,6 @@ export default function AdminWebhookDetail() {
             <span className="t-muted">·</span>
             <span className="t-sm">{w.shop}</span>
           </span>
-        }
-        actions={
-          !w.success ? (
-            <Btn variant="primary" icon="replay" onClick={redeliver}>
-              Redeliver
-            </Btn>
-          ) : undefined
         }
       />
       <div className="grid grid-4" style={{ marginBottom: 16 }}>
@@ -110,13 +92,6 @@ export default function AdminWebhookDetail() {
           <p className="t-sm t-muted">
             Webhook payloads are not persisted — only delivery metadata (topic, event ID, store, result, and time) is retained. Redelivery is therefore not available from the admin.
           </p>
-          {!w.success ? (
-            <div style={{ marginTop: 12 }}>
-              <Btn size="sm" icon="replay" onClick={redeliver}>
-                Redeliver
-              </Btn>
-            </div>
-          ) : null}
         </Card>
       </div>
     </div>

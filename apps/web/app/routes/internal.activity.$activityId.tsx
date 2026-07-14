@@ -13,6 +13,7 @@ import {
   PageHead,
   MonoChip,
   titleCase,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 const NOT_FOUND = new Response(null, { status: 404 });
@@ -54,13 +55,6 @@ export async function loader({ request, params }: { request: Request; params: { 
   });
 }
 
-function rel(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 60) return Math.max(1, m) + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
-
 export default function AdminActivityDetail() {
   const d = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
@@ -71,7 +65,7 @@ export default function AdminActivityDetail() {
     resource: d.resource ?? '—',
     shop: d.shopDomain ?? '—',
     ip: d.ip ?? '—',
-    created: rel(d.createdAt),
+    created: formatRelativeTime(d.createdAt),
   };
   const cid = d.correlationId;
   const detailsText = d.detailsJson ?? d.detailsRaw;

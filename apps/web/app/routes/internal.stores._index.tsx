@@ -99,7 +99,7 @@ export async function loader({ request }: { request: Request }) {
       modules: s.modules.length,
       published: s.modules.filter((m: { status: string }) => m.status === 'PUBLISHED').length,
       aiCalls30d: aiByShop.get(s.id) ?? 0,
-      errors30d: Math.min(errByShop.get(s.id) ?? 0, 13),
+      errors30d: errByShop.get(s.id) ?? 0,
       installedAt: s.createdAt ? new Date(s.createdAt).toISOString().slice(0, 10) : '—',
       provider: s.aiProviderOverride
         ? s.aiProviderOverride.name + ' · ' + (s.aiProviderOverride.model ?? s.aiProviderOverride.provider)
@@ -165,8 +165,12 @@ export async function action({ request }: { request: Request }) {
 const PLAN_TONE: Record<string, any> = { FREE: undefined, STARTER: 'info', GROWTH: 'success', PRO: 'magic', ENTERPRISE: 'warning' };
 
 // Health derived from real fields + the store's real 30d ERROR count (loader-provided).
+// Called per row + in the avg reduce + CSV export, so cap the synthesized error rows
+// at storeHealth's score-saturation point (it floors at 3 by ~13 errors) instead of
+// allocating an unbounded array per store — identical scores, no throwaway growth.
 function healthOf(s: any): number {
-  const errLogs = Array.from({ length: s.errors30d ?? 0 }, () => ({ level: 'ERROR', shop: s.domain }));
+  const errCount = Math.min(s.errors30d ?? 0, 20);
+  const errLogs = Array.from({ length: errCount }, () => ({ level: 'ERROR', shop: s.domain }));
   return storeHealth(s, errLogs);
 }
 
@@ -365,7 +369,7 @@ export default function AdminStores() {
                   sortable: true,
                   render: (r: any) => (
                     <div className="row-3">
-                      <Avatar name={r.name} size={30} square color="#1F3A5F" />
+                      <Avatar name={r.name} size={30} square color="var(--sa-primary)" />
                       <div className="stack" style={{ gap: 0 }}>
                         <span className="cell-strong">{r.name}</span>
                         <span className="cell-sub t-mono">{r.domain}</span>

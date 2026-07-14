@@ -19,18 +19,11 @@ import {
   fmtNum,
   titleCase,
   exportCSV,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 const NOT_FOUND = new Response(null, { status: 404 });
 const PREDEFINED_KEYS = new Set(PREDEFINED_STORES.map((p) => p.key));
-
-function rel(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
 
 export async function loader({ request, params }: { request: Request; params: { key?: string } }) {
   await requireInternalAdmin(request);
@@ -74,13 +67,12 @@ export async function loader({ request, params }: { request: Request; params: { 
       title: r.title ?? '(untitled)',
       externalId: r.externalId ?? '—',
       payload: r.payload,
-      created: rel(new Date(r.createdAt).toISOString()),
+      created: formatRelativeTime(new Date(r.createdAt).toISOString()),
     })),
     schema,
   });
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export default function AdminDataStoreDetail() {
   const { store: d, records, schema } = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
@@ -145,10 +137,10 @@ export default function AdminDataStoreDetail() {
             <DataTable
               rowKey="id"
               columns={[
-                { key: 'title', label: 'Record', render: (r: any) => <span className="cell-strong">{r.title}</span> },
-                { key: 'externalId', label: 'External ID', render: (r: any) => <MonoChip>{r.externalId}</MonoChip> },
-                { key: 'payload', label: 'Payload', render: (r: any) => <span className="cell-sub t-mono t-trunc" style={{ maxWidth: 320, display: 'inline-block' }}>{r.payload}</span> },
-                { key: 'created', label: 'Created', render: (r: any) => <span className="cell-sub">{r.created}</span> },
+                { key: 'title', label: 'Record', render: (r) => <span className="cell-strong">{r.title}</span> },
+                { key: 'externalId', label: 'External ID', render: (r) => <MonoChip>{r.externalId}</MonoChip> },
+                { key: 'payload', label: 'Payload', render: (r) => <span className="cell-sub t-mono t-trunc" style={{ maxWidth: 320, display: 'inline-block' }}>{r.payload}</span> },
+                { key: 'created', label: 'Created', render: (r) => <span className="cell-sub">{r.created}</span> },
               ]}
               rows={records}
             />

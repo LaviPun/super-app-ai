@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  ANTHROPIC_PROBE_MODEL,
   isChatEndpointStatus,
   isChatHandshakeStatus,
   probeTargetLiveness,
@@ -122,5 +123,36 @@ describe('assistant-chat-target-probe', () => {
     });
     expect(result.ok).toBe(false);
     expect(result.message.toLowerCase()).toContain('router-only');
+  });
+
+  it('pings the anthropic target with the configured model when present', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('{}', { status: 200 }));
+    await validateAssistantChatTarget({
+      target: 'modalRemote',
+      backend: 'anthropic',
+      url: 'https://api.anthropic.com',
+      token: 'sk-test',
+      timeoutMs: 2000,
+      model: 'claude-opus-4-1',
+    });
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.model).toBe('claude-opus-4-1');
+  });
+
+  it('falls back to ANTHROPIC_PROBE_MODEL when the target has no model', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('{}', { status: 200 }));
+    await validateAssistantChatTarget({
+      target: 'modalRemote',
+      backend: 'anthropic',
+      url: 'https://api.anthropic.com',
+      token: 'sk-test',
+      timeoutMs: 2000,
+    });
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.model).toBe(ANTHROPIC_PROBE_MODEL);
   });
 });

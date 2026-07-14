@@ -1,4 +1,5 @@
 import { json } from '@remix-run/node';
+import { payloadFlowId } from '~/utils/flow-payload';
 import { useLoaderData } from '@remix-run/react';
 import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
@@ -21,15 +22,8 @@ import {
   fmtNum,
   titleCase,
   exportCSV,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
-
-function rel(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
 
 function parseFlowSpec(specJson: string | null | undefined): { trigger: string; steps: number } {
   if (!specJson) return { trigger: '—', steps: 0 };
@@ -43,15 +37,6 @@ function parseFlowSpec(specJson: string | null | undefined): { trigger: string; 
   }
 }
 
-function payloadFlowId(payload: string | null): string | null {
-  if (!payload) return null;
-  try {
-    const p = JSON.parse(payload);
-    return typeof p?.flowId === 'string' ? p.flowId : null;
-  } catch {
-    return null;
-  }
-}
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
@@ -110,14 +95,13 @@ export async function loader({ request }: { request: Request }) {
       storeId: m.shopId,
       runs7d: a?.runs7d ?? 0,
       fails7d: a?.fails7d ?? 0,
-      lastRun: a?.lastRun ? rel(new Date(a.lastRun).toISOString()) : '—',
+      lastRun: a?.lastRun ? formatRelativeTime(new Date(a.lastRun).toISOString()) : '—',
     };
   });
 
   return json({ flows: rows });
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export default function AdminFlows() {
   const { flows } = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
@@ -181,7 +165,7 @@ export default function AdminFlows() {
         {rows.length ? (
           <DataTable
             rowKey="id"
-            onRowClick={(r: any) => ctx.go('#/admin/flows/' + r.id)}
+            onRowClick={(r) => ctx.go('#/admin/flows/' + r.id)}
             sortCol={ts.sortCol}
             sortDir={ts.sortDir}
             onSort={ts.onSort}
@@ -190,7 +174,7 @@ export default function AdminFlows() {
                 key: 'name',
                 label: 'Flow',
                 sortable: true,
-                render: (r: any) => (
+                render: (r) => (
                   <div className="row-3">
                     <span className="tile-ico" style={{ width: 30, height: 30, background: 'var(--p-surface-secondary)' }}>
                       <Icon name="flow" size={15} />
@@ -202,16 +186,16 @@ export default function AdminFlows() {
                   </div>
                 ),
               },
-              { key: 'store', label: 'Store', render: (r: any) => <StoreLink name={r.store} id={r.storeId} /> },
-              { key: 'trigger', label: 'Trigger', render: (r: any) => <MonoChip>{r.trigger}</MonoChip> },
-              { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
-              { key: 'runs7d', label: 'Runs (7d)', num: true, sortable: true, render: (r: any) => fmtNum(r.runs7d) },
-              { key: 'fails7d', label: 'Fails', num: true, render: (r: any) => (r.fails7d ? <span style={{ color: 'var(--p-critical-text)' }}>{r.fails7d}</span> : <span className="t-muted">0</span>) },
-              { key: 'lastRun', label: 'Last run', render: (r: any) => <span className="cell-sub">{r.lastRun}</span> },
+              { key: 'store', label: 'Store', render: (r) => <StoreLink name={r.store} id={r.storeId} /> },
+              { key: 'trigger', label: 'Trigger', render: (r) => <MonoChip>{r.trigger}</MonoChip> },
+              { key: 'status', label: 'Status', render: (r) => <StatusBadge value={r.status} /> },
+              { key: 'runs7d', label: 'Runs (7d)', num: true, sortable: true, render: (r) => fmtNum(r.runs7d) },
+              { key: 'fails7d', label: 'Fails', num: true, render: (r) => (r.fails7d ? <span style={{ color: 'var(--p-critical-text)' }}>{r.fails7d}</span> : <span className="t-muted">0</span>) },
+              { key: 'lastRun', label: 'Last run', render: (r) => <span className="cell-sub">{r.lastRun}</span> },
               {
                 key: 'act',
                 label: '',
-                render: (r: any) =>
+                render: (r) =>
                   r.status === 'ACTIVE' ? (
                     <Btn size="sm" className="btn-plain" icon="pause" onClick={() => ops.run('flow_pause', { id: r.id, resource: r.name, message: 'Pausing ' + r.name })}>
                       Pause

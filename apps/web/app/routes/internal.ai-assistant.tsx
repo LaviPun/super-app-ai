@@ -11,6 +11,7 @@ import {
 } from '@remix-run/react';
 import { z } from 'zod';
 import type { InternalAssistantStoreService } from '~/services/ai/internal-assistant-store.server';
+import type { ProbeRouteResult } from '~/services/ai/assistant-probe-route.server';
 import type { RouterRuntimeConfig } from '~/schemas/router-runtime-config.server';
 import { isInternalAiLocalOnlyEnabledFromEnv } from '~/services/ai/internal-ai-local-only';
 import {
@@ -23,6 +24,7 @@ import {
   MonoChip,
   Toggle,
   Textarea,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 const ActionSchema = z.object({
@@ -291,10 +293,7 @@ export function formatEstimatedCostLabel(costCents: number | null | undefined): 
 export async function loader({ request }: { request: Request }) {
   const { requireInternalAdmin } = await import('~/internal-admin/session.server');
   const { DEFAULT_ROUTER_RUNTIME_CONFIG } = await import('~/schemas/router-runtime-config.server');
-  const {
-    probeTargetLiveness,
-    validateAssistantChatTarget,
-  } = await import('~/services/ai/assistant-chat-target-probe.server');
+  const { probeAssistantTargets } = await import('~/services/ai/assistant-probe-route.server');
   const { InternalAssistantStoreService } = await import('~/services/ai/internal-assistant-store.server');
   const { getRouterRuntimeConfig } = await import('~/services/ai/router-runtime-config.server');
 
@@ -386,41 +385,15 @@ export async function loader({ request }: { request: Request }) {
     },
     { tokensIn: 0, tokensOut: 0, costCents: 0 },
   );
-  const [localHealth, localChatProbe] = await Promise.all([
-    probeTargetLiveness({
-      backend: runtime.targets.localMachine.backend,
-      url: runtime.targets.localMachine.url,
-      token: runtime.targets.localMachine.token,
-      timeoutMs: runtime.targets.localMachine.timeoutMs,
-    }),
-    validateAssistantChatTarget({
-      target: 'localMachine',
-      backend: runtime.targets.localMachine.backend,
-      url: runtime.targets.localMachine.url,
-      token: runtime.targets.localMachine.token,
-      timeoutMs: runtime.targets.localMachine.timeoutMs,
-    }),
-  ]);
-  const [modalHealth, modalChatProbe] = assistantLocalOnly
-    ? [
-        { ok: false, message: 'disabled (INTERNAL_AI_LOCAL_ONLY)' },
-        { ok: false, message: 'disabled (INTERNAL_AI_LOCAL_ONLY)' },
-      ]
-    : await Promise.all([
-        probeTargetLiveness({
-          backend: runtime.targets.modalRemote.backend,
-          url: runtime.targets.modalRemote.url,
-          token: runtime.targets.modalRemote.token,
-          timeoutMs: runtime.targets.modalRemote.timeoutMs,
-        }),
-        validateAssistantChatTarget({
-          target: 'modalRemote',
-          backend: runtime.targets.modalRemote.backend,
-          url: runtime.targets.modalRemote.url,
-          token: runtime.targets.modalRemote.token,
-          timeoutMs: runtime.targets.modalRemote.timeoutMs,
-        }),
-      ]);
+  // Single source of truth for target probes: the same service the dashboard KPI
+  // tile and the /internal/ai-assistant/probe route call. Reuse the already-loaded
+  // runtime config so we don't fetch it twice; the service still owns the parallel
+  // health + chat-validation semantics (incl. local-only cloud disabling).
+  const probe = await probeAssistantTargets(async () => runtime);
+  const localHealth = probe.localMachine.health;
+  const localChatProbe = probe.localMachine.chatProbe;
+  const modalHealth = probe.modalRemote.health;
+  const modalChatProbe = probe.modalRemote.chatProbe;
 
   return json({
     sessions,
@@ -607,30 +580,82 @@ export function computeSessionMutationFollowUp(input: {
   return { effect: 'revalidate' };
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-function mdLite(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
-    .replace(/`(.+?)`/g, '<code>$1</code>')
-    .replace(/\n\n/g, '<br><br>')
-    .replace(/\n/g, '<br>');
+/**
+ * Lightweight inline-markdown token. `bold` may contain `text`/`code` children
+ * (matching the old sequential `**bold**` then `` `code` `` replace order).
+ * Rendered as real React nodes — model output is never treated as HTML, so
+ * `<script>` and any other markup surface as literal text.
+ */
+export type MdLiteInline = { type: 'text'; value: string } | { type: 'code'; value: string };
+export type MdLiteToken =
+  | MdLiteInline
+  | { type: 'bold'; children: MdLiteInline[] }
+  | { type: 'br' };
+
+/** Split a single line (no newlines) into `text`/`code` inline tokens. */
+function tokenizeInlineCode(line: string): MdLiteInline[] {
+  const out: MdLiteInline[] = [];
+  const re = /`([^`]+)`/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(line)) !== null) {
+    if (match.index > last) out.push({ type: 'text', value: line.slice(last, match.index) });
+    out.push({ type: 'code', value: match[1] ?? '' });
+    last = re.lastIndex;
+  }
+  if (last < line.length) out.push({ type: 'text', value: line.slice(last) });
+  return out;
 }
 
-function formatRelativeTime(iso: string): string {
-  const t = new Date(iso).getTime();
-  if (!Number.isFinite(t)) return '';
-  const diff = Date.now() - t;
-  const s = Math.floor(diff / 1000);
-  if (s < 45) return 'just now';
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 7) return `${d}d ago`;
-  return new Date(iso).toISOString().slice(0, 10);
+/** Parse a single line into inline tokens, resolving `**bold**` then `` `code` ``. */
+function tokenizeLine(line: string): MdLiteToken[] {
+  const out: MdLiteToken[] = [];
+  const re = /\*\*([^]+?)\*\*/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(line)) !== null) {
+    if (match.index > last) out.push(...tokenizeInlineCode(line.slice(last, match.index)));
+    out.push({ type: 'bold', children: tokenizeInlineCode(match[1] ?? '') });
+    last = re.lastIndex;
+  }
+  if (last < line.length) out.push(...tokenizeInlineCode(line.slice(last)));
+  return out;
+}
+
+/**
+ * Tokenize the lightweight markdown the assistant emits (`**bold**`, `` `code` ``,
+ * newlines) into a flat token list. Pure + unit-tested; the renderer maps each
+ * token to a React element so nothing is ever injected as HTML.
+ */
+export function tokenizeMdLite(s: string): MdLiteToken[] {
+  const lines = s.split('\n');
+  const out: MdLiteToken[] = [];
+  lines.forEach((line, i) => {
+    if (i > 0) out.push({ type: 'br' });
+    out.push(...tokenizeLine(line));
+  });
+  return out;
+}
+
+function renderInline(token: MdLiteInline, key: number) {
+  if (token.type === 'code') return <code key={key}>{token.value}</code>;
+  return <span key={key}>{token.value}</span>;
+}
+
+/** Render assistant/tool text as safe React nodes (replaces the old HTML string). */
+function MdLite({ text }: { text: string }) {
+  const tokens = tokenizeMdLite(text);
+  return (
+    <>
+      {tokens.map((token, i) => {
+        if (token.type === 'br') return <br key={i} />;
+        if (token.type === 'bold') {
+          return <b key={i}>{token.children.map((child, ci) => renderInline(child, ci))}</b>;
+        }
+        return renderInline(token, i);
+      })}
+    </>
+  );
 }
 
 function newClientRequestId(): string {
@@ -691,6 +716,7 @@ export default function AdminAssistant() {
   const sessionFetcher = useFetcher<{ ok?: boolean; error?: string; sessionId?: string }>();
   const memoryFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const importFetcher = useFetcher<{ ok?: boolean; error?: string; sessionId?: string; inserted?: number }>();
+  const probeFetcher = useFetcher<ProbeRouteResult | { error: string }>();
 
   const activeSession = data.activeSession;
   const modeKey = activeSession.mode as 'localMachine' | 'modalRemote';
@@ -703,6 +729,7 @@ export default function AdminAssistant() {
   const [showObs, setShowObs] = useState(true);
   const [toolCalls, setToolCalls] = useState<Array<{ tool: string; ok: boolean }>>([]);
   const [requestMeta, setRequestMeta] = useState<any>(null);
+  const [probeOverride, setProbeOverride] = useState<ProbeRouteResult | null>(null);
 
   const [memTitle, setMemTitle] = useState('');
   const [memContent, setMemContent] = useState('');
@@ -718,6 +745,10 @@ export default function AdminAssistant() {
   const memoryToastRef = useRef<string>('');
   const memoryWasAddRef = useRef(false);
   const importPendingRef = useRef(false);
+  const probePendingRef = useRef(false);
+  // Last failed send, keyed by draft text, so re-sending the SAME text reuses the
+  // clientRequestId (server dedup / resume) and increments retryCount.
+  const lastFailedSendRef = useRef<{ text: string; clientRequestId: string; retryCount: number } | null>(null);
 
   useEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
@@ -740,6 +771,7 @@ export default function AdminAssistant() {
     setToolCalls([]);
     setRequestMeta(null);
     setInput('');
+    lastFailedSendRef.current = null;
   }, [activeSession.id]);
 
   // Abort a live stream if the component unmounts mid-response.
@@ -797,6 +829,31 @@ export default function AdminAssistant() {
     }
   }, [importFetcher.state, importFetcher.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Re-check follow-up: overlay fresh probe results, or surface a 429/error via toast.
+  useEffect(() => {
+    if (probeFetcher.state !== 'idle' || !probeFetcher.data || !probePendingRef.current) return;
+    probePendingRef.current = false;
+    const raw = probeFetcher.data;
+    if (raw && typeof raw === 'object' && 'error' in raw && typeof raw.error === 'string') {
+      ctx.toast(raw.error, true);
+      return;
+    }
+    setProbeOverride(raw as ProbeRouteResult);
+    ctx.toast('Targets re-checked');
+  }, [probeFetcher.state, probeFetcher.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A fresh loader payload (post-send revalidation / session switch) carries newer
+  // probe data than a manual overlay — drop the overlay so the loader wins again.
+  useEffect(() => {
+    setProbeOverride(null);
+  }, [data.targets]);
+
+  const recheckTargets = () => {
+    if (probeFetcher.state !== 'idle') return;
+    probePendingRef.current = true;
+    probeFetcher.load('/internal/ai-assistant/probe');
+  };
+
   const routeNavigationPending = computeAssistantRouteNavigationOverlayPending({
     navigationState: navigation.state,
     navigationLocation: navigation.location,
@@ -829,7 +886,13 @@ export default function AdminAssistant() {
     if (sessionId === 'unavailable') return;
     const q = input.trim();
     const target = modeKey;
-    const clientRequestId = newClientRequestId();
+    // Re-sending the same draft after a failure reuses the prior clientRequestId so
+    // the server's findUserMessageByRequest dedups/resumes instead of duplicating,
+    // and advances retryCount. A different draft is a fresh request.
+    const lastFailed = lastFailedSendRef.current;
+    const isResend = lastFailed !== null && lastFailed.text === q;
+    const clientRequestId = isResend ? lastFailed.clientRequestId : newClientRequestId();
+    const retryCount = isResend ? lastFailed.retryCount + 1 : 0;
 
     setInput('');
     setSendInFlight(true);
@@ -871,8 +934,10 @@ export default function AdminAssistant() {
           resumed: payload.resumed,
         });
         patchLastMessage(() => ({ status: 'completed' }));
+        lastFailedSendRef.current = null;
       } else if (eventName === 'error') {
         sawError = true;
+        lastFailedSendRef.current = { text: q, clientRequestId, retryCount };
         const msg = typeof payload.message === 'string' ? payload.message : 'Response failed';
         patchLastMessage((m) => ({ status: 'error', error: msg, text: m.text || '' }));
         ctx.toast(msg, true);
@@ -902,7 +967,7 @@ export default function AdminAssistant() {
       const res = await fetch('/internal/ai-assistant/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-        body: JSON.stringify({ sessionId, message: q, target, clientRequestId }),
+        body: JSON.stringify({ sessionId, message: q, target, clientRequestId, retryCount }),
         signal: ac.signal,
       });
       if (!res.ok || !res.body) {
@@ -935,6 +1000,7 @@ export default function AdminAssistant() {
     } catch (err) {
       const aborted = (err as { name?: string })?.name === 'AbortError';
       if (!aborted && !sawError) {
+        lastFailedSendRef.current = { text: q, clientRequestId, retryCount };
         const msg = err instanceof Error ? err.message : 'Chat request failed';
         patchLastMessage((m) => ({ status: 'error', error: msg, text: m.text || '' }));
         ctx.toast(msg, true);
@@ -1035,8 +1101,13 @@ export default function AdminAssistant() {
     'Show recent failed jobs in the DLQ',
   ];
 
-  const chatReady = activeTarget.chatProbe.ok;
+  // Manual "Re-check" overlays the loader probe until the next revalidation.
+  const probedTarget = probeOverride ? probeOverride[modeKey] : null;
+  const activeHealth = probedTarget?.health ?? activeTarget.health;
+  const activeChatProbe = probedTarget?.chatProbe ?? activeTarget.chatProbe;
+  const chatReady = activeChatProbe.ok;
   const headerModel = activeTarget.model || activeTarget.backend;
+  const probeBusy = probeFetcher.state !== 'idle';
   const reqMeta = requestMeta ?? deriveLastAssistantMeta(data.messages);
   const sessionBusy = sessionFetcher.state !== 'idle';
 
@@ -1106,10 +1177,19 @@ export default function AdminAssistant() {
                 Cloud
               </button>
             </div>
-            <span className="asst-health" title={activeTarget.chatProbe.message}>
+            <span className="asst-health" title={activeChatProbe.message}>
               <StatusDot ok={chatReady} />
               {chatReady ? 'Chat ready' : 'Chat unavailable'}
             </span>
+            <Btn
+              size="sm"
+              icon="refresh"
+              onClick={recheckTargets}
+              loading={probeBusy}
+              title="Re-check target health"
+            >
+              Re-check
+            </Btn>
             <Btn size="sm" icon="chart" onClick={() => setShowObs((o) => !o)}>
               Observability
             </Btn>
@@ -1165,7 +1245,7 @@ export default function AdminAssistant() {
                       <span />
                     </div>
                   ) : m.text ? (
-                    <div className="asst-text" dangerouslySetInnerHTML={{ __html: mdLite(m.text) }} />
+                    <div className="asst-text"><MdLite text={m.text} /></div>
                   ) : m.status === 'error' ? null : (
                     <div className="asst-text t-muted">No response.</div>
                   )}
@@ -1229,16 +1309,16 @@ export default function AdminAssistant() {
                   ['Model', <MonoChip key="m">{activeTarget.model || '—'}</MonoChip>],
                   [
                     'Health',
-                    <span key="h" className="row-2" title={activeTarget.health.message}>
-                      <StatusDot ok={activeTarget.health.ok} />
-                      {activeTarget.health.ok ? 'Live' : 'Down'}
+                    <span key="h" className="row-2" title={activeHealth.message}>
+                      <StatusDot ok={activeHealth.ok} />
+                      {activeHealth.ok ? 'Live' : 'Down'}
                     </span>,
                   ],
                   [
                     'Chat',
-                    <span key="c" className="row-2" title={activeTarget.chatProbe.message}>
-                      <StatusDot ok={activeTarget.chatProbe.ok} />
-                      {activeTarget.chatProbe.ok ? 'Ready' : 'Unavailable'}
+                    <span key="c" className="row-2" title={activeChatProbe.message}>
+                      <StatusDot ok={activeChatProbe.ok} />
+                      {activeChatProbe.ok ? 'Ready' : 'Unavailable'}
                     </span>,
                   ],
                   activeTarget.configured
@@ -1352,7 +1432,7 @@ export default function AdminAssistant() {
                 rows={2}
                 placeholder="What should the assistant always know?"
                 value={memContent}
-                onChange={(e: any) => setMemContent(e.target.value)}
+                onChange={(e) => setMemContent(e.target.value)}
               />
               <input
                 className="input"
@@ -1388,7 +1468,7 @@ export default function AdminAssistant() {
                     mono
                     placeholder='{"title":"Imported","mode":"localMachine","messages":[{"role":"user","content":"hi"}]}'
                     value={importJson}
-                    onChange={(e: any) => setImportJson(e.target.value)}
+                    onChange={(e) => setImportJson(e.target.value)}
                   />
                   <Btn
                     size="sm"

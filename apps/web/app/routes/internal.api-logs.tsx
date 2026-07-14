@@ -3,7 +3,8 @@ import { useLoaderData } from '@remix-run/react';
 import { useEffect, useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
-import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagination.server';
+import { buildNextCursorUrl } from '~/services/internal/pagination.server';
+import { parseLogFilters } from '~/services/internal/log-filters.server';
 import type { Prisma } from '@prisma/client';
 import {
   useAdminCtx,
@@ -20,50 +21,36 @@ import {
   useTableState,
   fmtMs,
   titleCase,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
+import { LogTabs } from '~/components/admin/LogTabs';
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
   const url = new URL(request.url);
   const actor = url.searchParams.get('actor') || undefined;
   const statusFilter = url.searchParams.get('status') || undefined;
-  const search = url.searchParams.get('q') || undefined;
-  const correlationId = url.searchParams.get('correlationId') || undefined;
-  const dateFrom = url.searchParams.get('dateFrom') ? new Date(url.searchParams.get('dateFrom')!) : undefined;
-  const dateTo = url.searchParams.get('dateTo') ? new Date(url.searchParams.get('dateTo')!) : undefined;
 
-  const prisma = getPrisma();
-  const where: Prisma.ApiLogWhereInput = {};
+  const { where, cursor, take, skip, search, correlationId, dateFrom, dateTo } = parseLogFilters<Prisma.ApiLogWhereInput>(url, {
+    searchFields: ['path', 'method'],
+  });
   if (actor) where.actor = actor;
   if (statusFilter === 'running') {
     where.finishedAt = null;
     where.status = 0;
   } else if (statusFilter === 'success') where.success = true;
   else if (statusFilter === 'error') where.success = false;
-  if (search) {
-    where.OR = [
-      { path: { contains: search } },
-      { method: { contains: search } },
-    ];
-  }
-  if (correlationId) where.correlationId = correlationId;
-  if (dateFrom || dateTo) {
-    where.createdAt = {
-      ...(dateFrom ? { gte: dateFrom } : {}),
-      ...(dateTo ? { lte: dateTo } : {}),
-    };
-  }
-  const page = parseCursorParams(url, 150);
 
+  const prisma = getPrisma();
   const logs = await prisma.apiLog.findMany({
     where,
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: page.take,
-    skip: page.skip,
-    cursor: page.cursor,
+    take,
+    skip,
+    cursor,
     include: { shop: true },
   });
-  const nextCursorHref = buildNextCursorUrl(url, logs, page.take);
+  const nextCursorHref = buildNextCursorUrl(url, logs, take);
 
   return json({
     logs: logs.map(l => ({
@@ -81,18 +68,11 @@ export async function loader({ request }: { request: Request }) {
     })),
     filters: { actor, status: statusFilter, search, correlationId, dateFrom: dateFrom?.toISOString(), dateTo: dateTo?.toISOString() },
     nextCursorHref,
-    pageSize: page.take,
+    pageSize: take,
   });
 }
 
 const METHOD_TONE: Record<string, any> = { GET: 'success', POST: 'info', PUT: 'warning', PATCH: 'warning', DELETE: 'critical' };
-function relApi(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 60) return Math.max(1, m) + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
-
 type LiveLog = {
   id: string;
   actor: string;
@@ -139,7 +119,7 @@ export default function AdminApiLogs() {
 
   const mapRow = (l: { id: string; actor: string; method: string; path: string; status: number; durationMs: number; shopDomain: string | null; createdAt: string; correlationId: string | null; requestId: string | null }) => ({
     id: l.id, actor: l.actor, method: l.method, path: l.path, status: l.status, durationMs: l.durationMs,
-    shop: l.shopDomain ?? '—', requestId: l.requestId ?? '—', correlationId: l.correlationId ?? '', success: l.status < 400, created: relApi(l.createdAt),
+    shop: l.shopDomain ?? '—', requestId: l.requestId ?? '—', correlationId: l.correlationId ?? '', success: l.status < 400, created: formatRelativeTime(l.createdAt),
   });
   const liveIds = new Set(liveRows.map((l) => l.id));
   const ROWS: any[] = [...liveRows, ...data.logs.filter((l) => !liveIds.has(l.id))].map(mapRow);
@@ -156,6 +136,7 @@ export default function AdminApiLogs() {
           </Btn>
         }
       />
+      <LogTabs active="api-logs" />
       {live && (
         <div style={{ marginBottom: 14 }}>
           <Banner tone="info" title="Live tail active">

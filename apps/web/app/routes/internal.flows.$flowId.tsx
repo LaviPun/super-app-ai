@@ -1,4 +1,5 @@
 import { json } from '@remix-run/node';
+import { payloadFlowId } from '~/utils/flow-payload';
 import { useLoaderData } from '@remix-run/react';
 import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
@@ -19,27 +20,11 @@ import {
   fmtNum,
   fmtMs,
   titleCase,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
 
 const NOT_FOUND = new Response(null, { status: 404 });
 
-function rel(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
-
-function payloadFlowId(payload: string | null): string | null {
-  if (!payload) return null;
-  try {
-    const p = JSON.parse(payload);
-    return typeof p?.flowId === 'string' ? p.flowId : null;
-  } catch {
-    return null;
-  }
-}
 
 function resultSteps(result: string | null): number | null {
   if (!result) return null;
@@ -149,7 +134,7 @@ export async function loader({ request, params }: { request: Request; params: { 
       storeId: m.shopId,
       runs7d,
       fails7d,
-      lastRun: latestJob ? rel(new Date(latestJob.createdAt).toISOString()) : '—',
+      lastRun: latestJob ? formatRelativeTime(new Date(latestJob.createdAt).toISOString()) : '—',
     },
     steps,
     runs: flowJobs.slice(0, 20).map((j) => ({
@@ -157,14 +142,13 @@ export async function loader({ request, params }: { request: Request; params: { 
       status: j.status,
       steps: resultSteps(j.result) ?? stepDefs.length,
       durationMs: j.startedAt && j.finishedAt ? new Date(j.finishedAt).getTime() - new Date(j.startedAt).getTime() : null,
-      started: rel(new Date(j.createdAt).toISOString()),
+      started: formatRelativeTime(new Date(j.createdAt).toISOString()),
       error: j.error,
     })),
   });
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-const NODE_TONE: Record<string, any> = { trigger: 'magic', condition: 'warning', action: 'info', transform: 'success', delay: undefined, end: undefined };
+const NODE_TONE: Record<string, string | undefined> = { trigger: 'magic', condition: 'warning', action: 'info', transform: 'success', delay: undefined, end: undefined };
 
 function FlowStepRow({ s, i, total }: { s: any; i: number; total: number }) {
   return (
@@ -262,12 +246,12 @@ export default function AdminFlowDetail() {
             <DataTable
               rowKey="id"
               columns={[
-                { key: 'id', label: 'Run', render: (r: any) => <MonoChip>{r.id}</MonoChip> },
-                { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
-                { key: 'steps', label: 'Steps', num: true, render: (r: any) => r.steps },
-                { key: 'durationMs', label: 'Duration', num: true, render: (r: any) => <span className="t-num">{fmtMs(r.durationMs)}</span> },
-                { key: 'error', label: 'Detail', render: (r: any) => (r.error ? <span className="t-xs" style={{ color: 'var(--p-critical-text)' }}>{r.error}</span> : <span className="t-muted t-xs">Completed cleanly</span>) },
-                { key: 'started', label: 'Started', render: (r: any) => <span className="cell-sub">{r.started}</span> },
+                { key: 'id', label: 'Run', render: (r) => <MonoChip>{r.id}</MonoChip> },
+                { key: 'status', label: 'Status', render: (r) => <StatusBadge value={r.status} /> },
+                { key: 'steps', label: 'Steps', num: true, render: (r) => r.steps },
+                { key: 'durationMs', label: 'Duration', num: true, render: (r) => <span className="t-num">{fmtMs(r.durationMs)}</span> },
+                { key: 'error', label: 'Detail', render: (r) => (r.error ? <span className="t-xs" style={{ color: 'var(--p-critical-text)' }}>{r.error}</span> : <span className="t-muted t-xs">Completed cleanly</span>) },
+                { key: 'started', label: 'Started', render: (r) => <span className="cell-sub">{r.started}</span> },
               ]}
               rows={runs}
             />

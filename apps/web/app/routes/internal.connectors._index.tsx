@@ -20,15 +20,8 @@ import {
   useTableState,
   titleCase,
   exportCSV,
+  formatRelativeTime,
 } from '~/components/admin/page-kit';
-
-function rel(iso: string): string {
-  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return m + 'm ago';
-  const h = Math.round(m / 60);
-  return h < 24 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
-}
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
@@ -58,14 +51,13 @@ export async function loader({ request }: { request: Request }) {
       endpoints: c.endpoints.length,
       status,
       lastStatus: lastStatus ?? '—',
-      lastTested: c.lastTestedAt ? rel(new Date(c.lastTestedAt).toISOString()) : 'Never',
+      lastTested: c.lastTestedAt ? formatRelativeTime(new Date(c.lastTestedAt).toISOString()) : 'Never',
     };
   });
 
   return json({ connectors: rows });
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export default function AdminConnectors() {
   const { connectors } = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
@@ -130,7 +122,7 @@ export default function AdminConnectors() {
         {rows.length ? (
           <DataTable
             rowKey="id"
-            onRowClick={(r: any) => ctx.go('#/admin/connectors/' + r.id)}
+            onRowClick={(r) => ctx.go('#/admin/connectors/' + r.id)}
             sortCol={ts.sortCol}
             sortDir={ts.sortDir}
             onSort={ts.onSort}
@@ -139,21 +131,21 @@ export default function AdminConnectors() {
                 key: 'name',
                 label: 'Connector',
                 sortable: true,
-                render: (r: any) => (
+                render: (r) => (
                   <div className="stack" style={{ gap: 0 }}>
                     <span className="cell-strong">{r.name}</span>
                     <span className="cell-sub t-mono">{r.baseUrl}</span>
                   </div>
                 ),
               },
-              { key: 'store', label: 'Store', render: (r: any) => (r.storeId ? <StoreLink name={r.store} id={r.storeId} /> : <span className="t-muted">—</span>) },
-              { key: 'auth', label: 'Auth', render: (r: any) => <Badge>{r.auth.replace('_', ' ')}</Badge> },
-              { key: 'endpoints', label: 'Endpoints', num: true, sortable: true, render: (r: any) => r.endpoints },
-              { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
+              { key: 'store', label: 'Store', render: (r) => (r.storeId ? <StoreLink name={r.store} id={r.storeId} /> : <span className="t-muted">—</span>) },
+              { key: 'auth', label: 'Auth', render: (r) => <Badge>{r.auth.replace('_', ' ')}</Badge> },
+              { key: 'endpoints', label: 'Endpoints', num: true, sortable: true, render: (r) => r.endpoints },
+              { key: 'status', label: 'Status', render: (r) => <StatusBadge value={r.status} /> },
               {
                 key: 'lastStatus',
                 label: 'Last test',
-                render: (r: any) => (
+                render: (r) => (
                   <span className="row-2">
                     <span className={'http-code http-' + String(r.lastStatus)[0]}>{r.lastStatus}</span>
                     <span className="cell-sub">{r.lastTested}</span>
@@ -163,7 +155,7 @@ export default function AdminConnectors() {
               {
                 key: 'act',
                 label: '',
-                render: (r: any) => (
+                render: (r) => (
                   <div className="dt-actions">
                     <Btn size="sm" className="btn-plain" icon="refresh" onClick={() => ops.run('connector_test', { id: r.id, resource: r.name, message: 'Testing ' + r.name })}>
                       Test

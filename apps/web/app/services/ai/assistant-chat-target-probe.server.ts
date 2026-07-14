@@ -9,6 +9,9 @@ export type AssistantChatProbeResult = {
   message: string;
 };
 
+/** Fallback model for the Anthropic `/v1/messages` handshake ping when a target has no configured model. */
+export const ANTHROPIC_PROBE_MODEL = 'claude-haiku-4-5';
+
 export async function fetchWithTimeout(
   url: string,
   token: string | undefined,
@@ -162,6 +165,8 @@ export async function validateAssistantChatTarget(input: {
   url?: string;
   token?: string;
   timeoutMs: number;
+  /** Configured target model; falls back to ANTHROPIC_PROBE_MODEL for the anthropic ping. */
+  model?: string;
 }): Promise<AssistantChatProbeResult> {
   const rawUrl = input.url?.trim();
   if (!rawUrl) {
@@ -178,7 +183,7 @@ export async function validateAssistantChatTarget(input: {
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'claude-haiku-4-5',
+          model: input.model?.trim() || ANTHROPIC_PROBE_MODEL,
           max_tokens: 1,
           messages: [{ role: 'user', content: 'ping' }],
         }),
