@@ -2,6 +2,7 @@ import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { FlowRunnerService } from '~/services/flows/flow-runner.service';
 import { MessagingRunnerService } from '~/services/messaging/messaging-runner.service';
+import { RestockWatcherService } from '~/services/messaging/restock-watcher.server';
 import { HttpSyncRunnerService, type HttpSyncTrigger } from '~/services/integration/http-sync-runner.service';
 import { accrueForOrder, type OrderPayload } from '~/services/composites/loyalty-accrual.server';
 import {
@@ -37,6 +38,20 @@ const TOPIC_TO_TRIGGER: Record<string, HttpSyncTrigger> = {
   'draft_orders/create': 'SHOPIFY_WEBHOOK_DRAFT_ORDER_CREATED',
   'collections/create': 'SHOPIFY_WEBHOOK_COLLECTION_CREATED',
 };
+
+/**
+ * Adapt the webhook's Admin context into the `(query, { variables }) => Promise<Response>`
+ * shape the restock watcher's consent/email resolver expects. Returns undefined when the
+ * context carries no graphql client (e.g. an offline webhook without an admin session).
+ */
+function extractAdminGraphql(
+  admin: unknown,
+): ((query: string, opts?: { variables?: Record<string, unknown> }) => Promise<Response>) | undefined {
+  const graphql = (admin as { graphql?: unknown } | null | undefined)?.graphql;
+  if (typeof graphql !== 'function') return undefined;
+  return (query, opts) =>
+    (graphql as (q: string, o?: { variables?: Record<string, unknown> }) => Promise<Response>)(query, opts);
+}
 
 export async function action({ request }: { request: Request }) {
   const { admin, payload, shop, topic } = await shopify.authenticate.webhook(request);
@@ -109,6 +124,26 @@ export async function action({ request }: { request: Request }) {
         eventId,
         ...safeErrorMeta(err),
       });
+    }
+
+    // Back-in-stock / price-drop watcher (Track V-C, C1): on a products/update, notify
+    // any WAITING back_in_stock / price_drop DataCapture subscription whose variant just
+    // crossed into stock or fell below its subscription-time price, then mark it notified.
+    // Best-effort — a watcher failure must NOT release the event or 500 the webhook (the
+    // flow run already consumed the claim); it is logged. products/update is the
+    // deliverable signal (read_products granted); inventory_levels/update needs an
+    // ungranted read_inventory scope and would be inert.
+    if (normalizedTopic === 'products/update') {
+      try {
+        const adminGraphql = extractAdminGraphql(admin);
+        await new RestockWatcherService().runForProductUpdate(shop, adminGraphql, payload);
+      } catch (err) {
+        logger.error('[webhooks] products/update restock watcher failed', {
+          shopDomain: shop,
+          eventId,
+          ...safeErrorMeta(err),
+        });
+      }
     }
 
     // Loyalty accrual (R3.6): on an order, credit points into every loyalty-ledger
