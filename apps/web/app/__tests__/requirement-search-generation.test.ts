@@ -187,3 +187,57 @@ describe('WS1 solution search — exemplar tiers', () => {
     expect(result.exemplar).toBeUndefined();
   });
 });
+
+describe('WS1 solution search — quality-tier grading (Phase 6)', () => {
+  it('boosts a tier:exemplar template above equally-relevant same-type peers', () => {
+    // "analytics pixel" matches every pixel template on type (+3) and the shared
+    // tags "analytics"/"pixel" (+2). The +1.5 exemplar boost breaks the tie in
+    // favour of the hand-picked exemplar (ANA-PIXEL-01, the GA4 pixel).
+    const requirement = buildDeterministicRequirementSpec({
+      userRequest: 'analytics pixel',
+      classification: classify('analytics.pixel', 0.9),
+    });
+    const result = searchSolutions(requirement, { topK: 5 });
+    expect(result.startFrom.length).toBeGreaterThan(1);
+    expect(result.startFrom[0]!.templateId).toBe('ANA-PIXEL-01');
+    // The exemplar few-shot pick is that same exemplar template.
+    expect(result.exemplar?.templateId).toBe('ANA-PIXEL-01');
+  });
+
+  it('never promotes a tier:floor template to a Tier-1 (delta-editable) exemplar', () => {
+    // platform.extensionBlueprint has ONLY the coverage floor (COV-BP-01). Load the
+    // query with that stub's own tokens so the raw score clears the Tier-1 floor
+    // (≥6) AND the type matches — the two Tier-1 preconditions. The floor guard must
+    // still hold it at Tier-2 (freeform reference), never Tier-1.
+    const requirement = RequirementSpecSchema.parse({
+      goal: 'scaffold a new theme app extension blueprint block surface',
+      surface: 'admin',
+      moduleType: 'platform.extensionBlueprint',
+    });
+    const result = searchSolutions(requirement, { topK: 3 });
+    const top = result.startFrom[0]!;
+    expect(top.templateId).toBe('COV-BP-01');
+    // Preconditions for a would-be Tier-1 promotion are met…
+    expect(top.score).toBeGreaterThanOrEqual(6);
+    expect(top.moduleType).toBe(requirement.moduleType);
+    // …but the floor guard forces Tier-2.
+    expect(result.exemplar?.templateId).toBe('COV-BP-01');
+    expect(result.exemplar?.tier).toBe(2);
+  });
+
+  it('penalizes floors so a real same-type template outranks the coverage stub', () => {
+    // "back in stock restock waitlist" matches both the real MSG-CAMP-01 (standard)
+    // and no floor for messaging.campaign — assert the real template leads and no
+    // floor-tier entry appears ahead of it. (Floor penalty is −1; a real template of
+    // equal token overlap always wins.)
+    const requirement = buildDeterministicRequirementSpec({
+      userRequest: 'back in stock restock waitlist alert email',
+      classification: classify('messaging.campaign', 0.9),
+    });
+    const result = searchSolutions(requirement, { topK: 5 });
+    expect(result.startFrom.length).toBeGreaterThan(0);
+    // The top pick is a real (non-coverage) messaging template.
+    expect(result.startFrom[0]!.templateId).not.toMatch(/^COV-/);
+    expect(result.startFrom[0]!.moduleType).toBe('messaging.campaign');
+  });
+});

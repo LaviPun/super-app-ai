@@ -4,6 +4,21 @@ import { MODULE_CATEGORIES } from './allowed-values.js';
 import type { Capability } from './capabilities.js';
 import { ALL_TEMPLATES } from './templates/index.js';
 
+/**
+ * Quality tier of a template, used by retrieval to grade candidates (Phase 6).
+ *  - `exemplar` — a hand-picked, best-in-class entry for its type; retrieval boosts
+ *    it so it is preferred as the grounding/few-shot pick when it matches.
+ *  - `standard` — a solid, real-workflow template (the default authoring quality).
+ *  - `floor`    — a minimal, hand-authored stub that exists only to guarantee ≥1
+ *    template per RecipeSpec type (see `templates/coverage.ts`). Retrieval penalizes
+ *    floors so they never become the exemplar/grounding pick when anything better
+ *    matches, and they can never qualify as a Tier-1 (delta-editable) exemplar.
+ *
+ * Optional: an untagged template is treated as neutral (`standard`-equivalent) — it
+ * receives neither the exemplar boost nor the floor penalty.
+ */
+export type TemplateTier = 'exemplar' | 'standard' | 'floor';
+
 export type TemplateEntry = {
   id: string;
   name: string;
@@ -12,6 +27,7 @@ export type TemplateEntry = {
   type: string;
   icon?: string;
   tags?: string[];
+  tier?: TemplateTier;
   spec: RecipeSpec;
 };
 

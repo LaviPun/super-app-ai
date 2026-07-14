@@ -27,6 +27,7 @@ export const COVERAGE_TEMPLATES: TemplateEntry[] = [
     type: 'admin.link',
     icon: 'admin',
     tags: ['admin', 'link', 'order', 'deep-link', 'coverage'],
+    tier: 'floor',
     spec: {
       type: 'admin.link',
       name: 'Order Reconcile Deep Link',
@@ -50,6 +51,7 @@ export const COVERAGE_TEMPLATES: TemplateEntry[] = [
     type: 'admin.print',
     icon: 'admin',
     tags: ['admin', 'print', 'order', 'packing-slip', 'coverage'],
+    tier: 'floor',
     spec: {
       type: 'admin.print',
       name: 'Branded Packing Slip',
@@ -76,6 +78,7 @@ export const COVERAGE_TEMPLATES: TemplateEntry[] = [
     type: 'admin.segmentTemplate',
     icon: 'admin',
     tags: ['admin', 'segment', 'customers', 'template', 'coverage'],
+    tier: 'floor',
     spec: {
       type: 'admin.segmentTemplate',
       name: 'Repeat & Lapsed Customer Segments',
@@ -114,6 +117,7 @@ export const COVERAGE_TEMPLATES: TemplateEntry[] = [
     type: 'analytics.pixel',
     icon: 'analytics',
     tags: ['analytics', 'pixel', 'conversion', 'events', 'coverage'],
+    tier: 'floor',
     spec: {
       type: 'analytics.pixel',
       name: 'Storefront Conversion Pixel',
@@ -145,6 +149,7 @@ export const COVERAGE_TEMPLATES: TemplateEntry[] = [
     type: 'platform.extensionBlueprint',
     icon: 'code',
     tags: ['platform', 'blueprint', 'scaffold', 'theme-app-extension', 'coverage'],
+    tier: 'floor',
     spec: {
       type: 'platform.extensionBlueprint',
       name: 'Theme App Extension Blueprint',

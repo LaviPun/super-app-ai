@@ -97,6 +97,13 @@ function scoreTemplate(template: TemplateEntry, queryTokens: Set<string>, requir
   for (const control of requirement.mustHaveControls) {
     if (surface.has(control)) score += 0.5;
   }
+  // Quality-tier grading (Phase 6). Exemplars are hand-picked best-in-class for
+  // their type and should win the grounding/few-shot pick over an equal-relevance
+  // peer; floors are minimal coverage stubs and must lose to any real template, so
+  // they never surface as the exemplar when something better matches. An untagged
+  // template is neutral (no adjustment).
+  if (template.tier === 'exemplar') score += 1.5;
+  else if (template.tier === 'floor') score -= 1;
   return score;
 }
 
@@ -180,8 +187,13 @@ export function searchSolutions(
   if (top && top.score >= EXEMPLAR_MIN_SCORE) {
     const specJson = compactSpecForExemplar(top.template.spec);
     if (specJson.length <= EXEMPLAR_MAX_CHARS) {
+      // A `floor`-tier template is a minimal coverage stub — never delta-editable
+      // grounding. Even if a burst of token overlap pushed it past the Tier-1 floor,
+      // it must stay Tier-2 (freeform reference), never Tier-1 (instantiate + delta).
       const tier: 1 | 2 =
-        top.score >= EXEMPLAR_TIER1_MIN_SCORE && top.template.type === requirement.moduleType
+        top.score >= EXEMPLAR_TIER1_MIN_SCORE
+        && top.template.type === requirement.moduleType
+        && top.template.tier !== 'floor'
           ? 1
           : 2;
       exemplar = { templateId: top.template.id, tier, specJson };
