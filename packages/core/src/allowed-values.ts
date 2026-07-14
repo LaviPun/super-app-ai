@@ -2092,6 +2092,9 @@ export const STOREFRONT_ELEVATION_IDIOMS = ['soft', 'glow', 'border', 'emboss'] 
 export const STOREFRONT_DENSITY_LEVELS = ['compact', 'comfortable', 'airy'] as const;
 export const STOREFRONT_MOTION_DURATIONS = ['none', 'fast', 'base', 'slow'] as const;
 export const STOREFRONT_MOTION_EASINGS = ['standard', 'enter', 'exit', 'mechanical'] as const;
+// V-B B13 entrance-animation vocabulary (035). One-shot on-enter motion for a module
+// root, honoring prefers-reduced-motion (instant). `none` (absent) ≡ pre-B13 behavior.
+export const STOREFRONT_MOTION_ENTRANCES = ['none', 'fade', 'rise', 'zoom'] as const;
 // Four-pack render grammar (module-design-system.md §3.3.1). `auto` is resolved app-side
 // at generation (resolveStorefrontPack, §9.2) to a concrete pack; the storefront reads the
 // resolved value from style_json.pack and stamps `.superapp-scope[data-sa-pack]`.

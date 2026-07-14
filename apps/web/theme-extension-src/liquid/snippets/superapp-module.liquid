@@ -413,6 +413,7 @@
       data-frequency="{{ mod_cfg.frequency | default: 'ONCE_PER_SESSION' | escape }}"
       data-delay-seconds="{{ mod_cfg.delaySeconds | default: 0 }}"
       data-auto-close-seconds="{{ mod_cfg.autoCloseSeconds | default: 0 }}"
+      {% if mod_cfg.behavior.teaser.enabled %}data-sa-teaser="{{ mod_cfg.behavior.teaser | json | escape }}"{% endif %}
       {% if sa_rules_enabled %}data-sa-rules="{{ sa_rules_json | escape }}" data-sa-rule-server="{{ sa_rule_server }}" data-sa-ctx="{{ sa_ctx_json | escape }}"{% endif %}
       hidden
     >
@@ -1048,7 +1049,7 @@
             <div class="superapp-band">
               {% if band_text != blank %}<span class="superapp-band__text">{{ band_text | escape }}</span>{% endif %}
               {% if mod_cfg.subtitle != blank %}<span class="superapp-band__text superapp-band__text--sub">{{ mod_cfg.subtitle | escape }}</span>{% endif %}
-              {% if band_cd != blank %}<span class="superapp-band__countdown" data-sa-countdown="{{ band_cd | escape }}" hidden></span>{% endif %}
+              {% if band_cd != blank or mod_cfg.countdown.enabled %}<span class="superapp-band__countdown" data-sa-countdown="{{ band_cd | escape }}" data-sa-cd="{{ mod_cfg.countdown | json | escape }}" hidden></span>{% endif %}
               {% assign band_ctas = '' %}
               {% if mod_cfg.blocks != blank %}{% assign band_ctas = mod_cfg.blocks | where: 'kind', 'cta' %}{% endif %}
               {% if band_ctas != blank and band_ctas.size > 0 %}

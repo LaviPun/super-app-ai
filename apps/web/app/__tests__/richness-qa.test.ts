@@ -82,13 +82,32 @@ describe('richness floors — upsell (blocking)', () => {
 });
 
 describe('richness floors — popup (blocking, detected off overlay/kind)', () => {
-  it('passes with trigger + frequency', () => {
+  it('passes the blocking floor with trigger + frequency (only the B5 teaser warn remains)', () => {
     const r = section({ kind: 'popup', activation: 'overlay', trigger: 'exit_intent', frequency: 'once_per_session' });
-    expect(runRichnessQa(r)).toEqual([]);
+    // No blocking issues; the teaser suggestion is a non-blocking warn (see below).
+    expect(failIds(r)).toEqual([]);
+    expect(allIds(r)).toEqual(['richness.floor.popup.teaser']);
   });
   it('fails when frequency cap is missing', () => {
     const r = section({ kind: 'popup', activation: 'overlay', trigger: 'exit_intent' });
     expect(failIds(r)).toContain('richness.floor.popup');
+  });
+  // B5 — teaser presence is a WARN on the popup floor (never blocking).
+  it('warns (never fails) when a popup has no teaser / minimized state', () => {
+    const r = section({ kind: 'popup', activation: 'overlay', trigger: 'exit_intent', frequency: 'once_per_session' });
+    const teaserIssue = runRichnessQa(r).find((i) => i.id === 'richness.floor.popup.teaser');
+    expect(teaserIssue?.severity).toBe('warn');
+    expect(teaserIssue?.autofixed).toBe(false);
+  });
+  it('does not warn when the popup declares behavior.teaser.enabled', () => {
+    const r = section({
+      kind: 'popup',
+      activation: 'overlay',
+      trigger: 'exit_intent',
+      frequency: 'once_per_session',
+      behavior: { teaser: { enabled: true, label: 'Get 10% off' } },
+    });
+    expect(allIds(r)).toEqual([]);
   });
 });
 

@@ -293,6 +293,76 @@
     return evaluateRules(rules, mergedContext(el)).verdict === 'show';
   }
 
+  /* ── B8: cross-module coordination bus ───────────────────────────────────────
+     A single window.__superappBus registry so overlays/bars don't stack: before an
+     overlay opens it consults the bus and, per the PURE decision below, either opens
+     (registering itself), DEFERS (queues, retried when an overlay closes), or SKIPS.
+     This also closes the latent double-popup collision (two popups on one page). The
+     decision is DOM-free + deterministic so it is unit-tested via the marker-extraction
+     pattern (like the rule-engine + spin-game logic). Cart-drawer detection is a
+     best-effort heuristic over the common theme markers. */
+
+  /* The pure coordination decision. `cand` = { channel, priority, suppressWhile[] };
+     `openEntries` = the currently-open [{ channel, priority }]; `activeStates` = the
+     live suppressable states (e.g. 'cart-drawer-open', 'overlay-open'). Returns
+     'skip' | 'defer' | 'open'. Higher/equal priority on the same channel ⇒ defer. */
+  /* COORDINATION-BUS-LOGIC:BEGIN (parity marker — keep on its own line) */
+  function coordinationDecision(cand, openEntries, activeStates) {
+    var suppress = (cand && cand.suppressWhile) || [];
+    for (var i = 0; i < suppress.length; i++) {
+      if (activeStates.indexOf(suppress[i]) !== -1) return 'skip';
+    }
+    var channel = (cand && cand.channel) || 'overlay';
+    var priority = (cand && typeof cand.priority === 'number') ? cand.priority : 0;
+    for (var j = 0; j < openEntries.length; j++) {
+      if (openEntries[j].channel === channel && openEntries[j].priority >= priority) return 'defer';
+    }
+    return 'open';
+  }
+  /* ══ COORDINATION-BUS-LOGIC:END ═══════════════════════════════════════════════ */
+
+  /* Best-effort: is a theme cart drawer currently open? */
+  function cartDrawerOpen() {
+    try {
+      var d = document.querySelector('[data-cart-drawer], #CartDrawer, .cart-drawer, cart-drawer');
+      if (!d) return false;
+      var ex = d.getAttribute('aria-expanded');
+      if (ex != null) return ex === 'true';
+      var cls = d.className || '';
+      return /\b(is-open|active|open|drawer--active)\b/.test(cls) || d.hasAttribute('open');
+    } catch (e) { return false; }
+  }
+
+  function getBus() {
+    if (window.__superappBus) return window.__superappBus;
+    var open = [];   /* [{ id, channel, priority }] */
+    var queue = [];  /* [{ cand, run }] deferred openers, retried on release */
+    function activeStates() {
+      var st = [];
+      if (open.length) st.push('overlay-open');
+      if (cartDrawerOpen()) st.push('cart-drawer-open');
+      return st;
+    }
+    function request(cand, run) {
+      var decision = coordinationDecision(cand, open, activeStates());
+      if (decision === 'skip') return 'skip';
+      if (decision === 'defer') { queue.push({ cand: cand, run: run }); return 'defer'; }
+      open.push({ id: cand.id, channel: cand.channel || 'overlay', priority: cand.priority || 0 });
+      run();
+      return 'open';
+    }
+    function release(id) {
+      for (var i = open.length - 1; i >= 0; i--) if (open[i].id === id) open.splice(i, 1);
+      /* Retry queued openers now that something closed (front of queue first). */
+      if (!queue.length) return;
+      var pending = queue;
+      queue = [];
+      for (var j = 0; j < pending.length; j++) request(pending[j].cand, pending[j].run);
+    }
+    window.__superappBus = { request: request, release: release, _open: open };
+    return window.__superappBus;
+  }
+
   /* ── popup engine ── */
   var FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -312,9 +382,37 @@
     var isOpen = false;
     var lastFocused = null;
     var timers = [];
+    /* B8: coordination candidate — popups compete on the 'overlay' channel. Priority
+       defaults to 0; two popups on one page collide → the bus defers the second. */
+    var coord = { id: id, channel: 'overlay', priority: 0 };
+    /* B5: teaser config — `data-sa-teaser` carries the behavior.teaser JSON. */
+    var teaserRaw = popup.getAttribute('data-sa-teaser');
+    var teaser = null;
+    if (teaserRaw != null) {
+      var tc = {};
+      try { tc = JSON.parse(teaserRaw); } catch (e) { tc = {}; }
+      teaser = { label: tc.label || 'Get 10% off', position: tc.position === 'bottom-left' ? 'bottom-left' : 'bottom-right' };
+    }
+    var teaserEl = null;
 
     function later(fn, ms) { timers.push(window.setTimeout(fn, ms)); }
     function clearTimers() { while (timers.length) window.clearTimeout(timers.pop()); }
+
+    /* B5: minimized teaser pill — reopens the popup without counting as a new show. */
+    function showTeaser() {
+      if (!teaser) return;
+      if (teaserEl) { teaserEl.hidden = false; return; }
+      teaserEl = document.createElement('button');
+      teaserEl.type = 'button';
+      teaserEl.className = 'superapp-teaser superapp-teaser--' + teaser.position;
+      teaserEl.textContent = teaser.label;
+      teaserEl.addEventListener('click', function () {
+        if (teaserEl) teaserEl.hidden = true;
+        reopen();
+      });
+      document.body.appendChild(teaserEl);
+    }
+    function hideTeaser() { if (teaserEl) teaserEl.hidden = true; }
 
     function onKeydown(e) {
       if (e.key === 'Escape' || e.key === 'Esc') {
@@ -332,11 +430,12 @@
       }
     }
 
-    function open() {
-      if (isOpen || isSuppressed(id, frequency) || !rulesAllowOpen(popup)) return;
+    /* The actual reveal (no gating) — shared by the gated open() and teaser reopen(). */
+    function show() {
+      if (isOpen) return;
       isOpen = true;
       clearTimers();
-      markShown(id, frequency);
+      hideTeaser();
       lastFocused = document.activeElement;
       popup.hidden = false;
       /* flush styles so the (cancelable, non-blocking) entrance transition runs */
@@ -349,6 +448,17 @@
       document.addEventListener('keydown', onKeydown, true);
       if (autoCloseSeconds > 0) later(close, autoCloseSeconds * 1000);
     }
+
+    function open() {
+      if (isOpen || isSuppressed(id, frequency) || !rulesAllowOpen(popup)) return;
+      markShown(id, frequency);
+      /* B8: consult the coordination bus — open now, DEFER (queued, retried when an
+         overlay releases), or SKIP (a suppressWhile state is active). */
+      getBus().request(coord, show);
+    }
+
+    /* B5: teaser reopen — bypasses suppression (it is not a new show) and the bus. */
+    function reopen() { show(); }
 
     function close() {
       if (!isOpen) return;
@@ -363,6 +473,8 @@
         try { lastFocused.focus({ preventScroll: true }); } catch (e) { /* noop */ }
       }
       lastFocused = null;
+      getBus().release(id); /* B8: let a deferred overlay open now */
+      if (teaser) showTeaser(); /* B5: leave a reopenable pill instead of gone-for-good */
     }
 
     popup.addEventListener('click', function (e) {
@@ -1023,6 +1135,51 @@
     });
   }
 
+  /* ── B13: entrance-animation vocabulary ──────────────────────────────────────
+     The style compiler emits `--sa-ent: sa-ent-fade|rise|zoom` on a module root
+     when `motion.entrance` is chosen (+ `--sa-stagger:1` for staggered children).
+     We read it off each [data-module-id] root; when present (and motion is allowed)
+     we add `.sa-anim` (a hidden resting state) + observe, then `.sa-entered` when it
+     scrolls in so the CSS keyframe plays ONCE. SAFE: the hidden resting state is only
+     applied by JS, so if JS never runs the content stays visible; reduced-motion / no
+     IntersectionObserver skips entirely (content visible, no motion). */
+  function initEntrances() {
+    if (reducedMotion) return; /* prefers-reduced-motion → instant, no entrance */
+    var roots = document.querySelectorAll('[data-module-id]');
+    var animated = [];
+    Array.prototype.forEach.call(roots, function (el) {
+      if (el.getAttribute('data-sa-ent-bound')) return;
+      /* Overlays (popups) own their open/close transition — never gate them on
+         scroll-in entrance (they start hidden, so it would trap them invisible). */
+      if (el.classList.contains('superapp-popup')) return;
+      var ent = '';
+      try { ent = (window.getComputedStyle(el).getPropertyValue('--sa-ent') || '').trim(); } catch (e) { ent = ''; }
+      if (!ent) return;
+      el.setAttribute('data-sa-ent-bound', '1');
+      el.classList.add('sa-anim');
+      /* stagger: index the module's direct children for --sa-stagger-i delays */
+      var stag = '';
+      try { stag = (window.getComputedStyle(el).getPropertyValue('--sa-stagger') || '').trim(); } catch (e2) { stag = ''; }
+      if (stag) {
+        el.classList.add('sa-stagger');
+        var kids = el.children;
+        for (var i = 0; i < kids.length; i++) kids[i].style.setProperty('--sa-stagger-i', String(i));
+      }
+      animated.push(el);
+    });
+    if (animated.length === 0) return;
+    if (typeof window.IntersectionObserver !== 'function') {
+      for (var j = 0; j < animated.length; j++) animated[j].classList.add('sa-entered');
+      return;
+    }
+    var io = new window.IntersectionObserver(function (entries, obs) {
+      for (var k = 0; k < entries.length; k++) {
+        if (entries[k].isIntersecting) { entries[k].target.classList.add('sa-entered'); obs.unobserve(entries[k].target); }
+      }
+    }, { threshold: 0.15 });
+    for (var m = 0; m < animated.length; m++) io.observe(animated[m]);
+  }
+
   /* Animated rule-reveal: un-hide a rule-gated module, then play the F4 entrance
      by adding `sa-reveal` + `is-inview` across a reflow so the transition runs.
      Reduced-motion → just un-hide (no animation). */
@@ -1123,34 +1280,129 @@
     });
   }
 
-  /* ── countdown ticker ──────────────────────────────────────────────────────
-     Fill + tick every [data-sa-countdown]. Invalid/past → leave hidden. Else
-     unhide and render compact `2d 04:31:22` (days dropped at 0); at zero render
-     00:00:00 and stop. Intervals are cleaned up on pagehide. */
+  /* ── countdown ticker (B4 COUNTDOWN V2) ──────────────────────────────────────
+     Fill + tick every [data-sa-countdown]. The attribute is EITHER a bare ISO date
+     (legacy `countdownTo` / fixed deadline — byte-identical to pre-B4: past → stay
+     hidden, ticks to `2d 04:31:22`, freezes at 00:00:00) OR a `~`-delimited MODE
+     token the countdown pack emits: `mode~arg~onExpire~timerStyle` where
+       • fixed      arg = ISO deadline
+       • daily      arg unused (deadline = next local midnight)
+       • evergreen  arg = window minutes (per-VISITOR deadline persisted in
+                    localStorage, namespaced by module id — continues across visits)
+       • session    arg = window minutes (per-VISIT deadline in sessionStorage)
+     onExpire: hide → remove; freeze → hold 00:00:00; restart → re-arm (evergreen).
+     timerStyle: plain → the compact string; tiles → 4 labelled boxes. Optional
+     labels ride a 5th token field as `d,h,m,s`. Reduced-motion → no tile pulse
+     (CSS-gated). Intervals are cleaned up on pagehide. */
   var countdownTimers = [];
+  var CD_LABELS = ['Days', 'Hrs', 'Min', 'Sec'];
+
+  function cdModuleKey(el, mode) {
+    var host = el.closest ? el.closest('[data-module-id]') : null;
+    var id = host ? host.getAttribute('data-module-id') : '';
+    return 'superapp:cd:' + (id || 'x') + ':' + mode;
+  }
+  /* Read (or first-time compute + persist) a per-visitor/visit deadline. `force`
+     re-arms it (restart onExpire) regardless of any saved value. */
+  function cdStoredDeadline(store, el, mode, minutes, force) {
+    var key = cdModuleKey(el, mode);
+    if (!force) {
+      var raw = storageGet(store, key);
+      var saved = raw ? parseInt(raw, 10) : NaN;
+      if (!isNaN(saved) && saved - Date.now() > 0) return saved;
+    }
+    var end = Date.now() + Math.max(1, minutes) * 60000;
+    storageSet(store, key, String(end));
+    return end;
+  }
+  function cdNextMidnight() {
+    var d = new Date();
+    d.setHours(24, 0, 0, 0);
+    return d.getTime();
+  }
+  /* Build a spec from a config object. Two callers feed it: the B4 `data-sa-cd`
+     JSON (full pack config), or the legacy bare ISO in `data-sa-countdown`
+     (synthesized as { mode:'fixed', endAt, onExpire:'freeze' } — byte-identical to
+     pre-B4: freezes at 00:00:00, stays hidden if already past). */
+  function cdSpecFromConfig(c, el) {
+    var mode = c.mode || 'session';
+    var minutes = parseInt(c.durationMinutes, 10);
+    if (isNaN(minutes)) minutes = 60;
+    var lb = c.labels || {};
+    var labels = [lb.days || CD_LABELS[0], lb.hours || CD_LABELS[1], lb.minutes || CD_LABELS[2], lb.seconds || CD_LABELS[3]];
+    var target;
+    if (mode === 'fixed') target = Date.parse(c.endAt || '');
+    else if (mode === 'daily') target = cdNextMidnight();
+    else if (mode === 'evergreen') target = cdStoredDeadline(window.localStorage, el, mode, minutes);
+    else target = cdStoredDeadline(window.sessionStorage, el, mode, minutes); /* session */
+    return { mode: mode, target: target, onExpire: c.onExpire || 'hide', style: c.timerStyle || 'plain', minutes: minutes, labels: labels };
+  }
+  /* Break a positive ms diff into d/h/m/s parts. */
+  function cdParts(diff) {
+    var total = Math.floor(diff / 1000);
+    return { d: Math.floor(total / 86400), h: Math.floor((total % 86400) / 3600), m: Math.floor((total % 3600) / 60), s: total % 60 };
+  }
+  function cdRenderPlain(el, pt) {
+    var hms = pad2(pt.h) + ':' + pad2(pt.m) + ':' + pad2(pt.s);
+    el.textContent = pt.d > 0 ? (pt.d + 'd ' + hms) : hms;
+  }
+  function cdRenderTiles(el, pt, labels) {
+    var vals = [pt.d, pt.h, pt.m, pt.s];
+    var html = '';
+    for (var i = 0; i < 4; i++) {
+      html += '<span class="superapp-cd__tile"><span class="superapp-cd__num">' + pad2(vals[i]) +
+        '</span><span class="superapp-cd__lbl">' + escapeHtml(labels[i] || CD_LABELS[i]) + '</span></span>';
+    }
+    el.innerHTML = html;
+  }
 
   function initCountdowns() {
     var els = document.querySelectorAll('[data-sa-countdown]');
     Array.prototype.forEach.call(els, function (el) {
       if (el.getAttribute('data-sa-countdown-bound')) return;
       el.setAttribute('data-sa-countdown-bound', '1');
-      var target = Date.parse(el.getAttribute('data-sa-countdown') || '');
-      if (isNaN(target) || target - Date.now() <= 0) return; /* invalid / past → hidden */
+      /* B4 config rides `data-sa-cd` (the countdown pack JSON). A legacy band emits
+         `data-sa-cd="null"` (nil|json), so fall through to the bare-ISO fixed path. */
+      var cfgRaw = el.getAttribute('data-sa-cd');
+      var cfg = null;
+      if (cfgRaw) { try { cfg = JSON.parse(cfgRaw); } catch (e) { cfg = null; } }
+      if (!cfg || !cfg.mode) {
+        var iso = el.getAttribute('data-sa-countdown') || '';
+        if (isNaN(Date.parse(iso))) return;
+        cfg = { mode: 'fixed', endAt: iso, onExpire: 'freeze', timerStyle: 'plain' };
+      }
+      var spec = cdSpecFromConfig(cfg, el);
+      if (isNaN(spec.target)) return; /* invalid → hidden */
+      var target = spec.target;
+      var tiles = spec.style === 'tiles';
+      if (tiles) el.classList.add('superapp-cd', 'superapp-cd--tiles');
 
+      if (target - Date.now() <= 0) {
+        /* Already past at load: restart re-arms (evergreen); everything else stays hidden. */
+        if (spec.onExpire === 'restart' && spec.mode === 'evergreen') target = cdStoredDeadline(window.localStorage, el, spec.mode, spec.minutes, 1);
+        else return;
+      }
+
+      function stop() {
+        window.clearInterval(id);
+        var idx = countdownTimers.indexOf(id);
+        if (idx !== -1) countdownTimers.splice(idx, 1);
+      }
+      function draw(pt) { if (tiles) cdRenderTiles(el, pt, spec.labels); else cdRenderPlain(el, pt); }
       function render() {
         var diff = target - Date.now();
         if (diff <= 0) {
-          el.textContent = '00:00:00';
-          window.clearInterval(id);
-          var idx = countdownTimers.indexOf(id);
-          if (idx !== -1) countdownTimers.splice(idx, 1);
+          if (spec.onExpire === 'hide') { stop(); if (el.parentNode) el.parentNode.removeChild(el); return; }
+          if (spec.onExpire === 'restart' && spec.mode === 'evergreen') {
+            target = cdStoredDeadline(window.localStorage, el, spec.mode, spec.minutes, 1);
+            draw(cdParts(target - Date.now()));
+            return;
+          }
+          draw({ d: 0, h: 0, m: 0, s: 0 }); /* freeze */
+          stop();
           return;
         }
-        var total = Math.floor(diff / 1000);
-        var days = Math.floor(total / 86400);
-        var hms = pad2(Math.floor((total % 86400) / 3600)) + ':' +
-                  pad2(Math.floor((total % 3600) / 60)) + ':' + pad2(total % 60);
-        el.textContent = days > 0 ? (days + 'd ' + hms) : hms;
+        draw(cdParts(diff));
       }
 
       el.hidden = false;
@@ -1609,6 +1861,7 @@
     Array.prototype.forEach.call(recs, initRecs);
     /* Two-pack runtime: F4 scroll reveal, §6 effect triggers, countdown ticker. */
     initScrollReveal();
+    initEntrances(); /* B13: entrance-animation vocabulary */
     initEffects();
     initCountdowns();
     document.addEventListener('superapp:celebrate', onCelebrate);

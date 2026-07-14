@@ -372,8 +372,17 @@ export class PreviewService {
       : `${body ? `<p class="superapp-popup__body">${esc(String(body))}</p>` : ''}
           ${ctaText && ctaUrl ? `<a class="superapp-popup__cta" href="${escAttr(String(ctaUrl))}">${esc(String(ctaText))}</a>` : ''}`;
 
+    // B5 — teaser / minimized state. When behavior.teaser is enabled the storefront
+    // collapses the popup to a reopenable pill on dismiss; show that pill affordance.
+    const teaser = ((spec.config as { behavior?: { teaser?: { enabled?: boolean; label?: string; position?: string } } }).behavior ?? {}).teaser;
+    const teaserHtml = teaser?.enabled
+      ? `<button class="superapp-teaser superapp-teaser--${teaser.position === 'bottom-left' ? 'bottom-left' : 'bottom-right'}" type="button">${esc(teaser.label || 'Get 10% off')}</button>
+         <p class="preview-label">Dismissing minimizes to this reopenable teaser.</p>`
+      : '';
+
     return pageHtml(`
       <button class="demo-open" onclick="document.querySelector('.superapp-popup').hidden=false">Open popup preview</button>
+      ${teaserHtml}
       <div class="superapp-popup" hidden>
         <div class="superapp-popup__backdrop" onclick="document.querySelector('.superapp-popup').hidden=true"></div>
         <div class="superapp-popup__panel" role="dialog" aria-modal="true" aria-label="${escAttr(title)}">
@@ -1307,15 +1316,51 @@ export class PreviewService {
     const ctaUrl = saStr(spec, 'ctaUrl') || saStr(spec, 'linkUrl');
     const countdownTo = saStr(spec, 'countdownTo') || saStr(spec, 'endTime');
     const hasProgress = spec.config.kind === 'progress' || saStr(spec, 'threshold') !== '';
+    const countdownHtml = this.countdownPreview(spec, countdownTo);
     return pageHtml(
       `<section class="superapp-band">
         <span class="superapp-band__text">${esc(message)}</span>
-        ${countdownTo ? `<span class="superapp-band__countdown" data-sa-countdown="${escAttr(countdownTo)}">00 : 00 : 00</span>` : ''}
+        ${countdownHtml}
         ${hasProgress ? `<span class="superapp-band__progress"><span class="superapp-band__progressfill" style="width:64%"></span></span>` : ''}
         ${ctaLabel ? `<a class="superapp-band__cta" href="${escAttr(ctaUrl || '#')}">${esc(ctaLabel)}</a>` : ''}
       </section>`,
       this.archCss(spec, '.superapp-band'),
     );
+  }
+
+  /**
+   * B4 Countdown V2 preview. The countdown pack config (`config.countdown`) drives a
+   * TILES render (4 labelled boxes, static illustrative values) or a plain string;
+   * a bare legacy `countdownTo` ISO keeps the pre-B4 plain string. Returns '' when
+   * there is no countdown at all.
+   */
+  private countdownPreview(spec: Extract<RecipeSpec, { type: 'theme.section' }>, countdownTo: string): string {
+    const cd = (spec.config as Record<string, unknown>).countdown as
+      | { enabled?: boolean; timerStyle?: string; labels?: { days?: string; hours?: string; minutes?: string; seconds?: string } }
+      | undefined;
+    if (cd?.enabled) {
+      const cdAttr = escAttr(JSON.stringify(cd));
+      if (cd.timerStyle === 'tiles') {
+        const lb = cd.labels ?? {};
+        const cells: Array<[string, string]> = [
+          ['02', lb.days ?? 'Days'],
+          ['08', lb.hours ?? 'Hrs'],
+          ['45', lb.minutes ?? 'Min'],
+          ['30', lb.seconds ?? 'Sec'],
+        ];
+        const tiles = cells
+          .map(
+            ([n, l]) =>
+              `<span class="superapp-cd__tile"><span class="superapp-cd__num">${esc(n)}</span><span class="superapp-cd__lbl">${esc(l)}</span></span>`,
+          )
+          .join('');
+        return `<span class="superapp-band__countdown superapp-cd superapp-cd--tiles" data-sa-cd="${cdAttr}">${tiles}</span>`;
+      }
+      return `<span class="superapp-band__countdown" data-sa-cd="${cdAttr}">02d 08:45:30</span>`;
+    }
+    return countdownTo
+      ? `<span class="superapp-band__countdown" data-sa-countdown="${escAttr(countdownTo)}">00 : 00 : 00</span>`
+      : '';
   }
 
   /** B1 — cart-goal / free-shipping progress bar preview (simulated 65%-to-tier). */

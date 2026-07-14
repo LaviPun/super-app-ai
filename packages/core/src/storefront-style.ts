@@ -17,6 +17,7 @@ import {
   STOREFRONT_DENSITY_LEVELS,
   STOREFRONT_MOTION_DURATIONS,
   STOREFRONT_MOTION_EASINGS,
+  STOREFRONT_MOTION_ENTRANCES,
   STOREFRONT_STYLE_PACKS,
   STOREFRONT_RADIUS_SCALING_MIN,
   STOREFRONT_RADIUS_SCALING_MAX,
@@ -128,6 +129,14 @@ export const StorefrontStyleSchema = z
       .object({
         duration: z.enum(STOREFRONT_MOTION_DURATIONS).default('base'),
         easing: z.enum(STOREFRONT_MOTION_EASINGS).default('standard'),
+        /**
+         * V-B B13 entrance-animation vocabulary. A one-shot on-enter animation for
+         * the module root (IntersectionObserver adds `.sa-entered`), honoring
+         * prefers-reduced-motion (instant). Absent / `none` ⇒ pre-B13 behavior
+         * (no entrance emitted). `stagger` offsets grid children's entrance.
+         */
+        entrance: z.enum(STOREFRONT_MOTION_ENTRANCES).optional(),
+        stagger: z.boolean().optional(),
       })
       .optional(),
     /**

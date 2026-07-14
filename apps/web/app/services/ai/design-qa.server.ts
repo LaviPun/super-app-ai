@@ -15,6 +15,18 @@
  */
 import type { RecipeSpec } from '@superapp/core';
 import { isHexColor, relativeLuminance } from '~/services/ai/style-packs.server';
+import { KIND_ARCHETYPE, type SectionArchetype } from '~/services/recipes/kind-archetype';
+
+/**
+ * V-B B13 — content-section archetypes that read better with a subtle scroll-in
+ * entrance. The default-on micro-interaction tier adds `motion.entrance: 'fade'`
+ * to these when the generator left it unset. Excludes band/launch/contact/technical
+ * (own motion / no benefit) and overlay/effect kinds (their own animation systems).
+ */
+const ENTRANCE_ARCHETYPES = new Set<SectionArchetype>([
+  'hero', 'feature', 'gallery', 'collection', 'pricing', 'faq', 'testimonial',
+  'stats', 'cta', 'trust', 'newsletter', 'team', 'timeline', 'upsell',
+]);
 
 export type QaSeverity = 'fail' | 'warn';
 
@@ -54,7 +66,7 @@ type LooseStyle = {
   };
   accessibility?: { focusVisible?: boolean; reducedMotion?: boolean };
   pack?: string;
-  motion?: { duration?: string; easing?: string };
+  motion?: { duration?: string; easing?: string; entrance?: string; stagger?: boolean };
   shape?: { radius?: string };
 };
 
@@ -331,6 +343,41 @@ export function runDesignQa(recipe: RecipeSpec): DesignQaResult {
     }
     if (shapeRadius && ['lg', 'xl', 'full'].includes(shapeRadius)) {
       pushShape(`Utility pack uses near-zero (none–sm) radius (§3.2b); shape.radius="${shapeRadius}" is off-pack.`);
+    }
+  }
+
+  // --- B4 Countdown V2: a fixed-mode timer whose endAt is already past ---------
+  // A `fixed` countdown that ended in the past renders nothing on the storefront
+  // (the timer stays hidden) — almost always a stale/misconfigured deadline. Warn
+  // (don't mutate — the date is merchant intent).
+  const countdown = (config as { countdown?: { enabled?: boolean; mode?: string; endAt?: string } }).countdown;
+  if (countdown?.enabled && countdown.mode === 'fixed' && typeof countdown.endAt === 'string') {
+    const end = Date.parse(countdown.endAt);
+    if (!Number.isNaN(end) && end <= Date.now()) {
+      issues.push({
+        id: 'countdown:past-endAt',
+        severity: 'warn',
+        message: `Countdown is a fixed timer whose endAt (${countdown.endAt}) is already in the past — it will render nothing. Set a future endAt, or use mode "evergreen"/"daily" for a self-renewing deadline.`,
+        autofixed: false,
+      });
+    }
+  }
+
+  // --- B13 Entrance vocabulary: default-on micro-interaction (auto-fix) --------
+  // Content-section archetypes get a subtle scroll-in fade when the generator left
+  // motion.entrance unset. Additive + reduced-motion-safe (the runtime + CSS honor
+  // prefers-reduced-motion). Never overrides an explicit choice.
+  const entranceArch = typeof kind === 'string' ? KIND_ARCHETYPE[kind] : undefined;
+  if (entranceArch && ENTRANCE_ARCHETYPES.has(entranceArch)) {
+    const motion = (style.motion ?? (style.motion = {})) as { entrance?: string };
+    if (motion.entrance === undefined) {
+      motion.entrance = 'fade';
+      issues.push({
+        id: 'micro-interaction:entrance',
+        severity: 'warn',
+        message: 'No entrance animation was set — defaulted motion.entrance = "fade" so the section eases in on scroll (B13, reduced-motion-safe).',
+        autofixed: true,
+      });
     }
   }
 

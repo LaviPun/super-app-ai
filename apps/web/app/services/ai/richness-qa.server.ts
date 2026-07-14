@@ -140,6 +140,14 @@ function isPopup(config: LooseConfig): boolean {
 function isProgressBar(config: LooseConfig): boolean {
   return config.kind === 'progress-bar';
 }
+
+/** B5 — does the popup carry a teaser / minimized-state config (behavior.teaser)? */
+function hasTeaser(config: LooseConfig): boolean {
+  const behavior = config.behavior;
+  if (!behavior || typeof behavior !== 'object') return false;
+  const teaser = (behavior as LooseConfig).teaser;
+  return !!teaser && typeof teaser === 'object' && (teaser as LooseConfig).enabled === true;
+}
 function isPostAtcOffer(config: LooseConfig): boolean {
   return config.kind === 'post-atc-offer';
 }
@@ -380,6 +388,21 @@ export function runRichnessQa(recipe: RecipeSpec, opts: RichnessQaOpts = {}): Qa
         id: `richness.floor.${key}`,
         severity,
         message: floor.message,
+        autofixed: false,
+      });
+    }
+
+    // 1b) B5 — teaser presence on capture popups (WARN only, never blocking). A
+    // popup that minimizes to a reopenable teaser on dismiss recovers far more
+    // captures than a gone-for-session one. Old templates lack it, so this can only
+    // ever warn — we never fail on it and never autofix it (a teaser is a deliberate
+    // merchant choice, not something to default on).
+    if (isPopup(config) && !hasTeaser(config)) {
+      issues.push({
+        id: 'richness.floor.popup.teaser',
+        severity: 'warn',
+        message:
+          'Popup has no teaser / minimized state — on dismiss it disappears for the session. Consider behavior.teaser.enabled so it collapses to a reopenable pill instead (recovers abandoned captures).',
         autofixed: false,
       });
     }
