@@ -785,6 +785,36 @@
     Array.prototype.forEach.call(scratches, setupScratch);
   }
 
+  /* ── V-A A1: volume/quantity-break tiers ─────────────────────────────────────
+     Selecting a tier row sets the product's quantity input (input[name=quantity])
+     so Add-to-cart uses the chosen bundle quantity. Feature-gated + graceful:
+     if the page has no quantity input (e.g. a marketing page), it's a no-op. */
+  function setQuantityInput(qty) {
+    if (!qty || qty < 1) return;
+    var input = document.querySelector('input[name="quantity"]');
+    if (!input) return; /* graceful no-op when no product quantity input on the page */
+    input.value = String(qty);
+    try {
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    } catch (e) { /* older browsers: value set still applies at ATC */ }
+  }
+  function setupVolumeTiers(group) {
+    var radios = group.querySelectorAll('[data-superapp-tier]');
+    Array.prototype.forEach.call(radios, function (radio) {
+      radio.addEventListener('change', function () {
+        if (radio.checked) setQuantityInput(parseInt(radio.getAttribute('data-quantity'), 10));
+      });
+    });
+    /* Reflect the pre-checked (highlighted) tier into the quantity input on load. */
+    var checked = group.querySelector('[data-superapp-tier]:checked');
+    if (checked) setQuantityInput(parseInt(checked.getAttribute('data-quantity'), 10));
+  }
+  function initVolumeTiers() {
+    var groups = document.querySelectorAll('[data-superapp-vtiers]');
+    Array.prototype.forEach.call(groups, setupVolumeTiers);
+  }
+
   /* ── R2.3: product recommendations resolver ──────────────────────────────────
      Third responsibility alongside popup + contact-form. Resolves DYNAMIC and
      cart-derived strategies (static ones already rendered inline by Liquid) and
@@ -1081,6 +1111,8 @@
     Array.prototype.forEach.call(forms, setupProxyForm);
     /* Gamified popups: spin-to-win wheel + scratch card. */
     initGames();
+    /* V-A A1: volume/quantity-break tier selection → product quantity input. */
+    initVolumeTiers();
     /* R2.3: resolve dynamic / cart-derived recommendation mounts. */
     var recs = document.querySelectorAll('[data-superapp-recs]');
     Array.prototype.forEach.call(recs, initRecs);

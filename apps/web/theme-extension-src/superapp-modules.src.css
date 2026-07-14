@@ -1188,3 +1188,50 @@
   .superapp-pdp__atc, .superapp-satc__atc, .superapp-pdp__thumb, .superapp-pdp__variant { transition: none; }
   .superapp-pdp__atc:hover, .superapp-satc__atc:hover { transform: none; }
 }
+
+/* ── V-A A1 · Volume / quantity-break tier table (kind: volume-tiers) ─────────
+   Selectable radio-row cards; the checked/highlighted row is accent-emphasised.
+   Reuses the pricing archetype's grid budget. */
+.superapp-vtiers { display: grid; gap: 0.6rem; max-width: 640px; margin: 0 auto; }
+.superapp-vtier { position: relative; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.35rem 0.9rem; padding: 0.85rem 1.05rem; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-radius-lg); cursor: pointer; transition: border-color var(--sa-motion) var(--sa-ease), background var(--sa-motion) var(--sa-ease); }
+.superapp-vtier:hover { border-color: var(--sa-accent); }
+.superapp-vtier__radio { grid-row: 1 / span 2; width: 1.1rem; height: 1.1rem; accent-color: var(--sa-accent); margin: 0; }
+.superapp-vtier__label { font-family: var(--sa-font-display); font-weight: 600; font-size: 1.05rem; }
+.superapp-vtier__discount { grid-column: 2; font-size: 0.82rem; opacity: 0.8; }
+.superapp-vtier__unit { grid-column: 3; grid-row: 1; font-family: var(--sa-font-mono); font-weight: 700; color: var(--sa-accent); white-space: nowrap; }
+.superapp-vtier__save { grid-column: 3; grid-row: 2; font-size: 0.75rem; opacity: 0.7; text-align: right; white-space: nowrap; }
+.superapp-vtier__badge { position: absolute; top: -0.6rem; left: 0.9rem; font-family: var(--sa-font-mono); font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em; padding: 0.15rem 0.5rem; border-radius: 999px; background: var(--sa-accent); color: var(--sa-btn-text, #0c0c0d); }
+.superapp-vtier--hl { border-color: var(--sa-accent); background: color-mix(in srgb, var(--sa-accent) 8%, transparent); }
+.superapp-vtier:has(.superapp-vtier__radio:checked) { border-color: var(--sa-accent); box-shadow: 0 0 0 1px var(--sa-accent) inset; }
+.superapp-vtier__radio:focus-visible { outline: 2px solid var(--sa-accent); outline-offset: 2px; }
+.superapp-scope[data-sa-pack='bold'] .superapp-vtier--hl { box-shadow: var(--sa-shadow); }
+
+/* ── V-A A2 · Trust / payment badge icons (blocks[].fields.icon) ─────────────
+   Sprite is visually hidden; instances inherit fill (payment wordmarks) or
+   stroke (trust glyphs) from the modifier class. */
+.superapp-icosprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.superapp-trust__badge--icon { gap: 0.5rem; }
+.superapp-trust__ico { width: 2.6rem; height: 1.7rem; display: inline-block; color: var(--sa-accent); }
+.superapp-trust__ico--pay { fill: currentColor; stroke: none; font-family: var(--sa-font-display); font-weight: 700; font-size: 11px; text-anchor: middle; }
+.superapp-trust__ico--glyph { width: 2.2rem; height: 2.2rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.superapp-trust__badgecap { font-size: 0.8rem; opacity: 0.7; }
+
+/* ── V-A A3 · Stock counter / low-stock alert (kind: stock-counter) ──────────
+   Renders only real inventory (Liquid gate); a small inline urgency chip. */
+.superapp-stockcounter { display: inline-flex; align-items: center; gap: 0.45rem; font-family: var(--sa-font-mono); font-size: 0.82rem; letter-spacing: 0.02em; padding: 0.4rem 0.75rem; border-radius: 999px; border: var(--sa-border-w) solid var(--sa-border-color); }
+.superapp-stockcounter::before { content: ''; width: 0.5rem; height: 0.5rem; border-radius: 999px; background: var(--sa-accent); flex: 0 0 auto; }
+.superapp-stockcounter--urgent { border-color: var(--sa-accent); color: var(--sa-accent); font-weight: 700; }
+.superapp-stockcounter--urgent::before { animation: superapp-stockpulse 1.6s ease-in-out infinite; }
+@keyframes superapp-stockpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* ── V-A A4 · Testimonial carousel + half-precision stars + avatar ───────────
+   Scroll-snap track (zero-JS); star row fills to --sa-star-fill for half stars;
+   avatar initials fallback. Static grid (no --carousel) is unchanged. */
+.superapp-testimonial--carousel { display: flex; grid-template-columns: none; gap: 1rem; overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; padding-bottom: 0.5rem; scrollbar-width: thin; }
+.superapp-testimonial--carousel .superapp-testimonial__card { scroll-snap-align: start; flex: 0 0 min(85%, 320px); }
+.superapp-testimonial__stars { position: relative; display: inline-block; font-size: 1rem; letter-spacing: 0.05em; line-height: 1; color: color-mix(in srgb, var(--sa-accent) 24%, transparent); }
+.superapp-testimonial__starsfill { position: absolute; inset: 0; width: var(--sa-star-fill, 100%); overflow: hidden; white-space: nowrap; color: var(--sa-accent); }
+.superapp-testimonial__avatar { width: 2.75rem; height: 2.75rem; border-radius: 999px; object-fit: cover; flex: 0 0 auto; }
+.superapp-testimonial__avatar--initials { display: inline-flex; align-items: center; justify-content: center; font-family: var(--sa-font-display); font-weight: 700; background: color-mix(in srgb, var(--sa-accent) 16%, transparent); color: var(--sa-accent); }
+.superapp-testimonial__verified { display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.7rem; color: var(--sa-accent); letter-spacing: 0.03em; text-transform: none; }
+.superapp-scope[data-sa-pack='bold'] .superapp-testimonial__starsfill { color: var(--sa-accent); }

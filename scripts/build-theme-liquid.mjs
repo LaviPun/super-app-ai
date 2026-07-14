@@ -36,6 +36,18 @@ const LIQUID_BUDGET = 100 * 1000; // Shopify enforced limit, bytes
 function minifyLiquid(src) {
   // 1. Drop {% comment %}…{% endcomment %} blocks (incl. whitespace-control variants).
   let out = src.replace(/\{%-?\s*comment\s*-?%\}[\s\S]*?\{%-?\s*endcomment\s*-?%\}/g, '');
+  // 1b. Drop {% # … %} inline comment tags (they render nothing) EXCEPT two kinds of
+  //     load-bearing marker comment, kept verbatim:
+  //       • theme-check control directives (`{% # theme-check-disable/enable %}`),
+  //         read by the linter from the compiled Liquid — stripping them would
+  //         surface e.g. RemoteAsset warnings on the built file;
+  //       • the `/superapp-scope` close marker, a structural annotation the
+  //         design-system-contract test counts to prove the pack-scope wrapper opens
+  //         and closes exactly once in the shipped snippet.
+  //     Non-greedy to the first `%}` (no comment body contains a literal `%}`). Same
+  //     output-preserving guarantee as (1).
+  const KEEP_COMMENT = /theme-check|superapp-scope/;
+  out = out.replace(/\{%-?\s*#[\s\S]*?-?%\}/g, (m) => (KEEP_COMMENT.test(m) ? m : ''));
   // 2. Strip leading indentation, 3. drop blank lines. Newlines between kept lines
   //    remain, so adjacent Liquid/HTML tokens never merge.
   out = out
@@ -43,7 +55,46 @@ function minifyLiquid(src) {
     .map((line) => line.replace(/^[ \t]+/, ''))
     .filter((line) => line.length > 0)
     .join('\n');
+  // 4. Drop a newline whenever the characters on BOTH sides are non-word (i.e.
+  //    neither is [A-Za-z0-9_]) — the newline was a whitespace-only text node between
+  //    two markup boundaries (`>`\n`<`, `%}`\n`{%`, `}}`\n`<`, `"`\n`<`, …). That text
+  //    node collapses in the rendered HTML (the render layer lays out with flex/grid
+  //    `gap`, never on inter-tag whitespace). Requiring non-word on both sides means
+  //    no two identifiers/keywords are ever fused. `{% liquid %}` blocks — whose lines
+  //    ARE newline-separated statements — are protected first, because a statement can
+  //    legitimately end/begin on punctuation (e.g. `assign x = ']'`); their internal
+  //    newlines are load-bearing and must survive.
+  out = protectLiquidBlocks(out, (chunk) => {
+    let prev;
+    do {
+      prev = chunk;
+      chunk = chunk.replace(/([^A-Za-z0-9_])\n([^A-Za-z0-9_])/g, '$1$2');
+    } while (chunk !== prev);
+    return chunk;
+  });
   return out.endsWith('\n') ? out : out + '\n';
+}
+
+/**
+ * Apply `fn` to the parts of `src` OUTSIDE every `{% liquid … %}` tag, leaving the
+ * `{% liquid %}` blocks (whose newlines separate statements) untouched. Handles the
+ * whitespace-control `{%-` / `-%}` forms.
+ */
+function protectLiquidBlocks(src, fn) {
+  const re = /\{%-?\s*liquid\b/g;
+  let result = '';
+  let last = 0;
+  let m;
+  while ((m = re.exec(src))) {
+    const start = m.index;
+    const close = src.indexOf('%}', start);
+    const end = close === -1 ? src.length : close + 2;
+    result += fn(src.slice(last, start)) + src.slice(start, end);
+    last = end;
+    re.lastIndex = end;
+  }
+  result += fn(src.slice(last));
+  return result;
 }
 
 let total = 0;

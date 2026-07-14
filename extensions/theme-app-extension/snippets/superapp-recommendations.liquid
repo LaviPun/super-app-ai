@@ -21,42 +21,17 @@ assign products = recommendations.products
 endif
 endcase
 %}
-{% if products != blank and products.size > 0 %}
-<section
+{% if products != blank and products.size > 0 %}<section
 class="superapp-recs superapp-container sa-reveal"
 data-module-id="{{ module_id | escape }}"
 data-strategy="{{ strat | escape }}"
-aria-labelledby="superapp-recs-title-{{ module_id | escape }}"
->
-{% if mod_cfg.title != blank %}
-<h2 class="superapp-recs__title" id="superapp-recs-title-{{ module_id | escape }}">{{ mod_cfg.title | escape }}</h2>
-{% endif %}
-<ul class="superapp-recs__grid" role="list">
-{% for p in products limit: limit %}
-{% unless rec.hideCartProducts and cart.items contains p %}
-<li class="superapp-recs__card">
-<a class="superapp-recs__link" href="{{ p.url }}">
-{% if p.featured_image %}
-<img
+aria-labelledby="superapp-recs-title-{{ module_id | escape }}">{% if mod_cfg.title != blank %}<h2 class="superapp-recs__title" id="superapp-recs-title-{{ module_id | escape }}">{{ mod_cfg.title | escape }}</h2>{% endif %}<ul class="superapp-recs__grid" role="list">{% for p in products limit: limit %}{% unless rec.hideCartProducts and cart.items contains p %}<li class="superapp-recs__card"><a class="superapp-recs__link" href="{{ p.url }}">{% if p.featured_image %}<img
 class="superapp-recs__img"
 src="{{ p.featured_image | image_url: width: 300 }}"
 alt="{{ p.title | escape }}"
 loading="lazy"
 width="150"
-height="150"
->
-{% endif %}
-<span class="superapp-recs__name">{{ p.title | escape }}</span>
-<span class="superapp-recs__price">{{ p.price | money }}</span>
-</a>
-</li>
-{% endunless %}
-{% endfor %}
-</ul>
-</section>
-{% else %}
-{% # DYNAMIC / cart-derived / unavailable static → JS resolves + applies fallback. %}
-<section
+height="150">{% endif %}<span class="superapp-recs__name">{{ p.title | escape }}</span><span class="superapp-recs__price">{{ p.price | money }}</span></a></li>{% endunless %}{% endfor %}</ul></section>{% else %}<section
 class="superapp-recs superapp-recs--pending superapp-container sa-reveal"
 data-superapp-recs
 data-module-id="{{ module_id | escape }}"
@@ -65,11 +40,4 @@ data-limit="{{ limit }}"
 data-fallback="{{ rec.fallback | default: 'related' | escape }}"
 data-seed-product="{{ product.id | default: '' }}"
 data-hide-cart="{% if rec.hideCartProducts %}1{% else %}0{% endif %}"
-aria-labelledby="superapp-recs-title-{{ module_id | escape }}"
->
-{% if mod_cfg.title != blank %}
-<h2 class="superapp-recs__title" id="superapp-recs-title-{{ module_id | escape }}">{{ mod_cfg.title | escape }}</h2>
-{% endif %}
-<div class="superapp-recs__skeleton" aria-hidden="true"></div>
-</section>
-{% endif %}
+aria-labelledby="superapp-recs-title-{{ module_id | escape }}">{% if mod_cfg.title != blank %}<h2 class="superapp-recs__title" id="superapp-recs-title-{{ module_id | escape }}">{{ mod_cfg.title | escape }}</h2>{% endif %}<div class="superapp-recs__skeleton" aria-hidden="true"></div></section>{% endif %}

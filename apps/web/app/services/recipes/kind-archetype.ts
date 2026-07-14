@@ -30,7 +30,7 @@ export const KIND_ARCHETYPE: Record<string, SectionArchetype> = {
   gallery: 'gallery', lookbook: 'gallery', 'collection-lookbook': 'gallery', 'collection-carousel': 'gallery',
   'collection-story': 'collection', 'collection-split': 'collection', 'collection-promo': 'collection',
   'collection-list': 'collection', story: 'collection',
-  pricing: 'pricing', comparison: 'pricing', plan: 'pricing',
+  pricing: 'pricing', comparison: 'pricing', plan: 'pricing', 'volume-tiers': 'pricing',
   faq: 'faq', accordion: 'faq',
   testimonials: 'testimonial', reviews: 'testimonial', 'social-proof': 'testimonial',
   'review-summary': 'testimonial', testimonial: 'testimonial',
@@ -45,9 +45,31 @@ export const KIND_ARCHETYPE: Record<string, SectionArchetype> = {
   timeline: 'timeline', steps: 'timeline',
   upsell: 'upsell', 'bought-together': 'upsell', 'product-addons': 'upsell',
   announcement: 'band', 'announcement-bar': 'band', 'free-shipping-bar': 'band',
-  countdown: 'band', 'countdown-bar': 'band', progress: 'band',
+  countdown: 'band', 'countdown-bar': 'band', progress: 'band', 'stock-counter': 'band',
   consent: 'technical', 'json-ld': 'technical', meta: 'technical', 'pixel-bootstrap': 'technical',
   preload: 'technical', filters: 'technical', search: 'technical', sort: 'technical',
   'sticky-atc': 'technical', 'size-chart': 'technical', 'star-rating': 'technical',
   'payment-icons': 'technical', footer: 'technical', rewards: 'technical', badge: 'technical',
 };
+
+/**
+ * Canonical id list for the trust/payment badge-icon catalog (V-A A2).
+ *
+ * A `badge` block sets `fields.icon` to one of these ids; the storefront Liquid
+ * renders the matching `<symbol id="sa-ico-<id>">` from its inline sprite and the
+ * PreviewService renders the mirrored inline SVG — both keyed off THIS list, which
+ * is the single source of truth for the id set. The sprite in
+ * `theme-extension-src/liquid/snippets/superapp-module.liquid` and the preview
+ * `BADGE_ICON_SVG` map are asserted to cover exactly these ids by
+ * badge-icons.test.ts (no `type-enum` catalog entry — the icon lives on a
+ * free-form `blocks[].fields.icon`, outside the `config.<ns>.<field>` type-enum
+ * surface). Unknown/absent icon → the badge's existing text/image fallback.
+ *
+ * Payment marks first (card networks + wallets), then trust/guarantee glyphs.
+ */
+export const BADGE_ICON_IDS = [
+  'visa', 'mastercard', 'amex', 'paypal', 'shop-pay', 'apple-pay', 'google-pay', 'klarna',
+  'secure-checkout', 'free-returns', 'fast-shipping', 'money-back', 'warranty', 'support', 'eco', 'lock',
+] as const;
+
+export type BadgeIconId = (typeof BADGE_ICON_IDS)[number];

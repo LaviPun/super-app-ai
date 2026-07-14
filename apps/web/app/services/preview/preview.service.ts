@@ -693,6 +693,11 @@ export class PreviewService {
 
   /** Pricing tiers / comparison — plan cards, featured highlight. */
   private sectionPricing(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    // A1 — volume/quantity-break table (kind: volume-tiers): selectable radio-row
+    // tier cards mirroring the storefront Liquid. Selecting a row sets the page
+    // quantity input on the storefront (JS); the preview shows the highlighted row
+    // pre-selected.
+    if (spec.config.kind === 'volume-tiers') return this.sectionVolumeTiers(spec);
     const plans = (spec.config.blocks ?? [])
       .filter((b) => b.kind === 'plan' || b.kind === 'tile' || b.kind === 'comparison' || b.kind === 'row')
       .map((b) => {
@@ -731,6 +736,38 @@ export class PreviewService {
     );
   }
 
+  /** A1 — volume/quantity-break tier table: selectable radio-row cards. */
+  private sectionVolumeTiers(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const rows = (spec.config.blocks ?? [])
+      .filter((b) => b.kind === 'tier' || b.kind === 'plan' || (b.fields as Record<string, unknown> | undefined)?.quantityMin != null)
+      .map((b) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        const hl = bf.highlight === true;
+        const label = String(b.text ?? bf.quantityMin ?? '');
+        const discount = bf.discountLabel ? String(bf.discountLabel) : '';
+        const unit = bf.pricePerUnit != null ? String(bf.pricePerUnit) : bf.percentOff != null ? `${bf.percentOff}% off` : '';
+        const save = bf.savingsLabel ? String(bf.savingsLabel) : '';
+        const badge = bf.badge ? String(bf.badge) : hl ? 'Most popular' : '';
+        return `
+          <label class="superapp-vtier${hl ? ' superapp-vtier--hl' : ''}">
+            <input class="superapp-vtier__radio" type="radio" name="sa-vt-preview"${hl ? ' checked' : ''} />
+            ${hl && badge ? `<span class="superapp-vtier__badge">${esc(badge)}</span>` : ''}
+            <span class="superapp-vtier__label">${esc(label)}</span>
+            ${discount ? `<span class="superapp-vtier__discount">${esc(discount)}</span>` : ''}
+            ${unit ? `<span class="superapp-vtier__unit">${esc(unit)}</span>` : ''}
+            ${save ? `<span class="superapp-vtier__save">${esc(save)}</span>` : ''}
+          </label>`;
+      })
+      .join('');
+    return pageHtml(
+      `<div class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-vtiers">${rows}</div>
+      </div>`,
+      this.archCss(spec, '.superapp-archsection'),
+    );
+  }
+
   /** FAQ — native <details> accordion honoring expandBehavior/defaultOpenIndex. */
   private sectionFaq(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
     const f = saFields(spec);
@@ -763,8 +800,60 @@ export class PreviewService {
 
   /** Testimonials / reviews — quote cards with ★ ratings. */
   private sectionTestimonial(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
-    const cards = (spec.config.blocks ?? [])
-      .filter((b) => b.kind === 'review-card' || b.kind === 'testimonial' || b.kind === 'review' || b.kind === 'social-proof')
+    const blocks = (spec.config.blocks ?? []).filter(
+      (b) => b.kind === 'review-card' || b.kind === 'testimonial' || b.kind === 'review' || b.kind === 'social-proof',
+    );
+    // A4 — carousel upgrade gate (parity with the storefront Liquid): ≥3 blocks AND
+    // a NEW rating/avatar signal (any block with fields.avatarUrl or fields.authorTitle).
+    // Old specs carry neither → the classic static grid renders byte-identically.
+    const rich =
+      blocks.length >= 3 &&
+      blocks.some((b) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        return bf.avatarUrl != null || bf.authorTitle != null;
+      });
+
+    if (rich) {
+      const cards = blocks
+        .map((b) => {
+          const bf = (b.fields ?? {}) as Record<string, unknown>;
+          const rating = typeof bf.rating === 'number' ? bf.rating : 5;
+          const pct = Math.max(0, Math.min(5, rating)) * 20;
+          const author = bf.author ? String(bf.author) : '';
+          const sub = bf.authorTitle ? String(bf.authorTitle) : bf.location ? String(bf.location) : '';
+          const verified = bf.verified === true;
+          const avatarUrl = bf.avatarUrl ? String(bf.avatarUrl) : '';
+          const avatar =
+            avatarUrl && !isPlaceholderUrl(avatarUrl)
+              ? `<img class="superapp-testimonial__avatar" src="${escAttr(avatarUrl)}" alt="" loading="lazy" />`
+              : `<span class="superapp-testimonial__avatar superapp-testimonial__avatar--initials" aria-hidden="true">${esc(
+                  (author || '?').slice(0, 1).toUpperCase(),
+                )}</span>`;
+          return `
+            <figure class="superapp-testimonial__card">
+              ${avatar}
+              <span class="superapp-testimonial__stars" role="img" aria-label="Rated ${rating} out of 5" style="--sa-star-fill: ${pct}%;"><span class="superapp-testimonial__starsfill">★★★★★</span></span>
+              <blockquote class="superapp-testimonial__quote">${esc(b.text ?? '')}</blockquote>
+              ${
+                author
+                  ? `<figcaption class="superapp-testimonial__author">${esc(author)}${
+                      verified ? '<span class="superapp-testimonial__verified">✓ Verified</span>' : ''
+                    }${sub ? `<span class="superapp-testimonial__meta">${esc(sub)}</span>` : ''}</figcaption>`
+                  : ''
+              }
+            </figure>`;
+        })
+        .join('');
+      return pageHtml(
+        `<div class="superapp-archsection">
+          ${sectionHead(spec)}
+          <div class="superapp-testimonial superapp-testimonial--carousel" data-superapp-carousel>${cards}</div>
+        </div>`,
+        this.archCss(spec, '.superapp-archsection'),
+      );
+    }
+
+    const cards = blocks
       .map((b) => {
         const bf = (b.fields ?? {}) as Record<string, unknown>;
         const rating = typeof bf.rating === 'number' ? bf.rating : 5;
@@ -858,6 +947,18 @@ export class PreviewService {
         .map((b) => {
           const bf = (b.fields ?? {}) as Record<string, unknown>;
           const caption = bf.caption ? String(bf.caption) : '';
+          // A2 — a badge's fields.icon selects a curated catalog mark (payment
+          // wordmark or trust glyph). Unknown/absent icon → the existing glyph()
+          // fallback (byte-identical to pre-A2 for icon-less badges).
+          const catalog = bf.icon ? badgeIcon(String(bf.icon)) : null;
+          if (catalog) {
+            return `
+            <div class="superapp-trust__badge superapp-trust__badge--icon">
+              ${catalog.svg}
+              <span class="superapp-trust__badgelabel">${esc(b.text ?? '')}</span>
+              ${caption ? `<span class="superapp-trust__badgecap">${esc(caption)}</span>` : ''}
+            </div>`;
+          }
           const icon = bf.icon ? String(bf.icon) : 'shield';
           return `
             <div class="superapp-trust__badge">
@@ -1080,6 +1181,28 @@ export class PreviewService {
 
   /** Band — announcement / countdown / free-shipping / progress bar. */
   private sectionBand(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    // A3 — stock counter. On the storefront the count is READ from real product
+    // inventory (Liquid, no fake numbers). The builder preview has no product, so it
+    // shows an illustrative count from a sample within the threshold plus a "live
+    // inventory on the storefront" affordance so the merchant understands it is real.
+    if (spec.config.kind === 'stock-counter') {
+      const threshold = Number(saStr(spec, 'threshold')) || 10;
+      const sample = Math.max(1, Math.min(Math.round(threshold * 0.7) || 1, threshold));
+      const tpl = saStr(spec, 'messageTemplate') || 'Only {count} left in stock!';
+      const msg = tpl.replace(/\{count\}/g, String(sample));
+      const urgent = saFields(spec).urgency === true;
+      return pageHtml(
+        `<section class="superapp-band superapp-band--stock">
+          <div class="superapp-stockcounter${urgent ? ' superapp-stockcounter--urgent' : ''}" role="status"><span class="superapp-stockcounter__text">${esc(
+            msg,
+          )}</span></div>
+          <p class="superapp-band__affordance">Live inventory on the storefront — appears only when real stock is at or below ${esc(
+            String(threshold),
+          )}.</p>
+        </section>`,
+        this.archCss(spec, '.superapp-band'),
+      );
+    }
     const message = String(spec.config.title ?? saStr(spec, 'message') ?? saStr(spec, 'text') ?? '');
     const ctaLabel = saStr(spec, 'ctaLabel') || saStr(spec, 'linkText');
     const ctaUrl = saStr(spec, 'ctaUrl') || saStr(spec, 'linkUrl');
@@ -2728,6 +2851,51 @@ function glyph(name: string): string {
   const resolved = GLYPH_PATHS[key] ? key : GLYPH_ALIASES[key] ?? 'check';
   const path = GLYPH_PATHS[resolved] ?? GLYPH_PATHS.check;
   return `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+}
+
+/**
+ * A2 — curated badge-icon catalog (preview mirror of the storefront Liquid sprite).
+ * Payment marks render as compact wordmarks (fill), trust marks as line glyphs
+ * (stroke). Keyed by the SAME ids as `BADGE_ICON_IDS` (single source of truth); the
+ * union of these two maps is asserted equal to that list by badge-icons.test.ts. The
+ * storefront authors its own `<symbol>` bodies; only the id set is single-sourced.
+ */
+const BADGE_ICON_PAYMENT: Record<string, string> = {
+  visa: 'VISA', mastercard: 'MC', amex: 'AMEX', paypal: 'PayPal',
+  'shop-pay': 'Shop', 'apple-pay': 'Pay', 'google-pay': 'GPay', klarna: 'Klarna',
+};
+const BADGE_ICON_GLYPH: Record<string, string> = {
+  'secure-checkout': '<path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/>',
+  'free-returns': '<path d="M3 9a9 9 0 1 1 2 6"/><path d="M3 4v5h5"/>',
+  'fast-shipping': '<path d="M1 6h13v9H1z"/><path d="M14 9h4l3 3v3h-7z"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>',
+  'money-back': '<circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9h4a2 2 0 0 1 0 4H9"/>',
+  warranty: '<path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="M12 8v4l3 2"/>',
+  support: '<path d="M4 3h4l2 5-3 2a12 12 0 0 0 5 5l2-3 5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 2 5a2 2 0 0 1 2-2z"/>',
+  eco: '<path d="M4 20c8 2 16-4 16-14C10 6 4 10 4 20z"/><path d="M4 20c2-6 6-9 12-11"/>',
+  lock: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
+};
+/** All ids covered by the preview catalog (exported for the id-parity test). */
+export const BADGE_ICON_PREVIEW_IDS: string[] = [...Object.keys(BADGE_ICON_PAYMENT), ...Object.keys(BADGE_ICON_GLYPH)];
+/** Resolve a badge-icon id to its inline-SVG mark, or null when not in the catalog. */
+function badgeIcon(id: string): { mod: 'pay' | 'glyph'; svg: string } | null {
+  const key = String(id).trim().toLowerCase();
+  const pay = BADGE_ICON_PAYMENT[key];
+  if (pay != null) {
+    return {
+      mod: 'pay',
+      svg: `<svg class="superapp-trust__ico superapp-trust__ico--pay" viewBox="0 0 44 16" aria-hidden="true"><text x="22" y="12">${esc(
+        pay,
+      )}</text></svg>`,
+    };
+  }
+  const glyphBody = BADGE_ICON_GLYPH[key];
+  if (glyphBody != null) {
+    return {
+      mod: 'glyph',
+      svg: `<svg class="superapp-trust__ico superapp-trust__ico--glyph" viewBox="0 0 24 24" aria-hidden="true">${glyphBody}</svg>`,
+    };
+  }
+  return null;
 }
 
 /** Human-readable label for a technical kind. */

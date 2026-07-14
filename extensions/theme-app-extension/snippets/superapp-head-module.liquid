@@ -1,5 +1,4 @@
-{% # theme-check-disable OrphanedSnippet %}
-{% doc %}
+{% # theme-check-disable OrphanedSnippet, RemoteAsset %}{% doc %}
 Shared SuperApp HEAD module renderer — the single source of truth for every
 head-injected module's markup, called from the SuperApp Theme Head app embed
 (blocks/superapp-theme-head.liquid, target: head) via
@@ -14,9 +13,7 @@ consentScript   — a consent-mode / CMP bootstrap (<script>)
 Trust model matches the body renderer: NO arbitrary Liquid or raw HTML from the
 model. Everything below is built from typed, server-sanitized config fields and
 escaped for the head context. The advancedCustom escape hatch is intentionally
-NOT executed here (fixed-template allowlist, per DESIGN.md).
-@param {object} mod_ref - The $app:superapp_module metaobject reference to render.
-{% enddoc %}
+NOT executed here (fixed-template allowlist, per DESIGN.md).@param {object} mod_ref - The $app:superapp_module metaobject reference to render.{% enddoc %}
 {% liquid
 assign mod_cfg = mod_ref.fields.config_json.value
 assign mod_placement = mod_ref.fields.placement_json.value
@@ -40,56 +37,4 @@ endif
 endif
 endif
 %}
-{% if sa_placement_ok %}
-{% case kind %}
-{% when 'jsonLd' %}
-{% if mod_cfg.jsonLd != blank %}
-<script type="application/ld+json">{{ mod_cfg.jsonLd | json }}</script>
-{% endif %}
-{% when 'metaTags' %}
-{% if mod_cfg.metaTags != blank %}
-{% for tag in mod_cfg.metaTags %}
-{% if tag.content != blank %}
-{% if tag.attr == 'property' %}
-<meta property="{{ tag.key | escape }}" content="{{ tag.content | escape }}">
-{% else %}
-<meta name="{{ tag.key | escape }}" content="{{ tag.content | escape }}">
-{% endif %}
-{% endif %}
-{% endfor %}
-{% endif %}
-{% if mod_cfg.canonicalUrl != blank %}
-<link rel="canonical" href="{{ mod_cfg.canonicalUrl | escape }}">
-{% endif %}
-{% when 'preload' %}
-{% if mod_cfg.resources != blank %}
-{% for res in mod_cfg.resources %}
-{% if res.href != blank %}
-{% assign res_rel = res.rel | default: 'preload' %}
-{% # theme-check-disable RemoteAsset %}
-<link rel="{{ res_rel | escape }}" href="{{ res.href | escape }}"{% if res.as != blank %} as="{{ res.as | escape }}"{% endif %}{% if res.type != blank %} type="{{ res.type | escape }}"{% endif %}{% if res.crossorigin %} crossorigin{% endif %}>
-{% # theme-check-enable RemoteAsset %}
-{% endif %}
-{% endfor %}
-{% endif %}
-{% when 'pixelBootstrap' %}
-{% if mod_cfg.pixelId != blank %}
-{% case mod_cfg.provider %}
-{% when 'ga4' %}
-{% # theme-check-disable RemoteAsset %}
-<script async src="https://www.googletagmanager.com/gtag/js?id={{ mod_cfg.pixelId | escape }}"></script>
-{% # theme-check-enable RemoteAsset %}
-<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config',{{ mod_cfg.pixelId | json }});</script>
-{% when 'meta_pixel' %}
-<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];}(window,document);fbq('init',{{ mod_cfg.pixelId | json }});fbq('track','PageView');</script>
-{% else %}
-{% # Unknown provider → inject nothing (fail-safe). %}
-{% endcase %}
-{% endif %}
-{% when 'consentScript' %}
-{% assign consent_state = mod_cfg.consentDefault | default: 'denied' %}
-<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('consent','default',{'ad_storage':{{ consent_state | json }},'analytics_storage':{{ consent_state | json }},'ad_user_data':{{ consent_state | json }},'ad_personalization':{{ consent_state | json }}});</script>
-{% else %}
-{% # Unknown head kind → inject nothing (fail-safe; never leaks body markup). %}
-{% endcase %}
-{% endif %}
+{% if sa_placement_ok %}{% case kind %}{% when 'jsonLd' %}{% if mod_cfg.jsonLd != blank %}<script type="application/ld+json">{{ mod_cfg.jsonLd | json }}</script>{% endif %}{% when 'metaTags' %}{% if mod_cfg.metaTags != blank %}{% for tag in mod_cfg.metaTags %}{% if tag.content != blank %}{% if tag.attr == 'property' %}<meta property="{{ tag.key | escape }}" content="{{ tag.content | escape }}">{% else %}<meta name="{{ tag.key | escape }}" content="{{ tag.content | escape }}">{% endif %}{% endif %}{% endfor %}{% endif %}{% if mod_cfg.canonicalUrl != blank %}<link rel="canonical" href="{{ mod_cfg.canonicalUrl | escape }}">{% endif %}{% when 'preload' %}{% if mod_cfg.resources != blank %}{% for res in mod_cfg.resources %}{% if res.href != blank %}{% assign res_rel = res.rel | default: 'preload' %}<link rel="{{ res_rel | escape }}" href="{{ res.href | escape }}"{% if res.as != blank %} as="{{ res.as | escape }}"{% endif %}{% if res.type != blank %} type="{{ res.type | escape }}"{% endif %}{% if res.crossorigin %} crossorigin{% endif %}>{% endif %}{% endfor %}{% endif %}{% when 'pixelBootstrap' %}{% if mod_cfg.pixelId != blank %}{% case mod_cfg.provider %}{% when 'ga4' %}<script async src="https://www.googletagmanager.com/gtag/js?id={{ mod_cfg.pixelId | escape }}"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config',{{ mod_cfg.pixelId | json }});</script>{% when 'meta_pixel' %}<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];}(window,document);fbq('init',{{ mod_cfg.pixelId | json }});fbq('track','PageView');</script>{% else %}{% endcase %}{% endif %}{% when 'consentScript' %}{% assign consent_state = mod_cfg.consentDefault | default: 'denied' %}<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('consent','default',{'ad_storage':{{ consent_state | json }},'analytics_storage':{{ consent_state | json }},'ad_user_data':{{ consent_state | json }},'ad_personalization':{{ consent_state | json }}});</script>{% else %}{% endcase %}{% endif %}

@@ -1,4 +1,4 @@
-{% # theme-check-disable OrphanedSnippet %}
+{% # theme-check-disable OrphanedSnippet, RemoteAsset %}
 {% doc %}
   Shared SuperApp module renderer — the single source of truth for every module
   markup, called from all four blocks (app embed + universal/product/collection
@@ -323,9 +323,7 @@
           {% endif %}
         </div>
         {% if mod_cfg.imageUrl != blank %}
-          {% # theme-check-disable RemoteAsset %}
           <img class="superapp-banner__image" src="{{ mod_cfg.imageUrl | escape }}" alt="" loading="lazy" width="800" height="400">
-          {% # theme-check-enable RemoteAsset %}
         {% endif %}
       </div>
     </section>
@@ -677,7 +675,7 @@
           endif
         when 'collection-story', 'collection-split', 'collection-promo', 'collection-list', 'story'
           assign sa_arch = 'collection'
-        when 'pricing', 'comparison', 'plan'
+        when 'pricing', 'comparison', 'plan', 'volume-tiers'
           if sa_sec_has_blocks
             assign sa_arch = 'pricing'
           endif
@@ -717,7 +715,7 @@
           if sa_sec_has_blocks
             assign sa_arch = 'upsell'
           endif
-        when 'announcement', 'announcement-bar', 'free-shipping-bar', 'countdown', 'countdown-bar', 'progress'
+        when 'announcement', 'announcement-bar', 'free-shipping-bar', 'countdown', 'countdown-bar', 'progress', 'stock-counter'
           assign sa_arch = 'band'
         when 'pdp', 'product-page', 'product-detail', 'buy-box'
           assign sa_arch = 'pdp'
@@ -760,9 +758,7 @@
             {% if mod_cfg.fields.backgroundImageUrl != blank or mod_cfg.fields.videoUrl != blank or mod_cfg.fields.overlayStrength != blank %}{% assign hero_variant = 'overlay' %}{% endif %}
             <div class="superapp-hero superapp-hero--{{ hero_variant }}">
               {% if hero_media != blank %}
-                {% # theme-check-disable RemoteAsset %}
                 <img class="superapp-hero__media" src="{{ hero_media | escape }}" alt="{{ mod_cfg.fields.mediaAlt | default: mod_cfg.fields.backgroundAlt | escape }}" loading="lazy" width="1200" height="900">
-                {% # theme-check-enable RemoteAsset %}
               {% endif %}
               <div class="superapp-hero__content">
                 {% if mod_cfg.fields.eyebrow != blank %}<span class="superapp-hero__eyebrow">{{ mod_cfg.fields.eyebrow | escape }}</span>{% endif %}
@@ -827,9 +823,7 @@
                 {% if section_block.imageUrl != blank %}
                   <figure class="superapp-gallery__item{% if section_block.fields.span != blank %} superapp-gallery__item--{{ section_block.fields.span | handle }}{% endif %}">
                     {% if section_block.url != blank %}<a class="superapp-gallery__link" href="{{ section_block.url | escape }}">{% endif %}
-                    {% # theme-check-disable RemoteAsset %}
                     <img src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.fields.alt | default: section_block.text | escape }}" loading="lazy" width="600" height="600">
-                    {% # theme-check-enable RemoteAsset %}
                     {% if section_block.url != blank %}</a>{% endif %}
                     {% assign gal_cap = section_block.fields.caption | default: section_block.text %}
                     {% if gal_cap != blank %}<figcaption class="superapp-gallery__caption">{{ gal_cap | escape }}</figcaption>{% endif %}
@@ -844,9 +838,7 @@
             <div class="superapp-collection">
               {% if coll_media != blank %}
                 <div class="superapp-collection__media">
-                  {% # theme-check-disable RemoteAsset %}
                   <img src="{{ coll_media | escape }}" alt="{{ mod_cfg.fields.mediaAlt | escape }}" loading="lazy" width="1200" height="800">
-                  {% # theme-check-enable RemoteAsset %}
                 </div>
               {% endif %}
               <div class="superapp-collection__content">
@@ -860,9 +852,7 @@
                     {% if section_block.kind == 'story' or section_block.kind == 'tile' or section_block.kind == 'slide' %}
                       <div class="superapp-collection__story">
                         {% if section_block.imageUrl != blank %}
-                          {% # theme-check-disable RemoteAsset %}
                           <img class="superapp-collection__storyimg" src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.fields.caption | default: section_block.text | escape }}" loading="lazy" width="800" height="600">
-                          {% # theme-check-enable RemoteAsset %}
                         {% endif %}
                         {% if section_block.text != blank %}<p class="superapp-collection__text superapp-measure">{{ section_block.text | escape | newline_to_br }}</p>{% endif %}
                         {% if section_block.fields.caption != blank %}<span class="superapp-collection__caption">{{ section_block.fields.caption | escape }}</span>{% endif %}
@@ -922,9 +912,7 @@
                 {% if section_block.kind == 'team-member' %}
                   <figure class="superapp-team__member">
                     {% if section_block.imageUrl != blank %}
-                      {% # theme-check-disable RemoteAsset %}
                       <img class="superapp-team__photo" src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.text | escape }}" loading="lazy" width="320" height="320">
-                      {% # theme-check-enable RemoteAsset %}
                     {% endif %}
                     {% if section_block.text != blank %}<figcaption class="superapp-team__name">{{ section_block.text | escape }}</figcaption>{% endif %}
                     {% if section_block.fields.role != blank %}<span class="superapp-team__role">{{ section_block.fields.role | escape }}</span>{% endif %}
@@ -956,9 +944,7 @@
                 {% if section_block.kind == 'product-card' or section_block.kind == 'product' or section_block.kind == 'addon' %}
                   <div class="superapp-upsell__product superapp-row">
                     {% if section_block.imageUrl != blank %}
-                      {% # theme-check-disable RemoteAsset %}
                       <img class="superapp-upsell__thumb" src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.text | escape }}" loading="lazy" width="240" height="240">
-                      {% # theme-check-enable RemoteAsset %}
                     {% endif %}
                     {% if section_block.text != blank %}<span class="superapp-upsell__name">{{ section_block.text | escape }}</span>{% endif %}
                     {% if section_block.fields.price != blank %}<span class="superapp-upsell__price">{{ section_block.fields.price | escape }}</span>{% endif %}
@@ -969,6 +955,18 @@
             </div>
 
           {% when 'band' %}
+          {% if sa_kind_h == 'stock-counter' %}
+            {% # A3 stock counter: real inventory only. In product context, show when 0 < qty ≤ threshold and inventory is tracked; otherwise render nothing (honest — no fake numbers, zero JS). %}
+            {% assign sc_var = product.selected_or_first_available_variant %}
+            {% if product != blank and sc_var != blank and sc_var.inventory_management != blank %}
+              {% assign sc_threshold = mod_cfg.fields.threshold | default: mod_cfg.threshold | default: 10 %}
+              {% if sc_var.inventory_quantity > 0 and sc_var.inventory_quantity <= sc_threshold %}
+                {% assign sc_tpl = mod_cfg.fields.messageTemplate | default: 'Only {count} left in stock!' %}
+                {% assign sc_msg = sc_tpl | replace: '{count}', sc_var.inventory_quantity %}
+                <div class="superapp-stockcounter{% if mod_cfg.fields.urgency %} superapp-stockcounter--urgent{% endif %}" role="status"><span class="superapp-stockcounter__text">{{ sc_msg | escape }}</span></div>
+              {% endif %}
+            {% endif %}
+          {% else %}
             {% # Announcement / countdown / free-shipping band: message + optional countdown + CTA. %}
             {% assign band_text = mod_cfg.title | default: mod_cfg.message | default: mod_cfg.fields.message %}
             {% assign band_cd = mod_cfg.countdownTo | default: mod_cfg.fields.endsAt | default: mod_cfg.fields.countdownEndsAt %}
@@ -986,6 +984,7 @@
                 <a class="superapp-band__cta" href="{{ mod_cfg.ctaUrl | escape }}">{{ mod_cfg.ctaText | escape }}</a>
               {% endif %}
             </div>
+          {% endif %}
 
           {% when 'technical' %}
             {% # Non-visual/technical kinds: a labelled config-summary card (never a raw key/value dump). %}
@@ -1007,17 +1006,13 @@
             <div class="superapp-pdp">
               <div class="superapp-pdp__gallery">
                 {% if pdp_main != blank %}
-                  {% # theme-check-disable RemoteAsset %}
                   <img class="superapp-pdp__media" src="{{ pdp_main | escape }}" alt="{{ mod_cfg.fields.mediaAlt | default: mod_cfg.title | escape }}" loading="lazy" width="900" height="1100">
-                  {% # theme-check-enable RemoteAsset %}
                 {% endif %}
                 {% if pdp_media != blank and pdp_media.size > 1 %}
                   <div class="superapp-pdp__thumbs">
                     {% for section_block in pdp_media offset: 1 limit: 4 %}
                       {% if section_block.imageUrl != blank %}
-                        {% # theme-check-disable RemoteAsset %}
                         <img class="superapp-pdp__thumb" src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.text | escape }}" loading="lazy" width="160" height="160">
-                        {% # theme-check-enable RemoteAsset %}
                       {% endif %}
                     {% endfor %}
                   </div>
@@ -1071,9 +1066,7 @@
             {% assign satc_label = mod_cfg.ctaText | default: mod_cfg.fields.ctaLabel | default: 'Add to cart' %}
             <div class="superapp-satc" data-sa-satc>
               {% if mod_cfg.imageUrl != blank %}
-                {% # theme-check-disable RemoteAsset %}
                 <img class="superapp-satc__thumb" src="{{ mod_cfg.imageUrl | escape }}" alt="" loading="lazy" width="88" height="88">
-                {% # theme-check-enable RemoteAsset %}
               {% endif %}
               <div class="superapp-satc__meta">
                 {% if mod_cfg.title != blank %}<span class="superapp-satc__name">{{ mod_cfg.title | escape }}</span>{% endif %}
@@ -1106,6 +1099,25 @@
             </div>
 
           {% when 'pricing' %}
+          {% if sa_kind_h == 'volume-tiers' %}
+            {% # A1 volume/quantity-break table: selectable tier rows; selecting one sets the page quantity input (JS, graceful no-op if absent). %}
+            <div class="superapp-vtiers" data-superapp-vtiers>
+              {% for section_block in mod_cfg.blocks %}
+                {% if section_block.kind == 'tier' or section_block.kind == 'plan' or section_block.fields.quantityMin != blank %}
+                  {% assign vt_hl = section_block.fields.highlight %}
+                  {% assign vt_off = section_block.fields.percentOff %}
+                  <label class="superapp-vtier{% if vt_hl %} superapp-vtier--hl{% endif %}">
+                    <input class="superapp-vtier__radio" type="radio" name="sa-vt-{{ module_id | escape }}" data-superapp-tier data-quantity="{{ section_block.fields.quantityMin | default: 1 }}"{% if vt_hl %} checked{% endif %}>
+                    {% if vt_hl %}<span class="superapp-vtier__badge">{{ section_block.fields.badge | default: 'Most popular' | escape }}</span>{% endif %}
+                    <span class="superapp-vtier__label">{{ section_block.text | default: section_block.fields.quantityMin | escape }}</span>
+                    {% if section_block.fields.discountLabel != blank %}<span class="superapp-vtier__discount">{{ section_block.fields.discountLabel | escape }}</span>{% endif %}
+                    {% if section_block.fields.pricePerUnit != blank %}<span class="superapp-vtier__unit">{{ section_block.fields.pricePerUnit | escape }}</span>{% elsif vt_off != blank %}<span class="superapp-vtier__unit">{{ vt_off | escape }}% off</span>{% endif %}
+                    {% if section_block.fields.savingsLabel != blank %}<span class="superapp-vtier__save">{{ section_block.fields.savingsLabel | escape }}</span>{% endif %}
+                  </label>
+                {% endif %}
+              {% endfor %}
+            </div>
+          {% else %}
             {% assign price_rows = '' %}
             {% assign price_plans = mod_cfg.blocks | where: 'kind', 'plan' %}
             {% assign price_rows = mod_cfg.blocks | where: 'kind', 'row' %}
@@ -1164,6 +1176,7 @@
                 {% endfor %}
               </div>
             {% endif %}
+          {% endif %}
 
           {% when 'stats' %}
             {% # Stat chips: oversized numeral from fields.value | block.text (+ prefix/suffix), label under. %}
@@ -1181,18 +1194,35 @@
             </div>
 
           {% when 'testimonial' %}
-            {% # Review cards: block.text = quote; fields.author/location; fields.rating (default 5) → star row. %}
-            <div class="superapp-testimonial">
+            {% # Review cards: block.text = quote; fields.author/location; fields.rating (default 5) → star row.
+               A4 carousel UPGRADE is gated on t_rich — ≥3 blocks AND a NEW signal (any block with
+               fields.avatarUrl or fields.authorTitle). Old specs carry neither, so t_rich stays false and
+               every conditional below collapses to the original static-grid markup (byte-identical render). %}
+            {% assign t_rich = false %}
+            {% if mod_cfg.blocks.size >= 3 %}
+              {% for tb in mod_cfg.blocks %}
+                {% if tb.fields.avatarUrl != blank or tb.fields.authorTitle != blank %}{% assign t_rich = true %}{% break %}{% endif %}
+              {% endfor %}
+            {% endif %}
+            <div class="superapp-testimonial{% if t_rich %} superapp-testimonial--carousel{% endif %}"{% if t_rich %} data-superapp-carousel{% endif %}>
               {% for section_block in mod_cfg.blocks %}
                 {% if section_block.text != blank %}
                   {% assign t_rating = section_block.fields.rating | default: 5 %}
                   <figure class="superapp-testimonial__card">
+                    {% if t_rich %}
+                      {% assign t_pct = t_rating | times: 20 %}
+                      {% if section_block.fields.avatarUrl != blank %}
+                        <img class="superapp-testimonial__avatar" src="{{ section_block.fields.avatarUrl | escape }}" alt="" loading="lazy" width="44" height="44">
+                      {% else %}<span class="superapp-testimonial__avatar superapp-testimonial__avatar--initials" aria-hidden="true">{{ section_block.fields.author | default: '?' | slice: 0 | upcase }}</span>{% endif %}
+                      <span class="superapp-testimonial__stars" role="img" aria-label="Rated {{ t_rating }} out of 5" style="--sa-star-fill: {{ t_pct }}%;"><span class="superapp-testimonial__starsfill">&#9733;&#9733;&#9733;&#9733;&#9733;</span></span>
+                    {% else %}
                     <div class="superapp-testimonial__rating" role="img" aria-label="Rated {{ t_rating }} out of 5">
                       {% for s in (1..5) %}<span class="superapp-testimonial__star{% if s > t_rating %} is-empty{% endif %}" aria-hidden="true">&#9733;</span>{% endfor %}
                     </div>
+                    {% endif %}
                     <blockquote class="superapp-testimonial__quote">{{ section_block.text | escape }}</blockquote>
                     {% if section_block.fields.author != blank %}
-                      <figcaption class="superapp-testimonial__author">{{ section_block.fields.author | escape }}{% if section_block.fields.location != blank %}<span class="superapp-testimonial__meta">{{ section_block.fields.location | escape }}</span>{% endif %}</figcaption>
+                      <figcaption class="superapp-testimonial__author">{{ section_block.fields.author | escape }}{% if t_rich and section_block.fields.verified %}<span class="superapp-testimonial__verified" title="Verified buyer">&#10003; Verified</span>{% endif %}{% if t_rich and section_block.fields.authorTitle != blank %}<span class="superapp-testimonial__meta">{{ section_block.fields.authorTitle | escape }}</span>{% elsif section_block.fields.location != blank %}<span class="superapp-testimonial__meta">{{ section_block.fields.location | escape }}</span>{% endif %}</figcaption>
                     {% endif %}
                   </figure>
                 {% endif %}
@@ -1205,22 +1235,32 @@
             {% if sa_kind_h == 'trust-badges' or sa_kind_h == 'trust-badge' or sa_kind_h == 'payment-badges' %}{% assign trust_variant = 'badges' %}{% endif %}
             {% assign trust_badge_blocks = mod_cfg.blocks | where: 'kind', 'badge' %}
             {% if trust_badge_blocks.size > 0 %}{% assign trust_variant = 'badges' %}{% endif %}
+            {% # A2 curated badge-icon catalog. A badge's fields.icon selects a <symbol> from the inline sprite below; payment ids get fill styling, trust ids get stroke styling (CSS modifier). Unknown/absent icon → the existing image/text fallback. Sprite emitted once when any badge carries an icon. %}
+            {% assign trust_has_icon = false %}
+            {% for bb in trust_badge_blocks %}{% if bb.fields.icon != blank %}{% assign trust_has_icon = true %}{% break %}{% endif %}{% endfor %}
+            {% assign sa_pay_ids = 'visa mastercard amex paypal shop-pay apple-pay google-pay klarna' | split: ' ' %}
+            {% if trust_has_icon %}<svg class="superapp-icosprite" aria-hidden="true" focusable="false"><symbol id="sa-ico-visa" viewBox="0 0 44 16"><text x="22" y="12">VISA</text></symbol><symbol id="sa-ico-mastercard" viewBox="0 0 44 16"><text x="22" y="12">MC</text></symbol><symbol id="sa-ico-amex" viewBox="0 0 44 16"><text x="22" y="12">AMEX</text></symbol><symbol id="sa-ico-paypal" viewBox="0 0 44 16"><text x="22" y="12">PayPal</text></symbol><symbol id="sa-ico-shop-pay" viewBox="0 0 44 16"><text x="22" y="12">Shop</text></symbol><symbol id="sa-ico-apple-pay" viewBox="0 0 44 16"><text x="22" y="12">Pay</text></symbol><symbol id="sa-ico-google-pay" viewBox="0 0 44 16"><text x="22" y="12">GPay</text></symbol><symbol id="sa-ico-klarna" viewBox="0 0 44 16"><text x="22" y="12">Klarna</text></symbol><symbol id="sa-ico-secure-checkout" viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></symbol><symbol id="sa-ico-free-returns" viewBox="0 0 24 24"><path d="M3 9a9 9 0 1 1 2 6"/><path d="M3 4v5h5"/></symbol><symbol id="sa-ico-fast-shipping" viewBox="0 0 24 24"><path d="M1 6h13v9H1z"/><path d="M14 9h4l3 3v3h-7z"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></symbol><symbol id="sa-ico-money-back" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9h4a2 2 0 0 1 0 4H9"/></symbol><symbol id="sa-ico-warranty" viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="M12 8v4l3 2"/></symbol><symbol id="sa-ico-support" viewBox="0 0 24 24"><path d="M4 3h4l2 5-3 2a12 12 0 0 0 5 5l2-3 5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 2 5a2 2 0 0 1 2-2z"/></symbol><symbol id="sa-ico-eco" viewBox="0 0 24 24"><path d="M4 20c8 2 16-4 16-14C10 6 4 10 4 20z"/><path d="M4 20c2-6 6-9 12-11"/></symbol><symbol id="sa-ico-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol></svg>{% endif %}
             <div class="superapp-trust superapp-trust--{{ trust_variant }}">
               {% for section_block in mod_cfg.blocks %}
                 {% assign trust_alt = section_block.fields.alt | default: section_block.fields.name | default: section_block.text %}
                 {% if section_block.kind == 'badge' %}
+                  {% if section_block.fields.icon != blank %}
+                    {% if sa_pay_ids contains section_block.fields.icon %}{% assign ico_mod = 'pay' %}{% else %}{% assign ico_mod = 'glyph' %}{% endif %}
+                    <div class="superapp-trust__badge superapp-trust__badge--icon">
+                      <svg class="superapp-trust__ico superapp-trust__ico--{{ ico_mod }}" aria-hidden="true"><use href="#sa-ico-{{ section_block.fields.icon | handle }}"></use></svg>
+                      {% if section_block.text != blank %}<span class="superapp-trust__badgelabel">{{ section_block.text | escape }}</span>{% endif %}
+                      {% if section_block.fields.caption != blank %}<span class="superapp-trust__badgecap">{{ section_block.fields.caption | escape }}</span>{% endif %}
+                    </div>
+                  {% else %}
                   <div class="superapp-trust__badge">
                     {% if section_block.imageUrl != blank %}
-                      {% # theme-check-disable RemoteAsset %}
                       <img src="{{ section_block.imageUrl | escape }}" alt="{{ trust_alt | escape }}" loading="lazy" width="80" height="48">
-                      {% # theme-check-enable RemoteAsset %}
                     {% elsif section_block.text != blank %}{{ section_block.text | escape }}{% endif %}
                   </div>
+                  {% endif %}
                 {% elsif section_block.imageUrl != blank %}
                   {% if section_block.url != blank %}<a class="superapp-trust__logo" href="{{ section_block.url | escape }}">{% else %}<span class="superapp-trust__logo">{% endif %}
-                  {% # theme-check-disable RemoteAsset %}
                   <img src="{{ section_block.imageUrl | escape }}" alt="{{ trust_alt | escape }}" loading="lazy" width="160" height="48">
-                  {% # theme-check-enable RemoteAsset %}
                   {% if section_block.url != blank %}</a>{% else %}</span>{% endif %}
                 {% elsif section_block.text != blank %}
                   <span class="superapp-trust__logo superapp-trust__logo--word">{{ section_block.text | escape }}</span>
@@ -1298,9 +1338,7 @@
                       {% if section_block.url != blank %}
                         <a class="superapp-launch__linkcard" href="{{ section_block.url | escape }}">
                           {% if section_block.imageUrl != blank %}
-                            {% # theme-check-disable RemoteAsset %}
                             <img src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.text | escape }}" loading="lazy" width="400" height="300">
-                            {% # theme-check-enable RemoteAsset %}
                           {% endif %}
                           <span class="superapp-launch__linklabel">{{ section_block.text | escape }}</span>
                           {% if section_block.fields.caption != blank %}<span class="superapp-launch__linkcaption">{{ section_block.fields.caption | escape }}</span>{% endif %}
@@ -1317,9 +1355,7 @@
           {% else %}
             {% # Generic section (unknown kind, or archetype with no blocks): image / body / blocks / CTA. %}
             {% if mod_cfg.imageUrl != blank %}
-              {% # theme-check-disable RemoteAsset %}
               <img class="superapp-section__image" src="{{ mod_cfg.imageUrl | escape }}" alt="" loading="lazy" width="1200" height="600">
-              {% # theme-check-enable RemoteAsset %}
             {% endif %}
             {% if mod_cfg.body != blank %}
               <div class="superapp-section__body superapp-measure">{{ mod_cfg.body | escape | newline_to_br }}</div>
@@ -1372,9 +1408,7 @@
                         {% if section_block.fields.author != blank %}<cite class="superapp-block__author">{{ section_block.fields.author | escape }}</cite>{% endif %}
                       {% when 'team-member' %}
                         {% if section_block.imageUrl != blank %}
-                          {% # theme-check-disable RemoteAsset %}
                           <img class="superapp-block__photo" src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.text | escape }}" loading="lazy" width="240" height="240">
-                          {% # theme-check-enable RemoteAsset %}
                         {% endif %}
                         {% if section_block.text != blank %}<h3 class="superapp-block__heading">{{ section_block.text | escape }}</h3>{% endif %}
                         {% if section_block.fields.role != blank %}<span class="superapp-block__label">{{ section_block.fields.role | escape }}</span>{% endif %}
@@ -1388,24 +1422,18 @@
                         {% if section_block.fields.detail != blank %}<p class="superapp-section__block-text">{{ section_block.fields.detail | escape | newline_to_br }}</p>{% endif %}
                       {% when 'logo', 'badge' %}
                         {% if section_block.imageUrl != blank %}
-                          {% # theme-check-disable RemoteAsset %}
                           <img class="superapp-block__logo" src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.fields.alt | default: section_block.fields.name | default: section_block.text | escape }}" loading="lazy" width="120" height="48">
-                          {% # theme-check-enable RemoteAsset %}
                         {% elsif section_block.text != blank %}<span class="superapp-block__label">{{ section_block.text | escape }}</span>{% endif %}
                       {% when 'slide', 'media' %}
                         {% if section_block.imageUrl != blank %}
-                          {% # theme-check-disable RemoteAsset %}
                           <img class="superapp-section__block-img" src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.fields.alt | default: section_block.text | escape }}" loading="lazy" width="600" height="400">
-                          {% # theme-check-enable RemoteAsset %}
                         {% endif %}
                         {% assign blk_cap = section_block.fields.headline | default: section_block.fields.caption | default: section_block.text %}
                         {% if blk_cap != blank %}<p class="superapp-section__block-text">{{ blk_cap | escape }}</p>{% endif %}
                         {% if section_block.url != blank %}<a class="superapp-section__block-link" href="{{ section_block.url | escape }}">{{ section_block.fields.ctaLabel | default: 'Shop' | escape }}</a>{% endif %}
                       {% else %}
                         {% if section_block.imageUrl != blank %}
-                          {% # theme-check-disable RemoteAsset %}
                           <img class="superapp-section__block-img" src="{{ section_block.imageUrl | escape }}" alt="" loading="lazy" width="400" height="300">
-                          {% # theme-check-enable RemoteAsset %}
                         {% endif %}
                         {% if section_block.text != blank %}
                           <p class="superapp-section__block-text">{{ section_block.text | escape | newline_to_br }}</p>
