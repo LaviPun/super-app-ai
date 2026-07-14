@@ -140,20 +140,37 @@ describe('WS1 exemplar compaction', () => {
   });
 });
 
-describe('WS1 solution search — Tier-2 exemplar', () => {
-  it('returns a Tier-2 exemplar for a strong (type-matched) top result', () => {
+describe('WS1 solution search — exemplar tiers', () => {
+  it('promotes a very strong (score ≥ 6), same-type top match to Tier-1 (delta-editable)', () => {
     const requirement = buildDeterministicRequirementSpec({
       userRequest: 'a discount for cart over $100',
       classification: classify('functions.discountRules', 0.9),
     });
     const result = searchSolutions(requirement, { topK: 3 });
     expect(result.startFrom.length).toBeGreaterThan(0);
+    const top = result.startFrom[0]!;
+    // Precondition for Tier-1: score clears the promotion floor and the type matches.
+    expect(top.score).toBeGreaterThanOrEqual(6);
+    expect(top.moduleType).toBe(requirement.moduleType);
     expect(result.exemplar).toBeDefined();
-    expect(result.exemplar?.tier).toBe(2);
-    expect(result.exemplar?.templateId).toBe(result.startFrom[0]!.templateId);
+    expect(result.exemplar?.tier).toBe(1);
+    expect(result.exemplar?.templateId).toBe(top.templateId);
     expect(result.exemplar!.specJson.length).toBeLessThanOrEqual(8000);
-    // Injected JSON must parse back to an object.
+    // Tier-1 spec must parse back to an object so the delta layer can instantiate it.
     expect(typeof JSON.parse(result.exemplar!.specJson)).toBe('object');
+  });
+
+  it('keeps a moderate (3 ≤ score < 6) top match as a Tier-2 exemplar (freeform reference)', () => {
+    const requirement = buildDeterministicRequirementSpec({
+      userRequest: 'give a percentage discount',
+      classification: classify('functions.discountRules', 0.9),
+    });
+    const result = searchSolutions(requirement, { topK: 3 });
+    const top = result.startFrom[0]!;
+    expect(top.score).toBeGreaterThanOrEqual(3);
+    expect(top.score).toBeLessThan(6);
+    expect(result.exemplar?.tier).toBe(2);
+    expect(result.exemplar?.templateId).toBe(top.templateId);
   });
 
   it('omits the exemplar for a weak match (top score below threshold), keeping hints', () => {

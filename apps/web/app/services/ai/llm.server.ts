@@ -39,7 +39,9 @@ import {
   getRecipeTokenBudget,
   getRecipeOptionsTokenBudget,
   getRepairTokenBudget,
+  getDeltaTokenBudget,
 } from '~/services/ai/token-budget.server';
+import { generateRecipeViaDelta } from '~/services/ai/template-delta.server';
 import {
   getRecipeOptionsJsonSchemaForType,
   getRecipeSingleJsonSchemaForType,
@@ -54,7 +56,16 @@ import { mustHaveControlsForType } from '~/services/ai/requirement-spec.server';
 
 import { getPrisma } from '~/db.server';
 
-export type RecipeOption = { explanation: string; recipe: RecipeSpec };
+export type RecipeOption = {
+  explanation: string;
+  recipe: RecipeSpec;
+  /**
+   * How this option was produced: `'delta'` = Tier-1 instantiate + merge-patch
+   * over a template exemplar; `'freeform'` = generated from scratch. Optional and
+   * additive — absent on legacy paths that never branch on it.
+   */
+  generationMode?: 'delta' | 'freeform';
+};
 
 /** JSON Schema hint passed to providers that support structured output. */
 export interface ResponseSchemaHint {
@@ -1235,7 +1246,7 @@ function formatTypeEnumViolations(violations: TypeEnumViolation[]): string {
  * Validate with RecipeSpecSchema; if invalid, run repair prompt (doc 15.9) and re-validate.
  * Caps at MAX_REPAIR_ATTEMPTS to keep cost predictable.
  */
-async function validateAndRepairRecipe(
+export async function validateAndRepairRecipe(
   raw: unknown,
   client: LlmClient,
   _options?: { shopId?: string; moduleType?: ModuleType },
@@ -1445,6 +1456,101 @@ Output a JSON object with a single key "recipe" whose value is the complete upda
 }
 
 /**
+ * Produce ONE option's validated recipe for the parallel/stream fan-out, choosing
+ * between two generation modes:
+ *
+ *  - **delta** — only for option index 0 when a Tier-1 exemplar is present: the
+ *    template is instantiated and adapted via a single JSON-merge-patch call
+ *    (`generateRecipeViaDelta`) on a reduced token budget. On ANY delta failure it
+ *    transparently falls back to freeform, so the option count is never degraded.
+ *  - **freeform** — the existing behavior: one full single-recipe call, then the
+ *    fast Zod/enum path or the bounded repair loop.
+ *
+ * Returns the initial LLM `result` (for cost attribution), the validated recipe,
+ * the model explanation, whether repair ran, and which mode produced it. The
+ * design-QA gate is applied by the CALLER, uniformly, so both modes flow through
+ * `applyDesignQaWithRetry` identically.
+ */
+async function produceOptionRecipe(args: {
+  idx: number;
+  approach: { label: string; hint: string };
+  client: LlmClient;
+  compiledPrompt: string;
+  perBudget: number;
+  singleSchema: Record<string, unknown> | undefined;
+  moduleType: ModuleType;
+  userRequest: string;
+  shopId?: string;
+  exemplar?: TemplateExemplar;
+  designReferenceBlock?: string;
+  designSystemDirective?: string;
+}): Promise<{
+  result: GenerateResult;
+  recipe: RecipeSpec;
+  repairedFlag: boolean;
+  explanation: string;
+  generationMode: 'delta' | 'freeform';
+}> {
+  const { idx, approach, client, compiledPrompt, perBudget, singleSchema, moduleType, userRequest, shopId } = args;
+
+  // Tier-1: option 0 is produced by instantiating + delta-editing the exemplar.
+  if (idx === 0 && args.exemplar?.tier === 1 && args.exemplar.specJson) {
+    try {
+      const delta = await generateRecipeViaDelta({
+        client,
+        templateSpecJson: args.exemplar.specJson,
+        moduleType,
+        userRequest,
+        approachHint: approach.hint,
+        designReferenceBlock: args.designReferenceBlock,
+        designSystemDirective: args.designSystemDirective,
+        maxTokens: getDeltaTokenBudget(moduleType),
+        shopId,
+      });
+      return {
+        result: delta.result,
+        recipe: delta.recipe,
+        repairedFlag: false,
+        explanation: delta.explanation ?? `${approach.label} option`,
+        generationMode: 'delta',
+      };
+    } catch (deltaErr) {
+      // Never degrade the option count — drop to freeform for this slot.
+      console.warn(
+        `[template-delta] option ${idx} delta path failed, falling back to freeform: ${deltaErr instanceof Error ? deltaErr.message : String(deltaErr)}`,
+      );
+    }
+  }
+
+  // Freeform (default) path.
+  const result = await client.generateRecipe(compiledPrompt, {
+    maxTokens: perBudget,
+    responseSchema: singleSchema
+      ? { name: `RecipeSingle_${moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}`, schema: singleSchema }
+      : undefined,
+  });
+  const parsed = JSON.parse(result.rawJson);
+  const raw = unwrapRecipe(parsed);
+  const repaired = repairRecipeForValidation(raw);
+  const safe = RecipeSpecSchema.safeParse(repaired);
+  let recipe: RecipeSpec;
+  let repairedFlag = false;
+  // Accept the fast path only when the per-type enum catalog also passes; a drift
+  // violation routes to validateAndRepairRecipe, which loops on it.
+  if (safe.success && validateTypeEnums(safe.data).length === 0) {
+    recipe = safe.data;
+  } else {
+    const fix = await validateAndRepairRecipe(raw, client, { shopId, moduleType });
+    recipe = fix.recipe;
+    repairedFlag = fix.repaired;
+  }
+  const explanation = typeof (parsed as { explanation?: unknown })?.explanation === 'string'
+    ? (parsed as { explanation: string }).explanation
+    : `${approach.label} option`;
+  return { result, recipe, repairedFlag, explanation, generationMode: 'freeform' };
+}
+
+/**
  * Yielded by the streaming generator so the UI can show "Option 1 ready" as
  * soon as the first parallel call finishes — without waiting for the slowest.
  */
@@ -1561,36 +1667,31 @@ export async function* generateValidatedRecipeOptionsStream(
     let costCents = 0;
     let servedId: string | null = providerId;
     try {
-      const result = await client.generateRecipe(compiledPrompt, {
-        maxTokens: perBudget,
-        responseSchema: singleSchema
-          ? { name: `RecipeSingle_${classification.moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}`, schema: singleSchema }
-          : undefined,
+      const produced = await produceOptionRecipe({
+        idx,
+        approach,
+        client,
+        compiledPrompt,
+        perBudget,
+        singleSchema,
+        moduleType: classification.moduleType,
+        userRequest: prompt,
+        shopId: options?.shopId,
+        exemplar: options?.exemplar,
+        designReferenceBlock,
+        designSystemDirective,
       });
+      const { result } = produced;
       tokensIn = result.tokensIn;
       tokensOut = result.tokensOut;
       model = result.model;
       ({ providerId: servedId, costCents } = await attributeServedCost(result, providerId, tokensIn, tokensOut));
 
-      const parsed = JSON.parse(result.rawJson);
-      const raw = unwrapRecipe(parsed);
-      const repaired = repairRecipeForValidation(raw);
-      const safe = RecipeSpecSchema.safeParse(repaired);
-      let recipe: RecipeSpec;
-      let repairedFlag = false;
-      // Accept the fast path only when the per-type enum catalog also passes; a
-      // drift violation routes to validateAndRepairRecipe, which loops on it.
-      if (safe.success && validateTypeEnums(safe.data).length === 0) {
-        recipe = safe.data;
-      } else {
-        const fix = await validateAndRepairRecipe(raw, client, {
-          shopId: options?.shopId,
-          moduleType: classification.moduleType,
-        });
-        recipe = fix.recipe;
-        repairedFlag = fix.repaired;
-      }
+      let recipe = produced.recipe;
+      const repairedFlag = produced.repairedFlag;
 
+      // Option 0's design-QA gate applies regardless of generation mode: the
+      // corrective regeneration re-runs the freeform single-recipe prompt.
       const qaRetry = await applyDesignQaWithRetry(
         recipe,
         (corrective) =>
@@ -1614,9 +1715,7 @@ export async function* generateValidatedRecipeOptionsStream(
       tokensOut += qaRetry.extraTokensOut;
       costCents += qaRetry.extraCostCents;
 
-      const explanation = typeof (parsed as { explanation?: unknown })?.explanation === 'string'
-        ? (parsed as { explanation: string }).explanation
-        : `${approach.label} option`;
+      const explanation = produced.explanation;
 
       await recordAiUsage(usage, {
         providerId: servedId,
@@ -1625,7 +1724,7 @@ export async function* generateValidatedRecipeOptionsStream(
         tokensIn,
         tokensOut,
         costCents,
-        meta: { approach: approach.label, model, repaired: repairedFlag, durationMs: Date.now() - startedAt },
+        meta: { approach: approach.label, model, repaired: repairedFlag, generationMode: produced.generationMode, durationMs: Date.now() - startedAt },
         requestCount: optionCallBillableUnits(idx),
         prompt: compiledPrompt,
       });
@@ -1633,7 +1732,7 @@ export async function* generateValidatedRecipeOptionsStream(
         kind: 'ok' as const,
         index: idx,
         approach: approach.label,
-        option: { explanation, recipe },
+        option: { explanation, recipe, generationMode: produced.generationMode },
         durationMs: Date.now() - startedAt,
       };
     } catch (err) {
@@ -1807,36 +1906,31 @@ export async function generateValidatedRecipeOptionsParallel(
     let servedId: string | null = providerId;
 
     try {
-      const result = await client.generateRecipe(compiledPrompt, {
-        maxTokens: perBudget,
-        responseSchema: singleSchema
-          ? { name: `RecipeSingle_${classification.moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}`, schema: singleSchema }
-          : undefined,
+      const produced = await produceOptionRecipe({
+        idx,
+        approach,
+        client,
+        compiledPrompt,
+        perBudget,
+        singleSchema,
+        moduleType: classification.moduleType,
+        userRequest: prompt,
+        shopId: options?.shopId,
+        exemplar: options?.exemplar,
+        designReferenceBlock,
+        designSystemDirective,
       });
+      const { result } = produced;
       tokensIn = result.tokensIn;
       tokensOut = result.tokensOut;
       model = result.model;
       ({ providerId: servedId, costCents } = await attributeServedCost(result, providerId, tokensIn, tokensOut));
 
-      const parsed = JSON.parse(result.rawJson);
-      const raw = unwrapRecipe(parsed);
-      const repaired = repairRecipeForValidation(raw);
-      const safe = RecipeSpecSchema.safeParse(repaired);
-      let recipe: RecipeSpec;
-      let repairedFlag = false;
-      // Accept the fast path only when the per-type enum catalog also passes; a
-      // drift violation routes to validateAndRepairRecipe, which loops on it.
-      if (safe.success && validateTypeEnums(safe.data).length === 0) {
-        recipe = safe.data;
-      } else {
-        const fix = await validateAndRepairRecipe(raw, client, {
-          shopId: options?.shopId,
-          moduleType: classification.moduleType,
-        });
-        recipe = fix.recipe;
-        repairedFlag = fix.repaired;
-      }
+      let recipe = produced.recipe;
+      const repairedFlag = produced.repairedFlag;
 
+      // Option 0's design-QA gate applies regardless of generation mode: the
+      // corrective regeneration re-runs the freeform single-recipe prompt.
       const qaRetry = await applyDesignQaWithRetry(
         recipe,
         (corrective) =>
@@ -1860,9 +1954,7 @@ export async function generateValidatedRecipeOptionsParallel(
       tokensOut += qaRetry.extraTokensOut;
       costCents += qaRetry.extraCostCents;
 
-      const explanation = typeof (parsed as { explanation?: unknown })?.explanation === 'string'
-        ? (parsed as { explanation: string }).explanation
-        : `${approach.label} option`;
+      const explanation = produced.explanation;
 
       await recordAiUsage(usage, {
         providerId: servedId,
@@ -1871,11 +1963,12 @@ export async function generateValidatedRecipeOptionsParallel(
         tokensIn,
         tokensOut,
         costCents,
-        meta: { approach: approach.label, model, repaired: repairedFlag },
+        meta: { approach: approach.label, model, repaired: repairedFlag, generationMode: produced.generationMode },
         requestCount: optionCallBillableUnits(idx),
         prompt: compiledPrompt,
       });
-      return { ok: true as const, option: { explanation, recipe } };
+      const option: RecipeOption = { explanation, recipe, generationMode: produced.generationMode };
+      return { ok: true as const, option };
     } catch (err) {
       await recordAiUsage(usage, {
         providerId: servedId,

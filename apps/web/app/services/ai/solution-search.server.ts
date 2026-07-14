@@ -25,13 +25,21 @@ export interface StartFromOption {
 }
 
 /**
- * Tier-2 few-shot exemplar: the full spec of the single best-matching template,
- * minified for injection into the create prompt. Present only for a strong match
- * (see EXEMPLAR_MIN_SCORE) that fits the token budget (see EXEMPLAR_MAX_CHARS).
+ * Few-shot exemplar: the full spec of the single best-matching template, minified
+ * for injection into the create prompt. Present only for a match that clears
+ * EXEMPLAR_MIN_SCORE and fits the token budget (EXEMPLAR_MAX_CHARS).
+ *
+ * Tiering (both carry `specJson`, so the delta layer can `JSON.parse` it):
+ *  - `tier: 2` — a strong match (score ≥ EXEMPLAR_MIN_SCORE): injected as a
+ *    "match this quality" reference block, generation stays fully freeform.
+ *  - `tier: 1` — a very strong, same-type match (score ≥ EXEMPLAR_TIER1_MIN_SCORE
+ *    AND `template.type === requirement.moduleType`): the template is close enough
+ *    to *instantiate-and-delta-edit*, so option 0 can be produced as a JSON merge
+ *    patch over this spec (see template-delta.server.ts) instead of from scratch.
  */
 export interface TemplateExemplar {
   templateId: string;
-  tier: 2;
+  tier: 1 | 2;
   /** Minified, empty-stripped JSON of the template's RecipeSpec. */
   specJson: string;
 }
@@ -45,8 +53,13 @@ export interface SolutionSearchResult {
   exemplar?: TemplateExemplar;
 }
 
-/** Raw match score the top template must reach to qualify as a few-shot exemplar. */
+/** Raw match score the top template must reach to qualify as a (Tier-2) few-shot exemplar. */
 const EXEMPLAR_MIN_SCORE = 3;
+/**
+ * Raw match score at/above which a *same-type* top match is close enough to
+ * instantiate-and-delta-edit (Tier-1) rather than seed a fully-freeform generation.
+ */
+const EXEMPLAR_TIER1_MIN_SCORE = 6;
 /** JSON size ceiling for an injected exemplar (~2,000 tokens). Above this: hints only. */
 const EXEMPLAR_MAX_CHARS = 8000;
 
@@ -158,14 +171,20 @@ export function searchSolutions(
       ].join('\n')
     : '';
 
-  // Tier-2 few-shot: inject the full spec of the single best match when it scores
-  // strongly and fits the budget. Weak or oversized matches keep hints only.
+  // Few-shot: inject the full spec of the single best match when it scores strongly
+  // and fits the budget. Weak or oversized matches keep hints only. A very strong,
+  // same-type match is promoted to Tier-1 (instantiate + delta-edit); everything
+  // else that clears the floor stays Tier-2 (quality reference, freeform generation).
   let exemplar: TemplateExemplar | undefined;
   const top = ranked[0];
   if (top && top.score >= EXEMPLAR_MIN_SCORE) {
     const specJson = compactSpecForExemplar(top.template.spec);
     if (specJson.length <= EXEMPLAR_MAX_CHARS) {
-      exemplar = { templateId: top.template.id, tier: 2, specJson };
+      const tier: 1 | 2 =
+        top.score >= EXEMPLAR_TIER1_MIN_SCORE && top.template.type === requirement.moduleType
+          ? 1
+          : 2;
+      exemplar = { templateId: top.template.id, tier, specJson };
     }
   }
 

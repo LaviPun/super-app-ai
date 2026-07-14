@@ -238,6 +238,7 @@ export async function action({ request }: { request: Request }) {
             index: i,
             explanation: opt.explanation,
             recipe: opt.recipe,
+            ...(opt.generationMode ? { generationMode: opt.generationMode } : {}),
           })),
           blueprint: blueprint
             ? {
