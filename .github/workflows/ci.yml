@@ -5,6 +5,11 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
+  # Nightly quality flywheel (Phase 5b): the deterministic eval suite + optional
+  # live tournament run + trend gate. Manual runs via the Actions tab too.
+  schedule:
+    - cron: '0 3 * * *' # 03:00 UTC daily
+  workflow_dispatch: {}
 
 # Shared env block — no secrets here (safe for forks and PRs)
 env:
@@ -25,6 +30,10 @@ jobs:
   quality:
     name: Lint · Typecheck · Prisma Validate
     runs-on: ubuntu-latest
+    # Skip the PR/push pipeline on the nightly schedule; every other job needs
+    # `quality` (transitively), so gating it here skips the whole PR pipeline on
+    # the cron tick. The nightly `evals-nightly` job runs standalone instead.
+    if: github.event_name != 'schedule'
 
     steps:
       - uses: actions/checkout@v4
@@ -237,13 +246,84 @@ jobs:
           INTERNAL_ADMIN_PASSWORD: ${{ secrets.INTERNAL_ADMIN_PASSWORD || 'build-placeholder' }}
           INTERNAL_ADMIN_SESSION_SECRET: ${{ secrets.INTERNAL_ADMIN_SESSION_SECRET || 'build-placeholder' }}
 
-# ─── Optional: Live LLM eval workflow (nightly) ──────────────────────────
-# Add a separate .github/workflows/evals-live.yml with:
-#   on:
-#     schedule: [{ cron: '0 3 * * *' }]
-#     workflow_dispatch:
-#   jobs:
-#     evals-live:
-#       environment: production
-#       steps:
-#         ... (same as evals job above but with EVAL_PROVIDER_ID secret set)
+  # ─── Job 6: Nightly quality flywheel (schedule / manual only) ─────────────
+  #
+  # Runs the FULL golden-prompt eval suite deterministically (StubLlmClient, free)
+  # and, when a provider key secret exists, an OPTIONAL live tournament over ~10
+  # representative prompts. Emits a machine-readable report JSON (artifact) + a
+  # JSONL history line, then runs the trend gate: fails if avgQualityScore dropped
+  # >10% vs the trailing median. History persists across runs via actions/cache.
+  #
+  # Never runs on PR/push (guarded by event_name) and never prints secrets — the
+  # live tier self-guards on key presence inside run-eval-report.ts.
+  evals-nightly:
+    name: Nightly Eval Flywheel
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        working-directory: apps/web
+        run: pnpm exec prisma generate
+
+      # Rolling cache: restore the latest history, save a fresh copy each run.
+      - name: Restore eval history
+        uses: actions/cache@v4
+        with:
+          path: apps/web/scripts/eval-out/history.jsonl
+          key: eval-history-${{ github.run_id }}
+          restore-keys: |
+            eval-history-
+
+      - name: Run nightly eval report
+        working-directory: apps/web
+        # The live tier self-guards: it only runs when EVAL_LIVE=1 AND a provider
+        # key is present. When the secret is empty the report is deterministic-only.
+        env:
+          EVAL_LIVE: ${{ secrets.ANTHROPIC_API_KEY != '' && '1' || '0' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          mkdir -p scripts/eval-out
+          pnpm evals:report --out scripts/eval-out | tee scripts/eval-out/run.log
+          # The current report is the newest eval-report-*.json.
+          REPORT=$(ls -t scripts/eval-out/eval-report-*.json | head -n1)
+          echo "REPORT_PATH=$REPORT" >> "$GITHUB_ENV"
+
+      - name: Trend gate (fail on >10% quality regression)
+        working-directory: apps/web
+        # Runs against the PRIOR history (current run not yet appended), so the
+        # gate compares this run to the baseline before recording it.
+        run: pnpm evals:trend-gate --report "$REPORT_PATH" --history scripts/eval-out/history.jsonl
+
+      - name: Append current run to history
+        if: always()
+        working-directory: apps/web
+        run: |
+          LINE=$(grep '^EVAL_REPORT_JSONL ' scripts/eval-out/run.log | tail -n1 | sed 's/^EVAL_REPORT_JSONL //')
+          if [ -n "$LINE" ]; then
+            echo "$LINE" >> scripts/eval-out/history.jsonl
+            echo "Appended nightly report to history.jsonl ($(wc -l < scripts/eval-out/history.jsonl) rows)."
+          fi
+
+      - name: Upload eval report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: |
+            apps/web/scripts/eval-out/eval-report-*.json
+            apps/web/scripts/eval-out/history.jsonl
+          if-no-files-found: warn
