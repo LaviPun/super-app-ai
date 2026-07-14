@@ -2677,7 +2677,12 @@ function guessProviderKindFromModel(model: string | undefined): 'ANTHROPIC' | 'O
  * fallback). Only truly unpriced models (no matching AiModelPrice row anywhere)
  * still resolve to 0.
  */
-async function attributeServedCost(
+/**
+ * Attribute a served LLM call to its real provider + estimated cost. Exported so
+ * the async judge-polish phase (judge-polish.server.ts, plan Phase 5c) can record
+ * its (non-billable) usage through the same path as generation calls.
+ */
+export async function attributeServedCost(
   result: { servedProviderId?: string | null; model?: string },
   defaultProviderId: string | null,
   tokensIn: number,

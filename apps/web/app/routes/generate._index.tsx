@@ -282,6 +282,10 @@ type Concept = typeof CONCEPT_PRESETS[number] & {
   intro: string;
   /** Deterministic ranker's pick (Phase 2c) — drives the "Recommended" badge. */
   recommended?: boolean;
+  /** Async LLM-judge score 0-100 (Phase 5c) — optional, present after polish. */
+  judgeScore?: number;
+  /** Set when a validated judge polish replaced this concept's recipe (Phase 5c). */
+  polished?: boolean;
 };
 
 const STOREFRONT_TYPES = ['theme.section', 'proxy.widget'];
@@ -564,6 +568,23 @@ function GenerateWorkspace() {
                 applyOptions(keys.map((k) => collected[k]!), undefined, recPos >= 0 ? recPos : undefined);
               } else if (ev === 'blueprint') {
                 setBlueprint(payload as BlueprintResult);
+              } else if (ev === 'score' && typeof payload.index === 'number' && typeof payload.score === 'number') {
+                // Async judge score (Phase 5c) — optional, arrives after `done`.
+                // Store it on the matching concept; ignorable when absent.
+                const keys = Object.keys(collected).map(Number).sort((a, b) => a - b);
+                const pos = keys.indexOf(payload.index);
+                if (pos >= 0) setCandidates((cs) => cs.map((c, i) => (i === pos ? { ...c, judgeScore: payload.score } : c)));
+              } else if (ev === 'option_updated' && typeof payload.index === 'number' && payload.recipe) {
+                // A validated, not-worse judge polish (Phase 5c). Replace the
+                // concept's recipe + settings and flag it "Polished".
+                collected[payload.index] = { explanation: collected[payload.index]?.explanation ?? '', recipe: payload.recipe };
+                const keys = Object.keys(collected).map(Number).sort((a, b) => a - b);
+                const pos = keys.indexOf(payload.index);
+                const cid = CONCEPT_PRESETS[pos]?.id;
+                if (pos >= 0) {
+                  setCandidates((cs) => cs.map((c, i) => (i === pos ? { ...c, recipe: payload.recipe, name: (payload.recipe?.name as string) || c.name, polished: true } : c)));
+                  if (cid) setSettingsMap((m) => ({ ...m, [cid]: { ...m[cid], ...settingsFromRecipe(payload.recipe) } }));
+                }
               } else if (ev === 'error') {
                 throw new Error(payload.message || 'Generation failed');
               }
@@ -945,6 +966,11 @@ function GenCandCard({ c, idx, total, settings, onSelect }: any) {
         </div>
       </div>
       <p className="cand-tagline">{c.tagline}</p>
+      {c.polished && (
+        <span className="cand-polished" style={{ position: 'absolute', top: 12, left: 12 }} title="Refined by an AI reviewer after generation">
+          <Badge tone="info"><Icon name="magic" size={10} />Polished</Badge>
+        </span>
+      )}
       <GenCandMini s={settings} accent={c.accent} />
       <div className="cand-tags">{c.tags.map((t: string) => <span key={t} className="cand-tag">{t}</span>)}</div>
       <div className="cand-cta">
