@@ -3,11 +3,18 @@ import {
   ACTION_INTENT_ALLOWLIST,
   MAX_ACTION_PROPOSALS,
   deriveActionProposals,
+  deriveLinkProposals,
   isAllowedActionIntent,
+  isAllowedLinkHref,
+  isLinkProposal,
   parseStoredActionProposals,
   validateActionProposal,
+  type OpsActionProposal,
 } from '~/services/ai/internal-assistant-actions.server';
 import type { AssistantToolRunResult } from '~/services/ai/internal-assistant-tools.server';
+
+/** These suites exercise ops proposals only; narrow the union for field access. */
+const ops = (p: unknown) => p as OpsActionProposal;
 
 const JOB_ID_A = 'cmrezggie001m11h4wulhkams';
 const JOB_ID_B = 'cmrezftuu001k11h4cq5leu8n';
@@ -91,7 +98,7 @@ describe('deriveActionProposals', () => {
         ],
       }),
     ]);
-    expect(proposals.map((p) => p.params.id)).toEqual([JOB_ID_A, JOB_ID_B]);
+    expect(proposals.map((p) => ops(p).params.id)).toEqual([JOB_ID_A, JOB_ID_B]);
   });
 
   it('dedupes a recentFailed job that duplicates the investigated job', () => {
@@ -99,7 +106,7 @@ describe('deriveActionProposals', () => {
       investigateFailedJob(JOB_ID_A),
       jobStatus({ dlq: 0, recentFailed: [{ id: JOB_ID_A, type: 'PUBLISH', result: 'same job' }, { id: JOB_ID_B }] }),
     ]);
-    const replayIds = proposals.filter((p) => p.intent === 'job_replay').map((p) => p.params.id);
+    const replayIds = proposals.filter((p) => ops(p).intent === 'job_replay').map((p) => ops(p).params.id);
     expect(replayIds).toEqual([JOB_ID_A, JOB_ID_B]);
     // JOB_ID_A appears exactly once.
     expect(replayIds.filter((id) => id === JOB_ID_A)).toHaveLength(1);
@@ -218,7 +225,7 @@ describe('parseStoredActionProposals', () => {
     ]);
     const parsed = parseStoredActionProposals(stored);
     expect(parsed).toHaveLength(1);
-    expect(parsed[0]!.intent).toBe('job_replay');
+    expect(ops(parsed[0]).intent).toBe('job_replay');
   });
 
   it('returns [] for null, empty, or malformed JSON', () => {
@@ -236,5 +243,134 @@ describe('parseStoredActionProposals', () => {
       reason: 'r',
     }));
     expect(parseStoredActionProposals(JSON.stringify(many))).toHaveLength(MAX_ACTION_PROPOSALS);
+  });
+});
+
+describe('isAllowedLinkHref (strict href allowlist)', () => {
+  it('accepts allowlisted internal paths', () => {
+    expect(isAllowedLinkHref('/internal/recipe-edit?shopId=__templates__&moduleId=CHKU-01')).toBe(true);
+    expect(isAllowedLinkHref('/internal/recipe-edit?shopId=shop_1&moduleId=cmrezggie001m11h4wulhkams')).toBe(true);
+    expect(isAllowedLinkHref('/internal/templates/CHKU-01')).toBe(true);
+    expect(isAllowedLinkHref('/internal/templates/')).toBe(true);
+  });
+
+  it('rejects javascript: and other schemes', () => {
+    expect(isAllowedLinkHref('javascript:alert(1)')).toBe(false);
+    expect(isAllowedLinkHref('data:text/html,<script>alert(1)</script>')).toBe(false);
+    expect(isAllowedLinkHref('JAVASCRIPT:alert(1)')).toBe(false);
+  });
+
+  it('rejects external and protocol-relative URLs', () => {
+    expect(isAllowedLinkHref('https://evil.com/internal/recipe-edit')).toBe(false);
+    expect(isAllowedLinkHref('http://evil.com')).toBe(false);
+    expect(isAllowedLinkHref('//evil.com')).toBe(false);
+    expect(isAllowedLinkHref('//evil.com/internal/recipe-edit')).toBe(false);
+  });
+
+  it('rejects non-allowlisted internal paths and boundary tricks', () => {
+    expect(isAllowedLinkHref('/internal/stores')).toBe(false);
+    expect(isAllowedLinkHref('/internal/ops')).toBe(false);
+    expect(isAllowedLinkHref('/internal/recipe-editEVIL')).toBe(false); // boundary
+    expect(isAllowedLinkHref('/internal/../etc/passwd')).toBe(false); // traversal
+    expect(isAllowedLinkHref('/internal/templates/../ops')).toBe(false);
+  });
+
+  it('rejects malformed / non-string / whitespace hrefs', () => {
+    expect(isAllowedLinkHref(null)).toBe(false);
+    expect(isAllowedLinkHref('')).toBe(false);
+    expect(isAllowedLinkHref('/internal/recipe-edit with space')).toBe(false);
+    expect(isAllowedLinkHref('/internal/recipe-edit"onmouseover=1')).toBe(false);
+    expect(isAllowedLinkHref('/internal/recipe-edit' + 'x'.repeat(600))).toBe(false);
+  });
+});
+
+describe('validateActionProposal — link kind', () => {
+  const goodLink = {
+    kind: 'link' as const,
+    id: 'sap_l',
+    href: '/internal/templates/CHKU-01',
+    label: 'View CHKU-01 template',
+    reason: 'Open the best-matching template detail page.',
+  };
+
+  it('accepts a well-formed link proposal with an allowlisted href', () => {
+    expect(validateActionProposal(goodLink)).toBe(true);
+  });
+
+  it('rejects a link proposal whose href is not allowlisted (external / javascript)', () => {
+    expect(validateActionProposal({ ...goodLink, href: 'https://evil.com' })).toBe(false);
+    expect(validateActionProposal({ ...goodLink, href: 'javascript:alert(1)' })).toBe(false);
+    expect(validateActionProposal({ ...goodLink, href: '/internal/ops' })).toBe(false);
+  });
+
+  it('rejects a link proposal that also smuggles ops fields (tamper resistance)', () => {
+    expect(validateActionProposal({ ...goodLink, intent: 'job_replay' })).toBe(false);
+    expect(validateActionProposal({ ...goodLink, params: { id: JOB_ID_A } })).toBe(false);
+  });
+
+  it('parseStoredActionProposals drops a tampered link row (non-allowlisted href)', () => {
+    const stored = JSON.stringify([
+      goodLink,
+      { ...goodLink, id: 'sap_evil', href: 'javascript:alert(1)' },
+      { ...goodLink, id: 'sap_ext', href: 'https://evil.com/internal/recipe-edit' },
+    ]);
+    const parsed = parseStoredActionProposals(stored);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]!.id).toBe('sap_l');
+    expect(isLinkProposal(parsed[0]!)).toBe(true);
+  });
+});
+
+describe('deriveLinkProposals + deriveActionProposals (link cards)', () => {
+  const inspectTemplate = {
+    toolName: 'inspectRecipe' as const,
+    ok: true,
+    data: { found: true, source: 'template', id: 'CHKU-01', name: 'Checkout Add-On' },
+  };
+  const inspectModule = {
+    toolName: 'inspectRecipe' as const,
+    ok: true,
+    data: { found: true, source: 'module', id: 'cmrezggie001m11h4wulhkams', shopId: 'shop_1', name: 'My Module' },
+  };
+  const searchHits = {
+    toolName: 'searchTemplates' as const,
+    ok: true,
+    data: { query: 'cart upsell', totalMatches: 3, results: [{ id: 'CHKU-02', name: 'Cross-Sell' }] },
+  };
+
+  it('derives a recipe-edit link card from an inspected template', () => {
+    const [card] = deriveLinkProposals([inspectTemplate]);
+    expect(card).toBeDefined();
+    expect(isLinkProposal(card!)).toBe(true);
+    expect(card!.href).toBe('/internal/recipe-edit?shopId=__templates__&moduleId=CHKU-01');
+    expect(card!.label).toContain('Recipe Editor');
+    expect(isAllowedLinkHref(card!.href)).toBe(true);
+  });
+
+  it('derives a module recipe-edit link card carrying the resolved shopId', () => {
+    const [card] = deriveLinkProposals([inspectModule]);
+    expect(card!.href).toBe('/internal/recipe-edit?shopId=shop_1&moduleId=cmrezggie001m11h4wulhkams');
+    expect(isAllowedLinkHref(card!.href)).toBe(true);
+  });
+
+  it('derives a template-detail link card from search results', () => {
+    const [card] = deriveLinkProposals([searchHits]);
+    expect(card!.href).toBe('/internal/templates/CHKU-02');
+    expect(isAllowedLinkHref(card!.href)).toBe(true);
+  });
+
+  it('derives no link from a not-found inspect result', () => {
+    expect(deriveLinkProposals([{ toolName: 'inspectRecipe', ok: true, data: { found: false } }])).toEqual([]);
+  });
+
+  it('derives nothing from ok:false results', () => {
+    expect(deriveLinkProposals([{ ...inspectTemplate, ok: false }])).toEqual([]);
+  });
+
+  it('deriveActionProposals surfaces link cards after ops cards within the cap', () => {
+    const proposals = deriveActionProposals([inspectTemplate, searchHits]);
+    expect(proposals.every((p) => validateActionProposal(p))).toBe(true);
+    expect(proposals.some((p) => isLinkProposal(p))).toBe(true);
+    expect(proposals.length).toBeLessThanOrEqual(MAX_ACTION_PROPOSALS);
   });
 });

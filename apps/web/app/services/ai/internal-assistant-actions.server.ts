@@ -9,10 +9,16 @@
  */
 export {
   ACTION_INTENT_ALLOWLIST,
+  LINK_HREF_ALLOWED_PREFIXES,
   MAX_ACTION_PROPOSALS,
   deriveActionProposals,
+  deriveLinkProposals,
   isAllowedActionIntent,
+  isAllowedLinkHref,
+  isLinkProposal,
   parseStoredActionProposals,
   validateActionProposal,
   type ActionProposal,
+  type LinkActionProposal,
+  type OpsActionProposal,
 } from '~/services/ai/internal-assistant-actions';
