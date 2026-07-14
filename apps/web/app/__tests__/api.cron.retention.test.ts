@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppError } from '~/services/errors/app-error.server';
 
 const claimDueMock = vi.fn();
@@ -52,6 +52,19 @@ vi.mock('~/services/security/rate-limit.server', () => ({
 }));
 
 describe('/api/cron retention loader', () => {
+  let loader: typeof import('~/routes/api.cron').loader;
+
+  // Import the route once, up front, rather than inside every test. api.cron
+  // transitively pulls in Prisma + every cron service, so cold-importing that
+  // module graph can take several seconds under full-suite parallel CPU
+  // contention. Doing it per-test meant the FIRST test paid that cold-import cost
+  // inside the default 5s testTimeout and intermittently timed out under load
+  // (passing in isolation / on reruns once the module was warm). Amortizing it to
+  // a single beforeAll with generous headroom removes the flake at the source.
+  beforeAll(async () => {
+    ({ loader } = await import('~/routes/api.cron'));
+  }, 60_000);
+
   beforeEach(() => {
     vi.clearAllMocks();
     claimDueMock.mockResolvedValue([]);
@@ -68,22 +81,30 @@ describe('/api/cron retention loader', () => {
       cutoff: '2026-01-01T00:00:00.000Z',
     });
     enforceRateLimitMock.mockResolvedValue(undefined);
+    // Isolate CRON_SECRET via vi.stubEnv rather than mutating process.env
+    // directly. Prisma's runtime env-loading repopulates CRON_SECRET from .env
+    // into process.env, and vitest's fork pool shares one process.env across
+    // files in a worker while isolating module registries — so a raw
+    // delete/assignment both races that repopulation and leaks into sibling test
+    // files. stubEnv owns a single value that unstubAllEnvs (afterEach) restores,
+    // and the loader reads the var at call time, so import order is irrelevant.
+    vi.stubEnv('CRON_SECRET', 'expected-secret');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('returns 503 when CRON_SECRET is missing', async () => {
-    // Import first: api.cron transitively loads the db layer which runs
-    // dotenv.config() (repopulating .env's CRON_SECRET). Delete AFTER that so
-    // the loader — which reads the env var at call time — sees it unset.
-    const mod = await import('~/routes/api.cron');
-    delete process.env.CRON_SECRET;
-    const res = await mod.loader({ request: new Request('http://test/api/cron') });
+    // An empty CRON_SECRET is treated as "not configured" by the loader
+    // (`if (!secret)`), exactly like an unset var — the endpoint is disabled.
+    vi.stubEnv('CRON_SECRET', '');
+    const res = await loader({ request: new Request('http://test/api/cron') });
     expect(res.status).toBe(503);
   });
 
   it('returns 401 when X-Cron-Secret does not match', async () => {
-    process.env.CRON_SECRET = 'expected-secret';
-    const mod = await import('~/routes/api.cron');
-    const res = await mod.loader({
+    const res = await loader({
       request: new Request('http://test/api/cron', {
         headers: { 'x-cron-secret': 'wrong-secret' },
       }),
@@ -92,7 +113,6 @@ describe('/api/cron retention loader', () => {
   });
 
   it('returns 429 when request is rate limited', async () => {
-    process.env.CRON_SECRET = 'expected-secret';
     enforceRateLimitMock.mockRejectedValueOnce(
       new AppError({
         code: 'RATE_LIMITED',
@@ -100,8 +120,7 @@ describe('/api/cron retention loader', () => {
         details: { retryAfterSec: '11' },
       }),
     );
-    const mod = await import('~/routes/api.cron');
-    const res = await mod.loader({
+    const res = await loader({
       request: new Request('http://test/api/cron', {
         headers: { 'x-cron-secret': 'expected-secret' },
       }),
@@ -111,9 +130,7 @@ describe('/api/cron retention loader', () => {
   });
 
   it('runs internal retention jobs with a valid cron secret', async () => {
-    process.env.CRON_SECRET = 'expected-secret';
-    const mod = await import('~/routes/api.cron');
-    const res = await mod.loader({
+    const res = await loader({
       request: new Request('http://test/api/cron', {
         headers: { 'x-cron-secret': 'expected-secret' },
       }),
@@ -130,12 +147,10 @@ describe('/api/cron retention loader', () => {
   });
 
   it('runs the durable resume sweep and returns it in the response (R3.5)', async () => {
-    process.env.CRON_SECRET = 'expected-secret';
     resumeDueWorkflowRunsMock.mockResolvedValueOnce([
       { runId: 'flowpark_1', tenantId: 'shop_1', status: 'SUCCEEDED' },
     ]);
-    const mod = await import('~/routes/api.cron');
-    const res = await mod.loader({
+    const res = await loader({
       request: new Request('http://test/api/cron', {
         headers: { 'x-cron-secret': 'expected-secret' },
       }),
@@ -147,10 +162,8 @@ describe('/api/cron retention loader', () => {
   });
 
   it('does not 500 the tick when the resume sweep throws (R3.5)', async () => {
-    process.env.CRON_SECRET = 'expected-secret';
     resumeDueWorkflowRunsMock.mockRejectedValueOnce(new Error('db down'));
-    const mod = await import('~/routes/api.cron');
-    const res = await mod.loader({
+    const res = await loader({
       request: new Request('http://test/api/cron', {
         headers: { 'x-cron-secret': 'expected-secret' },
       }),
