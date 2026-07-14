@@ -211,13 +211,14 @@ export const CHECKOUT_UPSELL_MAIN_TEMPLATES: TemplateEntry[] = [
         recommendation: {
           collectionRandom: false,
           excludeTags: [],
-          // DYNAMIC strategy — resolves via the App-Proxy recommendation service and
-          // degrades to `related` (static, no service) where/until it is unavailable.
-          strategy: 'trending',
+          // Checkout extensions have no App-Proxy access, so DYNAMIC strategies
+          // (trending/top-sellers/…) always degrade to fallback there — lead with
+          // the static strategy the surface can actually resolve.
+          strategy: 'related',
           manualVariantGids: ['gid://shopify/ProductVariant/44880010505050'],
           productLimit: 1,
           hideCartProducts: true,
-          fallback: 'related',
+          fallback: 'manual',
         },
       },
     },
@@ -226,7 +227,7 @@ export const CHECKOUT_UPSELL_MAIN_TEMPLATES: TemplateEntry[] = [
     id: 'CHKU-06',
     name: 'Checkout Replenishment: Buy It Again',
     description:
-      'In-checkout upsell that re-offers a product from the customer order history, falling back to a merchant-picked variant when no history or service is available — Bold buy-it-again replenishment.',
+      'In-checkout upsell that re-offers a merchant-picked replenishment favorite (checkout cannot reach order-history ranking, so the pick is manual) — Bold buy-it-again replenishment.',
     category: 'STOREFRONT_UI',
     type: 'checkout.upsell',
     icon: 'checkout',
@@ -254,9 +255,9 @@ export const CHECKOUT_UPSELL_MAIN_TEMPLATES: TemplateEntry[] = [
         recommendation: {
           collectionRandom: false,
           excludeTags: [],
-          // DYNAMIC strategy (order-history ranking) — degrades to the merchant-picked
-          // `manual` variant when there is no history or the service is unavailable.
-          strategy: 'buy-it-again',
+          // Checkout extensions can't reach the App-Proxy order-history ranking, so
+          // buy-it-again would always degrade — offer the merchant-picked variant.
+          strategy: 'manual',
           manualVariantGids: ['gid://shopify/ProductVariant/44880010606060'],
           productLimit: 1,
           hideCartProducts: true,
