@@ -715,7 +715,11 @@
           if sa_sec_has_blocks
             assign sa_arch = 'upsell'
           endif
-        when 'announcement', 'announcement-bar', 'free-shipping-bar', 'countdown', 'countdown-bar', 'progress', 'stock-counter'
+        when 'post-atc-offer'
+          # Post-add-to-cart offer modal (B2): built by JS on ATC, not from blocks —
+          # so it maps to 'upsell' UNCONDITIONALLY (no sa_sec_has_blocks gate).
+          assign sa_arch = 'upsell'
+        when 'announcement', 'announcement-bar', 'free-shipping-bar', 'countdown', 'countdown-bar', 'progress', 'progress-bar', 'stock-counter'
           assign sa_arch = 'band'
         when 'pdp', 'product-page', 'product-detail', 'buy-box'
           assign sa_arch = 'pdp'
@@ -938,6 +942,11 @@
             </ol>
 
           {% when 'upsell' %}
+          {% if sa_kind_h == 'post-atc-offer' %}
+            {% # B2 post-add-to-cart offer modal. superapp-modules.js intercepts the theme's add-to-cart, resolves ONE offer product via the recommendation resolver (static strategies), and opens a modal that reuses the popup engine. Silent no-op if resolution fails (honest — never an empty modal). %}
+            {% assign pao_rec = mod_cfg.recommendation %}
+            <div class="superapp-postatc" data-sa-postatc data-module-id="{{ module_id | escape }}" data-money-format="{{ shop.money_format | escape }}" data-strategy="{{ pao_rec.strategy | default: 'related' | escape }}" data-fallback="{{ pao_rec.fallback | default: 'related' | escape }}" data-seed-product="{{ product.id | default: '' }}"{% if mod_cfg.interceptSelector != blank %} data-intercept="{{ mod_cfg.interceptSelector | escape }}"{% endif %} data-accept="{{ mod_cfg.acceptLabel | default: 'Add to order' | escape }}" data-decline="{{ mod_cfg.declineLabel | default: 'No thanks' | escape }}" data-title="{{ mod_cfg.offerTitle | default: 'Complete your order' | escape }}" hidden></div>
+          {% else %}
             {% # Upsell / bought-together: product-card blocks → thumb / name / price / add CTA. %}
             <div class="superapp-upsell">
               {% for section_block in mod_cfg.blocks %}
@@ -953,9 +962,17 @@
                 {% endif %}
               {% endfor %}
             </div>
+          {% endif %}
 
           {% when 'band' %}
-          {% if sa_kind_h == 'stock-counter' %}
+          {% if sa_kind_h == 'progress-bar' and mod_cfg.progressGoal != blank %}
+            {% # B1 cart-goal / free-shipping progress bar. Shell + embedded JSON config; superapp-modules.js reads /cart.js on load + on cart-change, computes progress against the tiers, and renders the fill + tier markers + {amount}/{remaining} copy money-formatted via shop.money_format. Thresholds are MAJOR currency units for basis:'cart-total' (JS ×100 to compare cents). %}
+            <div class="superapp-progress superapp-progress--{{ mod_cfg.progressGoal.barStyle | default: 'slim' }}" data-sa-progress data-money-format="{{ shop.money_format | escape }}" role="group" aria-label="{{ mod_cfg.title | default: 'Cart goal' | escape }}">
+              <p class="superapp-progress__text" data-sa-progress-text aria-live="polite"></p>
+              <div class="superapp-progress__track"><span class="superapp-progress__fill" data-sa-progress-fill style="width:0%"></span></div>
+              <script type="application/json" data-sa-progress-config>{{ mod_cfg.progressGoal | json }}</script>
+            </div>
+          {% elsif sa_kind_h == 'stock-counter' %}
             {% # A3 stock counter: real inventory only. In product context, show when 0 < qty ≤ threshold and inventory is tracked; otherwise render nothing (honest — no fake numbers, zero JS). %}
             {% assign sc_var = product.selected_or_first_available_variant %}
             {% if product != blank and sc_var != blank and sc_var.inventory_management != blank %}
@@ -1061,25 +1078,31 @@
             </div>
 
           {% when 'sticky-atc' %}
-            {% # Sticky add-to-cart bar: fixed to the viewport bottom (thumb zone), safe-area aware. %}
-            {% assign satc_price = mod_cfg.fields.price %}
-            {% assign satc_label = mod_cfg.ctaText | default: mod_cfg.fields.ctaLabel | default: 'Add to cart' %}
-            <div class="superapp-satc" data-sa-satc>
-              {% if mod_cfg.imageUrl != blank %}
-                <img class="superapp-satc__thumb" src="{{ mod_cfg.imageUrl | escape }}" alt="" loading="lazy" width="88" height="88">
-              {% endif %}
-              <div class="superapp-satc__meta">
-                {% if mod_cfg.title != blank %}<span class="superapp-satc__name">{{ mod_cfg.title | escape }}</span>{% endif %}
-                {% if satc_price != blank %}
-                  <span class="superapp-satc__price">{{ satc_price | escape }}{% if mod_cfg.fields.compareAtPrice != blank %} <s class="superapp-satc__compare">{{ mod_cfg.fields.compareAtPrice | escape }}</s>{% endif %}</span>
+            {% # B3 sticky add-to-cart bar v2 — real product context. Renders ONLY in a product context (honest, like stock-counter). superapp-modules.js watches the theme buy-box (data-watch = watchSelector) with an IntersectionObserver and slides the bar in when it scrolls out of view; the add button POSTs /cart/add.js with the selected variant + qty, with success/error feedback. Variant price updates client-side via data-price + shop.money_format. %}
+            {% if product != blank %}
+              {% assign satc_watch = mod_cfg.fields.watchSelector | default: 'form[action*="/cart/add"]' %}
+              {% assign satc_var = product.selected_or_first_available_variant %}
+              {% assign satc_label = mod_cfg.ctaText | default: mod_cfg.fields.ctaLabel | default: 'Add to cart' %}
+              <div class="superapp-satc" data-sa-satc data-watch="{{ satc_watch | escape }}" data-money-format="{{ shop.money_format | escape }}" hidden>
+                {% if product.featured_image %}<img class="superapp-satc__thumb" src="{{ product.featured_image | image_url: width: 96 }}" alt="" loading="lazy" width="48" height="48">{% endif %}
+                <div class="superapp-satc__meta">
+                  <span class="superapp-satc__name">{{ product.title | escape }}</span>
+                  <span class="superapp-satc__price" data-sa-satc-price>{{ satc_var.price | money }}{% if satc_var.compare_at_price > satc_var.price %} <s class="superapp-satc__compare">{{ satc_var.compare_at_price | money }}</s>{% endif %}</span>
+                </div>
+                {% if product.variants.size > 1 %}
+                  <select class="superapp-satc__variant" data-sa-satc-variant aria-label="{{ product.title | escape }} options">
+                    {% for v in product.variants %}
+                      <option value="{{ v.id }}" data-price="{{ v.price }}"{% if v.compare_at_price > v.price %} data-compare="{{ v.compare_at_price }}"{% endif %}{% unless v.available %} disabled{% endunless %}{% if v.id == satc_var.id %} selected{% endif %}>{{ v.title | escape }}</option>
+                    {% endfor %}
+                  </select>
+                {% else %}
+                  <input type="hidden" data-sa-satc-variant value="{{ satc_var.id }}">
                 {% endif %}
+                <input class="superapp-satc__qty" type="number" inputmode="numeric" min="1" value="1" data-sa-satc-qty aria-label="Quantity">
+                <button class="superapp-satc__atc" type="button" data-sa-satc-add{% unless satc_var.available %} disabled{% endunless %}>{{ satc_label | escape }}</button>
+                <span class="superapp-satc__status" data-sa-satc-status role="status" aria-live="polite" hidden></span>
               </div>
-              {% if mod_cfg.ctaUrl != blank %}
-                <a class="superapp-satc__atc" href="{{ mod_cfg.ctaUrl | escape }}">{{ satc_label | escape }}</a>
-              {% else %}
-                <button class="superapp-satc__atc" type="button">{{ satc_label | escape }}</button>
-              {% endif %}
-            </div>
+            {% endif %}
 
           {% when 'faq' %}
             {% # Native accordion: block.text = question; fields.answer/detail/body = answer. %}

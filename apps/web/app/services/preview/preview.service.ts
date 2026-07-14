@@ -1152,6 +1152,9 @@ export class PreviewService {
 
   /** Upsell / frequently-bought-together — product picks. */
   private sectionUpsell(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    // B2 — post-add-to-cart offer modal (kind: post-atc-offer). Rendered as a static
+    // modal mock; the storefront opens it after ATC with a live-resolved offer.
+    if (spec.config.kind === 'post-atc-offer') return this.sectionPostAtcOffer(spec);
     const products = (spec.config.blocks ?? [])
       .filter((b) => b.kind === 'product-card' || b.kind === 'feature' || b.kind === 'product')
       .map((b) => {
@@ -1179,8 +1182,45 @@ export class PreviewService {
     );
   }
 
+  /** B2 — post-add-to-cart offer modal preview: static mock with accept/decline. */
+  private sectionPostAtcOffer(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const c = spec.config as Record<string, unknown>;
+    const title = String(c.offerTitle ?? 'Complete your order');
+    const accept = String(c.acceptLabel ?? 'Add to order');
+    const decline = String(c.declineLabel ?? 'No thanks');
+    const rec = c.recommendation as { strategy?: string } | undefined;
+    const strategy = rec?.strategy ? String(rec.strategy) : 'related';
+    const block = (spec.config.blocks ?? [])[0];
+    const offerName = block?.text ? String(block.text) : 'Recommended add-on';
+    const rawPrice = (block?.fields as Record<string, unknown> | undefined)?.price;
+    const price = rawPrice != null ? withDollarIfBare(String(rawPrice)) : '';
+    return pageHtml(
+      `<section class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-postatc-mock" role="group" aria-label="Post-add-to-cart offer preview">
+          <p class="superapp-postatc__eyebrow">${esc(title)}</p>
+          <div class="superapp-postatc__offer">
+            ${phMedia(block?.imageUrl ?? '', offerName, 'superapp-postatc__img')}
+            <div class="superapp-postatc__meta"><span class="superapp-postatc__name">${esc(offerName)}</span>${price ? `<span class="superapp-postatc__price">${esc(price)}</span>` : ''}</div>
+          </div>
+          <div class="superapp-postatc__actions">
+            <button class="superapp-postatc__accept" type="button" disabled>${esc(accept)}</button>
+            <button class="superapp-postatc__decline" type="button" disabled>${esc(decline)}</button>
+          </div>
+          <p class="superapp-band__affordance">Opens as a modal after Add to Cart — the offer is resolved live from your <strong>${esc(strategy)}</strong> recommendation source.</p>
+        </div>
+      </section>`,
+      this.archCss(spec, '.superapp-archsection') +
+        '.superapp-postatc-mock{max-width:360px;margin:0 auto;text-align:center;border:1px solid rgba(0,0,0,.14);border-radius:14px;padding:1.3rem;}.superapp-postatc__offer{display:flex;align-items:center;gap:.85rem;text-align:left;padding:.6rem 0;}.superapp-postatc__actions{display:flex;flex-direction:column;gap:.5rem;margin-top:1rem;}',
+    );
+  }
+
   /** Band — announcement / countdown / free-shipping / progress bar. */
   private sectionBand(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    // B1 — cart-goal / free-shipping progress bar (kind: progress-bar). The
+    // storefront computes live progress from /cart.js; the builder preview shows an
+    // illustrative 65%-to-first-tier state plus a "live cart progress" affordance.
+    if (spec.config.kind === 'progress-bar') return this.sectionProgressBar(spec);
     // A3 — stock counter. On the storefront the count is READ from real product
     // inventory (Liquid, no fake numbers). The builder preview has no product, so it
     // shows an illustrative count from a sample within the threshold plus a "live
@@ -1219,8 +1259,47 @@ export class PreviewService {
     );
   }
 
+  /** B1 — cart-goal / free-shipping progress bar preview (simulated 65%-to-tier). */
+  private sectionProgressBar(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const pg = (spec.config as Record<string, unknown>).progressGoal as
+      | { basis?: string; tiers?: Array<{ threshold: number; label: string; rewardType?: string }>; beforeText?: string; afterText?: string; barStyle?: string }
+      | undefined;
+    const basis = pg?.basis === 'item-count' ? 'item-count' : 'cart-total';
+    const barStyle = pg?.barStyle === 'chunky' ? 'chunky' : 'slim';
+    const tiers = Array.isArray(pg?.tiers) ? [...pg!.tiers].sort((a, b) => a.threshold - b.threshold).slice(0, 3) : [];
+    const maxTh = tiers.length ? tiers[tiers.length - 1]!.threshold : 0;
+    const firstTh = tiers.length ? tiers[0]!.threshold : 0;
+    // Simulate the shopper 65% of the way to the FIRST tier.
+    const current = 0.65 * firstTh;
+    const remaining = Math.max(0, firstTh - current);
+    const pct = maxTh > 0 ? Math.min(100, (current / maxTh) * 100) : 65;
+    const fmt = (n: number): string => (basis === 'item-count' ? String(Math.round(n)) : withDollarIfBare(n.toFixed(2)));
+    const before = String(pg?.beforeText ?? 'You’re {remaining} away from your reward')
+      .replace(/\{amount\}/g, fmt(current))
+      .replace(/\{remaining\}/g, fmt(remaining));
+    const markers = tiers
+      .map((t) => {
+        const left = maxTh > 0 ? Math.min(100, (t.threshold / maxTh) * 100) : 0;
+        const reached = current >= t.threshold;
+        return `<span class="superapp-progress__marker${reached ? ' is-reached' : ''}" style="left:${left.toFixed(1)}%" title="${escAttr(String(t.label))}"></span>`;
+      })
+      .join('');
+    return pageHtml(
+      `<section class="superapp-band superapp-band--progress">
+        <div class="superapp-progress superapp-progress--${barStyle}" role="group">
+          <p class="superapp-progress__text">${esc(before)}</p>
+          <div class="superapp-progress__track"><span class="superapp-progress__fill" style="width:${pct.toFixed(0)}%"></span>${markers}</div>
+        </div>
+        <p class="superapp-band__affordance">Live cart progress on the storefront — the fill and remaining-to-reward copy update from the shopper’s real cart total.</p>
+      </section>`,
+      this.archCss(spec, '.superapp-band'),
+    );
+  }
+
   /** Technical (consent/json-ld/meta/…) — curated, human-labeled config card. */
   private sectionTechnical(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    // B3 — sticky ATC v2 lives under the `technical` archetype (kind: sticky-atc).
+    if (spec.config.kind === 'sticky-atc') return this.sectionStickyAtc(spec);
     const kind = spec.config.kind;
     const rows = curatedTechRows(spec);
     const rowsHtml = rows
@@ -1242,6 +1321,30 @@ export class PreviewService {
         }
       </section>`,
       this.archCss(spec, '.superapp-techcard'),
+    );
+  }
+
+  /** B3 — sticky ATC v2 preview: static bar mock with variant select + qty + scroll affordance. */
+  private sectionStickyAtc(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const title = spec.config.title ? String(spec.config.title) : 'Your product';
+    const atcLabel = saStr(spec, 'ctaText') || saStr(spec, 'ctaLabel') || 'Add to cart';
+    const price = saStr(spec, 'price');
+    const priceLabel = price ? withDollarIfBare(price) : '$—';
+    const stepper = saFields(spec).showQuantity !== false;
+    return pageHtml(
+      `<section class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-satc superapp-satc--preview" role="group" aria-label="Sticky add-to-cart preview">
+          ${phMedia(saStr(spec, 'imageUrl'), title, 'superapp-satc__thumb')}
+          <div class="superapp-satc__meta"><span class="superapp-satc__name">${esc(title)}</span><span class="superapp-satc__price">${esc(priceLabel)}</span></div>
+          <select class="superapp-satc__variant" aria-label="Variant" disabled><option>Small</option><option>Medium</option><option>Large</option></select>
+          ${stepper ? '<input class="superapp-satc__qty" type="number" value="1" aria-label="Quantity" disabled>' : ''}
+          <button class="superapp-satc__atc" type="button" disabled>${esc(atcLabel)}</button>
+        </div>
+        <p class="superapp-band__affordance">Slides in from the bottom when the product’s Add-to-Cart scrolls out of view. Real product, price and variants come from the page.</p>
+      </section>`,
+      this.archCss(spec, '.superapp-archsection') +
+        '.superapp-satc--preview{position:static;transform:none;display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;border:1px solid rgba(0,0,0,.14);border-radius:12px;padding:.7rem .95rem;max-width:640px;margin:0 auto;}',
     );
   }
 

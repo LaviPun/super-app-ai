@@ -1117,6 +1117,43 @@
 .superapp-scope[data-sa-pack='bold'] .superapp-band__text { text-transform: uppercase; font-weight: 700; letter-spacing: 0.03em; }
 .superapp-scope[data-sa-pack='bold'] .superapp-band__cta { color: #0c0c0d; }
 
+/* ── B1 · Cart-goal / free-shipping progress bar ─────────────────────────────── */
+.superapp-progress { display: flex; flex-direction: column; gap: 0.5rem; max-width: 560px; margin: 0 auto; }
+.superapp-progress__text { margin: 0; font-size: 0.9rem; font-weight: 500; text-align: center; }
+.superapp-progress__track { position: relative; height: 8px; border-radius: 999px; background: color-mix(in srgb, currentColor 16%, transparent); overflow: visible; }
+.superapp-progress--chunky .superapp-progress__track { height: 14px; }
+.superapp-progress__fill { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--sa-accent, var(--sa-solid, CanvasText)); transition: width var(--sa-motion, 0.4s) var(--sa-ease, ease); }
+.superapp-progress__marker { position: absolute; top: 50%; width: 3px; height: 140%; transform: translate(-50%, -50%); border-radius: 2px; background: color-mix(in srgb, currentColor 45%, transparent); }
+.superapp-progress__marker.is-reached { background: var(--sa-accent, var(--sa-solid, CanvasText)); }
+.superapp-progress.is-complete .superapp-progress__fill { background: var(--sa-accent, var(--sa-solid, CanvasText)); }
+.superapp-scope[data-sa-pack='bold'] .superapp-progress__text { text-transform: uppercase; font-weight: 700; letter-spacing: 0.02em; }
+@media (prefers-reduced-motion: reduce) { .superapp-progress__fill { transition: none; } }
+
+/* ── B2 · Post-add-to-cart offer modal (reuses .superapp-popup chrome) ───────── */
+.superapp-postatc__panel { max-width: 380px; text-align: center; }
+.superapp-postatc__eyebrow { margin: 0 0 0.75rem; font-family: var(--sa-font-display); font-weight: var(--sa-display-weight); font-size: 1.05rem; }
+.superapp-postatc__offer { display: flex; align-items: center; gap: 0.85rem; text-align: left; padding: 0.6rem 0; }
+.superapp-postatc__img { width: 64px; height: 64px; object-fit: cover; border-radius: var(--sa-radius); border: var(--sa-border-w) solid var(--sa-border-color); flex: 0 0 auto; }
+.superapp-postatc__meta { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.superapp-postatc__name { font-weight: 600; font-size: 0.95rem; }
+.superapp-postatc__price { font-family: var(--sa-font-mono); font-variant-numeric: tabular-nums; }
+.superapp-postatc__actions { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem; }
+.superapp-postatc__accept { min-height: 44px; font: inherit; cursor: pointer; padding: 0.7rem 1.3rem; border: var(--sa-border-w) solid var(--sa-accent); border-radius: var(--sa-btn-radius); background: var(--sa-btn-bg, var(--sa-solid, CanvasText)); color: var(--sa-btn-text, var(--sa-solid-content, Canvas)); text-transform: var(--sa-label-transform); letter-spacing: var(--sa-label-spacing); }
+.superapp-postatc__accept.is-loading { opacity: 0.7; pointer-events: none; }
+.superapp-postatc__decline { font: inherit; cursor: pointer; background: none; border: 0; padding: 0.4rem; color: inherit; opacity: 0.7; text-decoration: underline; text-underline-offset: 3px; }
+
+/* ── B3 · Sticky ATC v2 — variant/qty controls + slide-in reveal + status ────── */
+.superapp-satc { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; transform: translateY(110%); transition: transform var(--sa-motion, 0.28s) var(--sa-ease, ease); }
+.superapp-satc.is-visible { transform: translateY(0); }
+.superapp-satc__variant { font: inherit; min-height: 44px; padding: 0.35rem 0.5rem; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-radius); background: Canvas; color: CanvasText; max-width: 40vw; flex: 0 1 auto; }
+.superapp-satc__qty { font: inherit; width: 3.5rem; min-height: 44px; text-align: center; padding: 0.35rem 0.4rem; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-radius); background: Canvas; color: CanvasText; flex: 0 0 auto; }
+.superapp-satc__atc.is-done { background: var(--sa-ok, #167a4a); color: #fff; border-color: transparent; }
+.superapp-satc__atc.is-loading { opacity: 0.7; pointer-events: none; }
+.superapp-satc__status { flex-basis: 100%; font-size: 0.8rem; text-align: center; }
+.superapp-satc__status--error { color: var(--sa-danger, #c0362c); }
+.superapp-satc__status--success { color: var(--sa-ok, #167a4a); }
+@media (prefers-reduced-motion: reduce) { .superapp-satc { transition: none; } }
+
 /* ── Technical — curated config card (never a raw field dump) ────────────────── */
 .superapp-techcard { max-width: 640px; margin: 0 auto; padding: var(--sa-pad); border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-radius-lg); box-shadow: var(--sa-elevation, var(--sa-shadow)); }
 .superapp-techcard__type { display: inline-block; font-family: var(--sa-font-mono); text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.68rem; color: var(--sa-accent); border: var(--sa-border-w) solid var(--sa-accent); border-radius: 999px; padding: 0.15rem 0.6rem; margin-bottom: 0.6rem; }

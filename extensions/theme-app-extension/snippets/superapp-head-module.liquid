@@ -1,19 +1,4 @@
-{% # theme-check-disable OrphanedSnippet, RemoteAsset %}{% doc %}
-Shared SuperApp HEAD module renderer — the single source of truth for every
-head-injected module's markup, called from the SuperApp Theme Head app embed
-(blocks/superapp-theme-head.liquid, target: head) via
-{% raw %}{% render 'superapp-head-module', mod_ref: mod_ref %}{% endraw %}.
-Head modules carry NO visible markup; they inject document-<head> content driven
-entirely by config_json.kind:
-jsonLd          — JSON-LD structured data (<script type="application/ld+json">)
-metaTags        — <meta>/<link> tags incl. Open Graph / Twitter card
-preload         — resource hints (<link rel="preload"|"preconnect"|"dns-prefetch">)
-pixelBootstrap  — a small inline analytics/pixel bootstrap (<script>)
-consentScript   — a consent-mode / CMP bootstrap (<script>)
-Trust model matches the body renderer: NO arbitrary Liquid or raw HTML from the
-model. Everything below is built from typed, server-sanitized config fields and
-escaped for the head context. The advancedCustom escape hatch is intentionally
-NOT executed here (fixed-template allowlist, per DESIGN.md).@param {object} mod_ref - The $app:superapp_module metaobject reference to render.{% enddoc %}
+{% # theme-check-disable OrphanedSnippet, RemoteAsset %}
 {% liquid
 assign mod_cfg = mod_ref.fields.config_json.value
 assign mod_placement = mod_ref.fields.placement_json.value

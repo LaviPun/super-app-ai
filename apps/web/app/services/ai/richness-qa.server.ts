@@ -132,6 +132,27 @@ function isPopup(config: LooseConfig): boolean {
 }
 
 /**
+ * V-B conversion kinds with their OWN floor (independent of the archetype table):
+ * a cart-goal progress bar (B1, maps to `band`) and a post-add-to-cart offer
+ * (B2, maps to `upsell`). Detected by kind so the floor fires only for these, not
+ * for every band/upsell. Both are conversion-critical → blocking `'fail'`.
+ */
+function isProgressBar(config: LooseConfig): boolean {
+  return config.kind === 'progress-bar';
+}
+function isPostAtcOffer(config: LooseConfig): boolean {
+  return config.kind === 'post-atc-offer';
+}
+
+/** The floor-id / severity key for a recipe (kind-scoped kinds win over the archetype). */
+function floorKeyOf(config: LooseConfig, arch: SectionArchetype | undefined): string | undefined {
+  if (isPopup(config)) return 'popup';
+  if (isProgressBar(config)) return 'progress-bar';
+  if (isPostAtcOffer(config)) return 'post-atc-offer';
+  return arch;
+}
+
+/**
  * ≥1 media reference anywhere in config/fields/blocks. Scans by key name
  * (image/media/video/photo/logo) because the shipped templates spread media
  * across many field names (mediaUrl, heroImageUrl, logoUrl, imageUrl, …) and
@@ -211,6 +232,29 @@ function evaluateFloor(config: LooseConfig, arch: SectionArchetype | undefined):
     return {
       ok: hasTrigger && hasFrequency,
       message: 'Popup/overlay is missing a trigger and/or frequency cap — set config.trigger (e.g. exit_intent) and config.frequency (e.g. once_per_session) so it does not fire on every page load.',
+    };
+  }
+
+  // B1 — cart-goal progress bar: needs ≥1 reward tier AND before-copy that carries
+  // a {amount}/{remaining} token (a static bar with no live copy reads as a stub).
+  if (isProgressBar(config)) {
+    const pg = (config.progressGoal ?? {}) as LooseConfig;
+    const tiers = Array.isArray(pg.tiers) ? (pg.tiers as unknown[]) : [];
+    const hasToken = typeof pg.beforeText === 'string' && /\{amount\}|\{remaining\}/.test(pg.beforeText);
+    return {
+      ok: tiers.length >= 1 && hasToken,
+      message: `Progress bar needs config.progressGoal with ≥1 tier and a beforeText carrying an {amount}/{remaining} token (found ${tiers.length} tier(s), token=${hasToken}).`,
+    };
+  }
+
+  // B2 — post-add-to-cart offer: needs a recommendation SOURCE + an accept label
+  // (with no offer source there is nothing to put in the modal).
+  if (isPostAtcOffer(config)) {
+    const hasRec = isPopulated(config.recommendation);
+    const hasAccept = nonEmptyString(config.acceptLabel) || nonEmptyString(fieldsOf(config).acceptLabel);
+    return {
+      ok: hasRec && hasAccept,
+      message: `Post-add-to-cart offer needs a recommendation source (config.recommendation) and an acceptLabel (recommendation=${hasRec}, acceptLabel=${hasAccept}).`,
     };
   }
 
@@ -323,10 +367,17 @@ export function runRichnessQa(recipe: RecipeSpec, opts: RichnessQaOpts = {}): Qa
     // 1) Structural floor.
     const floor = evaluateFloor(config, arch);
     if (floor && !floor.ok) {
-      const blocking = isPopup(config) || (arch !== undefined && BLOCKING_ARCHETYPES.has(arch));
+      const key = floorKeyOf(config, arch);
+      // Conversion-critical floors block: popups, the money/conversion archetypes,
+      // and the kind-scoped V-B conversion kinds (progress bar + post-ATC offer).
+      const blocking =
+        isPopup(config) ||
+        isProgressBar(config) ||
+        isPostAtcOffer(config) ||
+        (arch !== undefined && BLOCKING_ARCHETYPES.has(arch));
       const severity: QaSeverity = blocking ? 'fail' : 'warn';
       issues.push({
-        id: `richness.floor.${isPopup(config) ? 'popup' : arch}`,
+        id: `richness.floor.${key}`,
         severity,
         message: floor.message,
         autofixed: false,

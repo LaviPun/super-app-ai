@@ -12,7 +12,8 @@
  * this emits a whitespace/comment-stripped copy into the extension. The transform
  * is OUTPUT-PRESERVING — it only removes bytes that collapse to nothing in
  * rendered HTML:
- *   1. {% comment %}…{% endcomment %} blocks (produce no output)
+ *   1. {% comment %}…{% endcomment %} and {% doc %}…{% enddoc %} blocks (both
+ *      produce no output — doc is Shopify's LiquidDoc tag; source keeps them)
  *   2. leading indentation on each line (collapses in HTML; newlines kept, so no
  *      Liquid tokens ever merge)
  *   3. blank lines
@@ -36,6 +37,12 @@ const LIQUID_BUDGET = 100 * 1000; // Shopify enforced limit, bytes
 function minifyLiquid(src) {
   // 1. Drop {% comment %}…{% endcomment %} blocks (incl. whitespace-control variants).
   let out = src.replace(/\{%-?\s*comment\s*-?%\}[\s\S]*?\{%-?\s*endcomment\s*-?%\}/g, '');
+  // 1a. Drop {% doc %}…{% enddoc %} LiquidDoc blocks. `doc` is Shopify's snippet
+  //     documentation tag — it renders NOTHING (identical output class to comment),
+  //     so stripping it from the DEPLOYED copy is output-preserving. The readable
+  //     source keeps every {% doc %}/@param header for humans + editor tooling; only
+  //     the shipped extension drops it (V-B budget reclaim, ~3 KB across snippets).
+  out = out.replace(/\{%-?\s*doc\s*-?%\}[\s\S]*?\{%-?\s*enddoc\s*-?%\}/g, '');
   // 1b. Drop {% # … %} inline comment tags (they render nothing) EXCEPT two kinds of
   //     load-bearing marker comment, kept verbatim:
   //       • theme-check control directives (`{% # theme-check-disable/enable %}`),

@@ -76,3 +76,18 @@ export type {
   MessagingAudience,
   MessagingTrigger,
 } from './packs/messaging.pack.js';
+export {
+  ProgressGoalPackSchema,
+  ProgressTierSchema,
+  progressGoalPack,
+  PROGRESS_GOAL_BASES,
+  PROGRESS_REWARD_TYPES,
+  PROGRESS_BAR_STYLES,
+} from './packs/progress-goal.pack.js';
+export type {
+  ProgressGoalPack,
+  ProgressTier,
+  ProgressGoalBasis,
+  ProgressRewardType,
+  ProgressBarStyle,
+} from './packs/progress-goal.pack.js';

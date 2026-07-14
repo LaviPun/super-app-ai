@@ -1101,6 +1101,430 @@
     countdownTimers.length = 0;
   });
 
+  /* ── V-B cart observer (shared by B1 progress bar + B2 post-ATC offer) ────────
+     Detects cart mutations theme-agnostically without owning the cart:
+       1. a ONE-TIME window.fetch wrapper watching POSTs to /cart/add|change|
+          update|clear (how most modern themes + AJAX carts mutate the cart);
+       2. a set of common theme cart custom-events.
+     On add, `onCartAdd` subscribers get the parsed /cart/add.js response (the added
+     line); on any mutation, `onCartChange` subscribers get a fresh /cart.js snapshot.
+     Best-effort + honest: a theme that mutates via XHR (not fetch) simply refreshes
+     on the next event / navigation — we never fabricate cart state. */
+  var cartAddSubs = [];
+  var cartChangeSubs = [];
+  var lastCart = null;
+
+  function onCartAdd(cb) { cartAddSubs.push(cb); }
+  function onCartChange(cb) { cartChangeSubs.push(cb); }
+  function fireAdd(item) { for (var i = 0; i < cartAddSubs.length; i++) { try { cartAddSubs[i](item); } catch (e) { /* noop */ } } }
+
+  function refreshCart() {
+    return fetch('/cart.js', { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (c) {
+        lastCart = c;
+        for (var i = 0; i < cartChangeSubs.length; i++) { try { cartChangeSubs[i](c); } catch (e) { /* noop */ } }
+        return c;
+      })
+      .catch(function () { return null; });
+  }
+
+  var CART_ADD_RE = /\/cart\/add(\.js)?(\?|$)/;
+  var CART_MUT_RE = /\/cart\/(change|update|clear)/;
+  function patchCartObserver() {
+    if (window.__superappCartObserver) return;
+    window.__superappCartObserver = true;
+    var of = window.fetch;
+    if (typeof of === 'function') {
+      window.fetch = function (input) {
+        var url = '';
+        try { url = typeof input === 'string' ? input : (input && input.url) || ''; } catch (e) { url = ''; }
+        var p = of.apply(this, arguments);
+        if (p && typeof p.then === 'function') {
+          if (CART_ADD_RE.test(url)) {
+            p.then(function (res) {
+              try { res.clone().json().then(function (j) { fireAdd(j); }, function () { fireAdd(null); }); } catch (e) { fireAdd(null); }
+              refreshCart();
+            }, function () { /* noop */ });
+          } else if (CART_MUT_RE.test(url)) {
+            p.then(function () { refreshCart(); }, function () { /* noop */ });
+          }
+        }
+        return p;
+      };
+    }
+    ['cart:updated', 'cart:change', 'cart:refresh', 'ajaxCart:afterCartLoad'].forEach(function (ev) {
+      document.addEventListener(ev, function () { refreshCart(); });
+    });
+  }
+
+  /* Standard Shopify money formatter — mirrors the theme `formatMoney` helper so
+     the bar reads the shop's own money_format (passed from Liquid) with no theme
+     dependency. `cents` in, formatted string out. HTML in a custom money_format
+     is stripped (we render as text).
+
+     The two PURE functions below are pinned to a node-side test by an extraction
+     PARITY test (vocab-vb-logic.test.ts), exactly like the spin-game logic: the
+     test slices the whole-code region strictly between the single-line
+     MONEY-FMT BEGIN/END markers and runs the shared fixtures through it. */
+  /* MONEY-FMT:BEGIN (parity marker — keep on its own line) */
+  function stripTags(s) { return String(s == null ? '' : s).replace(/<[^>]*>/g, ''); }
+  function moneyFmt(cents, format) {
+    var f = stripTags(format) || '${{amount}}';
+    function num(n, precision, thousands, decimal) {
+      if (isNaN(n) || n == null) n = 0;
+      var v = (n / 100).toFixed(precision);
+      var parts = v.split('.');
+      var dollars = parts[0].replace(/(\d)(?=(\d\d\d)+(?!\d))/g, '$1' + thousands);
+      return dollars + (parts[1] ? decimal + parts[1] : '');
+    }
+    return f.replace(/\{\{\s*(\w+)\s*\}\}/, function (_m, name) {
+      switch (name) {
+        case 'amount': return num(cents, 2, ',', '.');
+        case 'amount_no_decimals': return num(cents, 0, ',', '.');
+        case 'amount_with_comma_separator': return num(cents, 2, '.', ',');
+        case 'amount_no_decimals_with_comma_separator': return num(cents, 0, '.', ',');
+        case 'amount_with_space_separator': return num(cents, 2, ' ', ',');
+        case 'amount_no_decimals_with_space_separator': return num(cents, 0, ' ', ',');
+        case 'amount_with_apostrophe_separator': return num(cents, 2, "'", '.');
+        default: return num(cents, 2, ',', '.');
+      }
+    });
+  }
+
+  /* Pure progress computation shared by the bar painter. `current` and each tier
+     `.th` are in the SAME already-normalized unit (cents for cart-total, count for
+     item-count). Returns the fill % (against the last/highest tier), the remaining
+     distance to the next unreached tier, that tier's index (-1 = all reached), and
+     whether every tier is met. Deterministic + DOM-free so it is unit-tested. */
+  function progressCompute(current, tiers) {
+    var n = tiers ? tiers.length : 0;
+    if (n === 0) return { pct: 0, remaining: 0, nextIndex: -1, complete: true };
+    var maxTh = tiers[n - 1].th;
+    var pct = maxTh > 0 ? Math.max(0, Math.min(100, (current / maxTh) * 100)) : 0;
+    var nextIndex = -1;
+    for (var i = 0; i < n; i++) { if (current < tiers[i].th) { nextIndex = i; break; } }
+    var remaining = nextIndex === -1 ? 0 : (tiers[nextIndex].th - current);
+    return { pct: pct, remaining: remaining, nextIndex: nextIndex, complete: nextIndex === -1 };
+  }
+  /* ══ MONEY-FMT:END ════════════════════════════════════════════════════════ */
+
+  /* ── B1: cart-goal / free-shipping progress bar ──────────────────────────────
+     Reads the embedded progressGoal config, builds tier markers, and repaints the
+     fill + {amount}/{remaining} copy from the live /cart.js snapshot on load and on
+     every cart change. Thresholds are MAJOR currency units for basis:'cart-total'
+     (×100 to compare the cents total); a plain count for basis:'item-count'.
+     Reduced-motion → the fill snaps (no width transition). */
+  function initProgressBars() {
+    var els = document.querySelectorAll('[data-sa-progress]');
+    if (els.length === 0) return;
+    var bars = [];
+    Array.prototype.forEach.call(els, function (el) {
+      if (el.getAttribute('data-sa-progress-bound')) return;
+      el.setAttribute('data-sa-progress-bound', '1');
+      var script = el.querySelector('[data-sa-progress-config]');
+      var cfg = null;
+      try { cfg = script ? JSON.parse(script.textContent) : null; } catch (e) { cfg = null; }
+      if (!cfg || !cfg.tiers || cfg.tiers.length === 0) return;
+      var money = el.getAttribute('data-money-format') || '${{amount}}';
+      var basis = cfg.basis === 'item-count' ? 'item-count' : 'cart-total';
+      var tiers = cfg.tiers.slice(0, 3).map(function (t) {
+        return {
+          th: basis === 'item-count' ? Number(t.threshold) : Math.round(Number(t.threshold) * 100),
+          label: String(t.label || ''),
+        };
+      }).filter(function (t) { return t.th > 0; }).sort(function (a, b) { return a.th - b.th; });
+      if (tiers.length === 0) return;
+      var track = el.querySelector('.superapp-progress__track');
+      var maxTh = tiers[tiers.length - 1].th;
+      if (track) {
+        for (var i = 0; i < tiers.length; i++) {
+          var mk = document.createElement('span');
+          mk.className = 'superapp-progress__marker';
+          mk.style.left = Math.min(100, (tiers[i].th / maxTh) * 100) + '%';
+          mk.setAttribute('data-sa-marker', String(i));
+          mk.title = tiers[i].label;
+          track.appendChild(mk);
+        }
+      }
+      if (reducedMotion) {
+        var fillEl = el.querySelector('[data-sa-progress-fill]');
+        if (fillEl) fillEl.style.transition = 'none';
+      }
+      bars.push({ el: el, cfg: cfg, money: money, basis: basis, tiers: tiers, maxTh: maxTh });
+    });
+    if (bars.length === 0) return;
+
+    function paint(cart) {
+      if (!cart) return;
+      for (var b = 0; b < bars.length; b++) {
+        var bar = bars[b];
+        var current = bar.basis === 'item-count' ? (cart.item_count || 0) : (cart.total_price || 0);
+        var st = progressCompute(current, bar.tiers);
+        var amountStr = bar.basis === 'item-count' ? String(current) : moneyFmt(current, bar.money);
+        var remainStr = bar.basis === 'item-count' ? String(st.remaining) : moneyFmt(st.remaining, bar.money);
+        var tpl = st.complete ? bar.cfg.afterText : bar.cfg.beforeText;
+        var text = String(tpl || '').replace(/\{amount\}/g, amountStr).replace(/\{remaining\}/g, remainStr);
+        var textEl = bar.el.querySelector('[data-sa-progress-text]');
+        if (textEl) textEl.textContent = text;
+        var fill = bar.el.querySelector('[data-sa-progress-fill]');
+        if (fill) fill.style.width = st.pct + '%';
+        var markers = bar.el.querySelectorAll('[data-sa-marker]');
+        for (var k = 0; k < markers.length; k++) {
+          if (current >= bar.tiers[k].th) markers[k].classList.add('is-reached');
+          else markers[k].classList.remove('is-reached');
+        }
+        if (st.complete) bar.el.classList.add('is-complete'); else bar.el.classList.remove('is-complete');
+      }
+    }
+    onCartChange(paint);
+    if (lastCart) paint(lastCart);
+  }
+
+  /* ── B2: post-add-to-cart offer modal ────────────────────────────────────────
+     On a cart ADD, resolve ONE offer product via the STATIC recommendation
+     strategies (related/complementary → /recommendations/products.json;
+     cart-derived → /cart.js) and open a modal that reuses the popup chrome.
+     Accept → /cart/add.js the offer variant; decline/close → nothing. Never
+     double-fires (session flag per just-added product). Honest: if resolution
+     yields nothing, it is a silent no-op — never an empty modal. */
+  function normalizeOffer(p) {
+    if (!p) return null;
+    var variantId = p.variant_id || (p.variants && p.variants[0] && p.variants[0].id) || p.id;
+    var img = '';
+    if (typeof p.featured_image === 'string') img = p.featured_image;
+    else if (p.featured_image && p.featured_image.url) img = p.featured_image.url;
+    else if (p.image) img = typeof p.image === 'string' ? p.image : (p.image.src || '');
+    return {
+      productId: p.product_id || p.id,
+      variantId: variantId,
+      title: p.product_title || p.title || '',
+      image: img,
+      url: p.url || '#',
+      price: p.price != null ? p.price : null,
+    };
+  }
+
+  function resolveOfferProduct(strat, fallback, seed, excludeId) {
+    function pick(products) {
+      var list = (products || []).filter(function (p) {
+        var pid = p && (p.product_id || p.id);
+        return String(pid || '') !== String(excludeId || '');
+      });
+      return list.length ? normalizeOffer(list[0]) : null;
+    }
+    function tryStrat(s) {
+      if ((s === 'related' || s === 'complementary') && seed) {
+        var intent = s === 'complementary' ? 'complementary' : 'related';
+        return fetch('/recommendations/products.json?product_id=' + encodeURIComponent(seed) + '&limit=6&intent=' + intent)
+          .then(function (r) { return r.json(); })
+          .then(function (j) { return j && j.products ? j.products : []; })
+          .catch(function () { return []; });
+      }
+      if (s === 'most-expensive-in-cart' || s === 'cheapest-in-cart') {
+        return fetch('/cart.js', { headers: { Accept: 'application/json' } })
+          .then(function (r) { return r.json(); })
+          .then(function (cart) {
+            var items = (cart && cart.items) ? cart.items.slice() : [];
+            items.sort(function (a, b) { return (a.price || 0) - (b.price || 0); });
+            var chosen = s === 'most-expensive-in-cart' ? items[items.length - 1] : items[0];
+            return chosen ? [chosen] : [];
+          })
+          .catch(function () { return []; });
+      }
+      return Promise.resolve([]); /* dynamic/manual: no client resolution → fall back / no-op */
+    }
+    return tryStrat(strat).then(function (products) {
+      var offer = pick(products);
+      if (offer) return offer;
+      if (fallback && fallback !== strat && fallback !== 'hide') return tryStrat(fallback).then(pick);
+      return null;
+    });
+  }
+
+  function openOfferModal(mountEl, offer, opts) {
+    var key = 'superapp:postatc:' + (opts.addedId || 'x');
+    if (storageGet(window.sessionStorage, key)) return;
+    storageSet(window.sessionStorage, key, '1');
+
+    var money = mountEl.getAttribute('data-money-format') || '${{amount}}';
+    var overlay = document.createElement('div');
+    overlay.className = 'superapp-popup superapp-postatc-modal';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', opts.title);
+    var priceHtml = offer.price != null
+      ? '<span class="superapp-postatc__price">' + escapeHtml(moneyFmt(offer.price, money)) + '</span>' : '';
+    var imgHtml = offer.image
+      ? '<img class="superapp-postatc__img" src="' + escapeAttr(safeUrl(offer.image)) + '" alt="" width="120" height="120" loading="lazy">' : '';
+    overlay.innerHTML =
+      '<div class="superapp-popup__scrim" data-superapp-close></div>' +
+      '<div class="superapp-popup__panel superapp-postatc__panel" role="document">' +
+      '<button class="superapp-popup__close" type="button" data-superapp-close aria-label="Close">×</button>' +
+      '<p class="superapp-postatc__eyebrow">' + escapeHtml(opts.title) + '</p>' +
+      '<div class="superapp-postatc__offer">' + imgHtml +
+      '<div class="superapp-postatc__meta"><span class="superapp-postatc__name">' + escapeHtml(offer.title) + '</span>' + priceHtml + '</div>' +
+      '</div>' +
+      '<div class="superapp-postatc__actions">' +
+      '<button class="superapp-postatc__accept" type="button" data-superapp-accept>' + escapeHtml(opts.acceptLabel) + '</button>' +
+      '<button class="superapp-postatc__decline" type="button" data-superapp-close>' + escapeHtml(opts.declineLabel) + '</button>' +
+      '</div></div>';
+    document.body.appendChild(overlay);
+    void overlay.offsetWidth;
+    overlay.classList.add('is-open');
+
+    var lastFocused = document.activeElement;
+    function close() {
+      overlay.classList.remove('is-open');
+      document.removeEventListener('keydown', onKey, true);
+      var finish = function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
+      if (reducedMotion) finish(); else { overlay.classList.add('is-closing'); window.setTimeout(finish, 180); }
+      if (lastFocused && lastFocused.focus) { try { lastFocused.focus({ preventScroll: true }); } catch (e) { /* noop */ } }
+    }
+    function onKey(e) { if (e.key === 'Escape' || e.key === 'Esc') { e.preventDefault(); close(); } }
+    document.addEventListener('keydown', onKey, true);
+    overlay.addEventListener('click', function (e) {
+      var closer = e.target.closest ? e.target.closest('[data-superapp-close]') : null;
+      if (closer && overlay.contains(closer)) { e.preventDefault(); close(); }
+    });
+    var accept = overlay.querySelector('[data-superapp-accept]');
+    if (accept) {
+      accept.addEventListener('click', function () {
+        if (!offer.variantId) { close(); return; }
+        accept.disabled = true;
+        accept.classList.add('is-loading');
+        fetch('/cart/add.js', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ id: offer.variantId, quantity: 1 }),
+        })
+          .then(function (res) { if (!res.ok) throw new Error('add failed'); return res.json().catch(function () { return {}; }); })
+          .then(function () { refreshCart(); close(); })
+          .catch(function () { accept.disabled = false; accept.classList.remove('is-loading'); accept.textContent = 'Try again'; });
+      });
+    }
+    var target = overlay.querySelector('[data-superapp-accept]') || overlay.querySelector('.superapp-popup__close');
+    if (target && target.focus) { try { target.focus({ preventScroll: true }); } catch (e) { target.focus(); } }
+  }
+
+  function initPostAtc() {
+    var els = document.querySelectorAll('[data-sa-postatc]');
+    if (els.length === 0) return;
+    Array.prototype.forEach.call(els, function (el) {
+      if (el.getAttribute('data-sa-postatc-bound')) return;
+      el.setAttribute('data-sa-postatc-bound', '1');
+      var strat = el.getAttribute('data-strategy') || 'related';
+      var fallback = el.getAttribute('data-fallback') || 'related';
+      var seed = el.getAttribute('data-seed-product') || '';
+      var opts = {
+        acceptLabel: el.getAttribute('data-accept') || 'Add to order',
+        declineLabel: el.getAttribute('data-decline') || 'No thanks',
+        title: el.getAttribute('data-title') || 'Complete your order',
+      };
+      onCartAdd(function (item) {
+        var addedId = item && (item.product_id || item.id) ? String(item.product_id || item.id) : '';
+        var seedFor = seed || addedId;
+        resolveOfferProduct(strat, fallback, seedFor, addedId).then(function (offer) {
+          if (!offer) return; /* honest silent no-op */
+          openOfferModal(el, offer, { acceptLabel: opts.acceptLabel, declineLabel: opts.declineLabel, title: opts.title, addedId: addedId });
+        });
+      });
+    });
+  }
+
+  /* ── B3: sticky add-to-cart bar v2 ───────────────────────────────────────────
+     Real product context (rendered by Liquid). An IntersectionObserver on the
+     theme buy-box (data-watch) slides the bar in when the buy-box scrolls out of
+     view; the add button POSTs /cart/add.js with the selected variant + qty with
+     honest success/error feedback; the variant <select> updates the shown price
+     from data-price + shop.money_format. Reduced-motion → no slide transition (CSS). */
+  function setSatcStatus(el, kind, text) {
+    if (!el) return;
+    el.classList.remove('superapp-satc__status--success', 'superapp-satc__status--error');
+    if (!kind) { el.hidden = true; el.textContent = ''; return; }
+    el.textContent = (kind === 'success' ? '✓ ' : '⚠ ') + text;
+    el.classList.add('superapp-satc__status--' + kind);
+    el.hidden = false;
+  }
+  function setSatcVisible(el, visible) {
+    if (visible) { el.hidden = false; void el.offsetWidth; el.classList.add('is-visible'); }
+    else { el.classList.remove('is-visible'); }
+  }
+  function initStickyAtc() {
+    var els = document.querySelectorAll('[data-sa-satc]');
+    Array.prototype.forEach.call(els, function (el) {
+      if (el.getAttribute('data-sa-satc-bound')) return;
+      el.setAttribute('data-sa-satc-bound', '1');
+      var watch = el.getAttribute('data-watch') || 'form[action*="/cart/add"]';
+      var money = el.getAttribute('data-money-format') || '${{amount}}';
+      var variantEl = el.querySelector('[data-sa-satc-variant]');
+      var qtyEl = el.querySelector('[data-sa-satc-qty]');
+      var priceEl = el.querySelector('[data-sa-satc-price]');
+      var addBtn = el.querySelector('[data-sa-satc-add]');
+      var statusEl = el.querySelector('[data-sa-satc-status]');
+
+      if (variantEl && variantEl.tagName === 'SELECT') {
+        variantEl.addEventListener('change', function () {
+          var opt = variantEl.options[variantEl.selectedIndex];
+          if (!opt) return;
+          var cents = parseInt(opt.getAttribute('data-price'), 10);
+          if (!isNaN(cents) && priceEl) {
+            var cmp = parseInt(opt.getAttribute('data-compare'), 10);
+            priceEl.innerHTML = escapeHtml(moneyFmt(cents, money)) +
+              (!isNaN(cmp) && cmp > cents ? ' <s class="superapp-satc__compare">' + escapeHtml(moneyFmt(cmp, money)) + '</s>' : '');
+          }
+          if (addBtn) addBtn.disabled = !!opt.disabled;
+        });
+      }
+
+      if (addBtn) {
+        var restLabel = addBtn.textContent;
+        addBtn.addEventListener('click', function () {
+          var vid = variantEl ? variantEl.value : '';
+          var qty = qtyEl ? Math.max(1, parseInt(qtyEl.value, 10) || 1) : 1;
+          if (!vid) return;
+          addBtn.disabled = true;
+          addBtn.classList.add('is-loading');
+          setSatcStatus(statusEl, null, '');
+          fetch('/cart/add.js', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ id: vid, quantity: qty }),
+          })
+            .then(function (res) {
+              return res.json().catch(function () { return {}; }).then(function (j) {
+                if (!res.ok || (j && j.status && Number(j.status) >= 400)) throw new Error('add failed');
+                return j;
+              });
+            })
+            .then(function () {
+              addBtn.classList.add('is-done');
+              addBtn.textContent = 'Added ✓';
+              setSatcStatus(statusEl, 'success', 'Added to your cart');
+              refreshCart();
+              window.setTimeout(function () { addBtn.classList.remove('is-done'); addBtn.textContent = restLabel; }, 1800);
+            })
+            .catch(function () { setSatcStatus(statusEl, 'error', 'Couldn’t add — use the product form'); })
+            .then(function () { addBtn.disabled = false; addBtn.classList.remove('is-loading'); });
+        });
+      }
+
+      var target = watch ? document.querySelector(watch) : null;
+      if (target && typeof window.IntersectionObserver === 'function') {
+        var io = new window.IntersectionObserver(function (entries) {
+          for (var i = 0; i < entries.length; i++) setSatcVisible(el, !entries[i].isIntersecting);
+        }, { threshold: 0 });
+        io.observe(target);
+      } else {
+        var onScroll = function () { setSatcVisible(el, (window.scrollY || window.pageYOffset || 0) > 600); };
+        window.addEventListener('scroll', onScroll, { passive: true });
+        onScroll();
+      }
+    });
+  }
+
   ready(function () {
     /* R2.1: resolve display rules first — reveal/remove deferred non-popup modules,
        and let the popup engine consult the same rules in open(). */
@@ -1121,5 +1545,13 @@
     initEffects();
     initCountdowns();
     document.addEventListener('superapp:celebrate', onCelebrate);
+    /* V-B conversion core: cart-goal progress bar, post-ATC offer, sticky ATC v2. */
+    var needsCart = document.querySelector('[data-sa-progress], [data-sa-postatc]');
+    if (needsCart) patchCartObserver();
+    initProgressBars();
+    initPostAtc();
+    initStickyAtc();
+    /* Broadcast the initial cart snapshot once so progress bars paint on load. */
+    if (document.querySelector('[data-sa-progress]')) refreshCart();
   });
 })();

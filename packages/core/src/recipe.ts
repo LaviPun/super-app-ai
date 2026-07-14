@@ -12,6 +12,7 @@ import { LayoutArchetypePackSchema } from './control-packs/packs/layout-archetyp
 import { RuleEnginePackSchema } from './control-packs/packs/rule-engine.pack.js';
 import { PricingPackSchema } from './control-packs/packs/pricing.pack.js';
 import { RecommendationPackSchema } from './control-packs/packs/recommendation.pack.js';
+import { ProgressGoalPackSchema } from './control-packs/packs/progress-goal.pack.js';
 import { MessagingPackSchema } from './control-packs/packs/messaging.pack.js';
 import { DataModelSchema, ModuleDataStoreSchema } from './data-model.js';
 import type { ModuleCategory, ModuleType } from './allowed-values.js';
@@ -388,6 +389,13 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
        * to `fallback`). Optional + back-compat: absent = no recommendations widget.
        */
       recommendation: RecommendationPackSchema.optional(),
+      /**
+       * Cart-goal / free-shipping PROGRESS BAR (V-B B1). 1–3 reward tiers with
+       * token-aware before/after copy; the storefront computes live progress from
+       * `/cart.js`. Read by `kind: 'progress-bar'`. Optional + back-compat: absent =
+       * no progress bar (the older `kind: 'progress'` announcement band is untouched).
+       */
+      progressGoal: ProgressGoalPackSchema.optional(),
       /** Sanitized custom markup/styles/scripts (scoped + CSP-bound at compile/preview). */
       advancedCustom: AdvancedCustomPackSchema.optional(),
     // Open section: `.catchall` accepts kind-specific keys (collapsed from the former
