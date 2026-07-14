@@ -22,7 +22,10 @@ import { NEWSLETTER_CAPTURE_SECTION_TEMPLATES } from './native-newsletter-captur
 import { NSEC_PDP_TEMPLATES } from './native-pdp-fullsection.js';
 import { NATIVE_PRICING_COMPARISON_TEMPLATES } from './native-pricing-comparison.js';
 import { NATIVE_STATS_CTA_BAND_TEMPLATES } from './native-stats-cta-band.js';
+import { NATIVE_STOCK_COUNTER_TEMPLATES } from './native-stock-counter.js';
 import { NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES } from './native-testimonials-social-proof.js';
+import { NATIVE_UGC_GRID_TEMPLATES } from './native-ugc-grid.js';
+import { NATIVE_VIDEO_HERO_TEMPLATES } from './native-video-hero.js';
 
 export const SECTION_TEMPLATES: TemplateEntry[] = [
   ...NATIVE_COLLECTION_EDITORIAL_TEMPLATES,
@@ -37,5 +40,8 @@ export const SECTION_TEMPLATES: TemplateEntry[] = [
   ...NSEC_PDP_TEMPLATES,
   ...NATIVE_PRICING_COMPARISON_TEMPLATES,
   ...NATIVE_STATS_CTA_BAND_TEMPLATES,
+  ...NATIVE_STOCK_COUNTER_TEMPLATES,
   ...NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES,
+  ...NATIVE_UGC_GRID_TEMPLATES,
+  ...NATIVE_VIDEO_HERO_TEMPLATES,
 ];

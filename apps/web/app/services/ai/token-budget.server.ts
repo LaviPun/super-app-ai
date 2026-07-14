@@ -60,6 +60,19 @@ export function getRepairTokenBudget(type: ModuleType): number {
   return Math.max(MIN_BUDGET, Math.floor(getRecipeTokenBudget(type) / 2));
 }
 
+/** Floor for a delta (JSON merge patch) call — a patch is small, but must clear this. */
+const MIN_DELTA_BUDGET = 1200;
+
+/**
+ * Delta (Tier-1 instantiate + merge-patch) calls emit only the *diff* against an
+ * inline template spec, not a whole recipe, so they need roughly half the
+ * per-recipe budget. Floored at MIN_DELTA_BUDGET so even the most compact types
+ * leave room for a non-trivial patch plus its wrapping envelope.
+ */
+export function getDeltaTokenBudget(type: ModuleType): number {
+  return Math.max(MIN_DELTA_BUDGET, Math.floor(getRecipeTokenBudget(type) / 2));
+}
+
 /**
  * Compact-serialize an IntentPacket-like object for prompt injection.
  * Drops `input.text` (already in the prompt as `User request:`) and omits whitespace.

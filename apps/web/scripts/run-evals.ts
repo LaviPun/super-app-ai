@@ -60,6 +60,12 @@ async function main() {
   console.info(`Non-destructive ops  : ${summary.nonDestructiveCount}/${summary.total} (${pct(summary.nonDestructiveRate)}) [threshold: ${pct(NON_DESTRUCTIVE_THRESHOLD)}]`);
   console.info(`Allowed-values gate  : ${summary.allowedValuesCompliantCount}/${summary.total} (${pct(summary.allowedValuesCompliantRate)}) [threshold: ${pct(ALLOWED_VALUES_THRESHOLD)}]`);
   console.info(`Forbidden-surface gate: ${summary.forbiddenSurfaceRejectCount}/${summary.total} (${pct(summary.forbiddenSurfaceRejectRate)}) [threshold: ${pct(FORBIDDEN_SURFACE_THRESHOLD)}]`);
+  console.info(`Avg quality (parity) : ${summary.avgQualityScore.toFixed(3)} (competitor-parity checklist, 0-1)`);
+  console.info(`Richness fail rate   : ${pct(summary.richnessFailRate)} (prompts with ≥1 blocking richness fail)`);
+  console.info(`Avg rank score       : ${summary.avgRankScore.toFixed(1)} (deterministic option-ranking, schema-valid only)`);
+  if (summary.avgJudgeScore != null) {
+    console.info(`Avg judge score      : ${summary.avgJudgeScore.toFixed(2)}/10 (LLM judge — live run)`);
+  }
 
   console.info(`\nPer-prompt results:`);
   for (const r of summary.results) {

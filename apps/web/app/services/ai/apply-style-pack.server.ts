@@ -74,7 +74,7 @@ export function applyStylePackTokens<T extends RecipeSpec>(
 
   const styled = recipe as unknown as {
     style?: {
-      pack?: 'auto' | 'luxe' | 'bold';
+      pack?: 'auto' | 'luxe' | 'bold' | 'playful' | 'utility';
       spacing?: Record<string, unknown>;
       shape?: Record<string, unknown>;
       motion?: Record<string, unknown>;

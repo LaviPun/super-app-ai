@@ -22,6 +22,7 @@
  */
 import type { RecipeSpec, StorefrontStyle } from '@superapp/core';
 import { compileStyleVars, compileStyleCss, compileCustomCss, normalizeStyle } from './style-compiler';
+import { KIND_ARCHETYPE } from '../kind-archetype';
 
 type ThemeSectionSpec = Extract<RecipeSpec, { type: 'theme.section' }>;
 
@@ -138,78 +139,10 @@ function humanize(s: string): string {
 }
 
 // ───────────────────────── Archetype resolution ─────────────────────────────
-// This table MUST stay identical to preview.service.ts's KIND_ARCHETYPE (and the
-// `when` table in the Liquid snippet) or preview⇄storefront parity breaks. The
-// Liquid can't import a TS const, so the two TS copies are kept in sync by
+// The kind→archetype alias table is single-sourced in ../kind-archetype (imported
+// above). PreviewService and the storefront Liquid `when` table resolve the SAME
+// table; the Liquid copy (which can't import a TS const) is kept in sync by
 // kind-archetype-parity.test.ts, which fails on any divergence.
-export const KIND_ARCHETYPE: Record<string, string> = {
-  hero: 'hero',
-  'collection-hero': 'hero',
-  feature: 'feature',
-  benefit: 'feature',
-  gallery: 'gallery',
-  lookbook: 'gallery',
-  'collection-lookbook': 'gallery',
-  'collection-carousel': 'gallery',
-  'collection-story': 'collection',
-  'collection-split': 'collection',
-  'collection-promo': 'collection',
-  'collection-list': 'collection',
-  pricing: 'pricing',
-  comparison: 'pricing',
-  plan: 'pricing',
-  faq: 'faq',
-  accordion: 'faq',
-  testimonial: 'testimonial',
-  testimonials: 'testimonial',
-  reviews: 'testimonial',
-  'social-proof': 'testimonial',
-  'review-summary': 'testimonial',
-  stats: 'stats',
-  cta: 'cta',
-  'rich-text': 'cta',
-  trust: 'trust',
-  'trust-badges': 'trust',
-  'trust-badge': 'trust',
-  'payment-badges': 'trust',
-  'usp-strip': 'trust',
-  'logo-marquee': 'trust',
-  newsletter: 'newsletter',
-  launch: 'launch',
-  'coming-soon': 'launch',
-  '404': 'launch',
-  contact: 'contact',
-  team: 'team',
-  timeline: 'timeline',
-  steps: 'timeline',
-  upsell: 'upsell',
-  'bought-together': 'upsell',
-  'product-addons': 'upsell',
-  announcement: 'band',
-  'announcement-bar': 'band',
-  'free-shipping-bar': 'band',
-  countdown: 'band',
-  'countdown-bar': 'band',
-  progress: 'band',
-  consent: 'technical',
-  'json-ld': 'technical',
-  meta: 'technical',
-  'pixel-bootstrap': 'technical',
-  preload: 'technical',
-  filters: 'technical',
-  search: 'technical',
-  sort: 'technical',
-  'sticky-atc': 'technical',
-  'size-chart': 'technical',
-  'star-rating': 'technical',
-  'payment-icons': 'technical',
-  footer: 'technical',
-  rewards: 'technical',
-  badge: 'technical',
-  // Bare `story` = a collection-editorial story block (collection-story is the
-  // hyphenated alias); keep it mapped so preview⇄native parity holds.
-  story: 'collection',
-};
 
 /** Archetypes that render nothing but an empty container without blocks → generic. */
 const BLOCK_REQUIRED = new Set([

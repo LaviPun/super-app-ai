@@ -150,22 +150,31 @@ export const DEFAULT_PACK_ID: StylePackId = 'apple-hig-clean';
 // Two-pack render grammar (module-design-system.md §3.3 / §9.2)
 // ---------------------------------------------------------------------------
 
-/** The storefront render packs — the two values of the runtime `--sa-*` token map. */
-export type StorefrontPack = 'luxe' | 'bold';
-
-/** The loud/saturated aesthetic packs collapse to Bold DTC; everything else to Minimal Luxe. */
-const BOLD_STOREFRONT_PACKS: readonly StylePackId[] = ['bold-dtc', 'playful-commerce'];
+/** The storefront render packs — the four values of the runtime `--sa-*` token map. */
+export type StorefrontPack = 'luxe' | 'bold' | 'playful' | 'utility';
 
 /**
- * Collapse the six aesthetic-selection packs to the two storefront render packs
- * (module-design-system.md §9.2). `bold ← {bold-dtc, playful-commerce}`,
- * `luxe ← {apple-hig-clean, editorial-wellness, minimal-luxe, tech-utility}`.
- * Bias to Luxe (the "can't-look-wrong" pack) on low confidence — never ship the
- * louder Bold grammar on weak aesthetic evidence.
+ * Map each aesthetic-selection pack to its personality-explicit render pack.
+ * Packs not listed here (apple-hig-clean, editorial-wellness, minimal-luxe)
+ * intentionally collapse to Luxe — their differences sit inside Luxe's range.
+ */
+const RENDER_PACK_BY_AESTHETIC: Partial<Record<StylePackId, StorefrontPack>> = {
+  'bold-dtc': 'bold',
+  'playful-commerce': 'playful',
+  'tech-utility': 'utility',
+};
+
+/**
+ * Collapse the six aesthetic-selection packs to the four storefront render packs
+ * (module-design-system.md §9.2). `bold ← {bold-dtc}`, `playful ← {playful-commerce}`,
+ * `utility ← {tech-utility}`, `luxe ← {apple-hig-clean, editorial-wellness, minimal-luxe}`
+ * AND anything on low confidence. Bias to Luxe (the "can't-look-wrong" pack) on
+ * weak aesthetic evidence — never ship a personality-heavy grammar on a low-confidence
+ * signal.
  */
 export function resolveStorefrontPack(selection: PackSelection): StorefrontPack {
   if (selection.confidence < 0.34) return 'luxe';
-  return BOLD_STOREFRONT_PACKS.includes(selection.packId) ? 'bold' : 'luxe';
+  return RENDER_PACK_BY_AESTHETIC[selection.packId] ?? 'luxe';
 }
 
 // ---------------------------------------------------------------------------
@@ -373,7 +382,10 @@ export function selectPack(signals: AestheticSignals): PackSelection {
   const confidence = Math.max(0, Math.min(1, gap / 0.6));
 
   // Low-confidence guard: never ship a personality-heavy pack on weak evidence.
-  const personalityHeavy: StylePackId[] = ['bold-dtc', 'playful-commerce', 'minimal-luxe'];
+  // playful-commerce + tech-utility map to their own render packs (playful/utility),
+  // so they must clear the confidence bar too — a weak signal falls back to a safe pack
+  // and resolveStorefrontPack collapses it to Luxe.
+  const personalityHeavy: StylePackId[] = ['bold-dtc', 'playful-commerce', 'minimal-luxe', 'tech-utility'];
   if (confidence < 0.34 && personalityHeavy.includes(top)) {
     const safe: StylePackId = signals.accentHueFamily === 'warm' ? 'editorial-wellness' : DEFAULT_PACK_ID;
     return {
@@ -414,6 +426,28 @@ function storefrontPackGrammarLines(pack: StorefrontPack): string[] {
       '  • Decoration: badge chips, inline ★ proof, accent numerals. Voice: direct, urgent ("Fuel the grind.", "Once it\'s gone, it\'s gone.").',
     ];
   }
+  if (pack === 'playful') {
+    return [
+      'Render pack: PLAYFUL COMMERCE — bright, friendly, energetic; rounded everything, springy overshoot, multi-accent chips, pill CTAs, confetti on wins. Emit tokens matching:',
+      '  • Density: spacing.density "comfortable", padding "medium".',
+      '  • Typography: rounded-sans display at typography.size "XL"–"2XL", weight "bold", lineHeight "tight"–"normal" (NOT all-caps — friendly, not shouty).',
+      '  • Shape: shape.radius "lg"–"full" (rounded cards, PILL CTAs); shape.borderWidth "thin"; shape.elevation "soft" (dual soft drop shadow, never a hard offset).',
+      '  • Motion: motion.duration "base" (~240ms), motion.easing "enter" with springy overshoot; hover = translateY lift, press = scale-down.',
+      '  • CTA: accent fill, PILL radius ("full"), soft shadow, cheerful label.',
+      '  • Decoration: colorful chips, soft gradient washes, confetti on conversion beats. Voice: warm, upbeat ("Let\'s go!", "Treat yourself").',
+    ];
+  }
+  if (pack === 'utility') {
+    return [
+      'Render pack: TECH UTILITY — cool, gridded, data-dense, precise; compact rhythm, geometric/neo-grotesk + mono numerals, near-zero radius, fast mechanical micro-motion only. Emit tokens matching:',
+      '  • Density: spacing.density "compact", padding "tight"–"medium".',
+      '  • Typography: geometric/neo-grotesk display at typography.size "LG"–"XL", weight "medium"–"bold", lineHeight "normal"; mono numerals + uppercase mono labels.',
+      '  • Shape: shape.radius "none"–"sm" (near-zero); shape.borderWidth "thin" (1px structural grid lines); shape.elevation "border" (1px ring + tiny shadow).',
+      '  • Motion: motion.duration "fast" (~120ms), motion.easing "mechanical" (near-linear, no springs); micro-only.',
+      '  • CTA: accent or ink fill, radius "sm", minimal shadow, mono/geometric label.',
+      '  • Decoration: mono data readouts, thin grid rules, schematic/spec framing. Voice: precise, factual ("Ships in 24h", "99.98% uptime").',
+    ];
+  }
   return [
     'Render pack: MINIMAL LUXE — near-monochrome, editorial, hairline detail, long fades, accent used sparingly, quiet/considered voice. Emit tokens matching:',
     '  • Density: spacing.density "airy", padding "loose".',
@@ -441,16 +475,26 @@ export function buildDesignSystemDirective(opts: {
 }): string {
   const pack = STYLE_PACKS[opts.selection.packId];
   const renderPack = resolveStorefrontPack(opts.selection);
-  const renderPackName = renderPack === 'bold' ? 'Bold DTC' : 'Minimal Luxe';
+  const RENDER_PACK_NAME: Record<StorefrontPack, string> = {
+    luxe: 'Minimal Luxe',
+    bold: 'Bold DTC',
+    playful: 'Playful Commerce',
+    utility: 'Tech Utility',
+  };
+  const renderPackName = RENDER_PACK_NAME[renderPack];
   const brand = (opts.brandColors ?? []).filter(isHexColor);
   const brandLine = brand.length
-    ? `THEME COLORS (use ONLY these — they are extracted from the merchant's live theme): ${brand.join(', ')}. Set style.colors.seed to the merchant accent and flat style.colors (text/background/border/buttonBg/buttonText/overlayBackdrop) from this palette only. Do NOT invent or add off-palette colors.`
-    : 'No live store palette was available — set style.colors.seed to a tasteful, on-pack accent and keep style.colors consistent across the module.';
+    ? `THEME COLORS (use ONLY these — they are extracted from the merchant's live theme): ${brand.join(', ')}. ALWAYS set style.colors.seed to the merchant/brand accent from this palette — it seeds the OKLCH semantic ramp (solid / -content / surface / border / text-high / text-low), which the compiler resolves with GUARANTEED contrast. Prefer the ramp roles over inventing flat hexes: set flat style.colors.background and style.colors.text only when you deliberately go OFF-ramp (e.g. a specific brand surface); leave buttonBg/buttonText/border UNSET so the accent-derived ramp paints them. Do NOT invent or add off-palette colors.`
+    : 'No live store palette was available — ALWAYS set style.colors.seed to a tasteful, on-pack accent (it seeds the contrast-guaranteed OKLCH semantic ramp). Prefer the ramp roles; add flat style.colors.background/text only when deliberately off-ramp, and leave buttonBg/buttonText/border unset so the ramp paints them.';
   const feel = opts.fontHints && opts.fontHints.length ? ` Type feel to honor: ${opts.fontHints.join(' | ')}.` : '';
   const fontLine = `THEME FONTS: the module inherits the store theme's fonts automatically via the storefront — do NOT set or override font-family anywhere (not in style, not in any customCss/customHtml). Express hierarchy with typography.size + typography.weight only.${feel}`;
-  const effectsLine = renderPack === 'bold'
-    ? 'Effects (only for an `effect` module): Bold → loud effects — confetti burst, fireworks, glitter, balloons. Every effect ships a prefers-reduced-motion branch that renders nothing.'
-    : 'Effects (only for an `effect` module): Luxe → quiet effects — embers/fireflies, petals, soft snow, shimmer. Every effect ships a prefers-reduced-motion branch that renders nothing.';
+  const EFFECTS_BY_PACK: Record<StorefrontPack, string> = {
+    bold: 'Bold → loud effects — confetti burst, fireworks, glitter, balloons.',
+    playful: 'Playful → celebratory effects — confetti burst (signature win beat), balloons, glitter.',
+    utility: 'Utility → no particle effects, or a restrained shimmer only (a data/tool store rarely wants decoration).',
+    luxe: 'Luxe → quiet effects — embers/fireflies, petals, soft snow, shimmer.',
+  };
+  const effectsLine = `Effects (only for an \`effect\` module): ${EFFECTS_BY_PACK[renderPack]} Every effect ships a prefers-reduced-motion branch that renders nothing.`;
 
   return [
     'DESIGN SYSTEM DIRECTIVE (mandatory — the module must obey this or it will be rejected by the design-QA gate):',

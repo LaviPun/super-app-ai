@@ -15,6 +15,18 @@
  */
 import type { RecipeSpec } from '@superapp/core';
 import { isHexColor, relativeLuminance } from '~/services/ai/style-packs.server';
+import { KIND_ARCHETYPE, type SectionArchetype } from '~/services/recipes/kind-archetype';
+
+/**
+ * V-B B13 — content-section archetypes that read better with a subtle scroll-in
+ * entrance. The default-on micro-interaction tier adds `motion.entrance: 'fade'`
+ * to these when the generator left it unset. Excludes band/launch/contact/technical
+ * (own motion / no benefit) and overlay/effect kinds (their own animation systems).
+ */
+const ENTRANCE_ARCHETYPES = new Set<SectionArchetype>([
+  'hero', 'feature', 'gallery', 'collection', 'pricing', 'faq', 'testimonial',
+  'stats', 'cta', 'trust', 'newsletter', 'team', 'timeline', 'upsell',
+]);
 
 export type QaSeverity = 'fail' | 'warn';
 
@@ -54,7 +66,7 @@ type LooseStyle = {
   };
   accessibility?: { focusVisible?: boolean; reducedMotion?: boolean };
   pack?: string;
-  motion?: { duration?: string; easing?: string };
+  motion?: { duration?: string; easing?: string; entrance?: string; stagger?: boolean };
   shape?: { radius?: string };
 };
 
@@ -207,6 +219,62 @@ export function runDesignQa(recipe: RecipeSpec): DesignQaResult {
     });
   }
 
+  // --- §4.1 Gamified-popup QA (spin-to-win wheel + scratch card) -------------
+  // The popup branch upgrades to a wheel when blocks carry kind:'slice' and to a
+  // scratch card for kind:'scratch' (module-design-system.md §4.1). These checks
+  // guard the game-specific footguns; a classic popup (no game blocks) is untouched.
+  const sliceBlocks = blocks.filter((b) => b?.kind === 'slice');
+  const scratchBlocks = blocks.filter((b) => b?.kind === 'scratch');
+  const isGamePopup = (kind === 'popup' || isOverlay) && sliceBlocks.length + scratchBlocks.length > 0;
+
+  if (isGamePopup && sliceBlocks.length > 0) {
+    // Weighted-random pick is over fields.oddsWeight (§4.1). Treat absent / non-positive
+    // as weight 0 — that's what the runtime falls back on (equal split).
+    const weights = sliceBlocks.map((b) => {
+      const w = (b.fields as Record<string, unknown> | undefined)?.oddsWeight;
+      return typeof w === 'number' && Number.isFinite(w) && w > 0 ? w : 0;
+    });
+    const total = weights.reduce((a, c) => a + c, 0);
+    if (total <= 0) {
+      issues.push({
+        id: 'game-odds:uniform',
+        severity: 'warn',
+        message: `Spin-to-win has ${sliceBlocks.length} slices but no positive fields.oddsWeight on any — the wheel falls back to a uniform (equal) split, which is likely unintended. Set fields.oddsWeight per slice to control win rates.`,
+        autofixed: false,
+      });
+    } else if (sliceBlocks.length > 1) {
+      const max = Math.max(...weights);
+      if (max / total >= 0.95) {
+        issues.push({
+          id: 'game-odds:dominant',
+          severity: 'warn',
+          message: `One spin-to-win slice holds ${((max / total) * 100).toFixed(0)}% of the total odds weight (≥95%) — the wheel almost always lands on it, so the other slices are decorative. Rebalance fields.oddsWeight if that isn't intended.`,
+          autofixed: false,
+        });
+      }
+    }
+  }
+
+  // Game popups animate a spin/scratch reveal — they MUST honor prefers-reduced-motion
+  // (instant reveal, §7.4). Mirror the §6 effect severity: undefined was already
+  // coerced to true above, so reaching a non-true value here means an explicit false —
+  // a motion-heavy design that should be regenerated (blocking).
+  if (isGamePopup && a11y.reducedMotion !== true) {
+    a11y.reducedMotion = true;
+    issues.push({
+      id: 'reduced-motion-game',
+      severity: 'fail',
+      message:
+        'Gamified popup (spin-to-win / scratch card) disabled reduced-motion — §7.4 requires an instant coupon reveal under prefers-reduced-motion (no dial spin, no scratch-erase). Forced reducedMotion=true; regenerate a reduced-motion-safe game.',
+      autofixed: true,
+    });
+  }
+  // NOTE (future work): a generation-side coupon-code-fabrication check (the model
+  // must not invent fields.couponCode values the merchant never configured) is NOT
+  // added here — an empty code is an honest no-prize state at runtime (§4.1), and the
+  // fabrication risk lives in generation, not spec validation. An email-capture field
+  // block on a game popup is fine (gate handled at runtime) — intentionally no check.
+
   // --- §7.1 F1–F8 mandatory micro-interaction presence heuristic ------------
   // Spec-level surfaces can't prove the rendered state set, so these are soft
   // `warn`s that flag when the generator did not visibly account for the
@@ -239,36 +307,76 @@ export function runDesignQa(recipe: RecipeSpec): DesignQaResult {
   }
 
   // --- §3 Pack / palette fidelity (soft warn) -------------------------------
-  // A resolved `luxe`/`bold` pack has a motion + shape personality (§3.1/§3.2).
+  // Each resolved render pack has a motion + shape personality (§3.1/§3.2/§3.2a/§3.2b).
   // Wildly off-pack tokens read wrong; warn (never hard-fail — merchant/theme
   // overrides can legitimately diverge).
   const pack = style.pack;
   const motionDuration = style.motion?.duration;
   const shapeRadius = style.shape?.radius;
+  const pushMotion = (message: string) =>
+    issues.push({ id: 'pack-fidelity:motion', severity: 'warn', message, autofixed: false });
+  const pushShape = (message: string) =>
+    issues.push({ id: 'pack-fidelity:shape', severity: 'warn', message, autofixed: false });
   if (pack === 'luxe') {
     if (motionDuration === 'fast') {
-      issues.push({
-        id: 'pack-fidelity:motion',
-        severity: 'warn',
-        message: 'Luxe pack favors slow/long fades (§3.1); motion.duration="fast" reads Bold — prefer "slow" or "base".',
-        autofixed: false,
-      });
+      pushMotion('Luxe pack favors slow/long fades (§3.1); motion.duration="fast" reads Bold — prefer "slow" or "base".');
     }
     if (shapeRadius && ['lg', 'xl', 'full'].includes(shapeRadius)) {
-      issues.push({
-        id: 'pack-fidelity:shape',
-        severity: 'warn',
-        message: `Luxe pack uses none–sm radius (§3.1); shape.radius="${shapeRadius}" is off-pack.`,
-        autofixed: false,
-      });
+      pushShape(`Luxe pack uses none–sm radius (§3.1); shape.radius="${shapeRadius}" is off-pack.`);
     }
   } else if (pack === 'bold') {
     if (motionDuration === 'slow') {
+      pushMotion('Bold pack favors fast/snappy motion (§3.2); motion.duration="slow" reads Luxe — prefer "fast" or "base".');
+    }
+  } else if (pack === 'playful') {
+    // Playful is rounded + springy (§3.2a): long fades and hard/square edges read off-pack.
+    if (motionDuration === 'slow') {
+      pushMotion('Playful pack favors springy "base" motion (§3.2a); motion.duration="slow" reads Luxe — prefer "base" or "fast".');
+    }
+    if (shapeRadius === 'none') {
+      pushShape('Playful pack is rounded (§3.2a: lg–full radius); shape.radius="none" reads Utility/Luxe — prefer "lg"/"xl"/"full".');
+    }
+  } else if (pack === 'utility') {
+    // Utility is compact + near-zero radius + fast mechanical (§3.2b).
+    if (motionDuration === 'slow') {
+      pushMotion('Utility pack favors fast/mechanical micro-motion (§3.2b); motion.duration="slow" reads Luxe — prefer "fast".');
+    }
+    if (shapeRadius && ['lg', 'xl', 'full'].includes(shapeRadius)) {
+      pushShape(`Utility pack uses near-zero (none–sm) radius (§3.2b); shape.radius="${shapeRadius}" is off-pack.`);
+    }
+  }
+
+  // --- B4 Countdown V2: a fixed-mode timer whose endAt is already past ---------
+  // A `fixed` countdown that ended in the past renders nothing on the storefront
+  // (the timer stays hidden) — almost always a stale/misconfigured deadline. Warn
+  // (don't mutate — the date is merchant intent).
+  const countdown = (config as { countdown?: { enabled?: boolean; mode?: string; endAt?: string } }).countdown;
+  if (countdown?.enabled && countdown.mode === 'fixed' && typeof countdown.endAt === 'string') {
+    const end = Date.parse(countdown.endAt);
+    if (!Number.isNaN(end) && end <= Date.now()) {
       issues.push({
-        id: 'pack-fidelity:motion',
+        id: 'countdown:past-endAt',
         severity: 'warn',
-        message: 'Bold pack favors fast/snappy motion (§3.2); motion.duration="slow" reads Luxe — prefer "fast" or "base".',
+        message: `Countdown is a fixed timer whose endAt (${countdown.endAt}) is already in the past — it will render nothing. Set a future endAt, or use mode "evergreen"/"daily" for a self-renewing deadline.`,
         autofixed: false,
+      });
+    }
+  }
+
+  // --- B13 Entrance vocabulary: default-on micro-interaction (auto-fix) --------
+  // Content-section archetypes get a subtle scroll-in fade when the generator left
+  // motion.entrance unset. Additive + reduced-motion-safe (the runtime + CSS honor
+  // prefers-reduced-motion). Never overrides an explicit choice.
+  const entranceArch = typeof kind === 'string' ? KIND_ARCHETYPE[kind] : undefined;
+  if (entranceArch && ENTRANCE_ARCHETYPES.has(entranceArch)) {
+    const motion = (style.motion ?? (style.motion = {})) as { entrance?: string };
+    if (motion.entrance === undefined) {
+      motion.entrance = 'fade';
+      issues.push({
+        id: 'micro-interaction:entrance',
+        severity: 'warn',
+        message: 'No entrance animation was set — defaulted motion.entrance = "fade" so the section eases in on scroll (B13, reduced-motion-safe).',
+        autofixed: true,
       });
     }
   }

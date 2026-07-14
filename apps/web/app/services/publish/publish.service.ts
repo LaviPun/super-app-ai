@@ -19,7 +19,8 @@ import { computeRepublishDiff, type ModulePublishPreflightResult } from '@supera
 import { classifyModulePublishability } from '~/services/publish/publish-preflight.server';
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
 import { ThemeFilesService } from '~/services/publish/theme-files.server';
-import { isThemeNativeSectionEnabled } from '~/env.server';
+import { checkCompiledLiquid, ThemeCheckFailedError } from '~/services/publish/theme-check.server';
+import { isThemeNativeSectionEnabled, isThemeCheckGateBlocking } from '~/env.server';
 
 const THEME_MODULES_NAMESPACE = 'superapp.theme';
 const THEME_MODULE_REFS_KEY = 'module_refs';
@@ -112,6 +113,40 @@ export class PublishService {
       customerAccountBlockPayload,
       proxyWidgetPayload,
     } = result;
+
+    // ── Pre-publish Theme Check gate (035) ──────────────────────────────────
+    // Validate compiled native-section Liquid (the only ops that carry Liquid
+    // written verbatim into a merchant theme) BEFORE any store write. Only runs
+    // when native-section push is actually enabled — otherwise the THEME_ASSET_*
+    // branch below throws ThemeNativeSectionDisabledError and nothing deploys, so
+    // there is nothing to validate. `error`-severity offenses block the publish
+    // (when the gate is blocking); warnings/infos and any theme-check runtime
+    // failure are logged non-blocking so the gate protects without ever bricking.
+    if (isThemeNativeSectionEnabled()) {
+      const liquidFiles = ops
+        .filter((op): op is Extract<typeof op, { kind: 'THEME_ASSET_UPSERT' }> => op.kind === 'THEME_ASSET_UPSERT')
+        .map((op) => ({ path: op.key, content: op.value }));
+      if (liquidFiles.length > 0) {
+        const tc = await checkCompiledLiquid(liquidFiles);
+        const scope = target.moduleId ? ` [module ${target.moduleId}]` : '';
+        if (tc.degraded) {
+          console.warn(`[publish][theme-check]${scope} unable to validate (${tc.degradedReason}) — proceeding without gate.`);
+        } else {
+          for (const w of tc.warnings) {
+            console.warn(`[publish][theme-check][warn]${scope} ${w.file}:${w.line ?? '?'} ${w.check}: ${w.message}`);
+          }
+          if (tc.errors.length > 0) {
+            if (isThemeCheckGateBlocking()) {
+              throw new ThemeCheckFailedError(tc.errors);
+            }
+            for (const e of tc.errors) {
+              console.warn(`[publish][theme-check][error:warn-only]${scope} ${e.file}:${e.line ?? '?'} ${e.check}: ${e.message}`);
+            }
+          }
+        }
+      }
+    }
+
     const mf = new MetafieldService(this.admin);
     const mo = new MetaobjectService(this.admin);
 

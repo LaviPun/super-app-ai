@@ -121,7 +121,10 @@ describe('module deployability audit — every type classified (eligibility mode
  * fallthrough. This fails on the pre-fix path.
  */
 describe('deployable checkout-UI types compile to a real deploy (no false-publish)', () => {
-  const target = { kind: 'CHECKOUT', moduleId: 'test-module' } as unknown as DeployTarget;
+  // Checkout-UI types deploy via PLATFORM extensions (the compiler's target guard
+  // now rejects any other kind — the old fabricated 'CHECKOUT' kind only "worked"
+  // because compileRecipe used to ignore the target entirely).
+  const target = { kind: 'PLATFORM', moduleId: 'test-module' } as unknown as DeployTarget;
 
   for (const type of ['checkout.block', 'postPurchase.offer'] as const) {
     it(`${type} compiles to a checkoutUpsellPayload, not an AUDIT no-op`, () => {
@@ -244,6 +247,69 @@ describe('INTEGRITY: no AUDIT-only type false-publishes (PUBLISHED ⇒ real arti
       expect(pf.status, `${type} must stay deployable`).toBe('deployable');
       expect(pf.willDeploy).toBe(true);
     }
+  });
+});
+
+/**
+ * Pricing-mechanism honesty (plan 1c): a Function spec pinned to a DECLARATIVE-ONLY
+ * pricing mechanism (`discount-code` / `draft-order`) has no shipped runtime — the
+ * compiler lowers only the two `shopify-function-*` mechanisms — so it must classify
+ * `needs_runtime` (never willDeploy), or it would false-publish an inert discount.
+ * A bare spec (no pricing) for the same type stays deployable — the gate is narrow.
+ */
+describe('INTEGRITY: declarative pricing mechanism ⇒ needs_runtime (no inert false-publish)', () => {
+  const deployed = deployedFunctionExtensions();
+
+  for (const mechanism of ['discount-code', 'draft-order'] as const) {
+    it(`functions.discountRules with '${mechanism}' classifies needs_runtime`, () => {
+      const spec = {
+        type: 'functions.discountRules',
+        name: 'Inert discount',
+        config: {
+          rules: [{ when: {}, apply: { percentageOff: 10 } }],
+          pricing: { model: 'single', mechanism, discount: { kind: 'percentage', value: 10 } },
+        },
+      } as unknown as RecipeSpec;
+      const pf = classifyModulePublishability(spec, { deployedExtensions: deployed });
+      expect(pf.status).toBe('needs_runtime');
+      expect(pf.willDeploy).toBe(false);
+      expect(pf.reasons.some((r) => r.includes(mechanism) && r.toLowerCase().includes('declarative'))).toBe(true);
+    });
+  }
+
+  it("functions.cartTransform with a per-bundle 'draft-order' mechanism classifies needs_runtime", () => {
+    const spec = {
+      type: 'functions.cartTransform',
+      name: 'Inert bundle',
+      config: {
+        mode: 'BUNDLE',
+        bundles: [
+          {
+            title: 'Kit',
+            componentSkus: ['A', 'B'],
+            bundleSku: 'KIT',
+            pricing: { model: 'single', mechanism: 'draft-order', discount: { kind: 'fixed-price', value: 50 } },
+          },
+        ],
+      },
+    } as unknown as RecipeSpec;
+    const pf = classifyModulePublishability(spec, { deployedExtensions: deployed });
+    expect(pf.status).toBe('needs_runtime');
+    expect(pf.willDeploy).toBe(false);
+  });
+
+  it('functions.discountRules with a REAL Function mechanism stays deployable (gate is narrow)', () => {
+    const spec = {
+      type: 'functions.discountRules',
+      name: 'Real discount',
+      config: {
+        rules: [{ when: {}, apply: { percentageOff: 10 } }],
+        pricing: { model: 'single', mechanism: 'shopify-function-discount', discount: { kind: 'percentage', value: 10 } },
+      },
+    } as unknown as RecipeSpec;
+    const pf = classifyModulePublishability(spec, { deployedExtensions: deployed });
+    expect(pf.status).toBe('deployable');
+    expect(pf.willDeploy).toBe(true);
   });
 });
 

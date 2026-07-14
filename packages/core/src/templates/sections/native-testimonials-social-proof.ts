@@ -666,4 +666,92 @@ export const NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES: TemplateEntry[] = [
       },
     },
   },
+
+  // 11 — V-A A4: Loox-style scroll-snap review carousel. Rich blocks (avatarUrl +
+  // authorTitle + half-star ratings + verified) trip the carousel upgrade in the
+  // storefront/preview renderer; the static grid is untouched for specs without them.
+  {
+    id: 'NSEC-TEST-11',
+    name: 'Review Carousel — Rated Cards (Loox-style)',
+    description: 'Swipeable scroll-snap carousel of verified photo reviews with reviewer avatars, half-star precision ratings, and a verified-buyer chip — the Loox/Judge.me "Cards" slider for the product page.',
+    category: 'STOREFRONT_UI',
+    type: 'theme.section',
+    icon: 'reviews',
+    tags: ['section', 'reviews', 'social-proof', 'carousel', 'ratings', 'product'],
+    spec: {
+      type: 'theme.section',
+      name: 'Review Carousel — Rated Cards',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'reviews',
+        activation: 'section',
+        title: 'What buyers are saying',
+        subtitle: 'Verified reviews from real customers',
+        layout: { layout: 'carousel' },
+        fields: { reviewsPerRowDesktop: 3, reviewsPerRowMobile: 1, showVerifiedBadge: true, showReviewerAvatar: true },
+        blocks: [
+          { kind: 'review-card', text: 'Exactly as pictured and even better in person. The quality blew me away.', fields: { author: 'Maya R.', authorTitle: 'Verified buyer', rating: 5, verified: true, avatarUrl: 'https://cdn.shopify.com/s/files/avatars/maya.jpg' } },
+          { kind: 'review-card', text: 'Fast shipping and beautiful packaging. Would happily order again.', fields: { author: 'Devon K.', authorTitle: 'Denver, CO', rating: 4.5, verified: true, avatarUrl: 'https://cdn.shopify.com/s/files/avatars/devon.jpg' } },
+          { kind: 'review-card', text: 'Held up after a month of daily use — genuinely my new favorite.', fields: { author: 'Priya S.', authorTitle: 'Repeat customer', rating: 5, verified: true, avatarUrl: 'https://cdn.shopify.com/s/files/avatars/priya.jpg' } },
+          { kind: 'review-card', text: 'Great value for the price. Docked half a star only because I wanted more colors.', fields: { author: 'Jordan M.', authorTitle: 'Miami, FL', rating: 4.5, verified: true } },
+          { kind: 'review-card', text: 'Customer service was fantastic when I had a question. Five stars.', fields: { author: 'Sam T.', authorTitle: 'Verified buyer', rating: 5, verified: true, avatarUrl: 'https://cdn.shopify.com/s/files/avatars/sam.jpg' } },
+        ],
+      },
+      placement: { enabled_on: { templates: ['product', 'index'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
+      style: {
+        layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
+        spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
+        typography: { size: 'MD', weight: 'normal', lineHeight: 'normal', align: 'left' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#f5a623' },
+        shape: { radius: 'lg', borderWidth: 'thin', shadow: 'sm', elevation: 'soft' },
+        responsive: { hideOnMobile: false, hideOnDesktop: false },
+        accessibility: { focusVisible: true, reducedMotion: true },
+        motion: { duration: 'base', easing: 'standard' },
+        pack: 'bold',
+      },
+    },
+  },
+
+  // 12 — V-A A4: minimal-luxe founder-story quotes carousel (initials avatars, no photos).
+  {
+    id: 'NSEC-TEST-12',
+    name: 'Founder Story Quotes — Minimal Carousel',
+    description: 'Quiet, editorial scroll-snap carousel of founder and team quotes with initials-avatar chips and role titles — a minimal-luxe "in their words" strip with no review photos.',
+    category: 'STOREFRONT_UI',
+    type: 'theme.section',
+    icon: 'reviews',
+    tags: ['section', 'testimonials', 'quotes', 'carousel', 'founder', 'editorial'],
+    spec: {
+      type: 'theme.section',
+      name: 'Founder Story Quotes',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'testimonials',
+        activation: 'section',
+        title: 'In their words',
+        subtitle: 'From the people who make it',
+        layout: { layout: 'carousel' },
+        fields: { showReviewerAvatar: true },
+        blocks: [
+          { kind: 'review-card', text: 'We started this in a garage with one sewing machine and a stubborn idea about quality.', fields: { author: 'Ana Ríos', authorTitle: 'Co-founder & CEO', rating: 5 } },
+          { kind: 'review-card', text: 'Every material is chosen to last a decade, not a season. That is the whole philosophy.', fields: { author: 'Theo Lund', authorTitle: 'Head of Design', rating: 5 } },
+          { kind: 'review-card', text: 'Our customers write to us like friends. That relationship is what we protect most.', fields: { author: 'Priya Anand', authorTitle: 'Head of Community', rating: 5 } },
+        ],
+      },
+      placement: { enabled_on: { templates: ['page', 'index'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
+      style: {
+        layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
+        spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'airy' },
+        typography: { size: 'LG', weight: 'normal', lineHeight: 'relaxed', align: 'left' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#0f172a' },
+        shape: { radius: 'sm', borderWidth: 'thin', shadow: 'none', elevation: 'border' },
+        responsive: { hideOnMobile: false, hideOnDesktop: false },
+        accessibility: { focusVisible: true, reducedMotion: true },
+        motion: { duration: 'slow', easing: 'enter' },
+        pack: 'luxe',
+      },
+    },
+  },
 ];

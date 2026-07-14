@@ -280,6 +280,12 @@ type Concept = typeof CONCEPT_PRESETS[number] & {
   tagline: string;
   tags: string[];
   intro: string;
+  /** Deterministic ranker's pick (Phase 2c) — drives the "Recommended" badge. */
+  recommended?: boolean;
+  /** Async LLM-judge score 0-100 (Phase 5c) — optional, present after polish. */
+  judgeScore?: number;
+  /** Set when a validated judge polish replaced this concept's recipe (Phase 5c). */
+  polished?: boolean;
 };
 
 const STOREFRONT_TYPES = ['theme.section', 'proxy.widget'];
@@ -390,7 +396,7 @@ function GenerateWorkspace() {
       ? seed.prompt.trim()
       : (loaderData.seedPrompt ?? '');
 
-  const proposeFetcher = useFetcher<{ options?: { index: number; explanation: string; recipe: Record<string, unknown> }[]; blueprint?: BlueprintResult | null; error?: string; message?: string }>();
+  const proposeFetcher = useFetcher<{ options?: { index: number; explanation: string; recipe: Record<string, unknown>; qualityBadges?: string[]; score?: number }[]; recommendedIndex?: number; blueprint?: BlueprintResult | null; error?: string; message?: string }>();
   const confirmFetcher = useFetcher<{ moduleId?: string; recipeId?: string; firstModuleId?: string; moduleCount?: number; error?: string }>();
   const refineFetcher = useFetcher<{ ok?: boolean; recipe?: Record<string, unknown>; summary?: string; changedPaths?: string[]; creditsLeft?: number | null; error?: string; message?: string }>();
   const publishFetcher = useFetcher<{ error?: string }>();
@@ -478,7 +484,7 @@ function GenerateWorkspace() {
   // Build the chooser concepts from a set of AI options (shared by the streaming
   // and batch paths). Re-runnable: the stream calls it as each option arrives.
   const genStartedRef = useRef(false);
-  const applyOptions = useCallback((opts: { explanation: string; recipe: Record<string, unknown> }[], bp?: BlueprintResult | null) => {
+  const applyOptions = useCallback((opts: { explanation: string; recipe: Record<string, unknown> }[], bp?: BlueprintResult | null, recommendedPos?: number) => {
     const capped = opts.slice(0, CONCEPT_PRESETS.length);
     if (capped.length === 0) return;
     const concs: Concept[] = capped.map((opt, i) => {
@@ -493,6 +499,7 @@ function GenerateWorkspace() {
         tagline: opt.explanation || '',
         tags: tagsFromRecipe(opt.recipe),
         intro: opt.explanation ? `Done. ${opt.explanation}` : `Done. I generated “${name}” from your prompt.`,
+        recommended: recommendedPos != null && i === recommendedPos,
       };
     });
     const sm: Record<string, any> = {}, tm: Record<string, any[]> = {}, hm: Record<string, any[]> = {};
@@ -553,8 +560,31 @@ function GenerateWorkspace() {
                 collected[payload.index] = { explanation: payload.option.explanation ?? '', recipe: payload.option.recipe };
                 gotAny = true;
                 applyOptions(Object.keys(collected).sort((a, b) => Number(a) - Number(b)).map((k) => collected[Number(k)]!));
+              } else if (ev === 'ranking' && typeof payload.recommendedIndex === 'number') {
+                // recommendedIndex is a REAL option index — map it to the concept
+                // grid position (sorted by option index) so the right card is flagged.
+                const keys = Object.keys(collected).map(Number).sort((a, b) => a - b);
+                const recPos = keys.indexOf(payload.recommendedIndex);
+                applyOptions(keys.map((k) => collected[k]!), undefined, recPos >= 0 ? recPos : undefined);
               } else if (ev === 'blueprint') {
                 setBlueprint(payload as BlueprintResult);
+              } else if (ev === 'score' && typeof payload.index === 'number' && typeof payload.score === 'number') {
+                // Async judge score (Phase 5c) — optional, arrives after `done`.
+                // Store it on the matching concept; ignorable when absent.
+                const keys = Object.keys(collected).map(Number).sort((a, b) => a - b);
+                const pos = keys.indexOf(payload.index);
+                if (pos >= 0) setCandidates((cs) => cs.map((c, i) => (i === pos ? { ...c, judgeScore: payload.score } : c)));
+              } else if (ev === 'option_updated' && typeof payload.index === 'number' && payload.recipe) {
+                // A validated, not-worse judge polish (Phase 5c). Replace the
+                // concept's recipe + settings and flag it "Polished".
+                collected[payload.index] = { explanation: collected[payload.index]?.explanation ?? '', recipe: payload.recipe };
+                const keys = Object.keys(collected).map(Number).sort((a, b) => a - b);
+                const pos = keys.indexOf(payload.index);
+                const cid = CONCEPT_PRESETS[pos]?.id;
+                if (pos >= 0) {
+                  setCandidates((cs) => cs.map((c, i) => (i === pos ? { ...c, recipe: payload.recipe, name: (payload.recipe?.name as string) || c.name, polished: true } : c)));
+                  if (cid) setSettingsMap((m) => ({ ...m, [cid]: { ...m[cid], ...settingsFromRecipe(payload.recipe) } }));
+                }
               } else if (ev === 'error') {
                 throw new Error(payload.message || 'Generation failed');
               }
@@ -605,7 +635,10 @@ function GenerateWorkspace() {
       navigate('/modules');
       return;
     }
-    applyOptions(opts, proposeFetcher.data.blueprint ?? null);
+    // Batch options are contiguous + index-ordered, so the real recommendedIndex
+    // is also its grid position.
+    const rec = proposeFetcher.data.recommendedIndex;
+    applyOptions(opts, proposeFetcher.data.blueprint ?? null, typeof rec === 'number' && rec < opts.length ? rec : undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proposeFetcher.state, proposeFetcher.data]);
 
@@ -917,9 +950,14 @@ function GenChoose({ prompt, candidates, settingsMap, onSelect, onRegenerate, on
 function GenCandCard({ c, idx, total, settings, onSelect }: any) {
   const num = String(idx + 1).padStart(2, '0') + ' / ' + String(total).padStart(2, '0');
   return (
-    <button className="gen-cand" style={{ ['--acc' as any]: c.accent, animationDelay: (0.08 + idx * 0.12) + 's' }} onClick={onSelect}>
+    <button className={'gen-cand' + (c.recommended ? ' gen-cand-recommended' : '')} style={{ ['--acc' as any]: c.accent, animationDelay: (0.08 + idx * 0.12) + 's' }} onClick={onSelect} aria-label={c.recommended ? `${c.name} (recommended)` : c.name}>
       <span className="gen-cand-scan" />
       <span className="cand-num">{num}</span>
+      {c.recommended && (
+        <span className="cand-recommended" style={{ position: 'absolute', top: 12, right: 12 }}>
+          <Badge tone="success"><Icon name="magic" size={11} />Recommended</Badge>
+        </span>
+      )}
       <div className="cand-head">
         <span className="cand-ico"><Icon name={c.icon} size={19} /></span>
         <div className="stack" style={{ gap: 2, minWidth: 0, textAlign: 'left' }}>
@@ -928,6 +966,11 @@ function GenCandCard({ c, idx, total, settings, onSelect }: any) {
         </div>
       </div>
       <p className="cand-tagline">{c.tagline}</p>
+      {c.polished && (
+        <span className="cand-polished" style={{ position: 'absolute', top: 12, left: 12 }} title="Refined by an AI reviewer after generation">
+          <Badge tone="info"><Icon name="magic" size={10} />Polished</Badge>
+        </span>
+      )}
       <GenCandMini s={settings} accent={c.accent} />
       <div className="cand-tags">{c.tags.map((t: string) => <span key={t} className="cand-tag">{t}</span>)}</div>
       <div className="cand-cta">

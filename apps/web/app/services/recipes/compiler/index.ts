@@ -1,5 +1,7 @@
 import type { RecipeSpec, DeployTarget } from '@superapp/core';
+import { isTargetAllowedForType } from '@superapp/core';
 import type { CompileResult } from './types';
+import { IncompatibleCompileTargetError } from './types';
 import { compileThemeSection } from './theme.section';
 import { compileProxyWidget } from './proxy.widget';
 import { compileDiscountRules } from './functions.discountRules';
@@ -29,9 +31,22 @@ import { compileFlowAutomation } from './flow.automation';
 import { compileAgenticCatalogProfile } from './agentic.catalogProfile';
 
 export function compileRecipe(spec: RecipeSpec, target: DeployTarget): CompileResult {
+  // Type↔target compatibility guard (single source of truth: capability graph).
+  // A spec compiled against a target its surface can never deploy to is a hard
+  // error — the compiler must never silently produce ops for an impossible deploy
+  // (e.g. a functions.* or flow.* recipe against a THEME target). Derived from
+  // `isTargetAllowedForType`, so it stays in lockstep with the publish-policy
+  // allowlist and the eval forbidden-surface gate.
+  if (!isTargetAllowedForType(spec.type, target.kind)) {
+    throw new IncompatibleCompileTargetError(spec.type, target.kind);
+  }
+
   switch (spec.type) {
     case 'theme.section':
-      if (target.kind !== 'THEME') throw new Error('theme.section requires THEME target');
+      // The guard above already guarantees target.kind === 'THEME'; this narrows the
+      // union for compileThemeSection (and is defence-in-depth against a future edit
+      // to the guard). Unreachable in practice.
+      if (target.kind !== 'THEME') throw new IncompatibleCompileTargetError(spec.type, target.kind);
       return compileThemeSection(spec, target);
     case 'proxy.widget':
       return compileProxyWidget(spec);

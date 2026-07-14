@@ -10,6 +10,7 @@ import { RecipeSpecSchema, type DeployTarget, type RecipeSpec } from '@superapp/
 import { compileRecipe } from '~/services/recipes/compiler';
 import { checkNonDestructive } from '~/services/recipes/compiler/non-destructive';
 import { runDesignQa, summarizeQa } from '~/services/ai/design-qa.server';
+import { runRichnessQa } from '~/services/ai/richness-qa.server';
 import type { VerifyResult } from '~/services/tournament/types';
 
 /** Deploy target mirrors evals.server.ts: theme types target a theme, everything else the platform. */
@@ -29,6 +30,7 @@ export function verifyRecipe(candidateId: string, recipe: unknown): VerifyResult
     nonDestructiveViolations: [],
     designQaPass: false,
     designQaSummary: '',
+    richnessFailCount: 0,
     gatesRun: 0,
   };
 
@@ -67,6 +69,15 @@ export function verifyRecipe(candidateId: string, recipe: unknown): VerifyResult
     base.designQaSummary = `design-qa error: ${String(err)}`;
   }
 
+  // Gate 5: richness floors (blocking-floor failures only; basicness needs the
+  // per-request mustHaveControls we don't have in the tournament, so it's skipped).
+  try {
+    base.richnessFailCount = runRichnessQa(parsed).filter((i) => i.severity === 'fail').length;
+    base.gatesRun++;
+  } catch {
+    base.richnessFailCount = 0;
+  }
+
   return base;
 }
 
@@ -80,5 +91,8 @@ export function verifyPenalty(v: VerifyResult): number {
   if (!v.compilerSuccess) penalty += 4;
   if (!v.nonDestructive) penalty += 3;
   if (!v.designQaPass) penalty += 1;
+  // Richness: small, additive — nudges evals away from thin, floor-failing modules
+  // (capped at +2 so it never dominates the correctness gates above).
+  if (v.richnessFailCount > 0) penalty += Math.min(2, v.richnessFailCount);
   return Math.min(10, penalty);
 }

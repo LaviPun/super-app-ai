@@ -199,7 +199,9 @@ export const POSTPURCHASE_THANKYOU_OFFER_TEMPLATES: TemplateEntry[] = [
           manualVariantGids: [],
           collectionRandom: false,
           excludeTags: [],
-          strategy: 'top-sellers',
+          // Post-purchase has no App-Proxy access — top-sellers would always degrade
+          // to fallback; source directly from the merchant's best-sellers collection.
+          strategy: 'collection',
           collectionGid: 'gid://shopify/Collection/30000000000001',
           productLimit: 3,
           hideCartProducts: true,

@@ -185,6 +185,10 @@
 .gen-cand:hover::before { opacity: 1; }
 .gen-cand:hover::after { opacity: 1; }
 .gen-cand:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+/* Recommended card (deterministic ranker's pick) — steady accent ring so it reads as the default pick without stealing focus. */
+.gen-cand-recommended { border-color: color-mix(in srgb, var(--acc) 55%, var(--p-border)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--acc) 45%, transparent), 0 14px 34px color-mix(in srgb, var(--acc) 16%, transparent); }
+.gen-cand-recommended::before { opacity: 1; }
+.cand-recommended { z-index: 2; }
 .gen-cand-scan { position: absolute; left: 0; right: 0; top: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--acc), transparent); opacity: .8; animation: candScan 3.6s ease-in-out infinite; pointer-events: none; }
 @keyframes candScan { 0% { transform: translateY(0); opacity: 0; } 12% { opacity: .85; } 50% { transform: translateY(360px); opacity: 0; } 100% { transform: translateY(360px); opacity: 0; } }
 .cand-head { display: flex; align-items: flex-start; gap: 11px; position: relative; z-index: 1; padding-right: 44px; }

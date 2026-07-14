@@ -4,7 +4,14 @@ import { enforceRateLimit } from '~/services/security/rate-limit.server';
 import {
   generateValidatedRecipeOptionsStream,
   AiProviderNotConfiguredError,
+  getLlmClient,
+  attributeServedCost,
+  recordAiUsage,
+  type RecipeOption,
 } from '~/services/ai/llm.server';
+import { rankOptions } from '~/services/ai/option-ranking.server';
+import { AiUsageService } from '~/services/observability/ai-usage.service';
+import { judgeAndPolishOption, isJudgePolishEnabled, polishIsNotWorse } from '~/services/ai/judge-polish.server';
 import { getPrisma } from '~/db.server';
 import { JobService } from '~/services/jobs/job.service';
 import { QuotaService } from '~/services/billing/quota.service';
@@ -38,13 +45,42 @@ export async function loader() {
  *   event: started     data: { index, approach, total }
  *   event: option      data: { index, approach, explanation, recipe }
  *   event: option_failed data: { index, approach, error }
+ *   event: ranking     data: { recommendedIndex, scores: [{ index, score, badges }] }
  *   event: done        data: { valid, total }
+ *   event: score          data: { index, score, dimensions? }   (Phase 5c, flag-gated)
+ *   event: option_updated data: { index, recipe, note:'polished' } (Phase 5c, flag-gated)
  *   event: error       data: { code, message }   (terminal)
+ *
+ * The `ranking` event (Phase 2c) is emitted once, right before `done`, when at
+ * least one option validated. It is purely additive — clients that ignore it are
+ * unaffected. `recommendedIndex`/`scores[].index` are REAL option indices.
+ *
+ * ASYNC JUDGE POLISH (Phase 5c) — emitted AFTER `done`, not before. The stream
+ * client (generate._index.tsx `streamGenerate`) reads frames from the response
+ * body until the ReadableStream CLOSES (`reader.read()` → done), NOT until the
+ * `done` SSE event — exactly like the existing `blueprint` frame, which already
+ * ships after `done`. So post-`done` `score`/`option_updated` frames are received
+ * as long as they precede `controller.close()`. This keeps the core response
+ * (options + ranking + done) first and fastest, then spends a HARD-time-boxed
+ * background window (≤ POLISH_MAX_MS, and skipped entirely once the request has
+ * already burned POLISH_SKIP_AFTER_MS) judging each option with a cheap model and
+ * pushing a validated, not-worse copy/style polish. It is OFF by default
+ * (JUDGE_POLISH_ENABLED) and every failure is silent — the core flow is never
+ * delayed or degraded. See judge-polish.server.ts.
  *
  * Use when the merchant UI wants progressive option rendering. The non-streaming
  * `/api/ai/create-module` route still works for clients that prefer batch.
  */
+// Async judge-polish time-box (Phase 5c). The core flow targets ≤60s and the
+// Cloudflare tunnel drops the connection at ~90-100s, so polish must stay well
+// inside that: cap the window at 20s, keep total under ~80s, and skip polish
+// outright when the pre-polish flow already ran long (elapsed > 45s).
+const POLISH_MAX_MS = 20_000;
+const POLISH_SKIP_AFTER_MS = 45_000;
+const POLISH_TUNNEL_SOFT_BUDGET_MS = 80_000;
 export async function action({ request }: { request: Request }) {
+  // Wall-clock anchor for the Phase-5c polish time-box (see POLISH_* constants).
+  const requestStart = Date.now();
   const { session, admin } = await shopify.authenticate.admin(request);
   await enforceRateLimit(`ai:${session.shop}`);
 
@@ -110,7 +146,7 @@ export async function action({ request }: { request: Request }) {
   // Parity with the batch route: RAG grounding + live store-palette matching so
   // streamed storefront options look the same as the non-streaming path.
   const requirementSpec = await extractRequirementSpec({ userRequest: finalPrompt, classification, intentPacket });
-  const { grounding } = searchSolutions(requirementSpec);
+  const { grounding, exemplar } = searchSolutions(requirementSpec);
   const isStorefrontType =
     classification.moduleType === 'theme.section' || classification.moduleType === 'proxy.widget';
   // Default true (parity with the batch /api/ai/create-module route): storefront
@@ -130,6 +166,8 @@ export async function action({ request }: { request: Request }) {
       classifiedType: classification.moduleType,
       intent: intentPacket.classification.intent,
       stream: true,
+      exemplarTier: exemplar?.tier ?? null,
+      exemplarTemplateId: exemplar?.templateId ?? null,
     },
   });
   await jobs.start(job.id);
@@ -154,6 +192,10 @@ export async function action({ request }: { request: Request }) {
       });
 
       let validCount = 0;
+      // Collect the FINAL (post-mutation) options so we can emit a deterministic
+      // `ranking` frame once all options have arrived (Phase 2c). Keyed by real
+      // option index — failed options simply never enter the map.
+      const collected = new Map<number, RecipeOption>();
       try {
         for await (const event of generateValidatedRecipeOptionsStream(finalPrompt, classification, {
           shopId: shopRow.id,
@@ -163,6 +205,7 @@ export async function action({ request }: { request: Request }) {
           routerDecision,
           optionCount: 3,
           groundingBlock: grounding || undefined,
+          exemplar,
         })) {
           if (event.kind === 'option') {
             validCount++;
@@ -183,6 +226,22 @@ export async function action({ request }: { request: Request }) {
                 /* palette match is best-effort */
               }
             }
+            if (event.option) collected.set(event.index, event.option);
+          }
+          // Emit the deterministic ranking just before `done` so the client can
+          // preselect the recommended option. A client that ignores this event is
+          // unaffected (purely additive).
+          if (event.kind === 'done' && collected.size > 0) {
+            const entries = [...collected.entries()].sort((a, b) => a[0] - b[0]);
+            const ranking = rankOptions(entries.map(([, opt]) => opt));
+            send('ranking', {
+              recommendedIndex: entries[ranking.recommendedIndex]?.[0] ?? entries[0]![0],
+              scores: ranking.scores.map((s) => ({
+                index: entries[s.index]![0],
+                score: s.score,
+                badges: s.badges,
+              })),
+            });
           }
           send(event.kind, event);
         }
@@ -199,6 +258,7 @@ export async function action({ request }: { request: Request }) {
               promptProfile: intentPacket.routing.prompt_profile,
               routerDecision,
               groundingBlock: grounding || undefined,
+              exemplar,
             });
             if (blueprint) {
               if (aesthetic) {
@@ -221,6 +281,98 @@ export async function action({ request }: { request: Request }) {
           }
         } catch {
           /* blueprint is additive — never fail the stream */
+        }
+
+        // Async LLM-judge polish (Phase 5c) — AFTER `done`/`blueprint`, flag-gated
+        // and hard-time-boxed so it can never delay or degrade the core response.
+        if (isJudgePolishEnabled() && collected.size > 0) {
+          const elapsed = Date.now() - requestStart;
+          const timeBox = Math.min(POLISH_MAX_MS, POLISH_TUNNEL_SOFT_BUDGET_MS - elapsed);
+          // Skip entirely when the pre-polish flow already ran long, or no budget
+          // remains — protecting the tunnel deadline over a nice-to-have polish.
+          if (elapsed <= POLISH_SKIP_AFTER_MS && timeBox > 0) {
+            try {
+              const entries = [...collected.entries()].sort((a, b) => a[0] - b[0]);
+              const { client: judgeClient, providerId: judgeProviderId } = await getLlmClient(shopRow.id, {
+                blockMerchantCodeExecution: true,
+              });
+              const usage = new AiUsageService();
+              const deadline = requestStart + elapsed + timeBox;
+              // Once the window closes, suppress any late emit rather than push a
+              // frame past the intended budget.
+              let polishAborted = false;
+              const abortTimer = setTimeout(() => {
+                polishAborted = true;
+              }, timeBox);
+
+              await Promise.all(
+                entries.map(async ([index, option]) => {
+                  const remaining = deadline - Date.now();
+                  if (remaining <= 0) return;
+                  const res = await judgeAndPolishOption(option.recipe, {
+                    client: judgeClient,
+                    userRequest: finalPrompt,
+                    timeoutMs: Math.min(remaining, timeBox),
+                  });
+                  if (!res) return; // timed out — nothing to score or bill
+
+                  // Attribute the judge call's cost/usage. Judge calls are NOT a
+                  // billable merchant unit (requestCount: 0), mirroring how fan-out
+                  // option siblings count 0 toward quota (optionCallBillableUnits).
+                  if (res.raw) {
+                    try {
+                      const { providerId: servedId, costCents } = await attributeServedCost(
+                        res.raw,
+                        judgeProviderId,
+                        res.raw.tokensIn,
+                        res.raw.tokensOut,
+                      );
+                      await recordAiUsage(usage, {
+                        providerId: servedId,
+                        shopId: shopRow.id,
+                        action: 'RECIPE_JUDGE_POLISH',
+                        tokensIn: res.raw.tokensIn,
+                        tokensOut: res.raw.tokensOut,
+                        costCents,
+                        requestCount: 0,
+                        meta: {
+                          index,
+                          model: res.raw.model,
+                          score: res.score,
+                          patched: Boolean(res.patchedRecipe),
+                        },
+                      });
+                    } catch {
+                      /* usage logging must never break the stream */
+                    }
+                  }
+
+                  if (polishAborted) return;
+                  if (typeof res.score === 'number') {
+                    send('score', {
+                      index,
+                      score: res.score,
+                      ...(res.dimensions ? { dimensions: res.dimensions } : {}),
+                    });
+                  }
+                  // Push a polished recipe ONLY when the validated patch does not
+                  // regress the deterministic rank score (never push a worse option).
+                  if (
+                    res.patchedRecipe &&
+                    polishIsNotWorse(option.recipe, res.patchedRecipe, {
+                      generationMode: option.generationMode,
+                      qaSummary: option.qaSummary,
+                    })
+                  ) {
+                    send('option_updated', { index, recipe: res.patchedRecipe, note: 'polished' });
+                  }
+                }),
+              );
+              clearTimeout(abortTimer);
+            } catch {
+              /* judge polish is additive — never fail the stream */
+            }
+          }
         }
 
         await jobs.succeed(job.id, { optionCount: validCount, type: classification.moduleType });

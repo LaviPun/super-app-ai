@@ -21,6 +21,7 @@ const {
   messagingRunMock,
   httpSyncRunMock,
   accrueForOrderMock,
+  restockRunMock,
   loggerMock,
 } = vi.hoisted(() => ({
   authWebhookMock: vi.fn(),
@@ -31,6 +32,7 @@ const {
   messagingRunMock: vi.fn(),
   httpSyncRunMock: vi.fn(),
   accrueForOrderMock: vi.fn(),
+  restockRunMock: vi.fn(),
   loggerMock: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
@@ -76,6 +78,12 @@ vi.mock('~/services/integration/http-sync-runner.service', () => ({
   },
 }));
 
+vi.mock('~/services/messaging/restock-watcher.server', () => ({
+  RestockWatcherService: class {
+    runForProductUpdate = restockRunMock;
+  },
+}));
+
 vi.mock('~/services/composites/loyalty-accrual.server', () => ({
   accrueForOrder: accrueForOrderMock,
 }));
@@ -116,6 +124,7 @@ describe('webhooks.tsx main action', () => {
     messagingRunMock.mockResolvedValue(undefined);
     httpSyncRunMock.mockResolvedValue(undefined);
     accrueForOrderMock.mockResolvedValue(undefined);
+    restockRunMock.mockResolvedValue(undefined);
     shopFindUniqueMock.mockResolvedValue({ id: 'shop-1' });
   });
 
@@ -202,6 +211,64 @@ describe('webhooks.tsx main action', () => {
     expect(messagingRunMock).not.toHaveBeenCalled();
     expect(httpSyncRunMock).not.toHaveBeenCalled();
     expect(accrueForOrderMock).not.toHaveBeenCalled();
+  });
+
+  it('products/update drives the restock watcher (best-effort sibling) and returns 200', async () => {
+    const graphqlFn = vi.fn();
+    authWebhookMock.mockResolvedValue({
+      admin: { graphql: graphqlFn },
+      payload: { id: 100, admin_graphql_api_id: 'gid://shopify/Product/100', variants: [] },
+      shop: 'shop.example.myshopify.com',
+      topic: 'products/update',
+    });
+
+    const mod = await import('~/routes/webhooks');
+    const res = await mod.action({ request: webhookRequest() });
+
+    expect(res.status).toBe(200);
+    expect(flowRunMock).toHaveBeenCalledWith(
+      'shop.example.myshopify.com',
+      expect.anything(),
+      'SHOPIFY_WEBHOOK_PRODUCT_UPDATED',
+      expect.objectContaining({ id: 100 }),
+    );
+    expect(restockRunMock).toHaveBeenCalledTimes(1);
+    const [shopArg, adminGraphqlArg, eventArg] = restockRunMock.mock.calls[0]!;
+    expect(shopArg).toBe('shop.example.myshopify.com');
+    expect(typeof adminGraphqlArg).toBe('function'); // adapted graphql fn passed through
+    expect(eventArg).toMatchObject({ admin_graphql_api_id: 'gid://shopify/Product/100' });
+    expect(unmarkMock).not.toHaveBeenCalled();
+  });
+
+  it('a restock watcher failure does NOT 500 the webhook (best-effort)', async () => {
+    authWebhookMock.mockResolvedValue({
+      admin: { graphql: vi.fn() },
+      payload: { id: 100, variants: [] },
+      shop: 'shop.example.myshopify.com',
+      topic: 'products/update',
+    });
+    restockRunMock.mockRejectedValue(new Error('watcher boom'));
+
+    const mod = await import('~/routes/webhooks');
+    const res = await mod.action({ request: webhookRequest() });
+
+    expect(res.status).toBe(200);
+    expect(unmarkMock).not.toHaveBeenCalled();
+    expect(loggerMock.error).toHaveBeenCalled();
+  });
+
+  it('does NOT run the restock watcher on a non-product topic (orders/create)', async () => {
+    authWebhookMock.mockResolvedValue({
+      admin: { graphql: vi.fn() },
+      payload: { id: 42 },
+      shop: 'shop.example.myshopify.com',
+      topic: 'orders/create',
+    });
+
+    const mod = await import('~/routes/webhooks');
+    await mod.action({ request: webhookRequest() });
+
+    expect(restockRunMock).not.toHaveBeenCalled();
   });
 
   it('app/uninstalled purges sessions and enqueues cleanup, returns 200', async () => {

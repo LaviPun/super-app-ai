@@ -1,4 +1,4 @@
-{% # theme-check-disable OrphanedSnippet %}
+{% # theme-check-disable OrphanedSnippet, RemoteAsset %}
 {% comment %}
   SuperApp Product Bundle widget (interactive).
   Rendered from blocks/product-slot.liquid and blocks/universal-slot.liquid via
@@ -45,9 +45,7 @@
       {% for component in mod_cfg.components %}
         <li class="superapp-bundle__item superapp-row" data-variant-id="{{ component.variantId | escape }}">
           {% if component.imageUrl != blank %}
-            {% # theme-check-disable RemoteAsset %}
             <img class="superapp-bundle__img" src="{{ component.imageUrl | escape }}" alt="" loading="lazy" width="64" height="64">
-            {% # theme-check-enable RemoteAsset %}
           {% endif %}
           <span class="superapp-bundle__item-title">{{ component.title | escape }}</span>
           {% if component.priceLabel != blank %}

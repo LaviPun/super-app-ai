@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { RecipeSpec, RuleEnginePack, RecommendationPack } from '@superapp/core';
 import { sanitizeConfigUrls } from '~/services/recipes/compiler/sanitize-urls';
+import { KIND_ARCHETYPE, type SectionArchetype } from '~/services/recipes/kind-archetype';
 import { evaluateRuleEngine, messagingChannelSendability } from '@superapp/core';
 import {
   compileStyleVars,
@@ -52,9 +53,11 @@ export type PreviewContext = {
 // quality on something the storefront never renders. `render()` sets the active
 // pack for the duration of the (synchronous) render; `pageHtml` wraps the body
 // and inlines the pack stylesheet. Non-storefront surfaces get no wrapper.
-type PreviewPack = 'luxe' | 'bold';
+type PreviewPack = 'luxe' | 'bold' | 'playful' | 'utility';
 let activePack: PreviewPack | null = null;
 let activeAccent: string | undefined;
+/** A7 — device-visibility affordance note shown on the preview when device rules are set. */
+let activeDeviceNote: string | null = null;
 
 let packCssCache: string | null = null;
 /** Load the real theme-extension stylesheet (cached). '' when unavailable (previews degrade to legacy CSS). */
@@ -98,9 +101,11 @@ const BUYER_FACING_DS_TYPES = new Set<string>([
   'customerAccount.blocks',
 ]);
 
+const PREVIEW_PACKS: readonly PreviewPack[] = ['luxe', 'bold', 'playful', 'utility'];
 function previewPackOf(spec: RecipeSpec): PreviewPack {
   const p = (spec as { style?: { pack?: string } }).style?.pack;
-  return p === 'bold' ? 'bold' : 'luxe';
+  // 'auto' (unresolved) + anything unknown fall back to Luxe (the can't-look-wrong pack).
+  return PREVIEW_PACKS.includes(p as PreviewPack) ? (p as PreviewPack) : 'luxe';
 }
 
 function previewAccentOf(spec: RecipeSpec): string | undefined {
@@ -127,11 +132,14 @@ export class PreviewService {
     const carriesPack = spec.type === 'theme.section' || spec.type === 'proxy.widget' || BUYER_FACING_DS_TYPES.has(spec.type);
     activePack = carriesPack ? previewPackOf(spec) : null;
     activeAccent = carriesPack ? previewAccentOf(spec) : undefined;
+    activeDeviceNote =
+      spec.type === 'theme.section' || spec.type === 'proxy.widget' ? deviceNoteOf(spec) : null;
     try {
       return this.renderInner(spec, context, surface);
     } finally {
       activePack = null;
       activeAccent = undefined;
+      activeDeviceNote = null;
     }
   }
 
@@ -333,15 +341,54 @@ export class PreviewService {
     const styleVars = compileStyleVars(style, { structuralDefaults: true });
     const styleCss = compileStyleCss(style, '.superapp-popup__panel');
     const overlayCss = compileOverlayPositionCss(style, '.superapp-popup', '.superapp-popup__panel');
+
+    // Gamified popup parity (storefront: superapp-module.liquid). When blocks[]
+    // carry kind:'slice' the storefront renders a spin-to-win wheel; kind:'scratch'
+    // renders a scratch card. Mirror both here as a static representation (the live
+    // spin/scratch runs in superapp-modules.js) so the builder preview never shows
+    // a plain popup for a wheel/scratch config.
+    const blocks = (spec.config.blocks ?? []) as Array<{
+      kind?: string;
+      text?: string;
+      fields?: Record<string, unknown>;
+    }>;
+    const slices = blocks.filter((b) => b?.kind === 'slice');
+    const firstScratch = blocks.find((b) => b?.kind === 'scratch');
+    const gameBody = slices.length > 0
+      ? this.popupWheelPreview(slices)
+      : firstScratch
+        ? this.popupScratchPreview(firstScratch)
+        : '';
+    // Emit ONLY the game CSS actually used, so a classic popup stays free of
+    // wheel/scratch rules (the feature-gate is observable in the output too).
+    const gameCss = slices.length > 0
+      ? POPUP_WHEEL_PREVIEW_CSS
+      : firstScratch
+        ? POPUP_SCRATCH_PREVIEW_CSS
+        : '';
+
+    const panelInner = gameBody
+      ? gameBody
+      : `${body ? `<p class="superapp-popup__body">${esc(String(body))}</p>` : ''}
+          ${ctaText && ctaUrl ? `<a class="superapp-popup__cta" href="${escAttr(String(ctaUrl))}">${esc(String(ctaText))}</a>` : ''}`;
+
+    // B5 — teaser / minimized state. When behavior.teaser is enabled the storefront
+    // collapses the popup to a reopenable pill on dismiss; show that pill affordance.
+    const teaser = ((spec.config as { behavior?: { teaser?: { enabled?: boolean; label?: string; position?: string } } }).behavior ?? {}).teaser;
+    const teaserHtml = teaser?.enabled
+      ? `<button class="superapp-teaser superapp-teaser--${teaser.position === 'bottom-left' ? 'bottom-left' : 'bottom-right'}" type="button">${esc(teaser.label || 'Get 10% off')}</button>
+         <p class="preview-label">Dismissing minimizes to this reopenable teaser.</p>`
+      : '';
+
     return pageHtml(`
       <button class="demo-open" onclick="document.querySelector('.superapp-popup').hidden=false">Open popup preview</button>
+      ${teaserHtml}
       <div class="superapp-popup" hidden>
         <div class="superapp-popup__backdrop" onclick="document.querySelector('.superapp-popup').hidden=true"></div>
         <div class="superapp-popup__panel" role="dialog" aria-modal="true" aria-label="${escAttr(title)}">
           <button class="superapp-popup__close" type="button" onclick="document.querySelector('.superapp-popup').hidden=true" aria-label="Close">×</button>
           <h3 class="superapp-popup__title">${esc(title)}</h3>
-          ${body ? `<p class="superapp-popup__body">${esc(String(body))}</p>` : ''}
-          ${ctaText && ctaUrl ? `<a class="superapp-popup__cta" href="${escAttr(String(ctaUrl))}">${esc(String(ctaText))}</a>` : ''}
+          ${panelInner}
         </div>
       </div>
     `, `
@@ -356,7 +403,62 @@ export class PreviewService {
       .superapp-popup__title { margin: 0 0 10px; font-size: 1.25em; font-weight: var(--sa-fw); }
       .superapp-popup__body { margin: 0 0 12px; opacity: .85; }
       .superapp-popup__cta { display:inline-block; padding: 10px 14px; border: 1px solid currentColor; text-decoration:none; border-radius: var(--sa-radius); background: var(--sa-btn-bg, transparent); color: var(--sa-btn-text, var(--sa-text)); }
+      ${gameCss}
     `);
+  }
+
+  /**
+   * Static spin-to-win wheel preview (storefront parity for a popup whose blocks
+   * carry kind:'slice'). Renders the conic-gradient dial with each slice's label
+   * around the hub, a pointer, a disabled spin control, and a "spins on the
+   * storefront" affordance. Deterministic — no live spin (that runs client-side).
+   */
+  private popupWheelPreview(
+    slices: Array<{ text?: string; fields?: Record<string, unknown> }>,
+  ): string {
+    const seg = 360 / slices.length;
+    const stops = slices
+      .map((_, i) => {
+        const a = (i * seg).toFixed(3);
+        const b = ((i + 1) * seg).toFixed(3);
+        const color = i % 2 === 0 ? 'var(--sa-accent)' : 'color-mix(in srgb, var(--sa-accent) 30%, Canvas)';
+        return `${color} ${a}deg ${b}deg`;
+      })
+      .join(', ');
+    const grad = `conic-gradient(from -90deg, ${stops})`;
+    const labels = slices
+      .map(
+        (s, i) =>
+          `<span class="superapp-wheel__label" style="--sa-wheel-i:${i};"><span class="superapp-wheel__labeltext">${esc(String(s.text ?? ''))}</span></span>`,
+      )
+      .join('');
+    return `
+      <div class="superapp-game">
+        <div class="preview-label">Spins on the storefront</div>
+        <div class="superapp-wheel" style="--sa-wheel-n:${slices.length};">
+          <span class="superapp-wheel__pointer" aria-hidden="true"></span>
+          <div class="superapp-wheel__dial" role="img" aria-label="Prize wheel with ${slices.length} segments" style="background:${grad};">
+            ${labels}
+            <span class="superapp-wheel__hub" aria-hidden="true"></span>
+          </div>
+        </div>
+        <button class="superapp-popup__cta" type="button" disabled>Spin the wheel</button>
+      </div>`;
+  }
+
+  /** Static scratch-card preview (storefront parity for blocks kind:'scratch'). */
+  private popupScratchPreview(card: { text?: string; fields?: Record<string, unknown> }): string {
+    const code = String((card.fields ?? {}).couponCode ?? '');
+    const label = String(card.text ?? code ?? 'Your prize');
+    return `
+      <div class="superapp-game">
+        <div class="preview-label">Scratches on the storefront</div>
+        <div class="superapp-scratch">
+          <div class="superapp-scratch__prize">${esc(label || code || 'Your prize')}</div>
+          <div class="superapp-scratch__overlay" aria-hidden="true">Scratch here</div>
+        </div>
+        <p class="superapp-scratch__hint">Reveals the code once ~50% is scratched.</p>
+      </div>`;
   }
 
   /** Kind renderer: banner. Reads from config.fields, falling back to top-level config. */
@@ -474,7 +576,15 @@ export class PreviewService {
     const mediaUrl = saStr(spec, 'mediaImageUrl') || saStr(spec, 'heroImageUrl') || saStr(spec, 'imageUrl');
     const mediaAlt = saStr(spec, 'mediaAlt') || title;
     const mediaSide = saStr(spec, 'mediaSide') === 'left' ? 'left' : 'right';
-    const overlay = f.overlayText === true || saStr(spec, 'layoutVariant') === 'overlay';
+    // A5 — video hero. The storefront renders an mp4 <video> or a YouTube/Vimeo
+    // lite embed; the deterministic preview shows the poster + a play glyph over a
+    // scrim (static parity — no live playback in the builder).
+    const videoUrl = saStr(spec, 'videoUrl');
+    const isVideo = Boolean(videoUrl);
+    const posterUrl = saStr(spec, 'posterImageUrl') || saStr(spec, 'backgroundImageUrl') || mediaUrl;
+    const ovRaw = saFields(spec).overlayOpacity;
+    const overlayOpacity = typeof ovRaw === 'number' ? Math.max(0, Math.min(1, ovRaw)) : 0.4;
+    const overlay = isVideo || f.overlayText === true || saStr(spec, 'layoutVariant') === 'overlay';
     const layout = String(spec.config.layout?.layout ?? 'stacked');
     const hasMedia = Boolean(mediaUrl) || overlay || layout === 'grid';
     const variant = overlay ? 'overlay' : hasMedia && layout === 'grid' ? 'split' : 'centered';
@@ -510,7 +620,15 @@ export class PreviewService {
         ${ctasHtml ? `<div class="superapp-hero__ctas">${ctasHtml}</div>` : ''}
         ${proofHtml}
       </div>`;
-    const media = hasMedia ? phMedia(mediaUrl, mediaAlt, 'superapp-hero__media') : '';
+    const media = isVideo
+      ? `<div class="superapp-hero__video superapp-hero__video--preview">${phMedia(
+          posterUrl,
+          mediaAlt,
+          'superapp-hero__poster',
+        )}<span class="superapp-hero__scrim" aria-hidden="true" style="opacity:${overlayOpacity}"></span><span class="superapp-hero__play" aria-hidden="true">▶</span></div>`
+      : hasMedia
+        ? phMedia(mediaUrl, mediaAlt, 'superapp-hero__media')
+        : '';
     // Split: media order follows mediaSide; overlay: media is a backdrop.
     const inner =
       variant === 'overlay'
@@ -519,9 +637,13 @@ export class PreviewService {
           ? `${media}${content}`
           : `${content}${media}`;
 
+    // Preview-only chrome for the video poster (the pack sheet owns .superapp-hero*).
+    const videoCss = isVideo
+      ? '.superapp-hero__video--preview{position:absolute;inset:0;z-index:0;}.superapp-hero__poster{width:100%;height:100%;object-fit:cover;}.superapp-hero__scrim{position:absolute;inset:0;background:#000;}.superapp-hero__play{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1;display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:999px;background:rgba(255,255,255,.9);color:#111;font-size:24px;}'
+      : '';
     return pageHtml(
       `<section class="superapp-hero superapp-hero--${variant}">${inner}</section>`,
-      this.archCss(spec, '.superapp-hero'),
+      this.archCss(spec, '.superapp-hero') + videoCss,
     );
   }
 
@@ -555,8 +677,11 @@ export class PreviewService {
     );
   }
 
-  /** Gallery / lookbook image grid, masonry or carousel. */
+  /** Gallery / lookbook image grid, masonry or carousel (+ A6 UGC grid). */
   private sectionGallery(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    // A6 — UGC / Instagram grid (kind: ugc-grid): aspect-ratio tiles whose
+    // hover/focus overlay surfaces caption + @handle + a 'Shop this' link.
+    if (spec.config.kind === 'ugc-grid') return this.sectionUgcGrid(spec);
     const layout = String(spec.config.layout?.layout ?? 'grid');
     const variant = layout === 'masonry' ? 'masonry' : layout === 'carousel' ? 'carousel' : 'grid';
     const items = (spec.config.blocks ?? [])
@@ -578,6 +703,37 @@ export class PreviewService {
         <div class="superapp-gallery__grid">${items}</div>
       </section>`,
       this.archCss(spec, '.superapp-gallery'),
+    );
+  }
+
+  /** A6 — UGC / Instagram grid: aspect-ratio tiles with a hover/focus overlay. */
+  private sectionUgcGrid(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const items = (spec.config.blocks ?? [])
+      .filter((b) => b.kind === 'slide' || b.kind === 'media' || b.kind === 'tile' || b.kind === 'image')
+      .map((b) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        const cap = bf.caption != null ? String(bf.caption) : (b.text ?? '');
+        const handle = bf.authorHandle != null ? String(bf.authorHandle).replace(/^@/, '') : '';
+        const shop = bf.productUrl != null ? String(bf.productUrl) : (b.url ?? '');
+        const shopLabel = bf.shopLabel != null ? String(bf.shopLabel) : 'Shop this';
+        const alt = bf.alt != null ? String(bf.alt) : cap;
+        return `
+          <figure class="superapp-gallery__item superapp-gallery__item--ugc">
+            ${phMedia(b.imageUrl ?? '', alt, 'superapp-gallery__img')}
+            <figcaption class="superapp-gallery__ugc" tabindex="0">
+              ${cap ? `<span class="superapp-gallery__ugccap">${esc(cap)}</span>` : ''}
+              ${handle ? `<span class="superapp-gallery__ugchandle">@${esc(handle)}</span>` : ''}
+              ${shop ? `<a class="superapp-gallery__ugcshop" href="${escAttr(shop)}">${esc(shopLabel)}</a>` : ''}
+            </figcaption>
+          </figure>`;
+      })
+      .join('');
+    return pageHtml(
+      `<div class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-gallery superapp-gallery--ugc">${items}</div>
+      </div>`,
+      this.archCss(spec, '.superapp-archsection'),
     );
   }
 
@@ -605,6 +761,11 @@ export class PreviewService {
 
   /** Pricing tiers / comparison — plan cards, featured highlight. */
   private sectionPricing(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    // A1 — volume/quantity-break table (kind: volume-tiers): selectable radio-row
+    // tier cards mirroring the storefront Liquid. Selecting a row sets the page
+    // quantity input on the storefront (JS); the preview shows the highlighted row
+    // pre-selected.
+    if (spec.config.kind === 'volume-tiers') return this.sectionVolumeTiers(spec);
     const plans = (spec.config.blocks ?? [])
       .filter((b) => b.kind === 'plan' || b.kind === 'tile' || b.kind === 'comparison' || b.kind === 'row')
       .map((b) => {
@@ -643,6 +804,38 @@ export class PreviewService {
     );
   }
 
+  /** A1 — volume/quantity-break tier table: selectable radio-row cards. */
+  private sectionVolumeTiers(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const rows = (spec.config.blocks ?? [])
+      .filter((b) => b.kind === 'tier' || b.kind === 'plan' || (b.fields as Record<string, unknown> | undefined)?.quantityMin != null)
+      .map((b) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        const hl = bf.highlight === true;
+        const label = String(b.text ?? bf.quantityMin ?? '');
+        const discount = bf.discountLabel ? String(bf.discountLabel) : '';
+        const unit = bf.pricePerUnit != null ? String(bf.pricePerUnit) : bf.percentOff != null ? `${bf.percentOff}% off` : '';
+        const save = bf.savingsLabel ? String(bf.savingsLabel) : '';
+        const badge = bf.badge ? String(bf.badge) : hl ? 'Most popular' : '';
+        return `
+          <label class="superapp-vtier${hl ? ' superapp-vtier--hl' : ''}">
+            <input class="superapp-vtier__radio" type="radio" name="sa-vt-preview"${hl ? ' checked' : ''} />
+            ${hl && badge ? `<span class="superapp-vtier__badge">${esc(badge)}</span>` : ''}
+            <span class="superapp-vtier__label">${esc(label)}</span>
+            ${discount ? `<span class="superapp-vtier__discount">${esc(discount)}</span>` : ''}
+            ${unit ? `<span class="superapp-vtier__unit">${esc(unit)}</span>` : ''}
+            ${save ? `<span class="superapp-vtier__save">${esc(save)}</span>` : ''}
+          </label>`;
+      })
+      .join('');
+    return pageHtml(
+      `<div class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-vtiers">${rows}</div>
+      </div>`,
+      this.archCss(spec, '.superapp-archsection'),
+    );
+  }
+
   /** FAQ — native <details> accordion honoring expandBehavior/defaultOpenIndex. */
   private sectionFaq(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
     const f = saFields(spec);
@@ -675,8 +868,60 @@ export class PreviewService {
 
   /** Testimonials / reviews — quote cards with ★ ratings. */
   private sectionTestimonial(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
-    const cards = (spec.config.blocks ?? [])
-      .filter((b) => b.kind === 'review-card' || b.kind === 'testimonial' || b.kind === 'review' || b.kind === 'social-proof')
+    const blocks = (spec.config.blocks ?? []).filter(
+      (b) => b.kind === 'review-card' || b.kind === 'testimonial' || b.kind === 'review' || b.kind === 'social-proof',
+    );
+    // A4 — carousel upgrade gate (parity with the storefront Liquid): ≥3 blocks AND
+    // a NEW rating/avatar signal (any block with fields.avatarUrl or fields.authorTitle).
+    // Old specs carry neither → the classic static grid renders byte-identically.
+    const rich =
+      blocks.length >= 3 &&
+      blocks.some((b) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        return bf.avatarUrl != null || bf.authorTitle != null;
+      });
+
+    if (rich) {
+      const cards = blocks
+        .map((b) => {
+          const bf = (b.fields ?? {}) as Record<string, unknown>;
+          const rating = typeof bf.rating === 'number' ? bf.rating : 5;
+          const pct = Math.max(0, Math.min(5, rating)) * 20;
+          const author = bf.author ? String(bf.author) : '';
+          const sub = bf.authorTitle ? String(bf.authorTitle) : bf.location ? String(bf.location) : '';
+          const verified = bf.verified === true;
+          const avatarUrl = bf.avatarUrl ? String(bf.avatarUrl) : '';
+          const avatar =
+            avatarUrl && !isPlaceholderUrl(avatarUrl)
+              ? `<img class="superapp-testimonial__avatar" src="${escAttr(avatarUrl)}" alt="" loading="lazy" />`
+              : `<span class="superapp-testimonial__avatar superapp-testimonial__avatar--initials" aria-hidden="true">${esc(
+                  (author || '?').slice(0, 1).toUpperCase(),
+                )}</span>`;
+          return `
+            <figure class="superapp-testimonial__card">
+              ${avatar}
+              <span class="superapp-testimonial__stars" role="img" aria-label="Rated ${rating} out of 5" style="--sa-star-fill: ${pct}%;"><span class="superapp-testimonial__starsfill">★★★★★</span></span>
+              <blockquote class="superapp-testimonial__quote">${esc(b.text ?? '')}</blockquote>
+              ${
+                author
+                  ? `<figcaption class="superapp-testimonial__author">${esc(author)}${
+                      verified ? '<span class="superapp-testimonial__verified">✓ Verified</span>' : ''
+                    }${sub ? `<span class="superapp-testimonial__meta">${esc(sub)}</span>` : ''}</figcaption>`
+                  : ''
+              }
+            </figure>`;
+        })
+        .join('');
+      return pageHtml(
+        `<div class="superapp-archsection">
+          ${sectionHead(spec)}
+          <div class="superapp-testimonial superapp-testimonial--carousel" data-superapp-carousel>${cards}</div>
+        </div>`,
+        this.archCss(spec, '.superapp-archsection'),
+      );
+    }
+
+    const cards = blocks
       .map((b) => {
         const bf = (b.fields ?? {}) as Record<string, unknown>;
         const rating = typeof bf.rating === 'number' ? bf.rating : 5;
@@ -770,6 +1015,18 @@ export class PreviewService {
         .map((b) => {
           const bf = (b.fields ?? {}) as Record<string, unknown>;
           const caption = bf.caption ? String(bf.caption) : '';
+          // A2 — a badge's fields.icon selects a curated catalog mark (payment
+          // wordmark or trust glyph). Unknown/absent icon → the existing glyph()
+          // fallback (byte-identical to pre-A2 for icon-less badges).
+          const catalog = bf.icon ? badgeIcon(String(bf.icon)) : null;
+          if (catalog) {
+            return `
+            <div class="superapp-trust__badge superapp-trust__badge--icon">
+              ${catalog.svg}
+              <span class="superapp-trust__badgelabel">${esc(b.text ?? '')}</span>
+              ${caption ? `<span class="superapp-trust__badgecap">${esc(caption)}</span>` : ''}
+            </div>`;
+          }
           const icon = bf.icon ? String(bf.icon) : 'shield';
           return `
             <div class="superapp-trust__badge">
@@ -963,6 +1220,9 @@ export class PreviewService {
 
   /** Upsell / frequently-bought-together — product picks. */
   private sectionUpsell(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    // B2 — post-add-to-cart offer modal (kind: post-atc-offer). Rendered as a static
+    // modal mock; the storefront opens it after ATC with a live-resolved offer.
+    if (spec.config.kind === 'post-atc-offer') return this.sectionPostAtcOffer(spec);
     const products = (spec.config.blocks ?? [])
       .filter((b) => b.kind === 'product-card' || b.kind === 'feature' || b.kind === 'product')
       .map((b) => {
@@ -990,17 +1250,77 @@ export class PreviewService {
     );
   }
 
+  /** B2 — post-add-to-cart offer modal preview: static mock with accept/decline. */
+  private sectionPostAtcOffer(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const c = spec.config as Record<string, unknown>;
+    const title = String(c.offerTitle ?? 'Complete your order');
+    const accept = String(c.acceptLabel ?? 'Add to order');
+    const decline = String(c.declineLabel ?? 'No thanks');
+    const rec = c.recommendation as { strategy?: string } | undefined;
+    const strategy = rec?.strategy ? String(rec.strategy) : 'related';
+    const block = (spec.config.blocks ?? [])[0];
+    const offerName = block?.text ? String(block.text) : 'Recommended add-on';
+    const rawPrice = (block?.fields as Record<string, unknown> | undefined)?.price;
+    const price = rawPrice != null ? withDollarIfBare(String(rawPrice)) : '';
+    return pageHtml(
+      `<section class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-postatc-mock" role="group" aria-label="Post-add-to-cart offer preview">
+          <p class="superapp-postatc__eyebrow">${esc(title)}</p>
+          <div class="superapp-postatc__offer">
+            ${phMedia(block?.imageUrl ?? '', offerName, 'superapp-postatc__img')}
+            <div class="superapp-postatc__meta"><span class="superapp-postatc__name">${esc(offerName)}</span>${price ? `<span class="superapp-postatc__price">${esc(price)}</span>` : ''}</div>
+          </div>
+          <div class="superapp-postatc__actions">
+            <button class="superapp-postatc__accept" type="button" disabled>${esc(accept)}</button>
+            <button class="superapp-postatc__decline" type="button" disabled>${esc(decline)}</button>
+          </div>
+          <p class="superapp-band__affordance">Opens as a modal after Add to Cart — the offer is resolved live from your <strong>${esc(strategy)}</strong> recommendation source.</p>
+        </div>
+      </section>`,
+      this.archCss(spec, '.superapp-archsection') +
+        '.superapp-postatc-mock{max-width:360px;margin:0 auto;text-align:center;border:1px solid rgba(0,0,0,.14);border-radius:14px;padding:1.3rem;}.superapp-postatc__offer{display:flex;align-items:center;gap:.85rem;text-align:left;padding:.6rem 0;}.superapp-postatc__actions{display:flex;flex-direction:column;gap:.5rem;margin-top:1rem;}',
+    );
+  }
+
   /** Band — announcement / countdown / free-shipping / progress bar. */
   private sectionBand(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    // B1 — cart-goal / free-shipping progress bar (kind: progress-bar). The
+    // storefront computes live progress from /cart.js; the builder preview shows an
+    // illustrative 65%-to-first-tier state plus a "live cart progress" affordance.
+    if (spec.config.kind === 'progress-bar') return this.sectionProgressBar(spec);
+    // A3 — stock counter. On the storefront the count is READ from real product
+    // inventory (Liquid, no fake numbers). The builder preview has no product, so it
+    // shows an illustrative count from a sample within the threshold plus a "live
+    // inventory on the storefront" affordance so the merchant understands it is real.
+    if (spec.config.kind === 'stock-counter') {
+      const threshold = Number(saStr(spec, 'threshold')) || 10;
+      const sample = Math.max(1, Math.min(Math.round(threshold * 0.7) || 1, threshold));
+      const tpl = saStr(spec, 'messageTemplate') || 'Only {count} left in stock!';
+      const msg = tpl.replace(/\{count\}/g, String(sample));
+      const urgent = saFields(spec).urgency === true;
+      return pageHtml(
+        `<section class="superapp-band superapp-band--stock">
+          <div class="superapp-stockcounter${urgent ? ' superapp-stockcounter--urgent' : ''}" role="status"><span class="superapp-stockcounter__text">${esc(
+            msg,
+          )}</span></div>
+          <p class="superapp-band__affordance">Live inventory on the storefront — appears only when real stock is at or below ${esc(
+            String(threshold),
+          )}.</p>
+        </section>`,
+        this.archCss(spec, '.superapp-band'),
+      );
+    }
     const message = String(spec.config.title ?? saStr(spec, 'message') ?? saStr(spec, 'text') ?? '');
     const ctaLabel = saStr(spec, 'ctaLabel') || saStr(spec, 'linkText');
     const ctaUrl = saStr(spec, 'ctaUrl') || saStr(spec, 'linkUrl');
     const countdownTo = saStr(spec, 'countdownTo') || saStr(spec, 'endTime');
     const hasProgress = spec.config.kind === 'progress' || saStr(spec, 'threshold') !== '';
+    const countdownHtml = this.countdownPreview(spec, countdownTo);
     return pageHtml(
       `<section class="superapp-band">
         <span class="superapp-band__text">${esc(message)}</span>
-        ${countdownTo ? `<span class="superapp-band__countdown" data-sa-countdown="${escAttr(countdownTo)}">00 : 00 : 00</span>` : ''}
+        ${countdownHtml}
         ${hasProgress ? `<span class="superapp-band__progress"><span class="superapp-band__progressfill" style="width:64%"></span></span>` : ''}
         ${ctaLabel ? `<a class="superapp-band__cta" href="${escAttr(ctaUrl || '#')}">${esc(ctaLabel)}</a>` : ''}
       </section>`,
@@ -1008,8 +1328,84 @@ export class PreviewService {
     );
   }
 
+  /**
+   * B4 Countdown V2 preview. The countdown pack config (`config.countdown`) drives a
+   * TILES render (4 labelled boxes, static illustrative values) or a plain string;
+   * a bare legacy `countdownTo` ISO keeps the pre-B4 plain string. Returns '' when
+   * there is no countdown at all.
+   */
+  private countdownPreview(spec: Extract<RecipeSpec, { type: 'theme.section' }>, countdownTo: string): string {
+    const cd = (spec.config as Record<string, unknown>).countdown as
+      | { enabled?: boolean; timerStyle?: string; labels?: { days?: string; hours?: string; minutes?: string; seconds?: string } }
+      | undefined;
+    if (cd?.enabled) {
+      const cdAttr = escAttr(JSON.stringify(cd));
+      if (cd.timerStyle === 'tiles') {
+        const lb = cd.labels ?? {};
+        const cells: Array<[string, string]> = [
+          ['02', lb.days ?? 'Days'],
+          ['08', lb.hours ?? 'Hrs'],
+          ['45', lb.minutes ?? 'Min'],
+          ['30', lb.seconds ?? 'Sec'],
+        ];
+        const tiles = cells
+          .map(
+            ([n, l]) =>
+              `<span class="superapp-cd__tile"><span class="superapp-cd__num">${esc(n)}</span><span class="superapp-cd__lbl">${esc(l)}</span></span>`,
+          )
+          .join('');
+        return `<span class="superapp-band__countdown superapp-cd superapp-cd--tiles" data-sa-cd="${cdAttr}">${tiles}</span>`;
+      }
+      return `<span class="superapp-band__countdown" data-sa-cd="${cdAttr}">02d 08:45:30</span>`;
+    }
+    return countdownTo
+      ? `<span class="superapp-band__countdown" data-sa-countdown="${escAttr(countdownTo)}">00 : 00 : 00</span>`
+      : '';
+  }
+
+  /** B1 — cart-goal / free-shipping progress bar preview (simulated 65%-to-tier). */
+  private sectionProgressBar(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const pg = (spec.config as Record<string, unknown>).progressGoal as
+      | { basis?: string; tiers?: Array<{ threshold: number; label: string; rewardType?: string }>; beforeText?: string; afterText?: string; barStyle?: string }
+      | undefined;
+    const basis = pg?.basis === 'item-count' ? 'item-count' : 'cart-total';
+    const barStyle = pg?.barStyle === 'chunky' ? 'chunky' : 'slim';
+    const tiers = Array.isArray(pg?.tiers) ? [...pg!.tiers].sort((a, b) => a.threshold - b.threshold).slice(0, 3) : [];
+    const maxTh = tiers.length ? tiers[tiers.length - 1]!.threshold : 0;
+    const firstTh = tiers.length ? tiers[0]!.threshold : 0;
+    // Simulate the shopper 65% of the way to the FIRST tier.
+    const current = 0.65 * firstTh;
+    const remaining = Math.max(0, firstTh - current);
+    const pct = maxTh > 0 ? Math.min(100, (current / maxTh) * 100) : 65;
+    const fmt = (n: number): string => (basis === 'item-count' ? String(Math.round(n)) : withDollarIfBare(n.toFixed(2)));
+    const before = String(pg?.beforeText ?? 'You’re {remaining} away from your reward')
+      .replace(/\{amount\}/g, fmt(current))
+      .replace(/\{remaining\}/g, fmt(remaining));
+    const markers = tiers
+      .map((t) => {
+        const left = maxTh > 0 ? Math.min(100, (t.threshold / maxTh) * 100) : 0;
+        const reached = current >= t.threshold;
+        return `<span class="superapp-progress__marker${reached ? ' is-reached' : ''}" style="left:${left.toFixed(1)}%" title="${escAttr(String(t.label))}"></span>`;
+      })
+      .join('');
+    return pageHtml(
+      `<section class="superapp-band superapp-band--progress">
+        <div class="superapp-progress superapp-progress--${barStyle}" role="group">
+          <p class="superapp-progress__text">${esc(before)}</p>
+          <div class="superapp-progress__track"><span class="superapp-progress__fill" style="width:${pct.toFixed(0)}%"></span>${markers}</div>
+        </div>
+        <p class="superapp-band__affordance">Live cart progress on the storefront — the fill and remaining-to-reward copy update from the shopper’s real cart total.</p>
+      </section>`,
+      this.archCss(spec, '.superapp-band'),
+    );
+  }
+
   /** Technical (consent/json-ld/meta/…) — curated, human-labeled config card. */
   private sectionTechnical(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    // B3 — sticky ATC v2 lives under the `technical` archetype (kind: sticky-atc).
+    if (spec.config.kind === 'sticky-atc') return this.sectionStickyAtc(spec);
+    // A8 — size-chart modal (kind: size-chart): static table + trigger mock.
+    if (spec.config.kind === 'size-chart') return this.sectionSizeChart(spec);
     const kind = spec.config.kind;
     const rows = curatedTechRows(spec);
     const rowsHtml = rows
@@ -1031,6 +1427,73 @@ export class PreviewService {
         }
       </section>`,
       this.archCss(spec, '.superapp-techcard'),
+    );
+  }
+
+  /** A8 — size-chart modal preview: static table + a mock "Size guide" trigger. */
+  private sectionSizeChart(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const rows = (spec.config.blocks ?? []).filter((b) => b.kind === 'row');
+    const trigger = saStr(spec, 'triggerLabel') || 'Size guide';
+    if (rows.length === 0) {
+      // Honest parity with the storefront: no rows → nothing to show.
+      return pageHtml(
+        `<section class="superapp-techcard"><div class="superapp-techcard__type">Size chart</div><p class="superapp-techcard__note">Add rows (blocks of kind <code>row</code> with <code>fields.cells</code>) to populate the size table.</p></section>`,
+        this.archCss(spec, '.superapp-techcard'),
+      );
+    }
+    const colsRaw = saFields(spec).columns ?? saFields(spec).columnNames;
+    const cols = Array.isArray(colsRaw) ? colsRaw.map(String) : [];
+    const thead = cols.length
+      ? `<thead><tr><th scope="col"></th>${cols.map((c) => `<th scope="col">${esc(c)}</th>`).join('')}</tr></thead>`
+      : '';
+    const tbody = rows
+      .map((b) => {
+        const cellsRaw = (b.fields as Record<string, unknown> | undefined)?.cells;
+        const cells = Array.isArray(cellsRaw) ? cellsRaw.map(String) : [];
+        return `<tr><th scope="row">${esc(b.text ?? '')}</th>${cells
+          .map((c) => `<td>${esc(c)}</td>`)
+          .join('')}</tr>`;
+      })
+      .join('');
+    return pageHtml(
+      `<section class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-sizechart superapp-sizechart--preview">
+          <button class="superapp-sizechart__trigger" type="button" disabled>${esc(trigger)}</button>
+          <div class="superapp-sizechart__scroll">
+            <table class="superapp-sizechart__table">${thead}<tbody>${tbody}</tbody></table>
+          </div>
+          <p class="superapp-band__affordance">Opens as a modal from the “${esc(
+            trigger,
+          )}” trigger on the product page.</p>
+        </div>
+      </section>`,
+      this.archCss(spec, '.superapp-archsection') +
+        '.superapp-sizechart--preview{max-width:560px;margin:0 auto;text-align:center;}.superapp-sizechart--preview .superapp-sizechart__scroll{margin-top:0.75rem;overflow-x:auto;}',
+    );
+  }
+
+  /** B3 — sticky ATC v2 preview: static bar mock with variant select + qty + scroll affordance. */
+  private sectionStickyAtc(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const title = spec.config.title ? String(spec.config.title) : 'Your product';
+    const atcLabel = saStr(spec, 'ctaText') || saStr(spec, 'ctaLabel') || 'Add to cart';
+    const price = saStr(spec, 'price');
+    const priceLabel = price ? withDollarIfBare(price) : '$—';
+    const stepper = saFields(spec).showQuantity !== false;
+    return pageHtml(
+      `<section class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-satc superapp-satc--preview" role="group" aria-label="Sticky add-to-cart preview">
+          ${phMedia(saStr(spec, 'imageUrl'), title, 'superapp-satc__thumb')}
+          <div class="superapp-satc__meta"><span class="superapp-satc__name">${esc(title)}</span><span class="superapp-satc__price">${esc(priceLabel)}</span></div>
+          <select class="superapp-satc__variant" aria-label="Variant" disabled><option>Small</option><option>Medium</option><option>Large</option></select>
+          ${stepper ? '<input class="superapp-satc__qty" type="number" value="1" aria-label="Quantity" disabled>' : ''}
+          <button class="superapp-satc__atc" type="button" disabled>${esc(atcLabel)}</button>
+        </div>
+        <p class="superapp-band__affordance">Slides in from the bottom when the product’s Add-to-Cart scrolls out of view. Real product, price and variants come from the page.</p>
+      </section>`,
+      this.archCss(spec, '.superapp-archsection') +
+        '.superapp-satc--preview{position:static;transform:none;display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;border:1px solid rgba(0,0,0,.14);border-radius:12px;padding:.7rem .95rem;max-width:640px;margin:0 auto;}',
     );
   }
 
@@ -1771,8 +2234,21 @@ export class PreviewService {
           `<div class="sf-console__line"><span class="sf-console__ts">${clock[i % clock.length]}</span><span class="sf-console__ev">${esc(e)}</span><span style="color:#5C6780">→ collected</span></div>`,
       )
       .join('');
+    // Vendor identity (name/pixelId/mapping) is what distinguishes one pixel from
+    // another — the subscribed STANDARD events are often identical across vendors.
+    const pixelId = this.cfgVal(spec, 'pixelId');
+    const mapping = this.cfgVal(spec, 'mapping');
+    const mappedEvent =
+      mapping && typeof mapping === 'object' ? Object.values(mapping as Record<string, unknown>)[0] : undefined;
     const payload = JSON.stringify(
-      { name: evs[0] ?? 'page_viewed', timestamp: '2026-06-14T12:00:04Z', clientId: 'a1b2-c3d4', context: { document: { location: '/products/aurora' } } },
+      {
+        name: evs[0] ?? 'page_viewed',
+        timestamp: '2026-06-14T12:00:04Z',
+        clientId: 'a1b2-c3d4',
+        ...(typeof pixelId === 'string' && pixelId ? { destination: pixelId } : {}),
+        ...(typeof mappedEvent === 'string' && mappedEvent ? { forwardedAs: mappedEvent } : {}),
+        context: { document: { location: '/products/aurora' } },
+      },
       null,
       2,
     );
@@ -1782,7 +2258,7 @@ export class PreviewService {
           <span class="sf-console__dot" style="background:#FF5F57"></span>
           <span class="sf-console__dot" style="background:#FEBC2E"></span>
           <span class="sf-console__dot" style="background:#28C840"></span>
-          <span class="sf-console__title">web-pixel · event stream</span>
+          <span class="sf-console__title">web-pixel · ${esc(spec.name)}</span>
         </div>
         <div class="sf-console__log">${logLines}</div>
         <pre class="sf-console__pre">${esc(payload)}</pre>
@@ -2410,10 +2886,18 @@ function pageHtml(body: string, css: string) {
         letter-spacing: 0.02em; padding: 4px 8px; border-radius: 9999px;
         border: 1px solid rgba(17,24,39,0.08); pointer-events: none;
       }
+      .sa-device-note {
+        position: fixed; top: 8px; left: 8px; z-index: 2147483646;
+        background: rgba(17,24,39,0.06); color: #6b7280;
+        font: 600 11px/1 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        letter-spacing: 0.02em; padding: 4px 8px; border-radius: 9999px;
+        border: 1px solid rgba(17,24,39,0.08); pointer-events: none;
+      }
       ${css}${packCss ? `\n/* ── two-pack design system (real storefront stylesheet) ── */\n${packCss}` : ''}</style>
       </head>
       <body>
         <div class="sa-sample-badge" aria-hidden="true">Sample data</div>
+        ${activeDeviceNote ? `<div class="sa-device-note" aria-hidden="true">${esc(activeDeviceNote)}</div>` : ''}
         <div style="padding:16px">${scopeOpen}${body}${scopeClose}</div>
         ${LINK_INTERCEPT_SCRIPT}
       </body>
@@ -2491,50 +2975,32 @@ function layoutModifierClass(layout: unknown): string {
 }
 
 // ── R6 · Native-section archetype resolution + render helpers ────────────────
-// Single source of truth mapping every library `config.kind` to a canonical
-// archetype (archetype-contract.md §"Canonical archetypes and kind aliases").
-// The storefront Liquid + native-section compiler resolve the SAME table, so the
-// preview class trees below match what the storefront renders (R0 parity).
-
-type SectionArchetype =
-  | 'hero' | 'feature' | 'gallery' | 'collection' | 'pricing' | 'faq'
-  | 'testimonial' | 'stats' | 'cta' | 'trust' | 'newsletter' | 'launch'
-  | 'contact' | 'team' | 'timeline' | 'upsell' | 'band' | 'technical';
-
-// Exported for the drift-guard test (kind-archetype-parity.test.ts): the native
-// compiler keeps its own copy of this table (Liquid can't import a TS const), and
-// the test asserts the two stay identical so preview⇄storefront parity can't
-// silently rot. Keep any edit here mirrored in native-section.ts's KIND_ARCHETYPE.
-export const KIND_ARCHETYPE: Record<string, SectionArchetype> = {
-  hero: 'hero', 'collection-hero': 'hero',
-  feature: 'feature', benefit: 'feature',
-  gallery: 'gallery', lookbook: 'gallery', 'collection-lookbook': 'gallery', 'collection-carousel': 'gallery',
-  'collection-story': 'collection', 'collection-split': 'collection', 'collection-promo': 'collection',
-  'collection-list': 'collection', story: 'collection',
-  pricing: 'pricing', comparison: 'pricing', plan: 'pricing',
-  faq: 'faq', accordion: 'faq',
-  testimonials: 'testimonial', reviews: 'testimonial', 'social-proof': 'testimonial',
-  'review-summary': 'testimonial', testimonial: 'testimonial',
-  stats: 'stats',
-  cta: 'cta', 'rich-text': 'cta',
-  trust: 'trust', 'trust-badges': 'trust', 'trust-badge': 'trust', 'payment-badges': 'trust',
-  'usp-strip': 'trust', 'logo-marquee': 'trust',
-  newsletter: 'newsletter',
-  launch: 'launch', 'coming-soon': 'launch', '404': 'launch',
-  contact: 'contact',
-  team: 'team',
-  timeline: 'timeline', steps: 'timeline',
-  upsell: 'upsell', 'bought-together': 'upsell', 'product-addons': 'upsell',
-  announcement: 'band', 'announcement-bar': 'band', 'free-shipping-bar': 'band',
-  countdown: 'band', 'countdown-bar': 'band', progress: 'band',
-  consent: 'technical', 'json-ld': 'technical', meta: 'technical', 'pixel-bootstrap': 'technical',
-  preload: 'technical', filters: 'technical', search: 'technical', sort: 'technical',
-  'sticky-atc': 'technical', 'size-chart': 'technical', 'star-rating': 'technical',
-  'payment-icons': 'technical', footer: 'technical', rewards: 'technical', badge: 'technical',
-};
+// The kind→archetype alias table is single-sourced in ~/services/recipes/kind-archetype
+// (imported at the top of this file). The native-section compiler and the storefront
+// Liquid resolve the SAME table, so the preview class trees below match what the
+// storefront renders (R0 parity).
 
 function sectionArchetype(kind: string): SectionArchetype | null {
   return KIND_ARCHETYPE[kind] ?? null;
+}
+
+/**
+ * A7 — a short device-visibility affordance string from `config.device` (the pack)
+ * and `style.responsive` (the same rendering path), or null when nothing is set.
+ * Both sources default to "show everywhere", so an absent/default value → no note.
+ */
+function deviceNoteOf(spec: RecipeSpec): string | null {
+  const c = (spec as { config?: unknown }).config as Record<string, unknown> | undefined;
+  const dev = (c?.device ?? {}) as Record<string, unknown>;
+  const resp = (((spec as { style?: unknown }).style as { responsive?: unknown } | undefined)
+    ?.responsive ?? {}) as Record<string, unknown>;
+  const parts: string[] = [];
+  if (dev.desktop === false || resp.hideOnDesktop === true) parts.push('Hidden on desktop');
+  if (dev.mobile === false || resp.hideOnMobile === true) parts.push('Hidden on mobile');
+  if (dev.mobileColumns === 1 || dev.mobileColumns === 2) {
+    parts.push(`Mobile: ${dev.mobileColumns} column${dev.mobileColumns === 1 ? '' : 's'}`);
+  }
+  return parts.length ? parts.join(' · ') : null;
 }
 
 type ThemeSectionSpec = Extract<RecipeSpec, { type: 'theme.section' }>;
@@ -2573,6 +3039,30 @@ function sectionHead(spec: ThemeSectionSpec): string {
 function previewBase(): string {
   return `body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }`;
 }
+
+/**
+ * Inline CSS for the static spin-to-win wheel / scratch-card popup previews. A
+ * self-contained subset of the storefront `.superapp-wheel` / `.superapp-scratch`
+ * rules (the pack stylesheet is not loaded in previews). Split per game so a
+ * classic popup (and a wheel, and a scratch) each emit ONLY the CSS they use —
+ * the feature-gate stays observable in the output.
+ */
+const POPUP_GAME_SHARED_CSS = `
+      .superapp-game { display:flex; flex-direction:column; align-items:center; gap:14px; text-align:center; }
+      .preview-label { font-size:0.72em; letter-spacing:0.04em; text-transform:uppercase; opacity:0.6; }`;
+const POPUP_WHEEL_PREVIEW_CSS = `${POPUP_GAME_SHARED_CSS}
+      .superapp-wheel { position:relative; width:min(72vw,240px); aspect-ratio:1; --sa-wheel-seg: calc(360deg / var(--sa-wheel-n, 4)); }
+      .superapp-wheel__dial { position:absolute; inset:0; border-radius:50%; border:3px solid currentColor; box-shadow:var(--sa-shadow, 0 6px 20px rgba(0,0,0,.18)); }
+      .superapp-wheel__label { position:absolute; top:50%; left:50%; width:46%; transform-origin:0 0; transform:rotate(calc(var(--sa-wheel-seg) * (var(--sa-wheel-i) + 0.5))); font-size:clamp(9px,2.2vw,12px); font-weight:600; color:#0c0c0d; pointer-events:none; }
+      .superapp-wheel__labeltext { display:inline-block; transform:translateY(-50%); padding-left:14%; white-space:nowrap; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+      .superapp-wheel__hub { position:absolute; top:50%; left:50%; width:22%; height:22%; transform:translate(-50%,-50%); border-radius:50%; background:Canvas; border:3px solid currentColor; }
+      .superapp-wheel__pointer { position:absolute; top:-4px; left:50%; z-index:2; width:0; height:0; transform:translateX(-50%); border-left:11px solid transparent; border-right:11px solid transparent; border-top:18px solid var(--sa-accent, currentColor); }
+      .superapp-popup__cta[disabled] { opacity:0.55; cursor:default; }`;
+const POPUP_SCRATCH_PREVIEW_CSS = `${POPUP_GAME_SHARED_CSS}
+      .superapp-scratch { position:relative; width:100%; max-width:300px; aspect-ratio:5/2; margin:0 auto; border-radius:var(--sa-radius-lg, 12px); overflow:hidden; border:1px solid currentColor; }
+      .superapp-scratch__prize { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:clamp(18px,5vw,26px); font-weight:700; letter-spacing:0.04em; background:color-mix(in srgb, var(--sa-accent, gray) 12%, Canvas); }
+      .superapp-scratch__overlay { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:0.85em; letter-spacing:0.06em; text-transform:uppercase; color:#5c6070; background:repeating-linear-gradient(45deg,#b9bcc4,#b9bcc4 8px,#adb0b9 8px,#adb0b9 16px); }
+      .superapp-scratch__hint { margin:8px 0 0; font-size:0.8em; opacity:0.7; }`;
 
 /**
  * A CTA anchor. Carries the archetype-specific class (`cls`, for layout) plus the
@@ -2653,6 +3143,51 @@ function glyph(name: string): string {
   const resolved = GLYPH_PATHS[key] ? key : GLYPH_ALIASES[key] ?? 'check';
   const path = GLYPH_PATHS[resolved] ?? GLYPH_PATHS.check;
   return `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+}
+
+/**
+ * A2 — curated badge-icon catalog (preview mirror of the storefront Liquid sprite).
+ * Payment marks render as compact wordmarks (fill), trust marks as line glyphs
+ * (stroke). Keyed by the SAME ids as `BADGE_ICON_IDS` (single source of truth); the
+ * union of these two maps is asserted equal to that list by badge-icons.test.ts. The
+ * storefront authors its own `<symbol>` bodies; only the id set is single-sourced.
+ */
+const BADGE_ICON_PAYMENT: Record<string, string> = {
+  visa: 'VISA', mastercard: 'MC', amex: 'AMEX', paypal: 'PayPal',
+  'shop-pay': 'Shop', 'apple-pay': 'Pay', 'google-pay': 'GPay', klarna: 'Klarna',
+};
+const BADGE_ICON_GLYPH: Record<string, string> = {
+  'secure-checkout': '<path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/>',
+  'free-returns': '<path d="M3 9a9 9 0 1 1 2 6"/><path d="M3 4v5h5"/>',
+  'fast-shipping': '<path d="M1 6h13v9H1z"/><path d="M14 9h4l3 3v3h-7z"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>',
+  'money-back': '<circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9h4a2 2 0 0 1 0 4H9"/>',
+  warranty: '<path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="M12 8v4l3 2"/>',
+  support: '<path d="M4 3h4l2 5-3 2a12 12 0 0 0 5 5l2-3 5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 2 5a2 2 0 0 1 2-2z"/>',
+  eco: '<path d="M4 20c8 2 16-4 16-14C10 6 4 10 4 20z"/><path d="M4 20c2-6 6-9 12-11"/>',
+  lock: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
+};
+/** All ids covered by the preview catalog (exported for the id-parity test). */
+export const BADGE_ICON_PREVIEW_IDS: string[] = [...Object.keys(BADGE_ICON_PAYMENT), ...Object.keys(BADGE_ICON_GLYPH)];
+/** Resolve a badge-icon id to its inline-SVG mark, or null when not in the catalog. */
+function badgeIcon(id: string): { mod: 'pay' | 'glyph'; svg: string } | null {
+  const key = String(id).trim().toLowerCase();
+  const pay = BADGE_ICON_PAYMENT[key];
+  if (pay != null) {
+    return {
+      mod: 'pay',
+      svg: `<svg class="superapp-trust__ico superapp-trust__ico--pay" viewBox="0 0 44 16" aria-hidden="true"><text x="22" y="12">${esc(
+        pay,
+      )}</text></svg>`,
+    };
+  }
+  const glyphBody = BADGE_ICON_GLYPH[key];
+  if (glyphBody != null) {
+    return {
+      mod: 'glyph',
+      svg: `<svg class="superapp-trust__ico superapp-trust__ico--glyph" viewBox="0 0 24 24" aria-hidden="true">${glyphBody}</svg>`,
+    };
+  }
+  return null;
 }
 
 /** Human-readable label for a technical kind. */

@@ -4,7 +4,7 @@
 >
 > **Scope.** Every **storefront-renderable** template the app generates — the theme-app-extension module kinds and the native-section archetypes the 200+ library entries compile to. It governs *look, tokens, layout, effects, and micro-interactions*. It sits **under** the root `DESIGN.md` "Generated-Module Bible" (Apple-HIG floor) and **over** the raw recipe schema (`packages/core/src/recipe.ts`, `storefront-style.ts`, `allowed-values.ts`).
 >
-> **Two selectable style packs — Minimal Luxe & Bold DTC — over one shared token grammar.** A pack is a *grammar mapping* (which enum value each token resolves to). Brand **colors + fonts inherit from the merchant's live theme** (extracted `StorePalette`/`StoreTypography`); the pack supplies structure + one tweakable accent. Every render still clears the Apple-HIG floor.
+> **Four selectable render packs — Minimal Luxe · Bold DTC · Playful Commerce · Tech Utility — over one shared token grammar.** Luxe/Bold are the two everyday directions; Playful/Utility are personality-explicit and auto-selected only on a clear high-confidence signal (low confidence → Luxe). A pack is a *grammar mapping* (which enum value each token resolves to). Brand **colors + fonts inherit from the merchant's live theme** (extracted `StorePalette`/`StoreTypography`); the pack supplies structure + one tweakable accent. Every render still clears the Apple-HIG floor.
 >
 > **Binds to the pipeline (§9.1):** pack selection (`style-packs.server.ts`) · token compilation to `--sa-*` (`style-compiler.ts`) · the generation prompt (grammar + packs + effects + micro-interactions) · the design-QA gate (`design-qa.server.ts`) · the runtime CSS (`assets/superapp-modules.css`). Every generated module is authored, compiled, and QA'd against the vocabulary below — nothing here is decorative documentation.
 >
@@ -90,11 +90,13 @@ Every storefront template (`theme.section`, `proxy.widget`) is styled from this 
 - `customCss`: ≤ 2000 chars, sanitized + root-scoped (no `@import`/`url()`/`expression()`/`<script>`/`position:fixed`) — a *nudge*, tokens do the heavy lifting.
 
 ### 2.7 `pack` (resolved, not authored)
-`pack` ∈ `auto · luxe · bold` (optional). Not a look the model paints — the **resolved** two-pack grammar (§3.3.1). Set app-side from the aesthetic auto-select (`resolveStorefrontPack`, §9.2), persisted into `style_json.pack`, and read by the renderer to stamp `data-sa-pack` on the `.superapp-scope` wrapper. Merchant theme-editor `stylePack` overrides it live (§3.3.3, precedence layer 5).
+`pack` ∈ `auto · luxe · bold · playful · utility` (optional). Not a look the model paints — the **resolved** render-pack grammar (§3.3.1). Set app-side from the aesthetic auto-select (`resolveStorefrontPack`, §9.2), persisted into `style_json.pack`, and read by the renderer to stamp `data-sa-pack` on the `.superapp-scope` wrapper. Merchant theme-editor `stylePack` overrides it live (§3.3.3, precedence layer 5). `playful`/`utility` resolve only on a clear high-confidence signal; everything ambiguous resolves `luxe`.
 
 ---
 
-## 3. The two packs (concrete token mapping)
+## 3. The render packs (concrete token mapping)
+
+> **Four render packs — Minimal Luxe · Bold DTC · Playful Commerce · Tech Utility — over one shared token grammar.** Luxe (calm/premium) and Bold (loud/saturated) are the two everyday directions; Playful (rounded/springy/multi-accent) and Utility (compact/geometric/near-zero radius) are the two personality-explicit directions, selected only on a **clear high-confidence aesthetic signal**. Low confidence still resolves **Luxe** (the can't-look-wrong pack), and `apple-hig-clean` / `editorial-wellness` / `minimal-luxe` intentionally collapse to Luxe (§9.2). All four are values of the *same* `--sa-*` token map on `.superapp-scope[data-sa-pack]`; markup is invariant.
 
 ### 3.1 Pack A — Minimal Luxe
 > Near-monochrome, editorial, hairline detail, long fades. **Pick when** the store is calm/warm/luxury/near-monochrome, serif or thin display (beauty, fashion, wellness, home, jewelry).
@@ -130,6 +132,40 @@ Every storefront template (`theme.section`, `proxy.widget`) is styled from this 
 
 **Voice:** direct, urgent — "Fuel the grind.", "Send it", "Once it's gone, it's gone."
 
+### 3.2a Pack C — Playful Commerce
+> Bright, friendly, energetic — rounded everything, springy overshoot, multi-accent chips/gradients. **Pick when** the store is bright/high-spread/rounded (kids, novelty, food/candy, DTC toys, hobby). Resolved only from `playful-commerce` on a **clear** high-confidence signal (many saturated colors + rounded display); low confidence falls back to Luxe.
+
+| Grammar token | Resolves to |
+|---|---|
+| `spacing.density` / padding | `comfortable` / `medium` |
+| `typography` | rounded-sans display, `800`, `XL`–`2XL`, `lineHeight tight`–`normal`; friendly numerals |
+| `colors` | inherits store; accent `var(--sa-accent,#7c5cff)` used **liberally** as chips/tints; multi-accent + soft gradients welcomed |
+| `shape.radius` | `lg`–`full` (16–24px, **pill CTAs**) |
+| `shape.borderWidth` | `thin` (soft dual shadow carries elevation, not borders) |
+| `shape.elevation` | `soft` (dual soft drop shadow) |
+| `motion` | `duration base` (~240ms), springy `easing` overshoot `cubic-bezier(.34,1.56,.64,1)`; hover `translateY(-3px)`, press `scale(.97)` |
+| CTA | accent fill, **pill** radius, soft shadow, cheerful label |
+| Decoration | colorful chips, emoji-free stickers, gradient washes, confetti on wins |
+
+**Voice:** warm, upbeat — "Let's go!", "Treat yourself", "You're in 🎉" (copy stays emoji-light).
+
+### 3.2b Pack D — Tech Utility
+> Cool, gridded, data-dense, precise — compact rhythm, geometric/neo-grotesk + mono numerals, near-zero radius, fast micro-motion only. **Pick when** the store is tool/SaaS/hardware/electronics/B2B (cool accent, screenshots/diagrams, spec tables). Resolved only from `tech-utility` on a **clear** high-confidence signal (cool accent + geometric/mono font); low confidence falls back to Luxe.
+
+| Grammar token | Resolves to |
+|---|---|
+| `spacing.density` / padding | `compact` / `tight`–`medium` |
+| `typography` | geometric/neo-grotesk display, `600`, `LG`–`XL`, `lineHeight normal`; **mono numerals/labels**, uppercase mono labels `.08em` |
+| `colors` | inherits store; cool accent `var(--sa-accent,#0284c7)` used sparingly; monochrome neutrals, visible 1px hairlines |
+| `shape.radius` | `none`–`sm` (**near-zero**, 4px) |
+| `shape.borderWidth` | `thin` (structural 1px grid lines) |
+| `shape.elevation` | `border` (1px ring + tiny shadow) |
+| `motion` | `duration fast` (~120ms), `easing mechanical` (near-linear); no springs; micro-only |
+| CTA | accent or ink fill, `sm` radius, minimal shadow, mono/geometric label |
+| Decoration | mono data readouts, thin grid rules, schematic/spec framing |
+
+**Voice:** precise, factual — "Ships in 24h", "99.98% uptime", "2× faster".
+
 ### 3.3 Pack toggle, theme inheritance & override precedence
 
 The two packs are **not two code paths** — they are two values of one token map. Markup is invariant and every renderer reads `--sa-*` custom properties, so switching packs = swapping the token map on the module wrapper (`[data-module-id]`). Nothing about the HTML changes.
@@ -138,11 +174,11 @@ The two packs are **not two code paths** — they are two values of one token ma
 A single setting selects the pack, exposed in the theme app-embed **and** each block's schema settings (`superapp-theme-modules.liquid` / `universal-slot.liquid` / …):
 
 ```
-stylePack ∈  auto · luxe · bold        (default: auto)
+stylePack ∈  auto · luxe · bold · playful · utility        (default: auto)
 ```
 
 - `auto` — the app resolves the pack from the merchant's extracted aesthetic signals (§9); bias to **Luxe** (can't-look-wrong) on low confidence.
-- `luxe` / `bold` — hard-pin the pack, overriding auto-detection.
+- `luxe` / `bold` / `playful` / `utility` — hard-pin the pack, overriding auto-detection. Luxe/Bold are the everyday directions; Playful/Utility are personality-explicit (auto only picks them on a clear signal).
 
 At render, the resolved pack writes its token map to the wrapper: `<div data-module-id data-sa-pack="luxe" style="--sa-radius:0; --sa-elevation:border; --sa-motion:400ms; --sa-ease:ease-out; …">`. Flipping `stylePack` in the theme editor re-emits that one attribute set — no republish of the module needed. **Design-time equivalent:** in `Template Gallery.dc.html` this is the same idea as the tweak panel (options 1a/1b + accent/tone tweaks); at runtime it is the `stylePack` setting.
 
@@ -190,11 +226,19 @@ Both packs render every template from the **same markup** (`snippets/superapp-mo
 | `notification-bar` | inline/sticky | `message · linkText · linkUrl` | ink bar, mono accent link | accent bar, ALL-CAPS + countdown, ink button |
 | `banner` | inline | `heading · subheading · ctaText/Url · imageUrl` | 2-col editorial split, serif headline, square CTA | dark/photo-overlay split, oversized caps, offset-shadow CTA |
 | `popup` | overlay | `title · body · ctaText/Url` + `trigger · frequency · delaySeconds · autoCloseSeconds` | cream card, square, long pop-in | ink-bordered card, accent offset shadow, overshoot pop-in |
+| `popup` → **spin-to-win** | overlay | popup + `blocks[] kind:'slice'` (`text · fields.couponCode · fields.oddsWeight`); optional email gate (`fields.emailFieldEnabled` or a `kind:'field'` input:'email' block) | conic dial in alternating accent/tint, hairline hub, serif slice labels, slow eased spin | same dial, ALL-CAPS labels, ink hub ring, snappier spin | 
+| `popup` → **scratch card** | overlay | popup + `blocks[] kind:'scratch'` (first block: `text · fields.couponCode`); optional email gate as above | coupon under a hatch overlay, hairline frame, quiet reveal | 2px-framed card, caps prize, accent reveal |
 | `contactForm` | inline | field toggles + `submissionMode · spamProtection` | cream, hairline inputs, centered, mono labels | dark, 2px inputs, caps labels, hard-shadow submit |
 | `effect` | overlay | `effectKind · startTrigger · intensity · speed` | subtle embers / petals / soft snow | confetti burst / fireworks / glitter |
 | `floatingWidget` | floating | `variant · anchor · label · actionUrl/Target` | ink pill, accent status dot, mono label | accent pill, ink border + offset shadow, icon + caps |
 | `product-bundle` | inline | `title · components[] · discountPercentage · ctaLabel` | hairline card, serif totals, strike-through | 2px card + offset shadow, accent save chip |
 | `product-recommendations` | inline | `recommendation.strategy · productLimit · fallback` | 4-up, square media, serif names, mono price | 2px tiles, caps names, accent price |
+
+> **Playful / Utility per-kind treatment (added 2026-07-14, four-pack widening).** The Luxe/Bold columns above are the two anchors; the two personality-explicit packs derive from the same markup by swapping the token map:
+> - **Playful** — the Bold column with the edges rounded off: rounded-sans headings (not caps), **pill** CTAs (`--sa-btn-radius:9999px`), `lg`–`full` card radius, soft **dual** drop shadow (no hard offset), multi-accent chips/tints, springy overshoot hover/press, confetti on conversion beats. Notification-bar/banner/popup read cheerful, not shouty; recommendation tiles get pill "Add" chips; the wheel/scratch game leans into Playful's springy motion.
+> - **Utility** — the Luxe column made compact + gridded: geometric/neo-grotesk headings, **mono numerals + uppercase mono labels**, near-zero radius (`none`–`sm`), 1px structural hairline grid, tiny shadow, fast **mechanical** micro-motion (no springs). Pricing/stats/technical/PDP surfaces show mono data readouts; effects stay off or shimmer-only (§6).
+
+> **Gamified-popup note (added 2026-07-14):** the `popup` branch in `superapp-module.liquid` upgrades to a **spin-to-win wheel** when `config.blocks[]` carry `kind:'slice'`, and to a **scratch card** for `kind:'scratch'` — **no schema change** (`blocks[].kind` is free-form; the wheel already ships as `EMB-BODY-03`). Both are **feature-gated on block presence**: a popup with neither renders byte-identically to the classic title/body/cta popup. Wheel = conic-gradient dial (one wedge per slice, alternating `--sa-accent` / tint) under a fixed pointer + spin control; the pick is **weighted random over `fields.oddsWeight`** (default equal), animated as several eased rotations landing on the chosen wedge. Scratch = coupon under a canvas hatch the shopper erases; ~50% cleared → full reveal. **Honesty:** only the merchant-configured `fields.couponCode` is ever revealed — an empty code (or a lose-ish label like "no luck / try again") is an honest **no-prize** state, never a fabricated code. Optional **email gate** (a `kind:'field'` input:'email' block, or `fields.emailFieldEnabled`) shows BEFORE the game and reuses the app-proxy capture path (`proxyEndpointPath | '/apps/superapp/capture'`); the reveal offers copy-to-clipboard (graceful `execCommand` fallback). Token layer: `.superapp-wheel` / `.superapp-scratch` / `.superapp-coupon` in `assets/superapp-modules.css` (both packs + reduced-motion branch); spin/scratch/pick logic in `assets/superapp-modules.js`.
 
 ### 4.2 Native-section archetypes (`kind` on the generic section renderer)
 Grounded in `packages/core/src/templates/sections/*`. Each ships 8–10 style-pack variants in the library; here is the per-pack treatment of the archetype.
@@ -238,7 +282,7 @@ Any non-preset `kind` renders through the generic branch: `title · subtitle · 
 | `carousel` | horizontal scroll-snap row | `scroll-snap-type:x mandatory` |
 
 ### 5.2 Block kinds (`config.blocks[]`)
-Reorderable content list; each block `{ kind, text, imageUrl?, url?, fields }`. Kinds seen across the corpus: `cta` (label+link+`style`) · `media`/`slide` (image + headline/subhead/ctaLabel) · `stat` (value+label) · `feature` (eyebrow+heading+icon+span+tint) · `step` (number+detail+icon) · `faq-item` (question+answer) · `plan` (pricing tier) · `review-card` · `team-member` (photo+name+role) · `contact-method` (label+value/url) · `milestone`/`event` (timeline) · `logo`/`badge` (trust) · `product-card`/`product`/`addon` (upsell: thumb+name+price+ctaLabel). `span` ∈ `single · wide · tall`; `cta.style` ∈ `primary · secondary · outline · ghost · link`.
+Reorderable content list; each block `{ kind, text, imageUrl?, url?, fields }`. Kinds seen across the corpus: `cta` (label+link+`style`) · `media`/`slide` (image + headline/subhead/ctaLabel) · `stat` (value+label) · `feature` (eyebrow+heading+icon+span+tint) · `step` (number+detail+icon) · `faq-item` (question+answer) · `plan` (pricing tier) · `review-card` · `team-member` (photo+name+role) · `contact-method` (label+value/url) · `milestone`/`event` (timeline) · `logo`/`badge` (trust) · `product-card`/`product`/`addon` (upsell: thumb+name+price+ctaLabel) · `slice` (spin-to-win wedge: `text` label + `fields.couponCode` + `fields.oddsWeight`) · `scratch` (scratch-card prize: `text` label + `fields.couponCode`) · `field` (form input: `fields.input ∈ email/phone/… · fields.required`, used as the popup email gate). `span` ∈ `single · wide · tall`; `cta.style` ∈ `primary · secondary · outline · ghost · link`.
 
 **Merchant layer-5 override set (live in all four blocks, verified 2026-07-10):** `style_pack · accent_override · override_radius · override_density · override_align · override_text · override_bg` — passed through to `superapp-module.liquid` and written onto the `.superapp-scope` wrapper as `--sa-*` overrides.
 
@@ -291,7 +335,7 @@ Toggleable: `name · email · phone · company · orderNumber · subject · mess
 | **spotlight / vignette** | on_scroll | Subtle radial dim to focus content | Hard accent spotlight |
 | **ambient-gradient drift** | page_load | Slow warm off-white gradient shift | Saturated multi-stop drift |
 
-**Rules for all effects:** GPU transform/opacity only (no layout thrash) · particle count scales with `intensity` and clamps on mobile · `speed` maps to the motion-duration token · never blocks scroll or taps · auto-stop after N loops for `on_click`/conversion effects. **Pack guidance:** Luxe → the four "quiet" effects (embers, petals, soft snow, shimmer); Bold → the "loud" effects (confetti, fireworks, glitter, balloons). Bias to quiet on low confidence.
+**Rules for all effects:** GPU transform/opacity only (no layout thrash) · particle count scales with `intensity` and clamps on mobile · `speed` maps to the motion-duration token · never blocks scroll or taps · auto-stop after N loops for `on_click`/conversion effects. **Pack guidance:** Luxe → the four "quiet" effects (embers, petals, soft snow, shimmer); Bold → the "loud" effects (confetti, fireworks, glitter, balloons); **Playful** → the celebratory effects (confetti burst, balloons, glitter — confetti is Playful's signature win beat); **Utility** → none or a restrained shimmer only (a data/tool store rarely wants particle decoration). Bias to quiet on low confidence.
 
 ---
 
@@ -324,6 +368,9 @@ Two tiers: **mandatory** (every module implements the full set — `[AUTO]` gate
 | Tooltip / popover | fade + small offset | slow | fast |
 | Toast | slide-in + auto-dismiss + `aria-live` | quiet | accent bar |
 | Badge / save-chip | none / subtle pulse on change | static | pulse on update |
+| **Spin-to-win wheel** | spin on CTA press; dial does several full turns and **eases to a stop** (`cubic-bezier(0.16,1,0.3,1)`, ~4.2s) landing the weighted-random winner under the fixed pointer; spin control disables after one spin | long, smooth deceleration; hairline hub | snappier ramp, ink hub ring, accent pointer | 
+| **Scratch card** | pointer-drag erases a canvas hatch over the coupon (mouse + touch); crossing **~50% cleared** triggers the full reveal | quiet fade of the hatch | brisk reveal, accent frame |
+| **Coupon reveal + copy** | on win, the code fades in behind a dashed accent ticket border with a **copy-to-clipboard** button (✓ "Copied" for ~1.8s, `execCommand` fallback); no-prize shows an honest "better luck" state | check-fade + label | check-pop + accent flash |
 
 ### 7.3 Reveal & headline motion (marketing sections)
 - **Scroll-progress reveal:** directional reveal + fade, `amount≈0.5`, `once:true`, per-item stagger, mapped to normalized 0→1 progress (not one-shot). Luxe slow; Bold snappy.
@@ -332,7 +379,7 @@ Two tiers: **mandatory** (every module implements the full set — `[AUTO]` gate
 - **Image fade-in on media load;** **scroll-velocity-driven marquee** for logo/trust rows (beats fixed-speed loops).
 
 ### 7.4 Celebration (conversion beats only)
-Confetti / emoji-burst / tada on **add-to-cart & order-complete only** — motion as reward, reserved. Playful/Bold default on; Luxe opt-in and restrained. Always reduced-motion safe.
+Confetti / emoji-burst / tada on **add-to-cart & order-complete only** — motion as reward, reserved. Playful/Bold default on; Luxe opt-in and restrained. Always reduced-motion safe. The **spin-to-win** result is a celebration beat too — the win reveal may pop; **reduced-motion → no dial spin and no scratch-erase, the winning coupon is revealed instantly** (the game still works, just without the motion), and focus moves to the result (aria-live announces it).
 
 ### 7.5 Device & discipline
 No hover-only info or action (`[AUTO]`) · press-cancel on drag-off · `focus-visible` only (no mouse focus ring) · most traffic is mobile — every interaction works touch-first · retune any 1s library defaults to 150–600ms.
@@ -344,8 +391,8 @@ No hover-only info or action (`[AUTO]`) · press-cancel on drag-off · `focus-vi
 | `motion.duration` | ms band | Use |
 |---|---|---|
 | `none` | 0 | reduced-motion / utility |
-| `fast` | 80–150 | micro (press, hover, toggle) — **Bold default** |
-| `base` | 150–320 | short/medium (entrance, reveal, accordion) |
+| `fast` | 80–150 | micro (press, hover, toggle) — **Bold & Utility default** |
+| `base` | 150–320 | short/medium (entrance, reveal, accordion) — **Playful default** (springy overshoot easing) |
 | `slow` | 320–500 | long fades — **Luxe default** |
 
 | `motion.easing` | Curve | Use |
@@ -356,6 +403,8 @@ No hover-only info or action (`[AUTO]`) · press-cancel on drag-off · `focus-vi
 | `mechanical` | near-linear | data/utility ticks |
 
 Spring (physical props only — `x/y/scale/rotate`): stiffness ~100, damping ~10, bounce ~0.25; snappy/press → damping ~25, stiffness ~700. Stylistic props (`opacity/color`) → tween. Entrances are always non-blocking + cancelable + reduced-motion-branched.
+
+**Per-pack easing personality:** Luxe → long ease-out fades (`cubic-bezier(.2,.6,.2,1)`, ~400ms); Bold → snappy overshoot (`cubic-bezier(.34,1.56,.64,1)`, ~140ms); **Playful** → springy overshoot (`cubic-bezier(.34,1.56,.64,1)`, ~240ms) with a bouncier `translateY(-3px)` hover + `scale(.97)` press; **Utility** → mechanical near-linear (`cubic-bezier(.645,.045,.355,1)`, ~120ms), no springs, micro-only.
 
 ---
 
@@ -376,7 +425,16 @@ This doc is wired into every stage that produces a module, so a generated module
 **Rule:** any new template, effect, or interaction must be added *here first* (grammar + pack mapping + QA check), then to the prompt/compiler/CSS — never the reverse.
 
 ### 9.2 Auto-select the pack
-From extracted aesthetic signals (bg luminance, accent saturation, hue family, palette spread, heading-font class), same heuristic as the "Bible" style packs. The six aesthetic packs collapse to the two render packs via `resolveStorefrontPack`: `bold ← {bold-dtc, playful-commerce}`, `luxe ← {apple-hig-clean, editorial-wellness, minimal-luxe, tech-utility}`. **Bias to a "can't-look-wrong" pack (Luxe / Apple-HIG Clean) on low confidence**; never silently pick a personality-heavy pack. Merchant overrides via `stylePack` (§3.3.1).
+From extracted aesthetic signals (bg luminance, accent saturation, hue family, palette spread, heading-font class), same heuristic as the "Bible" style packs. The six aesthetic packs collapse to the **four render packs** via `resolveStorefrontPack`:
+
+| Render pack | Aesthetic packs that resolve to it |
+|---|---|
+| `bold` | `bold-dtc` |
+| `playful` | `playful-commerce` |
+| `utility` | `tech-utility` |
+| `luxe` (default) | `apple-hig-clean`, `editorial-wellness`, `minimal-luxe`, **and anything on low confidence** |
+
+**Four-pack decision (2026-07-14).** The system launched as a deliberate 2-pack collapse (Luxe/Bold) — two can't-look-wrong directions that cover the whole library. Playful and Utility are now first-class render packs because they are *structurally distinct* (rounded/springy/multi-accent vs compact/geometric/mono/near-zero-radius), not just recolored — collapsing them into Bold/Luxe was throwing away the exact grammar a candy store or a SaaS tool wants. They stay **opt-in via a clear high-confidence signal only**: `resolveStorefrontPack` returns `luxe` whenever `selection.confidence < 0.34`, and `apple-hig-clean` / `editorial-wellness` / `minimal-luxe` **intentionally still collapse to `luxe`** (their differences are within Luxe's range). So the *default surface area* is unchanged — ambiguous stores still get Luxe — while a store that unmistakably reads playful or utility now gets a pack built for it. **Bias to Luxe (the "can't-look-wrong" pack) on low confidence**; never silently pick a personality-heavy pack. Merchant overrides via `stylePack` (§3.3.1).
 
 ### 9.3 Runtime tokens
 The pack + `StorefrontStyle` resolve to `--sa-*` custom properties (`--sa-radius`, `--sa-radius-lg`, `--sa-btn-radius`, `--sa-border-w`, `--sa-border-color`, `--sa-shadow`, `--sa-overlay-shadow`, `--sa-accent`, `--sa-ink`, `--sa-font-display`, `--sa-display-weight/-transform/-spacing`, `--sa-label-transform/-spacing`, `--sa-motion`, `--sa-ease`, `--sa-lift`, `--sa-press`, `--sa-pad`) set once on the `.superapp-scope[data-sa-pack]` wrapper; every renderer reads the same tokens. Full map: `assets/superapp-modules.css` (this folder).
@@ -393,6 +451,8 @@ The pack + `StorefrontStyle` resolve to `--sa-*` custom properties (`--sa-radius
 
 | Date | Decision | Rationale |
 |---|---|---|
+| 2026-07-14 | **Widened the render packs 2 → 4** — added `playful` (Playful Commerce: rounded, springy, multi-accent, pill CTAs, soft dual shadow, confetti on wins) and `utility` (Tech Utility: compact, geometric/mono, near-zero radius, 1px grid, fast mechanical micro-motion) alongside `luxe`/`bold`. `resolveStorefrontPack` now maps `playful-commerce→playful`, `tech-utility→utility`, `bold-dtc→bold`, everything else + low-confidence→`luxe` (apple-hig-clean/editorial-wellness/minimal-luxe still collapse to luxe by design). Additive across the stack: `STOREFRONT_STYLE_PACKS` gains the two values, two new `[data-sa-pack=playful\|utility]` token maps in the extension CSS, all four Liquid block `stylePack` selects, style-compiler + preview pack stamping, and design-QA pack-fidelity checks for the new packs. `auto` picks playful/utility only on a clear high-confidence signal. | Playful and Utility are structurally distinct grammars (not recolors of Bold/Luxe); collapsing them discarded the exact vocabulary a candy/toy store or a SaaS/hardware store wants. Kept opt-in (high-confidence only) so the default surface area (ambiguous → Luxe) is unchanged. Doc-first per §9.1, then allowed-values → style-packs → CSS → Liquid/compiler/preview → QA → tests. |
+| 2026-07-14 | **Shipped the spin-to-win wheel + scratch-card popup runtime** (competitor-parity gap: "spin to win" requests were rendering a static popup). The `popup` branch now upgrades to a wheel on `blocks[] kind:'slice'` and a scratch card on `kind:'scratch'` — **zero schema change** (`blocks[].kind` is free-form; the wheel already shipped as vocabulary `EMB-BODY-03`). Weighted-random pick over `fields.oddsWeight`, eased CSS-transform spin, canvas scratch-erase (~50% threshold), coupon reveal + copy-to-clipboard, optional email gate reusing the app-proxy capture path. Reduced-motion → instant reveal. Feature-gated so classic popups render byte-identically. Docs first (§4.1 rows + note, §5.2 block kinds, §7.2/§7.4), then Liquid + JS + CSS + preview parity + tests. **Honesty:** only merchant-configured `couponCode`s reveal; empty code / lose-ish label = honest no-prize. **Note:** no `kind:'scratch'` template ships yet — the renderer supports it, a vocabulary template is a follow-up. | Gamified email capture is table-stakes Privy/Justuno parity; the data (`slice` blocks with codes + odds) already existed in the vocabulary but rendered as a plain popup. Doc-first per §9.1, then the generic shipped renderer — no per-module codegen. |
 | 2026-07-10 | **Filled the audit gaps.** Built the dedicated `pdp` renderer branch (gallery + buy box) and the new `sticky-atc` archetype (fixed bottom add-to-cart bar) — alias table, self-header list, Liquid branches, and `.superapp-pdp` / `.superapp-satc` token CSS in both packs with reduced-motion branches; `sticky-atc` removed from the `technical` alias list. Added the four live archetypes (`cta` · `upsell` · `band` · `technical`) + `sticky-atc` to the Template Gallery §06 in both packs, and completed the indexes (`shooting-stars` in §07 effects, `carousel` in §08 interactions). Reference: `docs/design-system/AUDIT-2026-07-10.md`. | Sticky ATC + PDP buy box are the two highest-converting surfaces in ecommerce; they must be first-class in the system, not fallthroughs. Doc first, then renderer + gallery — per §9.1. |
 | 2026-07-10 | **Full audit against the live repo.** Verified every §2 enum + §5 vocab matches `allowed-values.ts`/`storefront-style.ts` exactly; pipeline files exist and are tested; the `.superapp-scope[data-sa-pack]` wrapper is applied; runtime CSS carries the full §9.3 token map. Reconciled drift into this doc: added the live `cta`/`upsell`/`band`/`technical` archetypes, split `contact·team·timeline`, extended §5.2 block kinds, documented the layer-5 override set. | This doc is the source of truth — drift in either direction gets reconciled here first, then downstream. |
 | 2026-07-10 | Made the Template Gallery guide **fully responsive** (documentation grids collapse multi-col → 2-col → 1-col across 1200/860/560px; pack panels stack; fluid padding + display type) and expanded it from a gallery into a full **visual design-system guide**: §04 Layout & responsiveness (breakpoints, gap-over-margin rules, alignment, grid/flex archetypes, responsive collapse) + §05 Component library of atoms (buttons/CTAs, inputs, radio & selection types, tabs, accordions, toggles, cards, badges, data display, overlays/notifications) in both packs, + 45-entry effects and 81-entry micro-interaction indexes. | A design system needs its atoms, layout laws, and full interaction/effect vocabulary documented and visible — not just assembled templates — so generation and QA can reference every primitive. |

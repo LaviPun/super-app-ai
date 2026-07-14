@@ -1,4 +1,4 @@
-{% # theme-check-disable OrphanedSnippet %}
+{% # theme-check-disable OrphanedSnippet, RemoteAsset %}
 {% doc %}
   Shared SuperApp HEAD module renderer — the single source of truth for every
   head-injected module's markup, called from the SuperApp Theme Head app embed
@@ -87,9 +87,7 @@
       {% for res in mod_cfg.resources %}
         {% if res.href != blank %}
           {% assign res_rel = res.rel | default: 'preload' %}
-          {% # theme-check-disable RemoteAsset %}
           <link rel="{{ res_rel | escape }}" href="{{ res.href | escape }}"{% if res.as != blank %} as="{{ res.as | escape }}"{% endif %}{% if res.type != blank %} type="{{ res.type | escape }}"{% endif %}{% if res.crossorigin %} crossorigin{% endif %}>
-          {% # theme-check-enable RemoteAsset %}
         {% endif %}
       {% endfor %}
     {% endif %}
@@ -101,9 +99,7 @@
     {% if mod_cfg.pixelId != blank %}
       {% case mod_cfg.provider %}
         {% when 'ga4' %}
-          {% # theme-check-disable RemoteAsset %}
           <script async src="https://www.googletagmanager.com/gtag/js?id={{ mod_cfg.pixelId | escape }}"></script>
-          {% # theme-check-enable RemoteAsset %}
           <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config',{{ mod_cfg.pixelId | json }});</script>
         {% when 'meta_pixel' %}
           <script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];}(window,document);fbq('init',{{ mod_cfg.pixelId | json }});fbq('track','PageView');</script>

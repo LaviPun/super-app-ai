@@ -2,6 +2,7 @@ import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
 import { generateValidatedRecipeOptions, generateValidatedBlueprint, AiProviderNotConfiguredError } from '~/services/ai/llm.server';
+import { rankOptions } from '~/services/ai/option-ranking.server';
 import { planBlueprint } from '~/services/ai/blueprint-planner';
 import { isBlueprintsEnabled } from '~/env.server';
 import type { RecipeSpec } from '@superapp/core';
@@ -110,7 +111,7 @@ export async function action({ request }: { request: Request }) {
         classification,
         intentPacket,
       });
-      const { startFrom, grounding } = searchSolutions(requirementSpec);
+      const { startFrom, grounding, exemplar } = searchSolutions(requirementSpec);
 
       // For storefront sections, make sure we have the live theme palette so the
       // generated section matches the store's real colors. Best-effort + time-boxed.
@@ -130,6 +131,8 @@ export async function action({ request }: { request: Request }) {
           intent: intentPacket.classification.intent,
           requirementSpec,
           startFromIds: startFrom.map((s) => s.templateId),
+          exemplarTier: exemplar?.tier ?? null,
+          exemplarTemplateId: exemplar?.templateId ?? null,
         },
       });
       await jobs.start(job.id);
@@ -146,6 +149,7 @@ export async function action({ request }: { request: Request }) {
           promptProfile: intentPacket.routing.prompt_profile,
           routerDecision,
           groundingBlock: grounding || undefined,
+          exemplar,
         });
 
         // Composition guardrails (§04/§6): palette-independent — a generated
@@ -187,6 +191,7 @@ export async function action({ request }: { request: Request }) {
               promptProfile: intentPacket.routing.prompt_profile,
               routerDecision,
               groundingBlock: grounding || undefined,
+              exemplar,
             });
             if (blueprint && matchStoreColors) {
               const aesthetic = await loadStoreAesthetic(shopRow.id);
@@ -205,6 +210,11 @@ export async function action({ request }: { request: Request }) {
             blueprint = null;
           }
         }
+
+        // Deterministic "Recommended" ranking (Phase 2c) — zero-latency, runs on
+        // the FINAL recipes (after composition + palette mutations above).
+        const ranking = rankOptions(recipeOptions);
+        const badgesByIndex = new Map(ranking.scores.map((s) => [s.index, s]));
 
         await jobs.succeed(job.id, { optionCount: recipeOptions.length, type: classification.moduleType, paletteMatched, blueprintModules: blueprint?.modules.length ?? 0 });
 
@@ -230,10 +240,14 @@ export async function action({ request }: { request: Request }) {
           requirementSpec,
           paletteMatched,
           startFrom,
+          recommendedIndex: ranking.recommendedIndex,
           options: recipeOptions.map((opt, i) => ({
             index: i,
             explanation: opt.explanation,
             recipe: opt.recipe,
+            ...(opt.generationMode ? { generationMode: opt.generationMode } : {}),
+            score: badgesByIndex.get(i)?.score,
+            qualityBadges: badgesByIndex.get(i)?.badges ?? [],
           })),
           blueprint: blueprint
             ? {

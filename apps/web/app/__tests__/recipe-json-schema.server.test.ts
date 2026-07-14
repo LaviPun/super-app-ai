@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { resolveTypeEnumsForType } from '@superapp/core';
 import {
   getRecipeSingleJsonSchemaForType,
   getRecipeJsonSchemaForType,
+  listSupportedModuleTypes,
 } from '~/services/ai/recipe-json-schema.server';
 
 type JsonObj = Record<string, unknown>;
@@ -130,5 +132,53 @@ describe('recipe-json-schema — R2.2 pricing pin (T-BC3)', () => {
   it('the widened branch JSON Schema still builds (no throw for either function type)', () => {
     expect(() => getRecipeJsonSchemaForType('functions.discountRules')).not.toThrow();
     expect(() => getRecipeJsonSchemaForType('functions.cartTransform')).not.toThrow();
+  });
+});
+
+/**
+ * Catalog↔schema parity (plan 1b drift guard): the generation JSON Schema and the
+ * core catalog must agree. For EVERY per-type enum the core resolver produces, the
+ * emitted schema's `config.<ns>.<field>.enum` must equal the catalog option values
+ * VERBATIM — otherwise `validateTypeEnums` (which reads the catalog) and generation
+ * (which reads the schema) could diverge, reopening the drift this initiative closes.
+ */
+describe('recipe-json-schema — catalog↔schema parity (drift guard, plan 1b)', () => {
+  it('every resolved per-type enum is emitted verbatim in the generation schema', () => {
+    let checked = 0;
+    for (const type of listSupportedModuleTypes()) {
+      const resolved = resolveTypeEnumsForType(type);
+      if (resolved.length === 0) continue;
+      const recipe = getRecipeJsonSchemaForType(type);
+      for (const r of resolved) {
+        const node = configField(recipe, r.packNamespace, r.field);
+        expect(node, `${type}: config.${r.packNamespace}.${r.field} node should exist`).toBeDefined();
+        expect(node!.enum, `${type}: config.${r.packNamespace}.${r.field} enum`).toEqual(
+          r.options.map((o) => o.value),
+        );
+        checked++;
+      }
+    }
+    // Guard against the test silently checking nothing (e.g. a schema-shape change).
+    // theme.section (layout + recommendation.strategy) + functions.discountRules &
+    // functions.cartTransform (pricing.mechanism) + checkout.upsell / checkout.block /
+    // postPurchase.offer (recommendation.strategy) = 7 resolved per-type enums.
+    expect(checked).toBeGreaterThanOrEqual(7);
+  });
+
+  it('narrows recommendation.strategy to the static set on checkout surfaces, full set on theme.section', () => {
+    // Buyer-facing checkout/post-purchase branches drop the four DYNAMIC strategies
+    // (no App-Proxy access) — the overlay must tighten config.recommendation.strategy.
+    for (const type of ['checkout.upsell', 'checkout.block', 'postPurchase.offer'] as const) {
+      const node = configField(getRecipeJsonSchemaForType(type), 'recommendation', 'strategy');
+      expect(node, `${type} recommendation.strategy`).toBeDefined();
+      const values = node!.enum as string[];
+      expect(values).toContain('manual');
+      for (const dyn of ['top-sellers', 'trending', 'buy-it-again', 'recently-viewed']) {
+        expect(values, `${type} excludes ${dyn}`).not.toContain(dyn);
+      }
+    }
+    // theme.section keeps the full set (app-proxy widget can rank server-side).
+    const themeNode = configField(getRecipeJsonSchemaForType('theme.section'), 'recommendation', 'strategy');
+    expect(themeNode!.enum).toContain('top-sellers');
   });
 });

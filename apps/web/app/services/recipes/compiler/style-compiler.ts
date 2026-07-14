@@ -39,6 +39,8 @@ const ELEVATION_MAP = {
 } as const;
 /** Numeric base radius (px) per enum, for deriving the scaled ladder. 'full' stays a pill. */
 const RADIUS_BASE_PX: Record<string, number | null> = { none: 0, sm: 4, md: 8, lg: 12, xl: 16, full: null };
+/** V-B B13 entrance vocabulary → CSS keyframe name (defined in superapp-modules.src.css). */
+const ENTRANCE_KEYFRAME: Record<string, string> = { fade: 'sa-ent-fade', rise: 'sa-ent-rise', zoom: 'sa-ent-zoom' };
 
 /** Default style (matches StorefrontStyleSchema defaults). No runtime dependency on schema. */
 export const DEFAULT_STOREFRONT_STYLE: StorefrontStyle = {
@@ -162,6 +164,16 @@ export function compileStyleVars(
   if (always || motionDuration !== 'base') lines.push(`--sa-motion: ${MOTION_DURATION_MAP[motionDuration]};`);
   if (always || motionEasing !== 'standard') lines.push(`--sa-ease: ${EASING_MAP[motionEasing]};`);
   if (s.shape.elevation) lines.push(`--sa-elevation: ${ELEVATION_MAP[s.shape.elevation]};`);
+  // ── V-B B13 entrance vocabulary ──
+  // Emit the keyframe name (+ stagger flag) ONLY when a real entrance is chosen, so
+  // a recipe without `motion.entrance` (or with `none`) is byte-identical to pre-B13.
+  // The runtime (initEntrances) reads `--sa-ent` off the root and adds `.sa-entered`
+  // when the module scrolls into view; the CSS keyframes are reduced-motion-safe.
+  const entrance = (s.motion as { entrance?: string } | undefined)?.entrance;
+  if (entrance && entrance !== 'none' && ENTRANCE_KEYFRAME[entrance]) {
+    lines.push(`--sa-ent: ${ENTRANCE_KEYFRAME[entrance]};`);
+    if ((s.motion as { stagger?: boolean } | undefined)?.stagger) lines.push('--sa-stagger: 1;');
+  }
 
   // ── OKLCH semantic ramp, seed-derived from the merchant brand accent ──
   // Additive: emits semantic role vars alongside the legacy flat --sa-* vars, so

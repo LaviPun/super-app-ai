@@ -128,6 +128,67 @@
   }
 }
 
+/* ── Pack C — Playful Commerce ──────────────────────────────────────────────
+   Rounded everything, springy overshoot, multi-accent, pill CTAs, soft DUAL
+   shadow (never a hard offset). Derived from STYLE_PACKS['playful-commerce']
+   (radius md 16 / lg 24, soft raised shadow, bouncy springs). Colors/fonts still
+   inherit the store; the fallbacks below only paint when extraction fails. */
+.superapp-scope[data-sa-pack='playful'] {
+  /* rounded-sans display FALLBACK — store heading stack (compiler-set) still wins */
+  --sa-font-display: 'Nunito', 'Baloo 2', 'Quicksand', system-ui, sans-serif;
+  --sa-display-weight: 800;
+  --sa-display-transform: none;
+  --sa-display-spacing: -0.01em;
+  --sa-display-size: clamp(28px, 5vw, 48px);
+  --sa-display-lh: 1.05;
+  --sa-label-transform: none;
+  --sa-label-spacing: 0.02em;
+  --sa-accent: var(--sa-accent-override, #7c5cff);
+  --sa-border-color: color-mix(in srgb, currentColor 16%, transparent);
+  --sa-radius: 16px;
+  --sa-radius-lg: 24px;
+  --sa-btn-radius: 9999px; /* pill CTAs */
+  --sa-border-w: 1px;
+  --sa-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --sa-overlay-shadow: 0 24px 60px -20px rgba(80, 40, 160, 0.35);
+  --sa-pad: 1.35rem;
+  --sa-motion: 240ms;
+  --sa-ease: cubic-bezier(0.34, 1.56, 0.64, 1); /* springy overshoot */
+  --sa-lift: -3px;
+  --sa-press: scale(0.97);
+}
+
+/* ── Pack D — Tech Utility ──────────────────────────────────────────────────
+   Compact, gridded, geometric/neo-grotesk + mono, near-zero radius, fast
+   MECHANICAL micro-motion (no springs). Derived from STYLE_PACKS['tech-utility']
+   (radius sm 6 / md 8, 1px-ring rest shadow, fast micro-only motion). */
+.superapp-scope[data-sa-pack='utility'] {
+  /* geometric/neo-grotesk display FALLBACK — store heading stack still wins */
+  --sa-font-display: system-ui, 'Helvetica Neue', 'Segoe UI', Arial, sans-serif;
+  --sa-display-weight: 600;
+  --sa-display-transform: none;
+  --sa-display-spacing: -0.02em;
+  --sa-display-size: clamp(22px, 2.6vw, 34px);
+  --sa-display-lh: 1.15;
+  --sa-label-transform: uppercase;
+  --sa-label-spacing: 0.08em;
+  /* cool accent fallback (only paints when the store has no accent) — deliberately
+     NOT Tailwind blue-600 #2563eb, which the anti-slop accent denylist targets. */
+  --sa-accent: var(--sa-accent-override, #0284c7);
+  --sa-border-color: color-mix(in srgb, currentColor 22%, transparent);
+  --sa-radius: 4px; /* near-zero */
+  --sa-radius-lg: 6px;
+  --sa-btn-radius: 4px;
+  --sa-border-w: 1px;
+  --sa-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --sa-overlay-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.25);
+  --sa-pad: 1rem;
+  --sa-motion: 120ms;
+  --sa-ease: cubic-bezier(0.645, 0.045, 0.355, 1); /* mechanical, near-linear */
+  --sa-lift: -1px;
+  --sa-press: translateY(1px);
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    Composition primitives (§04 layout laws · §6 invariants)
    Shared layout scaffolding consumed by the Liquid renderer, the preview
@@ -305,6 +366,63 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .superapp-popup__backdrop, .superapp-popup__panel { transition: opacity 120ms linear; transform: none !important; }
+}
+
+/* ── Gamified popup: spin-to-win wheel + scratch card ──────────────────────
+   Feature-gated in Liquid on blocks kind:'slice' / kind:'scratch'. Token-only
+   (every color/radius/motion resolves from --sa-* so both packs work); the
+   wheel spin, weighted pick, coupon reveal + copy live in superapp-modules.js. */
+.superapp-popup--wheel .superapp-popup__panel, .superapp-popup--scratch .superapp-popup__panel { max-width: 420px; }
+.superapp-game { display: flex; flex-direction: column; align-items: center; gap: 1rem; text-align: center; }
+.superapp-game__gate { display: flex; flex-direction: column; gap: 0.6rem; width: 100%; }
+.superapp-game__gateinput { min-height: 44px; padding: 0.6rem 0.8rem; font: inherit; color: CanvasText; background: Canvas; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-radius); }
+.superapp-game__gateinput:focus-visible { outline: 2px solid var(--sa-accent); outline-offset: 2px; }
+.superapp-game__consent { font-size: 0.75rem; opacity: 0.7; }
+.superapp-game__status { margin: 0; font-size: 0.85rem; }
+.superapp-game__status--error { color: color-mix(in srgb, #d92d20 70%, CanvasText); }
+.superapp-game__status--success { color: color-mix(in srgb, var(--sa-accent) 70%, CanvasText); }
+.superapp-game__stage { display: flex; flex-direction: column; align-items: center; gap: 1rem; width: 100%; }
+.superapp-game__stage[hidden] { display: none; }
+
+/* Wheel: a conic-gradient dial (bg set inline per slice count) under a fixed
+   pointer. Labels are absolutely placed around the hub via --sa-wheel-seg. */
+.superapp-wheel { position: relative; width: min(72vw, 260px); aspect-ratio: 1; --sa-wheel-seg: calc(360deg / var(--sa-wheel-n, 4)); }
+.superapp-wheel__dial { position: absolute; inset: 0; border-radius: 50%; border: 3px solid var(--sa-border-color); box-shadow: var(--sa-shadow); transform: rotate(0deg); transition: transform 4200ms cubic-bezier(0.16, 1, 0.3, 1); }
+.superapp-wheel__label { position: absolute; top: 50%; left: 50%; width: 46%; transform-origin: 0 0; transform: rotate(calc(var(--sa-wheel-seg) * (var(--sa-wheel-i) + 0.5))) translate(-2px, 0); font-size: clamp(9px, 2.4vw, 12px); font-weight: 600; color: #0c0c0d; pointer-events: none; }
+.superapp-wheel__labeltext { display: inline-block; transform: translateY(-50%); padding-left: 14%; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.superapp-scope[data-sa-pack='luxe'] .superapp-wheel__labeltext { font-weight: 500; }
+.superapp-scope[data-sa-pack='bold'] .superapp-wheel__labeltext { text-transform: uppercase; letter-spacing: 0.02em; }
+.superapp-wheel__hub { position: absolute; top: 50%; left: 50%; width: 22%; height: 22%; transform: translate(-50%, -50%); border-radius: 50%; background: Canvas; border: 3px solid var(--sa-border-color); box-shadow: var(--sa-shadow); }
+.superapp-wheel__pointer { position: absolute; top: -4px; left: 50%; z-index: 2; width: 0; height: 0; transform: translateX(-50%); border-left: 11px solid transparent; border-right: 11px solid transparent; border-top: 18px solid var(--sa-accent); filter: drop-shadow(0 1px 1px rgba(0,0,0,0.35)); }
+.superapp-wheel.is-spinning .superapp-wheel__dial { will-change: transform; }
+.superapp-game__spin { width: 100%; }
+.superapp-game__spin[disabled] { opacity: 0.55; cursor: default; }
+
+/* Scratch: coupon underneath, canvas overlay on top; JS erases on pointer-drag
+   and reveals at ~50%. Reduced-motion / no-canvas → tap-to-reveal button. */
+.superapp-scratch { position: relative; width: 100%; max-width: 320px; aspect-ratio: 5 / 2; margin: 0 auto; border-radius: var(--sa-radius-lg); overflow: hidden; border: var(--sa-border-w) solid var(--sa-border-color); }
+.superapp-scratch__prize { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 0.5rem; font-size: clamp(18px, 5vw, 28px); font-weight: 700; letter-spacing: 0.04em; color: CanvasText; background: color-mix(in srgb, var(--sa-accent) 12%, Canvas); }
+.superapp-scope[data-sa-pack='bold'] .superapp-scratch__prize { text-transform: uppercase; }
+.superapp-scratch__canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.superapp-scratch__canvas.is-cleared { display: none; }
+.superapp-scratch__reveal { position: absolute; inset: 0; z-index: 2; display: none; align-items: center; justify-content: center; min-height: 44px; border: 0; background: color-mix(in srgb, var(--sa-accent) 88%, CanvasText); color: #0c0c0d; font: inherit; font-weight: 600; cursor: pointer; }
+.superapp-scratch__reveal:focus-visible { outline: 2px solid var(--sa-accent); outline-offset: -3px; }
+.superapp-scratch--tap .superapp-scratch__reveal { display: flex; }
+.superapp-scratch--tap .superapp-scratch__canvas { display: none; }
+.superapp-scratch__hint { margin: 0.5rem 0 0; font-size: 0.8rem; opacity: 0.7; }
+.superapp-scratch.is-cleared .superapp-scratch__hint, .superapp-scratch.is-cleared + .superapp-scratch__hint { opacity: 0; }
+
+/* Shared coupon result (both games). Icon+text, never color alone (§7 F5/F8). */
+.superapp-game__result { width: 100%; }
+.superapp-game__result[hidden] { display: none; }
+.superapp-coupon { display: flex; flex-direction: column; align-items: center; gap: 0.6rem; }
+.superapp-coupon__headline { margin: 0; font-weight: 600; }
+.superapp-coupon__code { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.9rem; font-family: var(--sa-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 1.15rem; font-weight: 700; letter-spacing: 0.08em; border: 2px dashed var(--sa-accent); border-radius: var(--sa-radius); background: color-mix(in srgb, var(--sa-accent) 10%, Canvas); }
+.superapp-coupon__copy { min-height: 44px; min-width: 44px; padding: 0.5rem 1rem; font: inherit; font-weight: 600; cursor: pointer; color: var(--sa-btn-text, #0c0c0d); background: var(--sa-btn-bg, var(--sa-accent)); border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-btn-radius); }
+.superapp-coupon__copy:focus-visible { outline: 2px solid var(--sa-accent); outline-offset: 2px; }
+.superapp-coupon--lose .superapp-coupon__code { border-style: solid; border-color: var(--sa-border-color); background: transparent; opacity: 0.85; }
+@media (prefers-reduced-motion: reduce) {
+  .superapp-wheel__dial { transition: none !important; }
 }
 
 /* ── Contact form ────────────────────────────────────────────────────────── */
@@ -999,6 +1117,43 @@
 .superapp-scope[data-sa-pack='bold'] .superapp-band__text { text-transform: uppercase; font-weight: 700; letter-spacing: 0.03em; }
 .superapp-scope[data-sa-pack='bold'] .superapp-band__cta { color: #0c0c0d; }
 
+/* ── B1 · Cart-goal / free-shipping progress bar ─────────────────────────────── */
+.superapp-progress { display: flex; flex-direction: column; gap: 0.5rem; max-width: 560px; margin: 0 auto; }
+.superapp-progress__text { margin: 0; font-size: 0.9rem; font-weight: 500; text-align: center; }
+.superapp-progress__track { position: relative; height: 8px; border-radius: 999px; background: color-mix(in srgb, currentColor 16%, transparent); overflow: visible; }
+.superapp-progress--chunky .superapp-progress__track { height: 14px; }
+.superapp-progress__fill { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--sa-accent, var(--sa-solid, CanvasText)); transition: width var(--sa-motion, 0.4s) var(--sa-ease, ease); }
+.superapp-progress__marker { position: absolute; top: 50%; width: 3px; height: 140%; transform: translate(-50%, -50%); border-radius: 2px; background: color-mix(in srgb, currentColor 45%, transparent); }
+.superapp-progress__marker.is-reached { background: var(--sa-accent, var(--sa-solid, CanvasText)); }
+.superapp-progress.is-complete .superapp-progress__fill { background: var(--sa-accent, var(--sa-solid, CanvasText)); }
+.superapp-scope[data-sa-pack='bold'] .superapp-progress__text { text-transform: uppercase; font-weight: 700; letter-spacing: 0.02em; }
+@media (prefers-reduced-motion: reduce) { .superapp-progress__fill { transition: none; } }
+
+/* ── B2 · Post-add-to-cart offer modal (reuses .superapp-popup chrome) ───────── */
+.superapp-postatc__panel { max-width: 380px; text-align: center; }
+.superapp-postatc__eyebrow { margin: 0 0 0.75rem; font-family: var(--sa-font-display); font-weight: var(--sa-display-weight); font-size: 1.05rem; }
+.superapp-postatc__offer { display: flex; align-items: center; gap: 0.85rem; text-align: left; padding: 0.6rem 0; }
+.superapp-postatc__img { width: 64px; height: 64px; object-fit: cover; border-radius: var(--sa-radius); border: var(--sa-border-w) solid var(--sa-border-color); flex: 0 0 auto; }
+.superapp-postatc__meta { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.superapp-postatc__name { font-weight: 600; font-size: 0.95rem; }
+.superapp-postatc__price { font-family: var(--sa-font-mono); font-variant-numeric: tabular-nums; }
+.superapp-postatc__actions { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem; }
+.superapp-postatc__accept { min-height: 44px; font: inherit; cursor: pointer; padding: 0.7rem 1.3rem; border: var(--sa-border-w) solid var(--sa-accent); border-radius: var(--sa-btn-radius); background: var(--sa-btn-bg, var(--sa-solid, CanvasText)); color: var(--sa-btn-text, var(--sa-solid-content, Canvas)); text-transform: var(--sa-label-transform); letter-spacing: var(--sa-label-spacing); }
+.superapp-postatc__accept.is-loading { opacity: 0.7; pointer-events: none; }
+.superapp-postatc__decline { font: inherit; cursor: pointer; background: none; border: 0; padding: 0.4rem; color: inherit; opacity: 0.7; text-decoration: underline; text-underline-offset: 3px; }
+
+/* ── B3 · Sticky ATC v2 — variant/qty controls + slide-in reveal + status ────── */
+.superapp-satc { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; transform: translateY(110%); transition: transform var(--sa-motion, 0.28s) var(--sa-ease, ease); }
+.superapp-satc.is-visible { transform: translateY(0); }
+.superapp-satc__variant { font: inherit; min-height: 44px; padding: 0.35rem 0.5rem; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-radius); background: Canvas; color: CanvasText; max-width: 40vw; flex: 0 1 auto; }
+.superapp-satc__qty { font: inherit; width: 3.5rem; min-height: 44px; text-align: center; padding: 0.35rem 0.4rem; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-radius); background: Canvas; color: CanvasText; flex: 0 0 auto; }
+.superapp-satc__atc.is-done { background: var(--sa-ok, #167a4a); color: #fff; border-color: transparent; }
+.superapp-satc__atc.is-loading { opacity: 0.7; pointer-events: none; }
+.superapp-satc__status { flex-basis: 100%; font-size: 0.8rem; text-align: center; }
+.superapp-satc__status--error { color: var(--sa-danger, #c0362c); }
+.superapp-satc__status--success { color: var(--sa-ok, #167a4a); }
+@media (prefers-reduced-motion: reduce) { .superapp-satc { transition: none; } }
+
 /* ── Technical — curated config card (never a raw field dump) ────────────────── */
 .superapp-techcard { max-width: 640px; margin: 0 auto; padding: var(--sa-pad); border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-radius-lg); box-shadow: var(--sa-elevation, var(--sa-shadow)); }
 .superapp-techcard__type { display: inline-block; font-family: var(--sa-font-mono); text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.68rem; color: var(--sa-accent); border: var(--sa-border-w) solid var(--sa-accent); border-radius: 999px; padding: 0.15rem 0.6rem; margin-bottom: 0.6rem; }
@@ -1069,4 +1224,134 @@
 @media (prefers-reduced-motion: reduce) {
   .superapp-pdp__atc, .superapp-satc__atc, .superapp-pdp__thumb, .superapp-pdp__variant { transition: none; }
   .superapp-pdp__atc:hover, .superapp-satc__atc:hover { transform: none; }
+}
+
+/* ── V-A A1 · Volume / quantity-break tier table (kind: volume-tiers) ─────────
+   Selectable radio-row cards; the checked/highlighted row is accent-emphasised.
+   Reuses the pricing archetype's grid budget. */
+.superapp-vtiers { display: grid; gap: 0.6rem; max-width: 640px; margin: 0 auto; }
+.superapp-vtier { position: relative; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.35rem 0.9rem; padding: 0.85rem 1.05rem; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-radius-lg); cursor: pointer; transition: border-color var(--sa-motion) var(--sa-ease), background var(--sa-motion) var(--sa-ease); }
+.superapp-vtier:hover { border-color: var(--sa-accent); }
+.superapp-vtier__radio { grid-row: 1 / span 2; width: 1.1rem; height: 1.1rem; accent-color: var(--sa-accent); margin: 0; }
+.superapp-vtier__label { font-family: var(--sa-font-display); font-weight: 600; font-size: 1.05rem; }
+.superapp-vtier__discount { grid-column: 2; font-size: 0.82rem; opacity: 0.8; }
+.superapp-vtier__unit { grid-column: 3; grid-row: 1; font-family: var(--sa-font-mono); font-weight: 700; color: var(--sa-accent); white-space: nowrap; }
+.superapp-vtier__save { grid-column: 3; grid-row: 2; font-size: 0.75rem; opacity: 0.7; text-align: right; white-space: nowrap; }
+.superapp-vtier__badge { position: absolute; top: -0.6rem; left: 0.9rem; font-family: var(--sa-font-mono); font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em; padding: 0.15rem 0.5rem; border-radius: 999px; background: var(--sa-accent); color: var(--sa-btn-text, #0c0c0d); }
+.superapp-vtier--hl { border-color: var(--sa-accent); background: color-mix(in srgb, var(--sa-accent) 8%, transparent); }
+.superapp-vtier:has(.superapp-vtier__radio:checked) { border-color: var(--sa-accent); box-shadow: 0 0 0 1px var(--sa-accent) inset; }
+.superapp-vtier__radio:focus-visible { outline: 2px solid var(--sa-accent); outline-offset: 2px; }
+.superapp-scope[data-sa-pack='bold'] .superapp-vtier--hl { box-shadow: var(--sa-shadow); }
+
+/* ── V-A A2 · Trust / payment badge icons (blocks[].fields.icon) ─────────────
+   Sprite is visually hidden; instances inherit fill (payment wordmarks) or
+   stroke (trust glyphs) from the modifier class. */
+.superapp-icosprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.superapp-trust__badge--icon { gap: 0.5rem; }
+.superapp-trust__ico { width: 2.6rem; height: 1.7rem; display: inline-block; color: var(--sa-accent); }
+.superapp-trust__ico--pay { fill: currentColor; stroke: none; font-family: var(--sa-font-display); font-weight: 700; font-size: 11px; text-anchor: middle; }
+.superapp-trust__ico--glyph { width: 2.2rem; height: 2.2rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.superapp-trust__badgecap { font-size: 0.8rem; opacity: 0.7; }
+
+/* ── V-A A3 · Stock counter / low-stock alert (kind: stock-counter) ──────────
+   Renders only real inventory (Liquid gate); a small inline urgency chip. */
+.superapp-stockcounter { display: inline-flex; align-items: center; gap: 0.45rem; font-family: var(--sa-font-mono); font-size: 0.82rem; letter-spacing: 0.02em; padding: 0.4rem 0.75rem; border-radius: 999px; border: var(--sa-border-w) solid var(--sa-border-color); }
+.superapp-stockcounter::before { content: ''; width: 0.5rem; height: 0.5rem; border-radius: 999px; background: var(--sa-accent); flex: 0 0 auto; }
+.superapp-stockcounter--urgent { border-color: var(--sa-accent); color: var(--sa-accent); font-weight: 700; }
+.superapp-stockcounter--urgent::before { animation: superapp-stockpulse 1.6s ease-in-out infinite; }
+@keyframes superapp-stockpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* ── V-A A4 · Testimonial carousel + half-precision stars + avatar ───────────
+   Scroll-snap track (zero-JS); star row fills to --sa-star-fill for half stars;
+   avatar initials fallback. Static grid (no --carousel) is unchanged. */
+.superapp-testimonial--carousel { display: flex; grid-template-columns: none; gap: 1rem; overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; padding-bottom: 0.5rem; scrollbar-width: thin; }
+.superapp-testimonial--carousel .superapp-testimonial__card { scroll-snap-align: start; flex: 0 0 min(85%, 320px); }
+.superapp-testimonial__stars { position: relative; display: inline-block; font-size: 1rem; letter-spacing: 0.05em; line-height: 1; color: color-mix(in srgb, var(--sa-accent) 24%, transparent); }
+.superapp-testimonial__starsfill { position: absolute; inset: 0; width: var(--sa-star-fill, 100%); overflow: hidden; white-space: nowrap; color: var(--sa-accent); }
+.superapp-testimonial__avatar { width: 2.75rem; height: 2.75rem; border-radius: 999px; object-fit: cover; flex: 0 0 auto; }
+.superapp-testimonial__avatar--initials { display: inline-flex; align-items: center; justify-content: center; font-family: var(--sa-font-display); font-weight: 700; background: color-mix(in srgb, var(--sa-accent) 16%, transparent); color: var(--sa-accent); }
+.superapp-testimonial__verified { display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.7rem; color: var(--sa-accent); letter-spacing: 0.03em; text-transform: none; }
+.superapp-scope[data-sa-pack='bold'] .superapp-testimonial__starsfill { color: var(--sa-accent); }
+
+/* ── V-A A5 · Video hero (mp4 <video> or YouTube/Vimeo lite embed) ────────────
+   Fills the overlay hero like the image media; a flat, opacity-controlled scrim
+   sits between the video and the content for text legibility. Content keeps its
+   z-index:1 (from .superapp-hero--overlay) so it stays above both. */
+.superapp-hero__video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border: 0; z-index: 0; }
+.superapp-hero__scrim { position: absolute; inset: 0; background: #000; z-index: 0; pointer-events: none; }
+
+/* ── V-A A6 · UGC / Instagram grid (kind:'ugc-grid') ─────────────────────────
+   Aspect-ratio tile grid; hover/focus reveals caption + @handle + Shop-this.
+   (.superapp-gallery has no grid of its own on the storefront, so the UGC
+   variant declares its own — keyboard users reach the overlay via focus.) */
+.superapp-gallery--ugc { display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+.superapp-gallery__item--ugc { aspect-ratio: 1 / 1; }
+.superapp-gallery__item--ugc img { width: 100%; height: 100%; object-fit: cover; }
+.superapp-gallery__ugc { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 0.25rem; padding: 0.6rem; color: #fff; background: linear-gradient(0deg, rgba(0,0,0,0.72), rgba(0,0,0,0.05)); opacity: 0; transition: opacity var(--sa-motion, 0.2s) var(--sa-ease, ease); }
+.superapp-gallery__item--ugc:hover .superapp-gallery__ugc, .superapp-gallery__ugc:focus, .superapp-gallery__ugc:focus-within { opacity: 1; }
+.superapp-gallery__ugccap { font-size: 0.8rem; line-height: 1.3; }
+.superapp-gallery__ugchandle { font-family: var(--sa-font-mono); font-size: 0.72rem; opacity: 0.9; }
+.superapp-gallery__ugcshop { align-self: flex-start; margin-top: 0.15rem; font-size: 0.72rem; font-weight: 700; color: #fff; text-decoration: underline; }
+@media (prefers-reduced-motion: reduce) { .superapp-gallery__ugc { transition: none; } }
+
+/* ── V-A A7 · Per-device visibility (device pack + style.responsive, one path) ─
+   Flags ride data-sa-device on the module root; mobileColumns rides --sa-mobile-cols. */
+@media (max-width: 749px) { .superapp-scope[data-sa-device~='hide-mobile'] { display: none !important; } }
+@media (min-width: 750px) { .superapp-scope[data-sa-device~='hide-desktop'] { display: none !important; } }
+@media (max-width: 749px) {
+  .superapp-scope[style*='--sa-mobile-cols'] .superapp-gallery--ugc,
+  .superapp-scope[style*='--sa-mobile-cols'] .superapp-feature__grid,
+  .superapp-scope[style*='--sa-mobile-cols'] .superapp-section__blocks { grid-template-columns: repeat(var(--sa-mobile-cols), minmax(0, 1fr)) !important; column-count: var(--sa-mobile-cols) !important; }
+}
+
+/* ── V-A A8 · Size-chart modal (reuses .superapp-popup chrome + focus trap) ──── */
+.superapp-sizechart__trigger { display: inline-flex; align-items: center; gap: 0.35rem; background: transparent; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-btn-radius, var(--sa-radius)); color: inherit; font: inherit; font-size: 0.85rem; padding: 0.4rem 0.85rem; cursor: pointer; }
+.superapp-sizechart__trigger:hover { border-color: var(--sa-accent); color: var(--sa-accent); }
+.superapp-sizechart__scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 0.5rem; }
+.superapp-sizechart__modal .superapp-popup__panel { max-width: 560px; }
+.superapp-sizechart__table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.superapp-sizechart__table th, .superapp-sizechart__table td { padding: 0.5rem 0.7rem; text-align: center; border-bottom: var(--sa-border-w) solid var(--sa-border-color); white-space: nowrap; }
+.superapp-sizechart__table thead th { font-family: var(--sa-font-mono); text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.72rem; }
+.superapp-sizechart__table tbody th { text-align: left; font-weight: 700; }
+
+/* ── V-B B4 · Countdown V2 — tiles style (4 labelled boxes) ────────────────────
+   JS adds .superapp-cd.superapp-cd--tiles to any [data-sa-countdown] whose token
+   sets timerStyle:tiles, then fills 4 .superapp-cd__tile boxes. Plain style is the
+   legacy inline string (unchanged). Reduced-motion drops the tile pop. */
+.superapp-cd--tiles { display: inline-flex; gap: 0.4rem; align-items: stretch; font-family: var(--sa-font-mono); }
+.superapp-cd__tile { display: inline-flex; flex-direction: column; align-items: center; gap: 0.15rem; min-width: 3ch; padding: 0.3rem 0.45rem; border-radius: var(--sa-radius-sm, 4px); background: color-mix(in srgb, currentColor 8%, transparent); }
+.superapp-cd__num { font-variant-numeric: tabular-nums; font-weight: 800; font-size: 1.4em; line-height: 1; animation: superapp-cd-pop var(--sa-motion, 200ms) var(--sa-ease, ease) both; }
+.superapp-cd__lbl { font-size: 0.62em; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.7; }
+@keyframes superapp-cd-pop { from { transform: scale(0.92); } to { transform: scale(1); } }
+.superapp-scope[data-sa-pack='bold'] .superapp-cd__tile { background: var(--sa-accent); color: var(--sa-accent-contrast, #fff); }
+@media (prefers-reduced-motion: reduce) { .superapp-cd__num { animation: none; } }
+
+/* ── V-B B5 · Teaser / minimized popup pill ───────────────────────────────────
+   JS docks a reopen button to a corner on popup dismiss (when teaser is enabled).
+   44px target, token-styled, focus-visible. */
+.superapp-teaser { position: fixed; z-index: 2147482000; bottom: 16px; min-height: 44px; padding: 0.6rem 1.1rem; border: 0; border-radius: 9999px; background: var(--sa-accent, #111); color: var(--sa-accent-contrast, #fff); font: inherit; font-weight: 700; font-size: 0.9rem; cursor: pointer; box-shadow: 0 6px 24px rgba(0,0,0,0.22); animation: superapp-teaser-in 240ms cubic-bezier(0,0,.2,1) both; }
+.superapp-teaser--bottom-right { right: 16px; }
+.superapp-teaser--bottom-left { left: 16px; }
+.superapp-teaser:hover { filter: brightness(1.06); }
+.superapp-teaser:focus-visible { outline: 3px solid var(--sa-accent, #111); outline-offset: 3px; }
+.superapp-teaser[hidden] { display: none; }
+@keyframes superapp-teaser-in { from { opacity: 0; transform: translateY(12px) scale(0.9); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .superapp-teaser { animation: none; } }
+
+/* ── V-B B13 · Entrance-animation vocabulary ──────────────────────────────────
+   The compiler emits --sa-ent (keyframe name) on a [data-module-id] root when
+   motion.entrance is chosen; initEntrances() adds .sa-anim (hidden resting state)
+   then .sa-entered on scroll-in. `.sa-stagger` (set by JS when motion.stagger) moves
+   the animation to the direct children with a per-child --sa-stagger-i delay. The
+   hidden resting state is ONLY applied by JS, so JS-off leaves content visible;
+   reduced-motion is a hard guard here too. */
+[data-module-id].sa-anim:not(.sa-stagger) { opacity: 0; }
+[data-module-id].sa-anim:not(.sa-stagger).sa-entered { animation: var(--sa-ent) var(--sa-motion, 240ms) var(--sa-ease, cubic-bezier(0,0,.2,1)) both; }
+[data-module-id].sa-anim.sa-stagger > * { opacity: 0; }
+[data-module-id].sa-anim.sa-stagger.sa-entered > * { animation: var(--sa-ent) var(--sa-motion, 240ms) var(--sa-ease, cubic-bezier(0,0,.2,1)) both; animation-delay: calc(70ms * var(--sa-stagger-i, 0)); }
+@keyframes sa-ent-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sa-ent-rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+@keyframes sa-ent-zoom { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  [data-module-id].sa-anim, [data-module-id].sa-anim > * { opacity: 1 !important; animation: none !important; }
 }

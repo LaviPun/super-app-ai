@@ -13,10 +13,19 @@
  *              they route through the App-Proxy `recommendation.service` and
  *              DEGRADE to `fallback` where/until that service resolves them.
  *
- * Because the strategy option-set is identical across every product-widget type
- * (theme.section, checkout.upsell, …) it is a plain closed `z.enum` — NOT a
- * per-type `typeEnum` (the R2.5 mechanism, which exists for per-type *divergence*
- * like `layout`; the strategy set does not diverge by type).
+ * The `strategy` field IS a per-type enum (R2.5 / plan 3a). At the union level it
+ * keeps the full closed `z.enum(RECOMMENDATION_STRATEGIES)` (all ten values) so
+ * already-persisted specs — including checkout/post-purchase templates that lead
+ * with a DYNAMIC strategy + `fallback` — keep validating. The TIGHT per-type
+ * option-set is supplied by the catalog in `type-enums.ts`: buyer-facing surfaces
+ * that CANNOT reach the App-Proxy recommendation service (`checkout.upsell`,
+ * `checkout.block`, `postPurchase.offer`) resolve only the STATIC six — the four
+ * DYNAMIC strategies (top-sellers / trending / buy-it-again / recently-viewed)
+ * always degrade to `fallback` there (extensions/checkout-ui has no proxy access),
+ * so generation must not emit a strategy that silently no-ops. `theme.section`
+ * resolves the full set (an app-proxy widget CAN rank server-side). This mirrors
+ * the pricing-`mechanism` honesty drop (declarative-only mechanisms no runtime
+ * honours) — same mechanism, applied to strategies no checkout resolver honours.
  *
  * Flat-pin path (post R2.4 prune): the pack `schema` is pinned as an `.optional()`
  * `recommendation` key onto `theme.section.config` and the three checkout/offer
@@ -34,7 +43,7 @@ import {
   PRODUCT_GID_RE,
   COLLECTION_GID_RE,
 } from '../../allowed-values.js';
-import type { ControlPack } from '../types.js';
+import type { ControlPack, TypeEnumField } from '../types.js';
 
 // Re-export the strategy enums so consumers can `import from the pack` (mirrors
 // how pricing surfaces DISCOUNT_KINDS). Single source stays allowed-values.ts.
@@ -120,12 +129,30 @@ export const RecommendationPackSchema = z
 
 export type RecommendationPack = z.infer<typeof RecommendationPackSchema>;
 
+/**
+ * The `strategy` per-type enum slot (R2.5 / plan 3a). `fallback` is the FULL
+ * strategy set (kept single-source with allowed-values), covering
+ * `theme.section` and any future recommendation-bearing type without a catalog
+ * entry. Buyer-facing checkout/post-purchase types narrow this to the static six
+ * via the catalog in `type-enums.ts`. `default` matches the schema default so a
+ * catalog whose set still contains 'related' keeps it, and the generation-schema
+ * default stays inside the tightened enum on every surface (static set includes
+ * 'related').
+ */
+const strategyField: TypeEnumField = {
+  kind: 'typeEnum',
+  enumKey: 'strategy',
+  fallback: RECOMMENDATION_STRATEGIES.map((value) => ({ value })),
+  default: 'related',
+};
+
 export const recommendationPack: ControlPack<typeof RecommendationPackSchema> = {
   id: 'recommendation',
   namespace: 'recommendation',
   label: 'Recommendations',
   tier: 'basic',
   schema: RecommendationPackSchema,
+  typeEnums: { strategy: strategyField },
   uiSchema: {
     groupLabel: 'Product recommendations',
     order: [

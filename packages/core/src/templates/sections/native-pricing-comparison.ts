@@ -333,4 +333,91 @@ export const NATIVE_PRICING_COMPARISON_TEMPLATES: TemplateEntry[] = [
       },
     },
   },
+
+  // 08 — V-A A1: volume/quantity-break table (kind: volume-tiers). Kaching/Fast
+  // Bundle-class percent-off tiers as selectable radio rows; the highlighted tier is
+  // pre-selected and, on the storefront, sets the product quantity input.
+  {
+    id: 'NSEC-VOL-01',
+    name: 'Volume Bundles — 3-Tier Percent Off (Kaching-style)',
+    description: 'Three selectable quantity-break rows (buy 1 / 2 / 3) with percent-off savings and a highlighted best-value tier — picking a row sets the product quantity for Add-to-cart.',
+    category: 'STOREFRONT_UI',
+    type: 'theme.section',
+    icon: 'pricing',
+    tags: ['section', 'volume-tiers', 'quantity-break', 'bundle', 'product', 'conversion'],
+    spec: {
+      type: 'theme.section',
+      name: 'Volume Bundles — 3-Tier Percent Off',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'volume-tiers',
+        activation: 'section',
+        title: 'Buy more, save more',
+        subtitle: 'Pick a bundle — the discount is applied automatically at checkout.',
+        layout: { layout: 'stacked' },
+        fields: { highlightBlockIndex: 2, currency: 'USD' },
+        blocks: [
+          { kind: 'tier', text: 'Buy 1', fields: { quantityMin: 1, discountLabel: 'Single unit', percentOff: 0 } },
+          { kind: 'tier', text: 'Buy 2', fields: { quantityMin: 2, discountLabel: 'Stock up', percentOff: 10, savingsLabel: 'Save 10%' } },
+          { kind: 'tier', text: 'Buy 3', fields: { quantityMin: 3, discountLabel: 'Best value', percentOff: 20, savingsLabel: 'Save 20%', highlight: true, badge: 'Most popular' } },
+        ],
+      },
+      placement: { enabled_on: { templates: ['product', 'page'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
+      style: {
+        layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'narrow', zIndex: 'base' },
+        spacing: { padding: 'medium', margin: 'none', gap: 'medium', density: 'comfortable' },
+        typography: { size: 'MD', weight: 'medium', lineHeight: 'normal', align: 'left' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#ff4d2e' },
+        shape: { radius: 'lg', borderWidth: 'thin', shadow: 'sm', elevation: 'soft' },
+        responsive: { hideOnMobile: false, hideOnDesktop: false },
+        accessibility: { focusVisible: true, reducedMotion: true },
+        motion: { duration: 'fast', easing: 'standard' },
+        pack: 'bold',
+      },
+    },
+  },
+
+  // 09 — V-A A1: B2B per-unit price breaks, 4 tiers.
+  {
+    id: 'NSEC-VOL-02',
+    name: 'Bulk B2B Price Breaks — 4-Tier Per Unit',
+    description: 'Four wholesale quantity tiers (1 / 5 / 10 / 25) with a falling per-unit price and a highlighted volume tier — a B2B "price breaks" selector that drives the quantity input.',
+    category: 'STOREFRONT_UI',
+    type: 'theme.section',
+    icon: 'pricing',
+    tags: ['section', 'volume-tiers', 'quantity-break', 'b2b', 'wholesale', 'product'],
+    spec: {
+      type: 'theme.section',
+      name: 'Bulk B2B Price Breaks',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS'],
+      config: {
+        kind: 'volume-tiers',
+        activation: 'section',
+        title: 'Wholesale price breaks',
+        subtitle: 'The more units per order, the lower your per-unit price.',
+        layout: { layout: 'stacked' },
+        fields: { highlightBlockIndex: 2, currency: 'USD', basisLabel: 'per unit' },
+        blocks: [
+          { kind: 'tier', text: '1–4 units', fields: { quantityMin: 1, discountLabel: 'List price', pricePerUnit: '$30/ea' } },
+          { kind: 'tier', text: '5–9 units', fields: { quantityMin: 5, discountLabel: 'Trade', pricePerUnit: '$27/ea', savingsLabel: 'Save 10%' } },
+          { kind: 'tier', text: '10–24 units', fields: { quantityMin: 10, discountLabel: 'Volume', pricePerUnit: '$24/ea', savingsLabel: 'Save 20%', highlight: true, badge: 'Best rate' } },
+          { kind: 'tier', text: '25+ units', fields: { quantityMin: 25, discountLabel: 'Pallet', pricePerUnit: '$21/ea', savingsLabel: 'Save 30%' } },
+        ],
+      },
+      placement: { enabled_on: { templates: ['product', 'page'] as (typeof THEME_PLACEABLE_TEMPLATES)[number][] } },
+      style: {
+        layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'narrow', zIndex: 'base' },
+        spacing: { padding: 'medium', margin: 'none', gap: 'tight', density: 'compact' },
+        typography: { size: 'SM', weight: 'normal', lineHeight: 'normal', align: 'left' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#0284c7' },
+        shape: { radius: 'sm', borderWidth: 'thin', shadow: 'none', elevation: 'border' },
+        responsive: { hideOnMobile: false, hideOnDesktop: false },
+        accessibility: { focusVisible: true, reducedMotion: true },
+        motion: { duration: 'fast', easing: 'standard' },
+        pack: 'utility',
+      },
+    },
+  },
 ];

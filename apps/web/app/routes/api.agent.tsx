@@ -97,8 +97,8 @@ export async function loader({ request }: { request: Request }) {
         path: '/api/agent/generate-options',
         description: 'Generate 3 AI RecipeSpec options from a prompt WITHOUT saving. Classify→LLM pipeline primitive.',
         body: '{ prompt: string, preferredType?: string }',
-        returns: '{ ok, prompt, classification: { intent, moduleType, confidence, confidenceBand, alternatives }, options: [{ index, explanation, recipe }], hint }',
-        notes: 'Splits AI generation from persistence. Use POST /api/agent/modules with a selected spec to save.',
+        returns: '{ ok, prompt, classification: { intent, moduleType, confidence, confidenceBand, alternatives }, recommendedIndex, options: [{ index, explanation, recipe, score, qualityBadges }], hint }',
+        notes: 'Splits AI generation from persistence. Options are deterministically ranked — recommendedIndex is the default best pick (qualityBadges/score explain why). Use POST /api/agent/modules with a selected spec to save.',
       },
       {
         id: 'validate_spec',

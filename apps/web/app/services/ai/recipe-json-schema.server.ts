@@ -142,6 +142,15 @@ function overlayTypeEnums(recipeRoot: JsonSchemaObject, moduleType: ModuleType):
     if (fieldNode.type === undefined) fieldNode.type = 'string';
     delete fieldNode.minLength;
     delete fieldNode.maxLength;
+    // Realign a Zod `.default()` that the tightened set no longer contains, so the
+    // emitted schema stays self-consistent (`default` ∈ `enum`). The pricing pack's
+    // `mechanism` defaults to 'shopify-function-discount' at the union level, but
+    // `functions.cartTransform` only allows 'shopify-function-cart-transform' — left
+    // as-is that default would sit outside its own enum. No-op when the existing
+    // default is already legal (e.g. layout's 'stacked').
+    if ('default' in fieldNode && !values.includes(fieldNode.default as string)) {
+      fieldNode.default = r.default;
+    }
   }
 }
 

@@ -1059,6 +1059,21 @@ export const PRICING_MECHANISMS = [
 ] as const;
 export type PricingMechanism = (typeof PRICING_MECHANISMS)[number];
 
+/**
+ * The subset of {@link PRICING_MECHANISMS} that is DECLARATIVE-ONLY: no shipped
+ * runtime materializes them. `compiler/pricing/lower.ts` lowers only the two
+ * `shopify-function-*` mechanisms into live Function config; `discount-code` /
+ * `draft-order` change nothing at checkout today.
+ *
+ * Single source of truth for the honesty rules layered on top (plan 1c): the
+ * per-type enum catalog (`control-packs/type-enums.ts`) omits these from what
+ * generation may emit for a Function type, and publish classifies a spec pinned
+ * to one of them as `needs_runtime` (never a fake-published discount). The shared
+ * `RecipeSpecSchema` still ACCEPTS them so already-persisted specs keep validating.
+ */
+export const DECLARATIVE_PRICING_MECHANISMS = ['discount-code', 'draft-order'] as const;
+export type DeclarativePricingMechanism = (typeof DECLARATIVE_PRICING_MECHANISMS)[number];
+
 /** Which primitive drives a pricing block. Exactly one body is authoritative. */
 export const PRICING_MODELS = ['single', 'tiered', 'bogo', 'gift'] as const;
 export type PricingModel = (typeof PRICING_MODELS)[number];
@@ -2077,10 +2092,15 @@ export const STOREFRONT_ELEVATION_IDIOMS = ['soft', 'glow', 'border', 'emboss'] 
 export const STOREFRONT_DENSITY_LEVELS = ['compact', 'comfortable', 'airy'] as const;
 export const STOREFRONT_MOTION_DURATIONS = ['none', 'fast', 'base', 'slow'] as const;
 export const STOREFRONT_MOTION_EASINGS = ['standard', 'enter', 'exit', 'mechanical'] as const;
-// Two-pack render grammar (module-design-system.md §3.3.1). `auto` is resolved app-side
+// V-B B13 entrance-animation vocabulary (035). One-shot on-enter motion for a module
+// root, honoring prefers-reduced-motion (instant). `none` (absent) ≡ pre-B13 behavior.
+export const STOREFRONT_MOTION_ENTRANCES = ['none', 'fade', 'rise', 'zoom'] as const;
+// Four-pack render grammar (module-design-system.md §3.3.1). `auto` is resolved app-side
 // at generation (resolveStorefrontPack, §9.2) to a concrete pack; the storefront reads the
 // resolved value from style_json.pack and stamps `.superapp-scope[data-sa-pack]`.
-export const STOREFRONT_STYLE_PACKS = ['auto', 'luxe', 'bold'] as const;
+// `playful`/`utility` are personality-explicit and only auto-picked on a clear high-confidence
+// signal; ambiguous/low-confidence resolves to `luxe`. Additive — never remove a value.
+export const STOREFRONT_STYLE_PACKS = ['auto', 'luxe', 'bold', 'playful', 'utility'] as const;
 // Global radius scaling knob (Radix `scaling`): shift a whole module tight↔soft in one move.
 export const STOREFRONT_RADIUS_SCALING_MIN = 50;
 export const STOREFRONT_RADIUS_SCALING_MAX = 150;

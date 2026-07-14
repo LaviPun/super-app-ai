@@ -1,6 +1,7 @@
 import type { RecipeSpec, ModuleType, RecipeBlueprint } from '@superapp/core';
 import crypto from 'node:crypto';
-import { RecipeSpecSchema, validateBlueprintCoherence } from '@superapp/core';
+import { RecipeSpecSchema, validateBlueprintCoherence, validateTypeEnums } from '@superapp/core';
+import type { TypeEnumViolation } from '@superapp/core';
 import type { BlueprintPlan } from '~/services/ai/blueprint-planner';
 import { getBlueprintCatalogEntry, buildCompositeManifest } from '~/services/ai/blueprint-catalog';
 import { isMerchantCodeExecutionAllowed, isCostRoutingEnabled } from '~/env.server';
@@ -38,18 +39,42 @@ import {
   getRecipeTokenBudget,
   getRecipeOptionsTokenBudget,
   getRepairTokenBudget,
+  getDeltaTokenBudget,
 } from '~/services/ai/token-budget.server';
+import { generateRecipeViaDelta } from '~/services/ai/template-delta.server';
 import {
   getRecipeOptionsJsonSchemaForType,
   getRecipeSingleJsonSchemaForType,
 } from '~/services/ai/recipe-json-schema.server';
 import type { PromptRouterDecision } from '~/schemas/prompt-router.server';
+import type { TemplateExemplar } from '~/services/ai/solution-search.server';
+import { getShopifyDocsBlock } from '~/services/ai/shopify-docs-grounding.server';
 import { buildDesignReferencePromptBlock, buildDesignSystemDirectiveForReference, resolveDesignReferencePack, resolveStoreDesignReferencePack, type DesignReferencePack } from '~/services/ai/design-reference.server';
-import { buildDesignQaCorrection, runDesignQa, summarizeQa } from '~/services/ai/design-qa.server';
+import { buildDesignQaCorrection, runDesignQa, summarizeQa, type DesignQaResult } from '~/services/ai/design-qa.server';
+import { runRenderQa } from '~/services/ai/design-qa-render.server';
+import { runRichnessQa, detectRichnessExempt } from '~/services/ai/richness-qa.server';
+import type { OptionQaSummary } from '~/services/ai/option-ranking.server';
+import { mustHaveControlsForType } from '~/services/ai/requirement-spec.server';
 
 import { getPrisma } from '~/db.server';
 
-export type RecipeOption = { explanation: string; recipe: RecipeSpec };
+export type RecipeOption = {
+  explanation: string;
+  recipe: RecipeSpec;
+  /**
+   * How this option was produced: `'delta'` = Tier-1 instantiate + merge-patch
+   * over a template exemplar; `'freeform'` = generated from scratch. Optional and
+   * additive — absent on legacy paths that never branch on it.
+   */
+  generationMode?: 'delta' | 'freeform';
+  /**
+   * QA outcome of this option's FINAL recipe (the design/render/richness gates
+   * merged by `runAllQaGates`, after any corrective regeneration). Feeds the
+   * deterministic option ranker (`option-ranking.server.ts`). Optional/additive —
+   * absent on paths that don't run `applyDesignQaWithRetry`.
+   */
+  qaSummary?: OptionQaSummary;
+};
 
 /** JSON Schema hint passed to providers that support structured output. */
 export interface ResponseSchemaHint {
@@ -588,8 +613,12 @@ export function compileCreateModulePrompt(params: {
   fullSchemaSpec?: string;
   styleSchemaSpec?: string;
   catalogDetails?: string;
+  /** Tier-2 few-shot exemplar block (RAG) — already self-headed. Precedes grounding. */
+  exemplarBlock?: string;
   /** Search-augmented grounding examples (RAG) — already self-headed. */
   groundingBlock?: string;
+  /** Current Shopify platform constraints for this module family (self-headed). */
+  platformBlock?: string;
   settingsPack?: string;
   previousError?: string;
   /** IntentPacket JSON (doc 15.8): structured intent so heavy AI only fills layout/copy/settings. */
@@ -656,13 +685,30 @@ export function compileCreateModulePrompt(params: {
   if (params.catalogDetails) {
     parts.push('', 'Catalog (examples for inspiration):', params.catalogDetails);
   }
+  if (params.exemplarBlock) {
+    parts.push('', params.exemplarBlock);
+  }
   if (params.groundingBlock) {
     parts.push('', params.groundingBlock);
+  }
+  if (params.platformBlock) {
+    parts.push('', params.platformBlock);
   }
   if (params.previousError) {
     parts.push('', '(Previous validation error — fix in next response):', params.previousError);
   }
   return parts.join('\n');
+}
+
+/**
+ * Frame a Tier-2 template exemplar as a self-headed prompt block, inserted just
+ * before the RAG grounding block. The model should match the exemplar's
+ * completeness, structure, and polish without lifting its brand-specific copy.
+ * No exemplar → no block (identical prompt to before).
+ */
+function buildExemplarBlock(exemplar?: TemplateExemplar): string | undefined {
+  if (!exemplar?.specJson) return undefined;
+  return `Hand-authored production-quality example of this module type (match its completeness, structure, and level of polish — do NOT copy its copy-text, name, or brand-specific content verbatim; adapt fully to the user's request):\n${exemplar.specJson}`;
 }
 
 /**
@@ -722,8 +768,12 @@ export function compileCreateSingleRecipePrompt(params: {
   fullSchemaSpec?: string;
   styleSchemaSpec?: string;
   catalogDetails?: string;
+  /** Tier-2 few-shot exemplar block (RAG) — already self-headed. Precedes grounding. */
+  exemplarBlock?: string;
   /** Search-augmented grounding examples (RAG) — already self-headed. */
   groundingBlock?: string;
+  /** Current Shopify platform constraints for this module family (self-headed). */
+  platformBlock?: string;
   settingsPack?: string;
   previousError?: string;
   intentPacketJson?: string;
@@ -780,8 +830,14 @@ export function compileCreateSingleRecipePrompt(params: {
   if (params.catalogDetails) {
     parts.push('', 'Catalog (examples for inspiration):', params.catalogDetails);
   }
+  if (params.exemplarBlock) {
+    parts.push('', params.exemplarBlock);
+  }
   if (params.groundingBlock) {
     parts.push('', params.groundingBlock);
+  }
+  if (params.platformBlock) {
+    parts.push('', params.platformBlock);
   }
   if (params.previousError) {
     parts.push('', '(Previous validation error — fix in next response):', params.previousError);
@@ -826,7 +882,9 @@ async function parseValidateAndRepairRecipe(
   const raw = unwrapRecipe(parsed);
   const repaired = repairRecipeForValidation(raw);
   const safe = RecipeSpecSchema.safeParse(repaired);
-  if (safe.success) return safe.data;
+  // Fast path only when BOTH Zod and the per-type enum catalog pass; a drift
+  // violation falls through to the repair loop (which re-checks the same catalog).
+  if (safe.success && validateTypeEnums(safe.data).length === 0) return safe.data;
   const fix = await validateAndRepairRecipe(raw, client, ctx);
   return fix.recipe;
 }
@@ -849,18 +907,69 @@ async function parseValidateAndRepairRecipe(
 /** Token/cost a corrective regeneration spent (always billed, even if its output is unusable). */
 type QaRegenResult = { recipe: RecipeSpec | null; tokensIn: number; tokensOut: number; costCents: number };
 /** The chosen recipe plus the EXTRA usage the retry spent, for the caller to add to recordAiUsage. */
-type QaRetryResult = { recipe: RecipeSpec; extraTokensIn: number; extraTokensOut: number; extraCostCents: number };
+type QaRetryResult = {
+  recipe: RecipeSpec;
+  extraTokensIn: number;
+  extraTokensOut: number;
+  extraCostCents: number;
+  /** QA counts of the CHOSEN recipe's final gate pass — fed to the option ranker. */
+  qaSummary: OptionQaSummary;
+};
 const NO_EXTRA = { extraTokensIn: 0, extraTokensOut: 0, extraCostCents: 0 };
+
+/** Reduce a merged QA result to the ranker's fails/warns/autofixes counts. */
+function qaCounts(result: DesignQaResult): OptionQaSummary {
+  let fails = 0;
+  let warns = 0;
+  let autofixes = 0;
+  for (const issue of result.issues) {
+    if (issue.severity === 'fail') fails++;
+    else if (issue.severity === 'warn') warns++;
+    if (issue.autofixed) autofixes++;
+  }
+  return { fails, warns, autofixes };
+}
+
+/**
+ * Extra context threaded into the QA gate so the render-time + richness gates can
+ * run alongside the spec-level gate. `userRequest` drives the richness-exempt
+ * heuristic ("make me a SIMPLE banner" opts out of richness floors);
+ * `mustHaveControls` is the expected control-pack surface (from the module type's
+ * v2 manifest) that the basicness detector measures coverage against. Absent →
+ * only the spec-level `runDesignQa` runs (fully back-compatible).
+ */
+type QaGateContext = { userRequest?: string; mustHaveControls?: string[] };
+
+/**
+ * Run all three deterministic QA gates and MERGE their issues into one
+ * DesignQaResult so the existing single corrective-regeneration loop handles the
+ * union — zero new LLM calls, no new pipeline stage. The spec-level gate owns the
+ * (possibly auto-fixed) recipe; render + richness are read-only telemetry/floors
+ * layered on top. Failure-safe: render/richness each return `[]` on any throw.
+ */
+function runAllQaGates(recipe: RecipeSpec, ctx?: QaGateContext): DesignQaResult {
+  const base = runDesignQa(recipe);
+  if (!ctx) return base;
+  const richnessExempt = ctx.userRequest ? detectRichnessExempt(ctx.userRequest) : false;
+  const renderIssues = runRenderQa(base.recipe);
+  const richnessIssues = runRichnessQa(base.recipe, {
+    mustHaveControls: ctx.mustHaveControls,
+    richnessExempt,
+  });
+  const issues = [...base.issues, ...renderIssues, ...richnessIssues];
+  return { pass: !issues.some((i) => i.severity === 'fail'), issues, recipe: base.recipe };
+}
 
 async function applyDesignQaWithRetry(
   recipe: RecipeSpec,
   regenerate: (correctiveInstruction: string) => Promise<QaRegenResult>,
+  qaContext?: QaGateContext,
 ): Promise<QaRetryResult> {
-  const first = runDesignQa(recipe);
-  if (first.pass) return { recipe: coerceValidRecipe(first.recipe, recipe), ...NO_EXTRA };
+  const first = runAllQaGates(recipe, qaContext);
+  if (first.pass) return { recipe: coerceValidRecipe(first.recipe, recipe), ...NO_EXTRA, qaSummary: qaCounts(first) };
 
   const corrective = buildDesignQaCorrection(first);
-  if (!corrective) return { recipe: coerceValidRecipe(first.recipe, recipe), ...NO_EXTRA };
+  if (!corrective) return { recipe: coerceValidRecipe(first.recipe, recipe), ...NO_EXTRA, qaSummary: qaCounts(first) };
   console.warn(`[design-qa] ${summarizeQa(first)} — attempting one corrective regeneration`);
 
   let regen: QaRegenResult | null = null;
@@ -870,15 +979,15 @@ async function applyDesignQaWithRetry(
     console.warn(`[design-qa] corrective regeneration failed: ${err instanceof Error ? err.message : String(err)}`);
     regen = null;
   }
-  if (!regen) return { recipe: coerceValidRecipe(first.recipe, recipe), ...NO_EXTRA };
+  if (!regen) return { recipe: coerceValidRecipe(first.recipe, recipe), ...NO_EXTRA, qaSummary: qaCounts(first) };
 
   // The regeneration LLM call was billed regardless of whether its output is usable.
   const extra = { extraTokensIn: regen.tokensIn, extraTokensOut: regen.tokensOut, extraCostCents: regen.costCents };
   const candidate = regen.recipe;
-  if (!candidate) return { recipe: coerceValidRecipe(first.recipe, recipe), ...extra };
+  if (!candidate) return { recipe: coerceValidRecipe(first.recipe, recipe), ...extra, qaSummary: qaCounts(first) };
 
-  const second = runDesignQa(candidate);
-  if (second.pass) return { recipe: coerceValidRecipe(second.recipe, candidate), ...extra };
+  const second = runAllQaGates(candidate, qaContext);
+  if (second.pass) return { recipe: coerceValidRecipe(second.recipe, candidate), ...extra, qaSummary: qaCounts(second) };
 
   // Retry still blocking — keep whichever has fewer blocking issues (tie → first,
   // i.e. the pre-retry auto-fixed recipe = current behavior).
@@ -886,8 +995,8 @@ async function applyDesignQaWithRetry(
   const secondFails = second.issues.filter((i) => i.severity === 'fail').length;
   console.warn(`[design-qa] corrective regeneration still failing (${secondFails} blocking) — keeping best auto-fixed recipe`);
   return secondFails < firstFails
-    ? { recipe: coerceValidRecipe(second.recipe, candidate), ...extra }
-    : { recipe: coerceValidRecipe(first.recipe, recipe), ...extra };
+    ? { recipe: coerceValidRecipe(second.recipe, candidate), ...extra, qaSummary: qaCounts(second) }
+    : { recipe: coerceValidRecipe(first.recipe, recipe), ...extra, qaSummary: qaCounts(first) };
 }
 
 /**
@@ -1159,10 +1268,24 @@ export function repairRecipeForValidation(raw: unknown): unknown {
 const MAX_REPAIR_ATTEMPTS = 2;
 
 /**
+ * Render per-type enum violations as a single repair-prompt error line — the
+ * offending path plus its allowed set — so the model can correct the value in the
+ * next pass, exactly like a Zod error message.
+ */
+function formatTypeEnumViolations(violations: TypeEnumViolation[]): string {
+  return (
+    'Per-type enum violation — fix the field(s) below to an allowed value: ' +
+    violations
+      .map((v) => `${v.path}="${v.value}" is not valid for this module type (use one of: ${v.allowed.join(' | ')})`)
+      .join('; ')
+  );
+}
+
+/**
  * Validate with RecipeSpecSchema; if invalid, run repair prompt (doc 15.9) and re-validate.
  * Caps at MAX_REPAIR_ATTEMPTS to keep cost predictable.
  */
-async function validateAndRepairRecipe(
+export async function validateAndRepairRecipe(
   raw: unknown,
   client: LlmClient,
   _options?: { shopId?: string; moduleType?: ModuleType },
@@ -1174,9 +1297,17 @@ async function validateAndRepairRecipe(
   for (let i = 0; i <= MAX_REPAIR_ATTEMPTS; i++) {
     const result = RecipeSpecSchema.safeParse(current);
     if (result.success) {
-      return { recipe: result.data, repaired: i > 0 };
+      // Drift closure (plan 1b): Zod's loose `z.string()`/full-enum validators let a
+      // per-type enum value through that the generation JSON Schema forbids. Treat any
+      // such value as a validation failure and feed it into the SAME repair loop.
+      const enumViolations = validateTypeEnums(result.data);
+      if (enumViolations.length === 0) {
+        return { recipe: result.data, repaired: i > 0 };
+      }
+      lastError = formatTypeEnumViolations(enumViolations);
+    } else {
+      lastError = result.error.message;
     }
-    lastError = result.error.message;
     if (i === MAX_REPAIR_ATTEMPTS) break;
     if (isFatalValidationError(lastError)) break;
     const repairPrompt = compileRepairPrompt(JSON.stringify(current), lastError);
@@ -1233,6 +1364,13 @@ export async function generateValidatedRecipe(
       // Schema-bound invariant: wrong/unknown discriminator → reject, not repair.
       assertKnownDiscriminator(candidate, options?.expectedType);
       const parsed = RecipeSpecSchema.parse(candidate);
+      // Drift closure (plan 1b): a per-type enum value Zod's loose validator let
+      // through is treated like any validation failure — throw so the next attempt
+      // carries it as `previousError` (billed like other failed attempts: not at all).
+      const enumViolations = validateTypeEnums(parsed);
+      if (enumViolations.length > 0) {
+        throw new Error(formatTypeEnumViolations(enumViolations));
+      }
       const { providerId: servedId, costCents } = await attributeServedCost(
         { servedProviderId, model },
         providerId,
@@ -1307,6 +1445,13 @@ Output a JSON object with a single key "recipe" whose value is the complete upda
       if (!options?.allowTypeChange && parsed.type !== currentSpec.type) {
         throw new Error(`AI changed module type from "${currentSpec.type}" to "${parsed.type}". Type changes are not allowed in modify mode.`);
       }
+      // Drift closure (plan 1b): reject a per-type enum value the loose schema let
+      // through, feeding it back as `previousError` so the next attempt corrects it
+      // (mirrors generateValidatedRecipe; avoids a later persist-time rejection).
+      const enumViolations = validateTypeEnums(parsed);
+      if (enumViolations.length > 0) {
+        throw new Error(formatTypeEnumViolations(enumViolations));
+      }
       const { providerId: servedId, costCents } = await attributeServedCost(
         { servedProviderId, model },
         providerId,
@@ -1350,6 +1495,101 @@ Output a JSON object with a single key "recipe" whose value is the complete upda
 }
 
 /**
+ * Produce ONE option's validated recipe for the parallel/stream fan-out, choosing
+ * between two generation modes:
+ *
+ *  - **delta** — only for option index 0 when a Tier-1 exemplar is present: the
+ *    template is instantiated and adapted via a single JSON-merge-patch call
+ *    (`generateRecipeViaDelta`) on a reduced token budget. On ANY delta failure it
+ *    transparently falls back to freeform, so the option count is never degraded.
+ *  - **freeform** — the existing behavior: one full single-recipe call, then the
+ *    fast Zod/enum path or the bounded repair loop.
+ *
+ * Returns the initial LLM `result` (for cost attribution), the validated recipe,
+ * the model explanation, whether repair ran, and which mode produced it. The
+ * design-QA gate is applied by the CALLER, uniformly, so both modes flow through
+ * `applyDesignQaWithRetry` identically.
+ */
+async function produceOptionRecipe(args: {
+  idx: number;
+  approach: { label: string; hint: string };
+  client: LlmClient;
+  compiledPrompt: string;
+  perBudget: number;
+  singleSchema: Record<string, unknown> | undefined;
+  moduleType: ModuleType;
+  userRequest: string;
+  shopId?: string;
+  exemplar?: TemplateExemplar;
+  designReferenceBlock?: string;
+  designSystemDirective?: string;
+}): Promise<{
+  result: GenerateResult;
+  recipe: RecipeSpec;
+  repairedFlag: boolean;
+  explanation: string;
+  generationMode: 'delta' | 'freeform';
+}> {
+  const { idx, approach, client, compiledPrompt, perBudget, singleSchema, moduleType, userRequest, shopId } = args;
+
+  // Tier-1: option 0 is produced by instantiating + delta-editing the exemplar.
+  if (idx === 0 && args.exemplar?.tier === 1 && args.exemplar.specJson) {
+    try {
+      const delta = await generateRecipeViaDelta({
+        client,
+        templateSpecJson: args.exemplar.specJson,
+        moduleType,
+        userRequest,
+        approachHint: approach.hint,
+        designReferenceBlock: args.designReferenceBlock,
+        designSystemDirective: args.designSystemDirective,
+        maxTokens: getDeltaTokenBudget(moduleType),
+        shopId,
+      });
+      return {
+        result: delta.result,
+        recipe: delta.recipe,
+        repairedFlag: false,
+        explanation: delta.explanation ?? `${approach.label} option`,
+        generationMode: 'delta',
+      };
+    } catch (deltaErr) {
+      // Never degrade the option count — drop to freeform for this slot.
+      console.warn(
+        `[template-delta] option ${idx} delta path failed, falling back to freeform: ${deltaErr instanceof Error ? deltaErr.message : String(deltaErr)}`,
+      );
+    }
+  }
+
+  // Freeform (default) path.
+  const result = await client.generateRecipe(compiledPrompt, {
+    maxTokens: perBudget,
+    responseSchema: singleSchema
+      ? { name: `RecipeSingle_${moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}`, schema: singleSchema }
+      : undefined,
+  });
+  const parsed = JSON.parse(result.rawJson);
+  const raw = unwrapRecipe(parsed);
+  const repaired = repairRecipeForValidation(raw);
+  const safe = RecipeSpecSchema.safeParse(repaired);
+  let recipe: RecipeSpec;
+  let repairedFlag = false;
+  // Accept the fast path only when the per-type enum catalog also passes; a drift
+  // violation routes to validateAndRepairRecipe, which loops on it.
+  if (safe.success && validateTypeEnums(safe.data).length === 0) {
+    recipe = safe.data;
+  } else {
+    const fix = await validateAndRepairRecipe(raw, client, { shopId, moduleType });
+    recipe = fix.recipe;
+    repairedFlag = fix.repaired;
+  }
+  const explanation = typeof (parsed as { explanation?: unknown })?.explanation === 'string'
+    ? (parsed as { explanation: string }).explanation
+    : `${approach.label} option`;
+  return { result, recipe, repairedFlag, explanation, generationMode: 'freeform' };
+}
+
+/**
  * Yielded by the streaming generator so the UI can show "Option 1 ready" as
  * soon as the first parallel call finishes — without waiting for the slowest.
  */
@@ -1379,6 +1619,8 @@ export async function* generateValidatedRecipeOptionsStream(
     optionCount?: number;
     /** Search-augmented grounding examples (RAG), injected into each prompt. */
     groundingBlock?: string;
+    /** Tier-2 few-shot exemplar (RAG), injected into each prompt before grounding. */
+    exemplar?: TemplateExemplar;
     /** When this module is one member of a blueprint, coordination context for the prompt. */
     blueprintContext?: string;
   },
@@ -1426,6 +1668,11 @@ export async function* generateValidatedRecipeOptionsStream(
   const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
   const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
   const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
+  const exemplarBlock = buildExemplarBlock(options?.exemplar);
+  // Current Shopify platform constraints for this module family. Small and
+  // correctness-critical, so injected by default across all confidence tiers
+  // (only the SHOPIFY_DOCS_GROUNDING_DISABLED off-switch suppresses it).
+  const platformBlock = getShopifyDocsBlock(classification.moduleType);
 
   type OneResult =
     | { kind: 'ok'; index: number; approach: string; option: RecipeOption; durationMs: number }
@@ -1444,7 +1691,9 @@ export async function* generateValidatedRecipeOptionsStream(
       fullSchemaSpec,
       styleSchemaSpec,
       catalogDetails,
+      exemplarBlock,
       groundingBlock: options?.groundingBlock,
+      platformBlock,
       settingsPack,
       intentPacketJson,
       promptProfile: options?.promptProfile,
@@ -1462,46 +1711,46 @@ export async function* generateValidatedRecipeOptionsStream(
     let costCents = 0;
     let servedId: string | null = providerId;
     try {
-      const result = await client.generateRecipe(compiledPrompt, {
-        maxTokens: perBudget,
-        responseSchema: singleSchema
-          ? { name: `RecipeSingle_${classification.moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}`, schema: singleSchema }
-          : undefined,
+      const produced = await produceOptionRecipe({
+        idx,
+        approach,
+        client,
+        compiledPrompt,
+        perBudget,
+        singleSchema,
+        moduleType: classification.moduleType,
+        userRequest: prompt,
+        shopId: options?.shopId,
+        exemplar: options?.exemplar,
+        designReferenceBlock,
+        designSystemDirective,
       });
+      const { result } = produced;
       tokensIn = result.tokensIn;
       tokensOut = result.tokensOut;
       model = result.model;
       ({ providerId: servedId, costCents } = await attributeServedCost(result, providerId, tokensIn, tokensOut));
 
-      const parsed = JSON.parse(result.rawJson);
-      const raw = unwrapRecipe(parsed);
-      const repaired = repairRecipeForValidation(raw);
-      const safe = RecipeSpecSchema.safeParse(repaired);
-      let recipe: RecipeSpec;
-      let repairedFlag = false;
-      if (safe.success) {
-        recipe = safe.data;
-      } else {
-        const fix = await validateAndRepairRecipe(raw, client, {
-          shopId: options?.shopId,
-          moduleType: classification.moduleType,
-        });
-        recipe = fix.recipe;
-        repairedFlag = fix.repaired;
-      }
+      let recipe = produced.recipe;
+      const repairedFlag = produced.repairedFlag;
 
-      const qaRetry = await applyDesignQaWithRetry(recipe, (corrective) =>
-        regenerateSingleRecipeForQa({
-          client,
-          compiledPrompt,
-          corrective,
-          perBudget,
-          singleSchema,
-          moduleType: classification.moduleType,
-          idx,
-          shopId: options?.shopId,
-          providerId: servedId,
-        }),
+      // Option 0's design-QA gate applies regardless of generation mode: the
+      // corrective regeneration re-runs the freeform single-recipe prompt.
+      const qaRetry = await applyDesignQaWithRetry(
+        recipe,
+        (corrective) =>
+          regenerateSingleRecipeForQa({
+            client,
+            compiledPrompt,
+            corrective,
+            perBudget,
+            singleSchema,
+            moduleType: classification.moduleType,
+            idx,
+            shopId: options?.shopId,
+            providerId: servedId,
+          }),
+        { userRequest: prompt, mustHaveControls: mustHaveControlsForType(classification.moduleType, 'basic') },
       );
       recipe = qaRetry.recipe;
       // Fold the corrective-regeneration spend into the recorded usage so the
@@ -1510,9 +1759,7 @@ export async function* generateValidatedRecipeOptionsStream(
       tokensOut += qaRetry.extraTokensOut;
       costCents += qaRetry.extraCostCents;
 
-      const explanation = typeof (parsed as { explanation?: unknown })?.explanation === 'string'
-        ? (parsed as { explanation: string }).explanation
-        : `${approach.label} option`;
+      const explanation = produced.explanation;
 
       await recordAiUsage(usage, {
         providerId: servedId,
@@ -1521,7 +1768,7 @@ export async function* generateValidatedRecipeOptionsStream(
         tokensIn,
         tokensOut,
         costCents,
-        meta: { approach: approach.label, model, repaired: repairedFlag, durationMs: Date.now() - startedAt },
+        meta: { approach: approach.label, model, repaired: repairedFlag, generationMode: produced.generationMode, durationMs: Date.now() - startedAt },
         requestCount: optionCallBillableUnits(idx),
         prompt: compiledPrompt,
       });
@@ -1529,7 +1776,7 @@ export async function* generateValidatedRecipeOptionsStream(
         kind: 'ok' as const,
         index: idx,
         approach: approach.label,
-        option: { explanation, recipe },
+        option: { explanation, recipe, generationMode: produced.generationMode, qaSummary: qaRetry.qaSummary },
         durationMs: Date.now() - startedAt,
       };
     } catch (err) {
@@ -1620,6 +1867,8 @@ export async function generateValidatedRecipeOptionsParallel(
     optionCount?: number;
     /** Search-augmented grounding examples (RAG), injected into each prompt. */
     groundingBlock?: string;
+    /** Tier-2 few-shot exemplar (RAG), injected into each prompt before grounding. */
+    exemplar?: TemplateExemplar;
     /** When this module is one member of a blueprint, coordination context for the prompt. */
     blueprintContext?: string;
   },
@@ -1667,6 +1916,11 @@ export async function generateValidatedRecipeOptionsParallel(
   const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
   const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
   const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
+  const exemplarBlock = buildExemplarBlock(options?.exemplar);
+  // Current Shopify platform constraints for this module family. Small and
+  // correctness-critical, so injected by default across all confidence tiers
+  // (only the SHOPIFY_DOCS_GROUNDING_DISABLED off-switch suppresses it).
+  const platformBlock = getShopifyDocsBlock(classification.moduleType);
 
   const calls = APPROACH_HINTS.slice(0, optionCount).map(async (approach, idx) => {
     const compiledPrompt = compileCreateSingleRecipePrompt({
@@ -1680,7 +1934,9 @@ export async function generateValidatedRecipeOptionsParallel(
       fullSchemaSpec,
       styleSchemaSpec,
       catalogDetails,
+      exemplarBlock,
       groundingBlock: options?.groundingBlock,
+      platformBlock,
       settingsPack,
       intentPacketJson,
       promptProfile: options?.promptProfile,
@@ -1699,46 +1955,46 @@ export async function generateValidatedRecipeOptionsParallel(
     let servedId: string | null = providerId;
 
     try {
-      const result = await client.generateRecipe(compiledPrompt, {
-        maxTokens: perBudget,
-        responseSchema: singleSchema
-          ? { name: `RecipeSingle_${classification.moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}`, schema: singleSchema }
-          : undefined,
+      const produced = await produceOptionRecipe({
+        idx,
+        approach,
+        client,
+        compiledPrompt,
+        perBudget,
+        singleSchema,
+        moduleType: classification.moduleType,
+        userRequest: prompt,
+        shopId: options?.shopId,
+        exemplar: options?.exemplar,
+        designReferenceBlock,
+        designSystemDirective,
       });
+      const { result } = produced;
       tokensIn = result.tokensIn;
       tokensOut = result.tokensOut;
       model = result.model;
       ({ providerId: servedId, costCents } = await attributeServedCost(result, providerId, tokensIn, tokensOut));
 
-      const parsed = JSON.parse(result.rawJson);
-      const raw = unwrapRecipe(parsed);
-      const repaired = repairRecipeForValidation(raw);
-      const safe = RecipeSpecSchema.safeParse(repaired);
-      let recipe: RecipeSpec;
-      let repairedFlag = false;
-      if (safe.success) {
-        recipe = safe.data;
-      } else {
-        const fix = await validateAndRepairRecipe(raw, client, {
-          shopId: options?.shopId,
-          moduleType: classification.moduleType,
-        });
-        recipe = fix.recipe;
-        repairedFlag = fix.repaired;
-      }
+      let recipe = produced.recipe;
+      const repairedFlag = produced.repairedFlag;
 
-      const qaRetry = await applyDesignQaWithRetry(recipe, (corrective) =>
-        regenerateSingleRecipeForQa({
-          client,
-          compiledPrompt,
-          corrective,
-          perBudget,
-          singleSchema,
-          moduleType: classification.moduleType,
-          idx,
-          shopId: options?.shopId,
-          providerId: servedId,
-        }),
+      // Option 0's design-QA gate applies regardless of generation mode: the
+      // corrective regeneration re-runs the freeform single-recipe prompt.
+      const qaRetry = await applyDesignQaWithRetry(
+        recipe,
+        (corrective) =>
+          regenerateSingleRecipeForQa({
+            client,
+            compiledPrompt,
+            corrective,
+            perBudget,
+            singleSchema,
+            moduleType: classification.moduleType,
+            idx,
+            shopId: options?.shopId,
+            providerId: servedId,
+          }),
+        { userRequest: prompt, mustHaveControls: mustHaveControlsForType(classification.moduleType, 'basic') },
       );
       recipe = qaRetry.recipe;
       // Fold the corrective-regeneration spend into the recorded usage so the
@@ -1747,9 +2003,7 @@ export async function generateValidatedRecipeOptionsParallel(
       tokensOut += qaRetry.extraTokensOut;
       costCents += qaRetry.extraCostCents;
 
-      const explanation = typeof (parsed as { explanation?: unknown })?.explanation === 'string'
-        ? (parsed as { explanation: string }).explanation
-        : `${approach.label} option`;
+      const explanation = produced.explanation;
 
       await recordAiUsage(usage, {
         providerId: servedId,
@@ -1758,11 +2012,12 @@ export async function generateValidatedRecipeOptionsParallel(
         tokensIn,
         tokensOut,
         costCents,
-        meta: { approach: approach.label, model, repaired: repairedFlag },
+        meta: { approach: approach.label, model, repaired: repairedFlag, generationMode: produced.generationMode },
         requestCount: optionCallBillableUnits(idx),
         prompt: compiledPrompt,
       });
-      return { ok: true as const, option: { explanation, recipe } };
+      const option: RecipeOption = { explanation, recipe, generationMode: produced.generationMode, qaSummary: qaRetry.qaSummary };
+      return { ok: true as const, option };
     } catch (err) {
       await recordAiUsage(usage, {
         providerId: servedId,
@@ -1823,6 +2078,7 @@ export async function generateValidatedBlueprint(
     promptProfile?: string;
     routerDecision?: PromptRouterDecision;
     groundingBlock?: string;
+    exemplar?: TemplateExemplar;
   },
 ): Promise<RecipeBlueprint> {
   const roleList = plan.modules.map((m) => `${m.role} (${m.moduleType})`).join(', ');
@@ -1851,6 +2107,7 @@ export async function generateValidatedBlueprint(
           promptProfile: options?.promptProfile,
           routerDecision: options?.routerDecision,
           groundingBlock: options?.groundingBlock,
+          exemplar: options?.exemplar,
           optionCount: 1,
           blueprintContext,
         },
@@ -1912,6 +2169,8 @@ export async function generateValidatedRecipeOptions(
     routerDecision?: PromptRouterDecision;
     /** Search-augmented grounding examples (RAG), injected into each prompt. */
     groundingBlock?: string;
+    /** Tier-2 few-shot exemplar (RAG), injected into each prompt before grounding. */
+    exemplar?: TemplateExemplar;
     /** When this module is one member of a blueprint, coordination context for the prompt. */
     blueprintContext?: string;
   },
@@ -1925,6 +2184,7 @@ export async function generateValidatedRecipeOptions(
       routerDecision: options?.routerDecision,
       optionCount: 3,
       groundingBlock: options?.groundingBlock,
+      exemplar: options?.exemplar,
       blueprintContext: options?.blueprintContext,
     });
   }
@@ -1957,6 +2217,11 @@ export async function generateValidatedRecipeOptions(
   const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
   const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
   const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
+  const exemplarBlock = buildExemplarBlock(options?.exemplar);
+  // Current Shopify platform constraints for this module family. Small and
+  // correctness-critical, so injected by default across all confidence tiers
+  // (only the SHOPIFY_DOCS_GROUNDING_DISABLED off-switch suppresses it).
+  const platformBlock = getShopifyDocsBlock(classification.moduleType);
   // Skip full types list when confidence is high — the type is already known, saves ~2K tokens.
   const typesList = isHighConfidence ? `Available type: ${classification.moduleType}` : getAllTypesSummary();
 
@@ -2001,7 +2266,9 @@ export async function generateValidatedRecipeOptions(
       fullSchemaSpec,
       styleSchemaSpec,
       catalogDetails,
+      exemplarBlock,
       groundingBlock: options?.groundingBlock,
+      platformBlock,
       previousError: lastErr ? String(lastErr) : undefined,
       intentPacketJson: includeIntentPacket ? options?.intentPacketJson : undefined,
       promptProfile: options?.promptProfile,
@@ -2410,7 +2677,12 @@ function guessProviderKindFromModel(model: string | undefined): 'ANTHROPIC' | 'O
  * fallback). Only truly unpriced models (no matching AiModelPrice row anywhere)
  * still resolve to 0.
  */
-async function attributeServedCost(
+/**
+ * Attribute a served LLM call to its real provider + estimated cost. Exported so
+ * the async judge-polish phase (judge-polish.server.ts, plan Phase 5c) can record
+ * its (non-billable) usage through the same path as generation calls.
+ */
+export async function attributeServedCost(
   result: { servedProviderId?: string | null; model?: string },
   defaultProviderId: string | null,
   tokensIn: number,
