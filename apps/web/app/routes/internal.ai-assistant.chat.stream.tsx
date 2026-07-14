@@ -13,6 +13,12 @@ import {
   InternalAssistantStoreService,
   type AssistantMessageRecord,
 } from '~/services/ai/internal-assistant-store.server';
+import {
+  deriveActionProposals,
+  parseStoredActionProposals,
+  type ActionProposal,
+} from '~/services/ai/internal-assistant-actions.server';
+import type { AssistantToolRunResult } from '~/services/ai/internal-assistant-tools.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { enforceInternalAiRateLimit } from '~/services/security/rate-limit.server';
 import { z } from 'zod';
@@ -28,7 +34,7 @@ const StreamRequestSchema = z.object({
 export type StreamRequestInput = z.infer<typeof StreamRequestSchema>;
 
 export type SseFrame =
-  | { kind: 'event'; event: 'ready' | 'token' | 'tool' | 'done' | 'error'; data: unknown }
+  | { kind: 'event'; event: 'ready' | 'token' | 'tool' | 'actions' | 'done' | 'error'; data: unknown }
   | { kind: 'comment'; text: string }
   | { kind: 'session_missing' };
 
@@ -150,6 +156,12 @@ export async function* runAssistantStream(
     if (existingAssistant.content) {
       yield { kind: 'event', event: 'token', data: { text: existingAssistant.content } };
     }
+    // Replay persisted action proposals so they survive a reconnect/resume. Parsed
+    // through the allowlist validator — a tampered row can never render an intent.
+    const resumedProposals = parseStoredActionProposals(existingAssistant.actionsJson);
+    if (resumedProposals.length > 0) {
+      yield { kind: 'event', event: 'actions', data: { proposals: resumedProposals } };
+    }
     yield {
       kind: 'event',
       event: 'done',
@@ -218,6 +230,20 @@ export async function* runAssistantStream(
   };
   let producerDone = false;
   let firstTokenSent = false;
+  // Action proposals are derived DETERMINISTICALLY from this turn's tool results
+  // (never model text) and emitted once, before the first token, so the UI can
+  // render confirm-to-run cards. The same list is persisted on the assistant row.
+  const collectedToolResults: AssistantToolRunResult[] = [];
+  let proposals: ActionProposal[] = [];
+  let actionsEmitted = false;
+  const emitActionsOnce = () => {
+    if (actionsEmitted) return;
+    actionsEmitted = true;
+    proposals = deriveActionProposals(collectedToolResults);
+    if (proposals.length > 0) {
+      push({ kind: 'event', event: 'actions', data: { proposals } });
+    }
+  };
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   const startHeartbeat = () => {
     if (heartbeatTimer) return;
@@ -272,6 +298,9 @@ export async function* runAssistantStream(
           if (!firstTokenSent) {
             firstTokenSent = true;
             stopHeartbeat();
+            // Emit the `actions` frame before the first token so cards attach to
+            // this reply. All tool_result events precede tokens in the generator.
+            emitActionsOnce();
           }
           fullReply += event.text;
           push({ kind: 'event', event: 'token', data: { text: event.text } });
@@ -285,6 +314,7 @@ export async function* runAssistantStream(
           continue;
         }
         if (event.type === 'tool_result') {
+          collectedToolResults.push({ toolName: event.tool as AssistantToolRunResult['toolName'], ok: event.ok, data: event.data });
           await store.writeToolAudit({
             toolName: event.tool,
             sessionId: session.id,
@@ -308,6 +338,8 @@ export async function* runAssistantStream(
           continue;
         }
         if (event.type === 'done') {
+          // Ensure proposals are computed even if no token ever arrived.
+          emitActionsOnce();
           const estimatedCostCents = await estimateCostCents(event.meta);
           // 3.16: empty model output is an error, not a synthetic placeholder.
           if (fullReply.trim() === '') {
@@ -350,6 +382,7 @@ export async function* runAssistantStream(
             retryCount,
             status: 'completed',
             error: null,
+            actionsJson: proposals.length > 0 ? JSON.stringify(proposals) : null,
           });
           await store.updateSession(session.id, {
             mode: event.meta.target,

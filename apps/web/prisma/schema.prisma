@@ -913,6 +913,9 @@ model InternalAiMessage {
   clientRequestId String?
   responseToMessageId String?
   error          String?
+  // JSON array of confirm-to-run ActionProposal objects derived from this turn's
+  // tool results (assistant rows only). Validated on write and on render.
+  actionsJson    String?
   createdAt      DateTime @default(now())
 
   toolAudits     InternalAiToolAudit[]

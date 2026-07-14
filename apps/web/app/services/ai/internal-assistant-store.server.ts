@@ -33,6 +33,8 @@ export type AssistantMessageRecord = {
   clientRequestId: string | null;
   responseToMessageId: string | null;
   error: string | null;
+  /** JSON array of validated ActionProposal objects (assistant rows), or null. */
+  actionsJson: string | null;
   createdAt: string;
 };
 
@@ -115,6 +117,9 @@ async function ensureInternalAiMessageSchema() {
       if (!columns.has('responseToMessageId')) {
         await prisma.$executeRawUnsafe('ALTER TABLE "InternalAiMessage" ADD COLUMN "responseToMessageId" TEXT');
       }
+      if (!columns.has('actionsJson')) {
+        await prisma.$executeRawUnsafe('ALTER TABLE "InternalAiMessage" ADD COLUMN "actionsJson" TEXT');
+      }
       await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "InternalAiMessage_sessionId_clientRequestId_idx" ON "InternalAiMessage"("sessionId", "clientRequestId")');
       await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "InternalAiMessage_responseToMessageId_idx" ON "InternalAiMessage"("responseToMessageId")');
     } catch (error) {
@@ -172,6 +177,7 @@ async function ensureInternalAiTables() {
         "estimatedCostCents" INTEGER DEFAULT 0,
         "hadFallback" BOOLEAN NOT NULL DEFAULT false,
         "error" TEXT,
+        "actionsJson" TEXT,
         "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY ("sessionId") REFERENCES "InternalAiSession" ("id") ON DELETE CASCADE ON UPDATE CASCADE
       )
@@ -385,6 +391,7 @@ export class InternalAssistantStoreService {
       clientRequestId: row.clientRequestId,
       responseToMessageId: row.responseToMessageId,
       error: row.error,
+      actionsJson: row.actionsJson ?? null,
       createdAt: row.createdAt.toISOString(),
     }));
   }
@@ -406,6 +413,7 @@ export class InternalAssistantStoreService {
     clientRequestId?: string;
     responseToMessageId?: string;
     error?: string;
+    actionsJson?: string | null;
   }): Promise<AssistantMessageRecord> {
     await ensureInternalAiTables();
     const prisma = getPrisma();
@@ -428,6 +436,7 @@ export class InternalAssistantStoreService {
         clientRequestId: input.clientRequestId,
         responseToMessageId: input.responseToMessageId,
         error: input.error,
+        actionsJson: input.actionsJson ?? null,
       },
     });
     await prisma.internalAiSession.update({
@@ -451,6 +460,7 @@ export class InternalAssistantStoreService {
       clientRequestId: row.clientRequestId,
       responseToMessageId: row.responseToMessageId,
       error: row.error,
+      actionsJson: row.actionsJson ?? null,
       createdAt: row.createdAt.toISOString(),
     };
   }
@@ -468,6 +478,7 @@ export class InternalAssistantStoreService {
     retryCount?: number;
     status?: 'streaming' | 'completed' | 'error';
     error?: string | null;
+    actionsJson?: string | null;
   }): Promise<AssistantMessageRecord> {
     await ensureInternalAiTables();
     const prisma = getPrisma();
@@ -476,6 +487,7 @@ export class InternalAssistantStoreService {
       where: { id: messageId },
       data: {
         ...(redactedContent !== undefined ? { content: redactedContent } : {}),
+        ...(input.actionsJson !== undefined ? { actionsJson: input.actionsJson } : {}),
         ...(input.mode !== undefined ? { mode: input.mode } : {}),
         ...(input.backend !== undefined ? { backend: input.backend } : {}),
         ...(input.model !== undefined ? { model: input.model } : {}),
@@ -506,6 +518,7 @@ export class InternalAssistantStoreService {
       clientRequestId: row.clientRequestId,
       responseToMessageId: row.responseToMessageId,
       error: row.error,
+      actionsJson: row.actionsJson ?? null,
       createdAt: row.createdAt.toISOString(),
     };
   }
@@ -539,6 +552,7 @@ export class InternalAssistantStoreService {
       clientRequestId: row.clientRequestId,
       responseToMessageId: row.responseToMessageId,
       error: row.error,
+      actionsJson: row.actionsJson ?? null,
       createdAt: row.createdAt.toISOString(),
     };
   }
@@ -573,6 +587,7 @@ export class InternalAssistantStoreService {
       clientRequestId: row.clientRequestId,
       responseToMessageId: row.responseToMessageId,
       error: row.error,
+      actionsJson: row.actionsJson ?? null,
       createdAt: row.createdAt.toISOString(),
     };
   }

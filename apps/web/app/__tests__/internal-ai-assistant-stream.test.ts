@@ -283,6 +283,81 @@ describe('runAssistantStream', () => {
     );
   });
 
+  it('emits an actions frame (derived from tool results) before the first token and persists actionsJson', async () => {
+    const store = makeStore();
+    const streamChat = vi.fn(makeAsyncStream([
+      {
+        type: 'tool_result',
+        tool: 'getJobStatus',
+        ok: true,
+        data: { dlqFailedTotal: 3, recentFailed: [] },
+      },
+      { type: 'token', text: 'here is the DLQ status' },
+      {
+        type: 'done',
+        meta: {
+          target: 'localMachine', backend: 'ollama', model: 'qwen3:4b',
+          latencyMs: 5, tokensIn: 1, tokensOut: 2, hadFallback: false,
+        },
+      },
+    ]));
+
+    const frames = await collectFrames(
+      runAssistantStream(
+        { sessionId: 'sess-1', message: 'show the DLQ' },
+        { store, activity, streamChat: streamChat as never },
+      ),
+    );
+
+    const order = frames
+      .filter((f): f is Extract<SseFrame, { kind: 'event' }> => f.kind === 'event')
+      .map((f) => f.event);
+    const actionsIdx = order.indexOf('actions');
+    const firstTokenIdx = order.indexOf('token');
+    expect(actionsIdx).toBeGreaterThanOrEqual(0);
+    expect(actionsIdx).toBeLessThan(firstTokenIdx);
+
+    const actionsFrame = frames.find((f) => f.kind === 'event' && f.event === 'actions') as
+      | { data: { proposals: Array<{ intent: string }> } }
+      | undefined;
+    expect(actionsFrame?.data.proposals[0]?.intent).toBe('job_replay_all');
+
+    // Finalize persists the proposals as JSON on the assistant row.
+    const finalize = store.updateMessage.mock.calls.find(
+      (call) => (call[1] as { status?: string }).status === 'completed',
+    );
+    expect(finalize).toBeDefined();
+    const actionsJson = (finalize?.[1] as { actionsJson?: string }).actionsJson;
+    expect(typeof actionsJson).toBe('string');
+    expect(JSON.parse(actionsJson as string)[0].intent).toBe('job_replay_all');
+  });
+
+  it('emits no actions frame for read-only tool results', async () => {
+    const store = makeStore();
+    const streamChat = vi.fn(makeAsyncStream([
+      { type: 'tool_result', tool: 'searchAppDocs', ok: true, data: { available: true, snippets: [] } },
+      { type: 'token', text: 'docs answer' },
+      {
+        type: 'done',
+        meta: {
+          target: 'localMachine', backend: 'ollama', model: 'qwen3:4b',
+          latencyMs: 5, tokensIn: 1, tokensOut: 2, hadFallback: false,
+        },
+      },
+    ]));
+    const frames = await collectFrames(
+      runAssistantStream(
+        { sessionId: 'sess-1', message: 'how does publishing work' },
+        { store, activity, streamChat: streamChat as never },
+      ),
+    );
+    expect(frames.some((f) => f.kind === 'event' && f.event === 'actions')).toBe(false);
+    const finalize = store.updateMessage.mock.calls.find(
+      (call) => (call[1] as { status?: string }).status === 'completed',
+    );
+    expect((finalize?.[1] as { actionsJson?: string | null }).actionsJson).toBeNull();
+  });
+
   it('emits AI_ASSISTANT_QUERY activity log on every attempt (3.17)', async () => {
     const store = makeStore();
     const streamChat = vi.fn(makeAsyncStream([

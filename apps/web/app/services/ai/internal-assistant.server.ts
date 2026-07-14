@@ -69,6 +69,7 @@ const SYSTEM_PROMPT = [
   'Priorities: accuracy, concise reasoning, actionable output, no secrets leakage.',
   'When an Investigation snapshot is present, structure the answer as What happened -> Observations (cite the trace timeline and recurrence evidence) -> Likely cause -> How to fix, and recommend the matching runbook if the documentation excerpts include one.',
   'Tool safety: unscoped log/error tools only return aggregated redacted summaries. To get row-level details, include an explicit myshopify domain in the request.',
+  'Action cards: when confirm-to-run action buttons accompany your reply, tell the operator they can review and execute them below — never claim an action has already run; only the operator can trigger it.',
 ].join(' ');
 
 function getTargetPrefix(target: AssistantTarget): 'LOCAL_ROUTER' | 'MODAL_ROUTER' {
