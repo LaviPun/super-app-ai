@@ -2189,8 +2189,21 @@ export class PreviewService {
           `<div class="sf-console__line"><span class="sf-console__ts">${clock[i % clock.length]}</span><span class="sf-console__ev">${esc(e)}</span><span style="color:#5C6780">→ collected</span></div>`,
       )
       .join('');
+    // Vendor identity (name/pixelId/mapping) is what distinguishes one pixel from
+    // another — the subscribed STANDARD events are often identical across vendors.
+    const pixelId = this.cfgVal(spec, 'pixelId');
+    const mapping = this.cfgVal(spec, 'mapping');
+    const mappedEvent =
+      mapping && typeof mapping === 'object' ? Object.values(mapping as Record<string, unknown>)[0] : undefined;
     const payload = JSON.stringify(
-      { name: evs[0] ?? 'page_viewed', timestamp: '2026-06-14T12:00:04Z', clientId: 'a1b2-c3d4', context: { document: { location: '/products/aurora' } } },
+      {
+        name: evs[0] ?? 'page_viewed',
+        timestamp: '2026-06-14T12:00:04Z',
+        clientId: 'a1b2-c3d4',
+        ...(typeof pixelId === 'string' && pixelId ? { destination: pixelId } : {}),
+        ...(typeof mappedEvent === 'string' && mappedEvent ? { forwardedAs: mappedEvent } : {}),
+        context: { document: { location: '/products/aurora' } },
+      },
       null,
       2,
     );
@@ -2200,7 +2213,7 @@ export class PreviewService {
           <span class="sf-console__dot" style="background:#FF5F57"></span>
           <span class="sf-console__dot" style="background:#FEBC2E"></span>
           <span class="sf-console__dot" style="background:#28C840"></span>
-          <span class="sf-console__title">web-pixel · event stream</span>
+          <span class="sf-console__title">web-pixel · ${esc(spec.name)}</span>
         </div>
         <div class="sf-console__log">${logLines}</div>
         <pre class="sf-console__pre">${esc(payload)}</pre>
