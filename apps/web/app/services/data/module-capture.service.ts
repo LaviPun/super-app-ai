@@ -1,5 +1,6 @@
 import { getPrisma } from '~/db.server';
 import { persistJsonSafely } from '~/services/observability/redact.server';
+import { bridgeShopperSupportCapture } from '~/services/support/shopper-intake.server';
 import { DataStoreService } from './data-store.service';
 
 export type ModuleCaptureInput = {
@@ -154,6 +155,18 @@ export class ModuleCaptureService {
         piiFlags: input.piiFlags,
       });
       dataStoreRecordId = record.id;
+    }
+
+    // Shopper-facing support intake (Phase H): a `support_ticket` capture also
+    // opens a SHOPPER-sourced ticket in the merchant inbox. The bridge is
+    // non-fatal and defers triage, so it never slows or breaks the capture flow.
+    if (input.captureType === 'support_ticket') {
+      await bridgeShopperSupportCapture({
+        shopId: input.shopId,
+        moduleId: input.moduleId,
+        captureId: capture.id,
+        payload: input.payload ?? {},
+      });
     }
 
     return { captureId: capture.id, dataStoreRecordId };
