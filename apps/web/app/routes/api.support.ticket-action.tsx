@@ -144,6 +144,15 @@ export async function action({ request }: ActionFunctionArgs) {
       escalate: result.escalate, provider: triage.provider, model: triage.model, retry: true,
     });
     await recordTicketEvent(ticket.id, 'AI_REPLIED', 'AI');
+    if (result.escalate) {
+      await recordTicketEvent(ticket.id, 'ESCALATED', 'AI', { reason: 'triage recommended escalation' });
+      await notifySupportEvent('escalated', ticket, {
+        shopDomain: session.shop,
+        severity: result.severity,
+        summary: result.summary,
+        reason: 'triage recommended escalation',
+      });
+    }
   }
 
   const activity = new ActivityLogService();
