@@ -27,6 +27,19 @@ export interface AppSettingsData {
   defaultAiProvider: 'openai' | 'claude' | null;
   /** Optional storefront site URL used as visual design reference for premium prompt guidance. */
   designReferenceUrl: string | null;
+  // Email delivery (DB-first; null = fall back to EMAIL_* env vars).
+  /** 'smtp' | 'sendgrid' | 'generic'; null = use env fallback. */
+  emailProvider: string | null;
+  emailFrom: string | null;
+  emailApiUrl: string | null;
+  /** Encrypted JSON { apiKey }; never exposed to the client. */
+  emailApiKeyEnc: string | null;
+  smtpHost: string | null;
+  smtpPort: number | null;
+  smtpUser: string | null;
+  /** Encrypted JSON { pass }; never exposed to the client. */
+  smtpPassEnc: string | null;
+  smtpSecure: boolean;
 }
 
 function coerceDefaultAiProvider(value: string | null | undefined): 'openai' | 'claude' | null {
@@ -61,6 +74,15 @@ const DEFAULTS: AppSettingsData = {
   templateSpecOverrides: null,
   defaultAiProvider: null,
   designReferenceUrl: null,
+  emailProvider: null,
+  emailFrom: null,
+  emailApiUrl: null,
+  emailApiKeyEnc: null,
+  smtpHost: null,
+  smtpPort: null,
+  smtpUser: null,
+  smtpPassEnc: null,
+  smtpSecure: true,
 };
 
 export class SettingsService {
@@ -92,6 +114,15 @@ export class SettingsService {
         templateSpecOverrides: row.templateSpecOverrides,
         defaultAiProvider: coerceDefaultAiProvider(row.defaultAiProvider),
         designReferenceUrl: row.designReferenceUrl,
+        emailProvider: row.emailProvider,
+        emailFrom: row.emailFrom,
+        emailApiUrl: row.emailApiUrl,
+        emailApiKeyEnc: row.emailApiKeyEnc,
+        smtpHost: row.smtpHost,
+        smtpPort: row.smtpPort,
+        smtpUser: row.smtpUser,
+        smtpPassEnc: row.smtpPassEnc,
+        smtpSecure: row.smtpSecure,
       };
     } catch (error) {
       if (!isMissingDesignReferenceUrlColumnError(error)) throw error;
@@ -123,6 +154,7 @@ export class SettingsService {
       });
       if (!row) return { ...DEFAULTS };
       return {
+        ...DEFAULTS,
         ...row,
         defaultAiProvider: coerceDefaultAiProvider(row.defaultAiProvider),
         designReferenceUrl: null,
@@ -179,6 +211,15 @@ export class SettingsService {
       templateSpecOverrides: row.templateSpecOverrides,
       defaultAiProvider: coerceDefaultAiProvider(row.defaultAiProvider),
       designReferenceUrl: row.designReferenceUrl,
+      emailProvider: row.emailProvider,
+      emailFrom: row.emailFrom,
+      emailApiUrl: row.emailApiUrl,
+      emailApiKeyEnc: row.emailApiKeyEnc,
+      smtpHost: row.smtpHost,
+      smtpPort: row.smtpPort,
+      smtpUser: row.smtpUser,
+      smtpPassEnc: row.smtpPassEnc,
+      smtpSecure: row.smtpSecure,
     };
   }
 }

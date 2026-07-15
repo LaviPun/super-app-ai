@@ -4,12 +4,15 @@ import { useEffect, useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { SettingsService } from '~/services/settings/settings.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import { encryptJson } from '~/services/security/crypto.server';
+import { sendEmail, resolveMailerStatus } from '~/services/notifications/mailer.server';
 import {
   useAdminCtx,
   Btn,
   Icon,
   Field,
   Input,
+  Select,
   Toggle,
   Banner,
   Badge,
@@ -54,9 +57,17 @@ function getEnvReference() {
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
-  const settings = await new SettingsService().get();
+  const full = await new SettingsService().get();
+  // Never ship encrypted secrets to the client — expose only whether each is set.
+  const { emailApiKeyEnc, smtpPassEnc, ...settings } = full;
+  const mailerStatus = await resolveMailerStatus();
   return json({
-    settings,
+    settings: {
+      ...settings,
+      hasEmailApiKey: !!emailApiKeyEnc,
+      hasSmtpPass: !!smtpPassEnc,
+    },
+    mailerStatus,
     envKeys: getEnvKeyStatus(),
     envRef: getEnvReference(),
   });
@@ -115,6 +126,49 @@ export async function action({ request }: { request: Request }) {
     return json({ toast: { message: 'App configuration saved' }, section: 'config' });
   }
 
+  if (intent === 'save_email_delivery') {
+    const providerRaw = String(form.get('emailProvider') ?? '').trim().toLowerCase();
+    const provider =
+      providerRaw === 'smtp' || providerRaw === 'sendgrid' || providerRaw === 'generic' ? providerRaw : null;
+    const portRaw = String(form.get('smtpPort') ?? '').trim();
+    const port = portRaw ? Number.parseInt(portRaw, 10) : NaN;
+    const update: Parameters<SettingsService['update']>[0] = {
+      emailProvider: provider,
+      emailFrom: String(form.get('emailFrom') ?? '').trim() || null,
+      emailApiUrl: String(form.get('emailApiUrl') ?? '').trim() || null,
+      smtpHost: String(form.get('smtpHost') ?? '').trim() || null,
+      smtpPort: Number.isFinite(port) ? port : null,
+      smtpUser: String(form.get('smtpUser') ?? '').trim() || null,
+      smtpSecure: form.get('smtpSecure') === 'true',
+    };
+    // Only overwrite the stored encrypted secret when a new non-empty value is submitted.
+    const newApiKey = String(form.get('emailApiKey') ?? '').trim();
+    if (newApiKey) update.emailApiKeyEnc = encryptJson({ apiKey: newApiKey });
+    const newSmtpPass = String(form.get('smtpPass') ?? '').trim();
+    if (newSmtpPass) update.smtpPassEnc = encryptJson({ pass: newSmtpPass });
+
+    await service.update(update);
+    // Audit the change but never log the secrets.
+    await activity.log({ actor: 'INTERNAL_ADMIN', action: 'SETTINGS_CHANGE', details: { section: 'email_delivery', provider } });
+    return json({ toast: { message: 'Email delivery settings saved' }, section: 'email_delivery' });
+  }
+
+  if (intent === 'send_test_email') {
+    const to = String(form.get('testRecipient') ?? '').trim();
+    if (!to.includes('@')) return json({ error: 'Enter a valid recipient email address.' }, { status: 400 });
+    const result = await sendEmail({
+      to,
+      subject: '[SuperApp] Test email',
+      html: '<p>This is a test email from the SuperApp AI admin. If you received it, email delivery is configured correctly.</p>',
+      text: 'This is a test email from the SuperApp AI admin. If you received it, email delivery is configured correctly.',
+    });
+    if (result.sent) {
+      await activity.log({ actor: 'INTERNAL_ADMIN', action: 'SUPPORT_NOTIFICATION_SENT', details: { kind: 'test' } });
+      return json({ toast: { message: `Test email sent to ${to}` }, section: 'email_delivery' });
+    }
+    return json({ error: result.error ? `Test email failed: ${result.error}` : 'Test email failed' }, { status: 400 });
+  }
+
   // AI provider/model/pricing writes live solely on /internal/ai-providers now.
   // Settings no longer writes providers — see the AI & API keys tab link card.
 
@@ -137,15 +191,20 @@ function useSettingsFetcher() {
 }
 
 export default function AdminSettings() {
-  const { settings, envKeys, envRef } = useLoaderData<typeof loader>();
+  const { settings, mailerStatus, envKeys, envRef } = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
   const [tab, setTab] = useState('appearance');
   const [color, setColor] = useState(settings.headerColor);
+  const [emailProvider, setEmailProvider] = useState(settings.emailProvider ?? '');
+  const [smtpSecure, setSmtpSecure] = useState(settings.smtpSecure);
+  const firstRecipient = (settings.alertRecipients ?? '').split(',')[0]?.trim() || settings.adminEmail || '';
 
   const appearanceFetcher = useSettingsFetcher();
   const profileFetcher = useSettingsFetcher();
   const contactFetcher = useSettingsFetcher();
   const configFetcher = useSettingsFetcher();
+  const emailFetcher = useSettingsFetcher();
+  const testFetcher = useSettingsFetcher();
 
   // The Advanced toggles post the full `config` payload so untouched fields
   // (timezone, date format, recipients, maintenance message) are preserved.
@@ -372,6 +431,98 @@ export default function AdminSettings() {
                   </span>
                   <Toggle checked={emailAlertsChecked} onChange={(e: React.ChangeEvent<HTMLInputElement>) => submitConfig({ enableEmailAlerts: e.target.checked })} />
                 </label>
+                <div className="divider" />
+                <div className="stack-4">
+                  <div className="row spread" style={{ alignItems: 'baseline' }}>
+                    <span className="field-label">Email delivery</span>
+                    <Badge tone={mailerStatus.configured ? 'success' : undefined} dot>
+                      {mailerStatus.configured ? `Configured — ${mailerStatus.provider}` : 'Not configured'}
+                    </Badge>
+                  </div>
+                  <span className="t-xs t-muted">
+                    {mailerStatus.configured && mailerStatus.from
+                      ? `Sending as ${mailerStatus.from}. Database settings below take precedence over EMAIL_* env vars.`
+                      : 'Configure SMTP or an email API below, or set the EMAIL_* environment variables. Database settings take precedence over env.'}
+                  </span>
+                  <emailFetcher.Form method="post" className="stack-4">
+                    <input type="hidden" name="intent" value="save_email_delivery" />
+                    <input type="hidden" name="smtpSecure" value={String(smtpSecure)} />
+                    <Field label="Provider" help="“Not configured” falls back to the EMAIL_* environment variables.">
+                      <Select
+                        name="emailProvider"
+                        value={emailProvider}
+                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setEmailProvider(e.target.value)}
+                        options={[
+                          { value: '', label: 'Not configured (use env)' },
+                          { value: 'smtp', label: 'SMTP' },
+                          { value: 'sendgrid', label: 'SendGrid' },
+                          { value: 'generic', label: 'Generic HTTP API' },
+                        ]}
+                      />
+                    </Field>
+                    <Field label="From address" optional help="Sender address (e.g. alerts@yourdomain.com).">
+                      <Input name="emailFrom" type="email" placeholder="alerts@yourdomain.com" defaultValue={settings.emailFrom ?? ''} />
+                    </Field>
+                    {emailProvider === 'smtp' && (
+                      <>
+                        <div className="grid grid-2">
+                          <Field label="SMTP host">
+                            <Input mono name="smtpHost" placeholder="smtp.example.com" defaultValue={settings.smtpHost ?? ''} />
+                          </Field>
+                          <Field label="Port" help="Defaults to 465 (secure) or 587.">
+                            <Input name="smtpPort" type="number" placeholder="465" defaultValue={settings.smtpPort != null ? String(settings.smtpPort) : ''} />
+                          </Field>
+                        </div>
+                        <label className="row spread">
+                          <span className="stack" style={{ gap: 1 }}>
+                            <span className="field-label">Use TLS/SSL (secure)</span>
+                            <span className="t-xs t-muted">On for port 465; off for STARTTLS on 587.</span>
+                          </span>
+                          <Toggle checked={smtpSecure} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSmtpSecure(e.target.checked)} />
+                        </label>
+                        <div className="grid grid-2">
+                          <Field label="Username" optional>
+                            <Input mono name="smtpUser" placeholder="apikey / user" defaultValue={settings.smtpUser ?? ''} />
+                          </Field>
+                          <Field label="Password" optional help={settings.hasSmtpPass ? 'A password is stored. Leave blank to keep it.' : undefined}>
+                            <Input name="smtpPass" type="password" placeholder={settings.hasSmtpPass ? '••••• (unchanged)' : ''} defaultValue="" autoComplete="new-password" />
+                          </Field>
+                        </div>
+                      </>
+                    )}
+                    {(emailProvider === 'sendgrid' || emailProvider === 'generic') && (
+                      <>
+                        <Field
+                          label="API URL"
+                          optional={emailProvider === 'sendgrid'}
+                          help={emailProvider === 'sendgrid' ? 'Defaults to SendGrid’s v3 mail/send endpoint.' : 'Full endpoint that accepts the JSON email payload.'}
+                        >
+                          <Input mono name="emailApiUrl" placeholder={emailProvider === 'sendgrid' ? 'https://api.sendgrid.com/v3/mail/send' : 'https://…'} defaultValue={settings.emailApiUrl ?? ''} />
+                        </Field>
+                        <Field label="API key" help={settings.hasEmailApiKey ? 'A key is stored. Leave blank to keep it.' : undefined}>
+                          <Input name="emailApiKey" type="password" placeholder={settings.hasEmailApiKey ? '••••• (unchanged)' : ''} defaultValue="" autoComplete="new-password" />
+                        </Field>
+                      </>
+                    )}
+                    <div>
+                      <Btn variant="primary" type="submit" loading={emailFetcher.state !== 'idle'}>
+                        Save email delivery
+                      </Btn>
+                    </div>
+                  </emailFetcher.Form>
+                  <div className="divider" />
+                  <testFetcher.Form method="post" className="stack-2">
+                    <input type="hidden" name="intent" value="send_test_email" />
+                    <Field label="Send test email" help="Sends a one-line test message using the settings above.">
+                      <div className="row-2" style={{ alignItems: 'center' }}>
+                        <Input name="testRecipient" type="email" placeholder="you@example.com" defaultValue={firstRecipient} style={{ flex: 1 }} />
+                        <Btn type="submit" icon="send" loading={testFetcher.state !== 'idle'}>
+                          Send test
+                        </Btn>
+                      </div>
+                    </Field>
+                  </testFetcher.Form>
+                </div>
                 <div className="divider" />
                 <Banner tone="warning" title="Store & plan control">
                   Change any store’s plan without Shopify billing from the store detail page.

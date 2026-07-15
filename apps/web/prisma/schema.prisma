@@ -471,6 +471,16 @@ model AppSettings {
   // Support triage: 'local' (machine-local Ollama) | 'cloud' (AiProvider below / default chain)
   supportTriageMode String @default("local")
   supportTriageProviderId String?
+  // Email delivery (DB-first; null = fall back to EMAIL_* env vars). See services/notifications/mailer.server.ts.
+  emailProvider  String? // smtp | sendgrid | generic (null = use env fallback)
+  emailFrom      String?
+  emailApiUrl    String?
+  emailApiKeyEnc String? // encryptJson({ apiKey })
+  smtpHost       String?
+  smtpPort       Int?
+  smtpUser       String?
+  smtpPassEnc    String? // encryptJson({ pass })
+  smtpSecure     Boolean @default(true)
   // Meta
   updatedAt DateTime @updatedAt
 }
