@@ -14,6 +14,10 @@ export const TICKET_STATUS_TONE: Record<string, string | undefined> = {
   RESOLVED: undefined,
 };
 
+// Merchant-facing support persona: first-line (AI-drafted) replies are shown under
+// this name. One place to change it; picked for cross-market pronounceability/trust.
+export const SUPPORT_AGENT_NAME = 'Maya';
+
 // Merchant-facing status labels: support reads as a human team, so no "AI" wording.
 export const TICKET_STATUS_LABEL: Record<string, string> = {
   OPEN: 'Open',

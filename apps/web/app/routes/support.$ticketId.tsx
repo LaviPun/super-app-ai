@@ -5,7 +5,7 @@ import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { Btn, Badge, Card, PageHead, Textarea, Banner, Icon, titleCase } from '~/components/superapp';
-import { TICKET_STATUS_TONE, TicketStatusBadge } from '~/components/support/badges';
+import { SUPPORT_AGENT_NAME, TICKET_STATUS_TONE, TicketStatusBadge } from '~/components/support/badges';
 
 export async function loader({ request, params }: { request: Request; params: { ticketId?: string } }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -56,10 +56,10 @@ function statusSteps(status: string): Array<{ key: string; label: string }> {
   return base;
 }
 
-// Merchant-facing: assistant replies read as the support team, not as AI.
+// Merchant-facing: assistant replies read as a named support rep, not as AI.
 const ROLE_LABEL: Record<string, string> = {
   merchant: 'You',
-  assistant: 'Support team',
+  assistant: `${SUPPORT_AGENT_NAME} · Support team`,
   human_agent: 'Support team',
   system: 'System',
 };
