@@ -15,7 +15,7 @@ import {
 } from '~/components/superapp';
 
 /** Live nav-badge / health counts surfaced in the admin chrome. */
-type NavCounts = { dlq: number; err: number; wh: number };
+type NavCounts = { dlq: number; err: number; wh: number; tickets: number };
 
 export const meta: MetaFunction<typeof loader> = ({ location, data }) => {
   const appName = data?.settings?.appName ?? 'SuperApp Admin';
@@ -37,21 +37,24 @@ export async function loader({ request }: { request: Request }) {
   // Real cross-shop counts backing the sidebar badges + health footer.
   // Each query is guarded so a missing table degrades to 0 rather than 500ing
   // the whole admin shell.
-  let counts: NavCounts = { dlq: 0, err: 0, wh: 0 };
+  let counts: NavCounts = { dlq: 0, err: 0, wh: 0, tickets: 0 };
 
   if (isAuthed) {
     const prisma = getPrisma();
     const since24h = new Date(Date.now() - 86_400_000);
-    const [settingsResult, failedJobs, errors24h, failedWebhooks24h] = await Promise.all([
+    const [settingsResult, failedJobs, errors24h, failedWebhooks24h, openTickets] = await Promise.all([
       new SettingsService().get().catch(() => null),
       prisma.job.count({ where: { status: 'FAILED' } }).catch(() => 0),
       prisma.errorLog.count({ where: { level: 'ERROR', createdAt: { gte: since24h } } }).catch(() => 0),
       prisma.webhookEvent
         .count({ where: { success: false, processedAt: { gte: since24h } } })
         .catch(() => 0),
+      prisma.supportTicket
+        .count({ where: { OR: [{ status: { in: ['OPEN', 'ESCALATED'] } }, { needsIntervention: true }] } })
+        .catch(() => 0),
     ]);
     settings = settingsResult;
-    counts = { dlq: failedJobs, err: errors24h, wh: failedWebhooks24h };
+    counts = { dlq: failedJobs, err: errors24h, wh: failedWebhooks24h, tickets: openTickets };
   }
 
   return json({ isAuthed, settings, counts });
@@ -77,7 +80,7 @@ type NavItem = {
   icon: string;
   exact?: boolean;
   badge?: string;
-  countKey?: 'dlq' | 'err' | 'wh';
+  countKey?: 'dlq' | 'err' | 'wh' | 'tickets';
   countTone?: string;
   /** Extra hash routes that should also highlight this item (consolidated pages). */
   also?: string[];
@@ -100,6 +103,19 @@ const ADMIN_NAV: NavSection[] = [
         also: ['#/admin/api-logs', '#/admin/logs', '#/admin/audit'],
       },
       { url: '#/admin/webhooks', label: 'Webhooks', icon: 'transfer', countKey: 'wh', countTone: 'warning' },
+    ],
+  },
+  {
+    title: 'Support',
+    items: [
+      {
+        url: '#/admin/support',
+        label: 'Support CRM',
+        icon: 'chat',
+        countKey: 'tickets',
+        countTone: 'warning',
+        also: ['#/admin/support/'],
+      },
     ],
   },
   {
