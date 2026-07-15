@@ -38,6 +38,7 @@ const GUIDES: [string, string, string, string][] = [
   ['database', 'Work with Data stores', 'Sync Shopify data or create custom stores for anything.', '/data'],
   ['rocket', 'Publishing & rollback', 'Every change is versioned — preview, publish, or roll back instantly.', '/modules'],
   ['plan', 'Plans, usage & billing', 'Understand credits, limits, and how to upgrade.', '/billing'],
+  ['chat', 'Raise an issue', 'Something not working? Get an instant first response from our AI assistant.', '/support'],
 ];
 const FAQS: [string, string][] = [
   ['Is anything live before I publish?', 'No. Everything you generate is a draft. It only affects your storefront after you click Publish, and you can roll back anytime.'],

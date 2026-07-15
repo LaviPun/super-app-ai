@@ -38,6 +38,9 @@ const ADMIN_COMMANDS: Command[] = [
   { type: 'Operations', icon: 'bug', title: 'Error Logs', sub: 'Errors and warnings', route: '#/admin/logs', kw: 'errors warnings exceptions' },
   { type: 'Operations', icon: 'transfer', title: 'Webhooks', sub: 'Shopify webhook events', route: '#/admin/webhooks', kw: 'events shopify topics' },
   { type: 'Operations', icon: 'shield', title: 'Audit Log', sub: 'Admin audit trail', route: '#/admin/audit', kw: 'security actions' },
+  // superappRoute maps '#/admin/support' → '/internal/support' and '#/admin/support/<id>'
+  // → '/internal/support/<id>' via the generic '#/admin/' branch — no special case needed.
+  { type: 'Support', icon: 'chat', title: 'Support CRM', sub: 'Support ticket queue', route: '#/admin/support', kw: 'tickets help escalations shoppers intervention' },
   { type: 'Platform', icon: 'layers', title: 'Modules', sub: 'Generated modules', route: '#/admin/modules', kw: 'apps widgets recipes' },
   { type: 'Platform', icon: 'flow', title: 'Flows', sub: 'Automation flows', route: '#/admin/flows', kw: 'automation workflow' },
   { type: 'Platform', icon: 'connect', title: 'Connectors', sub: 'External integrations', route: '#/admin/connectors', kw: 'integrations api endpoints' },

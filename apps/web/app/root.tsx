@@ -145,6 +145,7 @@ export default function App() {
               <Link to="/" rel="home">Dashboard</Link>
               <Link to="/modules">Build</Link>
               <Link to="/analytics">Insights</Link>
+              <Link to="/support">Support</Link>
               <Link to="/settings">Settings</Link>
               <Link to="/billing">Billing</Link>
             </s-app-nav>

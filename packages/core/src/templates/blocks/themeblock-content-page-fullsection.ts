@@ -1,5 +1,5 @@
 /**
- * themeblock-content-page-fullsection — 22 FULL-SECTION theme.section app-block
+ * themeblock-content-page-fullsection — 23 FULL-SECTION theme.section app-block
  * designs for the content-page templates (page / blog / article / password / 404).
  *
  * These are the landing/marketing full-width sections a merchant drops onto a
@@ -1003,6 +1003,67 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
         spacing: { padding: 'loose', margin: 'none', gap: 'loose', density: 'comfortable' },
         typography: { size: 'MD', weight: 'normal', lineHeight: 'relaxed', align: 'left' },
         colors: { seed: '#0ea5e9', overlayBackdropOpacity: 0.45 },
+        shape: { radius: 'lg', borderWidth: 'thin', shadow: 'none', elevation: 'border' },
+        responsive: { hideOnMobile: false, hideOnDesktop: false },
+        accessibility: { focusVisible: true, reducedMotion: true },
+        pack: 'luxe',
+      },
+    },
+  },
+
+  // ── 23 — Support request form (app-proxy → support ticket) ──────────────────
+  {
+    id: 'TBLK-PAGE-23',
+    name: 'Support Request Form — App Proxy',
+    description:
+      'Shopper-facing support form for a Contact/Help page: name, email, subject, and message posted to the app proxy, which opens a triaged support ticket in the merchant inbox.',
+    category: 'STOREFRONT_UI',
+    type: 'theme.section',
+    icon: 'contact',
+    tags: ['section', 'contact', 'support', 'help', 'page', 'app-proxy', 'ticket'],
+    spec: {
+      type: 'theme.section',
+      name: 'Support Request Form — App Proxy',
+      category: 'STOREFRONT_UI',
+      requires: ['THEME_ASSETS', 'APP_PROXY'],
+      config: {
+        kind: 'contactForm',
+        activation: 'section',
+        title: 'Need a hand?',
+        subtitle: 'Send us the details and our team will get back to you by email.',
+        layout: { layout: 'stacked' },
+        fields: {},
+        // App-proxy submission opens a SHOPPER-sourced support ticket: the proxy
+        // route (proxy.capture.tsx) verifies the request and ModuleCaptureService
+        // bridges captureType 'support_ticket' into the merchant inbox + triage.
+        submissionMode: 'APP_PROXY',
+        proxyEndpointPath: '/apps/superapp/capture',
+        captureType: 'support_ticket',
+        includeCustomerContext: true,
+        // Honeypot spam trap: the proxy route drops any submission whose
+        // honeypot field is filled (a bot filling every input).
+        spamProtection: 'HONEYPOT',
+        honeypotFieldName: 'website',
+        showName: true,
+        nameRequired: true,
+        showEmail: true,
+        emailRequired: true,
+        showSubject: true,
+        subjectRequired: true,
+        showMessage: true,
+        messageRequired: true,
+        submitLabel: 'Send request',
+        successMessage: 'Thanks — we have your request and will reply by email.',
+        errorMessage: 'Something went wrong sending your request. Please try again.',
+        consentRequired: false,
+        blocks: [],
+      },
+      placement: on('page'),
+      style: {
+        layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
+        spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
+        typography: { size: 'MD', weight: 'normal', lineHeight: 'relaxed', align: 'left' },
+        colors: { seed: '#0f766e', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'lg', borderWidth: 'thin', shadow: 'none', elevation: 'border' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

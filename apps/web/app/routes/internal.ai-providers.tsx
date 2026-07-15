@@ -144,7 +144,7 @@ export async function loader({ request }: { request: Request }) {
     }),
     prisma.appSettings.findUnique({
       where: { id: 'singleton' },
-      select: { fallbackAiProviderId: true },
+      select: { fallbackAiProviderId: true, supportTriageMode: true, supportTriageProviderId: true },
     }),
     new AiAccountObservabilityService().listProviderAccountSnapshots(),
   ]);
@@ -293,6 +293,12 @@ export async function loader({ request }: { request: Request }) {
     providerRatings: Object.fromEntries(providerRatings),
     suggestedProviderId,
     fallbackProviderId: appSettings?.fallbackAiProviderId ?? null,
+    supportTriage: {
+      mode: appSettings?.supportTriageMode === 'cloud' ? 'cloud' : 'local',
+      providerId: appSettings?.supportTriageProviderId ?? null,
+      // Machine-local Ollama model (read-only display); env override or the code default.
+      localModel: process.env.SUPPORT_TRIAGE_MODEL?.trim() || 'qwen3.5:9b',
+    },
     envKeyStatus: {
       openai: openaiEnv ? `••••••••${openaiEnv.slice(-4)}` : null,
       claude: claudeEnv ? `••••••••${claudeEnv.slice(-4)}` : null,
@@ -322,6 +328,29 @@ export async function action({ request }: { request: Request }) {
       update: { fallbackAiProviderId },
     });
     return json({ ok: true, message: 'Fallback provider saved' });
+  }
+
+  if (intent === 'saveSupportTriage') {
+    const modeRaw = String(form.get('supportTriageMode') ?? '').trim();
+    const mode = modeRaw === 'cloud' ? 'cloud' : 'local';
+    const providerRaw = String(form.get('supportTriageProviderId') ?? '').trim();
+    // Provider id only applies to cloud mode; clear it otherwise.
+    let supportTriageProviderId = mode === 'cloud' ? providerRaw || null : null;
+    if (supportTriageProviderId) {
+      const exists = await prisma.aiProvider.findUnique({ where: { id: supportTriageProviderId } });
+      if (!exists) return json({ error: 'Triage provider not found' }, { status: 404 });
+    }
+    await prisma.appSettings.upsert({
+      where: { id: 'singleton' },
+      create: { id: 'singleton', supportTriageMode: mode, supportTriageProviderId },
+      update: { supportTriageMode: mode, supportTriageProviderId },
+    });
+    await activity.log({
+      actor: 'INTERNAL_ADMIN',
+      action: 'SUPPORT_TRIAGE_SETTINGS_UPDATED',
+      details: { mode, providerId: supportTriageProviderId },
+    });
+    return json({ ok: true, message: 'Support triage settings saved' });
   }
 
   if (intent === 'activate') {
@@ -748,7 +777,7 @@ function useIntentSubmit(onSuccess?: () => void) {
 }
 
 export default function AdminProviders() {
-  const { providers, prices, accounts, totals30d, providerRatings, fallbackProviderId, envKeyStatus } =
+  const { providers, prices, accounts, totals30d, providerRatings, fallbackProviderId, envKeyStatus, supportTriage } =
     useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
   const ops = useIntentSubmit();
@@ -920,6 +949,7 @@ export default function AdminProviders() {
         </div>
         )
       )}
+      {tab === 'providers' && <SupportTriageCard supportTriage={supportTriage} providers={providers} />}
       {tab === 'accounts' && (
         accounts.length === 0 ? (
           <Card pad>
@@ -1037,6 +1067,68 @@ export default function AdminProviders() {
       {acctModal && <AccountModal account={acctModal === 'link' ? null : acctModal} providers={providers} onClose={() => setAcctModal(null)} />}
       {confirm && <ConfirmDialog {...confirm} onClose={() => setConfirm(null)} />}
     </div>
+  );
+}
+
+function SupportTriageCard({
+  supportTriage,
+  providers,
+}: {
+  supportTriage: LoaderData['supportTriage'];
+  providers: ProviderRow[];
+}) {
+  const { submit, busy } = useIntentSubmit();
+  const [mode, setMode] = useState<'local' | 'cloud'>(supportTriage.mode === 'cloud' ? 'cloud' : 'local');
+  const [providerId, setProviderId] = useState<string>(supportTriage.providerId ?? '');
+  const save = () =>
+    submit({
+      intent: 'saveSupportTriage',
+      supportTriageMode: mode,
+      supportTriageProviderId: mode === 'cloud' ? providerId : '',
+    });
+  return (
+    <Card style={{ marginTop: 16 }}>
+      <CardHead
+        title="Support triage"
+        sub="Which model classifies incoming support tickets. Env SUPPORT_TRIAGE_* vars override these when set."
+      />
+      <div className="card-pad">
+        <div className="grid grid-2">
+          <Field label="Triage model" help="Local runs on the machine-local Ollama; Cloud uses an AI provider below.">
+            <Select
+              options={[
+                { value: 'local', label: 'Local model (Ollama)' },
+                { value: 'cloud', label: 'Cloud provider' },
+              ]}
+              value={mode}
+              onChange={(e: ChangeEvent<HTMLSelectElement>) => setMode(e.target.value === 'cloud' ? 'cloud' : 'local')}
+            />
+          </Field>
+          {mode === 'cloud' ? (
+            <Field label="Cloud provider" help="Pin triage to a specific provider, or leave as default chain.">
+              <Select
+                options={[
+                  { value: '', label: 'Default provider chain' },
+                  ...providers.map((p) => ({ value: p.id, label: p.name })),
+                ]}
+                value={providerId}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => setProviderId(e.target.value)}
+              />
+            </Field>
+          ) : (
+            <Field label="Local model" help="Read-only. Set via SUPPORT_TRIAGE_MODEL.">
+              <Input mono value={supportTriage.localModel} readOnly disabled />
+            </Field>
+          )}
+        </div>
+        <div className="row-2" style={{ marginTop: 14 }}>
+          <span className="grow" />
+          <Btn variant="primary" icon="check" loading={busy} disabled={busy} onClick={save}>
+            Save triage settings
+          </Btn>
+        </div>
+      </div>
+    </Card>
   );
 }
 

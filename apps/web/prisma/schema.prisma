@@ -53,6 +53,7 @@ model Shop {
   attributionLinks AttributionLink[]
   flowDeadLetters FlowDeadLetter[]
   apiRateLimit ShopApiRateLimit?
+  supportTickets SupportTicket[]
 }
 
 model Recipe {
@@ -467,6 +468,19 @@ model AppSettings {
   routerRuntimeConfigEnc String?
   // Module System engine: 'v1' (legacy hand-written configs) | 'v2' (control-pack composer). Default v1 = no behavior change.
   moduleSystemVersion String @default("v1")
+  // Support triage: 'local' (machine-local Ollama) | 'cloud' (AiProvider below / default chain)
+  supportTriageMode String @default("local")
+  supportTriageProviderId String?
+  // Email delivery (DB-first; null = fall back to EMAIL_* env vars). See services/notifications/mailer.server.ts.
+  emailProvider  String? // smtp | sendgrid | generic (null = use env fallback)
+  emailFrom      String?
+  emailApiUrl    String?
+  emailApiKeyEnc String? // encryptJson({ apiKey })
+  smtpHost       String?
+  smtpPort       Int?
+  smtpUser       String?
+  smtpPassEnc    String? // encryptJson({ pass })
+  smtpSecure     Boolean @default(true)
   // Meta
   updatedAt DateTime @updatedAt
 }
@@ -954,4 +968,82 @@ model InternalAiToolAudit {
   @@index([createdAt])
   @@index([toolName, createdAt])
   @@index([sessionId, createdAt])
+}
+
+model SupportTicket {
+  id          String   @id @default(cuid())
+  shopId      String
+  shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  subject     String
+  description String
+  moduleId    String?  // optional link to the Module the issue is about
+  status      String   @default("OPEN") // OPEN | AI_RESPONDED | ESCALATED | RESOLVED
+  source      String   @default("MERCHANT") // MERCHANT | SHOPPER
+  shopperEmail String? // set on SHOPPER-sourced tickets for follow-up
+  needsIntervention Boolean @default(false)
+  assignee    String?
+  // AI triage output (null until triage has run)
+  aiSeverity    String?  // low | medium | high | critical
+  aiCategory    String?
+  aiSummary     String?
+  aiConfidence  Float?
+  aiEscalate    Boolean?
+  aiTriageError String?  // last triage failure, null on success
+  triagedAt     DateTime?
+  correlationId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  messages    SupportTicketMessage[]
+  events      SupportTicketEvent[]
+  fixProposals SupportFixProposal[]
+
+  @@index([shopId, status])
+  @@index([shopId, createdAt])
+  @@index([shopId, source])
+  @@index([needsIntervention, createdAt])
+  @@index([correlationId])
+}
+
+model SupportTicketMessage {
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  role      String   // merchant | assistant | human_agent | system
+  body      String
+  internal  Boolean  @default(false) // internal admin note, never shown to the merchant
+  metaJson  String?  // JSON (e.g. triage envelope for assistant messages)
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+}
+
+// Append-only flow record: every state change on a ticket, by whom, when.
+model SupportTicketEvent {
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  type      String   // CREATED | TRIAGED | TRIAGE_FAILED | MERCHANT_REPLIED | AI_REPLIED | HUMAN_REPLIED | NOTE_ADDED | ESCALATED | INTERVENTION_FLAGGED | INTERVENTION_CLEARED | STATUS_CHANGED | RESOLVED | REOPENED | FIX_PROPOSED | FIX_APPLIED | FIX_REJECTED | NOTIFIED
+  actor     String   // MERCHANT | SHOPPER | AI | INTERNAL_ADMIN | SYSTEM
+  detailsJson String? // JSON
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+  @@index([type, createdAt])
+}
+
+model SupportFixProposal {
+  id          String   @id @default(cuid())
+  ticketId    String
+  ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  moduleId    String
+  status      String   @default("PROPOSED") // PROPOSED | APPLIED | REJECTED
+  explanation String
+  recipeJson  String   // full proposed RecipeSpec
+  validationJson String? // QA/validation summary from the generation pass
+  appliedVersionId String? // ModuleVersion id created on approval
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([ticketId, createdAt])
+  @@index([status, createdAt])
 }
