@@ -8,7 +8,7 @@ import {
   Btn, Badge, Card, PageHead, FilterBar, StatTile, DataTable,
   EmptyState, Modal, Field, Input, Textarea, Select, useTableState, titleCase,
 } from '~/components/superapp';
-import { SEVERITY_TONE, TicketStatusBadge } from '~/components/support/badges';
+import { SEVERITY_TONE, TICKET_STATUS_LABEL, TicketStatusBadge } from '~/components/support/badges';
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -94,7 +94,7 @@ function NewTicketModal({ modules, onClose }: { modules: Array<{ id: string; nam
   return (
     <Modal
       title="Raise an issue"
-      sub="Describe the problem — our AI assistant responds right away and flags anything serious for the team."
+      sub="Describe the problem — our support team responds right away, usually within a few minutes."
       onClose={onClose}
       footer={(
         <>
@@ -163,7 +163,7 @@ function SupportBody({ tickets, modules, stats }: ReturnType<typeof useLoaderDat
     <div className="page">
       <PageHead
         title="Support"
-        sub="Raise issues and track them here — the AI assistant answers first, and anything serious goes to a human."
+        sub="Raise issues and track them here — our support team usually responds within a few minutes."
         actions={<Btn variant="primary" icon="plus" onClick={() => setFormOpen(true)}>New ticket</Btn>}
       />
       <div className="grid grid-4" style={{ marginBottom: 18 }}>
@@ -178,7 +178,7 @@ function SupportBody({ tickets, modules, stats }: ReturnType<typeof useLoaderDat
           filters={[{
             options: ['All', 'OPEN', 'AI_RESPONDED', 'ESCALATED', 'RESOLVED'].map((s) => ({
               value: s,
-              label: s === 'All' ? 'All statuses' : titleCase(s),
+              label: s === 'All' ? 'All statuses' : (TICKET_STATUS_LABEL[s] ?? titleCase(s)),
             })),
             value: status,
             onChange: setStatus,
@@ -221,7 +221,7 @@ function SupportBody({ tickets, modules, stats }: ReturnType<typeof useLoaderDat
               ) },
               { key: 'severity', label: 'Severity', render: (r: (typeof rows)[number]) =>
                 r.severity ? <Badge tone={SEVERITY_TONE[r.severity]}>{titleCase(r.severity)}</Badge>
-                : r.triageFailed ? <Badge tone="warning">Triage pending</Badge>
+                : r.triageFailed ? <Badge tone="info">Awaiting reply</Badge>
                 : <span className="cell-sub">—</span> },
               { key: 'category', label: 'Category', render: (r: (typeof rows)[number]) =>
                 r.category ? titleCase(r.category) : <span className="cell-sub">—</span> },

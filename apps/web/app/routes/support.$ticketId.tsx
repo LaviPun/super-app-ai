@@ -5,7 +5,7 @@ import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { Btn, Badge, Card, PageHead, Textarea, Banner, Icon, titleCase } from '~/components/superapp';
-import { SEVERITY_TONE, TICKET_STATUS_TONE, TicketStatusBadge } from '~/components/support/badges';
+import { TICKET_STATUS_TONE, TicketStatusBadge } from '~/components/support/badges';
 
 export async function loader({ request, params }: { request: Request; params: { ticketId?: string } }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -49,16 +49,17 @@ export async function loader({ request, params }: { request: Request; params: { 
 function statusSteps(status: string): Array<{ key: string; label: string }> {
   const base = [
     { key: 'OPEN', label: 'Open' },
-    { key: 'AI_RESPONDED', label: 'AI responded' },
+    { key: 'AI_RESPONDED', label: 'Answered' },
   ];
-  if (status === 'ESCALATED') base.push({ key: 'ESCALATED', label: 'Escalated' });
+  if (status === 'ESCALATED') base.push({ key: 'ESCALATED', label: 'With the team' });
   base.push({ key: 'RESOLVED', label: 'Resolved' });
   return base;
 }
 
+// Merchant-facing: assistant replies read as the support team, not as AI.
 const ROLE_LABEL: Record<string, string> = {
   merchant: 'You',
-  assistant: 'AI assistant',
+  assistant: 'Support team',
   human_agent: 'Support team',
   system: 'System',
 };
@@ -80,8 +81,6 @@ export default function TicketDetail() {
     </MerchantShell>
   );
 }
-
-type TicketData = ReturnType<typeof useLoaderData<typeof loader>>;
 
 function TicketDetailBody() {
   const { ticket, messages } = useLoaderData<typeof loader>();
@@ -107,7 +106,7 @@ function TicketDetailBody() {
   }, [replyFetcher.state, replyFetcher.data, ctx]);
 
   useEffect(() => {
-    if (triageFetcher.state === 'idle' && triageFetcher.data?.ok) ctx.toast('Triage complete');
+    if (triageFetcher.state === 'idle' && triageFetcher.data?.ok) ctx.toast('Response received');
   }, [triageFetcher.state, triageFetcher.data, ctx]);
 
   const runAction = (intent: string) =>
@@ -163,7 +162,15 @@ function TicketDetailBody() {
 
       <StatusTracker status={ticket.status} />
 
-      <TriageCard ticket={ticket} onRetry={retryTriage} retrying={triageBusy} />
+      {ticket.triageError && (
+        <Banner
+          tone="info"
+          title="We're on it"
+          action={<Btn size="sm" icon="refresh" loading={triageBusy} onClick={retryTriage}>Check for a response</Btn>}
+        >
+          Your ticket has been received and the team has been notified. A first response usually arrives within a few minutes.
+        </Banner>
+      )}
 
       <Card pad style={{ marginTop: 16 }}>
         <div className="t-h3" style={{ marginBottom: 14 }}>Conversation</div>
@@ -216,38 +223,6 @@ function StatusTracker({ status }: { status: string }) {
           </span>
         ))}
       </div>
-    </Card>
-  );
-}
-
-function TriageCard({ ticket, onRetry, retrying }: { ticket: TicketData['ticket']; onRetry: () => void; retrying: boolean }) {
-  if (ticket.triageError) {
-    return (
-      <Banner
-        tone="warning"
-        title="AI triage pending"
-        action={<Btn size="sm" icon="refresh" loading={retrying} onClick={onRetry}>Retry triage</Btn>}
-      >
-        We couldn&apos;t analyze this ticket automatically. You can retry, or a teammate can pick it up.
-      </Banner>
-    );
-  }
-
-  if (!ticket.triagedAt) return null;
-
-  const confidencePct = ticket.confidence != null ? Math.round(ticket.confidence * 100) : null;
-
-  return (
-    <Card pad style={{ marginTop: 16 }}>
-      <div className="row spread" style={{ marginBottom: 12 }}>
-        <div className="t-h3">AI triage</div>
-        <div className="row-2">
-          {ticket.severity && <Badge tone={SEVERITY_TONE[ticket.severity]}>{titleCase(ticket.severity)}</Badge>}
-          {ticket.category && <Badge tone="info">{titleCase(ticket.category)}</Badge>}
-          {confidencePct != null && <span className="t-xs t-muted t-num">{confidencePct}% confidence</span>}
-        </div>
-      </div>
-      {ticket.summary && <div className="t-sm" style={{ lineHeight: 1.55 }}>{ticket.summary}</div>}
     </Card>
   );
 }

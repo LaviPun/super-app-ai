@@ -146,7 +146,7 @@ function buildTriagePrompt(input: TriageInput): { system: string; user: string }
     'Classify the merchant-reported issue below. Respond with ONLY a JSON object with keys:',
     'severity ("low"|"medium"|"high"|"critical"), category (one of: ' + TRIAGE_CATEGORIES.join(', ') + '),',
     'summary (one or two sentences, plain English, for the support team),',
-    'suggestedReply (a short, polite first reply to the merchant: acknowledge, state what happens next; never promise a fix time),',
+    'suggestedReply (a short, polite first reply to the merchant: acknowledge, state what happens next; never promise a fix time; write it in the voice of a friendly human support representative — never mention AI, bots, or automation),',
     'escalate (boolean: true if a human should look at this — merchant-impacting bugs, billing problems, anything you are unsure about),',
     'confidence (0-1).',
     'Severity guide: critical = storefront/checkout broken or revenue-impacting for the merchant; high = a feature is broken; medium = degraded or intermittent; low = question, cosmetic, or feature request.',

@@ -14,6 +14,14 @@ export const TICKET_STATUS_TONE: Record<string, string | undefined> = {
   RESOLVED: undefined,
 };
 
+// Merchant-facing status labels: support reads as a human team, so no "AI" wording.
+export const TICKET_STATUS_LABEL: Record<string, string> = {
+  OPEN: 'Open',
+  AI_RESPONDED: 'Answered',
+  ESCALATED: 'With the team',
+  RESOLVED: 'Resolved',
+};
+
 export function TicketStatusBadge({ status }: { status: string }) {
-  return <Badge tone={TICKET_STATUS_TONE[status]}>{titleCase(status)}</Badge>;
+  return <Badge tone={TICKET_STATUS_TONE[status]}>{TICKET_STATUS_LABEL[status] ?? titleCase(status)}</Badge>;
 }
