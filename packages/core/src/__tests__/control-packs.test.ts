@@ -29,7 +29,7 @@ describe('control pack registry', () => {
   it('registers the control packs', () => {
     expect(listPackIds().sort()).toEqual([
       'advanced-custom', 'audience', 'behavior', 'content', 'countdown', 'device',
-      'frequency-cap', 'layout-archetype', 'messaging', 'page-targeting', 'pricing', 'progressGoal', 'recommendation', 'rule-engine', 'schedule', 'style', 'trigger',
+      'experiment', 'formFields', 'frequency-cap', 'layout-archetype', 'messaging', 'page-targeting', 'pricing', 'progressGoal', 'recommendation', 'rule-engine', 'schedule', 'style', 'trigger',
     ]);
   });
 

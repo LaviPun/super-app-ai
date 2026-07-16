@@ -363,6 +363,58 @@ export function runDesignQa(recipe: RecipeSpec): DesignQaResult {
     }
   }
 
+  // --- B6 Multi-step form: consent must NEVER be pre-checked (blocking) --------
+  // Opt-in honesty: a consent checkbox is only meaningful if the shopper ticks it.
+  // The runtime + preview always render it unchecked; a spec that tries to pre-check
+  // one (checked / defaultChecked / default / value 'yes') is a dark pattern → fail.
+  const formFields = (config as { formFields?: { steps?: Array<{ fields?: Array<Record<string, unknown>> }> } }).formFields;
+  if (formFields && Array.isArray(formFields.steps)) {
+    const preChecked = formFields.steps.some((s) =>
+      Array.isArray(s.fields) &&
+      s.fields.some(
+        (f) =>
+          f && f.type === 'consent' &&
+          (f.checked === true || f.defaultChecked === true || f.default === true || f.value === 'yes' || f.preChecked === true),
+      ),
+    );
+    if (preChecked) {
+      issues.push({
+        id: 'consent:pre-checked',
+        severity: 'fail',
+        message:
+          'A consent field is pre-checked — marketing consent must be OPT-IN (rendered unchecked). Remove the checked/default flag so the shopper actively ticks it.',
+        autofixed: false,
+      });
+    }
+  }
+
+  // --- B14 Sales-pop: too many events fatigues (soft warn, light touch) --------
+  if (kind === 'sales-pop') {
+    const eventCount = blocks.filter((b) => b?.kind === 'event').length;
+    if (eventCount > 6) {
+      issues.push({
+        id: 'sales-pop:too-many-events',
+        severity: 'warn',
+        message: `Sales-pop has ${eventCount} events — rotating more than ~6 reads repetitive and fatigues shoppers. Trim to your strongest few.`,
+        autofixed: false,
+      });
+    }
+  }
+
+  // --- B7 A/B experiment: variant weights should sum to ~100 (soft warn) -------
+  const experiment = (config as { experiment?: { enabled?: boolean; variants?: Array<{ weight?: number }> } }).experiment;
+  if (experiment?.enabled && Array.isArray(experiment.variants) && experiment.variants.length > 0) {
+    const sum = experiment.variants.reduce((a, v) => a + (typeof v.weight === 'number' ? v.weight : 0), 0);
+    if (sum < 95 || sum > 105) {
+      issues.push({
+        id: 'experiment:weights-sum',
+        severity: 'warn',
+        message: `A/B variant weights sum to ${sum} — they should total ~100 so the split reads as a percentage. Rebalance the two weights.`,
+        autofixed: false,
+      });
+    }
+  }
+
   // --- B13 Entrance vocabulary: default-on micro-interaction (auto-fix) --------
   // Content-section archetypes get a subtle scroll-in fade when the generator left
   // motion.entrance unset. Additive + reduced-motion-safe (the runtime + CSS honor

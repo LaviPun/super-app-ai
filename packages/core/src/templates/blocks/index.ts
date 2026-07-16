@@ -22,6 +22,7 @@ import { TBLK_IDX_TEMPLATES } from './themeblock-index-fullsection.js';
 import { templates as THEMEBLOCK_PDP_SURFACE_TEMPLATES } from './themeblock-pdp-surface.js';
 import { SIZE_CHART_TEMPLATES } from './themeblock-size-chart.js';
 import { VB_BEHAVIOR_TEMPLATES } from './themeblock-vb-behavior.js';
+import { VB_FINAL_TEMPLATES } from './themeblock-vb-final.js';
 
 export const BLOCK_TEMPLATES: TemplateEntry[] = [
   ...EMB_BODY_TEMPLATES,
@@ -36,4 +37,5 @@ export const BLOCK_TEMPLATES: TemplateEntry[] = [
   ...THEMEBLOCK_PDP_SURFACE_TEMPLATES,
   ...SIZE_CHART_TEMPLATES,
   ...VB_BEHAVIOR_TEMPLATES,
+  ...VB_FINAL_TEMPLATES,
 ];

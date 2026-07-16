@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -13,7 +13,15 @@ import { PreviewService } from '~/services/preview/preview.service';
  */
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '../../../..');
-const LIQUID_SRC = join(REPO_ROOT, 'apps/web/theme-extension-src/liquid/snippets/superapp-module.liquid');
+// The renderer is a snippet FAMILY (dispatcher + kind-family sub-snippets); these
+// branch tokens live in the content-section sub-snippet. Scan the whole family.
+const SRC_SNIPPETS = join(REPO_ROOT, 'apps/web/theme-extension-src/liquid/snippets');
+const readModuleFamily = (dir: string): string =>
+  readdirSync(dir)
+    .filter((f) => /^superapp-module.*\.liquid$/.test(f))
+    .sort()
+    .map((f) => readFileSync(join(dir, f), 'utf8'))
+    .join('\n');
 
 const service = new PreviewService();
 const render = (spec: RecipeSpec): string => {
@@ -130,7 +138,7 @@ describe('A4 — testimonial carousel preview (gated)', () => {
 });
 
 describe('A1 / A3 / A4 — storefront Liquid branch tokens present', () => {
-  const liquid = readFileSync(LIQUID_SRC, 'utf8');
+  const liquid = readModuleFamily(SRC_SNIPPETS);
   it('A1 volume-tiers renders radio rows wired to the quantity input', () => {
     expect(liquid).toContain('superapp-vtiers');
     expect(liquid).toContain('data-superapp-tier');

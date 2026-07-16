@@ -17,7 +17,17 @@ import { PreviewService } from '~/services/preview/preview.service';
 const EXT = path.resolve(process.cwd(), '../../extensions/theme-app-extension');
 const css = fs.readFileSync(path.join(EXT, 'assets/superapp-modules.css'), 'utf8');
 const js = fs.readFileSync(path.join(EXT, 'assets/superapp-modules.js'), 'utf8');
-const snippet = fs.readFileSync(path.join(EXT, 'snippets/superapp-module.liquid'), 'utf8');
+// The renderer ships as a snippet FAMILY (a dispatcher + kind-family sub-snippets it
+// {% render %}s). The whole family is one render surface, so contract assertions scan
+// the concatenation — markup that moved into a sub-snippet still counts, while the
+// scope wrapper (opened/closed only by the dispatcher) is still present exactly once.
+const SNIPPETS = path.join(EXT, 'snippets');
+const snippet = fs
+  .readdirSync(SNIPPETS)
+  .filter((f) => /^superapp-module.*\.liquid$/.test(f))
+  .sort()
+  .map((f) => fs.readFileSync(path.join(SNIPPETS, f), 'utf8'))
+  .join('\n');
 const bundleSnippet = fs.readFileSync(path.join(EXT, 'snippets/superapp-product-bundle.liquid'), 'utf8');
 
 describe('design-system contract — CSS token layer (§3.3 / §9.3)', () => {

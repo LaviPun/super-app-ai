@@ -1355,3 +1355,118 @@
 @media (prefers-reduced-motion: reduce) {
   [data-module-id].sa-anim, [data-module-id].sa-anim > * { opacity: 1 !important; animation: none !important; }
 }
+
+/* ── V-B B9 · Before/after comparison slider ──────────────────────────────────
+   No-JS/SEO fallback: the two panes STACK (grid) with visible labels. When
+   superapp-modules.js adds .is-interactive it overlaps them and clips the "after"
+   pane to the drag handle (--sa-ba-pos), with a keyboard/pointer ARIA slider. The
+   hidden clip is only applied under .is-interactive, so JS-off keeps both images. */
+.superapp-beforeafter { display: grid; gap: 0.75rem; }
+.superapp-beforeafter__pane { position: relative; margin: 0; }
+.superapp-beforeafter__pane img { display: block; width: 100%; height: auto; border-radius: var(--sa-radius-lg); }
+.superapp-beforeafter__pane figcaption { position: absolute; bottom: 0.6rem; left: 0.6rem; padding: 0.2rem 0.65rem; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; border-radius: 999px; background: color-mix(in srgb, Canvas 78%, transparent); color: var(--sa-ink, CanvasText); }
+.superapp-beforeafter__pane:last-of-type figcaption { left: auto; right: 0.6rem; }
+.superapp-beforeafter.is-interactive { position: relative; display: block; overflow: hidden; border-radius: var(--sa-radius-lg); touch-action: none; user-select: none; -webkit-user-select: none; }
+.superapp-beforeafter.is-interactive .superapp-beforeafter__pane img { border-radius: 0; height: 100%; object-fit: cover; }
+.superapp-beforeafter.is-interactive .superapp-beforeafter__pane:first-of-type { position: relative; }
+.superapp-beforeafter.is-interactive .superapp-beforeafter__pane:last-of-type { position: absolute; inset: 0; clip-path: inset(0 0 0 var(--sa-ba-pos, 50%)); }
+.superapp-beforeafter__handle { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; transform: translateX(-50%); padding: 0; border: 0; background: var(--sa-accent, #fff); cursor: ew-resize; z-index: 3; }
+.superapp-beforeafter__handle::before { content: '⟺'; position: absolute; top: 50%; left: 50%; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; transform: translate(-50%, -50%); border-radius: 50%; background: var(--sa-accent, #fff); color: var(--sa-accent-contrast, #111); font-size: 0.9rem; box-shadow: 0 2px 10px rgba(0,0,0,0.35); }
+.superapp-beforeafter__handle:focus-visible { outline: 3px solid var(--sa-accent); outline-offset: 3px; }
+
+/* ── V-B B10 · Shoppable image hotspots ("shop the look") ─────────────────────
+   No-JS/SEO fallback: base image + a link list. superapp-modules.js wraps the
+   image in a positioned stage, overlays numbered markers (from each item's x/y
+   percent), and opens a focus-trapped popover card on click. The numbered list
+   stays visible below as the mobile/no-JS interface. */
+.superapp-hotspots { position: relative; }
+.superapp-hotspots__base { display: block; width: 100%; height: auto; border-radius: var(--sa-radius-lg); }
+.superapp-hotspots__stage { position: relative; display: block; }
+.superapp-hotspots__marker { position: absolute; transform: translate(-50%, -50%); z-index: 2; display: inline-flex; align-items: center; justify-content: center; min-width: 28px; min-height: 28px; width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 2px solid var(--sa-accent-contrast, #fff); background: var(--sa-accent, #111); color: var(--sa-accent-contrast, #fff); font: inherit; font-weight: 700; font-size: 0.78rem; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+.superapp-hotspots__marker:focus-visible { outline: 3px solid var(--sa-accent); outline-offset: 2px; }
+.superapp-hotspots__popover { position: absolute; z-index: 5; transform: translate(-50%, calc(-100% - 16px)); min-width: 160px; max-width: 220px; padding: 0.8rem; display: grid; gap: 0.35rem; text-align: left; background: Canvas; color: CanvasText; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-radius-lg); box-shadow: var(--sa-overlay-shadow, 0 12px 40px rgba(0,0,0,0.28)); }
+.superapp-hotspots__popthumb { width: 72px; height: 72px; object-fit: cover; border-radius: var(--sa-radius); }
+.superapp-hotspots__poptitle { font-weight: 700; }
+.superapp-hotspots__popprice { color: var(--sa-accent); font-weight: 700; }
+.superapp-hotspots__poplink { min-height: 44px; display: inline-flex; align-items: center; color: var(--sa-accent); text-decoration: underline; }
+.superapp-hotspots__popclose { position: absolute; top: 4px; right: 6px; border: 0; background: transparent; font-size: 18px; line-height: 1; cursor: pointer; color: inherit; }
+.superapp-hotspots__list { list-style: none; margin: 0.9rem 0 0; padding: 0; display: grid; gap: 0.45rem; }
+.superapp-hotspots.is-interactive .superapp-hotspots__list { counter-reset: sa-hs; }
+.superapp-hotspots__list li { display: flex; gap: 0.55rem; align-items: baseline; }
+.superapp-hotspots.is-interactive .superapp-hotspots__list li { counter-increment: sa-hs; }
+.superapp-hotspots.is-interactive .superapp-hotspots__list li::before { content: counter(sa-hs); flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--sa-accent, #111); color: var(--sa-accent-contrast, #fff); font-size: 0.68rem; font-weight: 700; }
+.superapp-hotspots__list a { color: inherit; text-decoration: none; display: inline-flex; gap: 0.5rem; align-items: baseline; font-weight: 600; }
+.superapp-hotspots__list a:hover { text-decoration: underline; }
+.superapp-hotspots__price { color: var(--sa-accent); font-weight: 700; }
+
+/* ── V-B B11 · Tabs ───────────────────────────────────────────────────────────
+   No-JS/SEO fallback: stacked heading + body panels (all visible). When JS adds
+   .is-interactive it injects a `.superapp-tabs` tablist (reusing the pre-authored
+   underline styling), hides the inline headings, and shows one panel at a time. */
+.superapp-tabgroup { display: block; }
+.superapp-tabgroup__panel { margin: 0; }
+.superapp-tabgroup__panel + .superapp-tabgroup__panel { margin-top: 1.5rem; }
+.superapp-tabgroup__panel h3 { margin: 0 0 0.5rem; font-size: 1.05rem; font-weight: 700; }
+.superapp-tabgroup.is-interactive .superapp-tabgroup__panel { margin-top: 0; padding-top: 1.1rem; }
+.superapp-tabgroup.is-interactive .superapp-tabs { margin-bottom: 0; }
+
+/* ── V-B B12 · Mega-FAQ search layer ──────────────────────────────────────────
+   Rides above the (already-SSR'd) accordion when config.searchable. JS filters the
+   items on input and builds category chips from data-sa-faqcat; content is
+   untouched when JS is off (the plain accordion still works). */
+.superapp-faqsearch { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin-bottom: 1rem; }
+.superapp-faqsearch__input { flex: 1 1 220px; min-height: 44px; padding: 0.6rem 0.9rem; font: inherit; font-size: max(16px, 1em); color: inherit; background: Canvas; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-radius); }
+.superapp-faqsearch__input:focus-visible { outline: 2px solid var(--sa-accent); outline-offset: 1px; }
+.superapp-faqsearch__count { font-size: 0.8rem; opacity: 0.7; font-variant-numeric: tabular-nums; }
+.superapp-faqsearch__empty { flex-basis: 100%; margin: 0.25rem 0 0; font-size: 0.9rem; opacity: 0.78; }
+.superapp-faqsearch__chips { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.superapp-faqsearch__chip { min-height: 36px; padding: 0.35rem 0.85rem; font: inherit; font-size: 0.8rem; cursor: pointer; background: transparent; color: inherit; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: 999px; }
+.superapp-faqsearch__chip[aria-pressed='true'] { border-color: var(--sa-accent); background: color-mix(in srgb, var(--sa-accent) 14%, transparent); color: var(--sa-accent); }
+.superapp-faqsearch__chip:focus-visible { outline: 2px solid var(--sa-accent); outline-offset: 2px; }
+
+/* ── V-B B6 · Multi-step form / capture stepper ───────────────────────────────
+   JS injects .superapp-form into the popup panel when config.formFields is set.
+   Progress dots + one step at a time + a back/next nav. Inherits the popup's
+   scoped tokens (--sa-accent / --sa-radius / …). Reduced-motion: no transitions. */
+.superapp-form { display: flex; flex-direction: column; gap: 0.85rem; margin-top: 0.5rem; text-align: left; }
+.superapp-form__dots { display: flex; gap: 0.4rem; justify-content: center; }
+.superapp-form__dot { width: 0.5rem; height: 0.5rem; border-radius: 999px; background: color-mix(in srgb, currentColor 25%, transparent); transition: background 0.2s ease, transform 0.2s ease; }
+.superapp-form__dot.is-active { background: var(--sa-accent); transform: scale(1.25); }
+.superapp-form__dot.is-done { background: color-mix(in srgb, var(--sa-accent) 55%, transparent); }
+.superapp-form__step { display: flex; flex-direction: column; gap: 0.7rem; }
+.superapp-form__heading { margin: 0; font-size: 1.02rem; font-weight: var(--sa-fw, 700); }
+.superapp-form__field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; }
+.superapp-form__field input { min-height: 44px; padding: 0.6rem 0.8rem; font: inherit; font-size: max(16px, 1em); color: inherit; background: Canvas; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-radius); }
+.superapp-form__field input:focus-visible, .superapp-form__group input:focus-visible { outline: 2px solid var(--sa-accent); outline-offset: 1px; }
+.superapp-form__group { display: flex; flex-direction: column; gap: 0.4rem; margin: 0; padding: 0; border: 0; }
+.superapp-form__group legend { padding: 0; margin-bottom: 0.2rem; font-size: 0.85rem; font-weight: 600; }
+.superapp-form__radio, .superapp-form__consent { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; }
+.superapp-form__radio input, .superapp-form__consent input { min-height: 20px; min-width: 20px; accent-color: var(--sa-accent); }
+.superapp-form__nav { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.3rem; }
+.superapp-form__back { min-height: 44px; padding: 0.5rem 0.9rem; font: inherit; font-size: 0.85rem; cursor: pointer; background: transparent; color: inherit; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-btn-radius, var(--sa-radius)); }
+.superapp-form__back[hidden] { display: none; }
+.superapp-form__next { flex: 1 1 auto; }
+.superapp-form__next.is-loading { opacity: 0.7; pointer-events: none; }
+.superapp-form__success { text-align: center; display: flex; flex-direction: column; gap: 0.75rem; }
+.superapp-form__successmsg { margin: 0; font-size: 1rem; font-weight: 600; }
+
+/* ── V-B B14 · Sales-pop toast queue ──────────────────────────────────────────
+   A fixed-position single toast the runtime rotates through merchant-authored
+   events. One at a time; slides in/out (reduced-motion = instant). */
+.superapp-salespop { position: fixed; z-index: 2147483000; max-width: min(92vw, 320px); pointer-events: none; }
+.superapp-salespop--bottom-left { left: 1rem; bottom: 1rem; }
+.superapp-salespop--bottom-right { right: 1rem; bottom: 1rem; }
+.superapp-salespop--top-left { left: 1rem; top: 1rem; }
+.superapp-salespop--top-right { right: 1rem; top: 1rem; }
+.superapp-salespop__toast { pointer-events: auto; display: flex; align-items: center; gap: 0.6rem; padding: 0.65rem 0.85rem; background: Canvas; color: CanvasText; border: var(--sa-border-w, 1px) solid var(--sa-border-color, color-mix(in srgb, CanvasText 15%, transparent)); border-radius: var(--sa-radius, 10px); box-shadow: 0 8px 28px -12px rgba(0, 0, 0, 0.4); opacity: 0; transform: translateY(0.6rem); transition: opacity 0.22s ease, transform 0.22s ease; }
+.superapp-salespop--top-left .superapp-salespop__toast, .superapp-salespop--top-right .superapp-salespop__toast { transform: translateY(-0.6rem); }
+.superapp-salespop__toast.is-in { opacity: 1; transform: translateY(0); }
+.superapp-salespop__img { flex: 0 0 auto; width: 40px; height: 40px; object-fit: cover; border-radius: calc(var(--sa-radius, 10px) * 0.6); }
+.superapp-salespop__text { flex: 1 1 auto; font-size: 0.82rem; line-height: 1.35; }
+.superapp-salespop__close { flex: 0 0 auto; min-width: 28px; min-height: 28px; padding: 0; font-size: 1.1rem; line-height: 1; cursor: pointer; background: transparent; color: inherit; border: 0; opacity: 0.6; }
+.superapp-salespop__close:hover { opacity: 1; }
+.superapp-salespop__close:focus-visible { outline: 2px solid var(--sa-accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .superapp-form__dot { transition: none; }
+  .superapp-salespop__toast { transition: none; }
+}
