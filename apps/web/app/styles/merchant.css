@@ -1,0 +1,141 @@
+/* Merchant surface (Polaris web components migration).
+   Light-DOM styles only — everything inside <s-*> elements is shadow-DOM and
+   styles itself to match Shopify admin. These classes cover the few custom
+   light-DOM pieces (subnav tabs, KPI tiles, KV lists, progress, chips) and are
+   deliberately token-free: fixed values matched to Shopify admin, no --sa-*
+   or vendored --p-* dependencies (those move to the internal layout later).
+   Font: Shopify admin's own stack, so light-DOM text matches shadow-DOM text. */
+
+.sa-merchant {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'San Francisco', 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  color: #303030;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* ---------- sub-navigation (Build / Insights) + in-page tabs ---------- */
+/* Shell-level subnav: full-width divider, but the tab row centers on the same
+   966px column that <s-page inlineSize="base"> uses, so tabs and page content
+   share a left edge on every tabbed screen. */
+.sa-m-subnav {
+  border-bottom: 1px solid #e3e3e3;
+  overflow-x: auto;
+}
+.sa-m-subnav-inner {
+  display: flex;
+  gap: 2px;
+  max-width: 998px;
+  margin-inline: auto;
+  padding: 6px 16px 0;
+  box-sizing: border-box;
+}
+.sa-m-tab {
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  display: inline-block;
+  padding: 8px 12px 10px;
+  margin-bottom: -1px;
+  font-size: 13px;
+  font-weight: 550;
+  color: #616161;
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 8px 8px 0 0;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sa-m-tab:hover { color: #303030; background: #f1f1f1; }
+.sa-m-tab:focus-visible { outline: 2px solid #005bd3; outline-offset: -2px; }
+.sa-m-tab.sel { color: #303030; border-bottom-color: #303030; }
+/* In-page tabs (settings, detail pages): rendered inside the s-page column, so
+   no centering — just a flex row with a divider. */
+.sa-m-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid #e3e3e3;
+  overflow-x: auto;
+}
+
+/* ---------- compact KPI tile ---------- */
+.sa-m-stat {
+  border: 1px solid #e3e3e3;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 10px 12px;
+  min-width: 0;
+  height: 100%;
+  box-sizing: border-box;
+}
+.sa-m-stat-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sa-m-stat-label {
+  font-size: 12px;
+  font-weight: 550;
+  color: #616161;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sa-m-stat-delta { font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.sa-m-stat-delta.good { color: #0e9f6e; }
+.sa-m-stat-delta.bad { color: #dc2626; }
+.sa-m-stat-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 2px;
+}
+.sa-m-stat-value {
+  font-size: 20px;
+  font-weight: 650;
+  color: #303030;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.sa-m-stat-trend { flex: 0 0 96px; line-height: 0; }
+.sa-m-stat-sub { margin-top: 3px; font-size: 11.5px; color: #616161; }
+.sa-m-stat-link { text-decoration: none; color: inherit; display: block; height: 100%; }
+.sa-m-stat-link:hover .sa-m-stat { border-color: #b5b5b5; }
+.sa-m-stat-link:focus-visible { outline: 2px solid #005bd3; outline-offset: 2px; border-radius: 12px; }
+
+/* ---------- key/value list (dense) ---------- */
+.sa-m-kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; align-items: baseline; }
+.sa-m-kv-row { display: contents; }
+.sa-m-kv-k { font-size: 12.5px; color: #616161; }
+.sa-m-kv-v { font-size: 13px; color: #303030; min-width: 0; overflow-wrap: anywhere; }
+
+/* ---------- progress ---------- */
+.sa-m-progress {
+  height: 6px;
+  border-radius: 3px;
+  background: #ebebeb;
+  overflow: hidden;
+}
+.sa-m-progress-fill {
+  height: 100%;
+  width: 100%;
+  border-radius: 3px;
+  transform-origin: left center;
+  transition: transform 200ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sa-m-progress-fill { transition: none; }
+}
+
+/* ---------- monospace chip ---------- */
+.sa-m-mono-chip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  background: #f7f7f7;
+  border: 1px solid #e3e3e3;
+  border-radius: 6px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}

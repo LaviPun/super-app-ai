@@ -224,6 +224,9 @@ importers:
       '@remix-run/dev':
         specifier: ^2.17.5
         version: 2.17.5(@remix-run/react@2.17.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(@remix-run/serve@2.17.5(typescript@5.9.3))(@types/node@24.13.2)(tsx@4.22.4)(typescript@5.9.3)(vite@6.4.3(@types/node@24.13.2)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)
+      '@shopify/polaris-types':
+        specifier: ^1.0.7
+        version: 1.0.7
       '@types/node':
         specifier: ^24.10.1
         version: 24.13.2
@@ -2780,6 +2783,10 @@ packages:
   '@shopify/polaris-tokens@8.10.0':
     resolution: {integrity: sha512-y4PDtRbFKGHwA6Lu7a3L4N9SDP6gZv4tw6u0viumtcXcbF0T2j1xPmyuJZNc9c7vmhNSARCg27NGQFpPgxuaEg==}
     engines: {node: ^16.17.0 || >=18.12.0}
+
+  '@shopify/polaris-types@1.0.7':
+    resolution: {integrity: sha512-e4OKlNHkDNHe9RCOnNgUuAkeTEH028YxS2pGEWhO/f1cHQyekhLVdY8AWznqfvgMlobwwvfgIaF+rc1jtNbYnw==}
+    engines: {node: '>=22.18.0', pnpm: '>=10.2.0'}
 
   '@shopify/polaris@12.27.0':
     resolution: {integrity: sha512-Y8yus6iEjcfW2ZtEJtlqxbWeDJqTX3S/MOLH4GWRvU5gFYJQhlaHaETs0+OimbhEpO95mXbY8qB+KnIJaVBHwA==}
@@ -8627,6 +8634,8 @@ snapshots:
   '@shopify/polaris-tokens@8.10.0':
     dependencies:
       deepmerge: 4.3.1
+
+  '@shopify/polaris-types@1.0.7': {}
 
   '@shopify/polaris@12.27.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
