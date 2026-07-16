@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { useNavigate } from '@remix-run/react';
+import { useNavigate, useNavigation } from '@remix-run/react';
 import {
   CommandPalette,
   MerchantSubnav,
@@ -52,6 +52,8 @@ export function MerchantShell({
   polaris?: boolean;
 }) {
   const navigate = useNavigate();
+  const navigation = useNavigation();
+  const busy = navigation.state !== 'idle';
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -89,10 +91,64 @@ export function MerchantShell({
     };
   }, []);
 
+  // Drive the admin-native App Bridge loading indicator during route
+  // transitions, and clear it on cleanup so the true/false calls always pair.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const bridge = (window as { shopify?: { loading?: (v: boolean) => void } }).shopify;
+    if (!bridge?.loading) return;
+    if (busy) {
+      bridge.loading(true);
+      return () => bridge.loading?.(false);
+    }
+    return undefined;
+  }, [busy]);
+
   return (
     <Ctx.Provider value={ctx}>
       {polaris ? (
         <div className="sa-merchant">
+          {busy && (
+            <>
+              <style>{`
+.sa-m-navbar-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2147483647;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  background: transparent;
+}
+.sa-m-navbar-progress::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 40%;
+  background: #2F80ED;
+  transform: translateX(-100%);
+  animation: sa-m-navbar-progress-slide 1.1s ease-in-out infinite;
+}
+@keyframes sa-m-navbar-progress-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sa-m-navbar-progress::before {
+    width: 100%;
+    transform: none;
+    animation: none;
+    opacity: 0.7;
+  }
+}
+`}</style>
+              <div className="sa-m-navbar-progress" aria-hidden="true" />
+            </>
+          )}
           <SubnavTabs />
           {children}
         </div>

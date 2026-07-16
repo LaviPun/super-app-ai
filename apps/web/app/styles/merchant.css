@@ -6,6 +6,9 @@
    or vendored --p-* dependencies (those move to the internal layout later).
    Font: Shopify admin's own stack, so light-DOM text matches shadow-DOM text. */
 
+/* Pre-upgrade guard: never flash unstyled light-DOM before polaris.js defines the elements. */
+s-page:not(:defined) { visibility: hidden; }
+
 .sa-merchant {
   font-family: Inter, -apple-system, BlinkMacSystemFont, 'San Francisco', 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
   color: #303030;

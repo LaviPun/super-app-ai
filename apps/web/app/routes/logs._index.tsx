@@ -191,7 +191,7 @@ function LogsBody() {
             </s-text>
           </s-banner>
 
-          <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="small-100">
+          <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="base">
             <StatTile label="Success rate" value={`${stats.successRate}%`} />
             <StatTile label="Total jobs (30d)" value={fmtNum(stats.totalJobs)} />
             <StatTile label="AI requests" value={fmtNum(aiStats.totalRequests)} />
@@ -276,7 +276,7 @@ function LogsBody() {
             </s-stack>
           </s-section>
 
-          <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="small-100">
+          <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="base">
             <StatTile label="Tokens in (30d)" value={fmtNum(aiStats.totalTokensIn)} />
             <StatTile label="Tokens out (30d)" value={fmtNum(aiStats.totalTokensOut)} />
             <StatTile label="AI requests (30d)" value={fmtNum(aiStats.totalRequests)} />

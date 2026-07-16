@@ -31,14 +31,15 @@ export async function loader({ request }: { request: Request }) {
   return json({ checklist });
 }
 
-const GUIDES: [string, string, string, string][] = [
-  ['wand', 'Generate your first module', 'Describe what you want in plain language and publish in minutes.', '/templates'],
-  ['automation', 'Automate with Flows', 'Trigger steps when something happens in your store.', '/flows'],
-  ['connect', 'Connect external APIs', 'Add a connector, test it, and reuse it in modules and flows.', '/connectors'],
-  ['database', 'Work with Data stores', 'Sync Shopify data or create custom stores for anything.', '/data'],
-  ['rocket', 'Publishing & rollback', 'Every change is versioned — preview, publish, or roll back instantly.', '/modules'],
-  ['plan', 'Plans, usage & billing', 'Understand credits, limits, and how to upgrade.', '/billing'],
-  ['chat', 'Raise an issue', 'Something not working? Get an instant first response from our AI assistant.', '/support'],
+// [icon, title, description, href, anchor id] — the anchor id lets any page deep-link to its guide.
+const GUIDES: [string, string, string, string, string][] = [
+  ['wand', 'Generate your first module', 'Describe what you want in plain language and publish in minutes.', '/templates', 'guide-generate'],
+  ['automation', 'Automate with Flows', 'Trigger steps when something happens in your store.', '/flows', 'guide-flows'],
+  ['connect', 'Connect external APIs', 'Add a connector, test it, and reuse it in modules and flows.', '/connectors', 'guide-connectors'],
+  ['database', 'Work with Data stores', 'Sync Shopify data or create custom stores for anything.', '/data', 'guide-data'],
+  ['rocket', 'Publishing & rollback', 'Every change is versioned — preview, publish, or roll back instantly.', '/modules', 'guide-publishing'],
+  ['plan', 'Plans, usage & billing', 'Understand credits, limits, and how to upgrade.', '/billing', 'guide-billing'],
+  ['chat', 'Raise an issue', 'Something not working? Get an instant first response from our AI assistant.', '/support', 'guide-support'],
 ];
 const FAQS: [string, string][] = [
   ['Is anything live before I publish?', 'No. Everything you generate is a draft. It only affects your storefront after you click Publish, and you can roll back anytime.'],
@@ -64,9 +65,9 @@ function HelpBody() {
 
       <s-grid gridTemplateColumns="2fr 1fr" gap="base">
         <s-section heading="Guides">
-          <s-grid gridTemplateColumns="repeat(2, 1fr)" gap="small-100">
+          <s-grid gridTemplateColumns="repeat(2, 1fr)" gap="base">
             {GUIDES.map((g) => (
-              <s-clickable key={g[1]} href={g[3]} padding="base" border="base" borderRadius="base">
+              <s-clickable key={g[1]} id={g[4]} href={g[3]} padding="base" border="base" borderRadius="base">
                 <s-stack gap="small-100">
                   <s-icon type={g[0] as never} tone="info" />
                   <s-stack gap="none">

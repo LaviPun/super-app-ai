@@ -6,7 +6,7 @@ import { getPrisma } from '~/db.server';
 import { QuotaService } from '~/services/billing/quota.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
-  StatTile, StatusBadge, EmptyState, ConfirmModal, fmtNum, type WcTone,
+  StatTile, StatusBadge, EmptyState, ConfirmModal, LearnMore, fmtNum, type WcTone,
 } from '~/components/merchant/polaris';
 import { CATEGORY_ORDER, getCategoryDisplayLabel, getCategoryTone, getCategoryIcon } from '~/utils/type-label';
 
@@ -177,27 +177,91 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
   const searchRef = useRef<PolarisField | null>(null);
   const deleteFetcher = useFetcher<{ ok?: boolean; error?: string }>();
 
+  // Undo-grace-window delete state. One pending delete at a time (single or
+  // bulk); the affected row(s) hide optimistically so Undo can restore them.
+  type Pending = { ids: string[]; names: string[] };
+  const [pending, setPending] = useState<Pending | null>(null);
+  const pendingRef = useRef<Pending | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deletedName = useRef<string | null>(null);
+
+  // Bulk selection (list view only).
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkConfirm, setBulkConfirm] = useState(false);
+
   useEffect(() => {
     const interval = setInterval(revalidate, 30_000);
     window.addEventListener('focus', revalidate);
     return () => { clearInterval(interval); window.removeEventListener('focus', revalidate); };
   }, [revalidate]);
 
+  // Never let an undo timer fire after the component tears down.
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+
   const aiLeftLabel = aiUsage?.aiLeft == null ? '—' : fmtNum(aiUsage.aiLeft);
   const aiOfLabel = aiUsage?.aiLimit == null ? 'unlimited' : `of ${fmtNum(aiUsage.aiLimit)} / month`;
 
+  // Commit a pending delete. Single delete reuses the existing deleteFetcher
+  // (server-driven toast below); bulk fires sequential POSTs then toasts once
+  // after revalidating.
+  const firePending = useCallback((p: Pending) => {
+    if (p.ids.length === 1) {
+      deletedName.current = p.names[0] ?? null;
+      deleteFetcher.submit({}, { method: 'post', action: `/api/modules/${p.ids[0]}/delete` });
+      return;
+    }
+    void (async () => {
+      let ok = 0, failed = 0;
+      for (const id of p.ids) {
+        try {
+          const res = await fetch(`/api/modules/${id}/delete`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { Accept: 'application/json' },
+          });
+          if (res.ok) ok++; else failed++;
+        } catch { failed++; }
+      }
+      revalidate();
+      if (failed === 0) ctx.toast(`Deleted ${ok} module${ok === 1 ? '' : 's'}`);
+      else ctx.toast(`Deleted ${ok}, ${failed} failed`, { error: true });
+    })();
+  }, [deleteFetcher, revalidate, ctx]);
+
+  const clearTimer = useCallback(() => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+  }, []);
+
+  // Open a 6s undo window. If one is already pending, commit it immediately
+  // first, then start the new window (one pending delete at a time).
+  const startPending = useCallback((p: Pending) => {
+    if (pendingRef.current) firePending(pendingRef.current);
+    clearTimer();
+    pendingRef.current = p;
+    setPending(p);
+    timerRef.current = setTimeout(() => {
+      const cur = pendingRef.current;
+      timerRef.current = null;
+      pendingRef.current = null;
+      setPending(null);
+      if (cur) firePending(cur);
+    }, 6000);
+  }, [firePending, clearTimer]);
+
+  const undoPending = useCallback(() => {
+    clearTimer();
+    pendingRef.current = null;
+    setPending(null);
+  }, [clearTimer]);
+
   const confirmDelete = useCallback(() => {
     if (!del) return;
-    deleteFetcher.submit({}, { method: 'post', action: `/api/modules/${del.id}/delete` });
+    startPending({ ids: [del.id], names: [del.name] });
     setDel(null);
-  }, [del, deleteFetcher]);
+  }, [del, startPending]);
 
   // Toast only once the server has answered — success and failure alike
-  // (same server-driven pattern as flows._index).
-  const deletedName = useRef<string | null>(null);
-  useEffect(() => {
-    if (del) deletedName.current = del.name;
-  }, [del]);
+  // (same server-driven pattern as flows._index). Single-delete path only.
   useEffect(() => {
     if (deleteFetcher.state !== 'idle' || !deleteFetcher.data) return;
     const res = deleteFetcher.data as { ok?: boolean; error?: string };
@@ -211,10 +275,32 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
     if (searchRef.current) searchRef.current.value = '';
   };
 
+  const pendingIds = pending ? new Set(pending.ids) : null;
   const rows = modules.filter((m: any) =>
     (type === 'All' || m.rawCategory === type) &&
     (status === 'All' || m.status === status) &&
-    (m.name + m.summary + m.category).toLowerCase().includes(search.toLowerCase()));
+    (m.name + m.summary + m.category).toLowerCase().includes(search.toLowerCase()) &&
+    !pendingIds?.has(m.id));
+
+  // Bulk-selection derived state + handlers (list view).
+  const allSelected = rows.length > 0 && rows.every((r: any) => selected.has(r.id));
+  const someSelected = rows.some((r: any) => selected.has(r.id));
+  const toggleOne = (id: string, checked: boolean) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (checked) next.add(id); else next.delete(id);
+    return next;
+  });
+  const toggleAll = (checked: boolean) =>
+    setSelected(checked ? new Set<string>(rows.map((r: any) => r.id)) : new Set<string>());
+  const clearSelection = () => setSelected(new Set<string>());
+  const confirmBulkDelete = useCallback(() => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) { setBulkConfirm(false); return; }
+    const names = ids.map((id) => modules.find((m: any) => m.id === id)?.name ?? 'module');
+    startPending({ ids, names });
+    setBulkConfirm(false);
+    setSelected(new Set<string>());
+  }, [selected, startPending, modules]);
 
   const filters = (
     <s-grid gridTemplateColumns="1fr auto auto auto" gap="small-100">
@@ -271,8 +357,10 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
       <s-button slot="secondary-actions" icon="theme-template" onClick={() => ctx.go('#/app/templates')}>
         Browse templates
       </s-button>
+      <s-stack gap="base">
       <s-paragraph color="subdued">
-        Everything you’ve built — drafts, published modules, automations and integrations in one place.
+        Everything you’ve built — drafts, published modules, automations and integrations in one place.{' '}
+        <LearnMore anchor="guide-generate" topic="generating modules" />
       </s-paragraph>
       {loaderError && <s-banner tone="critical" heading="Couldn’t load modules">{loaderError}</s-banner>}
       {builderOpen && (
@@ -287,6 +375,16 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
       <s-section padding="none">
         <s-box padding="base">
           <s-stack gap="small-100">
+            {pending && (
+              <s-banner
+                tone="warning"
+                heading={pending.ids.length === 1
+                  ? `Deleting “${pending.names[0]}”…`
+                  : `Deleting ${pending.ids.length} modules…`}
+              >
+                <s-button slot="secondary-actions" onClick={undoPending}>Undo</s-button>
+              </s-banner>
+            )}
             {filters}
             {rows.length === 0 ? (
               <EmptyState icon="layer" heading="No modules match"
@@ -294,7 +392,7 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
                 Try adjusting your filters or generate something new.
               </EmptyState>
             ) : view === 'grid' ? (
-              <s-grid gridTemplateColumns="repeat(3, 1fr)" gap="small-100">
+              <s-grid gridTemplateColumns="repeat(3, 1fr)" gap="base">
                 {rows.map((m: any) => (
                   <s-clickable key={m.id} href={`/modules/${m.id}`} border="base" borderRadius="base" padding="base">
                     <s-stack gap="small-100">
@@ -322,8 +420,25 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
                 ))}
               </s-grid>
             ) : (
+              <s-stack gap="small-100">
+              {selected.size > 0 && (
+                <s-stack direction="inline" gap="base" alignItems="center">
+                  <s-text>{selected.size} selected</s-text>
+                  <s-button tone="critical" icon="delete" onClick={() => setBulkConfirm(true)}>Delete selected</s-button>
+                  <s-button variant="tertiary" onClick={clearSelection}>Clear</s-button>
+                </s-stack>
+              )}
               <s-table>
                 <s-table-header-row>
+                  <s-table-header>
+                    <s-checkbox
+                      label="Select all modules"
+                      labelAccessibilityVisibility="exclusive"
+                      checked={allSelected || undefined}
+                      indeterminate={(someSelected && !allSelected) || undefined}
+                      onChange={(e) => toggleAll(e.currentTarget.checked)}
+                    />
+                  </s-table-header>
                   <s-table-header listSlot="primary">Module</s-table-header>
                   <s-table-header listSlot="inline">Type</s-table-header>
                   <s-table-header>Version</s-table-header>
@@ -334,6 +449,14 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
                 <s-table-body>
                   {rows.map((r: any) => (
                     <s-table-row key={r.id}>
+                      <s-table-cell>
+                        <s-checkbox
+                          label={`Select ${r.name}`}
+                          labelAccessibilityVisibility="exclusive"
+                          checked={selected.has(r.id) || undefined}
+                          onChange={(e) => toggleOne(r.id, e.currentTarget.checked)}
+                        />
+                      </s-table-cell>
                       <s-table-cell>
                         <s-stack gap="none">
                           <s-link href={`/modules/${r.id}`}><s-text type="strong">{r.name}</s-text></s-link>
@@ -366,10 +489,12 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
                   ))}
                 </s-table-body>
               </s-table>
+              </s-stack>
             )}
           </s-stack>
         </s-box>
       </s-section>
+      </s-stack>
       <ConfirmModal
         open={!!del}
         heading="Delete module?"
@@ -379,6 +504,18 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
         onClose={() => setDel(null)}
       >
         <s-paragraph>This removes “{del?.name}” and all of its versions. This cannot be undone.</s-paragraph>
+      </ConfirmModal>
+      <ConfirmModal
+        open={bulkConfirm}
+        heading={`Delete ${selected.size} module${selected.size === 1 ? '' : 's'}?`}
+        tone="critical"
+        confirmLabel="Delete"
+        onConfirm={confirmBulkDelete}
+        onClose={() => setBulkConfirm(false)}
+      >
+        <s-paragraph>
+          This removes {selected.size} module{selected.size === 1 ? '' : 's'} and all of their versions. This cannot be undone.
+        </s-paragraph>
       </ConfirmModal>
     </s-page>
   );

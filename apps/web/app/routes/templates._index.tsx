@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { MODULE_TEMPLATES } from '@superapp/core';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { EmptyState, type WcTone } from '~/components/merchant/polaris';
+import { EmptyState, LearnMore, type WcTone } from '~/components/merchant/polaris';
 import { CATEGORY_ORDER, getCategoryDisplayLabel, getCategoryTone, getCategoryIcon } from '~/utils/type-label';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -107,7 +107,8 @@ function TemplatesBody({ templates }: any) {
         Start from scratch
       </s-button>
       <s-paragraph color="subdued">
-        Proven starting points. Pick one, tweak it in the builder, then publish — no code.
+        Proven starting points. Pick one, tweak it in the builder, then publish — no code.{' '}
+        <LearnMore anchor="guide-generate" topic="templates" />
       </s-paragraph>
       <s-section>
         <s-stack gap="small-100">

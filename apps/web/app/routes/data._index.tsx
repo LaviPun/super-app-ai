@@ -5,7 +5,7 @@ import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { DataStoreService, PREDEFINED_STORES } from '~/services/data/data-store.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { fmtNum, useCustomEvent } from '~/components/merchant/polaris';
+import { LearnMore, fmtNum, useCustomEvent } from '~/components/merchant/polaris';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -111,7 +111,8 @@ function DataBody({ stores, predefined }: any) {
         Create custom store
       </s-button>
       <s-paragraph color="subdued">
-        Predefined stores stay in sync with Shopify. Create custom stores to hold anything — reviews, waitlists, applications.
+        Predefined stores stay in sync with Shopify. Create custom stores to hold anything — reviews, waitlists, applications.{' '}
+        <LearnMore anchor="guide-data" topic="data stores" />
       </s-paragraph>
       <s-section heading="Predefined">
         <s-grid gridTemplateColumns="repeat(auto-fill, minmax(230px, 1fr))" gap="base">

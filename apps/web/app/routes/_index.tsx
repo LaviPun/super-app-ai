@@ -137,7 +137,7 @@ function QuickActions() {
     { icon: 'connect', label: 'Connect a source', desc: 'Sync data & apps', go: '#/app/connectors' },
   ];
   return (
-    <s-grid gridTemplateColumns="repeat(auto-fit, minmax(180px, 1fr))" gap="small-100">
+    <s-grid gridTemplateColumns="repeat(auto-fit, minmax(180px, 1fr))" gap="base">
       {actions.map((a) => (
         <s-clickable key={a.label} onClick={() => ctx.go(a.go)} padding="small-100" border="base" borderRadius="base">
           <s-stack direction="inline" gap="small-100" alignItems="center">
@@ -166,11 +166,12 @@ export default function Dashboard() {
   return (
     <MerchantShell polaris>
       <s-page heading={`${greet}, ${titleCase(greetName)}`} inlineSize="base">
+        <s-stack gap="base">
         <s-paragraph color="subdued">Here’s how your store is doing with SuperApp AI.</s-paragraph>
 
         <QuickActions />
 
-        <s-grid gridTemplateColumns="repeat(auto-fit, minmax(180px, 1fr))" gap="small-100">
+        <s-grid gridTemplateColumns="repeat(auto-fit, minmax(180px, 1fr))" gap="base">
           <StatTile label="Module views" value={fmtNum(stats.views30d)} sub="last 30 days" trend={hasViewData ? spark : undefined} trendColor={CHART.success} href="/analytics" />
           <StatTile label="Published modules" value={stats.published} sub={`${stats.drafts} in draft`} href="/modules" />
           <StatTile label="Active flows" value={stats.activeSchedules} sub={`${fmtNum(stats.workflowRuns)} runs this month`} href="/flows" />
@@ -238,6 +239,7 @@ export default function Dashboard() {
             <s-link href="/activity">View all</s-link>
           </s-stack>
         </s-section>
+        </s-stack>
       </s-page>
     </MerchantShell>
   );

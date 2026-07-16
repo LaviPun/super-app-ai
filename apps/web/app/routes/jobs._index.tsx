@@ -309,7 +309,7 @@ function JobsBody() {
         </s-paragraph>
       </s-stack>
 
-      <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="small-100">
+      <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="base">
         <StatTile label="Total jobs" value={fmtNum(stats.total)} />
         <StatTile label="Running" value={fmtNum(stats.running)} />
         <StatTile label="Success" value={fmtNum(stats.success)} />
@@ -318,7 +318,7 @@ function JobsBody() {
 
       <s-section heading="Store AI usage and cost">
         <s-stack gap="base">
-          <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="small-100">
+          <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="base">
             <StatTile label="Requests (30d)" value={fmtNum(aiSummary30d.totalRequests)} />
             <StatTile label="Tokens in / out (30d)" value={`${fmtNum(aiSummary30d.totalTokensIn)} / ${fmtNum(aiSummary30d.totalTokensOut)}`} />
             <StatTile label="Cost (30d)" value={formatCents(aiSummary30d.totalCostCents)} />

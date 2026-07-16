@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { EmptyState, StatTile, titleCase, useCustomEvent } from '~/components/merchant/polaris';
+import { EmptyState, LearnMore, StatTile, titleCase, useCustomEvent } from '~/components/merchant/polaris';
 import { SeverityBadge, TICKET_STATUS_LABEL, TicketStatusBadge } from '~/components/support/badges';
 
 export async function loader({ request }: { request: Request }) {
@@ -177,10 +177,11 @@ function SupportBody({ tickets, modules, stats }: ReturnType<typeof useLoaderDat
         New ticket
       </s-button>
       <s-paragraph color="subdued">
-        Raise issues and track them here — our support team usually responds within a few minutes.
+        Raise issues and track them here — our support team usually responds within a few minutes.{' '}
+        <LearnMore anchor="guide-support" topic="support" />
       </s-paragraph>
 
-      <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="small-100">
+      <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="base">
         <StatTile label="Total tickets" value={stats.total} />
         <StatTile label="Open" value={stats.open} />
         <StatTile label="With the team" value={stats.escalated} />

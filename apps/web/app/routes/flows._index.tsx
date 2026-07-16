@@ -8,7 +8,7 @@ import { ActivityLogService } from '~/services/activity/activity.service';
 import { RecipeService } from '~/services/recipes/recipe.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
-  StatTile, StatusBadge, EmptyState, ConfirmModal, MonoChip, fmtNum,
+  StatTile, StatusBadge, EmptyState, ConfirmModal, MonoChip, LearnMore, fmtNum,
 } from '~/components/merchant/polaris';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -285,7 +285,8 @@ function FlowsBody({ flows, stats }: any) {
         Templates
       </s-button>
       <s-paragraph color="subdued">
-        Automate work: when something happens in your store, run steps automatically. Build visually, monitor every run.
+        Automate work: when something happens in your store, run steps automatically. Build visually, monitor every run.{' '}
+        <LearnMore anchor="guide-flows" topic="flows" />
       </s-paragraph>
       <s-grid gridTemplateColumns="repeat(4, 1fr)" gap="base">
         <StatTile label="Active flows" value={stats.active} />

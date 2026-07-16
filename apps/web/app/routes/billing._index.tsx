@@ -8,7 +8,7 @@ import { QuotaService } from '~/services/billing/quota.service';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { ConfirmModal, Progress, fmtNum, fmtQuota, titleCase } from '~/components/merchant/polaris';
+import { ConfirmModal, LearnMore, Progress, fmtNum, fmtQuota, titleCase } from '~/components/merchant/polaris';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -121,7 +121,7 @@ function BillingBody({ sub, usage, plans }: any) {
 
   return (
     <s-page heading="Plan & usage" inlineSize="base">
-      <s-paragraph color="subdued">You’re on the {titleCase(current)} plan. Track usage and upgrade any time.</s-paragraph>
+      <s-paragraph color="subdued">You’re on the {titleCase(current)} plan. Track usage and upgrade any time.{' '}<LearnMore anchor="guide-billing" topic="plans and billing" /></s-paragraph>
 
       <s-grid gridTemplateColumns="2fr 1fr" gap="base">
         <s-section heading="This month’s usage">

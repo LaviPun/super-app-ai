@@ -419,3 +419,12 @@ export function humanizeResource(resource: string | null | undefined): string | 
   // Otherwise the resource is already human (e.g. a route intent) — keep as-is.
   return /c[a-z0-9]{20,}/i.test(raw) ? null : raw;
 }
+
+/** Discreet contextual help link — every main page points at its Help guide. */
+export function LearnMore({ anchor, topic }: { anchor: string; topic: string }) {
+  return (
+    <s-link href={`/help#${anchor}`} accessibilityLabel={`Learn more about ${topic} in Help & guides`}>
+      Learn more
+    </s-link>
+  );
+}

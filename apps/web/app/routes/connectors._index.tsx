@@ -8,7 +8,7 @@ import { ConnectorService, type ConnectorAuth } from '~/services/connectors/conn
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
-  ConfirmModal, EmptyState, MonoChip, StatusBadge, titleCase, useCustomEvent,
+  ConfirmModal, EmptyState, LearnMore, MonoChip, StatusBadge, titleCase, useCustomEvent,
 } from '~/components/merchant/polaris';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -229,7 +229,8 @@ function ConnectorsBody({ connectors }: any) {
         Add connector
       </s-button>
       <s-paragraph color="subdued">
-        Connect external APIs, test them in the built-in request console, then use them in flows and modules.
+        Connect external APIs, test them in the built-in request console, then use them in flows and modules.{' '}
+        <LearnMore anchor="guide-connectors" topic="connectors" />
       </s-paragraph>
       {connectors.length === 0 ? (
         <s-section>

@@ -5,7 +5,7 @@ import { getPrisma } from '~/db.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { getCategoryDisplayLabel, getCategoryIcon } from '~/utils/type-label';
 import {
-  CHART, EmptyState, Progress, Sparkline, StatTile, Tabs, exportCSV, fmtCents, fmtNum,
+  CHART, EmptyState, LearnMore, Progress, Sparkline, StatTile, Tabs, exportCSV, fmtCents, fmtNum,
 } from '~/components/merchant/polaris';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -190,7 +190,8 @@ function AnalyticsBody({ range, days, publishedCount, perf, series, hasMetrics, 
   return (
     <s-page heading="Analytics" inlineSize="base">
       <s-button slot="secondary-actions" icon="export" onClick={onExport}>Export</s-button>
-      <s-paragraph color="subdued">Storefront impact of your live modules and automations.</s-paragraph>
+      <s-stack gap="base">
+      <s-paragraph color="subdued">Storefront impact of your live modules and automations.{' '}<LearnMore anchor="guide-publishing" topic="module performance" /></s-paragraph>
 
       <Tabs
         tabs={[{ id: '7d', label: 'Last 7 days' }, { id: '30d', label: 'Last 30 days' }, { id: '90d', label: 'Last 90 days' }]}
@@ -198,7 +199,7 @@ function AnalyticsBody({ range, days, publishedCount, perf, series, hasMetrics, 
         onChange={setRange}
       />
 
-      <s-grid gridTemplateColumns="repeat(auto-fit, minmax(180px, 1fr))" gap="small-100">
+      <s-grid gridTemplateColumns="repeat(auto-fit, minmax(180px, 1fr))" gap="base">
         <StatTile
           label="Module views"
           value={fmtNum(totals.views)}
@@ -312,6 +313,7 @@ function AnalyticsBody({ range, days, publishedCount, perf, series, hasMetrics, 
           </s-table>
         )}
       </s-section>
+      </s-stack>
     </s-page>
   );
 }
