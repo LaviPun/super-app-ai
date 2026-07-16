@@ -149,10 +149,10 @@ function SettingsBody({ shop, counts, account }: any) {
                 <s-text tone="neutral" color="subdued">Store owner</s-text>
               </s-stack>
             </s-stack>
-            <s-text-field label="Store name" defaultValue={account.storeName ?? shop.domain} disabled />
+            <s-text-field label="Store name" value={account.storeName ?? shop.domain} disabled />
             <s-text-field
               label="Owner email"
-              defaultValue={account.email ?? ''}
+              value={account.email ?? ''}
               disabled
               details="Account details come from Shopify and are managed in your Shopify admin."
             />

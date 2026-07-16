@@ -7,16 +7,19 @@ import { ActivityLogService } from '~/services/activity/activity.service';
 import { MerchantShell } from '~/components/merchant/MerchantShell';
 import { EmptyState, MonoChip, humanizeResource, titleCase, type WcTone } from '~/components/merchant/polaris';
 
-// Map a raw ActivityLog action to the design's visual "kind".
+// Map a raw ActivityLog action to the design's visual "kind". Falls back to a
+// neutral "activity" kind — never mislabel billing/support/etc. as "module".
 function activityKind(action: string): string {
   const a = (action || '').toUpperCase();
   if (a.startsWith('MODULE') || a.includes('AI_GENERAT') || a.includes('TEMPLATE')) return 'module';
   if (a.startsWith('FLOW') || a.startsWith('SCHEDULE') || a.startsWith('WORKFLOW')) return 'flow';
   if (a.startsWith('CONNECTOR') || a.startsWith('ENDPOINT')) return 'connector';
+  if (a.startsWith('BILLING') || a.includes('SUBSCRIPTION') || a.includes('PLAN')) return 'billing';
+  if (a.startsWith('SUPPORT')) return 'support';
   if (a.includes('DATA_STORE') || a.includes('RECORD') || a.includes('WEBHOOK')) return 'data';
   if (a.includes('LOGIN') || a.includes('INVIT') || a.includes('TEAM')) return 'team';
   if (a.includes('ERROR') || a.includes('FAIL') || a.includes('WARNING') || a.includes('GATE')) return 'alert';
-  return 'module';
+  return 'activity';
 }
 function relativeTime(d: Date): string {
   const secs = Math.max(1, Math.round((Date.now() - new Date(d).getTime()) / 1000));
@@ -29,7 +32,7 @@ function relativeTime(d: Date): string {
   return days === 1 ? 'Yesterday' : days + 'd ago';
 }
 
-const KIND_TONE: Record<string, WcTone> = { module: 'info', flow: 'success', alert: 'critical', data: 'info', connector: 'info', team: 'warning' };
+const KIND_TONE: Record<string, WcTone> = { module: 'info', flow: 'success', alert: 'critical', data: 'info', connector: 'info', team: 'warning', billing: 'success', support: 'caution', activity: 'neutral' };
 
 // Operational/telemetry events that read as noise (or nonsense) to a merchant —
 // same exclusion the dashboard feed applies.
