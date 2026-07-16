@@ -1,0 +1,126 @@
+{% # theme-check-disable OrphanedSnippet %}
+{% doc %}
+  SuperApp renderer — OVERLAY family (popup / modal / game). Split out of
+  superapp-module.liquid to keep each renderer file well under Shopify's enforced
+  100 KB "Liquid across all files" budget and give the popup/game family room to grow.
+  Rendered from superapp-module.liquid's {% raw %}{% case kind %}{% endraw %} dispatcher; it stays INSIDE the
+  .superapp-scope wrapper (opened/closed by the dispatcher), so this snippet emits
+  only the popup markup.
+
+  @param {object} mod_cfg - config_json of the module metaobject.
+  @param {string} module_id - the module id (data-module-id / capture hidden field).
+  @param {boolean} sa_rules_enabled - R2.1 display-rules gate active?
+  @param {string} [sa_rules_json] - serialized rule engine (present iff enabled).
+  @param {string} [sa_rule_server] - server verdict: pass | fail | defer.
+  @param {string} [sa_ctx_json] - mirrored server context (booleans/counts only).
+{% enddoc %}
+    {% comment %}
+      Gamified email-capture variants (Privy-parity, no schema change). When the
+      popup's blocks[] carry kind:'slice' it renders a spin-to-win wheel; kind:'scratch'
+      renders a scratch card. Both are FEATURE-GATED on block presence — a popup with
+      neither renders byte-identically to the classic title/body/cta popup. The
+      wheel/scratch, weighted pick, coupon reveal + copy live in superapp-modules.js.
+    {% endcomment %}
+    {% liquid
+      assign sa_slices = mod_cfg.blocks | where: 'kind', 'slice'
+      assign sa_scratch = mod_cfg.blocks | where: 'kind', 'scratch'
+      assign sa_field_blocks = mod_cfg.blocks | where: 'kind', 'field'
+      assign sa_is_wheel = false
+      assign sa_is_scratch = false
+      if sa_slices.size > 0
+        assign sa_is_wheel = true
+      elsif sa_scratch.size > 0
+        assign sa_is_scratch = true
+      endif
+      # Email gate: shown BEFORE the game when the popup declares an email field
+      # (a kind:'field' input:'email' block, or fields.emailFieldEnabled). The gate
+      # reuses the app-proxy capture path (same endpoint the contact form posts to).
+      assign sa_gate = false
+      if sa_is_wheel or sa_is_scratch
+        if mod_cfg.fields.emailFieldEnabled
+          assign sa_gate = true
+        endif
+        for fb in sa_field_blocks
+          if fb.fields.input == 'email'
+            assign sa_gate = true
+          endif
+        endfor
+      endif
+      assign sa_gate_action = mod_cfg.proxyEndpointPath | default: '/apps/superapp/capture'
+      assign sa_gate_cta = mod_cfg.fields.ctaLabel | default: 'Continue'
+      assign sa_spin_cta = mod_cfg.fields.spinLabel | default: 'Spin the wheel'
+      if sa_gate == false
+        assign sa_spin_cta = mod_cfg.fields.ctaLabel | default: 'Spin the wheel'
+      endif
+    %}
+    <div
+      class="superapp-popup superapp-popup--embed{% if sa_is_wheel %} superapp-popup--wheel{% elsif sa_is_scratch %} superapp-popup--scratch{% endif %}"
+      data-module-id="{{ module_id | escape }}"
+      data-trigger="{{ mod_cfg.trigger | default: 'ON_LOAD' | escape }}"
+      data-frequency="{{ mod_cfg.frequency | default: 'ONCE_PER_SESSION' | escape }}"
+      data-delay-seconds="{{ mod_cfg.delaySeconds | default: 0 }}"
+      data-auto-close-seconds="{{ mod_cfg.autoCloseSeconds | default: 0 }}"
+      {% if mod_cfg.behavior.teaser.enabled %}data-sa-teaser="{{ mod_cfg.behavior.teaser | json | escape }}"{% endif %}
+      {% if sa_rules_enabled %}data-sa-rules="{{ sa_rules_json | escape }}" data-sa-rule-server="{{ sa_rule_server }}" data-sa-ctx="{{ sa_ctx_json | escape }}"{% endif %}
+      hidden
+    >
+      <div class="superapp-popup__backdrop" data-superapp-close></div>
+      <div class="superapp-popup__panel" role="dialog" aria-modal="true" aria-label="{{ mod_cfg.title | escape }}">
+        <button class="superapp-popup__close" type="button" data-superapp-close aria-label="Close">&times;</button>
+        <h3 class="superapp-popup__title">{{ mod_cfg.title | escape }}</h3>
+        {% if mod_cfg.subtitle != blank and sa_is_wheel or mod_cfg.subtitle != blank and sa_is_scratch %}
+          <p class="superapp-popup__body superapp-measure">{{ mod_cfg.subtitle | escape }}</p>
+        {% endif %}
+        {% if mod_cfg.body != blank %}
+          <p class="superapp-popup__body superapp-measure">{{ mod_cfg.body | escape }}</p>
+        {% endif %}
+        {% if sa_is_wheel or sa_is_scratch %}
+          {% if sa_is_wheel %}{% assign sa_game_kind = 'wheel' %}{% assign sa_capture_type = 'spin_to_win_signup' %}{% else %}{% assign sa_game_kind = 'scratch' %}{% assign sa_capture_type = 'scratch_card_signup' %}{% endif %}
+          <div class="superapp-game" data-superapp-game="{{ sa_game_kind }}">
+            {% if sa_gate %}
+              {% comment %}Email gate — shown BEFORE the game; reuses the app-proxy capture path (shared by both games).{% endcomment %}
+              <form class="superapp-game__gate" data-superapp-gate method="post" action="{{ sa_gate_action | escape }}" data-success-message="{{ mod_cfg.fields.successMessage | default: 'Thanks!' | escape }}">
+                <input type="hidden" name="moduleId" value="{{ module_id | escape }}">
+                <input type="hidden" name="captureType" value="{{ sa_capture_type }}">
+                <input type="hidden" name="storeKey" value="customer">
+                <input class="superapp-game__gateinput" type="email" name="email" required autocomplete="email" placeholder="{{ mod_cfg.fields.emailPlaceholder | default: 'you@email.com' | escape }}" aria-label="{{ mod_cfg.fields.emailFieldLabel | default: 'Email address' | escape }}">
+                <button class="superapp-popup__cta superapp-game__gatecta" type="submit">{{ sa_gate_cta | escape }}</button>
+                {% if mod_cfg.fields.consentText != blank %}<span class="superapp-game__consent">{{ mod_cfg.fields.consentText | escape }}</span>{% endif %}
+                <p class="superapp-game__status" data-superapp-gate-status role="status" aria-live="polite" hidden></p>
+              </form>
+            {% endif %}
+            {% if sa_is_wheel %}
+              {% assign sa_seg = 360.0 | divided_by: sa_slices.size %}
+              {% capture sa_wheel_grad %}conic-gradient(from -90deg{% for sl in sa_slices %}{% assign sa_a = forloop.index0 | times: sa_seg %}{% assign sa_b = forloop.index | times: sa_seg %}{% assign sa_par = forloop.index0 | modulo: 2 %}{% if sa_par == 0 %}, var(--sa-accent) {{ sa_a }}deg {{ sa_b }}deg{% else %}, color-mix(in srgb, var(--sa-accent) 30%, Canvas) {{ sa_a }}deg {{ sa_b }}deg{% endif %}{% endfor %}){% endcapture %}
+              <div class="superapp-game__stage" data-superapp-wheel-stage{% if sa_gate %} hidden{% endif %}>
+                <div class="superapp-wheel" data-superapp-wheel style="--sa-wheel-n: {{ sa_slices.size }};">
+                  <span class="superapp-wheel__pointer" aria-hidden="true"></span>
+                  <div class="superapp-wheel__dial" data-superapp-wheel-dial role="img" aria-label="Prize wheel with {{ sa_slices.size }} segments" style="background: {{ sa_wheel_grad }};">
+                    {% for sl in sa_slices %}
+                      <span class="superapp-wheel__label" data-superapp-slice data-code="{{ sl.fields.couponCode | default: '' | escape }}" data-weight="{{ sl.fields.oddsWeight | default: 1 }}" data-label="{{ sl.text | escape }}" style="--sa-wheel-i: {{ forloop.index0 }};"><span class="superapp-wheel__labeltext">{{ sl.text | escape }}</span></span>
+                    {% endfor %}
+                    <span class="superapp-wheel__hub" aria-hidden="true"></span>
+                  </div>
+                </div>
+                <button class="superapp-popup__cta superapp-game__spin" type="button" data-superapp-wheel-spin>{{ sa_spin_cta | escape }}</button>
+              </div>
+            {% else %}
+              {% assign sa_card = sa_scratch | first %}
+              <div class="superapp-game__stage" data-superapp-scratch-stage{% if sa_gate %} hidden{% endif %}>
+                <div class="superapp-scratch" data-superapp-scratch data-code="{{ sa_card.fields.couponCode | default: '' | escape }}" data-label="{{ sa_card.text | default: '' | escape }}">
+                  <div class="superapp-scratch__prize" aria-hidden="true">{{ sa_card.text | default: sa_card.fields.couponCode | default: 'Your prize' | escape }}</div>
+                  <canvas class="superapp-scratch__canvas" data-superapp-scratch-canvas></canvas>
+                  <button class="superapp-scratch__reveal" type="button" data-superapp-scratch-reveal>{{ mod_cfg.fields.ctaLabel | default: 'Reveal my prize' | escape }}</button>
+                </div>
+                <p class="superapp-scratch__hint">{{ mod_cfg.fields.scratchHint | default: 'Scratch the panel to reveal your code.' | escape }}</p>
+              </div>
+            {% endif %}
+            <div class="superapp-game__result" data-superapp-result role="status" aria-live="polite" hidden></div>
+          </div>
+        {% else %}
+          {% if mod_cfg.ctaText != blank and mod_cfg.ctaUrl != blank %}
+            <a class="superapp-popup__cta" href="{{ mod_cfg.ctaUrl | escape }}">{{ mod_cfg.ctaText | escape }}</a>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>

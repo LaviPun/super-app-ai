@@ -6,16 +6,11 @@ assign limit = rec.productLimit|default:4
 assign products = null
 case strat
 when 'manual'
-# Manual variants are resolved to products at hydration and stamped as
-# `recommendationProducts` on the config (a list the storefront can render).
 assign products = mod_cfg.recommendationProducts
 when 'collection'
 assign coll = collections[rec.collectionHandle]
 assign products = coll.products
 when 'related','complementary'
-# Shopify auto-populates `recommendations.products` when the section requests
-# recommendations; when absent (app-extension block),the JS mount fetches
-# /recommendations/products.json instead (still service-free).
 if recommendations.performed and recommendations.products.size > 0
 assign products = recommendations.products
 endif

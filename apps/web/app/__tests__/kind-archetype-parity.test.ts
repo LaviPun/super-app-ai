@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
@@ -16,18 +16,30 @@ import { KIND_ARCHETYPE } from '~/services/recipes/kind-archetype';
  * but renders `generic` on the live storefront (silent parity break). This test
  * extracts the Liquid `when` kinds and locks them against the canonical TS table.
  *
- * BUILD SOURCE: the readable source is apps/web/theme-extension-src/liquid/snippets/
- * superapp-module.liquid. scripts/build-theme-liquid.mjs emits an output-preserving
- * minified copy into extensions/theme-app-extension/snippets/ (it only strips
- * comments/indentation/blank lines — the `when '<kind>'` tokens are untouched). We
- * assert against the SOURCE (the thing humans edit) and separately assert the built
- * copy carries the same kind set, so a forgotten rebuild is also caught.
+ * BUILD SOURCE: the readable source is the superapp-module snippet FAMILY under
+ * apps/web/theme-extension-src/liquid/snippets/ — a dispatcher (superapp-module.liquid)
+ * plus kind-family sub-snippets it {% render %}s (superapp-module-sections.liquid holds
+ * the `case sa_kind_h` archetype dispatch). scripts/build-theme-liquid.mjs emits an
+ * output-preserving minified copy of every file into extensions/theme-app-extension/
+ * snippets/ (it only strips comments/indentation/blank lines — the `when '<kind>'`
+ * tokens are untouched). We scan the WHOLE family (so the guarantee survives the
+ * dispatch moving between files), asserting against the SOURCE (the thing humans edit)
+ * and separately that the built copies carry the same kind set (rebuild not forgotten).
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '../../../..');
-const LIQUID_SRC = join(REPO_ROOT, 'apps/web/theme-extension-src/liquid/snippets/superapp-module.liquid');
-const LIQUID_BUILT = join(REPO_ROOT, 'extensions/theme-app-extension/snippets/superapp-module.liquid');
+const SRC_SNIPPETS = join(REPO_ROOT, 'apps/web/theme-extension-src/liquid/snippets');
+const BUILT_SNIPPETS = join(REPO_ROOT, 'extensions/theme-app-extension/snippets');
+
+/** Concatenate every `superapp-module*.liquid` renderer-family file in a snippets dir. */
+function readModuleFamily(dir: string): string {
+  return readdirSync(dir)
+    .filter((f) => /^superapp-module.*\.liquid$/.test(f))
+    .sort()
+    .map((f) => readFileSync(join(dir, f), 'utf8'))
+    .join('\n');
+}
 
 /**
  * Storefront-only kinds handled by the Liquid `case sa_kind_h` table but
@@ -62,7 +74,7 @@ function extractLiquidKinds(liquid: string): string[] {
 
 describe('kind→archetype alias parity (canonical TS ⇄ storefront Liquid)', () => {
   const canonicalKinds = Object.keys(KIND_ARCHETYPE);
-  const liquidKinds = extractLiquidKinds(readFileSync(LIQUID_SRC, 'utf8'));
+  const liquidKinds = extractLiquidKinds(readModuleFamily(SRC_SNIPPETS));
 
   it('every canonical TS kind is dispatched by the Liquid `when` table', () => {
     const missing = canonicalKinds.filter((k) => !liquidKinds.includes(k));
@@ -80,7 +92,7 @@ describe('kind→archetype alias parity (canonical TS ⇄ storefront Liquid)', (
   });
 
   it('the built extension copy carries the same kind set as the source (rebuild not forgotten)', () => {
-    const builtKinds = extractLiquidKinds(readFileSync(LIQUID_BUILT, 'utf8'));
+    const builtKinds = extractLiquidKinds(readModuleFamily(BUILT_SNIPPETS));
     expect(builtKinds.sort()).toEqual([...liquidKinds].sort());
   });
 });

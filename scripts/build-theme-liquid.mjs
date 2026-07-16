@@ -31,12 +31,27 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'apps/web/theme-extension-src/liquid');
 const OUT = join(ROOT, 'extensions/theme-app-extension');
-const LIQUID_BUDGET = 100 * 1000; // Shopify enforced limit, bytes
+const LIQUID_BUDGET = 100 * 1000; // Shopify ENFORCED aggregate limit (Liquid across all files), bytes
+const PER_FILE_MAX = 100 * 1000; // hard per-file ceiling; the family split keeps each file far below this
 
 /** Output-preserving Liquid minify (see file header for the safety argument). */
 function minifyLiquid(src) {
+  // 0. Drop `#` comment LINES inside `{% liquid %}` blocks. A line whose first
+  //    non-whitespace character is `#` is a Liquid inline comment (the `{% liquid %}`
+  //    tag's per-line comment form) — it renders NOTHING, same output class as a
+  //    `{% comment %}` block or a `{% # … %}` tag. The rest of the pipeline PROTECTS
+  //    `{% liquid %}` interiors (their newlines separate statements), so without this
+  //    pass those comment lines shipped verbatim (~2.5 KB of dead weight in the
+  //    renderer alone). We strip them here, before any other transform, so the
+  //    readable source keeps every explanatory `#` note for humans while the deployed
+  //    copy carries none. Theme-check control directives are preserved defensively
+  //    (they are authored as `{% # … %}` tags, never bare liquid-block lines, but the
+  //    guard keeps this pass safe if that ever changes). Only line-leading `#` is a
+  //    comment — a `#` inside a string (e.g. a `'#fff'` hex) is never at line start in
+  //    a liquid statement, so quoted values are untouched.
+  let out = stripLiquidBlockComments(src);
   // 1. Drop {% comment %}…{% endcomment %} blocks (incl. whitespace-control variants).
-  let out = src.replace(/\{%-?\s*comment\s*-?%\}[\s\S]*?\{%-?\s*endcomment\s*-?%\}/g, '');
+  out = out.replace(/\{%-?\s*comment\s*-?%\}[\s\S]*?\{%-?\s*endcomment\s*-?%\}/g, '');
   // 1a. Drop {% doc %}…{% enddoc %} LiquidDoc blocks. `doc` is Shopify's snippet
   //     documentation tag — it renders NOTHING (identical output class to comment),
   //     so stripping it from the DEPLOYED copy is output-preserving. The readable
@@ -151,6 +166,40 @@ function trimTagInternals(src) {
 }
 
 /**
+ * Remove `#` comment lines from the interior of every `{% liquid … %}` block (see
+ * rule 0). A line is a comment iff its first non-whitespace character is `#`; such
+ * lines render nothing, so dropping them (and their trailing newline) is
+ * output-preserving. Lines carrying a `theme-check` directive are kept defensively.
+ * The block open/close and every non-comment statement line survive byte-for-byte.
+ */
+function stripLiquidBlockComments(src) {
+  const re = /\{%-?\s*liquid\b/g;
+  let result = '';
+  let last = 0;
+  let m;
+  while ((m = re.exec(src))) {
+    const start = m.index;
+    const close = src.indexOf('%}', start);
+    const end = close === -1 ? src.length : close; // interior ends AT the closing `%}`
+    result += src.slice(last, start);
+    const block = src.slice(start, end); // `{% liquid` + statements, WITHOUT the `%}`
+    const kept = block
+      .split('\n')
+      .filter((line) => {
+        const t = line.replace(/^[ \t]+/, '');
+        if (t.startsWith('#')) return /theme-check/.test(t);
+        return true;
+      })
+      .join('\n');
+    result += kept;
+    last = end;
+    re.lastIndex = end;
+  }
+  result += src.slice(last);
+  return result;
+}
+
+/**
  * Apply `fn` to the parts of `src` OUTSIDE every `{% liquid … %}` tag, leaving the
  * `{% liquid %}` blocks (whose newlines separate statements) untouched. Handles the
  * whitespace-control `{%-` / `-%}` forms.
@@ -186,13 +235,35 @@ for (const kind of ['blocks', 'snippets']) {
 }
 
 rows.sort((a, b) => b.to - a.to);
-for (const r of rows) console.log(`  ${String(r.to).padStart(6)} B  (was ${r.from})  ${r.file}`);
+// Per-file report. The renderer is now a snippet FAMILY (a dispatcher + kind-family
+// sub-snippets it {% render %}s); each file has years of headroom under PER_FILE_MAX,
+// while the aggregate stays the deploy-blocking wall Shopify actually enforces.
+for (const r of rows) {
+  const flag = r.to > PER_FILE_MAX ? '  ❌ OVER PER-FILE LIMIT' : '';
+  console.log(`  ${String(r.to).padStart(6)} B  (was ${r.from})  ${r.file}${flag}`);
+}
 const pct = ((total / LIQUID_BUDGET) * 100).toFixed(1);
 console.log(`\nTotal Liquid: ${total} B / ${LIQUID_BUDGET} B budget (${pct}%)`);
 
-if (total > LIQUID_BUDGET) {
-  console.error(`\n❌ Over the 100 KB enforced Liquid limit by ${total - LIQUID_BUDGET} B.`);
-  if (process.argv.includes('--check')) process.exit(1);
-} else {
-  console.log(`✅ Under budget by ${LIQUID_BUDGET - total} B.`);
+// Two independent gates:
+//   • per-file  — Shopify compiles each Liquid file; keep any single file well clear
+//     of the 100 KB ceiling so one growing family can't wedge a deploy.
+//   • aggregate — "Size of Liquid across all files: 100 KB" is Shopify's ENFORCED
+//     theme-app-extension limit (shopify.dev/.../theme-app-extensions/configuration).
+//     Splitting a monolith does NOT free aggregate budget — it slightly grows it — so
+//     this must stay the hard wall. Growing the render surface means reclaiming bytes
+//     (e.g. moving presentation into the CSS/JS assets, which have separate budgets),
+//     not just adding snippets.
+const overFiles = rows.filter((r) => r.to > PER_FILE_MAX);
+let failed = false;
+for (const r of overFiles) {
+  console.error(`\n❌ ${r.file} is ${r.to} B — over the ${PER_FILE_MAX} B per-file limit by ${r.to - PER_FILE_MAX} B.`);
+  failed = true;
 }
+if (total > LIQUID_BUDGET) {
+  console.error(`\n❌ Over the 100 KB enforced aggregate Liquid limit by ${total - LIQUID_BUDGET} B.`);
+  failed = true;
+} else {
+  console.log(`✅ Aggregate under budget by ${LIQUID_BUDGET - total} B. Largest file: ${rows[0].to} B (${rows[0].file}).`);
+}
+if (failed && process.argv.includes('--check')) process.exit(1);

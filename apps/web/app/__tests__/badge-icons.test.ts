@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -17,8 +17,20 @@ import { BADGE_ICON_IDS } from '~/services/recipes/kind-archetype';
  */
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '../../../..');
-const LIQUID_SRC = join(REPO_ROOT, 'apps/web/theme-extension-src/liquid/snippets/superapp-module.liquid');
-const LIQUID_BUILT = join(REPO_ROOT, 'extensions/theme-app-extension/snippets/superapp-module.liquid');
+// The badge sprite lives in the content-section sub-snippet of the renderer family;
+// scan the whole `superapp-module*.liquid` family so the parity guard is robust to the
+// sprite moving between files.
+const SRC_SNIPPETS = join(REPO_ROOT, 'apps/web/theme-extension-src/liquid/snippets');
+const BUILT_SNIPPETS = join(REPO_ROOT, 'extensions/theme-app-extension/snippets');
+
+/** Concatenate every `superapp-module*.liquid` renderer-family file in a snippets dir. */
+function readModuleFamily(dir: string): string {
+  return readdirSync(dir)
+    .filter((f) => /^superapp-module.*\.liquid$/.test(f))
+    .sort()
+    .map((f) => readFileSync(join(dir, f), 'utf8'))
+    .join('\n');
+}
 
 /** Extract `sa-ico-<id>` symbol ids from a Liquid file's inline sprite. */
 function spriteIds(liquid: string): string[] {
@@ -37,11 +49,11 @@ describe('badge-icon catalog — single-source id parity (A2)', () => {
   });
 
   it('the storefront Liquid sprite covers exactly the canonical id set', () => {
-    expect(spriteIds(readFileSync(LIQUID_SRC, 'utf8')).sort()).toEqual(canonical);
+    expect(spriteIds(readModuleFamily(SRC_SNIPPETS)).sort()).toEqual(canonical);
   });
 
   it('the built extension sprite carries the same ids (rebuild not forgotten)', () => {
-    expect(spriteIds(readFileSync(LIQUID_BUILT, 'utf8')).sort()).toEqual(canonical);
+    expect(spriteIds(readModuleFamily(BUILT_SNIPPETS)).sort()).toEqual(canonical);
   });
 
   it('the PreviewService catalog covers exactly the canonical id set', () => {

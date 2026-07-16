@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -13,7 +13,15 @@ import { PreviewService } from '~/services/preview/preview.service';
  */
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '../../../..');
-const LIQUID_SRC = join(REPO_ROOT, 'apps/web/theme-extension-src/liquid/snippets/superapp-module.liquid');
+// The renderer is a snippet FAMILY (dispatcher + kind-family sub-snippets): B1/B2 live
+// in the content-section sub-snippet, B3 (sticky-atc) in the product-context sub-snippet.
+const SRC_SNIPPETS = join(REPO_ROOT, 'apps/web/theme-extension-src/liquid/snippets');
+const readModuleFamily = (dir: string): string =>
+  readdirSync(dir)
+    .filter((f) => /^superapp-module.*\.liquid$/.test(f))
+    .sort()
+    .map((f) => readFileSync(join(dir, f), 'utf8'))
+    .join('\n');
 
 const service = new PreviewService();
 const render = (spec: RecipeSpec): string => {
@@ -107,7 +115,7 @@ describe('B3 — sticky ATC v2 preview', () => {
 });
 
 describe('B1 / B2 / B3 — storefront Liquid branch tokens present', () => {
-  const liquid = readFileSync(LIQUID_SRC, 'utf8');
+  const liquid = readModuleFamily(SRC_SNIPPETS);
 
   it('B1 progress-bar renders a JSON-config mount + track/fill read from /cart.js', () => {
     expect(liquid).toContain("sa_kind_h == 'progress-bar'");

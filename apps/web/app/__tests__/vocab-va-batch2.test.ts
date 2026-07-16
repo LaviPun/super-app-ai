@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -13,10 +13,16 @@ import { KIND_ARCHETYPE } from '~/services/recipes/kind-archetype';
  */
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '../../../..');
-const LIQUID_SRC = join(REPO_ROOT, 'apps/web/theme-extension-src/liquid/snippets/superapp-module.liquid');
+// The renderer is a snippet FAMILY (dispatcher + kind-family sub-snippets); the
+// A5/A6/A8 branch tokens live in the content-section sub-snippet. Scan the whole family.
+const SRC_SNIPPETS = join(REPO_ROOT, 'apps/web/theme-extension-src/liquid/snippets');
 const CSS_SRC = join(REPO_ROOT, 'apps/web/theme-extension-src/superapp-modules.src.css');
 const JS_SRC = join(REPO_ROOT, 'apps/web/theme-extension-src/superapp-modules.src.js');
-const liquid = readFileSync(LIQUID_SRC, 'utf8');
+const liquid = readdirSync(SRC_SNIPPETS)
+  .filter((f) => /^superapp-module.*\.liquid$/.test(f))
+  .sort()
+  .map((f) => readFileSync(join(SRC_SNIPPETS, f), 'utf8'))
+  .join('\n');
 const css = readFileSync(CSS_SRC, 'utf8');
 const js = readFileSync(JS_SRC, 'utf8');
 
