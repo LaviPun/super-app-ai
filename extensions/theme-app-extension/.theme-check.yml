@@ -16,8 +16,29 @@
 # /cart/add.js). All dependency-free vanilla JS; the single bundled file stays
 # ~33 KB minified and gzips well under the wire budget. The source-size threshold
 # tracks the shipped runtime surface. All other checks stay at preset defaults.
+# Rationale (V-B renderer batch B9–B12, 40 KB → 56 KB): the renderer batch moved
+# four richer surfaces into JS-progressive-enhancement so the AGGREGATE 100 KB
+# Liquid wall (shared across all TAE files, Shopify-enforced) stays clear — a
+# before/after comparison slider (pointer drag + keyboard ARIA slider), shoppable
+# image HOTSPOTS (positioned markers + focus-trapped popover), TABS (full ARIA
+# tablist keyboard model), and a mega-FAQ SEARCH layer (debounced client filter +
+# category chips). Each ships a semantic in-DOM no-JS fallback (the Liquid stub);
+# the behavior is vanilla dependency-free JS. This is a LINT threshold we own (not
+# a Shopify wall) — raised to fit the added runtime; the minified asset still
+# gzips well under the wire budget. Following the R2.1 / V-B precedent above.
 extends: :theme_app_extension
 
 AssetSizeAppBlockJavaScript:
   enabled: true
-  threshold_in_bytes: 40000
+  threshold_in_bytes: 56000
+
+# AssetSizeAppBlockCSS raised from the 100 KB preset default to 120 KB.
+# Rationale (V-B renderer batch B9–B12): the four new surfaces added their
+# structural + two-pack CSS (before/after clip-path panes, hotspot markers +
+# popover, tabgroup panels, FAQ search chips) to assets/superapp-modules.css,
+# nudging the minified sheet over the 100 KB preset. Unlike the aggregate Liquid
+# limit this is a theme-check LINT ceiling we own; the sheet still gzips to a
+# fraction of the wire budget, so the threshold tracks the shipped style surface.
+AssetSizeAppBlockCSS:
+  enabled: true
+  threshold_in_bytes: 120000

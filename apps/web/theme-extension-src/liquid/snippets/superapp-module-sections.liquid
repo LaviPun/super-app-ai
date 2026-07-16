@@ -80,7 +80,7 @@
           if sa_sec_has_blocks
             assign sa_arch = 'feature'
           endif
-        when 'gallery', 'lookbook', 'collection-lookbook', 'collection-carousel', 'ugc-grid'
+        when 'gallery', 'lookbook', 'collection-lookbook', 'collection-carousel', 'ugc-grid', 'before-after', 'hotspots'
           if sa_sec_has_blocks
             assign sa_arch = 'gallery'
           endif
@@ -90,7 +90,7 @@
           if sa_sec_has_blocks
             assign sa_arch = 'pricing'
           endif
-        when 'faq', 'accordion'
+        when 'faq', 'accordion', 'tabs'
           if sa_sec_has_blocks
             assign sa_arch = 'faq'
           endif
@@ -255,6 +255,39 @@
             </div>
 
           {% when 'gallery' %}
+          {% if sa_kind_h == 'before-after' %}
+            {% # B9 before/after comparison slider (GemPages-class). Renders EXACTLY the
+               first two image blocks stacked with labels — the semantic no-JS/SEO
+               fallback — inside a container superapp-modules.js upgrades to a
+               pointer-drag + keyboard clip-path handle (ARIA slider). data-start is the
+               initial reveal percentage (default 50). Honest: with fewer than two images
+               the JS is a graceful no-op and the images just stack. %}
+            {% # First/second image → before/after (CSS uses :first/:last-of-type). %}
+            <div class="superapp-beforeafter" data-start="{{ mod_cfg.startPercent | default: 50 }}">
+              {% assign ba_i = 0 %}
+              {% for section_block in mod_cfg.blocks %}
+                {% if section_block.imageUrl != blank and ba_i < 2 %}
+                  <figure class="superapp-beforeafter__pane"><img src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.fields.alt | default: section_block.text | escape }}" loading="lazy" width="1000" height="1000">{% if section_block.text != blank %}<figcaption>{{ section_block.text | escape }}</figcaption>{% endif %}</figure>
+                  {% assign ba_i = ba_i | plus: 1 %}
+                {% endif %}
+              {% endfor %}
+            </div>
+          {% elsif sa_kind_h == 'hotspots' %}
+            {% # B10 shoppable image hotspots ("shop the look"). Base image + a list of
+               hotspot blocks (fields.x/y percent, title, price?, url, imageUrl?). The
+               list IS the no-JS/SEO fallback (image + product links); the runtime
+               positions numbered markers over the image and opens a focus-trapped
+               popover per marker. %}
+            {% # Hotspot geometry rides a JSON config (merchant data, not template bytes) — the runtime reads x/y/title/price/url/thumb from it to build markers + popovers. The list below is the SEO/no-JS/mobile interface. %}
+            {% assign hs_base = mod_cfg.imageUrl | default: mod_cfg.fields.imageUrl %}
+            <div class="superapp-hotspots">
+              {% if hs_base != blank %}<img class="superapp-hotspots__base" src="{{ hs_base | escape }}" alt="{{ mod_cfg.fields.imageAlt | default: mod_cfg.title | escape }}" loading="lazy" width="1200" height="900">{% endif %}
+              <script type="application/json" data-sa-hotspots-config>{{ mod_cfg.blocks | json }}</script>
+              <ul class="superapp-hotspots__list">
+                {% for section_block in mod_cfg.blocks %}{% if section_block.kind == 'hotspot' %}<li>{% if section_block.url != blank %}<a href="{{ section_block.url | escape }}">{% endif %}{{ section_block.text | default: section_block.fields.title | default: 'Shop this' | escape }}{% if section_block.fields.price != blank %}<span class="superapp-hotspots__price">{{ section_block.fields.price | escape }}</span>{% endif %}{% if section_block.url != blank %}</a>{% endif %}</li>{% endif %}{% endfor %}
+              </ul>
+            </div>
+          {% else %}
             {% # Image gallery/lookbook + A6 UGC/Instagram grid (kind:'ugc-grid'): block.imageUrl = image, fields.caption/alt/authorHandle/productUrl, fields.span for masonry. For UGC a hover/focus overlay surfaces caption + @handle + an optional 'Shop this' link. %}
             {% assign gal_variant = mod_cfg.layout.layout | default: 'grid' | handle %}
             {% if gal_variant == blank or gal_variant == 'stacked' %}{% assign gal_variant = 'grid' %}{% endif %}
@@ -279,6 +312,7 @@
                 {% endif %}
               {% endfor %}
             </div>
+          {% endif %}
 
           {% when 'collection' %}
             {% # Editorial collection story/split/promo: media + copy + story paragraphs + CTA. %}
@@ -490,13 +524,39 @@
             {% render 'superapp-module-pdp', variant: sa_arch, mod_cfg: mod_cfg %}
 
           {% when 'faq' %}
-            {% # Native accordion: block.text = question; fields.answer/detail/body = answer. %}
+          {% if sa_kind_h == 'tabs' %}
+            {% # B11 tabs (GemPages/PageFly-class). Each tab block renders as a heading +
+               body panel, all visible — the SEO/no-JS fallback. superapp-modules.js
+               builds a real ARIA tablist (arrow/Home/End keys) from these headings and
+               shows one panel at a time. Content is merchant data, so the fixed markup
+               stays minimal. %}
+            <div class="superapp-tabgroup">
+              {% for section_block in mod_cfg.blocks %}
+                {% if section_block.kind == 'tab' %}
+                  {% assign tab_body = section_block.fields.body | default: section_block.body %}
+                  <section class="superapp-tabgroup__panel"><h3>{{ section_block.text | default: 'Tab' | escape }}</h3>{% if tab_body != blank %}<div>{{ tab_body | escape | newline_to_br }}</div>{% endif %}</section>
+                {% endif %}
+              {% endfor %}
+            </div>
+          {% else %}
+            {% # Native accordion: block.text = question; fields.answer/detail/body = answer.
+               B12 mega-FAQ: when config.searchable, a search input + count/empty-state
+               stub rides above the (already-SSR'd) accordion; superapp-modules.js filters
+               the items client-side (question+answer text) and builds category chips from
+               blocks that carry fields.category. Absent `searchable` → byte-identical to
+               the classic accordion. %}
+            {% if mod_cfg.searchable %}
+              {% # Count + empty-state + category chips are JS-built (keeps the stub tiny). %}
+              <div class="superapp-faqsearch">
+                <input class="superapp-faqsearch__input" type="search" placeholder="{{ mod_cfg.fields.searchPlaceholder | default: 'Search questions' | escape }}" aria-label="Search questions">
+              </div>
+            {% endif %}
             <div class="superapp-faq">
               {% for section_block in mod_cfg.blocks %}
                 {% assign faq_q = section_block.text | default: section_block.fields.question | default: section_block.fields.heading %}
                 {% assign faq_a = section_block.fields.answer | default: section_block.fields.detail | default: section_block.fields.body | default: section_block.body %}
                 {% if faq_q != blank or faq_a != blank %}
-                  <details class="superapp-faq__item"{% if section_block.fields.defaultOpen %} open{% endif %}>
+                  <details class="superapp-faq__item"{% if section_block.fields.defaultOpen %} open{% endif %}{% if section_block.fields.category != blank %} data-sa-faqcat="{{ section_block.fields.category | escape }}"{% endif %}>
                     <summary class="superapp-faq__q">{{ faq_q | default: 'Question' | escape }}</summary>
                     {% if faq_a != blank %}
                       <div class="superapp-faq__a">{{ faq_a | escape | newline_to_br }}</div>
@@ -505,6 +565,7 @@
                 {% endif %}
               {% endfor %}
             </div>
+          {% endif %}
 
           {% when 'pricing' %}
           {% if sa_kind_h == 'volume-tiers' %}

@@ -10,9 +10,13 @@
  */
 import type { TemplateEntry } from '../types.js';
 
+import { NATIVE_BEFORE_AFTER_TEMPLATES } from './native-before-after.js';
 import { NATIVE_COLLECTION_EDITORIAL_TEMPLATES } from './native-collection-editorial.js';
 import { NATIVE_CONTACT_TEAM_TIMELINE_TEMPLATES } from './native-contact-team-timeline.js';
 import { NATIVE_FAQ_ACCORDION_TEMPLATES } from './native-faq-accordion.js';
+import { NATIVE_HOTSPOTS_TEMPLATES } from './native-hotspots.js';
+import { NATIVE_MEGA_FAQ_TEMPLATES } from './native-mega-faq.js';
+import { NATIVE_TABS_TEMPLATES } from './native-tabs.js';
 import { NATIVE_FEATURE_BENTO_TEMPLATES } from './native-feature-bento.js';
 import { NATIVE_GALLERY_LOOKBOOK_TEMPLATES } from './native-gallery-lookbook.js';
 import { NATIVE_HERO_TEMPLATES } from './native-hero.js';
@@ -28,9 +32,13 @@ import { NATIVE_UGC_GRID_TEMPLATES } from './native-ugc-grid.js';
 import { NATIVE_VIDEO_HERO_TEMPLATES } from './native-video-hero.js';
 
 export const SECTION_TEMPLATES: TemplateEntry[] = [
+  ...NATIVE_BEFORE_AFTER_TEMPLATES,
   ...NATIVE_COLLECTION_EDITORIAL_TEMPLATES,
   ...NATIVE_CONTACT_TEAM_TIMELINE_TEMPLATES,
   ...NATIVE_FAQ_ACCORDION_TEMPLATES,
+  ...NATIVE_HOTSPOTS_TEMPLATES,
+  ...NATIVE_MEGA_FAQ_TEMPLATES,
+  ...NATIVE_TABS_TEMPLATES,
   ...NATIVE_FEATURE_BENTO_TEMPLATES,
   ...NATIVE_GALLERY_LOOKBOOK_TEMPLATES,
   ...NATIVE_HERO_TEMPLATES,

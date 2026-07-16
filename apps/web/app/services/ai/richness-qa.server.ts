@@ -152,11 +152,31 @@ function isPostAtcOffer(config: LooseConfig): boolean {
   return config.kind === 'post-atc-offer';
 }
 
+/**
+ * V-B renderer-batch kinds (B9–B11) with their OWN content floor, distinct from
+ * their host archetype: a before/after slider and image hotspots share the gallery
+ * archetype but need a specific block shape, and tabs share the faq archetype but
+ * carry `tab` blocks (not ≥4 Q&A items). Detected by kind so the archetype floor
+ * (e.g. faq ≥4) never mis-fires on them. All non-blocking (WARN).
+ */
+function isBeforeAfter(config: LooseConfig): boolean {
+  return config.kind === 'before-after';
+}
+function isHotspots(config: LooseConfig): boolean {
+  return config.kind === 'hotspots';
+}
+function isTabs(config: LooseConfig): boolean {
+  return config.kind === 'tabs';
+}
+
 /** The floor-id / severity key for a recipe (kind-scoped kinds win over the archetype). */
 function floorKeyOf(config: LooseConfig, arch: SectionArchetype | undefined): string | undefined {
   if (isPopup(config)) return 'popup';
   if (isProgressBar(config)) return 'progress-bar';
   if (isPostAtcOffer(config)) return 'post-atc-offer';
+  if (isBeforeAfter(config)) return 'before-after';
+  if (isHotspots(config)) return 'hotspots';
+  if (isTabs(config)) return 'tabs';
   return arch;
 }
 
@@ -263,6 +283,37 @@ function evaluateFloor(config: LooseConfig, arch: SectionArchetype | undefined):
     return {
       ok: hasRec && hasAccept,
       message: `Post-add-to-cart offer needs a recommendation source (config.recommendation) and an acceptLabel (recommendation=${hasRec}, acceptLabel=${hasAccept}).`,
+    };
+  }
+
+  // B9 — before/after slider: exactly the first two image blocks are compared, so
+  // the floor is ≥2 blocks carrying an imageUrl (fewer = nothing to slide between).
+  if (isBeforeAfter(config)) {
+    const imgs = blocksOf(config).filter((b) => nonEmptyString(b.imageUrl));
+    return {
+      ok: imgs.length >= 2,
+      message: `Before/after slider needs 2 image blocks to compare (found ${imgs.length}).`,
+    };
+  }
+
+  // B10 — shoppable hotspots: a base image AND ≥1 hotspot block (each a positioned,
+  // linked marker). With no base image or no spots there is nothing to shop.
+  if (isHotspots(config)) {
+    const spots = blocksOfKind(config, ['hotspot']);
+    const hasBase = nonEmptyString(config.imageUrl) || nonEmptyString(fieldsOf(config).imageUrl) || nonEmptyString(fieldsOf(config).baseImageUrl);
+    return {
+      ok: hasBase && spots.length >= 1,
+      message: `Shoppable image needs a base image and ≥1 hotspot (base=${hasBase}, hotspots=${spots.length}).`,
+    };
+  }
+
+  // B11 — tabs: ≥2 tab blocks (a single tab is not a tabset). Kind-scoped so it does
+  // not inherit the faq archetype's ≥4-item floor.
+  if (isTabs(config)) {
+    const tabs = blocksOfKind(config, ['tab']);
+    return {
+      ok: tabs.length >= 2,
+      message: `Tabs need ≥2 tab blocks (found ${tabs.length}).`,
     };
   }
 

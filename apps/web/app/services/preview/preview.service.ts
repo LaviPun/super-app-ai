@@ -682,6 +682,10 @@ export class PreviewService {
     // A6 — UGC / Instagram grid (kind: ugc-grid): aspect-ratio tiles whose
     // hover/focus overlay surfaces caption + @handle + a 'Shop this' link.
     if (spec.config.kind === 'ugc-grid') return this.sectionUgcGrid(spec);
+    // B9/B10 — JS-enhanced gallery kinds: before/after slider + shoppable hotspots.
+    // The preview mirrors the storefront statically (the drag/popover run client-side).
+    if (spec.config.kind === 'before-after') return this.sectionBeforeAfter(spec);
+    if (spec.config.kind === 'hotspots') return this.sectionHotspots(spec);
     const layout = String(spec.config.layout?.layout ?? 'grid');
     const variant = layout === 'masonry' ? 'masonry' : layout === 'carousel' ? 'carousel' : 'grid';
     const items = (spec.config.blocks ?? [])
@@ -838,6 +842,8 @@ export class PreviewService {
 
   /** FAQ — native <details> accordion honoring expandBehavior/defaultOpenIndex. */
   private sectionFaq(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    // B11 — tabs share the faq archetype but render as a tablist (sub-dispatch).
+    if (spec.config.kind === 'tabs') return this.sectionTabs(spec);
     const f = saFields(spec);
     const single = f.expandBehavior !== 'multi';
     const defaultOpen = typeof f.defaultOpenIndex === 'number' ? f.defaultOpenIndex : -1;
@@ -857,10 +863,157 @@ export class PreviewService {
           </details>`;
       })
       .join('');
+    // B12 — mega-FAQ search layer. When config.searchable the storefront renders a
+    // search input + (JS-built) category chips above the accordion; mirror that
+    // affordance statically so the merchant preview shows the search surface.
+    const searchable = (spec.config as { searchable?: unknown }).searchable === true || f.searchable === true;
+    const itemBlocks = (spec.config.blocks ?? []).filter((b) => b.kind === 'faq-item' || b.kind === 'faq' || b.kind === 'row');
+    const categories: string[] = [];
+    for (const b of itemBlocks) {
+      const cat = (b.fields as Record<string, unknown> | undefined)?.category;
+      if (typeof cat === 'string' && cat && !categories.includes(cat)) categories.push(cat);
+    }
+    const searchHtml = searchable
+      ? `<div class="superapp-faqsearch">
+          <input class="superapp-faqsearch__input" type="search" placeholder="${escAttr(
+            String(f.searchPlaceholder ?? 'Search questions'),
+          )}" aria-label="Search questions" />
+          <span class="superapp-faqsearch__count">${itemBlocks.length} result${itemBlocks.length === 1 ? '' : 's'}</span>
+          ${
+            categories.length > 0
+              ? `<div class="superapp-faqsearch__chips">${['All', ...categories]
+                  .map(
+                    (c, i) =>
+                      `<button class="superapp-faqsearch__chip" type="button"${i === 0 ? ' aria-pressed="true"' : ''}>${esc(c)}</button>`,
+                  )
+                  .join('')}</div>`
+              : ''
+          }
+        </div>`
+      : '';
     return pageHtml(
       `<div class="superapp-archsection">
         ${sectionHead(spec)}
+        ${searchHtml}
         <div class="superapp-faq">${items}</div>
+      </div>`,
+      this.archCss(spec, '.superapp-archsection'),
+    );
+  }
+
+  /**
+   * B9 — before/after comparison slider (static preview parity). The storefront
+   * runs a pointer-drag/keyboard clip-path handle; here we render the two panes with
+   * the "after" pane clipped to `startPercent` and a static handle + affordance note.
+   */
+  private sectionBeforeAfter(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const startRaw = Number(
+      (spec.config as { startPercent?: unknown }).startPercent ?? saFields(spec).startPercent ?? 50,
+    );
+    const pct = isNaN(startRaw) ? 50 : Math.max(0, Math.min(100, startRaw));
+    const imgBlocks = (spec.config.blocks ?? []).filter((b) => typeof b.imageUrl === 'string' && b.imageUrl).slice(0, 2);
+    const panes = imgBlocks
+      .map((b, i) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        const label = String(b.text ?? bf.label ?? '');
+        const alt = String(bf.alt ?? label);
+        // First/second pane → before/after via :first/:last-of-type (parity with the storefront).
+        return `<figure class="superapp-beforeafter__pane">
+          ${phMedia(b.imageUrl ?? '', alt, '')}
+          ${label ? `<figcaption>${esc(label)}</figcaption>` : ''}
+        </figure>`;
+      })
+      .join('');
+    return pageHtml(
+      `<div class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-beforeafter superapp-beforeafter--preview is-interactive" style="--sa-ba-pos:${pct}%">
+          ${panes}
+          <button class="superapp-beforeafter__handle" type="button" style="left:${pct}%" aria-hidden="true"></button>
+        </div>
+        <p class="preview-label">Drag to compare on the storefront</p>
+      </div>`,
+      this.archCss(spec, '.superapp-archsection') + BEFORE_AFTER_PREVIEW_CSS,
+    );
+  }
+
+  /**
+   * B10 — shoppable image hotspots (static preview parity). Base image with numbered
+   * markers positioned from each hotspot's x/y, plus the fallback link list below
+   * (the storefront opens a popover per marker; the preview shows the markers static).
+   */
+  private sectionHotspots(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const base = saStr(spec, 'imageUrl') || saStr(spec, 'baseImageUrl');
+    const spots = (spec.config.blocks ?? []).filter((b) => b.kind === 'hotspot');
+    const markers = spots
+      .map((b, i) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        const x = Number(bf.x ?? 50);
+        const y = Number(bf.y ?? 50);
+        const title = String(b.text ?? bf.title ?? 'Shop this');
+        return `<button class="superapp-hotspots__marker" type="button" style="left:${
+          isNaN(x) ? 50 : x
+        }%;top:${isNaN(y) ? 50 : y}%" aria-label="${escAttr(title)}">${i + 1}</button>`;
+      })
+      .join('');
+    const list = spots
+      .map((b) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        const title = String(b.text ?? bf.title ?? 'Shop this');
+        const price = bf.price != null ? String(bf.price) : '';
+        const inner = `${esc(title)}${
+          price ? `<span class="superapp-hotspots__price">${esc(price)}</span>` : ''
+        }`;
+        return `<li>${b.url ? `<a href="${escAttr(b.url)}">${inner}</a>` : inner}</li>`;
+      })
+      .join('');
+    return pageHtml(
+      `<div class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-hotspots is-interactive">
+          <div class="superapp-hotspots__stage">
+            ${phMedia(base, String(spec.config.title ?? ''), 'superapp-hotspots__base')}
+            ${markers}
+          </div>
+          <ul class="superapp-hotspots__list">${list}</ul>
+        </div>
+        <p class="preview-label">Tap a marker to shop on the storefront</p>
+      </div>`,
+      this.archCss(spec, '.superapp-archsection') + HOTSPOTS_PREVIEW_CSS,
+    );
+  }
+
+  /**
+   * B11 — tabs (static preview parity). The storefront builds an ARIA tablist from
+   * the tab headings; the preview shows the tab strip with the first tab selected
+   * and its panel open (the rest collapsed, as the live tablist renders).
+   */
+  private sectionTabs(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const tabs = (spec.config.blocks ?? []).filter((b) => b.kind === 'tab');
+    const strip = tabs
+      .map((b, i) => {
+        const label = String(b.text ?? `Tab ${i + 1}`);
+        return `<button class="superapp-tabs__tab" type="button" role="tab" aria-selected="${
+          i === 0 ? 'true' : 'false'
+        }">${esc(label)}</button>`;
+      })
+      .join('');
+    const panels = tabs
+      .map((b, i) => {
+        const bf = (b.fields ?? {}) as Record<string, unknown>;
+        const body = String(bf.body ?? bf.content ?? bf.answer ?? '');
+        return `<section class="superapp-tabgroup__panel" role="tabpanel"${i === 0 ? '' : ' hidden'}>
+          <div>${esc(body)}</div>
+        </section>`;
+      })
+      .join('');
+    return pageHtml(
+      `<div class="superapp-archsection">
+        ${sectionHead(spec)}
+        <div class="superapp-tabgroup is-interactive">
+          <div class="superapp-tabs" role="tablist">${strip}</div>
+          ${panels}
+        </div>
       </div>`,
       this.archCss(spec, '.superapp-archsection'),
     );
@@ -3063,6 +3216,15 @@ const POPUP_SCRATCH_PREVIEW_CSS = `${POPUP_GAME_SHARED_CSS}
       .superapp-scratch__prize { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:clamp(18px,5vw,26px); font-weight:700; letter-spacing:0.04em; background:color-mix(in srgb, var(--sa-accent, gray) 12%, Canvas); }
       .superapp-scratch__overlay { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:0.85em; letter-spacing:0.06em; text-transform:uppercase; color:#5c6070; background:repeating-linear-gradient(45deg,#b9bcc4,#b9bcc4 8px,#adb0b9 8px,#adb0b9 16px); }
       .superapp-scratch__hint { margin:8px 0 0; font-size:0.8em; opacity:0.7; }`;
+
+/**
+ * Preview-only chrome for the B9/B10 static mocks. The full component styling comes
+ * from the inlined storefront stylesheet (loadPackCss); these only supply the
+ * `.preview-label` affordance caption (which is otherwise defined per-renderer).
+ */
+const BEFORE_AFTER_PREVIEW_CSS = `
+      .preview-label { font-size:0.72em; letter-spacing:0.04em; text-transform:uppercase; opacity:0.6; margin-top:8px; }`;
+const HOTSPOTS_PREVIEW_CSS = BEFORE_AFTER_PREVIEW_CSS;
 
 /**
  * A CTA anchor. Carries the archetype-specific class (`cls`, for layout) plus the

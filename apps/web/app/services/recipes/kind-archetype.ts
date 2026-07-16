@@ -29,10 +29,21 @@ export const KIND_ARCHETYPE: Record<string, SectionArchetype> = {
   feature: 'feature', benefit: 'feature',
   gallery: 'gallery', lookbook: 'gallery', 'collection-lookbook': 'gallery', 'collection-carousel': 'gallery',
   'ugc-grid': 'gallery',
+  // B9/B10 (renderer batch V-B) — JS-enhanced gallery kinds: a before/after image
+  // comparison slider and a shoppable image-hotspots ("shop the look") surface.
+  // Both render a semantic, in-DOM no-JS fallback (stacked images / a link list)
+  // that superapp-modules.js progressively upgrades; they fall under the gallery
+  // archetype for CSS + native-section compilation, sub-dispatched by `kind`.
+  'before-after': 'gallery', hotspots: 'gallery',
   'collection-story': 'collection', 'collection-split': 'collection', 'collection-promo': 'collection',
   'collection-list': 'collection', story: 'collection',
   pricing: 'pricing', comparison: 'pricing', plan: 'pricing', 'volume-tiers': 'pricing',
   faq: 'faq', accordion: 'faq',
+  // B11 (renderer batch V-B) — a JS-enhanced ARIA tablist. Content (each tab's
+  // label + body) is rendered in the DOM as stacked headings + panels (the SEO/
+  // no-JS fallback); superapp-modules.js adds the tablist behavior. Shares the faq
+  // archetype for CSS + native-section compilation, sub-dispatched by `kind`.
+  tabs: 'faq',
   testimonials: 'testimonial', reviews: 'testimonial', 'social-proof': 'testimonial',
   'review-summary': 'testimonial', testimonial: 'testimonial',
   stats: 'stats',

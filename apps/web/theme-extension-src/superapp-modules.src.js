@@ -1841,6 +1841,344 @@
     });
   }
 
+  /* ── V-B renderer batch (B9–B12): before/after · hotspots · tabs · mega-FAQ ──
+     Progressive enhancement over server-rendered, in-DOM content. Each feature has
+     a semantic no-JS fallback (stacked images / a link list / stacked headings+
+     bodies / a plain accordion) that these functions upgrade. The three PURE,
+     DOM-free helpers below are pinned to a node-side test by an extraction PARITY
+     test (vocab-vc-logic.test.ts), exactly like the spin-game + money-format logic:
+     the test slices the whole-code region strictly between the single-line
+     RENDERER-BATCH-LOGIC BEGIN/END markers and runs the shared fixtures through it. */
+  /* RENDERER-BATCH-LOGIC:BEGIN (parity marker — keep on its own line) */
+  /* Clamp a reveal/scrub percentage into [0,100]; non-numeric → 50 (the midpoint). */
+  function clampPct(v) {
+    var n = Number(v);
+    if (isNaN(n)) return 50;
+    return n < 0 ? 0 : n > 100 ? 100 : n;
+  }
+  /* ARIA tablist keyboard model: arrows wrap, Home/End jump to the ends. Returns the
+     new active index for `key` given `current` and `count`, or `current` for any key
+     the pattern does not handle. */
+  function tabKeyIndex(key, current, count) {
+    if (!count || count < 1) return 0;
+    switch (key) {
+      case 'ArrowRight':
+      case 'ArrowDown': return (current + 1) % count;
+      case 'ArrowLeft':
+      case 'ArrowUp': return (current - 1 + count) % count;
+      case 'Home': return 0;
+      case 'End': return count - 1;
+      default: return current;
+    }
+  }
+  /* Client-side FAQ filter predicate. `item` = { text, category }. Empty/blank query
+     matches all; a blank/'all' active category matches all. Text match is a
+     case-insensitive substring over the item's combined question+answer text. */
+  function faqItemMatches(item, query, category) {
+    var cat = category == null ? '' : String(category);
+    var itemCat = (item && item.category != null) ? String(item.category) : '';
+    if (cat !== '' && cat !== 'all' && itemCat !== cat) return false;
+    var q = String(query == null ? '' : query).toLowerCase().replace(/^\s+|\s+$/g, '');
+    if (q === '') return true;
+    return String((item && item.text) || '').toLowerCase().indexOf(q) !== -1;
+  }
+  /* ══ RENDERER-BATCH-LOGIC:END ═════════════════════════════════════════════════ */
+
+  /* B9: before/after image comparison slider. The two panes are already in the DOM
+     (the no-JS fallback stacks them); we overlap them, clip the "after" pane to the
+     handle position, and drive the reveal with pointer drag + an ARIA-slider handle
+     (arrow keys ±, Home/End). Reduced-motion is irrelevant here (position, not
+     animation). Graceful: fewer than two panes → left as stacked images. */
+  function setupBeforeAfter(root) {
+    if (root.dataset.saBaBound) return;
+    root.dataset.saBaBound = '1';
+    var panes = root.querySelectorAll('.superapp-beforeafter__pane');
+    if (panes.length < 2) return; /* need both images — otherwise honest static stack */
+    root.classList.add('is-interactive');
+    var pct = clampPct(root.getAttribute('data-start'));
+    var handle = document.createElement('button');
+    handle.type = 'button';
+    handle.className = 'superapp-beforeafter__handle';
+    handle.setAttribute('role', 'slider');
+    handle.setAttribute('aria-label', 'Reveal before and after');
+    handle.setAttribute('aria-valuemin', '0');
+    handle.setAttribute('aria-valuemax', '100');
+    handle.setAttribute('aria-orientation', 'horizontal');
+    root.appendChild(handle);
+
+    function apply(p) {
+      pct = clampPct(p);
+      root.style.setProperty('--sa-ba-pos', pct + '%');
+      handle.style.left = pct + '%';
+      handle.setAttribute('aria-valuenow', String(Math.round(pct)));
+    }
+    apply(pct);
+
+    var dragging = false;
+    function pctFromEvent(e) {
+      var rect = root.getBoundingClientRect();
+      var pt = (e.touches && e.touches[0]) || e;
+      if (!rect.width || pt.clientX == null) return pct;
+      return ((pt.clientX - rect.left) / rect.width) * 100;
+    }
+    function onMove(e) { if (!dragging) return; if (e.cancelable) e.preventDefault(); apply(pctFromEvent(e)); }
+    function onDown(e) { dragging = true; apply(pctFromEvent(e)); }
+    function onUp() { dragging = false; }
+    root.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    root.addEventListener('touchstart', onDown, { passive: true });
+    root.addEventListener('touchmove', onMove, { passive: false });
+    root.addEventListener('touchend', onUp);
+    handle.addEventListener('keydown', function (e) {
+      var step = e.shiftKey ? 10 : 2;
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); apply(pct - step); }
+      else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); apply(pct + step); }
+      else if (e.key === 'Home') { e.preventDefault(); apply(0); }
+      else if (e.key === 'End') { e.preventDefault(); apply(100); }
+    });
+  }
+  function initBeforeAfter() {
+    var els = document.querySelectorAll('.superapp-beforeafter');
+    Array.prototype.forEach.call(els, setupBeforeAfter);
+  }
+
+  /* B10: shoppable image hotspots. The <ul> of hotspot links is the no-JS fallback;
+     we overlay numbered markers on the base image (positioned from each item's
+     data-x/data-y percent) and open a focus-trapped popover card (title/price/thumb/
+     link) on click, Escape to close. On narrow viewports the marker layer is hidden
+     by CSS and the numbered list below remains the interface. */
+  function setupHotspots(root) {
+    if (root.dataset.saHsBound) return;
+    root.dataset.saHsBound = '1';
+    var base = root.querySelector('.superapp-hotspots__base');
+    var cfgEl = root.querySelector('[data-sa-hotspots-config]');
+    var blocks = [];
+    try { blocks = cfgEl ? JSON.parse(cfgEl.textContent) : []; } catch (e) { blocks = []; }
+    var spots = [];
+    for (var s = 0; s < blocks.length; s++) {
+      var b = blocks[s] || {};
+      if (b.kind !== 'hotspot') continue;
+      var bf = b.fields || {};
+      spots.push({
+        x: bf.x != null ? bf.x : 50,
+        y: bf.y != null ? bf.y : 50,
+        title: b.text || bf.title || 'Shop this',
+        price: bf.price || '',
+        url: b.url || '',
+        thumb: bf.imageUrl || '',
+      });
+    }
+    if (!base || spots.length === 0) return; /* honest: no base image or no spots → list only */
+    root.classList.add('is-interactive');
+    /* Wrap the base image in a positioned stage so markers/popovers overlay ONLY the
+       image (the numbered list stays below it as the mobile/no-JS interface). */
+    var stage = document.createElement('div');
+    stage.className = 'superapp-hotspots__stage';
+    base.parentNode.insertBefore(stage, base);
+    stage.appendChild(base);
+
+    var openPopover = null;
+    var lastFocused = null;
+    function closePopover() {
+      if (!openPopover) return;
+      if (openPopover.parentNode) openPopover.parentNode.removeChild(openPopover);
+      openPopover = null;
+      document.removeEventListener('keydown', onKey, true);
+      if (lastFocused && lastFocused.focus) { try { lastFocused.focus(); } catch (e) { /* noop */ } }
+    }
+    function onKey(e) {
+      if (e.key === 'Escape' || e.key === 'Esc') { e.preventDefault(); closePopover(); return; }
+      if (e.key === 'Tab' && openPopover) {
+        var nodes = openPopover.querySelectorAll('a[href],button:not([disabled])');
+        if (!nodes.length) { e.preventDefault(); return; }
+        var first = nodes[0];
+        var last = nodes[nodes.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    }
+    function openFor(marker, spot) {
+      closePopover();
+      lastFocused = marker;
+      var pop = document.createElement('div');
+      pop.className = 'superapp-hotspots__popover';
+      pop.setAttribute('role', 'dialog');
+      pop.setAttribute('aria-label', spot.title);
+      pop.style.left = spot.x + '%';
+      pop.style.top = spot.y + '%';
+      pop.innerHTML =
+        '<button class="superapp-hotspots__popclose" type="button" data-hs-close aria-label="Close">×</button>' +
+        (spot.thumb ? '<img class="superapp-hotspots__popthumb" src="' + escapeAttr(safeUrl(spot.thumb)) + '" alt="" width="72" height="72" loading="lazy">' : '') +
+        '<span class="superapp-hotspots__poptitle">' + escapeHtml(spot.title) + '</span>' +
+        (spot.price ? '<span class="superapp-hotspots__popprice">' + escapeHtml(spot.price) + '</span>' : '') +
+        (spot.url ? '<a class="superapp-hotspots__poplink" href="' + escapeAttr(safeUrl(spot.url)) + '">View product</a>' : '');
+      stage.appendChild(pop);
+      pop.addEventListener('click', function (e) {
+        var closer = e.target.closest ? e.target.closest('[data-hs-close]') : null;
+        if (closer) { e.preventDefault(); closePopover(); }
+      });
+      document.addEventListener('keydown', onKey, true);
+      var focusTarget = pop.querySelector('a[href]') || pop.querySelector('[data-hs-close]');
+      if (focusTarget && focusTarget.focus) { try { focusTarget.focus(); } catch (e) { focusTarget.focus(); } }
+    }
+
+    spots.forEach(function (spot, i) {
+      var marker = document.createElement('button');
+      marker.type = 'button';
+      marker.className = 'superapp-hotspots__marker';
+      marker.style.left = spot.x + '%';
+      marker.style.top = spot.y + '%';
+      marker.textContent = String(i + 1);
+      marker.setAttribute('aria-label', spot.title + ' — view');
+      marker.addEventListener('click', function () { openFor(marker, spot); });
+      stage.appendChild(marker);
+    });
+  }
+  function initHotspots() {
+    var els = document.querySelectorAll('.superapp-hotspots');
+    Array.prototype.forEach.call(els, setupHotspots);
+  }
+
+  var tabsSeq = 0;
+  /* B11: tabs. The panels (heading + body) are already in the DOM as the no-JS
+     fallback; we build a real ARIA tablist from the headings, hide the inline
+     headings, and show one panel at a time with the full keyboard pattern
+     (arrows/Home/End via tabKeyIndex). Graceful: a single panel needs no tablist. */
+  function setupTabs(root) {
+    if (root.dataset.saTabsBound) return;
+    root.dataset.saTabsBound = '1';
+    var panels = root.querySelectorAll('.superapp-tabgroup__panel');
+    if (panels.length < 2) return; /* one tab → just show its content */
+    root.classList.add('is-interactive');
+    var uid = 'sa-tabs-' + (++tabsSeq);
+    /* The injected tablist reuses the pre-authored `.superapp-tabs` underline row +
+       `.superapp-tabs__tab` styling (the outer stub is `.superapp-tabgroup`). */
+    var tablist = document.createElement('div');
+    tablist.className = 'superapp-tabs';
+    tablist.setAttribute('role', 'tablist');
+    var tabs = [];
+
+    function select(idx) {
+      for (var i = 0; i < panels.length; i++) {
+        var on = i === idx;
+        panels[i].hidden = !on;
+        tabs[i].setAttribute('aria-selected', on ? 'true' : 'false');
+        tabs[i].tabIndex = on ? 0 : -1;
+      }
+    }
+
+    Array.prototype.forEach.call(panels, function (panel, i) {
+      var heading = panel.querySelector('h3');
+      var label = heading ? heading.textContent : ('Tab ' + (i + 1));
+      var panelId = uid + '-p' + i;
+      var tabId = uid + '-t' + i;
+      panel.id = panelId;
+      panel.setAttribute('role', 'tabpanel');
+      panel.setAttribute('aria-labelledby', tabId);
+      if (heading) heading.hidden = true;
+      var tab = document.createElement('button');
+      tab.type = 'button';
+      tab.id = tabId;
+      tab.className = 'superapp-tabs__tab';
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('aria-controls', panelId);
+      tab.textContent = label;
+      tab.addEventListener('click', function () { select(i); });
+      tab.addEventListener('keydown', function (e) {
+        var ni = tabKeyIndex(e.key, i, panels.length);
+        if (ni !== i) { e.preventDefault(); select(ni); tabs[ni].focus(); }
+      });
+      tablist.appendChild(tab);
+      tabs.push(tab);
+    });
+    root.insertBefore(tablist, panels[0]);
+    select(0);
+  }
+  function initTabs() {
+    var els = document.querySelectorAll('.superapp-tabgroup');
+    Array.prototype.forEach.call(els, setupTabs);
+  }
+
+  /* B12: mega-FAQ search layer. The accordion is already SSR'd; we add client-side
+     filtering (debounced) over each item's question+answer text plus category chips
+     built from data-sa-faqcat. Updates a live count and toggles a no-results state.
+     Graceful: no search stub → nothing runs (the accordion is untouched). */
+  function setupFaqSearch(searchEl) {
+    if (searchEl.dataset.saFaqBound) return;
+    searchEl.dataset.saFaqBound = '1';
+    var input = searchEl.querySelector('.superapp-faqsearch__input');
+    var list = (searchEl.parentNode && searchEl.parentNode.querySelector('.superapp-faq')) || null;
+    if (!input || !list) return;
+    var itemEls = list.querySelectorAll('.superapp-faq__item');
+    if (itemEls.length === 0) return;
+    /* Count + empty-state are JS-built (the Liquid stub carries only the input). */
+    var countEl = document.createElement('span');
+    countEl.className = 'superapp-faqsearch__count';
+    countEl.setAttribute('aria-live', 'polite');
+    input.parentNode.insertBefore(countEl, input.nextSibling);
+    var emptyEl = document.createElement('p');
+    emptyEl.className = 'superapp-faqsearch__empty';
+    emptyEl.hidden = true;
+    emptyEl.textContent = searchEl.getAttribute('data-empty-text') || 'No matching questions.';
+    searchEl.appendChild(emptyEl);
+
+    var items = [];
+    var cats = [];
+    Array.prototype.forEach.call(itemEls, function (el) {
+      var cat = el.getAttribute('data-sa-faqcat') || '';
+      items.push({ el: el, text: (el.textContent || ''), category: cat });
+      if (cat && cats.indexOf(cat) === -1) cats.push(cat);
+    });
+
+    var activeCat = 'all';
+    function apply() {
+      var q = input.value;
+      var shown = 0;
+      for (var i = 0; i < items.length; i++) {
+        var match = faqItemMatches(items[i], q, activeCat);
+        items[i].el.hidden = !match;
+        if (match) shown++;
+      }
+      if (countEl) countEl.textContent = shown + (shown === 1 ? ' result' : ' results');
+      if (emptyEl) emptyEl.hidden = shown !== 0;
+    }
+
+    if (cats.length > 0) {
+      var chips = document.createElement('div');
+      chips.className = 'superapp-faqsearch__chips';
+      chips.setAttribute('role', 'group');
+      var all = ['all'].concat(cats);
+      var chipEls = [];
+      all.forEach(function (c) {
+        var chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'superapp-faqsearch__chip';
+        chip.textContent = c === 'all' ? 'All' : c;
+        if (c === 'all') chip.setAttribute('aria-pressed', 'true');
+        chip.addEventListener('click', function () {
+          activeCat = c;
+          for (var k = 0; k < chipEls.length; k++) chipEls[k].setAttribute('aria-pressed', chipEls[k] === chip ? 'true' : 'false');
+          apply();
+        });
+        chips.appendChild(chip);
+        chipEls.push(chip);
+      });
+      searchEl.appendChild(chips);
+    }
+
+    var debounce = null;
+    input.addEventListener('input', function () {
+      if (debounce) window.clearTimeout(debounce);
+      debounce = window.setTimeout(apply, 120);
+    });
+    apply();
+  }
+  function initFaqSearch() {
+    var els = document.querySelectorAll('.superapp-faqsearch');
+    Array.prototype.forEach.call(els, setupFaqSearch);
+  }
+
   ready(function () {
     /* R2.1: resolve display rules first — reveal/remove deferred non-popup modules,
        and let the popup engine consult the same rules in open(). */
@@ -1871,6 +2209,11 @@
     initProgressBars();
     initPostAtc();
     initStickyAtc();
+    /* V-B renderer batch: before/after slider, image hotspots, tabs, mega-FAQ search. */
+    initBeforeAfter();
+    initHotspots();
+    initTabs();
+    initFaqSearch();
     /* Broadcast the initial cart snapshot once so progress bars paint on load. */
     if (document.querySelector('[data-sa-progress]')) refreshCart();
   });
