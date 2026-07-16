@@ -157,7 +157,16 @@ function trimTagInternals(src) {
           // with `:` or `,` live inside the protected quotes), so this is safe.
           .replace(/[ \t]*\|[ \t]*/g, '|')
           .replace(/[ \t]*:[ \t]*/g, ':')
-          .replace(/[ \t]*,[ \t]*/g, ',');
+          .replace(/[ \t]*,[ \t]*/g, ',')
+          // 8. Assignment `=` — Liquid tokenizes `{% assign x = y %}` on the `=`, so
+          //    `assign x=y` is identical (verified against the real Shopify parser via
+          //    @shopify/theme-check-node — both forms produce zero offenses). Only a
+          //    LONE `=` with whitespace on BOTH sides is collapsed: the two-sided
+          //    requirement means the comparison operators `==` / `!=` / `>=` / `<=`
+          //    (which never carry a space BETWEEN their two chars) are never touched,
+          //    and a `=` inside a quoted string is already protected by the split above.
+          //    ~2 B reclaimed per assignment across the family (V-B B6/B7/B14 headroom).
+          .replace(/[ \t]+=[ \t]+/g, '=');
         i = k;
       }
     }

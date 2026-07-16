@@ -1,140 +1,140 @@
 {%# theme-check-disable OrphanedSnippet,RemoteAsset%}
 {%liquid
-assign module_id = mod_ref.fields.module_id.value
-assign mod_type = mod_ref.fields.module_type.value
-assign mod_cfg = mod_ref.fields.config_json.value
-assign mod_sty = mod_ref.fields.style_json.value
-assign mod_placement = mod_ref.fields.placement_json.value
-assign kind = mod_cfg.kind
+assign module_id=mod_ref.fields.module_id.value
+assign mod_type=mod_ref.fields.module_type.value
+assign mod_cfg=mod_ref.fields.config_json.value
+assign mod_sty=mod_ref.fields.style_json.value
+assign mod_placement=mod_ref.fields.placement_json.value
+assign kind=mod_cfg.kind
 if kind == blank
 case mod_type
 when 'theme.banner'
-assign kind = 'banner'
+assign kind='banner'
 when 'theme.notificationBar'
-assign kind = 'notification-bar'
+assign kind='notification-bar'
 when 'theme.popup'
-assign kind = 'popup'
+assign kind='popup'
 when 'theme.contactForm'
-assign kind = 'contactForm'
+assign kind='contactForm'
 when 'theme.effect'
-assign kind = 'effect'
+assign kind='effect'
 when 'theme.floatingWidget'
-assign kind = 'floatingWidget'
+assign kind='floatingWidget'
 else
-assign kind = 'section'
+assign kind='section'
 endcase
 endif
 %}
 {%liquid
-assign sa_pack = style_pack|default:mod_sty.pack|default:'auto'
+assign sa_pack=style_pack|default:mod_sty.pack|default:'auto'
 if sa_pack == 'auto' or sa_pack == blank
-assign sa_pack = mod_sty.pack|default:'luxe'
+assign sa_pack=mod_sty.pack|default:'luxe'
 if sa_pack == 'auto' or sa_pack == blank
-assign sa_pack = 'luxe'
+assign sa_pack='luxe'
 endif
 endif
-assign sa_accent = accent_override|default:mod_sty.colors.accent|default:mod_sty.colors.seed
+assign sa_accent=accent_override|default:mod_sty.colors.accent|default:mod_sty.colors.seed
 %}
 {%liquid
-assign sa_ovr = ''
+assign sa_ovr=''
 if sa_accent != blank
-assign sa_ovr = sa_ovr|append:'--sa-accent-override:'|append:sa_accent|append:';'
+assign sa_ovr=sa_ovr|append:'--sa-accent-override:'|append:sa_accent|append:';'
 endif
 if override_radius != blank
-assign sa_rpx = ''
+assign sa_rpx=''
 case override_radius
 when 'none'
-assign sa_rpx = 0
+assign sa_rpx=0
 when 'sm'
-assign sa_rpx = 4
+assign sa_rpx=4
 when 'md'
-assign sa_rpx = 8
+assign sa_rpx=8
 when 'lg'
-assign sa_rpx = 12
+assign sa_rpx=12
 when 'xl'
-assign sa_rpx = 16
+assign sa_rpx=16
 endcase
 if sa_rpx != blank
-assign sa_rlg = sa_rpx|plus:4
-assign sa_ovr = sa_ovr|append:'--sa-radius:'|append:sa_rpx|append:'px;--sa-btn-radius:'|append:sa_rpx|append:'px;--sa-radius-lg:'|append:sa_rlg|append:'px;'
+assign sa_rlg=sa_rpx|plus:4
+assign sa_ovr=sa_ovr|append:'--sa-radius:'|append:sa_rpx|append:'px;--sa-btn-radius:'|append:sa_rpx|append:'px;--sa-radius-lg:'|append:sa_rlg|append:'px;'
 endif
 endif
 if override_density != blank
-assign sa_dpad = ''
+assign sa_dpad=''
 case override_density
 when 'compact'
-assign sa_dpad = '1rem'
+assign sa_dpad='1rem'
 when 'comfortable'
-assign sa_dpad = '1.25rem'
+assign sa_dpad='1.25rem'
 when 'airy'
-assign sa_dpad = '1.75rem'
+assign sa_dpad='1.75rem'
 endcase
 if sa_dpad != blank
-assign sa_ovr = sa_ovr|append:'--sa-pad:'|append:sa_dpad|append:';'
+assign sa_ovr=sa_ovr|append:'--sa-pad:'|append:sa_dpad|append:';'
 endif
 endif
 if override_align != blank and override_align != 'inherit'
-assign sa_ovr = sa_ovr|append:'--sa-align:'|append:override_align|append:';'
+assign sa_ovr=sa_ovr|append:'--sa-align:'|append:override_align|append:';'
 endif
 if override_text != blank
-assign sa_ovr = sa_ovr|append:'--sa-ink:'|append:override_text|append:';'
+assign sa_ovr=sa_ovr|append:'--sa-ink:'|append:override_text|append:';'
 endif
 if override_bg != blank
-assign sa_ovr = sa_ovr|append:'--sa-module-bg:'|append:override_bg|append:';'
+assign sa_ovr=sa_ovr|append:'--sa-module-bg:'|append:override_bg|append:';'
 endif
 %}
 {%liquid
-assign sa_dev = mod_cfg.device
-assign sa_device_attr = ''
+assign sa_dev=mod_cfg.device
+assign sa_device_attr=''
 if sa_dev.desktop == false or mod_sty.responsive.hideOnDesktop
-assign sa_device_attr = 'hide-desktop'
+assign sa_device_attr='hide-desktop'
 endif
 if sa_dev.mobile == false or mod_sty.responsive.hideOnMobile
-assign sa_device_attr = sa_device_attr|append:' hide-mobile'|strip
+assign sa_device_attr=sa_device_attr|append:' hide-mobile'|strip
 endif
 if sa_dev.mobileColumns != blank
-assign sa_ovr = sa_ovr|append:'--sa-mobile-cols:'|append:sa_dev.mobileColumns|append:';'
+assign sa_ovr=sa_ovr|append:'--sa-mobile-cols:'|append:sa_dev.mobileColumns|append:';'
 endif
 %}
 {%liquid
-assign sa_placement_ok = true
+assign sa_placement_ok=true
 if mod_placement != blank
-assign sa_tpl = template.name
-assign sa_enabled = mod_placement.enabled_on.templates
-assign sa_disabled = mod_placement.disabled_on.templates
+assign sa_tpl=template.name
+assign sa_enabled=mod_placement.enabled_on.templates
+assign sa_disabled=mod_placement.disabled_on.templates
 if sa_enabled != blank and sa_enabled.size > 0
 unless sa_enabled contains sa_tpl
-assign sa_placement_ok = false
+assign sa_placement_ok=false
 endunless
 endif
 if sa_disabled != blank and sa_disabled.size > 0
 if sa_disabled contains sa_tpl
-assign sa_placement_ok = false
+assign sa_placement_ok=false
 endif
 endif
 endif
 %}
 {%if sa_placement_ok%}
 {%liquid
-assign sa_rules = mod_cfg.ruleEngine
-assign sa_rules_enabled = false
-assign sa_rule_server = 'pass'
+assign sa_rules=mod_cfg.ruleEngine
+assign sa_rules_enabled=false
+assign sa_rule_server='pass'
 if sa_rules and sa_rules.enabled
-assign sa_rules_enabled = true
-assign sa_customer_logged_in = false
+assign sa_rules_enabled=true
+assign sa_customer_logged_in=false
 if customer
-assign sa_customer_logged_in = true
+assign sa_customer_logged_in=true
 endif
-assign sa_orders_count = 0
+assign sa_orders_count=0
 if customer and customer.orders_count
-assign sa_orders_count = customer.orders_count
+assign sa_orders_count=customer.orders_count
 endif
-assign sa_country = localization.country.iso_code|default:''
-assign sa_cart_subtotal = 0
-assign sa_cart_items = 0
+assign sa_country=localization.country.iso_code|default:''
+assign sa_cart_subtotal=0
+assign sa_cart_items=0
 if cart
-assign sa_cart_subtotal = cart.total_price|divided_by:100.0
-assign sa_cart_items = cart.item_count
+assign sa_cart_subtotal=cart.total_price|divided_by:100.0
+assign sa_cart_items=cart.item_count
 endif
 capture sa_ctx_json
 echo '{'
@@ -146,84 +146,84 @@ echo ',"cart.subtotal":'|append:sa_cart_subtotal
 echo ',"cart.itemCount":'|append:sa_cart_items
 echo '}'
 endcapture
-assign sa_all_resolvable = true
-assign sa_outer_and = true
-assign sa_outer_or = false
+assign sa_all_resolvable=true
+assign sa_outer_and=true
+assign sa_outer_or=false
 for grp in sa_rules.groups
-assign sa_group_and = true
-assign sa_group_or = false
+assign sa_group_and=true
+assign sa_group_or=false
 for row in grp.conditions
-assign sa_row_known = true
-assign sa_row_actual = ''
+assign sa_row_known=true
+assign sa_row_actual=''
 if row.object == 'customer' and row.attribute == 'loggedIn'
-assign sa_row_actual = sa_customer_logged_in
+assign sa_row_actual=sa_customer_logged_in
 elsif row.object == 'customer' and row.attribute == 'ordersCount'
-assign sa_row_actual = sa_orders_count
+assign sa_row_actual=sa_orders_count
 elsif row.object == 'customer' and row.attribute == 'countryCode'
-assign sa_row_actual = sa_country
+assign sa_row_actual=sa_country
 elsif row.object == 'geo' and row.attribute == 'countryCode'
-assign sa_row_actual = sa_country
+assign sa_row_actual=sa_country
 elsif row.object == 'cart' and row.attribute == 'subtotal'
-assign sa_row_actual = sa_cart_subtotal
+assign sa_row_actual=sa_cart_subtotal
 elsif row.object == 'cart' and row.attribute == 'itemCount'
-assign sa_row_actual = sa_cart_items
+assign sa_row_actual=sa_cart_items
 else
-assign sa_row_known = false
-assign sa_all_resolvable = false
+assign sa_row_known=false
+assign sa_all_resolvable=false
 endif
 if sa_row_known
-assign sa_row_pass = false
+assign sa_row_pass=false
 if row.operator == 'equal_to' and sa_row_actual == row.value
-assign sa_row_pass = true
+assign sa_row_pass=true
 elsif row.operator == 'not_equal_to' and sa_row_actual != row.value
-assign sa_row_pass = true
+assign sa_row_pass=true
 elsif row.operator == 'greater_than' and sa_row_actual > row.value
-assign sa_row_pass = true
+assign sa_row_pass=true
 elsif row.operator == 'greater_than_or_equal' and sa_row_actual >= row.value
-assign sa_row_pass = true
+assign sa_row_pass=true
 elsif row.operator == 'less_than' and sa_row_actual < row.value
-assign sa_row_pass = true
+assign sa_row_pass=true
 elsif row.operator == 'less_than_or_equal' and sa_row_actual <= row.value
-assign sa_row_pass = true
+assign sa_row_pass=true
 endif
 unless sa_row_pass
-assign sa_group_and = false
+assign sa_group_and=false
 endunless
 if sa_row_pass
-assign sa_group_or = true
+assign sa_group_or=true
 endif
 endif
 endfor
 if grp.logic == 'OR'
-assign sa_group_pass = sa_group_or
+assign sa_group_pass=sa_group_or
 else
-assign sa_group_pass = sa_group_and
+assign sa_group_pass=sa_group_and
 endif
 unless sa_group_pass
-assign sa_outer_and = false
+assign sa_outer_and=false
 endunless
 if sa_group_pass
-assign sa_outer_or = true
+assign sa_outer_or=true
 endif
 endfor
 if sa_rules.logic == 'OR'
-assign sa_matched = sa_outer_or
+assign sa_matched=sa_outer_or
 else
-assign sa_matched = sa_outer_and
+assign sa_matched=sa_outer_and
 endif
 if sa_all_resolvable and sa_rules.matchAction == 'SHOW'
 if sa_matched
-assign sa_rule_server = 'pass'
+assign sa_rule_server='pass'
 else
-assign sa_rule_server = 'fail'
+assign sa_rule_server='fail'
 endif
 else
-assign sa_rule_server = 'defer'
+assign sa_rule_server='defer'
 endif
-assign sa_rules_json = sa_rules|json
+assign sa_rules_json=sa_rules|json
 endif
 %}
-{%unless sa_rule_server == 'fail'%}{%if mod_sty.css != blank%}<style>{{mod_sty.css}}</style>{%endif%}<div class="superapp-scope" data-sa-pack="{{sa_pack|escape}}"{%if sa_device_attr != blank%} data-sa-device="{{sa_device_attr|escape}}"{%endif%}{%if sa_ovr != blank%} style="{{sa_ovr|escape}}"{%endif%}>{%if sa_rules_enabled and kind != 'popup'%}<div class="superapp-rule-gate" data-module-id="{{module_id|escape}}" data-sa-rules="{{sa_rules_json|escape}}" data-sa-rule-server="{{sa_rule_server}}" data-sa-ctx="{{sa_ctx_json|escape}}"{%if sa_rule_server == 'defer'%} hidden{%endif%}>{%endif%}{%case kind%}{%when 'banner'%}<section class="superapp-banner superapp-banner--embed sa-reveal" role="region" aria-label="{{mod_cfg.heading|escape}}" data-module-id="{{module_id|escape}}"><div class="superapp-banner__inner superapp-container"><div class="superapp-banner__content"><h2 class="superapp-banner__heading">{{mod_cfg.heading|escape}}</h2>{%if mod_cfg.subheading != blank%}<p class="superapp-banner__subheading superapp-measure">{{mod_cfg.subheading|escape}}</p>{%endif%}{%if mod_cfg.ctaText != blank and mod_cfg.ctaUrl != blank%}<a class="superapp-banner__cta" href="{{mod_cfg.ctaUrl|escape}}">{{mod_cfg.ctaText|escape}}</a>{%endif%}</div>{%if mod_cfg.imageUrl != blank%}<img class="superapp-banner__image" src="{{mod_cfg.imageUrl|escape}}" alt="" loading="lazy" width="800" height="400">{%endif%}</div></section>{%when 'notification-bar'%}<div class="superapp-note superapp-note--embed sa-reveal" data-module-id="{{module_id|escape}}"><div class="superapp-note__inner superapp-container"><span class="superapp-note__msg">{{mod_cfg.message|escape}}</span>{%if mod_cfg.countdownTo != blank%}<span class="superapp-note__countdown" data-sa-countdown="{{mod_cfg.countdownTo|escape}}" hidden></span>{%endif%}{%if mod_cfg.linkText != blank and mod_cfg.linkUrl != blank%}<a class="superapp-note__link" href="{{mod_cfg.linkUrl|escape}}">{{mod_cfg.linkText|escape}}</a>{%endif%}</div></div>{%when 'popup'%}{%render 'superapp-module-overlay',mod_cfg:mod_cfg,module_id:module_id,sa_rules_enabled:sa_rules_enabled,sa_rules_json:sa_rules_json,sa_rule_server:sa_rule_server,sa_ctx_json:sa_ctx_json%}{%when 'contactForm'%}{%assign is_proxy = false%}{%if mod_cfg.submissionMode == 'APP_PROXY'%}{%assign is_proxy = true%}{%endif%}<section class="superapp-contact sa-reveal" id="superapp-contact-{{module_id|escape}}" data-module-id="{{module_id|escape}}"><div class="superapp-contact__inner superapp-container"><h2 class="superapp-contact__title">{{mod_cfg.title|escape}}</h2>{%if mod_cfg.subtitle != blank%}<p class="superapp-contact__subtitle superapp-measure">{{mod_cfg.subtitle|escape}}</p>{%endif%}<form
+{%unless sa_rule_server == 'fail'%}{%if mod_sty.css != blank%}<style>{{mod_sty.css}}</style>{%endif%}<div class="superapp-scope" data-sa-pack="{{sa_pack|escape}}"{%if sa_device_attr != blank%} data-sa-device="{{sa_device_attr|escape}}"{%endif%}{%if mod_cfg.experiment.enabled%} data-sa-exp="{{mod_cfg.experiment|json|escape}}"{%endif%}{%if sa_ovr != blank%} style="{{sa_ovr|escape}}"{%endif%}>{%if sa_rules_enabled and kind != 'popup'%}<div class="superapp-rule-gate" data-module-id="{{module_id|escape}}" data-sa-rules="{{sa_rules_json|escape}}" data-sa-rule-server="{{sa_rule_server}}" data-sa-ctx="{{sa_ctx_json|escape}}"{%if sa_rule_server == 'defer'%} hidden{%endif%}>{%endif%}{%case kind%}{%when 'banner'%}<section class="superapp-banner superapp-banner--embed sa-reveal" role="region" aria-label="{{mod_cfg.heading|escape}}" data-module-id="{{module_id|escape}}"><div class="superapp-banner__inner superapp-container"><div class="superapp-banner__content"><h2 class="superapp-banner__heading">{{mod_cfg.heading|escape}}</h2>{%if mod_cfg.subheading != blank%}<p class="superapp-banner__subheading superapp-measure">{{mod_cfg.subheading|escape}}</p>{%endif%}{%if mod_cfg.ctaText != blank and mod_cfg.ctaUrl != blank%}<a class="superapp-banner__cta" href="{{mod_cfg.ctaUrl|escape}}">{{mod_cfg.ctaText|escape}}</a>{%endif%}</div>{%if mod_cfg.imageUrl != blank%}<img class="superapp-banner__image" src="{{mod_cfg.imageUrl|escape}}" alt="" loading="lazy" width="800" height="400">{%endif%}</div></section>{%when 'notification-bar'%}<div class="superapp-note superapp-note--embed sa-reveal" data-module-id="{{module_id|escape}}"><div class="superapp-note__inner superapp-container"><span class="superapp-note__msg">{{mod_cfg.message|escape}}</span>{%if mod_cfg.countdownTo != blank%}<span class="superapp-note__countdown" data-sa-countdown="{{mod_cfg.countdownTo|escape}}" hidden></span>{%endif%}{%if mod_cfg.linkText != blank and mod_cfg.linkUrl != blank%}<a class="superapp-note__link" href="{{mod_cfg.linkUrl|escape}}">{{mod_cfg.linkText|escape}}</a>{%endif%}</div></div>{%when 'popup'%}{%render 'superapp-module-overlay',mod_cfg:mod_cfg,module_id:module_id,sa_rules_enabled:sa_rules_enabled,sa_rules_json:sa_rules_json,sa_rule_server:sa_rule_server,sa_ctx_json:sa_ctx_json%}{%when 'contactForm'%}{%assign is_proxy=false%}{%if mod_cfg.submissionMode == 'APP_PROXY'%}{%assign is_proxy=true%}{%endif%}<section class="superapp-contact sa-reveal" id="superapp-contact-{{module_id|escape}}" data-module-id="{{module_id|escape}}"><div class="superapp-contact__inner superapp-container"><h2 class="superapp-contact__title">{{mod_cfg.title|escape}}</h2>{%if mod_cfg.subtitle != blank%}<p class="superapp-contact__subtitle superapp-measure">{{mod_cfg.subtitle|escape}}</p>{%endif%}<form
 class="superapp-contact__form"
 method="post"
 action="{%if is_proxy%}{{mod_cfg.proxyEndpointPath|default:'/apps/superapp/capture'|escape}}{%else%}/contact#superapp-contact-{{module_id|escape}}{%endif%}"{%if is_proxy%}
@@ -238,4 +238,4 @@ data-error-message="{{mod_cfg.errorMessage|default:'Something went wrong. Please
 <input type="text" name="contact[subject]" {%if mod_cfg.subjectRequired%}required{%endif%}></label>{%endif%}{%if mod_cfg.showMessage%}<label class="superapp-contact__field">Message
 <textarea name="contact[body]" rows="5" {%if mod_cfg.messageRequired%}required{%endif%}></textarea></label>{%endif%}{%if mod_cfg.spamProtection == 'HONEYPOT'%}<label class="superapp-contact__honeypot" aria-hidden="true">
 Leave this field empty
-<input type="text" name="{{mod_cfg.honeypotFieldName|default:'website'|escape}}" tabindex="-1" autocomplete="off"></label>{%endif%}{%if mod_cfg.consentRequired%}<label class="superapp-contact__consent"><input type="checkbox" required><span>{{mod_cfg.consentLabel|default:'I agree to be contacted about my request.'|escape}}</span></label>{%endif%}<button class="superapp-contact__submit" type="submit">{{mod_cfg.submitLabel|default:'Send message'|escape}}</button>{%if is_proxy%}<p class="superapp-contact__status" data-superapp-form-status role="status" aria-live="polite" hidden></p>{%else%}<p class="superapp-contact__help">Submission is handled by Shopify contact processing.</p>{%endif%}</form></div></section>{%when 'effect'%}<div class="superapp-effect superapp-effect--embed" data-module-id="{{module_id|escape}}" data-trigger="{{mod_cfg.startTrigger|default:'page_load'|escape}}" role="presentation" aria-hidden="true"><div class="superapp-effect__overlay superapp-effect--{{mod_cfg.effectKind|default:'snowfall'|handle}}" data-intensity="{{mod_cfg.intensity|default:'medium'|escape}}" data-speed="{{mod_cfg.speed|default:'normal'|escape}}">{%for i in (1..50)%}<div class="superapp-effect__particle"></div>{%endfor%}</div></div>{%when 'floatingWidget'%}{%assign fw_anchor = mod_cfg.anchor|default:'bottom_right'%}{%assign fw_variant = mod_cfg.variant|default:'custom'%}{%assign fw_label = mod_cfg.label|default:''%}{%assign fw_action_url = mod_cfg.actionUrl|default:mod_cfg.url|default:''%}{%assign fw_action_target = mod_cfg.actionTarget|default:'_blank'%}{%if mod_sty.responsive.hideOnMobile != nil%}{%assign fw_hide_mobile = mod_sty.responsive.hideOnMobile%}{%else%}{%assign fw_hide_mobile = mod_cfg.hideOnMobile%}{%endif%}{%if mod_sty.responsive.hideOnDesktop != nil%}{%assign fw_hide_desktop = mod_sty.responsive.hideOnDesktop%}{%else%}{%assign fw_hide_desktop = mod_cfg.hideOnDesktop%}{%endif%}<div class="superapp-fw-wrap superapp-fw-wrap--{{fw_anchor|replace:'_','-'|handle}}{%if fw_hide_mobile%} superapp-fw-wrap--hide-mobile{%endif%}{%if fw_hide_desktop%} superapp-fw-wrap--hide-desktop{%endif%} sa-reveal" data-module-id="{{module_id|escape}}" data-anchor="{{fw_anchor|escape}}">{%if fw_action_url != blank%}<a class="superapp-fw" href="{{fw_action_url|escape}}" target="{{fw_action_target|escape}}" aria-label="{{fw_label|default:fw_variant|escape}}">{%else%}<button class="superapp-fw" type="button" aria-label="{{fw_label|default:fw_variant|escape}}">{%endif%}<span class="superapp-fw__dot" aria-hidden="true"></span><span class="superapp-fw__icon" aria-hidden="true">{%case fw_variant%}{%when 'whatsapp','chat'%}<svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M10 2c-4.42 0-8 3.13-8 7 0 1.66.67 3.18 1.79 4.38-.14 1.13-.6 2.16-1.29 2.98-.16.19-.2.45-.1.68.1.23.32.38.57.38 1.6 0 3.06-.55 4.24-1.35A9.6 9.6 0 0 0 10 16c4.42 0 8-3.13 8-7s-3.58-7-8-7Z"/></svg>{%when 'coupon'%}<svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M2.5 4A1.5 1.5 0 0 0 1 5.5v2.02a1 1 0 0 0 .55.9 1.75 1.75 0 0 1 0 3.16 1 1 0 0 0-.55.9V14.5A1.5 1.5 0 0 0 2.5 16h15a1.5 1.5 0 0 0 1.5-1.5v-2.02a1 1 0 0 0-.55-.9 1.75 1.75 0 0 1 0-3.16 1 1 0 0 0 .55-.9V5.5A1.5 1.5 0 0 0 17.5 4h-15Zm10 1.5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Zm-5 7a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm5.35-6.85-6 6a.5.5 0 0 0 .7.7l6-6a.5.5 0 0 0-.7-.7Z"/></svg>{%when 'cart'%}<svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M2 2.5a.5.5 0 0 1 .5-.5h1.4a1 1 0 0 1 .97.76L5.1 4H16.5a1 1 0 0 1 .97 1.24l-1.2 4.8A1.5 1.5 0 0 1 14.82 11.2H7.02a1.5 1.5 0 0 1-1.46-1.16L4.02 3.5H2.5a.5.5 0 0 1-.5-.5ZM7 14a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"/></svg>{%when 'scroll_top'%}<svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M10 6.5a1 1 0 0 1 .7.29l5 5a1 1 0 0 1-1.4 1.42L10 8.91l-4.3 4.3a1 1 0 0 1-1.4-1.42l5-5A1 1 0 0 1 10 6.5Z"/></svg>{%else%}<svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M10 1.5a.6.6 0 0 1 .56.38l1.9 4.9 4.9 1.9a.6.6 0 0 1 0 1.12l-4.9 1.9-1.9 4.9a.6.6 0 0 1-1.12 0l-1.9-4.9-4.9-1.9a.6.6 0 0 1 0-1.12l4.9-1.9 1.9-4.9A.6.6 0 0 1 10 1.5Z"/></svg>{%endcase%}</span>{%if fw_label != blank%}<span class="superapp-fw__label">{{fw_label|escape}}</span>{%endif%}{%if fw_action_url != blank%}</a>{%else%}</button>{%endif%}</div>{%when 'product-bundle'%}{%render 'superapp-product-bundle',mod_cfg:mod_cfg,module_id:module_id%}{%when 'product-recommendations'%}{%render 'superapp-recommendations',mod_cfg:mod_cfg,module_id:module_id%}{%else%}{%render 'superapp-module-sections',mod_cfg:mod_cfg,module_id:module_id,kind:kind%}{%endcase%}{%if sa_rules_enabled and kind != 'popup'%}</div>{%endif%}</div>{%# /superapp-scope — design-system token wrapper%}{%endunless%}{%endif%}
+<input type="text" name="{{mod_cfg.honeypotFieldName|default:'website'|escape}}" tabindex="-1" autocomplete="off"></label>{%endif%}{%if mod_cfg.consentRequired%}<label class="superapp-contact__consent"><input type="checkbox" required><span>{{mod_cfg.consentLabel|default:'I agree to be contacted about my request.'|escape}}</span></label>{%endif%}<button class="superapp-contact__submit" type="submit">{{mod_cfg.submitLabel|default:'Send message'|escape}}</button>{%if is_proxy%}<p class="superapp-contact__status" data-superapp-form-status role="status" aria-live="polite" hidden></p>{%else%}<p class="superapp-contact__help">Submission is handled by Shopify contact processing.</p>{%endif%}</form></div></section>{%when 'effect'%}<div class="superapp-effect superapp-effect--embed" data-module-id="{{module_id|escape}}" data-trigger="{{mod_cfg.startTrigger|default:'page_load'|escape}}" role="presentation" aria-hidden="true"><div class="superapp-effect__overlay superapp-effect--{{mod_cfg.effectKind|default:'snowfall'|handle}}" data-intensity="{{mod_cfg.intensity|default:'medium'|escape}}" data-speed="{{mod_cfg.speed|default:'normal'|escape}}">{%for i in (1..50)%}<div class="superapp-effect__particle"></div>{%endfor%}</div></div>{%when 'floatingWidget'%}{%assign fw_anchor=mod_cfg.anchor|default:'bottom_right'%}{%assign fw_variant=mod_cfg.variant|default:'custom'%}{%assign fw_label=mod_cfg.label|default:''%}{%assign fw_action_url=mod_cfg.actionUrl|default:mod_cfg.url|default:''%}{%assign fw_action_target=mod_cfg.actionTarget|default:'_blank'%}{%if mod_sty.responsive.hideOnMobile != nil%}{%assign fw_hide_mobile=mod_sty.responsive.hideOnMobile%}{%else%}{%assign fw_hide_mobile=mod_cfg.hideOnMobile%}{%endif%}{%if mod_sty.responsive.hideOnDesktop != nil%}{%assign fw_hide_desktop=mod_sty.responsive.hideOnDesktop%}{%else%}{%assign fw_hide_desktop=mod_cfg.hideOnDesktop%}{%endif%}<div class="superapp-fw-wrap superapp-fw-wrap--{{fw_anchor|replace:'_','-'|handle}}{%if fw_hide_mobile%} superapp-fw-wrap--hide-mobile{%endif%}{%if fw_hide_desktop%} superapp-fw-wrap--hide-desktop{%endif%} sa-reveal" data-module-id="{{module_id|escape}}" data-anchor="{{fw_anchor|escape}}">{%if fw_action_url != blank%}<a class="superapp-fw" href="{{fw_action_url|escape}}" target="{{fw_action_target|escape}}" aria-label="{{fw_label|default:fw_variant|escape}}">{%else%}<button class="superapp-fw" type="button" aria-label="{{fw_label|default:fw_variant|escape}}">{%endif%}<span class="superapp-fw__dot" aria-hidden="true"></span><span class="superapp-fw__icon" aria-hidden="true">{%case fw_variant%}{%when 'whatsapp','chat'%}<svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M10 2c-4.42 0-8 3.13-8 7 0 1.66.67 3.18 1.79 4.38-.14 1.13-.6 2.16-1.29 2.98-.16.19-.2.45-.1.68.1.23.32.38.57.38 1.6 0 3.06-.55 4.24-1.35A9.6 9.6 0 0 0 10 16c4.42 0 8-3.13 8-7s-3.58-7-8-7Z"/></svg>{%when 'coupon'%}<svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M2.5 4A1.5 1.5 0 0 0 1 5.5v2.02a1 1 0 0 0 .55.9 1.75 1.75 0 0 1 0 3.16 1 1 0 0 0-.55.9V14.5A1.5 1.5 0 0 0 2.5 16h15a1.5 1.5 0 0 0 1.5-1.5v-2.02a1 1 0 0 0-.55-.9 1.75 1.75 0 0 1 0-3.16 1 1 0 0 0 .55-.9V5.5A1.5 1.5 0 0 0 17.5 4h-15Zm10 1.5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Zm-5 7a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm5.35-6.85-6 6a.5.5 0 0 0 .7.7l6-6a.5.5 0 0 0-.7-.7Z"/></svg>{%when 'cart'%}<svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M2 2.5a.5.5 0 0 1 .5-.5h1.4a1 1 0 0 1 .97.76L5.1 4H16.5a1 1 0 0 1 .97 1.24l-1.2 4.8A1.5 1.5 0 0 1 14.82 11.2H7.02a1.5 1.5 0 0 1-1.46-1.16L4.02 3.5H2.5a.5.5 0 0 1-.5-.5ZM7 14a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"/></svg>{%when 'scroll_top'%}<svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M10 6.5a1 1 0 0 1 .7.29l5 5a1 1 0 0 1-1.4 1.42L10 8.91l-4.3 4.3a1 1 0 0 1-1.4-1.42l5-5A1 1 0 0 1 10 6.5Z"/></svg>{%else%}<svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M10 1.5a.6.6 0 0 1 .56.38l1.9 4.9 4.9 1.9a.6.6 0 0 1 0 1.12l-4.9 1.9-1.9 4.9a.6.6 0 0 1-1.12 0l-1.9-4.9-4.9-1.9a.6.6 0 0 1 0-1.12l4.9-1.9 1.9-4.9A.6.6 0 0 1 10 1.5Z"/></svg>{%endcase%}</span>{%if fw_label != blank%}<span class="superapp-fw__label">{{fw_label|escape}}</span>{%endif%}{%if fw_action_url != blank%}</a>{%else%}</button>{%endif%}</div>{%when 'sales-pop'%}<div class="superapp-salespop" data-module-id="{{module_id|escape}}" data-sa-salespop="{{mod_cfg|json|escape}}" role="status" aria-live="polite" aria-atomic="true"></div>{%when 'product-bundle'%}{%render 'superapp-product-bundle',mod_cfg:mod_cfg,module_id:module_id%}{%when 'product-recommendations'%}{%render 'superapp-recommendations',mod_cfg:mod_cfg,module_id:module_id%}{%else%}{%render 'superapp-module-sections',mod_cfg:mod_cfg,module_id:module_id,kind:kind%}{%endcase%}{%if sa_rules_enabled and kind != 'popup'%}</div>{%endif%}</div>{%# /superapp-scope — design-system token wrapper%}{%endunless%}{%endif%}

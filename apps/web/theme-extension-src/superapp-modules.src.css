@@ -1423,3 +1423,50 @@
 .superapp-faqsearch__chip { min-height: 36px; padding: 0.35rem 0.85rem; font: inherit; font-size: 0.8rem; cursor: pointer; background: transparent; color: inherit; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: 999px; }
 .superapp-faqsearch__chip[aria-pressed='true'] { border-color: var(--sa-accent); background: color-mix(in srgb, var(--sa-accent) 14%, transparent); color: var(--sa-accent); }
 .superapp-faqsearch__chip:focus-visible { outline: 2px solid var(--sa-accent); outline-offset: 2px; }
+
+/* ── V-B B6 · Multi-step form / capture stepper ───────────────────────────────
+   JS injects .superapp-form into the popup panel when config.formFields is set.
+   Progress dots + one step at a time + a back/next nav. Inherits the popup's
+   scoped tokens (--sa-accent / --sa-radius / …). Reduced-motion: no transitions. */
+.superapp-form { display: flex; flex-direction: column; gap: 0.85rem; margin-top: 0.5rem; text-align: left; }
+.superapp-form__dots { display: flex; gap: 0.4rem; justify-content: center; }
+.superapp-form__dot { width: 0.5rem; height: 0.5rem; border-radius: 999px; background: color-mix(in srgb, currentColor 25%, transparent); transition: background 0.2s ease, transform 0.2s ease; }
+.superapp-form__dot.is-active { background: var(--sa-accent); transform: scale(1.25); }
+.superapp-form__dot.is-done { background: color-mix(in srgb, var(--sa-accent) 55%, transparent); }
+.superapp-form__step { display: flex; flex-direction: column; gap: 0.7rem; }
+.superapp-form__heading { margin: 0; font-size: 1.02rem; font-weight: var(--sa-fw, 700); }
+.superapp-form__field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; }
+.superapp-form__field input { min-height: 44px; padding: 0.6rem 0.8rem; font: inherit; font-size: max(16px, 1em); color: inherit; background: Canvas; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-radius); }
+.superapp-form__field input:focus-visible, .superapp-form__group input:focus-visible { outline: 2px solid var(--sa-accent); outline-offset: 1px; }
+.superapp-form__group { display: flex; flex-direction: column; gap: 0.4rem; margin: 0; padding: 0; border: 0; }
+.superapp-form__group legend { padding: 0; margin-bottom: 0.2rem; font-size: 0.85rem; font-weight: 600; }
+.superapp-form__radio, .superapp-form__consent { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; }
+.superapp-form__radio input, .superapp-form__consent input { min-height: 20px; min-width: 20px; accent-color: var(--sa-accent); }
+.superapp-form__nav { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.3rem; }
+.superapp-form__back { min-height: 44px; padding: 0.5rem 0.9rem; font: inherit; font-size: 0.85rem; cursor: pointer; background: transparent; color: inherit; border: var(--sa-border-w) solid var(--sa-border-color); border-radius: var(--sa-btn-radius, var(--sa-radius)); }
+.superapp-form__back[hidden] { display: none; }
+.superapp-form__next { flex: 1 1 auto; }
+.superapp-form__next.is-loading { opacity: 0.7; pointer-events: none; }
+.superapp-form__success { text-align: center; display: flex; flex-direction: column; gap: 0.75rem; }
+.superapp-form__successmsg { margin: 0; font-size: 1rem; font-weight: 600; }
+
+/* ── V-B B14 · Sales-pop toast queue ──────────────────────────────────────────
+   A fixed-position single toast the runtime rotates through merchant-authored
+   events. One at a time; slides in/out (reduced-motion = instant). */
+.superapp-salespop { position: fixed; z-index: 2147483000; max-width: min(92vw, 320px); pointer-events: none; }
+.superapp-salespop--bottom-left { left: 1rem; bottom: 1rem; }
+.superapp-salespop--bottom-right { right: 1rem; bottom: 1rem; }
+.superapp-salespop--top-left { left: 1rem; top: 1rem; }
+.superapp-salespop--top-right { right: 1rem; top: 1rem; }
+.superapp-salespop__toast { pointer-events: auto; display: flex; align-items: center; gap: 0.6rem; padding: 0.65rem 0.85rem; background: Canvas; color: CanvasText; border: var(--sa-border-w, 1px) solid var(--sa-border-color, color-mix(in srgb, CanvasText 15%, transparent)); border-radius: var(--sa-radius, 10px); box-shadow: 0 8px 28px -12px rgba(0, 0, 0, 0.4); opacity: 0; transform: translateY(0.6rem); transition: opacity 0.22s ease, transform 0.22s ease; }
+.superapp-salespop--top-left .superapp-salespop__toast, .superapp-salespop--top-right .superapp-salespop__toast { transform: translateY(-0.6rem); }
+.superapp-salespop__toast.is-in { opacity: 1; transform: translateY(0); }
+.superapp-salespop__img { flex: 0 0 auto; width: 40px; height: 40px; object-fit: cover; border-radius: calc(var(--sa-radius, 10px) * 0.6); }
+.superapp-salespop__text { flex: 1 1 auto; font-size: 0.82rem; line-height: 1.35; }
+.superapp-salespop__close { flex: 0 0 auto; min-width: 28px; min-height: 28px; padding: 0; font-size: 1.1rem; line-height: 1; cursor: pointer; background: transparent; color: inherit; border: 0; opacity: 0.6; }
+.superapp-salespop__close:hover { opacity: 1; }
+.superapp-salespop__close:focus-visible { outline: 2px solid var(--sa-accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .superapp-form__dot { transition: none; }
+  .superapp-salespop__toast { transition: none; }
+}

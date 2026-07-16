@@ -551,9 +551,13 @@
       if (submitBtn) { submitBtn.disabled = true; submitBtn.classList.add('is-loading'); }
       setStatus(status, null, '');
 
+      var fd = new FormData(form);
+      /* B7: attribute the submission to its assigned A/B variant when one is active. */
+      var variant = saVariantOf(form);
+      if (variant && !fd.has('saVariant')) fd.append('saVariant', variant);
       fetch(form.getAttribute('action'), {
         method: 'POST',
-        body: new FormData(form),
+        body: fd,
         headers: { Accept: 'application/json' },
         credentials: 'same-origin',
       })
@@ -2179,6 +2183,347 @@
     Array.prototype.forEach.call(els, setupFaqSearch);
   }
 
+  /* ── B7 A/B experiment: deterministic bucketing + text-only overrides ─────────
+     Reads config.experiment off data-sa-exp on the module scope root. A persistent
+     per-browser visitor key (localStorage) hashed with the module id picks a
+     variant by weight; the variant's TEXT overrides are applied to marked elements
+     (headline / subheadline / CTA / coupon) and data-sa-variant is stamped on the
+     root so the analytics pixel + capture payloads can attribute the outcome.
+     Text-only ⇒ no layout risk. The pure bucketing pair is marker-extracted and
+     pinned by a node-side parity test (like the spin-game / rule-engine logic). */
+  /* EXPERIMENT-BUCKET-LOGIC:BEGIN (parity marker — keep on its own line) */
+  /* Stable 32-bit string hash (FNV-1a). Deterministic across visits / reloads. */
+  function saHash(str) {
+    var h = 0x811c9dc5;
+    var s = String(str);
+    for (var i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      /* h *= 16777619 via shift-adds, kept in uint32 */
+      h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+    }
+    return h >>> 0;
+  }
+  /* Pick a variant index by weight from a stable key. `variants` is [{weight}].
+     Deterministic: the same key always lands in the same bucket (no Math.random).
+     Non-positive / NaN weights count as 0; an all-zero set falls back to variant 0. */
+  function bucketVariant(variants, key) {
+    var n = variants ? variants.length : 0;
+    if (n === 0) return -1;
+    var norm = [];
+    var total = 0;
+    for (var i = 0; i < n; i++) {
+      var w = Number(variants[i] && variants[i].weight);
+      if (isNaN(w) || w < 0) w = 0;
+      norm.push(w);
+      total += w;
+    }
+    if (total <= 0) return 0;
+    var target = saHash(key) % total; /* integer in [0, total) */
+    var acc = 0;
+    for (var j = 0; j < n; j++) {
+      acc += norm[j];
+      if (target < acc) return j;
+    }
+    return n - 1; /* rounding safety */
+  }
+  /* ══ EXPERIMENT-BUCKET-LOGIC:END ════════════════════════════════════════════ */
+
+  /* Persistent per-browser visitor key (created once, reused across visits). */
+  function saVisitorKey() {
+    var k = storageGet(window.localStorage, 'superapp:vid');
+    if (!k) {
+      k = String(Date.now()) + '.' + Math.random().toString(36).slice(2, 10);
+      storageSet(window.localStorage, 'superapp:vid', k);
+    }
+    return k;
+  }
+
+  /* Apply a variant's text-only overrides to the module under `root`. Each override
+     targets the FIRST matching marked element; absent/empty overrides are skipped. */
+  function applyVariantText(root, ov) {
+    if (!ov) return;
+    var set = function (sel, val) {
+      if (val == null || val === '') return;
+      var el = root.querySelector(sel);
+      if (el) el.textContent = val;
+    };
+    set('[data-sa-headline], .superapp-banner__heading, .superapp-section__title, .superapp-note__msg, .superapp-popup__title, .superapp-hero__title', ov.headline);
+    set('[data-sa-subheadline], .superapp-banner__subheading, .superapp-section__sub, .superapp-hero__subtitle, .superapp-popup__body', ov.subheadline);
+    set('[data-sa-cta], .superapp-banner__cta, .superapp-note__link, .superapp-popup__cta, .superapp-hero__cta', ov.ctaLabel);
+    if (ov.couponCode) {
+      var c = root.querySelector('[data-superapp-code], [data-sa-coupon]');
+      if (c) c.textContent = ov.couponCode;
+    }
+  }
+
+  function initExperiments() {
+    var els = document.querySelectorAll('[data-sa-exp]');
+    Array.prototype.forEach.call(els, function (root) {
+      if (root.getAttribute('data-sa-exp-bound')) return;
+      root.setAttribute('data-sa-exp-bound', '1');
+      var cfg;
+      try { cfg = JSON.parse(root.getAttribute('data-sa-exp')); } catch (e) { return; }
+      if (!cfg || cfg.enabled !== true || !cfg.variants || cfg.variants.length === 0) return;
+      var moduleEl = root.querySelector('[data-module-id]');
+      var mid = moduleEl ? (moduleEl.getAttribute('data-module-id') || '') : '';
+      var idx = bucketVariant(cfg.variants, saVisitorKey() + ':' + mid);
+      if (idx < 0) return;
+      var variant = cfg.variants[idx] || {};
+      applyVariantText(root, variant.overrides || {});
+      /* Stamp the assigned variant so the pixel + capture payloads attribute it. */
+      root.setAttribute('data-sa-variant', variant.id || String(idx));
+    });
+  }
+
+  /* Nearest assigned A/B variant id for an element (attached to capture payloads). */
+  function saVariantOf(el) {
+    var scope = el && el.closest ? el.closest('[data-sa-variant]') : null;
+    return scope ? (scope.getAttribute('data-sa-variant') || '') : '';
+  }
+
+  /* ── B6 multi-step form / capture stepper ─────────────────────────────────────
+     A popup carrying data-sa-form is upgraded from a classic title/body/CTA popup
+     into a 1–4 step stepper built INSIDE the existing popup shell. Per-field
+     validation (email/phone patterns + required); consent renders UNCHECKED and is
+     only sent when ticked (honesty). Submits to the app-proxy capture path
+     (captureType 'multi_step_form', payload = field values + customerId when the
+     theme exposed it + A/B variant). Success step shows the message + optional
+     coupon reveal (reuses revealCoupon). Reduced-motion: no step-transition anim. */
+  var SA_EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  var SA_PHONE_RE = /^[+]?[\d\s().-]{7,}$/;
+
+  function saFieldName(type, i) { return type + '_' + i; }
+
+  /* Build the input markup for one field. Consent is always UNCHECKED. */
+  function saFieldHtml(field, idx) {
+    var name = saFieldName(field.type, idx);
+    var label = escapeHtml(field.label || '');
+    var req = field.required ? ' required' : '';
+    if (field.type === 'consent') {
+      return '<label class="superapp-form__consent"><input type="checkbox" name="' + name + '" value="yes"' + req + '><span>' + label + '</span></label>';
+    }
+    if (field.type === 'choice') {
+      var opts = (field.options || []).map(function (o, k) {
+        var v = escapeAttr(String(o));
+        return '<label class="superapp-form__radio"><input type="radio" name="' + name + '" value="' + v + '"' + (k === 0 && field.required ? ' required' : '') + '><span>' + escapeHtml(String(o)) + '</span></label>';
+      }).join('');
+      return '<fieldset class="superapp-form__group"><legend>' + label + '</legend>' + opts + '</fieldset>';
+    }
+    var type = field.type === 'email' ? 'email' : field.type === 'phone' ? 'tel' : field.type === 'birthday' ? 'date' : 'text';
+    var ac = field.type === 'email' ? ' autocomplete="email"' : field.type === 'phone' ? ' autocomplete="tel"' : field.type === 'name' ? ' autocomplete="name"' : field.type === 'birthday' ? ' autocomplete="bday"' : '';
+    return '<label class="superapp-form__field"><span>' + label + '</span><input type="' + type + '" name="' + name + '"' + ac + req + '></label>';
+  }
+
+  /* Validate the current step's inputs; returns true when the step is complete. */
+  function saValidateStep(stepEl) {
+    var inputs = stepEl.querySelectorAll('input');
+    var ok = true;
+    Array.prototype.forEach.call(inputs, function (inp) {
+      inp.setCustomValidity('');
+      var t = inp.getAttribute('type');
+      if ((t === 'email') && inp.value && !SA_EMAIL_RE.test(inp.value)) inp.setCustomValidity('Enter a valid email');
+      else if ((t === 'tel') && inp.value && !SA_PHONE_RE.test(inp.value)) inp.setCustomValidity('Enter a valid phone number');
+    });
+    if (stepEl.checkValidity && !stepEl.checkValidity()) ok = false;
+    if (!ok && stepEl.reportValidity) stepEl.reportValidity();
+    return ok;
+  }
+
+  function setupMultiStepForm(popup) {
+    if (popup.getAttribute('data-sa-form-bound')) return;
+    popup.setAttribute('data-sa-form-bound', '1');
+    var cfg;
+    try { cfg = JSON.parse(popup.getAttribute('data-sa-form')); } catch (e) { return; }
+    if (!cfg || !cfg.steps || cfg.steps.length === 0) return;
+    var panel = popup.querySelector('.superapp-popup__panel');
+    if (!panel) return;
+    var moduleId = popup.getAttribute('data-module-id') || '';
+    var custId = popup.getAttribute('data-sa-cust') || '';
+    var steps = cfg.steps.slice(0, 4);
+    var values = {};
+    var cur = 0;
+
+    /* A classic CTA link is meaningless once the stepper drives the flow — hide it. */
+    var oldCta = panel.querySelector('.superapp-popup__cta');
+    if (oldCta && !oldCta.closest('.superapp-form')) oldCta.hidden = true;
+
+    var form = document.createElement('form');
+    form.className = 'superapp-form';
+    form.setAttribute('novalidate', '');
+    panel.appendChild(form);
+
+    var dots = document.createElement('div');
+    dots.className = 'superapp-form__dots';
+    dots.setAttribute('aria-hidden', 'true');
+    var stepBox = document.createElement('div');
+    stepBox.className = 'superapp-form__step';
+    var nav = document.createElement('div');
+    nav.className = 'superapp-form__nav';
+    var backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.className = 'superapp-form__back';
+    backBtn.textContent = 'Back';
+    var nextBtn = document.createElement('button');
+    nextBtn.type = 'submit';
+    nextBtn.className = 'superapp-popup__cta superapp-form__next';
+    nav.appendChild(backBtn);
+    nav.appendChild(nextBtn);
+    form.appendChild(dots);
+    form.appendChild(stepBox);
+    form.appendChild(nav);
+
+    function paintDots() {
+      var h = '';
+      for (var i = 0; i < steps.length; i++) h += '<span class="superapp-form__dot' + (i === cur ? ' is-active' : '') + (i < cur ? ' is-done' : '') + '"></span>';
+      dots.innerHTML = h;
+    }
+    function renderStep() {
+      var step = steps[cur];
+      var h = step.heading ? '<h4 class="superapp-form__heading">' + escapeHtml(step.heading) + '</h4>' : '';
+      for (var i = 0; i < step.fields.length; i++) h += saFieldHtml(step.fields[i], i);
+      stepBox.innerHTML = h;
+      /* Restore any values the shopper already entered (back/next preserves them). */
+      Array.prototype.forEach.call(stepBox.querySelectorAll('input'), function (inp) {
+        var saved = values[cur + ':' + inp.name];
+        if (saved == null) return;
+        if (inp.type === 'checkbox' || inp.type === 'radio') inp.checked = (inp.value === saved) || (inp.type === 'checkbox' && saved === 'yes');
+        else inp.value = saved;
+      });
+      backBtn.hidden = cur === 0;
+      nextBtn.textContent = cur === steps.length - 1 ? (nextBtn.getAttribute('data-submit-label') || 'Submit') : 'Next';
+      paintDots();
+      var first = stepBox.querySelector('input');
+      if (first) { try { first.focus({ preventScroll: true }); } catch (e) { first.focus(); } }
+    }
+    function saveStep() {
+      Array.prototype.forEach.call(stepBox.querySelectorAll('input'), function (inp) {
+        if (inp.type === 'checkbox') { if (inp.checked) values[cur + ':' + inp.name] = 'yes'; else delete values[cur + ':' + inp.name]; }
+        else if (inp.type === 'radio') { if (inp.checked) values[cur + ':' + inp.name] = inp.value; }
+        else values[cur + ':' + inp.name] = inp.value;
+      });
+    }
+    function collectPayload() {
+      var out = { moduleId: moduleId, visitorId: saVisitorKey() };
+      if (custId) out.customerId = custId;
+      var variant = saVariantOf(popup);
+      if (variant) out.saVariant = variant;
+      /* Flatten step-scoped keys to their field labels for a legible record. */
+      for (var s = 0; s < steps.length; s++) {
+        for (var f = 0; f < steps[s].fields.length; f++) {
+          var fld = steps[s].fields[f];
+          var v = values[s + ':' + saFieldName(fld.type, f)];
+          if (v != null && v !== '') out[fld.label || saFieldName(fld.type, f)] = v;
+        }
+      }
+      return out;
+    }
+    function showSuccess() {
+      var ss = cfg.successStep || {};
+      dots.hidden = true;
+      nav.hidden = true;
+      stepBox.innerHTML = '<div class="superapp-form__success" role="status" aria-live="polite"><p class="superapp-form__successmsg">' + escapeHtml(ss.message || 'Thank you!') + '</p></div>';
+      if (ss.discountCode) {
+        var slot = document.createElement('div');
+        stepBox.querySelector('.superapp-form__success').appendChild(slot);
+        revealCoupon(slot, String(ss.discountCode), ss.message || 'Your code');
+      }
+    }
+    function submit() {
+      saveStep();
+      nextBtn.disabled = true;
+      nextBtn.classList.add('is-loading');
+      var done = function () { nextBtn.disabled = false; nextBtn.classList.remove('is-loading'); showSuccess(); };
+      /* Best-effort capture — a flaky network never traps the shopper behind the
+         success step (advance on completion, success or fail). captureType marks it. */
+      fetch('/apps/superapp/capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ moduleId: moduleId, captureType: 'multi_step_form', storeKey: 'customer', payload: collectPayload() }),
+      }).then(done, done);
+    }
+
+    backBtn.addEventListener('click', function () { if (cur > 0) { saveStep(); cur--; renderStep(); } });
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (!saValidateStep(stepBox)) return;
+      saveStep();
+      if (cur < steps.length - 1) { cur++; renderStep(); }
+      else submit();
+    });
+    renderStep();
+  }
+
+  function initMultiStepForms() {
+    var popups = document.querySelectorAll('.superapp-popup[data-sa-form]');
+    Array.prototype.forEach.call(popups, setupMultiStepForm);
+  }
+
+  /* ── B14 sales-pop toasts (merchant-authored v1) ──────────────────────────────
+     A rotating single-toast queue built from merchant-authored blocks kind:'event'
+     ({product}/{timeAgo} tokens). One toast at a time, slide in/out (reduced-motion
+     = instant swap), dismiss stops the session, and a per-session show cap. HONEST:
+     v1 renders ONLY the merchant's own entries — a real order feed is a follow-up. */
+  function saToastText(text, f) {
+    return String(text == null ? '' : text)
+      .replace(/\{product\}/g, (f && f.product) || '')
+      .replace(/\{timeAgo\}/g, (f && f.timeAgo) || '');
+  }
+  function setupSalesPop(root) {
+    if (root.getAttribute('data-sa-salespop-bound')) return;
+    root.setAttribute('data-sa-salespop-bound', '1');
+    var cfg;
+    try { cfg = JSON.parse(root.getAttribute('data-sa-salespop')); } catch (e) { return; }
+    var events = ((cfg && cfg.blocks) || []).filter(function (b) { return b && b.kind === 'event'; });
+    if (events.length === 0) return;
+    var interval = Math.max(2, Number(cfg.intervalSeconds) || 8) * 1000;
+    var maxPer = Number(cfg.maxPerSession) || 0; /* 0 = unlimited this session */
+    var position = cfg.position === 'bottom-right' ? 'bottom-right' : cfg.position === 'top-left' ? 'top-left' : cfg.position === 'top-right' ? 'top-right' : 'bottom-left';
+    var dismissible = cfg.dismissible !== false;
+    root.className = 'superapp-salespop superapp-salespop--' + position;
+    var shownKey = 'superapp:salespop:' + (root.getAttribute('data-module-id') || '');
+    var shown = parseInt(storageGet(window.sessionStorage, shownKey) || '0', 10) || 0;
+    var idx = 0;
+    var dismissed = false;
+    var timer = null;
+
+    function hide(cb) {
+      var t = root.querySelector('.superapp-salespop__toast');
+      if (!t) { if (cb) cb(); return; }
+      if (reducedMotion) { root.innerHTML = ''; if (cb) cb(); return; }
+      t.classList.remove('is-in');
+      window.setTimeout(function () { root.innerHTML = ''; if (cb) cb(); }, 220);
+    }
+    function show() {
+      if (dismissed) return;
+      if (maxPer && shown >= maxPer) return;
+      var ev = events[idx % events.length];
+      idx++;
+      var f = ev.fields || {};
+      var img = f.imageUrl ? '<img class="superapp-salespop__img" src="' + escapeAttr(safeUrl(f.imageUrl)) + '" alt="" loading="lazy" width="40" height="40">' : '';
+      var close = dismissible ? '<button class="superapp-salespop__close" type="button" aria-label="Dismiss">&times;</button>' : '';
+      root.innerHTML = '<div class="superapp-salespop__toast">' + img + '<span class="superapp-salespop__text">' + escapeHtml(saToastText(ev.text, f)) + '</span>' + close + '</div>';
+      shown++;
+      storageSet(window.sessionStorage, shownKey, String(shown));
+      var toast = root.querySelector('.superapp-salespop__toast');
+      if (!reducedMotion && toast) { void toast.offsetWidth; toast.classList.add('is-in'); }
+      else if (toast) toast.classList.add('is-in');
+      var btn = root.querySelector('.superapp-salespop__close');
+      if (btn) btn.addEventListener('click', function () { dismissed = true; if (timer) window.clearTimeout(timer); hide(); });
+      timer = window.setTimeout(function () { hide(schedule); }, Math.max(3200, interval - 400));
+    }
+    function schedule() {
+      if (dismissed) return;
+      if (maxPer && shown >= maxPer) return;
+      timer = window.setTimeout(show, 600);
+    }
+    window.setTimeout(show, 1500);
+  }
+  function initSalesPops() {
+    var els = document.querySelectorAll('.superapp-salespop[data-sa-salespop]');
+    Array.prototype.forEach.call(els, setupSalesPop);
+  }
+
   ready(function () {
     /* R2.1: resolve display rules first — reveal/remove deferred non-popup modules,
        and let the popup engine consult the same rules in open(). */
@@ -2214,6 +2559,10 @@
     initHotspots();
     initTabs();
     initFaqSearch();
+    /* V-B final batch: A/B experiment overrides, multi-step forms, sales-pop toasts. */
+    initExperiments();
+    initMultiStepForms();
+    initSalesPops();
     /* Broadcast the initial cart snapshot once so progress bars paint on load. */
     if (document.querySelector('[data-sa-progress]')) refreshCart();
   });

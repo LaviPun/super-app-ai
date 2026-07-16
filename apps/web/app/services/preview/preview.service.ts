@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { RecipeSpec, RuleEnginePack, RecommendationPack } from '@superapp/core';
+import type { RecipeSpec, RuleEnginePack, RecommendationPack, ExperimentPack } from '@superapp/core';
 import { sanitizeConfigUrls } from '~/services/recipes/compiler/sanitize-urls';
 import { KIND_ARCHETYPE, type SectionArchetype } from '~/services/recipes/kind-archetype';
 import { evaluateRuleEngine, messagingChannelSendability } from '@superapp/core';
@@ -180,6 +180,18 @@ export class PreviewService {
    * type stays open/unrestricted.
    */
   private themeSection(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    // B7 — A/B experiment: the builder preview shows VARIANT A (variants[0]) with
+    // its text overrides applied + an "A/B" affordance badge. Additive: absent /
+    // disabled experiment renders byte-identically.
+    const exp = (spec.config as { experiment?: ExperimentPack }).experiment;
+    if (exp?.enabled && Array.isArray(exp.variants) && exp.variants.length > 0) {
+      const withVariantA = applyVariantAOverrides(spec, exp.variants[0]);
+      return abExperimentBadge(exp) + this.themeSectionBody(withVariantA);
+    }
+    return this.themeSectionBody(spec);
+  }
+
+  private themeSectionBody(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
     // R2.1 — reflect display rules in the preview. Under a synthetic "preview
     // visitor" the module may be gated off; when it resolves to a definite hide we
     // render a labelled "hidden by display rules" state instead of the module.
@@ -197,6 +209,8 @@ export class PreviewService {
         return this.sectionContactForm(spec);
       case 'effect':
         return this.sectionEffect(spec);
+      case 'sales-pop':
+        return this.sectionSalesPop(spec);
       case 'floatingWidget':
         return this.sectionFloatingWidget(spec);
       case 'product-recommendations':
@@ -367,9 +381,19 @@ export class PreviewService {
         ? POPUP_SCRATCH_PREVIEW_CSS
         : '';
 
+    // B6 — multi-step form / capture stepper. When config.formFields is present the
+    // storefront upgrades the popup shell into a stepper; mirror the FIRST step here
+    // (the live back/next stepping runs in superapp-modules.js).
+    const formFields = (spec.config as { formFields?: { steps?: Array<{ heading?: string; fields?: Array<{ type: string; label: string; required?: boolean; options?: string[] }> }> } }).formFields;
+    const formBody = formFields?.steps && formFields.steps.length > 0
+      ? this.popupFormPreview(formFields.steps)
+      : '';
+
     const panelInner = gameBody
       ? gameBody
-      : `${body ? `<p class="superapp-popup__body">${esc(String(body))}</p>` : ''}
+      : formBody
+        ? formBody
+        : `${body ? `<p class="superapp-popup__body">${esc(String(body))}</p>` : ''}
           ${ctaText && ctaUrl ? `<a class="superapp-popup__cta" href="${escAttr(String(ctaUrl))}">${esc(String(ctaText))}</a>` : ''}`;
 
     // B5 — teaser / minimized state. When behavior.teaser is enabled the storefront
@@ -403,6 +427,17 @@ export class PreviewService {
       .superapp-popup__title { margin: 0 0 10px; font-size: 1.25em; font-weight: var(--sa-fw); }
       .superapp-popup__body { margin: 0 0 12px; opacity: .85; }
       .superapp-popup__cta { display:inline-block; padding: 10px 14px; border: 1px solid currentColor; text-decoration:none; border-radius: var(--sa-radius); background: var(--sa-btn-bg, transparent); color: var(--sa-btn-text, var(--sa-text)); }
+      .superapp-form { display:flex; flex-direction:column; gap: 12px; text-align:left; margin-top: 6px; }
+      .superapp-form__dots { display:flex; gap: 6px; justify-content:center; }
+      .superapp-form__dot { width: 8px; height: 8px; border-radius: 999px; background: rgba(0,0,0,.2); }
+      .superapp-form__dot.is-active { background: var(--sa-accent, #111); transform: scale(1.25); }
+      .superapp-form__step { display:flex; flex-direction:column; gap: 10px; }
+      .superapp-form__heading { margin: 0; font-size: 1rem; font-weight: 600; }
+      .superapp-form__field { display:flex; flex-direction:column; gap: 4px; font-size: 13px; }
+      .superapp-form__field input { min-height: 42px; padding: 8px 10px; border: 1px solid rgba(0,0,0,.25); border-radius: var(--sa-radius, 8px); font: inherit; }
+      .superapp-form__group { display:flex; flex-direction:column; gap: 6px; margin:0; padding:0; border:0; }
+      .superapp-form__radio, .superapp-form__consent { display:flex; align-items:center; gap: 8px; font-size: 13px; }
+      .superapp-form__next { width: 100%; text-align:center; }
       ${gameCss}
     `);
   }
@@ -458,6 +493,47 @@ export class PreviewService {
           <div class="superapp-scratch__overlay" aria-hidden="true">Scratch here</div>
         </div>
         <p class="superapp-scratch__hint">Reveals the code once ~50% is scratched.</p>
+      </div>`;
+  }
+
+  /**
+   * Static multi-step form preview (B6). Renders step 1 of the stepper with its
+   * fields and progress dots; the live back/next stepping + validation run in
+   * superapp-modules.js. Consent renders UNCHECKED (storefront + design-QA honesty).
+   */
+  private popupFormPreview(
+    steps: Array<{ heading?: string; fields?: Array<{ type: string; label: string; required?: boolean; options?: string[] }> }>,
+  ): string {
+    const total = Math.min(steps.length, 4);
+    const dots = Array.from({ length: total }, (_, i) => `<span class="superapp-form__dot${i === 0 ? ' is-active' : ''}"></span>`).join('');
+    const step = steps[0] ?? { fields: [] };
+    const fieldHtml = (step.fields ?? [])
+      .map((fld) => {
+        const label = esc(fld.label ?? '');
+        if (fld.type === 'consent') {
+          return `<label class="superapp-form__consent"><input type="checkbox"><span>${label}</span></label>`;
+        }
+        if (fld.type === 'choice') {
+          const opts = (fld.options ?? [])
+            .map((o) => `<label class="superapp-form__radio"><input type="radio" name="pv-choice"><span>${esc(String(o))}</span></label>`)
+            .join('');
+          return `<fieldset class="superapp-form__group"><legend>${label}</legend>${opts}</fieldset>`;
+        }
+        const type = fld.type === 'email' ? 'email' : fld.type === 'phone' ? 'tel' : fld.type === 'birthday' ? 'date' : 'text';
+        return `<label class="superapp-form__field"><span>${label}</span><input type="${type}" disabled></label>`;
+      })
+      .join('');
+    return `
+      <div class="superapp-form">
+        <div class="superapp-form__dots" aria-hidden="true">${dots}</div>
+        <div class="superapp-form__step">
+          ${step.heading ? `<h4 class="superapp-form__heading">${esc(step.heading)}</h4>` : ''}
+          ${fieldHtml}
+        </div>
+        <div class="superapp-form__nav">
+          <button class="superapp-popup__cta superapp-form__next" type="button" disabled>${total > 1 ? 'Next' : 'Submit'}</button>
+        </div>
+        <div class="preview-label">Steps through on the storefront (${esc(String(total))} step${total === 1 ? '' : 's'}).</div>
       </div>`;
   }
 
@@ -1753,6 +1829,50 @@ export class PreviewService {
     `);
   }
 
+  /**
+   * Kind renderer: sales-pop (B14). A static representation of the rotating toast
+   * queue — the FIRST merchant-authored event is shown docked in its configured
+   * corner (the live rotation runs in superapp-modules.js). HONEST: the preview
+   * mirrors the runtime's merchant-only-entries semantics with a "sample" note.
+   */
+  private sectionSalesPop(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
+    const blocks = (spec.config.blocks ?? []) as Array<{ kind?: string; text?: string; fields?: Record<string, unknown> }>;
+    const events = blocks.filter((b) => b?.kind === 'event');
+    const first = events[0];
+    const rawPos = String(this.cfg(spec, 'position') ?? 'bottom-left');
+    const position = ['bottom-left', 'bottom-right', 'top-left', 'top-right'].includes(rawPos) ? rawPos : 'bottom-left';
+    const interval = Number(this.cfg(spec, 'intervalSeconds') ?? 8);
+    const f = (first?.fields ?? {}) as Record<string, unknown>;
+    const product = String(f.product ?? 'the Everyday Tote');
+    const timeAgo = String(f.timeAgo ?? '2 hours ago');
+    const text = String(first?.text ?? 'Ava from Austin bought {product}')
+      .replace(/\{product\}/g, product)
+      .replace(/\{timeAgo\}/g, timeAgo);
+    const img = typeof f.imageUrl === 'string' && f.imageUrl
+      ? `<img class="sp-img" src="${escAttr(String(f.imageUrl))}" alt="" width="40" height="40">`
+      : '<span class="sp-img sp-img--ph" aria-hidden="true"></span>';
+    return pageHtml(`
+      <div class="sp-note">Sales-pop preview — ${esc(String(events.length))} sample event(s), one every ${esc(String(interval))}s. Live entries are merchant-authored (v1).</div>
+      <div class="sp-toast sp-toast--${esc(position)}">
+        ${img}
+        <span class="sp-text">${esc(text)}</span>
+        <button class="sp-close" type="button" aria-label="Dismiss">&times;</button>
+      </div>
+    `, `
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; min-height: 100vh; background: #f6f6f7; }
+      .sp-note { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); padding: 8px 14px; background: rgba(0,0,0,.72); color: #fff; border-radius: 8px; font-size: 12.5px; max-width: 90%; text-align: center; }
+      .sp-toast { position: fixed; display: flex; align-items: center; gap: 10px; max-width: 320px; padding: 10px 12px; background: #fff; border: 1px solid rgba(0,0,0,.12); border-radius: 12px; box-shadow: 0 10px 30px -12px rgba(0,0,0,.4); }
+      .sp-toast--bottom-left { left: 16px; bottom: 16px; }
+      .sp-toast--bottom-right { right: 16px; bottom: 16px; }
+      .sp-toast--top-left { left: 16px; top: 56px; }
+      .sp-toast--top-right { right: 16px; top: 56px; }
+      .sp-img { flex: 0 0 auto; width: 40px; height: 40px; border-radius: 8px; object-fit: cover; }
+      .sp-img--ph { background: linear-gradient(135deg, #e5e7eb, #cbd5e1); }
+      .sp-text { flex: 1 1 auto; font-size: 13px; line-height: 1.35; color: #111; }
+      .sp-close { flex: 0 0 auto; width: 26px; height: 26px; border: 0; background: transparent; font-size: 18px; line-height: 1; color: #555; cursor: pointer; }
+    `);
+  }
+
   /** Kind renderer: floatingWidget (corner-anchored floating button). */
   private sectionFloatingWidget(spec: Extract<RecipeSpec, { type: 'theme.section' }>): string {
     const anchor = String(this.cfg(spec, 'anchor') ?? 'bottom_right');
@@ -1881,8 +2001,35 @@ export class PreviewService {
   }
 
   private proxyWidget(spec: Extract<RecipeSpec, { type: 'proxy.widget' }>): string {
-    const c = spec.config;
+    const c = spec.config as typeof spec.config & {
+      quiz?: { questions?: Array<{ text?: string; options?: Array<{ label?: string }> }> };
+    };
     const styleBlock = this.styleCss(spec, '.superapp-widget');
+    // B6 — product-finder quiz preview: show the first question + options (the live
+    // stepping runs in the app-served full_page document).
+    if (c.surface === 'full_page' && c.quiz?.questions && c.quiz.questions.length >= 2) {
+      const q0 = c.quiz.questions[0] ?? { text: '', options: [] };
+      const opts = (q0.options ?? [])
+        .map((o) => `<button class="superapp-quiz__option" type="button" disabled>${esc(String(o.label ?? ''))}</button>`)
+        .join('');
+      return pageHtml(`
+        <div class="superapp-widget">
+          <div class="superapp-quiz__progress">Step 1 of ${esc(String(c.quiz.questions.length))}</div>
+          <div class="superapp-quiz__qtext">${esc(String(q0.text ?? ''))}</div>
+          <div class="superapp-quiz__options">${opts}</div>
+          <div class="preview-label">Product-finder quiz — steps through and recommends on the storefront.</div>
+        </div>
+      `, `
+        body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+        ${styleBlock}
+        .superapp-widget { max-width: 640px; margin: 0 auto; }
+        .superapp-quiz__progress { font-size: 12px; opacity: .7; margin-bottom: 12px; }
+        .superapp-quiz__qtext { font-size: 1.3rem; font-weight: 700; margin-bottom: 16px; }
+        .superapp-quiz__options { display: grid; gap: 8px; }
+        .superapp-quiz__option { min-height: 48px; padding: 12px 14px; text-align: left; font: inherit; background: #fff; border: 1px solid rgba(0,0,0,.18); border-radius: 12px; }
+        .preview-label { margin-top: 14px; font-size: 12px; opacity: .65; }
+      `);
+    }
     return pageHtml(`
       <div class="superapp-widget">
         <strong>${esc(c.title)}</strong>
@@ -3005,6 +3152,39 @@ function titleCaseResource(resource: string): string {
 function prettyStep(raw: string): string {
   const s = raw.replace(/[._-]+/g, ' ').trim();
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Step';
+}
+
+/**
+ * B7 — return a CLONE of the spec with variant A's text overrides applied to the
+ * common config fields (headline → title/heading, subheadline → subtitle/
+ * subheading, ctaLabel → ctaText/fields.ctaLabel, couponCode → fields.couponCode)
+ * so the preview shows what variant A renders. Non-mutating; only sets fields the
+ * override actually provides.
+ */
+function applyVariantAOverrides(
+  spec: Extract<RecipeSpec, { type: 'theme.section' }>,
+  variant: ExperimentPack['variants'][number] | undefined,
+): Extract<RecipeSpec, { type: 'theme.section' }> {
+  const ov = variant?.overrides;
+  if (!ov) return spec;
+  const next = structuredClone(spec) as Extract<RecipeSpec, { type: 'theme.section' }>;
+  const c = next.config as Record<string, unknown>;
+  const fields = (c.fields ?? (c.fields = {})) as Record<string, unknown>;
+  if (ov.headline) { c.title = ov.headline; c.heading = ov.headline; }
+  if (ov.subheadline) { c.subtitle = ov.subheadline; c.subheading = ov.subheadline; }
+  if (ov.ctaLabel) { c.ctaText = ov.ctaLabel; fields.ctaLabel = ov.ctaLabel; }
+  if (ov.couponCode) { fields.couponCode = ov.couponCode; }
+  return next;
+}
+
+/** B7 — the "A/B" affordance badge banner prepended above an experiment module preview. */
+function abExperimentBadge(exp: ExperimentPack): string {
+  const a = exp.variants[0];
+  const b = exp.variants[1];
+  const label = `A/B test · showing variant ${esc(String(a?.id ?? 'A'))}${b ? ` (vs ${esc(String(b.id))})` : ''}`;
+  return `<div style="position:sticky;top:0;z-index:5;display:flex;gap:6px;align-items:center;padding:6px 12px;background:#111827;color:#fff;font:600 12px/1.3 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;">
+    <span style="display:inline-block;padding:2px 6px;border-radius:6px;background:#6366f1;">A/B</span>${label}
+  </div>`;
 }
 
 function pageHtml(body: string, css: string) {

@@ -458,6 +458,23 @@ export function runRichnessQa(recipe: RecipeSpec, opts: RichnessQaOpts = {}): Qa
       });
     }
 
+    // 1c) B6 — multi-step form floor (WARN). A capture stepper should have 1–4 steps
+    // and ≥1 field per step: a 0-field step is a dead screen; >4 steps fatigues.
+    // (The schema also caps these — this is the human-legible richness signal.)
+    const ff = (config as { formFields?: { steps?: Array<{ fields?: unknown[] }> } }).formFields;
+    if (isPopup(config) && ff && Array.isArray(ff.steps)) {
+      const steps = ff.steps;
+      const emptyStep = steps.some((s) => !Array.isArray(s.fields) || s.fields.length === 0);
+      if (steps.length === 0 || steps.length > 4 || emptyStep) {
+        issues.push({
+          id: 'richness.floor.popup.formFields',
+          severity: 'warn',
+          message: `Multi-step form should have 1–4 steps with ≥1 field each (found ${steps.length} step(s)${emptyStep ? '; a step has no fields' : ''}).`,
+          autofixed: false,
+        });
+      }
+    }
+
     // 2) Basicness — only when there is a pack expectation to measure against.
     const expected = (opts.mustHaveControls ?? []).filter((ns) => ns && ns.length > 0);
     if (expected.length > 0) {

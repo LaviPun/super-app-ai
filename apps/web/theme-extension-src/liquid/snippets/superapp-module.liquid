@@ -325,7 +325,7 @@
 
 {% # Per-module compiled style (colors/spacing/tokens/custom CSS), scoped to [data-module-id]. Server-sanitized. %}
 {% if mod_sty.css != blank %}<style>{{ mod_sty.css }}</style>{% endif %}
-<div class="superapp-scope" data-sa-pack="{{ sa_pack | escape }}"{% if sa_device_attr != blank %} data-sa-device="{{ sa_device_attr | escape }}"{% endif %}{% if sa_ovr != blank %} style="{{ sa_ovr | escape }}"{% endif %}>
+<div class="superapp-scope" data-sa-pack="{{ sa_pack | escape }}"{% if sa_device_attr != blank %} data-sa-device="{{ sa_device_attr | escape }}"{% endif %}{% if mod_cfg.experiment.enabled %} data-sa-exp="{{ mod_cfg.experiment | json | escape }}"{% endif %}{% if sa_ovr != blank %} style="{{ sa_ovr | escape }}"{% endif %}>
 
 {% comment %} R2.1: open the gate wrapper for NON-popup kinds when rules are enabled. The
    wrapper carries the data-sa-* payload the client sweep reads; it renders hidden
@@ -510,6 +510,12 @@
         </button>
       {% endif %}
     </div>
+
+  {% when 'sales-pop' %}
+    {% # B14 sales-pop: a JS-rendered rotating toast queue. Merchant-authored events
+       # (blocks kind:'event') + config ride a single data attribute; the runtime
+       # renders one toast at a time. Empty stub = zero markup until JS paints. %}
+    <div class="superapp-salespop" data-module-id="{{ module_id | escape }}" data-sa-salespop="{{ mod_cfg | json | escape }}" role="status" aria-live="polite" aria-atomic="true"></div>
 
   {% when 'product-bundle' %}
     {% render 'superapp-product-bundle', mod_cfg: mod_cfg, module_id: module_id %}

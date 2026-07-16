@@ -61,6 +61,7 @@
       data-delay-seconds="{{ mod_cfg.delaySeconds | default: 0 }}"
       data-auto-close-seconds="{{ mod_cfg.autoCloseSeconds | default: 0 }}"
       {% if mod_cfg.behavior.teaser.enabled %}data-sa-teaser="{{ mod_cfg.behavior.teaser | json | escape }}"{% endif %}
+      {% if mod_cfg.formFields %}data-sa-form="{{ mod_cfg.formFields | json | escape }}"{% if customer %} data-sa-cust="{{ customer.id }}"{% endif %}{% endif %}
       {% if sa_rules_enabled %}data-sa-rules="{{ sa_rules_json | escape }}" data-sa-rule-server="{{ sa_rule_server }}" data-sa-ctx="{{ sa_ctx_json | escape }}"{% endif %}
       hidden
     >

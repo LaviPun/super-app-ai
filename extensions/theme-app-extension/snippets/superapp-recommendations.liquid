@@ -1,18 +1,18 @@
 {%# theme-check-disable OrphanedSnippet%}
 {%liquid
-assign rec = mod_cfg.recommendation
-assign strat = rec.strategy|default:'related'
-assign limit = rec.productLimit|default:4
-assign products = null
+assign rec=mod_cfg.recommendation
+assign strat=rec.strategy|default:'related'
+assign limit=rec.productLimit|default:4
+assign products=null
 case strat
 when 'manual'
-assign products = mod_cfg.recommendationProducts
+assign products=mod_cfg.recommendationProducts
 when 'collection'
-assign coll = collections[rec.collectionHandle]
-assign products = coll.products
+assign coll=collections[rec.collectionHandle]
+assign products=coll.products
 when 'related','complementary'
 if recommendations.performed and recommendations.products.size > 0
-assign products = recommendations.products
+assign products=recommendations.products
 endif
 endcase
 %}

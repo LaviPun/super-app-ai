@@ -14,6 +14,8 @@ import { PricingPackSchema } from './control-packs/packs/pricing.pack.js';
 import { RecommendationPackSchema } from './control-packs/packs/recommendation.pack.js';
 import { ProgressGoalPackSchema } from './control-packs/packs/progress-goal.pack.js';
 import { DevicePackSchema } from './control-packs/packs/device.pack.js';
+import { FormFieldsPackSchema } from './control-packs/packs/form-fields.pack.js';
+import { ExperimentPackSchema } from './control-packs/packs/experiment.pack.js';
 import { MessagingPackSchema } from './control-packs/packs/messaging.pack.js';
 import { DataModelSchema, ModuleDataStoreSchema } from './data-model.js';
 import type { ModuleCategory, ModuleType } from './allowed-values.js';
@@ -407,6 +409,22 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
        * device.pack.ts). Optional + back-compat: absent = shown everywhere.
        */
       device: DevicePackSchema.optional(),
+      /**
+       * Multi-step form / product-finder quiz (V-B B6). When present on a popup
+       * kind, the storefront upgrades the popup shell into a 1–4 step stepper
+       * (progress dots, per-field validation, consent honesty) that submits to
+       * the app-proxy capture path. Optional + back-compat: absent = classic
+       * title/body/CTA popup, byte-identical. See form-fields.pack.ts.
+       */
+      formFields: FormFieldsPackSchema.optional(),
+      /**
+       * A/B experiment (V-B B7). Deterministic client-side visitor bucketing
+       * applies a variant's TEXT overrides (headline/subheadline/CTA/coupon) to
+       * the rendered module and stamps `data-sa-variant` for attribution. Optional
+       * + back-compat: absent or `enabled:false` = single-variant, byte-identical.
+       * See experiment.pack.ts.
+       */
+      experiment: ExperimentPackSchema.optional(),
       /** Sanitized custom markup/styles/scripts (scoped + CSP-bound at compile/preview). */
       advancedCustom: AdvancedCustomPackSchema.optional(),
     // Open section: `.catchall` accepts kind-specific keys (collapsed from the former
@@ -451,6 +469,44 @@ export const RecipeSpecSchema = z.discriminatedUnion('type', [
        * `sa-hide-*` classes (see device.pack.ts). Optional + back-compat.
        */
       device: DevicePackSchema.optional(),
+      /**
+       * Product-finder QUIZ (V-B B6). Only meaningful when `surface: 'full_page'`
+       * — the app-proxy loader renders the quiz shell + first question server-side
+       * (SEO-fine, app-served, so it costs ZERO theme-extension Liquid budget) and
+       * the widget JS steps through the questions, accumulating each answer
+       * option's `tagHints`. On completion it resolves the OUTCOME bucket whose
+       * hint accumulated the most (ties → first; none → `fallback`) and renders
+       * that bucket's collection / manual product list. HONEST v1: outcomes resolve
+       * to a Shopify collection handle or an explicit product-handle list — full
+       * tag→recommendation-strategy wiring is a tracked follow-up. Optional +
+       * back-compat: absent = the classic title/message widget.
+       */
+      quiz: z.object({
+        /** 2–5 questions, each with 2–6 answer options carrying tag hints. */
+        questions: z.array(z.object({
+          text: z.string().min(1).max(200),
+          options: z.array(z.object({
+            label: z.string().min(1).max(80),
+            /** Hints this option contributes toward outcome resolution. */
+            tagHints: z.array(z.string().min(1).max(40)).max(8).default([]),
+          })).min(2).max(6),
+        })).min(2).max(5),
+        /** Outcome buckets — the winning `hint` selects one; each names a collection or product list. */
+        outcomes: z.array(z.object({
+          hint: z.string().min(1).max(40),
+          heading: z.string().max(120).optional(),
+          collectionHandle: z.string().max(120).optional(),
+          productHandles: z.array(z.string().min(1).max(120)).max(12).optional(),
+        })).min(1).max(8),
+        /** Shown when no outcome hint accumulated (defensive default). */
+        fallback: z.object({
+          heading: z.string().max(120).optional(),
+          collectionHandle: z.string().max(120).optional(),
+          productHandles: z.array(z.string().min(1).max(120)).max(12).optional(),
+        }).optional(),
+        /** Optional email gate BEFORE showing results (reuses the capture path). */
+        emailGate: z.boolean().default(false),
+      }).optional(),
     }),
     placement: PlacementSchema,
     style: StorefrontStyleSchema.optional(),

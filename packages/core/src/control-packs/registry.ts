@@ -21,6 +21,8 @@ import { recommendationPack } from './packs/recommendation.pack.js';
 import { messagingPack } from './packs/messaging.pack.js';
 import { progressGoalPack } from './packs/progress-goal.pack.js';
 import { devicePack } from './packs/device.pack.js';
+import { formFieldsPack } from './packs/form-fields.pack.js';
+import { experimentPack } from './packs/experiment.pack.js';
 
 const ALL_PACKS: ControlPack[] = [
   contentPack,
@@ -40,6 +42,8 @@ const ALL_PACKS: ControlPack[] = [
   messagingPack,
   progressGoalPack,
   devicePack,
+  formFieldsPack,
+  experimentPack,
 ];
 
 const REGISTRY = new Map<string, ControlPack>(ALL_PACKS.map((p) => [p.id, p]));

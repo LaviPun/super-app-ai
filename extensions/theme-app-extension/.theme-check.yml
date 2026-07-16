@@ -26,11 +26,20 @@
 # the behavior is vanilla dependency-free JS. This is a LINT threshold we own (not
 # a Shopify wall) — raised to fit the added runtime; the minified asset still
 # gzips well under the wire budget. Following the R2.1 / V-B precedent above.
+# Rationale (V-B final batch B6/B7/B14, 56 KB → 64 KB): three more surfaces moved
+# into JS to keep the Liquid aggregate clear — the multi-step FORM / capture
+# stepper (per-field email/phone validation, consent honesty, back/next state),
+# the A/B EXPERIMENT runtime (deterministic FNV-1a visitor bucketing + text-only
+# variant overrides + data-sa-variant attribution), and the SALES-POP toast queue
+# (rotating single-toast, session cap, reduced-motion instant swap). All the
+# Liquid these need is a tiny JSON-config data attribute (the quiz variant is
+# app-served on proxy.widget, costing ZERO TAE Liquid). Same reasoning as above:
+# a lint ceiling we own, minified asset gzips to a fraction of the wire budget.
 extends: :theme_app_extension
 
 AssetSizeAppBlockJavaScript:
   enabled: true
-  threshold_in_bytes: 56000
+  threshold_in_bytes: 64000
 
 # AssetSizeAppBlockCSS raised from the 100 KB preset default to 120 KB.
 # Rationale (V-B renderer batch B9–B12): the four new surfaces added their
