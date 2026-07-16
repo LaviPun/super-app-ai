@@ -1,6 +1,5 @@
 import { json } from '@remix-run/node';
 import { useLoaderData, useFetcher, useNavigate } from '@remix-run/react';
-import { Page, Banner, Text, BlockStack, Card, TextField } from '@shopify/polaris';
 import { useCallback, useEffect, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
@@ -125,41 +124,40 @@ export default function FlowBuildPage() {
   }, [flowId, fetcher, name]);
 
   return (
-    <MerchantShell>
-    <Page
-      title={moduleName ?? 'New Flow'}
-      subtitle="Visual flow builder"
-      backAction={{ content: 'Flows', url: '/flows' }}
-    >
-      <BlockStack gap="400">
+    <MerchantShell polaris>
+      <s-page heading={moduleName ?? 'New Flow'} inlineSize="base">
+        <s-stack direction="inline" gap="small-100" alignItems="center">
+          <s-button variant="tertiary" icon="arrow-left" onClick={() => navigate('/flows')}>Flows</s-button>
+          <s-text color="subdued">Visual flow builder</s-text>
+        </s-stack>
         {result?.ok && (
-          <Banner tone="success" title="Saved">
-            <Text as="p">Flow saved successfully.{result.flowId ? ` Flow ID: ${result.flowId}` : ''}</Text>
-          </Banner>
+          <s-banner heading="Saved" tone="success">
+            <s-paragraph>Flow saved successfully.{result.flowId ? ` Flow ID: ${result.flowId}` : ''}</s-paragraph>
+          </s-banner>
         )}
         {result?.error && (
-          <Banner tone="critical" title="Error">
-            <Text as="p">{result.error}</Text>
-          </Banner>
+          <s-banner heading="Error" tone="critical">
+            <s-paragraph>{result.error}</s-paragraph>
+          </s-banner>
         )}
-        <Card>
-          <TextField
+        <s-section padding="base">
+          <s-text-field
             label="Flow name"
             value={name}
-            onChange={setName}
-            autoComplete="off"
+            onInput={(e) => setName(e.currentTarget.value)}
             placeholder="e.g. Tag big orders"
-            helpText="Saved with the flow and shown in the Flows hub."
+            details="Saved with the flow and shown in the Flows hub."
           />
-        </Card>
+        </s-section>
         <FlowBuilder
           initialSpec={(spec as any) ?? undefined}
           connectors={connectors}
           onSave={handleSave}
           saving={isSaving}
         />
-      </BlockStack>
-    </Page>
+      </s-page>
     </MerchantShell>
   );
 }
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

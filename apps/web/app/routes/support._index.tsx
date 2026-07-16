@@ -1,14 +1,11 @@
 import { json } from '@remix-run/node';
 import { useLoaderData, useNavigate, useFetcher } from '@remix-run/react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import {
-  Btn, Badge, Card, PageHead, FilterBar, StatTile, DataTable,
-  EmptyState, Modal, Field, Input, Textarea, Select, useTableState, titleCase,
-} from '~/components/superapp';
-import { SEVERITY_TONE, TICKET_STATUS_LABEL, TicketStatusBadge } from '~/components/support/badges';
+import { EmptyState, StatTile, titleCase, useCustomEvent } from '~/components/merchant/polaris';
+import { SeverityBadge, TICKET_STATUS_LABEL, TicketStatusBadge } from '~/components/support/badges';
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -67,14 +64,25 @@ function timeAgo(d: Date | string): string {
   return `${Math.round(h / 24)}d ago`;
 }
 
+/**
+ * New-ticket form modal. Fields live inside a fetcher.Form; the primary action
+ * sits in the modal's `primary-action` slot and submits through a form ref
+ * (same idiom as the connectors create modal).
+ */
 function NewTicketModal({ modules, onClose }: { modules: Array<{ id: string; name: string }>; onClose: () => void }) {
   const ctx = useMerchantCtx();
   const navigate = useNavigate();
   const fetcher = useFetcher<{ ok?: boolean; ticketId?: string; triaged?: boolean; error?: string }>();
+  const modalRef = useRef<HTMLElement | null>(null);
+  const formRef = useRef<HTMLFormElement | null>(null);
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
-  const [moduleId, setModuleId] = useState('');
   const busy = fetcher.state !== 'idle';
+
+  useEffect(() => {
+    (modalRef.current as (HTMLElement & { show?: () => void }) | null)?.show?.();
+  }, []);
+  useCustomEvent(modalRef, 'afterhide', onClose);
 
   useEffect(() => {
     if (fetcher.state === 'idle' && fetcher.data?.ok && fetcher.data.ticketId) {
@@ -85,63 +93,67 @@ function NewTicketModal({ modules, onClose }: { modules: Array<{ id: string; nam
 
   const submit = () => {
     if (!subject.trim() || !description.trim() || busy) return;
-    fetcher.submit(
-      { subject: subject.trim(), description: description.trim(), moduleId },
-      { method: 'post', action: '/api/support/create' },
-    );
+    // Values are trimmed/validated server-side in /api/support/create.
+    if (formRef.current) fetcher.submit(formRef.current);
   };
 
   return (
-    <Modal
-      title="Raise an issue"
-      sub="Describe the problem — our support team responds right away, usually within a few minutes."
-      onClose={onClose}
-      footer={(
-        <>
-          <Btn onClick={onClose}>Cancel</Btn>
-          <Btn variant="primary" icon="send" disabled={!subject.trim() || !description.trim() || busy} onClick={submit}>
-            {busy ? 'Submitting…' : 'Submit ticket'}
-          </Btn>
-        </>
-      )}
-    >
-      <div className="stack" style={{ gap: 14 }}>
-        {fetcher.data?.error && <Badge tone="critical">{fetcher.data.error}</Badge>}
-        <Field label="Subject">
-          <Input
+    <s-modal ref={modalRef as never} heading="Raise an issue">
+      <fetcher.Form method="post" action="/api/support/create" ref={formRef}>
+        <s-stack gap="base">
+          <s-text color="subdued">
+            Describe the problem — our support team responds right away, usually within a few minutes.
+          </s-text>
+          {fetcher.state === 'idle' && fetcher.data?.error && (
+            <s-banner tone="critical">{fetcher.data.error}</s-banner>
+          )}
+          <s-text-field
+            label="Subject"
+            name="subject"
             placeholder="e.g. Countdown timer not showing on product pages"
-            value={subject}
             maxLength={200}
-            onChange={(e) => setSubject(e.target.value)}
+            value={subject}
+            onInput={(e) => setSubject(e.currentTarget.value ?? '')}
           />
-        </Field>
-        <Field label="What happened?" help="Include what you expected, what you saw instead, and any error text.">
-          <Textarea
+          <s-text-area
+            label="What happened?"
+            name="description"
             rows={5}
-            placeholder="The more detail you give, the better the first response…"
-            value={description}
             maxLength={5000}
-            onChange={(e) => setDescription(e.target.value)}
+            placeholder="The more detail you give, the better the first response…"
+            details="Include what you expected, what you saw instead, and any error text."
+            value={description}
+            onInput={(e) => setDescription(e.currentTarget.value ?? '')}
           />
-        </Field>
-        {modules.length > 0 && (
-          <Field label="Related module" optional>
-            <Select
-              value={moduleId}
-              onChange={(e) => setModuleId(e.target.value)}
-              options={[{ value: '', label: 'None' }, ...modules.map((m) => ({ value: m.id, label: m.name }))]}
-            />
-          </Field>
-        )}
-      </div>
-    </Modal>
+          {modules.length > 0 && (
+            <s-select label="Related module (optional)" name="moduleId">
+              <s-option value="">None</s-option>
+              {modules.map((m) => (
+                <s-option key={m.id} value={m.id}>{m.name}</s-option>
+              ))}
+            </s-select>
+          )}
+        </s-stack>
+      </fetcher.Form>
+      <s-button
+        slot="primary-action"
+        variant="primary"
+        icon="send"
+        loading={busy || undefined}
+        disabled={!subject.trim() || !description.trim() || busy || undefined}
+        onClick={submit}
+      >
+        Submit ticket
+      </s-button>
+      <s-button slot="secondary-actions" onClick={onClose}>Cancel</s-button>
+    </s-modal>
   );
 }
 
 export default function SupportIndex() {
   const data = useLoaderData<typeof loader>();
   return (
-    <MerchantShell>
+    <MerchantShell polaris>
       <SupportBody {...data} />
     </MerchantShell>
   );
@@ -149,7 +161,7 @@ export default function SupportIndex() {
 
 function SupportBody({ tickets, modules, stats }: ReturnType<typeof useLoaderData<typeof loader>>) {
   const navigate = useNavigate();
-  const ts = useTableState();
+  const [search, setSearch] = useState('');
   const [status, setStatus] = useState('All');
   const [source, setSource] = useState('All');
   const [formOpen, setFormOpen] = useState(false);
@@ -157,82 +169,118 @@ function SupportBody({ tickets, modules, stats }: ReturnType<typeof useLoaderDat
   const rows = tickets.filter((t) =>
     (status === 'All' || t.status === status) &&
     (source === 'All' || t.source === source) &&
-    (t.subject + ' ' + t.summary + ' ' + (t.category ?? '')).toLowerCase().includes(ts.search.toLowerCase()));
+    (t.subject + ' ' + t.summary + ' ' + (t.category ?? '')).toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div className="page">
-      <PageHead
-        title="Support"
-        sub="Raise issues and track them here — our support team usually responds within a few minutes."
-        actions={<Btn variant="primary" icon="plus" onClick={() => setFormOpen(true)}>New ticket</Btn>}
-      />
-      <div className="grid grid-4" style={{ marginBottom: 18 }}>
-        <StatTile label="Total tickets" value={stats.total} icon="chat" tone="info" />
-        <StatTile label="Open" value={stats.open} icon="clock" tone="warning" />
-        <StatTile label="Escalated" value={stats.escalated} icon="alert" tone="critical" />
-        <StatTile label="Resolved" value={stats.resolved} icon="check" tone="success" />
-      </div>
-      <Card>
-        <FilterBar
-          search={ts.search} onSearch={ts.setSearch} placeholder="Search tickets…"
-          filters={[{
-            options: ['All', 'OPEN', 'AI_RESPONDED', 'ESCALATED', 'RESOLVED'].map((s) => ({
-              value: s,
-              label: s === 'All' ? 'All statuses' : (TICKET_STATUS_LABEL[s] ?? titleCase(s)),
-            })),
-            value: status,
-            onChange: setStatus,
-          }, {
-            options: [
-              { value: 'All', label: 'All sources' },
-              { value: 'MERCHANT', label: 'My tickets' },
-              { value: 'SHOPPER', label: 'From shoppers' },
-            ],
-            value: source,
-            onChange: setSource,
-          }]}
-          results={rows.length}
-        />
-        {rows.length === 0 ? (
+    <s-page heading="Support" inlineSize="base">
+      <s-button slot="primary-action" variant="primary" icon="plus" onClick={() => setFormOpen(true)}>
+        New ticket
+      </s-button>
+      <s-paragraph color="subdued">
+        Raise issues and track them here — our support team usually responds within a few minutes.
+      </s-paragraph>
+
+      <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="small-100">
+        <StatTile label="Total tickets" value={stats.total} />
+        <StatTile label="Open" value={stats.open} />
+        <StatTile label="With the team" value={stats.escalated} />
+        <StatTile label="Resolved" value={stats.resolved} />
+      </s-grid>
+
+      {tickets.length === 0 ? (
+        <s-section>
           <EmptyState
             icon="chat"
-            title={tickets.length === 0 ? 'No tickets yet' : 'No tickets match'}
-            action={tickets.length === 0
-              ? <Btn variant="primary" icon="plus" onClick={() => setFormOpen(true)}>Raise an issue</Btn>
-              : <Btn onClick={() => { ts.setSearch(''); setStatus('All'); setSource('All'); }}>Clear filters</Btn>}
+            heading="No tickets yet"
+            action={<s-button variant="primary" icon="plus" onClick={() => setFormOpen(true)}>Raise an issue</s-button>}
           >
-            {tickets.length === 0
-              ? 'Something not working? Raise an issue and get an instant first response.'
-              : 'Try adjusting your search or status filter.'}
+            Something not working? Raise an issue and get an instant first response.
           </EmptyState>
-        ) : (
-          <DataTable
-            rowKey="id"
-            onRowClick={(r: (typeof rows)[number]) => navigate(`/support/${r.id}`)}
-            columns={[
-              { key: 'subject', label: 'Ticket', render: (r: (typeof rows)[number]) => (
-                <div className="stack" style={{ gap: 1 }}>
-                  <span className="row-2">
-                    <span className="cell-strong">{r.subject}</span>
-                    {r.source === 'SHOPPER' && <Badge tone="info">Shopper</Badge>}
-                  </span>
-                  <span className="cell-sub t-trunc" style={{ maxWidth: 380 }}>{r.summary}</span>
-                </div>
-              ) },
-              { key: 'severity', label: 'Severity', render: (r: (typeof rows)[number]) =>
-                r.severity ? <Badge tone={SEVERITY_TONE[r.severity]}>{titleCase(r.severity)}</Badge>
-                : r.triageFailed ? <Badge tone="info">Awaiting reply</Badge>
-                : <span className="cell-sub">—</span> },
-              { key: 'category', label: 'Category', render: (r: (typeof rows)[number]) =>
-                r.category ? titleCase(r.category) : <span className="cell-sub">—</span> },
-              { key: 'status', label: 'Status', render: (r: (typeof rows)[number]) => <TicketStatusBadge status={r.status} /> },
-              { key: 'updated', label: 'Updated', render: (r: (typeof rows)[number]) => <span className="cell-sub">{r.updated}</span> },
-            ]}
-            rows={rows}
-          />
-        )}
-      </Card>
+        </s-section>
+      ) : (
+        <s-section padding="none">
+          <s-table>
+            <s-grid slot="filters" gridTemplateColumns="1fr auto auto auto" gap="small-100" alignItems="center">
+              <s-search-field
+                label="Search tickets"
+                labelAccessibilityVisibility="exclusive"
+                placeholder="Search tickets…"
+                onInput={(e) => setSearch(e.currentTarget.value ?? '')}
+              />
+              <s-select
+                label="Status"
+                labelAccessibilityVisibility="exclusive"
+                value={status}
+                onChange={(e) => setStatus(e.currentTarget.value)}
+              >
+                {['All', 'OPEN', 'AI_RESPONDED', 'ESCALATED', 'RESOLVED'].map((s) => (
+                  <s-option key={s} value={s}>
+                    {s === 'All' ? 'All statuses' : (TICKET_STATUS_LABEL[s] ?? titleCase(s))}
+                  </s-option>
+                ))}
+              </s-select>
+              <s-select
+                label="Source"
+                labelAccessibilityVisibility="exclusive"
+                value={source}
+                onChange={(e) => setSource(e.currentTarget.value)}
+              >
+                <s-option value="All">All sources</s-option>
+                <s-option value="MERCHANT">My tickets</s-option>
+                <s-option value="SHOPPER">From shoppers</s-option>
+              </s-select>
+              <s-text color="subdued">{rows.length} result{rows.length === 1 ? '' : 's'}</s-text>
+            </s-grid>
+            <s-table-header-row>
+              <s-table-header listSlot="primary">Ticket</s-table-header>
+              <s-table-header>Severity</s-table-header>
+              <s-table-header>Category</s-table-header>
+              <s-table-header listSlot="inline">Status</s-table-header>
+              <s-table-header listSlot="kicker">Updated</s-table-header>
+            </s-table-header-row>
+            <s-table-body>
+              {rows.map((r) => (
+                <s-table-row key={r.id} clickDelegate={`ticket-link-${r.id}`}>
+                  <s-table-cell>
+                    <s-stack gap="none">
+                      <s-stack direction="inline" gap="small-200" alignItems="center">
+                        <s-link id={`ticket-link-${r.id}`} onClick={() => navigate(`/support/${r.id}`)}>
+                          <s-text type="strong">{r.subject}</s-text>
+                        </s-link>
+                        {r.source === 'SHOPPER' && <s-badge tone="info">Shopper</s-badge>}
+                      </s-stack>
+                      <s-text color="subdued">{r.summary}</s-text>
+                    </s-stack>
+                  </s-table-cell>
+                  <s-table-cell>
+                    {r.severity
+                      ? <SeverityBadge severity={r.severity} />
+                      : r.triageFailed
+                        ? <s-badge tone="info">Awaiting reply</s-badge>
+                        : <s-text color="subdued">—</s-text>}
+                  </s-table-cell>
+                  <s-table-cell>
+                    {r.category ? titleCase(r.category) : <s-text color="subdued">—</s-text>}
+                  </s-table-cell>
+                  <s-table-cell><TicketStatusBadge status={r.status} /></s-table-cell>
+                  <s-table-cell><s-text color="subdued">{r.updated}</s-text></s-table-cell>
+                </s-table-row>
+              ))}
+            </s-table-body>
+          </s-table>
+          {rows.length === 0 && (
+            <EmptyState
+              heading="No tickets match"
+              action={<s-button onClick={() => { setSearch(''); setStatus('All'); setSource('All'); }}>Clear filters</s-button>}
+            >
+              Try adjusting your search or status filter.
+            </EmptyState>
+          )}
+        </s-section>
+      )}
       {formOpen && <NewTicketModal modules={modules} onClose={() => setFormOpen(false)} />}
-    </div>
+    </s-page>
   );
 }
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

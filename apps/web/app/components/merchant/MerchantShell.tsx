@@ -7,12 +7,12 @@ import {
   Toast,
   superappRoute,
 } from '~/components/superapp';
-
- 
+import { SubnavTabs } from './polaris';
 
 // Mirrors the prototype's `ctx` object that every merchant page receives.
 // `go` maps the design's hash routes ("#/app/x") to real Remix paths.
-// `toast` shows the design's bottom-center toast.
+// `toast` shows an App Bridge (admin-native) toast, falling back to the
+// legacy bottom-center toast when App Bridge isn't available (bare dev tab).
 export interface MerchantCtx {
   go: (hash: string) => void;
   toast: (message: string, opts?: { error?: boolean }) => void;
@@ -28,20 +28,28 @@ export function useMerchantCtx(): MerchantCtx {
 
 type ToastState = { message: string; error?: boolean } | null;
 
+type AppBridgeToast = { toast?: { show: (message: string, opts?: { isError?: boolean; duration?: number }) => void } };
+
 /**
  * In-app merchant chrome. The top-level nav (Dashboard / Build / Insights /
- * Settings / Billing) lives in the Shopify App Bridge `<s-app-nav>` (root.tsx),
- * OUTSIDE the embedded app. This component renders the design's `.m-content`
- * scaffolding INSIDE the app: the `.m-subnav` sub-tabs (self-hidden on
- * non-Build/Insights routes and on /generate), a ⌘K command palette, and the
- * bottom toast. Every merchant page renders its body inside <MerchantShell>.
+ * Support / Settings / Billing) lives in the Shopify App Bridge `<s-app-nav>`
+ * (root.tsx), OUTSIDE the embedded app.
+ *
+ * Polaris web-components migration (transitional): pages that have been
+ * migrated pass `polaris` and render bare `s-page` content under the new
+ * `SubnavTabs`; unmigrated pages keep the legacy `.m-content` scaffolding and
+ * vendored `MerchantSubnav`. The legacy branch is deleted once the last page
+ * migrates. Both branches share the ⌘K palette and the `MerchantCtx` API, so
+ * page call-sites never change.
  */
 export function MerchantShell({
   children,
   fullBleed,
+  polaris,
 }: {
   children: ReactNode;
   fullBleed?: boolean;
+  polaris?: boolean;
 }) {
   const navigate = useNavigate();
   const [cmdkOpen, setCmdkOpen] = useState(false);
@@ -54,6 +62,11 @@ export function MerchantShell({
   );
 
   const showToast = useCallback((message: string, opts?: { error?: boolean }) => {
+    const bridge = (window as { shopify?: AppBridgeToast }).shopify;
+    if (bridge?.toast?.show) {
+      bridge.toast.show(message, { isError: opts?.error, duration: 4000 });
+      return;
+    }
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast({ message, error: opts?.error });
     toastTimer.current = setTimeout(() => setToast(null), 2600);
@@ -78,8 +91,17 @@ export function MerchantShell({
 
   return (
     <Ctx.Provider value={ctx}>
-      <MerchantSubnav />
-      <div className={fullBleed ? '' : 'm-content'}>{children}</div>
+      {polaris ? (
+        <div className="sa-merchant">
+          <SubnavTabs />
+          {children}
+        </div>
+      ) : (
+        <>
+          <MerchantSubnav />
+          <div className={fullBleed ? '' : 'm-content'}>{children}</div>
+        </>
+      )}
       {cmdkOpen && <CommandPalette mode="merchant" onClose={() => setCmdkOpen(false)} />}
       <Toast toast={toast} />
     </Ctx.Provider>

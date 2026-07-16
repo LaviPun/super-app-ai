@@ -5,9 +5,10 @@
  * GET /modules/:moduleId/captures?format=print → printable HTML (Save as PDF)
  */
 import { json } from '@remix-run/node';
-import { useLoaderData, Link } from '@remix-run/react';
-import { Page, Card, BlockStack, Text, DataTable, Button, InlineStack, EmptyState } from '@shopify/polaris';
+import { useLoaderData, useNavigate } from '@remix-run/react';
 import { shopify } from '~/shopify.server';
+import { MerchantShell } from '~/components/merchant/MerchantShell';
+import { EmptyState, MonoChip } from '~/components/merchant/polaris';
 import { getPrisma } from '~/db.server';
 import { recordsToCsv, recordsToPrintHtml, type ExportableRecord } from '~/services/data/export.service';
 
@@ -69,36 +70,60 @@ export async function loader({ request, params }: { request: Request; params: { 
 }
 
 export default function ModuleCaptures() {
-  const { moduleId, moduleName, captures } = useLoaderData<typeof loader>();
-
   return (
-    <Page
-      title={`${moduleName} — captures`}
-      backAction={{ content: 'Module', url: `/modules/${moduleId}` }}
-      secondaryActions={[
-        { content: 'Export CSV', url: `/modules/${moduleId}/captures?format=csv`, external: true },
-        { content: 'Print / PDF', url: `/modules/${moduleId}/captures?format=print`, external: true },
-      ]}
-    >
-      <Card>
-        {captures.length === 0 ? (
-          <EmptyState heading="No captures yet" image="">
-            <p>Form submissions and events captured by this module will appear here.</p>
-          </EmptyState>
-        ) : (
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">{captures.length} capture(s)</Text>
-            <DataTable
-              columnContentTypes={['text', 'text', 'text', 'text']}
-              headings={['Type', 'Customer', 'Created', 'Payload']}
-              rows={captures.map((c: { captureType: string; customerId: string | null; createdAt: string; preview: string }) => [c.captureType, c.customerId ?? '—', new Date(c.createdAt).toLocaleString(), c.preview])}
-            />
-            <InlineStack>
-              <Link to={`/modules/${moduleId}`}><Button>Back to module</Button></Link>
-            </InlineStack>
-          </BlockStack>
-        )}
-      </Card>
-    </Page>
+    <MerchantShell polaris>
+      <ModuleCapturesBody />
+    </MerchantShell>
   );
 }
+
+function ModuleCapturesBody() {
+  const { moduleId, moduleName, captures } = useLoaderData<typeof loader>();
+  const navigate = useNavigate();
+
+  return (
+    <s-page heading={`${moduleName} — captures`} inlineSize="base">
+      <s-button slot="secondary-actions" icon="export" href={`/modules/${moduleId}/captures?format=csv`} target="_blank">
+        Export CSV
+      </s-button>
+      <s-button slot="secondary-actions" icon="print" href={`/modules/${moduleId}/captures?format=print`} target="_blank">
+        Print / PDF
+      </s-button>
+      <s-stack direction="inline">
+        <s-button variant="tertiary" icon="arrow-left" onClick={() => navigate(`/modules/${moduleId}`)}>Module</s-button>
+      </s-stack>
+      {captures.length === 0 ? (
+        <s-section>
+          <EmptyState icon="forms" heading="No captures yet">
+            Form submissions and events captured by this module will appear here.
+          </EmptyState>
+        </s-section>
+      ) : (
+        <s-section heading={`${captures.length} capture${captures.length === 1 ? '' : 's'}`} padding="none">
+          <s-table>
+            <s-table-header-row>
+              <s-table-header listSlot="primary">Type</s-table-header>
+              <s-table-header>Customer</s-table-header>
+              <s-table-header listSlot="kicker">Created</s-table-header>
+              <s-table-header>Payload</s-table-header>
+            </s-table-header-row>
+            <s-table-body>
+              {captures.map((c: { id: string; captureType: string; customerId: string | null; createdAt: string; preview: string }) => (
+                <s-table-row key={c.id}>
+                  <s-table-cell><s-text type="strong">{c.captureType}</s-text></s-table-cell>
+                  <s-table-cell>
+                    {c.customerId ? <MonoChip>{c.customerId}</MonoChip> : <s-text color="subdued">—</s-text>}
+                  </s-table-cell>
+                  <s-table-cell><s-text color="subdued">{new Date(c.createdAt).toLocaleString()}</s-text></s-table-cell>
+                  <s-table-cell><MonoChip>{c.preview}</MonoChip></s-table-cell>
+                </s-table-row>
+              ))}
+            </s-table-body>
+          </s-table>
+        </s-section>
+      )}
+    </s-page>
+  );
+}
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

@@ -3,8 +3,8 @@ import { useLoaderData } from '@remix-run/react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { getAllPlanConfigs } from '~/services/billing/plan-config.service';
-import { MerchantShell } from '~/components/merchant/MerchantShell';
-import { Icon, Card, CardHead, PageHead, DataTable, StatusBadge, Badge, KV, EmptyState, fmtCents, titleCase } from '~/components/superapp';
+import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
+import { StatusBadge, KV, EmptyState, fmtCents, titleCase } from '~/components/merchant/polaris';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -56,7 +56,7 @@ export async function loader({ request }: { request: Request }) {
 export default function BillingHistory() {
   const { domain, subscription, planChanges } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell>
+    <MerchantShell polaris>
       <BillingHistoryBody domain={domain} subscription={subscription} planChanges={planChanges} />
     </MerchantShell>
   );
@@ -68,64 +68,82 @@ function BillingHistoryBody({ domain, subscription, planChanges }: any) {
   // Shopify owns the actual invoice ledger (managed pricing) — invoices live in
   // the merchant's Shopify admin. We show our real records: the subscription row
   // and every recorded plan change.
+  const ctx = useMerchantCtx();
   const storeHandle = encodeURIComponent(domain.replace('.myshopify.com', ''));
   const shopifyBillingUrl = `https://admin.shopify.com/store/${storeHandle}/settings/billing`;
   return (
-    <div className="page">
-      <PageHead
-        back={{ href: '/billing', label: 'Billing' }}
-        title="Billing history"
-        sub={`Plan changes and subscription details for ${domain}. Invoices are issued by Shopify.`}
-      />
-      <div className="col-main" style={{ marginBottom: 18 }}>
-        <Card>
-          <CardHead title="Plan changes" />
+    <s-page heading="Billing history" inlineSize="base">
+      <s-stack gap="small-100">
+        <s-stack direction="inline">
+          <s-button variant="tertiary" icon="arrow-left" onClick={() => ctx.go('#/app/billing')}>Billing</s-button>
+        </s-stack>
+        <s-paragraph color="subdued">Plan changes and subscription details for {domain}. Invoices are issued by Shopify.</s-paragraph>
+      </s-stack>
+
+      <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+        <s-section heading="Plan changes">
           {planChanges.length === 0 ? (
-            <EmptyState icon="plan" title="No plan changes yet">
+            <EmptyState icon="plan" heading="No plan changes yet">
               When you switch plans, each change is recorded here. Invoices are issued by Shopify and available in your Shopify admin.
             </EmptyState>
           ) : (
-            <DataTable rowKey="id" columns={[
-              { key: 'date', label: 'Date', render: (r: any) => fmtDate(r.date) },
-              { key: 'plan', label: 'Plan', render: (r: any) => r.plan ? <Badge>{titleCase(r.plan)}</Badge> : <span className="t-muted">—</span> },
-              { key: 'price', label: 'Price', num: true, render: (r: any) => r.price == null ? <span className="t-muted">—</span> : r.price === -1 ? 'Custom' : `${fmtCents(r.price * 100)}/mo` },
-              { key: 'actor', label: 'Changed by', render: (r: any) => <span className="cell-sub">{titleCase(r.actor.replace(/_/g, ' '))}</span> },
-            ]} rows={planChanges} />
+            <s-table>
+              <s-table-header-row>
+                <s-table-header>Date</s-table-header>
+                <s-table-header>Plan</s-table-header>
+                <s-table-header>Price</s-table-header>
+                <s-table-header>Changed by</s-table-header>
+              </s-table-header-row>
+              <s-table-body>
+                {planChanges.map((r: any) => (
+                  <s-table-row key={r.id}>
+                    <s-table-cell>{fmtDate(r.date)}</s-table-cell>
+                    <s-table-cell>{r.plan ? <s-badge>{titleCase(r.plan)}</s-badge> : <s-text tone="neutral" color="subdued">—</s-text>}</s-table-cell>
+                    <s-table-cell>{r.price == null ? '—' : r.price === -1 ? 'Custom' : `${fmtCents(r.price * 100)}/mo`}</s-table-cell>
+                    <s-table-cell><s-text tone="neutral" color="subdued">{titleCase(r.actor.replace(/_/g, ' '))}</s-text></s-table-cell>
+                  </s-table-row>
+                ))}
+              </s-table-body>
+            </s-table>
           )}
-        </Card>
-        <div className="stack-4">
-          <Card pad>
-            <div className="t-h3" style={{ marginBottom: 12 }}>Payment method</div>
-            <div className="row-3" style={{ marginBottom: 14 }}>
-              <span className="tile-ico" style={{ background: 'var(--p-surface-secondary)', color: 'var(--p-text)' }}><Icon name="plan" size={18} /></span>
-              <div className="stack" style={{ gap: 1 }}>
-                <span className="t-strong">Managed by Shopify</span>
-                <span className="t-xs t-muted">Billed through your Shopify account</span>
-              </div>
-            </div>
-            <a className="btn btn-block" href={shopifyBillingUrl} target="_blank" rel="noreferrer">
-              <Icon name="external" size={16} /><span>Manage in Shopify</span>
-            </a>
-          </Card>
-          <Card pad>
-            <div className="t-h3" style={{ marginBottom: 6 }}>Subscription</div>
+        </s-section>
+
+        <s-stack gap="base">
+          <s-section heading="Payment method">
+            <s-stack gap="base">
+              <s-stack direction="inline" gap="small-100" alignItems="center">
+                <s-icon type="credit-card" tone="neutral" />
+                <s-stack gap="none">
+                  <s-text type="strong">Managed by Shopify</s-text>
+                  <s-text tone="neutral" color="subdued">Billed through your Shopify account</s-text>
+                </s-stack>
+              </s-stack>
+              <s-stack direction="inline">
+                <s-button href={shopifyBillingUrl} target="_blank" icon="external">Manage in Shopify</s-button>
+              </s-stack>
+            </s-stack>
+          </s-section>
+
+          <s-section heading="Subscription">
             {subscription ? (
-              <>
-                <div className="t-sm t-muted" style={{ marginBottom: 12 }}>Your current app subscription record.</div>
-                <KV rows={[
-                  ['Plan', <Badge key="plan">{titleCase(subscription.planName)}</Badge>],
-                  ['Status', <StatusBadge key="status" value={subscription.status} />],
+              <s-stack gap="base">
+                <s-text tone="neutral" color="subdued">Your current app subscription record.</s-text>
+                <KV rows={([
+                  ['Plan', <s-badge key="plan">{titleCase(subscription.planName)}</s-badge>],
+                  ['Status', <StatusBadge key="status" status={subscription.status} />],
                   ['Started', fmtDate(subscription.createdAt)],
                   subscription.trialEndsAt && ['Trial ends', fmtDate(subscription.trialEndsAt)],
                   subscription.currentPeriodEnd && ['Period ends', fmtDate(subscription.currentPeriodEnd)],
-                ]} />
-              </>
+                ].filter(Boolean)) as Array<[string, any]>} />
+              </s-stack>
             ) : (
-              <div className="t-sm t-muted">No subscription record yet — you’re on the Free plan.</div>
+              <s-text tone="neutral" color="subdued">No subscription record yet — you’re on the Free plan.</s-text>
             )}
-          </Card>
-        </div>
-      </div>
-    </div>
+          </s-section>
+        </s-stack>
+      </s-grid>
+    </s-page>
   );
 }
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

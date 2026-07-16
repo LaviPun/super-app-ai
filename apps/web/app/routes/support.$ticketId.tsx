@@ -1,10 +1,10 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, useFetcher } from '@remix-run/react';
-import { useEffect, useState } from 'react';
+import { useLoaderData, useFetcher, useNavigate } from '@remix-run/react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { Btn, Badge, Card, PageHead, Textarea, Banner, Icon, titleCase } from '~/components/superapp';
+import { titleCase } from '~/components/merchant/polaris';
 import { SUPPORT_AGENT_NAME, TICKET_STATUS_TONE, TicketStatusBadge } from '~/components/support/badges';
 
 export async function loader({ request, params }: { request: Request; params: { ticketId?: string } }) {
@@ -76,7 +76,7 @@ function timeAgo(iso: string): string {
 
 export default function TicketDetail() {
   return (
-    <MerchantShell>
+    <MerchantShell polaris>
       <TicketDetailBody />
     </MerchantShell>
   );
@@ -85,9 +85,11 @@ export default function TicketDetail() {
 function TicketDetailBody() {
   const { ticket, messages } = useLoaderData<typeof loader>();
   const ctx = useMerchantCtx();
+  const navigate = useNavigate();
   const actionFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const replyFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const triageFetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const replyFormRef = useRef<HTMLFormElement | null>(null);
   const [reply, setReply] = useState('');
 
   const actionBusy = actionFetcher.state !== 'idle';
@@ -114,10 +116,8 @@ function TicketDetailBody() {
 
   const sendReply = () => {
     if (!reply.trim() || replyBusy) return;
-    replyFetcher.submit(
-      { ticketId: ticket.id, intent: 'reply', body: reply.trim() },
-      { method: 'post', action: '/api/support/ticket-action' },
-    );
+    // Body is trimmed/validated server-side in /api/support/ticket-action.
+    if (replyFormRef.current) replyFetcher.submit(replyFormRef.current);
   };
 
   const retryTriage = () =>
@@ -129,72 +129,91 @@ function TicketDetailBody() {
   const fetcherError = actionFetcher.data?.error || replyFetcher.data?.error || triageFetcher.data?.error;
 
   return (
-    <div className="page page-narrow">
-      <PageHead
-        back={{ href: '/support', label: 'Support' }}
-        title={ticket.subject}
-        badge={<TicketStatusBadge status={ticket.status} />}
-        sub={
-          <span className="row-2">
-            {ticket.source === 'SHOPPER'
-              ? <span>From shopper{ticket.shopperEmail ? ` · ${ticket.shopperEmail}` : ''}</span>
-              : <span>Raised by you</span>}
-            <span>·</span>
-            <span>Opened {timeAgo(ticket.createdAt)}</span>
-          </span>
-        }
-        actions={
-          <div className="row-2">
-            {canEscalate && (
-              <Btn icon="alert" loading={actionBusy} onClick={() => runAction('escalate')}>Escalate to a human</Btn>
-            )}
-            {canResolve && (
-              <Btn variant="primary" icon="check" loading={actionBusy} onClick={() => runAction('resolve')}>Mark resolved</Btn>
-            )}
-            {canReopen && (
-              <Btn icon="refresh" loading={actionBusy} onClick={() => runAction('reopen')}>Reopen</Btn>
-            )}
-          </div>
-        }
+    <s-page heading={ticket.subject} inlineSize="small">
+      <s-button
+        slot="breadcrumb-actions"
+        icon="arrow-left"
+        accessibilityLabel="Back to Support"
+        onClick={() => navigate('/support')}
       />
+      {canEscalate && (
+        <s-button slot="secondary-actions" icon="alert-triangle" loading={actionBusy || undefined} onClick={() => runAction('escalate')}>
+          Escalate to a human
+        </s-button>
+      )}
+      {canResolve && (
+        <s-button slot="primary-action" variant="primary" icon="check" loading={actionBusy || undefined} onClick={() => runAction('resolve')}>
+          Mark resolved
+        </s-button>
+      )}
+      {canReopen && (
+        <s-button slot="primary-action" icon="refresh" loading={actionBusy || undefined} onClick={() => runAction('reopen')}>
+          Reopen
+        </s-button>
+      )}
 
-      {fetcherError && <Banner tone="critical" title="Something went wrong">{fetcherError}</Banner>}
+      <s-stack direction="inline" gap="small-100" alignItems="center">
+        <TicketStatusBadge status={ticket.status} />
+        <s-text color="subdued">
+          {ticket.source === 'SHOPPER'
+            ? `From shopper${ticket.shopperEmail ? ` · ${ticket.shopperEmail}` : ''}`
+            : 'Raised by you'}
+          {' · '}Opened {timeAgo(ticket.createdAt)}
+        </s-text>
+      </s-stack>
+
+      {fetcherError && (
+        <s-banner tone="critical" heading="Something went wrong">{fetcherError}</s-banner>
+      )}
 
       <StatusTracker status={ticket.status} />
 
       {ticket.triageError && (
-        <Banner
-          tone="info"
-          title="We're on it"
-          action={<Btn size="sm" icon="refresh" loading={triageBusy} onClick={retryTriage}>Check for a response</Btn>}
-        >
+        <s-banner tone="info" heading="We're on it">
           Your ticket has been received and the team has been notified. A first response usually arrives within a few minutes.
-        </Banner>
+          <s-button slot="secondary-actions" icon="refresh" loading={triageBusy || undefined} onClick={retryTriage}>
+            Check for a response
+          </s-button>
+        </s-banner>
       )}
 
-      <Card pad style={{ marginTop: 16 }}>
-        <div className="t-h3" style={{ marginBottom: 14 }}>Conversation</div>
-        <div className="stack" style={{ gap: 12 }}>
-          {messages.length === 0 && <div className="t-sm t-muted">No messages yet.</div>}
-          {messages.map((m) => <MessageBubble key={m.id} role={m.role} body={m.body} createdAt={m.createdAt} />)}
-        </div>
-        <div className="stack-2" style={{ marginTop: 18 }}>
-          <Textarea
-            rows={4}
-            placeholder="Write a reply…"
-            value={reply}
-            maxLength={5000}
-            disabled={replyBusy}
-            onChange={(e) => setReply(e.target.value)}
-          />
-          <div className="row" style={{ justifyContent: 'flex-end' }}>
-            <Btn variant="primary" icon="send" disabled={!reply.trim() || replyBusy} onClick={sendReply}>
-              {replyBusy ? 'Sending…' : 'Send reply'}
-            </Btn>
-          </div>
-        </div>
-      </Card>
-    </div>
+      <s-section heading="Conversation">
+        <s-stack gap="base">
+          {messages.length === 0 && <s-text color="subdued">No messages yet.</s-text>}
+          {messages.map((m) => (
+            <MessageBubble key={m.id} role={m.role} body={m.body} createdAt={m.createdAt} />
+          ))}
+          <replyFetcher.Form method="post" action="/api/support/ticket-action" ref={replyFormRef}>
+            <input type="hidden" name="ticketId" value={ticket.id} />
+            <input type="hidden" name="intent" value="reply" />
+            <s-stack gap="small-100">
+              <s-text-area
+                label="Reply"
+                labelAccessibilityVisibility="exclusive"
+                name="body"
+                rows={4}
+                maxLength={5000}
+                placeholder="Write a reply…"
+                disabled={replyBusy || undefined}
+                value={reply}
+                onInput={(e) => setReply(e.currentTarget.value ?? '')}
+              />
+              <s-stack direction="inline" justifyContent="end">
+                <s-button
+                  variant="primary"
+                  icon="send"
+                  loading={replyBusy || undefined}
+                  disabled={!reply.trim() || replyBusy || undefined}
+                  onClick={sendReply}
+                >
+                  Send reply
+                </s-button>
+              </s-stack>
+            </s-stack>
+          </replyFetcher.Form>
+        </s-stack>
+      </s-section>
+    </s-page>
   );
 }
 
@@ -202,62 +221,60 @@ function StatusTracker({ status }: { status: string }) {
   const steps = statusSteps(status);
   const currentIdx = steps.findIndex((s) => s.key === status);
   return (
-    <Card pad style={{ marginTop: 16 }}>
-      <div className="row-2" style={{ flexWrap: 'wrap', gap: 8 }} role="list" aria-label="Ticket progress">
+    <s-box padding="small-100" border="base" borderRadius="base" background="base">
+      <s-stack direction="inline" gap="small-100" alignItems="center" accessibilityLabel="Ticket progress">
         {steps.map((step, i) => (
-          <span key={step.key} className="row-2" style={{ gap: 8 }} role="listitem">
+          <Fragment key={step.key}>
             {i === currentIdx ? (
-              <Badge tone={TICKET_STATUS_TONE[step.key]}>{step.label}</Badge>
+              <s-badge tone={TICKET_STATUS_TONE[step.key] ?? 'neutral'}>{step.label}</s-badge>
             ) : i < currentIdx ? (
               // Done: check icon + weight carry the state, not color alone.
-              <span className="row-2 t-xs" style={{ gap: 4, color: 'var(--p-text-secondary)', fontWeight: 600 }}>
-                <Icon name="check" size={12} />
-                {step.label}
-              </span>
+              <s-stack direction="inline" gap="small-300" alignItems="center">
+                <s-icon type="check" size="small" tone="neutral" />
+                <s-text type="strong" color="subdued">{step.label}</s-text>
+              </s-stack>
             ) : (
-              <span className="t-xs" style={{ color: 'var(--p-text-disabled)' }}>{step.label}</span>
+              <s-text color="subdued">{step.label}</s-text>
             )}
-            {i < steps.length - 1 && (
-              <span className="t-xs" aria-hidden style={{ color: 'var(--p-text-disabled)' }}>→</span>
-            )}
-          </span>
+            {i < steps.length - 1 && <s-icon type="chevron-right" size="small" tone="neutral" />}
+          </Fragment>
         ))}
-      </div>
-    </Card>
+      </s-stack>
+    </s-box>
   );
 }
 
 function MessageBubble({ role, body, createdAt }: { role: string; body: string; createdAt: string }) {
   if (role === 'system') {
     return (
-      <div className="t-xs t-muted" style={{ textAlign: 'center', padding: '2px 0' }}>
-        {body} · {timeAgo(createdAt)}
-      </div>
+      <s-stack alignItems="center">
+        <s-text color="subdued">{body} · {timeAgo(createdAt)}</s-text>
+      </s-stack>
     );
   }
 
   const mine = role === 'merchant';
   return (
-    <div className="stack" style={{ gap: 4, alignItems: mine ? 'flex-end' : 'flex-start' }}>
-      <div className="row-2 t-xs t-muted">
-        <span style={{ fontWeight: 600 }}>{ROLE_LABEL[role] ?? titleCase(role)}</span>
-        <span>{timeAgo(createdAt)}</span>
-      </div>
-      <div
-        className="t-sm"
-        style={{
-          maxWidth: '78%',
-          padding: '10px 14px',
-          borderRadius: 'var(--p-r-lg)',
-          whiteSpace: 'pre-wrap',
-          lineHeight: 1.5,
-          background: mine ? 'var(--p-info-bg)' : 'var(--p-surface-secondary)',
-          color: 'var(--p-text)',
-          border: '1px solid var(--p-border)',
-        }}
+    <s-stack gap="small-300" alignItems={mine ? 'end' : 'start'}>
+      <s-stack direction="inline" gap="small-200" alignItems="center">
+        <s-text type="strong" color="subdued">{ROLE_LABEL[role] ?? titleCase(role)}</s-text>
+        <s-text color="subdued">{timeAgo(createdAt)}</s-text>
+      </s-stack>
+      <s-box
+        padding="small-100"
+        background={mine ? 'subdued' : 'base'}
+        border="base"
+        borderRadius="base"
+        maxInlineSize="78%"
       >
-        {body}
-      </div>
-    </div>
+        <s-stack gap="small-300">
+          {body.split(/\n+/).map((line, i) => (
+            <s-text key={i}>{line}</s-text>
+          ))}
+        </s-stack>
+      </s-box>
+    </s-stack>
   );
 }
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

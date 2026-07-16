@@ -1,8 +1,4 @@
-import { useState, useCallback } from 'react';
-import {
-  Card, BlockStack, Text, Button, InlineStack, Badge, Select,
-  TextField, Modal, Box,
-} from '@shopify/polaris';
+import { useCallback, useId, useState } from 'react';
 
 type TriggerType =
   | 'MANUAL'
@@ -38,6 +34,14 @@ type FlowStep =
   | { kind: 'SEND_SLACK_MESSAGE'; webhookUrl?: string; channel?: string; text: string }
   | { kind: 'CONDITION'; field: string; operator: string; value: string; thenSteps: FlowStep[]; elseSteps: FlowStep[] };
 
+/**
+ * Internal builder representation: every step carries a stable `__id` so React
+ * keys survive reorder/remove. Polaris web-component fields treat the `value`
+ * attribute as a default (native-input semantics), so index keys would leave
+ * stale text in fields after a reorder. Ids are stripped before `onSave`.
+ */
+type FlowStepWithId = FlowStep & { __id?: string };
+
 type FlowSpec = {
   trigger: TriggerType;
   steps: FlowStep[];
@@ -67,7 +71,7 @@ const LIVE_TRIGGERS: ReadonlySet<string> = new Set([
   'SCHEDULED',
 ]);
 
-const TRIGGER_OPTIONS = [
+const TRIGGER_OPTIONS: Array<{ label: string; value: TriggerType; disabled?: boolean }> = [
   { label: 'Manual', value: 'MANUAL' },
   { label: 'Order Created', value: 'SHOPIFY_WEBHOOK_ORDER_CREATED' },
   { label: 'Product Updated', value: 'SHOPIFY_WEBHOOK_PRODUCT_UPDATED' },
@@ -156,46 +160,49 @@ function defaultStep(kind: string): FlowStep {
   }
 }
 
-function NodeBox({ label, badge, tone, children, onDelete }: {
-  label: string;
-  badge?: string;
-  tone?: 'success' | 'info' | 'attention' | 'critical' | 'magic';
-  children?: React.ReactNode;
-  onDelete?: () => void;
-}) {
-  return (
-    <div style={{
-      border: '2px solid #e1e3e5',
-      borderRadius: 12,
-      padding: 16,
-      background: '#fff',
-      position: 'relative',
-      minWidth: 280,
-    }}>
-      <BlockStack gap="200">
-        <InlineStack align="space-between" blockAlign="center">
-          <InlineStack gap="200">
-            <Text as="h3" variant="headingSm">{label}</Text>
-            {badge && <Badge tone={tone}>{badge}</Badge>}
-          </InlineStack>
-          {onDelete && (
-            <Button size="slim" tone="critical" variant="plain" onClick={onDelete}>Remove</Button>
-          )}
-        </InlineStack>
-        {children}
-      </BlockStack>
-    </div>
-  );
+let stepIdSeq = 0;
+const nextStepId = () => `fb-step-${++stepIdSeq}`;
+
+function newStep(kind: string): FlowStepWithId {
+  return { ...defaultStep(kind), __id: nextStepId() };
 }
 
-function Arrow() {
+function withIds(steps: FlowStep[]): FlowStepWithId[] {
+  return steps.map((s): FlowStepWithId => {
+    if (s.kind === 'CONDITION') {
+      return { ...s, __id: nextStepId(), thenSteps: withIds(s.thenSteps ?? []), elseSteps: withIds(s.elseSteps ?? []) };
+    }
+    return { ...s, __id: nextStepId() };
+  });
+}
+
+function stripIds(steps: FlowStepWithId[]): FlowStep[] {
+  return steps.map((s): FlowStep => {
+    const { __id: _omitted, ...rest } = s;
+    if (rest.kind === 'CONDITION') {
+      return { ...rest, thenSteps: stripIds(rest.thenSteps ?? []), elseSteps: stripIds(rest.elseSteps ?? []) };
+    }
+    return rest;
+  });
+}
+
+function kindLabel(kind: FlowStep['kind']): string {
+  return kind.replace(/_/g, ' ');
+}
+
+function kindTone(kind: FlowStep['kind']): 'caution' | 'info' | 'warning' | 'success' {
+  if (kind === 'HTTP_REQUEST' || kind === 'SEND_HTTP_REQUEST') return 'caution';
+  if (kind === 'WRITE_TO_STORE') return 'info';
+  if (kind === 'CONDITION') return 'warning';
+  return 'success';
+}
+
+/** Compact vertical connector between builder rows. */
+function Connector() {
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 0' }}>
-      <svg width="24" height="32" viewBox="0 0 24 32">
-        <line x1="12" y1="0" x2="12" y2="24" stroke="#8c9196" strokeWidth="2" />
-        <polygon points="6,24 18,24 12,32" fill="#8c9196" />
-      </svg>
-    </div>
+    <s-stack alignItems="center">
+      <s-icon type="arrow-down" color="subdued" size="small" />
+    </s-stack>
   );
 }
 
@@ -214,103 +221,108 @@ function StepFields({ step, connectorOptions, onChange }: {
     <>
       {step.kind === 'HTTP_REQUEST' && (
         <>
-          <Select label="Connector" options={connectorOptions} value={step.connectorId} onChange={(v) => onChange({ connectorId: v })} />
-          <InlineStack gap="200">
-            <div style={{ width: 100 }}>
-              <Select label="Method" labelHidden options={METHOD_OPTIONS} value={step.method} onChange={(v) => onChange({ method: v })} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <TextField label="Path" labelHidden value={step.path} onChange={(v) => onChange({ path: v })} autoComplete="off" />
-            </div>
-          </InlineStack>
+          <s-select label="Connector" value={step.connectorId} onInput={(e) => onChange({ connectorId: e.currentTarget.value })}>
+            {connectorOptions.map((o) => (
+              <s-option key={o.value} value={o.value}>{o.label}</s-option>
+            ))}
+          </s-select>
+          <s-grid gridTemplateColumns="8rem 1fr" gap="small-100">
+            <s-select label="Method" labelAccessibilityVisibility="exclusive" value={step.method} onInput={(e) => onChange({ method: e.currentTarget.value })}>
+              {METHOD_OPTIONS.map((o) => (
+                <s-option key={o.value} value={o.value}>{o.label}</s-option>
+              ))}
+            </s-select>
+            <s-text-field label="Path" labelAccessibilityVisibility="exclusive" value={step.path} onInput={(e) => onChange({ path: e.currentTarget.value })} autocomplete="off" />
+          </s-grid>
         </>
       )}
       {step.kind === 'SEND_HTTP_REQUEST' && (
         <>
-          <TextField label="URL" value={step.url} onChange={(v) => onChange({ url: v })} autoComplete="off" placeholder="https://api.example.com/endpoint" helpText="Must be HTTPS" />
-          <InlineStack gap="200">
-            <div style={{ width: 130 }}>
-              <Select label="Method" options={HTTP_METHOD_OPTIONS} value={step.method} onChange={(v) => onChange({ method: v })} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <Select label="Auth" options={AUTH_TYPE_OPTIONS} value={step.authType} onChange={(v) => onChange({ authType: v, authConfig: {} })} />
-            </div>
-          </InlineStack>
+          <s-url-field label="URL" value={step.url} onInput={(e) => onChange({ url: e.currentTarget.value })} placeholder="https://api.example.com/endpoint" details="Must be HTTPS" />
+          <s-grid gridTemplateColumns="9rem 1fr" gap="small-100">
+            <s-select label="Method" value={step.method} onInput={(e) => onChange({ method: e.currentTarget.value })}>
+              {HTTP_METHOD_OPTIONS.map((o) => (
+                <s-option key={o.value} value={o.value}>{o.label}</s-option>
+              ))}
+            </s-select>
+            <s-select label="Auth" value={step.authType} onInput={(e) => onChange({ authType: e.currentTarget.value, authConfig: {} })}>
+              {AUTH_TYPE_OPTIONS.map((o) => (
+                <s-option key={o.value} value={o.value}>{o.label}</s-option>
+              ))}
+            </s-select>
+          </s-grid>
           {step.authType === 'basic' && (
-            <InlineStack gap="200">
-              <div style={{ flex: 1 }}>
-                <TextField label="Username" value={step.authConfig?.username ?? ''} onChange={(v) => onChange({ authConfig: { ...step.authConfig, username: v } })} autoComplete="off" />
-              </div>
-              <div style={{ flex: 1 }}>
-                <TextField label="Password" type="password" value={step.authConfig?.password ?? ''} onChange={(v) => onChange({ authConfig: { ...step.authConfig, password: v } })} autoComplete="off" />
-              </div>
-            </InlineStack>
+            <s-grid key="auth-basic" gridTemplateColumns="1fr 1fr" gap="small-100">
+              <s-text-field label="Username" value={step.authConfig?.username ?? ''} onInput={(e) => onChange({ authConfig: { ...step.authConfig, username: e.currentTarget.value } })} autocomplete="off" />
+              <s-password-field label="Password" value={step.authConfig?.password ?? ''} onInput={(e) => onChange({ authConfig: { ...step.authConfig, password: e.currentTarget.value } })} autocomplete="off" />
+            </s-grid>
           )}
           {step.authType === 'bearer' && (
-            <TextField label="Bearer Token" value={step.authConfig?.token ?? ''} onChange={(v) => onChange({ authConfig: { ...step.authConfig, token: v } })} autoComplete="off" type="password" />
+            <s-password-field key="auth-bearer" label="Bearer Token" value={step.authConfig?.token ?? ''} onInput={(e) => onChange({ authConfig: { ...step.authConfig, token: e.currentTarget.value } })} autocomplete="off" />
           )}
           {step.authType === 'custom_header' && (
-            <InlineStack gap="200">
-              <div style={{ flex: 1 }}>
-                <TextField label="Header Name" value={step.authConfig?.headerName ?? ''} onChange={(v) => onChange({ authConfig: { ...step.authConfig, headerName: v } })} autoComplete="off" placeholder="X-API-Key" />
-              </div>
-              <div style={{ flex: 1 }}>
-                <TextField label="Header Value" value={step.authConfig?.headerValue ?? ''} onChange={(v) => onChange({ authConfig: { ...step.authConfig, headerValue: v } })} autoComplete="off" type="password" />
-              </div>
-            </InlineStack>
+            <s-grid key="auth-custom-header" gridTemplateColumns="1fr 1fr" gap="small-100">
+              <s-text-field label="Header Name" value={step.authConfig?.headerName ?? ''} onInput={(e) => onChange({ authConfig: { ...step.authConfig, headerName: e.currentTarget.value } })} autocomplete="off" placeholder="X-API-Key" />
+              <s-password-field label="Header Value" value={step.authConfig?.headerValue ?? ''} onInput={(e) => onChange({ authConfig: { ...step.authConfig, headerValue: e.currentTarget.value } })} autocomplete="off" />
+            </s-grid>
           )}
-          <TextField
+          <s-text-field
             label="Headers (JSON)"
             value={step.headersText ?? JSON.stringify(step.headers ?? {})}
-            onChange={(v) => {
+            onInput={(e) => {
+              const v = e.currentTarget.value;
               // Keep the raw text so typing through invalid intermediate
               // JSON isn't swallowed; commit to `headers` once it parses.
               try { onChange({ headersText: v, headers: JSON.parse(v) }); }
               catch { onChange({ headersText: v }); }
             }}
             error={(() => { try { JSON.parse(step.headersText ?? '{}'); return undefined; } catch { return 'Invalid JSON — last valid headers will be used'; } })()}
-            autoComplete="off"
+            autocomplete="off"
             placeholder='{"Content-Type": "application/json"}'
-            helpText="Key-value pairs as JSON object"
+            details="Key-value pairs as JSON object"
           />
-          <TextField label="Body" value={step.body} onChange={(v) => onChange({ body: v })} autoComplete="off" multiline={4} placeholder='{"key": "value"}' />
+          <s-text-area label="Body" value={step.body} onInput={(e) => onChange({ body: e.currentTarget.value })} rows={4} placeholder='{"key": "value"}' />
         </>
       )}
       {step.kind === 'TAG_CUSTOMER' && (
-        <TextField label="Customer tag" value={step.tag} onChange={(v) => onChange({ tag: v })} autoComplete="off" placeholder="e.g. vip" />
+        <s-text-field label="Customer tag" value={step.tag} onInput={(e) => onChange({ tag: e.currentTarget.value })} autocomplete="off" placeholder="e.g. vip" />
       )}
       {step.kind === 'TAG_ORDER' && (
-        <TextField label="Tags (comma-separated)" value={step.tags} onChange={(v) => onChange({ tags: v })} autoComplete="off" placeholder="e.g. high-value, priority" />
+        <s-text-field label="Tags (comma-separated)" value={step.tags} onInput={(e) => onChange({ tags: e.currentTarget.value })} autocomplete="off" placeholder="e.g. high-value, priority" />
       )}
       {step.kind === 'ADD_ORDER_NOTE' && (
-        <TextField label="Order note" value={step.note} onChange={(v) => onChange({ note: v })} autoComplete="off" multiline={2} />
+        <s-text-area label="Order note" value={step.note} onInput={(e) => onChange({ note: e.currentTarget.value })} rows={2} />
       )}
       {step.kind === 'WRITE_TO_STORE' && (
         <>
-          <TextField label="Store key" value={step.storeKey} onChange={(v) => onChange({ storeKey: v })} autoComplete="off" helpText="e.g. analytics, product, order" />
-          <TextField label="Record title expression" value={step.titleExpr} onChange={(v) => onChange({ titleExpr: v })} autoComplete="off" placeholder="e.g. Order {{order.name}}" />
+          <s-text-field label="Store key" value={step.storeKey} onInput={(e) => onChange({ storeKey: e.currentTarget.value })} autocomplete="off" details="e.g. analytics, product, order" />
+          <s-text-field label="Record title expression" value={step.titleExpr} onInput={(e) => onChange({ titleExpr: e.currentTarget.value })} autocomplete="off" placeholder="e.g. Order {{order.name}}" />
         </>
       )}
       {step.kind === 'SEND_EMAIL_NOTIFICATION' && (
         <>
-          <TextField label="To" value={step.to} onChange={(v) => onChange({ to: v })} autoComplete="off" placeholder="recipient@example.com" type="email" />
-          <TextField label="Subject" value={step.subject} onChange={(v) => onChange({ subject: v })} autoComplete="off" />
-          <TextField label="Body (HTML)" value={step.body} onChange={(v) => onChange({ body: v })} autoComplete="off" multiline={3} />
+          <s-email-field label="To" value={step.to} onInput={(e) => onChange({ to: e.currentTarget.value })} placeholder="recipient@example.com" />
+          <s-text-field label="Subject" value={step.subject} onInput={(e) => onChange({ subject: e.currentTarget.value })} autocomplete="off" />
+          <s-text-area label="Body (HTML)" value={step.body} onInput={(e) => onChange({ body: e.currentTarget.value })} rows={3} />
         </>
       )}
       {step.kind === 'SEND_SLACK_MESSAGE' && (
         <>
-          <TextField label="Slack incoming webhook URL" value={step.webhookUrl ?? ''} onChange={(v) => onChange({ webhookUrl: v })} autoComplete="off" placeholder="https://hooks.slack.com/services/…" helpText="Create an Incoming Webhook in Slack; it posts to the channel you chose there. Leave blank to use the app-wide SLACK_WEBHOOK_URL." />
-          <TextField label="Channel label (optional)" value={step.channel ?? ''} onChange={(v) => onChange({ channel: v })} autoComplete="off" placeholder="#general" helpText="Display only — the webhook URL determines the actual channel." />
-          <TextField label="Message" value={step.text} onChange={(v) => onChange({ text: v })} autoComplete="off" multiline={3} />
+          <s-url-field label="Slack incoming webhook URL" value={step.webhookUrl ?? ''} onInput={(e) => onChange({ webhookUrl: e.currentTarget.value })} placeholder="https://hooks.slack.com/services/…" details="Create an Incoming Webhook in Slack; it posts to the channel you chose there. Leave blank to use the app-wide SLACK_WEBHOOK_URL." />
+          <s-text-field label="Channel label (optional)" value={step.channel ?? ''} onInput={(e) => onChange({ channel: e.currentTarget.value })} autocomplete="off" placeholder="#general" details="Display only — the webhook URL determines the actual channel." />
+          <s-text-area label="Message" value={step.text} onInput={(e) => onChange({ text: e.currentTarget.value })} rows={3} />
         </>
       )}
       {step.kind === 'CONDITION' && (
         <>
-          <TextField label="Field" value={step.field} onChange={(v) => onChange({ field: v })} autoComplete="off" placeholder="e.g. total_price" helpText="Dot-path into the trigger event payload, e.g. customer.orders_count" />
-          <Select label="Operator" options={CONDITION_OPERATOR_OPTIONS} value={step.operator} onChange={(v) => onChange({ operator: v })} />
+          <s-text-field label="Field" value={step.field} onInput={(e) => onChange({ field: e.currentTarget.value })} autocomplete="off" placeholder="e.g. total_price" details="Dot-path into the trigger event payload, e.g. customer.orders_count" />
+          <s-select label="Operator" value={step.operator} onInput={(e) => onChange({ operator: e.currentTarget.value })}>
+            {CONDITION_OPERATOR_OPTIONS.map((o) => (
+              <s-option key={o.value} value={o.value}>{o.label}</s-option>
+            ))}
+          </s-select>
           {!NO_VALUE_OPERATORS.has(step.operator) && (
-            <TextField label="Value" value={step.value} onChange={(v) => onChange({ value: v })} autoComplete="off" placeholder="e.g. 100" />
+            <s-text-field label="Value" value={step.value} onInput={(e) => onChange({ value: e.currentTarget.value })} autocomplete="off" placeholder="e.g. 100" />
           )}
           <BranchEditor
             title="Then"
@@ -333,49 +345,58 @@ function StepFields({ step, connectorOptions, onChange }: {
 /** Editable list of nested steps for one Condition branch. */
 function BranchEditor({ title, steps, connectorOptions, onChange }: {
   title: string;
-  steps: FlowStep[];
+  steps: FlowStepWithId[];
   connectorOptions: ConnectorOption[];
-  onChange: (steps: FlowStep[]) => void;
+  onChange: (steps: FlowStepWithId[]) => void;
 }) {
-  const [newKind, setNewKind] = useState('TAG_ORDER');
+  const menuId = useId();
   return (
-    <Box paddingBlockStart="100">
-      <BlockStack gap="200">
-        <Text as="h4" variant="headingSm">{`${title} (${steps.length} step${steps.length !== 1 ? 's' : ''})`}</Text>
+    <s-box paddingInlineStart="small" borderWidth="none none none base" borderStyle="none none none solid" borderColor="subdued">
+      <s-stack gap="small-100">
+        <s-text type="strong">{`${title} (${steps.length} step${steps.length !== 1 ? 's' : ''})`}</s-text>
         {steps.map((s, i) => (
-          <Box key={i} background="bg-surface-secondary" borderRadius="200" padding="200">
-            <BlockStack gap="200">
-              <InlineStack align="space-between" blockAlign="center">
-                <Badge>{s.kind.replace(/_/g, ' ')}</Badge>
-                <Button size="slim" variant="plain" tone="critical" onClick={() => onChange(steps.filter((_, j) => j !== i))}>Remove</Button>
-              </InlineStack>
+          <s-box key={s.__id ?? i} background="subdued" borderRadius="base" padding="small-100">
+            <s-stack gap="small-100">
+              <s-stack direction="inline" justifyContent="space-between" alignItems="center" gap="small-100">
+                <s-badge tone={kindTone(s.kind)}>{kindLabel(s.kind)}</s-badge>
+                <s-button
+                  variant="tertiary"
+                  tone="critical"
+                  icon="delete"
+                  accessibilityLabel={`Remove ${title.toLowerCase()} step ${i + 1}`}
+                  onClick={() => onChange(steps.filter((_, j) => j !== i))}
+                />
+              </s-stack>
               <StepFields
                 step={s}
                 connectorOptions={connectorOptions}
-                onChange={(patch) => onChange(steps.map((x, j) => (j === i ? { ...x, ...patch } as FlowStep : x)))}
+                onChange={(patch) => onChange(steps.map((x, j) => (j === i ? { ...x, ...patch } as FlowStepWithId : x)))}
               />
-            </BlockStack>
-          </Box>
+            </s-stack>
+          </s-box>
         ))}
-        <InlineStack gap="200" blockAlign="center">
-          <div style={{ flex: 1 }}>
-            <Select label={`Add ${title.toLowerCase()} step`} labelHidden options={NESTED_STEP_KINDS} value={newKind} onChange={setNewKind} />
-          </div>
-          <Button size="slim" onClick={() => onChange([...steps, defaultStep(newKind)])}>Add</Button>
-        </InlineStack>
-      </BlockStack>
-    </Box>
+        <s-stack direction="inline">
+          <s-button variant="tertiary" icon="plus" commandFor={menuId}>
+            {`Add ${title.toLowerCase()} step`}
+          </s-button>
+        </s-stack>
+        <s-menu id={menuId} accessibilityLabel={`Add ${title.toLowerCase()} step`}>
+          {NESTED_STEP_KINDS.map((k) => (
+            <s-button key={k.value} onClick={() => onChange([...steps, newStep(k.value)])}>{k.label}</s-button>
+          ))}
+        </s-menu>
+      </s-stack>
+    </s-box>
   );
 }
 
 export function FlowBuilder({ initialSpec, connectors = [], onSave, saving }: Props) {
   const [trigger, setTrigger] = useState<TriggerType>(initialSpec?.trigger ?? 'MANUAL');
-  const [steps, setSteps] = useState<FlowStep[]>(initialSpec?.steps ?? []);
-  const [addStepOpen, setAddStepOpen] = useState(false);
-  const [newStepKind, setNewStepKind] = useState('HTTP_REQUEST');
+  const [steps, setSteps] = useState<FlowStepWithId[]>(() => withIds(initialSpec?.steps ?? []));
+  const addMenuId = useId();
 
   const updateStep = useCallback((idx: number, updated: Partial<FlowStep>) => {
-    setSteps(prev => prev.map((s, i) => i === idx ? { ...s, ...updated } as FlowStep : s));
+    setSteps(prev => prev.map((s, i) => i === idx ? { ...s, ...updated } as FlowStepWithId : s));
   }, []);
 
   const removeStep = useCallback((idx: number) => {
@@ -395,13 +416,12 @@ export function FlowBuilder({ initialSpec, connectors = [], onSave, saving }: Pr
     });
   }, []);
 
-  const addStep = useCallback(() => {
-    setSteps(prev => [...prev, defaultStep(newStepKind)]);
-    setAddStepOpen(false);
-  }, [newStepKind]);
+  const addStep = useCallback((kind: string) => {
+    setSteps(prev => [...prev, newStep(kind)]);
+  }, []);
 
   const handleSave = useCallback(() => {
-    onSave({ trigger, steps });
+    onSave({ trigger, steps: stripIds(steps) });
   }, [trigger, steps, onSave]);
 
   const connectorOptions = [
@@ -410,98 +430,107 @@ export function FlowBuilder({ initialSpec, connectors = [], onSave, saving }: Pr
   ];
 
   return (
-    <BlockStack gap="400">
+    <s-stack gap="base">
       {/* ─── Toolbar ─── */}
-      <Card>
-        <InlineStack align="space-between" blockAlign="center">
-          <InlineStack gap="200">
-            <Text as="h2" variant="headingMd">Flow Builder</Text>
-            <Badge tone="info">{`${steps.length} step${steps.length !== 1 ? 's' : ''}`}</Badge>
-          </InlineStack>
-          <InlineStack gap="200">
-            <Button onClick={() => setAddStepOpen(true)}>Add step</Button>
-            <Button variant="primary" onClick={handleSave} loading={saving}>Save flow</Button>
-          </InlineStack>
-        </InlineStack>
-      </Card>
+      <s-section padding="base">
+        <s-stack direction="inline" justifyContent="space-between" alignItems="center" gap="small-100">
+          <s-stack direction="inline" gap="small-100" alignItems="center">
+            <s-heading>Flow builder</s-heading>
+            <s-badge tone="info">{`${steps.length} step${steps.length !== 1 ? 's' : ''}`}</s-badge>
+          </s-stack>
+          <s-stack direction="inline" gap="small-100">
+            <s-button icon="plus" commandFor={addMenuId}>Add step</s-button>
+            <s-button variant="primary" loading={saving || undefined} onClick={handleSave}>Save flow</s-button>
+          </s-stack>
+        </s-stack>
+      </s-section>
 
-      {/* ─── Visual canvas ─── */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px 0' }}>
-        {/* Trigger node */}
-        <NodeBox label="Trigger" badge={trigger.replace('SHOPIFY_WEBHOOK_', '')} tone="magic">
-          <Select
-            label="Trigger type"
-            labelHidden
-            options={TRIGGER_OPTIONS}
-            value={trigger}
-            onChange={(v) => setTrigger(v as TriggerType)}
-          />
-          {!LIVE_TRIGGERS.has(trigger) && (
-            <Text as="p" variant="bodySm" tone="critical">
-              This trigger is not wired to deliver events yet — the flow will only run when started manually.
-            </Text>
-          )}
-        </NodeBox>
+      {/* ─── Canvas: trigger → steps → add ─── */}
+      <s-section padding="base">
+        <s-stack gap="small-200">
+          {/* Trigger node */}
+          <s-box border="base" borderRadius="base" padding="small">
+            <s-stack gap="small-100">
+              <s-stack direction="inline" gap="small-100" alignItems="center">
+                <s-text type="strong">Trigger</s-text>
+                <s-badge tone="info">{trigger.replace('SHOPIFY_WEBHOOK_', '').replace(/_/g, ' ')}</s-badge>
+              </s-stack>
+              <s-select
+                label="Trigger type"
+                labelAccessibilityVisibility="exclusive"
+                value={trigger}
+                onInput={(e) => setTrigger(e.currentTarget.value as TriggerType)}
+              >
+                {TRIGGER_OPTIONS.map((o) => (
+                  <s-option key={o.value} value={o.value} disabled={o.disabled || undefined}>{o.label}</s-option>
+                ))}
+              </s-select>
+              {!LIVE_TRIGGERS.has(trigger) && (
+                <s-text tone="critical">
+                  This trigger is not wired to deliver events yet — the flow will only run when started manually.
+                </s-text>
+              )}
+            </s-stack>
+          </s-box>
 
-        {steps.map((step, idx) => (
-          <div key={idx}>
-            <Arrow />
-            <NodeBox
-              label={`Step ${idx + 1}`}
-              badge={step.kind.replace(/_/g, ' ')}
-              tone={step.kind === 'HTTP_REQUEST' || step.kind === 'SEND_HTTP_REQUEST' ? 'attention' : step.kind === 'WRITE_TO_STORE' ? 'info' : step.kind === 'CONDITION' ? 'magic' : 'success'}
-              onDelete={() => removeStep(idx)}
-            >
-              <BlockStack gap="200">
-                <StepFields
-                  step={step}
-                  connectorOptions={connectorOptions}
-                  onChange={(patch) => updateStep(idx, patch)}
-                />
-                <InlineStack gap="100">
-                  <Button size="slim" disabled={idx === 0} onClick={() => moveStep(idx, -1)}>Move up</Button>
-                  <Button size="slim" disabled={idx === steps.length - 1} onClick={() => moveStep(idx, 1)}>Move down</Button>
-                </InlineStack>
-              </BlockStack>
-            </NodeBox>
-          </div>
+          {steps.map((step, idx) => (
+            <s-stack key={step.__id ?? idx} gap="small-200">
+              <Connector />
+              <s-box border="base" borderRadius="base" padding="small">
+                <s-stack gap="small-100">
+                  <s-stack direction="inline" justifyContent="space-between" alignItems="center" gap="small-100">
+                    <s-stack direction="inline" gap="small-100" alignItems="center">
+                      <s-text type="strong">{`Step ${idx + 1}`}</s-text>
+                      <s-badge tone={kindTone(step.kind)}>{kindLabel(step.kind)}</s-badge>
+                    </s-stack>
+                    <s-stack direction="inline" gap="small-200">
+                      <s-button
+                        variant="tertiary"
+                        icon="arrow-up"
+                        accessibilityLabel={`Move step ${idx + 1} up`}
+                        disabled={idx === 0 || undefined}
+                        onClick={() => moveStep(idx, -1)}
+                      />
+                      <s-button
+                        variant="tertiary"
+                        icon="arrow-down"
+                        accessibilityLabel={`Move step ${idx + 1} down`}
+                        disabled={idx === steps.length - 1 || undefined}
+                        onClick={() => moveStep(idx, 1)}
+                      />
+                      <s-button
+                        variant="tertiary"
+                        tone="critical"
+                        icon="delete"
+                        accessibilityLabel={`Remove step ${idx + 1}`}
+                        onClick={() => removeStep(idx)}
+                      />
+                    </s-stack>
+                  </s-stack>
+                  <StepFields
+                    step={step}
+                    connectorOptions={connectorOptions}
+                    onChange={(patch) => updateStep(idx, patch)}
+                  />
+                </s-stack>
+              </s-box>
+            </s-stack>
+          ))}
+
+          {/* Add step tail */}
+          <Connector />
+          <s-stack alignItems="center">
+            <s-button variant="tertiary" icon="plus" commandFor={addMenuId}>Add a step</s-button>
+          </s-stack>
+        </s-stack>
+      </s-section>
+
+      {/* Add-step menu (anchored to whichever button invoked it) */}
+      <s-menu id={addMenuId} accessibilityLabel="Add step">
+        {STEP_KINDS.map((k) => (
+          <s-button key={k.value} onClick={() => addStep(k.value)}>{k.label}</s-button>
         ))}
-
-        {/* Add step placeholder */}
-        <Arrow />
-        <div
-          style={{
-            border: '2px dashed #b5b5b5',
-            borderRadius: 12,
-            padding: '12px 24px',
-            cursor: 'pointer',
-            color: '#6d7175',
-          }}
-          onClick={() => setAddStepOpen(true)}
-        >
-          <Text as="p" tone="subdued">+ Add a step</Text>
-        </div>
-      </div>
-
-      {/* Add step modal */}
-      {addStepOpen && (
-        <Modal
-          open
-          onClose={() => setAddStepOpen(false)}
-          title="Add step"
-          primaryAction={{ content: 'Add', onAction: addStep }}
-          secondaryActions={[{ content: 'Cancel', onAction: () => setAddStepOpen(false) }]}
-        >
-          <Modal.Section>
-            <Select
-              label="Step type"
-              options={STEP_KINDS}
-              value={newStepKind}
-              onChange={setNewStepKind}
-            />
-          </Modal.Section>
-        </Modal>
-      )}
-    </BlockStack>
+      </s-menu>
+    </s-stack>
   );
 }

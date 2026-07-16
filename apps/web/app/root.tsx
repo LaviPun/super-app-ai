@@ -11,6 +11,8 @@ import saPolarisCss from './styles/superapp/polaris.css?url';
 import saShellCss from './styles/superapp/shell.css?url';
 import saPagesCss from './styles/superapp/pages.css?url';
 import saGenerateCss from './styles/superapp/generate.css?url';
+// Merchant surface (Polaris web-components migration) — light-DOM helpers only.
+import merchantCss from './styles/merchant.css?url';
 import enTranslations from '@shopify/polaris/locales/en.json';
 import { AppProvider as PolarisProvider } from '@shopify/polaris';
 import { AppProvider } from '@shopify/shopify-app-remix/react';
@@ -31,6 +33,7 @@ export const links: LinksFunction = () => [
   { rel: 'stylesheet', href: saShellCss },
   { rel: 'stylesheet', href: saPagesCss },
   { rel: 'stylesheet', href: saGenerateCss },
+  { rel: 'stylesheet', href: merchantCss },
 ];
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -124,6 +127,13 @@ export default function App() {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <Meta />
         <Links />
+        {/* Polaris web components (s-page, s-section, …) — polaris.js defines the
+            s-* elements; app-bridge.js (injected by AppProvider) only integrates
+            s-page metadata with the admin title bar. Verified via in-iframe
+            telemetry: without this script the s-* elements never upgrade. */}
+        {embedded && !isInternal && (
+          <script src="https://cdn.shopify.com/shopifycloud/polaris.js" defer />
+        )}
         {/* Force rounded cards/banners so Polaris’s 0-radius on small viewports never wins */}
         <style dangerouslySetInnerHTML={{ __html: `
           .Polaris-ShadowBevel, .Polaris-LegacyCard, .Polaris-Banner { border-radius: 12px !important; overflow: hidden; }
@@ -149,9 +159,10 @@ export default function App() {
               <Link to="/settings">Settings</Link>
               <Link to="/billing">Billing</Link>
             </s-app-nav>
+            {/* No app footer inside Shopify admin — the embedded surface should
+                read as native admin chrome end-to-end. */}
             <div className="app-content">
               <Outlet />
-              <footer className="app-footer">Made with ❤️ by Lavi</footer>
             </div>
           </AppProvider>
         ) : (

@@ -1,6 +1,7 @@
 import { json } from '@remix-run/node';
 import { useLoaderData, useNavigate, useFetcher, useSearchParams, useRevalidator } from '@remix-run/react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import type { CSSProperties } from 'react';
 import { shopify } from '~/shopify.server';
 import { ModuleService } from '~/services/modules/module.service';
 import { BlueprintService } from '~/services/blueprints/blueprint.service';
@@ -16,9 +17,8 @@ import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
-  Icon, Btn, Badge, StatusBadge, Card, CardHead, Section, Field, Input, Textarea, Select,
-  Tabs, Banner, Menu, KV, PageHead, DataTable, ConfirmDialog, Modal, EmptyState,
-} from '~/components/superapp';
+  ConfirmModal, EmptyState, KV, StatusBadge, Tabs, useCustomEvent, type WcTone,
+} from '~/components/merchant/polaris';
 import { getCategoryDisplayLabel, getCategoryTone } from '~/utils/type-label';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -319,9 +319,21 @@ function getDefaultThemeId(
   return main ? String(main.id) : String(themes[0]!.id);
 }
 
+/* Vendored category tone → Polaris badge tone ('magic' has no equivalent → 'caution'). */
+const CAT_BADGE_TONE: Record<string, WcTone> = { info: 'info', success: 'success', warning: 'warning', magic: 'caution' };
+function catTone(category: string): WcTone {
+  return CAT_BADGE_TONE[getCategoryTone(category)] ?? 'neutral';
+}
+
+const MONO_PRE: CSSProperties = {
+  margin: 0, maxHeight: 480, overflow: 'auto', padding: 16,
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+};
+
 export default function ModuleDetail() {
   return (
-    <MerchantShell>
+    <MerchantShell polaris>
       <ModuleDetailBody />
     </MerchantShell>
   );
@@ -572,291 +584,339 @@ function ModuleDetailBody() {
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
-    { id: 'versions', label: 'Versions', badge: versions.length },
+    { id: 'versions', label: `Versions (${versions.length})` },
     { id: 'settings', label: 'Settings' },
   ];
 
   return (
-    <div className="page">
-      <PageHead
-        back={{ href: '/modules', label: 'AI Modules' }}
-        title={mod.name}
-        badge={<StatusBadge value={mod.status} />}
-        sub={summary}
-        actions={(
-          <>
-            <Btn icon="eye" onClick={openPreview}>Preview</Btn>
-            <Btn icon="magic" onClick={() => setModifyOpen(true)}>Modify with AI</Btn>
-            <Menu trigger={<button className="btn btn-icon"><Icon name="dotsH" size={16} /></button>} items={[
-              { icon: 'copy', label: 'Duplicate', onClick: duplicate },
-              { icon: 'download', label: 'Export spec', onClick: exportSpec },
-              { divider: true },
-              { icon: 'trash', label: 'Delete module', tone: 'critical', onClick: () => setDelOpen(true) },
-            ]} />
-            {isDraft
-              ? <Btn variant="primary" icon="rocket" loading={isPublishing} onClick={publish}>Publish</Btn>
-              : <Btn variant="primary" icon="refresh" loading={isPublishing} onClick={publish}>Republish</Btn>}
-          </>
-        )}
+    <s-page heading={mod.name} inlineSize="base">
+      {isDraft
+        ? <s-button slot="primary-action" variant="primary" icon="rocket" loading={isPublishing || undefined} onClick={publish}>Publish</s-button>
+        : <s-button slot="primary-action" variant="primary" icon="refresh" loading={isPublishing || undefined} onClick={publish}>Republish</s-button>}
+      <s-button slot="secondary-actions" icon="view" onClick={openPreview}>Preview</s-button>
+      <s-button slot="secondary-actions" icon="wand" onClick={() => setModifyOpen(true)}>Modify with AI</s-button>
+      <s-button
+        slot="secondary-actions"
+        variant="tertiary"
+        icon="menu-horizontal"
+        accessibilityLabel="More actions"
+        commandFor="module-more-menu"
+        command="--toggle"
       />
+      <s-popover id="module-more-menu">
+        <s-menu>
+          <s-button icon="duplicate" onClick={duplicate}>Duplicate</s-button>
+          <s-button icon="download" onClick={exportSpec}>Export spec</s-button>
+          <s-button icon="delete" tone="critical" onClick={() => setDelOpen(true)}>Delete module</s-button>
+        </s-menu>
+      </s-popover>
+
+      <s-stack direction="inline" gap="small-100" alignItems="center">
+        <s-button variant="tertiary" icon="arrow-left" onClick={() => ctx.go('#/app/modules')}>AI Modules</s-button>
+        <StatusBadge status={mod.status} />
+        <s-text color="subdued">{summary}</s-text>
+      </s-stack>
 
       {data.blueprint && (
-        <div style={{ marginBottom: 16 }}>
-          <Banner tone="info" title={`Part of the “${data.blueprint.name}” blueprint (${data.blueprint.moduleCount} modules)`}>
-            <div className="stack" style={{ gap: 8 }}>
-              <div className="row-2" style={{ flexWrap: 'wrap', gap: 6 }}>
-                {data.blueprint.members.map((mem: { id: string; name: string; type: string; status: string }) => (
-                  <a key={mem.id} href={`/modules/${mem.id}`} style={{ textDecoration: 'none' }}>
-                    <Badge tone={mem.id === data.moduleId ? 'info' : mem.status === 'PUBLISHED' ? 'success' : undefined}>{mem.name}</Badge>
-                  </a>
-                ))}
-              </div>
-              {data.blueprint.draftCount > 0 && (
-                <div>
-                  <Btn variant="primary" icon="layers" loading={isCoDeploying} onClick={publishAll}>
-                    {`Publish all ${data.blueprint.moduleCount} modules`}
-                  </Btn>
-                </div>
-              )}
-            </div>
-          </Banner>
-        </div>
+        <s-banner tone="info" heading={`Part of the “${data.blueprint.name}” blueprint (${data.blueprint.moduleCount} modules)`}>
+          <s-stack gap="small-100">
+            <s-stack direction="inline" gap="small-100">
+              {data.blueprint.members.map((mem: { id: string; name: string; type: string; status: string }) => (
+                <s-link key={mem.id} href={`/modules/${mem.id}`}>
+                  <s-badge tone={mem.id === data.moduleId ? 'info' : mem.status === 'PUBLISHED' ? 'success' : 'neutral'}>{mem.name}</s-badge>
+                </s-link>
+              ))}
+            </s-stack>
+            {data.blueprint.draftCount > 0 && (
+              <s-stack direction="inline">
+                <s-button variant="primary" icon="layer" loading={isCoDeploying || undefined} onClick={publishAll}>
+                  {`Publish all ${data.blueprint.moduleCount} modules`}
+                </s-button>
+              </s-stack>
+            )}
+          </s-stack>
+        </s-banner>
       )}
 
       {justPublished && (
-        <div style={{ marginBottom: 16 }}>
-          <Banner tone="success" title="Module published">This module is now live on your storefront.</Banner>
-        </div>
+        <s-banner tone="success" heading="Module published">This module is now live on your storefront.</s-banner>
       )}
 
       {isThemeModule && themes.length > 0 && (
-        <div style={{ marginBottom: 16, maxWidth: 360 }}>
-          <Field label="Publish to theme">
-            <Select
-              options={themes.map((t: { id: number; name: string; role: string }) => ({ value: String(t.id), label: `${t.name}${t.role === 'main' ? ' (live)' : ''}` }))}
-              value={selectedThemeId}
-              onChange={(e: any) => setSelectedThemeId(e.target.value)}
-            />
-          </Field>
-        </div>
+        <s-box maxInlineSize="360px">
+          <s-select label="Publish to theme" value={selectedThemeId} onChange={(e) => setSelectedThemeId(e.currentTarget.value)}>
+            {themes.map((t: { id: number; name: string; role: string }) => (
+              <s-option key={t.id} value={String(t.id)}>{`${t.name}${t.role === 'main' ? ' (live)' : ''}`}</s-option>
+            ))}
+          </s-select>
+        </s-box>
       )}
 
       {delOpen && (
-        <ConfirmDialog title="Delete module?" tone="critical" confirmLabel="Delete" icon="trash"
-          message={`This removes “${mod.name}” and all of its versions. This cannot be undone.`}
-          onConfirm={doDelete} onClose={() => setDelOpen(false)} />
+        <ConfirmModal open heading="Delete module?" tone="critical" confirmLabel="Delete"
+          loading={deleteFetcher.state !== 'idle'}
+          onConfirm={doDelete} onClose={() => setDelOpen(false)}>
+          <s-paragraph>{`This removes “${mod.name}” and all of its versions. This cannot be undone.`}</s-paragraph>
+        </ConfirmModal>
       )}
 
       {modifyOpen && (
-        <Modal title="Modify with AI" sub="Describe the change in plain language" onClose={() => setModifyOpen(false)}
-          footer={(
-            <>
-              <span className="grow" />
-              <Btn onClick={() => setModifyOpen(false)}>Cancel</Btn>
-              <Btn variant="magic" icon="magic" loading={modifyFetcher.state !== 'idle'} disabled={!modifyInstruction.trim()}
-                onClick={submitModify}>Generate options</Btn>
-            </>
-          )}>
-          <div className="stack-4">
-            <Field label="What should change?">
-              <Textarea rows={4} placeholder="e.g. Make the button green and add a quantity stepper"
-                value={modifyInstruction} onChange={(e: any) => setModifyInstruction(e.target.value)} />
-            </Field>
-            {modifyFetcher.data?.error && <Banner tone="critical">{modifyFetcher.data.error}</Banner>}
-            {modifyFetcher.data?.options && (
-              <div className="stack-2">
-                {modifyFetcher.data.options.map((o: any, i: number) => (
-                  <div key={i} className="card card-pad">
-                    <div className="row spread">
-                      <div className="t-sm t-strong">Option {i + 1}</div>
-                      <Btn size="sm" variant="primary" icon="check"
-                        loading={applyingIdx === i}
-                        disabled={applyFetcher.state !== 'idle'}
-                        onClick={() => applyOption(o, i)}>
-                        Apply
-                      </Btn>
-                    </div>
-                    <div className="t-sm t-muted" style={{ marginTop: 4 }}>{o.explanation}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </Modal>
+        <ModifyAiModal
+          instruction={modifyInstruction}
+          setInstruction={setModifyInstruction}
+          options={modifyFetcher.data?.options}
+          error={modifyFetcher.data?.error}
+          generating={modifyFetcher.state !== 'idle'}
+          applyingIdx={applyingIdx}
+          applyBusy={applyFetcher.state !== 'idle'}
+          onApply={applyOption}
+          onGenerate={submitModify}
+          onClose={() => setModifyOpen(false)}
+        />
       )}
 
-      <Card style={{ marginBottom: 18 }}>
-        <Tabs active={tab} onChange={setTab} tabs={tabs} />
-      </Card>
+      <Tabs tabs={tabs} value={tab} onChange={setTab} />
 
       {tab === 'overview' && (
-        <div className="col-main">
-          <div className="stack-4">
-            <Card>
-              {previewHtml ? (
-                <div style={{ position: 'relative', borderRadius: '12px 12px 0 0', overflow: 'hidden', background: '#fff' }}>
-                  <iframe
-                    title={`Preview of ${mod.name}`}
-                    srcDoc={previewHtml}
-                    // No allow-same-origin: previewHtml may include AI-generated
-                    // (draft.previewHtmlJson) markup. Keeping the frame at an opaque
-                    // origin means any injected script can't reach the admin app's
-                    // origin (cookies/storage/parent DOM). The self-contained preview
-                    // scripts (countdown, link-intercept) run fine without it.
-                    sandbox="allow-scripts"
-                    onLoad={() => setPreviewLoaded(true)}
-                    style={{ display: 'block', width: '100%', height: 480, border: 0, background: '#fff' }}
-                  />
-                  {!previewLoaded && (
-                    <div className="br-canvas" style={{ position: 'absolute', inset: 0, borderRadius: '12px 12px 0 0' }}>
-                      <div className="row-2"><span className="spinner" /><span className="t-sm t-muted">Rendering preview…</span></div>
-                    </div>
-                  )}
-                </div>
-              ) : previewJson ? (
-                <div style={{ borderRadius: '12px 12px 0 0', overflow: 'hidden' }}>
-                  <pre style={{
-                    margin: 0, maxHeight: 480, overflow: 'auto', padding: 18,
-                    background: 'var(--p-bg)', fontFamily: 'var(--p-font-mono, ui-monospace, monospace)',
-                    fontSize: 12, lineHeight: 1.5, color: 'var(--p-text)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                  }}>{JSON.stringify(previewJson, null, 2)}</pre>
-                </div>
-              ) : (
-                <div className="br-canvas" style={{ height: 320, borderRadius: '12px 12px 0 0' }}>
-                  <EmptyState icon="eye" title="No preview available">
+        <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+          <s-stack gap="base">
+            <s-section padding="none">
+              <s-box border="base" borderRadius="base" overflow="hidden">
+                {previewHtml ? (
+                  <div style={{ position: 'relative', background: '#fff' }}>
+                    <iframe
+                      title={`Preview of ${mod.name}`}
+                      srcDoc={previewHtml}
+                      // No allow-same-origin: previewHtml may include AI-generated
+                      // (draft.previewHtmlJson) markup. Keeping the frame at an opaque
+                      // origin means any injected script can't reach the admin app's
+                      // origin (cookies/storage/parent DOM). The self-contained preview
+                      // scripts (countdown, link-intercept) run fine without it.
+                      sandbox="allow-scripts"
+                      onLoad={() => setPreviewLoaded(true)}
+                      style={{ display: 'block', width: '100%', height: 480, border: 0, background: '#fff' }}
+                    />
+                    {!previewLoaded && (
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, background: '#fff' }}>
+                        <s-spinner size="base" accessibilityLabel="Rendering preview" />
+                        <s-text color="subdued">Rendering preview…</s-text>
+                      </div>
+                    )}
+                  </div>
+                ) : previewJson ? (
+                  <pre style={MONO_PRE}>{JSON.stringify(previewJson, null, 2)}</pre>
+                ) : (
+                  <EmptyState icon="view" heading="No preview available">
                     This module type has no visual storefront preview.
                   </EmptyState>
-                </div>
-              )}
-              <Section>
-                <div className="row spread">
-                  <div className="t-sm t-muted">Live preview</div>
-                  <Btn size="sm" icon="external" onClick={openPreview}>Open in new tab</Btn>
-                </div>
-              </Section>
-            </Card>
-            <Card>
-              <CardHead title="What this module does" />
-              <Section>
-                <div className="t-body">
-                  This module adds a {mod.name.toLowerCase()} to your storefront. It is currently on version {versions[0]?.version ?? 1}. All changes are versioned and reversible.
-                </div>
-              </Section>
-            </Card>
+                )}
+              </s-box>
+              <s-box padding="base">
+                <s-grid gridTemplateColumns="1fr auto" gap="small-100" alignItems="center">
+                  <s-text color="subdued">Live preview</s-text>
+                  <s-button icon="external" onClick={openPreview}>Open in new tab</s-button>
+                </s-grid>
+              </s-box>
+            </s-section>
+            <s-section heading="What this module does">
+              <s-paragraph>
+                This module adds a {mod.name.toLowerCase()} to your storefront. It is currently on version {versions[0]?.version ?? 1}. All changes are versioned and reversible.
+              </s-paragraph>
+            </s-section>
             {validationReport && (
-              <Card>
-                <CardHead title="Validation" />
-                <Section>
-                  <div className="stack-2">
-                    {validationReport.checks.slice(0, 6).map((c) => (
-                      <div key={c.id} className="row-2">
-                        <Icon name={c.status === 'PASS' ? 'check' : 'alert'} size={14}
-                          style={{ color: c.status === 'PASS' ? 'var(--p-success)' : 'var(--p-critical)' }} />
-                        <span className="t-sm">{c.description}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="row spread" style={{ marginTop: 12 }}>
-                    <span className="t-sm t-muted">Let AI fill any remaining empty settings — merchant-set values are never overwritten.</span>
-                    <Btn size="sm" icon="magic" loading={fillSettingsFetcher.state !== 'idle'} onClick={fillMissingSettings}>
-                      Fill missing settings
-                    </Btn>
-                  </div>
-                </Section>
-              </Card>
+              <s-section heading="Validation">
+                <s-stack gap="small-200">
+                  {validationReport.checks.slice(0, 6).map((c) => (
+                    <s-stack key={c.id} direction="inline" gap="small-100" alignItems="center">
+                      <s-icon
+                        type={c.status === 'PASS' ? 'check-circle' : 'alert-triangle'}
+                        tone={c.status === 'PASS' ? 'success' : 'critical'}
+                        size="small"
+                      />
+                      <s-text>{c.description}</s-text>
+                    </s-stack>
+                  ))}
+                </s-stack>
+                <s-divider />
+                <s-grid gridTemplateColumns="1fr auto" gap="small-100" alignItems="center">
+                  <s-text color="subdued">Let AI fill any remaining empty settings — merchant-set values are never overwritten.</s-text>
+                  <s-button icon="wand" loading={fillSettingsFetcher.state !== 'idle' || undefined} onClick={fillMissingSettings}>
+                    Fill missing settings
+                  </s-button>
+                </s-grid>
+              </s-section>
             )}
-          </div>
-          <div className="stack-4">
-            <Card pad>
-              <div className="t-h3" style={{ marginBottom: 12 }}>Details</div>
+          </s-stack>
+          <s-stack gap="base">
+            <s-section heading="Details">
               <KV rows={[
-                ['Type', <Badge key="t" tone={getCategoryTone(category)}>{categoryLabel}</Badge>],
+                ['Type', <s-badge key="t" tone={catTone(category)}>{categoryLabel}</s-badge>],
                 ['Category', categoryLabel],
                 ['Version', 'v' + (versions[0]?.version ?? 1)],
-                ['Status', <StatusBadge key="s" value={mod.status} />],
+                ['Status', <StatusBadge key="s" status={mod.status} />],
               ]} />
-            </Card>
+            </s-section>
             {deployment ? (
-              <Card pad>
-                <div className="t-h3" style={{ marginBottom: 10 }}>Deployment</div>
-                <div className="row-2" style={{ flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                  <Badge>{RUNTIME_LABEL[deployment.runtime] ?? deployment.runtime}</Badge>
-                  {deployment.requiresPlan === 'plus' ? <Badge tone="warning">Takes effect on Shopify Plus</Badge> : null}
-                  {deployment.runtimeShipped === false ? <Badge tone="warning">Runtime pending in this app build</Badge> : null}
-                </div>
-                <div className="t-sm t-muted">{deployment.note}</div>
-              </Card>
+              <s-section heading="Deployment">
+                <s-stack gap="small-100">
+                  <s-stack direction="inline" gap="small-100">
+                    <s-badge>{RUNTIME_LABEL[deployment.runtime] ?? deployment.runtime}</s-badge>
+                    {deployment.requiresPlan === 'plus' ? <s-badge tone="warning">Takes effect on Shopify Plus</s-badge> : null}
+                    {deployment.runtimeShipped === false ? <s-badge tone="warning">Runtime pending in this app build</s-badge> : null}
+                  </s-stack>
+                  <s-text color="subdued">{deployment.note}</s-text>
+                </s-stack>
+              </s-section>
             ) : null}
-            <Card pad>
-              <div className="t-h3" style={{ marginBottom: 10 }}>Placement</div>
-              <div className="t-sm t-muted">{placementText(spec, category)}</div>
-            </Card>
-          </div>
-        </div>
+            <s-section heading="Placement">
+              <s-text color="subdued">{placementText(spec, category)}</s-text>
+            </s-section>
+          </s-stack>
+        </s-grid>
       )}
 
       {tab === 'versions' && (
-        <Card>
-          <DataTable rowKey="version" columns={[
-            { key: 'version', label: 'Version', render: (r: any) => <span className="cell-strong">v{r.version}</span> },
-            { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
-            { key: 'publishedAt', label: 'Published', render: (r: any) => <span className="cell-sub">{r.publishedAt ? new Date(r.publishedAt).toLocaleDateString('en-US') : '—'}</span> },
-            { key: 'act', label: '', render: (r: any) => (
-              <div className="dt-actions">
-                {!r.isActive && <Btn size="sm" icon="replay" onClick={() => rollback(r.version)}>Roll back</Btn>}
-              </div>
-            ) },
-          ]} rows={versions} />
-        </Card>
+        <s-section padding="none">
+          <s-table>
+            <s-table-header-row>
+              <s-table-header listSlot="primary">Version</s-table-header>
+              <s-table-header listSlot="inline">Status</s-table-header>
+              <s-table-header listSlot="kicker">Published</s-table-header>
+              <s-table-header> </s-table-header>
+            </s-table-header-row>
+            <s-table-body>
+              {versions.map((r: any) => (
+                <s-table-row key={r.version}>
+                  <s-table-cell><s-text type="strong">v{r.version}</s-text></s-table-cell>
+                  <s-table-cell><StatusBadge status={r.status} /></s-table-cell>
+                  <s-table-cell>
+                    <s-text color="subdued">{r.publishedAt ? new Date(r.publishedAt).toLocaleDateString('en-US') : '—'}</s-text>
+                  </s-table-cell>
+                  <s-table-cell>
+                    {!r.isActive && <s-button icon="replay" onClick={() => rollback(r.version)}>Roll back</s-button>}
+                  </s-table-cell>
+                </s-table-row>
+              ))}
+            </s-table-body>
+          </s-table>
+        </s-section>
       )}
 
       {tab === 'settings' && (
-        <Card pad>
-          <div className="stack-4" style={{ maxWidth: 520 }}>
-            <Field label="Module name">
-              <div className="row-2">
-                <Input value={nameDraft} onChange={(e: any) => setNameDraft(e.target.value)} />
-                <Btn icon="check" loading={renameFetcher.state !== 'idle'}
-                  disabled={!nameDraft.trim() || nameDraft.trim() === mod.name}
-                  onClick={saveName}>Save</Btn>
-              </div>
-            </Field>
-            <Field label="Internal notes" optional>
-              <div className="stack-2">
-                <Textarea placeholder="Notes for your team…" rows={3}
-                  value={notesDraft} onChange={(e: any) => setNotesDraft(e.target.value)} />
-                <div className="row">
-                  <Btn size="sm" icon="check" loading={notesFetcher.state !== 'idle'}
-                    disabled={notesDraft === (internalNotes ?? '')}
-                    onClick={saveNotes}>Save notes</Btn>
-                </div>
-              </div>
-            </Field>
-            <div className="divider" />
-            {hydration?.status === 'none' && (
-              <>
-                <Banner tone="info" title="Generate full settings">
-                  <div className="stack-2">
-                    <span>Let AI expand this module into a complete, validated settings schema you can fine-tune.</span>
-                    <div>
-                      <Btn variant="magic" icon="magic" loading={hydrateFetcher.state !== 'idle'} onClick={generateSettings}>
-                        Generate full settings
-                      </Btn>
-                    </div>
-                  </div>
-                </Banner>
-                <div className="divider" />
-              </>
-            )}
-            <Banner tone="critical" title="Delete this module">
-              <div className="stack-2">
-                <span>This removes the module and all versions. It cannot be undone.</span>
-                <div><Btn variant="critical" icon="trash" onClick={() => setDelOpen(true)}>Delete module</Btn></div>
-              </div>
-            </Banner>
-          </div>
-        </Card>
+        <s-section>
+          <s-box maxInlineSize="520px">
+            <s-stack gap="base">
+              <s-grid gridTemplateColumns="1fr auto" gap="small-100" alignItems="end">
+                <s-text-field label="Module name" value={nameDraft} onInput={(e) => setNameDraft(e.currentTarget.value ?? '')} />
+                <s-button icon="check" loading={renameFetcher.state !== 'idle' || undefined}
+                  disabled={(!nameDraft.trim() || nameDraft.trim() === mod.name) || undefined}
+                  onClick={saveName}>Save</s-button>
+              </s-grid>
+              <s-stack gap="small-100">
+                <s-text-area label="Internal notes" details="Optional — notes for your team" rows={3}
+                  placeholder="Notes for your team…"
+                  value={notesDraft} onInput={(e) => setNotesDraft(e.currentTarget.value ?? '')} />
+                <s-stack direction="inline">
+                  <s-button icon="check" loading={notesFetcher.state !== 'idle' || undefined}
+                    disabled={notesDraft === (internalNotes ?? '') || undefined}
+                    onClick={saveNotes}>Save notes</s-button>
+                </s-stack>
+              </s-stack>
+              <s-divider />
+              {hydration?.status === 'none' && (
+                <>
+                  <s-banner tone="info" heading="Generate full settings">
+                    <s-stack gap="small-100">
+                      <s-text>Let AI expand this module into a complete, validated settings schema you can fine-tune.</s-text>
+                      <s-stack direction="inline">
+                        <s-button icon="wand" loading={hydrateFetcher.state !== 'idle' || undefined} onClick={generateSettings}>
+                          Generate full settings
+                        </s-button>
+                      </s-stack>
+                    </s-stack>
+                  </s-banner>
+                  <s-divider />
+                </>
+              )}
+              <s-banner tone="critical" heading="Delete this module">
+                <s-stack gap="small-100">
+                  <s-text>This removes the module and all versions. It cannot be undone.</s-text>
+                  <s-stack direction="inline">
+                    <s-button tone="critical" icon="delete" onClick={() => setDelOpen(true)}>Delete module</s-button>
+                  </s-stack>
+                </s-stack>
+              </s-banner>
+            </s-stack>
+          </s-box>
+        </s-section>
       )}
-    </div>
+    </s-page>
   );
 }
+
+/**
+ * "Modify with AI" modal. Ref-driven show()/hide() (Polaris web-component
+ * modal), closing via the component's `afterhide` custom event so ESC/overlay
+ * dismissal stays in sync with React state.
+ */
+function ModifyAiModal({
+  instruction, setInstruction, options, error, generating, applyingIdx, applyBusy, onApply, onGenerate, onClose,
+}: {
+  instruction: string;
+  setInstruction: (v: string) => void;
+  options?: any[];
+  error?: string;
+  generating: boolean;
+  applyingIdx: number | null;
+  applyBusy: boolean;
+  onApply: (option: any, idx: number) => void;
+  onGenerate: () => void;
+  onClose: () => void;
+}) {
+  const modalRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    (modalRef.current as (HTMLElement & { show?: () => void }) | null)?.show?.();
+  }, []);
+  useCustomEvent(modalRef, 'afterhide', onClose);
+
+  return (
+    <s-modal ref={modalRef as never} heading="Modify with AI">
+      <s-stack gap="base">
+        <s-text color="subdued">Describe the change in plain language.</s-text>
+        <s-text-area
+          label="What should change?"
+          rows={4}
+          placeholder="e.g. Make the button green and add a quantity stepper"
+          value={instruction}
+          onInput={(e) => setInstruction(e.currentTarget.value ?? '')}
+        />
+        {error && <s-banner tone="critical">{error}</s-banner>}
+        {options && options.map((o: any, i: number) => (
+          <s-box key={i} border="base" borderRadius="base" padding="base">
+            <s-stack gap="small-100">
+              <s-grid gridTemplateColumns="1fr auto" gap="small-100" alignItems="center">
+                <s-text type="strong">Option {i + 1}</s-text>
+                <s-button variant="primary" icon="check"
+                  loading={applyingIdx === i || undefined}
+                  disabled={applyBusy || undefined}
+                  onClick={() => onApply(o, i)}>
+                  Apply
+                </s-button>
+              </s-grid>
+              <s-text color="subdued">{o.explanation}</s-text>
+            </s-stack>
+          </s-box>
+        ))}
+      </s-stack>
+      <s-button slot="primary-action" variant="primary" icon="wand"
+        loading={generating || undefined}
+        disabled={!instruction.trim() || undefined}
+        onClick={onGenerate}>
+        Generate options
+      </s-button>
+      <s-button slot="secondary-actions" onClick={onClose}>Cancel</s-button>
+    </s-modal>
+  );
+}
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

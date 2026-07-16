@@ -8,9 +8,8 @@ import { ActivityLogService } from '~/services/activity/activity.service';
 import { RecipeService } from '~/services/recipes/recipe.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
-  Icon, Btn, Badge, StatusBadge, Card, PageHead, FilterBar, StatTile, DataTable, MonoChip,
-  Menu, ConfirmDialog, useTableState, fmtNum,
-} from '~/components/superapp';
+  StatTile, StatusBadge, EmptyState, ConfirmModal, MonoChip, fmtNum,
+} from '~/components/merchant/polaris';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -235,7 +234,7 @@ function timeAgo(iso: string | null): string {
 export default function FlowsIndex() {
   const { flows, stats } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell>
+    <MerchantShell polaris>
       <FlowsBody flows={flows} stats={stats} />
     </MerchantShell>
   );
@@ -244,9 +243,9 @@ export default function FlowsIndex() {
 function FlowsBody({ flows, stats }: any) {
   const ctx = useMerchantCtx();
   const navigate = useNavigate();
-  const ts = useTableState();
   const { revalidate } = useRevalidator();
   const scheduleFetcher = useFetcher();
+  const [search, setSearch] = useState('');
   const [del, setDel] = useState<any>(null);
 
   useEffect(() => {
@@ -275,85 +274,121 @@ function FlowsBody({ flows, stats }: any) {
     setDel(null);
   };
 
-  const rowMenu = (r: any) => {
-    if (r.kind === 'module') {
-      return [{ icon: 'edit', label: 'Open in builder', onClick: () => navigate(`/flows/build/${r.id}`) }];
-    }
-    if (r.kind === 'schedule') {
-      return [
-        { icon: r.isActive ? 'pause' : 'play', label: r.isActive ? 'Pause' : 'Resume', onClick: () => toggleSchedule(r) },
-        { divider: true },
-        { icon: 'trash', label: 'Delete', tone: 'critical', onClick: () => setDel(r) },
-      ];
-    }
-    return [];
-  };
-
-  const rows = flows.filter((f: any) => f.name.toLowerCase().includes(ts.search.toLowerCase()));
+  const rows = flows.filter((f: any) => f.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div className="page">
-      <PageHead
-        title="Flows"
-        sub="Automate work: when something happens in your store, run steps automatically. Build visually, monitor every run."
-        actions={(
-          <>
-            <Btn icon="template" onClick={() => ctx.go('#/app/templates?type=Flow')}>Templates</Btn>
-            <Btn variant="primary" icon="plus" onClick={() => navigate('/flows/build/new')}>Build a flow</Btn>
-          </>
-        )}
-      />
-      {del && (
-        <ConfirmDialog title="Delete schedule?" tone="critical" confirmLabel="Delete" icon="trash"
-          message={`This removes “${del.name}”. Flows it triggers will no longer run on this schedule.`}
-          onConfirm={confirmDelete} onClose={() => setDel(null)} />
-      )}
-      <div className="grid grid-4" style={{ marginBottom: 18 }}>
-        <StatTile label="Active flows" value={stats.active} icon="flow" tone="success" />
-        <StatTile label="Runs (7d)" value={fmtNum(stats.runs7d)} icon="bolt" tone="info" />
-        <StatTile label="Drafts" value={stats.drafts} icon="edit" tone="warning" />
+    <s-page heading="Flows" inlineSize="base">
+      <s-button slot="primary-action" variant="primary" icon="plus" onClick={() => navigate('/flows/build/new')}>
+        Build a flow
+      </s-button>
+      <s-button slot="secondary-actions" icon="theme-template" onClick={() => ctx.go('#/app/templates?type=Flow')}>
+        Templates
+      </s-button>
+      <s-paragraph color="subdued">
+        Automate work: when something happens in your store, run steps automatically. Build visually, monitor every run.
+      </s-paragraph>
+      <s-grid gridTemplateColumns="repeat(4, 1fr)" gap="base">
+        <StatTile label="Active flows" value={stats.active} />
+        <StatTile label="Runs (7d)" value={fmtNum(stats.runs7d)} />
+        <StatTile label="Drafts" value={stats.drafts} />
         <StatTile
           label="Success rate (7d)"
           value={stats.successRate == null ? '—' : `${stats.successRate.toFixed(1)}%`}
-          icon="check"
-          tone="success"
           sub={stats.successRate == null ? 'No runs yet' : undefined}
         />
-      </div>
-      <Card>
-        <FilterBar search={ts.search} onSearch={ts.setSearch} placeholder="Search flows…" results={rows.length} />
-        {rows.length === 0 ? (
-          <div style={{ padding: 24, color: 'var(--p-text-secondary)', fontSize: 14 }}>No flows yet — build your first automation.</div>
-        ) : (
-          <DataTable
-            rowKey="id"
-            onRowClick={(r: any) => { if (r.kind === 'module') navigate(`/flows/build/${r.id}`); }}
-            columns={[
-              { key: 'name', label: 'Flow', render: (r: any) => (
-                <div className="row-3">
-                  <span className="tile-ico" style={{ width: 30, height: 30, background: 'var(--p-success-bg)', color: 'var(--p-success)' }}><Icon name="flow" size={15} /></span>
-                  <span className="cell-strong">{r.name}</span>
-                  {r.kind === 'workflow' && <Badge tone="info">Template workflow</Badge>}
-                  {r.kind === 'schedule' && <Badge>Schedule</Badge>}
-                </div>
-              ) },
-              { key: 'trigger', label: 'Trigger', render: (r: any) => <MonoChip>{r.trigger}</MonoChip> },
-              { key: 'steps', label: 'Steps', num: true, render: (r: any) => fmtNum(r.steps) },
-              { key: 'runs7d', label: 'Runs (7d)', num: true, render: (r: any) => fmtNum(r.runs7d) },
-              { key: 'lastRun', label: 'Last run', render: (r: any) => <span className="cell-sub">{timeAgo(r.lastRun)}</span> },
-              { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
-              { key: 'act', label: '', render: (r: any) => {
-                const items = rowMenu(r);
-                if (items.length === 0) return null;
-                return (
-                  <div className="dt-actions"><Menu trigger={<button className="btn btn-icon btn-sm btn-plain"><Icon name="dotsH" size={16} /></button>} items={items} /></div>
-                );
-              } },
-            ]}
-            rows={rows}
-          />
-        )}
-      </Card>
-    </div>
+      </s-grid>
+      {flows.length === 0 ? (
+        <s-section>
+          <EmptyState icon="automation" heading="No flows yet"
+            action={<s-button variant="primary" onClick={() => navigate('/flows/build/new')}>Build a flow</s-button>}>
+            Build your first automation — run steps automatically when something happens in your store.
+          </EmptyState>
+        </s-section>
+      ) : (
+        <s-section padding="none">
+          <s-table>
+            <s-grid slot="filters" gridTemplateColumns="1fr" gap="small-100">
+              <s-search-field
+                label="Search flows"
+                labelAccessibilityVisibility="exclusive"
+                placeholder="Search flows…"
+                onInput={(e) => setSearch(e.currentTarget.value ?? '')}
+              />
+            </s-grid>
+            <s-table-header-row>
+              <s-table-header listSlot="primary">Flow</s-table-header>
+              <s-table-header>Trigger</s-table-header>
+              <s-table-header>Steps</s-table-header>
+              <s-table-header>Runs (7d)</s-table-header>
+              <s-table-header listSlot="kicker">Last run</s-table-header>
+              <s-table-header listSlot="secondary">Status</s-table-header>
+              <s-table-header>Actions</s-table-header>
+            </s-table-header-row>
+            <s-table-body>
+              {rows.map((r: any) => (
+                <s-table-row key={r.id}>
+                  <s-table-cell>
+                    <s-stack direction="inline" gap="small-100" alignItems="center">
+                      {r.kind === 'module'
+                        ? <s-link href={`/flows/build/${r.id}`}><s-text type="strong">{r.name}</s-text></s-link>
+                        : <s-text type="strong">{r.name}</s-text>}
+                      {r.kind === 'workflow' && <s-badge tone="info">Template workflow</s-badge>}
+                      {r.kind === 'schedule' && <s-badge tone="neutral">Schedule</s-badge>}
+                    </s-stack>
+                  </s-table-cell>
+                  <s-table-cell><MonoChip>{r.trigger}</MonoChip></s-table-cell>
+                  <s-table-cell>{fmtNum(r.steps)}</s-table-cell>
+                  <s-table-cell>{fmtNum(r.runs7d)}</s-table-cell>
+                  <s-table-cell><s-text tone="neutral" color="subdued">{timeAgo(r.lastRun)}</s-text></s-table-cell>
+                  <s-table-cell><StatusBadge status={r.status} /></s-table-cell>
+                  <s-table-cell>
+                    {r.kind === 'module' && (
+                      <s-button
+                        variant="tertiary"
+                        icon="edit"
+                        accessibilityLabel={`Open ${r.name} in builder`}
+                        href={`/flows/build/${r.id}`}
+                      />
+                    )}
+                    {r.kind === 'schedule' && (
+                      <s-stack direction="inline" gap="small-300">
+                        <s-button
+                          variant="tertiary"
+                          icon={r.isActive ? 'pause-circle' : 'play'}
+                          accessibilityLabel={r.isActive ? `Pause ${r.name}` : `Resume ${r.name}`}
+                          onClick={() => toggleSchedule(r)}
+                        />
+                        <s-button
+                          variant="tertiary"
+                          tone="critical"
+                          icon="delete"
+                          accessibilityLabel={`Delete ${r.name}`}
+                          onClick={() => setDel(r)}
+                        />
+                      </s-stack>
+                    )}
+                  </s-table-cell>
+                </s-table-row>
+              ))}
+            </s-table-body>
+          </s-table>
+          {rows.length === 0 && (
+            <EmptyState heading="Nothing here">No flows match your search.</EmptyState>
+          )}
+        </s-section>
+      )}
+      <ConfirmModal
+        open={!!del}
+        heading="Delete schedule?"
+        tone="critical"
+        confirmLabel="Delete"
+        onConfirm={confirmDelete}
+        onClose={() => setDel(null)}
+      >
+        <s-paragraph>This removes “{del?.name}”. Flows it triggers will no longer run on this schedule.</s-paragraph>
+      </ConfirmModal>
+    </s-page>
   );
 }
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

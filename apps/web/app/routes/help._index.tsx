@@ -1,10 +1,10 @@
 import { json } from '@remix-run/node';
-import { Link, useLoaderData } from '@remix-run/react';
+import { useLoaderData } from '@remix-run/react';
 import { useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { MerchantShell } from '~/components/merchant/MerchantShell';
-import { Icon, Card, PageHead, Progress } from '~/components/superapp';
+import { Progress } from '~/components/merchant/polaris';
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -32,8 +32,8 @@ export async function loader({ request }: { request: Request }) {
 }
 
 const GUIDES: [string, string, string, string][] = [
-  ['magic', 'Generate your first module', 'Describe what you want in plain language and publish in minutes.', '/templates'],
-  ['flow', 'Automate with Flows', 'Trigger steps when something happens in your store.', '/flows'],
+  ['wand', 'Generate your first module', 'Describe what you want in plain language and publish in minutes.', '/templates'],
+  ['automation', 'Automate with Flows', 'Trigger steps when something happens in your store.', '/flows'],
   ['connect', 'Connect external APIs', 'Add a connector, test it, and reuse it in modules and flows.', '/connectors'],
   ['database', 'Work with Data stores', 'Sync Shopify data or create custom stores for anything.', '/data'],
   ['rocket', 'Publishing & rollback', 'Every change is versioned — preview, publish, or roll back instantly.', '/modules'],
@@ -49,7 +49,7 @@ const FAQS: [string, string][] = [
 
 export default function HelpIndex() {
   return (
-    <MerchantShell>
+    <MerchantShell polaris>
       <HelpBody />
     </MerchantShell>
   );
@@ -59,55 +59,82 @@ function HelpBody() {
   const { checklist } = useLoaderData<typeof loader>();
   const done = checklist.filter((c) => c[1]).length;
   return (
-    <div className="page">
-      <PageHead
-        title="Help & guides"
-        sub="Everything you need to get the most out of SuperApp AI."
-      />
-      <div className="col-main" style={{ marginBottom: 18 }}>
-        <div className="grid grid-2">
-          {GUIDES.map((g) => (
-            <Link key={g[1]} to={g[3]} className="card card-pad stack-2" style={{ textDecoration: 'none', color: 'inherit' }}>
-              <span className="tile-ico" style={{ background: 'var(--p-info-bg)', color: 'var(--sa-primary)' }}><Icon name={g[0]} size={19} /></span>
-              <div className="t-h3">{g[1]}</div>
-              <div className="t-sm t-muted">{g[2]}</div>
-              <div className="row-1 t-sm" style={{ color: 'var(--sa-primary)', fontWeight: 600, marginTop: 2 }}>Open<Icon name="arrowRight" size={14} /></div>
-            </Link>
-          ))}
-        </div>
-        <Card pad>
-          <div className="row spread" style={{ marginBottom: 12 }}>
-            <div className="t-h3">Getting started</div>
-            <span className="t-xs t-muted t-num">{done} / {checklist.length}</span>
-          </div>
-          <Progress value={(done / checklist.length) * 100} />
-          <div className="stack-2" style={{ marginTop: 14 }}>
-            {checklist.map((c, i) => (
-              <div key={i} className="row-2">
-                <span className={'check-ring' + (c[1] ? ' on' : '')}>{c[1] && <Icon name="check" size={12} />}</span>
-                <span className={'t-sm' + (c[1] ? ' t-muted' : ' t-strong')} style={c[1] ? { textDecoration: 'line-through' } : undefined}>{c[0]}</span>
-              </div>
+    <s-page heading="Help & guides" inlineSize="base">
+      <s-paragraph color="subdued">Everything you need to get the most out of SuperApp AI.</s-paragraph>
+
+      <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+        <s-section heading="Guides">
+          <s-grid gridTemplateColumns="repeat(2, 1fr)" gap="small-100">
+            {GUIDES.map((g) => (
+              <s-clickable key={g[1]} href={g[3]} padding="base" border="base" borderRadius="base">
+                <s-stack gap="small-100">
+                  <s-icon type={g[0] as never} tone="info" />
+                  <s-stack gap="none">
+                    <s-text type="strong">{g[1]}</s-text>
+                    <s-text tone="neutral" color="subdued">{g[2]}</s-text>
+                  </s-stack>
+                  <s-stack direction="inline" gap="small-100" alignItems="center">
+                    <s-text type="strong">Open</s-text>
+                    <s-icon type="arrow-right" size="small" tone="info" />
+                  </s-stack>
+                </s-stack>
+              </s-clickable>
             ))}
-          </div>
-        </Card>
-      </div>
-      <Card pad>
-        <div className="t-h3" style={{ marginBottom: 6 }}>Frequently asked</div>
-        <div className="stack">{FAQS.map((f, i) => <FaqRow key={i} q={f[0]} a={f[1]} />)}</div>
-      </Card>
-    </div>
+          </s-grid>
+        </s-section>
+
+        <s-section heading="Getting started">
+          <s-stack gap="base">
+            <s-grid gridTemplateColumns="1fr auto" gap="small-100" alignItems="center">
+              <s-text tone="neutral" color="subdued">Onboarding progress</s-text>
+              <s-text tone="neutral" color="subdued">{done} / {checklist.length}</s-text>
+            </s-grid>
+            <Progress value={done} max={checklist.length} />
+            <s-stack gap="small-100">
+              {checklist.map((c, i) => (
+                <s-stack key={i} direction="inline" gap="small-100" alignItems="center">
+                  <s-icon type={c[1] ? 'check-circle-filled' : 'circle-dashed'} size="small" tone={c[1] ? 'success' : 'neutral'} />
+                  {c[1]
+                    ? <s-text tone="neutral" color="subdued">{c[0]}</s-text>
+                    : <s-text type="strong">{c[0]}</s-text>}
+                </s-stack>
+              ))}
+            </s-stack>
+          </s-stack>
+        </s-section>
+      </s-grid>
+
+      <s-section heading="Frequently asked">
+        <s-stack gap="none">
+          {FAQS.map((f, i) => (
+            <s-stack key={i} gap="none">
+              {i > 0 && <s-divider />}
+              <FaqRow q={f[0]} a={f[1]} />
+            </s-stack>
+          ))}
+        </s-stack>
+      </s-section>
+    </s-page>
   );
 }
 
 function FaqRow({ q, a }: { q: string; a: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="faq-row">
-      <button className="faq-q" onClick={() => setOpen((o) => !o)}>
-        <span className="grow t-sm t-strong" style={{ textAlign: 'left' }}>{q}</span>
-        <Icon name={open ? 'chevronUp' : 'chevronDown'} size={16} className="t-muted" />
-      </button>
-      {open && <div className="t-sm t-muted" style={{ padding: '0 0 12px', lineHeight: 1.55 }}>{a}</div>}
-    </div>
+    <s-stack gap="none">
+      <s-clickable onClick={() => setOpen((o) => !o)} paddingBlock="small-100">
+        <s-grid gridTemplateColumns="1fr auto" gap="small-100" alignItems="center">
+          <s-text type="strong">{q}</s-text>
+          <s-icon type={open ? 'chevron-up' : 'chevron-down'} size="small" tone="neutral" />
+        </s-grid>
+      </s-clickable>
+      {open && (
+        <s-box paddingBlockEnd="small-100">
+          <s-text tone="neutral" color="subdued">{a}</s-text>
+        </s-box>
+      )}
+    </s-stack>
   );
 }
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

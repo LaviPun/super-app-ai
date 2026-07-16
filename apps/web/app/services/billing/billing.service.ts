@@ -32,7 +32,7 @@ export const PLAN_CONFIGS: Record<BillingPlan, PlanConfig> = {
       publishOpsPerMonth: 5,
       workflowRunsPerMonth: 50,
       connectorCallsPerMonth: 100,
-      modulesTotal: 1,
+      modulesTotal: 3,
     },
   },
   STARTER: {
@@ -45,7 +45,7 @@ export const PLAN_CONFIGS: Record<BillingPlan, PlanConfig> = {
       publishOpsPerMonth: 50,
       workflowRunsPerMonth: 1000,
       connectorCallsPerMonth: 5000,
-      modulesTotal: 10,
+      modulesTotal: 20,
     },
   },
   GROWTH: {
@@ -58,7 +58,7 @@ export const PLAN_CONFIGS: Record<BillingPlan, PlanConfig> = {
       publishOpsPerMonth: 500,
       workflowRunsPerMonth: 10000,
       connectorCallsPerMonth: 50000,
-      modulesTotal: 40,
+      modulesTotal: 100,
     },
   },
   PRO: {
@@ -71,7 +71,7 @@ export const PLAN_CONFIGS: Record<BillingPlan, PlanConfig> = {
       publishOpsPerMonth: 5000,
       workflowRunsPerMonth: 100000,
       connectorCallsPerMonth: 500000,
-      modulesTotal: 150,
+      modulesTotal: 1000,
     },
   },
   ENTERPRISE: {

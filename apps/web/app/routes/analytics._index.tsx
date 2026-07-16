@@ -3,22 +3,17 @@ import { useLoaderData, useNavigate, useSearchParams } from '@remix-run/react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
+import { getCategoryDisplayLabel, getCategoryIcon } from '~/utils/type-label';
 import {
-  Icon, Btn, Card, CardHead, PageHead, StatTile, DataTable, Sparkline, Progress, EmptyState, fmtNum, fmtCents,
-  exportCSV,
-} from '~/components/superapp';
+  CHART, EmptyState, Progress, Sparkline, StatTile, Tabs, exportCSV, fmtCents, fmtNum,
+} from '~/components/merchant/polaris';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const T_ICON: Record<string, string> = { 'Storefront UI': 'desktop', 'Function': 'bolt', 'Integration': 'connect', 'Flow': 'flow', 'Data store': 'database' };
-const T_COLOR: Record<string, string> = { 'Storefront UI': 'info', 'Function': 'warning', 'Integration': 'magic', 'Flow': 'success', 'Data store': 'info' };
-
-function designType(t: string): string {
-  if (/flow/i.test(t)) return 'Flow';
-  if (/function|discount/i.test(t)) return 'Function';
-  if (/connector|integration/i.test(t)) return 'Integration';
-  if (/data|store/i.test(t)) return 'Data store';
-  return 'Storefront UI';
+// Same category → icon mapping the modules page uses (shared taxonomy, no heuristics).
+const CAT_ICON: Record<string, string> = { desktop: 'desktop', settings: 'settings', users: 'team', bolt: 'bolt', connect: 'connect', flow: 'automation' };
+function catIcon(category: string): string {
+  return CAT_ICON[getCategoryIcon(category)] ?? 'layer';
 }
 
 /** Real percent change vs the previous window, or null when there is no baseline. */
@@ -63,7 +58,7 @@ export async function loader({ request }: { request: Request }) {
       where: { shopId: shopRow.id, status: 'PUBLISHED' },
       orderBy: { updatedAt: 'desc' },
       take: 50,
-      select: { id: true, name: true, type: true },
+      select: { id: true, name: true, category: true },
     }),
     prisma.moduleMetricsDaily.findMany({
       where: { shopId: shopRow.id, date: { gte: since } },
@@ -110,7 +105,8 @@ export async function loader({ request }: { request: Request }) {
       return {
         id: m.id,
         name: m.name,
-        type: designType(m.type),
+        category: m.category,
+        type: getCategoryDisplayLabel(m.category),
         views: s.views,
         engagedPct: s.views > 0 ? ((s.interactions / s.views) * 100).toFixed(1) : '0.0',
         actions: s.actions,
@@ -152,7 +148,7 @@ export async function loader({ request }: { request: Request }) {
 export default function AnalyticsIndex() {
   const data = useLoaderData<typeof loader>();
   return (
-    <MerchantShell>
+    <MerchantShell polaris>
       <AnalyticsBody {...(data as any)} />
     </MerchantShell>
   );
@@ -174,93 +170,150 @@ function AnalyticsBody({ range, days, publishedCount, perf, series, hasMetrics, 
       ctx.toast('No analytics data to export yet', { error: true });
       return;
     }
-    exportCSV(`analytics-${range}.csv`, perf, ['name', 'type', 'views', 'engagedPct', 'actions', 'conversions']);
+    exportCSV(`analytics-${range}.csv`, [
+      ['name', 'type', 'views', 'engagedPct', 'actions', 'conversions'],
+      ...perf.map((r: any) => [r.name, r.type, r.views, r.engagedPct, r.actions, r.conversions]),
+    ]);
   };
 
   const engagementRate = totals.views > 0 ? ((totals.interactions / totals.views) * 100).toFixed(1) + '%' : '—';
-  const funnel: [string, number, string][] = [
-    ['Module views', totals.views, 'info'],
-    ['Engaged', totals.interactions, 'magic'],
-    ['Actions', totals.actions, 'warning'],
-    ['Converted', totals.conversions, 'success'],
+  const funnel: Array<[string, number]> = [
+    ['Module views', totals.views],
+    ['Engaged', totals.interactions],
+    ['Actions', totals.actions],
+    ['Converted', totals.conversions],
   ];
   const funnelPct = (n: number) => (totals.views > 0 ? Math.round((n / totals.views) * 100) : 0);
+  const dailyAvg = hasMetrics ? Math.round(totals.views / days) : 0;
+  const peak = hasMetrics ? Math.max(...series, 0) : 0;
 
   return (
-    <div className="page">
-      <PageHead
-        title="Analytics"
-        sub="Storefront impact of your live modules and automations."
-        actions={(
-          <>
-            <div className="seg">{['7d', '30d', '90d'].map((r) => <button key={r} aria-selected={range === r} onClick={() => setRange(r)}>{r}</button>)}</div>
-            <Btn icon="download" onClick={onExport}>Export</Btn>
-          </>
-        )}
+    <s-page heading="Analytics" inlineSize="base">
+      <s-button slot="secondary-actions" icon="export" onClick={onExport}>Export</s-button>
+      <s-paragraph color="subdued">Storefront impact of your live modules and automations.</s-paragraph>
+
+      <Tabs
+        tabs={[{ id: '7d', label: 'Last 7 days' }, { id: '30d', label: 'Last 30 days' }, { id: '90d', label: 'Last 90 days' }]}
+        value={range}
+        onChange={setRange}
       />
-      <div className="grid grid-4" style={{ marginBottom: 18 }}>
-        <StatTile label="Module views" value={fmtNum(totals.views)} icon="eye" tone="info" delta={deltas.views} deltaDir={deltas.viewsDir} />
-        <StatTile label="Engagement rate" value={engagementRate} icon="rocket" tone="magic" delta={deltas.engagement} deltaDir={deltas.engagementDir} />
-        <StatTile label="Conversions" value={fmtNum(totals.conversions)} icon="cart" tone="success" delta={deltas.conversions} deltaDir={deltas.conversionsDir} />
-        <StatTile label="AI spend" value={fmtCents(ai.costCents)} icon="magic" tone="warning" delta={deltas.ai} deltaDir={deltas.aiDir} sub={`${fmtNum(ai.requests)} requests`} />
-      </div>
-      <div className="col-main" style={{ marginBottom: 18 }}>
-        <Card>
-          <CardHead title="Module views" sub={`Last ${days} days · from live modules`} />
+
+      <s-grid gridTemplateColumns="repeat(auto-fit, minmax(180px, 1fr))" gap="small-100">
+        <StatTile
+          label="Module views"
+          value={fmtNum(totals.views)}
+          delta={deltas.views}
+          deltaDir={deltas.viewsDir}
+          trend={hasMetrics ? series : undefined}
+          trendColor={CHART.accent}
+        />
+        <StatTile
+          label="Engagement rate"
+          value={engagementRate}
+          delta={deltas.engagement}
+          deltaDir={deltas.engagementDir}
+          sub={`${fmtNum(totals.interactions)} interactions`}
+        />
+        <StatTile
+          label="Conversions"
+          value={fmtNum(totals.conversions)}
+          delta={deltas.conversions}
+          deltaDir={deltas.conversionsDir}
+          sub={`${fmtNum(totals.actions)} actions`}
+        />
+        <StatTile
+          label="AI spend"
+          value={fmtCents(ai.costCents)}
+          delta={deltas.ai}
+          deltaDir={deltas.aiDir}
+          deltaTone={deltas.aiDir === 'up' ? 'down' : 'up'}
+          sub={`${fmtNum(ai.requests)} requests`}
+        />
+      </s-grid>
+
+      <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+        <s-section heading="Module views">
           {hasMetrics ? (
-            <div style={{ padding: '8px 16px 16px' }}>
-              <Sparkline data={series} color="var(--p-success)" w={760} h={130} />
-              <div className="row spread t-xs t-muted" style={{ marginTop: 6 }}><span>{days} days ago</span><span>Today</span></div>
-            </div>
+            <s-stack gap="small-100">
+              <Sparkline data={series} color={CHART.success} w={760} h={130} />
+              <s-stack direction="inline" justifyContent="space-between">
+                <s-text color="subdued">{days} days ago</s-text>
+                <s-text color="subdued">Today</s-text>
+              </s-stack>
+              <s-text color="subdued">
+                {fmtNum(totals.views)} views over the last {days} days · {fmtNum(dailyAvg)}/day average · peak day {fmtNum(peak)}
+              </s-text>
+            </s-stack>
           ) : (
-            <div style={{ padding: 24, color: 'var(--p-text-secondary)', fontSize: 14 }}>
+            <s-text color="subdued">
               No storefront metrics recorded in this period yet. Views appear once a published module is seen on your storefront.
-            </div>
+            </s-text>
           )}
-        </Card>
-        <Card pad>
-          <div className="t-h3" style={{ marginBottom: 12 }}>Conversion funnel</div>
+        </s-section>
+
+        <s-section heading="Conversion funnel">
           {totals.views > 0 ? (
-            <div className="stack-4">
-              {funnel.map((f, i) => (
-                <div key={i} className="stack-1">
-                  <div className="row spread">
-                    <span className="t-sm t-strong">{f[0]}</span>
-                    <span className="t-sm t-num t-muted">{fmtNum(f[1])} · {funnelPct(f[1])}%</span>
-                  </div>
-                  <Progress value={funnelPct(f[1])} tone={f[2] === 'success' ? undefined : f[2]} />
-                </div>
+            <s-stack gap="small-100">
+              {funnel.map(([label, n]) => (
+                <s-stack key={label} gap="none">
+                  <s-stack direction="inline" justifyContent="space-between" alignItems="baseline">
+                    <s-text type="strong">{label}</s-text>
+                    <s-text color="subdued">{fmtNum(n)} · {funnelPct(n)}%</s-text>
+                  </s-stack>
+                  <Progress value={funnelPct(n)} />
+                </s-stack>
               ))}
-            </div>
+            </s-stack>
           ) : (
-            <div style={{ padding: '8px 0', color: 'var(--p-text-secondary)', fontSize: 14 }}>
+            <s-text color="subdued">
               No funnel data yet — it builds from real module views, interactions and conversions.
-            </div>
+            </s-text>
           )}
-        </Card>
-      </div>
-      <Card>
-        <CardHead title="Module performance" sub={`${publishedCount} published modules`}
-          actions={<a href="/modules" className="btn btn-plain btn-sm">All modules</a>} />
+        </s-section>
+      </s-grid>
+
+      <s-section padding="none" heading="Module performance">
+        <s-button slot="primary-action" variant="tertiary" href="/modules">All modules</s-button>
         {perf.length === 0 ? (
-          <EmptyState icon="chart" title="No published modules yet">
+          <EmptyState icon="chart-vertical" heading="No published modules yet">
             Publish a module to start seeing storefront performance.
           </EmptyState>
         ) : (
-          <DataTable rowKey="id" onRowClick={(r: any) => navigate(`/modules/${r.id}`)} columns={[
-            { key: 'name', label: 'Module', render: (r: any) => (
-              <div className="row-3">
-                <span className="tile-ico" style={{ width: 30, height: 30, background: `var(--p-${T_COLOR[r.type]}-bg)`, color: `var(--p-${T_COLOR[r.type]})` }}><Icon name={T_ICON[r.type] ?? 'layers'} size={15} /></span>
-                <span className="cell-strong">{r.name}</span>
-              </div>
-            ) },
-            { key: 'views', label: 'Views', num: true, render: (r: any) => fmtNum(r.views) },
-            { key: 'engagedPct', label: 'Engage %', num: true, render: (r: any) => r.engagedPct + '%' },
-            { key: 'actions', label: 'Actions', num: true, render: (r: any) => fmtNum(r.actions) },
-            { key: 'conversions', label: 'Conversions', num: true, render: (r: any) => <span className="cell-strong">{fmtNum(r.conversions)}</span> },
-          ]} rows={perf} />
+          <s-table>
+            <s-grid slot="filters" gridTemplateColumns="1fr auto" gap="small-100" alignItems="center">
+              <s-text color="subdued">{publishedCount} published modules · last {days} days</s-text>
+              <s-text color="subdued">sorted by views</s-text>
+            </s-grid>
+            <s-table-header-row>
+              <s-table-header listSlot="primary">Module</s-table-header>
+              <s-table-header format="numeric">Views</s-table-header>
+              <s-table-header format="numeric">Engage %</s-table-header>
+              <s-table-header format="numeric">Actions</s-table-header>
+              <s-table-header format="numeric" listSlot="inline">Conversions</s-table-header>
+            </s-table-header-row>
+            <s-table-body>
+              {perf.map((r: any) => (
+                <s-table-row key={r.id} clickDelegate={`perf-link-${r.id}`}>
+                  <s-table-cell>
+                    <s-stack direction="inline" gap="small-100" alignItems="center">
+                      <s-icon type={catIcon(r.category) as never} tone="neutral" size="small" />
+                      <s-link id={`perf-link-${r.id}`} onClick={() => navigate(`/modules/${r.id}`)}>
+                        <s-text type="strong">{r.name}</s-text>
+                      </s-link>
+                    </s-stack>
+                  </s-table-cell>
+                  <s-table-cell>{fmtNum(r.views)}</s-table-cell>
+                  <s-table-cell>{r.engagedPct}%</s-table-cell>
+                  <s-table-cell>{fmtNum(r.actions)}</s-table-cell>
+                  <s-table-cell><s-text type="strong">{fmtNum(r.conversions)}</s-text></s-table-cell>
+                </s-table-row>
+              ))}
+            </s-table-body>
+          </s-table>
         )}
-      </Card>
-    </div>
+      </s-section>
+    </s-page>
   );
 }
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

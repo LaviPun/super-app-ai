@@ -3,7 +3,7 @@ import {
   HEARTBEAT_INTERVAL_MS,
   runAssistantStream,
   type SseFrame,
-} from '~/routes/internal.ai-assistant.chat.stream';
+} from '~/services/ai/internal-assistant-stream.server';
 import type { AssistantStreamEvent } from '~/services/ai/internal-assistant.server';
 
 vi.mock('~/services/security/rate-limit.server', () => ({

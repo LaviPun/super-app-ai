@@ -1,13 +1,14 @@
 import { json } from '@remix-run/node';
 import { useLoaderData, useFetcher } from '@remix-run/react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
+import type { FetcherWithComponents } from '@remix-run/react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
-  Btn, Badge, StatusBadge, Card, Field, Input, Textarea, Select,
-  Tabs, Banner, KV, PageHead, DataTable, ConfirmDialog, MonoChip, titleCase,
-} from '~/components/superapp';
+  ConfirmModal, EmptyState, KV, MonoChip, StatusBadge, Tabs, titleCase, useCustomEvent, type WcTone,
+} from '~/components/merchant/polaris';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -44,7 +45,13 @@ export async function loader({ request, params }: { request: Request; params: { 
   });
 }
 
-const METHOD_COLOR: Record<string, string> = { GET: 'success', POST: 'info', PUT: 'warning', PATCH: 'warning', DELETE: 'critical' };
+const METHOD_COLOR: Record<string, WcTone> = { GET: 'success', POST: 'info', PUT: 'warning', PATCH: 'warning', DELETE: 'critical' };
+
+const MONO_PRE: CSSProperties = {
+  margin: 0, maxHeight: 360, overflow: 'auto',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+};
 function authDisplay(t: string): string {
   if (t === 'API_KEY') return 'API key';
   if (t === 'BASIC') return 'Basic auth';
@@ -64,7 +71,7 @@ type TestResult = { ok: boolean; status: number; headers: Record<string, string>
 
 export default function ConnectorDetail() {
   return (
-    <MerchantShell>
+    <MerchantShell polaris>
       <ConnectorDetailBody />
     </MerchantShell>
   );
@@ -76,8 +83,12 @@ function ConnectorDetailBody() {
   const updateFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const deleteFetcher = useFetcher();
 
-  const initialTab = typeof window !== 'undefined' && /tab=settings/.test(window.location.search) ? 'settings' : 'tester';
-  const [tab, setTab] = useState(initialTab);
+  const [tab, setTab] = useState('tester');
+  // The connectors list deep-links to `?tab=settings` for its Edit action —
+  // settings now live in the edit modal, so that link opens it directly.
+  const [editOpen, setEditOpen] = useState(
+    () => typeof window !== 'undefined' && /tab=settings/.test(window.location.search),
+  );
   const [delC, setDelC] = useState(false);
   const [method, setMethod] = useState('GET');
   const [path, setPath] = useState('/');
@@ -85,8 +96,6 @@ function ConnectorDetailBody() {
   const [testResult, setTestResult] = useState<TestResult>(null);
   const [testError, setTestError] = useState('');
   const [sending, setSending] = useState(false);
-  const [editName, setEditName] = useState(connector.name);
-  const [editBaseUrl, setEditBaseUrl] = useState(connector.baseUrl);
 
   const send = async () => {
     setSending(true); setTestResult(null); setTestError('');
@@ -111,121 +120,120 @@ function ConnectorDetailBody() {
     }
   };
 
-  const saveSettings = () => {
-    updateFetcher.submit({ name: editName, baseUrl: editBaseUrl }, { method: 'POST', action: `/api/connectors/${connector.id}/update`, encType: 'application/json' });
-    ctx.toast('Connector saved');
-  };
-
   const tabs = [
     { id: 'tester', label: 'API tester' },
-    { id: 'endpoints', label: 'Saved endpoints', badge: endpoints.length },
-    { id: 'settings', label: 'Settings' },
+    { id: 'endpoints', label: `Saved endpoints (${endpoints.length})` },
   ];
 
   return (
-    <div className="page">
-      <PageHead back={{ href: '/connectors', label: 'Connectors' }} title={connector.name}
-        badge={<StatusBadge value={connector.lastTestedAt ? 'CONNECTED' : 'NEW'} />}
-        sub={<span className="row-2"><MonoChip>{connector.baseUrl}</MonoChip>·{authDisplay(connector.authType)}</span>}
-        actions={<Btn icon="edit" onClick={() => setTab('settings')}>Edit connector</Btn>} />
+    <s-page heading={connector.name} inlineSize="base">
+      <s-button slot="primary-action" icon="edit" onClick={() => setEditOpen(true)}>Edit connector</s-button>
+      <s-button slot="secondary-actions" tone="critical" icon="delete" onClick={() => setDelC(true)}>Delete</s-button>
 
-      <Card style={{ marginBottom: 18 }}><Tabs active={tab} onChange={setTab} tabs={tabs} /></Card>
+      <s-stack direction="inline" gap="small-100" alignItems="center">
+        <s-button variant="tertiary" icon="arrow-left" onClick={() => ctx.go('#/app/connectors')}>Connectors</s-button>
+        <StatusBadge status={connector.lastTestedAt ? 'CONNECTED' : 'NEW'} />
+        <MonoChip>{connector.baseUrl}</MonoChip>
+        <s-text color="subdued">{authDisplay(connector.authType)}</s-text>
+      </s-stack>
+
+      <Tabs tabs={tabs} value={tab} onChange={setTab} />
 
       {tab === 'tester' && (
-        <div className="col-main">
-          <div className="stack-4">
-            <Card pad>
-              <div className="row-2" style={{ marginBottom: 14 }}>
-                <div className="select" style={{ width: 120 }}>
-                  <select value={method} onChange={(e) => setMethod(e.target.value)}>
-                    {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((x) => <option key={x}>{x}</option>)}
-                  </select>
-                </div>
-                <div className="grow"><Input mono value={path} onChange={(e: any) => setPath(e.target.value)} /></div>
-                <Btn variant="primary" icon="send" onClick={send} loading={sending}>{sending ? 'Sending' : 'Send'}</Btn>
-              </div>
-              <Tabs active="headers" onChange={() => {}} tabs={[{ id: 'headers', label: 'Headers' }, { id: 'body', label: 'Body' }]} />
-              <div style={{ marginTop: 12 }}>
-                <Textarea mono rows={4} value={headersText} onChange={(e: any) => setHeadersText(e.target.value)} />
-              </div>
-            </Card>
-            {testError && <Banner tone="critical">{testError}</Banner>}
+        <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+          <s-stack gap="base">
+            <s-section>
+              <s-stack gap="small-100">
+                <s-grid gridTemplateColumns="auto 1fr auto" gap="small-100" alignItems="end">
+                  <s-select label="Method" labelAccessibilityVisibility="exclusive" value={method} onChange={(e) => setMethod(e.currentTarget.value)}>
+                    {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((x) => <s-option key={x} value={x}>{x}</s-option>)}
+                  </s-select>
+                  <s-text-field label="Path" labelAccessibilityVisibility="exclusive" value={path} onInput={(e) => setPath(e.currentTarget.value ?? '')} />
+                  <s-button variant="primary" icon="send" onClick={send} loading={sending || undefined}>{sending ? 'Sending' : 'Send'}</s-button>
+                </s-grid>
+                <Tabs tabs={[{ id: 'headers', label: 'Headers' }, { id: 'body', label: 'Body' }]} value="headers" onChange={() => {}} />
+                <s-text-area
+                  label="Request headers"
+                  labelAccessibilityVisibility="exclusive"
+                  rows={4}
+                  value={headersText}
+                  onInput={(e) => setHeadersText(e.currentTarget.value ?? '')}
+                />
+              </s-stack>
+            </s-section>
+            {testError && <s-banner tone="critical">{testError}</s-banner>}
             {testResult && (
-              <Card>
-                <div className="card-head">
-                  <div className="row-3">
-                    <Badge tone={testResult.status < 400 ? 'success' : 'critical'}>{testResult.status} {testResult.status < 400 ? 'OK' : 'Error'}</Badge>
-                    <span className="t-sm t-muted">live test</span>
-                  </div>
-                  <Btn size="sm" icon="plus" onClick={() => ctx.toast('Saved as endpoint')}>Save as endpoint</Btn>
-                </div>
-                <pre className="code-block" style={{ margin: 16 }}>{testResult.bodyPreview || '{}'}</pre>
-              </Card>
+              <s-banner
+                tone={testResult.status < 400 ? 'success' : 'critical'}
+                heading={`${testResult.status} ${testResult.status < 400 ? 'OK' : 'Error'} — live test`}
+              >
+                <s-stack gap="small-100">
+                  <pre style={MONO_PRE}>{testResult.bodyPreview || '{}'}</pre>
+                  <s-stack direction="inline">
+                    <s-button icon="plus" onClick={() => ctx.toast('Saved as endpoint')}>Save as endpoint</s-button>
+                  </s-stack>
+                </s-stack>
+              </s-banner>
             )}
-          </div>
-          <div className="stack-4">
-            <Card pad>
-              <div className="t-h3" style={{ marginBottom: 10 }}>Connection</div>
+          </s-stack>
+          <s-stack gap="base">
+            <s-section heading="Connection">
               <KV rows={[
                 ['Base URL', <MonoChip key="b">{connector.baseUrl}</MonoChip>],
                 ['Auth', authDisplay(connector.authType)],
                 ['Endpoints', endpoints.length],
                 ['Last test', connector.lastTestedAt ? timeAgo(connector.lastTestedAt) : 'untested'],
               ]} />
-            </Card>
-            <Card pad>
-              <div className="stack-2">
-                <div className="t-h3">Tips</div>
-                <div className="t-sm t-muted">Test a request, then “Save as endpoint” to reuse it inside flows and AI-generated modules.</div>
-              </div>
-            </Card>
-          </div>
-        </div>
+            </s-section>
+            <s-section heading="Tips">
+              <s-text color="subdued">Test a request, then “Save as endpoint” to reuse it inside flows and AI-generated modules.</s-text>
+            </s-section>
+          </s-stack>
+        </s-grid>
       )}
 
       {tab === 'endpoints' && (
-        <Card>
+        <s-section padding="none">
           {endpoints.length === 0 ? (
-            <div style={{ padding: 24, color: 'var(--p-text-secondary)', fontSize: 14 }}>No saved endpoints yet. Test a request and save it.</div>
+            <EmptyState icon="connect" heading="No saved endpoints yet">
+              Test a request and save it.
+            </EmptyState>
           ) : (
-            <DataTable rowKey="id" columns={[
-              { key: 'name', label: 'Name', render: (r: any) => <span className="cell-strong">{r.name}</span> },
-              { key: 'method', label: 'Method', render: (r: any) => <Badge tone={METHOD_COLOR[r.method]}>{r.method}</Badge> },
-              { key: 'path', label: 'Path', render: (r: any) => <MonoChip>{r.path}</MonoChip> },
-              { key: 'tested', label: 'Last tested', render: (r: any) => <span className="cell-sub">{timeAgo(r.lastTestedAt)}</span> },
-              { key: 'act', label: '', render: () => (
-                <div className="dt-actions"><Btn size="sm">Load</Btn></div>
-              ) },
-            ]} rows={endpoints} />
+            <s-table>
+              <s-table-header-row>
+                <s-table-header listSlot="primary">Name</s-table-header>
+                <s-table-header listSlot="inline">Method</s-table-header>
+                <s-table-header>Path</s-table-header>
+                <s-table-header listSlot="kicker">Last tested</s-table-header>
+                <s-table-header> </s-table-header>
+              </s-table-header-row>
+              <s-table-body>
+                {endpoints.map((r: any) => (
+                  <s-table-row key={r.id}>
+                    <s-table-cell><s-text type="strong">{r.name}</s-text></s-table-cell>
+                    <s-table-cell><s-badge tone={METHOD_COLOR[r.method] ?? 'neutral'}>{r.method}</s-badge></s-table-cell>
+                    <s-table-cell><MonoChip>{r.path}</MonoChip></s-table-cell>
+                    <s-table-cell><s-text color="subdued">{timeAgo(r.lastTestedAt)}</s-text></s-table-cell>
+                    <s-table-cell><s-button>Load</s-button></s-table-cell>
+                  </s-table-row>
+                ))}
+              </s-table-body>
+            </s-table>
           )}
-        </Card>
+        </s-section>
       )}
 
-      {tab === 'settings' && (
-        <div>
-          <Card pad>
-            <div className="stack-5" style={{ maxWidth: 520 }}>
-              <Field label="Connector name"><Input value={editName} onChange={(e: any) => setEditName(e.target.value)} /></Field>
-              <Field label="Base URL"><Input mono value={editBaseUrl} onChange={(e: any) => setEditBaseUrl(e.target.value)} /></Field>
-              <Field label="Authentication"><Select options={['API Key', 'Basic auth', 'OAuth 2.0']} value={authDisplay(connector.authType)} onChange={() => {}} /></Field>
-              <Field label="API key" help="Encrypted at rest — leave blank to keep current"><Input type="password" placeholder="••••••••" /></Field>
-              <div><Btn variant="primary" loading={updateFetcher.state !== 'idle'} onClick={saveSettings}>Save changes</Btn></div>
-            </div>
-          </Card>
-          <Card pad style={{ marginTop: 16 }}>
-            <Banner tone="critical" title="Delete this connector">
-              <div className="stack-2">
-                <span>Flows and modules that use it will stop working. This cannot be undone.</span>
-                <div><Btn variant="critical" icon="trash" onClick={() => setDelC(true)}>Delete connector</Btn></div>
-              </div>
-            </Banner>
-          </Card>
-        </div>
+      {editOpen && (
+        <EditConnectorModal connector={connector} fetcher={updateFetcher} onClose={() => setEditOpen(false)} />
       )}
 
       {delC && (
-        <ConfirmDialog title="Delete connector?" tone="critical" confirmLabel="Delete" icon="trash"
-          message={`This removes “${connector.name}” and its saved endpoints. This cannot be undone.`}
+        <ConfirmModal
+          open
+          heading="Delete connector?"
+          tone="critical"
+          confirmLabel="Delete"
+          loading={deleteFetcher.state !== 'idle'}
           onConfirm={() => {
             // Real delete via the /connectors action (shop-scoped); its redirect
             // navigates back to the list.
@@ -234,8 +242,71 @@ function ConnectorDetailBody() {
               { method: 'post', action: '/connectors' },
             );
           }}
-          onClose={() => setDelC(false)} />
+          onClose={() => setDelC(false)}
+        >
+          <s-paragraph>{`This removes “${connector.name}” and its saved endpoints. This cannot be undone.`}</s-paragraph>
+        </ConfirmModal>
       )}
-    </div>
+    </s-page>
   );
 }
+
+/**
+ * Edit-connector form modal (connectors._index pattern: fields live in a
+ * fetcher.Form, the primary action submits through a form ref). The update API
+ * takes a JSON body, so the form's values are read via FormData and submitted
+ * with `encType: 'application/json'` — the server contract is unchanged.
+ */
+function EditConnectorModal({
+  connector, fetcher, onClose,
+}: {
+  connector: { id: string; name: string; baseUrl: string; authType: string };
+  fetcher: FetcherWithComponents<{ ok?: boolean; error?: string }>;
+  onClose: () => void;
+}) {
+  const ctx = useMerchantCtx();
+  const modalRef = useRef<HTMLElement | null>(null);
+  const formRef = useRef<HTMLFormElement | null>(null);
+
+  useEffect(() => {
+    (modalRef.current as (HTMLElement & { show?: () => void }) | null)?.show?.();
+  }, []);
+  useCustomEvent(modalRef, 'afterhide', onClose);
+
+  const submit = () => {
+    if (!formRef.current) return;
+    const fd = new FormData(formRef.current);
+    fetcher.submit(
+      { name: String(fd.get('name') ?? ''), baseUrl: String(fd.get('baseUrl') ?? '') },
+      { method: 'POST', action: `/api/connectors/${connector.id}/update`, encType: 'application/json' },
+    );
+    ctx.toast('Connector saved');
+    onClose();
+  };
+
+  return (
+    <s-modal ref={modalRef as never} heading="Edit connector">
+      <fetcher.Form method="post" ref={formRef}>
+        <s-stack gap="base">
+          {fetcher.state === 'idle' && fetcher.data?.error && (
+            <s-banner tone="critical">{fetcher.data.error}</s-banner>
+          )}
+          <s-text-field label="Connector name" name="name" value={connector.name} />
+          <s-url-field label="Base URL" name="baseUrl" value={connector.baseUrl} />
+          <s-select label="Authentication" value={connector.authType} onChange={() => {}}>
+            <s-option value="API_KEY">API Key</s-option>
+            <s-option value="BASIC">Basic auth</s-option>
+            <s-option value="OAUTH2">OAuth 2.0</s-option>
+          </s-select>
+          <s-password-field label="API key" placeholder="••••••••" details="Encrypted at rest — leave blank to keep current" />
+        </s-stack>
+      </fetcher.Form>
+      <s-button slot="primary-action" variant="primary" loading={fetcher.state !== 'idle' || undefined} onClick={submit}>
+        Save changes
+      </s-button>
+      <s-button slot="secondary-actions" onClick={onClose}>Cancel</s-button>
+    </s-modal>
+  );
+}
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

@@ -1,6 +1,7 @@
 import { json } from '@remix-run/node';
 import { useNavigate, useLocation, useFetcher, useLoaderData } from '@remix-run/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   RecipeSpecSchema,
   RECOMMENDATION_STRATEGIES,
@@ -37,7 +38,7 @@ import { validateBeforePublish } from '~/services/publish/pre-publish-validator.
 import { classifyModulePublishability } from '~/services/publish/publish-preflight.server';
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { Icon, Btn, Badge, StatusBadge, Field, Input, Textarea, Select, Toggle, Banner, EmptyState, titleCase } from '~/components/superapp';
+import { StatusBadge, EmptyState, titleCase } from '~/components/merchant/polaris';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -258,6 +259,7 @@ const BASE_SETTINGS = {
 
 // Visual concept presets — icon/accent/default layout per slot. Real data (name,
 // tagline, tags, type) comes from the AI recipe attached to each concept.
+// Icon names are Polaris web-component icon types (s-icon).
 const CONCEPT_PRESETS = [
   {
     id: 'sticky', name: 'Concept 1', icon: 'desktop', accent: '#6B40D8',
@@ -268,7 +270,7 @@ const CONCEPT_PRESETS = [
     settings: { ...BASE_SETTINGS, mode: 'floating', buttonColor: '#0E9F6E', radius: 'full', shadow: 'lg', showVariants: false, showQty: false, size: 'L' },
   },
   {
-    id: 'inline', name: 'Concept 3', icon: 'layers', accent: '#2F80ED',
+    id: 'inline', name: 'Concept 3', icon: 'layer', accent: '#2F80ED',
     settings: { ...BASE_SETTINGS, mode: 'inline', buttonColor: '#14213A', radius: 'lg', bg: '#F6F8FB', countdown: true },
   },
 ];
@@ -372,6 +374,26 @@ function settingsFromRecipe(recipe?: Record<string, unknown> | null): Record<str
     if (typeof style.customCss === 'string') out.customCss = style.customCss;
   }
   return out;
+}
+
+/**
+ * Label/help wrapper for the bespoke controls (swatch rows, segmented fields,
+ * range sliders) that have no Polaris web-component equivalent. Local const —
+ * the vendored `Field` import is gone; this reuses the legacy field classes
+ * that the fullBleed shell still styles.
+ */
+function Field({ label, optional, help, children }: { label?: ReactNode; optional?: boolean; help?: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="field">
+      {label && (
+        <div className="row spread">
+          <label className="field-label">{label}{optional && <span className="opt">  (optional)</span>}</label>
+        </div>
+      )}
+      {children}
+      {help && <div className="field-help">{help}</div>}
+    </div>
+  );
 }
 
 export default function GeneratePage() {
@@ -817,40 +839,40 @@ function GenerateWorkspace() {
       <header className="gen-head">
         <div className="row-3" style={{ minWidth: 0 }}>
           <button className="gen-back-btn" onClick={backToOptions} title="Back to all concepts">
-            <Icon name="arrowLeft" size={15} /><span>All concepts</span>
+            <s-icon type="arrow-left" size="small" /><span>All concepts</span>
           </button>
           <span className="tile-ico" style={{ width: 34, height: 34, background: 'var(--p-info-bg)', color: 'var(--sa-secondary)' }}>
-            <Icon name={(activeCand && activeCand.icon) || 'desktop'} size={17} />
+            <s-icon type={((activeCand && activeCand.icon) || 'desktop') as never} size="small" />
           </span>
           <div className="stack" style={{ gap: 1, minWidth: 0 }}>
-            <div className="row-2"><span className="t-h3">{activeCand ? activeCand.name : 'Module'}</span><StatusBadge value="DRAFT" /></div>
+            <div className="row-2"><span className="t-h3">{activeCand ? activeCand.name : 'Module'}</span><StatusBadge status="DRAFT" /></div>
             <span className="t-xs t-muted">{(activeCand ? activeCand.type : 'Module') + ' · concept ' + (activeIdx + 1) + ' of ' + candidates.length + ' · unsaved'}</span>
           </div>
         </div>
         <div className="row-2">
-          <Btn icon="magic" onClick={regenerate} title="Discard these concepts and generate again">Regenerate</Btn>
-          <Btn onClick={() => navigate('/')}>Discard</Btn>
-          <Btn loading={confirmFetcher.state !== 'idle' && finishRef.current?.mode === 'draft'} onClick={() => finish('draft')}>Save draft</Btn>
-          <Btn variant="primary" icon="rocket" loading={publishing} onClick={() => finish('publish')}>Publish</Btn>
+          <s-button icon="wand" onClick={regenerate}>Regenerate</s-button>
+          <s-button onClick={() => navigate('/')}>Discard</s-button>
+          <s-button loading={(confirmFetcher.state !== 'idle' && finishRef.current?.mode === 'draft') || undefined} onClick={() => finish('draft')}>Save draft</s-button>
+          <s-button variant="primary" icon="rocket" loading={publishing || undefined} onClick={() => finish('publish')}>Publish</s-button>
         </div>
       </header>
       {blueprint && (
         <div style={{ padding: '12px 16px 0' }}>
-          <Banner tone="info" title={`This request is a full solution: ${blueprint.name} (${blueprint.moduleCount} modules)`}>
+          <s-banner tone="info" heading={`This request is a full solution: ${blueprint.name} (${blueprint.moduleCount} modules)`}>
             <div className="stack" style={{ gap: 8 }}>
               <span className="t-sm">{blueprint.summary}</span>
               <div className="row-2" style={{ flexWrap: 'wrap', gap: 6 }}>
                 {blueprint.modules.map((m) => (
-                  <Badge key={m.role}>{`${m.role} · ${titleCase(String(m.type).replace(/\./g, ' '))}`}</Badge>
+                  <s-badge key={m.role}>{`${m.role} · ${titleCase(String(m.type).replace(/\./g, ' '))}`}</s-badge>
                 ))}
               </div>
               <div>
-                <Btn variant="primary" icon="layers" loading={publishing} onClick={finishBlueprint}>
+                <s-button variant="primary" icon="layer" loading={publishing || undefined} onClick={finishBlueprint}>
                   {`Create all ${blueprint.moduleCount} modules`}
-                </Btn>
+                </s-button>
               </div>
             </div>
-          </Banner>
+          </s-banner>
         </div>
       )}
       <div className="gen-body">
@@ -866,8 +888,8 @@ function GenerateWorkspace() {
         <div className="gen-center">
           <div className="gen-toolbar">
             <div className="seg">
-              <button aria-selected={device === 'desktop'} onClick={() => setDevice('desktop')}><Icon name="desktop" size={14} />Desktop</button>
-              <button aria-selected={device === 'mobile'} onClick={() => setDevice('mobile')}><Icon name="store" size={14} />Mobile</button>
+              <button aria-selected={device === 'desktop'} onClick={() => setDevice('desktop')}><s-icon type="desktop" size="small" />Desktop</button>
+              <button aria-selected={device === 'mobile'} onClick={() => setDevice('mobile')}><s-icon type="mobile" size="small" />Mobile</button>
             </div>
             <div className="grow" />
             <div className="tabs-mini">
@@ -897,7 +919,7 @@ function GenLoading({ prompt, stepIdx, onCancel }: any) {
       <div className="gen-loading-card">
         <div className="gen-orb-wrap">
           <span className="gen-orb-halo" /><span className="gen-orb-ring r1" /><span className="gen-orb-ring r2" /><span className="gen-orb-ring r3" />
-          <div className="gen-orb"><Icon name="magic" size={28} /></div>
+          <div className="gen-orb"><s-icon type="wand" /></div>
         </div>
         <div className="gen-loading-eyebrow"><span className="pulse-dot" />Generating concepts</div>
         <div className="t-h2" style={{ marginTop: 6, textAlign: 'center' }}>Designing your module</div>
@@ -907,7 +929,7 @@ function GenLoading({ prompt, stepIdx, onCancel }: any) {
             const done = i < stepIdx, active = i === stepIdx;
             return (
               <div key={i} className={'gen-step' + (done ? ' done' : active ? ' active' : '')}>
-                <span className="gen-step-ico">{done ? <Icon name="check" size={14} /> : active ? <span className="spinner" style={{ width: 14, height: 14 }} /> : <span className="gen-step-dot" />}</span>
+                <span className="gen-step-ico">{done ? <s-icon type="check" size="small" /> : active ? <span className="spinner" style={{ width: 14, height: 14 }} /> : <span className="gen-step-dot" />}</span>
                 <span>{s.label}</span>
               </div>
             );
@@ -931,7 +953,7 @@ function GenChoose({ prompt, candidates, settingsMap, onSelect, onRegenerate, on
           <div className="gen-choose-eyebrow"><span className="pulse-dot" />{n + ' concept' + (n === 1 ? '' : 's') + ' generated'}</div>
           <h1 className="gen-choose-title">Pick a starting point</h1>
           <p className="gen-choose-sub">From “{prompt}”. Open any concept to customize it — the rest stay right here until you save. Nothing is stored yet, so you can regenerate anytime.</p>
-          <button className="gen-choose-close" onClick={onCancel} title="Cancel"><Icon name="x" size={16} /></button>
+          <button className="gen-choose-close" onClick={onCancel} title="Cancel"><s-icon type="x" /></button>
         </div>
         <div className="gen-cand-grid">
           {candidates.map((c: any, i: number) => (
@@ -939,7 +961,7 @@ function GenChoose({ prompt, candidates, settingsMap, onSelect, onRegenerate, on
           ))}
         </div>
         <div className="gen-choose-foot">
-          <button className="gen-regen-btn" onClick={onRegenerate}><Icon name="magic" size={15} />Regenerate</button>
+          <button className="gen-regen-btn" onClick={onRegenerate}><s-icon type="wand" size="small" />Regenerate</button>
           <span className="t-xs t-muted">Nothing is saved — concepts reset when you regenerate or leave.</span>
         </div>
       </div>
@@ -955,11 +977,11 @@ function GenCandCard({ c, idx, total, settings, onSelect }: any) {
       <span className="cand-num">{num}</span>
       {c.recommended && (
         <span className="cand-recommended" style={{ position: 'absolute', top: 12, right: 12 }}>
-          <Badge tone="success"><Icon name="magic" size={11} />Recommended</Badge>
+          <s-badge tone="success" icon="wand">Recommended</s-badge>
         </span>
       )}
       <div className="cand-head">
-        <span className="cand-ico"><Icon name={c.icon} size={19} /></span>
+        <span className="cand-ico"><s-icon type={c.icon as never} /></span>
         <div className="stack" style={{ gap: 2, minWidth: 0, textAlign: 'left' }}>
           <span className="cand-name">{c.name}</span>
           <span className="t-xs t-muted">{c.type}</span>
@@ -968,14 +990,14 @@ function GenCandCard({ c, idx, total, settings, onSelect }: any) {
       <p className="cand-tagline">{c.tagline}</p>
       {c.polished && (
         <span className="cand-polished" style={{ position: 'absolute', top: 12, left: 12 }} title="Refined by an AI reviewer after generation">
-          <Badge tone="info"><Icon name="magic" size={10} />Polished</Badge>
+          <s-badge tone="info" icon="wand">Polished</s-badge>
         </span>
       )}
       <GenCandMini s={settings} accent={c.accent} />
       <div className="cand-tags">{c.tags.map((t: string) => <span key={t} className="cand-tag">{t}</span>)}</div>
       <div className="cand-cta">
-        <span className="cand-open"><Icon name="magic" size={14} />Open & customize</span>
-        <Icon name="arrowRight" size={16} />
+        <span className="cand-open"><s-icon type="wand" size="small" />Open & customize</span>
+        <s-icon type="arrow-right" />
       </div>
     </button>
   );
@@ -985,7 +1007,7 @@ function GenCandMini({ s, accent }: any) {
   const r = Math.min(RADIUS_MAP[s.radius] ?? 10, 14);
   const btn = (
     <span className="cand-btn" style={{ background: s.buttonColor, color: s.buttonText, borderRadius: r }}>
-      <Icon name="cart" size={11} />{s.label}
+      <s-icon type="cart" size="small" />{s.label}
     </span>
   );
   const chips = s.showVariants && (
@@ -1039,22 +1061,22 @@ function GenBuilderDock({ credits, costPerChange, open, setOpen, thread, thinkin
   return (
     <div className={'gen-dock' + (open ? ' open' : '')}>
       <button className="gen-dock-head" onClick={() => setOpen(!open)}>
-        <span className="gen-dock-ava"><Icon name="magic" size={15} /></span>
+        <span className="gen-dock-ava"><s-icon type="wand" size="small" /></span>
         <div className="gen-dock-id">
           <span className="t-strong t-sm">Builder</span>
           <span className="t-xs t-muted">{open ? 'Describe a change — applied to the spec' : 'Tap to refine with AI'}</span>
         </div>
         <span className={'gen-credit-pill' + (low ? ' low' : '')} title={unlimited ? 'Unlimited AI requests on your plan' : credits.toLocaleString() + ' AI requests remaining this month'}>
-          <Icon name="bolt" size={12} />{unlimited ? 'Unlimited' : credits.toLocaleString() + ' left'}
+          <s-icon type="bolt" size="small" />{unlimited ? 'Unlimited' : credits.toLocaleString() + ' left'}
         </span>
-        <span className="gen-dock-chev"><Icon name={open ? 'chevronDown' : 'chevronUp'} size={16} /></span>
+        <span className="gen-dock-chev"><s-icon type={open ? 'chevron-down' : 'chevron-up'} /></span>
       </button>
       {open && (
         <div className="gen-dock-body">
           <div className={'gen-dock-last' + (last ? '' : ' empty')}>
             {last ? (
               <>
-                <span className="gen-last-ico"><Icon name="check" size={12} /></span>
+                <span className="gen-last-ico"><s-icon type="check" size="small" /></span>
                 <div className="gen-last-body">
                   <div className="gen-last-cap">Latest change</div>
                   <div className="gen-last-text" dangerouslySetInnerHTML={{ __html: gmd(last.text) }} />
@@ -1072,17 +1094,17 @@ function GenBuilderDock({ credits, costPerChange, open, setOpen, thread, thinkin
             <textarea className="gen-refine-input" rows={1} placeholder={out ? 'Out of AI requests — upgrade to keep building' : 'Refine with AI…'}
               value={refine} disabled={out} onChange={(e) => setRefine(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onRefine(); } }} />
-            <Btn variant="magic" icon="send" onClick={() => onRefine()} disabled={out || thinking || !refine.trim()} />
+            <s-button variant="primary" icon="send" accessibilityLabel="Send refinement" onClick={() => onRefine()} disabled={(out || thinking || !refine.trim()) || undefined} />
           </div>
           {!out && (
             <div className="gen-dock-sugg">
-              {suggestions.map((sg) => <button key={sg} className="example-chip" onClick={() => onRefine(sg)}><Icon name="magic" size={11} />{sg}</button>)}
+              {suggestions.map((sg) => <button key={sg} className="example-chip" onClick={() => onRefine(sg)}><s-icon type="wand" size="small" />{sg}</button>)}
             </div>
           )}
           <div className="gen-dock-foot">
-            <span className="gen-cost-note"><Icon name="bolt" size={12} />Each change costs <b>{costPerChange === 1 ? '1 AI request' : costPerChange + ' AI requests'}</b></span>
+            <span className="gen-cost-note"><s-icon type="bolt" size="small" />Each change costs <b>{costPerChange === 1 ? '1 AI request' : costPerChange + ' AI requests'}</b></span>
             <button className="gen-hist-btn" onClick={onOpenHistory}>
-              <Icon name="clock" size={13} />History{changes ? <span className="gen-hist-count">{changes}</span> : null}
+              <s-icon type="clock" size="small" />History{changes ? <span className="gen-hist-count">{changes}</span> : null}
             </button>
           </div>
         </div>
@@ -1100,7 +1122,7 @@ function GenHistory({ history, credits, onClose }: any) {
           <span className="t-strong t-sm">Change history</span>
           <span className="t-xs t-muted">{history.length + ' change' + (history.length === 1 ? '' : 's') + ' · ' + spent + ' AI request' + (spent === 1 ? '' : 's') + ' spent'}</span>
         </div>
-        <button className="gen-hist-x" onClick={onClose} title="Close"><Icon name="x" size={15} /></button>
+        <button className="gen-hist-x" onClick={onClose} title="Close"><s-icon type="x" size="small" /></button>
       </div>
       <div className="gen-hist-list">
         {history.slice().reverse().map((h: any) => (
@@ -1116,7 +1138,7 @@ function GenHistory({ history, credits, onClose }: any) {
         ))}
       </div>
       <div className="gen-hist-foot">
-        <Icon name="bolt" size={13} />
+        <s-icon type="bolt" size="small" />
         <span><b>{credits === null ? 'Unlimited' : credits.toLocaleString()}</b> AI requests remaining</span>
         <span className="grow" />
         <a className="gen-hist-topup" href="/billing">Upgrade</a>
@@ -1181,13 +1203,13 @@ function GenPreview({ recipe, device }: { recipe: Record<string, unknown> | null
         <div className="pv-browser"><span className="pv-dot" /><span className="pv-dot" /><span className="pv-dot" /><div className="pv-url">Live preview · {type || 'module'}</div></div>
         <div className="pv-live">
           {state.status === 'idle' && (
-            <div className="pv-msg"><Icon name="layers" size={22} /><span className="t-sm t-muted">Pick a concept to preview it here.</span></div>
+            <div className="pv-msg"><s-icon type="layer" /><span className="t-sm t-muted">Pick a concept to preview it here.</span></div>
           )}
           {state.status === 'loading' && (
             <div className="pv-msg"><span className="spinner" style={{ width: 20, height: 20 }} /><span className="t-sm t-muted">Rendering preview…</span></div>
           )}
           {state.status === 'error' && (
-            <div className="pv-msg"><Icon name="alert" size={22} /><span className="t-sm t-muted">{state.error}</span></div>
+            <div className="pv-msg"><s-icon type="alert-triangle" /><span className="t-sm t-muted">{state.error}</span></div>
           )}
           {state.status === 'html' && (
             <iframe
@@ -1233,21 +1255,29 @@ function GenConfigControls({ moduleType, config, setConfig, setConfigObject }: a
       <div className="gen-ctrl-body">
         <div className="stack-4" style={{ padding: 16 }}>
           {scalars.length === 0 && complex.length === 0 && !showPricing && !showRecs && (
-            <Banner tone="info">No editable settings on this module yet — describe changes in the Builder chat below.</Banner>
+            <s-banner tone="info">No editable settings on this module yet — describe changes in the Builder chat below.</s-banner>
           )}
           {scalars.map(([key, val]) => {
             if (typeof val === 'boolean') {
               return <ToggleRow key={key} label={fieldLabel(key)} checked={val} onChange={() => setConfig(key, !val)} />;
             }
-            const isNum = typeof val === 'number';
-            return (
-              <Field key={key} label={fieldLabel(key)}>
-                <Input
-                  type={isNum ? 'number' : 'text'}
-                  value={val == null ? '' : String(val)}
-                  onChange={(e: any) => setConfig(key, isNum ? Number(e.target.value) : e.target.value)}
+            if (typeof val === 'number') {
+              return (
+                <s-number-field
+                  key={key}
+                  label={fieldLabel(key)}
+                  value={String(val)}
+                  onInput={(e) => setConfig(key, Number(e.currentTarget.value))}
                 />
-              </Field>
+              );
+            }
+            return (
+              <s-text-field
+                key={key}
+                label={fieldLabel(key)}
+                value={val == null ? '' : String(val)}
+                onInput={(e) => setConfig(key, e.currentTarget.value ?? '')}
+              />
             );
           })}
           {showPricing && (
@@ -1261,9 +1291,9 @@ function GenConfigControls({ moduleType, config, setConfig, setConfigObject }: a
             </div>
           )}
           {complex.length > 0 && (
-            <Banner tone="info" title="Structured fields">
+            <s-banner tone="info" heading="Structured fields">
               {complex.map(([k]) => fieldLabel(k)).join(', ')} {complex.length === 1 ? 'is' : 'are'} structured — edit by describing the change in the Builder chat below. The live preview always reflects the real module.
-            </Banner>
+            </s-banner>
           )}
         </div>
       </div>
@@ -1295,8 +1325,8 @@ function GenControls({ settings: s, set, ctrlTab, setCtrlTab, moduleType, config
       <div className="gen-ctrl-body">
         {ctrlTab === 'basic' && (
           <div className="stack-4">
-            <Field label="Button label"><Input value={s.label} onChange={(e: any) => set({ label: e.target.value })} /></Field>
-            <Field label="Price suffix" optional><Input value={s.price} onChange={(e: any) => set({ price: e.target.value })} /></Field>
+            <s-text-field label="Button label" value={s.label} onInput={(e) => set({ label: e.currentTarget.value ?? '' })} />
+            <s-text-field label="Price suffix (optional)" value={s.price} onInput={(e) => set({ price: e.currentTarget.value ?? '' })} />
             <Field label="Button color"><SwatchRow value={s.buttonColor} swatches={swatches} onChange={(c: string) => set({ buttonColor: c })} /></Field>
             <Field label="Button text color"><SwatchRow value={s.buttonText} swatches={['#FFFFFF', '#14213A']} onChange={(c: string) => set({ buttonText: c })} /></Field>
             <Field label="Corner radius"><SegField value={s.radius} options={[['none', 'None'], ['sm', 'S'], ['md', 'M'], ['lg', 'L'], ['full', 'Pill']]} onChange={(v: string) => set({ radius: v })} /></Field>
@@ -1305,9 +1335,11 @@ function GenControls({ settings: s, set, ctrlTab, setCtrlTab, moduleType, config
         )}
         {ctrlTab === 'advanced' && (
           <div className="stack-4">
-            <Field label="Layout mode" help="How the module sits on the page">
-              <Select options={[{ value: 'sticky', label: 'Sticky bar' }, { value: 'inline', label: 'Inline (in product info)' }, { value: 'floating', label: 'Floating button' }]} value={s.mode} onChange={(e: any) => set({ mode: e.target.value })} />
-            </Field>
+            <s-select label="Layout mode" details="How the module sits on the page" value={s.mode} onChange={(e) => set({ mode: e.currentTarget.value })}>
+              <s-option value="sticky">Sticky bar</s-option>
+              <s-option value="inline">Inline (in product info)</s-option>
+              <s-option value="floating">Floating button</s-option>
+            </s-select>
             {s.mode === 'sticky' && <Field label="Anchor"><SegField value={s.anchor} options={[['top', 'Top'], ['bottom', 'Bottom']]} onChange={(v: string) => set({ anchor: v })} /></Field>}
             <Field label="Background"><SwatchRow value={s.bg} swatches={['#FFFFFF', '#F6F8FB', '#14213A']} onChange={(c: string) => set({ bg: c })} /></Field>
             <Field label="Shadow"><SegField value={s.shadow} options={[['none', 'None'], ['sm', 'S'], ['md', 'M'], ['lg', 'L']]} onChange={(v: string) => set({ shadow: v })} /></Field>
@@ -1322,10 +1354,10 @@ function GenControls({ settings: s, set, ctrlTab, setCtrlTab, moduleType, config
         )}
         {ctrlTab === 'css' && (
           <div className="stack-3">
-            <Banner tone="info">Scoped &amp; sanitized · max 2000 characters. Saved with the module.</Banner>
-            <Textarea mono rows={10} maxLength={2000} value={s.customCss ?? ''}
+            <s-banner tone="info">Scoped &amp; sanitized · max 2000 characters. Saved with the module.</s-banner>
+            <s-text-area label="Custom CSS" labelAccessibilityVisibility="exclusive" rows={10} maxLength={2000} value={s.customCss ?? ''}
               placeholder={'.sa-bar {\n  backdrop-filter: blur(8px);\n}\n.sa-bar__button:hover {\n  transform: translateY(-1px);\n}'}
-              onChange={(e: any) => set({ customCss: e.target.value })} />
+              onInput={(e) => set({ customCss: e.currentTarget.value ?? '' })} />
           </div>
         )}
         {ctrlTab === 'basic' && (showRecs || showRules) && (
@@ -1361,20 +1393,18 @@ function StyleTokenControls({ style, setStyle }: any) {
   return (
     <div className="stack-4">
       <div className="row spread"><span className="t-sm t-strong">Design tokens</span><span className="t-xs t-muted">Phase 2</span></div>
-      <Field label="Density" help="Airy for marketing, compact for utility.">
-        <Select
-          value={density}
-          options={[autoOpt('Auto (pack default)'), ...STOREFRONT_DENSITY_LEVELS.map((d) => ({ value: d, label: titleCase(d) }))]}
-          onChange={(e: any) => setStyle('spacing', { density: e.target.value || undefined })}
-        />
-      </Field>
-      <Field label="Elevation" help="Shadow personality applied to the module surface.">
-        <Select
-          value={elevation}
-          options={[autoOpt('Auto (flat / pack default)'), ...STOREFRONT_ELEVATION_IDIOMS.map((v) => ({ value: v, label: titleCase(v) }))]}
-          onChange={(e: any) => setStyle('shape', { elevation: e.target.value || undefined })}
-        />
-      </Field>
+      <s-select label="Density" details="Airy for marketing, compact for utility." value={density}
+        onChange={(e) => setStyle('spacing', { density: e.currentTarget.value || undefined })}>
+        {[autoOpt('Auto (pack default)'), ...STOREFRONT_DENSITY_LEVELS.map((d) => ({ value: d, label: titleCase(d) }))].map((o) => (
+          <s-option key={o.value} value={o.value}>{o.label}</s-option>
+        ))}
+      </s-select>
+      <s-select label="Elevation" details="Shadow personality applied to the module surface." value={elevation}
+        onChange={(e) => setStyle('shape', { elevation: e.currentTarget.value || undefined })}>
+        {[autoOpt('Auto (flat / pack default)'), ...STOREFRONT_ELEVATION_IDIOMS.map((v) => ({ value: v, label: titleCase(v) }))].map((o) => (
+          <s-option key={o.value} value={o.value}>{o.label}</s-option>
+        ))}
+      </s-select>
       <Field label="Corner scaling" help={`Shift the whole radius ladder tighter or softer (${STOREFRONT_RADIUS_SCALING_MIN}–${STOREFRONT_RADIUS_SCALING_MAX}%).`}>
         <div className="row-2" style={{ alignItems: 'center' }}>
           <input type="range" min={STOREFRONT_RADIUS_SCALING_MIN} max={STOREFRONT_RADIUS_SCALING_MAX} step={5} value={scaling}
@@ -1382,24 +1412,22 @@ function StyleTokenControls({ style, setStyle }: any) {
           <span className="t-mono t-xs t-muted" style={{ width: 42, textAlign: 'right' }}>{scaling}%</span>
           {typeof shape.scaling === 'number' && (
             <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 2 }}
-              title="Reset to default" onClick={() => setStyle('shape', { scaling: undefined })}><Icon name="x" size={13} /></button>
+              title="Reset to default" onClick={() => setStyle('shape', { scaling: undefined })}><s-icon type="x" size="small" /></button>
           )}
         </div>
       </Field>
-      <Field label="Motion duration" help="Named speed; always paired with a reduced-motion fallback.">
-        <Select
-          value={dur}
-          options={[autoOpt('Auto (base)'), ...STOREFRONT_MOTION_DURATIONS.map((v) => ({ value: v, label: titleCase(v) }))]}
-          onChange={(e: any) => setStyle('motion', { duration: e.target.value || undefined })}
-        />
-      </Field>
-      <Field label="Motion easing" help="Personality of the transition curve.">
-        <Select
-          value={ease}
-          options={[autoOpt('Auto (standard)'), ...STOREFRONT_MOTION_EASINGS.map((v) => ({ value: v, label: titleCase(v) }))]}
-          onChange={(e: any) => setStyle('motion', { easing: e.target.value || undefined })}
-        />
-      </Field>
+      <s-select label="Motion duration" details="Named speed; always paired with a reduced-motion fallback." value={dur}
+        onChange={(e) => setStyle('motion', { duration: e.currentTarget.value || undefined })}>
+        {[autoOpt('Auto (base)'), ...STOREFRONT_MOTION_DURATIONS.map((v) => ({ value: v, label: titleCase(v) }))].map((o) => (
+          <s-option key={o.value} value={o.value}>{o.label}</s-option>
+        ))}
+      </s-select>
+      <s-select label="Motion easing" details="Personality of the transition curve." value={ease}
+        onChange={(e) => setStyle('motion', { easing: e.currentTarget.value || undefined })}>
+        {[autoOpt('Auto (standard)'), ...STOREFRONT_MOTION_EASINGS.map((v) => ({ value: v, label: titleCase(v) }))].map((o) => (
+          <s-option key={o.value} value={o.value}>{o.label}</s-option>
+        ))}
+      </s-select>
       <Field label="Brand seed" optional help="Seeds the OKLCH semantic color ramp. Additive — flat colors above still apply.">
         <SwatchRow value={colors.seed ?? ''} swatches={seedSwatches} onChange={(c: string) => setStyle('colors', { seed: c })} />
         {colors.seed && (
@@ -1427,7 +1455,12 @@ function SegField({ value, options, onChange }: any) {
   );
 }
 function ToggleRow({ label, checked, onChange }: any) {
-  return <label className="row spread" style={{ cursor: 'pointer' }}><span className="t-sm">{label}</span><Toggle checked={checked} onChange={onChange} /></label>;
+  return (
+    <div className="row spread">
+      <span className="t-sm">{label}</span>
+      <s-switch accessibilityLabel={String(label)} checked={checked || undefined} onChange={onChange} />
+    </div>
+  );
 }
 
 /** Human label for an enum token — titleCase but hyphen-aware (fixed-amount → Fixed Amount). */
@@ -1443,7 +1476,7 @@ function PackHeader({ title, hint, enabled, onToggle }: any) {
         <span className="t-sm t-strong">{title}</span>
         {hint && <span className="t-xs t-muted">{hint}</span>}
       </div>
-      <Toggle checked={enabled} onChange={onToggle} />
+      <s-switch accessibilityLabel={String(title)} checked={enabled || undefined} onChange={onToggle} />
     </div>
   );
 }
@@ -1452,10 +1485,8 @@ function PackHeader({ title, hint, enabled, onToggle }: any) {
 function TagListField({ label, help, value, onChange, placeholder }: any) {
   const arr: string[] = Array.isArray(value) ? value : [];
   return (
-    <Field label={label} help={help}>
-      <Input value={arr.join(', ')} placeholder={placeholder}
-        onChange={(e: any) => onChange(String(e.target.value).split(',').map((x) => x.trim()).filter(Boolean))} />
-    </Field>
+    <s-text-field label={label} details={help} value={arr.join(', ')} placeholder={placeholder}
+      onInput={(e) => onChange(String(e.currentTarget.value ?? '').split(',').map((x) => x.trim()).filter(Boolean))} />
   );
 }
 
@@ -1479,10 +1510,9 @@ function RecommendationControls({ value, onChange }: any) {
       />
       {enabled && (
         <>
-          <Field label="Strategy">
-            <Select value={strategy} options={RECOMMENDATION_STRATEGIES.map((sname) => ({ value: sname, label: labelize(sname) }))}
-              onChange={(e: any) => patch({ strategy: e.target.value })} />
-          </Field>
+          <s-select label="Strategy" value={strategy} onChange={(e) => patch({ strategy: e.currentTarget.value })}>
+            {RECOMMENDATION_STRATEGIES.map((sname) => <s-option key={sname} value={sname}>{labelize(sname)}</s-option>)}
+          </s-select>
           {strategy === 'manual' && (
             <TagListField label="Manual variant GIDs" help="gid://shopify/ProductVariant/… — comma-separated."
               value={v.manualVariantGids} placeholder="gid://shopify/ProductVariant/123"
@@ -1490,29 +1520,24 @@ function RecommendationControls({ value, onChange }: any) {
           )}
           {strategy === 'collection' && (
             <>
-              <Field label="Collection GID" help="gid://shopify/Collection/…">
-                <Input value={v.collectionGid ?? ''} placeholder="gid://shopify/Collection/456"
-                  onChange={(e: any) => patch({ collectionGid: e.target.value || undefined })} />
-              </Field>
+              <s-text-field label="Collection GID" details="gid://shopify/Collection/…" value={v.collectionGid ?? ''} placeholder="gid://shopify/Collection/456"
+                onInput={(e) => patch({ collectionGid: e.currentTarget.value || undefined })} />
               <ToggleRow label="Pick one at random" checked={!!v.collectionRandom} onChange={() => patch({ collectionRandom: !v.collectionRandom })} />
             </>
           )}
           {['related', 'complementary', 'buy-it-again'].includes(strategy) && (
-            <Field label="Seed product GID" optional help="Defaults to the current PDP product.">
-              <Input value={v.seedProductGid ?? ''} placeholder="gid://shopify/Product/789"
-                onChange={(e: any) => patch({ seedProductGid: e.target.value || undefined })} />
-            </Field>
+            <s-text-field label="Seed product GID (optional)" details="Defaults to the current PDP product." value={v.seedProductGid ?? ''} placeholder="gid://shopify/Product/789"
+              onInput={(e) => patch({ seedProductGid: e.currentTarget.value || undefined })} />
           )}
-          <Field label="Products to show" help={`${RECOMMENDATION_LIMITS.productLimitMin}–${RECOMMENDATION_LIMITS.productLimitMax}.`}>
-            <Input type="number" min={RECOMMENDATION_LIMITS.productLimitMin} max={RECOMMENDATION_LIMITS.productLimitMax}
-              value={v.productLimit ?? 4}
-              onChange={(e: any) => patch({ productLimit: e.target.value === '' ? undefined : Number(e.target.value) })} />
-          </Field>
+          <s-number-field label="Products to show" details={`${RECOMMENDATION_LIMITS.productLimitMin}–${RECOMMENDATION_LIMITS.productLimitMax}.`}
+            min={RECOMMENDATION_LIMITS.productLimitMin} max={RECOMMENDATION_LIMITS.productLimitMax}
+            value={String(v.productLimit ?? 4)}
+            onInput={(e) => patch({ productLimit: e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value) })} />
           {isDynamic && (
-            <Field label="Fallback" help="Shown when a dynamic strategy has no result (empty history / service down).">
-              <Select value={v.fallback ?? 'related'} options={RECOMMENDATION_FALLBACKS.map((f) => ({ value: f, label: labelize(f) }))}
-                onChange={(e: any) => patch({ fallback: e.target.value })} />
-            </Field>
+            <s-select label="Fallback" details="Shown when a dynamic strategy has no result (empty history / service down)."
+              value={v.fallback ?? 'related'} onChange={(e) => patch({ fallback: e.currentTarget.value })}>
+              {RECOMMENDATION_FALLBACKS.map((f) => <s-option key={f} value={f}>{labelize(f)}</s-option>)}
+            </s-select>
           )}
         </>
       )}
@@ -1572,7 +1597,7 @@ function RuleEngineControls({ value, onChange }: any) {
             />
           ))}
           {groups.length < RULE_LIMITS.maxGroups && (
-            <button className="example-chip" onClick={addGroup}><Icon name="plus" size={12} />Add rule group</button>
+            <button className="example-chip" onClick={addGroup}><s-icon type="plus" size="small" />Add rule group</button>
           )}
         </>
       )}
@@ -1593,7 +1618,7 @@ function RuleGroupEditor({ group, index, showOuter, onChange, onRemove }: any) {
         <span className="t-xs t-strong">{showOuter ? `Group ${index + 1}` : 'Conditions'}</span>
         {showOuter && (
           <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 2 }}
-            title="Remove group" onClick={onRemove}><Icon name="trash" size={13} /></button>
+            title="Remove group" onClick={onRemove}><s-icon type="delete" size="small" /></button>
         )}
       </div>
       <div className="stack-3">
@@ -1609,7 +1634,7 @@ function RuleGroupEditor({ group, index, showOuter, onChange, onRemove }: any) {
           />
         ))}
         {conditions.length < RULE_LIMITS.maxRowsPerGroup && (
-          <button className="example-chip" onClick={addRow}><Icon name="plus" size={12} />Add condition</button>
+          <button className="example-chip" onClick={addRow}><s-icon type="plus" size="small" />Add condition</button>
         )}
       </div>
     </div>
@@ -1638,30 +1663,42 @@ function RuleRowEditor({ row, showLogic, groupLogic, onLogic, onChange, onRemove
       )}
       <div className="row-2" style={{ flexWrap: 'wrap', alignItems: 'flex-end', gap: 6 }}>
         <div style={{ flex: '1 1 110px' }}>
-          <Select value={object} options={RULE_OBJECTS.map((o) => ({ value: o, label: titleCase(o) }))} onChange={(e: any) => setObject(e.target.value)} />
+          <s-select label="Object" labelAccessibilityVisibility="exclusive" value={object} onChange={(e) => setObject(e.currentTarget.value)}>
+            {RULE_OBJECTS.map((o) => <s-option key={o} value={o}>{titleCase(o)}</s-option>)}
+          </s-select>
         </div>
         <div style={{ flex: '1 1 130px' }}>
-          <Select value={attribute} options={attrs.map((a) => ({ value: a, label: titleCase(a) }))} onChange={(e: any) => onChange({ ...row, object, attribute: e.target.value })} />
+          <s-select label="Attribute" labelAccessibilityVisibility="exclusive" value={attribute} onChange={(e) => onChange({ ...row, object, attribute: e.currentTarget.value })}>
+            {attrs.map((a) => <s-option key={a} value={a}>{titleCase(a)}</s-option>)}
+          </s-select>
         </div>
         <div style={{ flex: '1 1 130px' }}>
-          <Select value={operator} options={CONDITION_OPERATORS.map((op) => ({ value: op, label: labelize(op) }))} onChange={(e: any) => onChange({ ...row, operator: e.target.value })} />
+          <s-select label="Operator" labelAccessibilityVisibility="exclusive" value={operator} onChange={(e) => onChange({ ...row, operator: e.currentTarget.value })}>
+            {CONDITION_OPERATORS.map((op) => <s-option key={op} value={op}>{labelize(op)}</s-option>)}
+          </s-select>
         </div>
         {!valueless && (
           <div style={{ flex: '2 1 150px' }}>
             {valueType === 'boolean' ? (
-              <Select value={String(row?.value ?? 'true')} options={[{ value: 'true', label: 'True' }, { value: 'false', label: 'False' }]} onChange={(e: any) => onChange({ ...row, value: e.target.value === 'true' })} />
+              <s-select label="Value" labelAccessibilityVisibility="exclusive" value={String(row?.value ?? 'true')} onChange={(e) => onChange({ ...row, value: e.currentTarget.value === 'true' })}>
+                <s-option value="true">True</s-option>
+                <s-option value="false">False</s-option>
+              </s-select>
             ) : valueType === 'stringList' ? (
-              <Input value={Array.isArray(row?.value) ? row.value.join(', ') : (row?.value ?? '')} placeholder="a, b, c"
-                onChange={(e: any) => onChange({ ...row, value: String(e.target.value).split(',').map((x) => x.trim()).filter(Boolean) })} />
+              <s-text-field label="Value" labelAccessibilityVisibility="exclusive" value={Array.isArray(row?.value) ? row.value.join(', ') : (row?.value ?? '')} placeholder="a, b, c"
+                onInput={(e) => onChange({ ...row, value: String(e.currentTarget.value ?? '').split(',').map((x) => x.trim()).filter(Boolean) })} />
+            ) : valueType === 'number' ? (
+              <s-number-field label="Value" labelAccessibilityVisibility="exclusive" value={String(row?.value ?? '')}
+                onInput={(e) => onChange({ ...row, value: e.currentTarget.value === '' ? '' : Number(e.currentTarget.value) })} />
             ) : (
-              <Input type={valueType === 'number' ? 'number' : 'text'} value={row?.value ?? ''}
-                onChange={(e: any) => onChange({ ...row, value: valueType === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value })} />
+              <s-text-field label="Value" labelAccessibilityVisibility="exclusive" value={row?.value ?? ''}
+                onInput={(e) => onChange({ ...row, value: e.currentTarget.value ?? '' })} />
             )}
           </div>
         )}
         {onRemove && (
           <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 6 }}
-            title="Remove condition" onClick={onRemove}><Icon name="x" size={14} /></button>
+            title="Remove condition" onClick={onRemove}><s-icon type="x" size="small" /></button>
         )}
       </div>
     </div>
@@ -1693,13 +1730,13 @@ function PricingControls({ value, onChange }: any) {
       />
       {enabled && (
         <>
-          <Field label="Model">
-            <Select value={model} options={PRICING_MODELS.map((m) => ({ value: m, label: labelize(m) }))} onChange={(e: any) => setModel(e.target.value)} />
-          </Field>
-          <Field label="Mechanism" help="How the discount is enforced at checkout.">
-            <Select value={v.mechanism ?? 'shopify-function-discount'} options={PRICING_MECHANISMS.map((m) => ({ value: m, label: labelize(m) }))}
-              onChange={(e: any) => emit({ mechanism: e.target.value })} />
-          </Field>
+          <s-select label="Model" value={model} onChange={(e) => setModel(e.currentTarget.value)}>
+            {PRICING_MODELS.map((m) => <s-option key={m} value={m}>{labelize(m)}</s-option>)}
+          </s-select>
+          <s-select label="Mechanism" details="How the discount is enforced at checkout."
+            value={v.mechanism ?? 'shopify-function-discount'} onChange={(e) => emit({ mechanism: e.currentTarget.value })}>
+            {PRICING_MECHANISMS.map((m) => <s-option key={m} value={m}>{labelize(m)}</s-option>)}
+          </s-select>
           {model === 'single' && (
             <DiscountFields discount={v.discount ?? { kind: 'percentage', value: 10 }} onChange={(d: unknown) => emit({ discount: d })} />
           )}
@@ -1707,7 +1744,7 @@ function PricingControls({ value, onChange }: any) {
             <PricingTiers tiers={v.tiers ?? { basis: 'quantity', rows: [] }} onChange={(t: unknown) => emit({ tiers: t })} />
           )}
           {(model === 'bogo' || model === 'gift') && (
-            <Banner tone="info">{labelize(model)} needs product/collection targeting — describe it in the Builder chat below; the live preview reflects the real module.</Banner>
+            <s-banner tone="info">{labelize(model)} needs product/collection targeting — describe it in the Builder chat below; the live preview reflects the real module.</s-banner>
           )}
         </>
       )}
@@ -1722,20 +1759,17 @@ function DiscountFields({ discount, onChange }: any) {
   const needsValue = KIND_NEEDS_VALUE.has(kind);
   return (
     <div className="stack-3">
-      <Field label="Discount kind">
-        <Select value={kind} options={DISCOUNT_KINDS.map((k) => ({ value: k, label: labelize(k) }))} onChange={(e: any) => onChange({ ...d, kind: e.target.value })} />
-      </Field>
+      <s-select label="Discount kind" value={kind} onChange={(e) => onChange({ ...d, kind: e.currentTarget.value })}>
+        {DISCOUNT_KINDS.map((k) => <s-option key={k} value={k}>{labelize(k)}</s-option>)}
+      </s-select>
       {needsValue && (
-        <Field label={kind === 'percentage' ? 'Percent off (0–100)' : kind === 'fixed-price' ? 'Final price' : 'Amount off'}>
-          <Input type="number" min={0} max={kind === 'percentage' ? 100 : undefined} value={d.value ?? 0}
-            onChange={(e: any) => onChange({ ...d, value: e.target.value === '' ? 0 : Number(e.target.value) })} />
-        </Field>
+        <s-number-field label={kind === 'percentage' ? 'Percent off (0–100)' : kind === 'fixed-price' ? 'Final price' : 'Amount off'}
+          min={0} max={kind === 'percentage' ? 100 : undefined} value={String(d.value ?? 0)}
+          onInput={(e) => onChange({ ...d, value: e.currentTarget.value === '' ? 0 : Number(e.currentTarget.value) })} />
       )}
       {kind === 'cheapest-free' && (
-        <Field label="How many cheapest become free">
-          <Input type="number" min={1} value={d.cheapestFreeCount ?? 1}
-            onChange={(e: any) => onChange({ ...d, cheapestFreeCount: e.target.value === '' ? undefined : Number(e.target.value) })} />
-        </Field>
+        <s-number-field label="How many cheapest become free" min={1} value={String(d.cheapestFreeCount ?? 1)}
+          onInput={(e) => onChange({ ...d, cheapestFreeCount: e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value) })} />
       )}
     </div>
   );
@@ -1757,19 +1791,17 @@ function PricingTiers({ tiers, onChange }: any) {
             <span className="t-xs t-strong">Tier {ri + 1}</span>
             {rows.length > 1 && (
               <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 2 }}
-                title="Remove tier" onClick={() => setRows(rows.filter((_, i) => i !== ri))}><Icon name="trash" size={13} /></button>
+                title="Remove tier" onClick={() => setRows(rows.filter((_, i) => i !== ri))}><s-icon type="delete" size="small" /></button>
             )}
           </div>
           <div className="stack-3">
-            <Field label={`Threshold (${t.basis === 'cart-value' ? 'cart value' : 'quantity'})`}>
-              <Input type="number" min={1} value={r.threshold ?? 1}
-                onChange={(e: any) => setRows(rows.map((x, i) => (i === ri ? { ...x, threshold: Number(e.target.value) } : x)))} />
-            </Field>
+            <s-number-field label={`Threshold (${t.basis === 'cart-value' ? 'cart value' : 'quantity'})`} min={1} value={String(r.threshold ?? 1)}
+              onInput={(e) => setRows(rows.map((x, i) => (i === ri ? { ...x, threshold: Number(e.currentTarget.value) } : x)))} />
             <DiscountFields discount={r.discount} onChange={(dd: unknown) => setRows(rows.map((x, i) => (i === ri ? { ...x, discount: dd } : x)))} />
           </div>
         </div>
       ))}
-      <button className="example-chip" onClick={addRow}><Icon name="plus" size={12} />Add tier</button>
+      <button className="example-chip" onClick={addRow}><s-icon type="plus" size="small" />Add tier</button>
     </div>
   );
 }
@@ -1780,7 +1812,7 @@ function GenValidation({ loading, data, hasRecipe }: any) {
   if (!hasRecipe) {
     return (
       <div style={{ padding: 20, maxWidth: 640, width: '100%', margin: '0 auto' }}>
-        <EmptyState icon="shield" title="Nothing to validate">This concept has no generated spec — regenerate and pick a concept first.</EmptyState>
+        <EmptyState icon="shield-check-mark" heading="Nothing to validate">This concept has no generated spec — regenerate and pick a concept first.</EmptyState>
       </div>
     );
   }
@@ -1795,7 +1827,7 @@ function GenValidation({ loading, data, hasRecipe }: any) {
   if (data.error) {
     return (
       <div style={{ padding: 20, maxWidth: 640, width: '100%', margin: '0 auto' }}>
-        <Banner tone="critical" title="Validation could not run">{String(data.error)}</Banner>
+        <s-banner tone="critical" heading="Validation could not run">{String(data.error)}</s-banner>
       </div>
     );
   }
@@ -1819,23 +1851,23 @@ function GenValidation({ loading, data, hasRecipe }: any) {
   return (
     <div style={{ padding: 20, maxWidth: 640, width: '100%', margin: '0 auto' }}>
       {!data.ok
-        ? <Banner tone="critical" title={failCount + ' issue' + (failCount === 1 ? '' : 's') + ' found'}>Fix these before publishing — Publish enforces the same checks server-side.</Banner>
+        ? <s-banner tone="critical" heading={failCount + ' issue' + (failCount === 1 ? '' : 's') + ' found'}>Fix these before publishing — Publish enforces the same checks server-side.</s-banner>
         : deployBlocked
-          ? <Banner tone="warning" title="Valid — but not publishable yet">{(publish!.reasons[0] ?? 'This module type needs its runtime shipped before it can publish.') + ' Publishing will be blocked until then; saving a draft still works.'}</Banner>
-          : <Banner tone="success" title="All checks passed">Schema and pre-publish validation both passed — Publish runs these same checks server-side before going live.</Banner>}
+          ? <s-banner tone="warning" heading="Valid — but not publishable yet">{(publish!.reasons[0] ?? 'This module type needs its runtime shipped before it can publish.') + ' Publishing will be blocked until then; saving a draft still works.'}</s-banner>
+          : <s-banner tone="success" heading="All checks passed">Schema and pre-publish validation both passed — Publish runs these same checks server-side before going live.</s-banner>}
       <div className="card" style={{ marginTop: 16 }}>
         {rows.map((r, i) => (
           <div key={i} className="val-row">
-            <span className="val-ico" style={r.pass ? undefined : { background: 'var(--p-critical-bg)', color: 'var(--p-critical)' }}><Icon name={r.pass ? 'check' : 'alert'} size={14} /></span>
+            <span className="val-ico" style={r.pass ? undefined : { background: 'var(--p-critical-bg)', color: 'var(--p-critical)' }}><s-icon type={r.pass ? 'check' : 'alert-triangle'} size="small" /></span>
             <div className="grow"><div className="t-sm t-strong">{r.label}</div><div className="t-xs t-muted">{r.detail}</div></div>
-            <Badge tone={r.pass ? 'success' : 'critical'}>{r.pass ? 'Pass' : 'Fail'}</Badge>
+            <s-badge tone={r.pass ? 'success' : 'critical'}>{r.pass ? 'Pass' : 'Fail'}</s-badge>
           </div>
         ))}
         {errors.map((e: any, i: number) => (
           <div key={'e' + i} className="val-row">
-            <span className="val-ico" style={{ background: 'var(--p-critical-bg)', color: 'var(--p-critical)' }}><Icon name="alert" size={14} /></span>
+            <span className="val-ico" style={{ background: 'var(--p-critical-bg)', color: 'var(--p-critical)' }}><s-icon type="alert-triangle" size="small" /></span>
             <div className="grow"><div className="t-sm t-strong">{e.code}</div><div className="t-xs t-muted">{e.message}</div></div>
-            <Badge tone="critical">Fail</Badge>
+            <s-badge tone="critical">Fail</s-badge>
           </div>
         ))}
       </div>

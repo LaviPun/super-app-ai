@@ -6,9 +6,8 @@ import { getPrisma } from '~/db.server';
 import { QuotaService } from '~/services/billing/quota.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
-  Icon, Btn, Badge, StatusBadge, Card, PageHead, FilterBar, StatTile, DataTable,
-  EmptyState, Menu, ConfirmDialog, useTableState, titleCase, fmtNum,
-} from '~/components/superapp';
+  StatTile, StatusBadge, EmptyState, ConfirmModal, fmtNum, type WcTone,
+} from '~/components/merchant/polaris';
 import { CATEGORY_ORDER, getCategoryDisplayLabel, getCategoryTone, getCategoryIcon } from '~/utils/type-label';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -84,65 +83,82 @@ function timeAgo(d: Date | string): string {
   return `${Math.round(h / 24)}d ago`;
 }
 
-// Reusable AI builder card. Clicking a "Try:" chip fills the prompt box;
+/* Category → Polaris badge tone / icon. `getCategoryTone` still speaks the
+ * vendored palette ('magic' has no Polaris badge equivalent → 'caution'). */
+const CAT_BADGE_TONE: Record<string, WcTone> = { info: 'info', success: 'success', warning: 'warning', magic: 'caution' };
+function catTone(category: string): WcTone {
+  return CAT_BADGE_TONE[getCategoryTone(category)] ?? 'neutral';
+}
+const CAT_ICON: Record<string, string> = { desktop: 'desktop', settings: 'settings', users: 'team', bolt: 'bolt', connect: 'connect', flow: 'automation' };
+function catIcon(category: string): string {
+  return CAT_ICON[getCategoryIcon(category)] ?? 'layer';
+}
+
+type PolarisField = HTMLElement & { value?: string; focus?: () => void };
+
+// Reusable AI builder panel. Clicking a "Try:" chip fills the prompt box;
 // generation happens on the Generate button → navigates to /generate with the
 // prompt in location state.
 function ModuleBuilderCard({ onClose, open, aiLeftLabel }: { onClose: () => void; open: boolean; aiLeftLabel: string }) {
   const ctx = useMerchantCtx();
   const navigate = useNavigate();
   const [prompt, setPrompt] = useState('');
-  const taRef = useRef<HTMLTextAreaElement>(null);
+  const taRef = useRef<PolarisField | null>(null);
   const examples = ['Sticky add-to-cart bar', 'Free-shipping progress bar', 'Back-in-stock email capture', 'Volume discount: buy 3 save 15%'];
   const addExample = (ex: string) => {
-    setPrompt((p) => {
-      const cur = p.trim();
-      if (!cur) return ex;
-      if (cur.toLowerCase().includes(ex.toLowerCase())) return cur;
-      return cur + ', ' + ex;
-    });
-    if (taRef.current) taRef.current.focus();
+    const cur = prompt.trim();
+    const next = !cur ? ex : cur.toLowerCase().includes(ex.toLowerCase()) ? cur : cur + ', ' + ex;
+    setPrompt(next);
+    if (taRef.current) {
+      taRef.current.value = next;
+      taRef.current.focus?.();
+    }
   };
   const generate = () => {
     const q = prompt.trim();
     if (!q) return;
     navigate('/generate', { state: { prompt: q, type: 'ai' } });
   };
-  useEffect(() => { if (open && taRef.current) taRef.current.focus(); }, [open]);
+  useEffect(() => { if (open) taRef.current?.focus?.(); }, [open]);
   return (
-    <Card className="home-builder mb-card">
-      <div className="mb-card-head">
-        <span className="tile-ico" style={{ background: 'var(--p-magic-bg)', color: 'var(--p-magic)', width: 34, height: 34, flex: 'none' }}>
-          <Icon name="magic" size={18} />
-        </span>
-        <div className="stack" style={{ gap: 1, flex: 1, minWidth: 0 }}>
-          <span className="t-strong">Build a module with AI</span>
-          <span className="t-xs t-muted">Describe what you want — generate 3 concepts to choose from.</span>
-        </div>
-        {onClose && <button className="mb-close" onClick={onClose} title="Close"><Icon name="x" size={16} /></button>}
-      </div>
-      <textarea ref={taRef} className="input home-builder-input mb-textarea" rows={2}
-        placeholder="Describe a module to build — e.g. a slide-out size guide on apparel pages…"
-        value={prompt} onChange={(e) => setPrompt(e.target.value)} />
-      <div className="home-builder-chips">
-        <span className="t-xs t-muted">Try:</span>
-        {examples.map((ex) => (
-          <button key={ex} className="example-chip" onClick={() => addExample(ex)}><Icon name="plus" size={12} />{ex}</button>
-        ))}
-      </div>
-      <div className="mb-card-foot">
-        <span className="row-2 t-xs t-muted"><Icon name="info" size={13} /><b>{aiLeftLabel}</b> AI credits left</span>
-        <span className="grow" />
-        <Btn icon="template" onClick={() => ctx.go('#/app/templates')}>Templates</Btn>
-        <Btn variant="magic" icon="magic" onClick={generate} disabled={!prompt.trim()}>Generate</Btn>
-      </div>
-    </Card>
+    <s-section>
+      <s-stack gap="small-100">
+        <s-grid gridTemplateColumns="1fr auto" gap="small-100" alignItems="start">
+          <s-stack gap="none">
+            <s-heading>Build a module with AI</s-heading>
+            <s-text tone="neutral" color="subdued">Describe what you want — generate 3 concepts to choose from.</s-text>
+          </s-stack>
+          <s-button variant="tertiary" icon="x" accessibilityLabel="Close builder" onClick={onClose} />
+        </s-grid>
+        <s-text-area
+          ref={taRef as never}
+          label="Module description"
+          labelAccessibilityVisibility="exclusive"
+          rows={2}
+          placeholder="Describe a module to build — e.g. a slide-out size guide on apparel pages…"
+          onInput={(e) => setPrompt(e.currentTarget.value ?? '')}
+        />
+        <s-stack direction="inline" gap="small-100" alignItems="center">
+          <s-text tone="neutral" color="subdued">Try:</s-text>
+          {examples.map((ex) => (
+            <s-button key={ex} variant="tertiary" icon="plus" onClick={() => addExample(ex)}>{ex}</s-button>
+          ))}
+        </s-stack>
+        <s-divider />
+        <s-grid gridTemplateColumns="1fr auto auto" gap="small-100" alignItems="center">
+          <s-text tone="neutral" color="subdued"><s-text type="strong">{aiLeftLabel}</s-text> AI credits left</s-text>
+          <s-button icon="theme-template" onClick={() => ctx.go('#/app/templates')}>Templates</s-button>
+          <s-button variant="primary" icon="wand" disabled={!prompt.trim() || undefined} onClick={generate}>Generate</s-button>
+        </s-grid>
+      </s-stack>
+    </s-section>
   );
 }
 
 export default function ModulesIndex() {
   const { modules, stats, loaderError, aiUsage } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell>
+    <MerchantShell polaris>
       <ModulesBody modules={modules} stats={stats} loaderError={loaderError} aiUsage={aiUsage} />
     </MerchantShell>
   );
@@ -150,15 +166,15 @@ export default function ModulesIndex() {
 
 function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
   const ctx = useMerchantCtx();
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const ts = useTableState();
   const { revalidate } = useRevalidator();
+  const [search, setSearch] = useState('');
   const [type, setType] = useState('All');
   const [status, setStatus] = useState('All');
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [del, setDel] = useState<any>(null);
   const [builderOpen, setBuilderOpen] = useState(() => searchParams.get('openBuilder') === '1');
+  const searchRef = useRef<PolarisField | null>(null);
   const deleteFetcher = useFetcher<{ ok?: boolean; error?: string }>();
 
   useEffect(() => {
@@ -170,133 +186,202 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
   const aiLeftLabel = aiUsage?.aiLeft == null ? '—' : fmtNum(aiUsage.aiLeft);
   const aiOfLabel = aiUsage?.aiLimit == null ? 'unlimited' : `of ${fmtNum(aiUsage.aiLimit)} / month`;
 
-  const moduleMenu = (r: any) => [
-    { icon: 'edit', label: 'Edit', onClick: () => navigate(`/modules/${r.id}`) },
-    { icon: 'eye', label: 'Preview', onClick: () => navigate(`/modules/${r.id}`) },
-    { icon: 'copy', label: 'Duplicate', onClick: () => ctx.toast(`Duplicated “${r.name}”`) },
-    { divider: true },
-    { icon: 'trash', label: 'Delete', tone: 'critical', onClick: () => setDel(r) },
-  ];
-
   const confirmDelete = useCallback(() => {
     if (!del) return;
     deleteFetcher.submit({}, { method: 'post', action: `/api/modules/${del.id}/delete` });
-    ctx.toast(`Deleted “${del.name}”`);
     setDel(null);
-  }, [del, deleteFetcher, ctx]);
+  }, [del, deleteFetcher]);
+
+  // Toast only once the server has answered — success and failure alike
+  // (same server-driven pattern as flows._index).
+  const deletedName = useRef<string | null>(null);
+  useEffect(() => {
+    if (del) deletedName.current = del.name;
+  }, [del]);
+  useEffect(() => {
+    if (deleteFetcher.state !== 'idle' || !deleteFetcher.data) return;
+    const res = deleteFetcher.data as { ok?: boolean; error?: string };
+    if (res.error) ctx.toast(res.error, { error: true });
+    else ctx.toast(deletedName.current ? `Deleted “${deletedName.current}”` : 'Module deleted');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deleteFetcher.state, deleteFetcher.data]);
+
+  const clearFilters = () => {
+    setSearch(''); setType('All'); setStatus('All');
+    if (searchRef.current) searchRef.current.value = '';
+  };
 
   const rows = modules.filter((m: any) =>
     (type === 'All' || m.rawCategory === type) &&
     (status === 'All' || m.status === status) &&
-    (m.name + m.summary + m.category).toLowerCase().includes(ts.search.toLowerCase()));
+    (m.name + m.summary + m.category).toLowerCase().includes(search.toLowerCase()));
+
+  const filters = (
+    <s-grid gridTemplateColumns="1fr auto auto auto" gap="small-100">
+      <s-search-field
+        ref={searchRef as never}
+        label="Search modules"
+        labelAccessibilityVisibility="exclusive"
+        placeholder="Search modules…"
+        onInput={(e) => setSearch(e.currentTarget.value ?? '')}
+      />
+      <s-select
+        label="Type"
+        labelAccessibilityVisibility="exclusive"
+        value={type}
+        onChange={(e) => setType(e.currentTarget.value)}
+      >
+        <s-option value="All">All types</s-option>
+        {CATEGORY_ORDER.map((c) => (
+          <s-option key={c} value={c}>{getCategoryDisplayLabel(c)}</s-option>
+        ))}
+      </s-select>
+      <s-select
+        label="Status"
+        labelAccessibilityVisibility="exclusive"
+        value={status}
+        onChange={(e) => setStatus(e.currentTarget.value)}
+      >
+        <s-option value="All">All statuses</s-option>
+        <s-option value="PUBLISHED">Published</s-option>
+        <s-option value="DRAFT">Draft</s-option>
+      </s-select>
+      <s-select
+        label="View"
+        labelAccessibilityVisibility="exclusive"
+        value={view}
+        onChange={(e) => setView(e.currentTarget.value === 'list' ? 'list' : 'grid')}
+      >
+        <s-option value="grid">Grid</s-option>
+        <s-option value="list">List</s-option>
+      </s-select>
+    </s-grid>
+  );
 
   return (
-    <div className="page">
-      <PageHead
-        title="AI Modules"
-        sub="Everything you’ve built — drafts, published modules, automations and integrations in one place."
-        actions={(
-          <>
-            <Btn icon="template" onClick={() => ctx.go('#/app/templates')}>Browse templates</Btn>
-            <Btn variant="magic" icon="magic" aria-expanded={builderOpen} onClick={() => setBuilderOpen((o) => !o)}>New with AI</Btn>
-          </>
-        )}
-      />
-      {loaderError && <div style={{ marginBottom: 16 }}><Card pad>{loaderError}</Card></div>}
+    <s-page heading="AI Modules" inlineSize="base">
+      <s-button
+        slot="primary-action"
+        variant="primary"
+        icon="wand"
+        onClick={() => setBuilderOpen((o: boolean) => !o)}
+      >
+        New with AI
+      </s-button>
+      <s-button slot="secondary-actions" icon="theme-template" onClick={() => ctx.go('#/app/templates')}>
+        Browse templates
+      </s-button>
+      <s-paragraph color="subdued">
+        Everything you’ve built — drafts, published modules, automations and integrations in one place.
+      </s-paragraph>
+      {loaderError && <s-banner tone="critical" heading="Couldn’t load modules">{loaderError}</s-banner>}
       {builderOpen && (
-        <div className="mb-reveal">
-          <ModuleBuilderCard open={builderOpen} onClose={() => setBuilderOpen(false)} aiLeftLabel={aiLeftLabel} />
-        </div>
+        <ModuleBuilderCard open={builderOpen} onClose={() => setBuilderOpen(false)} aiLeftLabel={aiLeftLabel} />
       )}
-      <div className="grid grid-4" style={{ marginBottom: 18 }}>
-        <StatTile label="Total modules" value={stats.total} icon="layers" tone="info" />
-        <StatTile label="Published" value={stats.published} icon="rocket" tone="success" />
-        <StatTile label="Drafts" value={stats.drafts} icon="edit" tone="warning" />
-        <StatTile label="AI credits left" value={aiLeftLabel} sub={aiOfLabel} icon="magic" tone="magic" />
-      </div>
-      <Card>
-        <FilterBar
-          search={ts.search} onSearch={ts.setSearch} placeholder="Search modules…"
-          filters={[
-            { options: [{ value: 'All', label: 'All types' }, ...CATEGORY_ORDER.map((c) => ({ value: c, label: getCategoryDisplayLabel(c) }))], value: type, onChange: setType },
-            { options: ['All', 'PUBLISHED', 'DRAFT'].map((s) => ({ value: s, label: s === 'All' ? 'All statuses' : titleCase(s) })), value: status, onChange: setStatus },
-          ]}
-          results={rows.length}
-          right={(
-            <div className="seg">
-              <button aria-selected={view === 'grid'} onClick={() => setView('grid')}><Icon name="grid" size={15} /></button>
-              <button aria-selected={view === 'list'} onClick={() => setView('list')}><Icon name="list" size={15} /></button>
-            </div>
-          )}
-        />
-        {rows.length === 0 ? (
-          <EmptyState icon="layers" title="No modules match"
-            action={<Btn onClick={() => { ts.setSearch(''); setType('All'); setStatus('All'); }}>Clear filters</Btn>}>
-            Try adjusting your filters or generate something new.
-          </EmptyState>
-        ) : view === 'list' ? (
-          <DataTable
-            rowKey="id"
-            onRowClick={(r: any) => navigate(`/modules/${r.id}`)}
-            columns={[
-              { key: 'name', label: 'Module', render: (r: any) => (
-                <div className="row-3">
-                  <span className="tile-ico" style={{ width: 30, height: 30, background: `var(--p-${getCategoryTone(r.rawCategory)}-bg)`, color: `var(--p-${getCategoryTone(r.rawCategory)})` }}>
-                    <Icon name={getCategoryIcon(r.rawCategory)} size={15} />
-                  </span>
-                  <div className="stack" style={{ gap: 1 }}>
-                    <span className="cell-strong">{r.name}</span>
-                    <span className="cell-sub t-trunc" style={{ maxWidth: 320 }}>{r.summary}</span>
-                  </div>
-                </div>
-              ) },
-              { key: 'type', label: 'Type', render: (r: any) => <Badge tone={getCategoryTone(r.rawCategory)}>{r.type}</Badge> },
-              { key: 'category', label: 'Category' },
-              { key: 'version', label: 'Version', render: (r: any) => 'v' + r.version },
-              { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
-              { key: 'updated', label: 'Updated', render: (r: any) => <span className="cell-sub">{r.updated}</span> },
-              { key: 'act', label: '', render: (r: any) => (
-                <div className="dt-actions">
-                  <Menu trigger={<button className="btn btn-icon btn-sm btn-plain"><Icon name="dotsH" size={16} /></button>} items={moduleMenu(r)} />
-                </div>
-              ) },
-            ]}
-            rows={rows}
-          />
-        ) : (
-          <div className="grid grid-3" style={{ padding: 16 }}>
-            {rows.map((m: any) => (
-              <a key={m.id} href={`/modules/${m.id}`} className="card module-card"
-                onClick={(e) => { e.preventDefault(); navigate(`/modules/${m.id}`); }}>
-                <div className="module-card-top" style={{ background: `var(--p-${getCategoryTone(m.rawCategory)}-bg)` }}>
-                  <span style={{ color: `var(--p-${getCategoryTone(m.rawCategory)})` }}><Icon name={getCategoryIcon(m.rawCategory)} size={26} /></span>
-                  <StatusBadge value={m.status} />
-                </div>
-                <div className="stack-1" style={{ padding: 14 }}>
-                  <div className="t-strong">{m.name}</div>
-                  <div className="t-sm t-muted t-trunc">{m.summary}</div>
-                  {m.blueprintName && (
-                    <div style={{ marginTop: 6 }}>
-                      <Badge tone="info"><Icon name="layers" size={11} /> {m.blueprintName}</Badge>
-                    </div>
-                  )}
-                  <div className="row spread" style={{ marginTop: 8 }}>
-                    <Badge tone={getCategoryTone(m.rawCategory)}>{m.type}</Badge>
-                    <span className="t-xs t-muted">v{m.version} · {m.updated}</span>
-                  </div>
-                </div>
-              </a>
-            ))}
-          </div>
-        )}
-      </Card>
-      {del && (
-        <ConfirmDialog
-          title="Delete module?" tone="critical" confirmLabel="Delete" icon="trash"
-          message={`This removes “${del.name}” and all of its versions. This cannot be undone.`}
-          onConfirm={confirmDelete} onClose={() => setDel(null)}
-        />
-      )}
-    </div>
+      <s-grid gridTemplateColumns="repeat(4, 1fr)" gap="base">
+        <StatTile label="Total modules" value={stats.total} />
+        <StatTile label="Published" value={stats.published} />
+        <StatTile label="Drafts" value={stats.drafts} />
+        <StatTile label="AI credits left" value={aiLeftLabel} sub={aiOfLabel} />
+      </s-grid>
+      <s-section padding="none">
+        <s-box padding="base">
+          <s-stack gap="small-100">
+            {filters}
+            {rows.length === 0 ? (
+              <EmptyState icon="layer" heading="No modules match"
+                action={<s-button onClick={clearFilters}>Clear filters</s-button>}>
+                Try adjusting your filters or generate something new.
+              </EmptyState>
+            ) : view === 'grid' ? (
+              <s-grid gridTemplateColumns="repeat(3, 1fr)" gap="small-100">
+                {rows.map((m: any) => (
+                  <s-clickable key={m.id} href={`/modules/${m.id}`} border="base" borderRadius="base" padding="base">
+                    <s-stack gap="small-100">
+                      <s-grid gridTemplateColumns="1fr auto" gap="small-100" alignItems="center">
+                        <s-icon type={catIcon(m.rawCategory) as never} tone="info" />
+                        <StatusBadge status={m.status} />
+                      </s-grid>
+                      <s-stack gap="none">
+                        <s-text type="strong">{m.name}</s-text>
+                        <s-text tone="neutral" color="subdued">{m.summary}</s-text>
+                      </s-stack>
+                      {m.blueprintName && (
+                        <s-stack direction="inline">
+                          <s-badge tone="info" icon="layer">{m.blueprintName}</s-badge>
+                        </s-stack>
+                      )}
+                      <s-grid gridTemplateColumns="1fr auto" gap="small-100" alignItems="center">
+                        <s-stack direction="inline">
+                          <s-badge tone={catTone(m.rawCategory)}>{m.type}</s-badge>
+                        </s-stack>
+                        <s-text tone="neutral" color="subdued">v{m.version} · {m.updated}</s-text>
+                      </s-grid>
+                    </s-stack>
+                  </s-clickable>
+                ))}
+              </s-grid>
+            ) : (
+              <s-table>
+                <s-table-header-row>
+                  <s-table-header listSlot="primary">Module</s-table-header>
+                  <s-table-header listSlot="inline">Type</s-table-header>
+                  <s-table-header>Version</s-table-header>
+                  <s-table-header listSlot="secondary">Status</s-table-header>
+                  <s-table-header listSlot="kicker">Updated</s-table-header>
+                  <s-table-header>Actions</s-table-header>
+                </s-table-header-row>
+                <s-table-body>
+                  {rows.map((r: any) => (
+                    <s-table-row key={r.id}>
+                      <s-table-cell>
+                        <s-stack gap="none">
+                          <s-link href={`/modules/${r.id}`}><s-text type="strong">{r.name}</s-text></s-link>
+                          <s-text tone="neutral" color="subdued">{r.summary}</s-text>
+                        </s-stack>
+                      </s-table-cell>
+                      <s-table-cell>
+                        <s-badge tone={catTone(r.rawCategory)}>{r.type}</s-badge>
+                      </s-table-cell>
+                      <s-table-cell>v{r.version}</s-table-cell>
+                      <s-table-cell><StatusBadge status={r.status} /></s-table-cell>
+                      <s-table-cell><s-text tone="neutral" color="subdued">{r.updated}</s-text></s-table-cell>
+                      <s-table-cell>
+                        <s-button
+                          variant="tertiary"
+                          icon="menu-horizontal"
+                          accessibilityLabel={`Actions for ${r.name}`}
+                          commandFor={`module-menu-${r.id}`}
+                          command="--toggle"
+                        />
+                        <s-popover id={`module-menu-${r.id}`}>
+                          <s-menu>
+                            <s-button href={`/modules/${r.id}`} icon="edit">Edit</s-button>
+                            <s-button href={`/modules/${r.id}`} icon="view">Preview</s-button>
+                            <s-button icon="delete" tone="critical" onClick={() => setDel(r)}>Delete</s-button>
+                          </s-menu>
+                        </s-popover>
+                      </s-table-cell>
+                    </s-table-row>
+                  ))}
+                </s-table-body>
+              </s-table>
+            )}
+          </s-stack>
+        </s-box>
+      </s-section>
+      <ConfirmModal
+        open={!!del}
+        heading="Delete module?"
+        tone="critical"
+        confirmLabel="Delete"
+        onConfirm={confirmDelete}
+        onClose={() => setDel(null)}
+      >
+        <s-paragraph>This removes “{del?.name}” and all of its versions. This cannot be undone.</s-paragraph>
+      </ConfirmModal>
+    </s-page>
   );
 }
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

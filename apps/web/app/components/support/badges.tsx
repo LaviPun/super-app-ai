@@ -1,17 +1,17 @@
-import { Badge, titleCase } from '~/components/superapp';
+import { titleCase, type WcTone } from '~/components/merchant/polaris';
 
-export const SEVERITY_TONE: Record<string, string | undefined> = {
+export const SEVERITY_TONE: Record<string, WcTone> = {
   critical: 'critical',
   high: 'warning',
   medium: 'info',
-  low: undefined,
+  low: 'neutral',
 };
 
-export const TICKET_STATUS_TONE: Record<string, string | undefined> = {
+export const TICKET_STATUS_TONE: Record<string, WcTone> = {
   OPEN: 'info',
   AI_RESPONDED: 'success',
   ESCALATED: 'warning',
-  RESOLVED: undefined,
+  RESOLVED: 'neutral',
 };
 
 // Merchant-facing support persona: first-line (AI-drafted) replies are shown under
@@ -27,5 +27,13 @@ export const TICKET_STATUS_LABEL: Record<string, string> = {
 };
 
 export function TicketStatusBadge({ status }: { status: string }) {
-  return <Badge tone={TICKET_STATUS_TONE[status]}>{TICKET_STATUS_LABEL[status] ?? titleCase(status)}</Badge>;
+  return (
+    <s-badge tone={TICKET_STATUS_TONE[status] ?? 'neutral'}>
+      {TICKET_STATUS_LABEL[status] ?? titleCase(status)}
+    </s-badge>
+  );
+}
+
+export function SeverityBadge({ severity }: { severity: string }) {
+  return <s-badge tone={SEVERITY_TONE[severity] ?? 'neutral'}>{titleCase(severity)}</s-badge>;
 }
