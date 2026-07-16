@@ -402,7 +402,9 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
                       </s-grid>
                       <s-stack gap="none">
                         <s-text type="strong">{m.name}</s-text>
-                        <s-text tone="neutral" color="subdued">{m.summary}</s-text>
+                        {m.summary !== `${m.category} module` && (
+                          <s-text tone="neutral" color="subdued">{m.summary}</s-text>
+                        )}
                       </s-stack>
                       {m.blueprintName && (
                         <s-stack direction="inline">

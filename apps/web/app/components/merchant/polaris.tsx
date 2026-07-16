@@ -295,11 +295,13 @@ export function KV({ rows }: { rows: Array<[ReactNode, ReactNode]> }) {
 /* ---------- progress bar (no Polaris WC equivalent) ---------- */
 export function Progress({ value, max = 100, tone }: { value: number; max?: number; tone?: 'critical' | 'warning' }) {
   const pct = Math.max(0, Math.min(100, max === 0 ? 0 : (value / max) * 100));
+  // Keep tiny-but-nonzero usage perceptible while leaving aria-valuenow exact.
+  const scaleX = pct > 0 && pct < 2 ? 0.02 : pct / 100;
   return (
     <div className="sa-m-progress" role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
       <div
         className="sa-m-progress-fill"
-        style={{ transform: `scaleX(${pct / 100})`, background: tone === 'critical' ? CHART.critical : tone === 'warning' ? '#D97706' : CHART.accent }}
+        style={{ transform: `scaleX(${scaleX})`, background: tone === 'critical' ? CHART.critical : tone === 'warning' ? '#D97706' : CHART.accent }}
       />
     </div>
   );

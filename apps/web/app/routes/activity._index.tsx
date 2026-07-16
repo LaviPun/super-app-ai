@@ -32,7 +32,7 @@ function relativeTime(d: Date): string {
   return days === 1 ? 'Yesterday' : days + 'd ago';
 }
 
-const KIND_TONE: Record<string, WcTone> = { module: 'info', flow: 'success', alert: 'critical', data: 'info', connector: 'info', team: 'warning', billing: 'success', support: 'caution', activity: 'neutral' };
+const KIND_TONE: Record<string, WcTone> = { module: 'info', flow: 'success', alert: 'critical', data: 'info', connector: 'info', team: 'warning', billing: 'info', support: 'caution', activity: 'neutral' };
 
 // Operational/telemetry events that read as noise (or nonsense) to a merchant —
 // same exclusion the dashboard feed applies.

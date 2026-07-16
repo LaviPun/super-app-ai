@@ -193,7 +193,11 @@ export default function Dashboard() {
                 </s-stack>
               </s-stack>
             ) : (
-              <s-text color="subdued">No storefront views recorded yet — publish a module to start tracking.</s-text>
+              <s-stack direction="inline" gap="small-100" alignItems="center">
+                <s-icon type="chart-line" tone="neutral" />
+                <s-text color="subdued">No storefront views recorded yet — publish a module to start tracking.</s-text>
+                <s-link href="/modules">Publish a module</s-link>
+              </s-stack>
             )}
           </s-section>
 
