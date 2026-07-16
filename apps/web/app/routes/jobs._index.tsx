@@ -1,21 +1,9 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, useNavigation, useSearchParams } from '@remix-run/react';
-import {
-  Badge,
-  BlockStack,
-  Button,
-  Card,
-  DataTable,
-  InlineGrid,
-  InlineStack,
-  Page,
-  Select,
-  SkeletonBodyText,
-  Text,
-  TextField,
-} from '@shopify/polaris';
+import { useLoaderData, useNavigate, useNavigation, useSearchParams } from '@remix-run/react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
+import { MerchantShell } from '~/components/merchant/MerchantShell';
+import { EmptyState, MonoChip, StatTile, StatusBadge, fmtNum } from '~/components/merchant/polaris';
 
 type ParsedPayload = Record<string, unknown> | null;
 
@@ -46,13 +34,6 @@ const JOB_TYPE_LABEL: Record<string, string> = {
   FLOW_RUN: 'Flow run',
   THEME_ANALYZE: 'Theme analyze',
 };
-
-function getStatusTone(status: string): 'success' | 'critical' | 'attention' | 'info' {
-  if (status === 'SUCCESS') return 'success';
-  if (status === 'FAILED') return 'critical';
-  if (status === 'RUNNING') return 'info';
-  return 'attention';
-}
 
 function asString(v: unknown): string | null {
   return typeof v === 'string' && v.trim().length > 0 ? v : null;
@@ -295,179 +276,226 @@ export async function loader({ request }: { request: Request }) {
 }
 
 export default function JobsPage() {
+  return (
+    <MerchantShell polaris>
+      <JobsBody />
+    </MerchantShell>
+  );
+}
+
+function JobsBody() {
   const { shopDomain, stats, filters, distinctTypes, jobs, events, aiSummary30d, aiSummaryAllTime } = useLoaderData<typeof loader>();
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const nav = useNavigation();
   const isLoading = nav.state === 'loading';
   const storeSlug = shopDomain.replace('.myshopify.com', '');
   const storeAdminUrl = `https://admin.shopify.com/store/${encodeURIComponent(storeSlug)}`;
 
-  const typeOptions = [{ label: 'All types', value: '' }, ...distinctTypes.map((t) => ({ label: JOB_TYPE_LABEL[t] ?? t, value: t }))];
+  const setParam = (key: string, value: string) => {
+    const p = new URLSearchParams(params);
+    if (value) p.set(key, value); else p.delete(key);
+    setParams(p);
+  };
 
   return (
-    <Page title="Jobs" subtitle="Detailed queue, execution status, trigger source, and module traceability" backAction={{ content: 'Home', url: '/' }}>
-      <BlockStack gap="500">
-        <InlineGrid columns={{ xs: 2, sm: 4 }} gap="300">
-          <Card><Text as="p" variant="headingMd">Total: {stats.total}</Text></Card>
-          <Card><Text as="p" variant="headingMd">Running: {stats.running}</Text></Card>
-          <Card><Text as="p" variant="headingMd">Success: {stats.success}</Text></Card>
-          <Card><Text as="p" variant="headingMd">Failed: {stats.failed}</Text></Card>
-        </InlineGrid>
+    <s-page heading="Jobs" inlineSize="large">
+      <s-stack gap="small-100">
+        <s-stack direction="inline">
+          <s-button variant="tertiary" icon="arrow-left" onClick={() => navigate('/')}>Home</s-button>
+        </s-stack>
+        <s-paragraph color="subdued">
+          Detailed queue, execution status, trigger source, and module traceability.
+        </s-paragraph>
+      </s-stack>
 
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Store AI usage and cost</Text>
-            <InlineGrid columns={{ xs: 2, sm: 4 }} gap="300">
-              <Card><Text as="p" variant="bodySm">30d requests: {aiSummary30d.totalRequests}</Text></Card>
-              <Card><Text as="p" variant="bodySm">30d tokens in/out: {aiSummary30d.totalTokensIn} / {aiSummary30d.totalTokensOut}</Text></Card>
-              <Card><Text as="p" variant="bodySm">30d cost: {formatCents(aiSummary30d.totalCostCents)}</Text></Card>
-              <Card><Text as="p" variant="bodySm">All-time cost: {formatCents(aiSummaryAllTime.totalCostCents)}</Text></Card>
-            </InlineGrid>
-            {aiSummaryAllTime.byProvider.length > 0 ? (
-              <DataTable
-                columnContentTypes={['text', 'text', 'numeric', 'numeric', 'numeric', 'text']}
-                headings={['Provider', 'Model', 'Requests', 'Tokens in', 'Tokens out', 'Cost']}
-                rows={aiSummaryAllTime.byProvider.map((row) => [
-                  row.provider,
-                  row.model,
-                  row.requests,
-                  row.tokensIn,
-                  row.tokensOut,
-                  formatCents(row.costCents),
-                ])}
-              />
-            ) : (
-              <Text as="p" tone="subdued">No AI usage recorded for this store yet.</Text>
-            )}
-          </BlockStack>
-        </Card>
+      <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="small-100">
+        <StatTile label="Total jobs" value={fmtNum(stats.total)} />
+        <StatTile label="Running" value={fmtNum(stats.running)} />
+        <StatTile label="Success" value={fmtNum(stats.success)} />
+        <StatTile label="Failed" value={fmtNum(stats.failed)} />
+      </s-grid>
 
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Filters</Text>
-            <InlineStack gap="300" wrap blockAlign="end">
-              <div style={{ minWidth: 170 }}>
-                <Select
-                  label="Status"
-                  options={JOB_STATUS_OPTIONS}
-                  value={filters.status}
-                  onChange={(v) => {
-                    const p = new URLSearchParams(params);
-                    if (v) p.set('status', v); else p.delete('status');
-                    setParams(p);
-                  }}
-                />
-              </div>
-              <div style={{ minWidth: 190 }}>
-                <Select
-                  label="Type"
-                  options={typeOptions}
-                  value={filters.type}
-                  onChange={(v) => {
-                    const p = new URLSearchParams(params);
-                    if (v) p.set('type', v); else p.delete('type');
-                    setParams(p);
-                  }}
-                />
-              </div>
-              <div style={{ minWidth: 260 }}>
-                <TextField
-                  label="Search"
-                  value={filters.q}
-                  autoComplete="off"
-                  placeholder="module id, correlation id, error..."
-                  onChange={(v) => {
-                    const p = new URLSearchParams(params);
-                    if (v) p.set('q', v); else p.delete('q');
-                    setParams(p);
-                  }}
-                />
-              </div>
-              <Button url="/jobs" variant="secondary">Clear</Button>
-            </InlineStack>
-          </BlockStack>
-        </Card>
+      <s-section heading="Store AI usage and cost">
+        <s-stack gap="base">
+          <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="small-100">
+            <StatTile label="Requests (30d)" value={fmtNum(aiSummary30d.totalRequests)} />
+            <StatTile label="Tokens in / out (30d)" value={`${fmtNum(aiSummary30d.totalTokensIn)} / ${fmtNum(aiSummary30d.totalTokensOut)}`} />
+            <StatTile label="Cost (30d)" value={formatCents(aiSummary30d.totalCostCents)} />
+            <StatTile label="Cost (all time)" value={formatCents(aiSummaryAllTime.totalCostCents)} />
+          </s-grid>
+          {aiSummaryAllTime.byProvider.length > 0 ? (
+            <s-table>
+              <s-table-header-row>
+                <s-table-header listSlot="primary">Provider</s-table-header>
+                <s-table-header>Model</s-table-header>
+                <s-table-header>Requests</s-table-header>
+                <s-table-header>Tokens in</s-table-header>
+                <s-table-header>Tokens out</s-table-header>
+                <s-table-header listSlot="inline">Cost</s-table-header>
+              </s-table-header-row>
+              <s-table-body>
+                {aiSummaryAllTime.byProvider.map((row) => (
+                  <s-table-row key={`${row.provider}-${row.model}`}>
+                    <s-table-cell><s-text type="strong">{row.provider}</s-text></s-table-cell>
+                    <s-table-cell><MonoChip>{row.model}</MonoChip></s-table-cell>
+                    <s-table-cell>{fmtNum(row.requests)}</s-table-cell>
+                    <s-table-cell>{fmtNum(row.tokensIn)}</s-table-cell>
+                    <s-table-cell>{fmtNum(row.tokensOut)}</s-table-cell>
+                    <s-table-cell>{formatCents(row.costCents)}</s-table-cell>
+                  </s-table-row>
+                ))}
+              </s-table-body>
+            </s-table>
+          ) : (
+            <s-text color="subdued">No AI usage recorded for this store yet.</s-text>
+          )}
+        </s-stack>
+      </s-section>
 
-        <Card>
-          <BlockStack gap="300">
-            <InlineStack align="space-between" blockAlign="center">
-              <Text as="h2" variant="headingMd">Execution jobs</Text>
-              <Button url={storeAdminUrl} external variant="plain">Open store admin</Button>
-            </InlineStack>
-            {isLoading ? (
-              <SkeletonBodyText lines={8} />
-            ) : jobs.length === 0 ? (
-              <Text as="p" tone="subdued">No jobs for current filters.</Text>
-            ) : (
-              <DataTable
-                columnContentTypes={['text', 'text', 'text', 'text', 'text', 'text', 'text', 'text', 'text', 'text']}
-                headings={['Time', 'Type', 'Status', 'Trigger', 'Module', 'Target', 'AI usage', 'Duration', 'Correlation', 'Actions']}
-                rows={jobs.map((j) => [
-                  new Date(j.createdAt).toLocaleString(),
-                  j.typeLabel,
-                  <Badge key={`s-${j.id}`} tone={getStatusTone(j.status)}>{j.status}</Badge>,
-                  j.triggerSource,
-                  j.moduleId ? (
-                    <InlineStack key={`m-${j.id}`} gap="100" wrap>
-                      <Button url={`/modules/${encodeURIComponent(j.moduleId)}`} size="slim" variant="plain">
+      <s-section heading="Execution jobs" padding="none">
+        <s-button slot="primary-action" variant="tertiary" icon="external" href={storeAdminUrl} target="_blank">
+          Open store admin
+        </s-button>
+        <s-table>
+          <s-grid slot="filters" gridTemplateColumns="auto auto 1fr auto auto" gap="small-100" alignItems="center">
+            <s-select
+              label="Status"
+              labelAccessibilityVisibility="exclusive"
+              value={filters.status}
+              onChange={(e) => setParam('status', e.currentTarget.value)}
+            >
+              {JOB_STATUS_OPTIONS.map((o) => (
+                <s-option key={o.value} value={o.value}>{o.label}</s-option>
+              ))}
+            </s-select>
+            <s-select
+              label="Type"
+              labelAccessibilityVisibility="exclusive"
+              value={filters.type}
+              onChange={(e) => setParam('type', e.currentTarget.value)}
+            >
+              <s-option value="">All types</s-option>
+              {distinctTypes.map((t) => (
+                <s-option key={t} value={t}>{JOB_TYPE_LABEL[t] ?? t}</s-option>
+              ))}
+            </s-select>
+            <s-search-field
+              label="Search jobs"
+              labelAccessibilityVisibility="exclusive"
+              placeholder="module id, correlation id, error…"
+              defaultValue={filters.q}
+              onChange={(e) => setParam('q', e.currentTarget.value ?? '')}
+            />
+            {isLoading && <s-spinner accessibilityLabel="Loading jobs" size="base" />}
+            <s-button variant="tertiary" onClick={() => navigate('/jobs')}>Clear</s-button>
+          </s-grid>
+          <s-table-header-row>
+            <s-table-header listSlot="kicker">Time</s-table-header>
+            <s-table-header listSlot="primary">Type</s-table-header>
+            <s-table-header listSlot="inline">Status</s-table-header>
+            <s-table-header>Trigger</s-table-header>
+            <s-table-header>Module</s-table-header>
+            <s-table-header>Target</s-table-header>
+            <s-table-header>AI usage</s-table-header>
+            <s-table-header>Duration</s-table-header>
+            <s-table-header>Correlation</s-table-header>
+            <s-table-header>Error</s-table-header>
+          </s-table-header-row>
+          <s-table-body>
+            {jobs.map((j) => (
+              <s-table-row key={j.id}>
+                <s-table-cell><s-text color="subdued">{new Date(j.createdAt).toLocaleString()}</s-text></s-table-cell>
+                <s-table-cell><s-text type="strong">{j.typeLabel}</s-text></s-table-cell>
+                <s-table-cell><StatusBadge status={j.status} /></s-table-cell>
+                <s-table-cell>{j.triggerSource}</s-table-cell>
+                <s-table-cell>
+                  {j.moduleId ? (
+                    <s-stack direction="inline" gap="small-200" alignItems="center">
+                      <s-link onClick={() => navigate(`/modules/${encodeURIComponent(j.moduleId!)}`)}>
                         {j.moduleName ?? j.moduleId.slice(0, 8)}
-                      </Button>
-                      {j.moduleStatus ? <Badge>{j.moduleStatus}</Badge> : null}
-                    </InlineStack>
-                  ) : '—',
-                  j.targetKind ? `${j.targetKind}${j.themeId ? ` · theme ${j.themeId}` : ''}` : '—',
-                  j.aiUsage ? (
-                    <InlineStack key={`ai-${j.id}`} gap="100" wrap>
-                      <Text as="span" variant="bodySm">{formatCents(j.aiUsage.costCents)}</Text>
-                      <Text as="span" variant="bodySm" tone="subdued">
-                        {j.aiUsage.tokensIn}/{j.aiUsage.tokensOut} tokens
-                      </Text>
-                      {j.aiUsage.providers.length > 0 ? <Badge>{j.aiUsage.providers[0]}</Badge> : null}
-                    </InlineStack>
+                      </s-link>
+                      {j.moduleStatus ? <StatusBadge status={j.moduleStatus} /> : null}
+                    </s-stack>
                   ) : (
-                    <Text as="span" variant="bodySm" tone="subdued">No AI usage</Text>
-                  ),
-                  durationSeconds(j.startedAt, j.finishedAt, j.createdAt),
-                  j.correlationId ? (
-                    <code key={`c-${j.id}`} style={{ fontSize: 11 }}>{j.correlationId.slice(0, 18)}…</code>
-                  ) : '—',
-                  <InlineStack key={`a-${j.id}`} gap="100">
-                    {j.error ? (
-                      <Text as="span" variant="bodySm" tone="critical" truncate>
-                        {j.error.slice(0, 60)}
-                      </Text>
-                    ) : (
-                      <Text as="span" variant="bodySm" tone="subdued">No error</Text>
-                    )}
-                  </InlineStack>,
-                ])}
-              />
-            )}
-          </BlockStack>
-        </Card>
+                    <s-text color="subdued">—</s-text>
+                  )}
+                </s-table-cell>
+                <s-table-cell>
+                  {j.targetKind ? `${j.targetKind}${j.themeId ? ` · theme ${j.themeId}` : ''}` : <s-text color="subdued">—</s-text>}
+                </s-table-cell>
+                <s-table-cell>
+                  {j.aiUsage ? (
+                    <s-stack gap="none">
+                      <s-text>{formatCents(j.aiUsage.costCents)}</s-text>
+                      <s-text color="subdued">
+                        {fmtNum(j.aiUsage.tokensIn)}/{fmtNum(j.aiUsage.tokensOut)} tok{j.aiUsage.providers.length > 0 ? ` · ${j.aiUsage.providers[0]}` : ''}
+                      </s-text>
+                    </s-stack>
+                  ) : (
+                    <s-text color="subdued">—</s-text>
+                  )}
+                </s-table-cell>
+                <s-table-cell>{durationSeconds(j.startedAt, j.finishedAt, j.createdAt)}</s-table-cell>
+                <s-table-cell>
+                  {j.correlationId ? <MonoChip>{j.correlationId.slice(0, 18)}…</MonoChip> : <s-text color="subdued">—</s-text>}
+                </s-table-cell>
+                <s-table-cell>
+                  {j.error ? (
+                    <s-text tone="critical">{j.error.slice(0, 60)}</s-text>
+                  ) : (
+                    <s-text color="subdued">—</s-text>
+                  )}
+                </s-table-cell>
+              </s-table-row>
+            ))}
+          </s-table-body>
+        </s-table>
+        {jobs.length === 0 && (
+          <EmptyState heading="No jobs">No jobs for current filters.</EmptyState>
+        )}
+      </s-section>
 
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Operational events (save / status / publish / generation)</Text>
-            {events.length === 0 ? (
-              <Text as="p" tone="subdued">No operational activity yet.</Text>
-            ) : (
-              <DataTable
-                columnContentTypes={['text', 'text', 'text', 'text', 'text', 'text']}
-                headings={['Time', 'Action', 'Outcome', 'Module', 'Path', 'Actor']}
-                rows={events.map((e) => [
-                  new Date(e.createdAt).toLocaleString(),
-                  e.action,
-                  <Badge key={`o-${e.id}`} tone={e.outcome === 'FAILED' ? 'critical' : e.outcome === 'SUCCESS' ? 'success' : 'info'}>{e.outcome}</Badge>,
-                  e.moduleId ? <Button key={`evm-${e.id}`} size="slim" variant="plain" url={`/modules/${encodeURIComponent(e.moduleId)}`}>{e.moduleId.slice(0, 8)}…</Button> : '—',
-                  e.path ?? '—',
-                  e.actor,
-                ])}
-              />
-            )}
-          </BlockStack>
-        </Card>
-      </BlockStack>
-    </Page>
+      <s-section heading="Operational events" padding="none">
+        {events.length === 0 ? (
+          <EmptyState heading="No operational activity yet">
+            Save, status, publish, and generation events will appear here.
+          </EmptyState>
+        ) : (
+          <s-table>
+            <s-table-header-row>
+              <s-table-header listSlot="kicker">Time</s-table-header>
+              <s-table-header listSlot="primary">Action</s-table-header>
+              <s-table-header listSlot="inline">Outcome</s-table-header>
+              <s-table-header>Module</s-table-header>
+              <s-table-header>Path</s-table-header>
+              <s-table-header>Actor</s-table-header>
+            </s-table-header-row>
+            <s-table-body>
+              {events.map((e) => (
+                <s-table-row key={e.id}>
+                  <s-table-cell><s-text color="subdued">{new Date(e.createdAt).toLocaleString()}</s-text></s-table-cell>
+                  <s-table-cell><s-text type="strong">{e.action}</s-text></s-table-cell>
+                  <s-table-cell><StatusBadge status={e.outcome} /></s-table-cell>
+                  <s-table-cell>
+                    {e.moduleId ? (
+                      <s-link onClick={() => navigate(`/modules/${encodeURIComponent(e.moduleId!)}`)}>
+                        {e.moduleId.slice(0, 8)}…
+                      </s-link>
+                    ) : (
+                      <s-text color="subdued">—</s-text>
+                    )}
+                  </s-table-cell>
+                  <s-table-cell>{e.path ?? <s-text color="subdued">—</s-text>}</s-table-cell>
+                  <s-table-cell>{e.actor}</s-table-cell>
+                </s-table-row>
+              ))}
+            </s-table-body>
+          </s-table>
+        )}
+      </s-section>
+    </s-page>
   );
 }
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

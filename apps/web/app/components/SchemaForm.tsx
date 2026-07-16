@@ -1,20 +1,17 @@
 /**
  * SchemaForm — a generic, schema-driven settings renderer (Module System v2).
  *
- * Renders any `{ jsonSchema, uiSchema, defaults }` into Polaris form controls.
- * This is the single renderer that powers (a) module settings from the v2
- * control-pack composer, (b) the hydrate step's `adminConfig` (previously
- * generated but never rendered), and (c) typed data-record forms.
+ * Renders any `{ jsonSchema, uiSchema, defaults }` into Polaris web-component
+ * form controls. This is the single renderer that powers (a) module settings
+ * from the v2 control-pack composer, (b) the hydrate step's `adminConfig`
+ * (previously generated but never rendered), and (c) typed data-record forms.
  *
  * Controlled component: parent owns `value` and persists on `onChange`.
  * Tier gating + conditional visibility come from `uiSchema` hints.
  *
- * Design: Polaris-first per DESIGN.md (comfortable density, settings/forms).
+ * Polaris web components (s-*) are globally registered — no imports needed.
  */
 import { useCallback } from 'react';
-import {
-  Card, BlockStack, InlineStack, Text, TextField, Select, Checkbox, Divider, Box,
-} from '@shopify/polaris';
 
 // ── Schema shapes (a pragmatic JSON-Schema subset) ─────────────────────────
 
@@ -75,10 +72,6 @@ function setIn(obj: Record<string, unknown>, path: string[], next: unknown): Rec
   return { ...obj, [head]: rest.length === 0 ? next : setIn(child, rest, next) };
 }
 
-function getIn(obj: Record<string, unknown>, path: string[]): unknown {
-  return path.reduce<unknown>((acc, k) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[k] : undefined), obj);
-}
-
 function humanize(key: string): string {
   return key
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -122,82 +115,125 @@ interface LeafProps {
 function LeafField({ node, label, hint, value, disabled, onChange }: LeafProps) {
   const help = hint?.help ?? node.description;
   const widget = hint?.widget;
+  const off = disabled || undefined;
 
-  // Enum → Select
+  // Enum → s-select
   if (node.enum && node.enum.length > 0) {
     const options = node.enum.map((v) => ({ label: humanize(String(v)), value: String(v) }));
+    const selected = value === undefined || value === null
+      ? String(node.default ?? options[0]?.value ?? '')
+      : String(value);
     return (
-      <Select
+      <s-select
         label={label}
-        options={options}
-        value={value === undefined || value === null ? String(node.default ?? options[0]?.value ?? '') : String(value)}
-        helpText={help}
-        disabled={disabled}
-        onChange={(v) => onChange(v)}
-      />
+        value={selected}
+        details={help}
+        disabled={off}
+        onChange={(e) => onChange(e.currentTarget.value)}
+      >
+        {options.map((o) => <s-option key={o.value} value={o.value}>{o.label}</s-option>)}
+      </s-select>
     );
   }
 
-  // Boolean → Checkbox
+  // Boolean → s-switch for the 'toggle' widget, s-checkbox otherwise
   if (node.type === 'boolean' || widget === 'toggle') {
+    const checked = Boolean(value ?? node.default ?? false) || undefined;
+    if (widget === 'toggle') {
+      return (
+        <s-switch
+          label={label}
+          checked={checked}
+          details={help}
+          disabled={off}
+          onChange={(e) => onChange(e.currentTarget.checked)}
+        />
+      );
+    }
     return (
-      <Checkbox
+      <s-checkbox
         label={label}
-        checked={Boolean(value ?? node.default ?? false)}
-        helpText={help}
-        disabled={disabled}
-        onChange={(checked) => onChange(checked)}
+        checked={checked}
+        details={help}
+        disabled={off}
+        onChange={(e) => onChange(e.currentTarget.checked)}
       />
     );
   }
 
-  // Number / integer → numeric TextField
+  // Number / integer → s-number-field
   if (node.type === 'number' || node.type === 'integer') {
     return (
-      <TextField
+      <s-number-field
         label={label}
-        type="number"
         value={value === undefined || value === null ? '' : String(value)}
         min={node.minimum}
         max={node.maximum}
-        helpText={help}
-        autoComplete="off"
-        disabled={disabled}
-        onChange={(v) => onChange(v === '' ? undefined : Number(v))}
+        step={node.type === 'integer' ? 1 : undefined}
+        details={help}
+        disabled={off}
+        onInput={(e) => {
+          const v = e.currentTarget.value;
+          onChange(v === '' ? undefined : Number(v));
+        }}
       />
     );
   }
 
-  // Array of scalars → comma-separated TextField
+  // Array of scalars → comma-separated s-text-field
   if (node.type === 'array') {
     const arr = Array.isArray(value) ? (value as unknown[]) : [];
     const allowed = node.items?.enum ? ` Allowed: ${node.items.enum.join(', ')}.` : '';
     return (
-      <TextField
+      <s-text-field
         label={label}
         value={arr.join(', ')}
-        helpText={`${help ? help + ' ' : ''}Comma-separated.${allowed}`}
-        autoComplete="off"
-        disabled={disabled}
-        onChange={(v) => onChange(v.split(',').map((s) => s.trim()).filter(Boolean))}
+        details={`${help ? help + ' ' : ''}Comma-separated.${allowed}`}
+        disabled={off}
+        onInput={(e) => onChange((e.currentTarget.value ?? '').split(',').map((s) => s.trim()).filter(Boolean))}
       />
     );
   }
 
   // String → text / url / textarea
-  const multiline = widget === 'textarea' || widget === 'code';
+  const strValue = value === undefined || value === null ? '' : String(value);
+  const onStr = (v: string) => onChange(v === '' ? undefined : v);
+
+  if (widget === 'textarea' || widget === 'code') {
+    return (
+      <s-text-area
+        label={label}
+        value={strValue}
+        rows={4}
+        maxLength={node.maxLength}
+        placeholder={hint?.placeholder}
+        details={help}
+        disabled={off}
+        onInput={(e) => onStr(e.currentTarget.value ?? '')}
+      />
+    );
+  }
+  if (node.format === 'uri' || widget === 'url') {
+    return (
+      <s-url-field
+        label={label}
+        value={strValue}
+        placeholder={hint?.placeholder}
+        details={help}
+        disabled={off}
+        onInput={(e) => onStr(e.currentTarget.value ?? '')}
+      />
+    );
+  }
   return (
-    <TextField
+    <s-text-field
       label={label}
-      value={value === undefined || value === null ? '' : String(value)}
-      type={node.format === 'uri' || widget === 'url' ? 'url' : 'text'}
-      multiline={multiline ? 4 : undefined}
+      value={strValue}
       maxLength={node.maxLength}
       placeholder={hint?.placeholder}
-      helpText={help}
-      autoComplete="off"
-      disabled={disabled}
-      onChange={(v) => onChange(v === '' ? undefined : v)}
+      details={help}
+      disabled={off}
+      onInput={(e) => onStr(e.currentTarget.value ?? '')}
     />
   );
 }
@@ -222,7 +258,7 @@ function ObjectFields({ node, hints, basePath, value, tier, disabled, onChangeAt
   const sibling = (field: string) => value?.[field];
 
   return (
-    <BlockStack gap="400">
+    <s-stack gap="base">
       {keys.map((key) => {
         const child = props[key];
         if (!child) return null;
@@ -235,9 +271,9 @@ function ObjectFields({ node, hints, basePath, value, tier, disabled, onChangeAt
         // Nested object (e.g. primaryCta { text, url }) → subheading + inline fields
         if (isSection(child)) {
           return (
-            <BlockStack key={key} gap="200">
-              <Text as="h4" variant="headingSm">{label}</Text>
-              <Box paddingInlineStart="200">
+            <s-stack key={key} gap="small-100">
+              <s-text type="strong">{label}</s-text>
+              <s-box paddingInlineStart="base">
                 <ObjectFields
                   node={child}
                   hints={undefined}
@@ -248,8 +284,8 @@ function ObjectFields({ node, hints, basePath, value, tier, disabled, onChangeAt
                   disabled={disabled}
                   onChangeAt={onChangeAt}
                 />
-              </Box>
-            </BlockStack>
+              </s-box>
+            </s-stack>
           );
         }
 
@@ -265,7 +301,7 @@ function ObjectFields({ node, hints, basePath, value, tier, disabled, onChangeAt
           />
         );
       })}
-    </BlockStack>
+    </s-stack>
   );
 }
 
@@ -285,16 +321,16 @@ export function SchemaForm({ schema, uiSchema, value, onChange, tier = 'basic', 
   const looseLeaves = sectionKeys.filter((k) => !isSection(props[k]!));
 
   return (
-    <BlockStack gap="400">
+    <s-stack gap="base">
       {sections.map((key) => {
         const node = props[key]!;
         const hints = uiSchema?.[key];
         const heading = hints?.groupLabel ?? node.title ?? humanize(key);
         return (
-          <Card key={key}>
-            <BlockStack gap="400">
-              <Text as="h3" variant="headingMd">{heading}</Text>
-              <Divider />
+          <s-box key={key} border="base" borderRadius="base" padding="base">
+            <s-stack gap="base">
+              <s-heading>{heading}</s-heading>
+              <s-divider />
               <ObjectFields
                 node={node}
                 hints={hints}
@@ -305,18 +341,16 @@ export function SchemaForm({ schema, uiSchema, value, onChange, tier = 'basic', 
                 disabled={disabled}
                 onChangeAt={onChangeAt}
               />
-            </BlockStack>
-          </Card>
+            </s-stack>
+          </s-box>
         );
       })}
 
       {looseLeaves.length > 0 && (
-        <Card>
-          <BlockStack gap="400">
-            <InlineStack align="space-between">
-              <Text as="h3" variant="headingMd">Settings</Text>
-            </InlineStack>
-            <Divider />
+        <s-box border="base" borderRadius="base" padding="base">
+          <s-stack gap="base">
+            <s-heading>Settings</s-heading>
+            <s-divider />
             <ObjectFields
               node={{ type: 'object', properties: Object.fromEntries(looseLeaves.map((k) => [k, props[k]!])) }}
               hints={undefined}
@@ -327,10 +361,10 @@ export function SchemaForm({ schema, uiSchema, value, onChange, tier = 'basic', 
               disabled={disabled}
               onChangeAt={onChangeAt}
             />
-          </BlockStack>
-        </Card>
+          </s-stack>
+        </s-box>
       )}
-    </BlockStack>
+    </s-stack>
   );
 }
 

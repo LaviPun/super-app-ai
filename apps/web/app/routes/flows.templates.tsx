@@ -1,9 +1,5 @@
 import { json, redirect, type ActionFunctionArgs } from '@remix-run/node';
-import { useLoaderData, Form, useNavigation, Link } from '@remix-run/react';
-import {
-  Page, Card, BlockStack, Text, TextField, Button, Badge,
-  InlineStack, EmptyState, InlineGrid, Select,
-} from '@shopify/polaris';
+import { useLoaderData, Form, useNavigation, useNavigate } from '@remix-run/react';
 import { useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
@@ -13,6 +9,8 @@ import {
   findWorkflowTemplate, installTemplate,
 } from '@superapp/core';
 import crypto from 'crypto';
+import { MerchantShell } from '~/components/merchant/MerchantShell';
+import { EmptyState } from '~/components/merchant/polaris';
 
 export async function loader({ request }: { request: Request }) {
   await shopify.authenticate.admin(request);
@@ -87,7 +85,16 @@ const SORT_OPTIONS = [
 ];
 
 export default function FlowsTemplates() {
+  return (
+    <MerchantShell polaris>
+      <FlowsTemplatesBody />
+    </MerchantShell>
+  );
+}
+
+function FlowsTemplatesBody() {
   const { templates, categories, connectors } = useLoaderData<typeof loader>();
+  const navigate = useNavigate();
   const nav = useNavigation();
   const isInstalling = nav.state !== 'idle';
 
@@ -95,16 +102,6 @@ export default function FlowsTemplates() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedConnector, setSelectedConnector] = useState('All');
   const [sortBy, setSortBy] = useState('az');
-
-  const categoryOptions = [
-    { label: 'All categories', value: 'All' },
-    ...categories.map(c => ({ label: c, value: c })),
-  ];
-
-  const connectorOptions = [
-    { label: 'All apps', value: 'All' },
-    ...connectors.map(c => ({ label: c.charAt(0).toUpperCase() + c.slice(1), value: c })),
-  ];
 
   let filtered = templates.filter(t => {
     const q = searchQuery.toLowerCase();
@@ -121,107 +118,98 @@ export default function FlowsTemplates() {
   else if (sortBy === 'za') filtered = [...filtered].sort((a, b) => b.name.localeCompare(a.name));
 
   return (
-    <Page title="Browse templates" backAction={{ content: 'Workflows', url: '/flows' }}>
-      <BlockStack gap="500">
-        {/* Hero banner */}
-        <div style={{
-          background: 'linear-gradient(135deg, #1a3a2a 0%, #2d6a4f 100%)',
-          borderRadius: 16,
-          padding: '40px 32px',
-          color: '#fff',
-        }}>
-          <BlockStack gap="200">
-            <Text as="h2" variant="headingXl"><span style={{ color: '#fff' }}>Browse templates</span></Text>
-            <Text as="p" variant="bodyMd">
-              <span style={{ color: 'rgba(255,255,255,0.85)' }}>
-                Find pre-built workflows to accelerate your business. Search by describing
-                what you would like to automate or filter by category and app.
-              </span>
-            </Text>
-          </BlockStack>
-        </div>
+    <s-page heading="Browse templates" inlineSize="base">
+      <s-stack gap="small-100">
+        <s-stack direction="inline">
+          <s-button variant="tertiary" icon="arrow-left" onClick={() => navigate('/flows')}>Workflows</s-button>
+        </s-stack>
+        <s-paragraph color="subdued">
+          Find pre-built workflows to accelerate your business. Search by describing what you would
+          like to automate or filter by category and app.
+        </s-paragraph>
+      </s-stack>
 
-        {/* Filters row */}
-        <InlineGrid columns={{ xs: 1, sm: 4 }} gap="300">
-          <TextField
-            label="Search"
-            labelHidden
-            placeholder="Describe what you would like to automate"
-            value={searchQuery}
-            onChange={setSearchQuery}
-            autoComplete="off"
-            clearButton
-            onClearButtonClick={() => setSearchQuery('')}
-          />
-          <Select
-            label="Apps"
-            labelHidden
-            options={connectorOptions}
-            value={selectedConnector}
-            onChange={setSelectedConnector}
-          />
-          <Select
-            label="Categories"
-            labelHidden
-            options={categoryOptions}
-            value={selectedCategory}
-            onChange={setSelectedCategory}
-          />
-          <Select
-            label="Sort by"
-            labelHidden
-            options={SORT_OPTIONS}
-            value={sortBy}
-            onChange={setSortBy}
-          />
-        </InlineGrid>
+      <s-grid gridTemplateColumns="2fr 1fr 1fr 1fr" gap="small-100">
+        <s-search-field
+          label="Search templates"
+          labelAccessibilityVisibility="exclusive"
+          placeholder="Describe what you would like to automate"
+          value={searchQuery}
+          onInput={(e) => setSearchQuery(e.currentTarget.value ?? '')}
+        />
+        <s-select
+          label="Apps"
+          labelAccessibilityVisibility="exclusive"
+          value={selectedConnector}
+          onChange={(e) => setSelectedConnector(e.currentTarget.value)}
+        >
+          <s-option value="All">All apps</s-option>
+          {connectors.map(c => (
+            <s-option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</s-option>
+          ))}
+        </s-select>
+        <s-select
+          label="Categories"
+          labelAccessibilityVisibility="exclusive"
+          value={selectedCategory}
+          onChange={(e) => setSelectedCategory(e.currentTarget.value)}
+        >
+          <s-option value="All">All categories</s-option>
+          {categories.map(c => (
+            <s-option key={c} value={c}>{c}</s-option>
+          ))}
+        </s-select>
+        <s-select
+          label="Sort by"
+          labelAccessibilityVisibility="exclusive"
+          value={sortBy}
+          onChange={(e) => setSortBy(e.currentTarget.value)}
+        >
+          {SORT_OPTIONS.map(o => (
+            <s-option key={o.value} value={o.value}>{o.label}</s-option>
+          ))}
+        </s-select>
+      </s-grid>
 
-        {/* Result count */}
-        <InlineStack align="space-between" blockAlign="center">
-          <Text as="p" variant="bodySm" tone="subdued">{`${filtered.length} result${filtered.length !== 1 ? 's' : ''}`}</Text>
-        </InlineStack>
+      <s-text color="subdued">{`${filtered.length} result${filtered.length !== 1 ? 's' : ''}`}</s-text>
 
-        {/* Template card grid */}
-        {filtered.length > 0 ? (
-          <InlineGrid columns={{ xs: 1, sm: 2, md: 3 }} gap="400">
-            {filtered.map(t => (
-              <Card key={t.templateId}>
-                <BlockStack gap="300">
-                  <Text as="h3" variant="headingSm">{t.name}</Text>
-                  <Text as="p" variant="bodySm" tone="subdued">{t.description}</Text>
-                  <InlineStack gap="200" wrap>
-                    {t.category.map(c => (
-                      <Badge key={c}>{c}</Badge>
-                    ))}
-                  </InlineStack>
-                  <InlineStack gap="200" wrap>
-                    {t.connectors.map(c => (
-                      <Badge key={c} tone="info">{c}</Badge>
-                    ))}
-                  </InlineStack>
-                  <InlineStack gap="200" wrap>
-                    {t.tags.slice(0, 4).map(tag => (
-                      <Text key={tag} as="span" variant="bodySm" tone="subdued">#{tag}</Text>
-                    ))}
-                  </InlineStack>
-                  <Form method="post">
-                    <input type="hidden" name="templateId" value={t.templateId} />
-                    <Button submit size="slim" variant="primary" loading={isInstalling}>
-                      Install template
-                    </Button>
-                  </Form>
-                </BlockStack>
-              </Card>
-            ))}
-          </InlineGrid>
-        ) : (
-          <Card>
-            <EmptyState heading="No templates match your filters" image="">
-              <p>Try a different search term, category, or app filter.</p>
-            </EmptyState>
-          </Card>
-        )}
-      </BlockStack>
-    </Page>
+      {filtered.length > 0 ? (
+        <s-grid gridTemplateColumns="repeat(auto-fill, minmax(280px, 1fr))" gap="base">
+          {filtered.map(t => (
+            <s-box key={t.templateId} border="base" borderRadius="base" background="base" padding="base">
+              <s-stack gap="small-100">
+                <s-text type="strong">{t.name}</s-text>
+                <s-text color="subdued">{t.description}</s-text>
+                <s-stack direction="inline" gap="small-200">
+                  {t.category.map(c => (
+                    <s-badge key={c}>{c}</s-badge>
+                  ))}
+                  {t.connectors.map(c => (
+                    <s-badge key={c} tone="info">{c}</s-badge>
+                  ))}
+                </s-stack>
+                {t.tags.length > 0 && (
+                  <s-text color="subdued">{t.tags.slice(0, 4).map(tag => `#${tag}`).join(' ')}</s-text>
+                )}
+                <Form method="post">
+                  <input type="hidden" name="templateId" value={t.templateId} />
+                  <s-button type="submit" variant="primary" loading={isInstalling || undefined}>
+                    Install template
+                  </s-button>
+                </Form>
+              </s-stack>
+            </s-box>
+          ))}
+        </s-grid>
+      ) : (
+        <s-section>
+          <EmptyState icon="automation" heading="No templates match your filters">
+            Try a different search term, category, or app filter.
+          </EmptyState>
+        </s-section>
+      )}
+    </s-page>
   );
 }
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

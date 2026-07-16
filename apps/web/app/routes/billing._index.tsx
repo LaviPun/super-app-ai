@@ -1,6 +1,6 @@
 import { json } from '@remix-run/node';
 import { useLoaderData, useFetcher } from '@remix-run/react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { BillingService, type BillingPlan } from '~/services/billing/billing.service';
 import { getAllPlanConfigs } from '~/services/billing/plan-config.service';
@@ -8,7 +8,7 @@ import { QuotaService } from '~/services/billing/quota.service';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { Icon, Btn, Card, PageHead, Progress, fmtNum, fmtQuota, titleCase } from '~/components/superapp';
+import { ConfirmModal, Progress, fmtNum, fmtQuota, titleCase } from '~/components/merchant/polaris';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -69,12 +69,12 @@ export async function action({ request }: { request: Request }) {
   }
 }
 
-const USAGE_ICON: Record<string, string> = { aiRequests: 'magic', publishOps: 'rocket', workflowRuns: 'flow', connectorCalls: 'connect' };
+const USAGE_ICON: Record<string, string> = { aiRequests: 'wand', publishOps: 'rocket', workflowRuns: 'automation', connectorCalls: 'connect' };
 
 export default function BillingPage() {
   const { sub, usage, plans } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell>
+    <MerchantShell polaris>
       <BillingBody sub={sub} usage={usage} plans={plans} />
     </MerchantShell>
   );
@@ -111,67 +111,117 @@ function BillingBody({ sub, usage, plans }: any) {
     changeFetcher.submit({ plan: name }, { method: 'post' });
   };
 
-  return (
-    <div className="page">
-      <PageHead title="Plan & usage" sub={`You’re on the ${titleCase(current)} plan. Track usage and upgrade any time.`} />
+  // Downgrades lose quota immediately — never let that happen on a single click.
+  const [downgradeTo, setDowngradeTo] = useState<any | null>(null);
+  const requestPlanChange = (p: any) => {
+    const isDowngrade = currentPlan && p.price !== -1 && currentPlan.price !== -1 && p.price < currentPlan.price;
+    if (isDowngrade) setDowngradeTo(p);
+    else changePlan(p.name);
+  };
 
-      <div className="col-main" style={{ marginBottom: 24 }}>
-        <Card pad>
-          <div className="row spread" style={{ marginBottom: 18 }}>
-            <div className="t-h3">This month’s usage</div>
-            <span className="t-xs t-muted">Resets monthly</span>
-          </div>
-          <div className="stack-5">
+  return (
+    <s-page heading="Plan & usage" inlineSize="base">
+      <s-paragraph color="subdued">You’re on the {titleCase(current)} plan. Track usage and upgrade any time.</s-paragraph>
+
+      <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+        <s-section heading="This month’s usage">
+          <s-stack gap="base">
+            <s-text tone="neutral" color="subdued">Resets monthly</s-text>
             {usageRows.map((u, i) => {
               const limit = u[3];
               const finite = limit !== -1;
               return (
-                <div key={i} className="stack-1">
-                  <div className="row spread">
-                    <span className="row-2 t-sm t-strong"><Icon name={USAGE_ICON[u[1]] ?? 'bolt'} size={15} className="t-muted" />{u[0]}</span>
-                    <span className="t-sm t-num t-muted">{fmtNum(u[2])} / {finite ? fmtNum(limit) : 'Unlimited'}</span>
-                  </div>
-                  {finite && <Progress value={limit > 0 ? (u[2] / limit) * 100 : 0} tone={limit > 0 && u[2] / limit > 0.85 ? 'warning' : undefined} />}
-                </div>
+                <s-stack key={i} gap="small-100">
+                  <s-grid gridTemplateColumns="1fr auto" gap="small-100" alignItems="center">
+                    <s-stack direction="inline" gap="small-100" alignItems="center">
+                      <s-icon type={(USAGE_ICON[u[1]] ?? 'bolt') as never} size="small" tone="neutral" />
+                      <s-text type="strong">{u[0]}</s-text>
+                    </s-stack>
+                    <s-text tone="neutral" color="subdued">{fmtNum(u[2])} / {finite ? fmtNum(limit) : 'Unlimited'}</s-text>
+                  </s-grid>
+                  {finite && <Progress value={limit > 0 ? u[2] : 0} max={limit > 0 ? limit : 100} tone={limit > 0 && u[2] / limit > 0.85 ? 'warning' : undefined} />}
+                </s-stack>
               );
             })}
-          </div>
-        </Card>
-        <Card pad className="plan-current">
-          <div className="badge badge-success" style={{ marginBottom: 10 }}>Current plan</div>
-          <div className="t-h1" style={{ fontSize: 28 }}>{titleCase(current)}</div>
-          <div className="row-1" style={{ alignItems: 'baseline', marginTop: 4 }}>
-            <span className="t-h2">${currentPlan?.price ?? 0}</span><span className="t-muted">/month</span>
-          </div>
-          <div className="divider" style={{ margin: '16px 0' }} />
-          <Btn variant="primary" className="btn-block" onClick={() => document.getElementById('billing-plans')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Change plan</Btn>
-          <Btn className="btn-block btn-plain-subdued" style={{ marginTop: 8 }} onClick={() => ctx.go('#/app/billing/history')}>Billing history</Btn>
-        </Card>
-      </div>
+          </s-stack>
+        </s-section>
 
-      <h2 id="billing-plans" className="t-h2" style={{ marginBottom: 14 }}>Plans</h2>
-      <div className="grid grid-4">
-        {plans.filter((p: any) => p.name !== 'FREE').map((p: any) => (
-          <div key={p.name} className={'card card-pad plan-card' + (p.name === current ? ' active' : '')}>
-            <div className="t-h3">{titleCase(p.name)}</div>
-            <div className="row-1" style={{ alignItems: 'baseline', margin: '6px 0 14px' }}>
-              {p.price === -1
-                ? <span className="t-h2">Custom</span>
-                : <><span className="t-h1" style={{ fontSize: 26 }}>${p.price}</span><span className="t-muted t-sm">/mo</span></>}
-            </div>
-            <div className="stack-2" style={{ marginBottom: 16 }}>
-              {[[fmtQuota(p.quotas.aiRequestsPerMonth), 'AI generations'], [fmtQuota(p.quotas.publishOpsPerMonth), 'publishes'], [fmtQuota(p.quotas.workflowRunsPerMonth), 'workflow runs'], [fmtQuota(p.quotas.connectorCallsPerMonth), 'connectors']].map((f, i) => (
-                <div key={i} className="row-2 t-sm"><Icon name="check" size={15} style={{ color: 'var(--p-success)' }} /><span><b className="t-num">{f[0]}</b> {f[1]}</span></div>
-              ))}
-            </div>
-            {p.name === current
-              ? <Btn className="btn-block" disabled>Current plan</Btn>
-              : p.price === -1
-                ? <Btn className="btn-block" onClick={() => ctx.go('#/app/help')}>Contact us</Btn>
-                : <Btn variant={p.name === 'PRO' ? 'primary' : undefined} className="btn-block" loading={pendingPlan === p.name} onClick={() => changePlan(p.name)}>{`Choose ${titleCase(p.name)}`}</Btn>}
-          </div>
-        ))}
-      </div>
-    </div>
+        <s-section heading="Current plan">
+          <s-stack gap="base">
+            <s-stack gap="none">
+              <s-stack direction="inline" gap="small-100" alignItems="center">
+                <s-heading>{titleCase(current)}</s-heading>
+                <s-badge tone="success">Current</s-badge>
+              </s-stack>
+              <s-stack direction="inline" gap="small-100" alignItems="baseline">
+                <s-text type="strong">${currentPlan?.price ?? 0}</s-text>
+                <s-text tone="neutral" color="subdued">/month</s-text>
+              </s-stack>
+            </s-stack>
+            <s-divider />
+            <s-stack gap="small-100">
+              <s-button variant="primary" onClick={() => document.getElementById('billing-plans')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Change plan</s-button>
+              <s-button variant="secondary" icon="receipt" onClick={() => ctx.go('#/app/billing/history')}>Billing history</s-button>
+            </s-stack>
+          </s-stack>
+        </s-section>
+      </s-grid>
+
+      <s-section id="billing-plans" heading="Plans">
+        <s-grid gridTemplateColumns="repeat(4, 1fr)" gap="base">
+          {plans.filter((p: any) => p.name !== 'FREE').map((p: any) => (
+            <s-box key={p.name} padding="base" border="base" borderRadius="base" background={p.name === current ? 'subdued' : undefined}>
+              <s-stack gap="small-100">
+                <s-text type="strong">{titleCase(p.name)}</s-text>
+                <s-stack direction="inline" gap="small-100" alignItems="baseline">
+                  {p.price === -1
+                    ? <s-heading>Custom</s-heading>
+                    : <><s-heading>${p.price}</s-heading><s-text tone="neutral" color="subdued">/mo</s-text></>}
+                </s-stack>
+                <s-stack gap="none">
+                  {[[fmtQuota(p.quotas.aiRequestsPerMonth), 'AI generations'], [fmtQuota(p.quotas.publishOpsPerMonth), 'publishes'], [fmtQuota(p.quotas.workflowRunsPerMonth), 'workflow runs'], [fmtQuota(p.quotas.connectorCallsPerMonth), 'connectors']].map((f, i) => (
+                    <s-stack key={i} direction="inline" gap="small-100" alignItems="center">
+                      <s-icon type="check" size="small" tone="success" />
+                      <s-text tone="neutral" color="subdued"><s-text type="strong">{f[0]}</s-text> {f[1]}</s-text>
+                    </s-stack>
+                  ))}
+                </s-stack>
+                {p.name === current
+                  ? <s-button disabled>Current plan</s-button>
+                  : p.price === -1
+                    ? <s-button onClick={() => ctx.go('#/app/help')}>Contact us</s-button>
+                    : <s-button variant={p.name === 'PRO' ? 'primary' : 'secondary'} loading={pendingPlan === p.name || undefined} onClick={() => requestPlanChange(p)}>{`Choose ${titleCase(p.name)}`}</s-button>}
+              </s-stack>
+            </s-box>
+          ))}
+        </s-grid>
+      </s-section>
+
+      <ConfirmModal
+        open={!!downgradeTo}
+        heading={downgradeTo ? `Switch to ${titleCase(downgradeTo.name)}?` : 'Switch plan?'}
+        confirmLabel="Switch plan"
+        tone="critical"
+        loading={changeFetcher.state !== 'idle' || undefined}
+        onConfirm={() => { if (downgradeTo) { changePlan(downgradeTo.name); setDowngradeTo(null); } }}
+        onClose={() => setDowngradeTo(null)}
+      >
+        {downgradeTo && currentPlan && (
+          <s-stack gap="small-100">
+            <s-paragraph>
+              {`Downgrading from ${titleCase(current)} to ${titleCase(downgradeTo.name)} lowers your monthly limits immediately:`}
+            </s-paragraph>
+            <s-stack gap="none">
+              <s-text tone="neutral" color="subdued">{`AI generations: ${fmtQuota(currentPlan.quotas.aiRequestsPerMonth)} → ${fmtQuota(downgradeTo.quotas.aiRequestsPerMonth)}`}</s-text>
+              <s-text tone="neutral" color="subdued">{`Publishes: ${fmtQuota(currentPlan.quotas.publishOpsPerMonth)} → ${fmtQuota(downgradeTo.quotas.publishOpsPerMonth)}`}</s-text>
+              <s-text tone="neutral" color="subdued">{`Workflow runs: ${fmtQuota(currentPlan.quotas.workflowRunsPerMonth)} → ${fmtQuota(downgradeTo.quotas.workflowRunsPerMonth)}`}</s-text>
+              <s-text tone="neutral" color="subdued">{`Connector calls: ${fmtQuota(currentPlan.quotas.connectorCallsPerMonth)} → ${fmtQuota(downgradeTo.quotas.connectorCallsPerMonth)}`}</s-text>
+            </s-stack>
+          </s-stack>
+        )}
+      </ConfirmModal>
+    </s-page>
   );
 }
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

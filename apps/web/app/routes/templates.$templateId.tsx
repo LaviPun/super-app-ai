@@ -1,6 +1,6 @@
 import { json } from '@remix-run/node';
-import { Link, useLoaderData } from '@remix-run/react';
-import { Badge, BlockStack, Button, Card, DataTable, InlineStack, Page, Text } from '@shopify/polaris';
+import { useLoaderData, useNavigate } from '@remix-run/react';
+import { MerchantShell } from '~/components/merchant/MerchantShell';
 import { findTemplate, getTemplateInstallability, getTemplateReadiness, getExtensionEligibility } from '@superapp/core';
 import { shopify } from '~/shopify.server';
 import { PreviewService } from '~/services/preview/preview.service';
@@ -78,115 +78,118 @@ const RUNTIME_LABEL: Record<string, string> = {
 
 export default function MerchantTemplateDetailRoute() {
   const { template, readiness, installability, requires, deployment, configRows, previewHtml } = useLoaderData<typeof loader>();
+  const navigate = useNavigate();
 
   return (
-    <Page
-      title={template.name}
-      subtitle="Merchant template detail (limited access)"
-      backAction={{ content: 'Modules', url: '/modules' }}
-      primaryAction={{
-        content: 'Use template',
-        url: `/modules?templateId=${encodeURIComponent(template.id)}`,
-      }}
-    >
-      <BlockStack gap="400">
-        <Card>
-          <BlockStack gap="300">
-            <InlineStack gap="200" wrap>
-              <Badge>{template.type}</Badge>
-              <Badge>{template.category}</Badge>
-              {installability.ok ? <Badge tone="success">Installable</Badge> : <Badge tone="critical">Needs fixes</Badge>}
-            </InlineStack>
-            <Text as="p" variant="bodyMd">{template.description}</Text>
+    <MerchantShell polaris>
+      <s-page heading={template.name} inlineSize="base">
+        <s-button
+          slot="primary-action"
+          variant="primary"
+          onClick={() => navigate(`/modules?templateId=${encodeURIComponent(template.id)}`)}
+        >
+          Use template
+        </s-button>
+        <s-stack direction="inline" gap="small-100" alignItems="center">
+          <s-button variant="tertiary" icon="arrow-left" onClick={() => navigate('/modules')}>Modules</s-button>
+          <s-text color="subdued">Merchant template detail (limited access)</s-text>
+        </s-stack>
+
+        <s-section>
+          <s-stack gap="small-100">
+            <s-stack direction="inline" gap="small-100">
+              <s-badge>{template.type}</s-badge>
+              <s-badge>{template.category}</s-badge>
+              {installability.ok ? <s-badge tone="success">Installable</s-badge> : <s-badge tone="critical">Needs fixes</s-badge>}
+            </s-stack>
+            <s-paragraph>{template.description}</s-paragraph>
             {template.tags.length > 0 ? (
-              <InlineStack gap="200" wrap>
+              <s-stack direction="inline" gap="small-100">
                 {template.tags.map((tag) => (
-                  <Text key={tag} as="span" variant="bodySm" tone="subdued">#{tag}</Text>
+                  <s-text key={tag} color="subdued">#{tag}</s-text>
                 ))}
-              </InlineStack>
+              </s-stack>
             ) : null}
-            <Text as="p" variant="bodySm"><strong>Requires:</strong> {requires.join(', ') || '—'}</Text>
-          </BlockStack>
-        </Card>
+            <s-text><s-text type="strong">Requires:</s-text> {requires.join(', ') || '—'}</s-text>
+          </s-stack>
+        </s-section>
 
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Preview</Text>
-            {previewHtml ? (
-              <div style={{ border: '1px solid var(--p-color-border)', borderRadius: 8, overflow: 'hidden' }}>
-                <iframe
-                  title={`Preview of ${template.name}`}
-                  srcDoc={previewHtml}
-                  sandbox="allow-scripts allow-same-origin allow-popups"
-                  style={{ display: 'block', width: '100%', height: 480, border: 0, background: '#fff' }}
-                />
-              </div>
-            ) : (
-              <Text as="p" variant="bodySm" tone="subdued">No visual preview available for this template type.</Text>
-            )}
-          </BlockStack>
-        </Card>
+        <s-section heading="Preview">
+          {previewHtml ? (
+            <s-box border="base" borderRadius="base" overflow="hidden">
+              <iframe
+                title={`Preview of ${template.name}`}
+                srcDoc={previewHtml}
+                sandbox="allow-scripts allow-same-origin allow-popups"
+                style={{ display: 'block', width: '100%', height: 480, border: 0, background: '#fff' }}
+              />
+            </s-box>
+          ) : (
+            <s-text color="subdued">No visual preview available for this template type.</s-text>
+          )}
+        </s-section>
 
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Readiness checks</Text>
-            <BlockStack gap="150">
-              {readiness.checks.map((check) => (
-                <InlineStack key={check.id} align="space-between" blockAlign="center">
-                  <BlockStack gap="050">
-                    <Text as="p" variant="bodySm" fontWeight="medium">{check.id}</Text>
-                    <Text as="p" variant="bodySm" tone="subdued">{check.detail}</Text>
-                  </BlockStack>
-                  <Badge tone={check.ok ? 'success' : 'critical'}>{check.ok ? 'Ready' : 'Needs work'}</Badge>
-                </InlineStack>
-              ))}
-            </BlockStack>
+        <s-section heading="Readiness checks">
+          <s-stack gap="small-200">
+            {readiness.checks.map((check) => (
+              <s-stack key={check.id} direction="inline" justifyContent="space-between" alignItems="center" gap="small-100">
+                <s-stack gap="none">
+                  <s-text type="strong">{check.id}</s-text>
+                  <s-text color="subdued">{check.detail}</s-text>
+                </s-stack>
+                <s-badge tone={check.ok ? 'success' : 'critical'}>{check.ok ? 'Ready' : 'Needs work'}</s-badge>
+              </s-stack>
+            ))}
             {!installability.ok && (
-              <BlockStack gap="100">
+              <s-stack gap="none">
                 {installability.reasons.map((reason) => (
-                  <Text key={reason} as="p" variant="bodySm" tone="critical">{reason}</Text>
+                  <s-text key={reason} tone="critical">{reason}</s-text>
                 ))}
-              </BlockStack>
+              </s-stack>
             )}
-          </BlockStack>
-        </Card>
+          </s-stack>
+        </s-section>
 
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Deployment</Text>
-            <InlineStack gap="200" wrap blockAlign="center">
-              <Badge>{RUNTIME_LABEL[deployment.runtime] ?? deployment.runtime}</Badge>
+        <s-section heading="Deployment">
+          <s-stack gap="small-100">
+            <s-stack direction="inline" gap="small-100" alignItems="center">
+              <s-badge>{RUNTIME_LABEL[deployment.runtime] ?? deployment.runtime}</s-badge>
               {deployment.requiresPlan === 'plus' ? (
-                <Badge tone="attention">Takes effect on Shopify Plus</Badge>
+                <s-badge tone="caution">Takes effect on Shopify Plus</s-badge>
               ) : null}
               {deployment.runtimeShipped === false ? (
-                <Badge tone="attention">Runtime pending in this app build</Badge>
+                <s-badge tone="caution">Runtime pending in this app build</s-badge>
               ) : null}
-            </InlineStack>
-            <Text as="p" variant="bodySm" tone="subdued">{deployment.note}</Text>
-          </BlockStack>
-        </Card>
+            </s-stack>
+            <s-text color="subdued">{deployment.note}</s-text>
+          </s-stack>
+        </s-section>
 
-        <Card>
-          <BlockStack gap="300">
-            <Text as="h2" variant="headingMd">Template settings (read-only)</Text>
-            {configRows.length > 0 ? (
-              <DataTable
-                columnContentTypes={['text', 'text', 'text']}
-                headings={['Setting', 'Type', 'Value preview']}
-                rows={configRows}
-              />
-            ) : (
-              <Text as="p" variant="bodySm" tone="subdued">No config keys on this template.</Text>
-            )}
-            <InlineStack>
-              <Link to="/modules">
-                <Button>Back to templates</Button>
-              </Link>
-            </InlineStack>
-          </BlockStack>
-        </Card>
-      </BlockStack>
-    </Page>
+        <s-section heading="Template settings (read-only)">
+          {configRows.length > 0 ? (
+            <s-table variant="auto">
+              <s-table-header-row>
+                <s-table-header listSlot="primary">Setting</s-table-header>
+                <s-table-header>Type</s-table-header>
+                <s-table-header>Value preview</s-table-header>
+              </s-table-header-row>
+              <s-table-body>
+                {configRows.map((row) => (
+                  <s-table-row key={String(row[0])}>
+                    <s-table-cell><s-text type="strong">{row[0]}</s-text></s-table-cell>
+                    <s-table-cell>{row[1]}</s-table-cell>
+                    <s-table-cell><s-text color="subdued">{row[2]}</s-text></s-table-cell>
+                  </s-table-row>
+                ))}
+              </s-table-body>
+            </s-table>
+          ) : (
+            <s-text color="subdued">No config keys on this template.</s-text>
+          )}
+        </s-section>
+      </s-page>
+    </MerchantShell>
   );
 }
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

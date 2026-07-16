@@ -4,9 +4,9 @@
  */
 
 import { json, type LoaderFunctionArgs } from '@remix-run/node';
-import { useLoaderData } from '@remix-run/react';
-import { Page, Card, FormLayout, Select, Button, BlockStack, Text } from '@shopify/polaris';
+import { useLoaderData, useNavigate } from '@remix-run/react';
 import { useState, useCallback } from 'react';
+import { MerchantShell } from '~/components/merchant/MerchantShell';
 import {
   RECIPE_GOAL_CATEGORIES,
   THEME_PLACEABLE_TEMPLATES,
@@ -37,15 +37,20 @@ const STEP_LABELS = [
 ];
 
 export default function PickerIndex() {
+  return (
+    <MerchantShell polaris>
+      <PickerBody />
+    </MerchantShell>
+  );
+}
+
+function PickerBody() {
   const data = useLoaderData<typeof loader>();
+  const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [goal, setGoal] = useState<string>('');
   const [placementTemplate, setPlacementTemplate] = useState<string>('');
   const [sectionGroup, setSectionGroup] = useState<string>('');
-
-  const goalOptions = data.goals.map((g) => ({ label: g, value: g }));
-  const templateOptions = [{ label: '(Any)', value: '' }, ...data.themeTemplates.map((t) => ({ label: t, value: t }))];
-  const groupOptions = [{ label: '(Any)', value: '' }, ...data.themeSectionGroups.map((g) => ({ label: g, value: g }))];
 
   const handleGoalChange = useCallback((v: string) => setGoal(v), []);
   const handleTemplateChange = useCallback((v: string) => setPlacementTemplate(v), []);
@@ -55,74 +60,97 @@ export default function PickerIndex() {
   const prevStep = () => setStep((s) => Math.max(s - 1, 0));
 
   return (
-    <Page
-      title="Create module"
-      backAction={{ content: 'Modules', url: '/modules' }}
-    >
-      <BlockStack gap="400">
-        <Text as="p" variant="bodyMd" tone="subdued">
+    <s-page heading="Create module" inlineSize="base">
+      <s-stack gap="small-100">
+        <s-stack direction="inline">
+          <s-button variant="tertiary" icon="arrow-left" onClick={() => navigate('/modules')}>Modules</s-button>
+        </s-stack>
+        <s-paragraph color="subdued">
           Step {step + 1} of 6: {STEP_LABELS[step]}
-        </Text>
+        </s-paragraph>
+      </s-stack>
 
-        {step === 0 && (
-          <Card>
-            <FormLayout>
-              <Select
-                label="Goal (category)"
-                options={goalOptions}
-                value={goal}
-                onChange={handleGoalChange}
-                placeholder="Select a goal"
-              />
-              <Button variant="primary" onClick={nextStep} disabled={!goal}>
+      {step === 0 && (
+        <s-section>
+          <s-stack gap="base">
+            <s-select
+              label="Goal (category)"
+              value={goal}
+              onChange={(e) => handleGoalChange(e.currentTarget.value)}
+            >
+              <s-option value="">Select a goal</s-option>
+              {data.goals.map((g) => (
+                <s-option key={g} value={g}>{g}</s-option>
+              ))}
+            </s-select>
+            <s-stack direction="inline">
+              <s-button variant="primary" onClick={nextStep} disabled={!goal || undefined}>
                 Next
-              </Button>
-            </FormLayout>
-          </Card>
-        )}
+              </s-button>
+            </s-stack>
+          </s-stack>
+        </s-section>
+      )}
 
-        {step === 1 && (
-          <Card>
-            <BlockStack gap="300">
-              <Text as="p">Recipe plan will be suggested based on: {goal || '—'}</Text>
-              <Button variant="primary" onClick={nextStep}>Next</Button>
-            </BlockStack>
-          </Card>
-        )}
+      {step === 1 && (
+        <s-section>
+          <s-stack gap="base">
+            <s-text>Recipe plan will be suggested based on: {goal || '—'}</s-text>
+            <s-stack direction="inline">
+              <s-button variant="primary" onClick={nextStep}>Next</s-button>
+            </s-stack>
+          </s-stack>
+        </s-section>
+      )}
 
-        {step === 2 && (
-          <Card>
-            <FormLayout>
-              <Select
-                label="Theme template (doc 4.2.2B)"
-                options={templateOptions}
-                value={placementTemplate}
-                onChange={handleTemplateChange}
-              />
-              <Select
-                label="Section group (doc 4.2.3)"
-                options={groupOptions}
-                value={sectionGroup}
-                onChange={handleGroupChange}
-              />
-              <Button variant="primary" onClick={nextStep}>Next</Button>
-            </FormLayout>
-          </Card>
-        )}
+      {step === 2 && (
+        <s-section>
+          <s-stack gap="base">
+            <s-select
+              label="Theme template (doc 4.2.2B)"
+              value={placementTemplate}
+              onChange={(e) => handleTemplateChange(e.currentTarget.value)}
+            >
+              <s-option value="">(Any)</s-option>
+              {data.themeTemplates.map((t) => (
+                <s-option key={t} value={t}>{t}</s-option>
+              ))}
+            </s-select>
+            <s-select
+              label="Section group (doc 4.2.3)"
+              value={sectionGroup}
+              onChange={(e) => handleGroupChange(e.currentTarget.value)}
+            >
+              <s-option value="">(Any)</s-option>
+              {data.themeSectionGroups.map((g) => (
+                <s-option key={g} value={g}>{g}</s-option>
+              ))}
+            </s-select>
+            <s-stack direction="inline">
+              <s-button variant="primary" onClick={nextStep}>Next</s-button>
+            </s-stack>
+          </s-stack>
+        </s-section>
+      )}
 
-        {(step === 3 || step === 4 || step === 5) && (
-          <Card>
-            <BlockStack gap="300">
-              <Text as="p">Step {step + 1}: {STEP_LABELS[step]} (configure in follow-up)</Text>
-              <Button variant="primary" onClick={nextStep}>{step < 5 ? 'Next' : 'Deploy'}</Button>
-            </BlockStack>
-          </Card>
-        )}
+      {(step === 3 || step === 4 || step === 5) && (
+        <s-section>
+          <s-stack gap="base">
+            <s-text>Step {step + 1}: {STEP_LABELS[step]} (configure in follow-up)</s-text>
+            <s-stack direction="inline">
+              <s-button variant="primary" onClick={nextStep}>{step < 5 ? 'Next' : 'Deploy'}</s-button>
+            </s-stack>
+          </s-stack>
+        </s-section>
+      )}
 
-        {step > 0 && (
-          <Button onClick={prevStep}>Back</Button>
-        )}
-      </BlockStack>
-    </Page>
+      {step > 0 && (
+        <s-stack direction="inline">
+          <s-button onClick={prevStep}>Back</s-button>
+        </s-stack>
+      )}
+    </s-page>
   );
 }
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

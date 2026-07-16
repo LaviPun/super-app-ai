@@ -1,15 +1,15 @@
 import { json } from '@remix-run/node';
 import { useLoaderData, useNavigate, useFetcher, useRevalidator } from '@remix-run/react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import type { FetcherWithComponents } from '@remix-run/react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { ConnectorService, type ConnectorAuth } from '~/services/connectors/connector.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
-  Icon, Btn, Badge, StatusBadge, Banner, Card, PageHead, FilterBar, DataTable, EmptyState,
-  Menu, Modal, Field, Input, Select, ConfirmDialog, MonoChip, StatusDot, useTableState, titleCase,
-} from '~/components/superapp';
+  ConfirmModal, EmptyState, MonoChip, StatusBadge, titleCase, useCustomEvent,
+} from '~/components/merchant/polaris';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -144,7 +144,7 @@ function timeAgo(iso: string | null): string {
 export default function ConnectorsIndex() {
   const { connectors, stats } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell>
+    <MerchantShell polaris>
       <ConnectorsBody connectors={connectors} stats={stats} />
     </MerchantShell>
   );
@@ -153,11 +153,10 @@ export default function ConnectorsIndex() {
 function ConnectorsBody({ connectors }: any) {
   const ctx = useMerchantCtx();
   const navigate = useNavigate();
-  const ts = useTableState();
+  const [search, setSearch] = useState('');
   const { revalidate } = useRevalidator();
   const [modal, setModal] = useState(false);
   const [del, setDel] = useState<any>(null);
-  const [auth, setAuth] = useState('API_KEY');
   const createFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const deleteFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const testFetcher = useFetcher<{ ok?: boolean; error?: string; result?: { status: number } | null }>();
@@ -212,24 +211,11 @@ function ConnectorsBody({ connectors }: any) {
       everTested: Boolean(c.lastTest || c.lastTestedAt),
       status: c.lastTest ? (c.lastTest.ok ? 'CONNECTED' : 'ERROR') : c.lastTestedAt ? 'CONNECTED' : 'NEW',
     }))
-    .filter((c: any) => (c.name + c.baseUrl).toLowerCase().includes(ts.search.toLowerCase()));
+    .filter((c: any) => (c.name + c.baseUrl).toLowerCase().includes(search.toLowerCase()));
 
   const testConnector = (r: any) => {
     testFetcher.submit({ connectorId: r.id, path: '/', method: 'GET' }, { method: 'post', action: '/api/connectors/test', encType: 'application/json' });
     ctx.toast(`Testing ${r.name}…`);
-  };
-  const conMenu = (r: any) => [
-    { icon: 'play', label: 'Test connection', onClick: () => testConnector(r) },
-    { icon: 'edit', label: 'Edit', onClick: () => navigate(`/connectors/${r.id}?tab=settings`) },
-    { divider: true },
-    { icon: 'trash', label: 'Delete', tone: 'critical', onClick: () => setDel(r) },
-  ];
-
-  const submitCreate = (formEl: HTMLFormElement) => {
-    const fd = new FormData(formEl);
-    fd.set('intent', 'create');
-    createFetcher.submit(fd, { method: 'post' });
-    // Modal stays open until the server confirms (see createFetcher effect).
   };
   const confirmDelete = () => {
     if (!del) return;
@@ -238,88 +224,163 @@ function ConnectorsBody({ connectors }: any) {
   };
 
   return (
-    <div className="page">
-      <PageHead
-        title="Connectors"
-        sub="Connect external APIs, test them in the built-in request console, then use them in flows and modules."
-        actions={<Btn variant="primary" icon="plus" onClick={() => setModal(true)}>Add connector</Btn>}
-      />
-      {del && (
-        <ConfirmDialog title="Delete connector?" tone="critical" confirmLabel="Delete" icon="trash"
-          message={`This removes “${del.name}” and its saved endpoints. Flows and modules that use it will stop working.`}
-          onConfirm={confirmDelete} onClose={() => setDel(null)} />
-      )}
-      <Card>
-        <FilterBar search={ts.search} onSearch={ts.setSearch} placeholder="Search connectors…" results={rows.length} />
-        {rows.length === 0 ? (
-          <EmptyState icon="connect" title="No connectors yet"
-            action={<Btn variant="primary" icon="plus" onClick={() => setModal(true)}>Add your first connector</Btn>}>
+    <s-page heading="Connectors" inlineSize="base">
+      <s-button slot="primary-action" variant="primary" icon="plus" onClick={() => setModal(true)}>
+        Add connector
+      </s-button>
+      <s-paragraph color="subdued">
+        Connect external APIs, test them in the built-in request console, then use them in flows and modules.
+      </s-paragraph>
+      {connectors.length === 0 ? (
+        <s-section>
+          <EmptyState icon="connect" heading="No connectors yet"
+            action={<s-button variant="primary" icon="plus" onClick={() => setModal(true)}>Add your first connector</s-button>}>
             Connect Klaviyo, Slack, your WMS, or any REST API.
           </EmptyState>
-        ) : (
-          <DataTable rowKey="id" onRowClick={(r: any) => navigate(`/connectors/${r.id}`)} columns={[
-            { key: 'name', label: 'Connector', render: (r: any) => (
-              <div className="row-3">
-                <span className="tile-ico" style={{ width: 30, height: 30, background: 'var(--p-surface-secondary)' }}><Icon name="connect" size={15} /></span>
-                <span className="cell-strong">{r.name}</span>
-              </div>
-            ) },
-            { key: 'baseUrl', label: 'Base URL', render: (r: any) => <MonoChip>{r.baseUrl}</MonoChip> },
-            { key: 'auth', label: 'Auth', render: (r: any) => <Badge>{authDisplay(r.auth)}</Badge> },
-            { key: 'endpoints', label: 'Endpoints', num: true },
-            { key: 'lastStatus', label: 'Last test', render: (r: any) => (
-              <span className="row-2"><StatusDot ok={r.everTested && r.lastOk} /><span className="cell-sub">{r.everTested ? (r.lastStatus != null ? `${r.lastStatus} · ${r.lastTested}` : `tested ${r.lastTested}`) : 'untested'}</span></span>
-            ) },
-            { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
-            { key: 'act', label: '', render: (r: any) => (
-              <div className="dt-actions"><Menu trigger={<button className="btn btn-icon btn-sm btn-plain"><Icon name="dotsH" size={16} /></button>} items={conMenu(r)} /></div>
-            ) },
-          ]} rows={rows} />
-        )}
-      </Card>
-      {modal && (
-        <Modal title="Add connector" sub="Connect an external REST API" onClose={() => setModal(false)}
-          footer={(
-            <>
-              <span className="grow" />
-              <Btn onClick={() => setModal(false)}>Cancel</Btn>
-              <Btn variant="primary" loading={createFetcher.state !== 'idle'} onClick={(e: any) => submitCreate(e.target.closest('.modal-overlay').querySelector('form'))}>Create connector</Btn>
-            </>
-          )}>
-          <form>
-            <div className="stack-4">
-              {createFetcher.state === 'idle' && createFetcher.data?.error && (
-                <Banner tone="critical">{createFetcher.data.error}</Banner>
-              )}
-              <Field label="Name" help="A friendly label, e.g. “Klaviyo”"><Input name="name" placeholder="My API" autoFocus /></Field>
-              <Field label="Base URL"><Input name="baseUrl" mono placeholder="https://api.example.com/v1" /></Field>
-              <Field label="Authentication">
-                <Select
-                  name="authType"
-                  options={[{ value: 'API_KEY', label: 'API Key' }, { value: 'BASIC', label: 'Basic auth' }, { value: 'OAUTH2', label: 'OAuth 2.0' }]}
-                  value={auth}
-                  onChange={(e: any) => setAuth(e.target.value)}
-                />
-              </Field>
-              {auth === 'API_KEY' && (
-                <>
-                  <Field label="API key" help="Encrypted at rest — never shown again"><Input name="apiKey" type="password" placeholder="••••••••••••" /></Field>
-                  <Field label="Header name" optional help="Header used to send the API key"><Input name="headerName" mono placeholder="X-Api-Key" /></Field>
-                </>
-              )}
-              {auth === 'BASIC' && (
-                <>
-                  <Field label="Username"><Input name="username" placeholder="user" /></Field>
-                  <Field label="Password" help="Encrypted at rest — never shown again"><Input name="password" type="password" placeholder="••••••••••••" /></Field>
-                </>
-              )}
-              {auth === 'OAUTH2' && (
-                <Field label="Bearer token" help="Encrypted at rest — never shown again"><Input name="bearerToken" type="password" placeholder="••••••••••••" /></Field>
-              )}
-            </div>
-          </form>
-        </Modal>
+        </s-section>
+      ) : (
+        <s-section padding="none">
+          <s-table>
+            <s-grid slot="filters" gridTemplateColumns="1fr auto" gap="small-100" alignItems="center">
+              <s-search-field
+                label="Search connectors"
+                labelAccessibilityVisibility="exclusive"
+                placeholder="Search connectors…"
+                onInput={(e) => setSearch(e.currentTarget.value ?? '')}
+              />
+              <s-text color="subdued">{rows.length} result{rows.length === 1 ? '' : 's'}</s-text>
+            </s-grid>
+            <s-table-header-row>
+              <s-table-header listSlot="primary">Connector</s-table-header>
+              <s-table-header>Base URL</s-table-header>
+              <s-table-header>Auth</s-table-header>
+              <s-table-header>Endpoints</s-table-header>
+              <s-table-header listSlot="kicker">Last test</s-table-header>
+              <s-table-header listSlot="inline">Status</s-table-header>
+              <s-table-header> </s-table-header>
+            </s-table-header-row>
+            <s-table-body>
+              {rows.map((r: any) => (
+                <s-table-row key={r.id} clickDelegate={`con-link-${r.id}`}>
+                  <s-table-cell>
+                    <s-link id={`con-link-${r.id}`} onClick={() => navigate(`/connectors/${r.id}`)}>
+                      <s-text type="strong">{r.name}</s-text>
+                    </s-link>
+                  </s-table-cell>
+                  <s-table-cell><MonoChip>{r.baseUrl}</MonoChip></s-table-cell>
+                  <s-table-cell><s-badge>{authDisplay(r.auth)}</s-badge></s-table-cell>
+                  <s-table-cell>{r.endpoints}</s-table-cell>
+                  <s-table-cell>
+                    {r.everTested ? (
+                      <s-text tone={r.lastOk ? undefined : 'critical'} color={r.lastOk ? 'subdued' : undefined}>
+                        {r.lastStatus != null ? `${r.lastStatus} · ${r.lastTested}` : `tested ${r.lastTested}`}
+                      </s-text>
+                    ) : (
+                      <s-text color="subdued">untested</s-text>
+                    )}
+                  </s-table-cell>
+                  <s-table-cell><StatusBadge status={r.status} /></s-table-cell>
+                  <s-table-cell>
+                    <s-button
+                      variant="tertiary"
+                      icon="menu-horizontal"
+                      accessibilityLabel={`Actions for ${r.name}`}
+                      commandFor={`con-menu-${r.id}`}
+                    />
+                    <s-menu id={`con-menu-${r.id}`} accessibilityLabel="Connector actions">
+                      <s-button icon="play" onClick={() => testConnector(r)}>Test connection</s-button>
+                      <s-button icon="edit" onClick={() => navigate(`/connectors/${r.id}?tab=settings`)}>Edit</s-button>
+                      <s-button icon="delete" tone="critical" onClick={() => setDel(r)}>Delete</s-button>
+                    </s-menu>
+                  </s-table-cell>
+                </s-table-row>
+              ))}
+            </s-table-body>
+          </s-table>
+          {rows.length === 0 && (
+            <EmptyState heading="Nothing here">No connectors match your search.</EmptyState>
+          )}
+        </s-section>
       )}
-    </div>
+      {del && (
+        <ConfirmModal
+          open
+          heading="Delete connector?"
+          tone="critical"
+          confirmLabel="Delete"
+          loading={deleteFetcher.state !== 'idle'}
+          onConfirm={confirmDelete}
+          onClose={() => setDel(null)}
+        >
+          <s-paragraph>
+            {`This removes “${del.name}” and its saved endpoints. Flows and modules that use it will stop working.`}
+          </s-paragraph>
+        </ConfirmModal>
+      )}
+      {modal && <CreateConnectorModal fetcher={createFetcher} onClose={() => setModal(false)} />}
+    </s-page>
   );
 }
+
+/**
+ * Create-connector form modal. Submission goes through a React ref on the
+ * fetcher form — no DOM-structure queries — so the primary action can live in
+ * the modal's `primary-action` slot while the fields stay inside the form.
+ */
+function CreateConnectorModal({ fetcher, onClose }: { fetcher: FetcherWithComponents<{ ok?: boolean; error?: string }>; onClose: () => void }) {
+  const modalRef = useRef<HTMLElement | null>(null);
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const [auth, setAuth] = useState('API_KEY');
+
+  useEffect(() => {
+    (modalRef.current as (HTMLElement & { show?: () => void }) | null)?.show?.();
+  }, []);
+  useCustomEvent(modalRef, 'afterhide', onClose);
+
+  const submit = () => {
+    if (formRef.current) fetcher.submit(formRef.current);
+    // Modal stays open until the server confirms (see the createFetcher effect).
+  };
+
+  return (
+    <s-modal ref={modalRef as never} heading="Add connector">
+      <fetcher.Form method="post" ref={formRef}>
+        <input type="hidden" name="intent" value="create" />
+        <s-stack gap="base">
+          <s-text color="subdued">Connect an external REST API.</s-text>
+          {fetcher.state === 'idle' && fetcher.data?.error && (
+            <s-banner tone="critical">{fetcher.data.error}</s-banner>
+          )}
+          <s-text-field label="Name" name="name" placeholder="My API" details="A friendly label, e.g. “Klaviyo”" />
+          <s-url-field label="Base URL" name="baseUrl" placeholder="https://api.example.com/v1" />
+          <s-select label="Authentication" name="authType" value={auth} onChange={(e) => setAuth(e.currentTarget.value)}>
+            <s-option value="API_KEY">API Key</s-option>
+            <s-option value="BASIC">Basic auth</s-option>
+            <s-option value="OAUTH2">OAuth 2.0</s-option>
+          </s-select>
+          {auth === 'API_KEY' && (
+            <>
+              <s-password-field label="API key" name="apiKey" placeholder="••••••••••••" details="Encrypted at rest — never shown again" />
+              <s-text-field label="Header name (optional)" name="headerName" placeholder="X-Api-Key" details="Header used to send the API key" />
+            </>
+          )}
+          {auth === 'BASIC' && (
+            <>
+              <s-text-field label="Username" name="username" placeholder="user" />
+              <s-password-field label="Password" name="password" placeholder="••••••••••••" details="Encrypted at rest — never shown again" />
+            </>
+          )}
+          {auth === 'OAUTH2' && (
+            <s-password-field label="Bearer token" name="bearerToken" placeholder="••••••••••••" details="Encrypted at rest — never shown again" />
+          )}
+        </s-stack>
+      </fetcher.Form>
+      <s-button slot="primary-action" variant="primary" loading={fetcher.state !== 'idle' || undefined} onClick={submit}>
+        Create connector
+      </s-button>
+      <s-button slot="secondary-actions" onClick={onClose}>Cancel</s-button>
+    </s-modal>
+  );
+}
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

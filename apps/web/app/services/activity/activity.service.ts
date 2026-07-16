@@ -165,12 +165,16 @@ export class ActivityLogService {
     search?: string;
     cursorId?: string;
     correlationId?: string;
+    /** Opt-in: exclude these actions (e.g. telemetry noise on merchant surfaces).
+     * Off by default so internal-admin callers keep the full stream. */
+    excludeActions?: string[];
   } = {}) {
     const prisma = getPrisma();
     const where: Prisma.ActivityLogWhereInput = {};
 
     if (opts.actor) where.actor = opts.actor;
     if (opts.action) where.action = opts.action;
+    if (opts.excludeActions && opts.excludeActions.length > 0) where.action = { notIn: opts.excludeActions };
     if (opts.shopId) where.shopId = opts.shopId;
     if (opts.correlationId) where.correlationId = opts.correlationId;
     if (opts.dateFrom || opts.dateTo) {

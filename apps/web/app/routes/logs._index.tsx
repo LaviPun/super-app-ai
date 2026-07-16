@@ -1,30 +1,13 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, useNavigation } from '@remix-run/react';
-import {
-  Page, Card, BlockStack, Text, Badge, DataTable,
-  InlineStack, InlineGrid, ProgressBar, Divider,
-  SkeletonBodyText, Banner, Tabs,
-} from '@shopify/polaris';
+import { useLoaderData, useNavigate, useNavigation } from '@remix-run/react';
 import { useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { QuotaService } from '~/services/billing/quota.service';
-
-function MiniBarChart({ data, maxHeight = 40 }: { data: number[]; maxHeight?: number }) {
-  const maxVal = Math.max(...data, 1);
-  const barW = Math.max(6, Math.floor(280 / data.length) - 2);
-  return (
-    <svg width={data.length * (barW + 2)} height={maxHeight} style={{ display: 'block' }}>
-      {data.map((v, i) => {
-        const h = Math.max(1, (v / maxVal) * maxHeight);
-        return (
-          <rect key={i} x={i * (barW + 2)} y={maxHeight - h} width={barW} height={h} rx={2}
-            fill={i === data.length - 1 ? '#2C6ECB' : '#B4E0FA'} />
-        );
-      })}
-    </svg>
-  );
-}
+import { MerchantShell } from '~/components/merchant/MerchantShell';
+import {
+  CHART, EmptyState, MiniBars, Progress, StatTile, StatusBadge, Tabs, fmtNum, titleCase,
+} from '~/components/merchant/polaris';
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -147,11 +130,20 @@ function usagePct(used: number, limit: number): number {
 }
 
 export default function MerchantLogs() {
+  return (
+    <MerchantShell polaris>
+      <LogsBody />
+    </MerchantShell>
+  );
+}
+
+function LogsBody() {
   const { usage, stats, jobsByType, dailySuccess, dailyFailed, aiStats, recentJobs, recentActivity } =
     useLoaderData<typeof loader>();
+  const navigate = useNavigate();
   const nav = useNavigation();
   const isLoading = nav.state === 'loading';
-  const [tab, setTab] = useState(0);
+  const [tab, setTab] = useState('overview');
 
   const formatQuota = (v: number) => v === -1 ? 'Unlimited' : v.toLocaleString();
 
@@ -168,234 +160,213 @@ export default function MerchantLogs() {
     { label: 'Connector Calls', used: usage.used.connectorCalls, limit: usage.quotas.connectorCallsPerMonth },
   ];
 
-  const tabs = [
-    { id: 'overview', content: 'Overview' },
-    { id: 'jobs', content: 'Jobs' },
-    { id: 'activity', content: 'Activity' },
-  ];
-
   return (
-    <Page title="Logs & Usage" subtitle="Activity, success rates, usage, and plan limits" backAction={{ content: 'Dashboard', url: '/' }}>
-      <BlockStack gap="500">
-        <Tabs tabs={tabs} selected={tab} onSelect={setTab} />
+    <s-page heading="Logs & Usage" inlineSize="base">
+      <s-stack gap="small-100">
+        <s-stack direction="inline">
+          <s-button variant="tertiary" icon="arrow-left" onClick={() => navigate('/')}>Dashboard</s-button>
+        </s-stack>
+        <s-paragraph color="subdued">Activity, success rates, usage, and plan limits.</s-paragraph>
+      </s-stack>
+      <Tabs
+        tabs={[
+          { id: 'overview', label: 'Overview' },
+          { id: 'jobs', label: 'Jobs' },
+          { id: 'activity', label: 'Activity' },
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
 
-        {/* ═══ TAB: Overview ═══ */}
-        {tab === 0 && (
-          <BlockStack gap="500">
-            {/* Success rate banner */}
-            <Banner
-              tone={stats.successRate >= 90 ? 'success' : stats.successRate >= 70 ? 'warning' : 'critical'}
-              title={`${stats.successRate}% success rate over the last 30 days`}
-            >
-              <Text as="p">
-                {stats.totalJobs} jobs total — {stats.successCount} succeeded, {stats.failedCount} failed
-                {stats.runningCount > 0 ? `, ${stats.runningCount} in progress` : ''}.
-              </Text>
-            </Banner>
+      {/* ═══ TAB: Overview ═══ */}
+      {tab === 'overview' && (
+        <>
+          <s-banner
+            tone={stats.successRate >= 90 ? 'success' : stats.successRate >= 70 ? 'warning' : 'critical'}
+            heading={`${stats.successRate}% success rate over the last 30 days`}
+          >
+            <s-text>
+              {stats.totalJobs} jobs total — {stats.successCount} succeeded, {stats.failedCount} failed
+              {stats.runningCount > 0 ? `, ${stats.runningCount} in progress` : ''}.
+            </s-text>
+          </s-banner>
 
-            {/* Key metrics */}
-            <InlineGrid columns={{ xs: 2, sm: 4 }} gap="300">
-              <Card>
-                <BlockStack gap="100">
-                  <Text as="p" variant="bodySm" tone="subdued">Success rate</Text>
-                  <InlineStack gap="200" blockAlign="center">
-                    <Text as="p" variant="headingLg">{stats.successRate}%</Text>
-                  </InlineStack>
-                </BlockStack>
-              </Card>
-              <Card>
-                <BlockStack gap="100">
-                  <Text as="p" variant="bodySm" tone="subdued">Total jobs (30d)</Text>
-                  <Text as="p" variant="headingLg">{stats.totalJobs}</Text>
-                </BlockStack>
-              </Card>
-              <Card>
-                <BlockStack gap="100">
-                  <Text as="p" variant="bodySm" tone="subdued">AI requests</Text>
-                  <Text as="p" variant="headingLg">{aiStats.totalRequests}</Text>
-                </BlockStack>
-              </Card>
-              <Card>
-                <BlockStack gap="100">
-                  <Text as="p" variant="bodySm" tone="subdued">AI cost (30d)</Text>
-                  <Text as="p" variant="headingLg">${(aiStats.totalCostCents / 100).toFixed(2)}</Text>
-                </BlockStack>
-              </Card>
-            </InlineGrid>
+          <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="small-100">
+            <StatTile label="Success rate" value={`${stats.successRate}%`} />
+            <StatTile label="Total jobs (30d)" value={fmtNum(stats.totalJobs)} />
+            <StatTile label="AI requests" value={fmtNum(aiStats.totalRequests)} />
+            <StatTile label="AI cost (30d)" value={`$${(aiStats.totalCostCents / 100).toFixed(2)}`} />
+          </s-grid>
 
-            {/* Charts */}
-            <InlineGrid columns={{ xs: 1, sm: 2 }} gap="400">
-              <Card>
-                <BlockStack gap="200">
-                  <Text as="h2" variant="headingMd">Successful jobs (7 days)</Text>
-                  <MiniBarChart data={dailySuccess} />
-                  <InlineStack gap="200">
-                    {dayLabels.map((l, i) => <Text key={i} as="span" variant="bodySm" tone="subdued">{l}</Text>)}
-                  </InlineStack>
-                </BlockStack>
-              </Card>
-              <Card>
-                <BlockStack gap="200">
-                  <Text as="h2" variant="headingMd">Failed jobs (7 days)</Text>
-                  <svg width={dailyFailed.length * 10} height={40} style={{ display: 'block' }}>
-                    {dailyFailed.map((v, i) => {
-                      const maxVal = Math.max(...dailyFailed, 1);
-                      const h = Math.max(1, (v / maxVal) * 40);
-                      return <rect key={i} x={i * 10} y={40 - h} width={8} height={h} rx={2} fill={v > 0 ? '#E51C00' : '#FED3D1'} />;
-                    })}
-                  </svg>
-                  <InlineStack gap="200">
-                    {dayLabels.map((l, i) => <Text key={i} as="span" variant="bodySm" tone="subdued">{l}</Text>)}
-                  </InlineStack>
-                </BlockStack>
-              </Card>
-            </InlineGrid>
+          <s-grid gridTemplateColumns="1fr 1fr" gap="base">
+            <s-section heading="Successful jobs (7 days)">
+              <s-stack gap="small-200">
+                <MiniBars data={dailySuccess} color={CHART.success} height={48} />
+                <s-stack direction="inline" justifyContent="space-between">
+                  {dayLabels.map((l, i) => <s-text key={i} color="subdued">{l}</s-text>)}
+                </s-stack>
+              </s-stack>
+            </s-section>
+            <s-section heading="Failed jobs (7 days)">
+              <s-stack gap="small-200">
+                <MiniBars data={dailyFailed} color={CHART.critical} height={48} />
+                <s-stack direction="inline" justifyContent="space-between">
+                  {dayLabels.map((l, i) => <s-text key={i} color="subdued">{l}</s-text>)}
+                </s-stack>
+              </s-stack>
+            </s-section>
+          </s-grid>
 
-            {/* Success rate by type */}
-            {jobsByType.length > 0 && (
-              <Card>
-                <BlockStack gap="300">
-                  <Text as="h2" variant="headingMd">Success rate by job type</Text>
-                  <DataTable
-                    columnContentTypes={['text', 'numeric', 'numeric', 'numeric', 'text']}
-                    headings={['Type', 'Total', 'Succeeded', 'Failed', 'Rate']}
-                    rows={jobsByType.map(j => [
-                      j.type.replace(/_/g, ' '),
-                      j.total,
-                      j.success,
-                      j.failed,
-                      <InlineStack key={j.type} gap="200" blockAlign="center">
-                        <ProgressBar progress={j.rate} tone={j.rate >= 90 ? 'success' : j.rate >= 70 ? 'highlight' : 'critical'} size="small" />
-                        <Text as="span" variant="bodySm">{j.rate}%</Text>
-                      </InlineStack>,
-                    ])}
-                  />
-                </BlockStack>
-              </Card>
-            )}
+          {jobsByType.length > 0 && (
+            <s-section heading="Success rate by job type" padding="none">
+              <s-table>
+                <s-table-header-row>
+                  <s-table-header listSlot="primary">Type</s-table-header>
+                  <s-table-header>Total</s-table-header>
+                  <s-table-header>Succeeded</s-table-header>
+                  <s-table-header>Failed</s-table-header>
+                  <s-table-header listSlot="inline">Rate</s-table-header>
+                </s-table-header-row>
+                <s-table-body>
+                  {jobsByType.map(j => (
+                    <s-table-row key={j.type}>
+                      <s-table-cell><s-text type="strong">{titleCase(j.type)}</s-text></s-table-cell>
+                      <s-table-cell>{fmtNum(j.total)}</s-table-cell>
+                      <s-table-cell>{fmtNum(j.success)}</s-table-cell>
+                      <s-table-cell>{fmtNum(j.failed)}</s-table-cell>
+                      <s-table-cell>
+                        <s-grid gridTemplateColumns="80px auto" gap="small-100" alignItems="center">
+                          <Progress value={j.rate} tone={j.rate >= 90 ? undefined : j.rate >= 70 ? 'warning' : 'critical'} />
+                          <s-text>{j.rate}%</s-text>
+                        </s-grid>
+                      </s-table-cell>
+                    </s-table-row>
+                  ))}
+                </s-table-body>
+              </s-table>
+            </s-section>
+          )}
 
-            <Divider />
+          <s-section heading="Plan usage & limits">
+            <s-stack gap="base">
+              <s-stack direction="inline" gap="small-100" alignItems="center">
+                <s-badge tone={usage.plan === 'FREE' ? 'warning' : 'success'}>{`${usage.plan} plan`}</s-badge>
+                <s-text color="subdued">Current billing period usage against your plan limits.</s-text>
+              </s-stack>
+              <s-grid gridTemplateColumns="repeat(auto-fit, minmax(260px, 1fr))" gap="base">
+                {usageItems.map(item => {
+                  const pct = usagePct(item.used, item.limit);
+                  return (
+                    <s-stack key={item.label} gap="small-200">
+                      <s-stack direction="inline" justifyContent="space-between">
+                        <s-text>{item.label}</s-text>
+                        <s-text color="subdued">{item.used} / {formatQuota(item.limit)}</s-text>
+                      </s-stack>
+                      <Progress
+                        value={item.limit === -1 ? 0 : pct}
+                        tone={item.limit === -1 ? undefined : pct >= 90 ? 'critical' : pct >= 70 ? 'warning' : undefined}
+                      />
+                      {pct >= 90 && item.limit !== -1 && (
+                        <s-text tone="critical">Approaching limit — consider upgrading your plan.</s-text>
+                      )}
+                    </s-stack>
+                  );
+                })}
+              </s-grid>
+            </s-stack>
+          </s-section>
 
-            {/* ─── Usage & Limits ─── */}
-            <Card>
-              <BlockStack gap="400">
-                <InlineStack align="space-between" blockAlign="center">
-                  <Text as="h2" variant="headingMd">Plan usage & limits</Text>
-                  <Badge tone={usage.plan === 'FREE' ? 'attention' : 'success'}>{`${usage.plan} plan`}</Badge>
-                </InlineStack>
-                <Text as="p" tone="subdued">Current billing period usage against your plan limits.</Text>
-                <InlineGrid columns={{ xs: 1, sm: 2 }} gap="400">
-                  {usageItems.map(item => {
-                    const pct = usagePct(item.used, item.limit);
-                    const tone = item.limit === -1 ? 'success' as const : pct >= 90 ? 'critical' as const : pct >= 70 ? 'highlight' as const : 'success' as const;
-                    return (
-                      <BlockStack key={item.label} gap="200">
-                        <InlineStack align="space-between">
-                          <Text as="p" variant="bodySm">{item.label}</Text>
-                          <Text as="p" variant="bodySm" tone="subdued">{item.used} / {formatQuota(item.limit)}</Text>
-                        </InlineStack>
-                        <ProgressBar progress={item.limit === -1 ? 0 : pct} tone={tone} size="small" />
-                        {pct >= 90 && item.limit !== -1 && (
-                          <Text as="p" variant="bodySm" tone="critical">
-                            ⚠ Approaching limit — consider upgrading your plan.
-                          </Text>
-                        )}
-                      </BlockStack>
-                    );
-                  })}
-                </InlineGrid>
-              </BlockStack>
-            </Card>
+          <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="small-100">
+            <StatTile label="Tokens in (30d)" value={fmtNum(aiStats.totalTokensIn)} />
+            <StatTile label="Tokens out (30d)" value={fmtNum(aiStats.totalTokensOut)} />
+            <StatTile label="AI requests (30d)" value={fmtNum(aiStats.totalRequests)} />
+            <StatTile label="Total cost (30d)" value={`$${(aiStats.totalCostCents / 100).toFixed(2)}`} />
+          </s-grid>
+        </>
+      )}
 
-            {/* AI token stats */}
-            <InlineGrid columns={{ xs: 2, sm: 4 }} gap="300">
-              <Card>
-                <BlockStack gap="100">
-                  <Text as="p" variant="bodySm" tone="subdued">Tokens in (30d)</Text>
-                  <Text as="p" variant="headingSm">{aiStats.totalTokensIn.toLocaleString()}</Text>
-                </BlockStack>
-              </Card>
-              <Card>
-                <BlockStack gap="100">
-                  <Text as="p" variant="bodySm" tone="subdued">Tokens out (30d)</Text>
-                  <Text as="p" variant="headingSm">{aiStats.totalTokensOut.toLocaleString()}</Text>
-                </BlockStack>
-              </Card>
-              <Card>
-                <BlockStack gap="100">
-                  <Text as="p" variant="bodySm" tone="subdued">AI requests (30d)</Text>
-                  <Text as="p" variant="headingSm">{aiStats.totalRequests}</Text>
-                </BlockStack>
-              </Card>
-              <Card>
-                <BlockStack gap="100">
-                  <Text as="p" variant="bodySm" tone="subdued">Total cost (30d)</Text>
-                  <Text as="p" variant="headingSm">${(aiStats.totalCostCents / 100).toFixed(2)}</Text>
-                </BlockStack>
-              </Card>
-            </InlineGrid>
-          </BlockStack>
-        )}
+      {/* ═══ TAB: Jobs ═══ */}
+      {tab === 'jobs' && (
+        <s-section heading="Recent jobs (last 30 days)" padding="none">
+          {isLoading ? (
+            <s-box padding="large-100">
+              <s-spinner accessibilityLabel="Loading jobs" size="base" />
+            </s-box>
+          ) : recentJobs.length === 0 ? (
+            <EmptyState icon="work" heading="No jobs recorded yet">
+              Jobs appear when you generate modules, publish, or run automation flows.
+            </EmptyState>
+          ) : (
+            <s-table>
+              <s-table-header-row>
+                <s-table-header listSlot="kicker">Time</s-table-header>
+                <s-table-header listSlot="primary">Type</s-table-header>
+                <s-table-header listSlot="inline">Status</s-table-header>
+                <s-table-header>Duration</s-table-header>
+                <s-table-header>Error</s-table-header>
+              </s-table-header-row>
+              <s-table-body>
+                {recentJobs.map(j => {
+                  const dur = j.finishedAt
+                    ? `${((new Date(j.finishedAt).getTime() - new Date(j.createdAt).getTime()) / 1000).toFixed(1)}s`
+                    : '—';
+                  return (
+                    <s-table-row key={j.id}>
+                      <s-table-cell><s-text color="subdued">{new Date(j.createdAt).toLocaleString()}</s-text></s-table-cell>
+                      <s-table-cell><s-text type="strong">{titleCase(j.type)}</s-text></s-table-cell>
+                      <s-table-cell><StatusBadge status={j.status} /></s-table-cell>
+                      <s-table-cell>{dur}</s-table-cell>
+                      <s-table-cell>
+                        {j.error
+                          ? <s-text tone="critical">{j.error.slice(0, 60)}</s-text>
+                          : <s-text color="subdued">—</s-text>}
+                      </s-table-cell>
+                    </s-table-row>
+                  );
+                })}
+              </s-table-body>
+            </s-table>
+          )}
+        </s-section>
+      )}
 
-        {/* ═══ TAB: Jobs ═══ */}
-        {tab === 1 && (
-          <Card>
-            <BlockStack gap="300">
-              <Text as="h2" variant="headingMd">Recent jobs (last 30 days)</Text>
-              {isLoading ? (
-                <SkeletonBodyText lines={8} />
-              ) : recentJobs.length === 0 ? (
-                <Text as="p" tone="subdued">No jobs recorded yet. Jobs appear when you generate modules, publish, or run automation flows.</Text>
-              ) : (
-                <DataTable
-                  columnContentTypes={['text', 'text', 'text', 'text', 'text']}
-                  headings={['Time', 'Type', 'Status', 'Duration', 'Error']}
-                  rows={recentJobs.map(j => {
-                    const dur = j.finishedAt
-                      ? `${((new Date(j.finishedAt).getTime() - new Date(j.createdAt).getTime()) / 1000).toFixed(1)}s`
-                      : '—';
-                    return [
-                      new Date(j.createdAt).toLocaleString(),
-                      j.type.replace(/_/g, ' '),
-                      <Badge key={j.id} tone={j.status === 'SUCCESS' ? 'success' : j.status === 'FAILED' ? 'critical' : 'attention'}>{j.status}</Badge>,
-                      dur,
-                      j.error
-                        ? <Text key={`e-${j.id}`} as="span" variant="bodySm" tone="critical">{j.error.slice(0, 60)}</Text>
-                        : '—',
-                    ];
-                  })}
-                />
-              )}
-            </BlockStack>
-          </Card>
-        )}
-
-        {/* ═══ TAB: Activity ═══ */}
-        {tab === 2 && (
-          <Card>
-            <BlockStack gap="300">
-              <Text as="h2" variant="headingMd">Recent activity</Text>
-              <Text as="p" tone="subdued">Actions performed on your store — module creation, publishing, connector changes, and more.</Text>
-              {isLoading ? (
-                <SkeletonBodyText lines={8} />
-              ) : recentActivity.length === 0 ? (
-                <Text as="p" tone="subdued">No activity recorded yet. Actions will appear here as you use the app.</Text>
-              ) : (
-                <DataTable
-                  columnContentTypes={['text', 'text', 'text', 'text']}
-                  headings={['Time', 'Who', 'Action', 'Resource']}
-                  rows={recentActivity.map(a => [
-                    new Date(a.createdAt).toLocaleString(),
-                    <Badge key={`w-${a.id}`} tone={a.actor === 'MERCHANT' ? 'success' : a.actor === 'SYSTEM' ? 'info' : 'attention'}>{a.actor}</Badge>,
-                    a.action.replace(/_/g, ' '),
-                    a.resource ?? '—',
-                  ])}
-                />
-              )}
-            </BlockStack>
-          </Card>
-        )}
-      </BlockStack>
-    </Page>
+      {/* ═══ TAB: Activity ═══ */}
+      {tab === 'activity' && (
+        <s-section heading="Recent activity" padding="none">
+          {isLoading ? (
+            <s-box padding="large-100">
+              <s-spinner accessibilityLabel="Loading activity" size="base" />
+            </s-box>
+          ) : recentActivity.length === 0 ? (
+            <EmptyState icon="live" heading="No activity recorded yet">
+              Actions performed on your store — module creation, publishing, connector changes — will appear here.
+            </EmptyState>
+          ) : (
+            <s-table>
+              <s-table-header-row>
+                <s-table-header listSlot="kicker">Time</s-table-header>
+                <s-table-header listSlot="inline">Who</s-table-header>
+                <s-table-header listSlot="primary">Action</s-table-header>
+                <s-table-header>Resource</s-table-header>
+              </s-table-header-row>
+              <s-table-body>
+                {recentActivity.map(a => (
+                  <s-table-row key={a.id}>
+                    <s-table-cell><s-text color="subdued">{new Date(a.createdAt).toLocaleString()}</s-text></s-table-cell>
+                    <s-table-cell>
+                      <s-badge tone={a.actor === 'MERCHANT' ? 'success' : a.actor === 'SYSTEM' ? 'info' : 'warning'}>{a.actor}</s-badge>
+                    </s-table-cell>
+                    <s-table-cell><s-text type="strong">{titleCase(a.action)}</s-text></s-table-cell>
+                    <s-table-cell>{a.resource ?? <s-text color="subdued">—</s-text>}</s-table-cell>
+                  </s-table-row>
+                ))}
+              </s-table-body>
+            </s-table>
+          )}
+        </s-section>
+      )}
+    </s-page>
   );
 }
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

@@ -5,7 +5,7 @@ import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { MerchantShell } from '~/components/merchant/MerchantShell';
-import { Icon, Card, PageHead, FilterBar, EmptyState, useTableState, titleCase } from '~/components/superapp';
+import { EmptyState, MonoChip, humanizeResource, titleCase, type WcTone } from '~/components/merchant/polaris';
 
 // Map a raw ActivityLog action to the design's visual "kind".
 function activityKind(action: string): string {
@@ -29,18 +29,24 @@ function relativeTime(d: Date): string {
   return days === 1 ? 'Yesterday' : days + 'd ago';
 }
 
-const ACT_ICON: Record<string, string> = { module: 'layers', flow: 'flow', alert: 'alert', data: 'database', connector: 'connect', team: 'user' };
-const ACT_TONE: Record<string, string> = { module: 'info', flow: 'success', alert: 'critical', data: 'info', connector: 'magic', team: 'warning' };
+const KIND_TONE: Record<string, WcTone> = { module: 'info', flow: 'success', alert: 'critical', data: 'info', connector: 'info', team: 'warning' };
+
+// Operational/telemetry events that read as noise (or nonsense) to a merchant —
+// same exclusion the dashboard feed applies.
+const NON_MERCHANT_ACTIONS = [
+  'PAGE_OPENED', 'PAGE_REFRESHED', 'REQUEST_ERROR', 'SERVER_STARTED',
+  'ROUTER_RELEASE_GATE_TRIPPED', 'AI_ASSISTANT_QUERY', 'AI_ASSISTANT_TOOL_CALLED',
+];
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
   const prisma = getPrisma();
   const shop = await prisma.shop.findUnique({ where: { shopDomain: session.shop }, select: { id: true } });
-  const rows = shop ? await new ActivityLogService().list({ shopId: shop.id, take: 60 }) : [];
+  const rows = shop ? await new ActivityLogService().list({ shopId: shop.id, take: 60, excludeActions: NON_MERCHANT_ACTIONS }) : [];
   const activity = rows.map((r) => ({
     id: r.id,
     action: r.action,
-    resource: r.resource ?? '—',
+    resource: humanizeResource(r.resource),
     actor: r.actor === 'MERCHANT' ? 'You' : titleCase(r.actor),
     kind: activityKind(r.action),
     created: relativeTime(r.createdAt),
@@ -50,7 +56,7 @@ export async function loader({ request }: { request: Request }) {
 
 export default function ActivityIndex() {
   return (
-    <MerchantShell>
+    <MerchantShell polaris>
       <ActivityBody />
     </MerchantShell>
   );
@@ -58,45 +64,75 @@ export default function ActivityIndex() {
 
 function ActivityBody() {
   const { activity } = useLoaderData<typeof loader>();
-  const ts = useTableState();
+  const [search, setSearch] = useState('');
   const [kind, setKind] = useState('All');
   const kinds = ['All', 'module', 'flow', 'connector', 'data', 'team', 'alert'];
-  const rows = activity.filter((a) => (kind === 'All' || a.kind === kind) && (a.action + a.resource + a.actor).toLowerCase().includes(ts.search.toLowerCase()));
+  const rows = activity.filter((a) => (kind === 'All' || a.kind === kind) && (a.action + (a.resource ?? '') + a.actor).toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div className="page">
-      <PageHead
-        title="Activity"
-        sub="Every change, run and alert across your app — newest first."
-      />
-      <Card>
-        <FilterBar
-          search={ts.search} onSearch={ts.setSearch} placeholder="Search activity…" results={rows.length}
-          filters={[{ options: kinds.map((k) => ({ value: k, label: k === 'All' ? 'All types' : titleCase(k) })), value: kind, onChange: setKind }]}
-        />
-        {rows.length === 0 ? (
-          <EmptyState icon="live" title={activity.length === 0 ? 'No activity yet' : 'Nothing here'}>
-            {activity.length === 0
-              ? 'Actions on your store — publishes, flow runs, connector changes — will appear here.'
-              : 'No activity matches your filters.'}
+    <s-page heading="Activity" inlineSize="base">
+      <s-paragraph color="subdued">Every change, run and alert across your app — newest first.</s-paragraph>
+      {activity.length === 0 ? (
+        <s-section>
+          <EmptyState icon="live" heading="No activity yet">
+            Actions on your store — publishes, flow runs, connector changes — will appear here.
           </EmptyState>
-        ) : (
-          <div className="rlist">
-            {rows.map((a) => (
-              <div key={a.id} className="ritem">
-                <span className="tile-ico" style={{ width: 32, height: 32, background: `var(--p-${ACT_TONE[a.kind]}-bg)`, color: `var(--p-${ACT_TONE[a.kind]})` }}>
-                  <Icon name={ACT_ICON[a.kind] || 'live'} size={16} />
-                </span>
-                <div className="grow stack" style={{ gap: 1, minWidth: 0 }}>
-                  <span className="t-sm t-strong">{titleCase(a.action)}</span>
-                  <span className="t-xs t-muted t-trunc">{a.resource} · {a.actor}</span>
-                </div>
-                <span className="t-xs t-muted" style={{ whiteSpace: 'nowrap' }}>{a.created}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-    </div>
+        </s-section>
+      ) : (
+        <s-section padding="none">
+          <s-table>
+            <s-grid slot="filters" gridTemplateColumns="1fr auto" gap="small-100">
+              <s-search-field
+                label="Search activity"
+                labelAccessibilityVisibility="exclusive"
+                placeholder="Search activity…"
+                onInput={(e) => setSearch(e.currentTarget.value ?? '')}
+              />
+              <s-select
+                label="Type"
+                labelAccessibilityVisibility="exclusive"
+                value={kind}
+                onChange={(e) => setKind(e.currentTarget.value)}
+              >
+                {kinds.map((k) => (
+                  <s-option key={k} value={k}>{k === 'All' ? 'All types' : titleCase(k)}</s-option>
+                ))}
+              </s-select>
+            </s-grid>
+            <s-table-header-row>
+              <s-table-header listSlot="primary">Event</s-table-header>
+              <s-table-header>Resource</s-table-header>
+              <s-table-header>Actor</s-table-header>
+              <s-table-header listSlot="inline">Type</s-table-header>
+              <s-table-header listSlot="kicker">When</s-table-header>
+            </s-table-header-row>
+            <s-table-body>
+              {rows.map((a) => (
+                <s-table-row key={a.id}>
+                  <s-table-cell>
+                    <s-text type="strong">{titleCase(a.action)}</s-text>
+                  </s-table-cell>
+                  <s-table-cell>
+                    {a.resource == null ? <s-text color="subdued">—</s-text> : <MonoChip>{a.resource}</MonoChip>}
+                  </s-table-cell>
+                  <s-table-cell>{a.actor}</s-table-cell>
+                  <s-table-cell>
+                    <s-badge tone={KIND_TONE[a.kind] ?? 'neutral'}>{titleCase(a.kind)}</s-badge>
+                  </s-table-cell>
+                  <s-table-cell>
+                    <s-text color="subdued">{a.created}</s-text>
+                  </s-table-cell>
+                </s-table-row>
+              ))}
+            </s-table-body>
+          </s-table>
+          {rows.length === 0 && (
+            <EmptyState heading="Nothing here">No activity matches your filters.</EmptyState>
+          )}
+        </s-section>
+      )}
+    </s-page>
   );
 }
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

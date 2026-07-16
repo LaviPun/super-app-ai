@@ -5,9 +5,7 @@ import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService, logRequestOutcome } from '~/services/activity/activity.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import {
-  Btn, Card, PageHead, Tabs, Field, Input, Avatar, Icon,
-} from '~/components/superapp';
+import { Tabs } from '~/components/merchant/polaris';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -110,7 +108,7 @@ export async function action({ request }: { request: Request }) {
 export default function SettingsPage() {
   const { shop, counts, account } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell>
+    <MerchantShell polaris>
       <SettingsBody shop={shop} counts={counts} account={account} />
     </MerchantShell>
   );
@@ -122,11 +120,7 @@ function SettingsBody({ shop, counts, account }: any) {
   const [tab, setTab] = useState('account');
   const storeHandle = encodeURIComponent(shop.domain.replace('.myshopify.com', ''));
   const ownerDisplay = account.ownerName ?? account.storeName ?? shop.domain;
-
-  const [retDefault, setRetDefault] = useState(String(shop.retentionDaysDefault ?? 30));
-  const [retAi, setRetAi] = useState(String(shop.retentionDaysAi ?? ''));
-  const [retApi, setRetApi] = useState(String(shop.retentionDaysApi ?? ''));
-  const [retErrors, setRetErrors] = useState(String(shop.retentionDaysErrors ?? ''));
+  const initials = String(ownerDisplay).split(/\s+/).map((w: string) => w[0]).join('').slice(0, 2).toUpperCase();
 
   useEffect(() => {
     if (retentionFetcher.state === 'idle' && retentionFetcher.data) {
@@ -136,60 +130,79 @@ function SettingsBody({ shop, counts, account }: any) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [retentionFetcher.state, retentionFetcher.data]);
 
-  const saveRetention = () => {
-    retentionFetcher.submit(
-      { intent: 'retention', retentionDefault: retDefault, retentionAi: retAi, retentionApi: retApi, retentionErrors: retErrors },
-      { method: 'post' },
-    );
-  };
-
   // Account details are read-only mirrors of Shopify (no app-level user accounts);
   // notifications / storefront / team tabs were removed — nothing real backs them.
   const tabs = [{ id: 'account', label: 'Account' }, { id: 'general', label: 'General' }];
 
   return (
-    <div className="page page-narrow">
-      <PageHead title="Settings" sub="Manage your account details and store defaults." />
-      <Card style={{ marginBottom: 18 }}><Tabs active={tab} onChange={setTab} tabs={tabs} /></Card>
+    <s-page heading="Settings" inlineSize="small">
+      <s-paragraph color="subdued">Manage your account details and store defaults.</s-paragraph>
+      <Tabs tabs={tabs} value={tab} onChange={setTab} />
 
       {tab === 'account' && (
-        <Card pad>
-          <div className="stack-5">
-            <div className="row-3">
-              <Avatar name={ownerDisplay} size={48} />
-              <div className="stack" style={{ gap: 0 }}>
-                <span className="t-strong">{ownerDisplay}</span>
-                <span className="t-xs t-muted">Store owner</span>
-              </div>
-            </div>
-            <Field label="Store name"><Input defaultValue={account.storeName ?? shop.domain} disabled /></Field>
-            <Field label="Owner email" help="Account details come from Shopify and are managed in your Shopify admin."><Input type="email" defaultValue={account.email ?? ''} disabled /></Field>
-            <div className="divider" />
-            <div className="row-2">
-              <a className="btn" href={`https://admin.shopify.com/store/${storeHandle}/settings/general`} target="_blank" rel="noreferrer"><Icon name="external" size={16} /><span>Manage in Shopify</span></a>
-              <Btn className="btn-plain-subdued" onClick={() => ctx.go('#/app')}>Back to dashboard</Btn>
-            </div>
-          </div>
-        </Card>
+        <s-section heading="Account">
+          <s-stack gap="base">
+            <s-stack direction="inline" gap="base" alignItems="center">
+              <s-avatar initials={initials} alt={ownerDisplay} size="large" />
+              <s-stack gap="none">
+                <s-text type="strong">{ownerDisplay}</s-text>
+                <s-text tone="neutral" color="subdued">Store owner</s-text>
+              </s-stack>
+            </s-stack>
+            <s-text-field label="Store name" defaultValue={account.storeName ?? shop.domain} disabled />
+            <s-text-field
+              label="Owner email"
+              defaultValue={account.email ?? ''}
+              disabled
+              details="Account details come from Shopify and are managed in your Shopify admin."
+            />
+            <s-divider />
+            <s-stack direction="inline" gap="small-100">
+              <s-button
+                href={`https://admin.shopify.com/store/${storeHandle}/settings/general`}
+                target="_blank"
+                icon="external"
+              >
+                Manage in Shopify
+              </s-button>
+              <s-button variant="tertiary" onClick={() => ctx.go('#/app')}>Back to dashboard</s-button>
+            </s-stack>
+          </s-stack>
+        </s-section>
       )}
 
       {tab === 'general' && (
-        <Card pad>
-          <div className="stack-5">
-            <Field label="Store domain"><Input defaultValue={shop.domain} disabled /></Field>
-            <div className="divider" />
-            <div className="t-h3">Data retention</div>
-            <div className="t-xs t-muted">How long to keep logs and AI usage records (days). Blank disables auto-cleanup.</div>
-            <Field label="Default retention (days)"><Input type="number" value={retDefault} onChange={(e: any) => setRetDefault(e.target.value)} /></Field>
-            <Field label="AI usage (days)" optional><Input type="number" value={retAi} onChange={(e: any) => setRetAi(e.target.value)} /></Field>
-            <Field label="API logs (days)" optional><Input type="number" value={retApi} onChange={(e: any) => setRetApi(e.target.value)} /></Field>
-            <Field label="Error logs (days)" optional><Input type="number" value={retErrors} onChange={(e: any) => setRetErrors(e.target.value)} /></Field>
-            <div><Btn variant="primary" loading={retentionFetcher.state !== 'idle'} onClick={saveRetention}>Save</Btn></div>
-            <div className="divider" />
-            <div className="t-xs t-muted">{counts.modules} modules · {counts.connectors} connectors · {counts.schedules} schedules</div>
-          </div>
-        </Card>
+        <s-section heading="General">
+          <retentionFetcher.Form method="post">
+            <input type="hidden" name="intent" value="retention" />
+            <s-stack gap="base">
+              <s-text-field label="Store domain" defaultValue={shop.domain} disabled />
+              <s-divider />
+              <s-heading>Data retention</s-heading>
+              <s-text tone="neutral" color="subdued">
+                How long to keep logs and AI usage records (days). Blank disables auto-cleanup.
+              </s-text>
+              <s-grid gridTemplateColumns="1fr 1fr" gap="base">
+                <s-number-field label="Default retention (days)" name="retentionDefault" defaultValue={String(shop.retentionDaysDefault ?? 30)} min={1} />
+                <s-number-field label="AI usage (days)" name="retentionAi" defaultValue={String(shop.retentionDaysAi ?? '')} min={1} />
+                <s-number-field label="API logs (days)" name="retentionApi" defaultValue={String(shop.retentionDaysApi ?? '')} min={1} />
+                <s-number-field label="Error logs (days)" name="retentionErrors" defaultValue={String(shop.retentionDaysErrors ?? '')} min={1} />
+              </s-grid>
+              <s-stack direction="inline">
+                <s-button variant="primary" type="submit" loading={retentionFetcher.state !== 'idle' || undefined}>
+                  Save
+                </s-button>
+              </s-stack>
+              <s-divider />
+              <s-text tone="neutral" color="subdued">
+                {counts.modules} modules · {counts.connectors} connectors · {counts.schedules} schedules
+              </s-text>
+            </s-stack>
+          </retentionFetcher.Form>
+        </s-section>
       )}
-    </div>
+    </s-page>
   );
 }
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

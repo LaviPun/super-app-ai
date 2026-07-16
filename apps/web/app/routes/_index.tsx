@@ -1,17 +1,13 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, useNavigate, Link } from '@remix-run/react';
+import { useLoaderData, useNavigate } from '@remix-run/react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { QuotaService } from '~/services/billing/quota.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import {
-  Icon, Card, CardHead, PageHead, Sparkline, StatusBadge, fmtNum, titleCase,
-} from '~/components/superapp';
+import { CHART, Sparkline, StatTile, StatusBadge, fmtNum, humanizeResource, titleCase } from '~/components/merchant/polaris';
+import { getCategoryDisplayLabel, getCategoryIcon } from '~/utils/type-label';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-const TYPE_ICON: Record<string, string> = { 'Storefront UI': 'desktop', 'Function': 'bolt', 'Integration': 'connect', 'Flow': 'flow', 'Data store': 'database' };
-const TYPE_COLOR: Record<string, string> = { 'Storefront UI': 'info', 'Function': 'warning', 'Integration': 'magic', 'Flow': 'success', 'Data store': 'info' };
 
 function relativeTime(iso: string): string {
   const secs = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
@@ -24,8 +20,14 @@ function relativeTime(iso: string): string {
   return days === 1 ? 'Yesterday' : days + 'd ago';
 }
 
+// Operational/telemetry events that read as noise (or nonsense) to a merchant.
+const NON_MERCHANT_ACTIONS = [
+  'PAGE_OPENED', 'PAGE_REFRESHED', 'REQUEST_ERROR', 'SERVER_STARTED',
+  'ROUTER_RELEASE_GATE_TRIPPED', 'AI_ASSISTANT_QUERY', 'AI_ASSISTANT_TOOL_CALLED',
+];
+
 export async function loader({ request }: { request: Request }) {
-  const { session } = await shopify.authenticate.admin(request);
+  const { session, admin } = await shopify.authenticate.admin(request);
   const prisma = getPrisma();
   const quota = new QuotaService();
 
@@ -45,7 +47,7 @@ export async function loader({ request }: { request: Request }) {
     prisma.module.count({ where: { shopId: shopRow.id, status: 'DRAFT' } }),
     prisma.flowSchedule.count({ where: { shopId: shopRow.id } }),
     prisma.appSubscription.findFirst({ where: { shopId: shopRow.id, status: 'ACTIVE' } }),
-    prisma.module.findMany({ where: { shopId: shopRow.id }, orderBy: { updatedAt: 'desc' }, take: 4, select: { id: true, name: true, type: true, status: true } }),
+    prisma.module.findMany({ where: { shopId: shopRow.id }, orderBy: { updatedAt: 'desc' }, take: 4, select: { id: true, name: true, category: true, status: true } }),
     quota.getUsageSummary(shopRow.id),
     prisma.moduleMetricsDaily.aggregate({ where: { shopId: shopRow.id, date: { gte: since30d } }, _sum: { impressions: true } }),
     prisma.moduleMetricsDaily.findMany({
@@ -55,12 +57,23 @@ export async function loader({ request }: { request: Request }) {
       take: 2000,
     }),
     prisma.activityLog.findMany({
-      where: { shopId: shopRow.id },
+      where: { shopId: shopRow.id, action: { notIn: NON_MERCHANT_ACTIONS } },
       orderBy: { createdAt: 'desc' },
-      take: 5,
+      take: 10,
       select: { id: true, action: true, resource: true, createdAt: true },
     }),
   ]);
+
+  // Greet with the human who's logged in, not the myshopify domain.
+  let ownerName: string | null = null;
+  try {
+    const res = await admin.graphql(`#graphql
+      query DashboardShopInfo { shop { name shopOwnerName } }`);
+    const data = (await res.json()) as { data?: { shop?: { name?: string; shopOwnerName?: string } } };
+    ownerName = data?.data?.shop?.shopOwnerName ?? data?.data?.shop?.name ?? null;
+  } catch {
+    ownerName = null;
+  }
 
   // Bucket real daily impressions into a 14-slot series for the sparkline.
   const spark: number[] = Array.from({ length: 14 }, () => 0);
@@ -91,72 +104,59 @@ export async function loader({ request }: { request: Request }) {
       aiLimit: aiLimit === -1 ? null : aiLimit,
       aiLeft: aiLimit === -1 ? null : Math.max(0, aiLimit - aiUsed),
     },
-    recentModules: recentModules.map(m => ({ id: m.id, name: m.name, type: m.type, status: m.status })),
+    ownerName,
+    recentModules: recentModules.map(m => ({ id: m.id, name: m.name, category: m.category, status: m.status })),
     spark,
     hasViewData,
-    activity: recentActivity.map(a => ({
-      id: a.id,
-      action: a.action,
-      resource: a.resource ?? '—',
-      created: relativeTime(a.createdAt.toISOString()),
-    })),
+    // Collapse consecutive repeats of the same event so the feed reads as a
+    // story, not a log tail.
+    activity: recentActivity
+      .filter((a, i) => i === 0 || a.action !== recentActivity[i - 1]!.action || a.resource !== recentActivity[i - 1]!.resource)
+      .slice(0, 5)
+      .map(a => ({
+        id: a.id,
+        action: a.action,
+        resource: humanizeResource(a.resource),
+        created: relativeTime(a.createdAt.toISOString()),
+      })),
   });
 }
 
-// Map the real Prisma module type token to a design display category for icons/colors.
-function designType(t: string): string {
-  if (/flow/i.test(t)) return 'Flow';
-  if (/function|discount/i.test(t)) return 'Function';
-  if (/connector|integration/i.test(t)) return 'Integration';
-  if (/data|store/i.test(t)) return 'Data store';
-  return 'Storefront UI';
+// Same category → icon mapping the modules page uses (shared taxonomy, no heuristics).
+const CAT_ICON: Record<string, string> = { desktop: 'desktop', settings: 'settings', users: 'team', bolt: 'bolt', connect: 'connect', flow: 'automation' };
+function catIcon(category: string): string {
+  return CAT_ICON[getCategoryIcon(category)] ?? 'layer';
 }
 
-function MHomeQuickActions() {
+function QuickActions() {
   const ctx = useMerchantCtx();
   const actions = [
-    { icon: 'magic', label: 'Generate module', desc: 'Describe it, get 3 concepts', tone: 'magic', onClick: () => ctx.go('#/app/modules') },
-    { icon: 'template', label: 'Browse templates', desc: 'Start from a proven recipe', tone: 'info', onClick: () => ctx.go('#/app/templates') },
-    { icon: 'flow', label: 'New automation', desc: 'Build a trigger-based flow', tone: 'success', onClick: () => ctx.go('#/app/flows/build/new') },
-    { icon: 'connect', label: 'Connect a source', desc: 'Sync data & apps', tone: 'warning', onClick: () => ctx.go('#/app/connectors') },
+    { icon: 'wand', label: 'Generate module', desc: 'Describe it, get 3 concepts', go: '#/app/modules' },
+    { icon: 'theme-template', label: 'Browse templates', desc: 'Start from a proven recipe', go: '#/app/templates' },
+    { icon: 'automation', label: 'New automation', desc: 'Build a trigger-based flow', go: '#/app/flows/build/new' },
+    { icon: 'connect', label: 'Connect a source', desc: 'Sync data & apps', go: '#/app/connectors' },
   ];
   return (
-    <Card className="qa-card">
-      {actions.map((a, i) => (
-        <button key={i} className="qa-tile" onClick={a.onClick}>
-          <span className="qa-ico" style={{ background: `var(--p-${a.tone}-bg)`, color: `var(--p-${a.tone})` }}>
-            <Icon name={a.icon} size={18} />
-          </span>
-          <span className="qa-text">
-            <span className="qa-label">{a.label}</span>
-            <span className="qa-desc">{a.desc}</span>
-          </span>
-          <span className="qa-arrow"><Icon name="arrowRight" size={15} /></span>
-        </button>
+    <s-grid gridTemplateColumns="repeat(auto-fit, minmax(180px, 1fr))" gap="small-100">
+      {actions.map((a) => (
+        <s-clickable key={a.label} onClick={() => ctx.go(a.go)} padding="small-100" border="base" borderRadius="base">
+          <s-stack direction="inline" gap="small-100" alignItems="center">
+            <s-icon type={a.icon as never} tone="info" />
+            <s-stack gap="none">
+              <s-text type="strong">{a.label}</s-text>
+              <s-text color="subdued">{a.desc}</s-text>
+            </s-stack>
+          </s-stack>
+        </s-clickable>
       ))}
-    </Card>
-  );
-}
-
-function MStat({ label, value, sub, dir, href }: any) {
-  return (
-    <Link to={href || '/'} className="card m-stat">
-      <div className="m-stat-label">{label}</div>
-      <div className="m-stat-val">{value}</div>
-      {sub && (
-        <div className={'m-stat-sub ' + (dir ? 'metric-delta ' + dir : 't-muted')}>
-          {dir && <Icon name={dir === 'down' ? 'chevronDown' : 'chevronUp'} size={12} />}
-          {sub}
-        </div>
-      )}
-    </Link>
+    </s-grid>
   );
 }
 
 export default function Dashboard() {
-  const { shop, stats, usage, recentModules, spark, hasViewData, activity } = useLoaderData<typeof loader>();
+  const { shop, stats, usage, recentModules, spark, hasViewData, activity, ownerName } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
-  const ownerFirst = (shop.split('.')[0] ?? 'there').replace(/[-_]/g, ' ').split(' ')[0] ?? 'there';
+  const greetName = (ownerName ?? shop.split('.')[0] ?? 'there').split(' ')[0] ?? 'there';
   const greetHour = new Date().getHours();
   const greet = greetHour < 12 ? 'Good morning' : greetHour < 18 ? 'Good afternoon' : 'Good evening';
 
@@ -164,80 +164,83 @@ export default function Dashboard() {
   const aiOfLabel = usage.aiLimit == null ? 'unlimited' : `of ${fmtNum(usage.aiLimit)} this month`;
 
   return (
-    <MerchantShell>
-      <div className="page dash">
-        <PageHead
-          title={`${greet}, ${titleCase(ownerFirst)}`}
-          sub="Here’s how your store is doing with SuperApp AI."
-        />
+    <MerchantShell polaris>
+      <s-page heading={`${greet}, ${titleCase(greetName)}`} inlineSize="base">
+        <s-paragraph color="subdued">Here’s how your store is doing with SuperApp AI.</s-paragraph>
 
-        <div style={{ marginBottom: 24 }}><MHomeQuickActions /></div>
+        <QuickActions />
 
-        <div className="grid grid-4" style={{ marginBottom: 24 }}>
-          <MStat label="Module views" value={fmtNum(stats.views30d)} sub="last 30 days" href="/analytics" />
-          <MStat label="Published modules" value={stats.published} sub={`${stats.drafts} in draft`} href="/modules" />
-          <MStat label="Active flows" value={stats.activeSchedules} sub={`${fmtNum(stats.workflowRuns)} runs this month`} href="/flows" />
-          <MStat label="AI credits left" value={aiLeftLabel} sub={aiOfLabel} href="/billing" />
-        </div>
+        <s-grid gridTemplateColumns="repeat(auto-fit, minmax(180px, 1fr))" gap="small-100">
+          <StatTile label="Module views" value={fmtNum(stats.views30d)} sub="last 30 days" trend={hasViewData ? spark : undefined} trendColor={CHART.success} href="/analytics" />
+          <StatTile label="Published modules" value={stats.published} sub={`${stats.drafts} in draft`} href="/modules" />
+          <StatTile label="Active flows" value={stats.activeSchedules} sub={`${fmtNum(stats.workflowRuns)} runs this month`} href="/flows" />
+          <StatTile label="AI credits left" value={aiLeftLabel} sub={aiOfLabel} href="/billing" />
+        </s-grid>
 
-        <div className="col-main" style={{ marginBottom: 24 }}>
-          <Card>
-            <CardHead title="Module views" sub="Last 14 days" actions={<Link to="/analytics" className="btn btn-plain btn-sm">Insights</Link>} />
+        <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+          <s-section heading="Module views — last 14 days">
             {hasViewData ? (
-              <div style={{ padding: '12px 20px 20px' }}>
-                <Sparkline data={spark} color="var(--p-success)" w={760} h={150} />
-                <div className="row spread t-xs t-muted" style={{ marginTop: 8 }}>
-                  <span>14 days ago</span><span>Today</span>
-                </div>
-              </div>
+              <s-stack gap="small-100">
+                <s-text accessibilityVisibility="exclusive">
+                  {`Module views over the last 14 days: ${fmtNum(stats.views30d)} total in the last 30 days.`}
+                </s-text>
+                <Sparkline data={spark} color={CHART.success} w={760} h={150} />
+                <s-stack direction="inline" justifyContent="space-between">
+                  <s-text color="subdued">14 days ago</s-text>
+                  <s-link href="/analytics">Insights</s-link>
+                  <s-text color="subdued">Today</s-text>
+                </s-stack>
+              </s-stack>
             ) : (
-              <div style={{ padding: '20px', color: 'var(--p-text-secondary)', fontSize: 13 }}>
-                No storefront views recorded yet — publish a module to start tracking.
-              </div>
+              <s-text color="subdued">No storefront views recorded yet — publish a module to start tracking.</s-text>
             )}
-          </Card>
-          <Card>
-            <CardHead title="Your modules" actions={<Link to="/modules" className="btn btn-plain btn-sm">View all</Link>} />
-            <div className="rlist">
-              {recentModules.length === 0 && <div style={{ padding: '20px', color: 'var(--p-text-secondary)', fontSize: 13 }}>No modules yet — generate your first one.</div>}
-              {recentModules.map((m) => {
-                const dt = designType(m.type);
-                return (
-                  <Link key={m.id} to={`/modules/${m.id}`} className="ritem" style={{ textDecoration: 'none', color: 'inherit' }}>
-                    <span className="tile-ico" style={{ width: 32, height: 32, background: `var(--p-${TYPE_COLOR[dt]}-bg)`, color: `var(--p-${TYPE_COLOR[dt]})` }}>
-                      <Icon name={TYPE_ICON[dt] ?? 'layers'} size={16} />
-                    </span>
-                    <div className="grow stack" style={{ gap: 1, minWidth: 0 }}>
-                      <span className="t-sm t-strong t-trunc">{m.name}</span>
-                      <span className="t-xs t-muted">{dt}</span>
-                    </div>
-                    <StatusBadge value={m.status} />
-                  </Link>
-                );
-              })}
-            </div>
-          </Card>
-        </div>
+          </s-section>
 
-        <Card>
-          <CardHead title="Recent activity" actions={<Link to="/activity" className="btn btn-plain btn-sm">View all</Link>} />
-          <div className="rlist">
-            {activity.length === 0 && <div style={{ padding: '20px', color: 'var(--p-text-secondary)', fontSize: 13 }}>No activity yet — actions on your store will show up here.</div>}
+          <s-section heading="Your modules">
+            <s-stack gap="none">
+              {recentModules.length === 0 && (
+                <s-text color="subdued">No modules yet — generate your first one.</s-text>
+              )}
+              {recentModules.map((m) => (
+                <s-clickable key={m.id} onClick={() => navigate(`/modules/${m.id}`)} padding="small-200" borderRadius="small">
+                  <s-grid gridTemplateColumns="auto 1fr auto" gap="small-100" alignItems="center">
+                    <s-icon type={catIcon(m.category) as never} tone="neutral" size="small" />
+                    <s-stack gap="none">
+                      <s-text type="strong">{m.name}</s-text>
+                      <s-text color="subdued">{getCategoryDisplayLabel(m.category)}</s-text>
+                    </s-stack>
+                    <StatusBadge status={m.status} />
+                  </s-grid>
+                </s-clickable>
+              ))}
+              <s-link href="/modules">View all</s-link>
+            </s-stack>
+          </s-section>
+        </s-grid>
+
+        <s-section heading="Recent activity">
+          <s-stack gap="none">
+            {activity.length === 0 && (
+              <s-text color="subdued">No activity yet — actions on your store will show up here.</s-text>
+            )}
             {activity.map((a) => (
-              <div key={a.id} className="ritem" onClick={() => navigate('/activity')} style={{ cursor: 'pointer' }}>
-                <span className="tile-ico" style={{ width: 32, height: 32, background: 'var(--p-surface-secondary)', color: 'var(--p-text-secondary)' }}>
-                  <Icon name="live" size={15} />
-                </span>
-                <div className="grow stack" style={{ gap: 1, minWidth: 0 }}>
-                  <span className="t-sm t-strong t-trunc">{titleCase(a.action)}</span>
-                  <span className="t-xs t-muted t-trunc">{a.resource}</span>
-                </div>
-                <span className="t-xs t-muted" style={{ whiteSpace: 'nowrap' }}>{a.created}</span>
-              </div>
+              <s-clickable key={a.id} onClick={() => navigate('/activity')} padding="small-200" borderRadius="small">
+                <s-stack direction="inline" gap="small-100" alignItems="center">
+                  <s-icon type="live" tone="neutral" size="small" />
+                  <s-stack gap="none">
+                    <s-text type="strong">{titleCase(a.action)}</s-text>
+                    {a.resource && <s-text color="subdued">{a.resource}</s-text>}
+                  </s-stack>
+                  <s-text color="subdued">{a.created}</s-text>
+                </s-stack>
+              </s-clickable>
             ))}
-          </div>
-        </Card>
-      </div>
+            <s-link href="/activity">View all</s-link>
+          </s-stack>
+        </s-section>
+      </s-page>
     </MerchantShell>
   );
 }
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';

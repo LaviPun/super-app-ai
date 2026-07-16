@@ -1,13 +1,11 @@
 import { json } from '@remix-run/node';
 import { useLoaderData, useNavigate, useFetcher, useRevalidator } from '@remix-run/react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { DataStoreService, PREDEFINED_STORES } from '~/services/data/data-store.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import {
-  Icon, Btn, Badge, Card, PageHead, Modal, Field, Input, Textarea, Toggle, fmtNum,
-} from '~/components/superapp';
+import { fmtNum, useCustomEvent } from '~/components/merchant/polaris';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -28,7 +26,7 @@ export async function loader({ request }: { request: Request }) {
 export default function DataIndex() {
   const { stores, predefined } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell>
+    <MerchantShell polaris>
       <DataBody stores={stores} predefined={predefined} />
     </MerchantShell>
   );
@@ -36,20 +34,32 @@ export default function DataIndex() {
 
 function DataStoreCard({ d, enabled, records, onToggle, onView }: any) {
   return (
-    <div className="card card-pad data-card">
-      <div className="row spread" style={{ marginBottom: 12 }}>
-        <span className="tile-ico" style={{ background: 'var(--p-info-bg)', color: 'var(--sa-secondary)' }}><Icon name="database" size={19} /></span>
-        {d.kind === 'predefined'
-          ? <label className="row spread"><Toggle checked={enabled} onChange={onToggle} /></label>
-          : <Badge tone={enabled ? 'success' : undefined}>{enabled ? 'Enabled' : 'Disabled'}</Badge>}
-      </div>
-      <div className="t-strong">{d.name}</div>
-      <div className="t-sm t-muted" style={{ marginTop: 2 }}>{d.desc}</div>
-      <div className="row spread" style={{ marginTop: 14 }}>
-        <span className="t-sm t-num"><b>{fmtNum(records)}</b><span className="t-muted"> records</span></span>
-        <button className="btn btn-sm" onClick={onView}>View records</button>
-      </div>
-    </div>
+    <s-box padding="base" border="base" borderRadius="base">
+      <s-stack gap="small-100">
+        <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+          <s-icon type="database" tone="info" />
+          {d.kind === 'predefined' ? (
+            <s-switch
+              accessibilityLabel={`${enabled ? 'Disable' : 'Enable'} ${d.name}`}
+              checked={enabled || undefined}
+              onChange={onToggle}
+            />
+          ) : (
+            <s-badge tone={enabled ? 'success' : 'neutral'}>{enabled ? 'Enabled' : 'Disabled'}</s-badge>
+          )}
+        </s-stack>
+        <s-stack gap="none">
+          <s-text type="strong">{d.name}</s-text>
+          <s-text color="subdued">{d.desc}</s-text>
+        </s-stack>
+        <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+          <s-text color="subdued">
+            <s-text type="strong">{fmtNum(records)}</s-text> records
+          </s-text>
+          <s-button variant="tertiary" onClick={onView}>View records</s-button>
+        </s-stack>
+      </s-stack>
+    </s-box>
   );
 }
 
@@ -59,9 +69,6 @@ function DataBody({ stores, predefined }: any) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const { revalidate } = useRevalidator();
   const [modal, setModal] = useState(false);
-  const [customKey, setCustomKey] = useState('');
-  const [customLabel, setCustomLabel] = useState('');
-  const [customDesc, setCustomDesc] = useState('');
   // Toast set at submit time, shown only once the server confirms the mutation.
   const [pendingMsg, setPendingMsg] = useState<string | null>(null);
 
@@ -88,12 +95,10 @@ function DataBody({ stores, predefined }: any) {
     fetcher.submit({ intent: enable ? 'enable' : 'disable', key } as any, { method: 'POST', action: '/api/data-stores', encType: 'application/json' });
   };
 
-  const createCustom = () => {
-    const key = customKey.trim();
-    if (!key || !customLabel.trim() || !KEY_REGEX.test(key)) { ctx.toast('Enter a valid key + name', { error: true }); return; }
+  const createCustom = (key: string, label: string, desc: string) => {
     setPendingMsg('Custom store created');
-    fetcher.submit({ intent: 'create-custom', key, label: customLabel.trim(), description: customDesc.trim() || undefined } as any, { method: 'POST', action: '/api/data-stores', encType: 'application/json' });
-    setModal(false); setCustomKey(''); setCustomLabel(''); setCustomDesc('');
+    fetcher.submit({ intent: 'create-custom', key, label, description: desc || undefined } as any, { method: 'POST', action: '/api/data-stores', encType: 'application/json' });
+    setModal(false);
   };
 
   const predefinedCards = predefined.map((p: any) => ({ key: p.key, name: p.label, desc: p.description, kind: 'predefined' as const }));
@@ -101,51 +106,91 @@ function DataBody({ stores, predefined }: any) {
     .map((s: any) => ({ key: s.key, name: s.label, desc: s.description ?? '', kind: 'custom' as const }));
 
   return (
-    <div className="page">
-      <PageHead
-        title="Data"
-        sub="Predefined stores stay in sync with Shopify. Create custom stores to hold anything — reviews, waitlists, applications."
-        actions={<Btn variant="primary" icon="plus" onClick={() => setModal(true)}>Create custom store</Btn>}
-      />
-      <h2 className="t-h2" style={{ marginBottom: 12 }}>Predefined</h2>
-      <div className="grid grid-3" style={{ marginBottom: 28 }}>
-        {predefinedCards.map((d: any) => (
-          <DataStoreCard key={d.key} d={d} enabled={enabledKeys.has(d.key)} records={recordsFor(d.key)}
-            onToggle={() => toggleStore(d.key, !enabledKeys.has(d.key))}
-            onView={() => navigate(`/data/${d.key}`)} />
-        ))}
-      </div>
-      <div className="row spread" style={{ marginBottom: 12 }}><h2 className="t-h2">Custom stores</h2></div>
-      {customStores.length === 0 ? (
-        <Card pad><div className="t-sm t-muted">No custom stores yet — create one to hold reviews, waitlists, or applications.</div></Card>
-      ) : (
-        <div className="grid grid-3">
-          {customStores.map((d: any) => (
+    <s-page heading="Data" inlineSize="base">
+      <s-button slot="primary-action" variant="primary" icon="plus" onClick={() => setModal(true)}>
+        Create custom store
+      </s-button>
+      <s-paragraph color="subdued">
+        Predefined stores stay in sync with Shopify. Create custom stores to hold anything — reviews, waitlists, applications.
+      </s-paragraph>
+      <s-section heading="Predefined">
+        <s-grid gridTemplateColumns="repeat(auto-fill, minmax(230px, 1fr))" gap="base">
+          {predefinedCards.map((d: any) => (
             <DataStoreCard key={d.key} d={d} enabled={enabledKeys.has(d.key)} records={recordsFor(d.key)}
               onToggle={() => toggleStore(d.key, !enabledKeys.has(d.key))}
               onView={() => navigate(`/data/${d.key}`)} />
           ))}
-        </div>
-      )}
-      {modal && (
-        <Modal title="Create custom store" onClose={() => setModal(false)}
-          footer={(
-            <>
-              <span className="grow" />
-              <Btn onClick={() => setModal(false)}>Cancel</Btn>
-              <Btn variant="primary" onClick={createCustom}>Create store</Btn>
-            </>
-          )}>
-          <div className="stack-4">
-            <Field label="Display name"><Input value={customLabel} onChange={(e: any) => setCustomLabel(e.target.value)} placeholder="Product Reviews" autoFocus /></Field>
-            <Field label="Key" help="Used in flows and the API — lowercase, no spaces"
-              error={customKey && !KEY_REGEX.test(customKey) ? 'Use only lowercase letters, numbers and underscores' : undefined}>
-              <Input mono value={customKey} onChange={(e: any) => setCustomKey(e.target.value)} placeholder="product_reviews" />
-            </Field>
-            <Field label="Description" optional><Textarea value={customDesc} onChange={(e: any) => setCustomDesc(e.target.value)} placeholder="What does this store hold?" /></Field>
-          </div>
-        </Modal>
-      )}
-    </div>
+        </s-grid>
+      </s-section>
+      <s-section heading="Custom stores">
+        {customStores.length === 0 ? (
+          <s-text color="subdued">No custom stores yet — create one to hold reviews, waitlists, or applications.</s-text>
+        ) : (
+          <s-grid gridTemplateColumns="repeat(auto-fill, minmax(230px, 1fr))" gap="base">
+            {customStores.map((d: any) => (
+              <DataStoreCard key={d.key} d={d} enabled={enabledKeys.has(d.key)} records={recordsFor(d.key)}
+                onToggle={() => toggleStore(d.key, !enabledKeys.has(d.key))}
+                onView={() => navigate(`/data/${d.key}`)} />
+            ))}
+          </s-grid>
+        )}
+      </s-section>
+      {modal && <CreateStoreModal onClose={() => setModal(false)} onCreate={createCustom} />}
+    </s-page>
   );
 }
+
+/**
+ * Create-custom-store form modal. Fields are controlled state (client-side key
+ * validation) and the primary action lives in the modal's `primary-action`
+ * slot — no DOM queries anywhere.
+ */
+function CreateStoreModal({ onClose, onCreate }: { onClose: () => void; onCreate: (key: string, label: string, desc: string) => void }) {
+  const ctx = useMerchantCtx();
+  const modalRef = useRef<HTMLElement | null>(null);
+  const [customKey, setCustomKey] = useState('');
+  const [customLabel, setCustomLabel] = useState('');
+  const [customDesc, setCustomDesc] = useState('');
+
+  useEffect(() => {
+    (modalRef.current as (HTMLElement & { show?: () => void }) | null)?.show?.();
+  }, []);
+  useCustomEvent(modalRef, 'afterhide', onClose);
+
+  const create = () => {
+    const key = customKey.trim();
+    if (!key || !customLabel.trim() || !KEY_REGEX.test(key)) { ctx.toast('Enter a valid key + name', { error: true }); return; }
+    onCreate(key, customLabel.trim(), customDesc.trim());
+  };
+
+  return (
+    <s-modal ref={modalRef as never} heading="Create custom store">
+      <s-stack gap="base">
+        <s-text-field
+          label="Display name"
+          placeholder="Product Reviews"
+          value={customLabel}
+          onInput={(e) => setCustomLabel(e.currentTarget.value ?? '')}
+        />
+        <s-text-field
+          label="Key"
+          placeholder="product_reviews"
+          details="Used in flows and the API — lowercase, no spaces"
+          error={customKey && !KEY_REGEX.test(customKey) ? 'Use only lowercase letters, numbers and underscores' : undefined}
+          value={customKey}
+          onInput={(e) => setCustomKey(e.currentTarget.value ?? '')}
+        />
+        <s-text-area
+          label="Description (optional)"
+          placeholder="What does this store hold?"
+          value={customDesc}
+          onInput={(e) => setCustomDesc(e.currentTarget.value ?? '')}
+        />
+      </s-stack>
+      <s-button slot="primary-action" variant="primary" onClick={create}>Create store</s-button>
+      <s-button slot="secondary-actions" onClick={onClose}>Cancel</s-button>
+    </s-modal>
+  );
+}
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';
