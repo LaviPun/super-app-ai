@@ -10,7 +10,7 @@ import {
 } from '@superapp/core';
 import crypto from 'crypto';
 import { MerchantShell } from '~/components/merchant/MerchantShell';
-import { EmptyState } from '~/components/merchant/polaris';
+import { EmptyState, useViewMode, ViewToggle } from '~/components/merchant/polaris';
 
 export async function loader({ request }: { request: Request }) {
   await shopify.authenticate.admin(request);
@@ -102,6 +102,7 @@ function FlowsTemplatesBody() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedConnector, setSelectedConnector] = useState('All');
   const [sortBy, setSortBy] = useState('az');
+  const [view, setView] = useViewMode('flow-templates');
 
   let filtered = templates.filter(t => {
     const q = searchQuery.toLowerCase();
@@ -129,7 +130,7 @@ function FlowsTemplatesBody() {
         </s-paragraph>
       </s-stack>
 
-      <s-grid gridTemplateColumns="2fr 1fr 1fr 1fr" gap="small-100">
+      <s-grid gridTemplateColumns="2fr 1fr 1fr 1fr auto" gap="small-100">
         <s-search-field
           label="Search templates"
           labelAccessibilityVisibility="exclusive"
@@ -169,38 +170,90 @@ function FlowsTemplatesBody() {
             <s-option key={o.value} value={o.value}>{o.label}</s-option>
           ))}
         </s-select>
+        <ViewToggle view={view} onChange={setView} />
       </s-grid>
 
       <s-text color="subdued">{`${filtered.length} result${filtered.length !== 1 ? 's' : ''}`}</s-text>
 
       {filtered.length > 0 ? (
-        <s-grid gridTemplateColumns="repeat(auto-fill, minmax(280px, 1fr))" gap="base">
-          {filtered.map(t => (
-            <s-box key={t.templateId} border="base" borderRadius="base" background="base" padding="base">
-              <s-stack gap="small-100">
-                <s-text type="strong">{t.name}</s-text>
-                <s-text color="subdued">{t.description}</s-text>
-                <s-stack direction="inline" gap="small-200">
-                  {t.category.map(c => (
-                    <s-badge key={c}>{c}</s-badge>
-                  ))}
-                  {t.connectors.map(c => (
-                    <s-badge key={c} tone="info">{c}</s-badge>
-                  ))}
+        view === 'cards' ? (
+          <s-grid gridTemplateColumns="repeat(auto-fill, minmax(280px, 1fr))" gap="base">
+            {filtered.map(t => (
+              <s-box key={t.templateId} border="base" borderRadius="base" background="base" padding="base">
+                <s-stack gap="small-100">
+                  <s-text type="strong">{t.name}</s-text>
+                  <s-text color="subdued">{t.description}</s-text>
+                  <s-stack direction="inline" gap="small-200">
+                    {t.category.map(c => (
+                      <s-badge key={c}>{c}</s-badge>
+                    ))}
+                    {t.connectors.map(c => (
+                      <s-badge key={c} tone="info">{c}</s-badge>
+                    ))}
+                  </s-stack>
+                  {t.tags.length > 0 && (
+                    <s-text color="subdued">{t.tags.slice(0, 4).map(tag => `#${tag}`).join(' ')}</s-text>
+                  )}
+                  <Form method="post">
+                    <input type="hidden" name="templateId" value={t.templateId} />
+                    <s-button type="submit" variant="primary" loading={isInstalling || undefined}>
+                      Install template
+                    </s-button>
+                  </Form>
                 </s-stack>
-                {t.tags.length > 0 && (
-                  <s-text color="subdued">{t.tags.slice(0, 4).map(tag => `#${tag}`).join(' ')}</s-text>
-                )}
-                <Form method="post">
-                  <input type="hidden" name="templateId" value={t.templateId} />
-                  <s-button type="submit" variant="primary" loading={isInstalling || undefined}>
-                    Install template
-                  </s-button>
-                </Form>
-              </s-stack>
-            </s-box>
-          ))}
-        </s-grid>
+              </s-box>
+            ))}
+          </s-grid>
+        ) : (
+          <s-section padding="none">
+            <s-table>
+              <s-table-header-row>
+                <s-table-header listSlot="primary">Template</s-table-header>
+                <s-table-header>Categories</s-table-header>
+                <s-table-header listSlot="inline">Apps</s-table-header>
+                <s-table-header>Actions</s-table-header>
+              </s-table-header-row>
+              <s-table-body>
+                {filtered.map(t => (
+                  <s-table-row key={t.templateId}>
+                    <s-table-cell>
+                      <s-stack gap="none">
+                        <s-text type="strong">{t.name}</s-text>
+                        <s-text tone="neutral" color="subdued">{t.description}</s-text>
+                      </s-stack>
+                    </s-table-cell>
+                    <s-table-cell>
+                      <s-stack direction="inline" gap="small-200">
+                        {t.category.map(c => (
+                          <s-badge key={c}>{c}</s-badge>
+                        ))}
+                      </s-stack>
+                    </s-table-cell>
+                    <s-table-cell>
+                      {t.connectors.length > 0 ? (
+                        <s-stack direction="inline" gap="small-200">
+                          {t.connectors.map(c => (
+                            <s-badge key={c} tone="info">{c}</s-badge>
+                          ))}
+                        </s-stack>
+                      ) : (
+                        <s-text color="subdued">—</s-text>
+                      )}
+                    </s-table-cell>
+                    <s-table-cell>
+                      <Form method="post">
+                        <input type="hidden" name="templateId" value={t.templateId} />
+                        <s-button type="submit" loading={isInstalling || undefined}>
+                          Install template
+                        </s-button>
+                      </Form>
+                    </s-table-cell>
+                  </s-table-row>
+                ))}
+              </s-table-body>
+            </s-table>
+          </s-section>
+        )
       ) : (
         <s-section>
           <EmptyState icon="automation" heading="No templates match your filters">

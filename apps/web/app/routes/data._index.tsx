@@ -5,7 +5,7 @@ import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { DataStoreService, PREDEFINED_STORES } from '~/services/data/data-store.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { LearnMore, fmtNum, useCustomEvent } from '~/components/merchant/polaris';
+import { LearnMore, fmtNum, useCustomEvent, useViewMode, ViewToggle } from '~/components/merchant/polaris';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -63,11 +63,55 @@ function DataStoreCard({ d, enabled, records, onToggle, onView }: any) {
   );
 }
 
+function DataStoreTable({ items, enabledKeys, recordsFor, onToggle, onView }: any) {
+  return (
+    <s-table>
+      <s-table-header-row>
+        <s-table-header listSlot="primary">Store</s-table-header>
+        <s-table-header>Records</s-table-header>
+        <s-table-header listSlot="inline">Status</s-table-header>
+        <s-table-header>Actions</s-table-header>
+      </s-table-header-row>
+      <s-table-body>
+        {items.map((d: any) => {
+          const enabled = enabledKeys.has(d.key);
+          return (
+            <s-table-row key={d.key}>
+              <s-table-cell>
+                <s-stack gap="none">
+                  <s-text type="strong">{d.name}</s-text>
+                  <s-text tone="neutral" color="subdued">{d.desc}</s-text>
+                </s-stack>
+              </s-table-cell>
+              <s-table-cell>{fmtNum(recordsFor(d.key))}</s-table-cell>
+              <s-table-cell>
+                {d.kind === 'predefined' ? (
+                  <s-switch
+                    accessibilityLabel={`${enabled ? 'Disable' : 'Enable'} ${d.name}`}
+                    checked={enabled || undefined}
+                    onChange={() => onToggle(d)}
+                  />
+                ) : (
+                  <s-badge tone={enabled ? 'success' : 'neutral'}>{enabled ? 'Enabled' : 'Disabled'}</s-badge>
+                )}
+              </s-table-cell>
+              <s-table-cell>
+                <s-button variant="tertiary" onClick={() => onView(d)}>View records</s-button>
+              </s-table-cell>
+            </s-table-row>
+          );
+        })}
+      </s-table-body>
+    </s-table>
+  );
+}
+
 function DataBody({ stores, predefined }: any) {
   const ctx = useMerchantCtx();
   const navigate = useNavigate();
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const { revalidate } = useRevalidator();
+  const [view, setView] = useViewMode('data');
   const [modal, setModal] = useState(false);
   // Toast set at submit time, shown only once the server confirms the mutation.
   const [pendingMsg, setPendingMsg] = useState<string | null>(null);
@@ -110,23 +154,32 @@ function DataBody({ stores, predefined }: any) {
       <s-button slot="primary-action" variant="primary" icon="plus" onClick={() => setModal(true)}>
         Create custom store
       </s-button>
-      <s-paragraph color="subdued">
-        Predefined stores stay in sync with Shopify. Create custom stores to hold anything — reviews, waitlists, applications.{' '}
-        <LearnMore anchor="guide-data" topic="data stores" />
-      </s-paragraph>
+      <s-grid gridTemplateColumns="1fr auto" gap="base" alignItems="center">
+        <s-paragraph color="subdued">
+          Predefined stores stay in sync with Shopify. Create custom stores to hold anything — reviews, waitlists, applications.{' '}
+          <LearnMore anchor="guide-data" topic="data stores" />
+        </s-paragraph>
+        <ViewToggle view={view} onChange={setView} />
+      </s-grid>
       <s-section heading="Predefined">
-        <s-grid gridTemplateColumns="repeat(auto-fill, minmax(230px, 1fr))" gap="base">
-          {predefinedCards.map((d: any) => (
-            <DataStoreCard key={d.key} d={d} enabled={enabledKeys.has(d.key)} records={recordsFor(d.key)}
-              onToggle={() => toggleStore(d.key, !enabledKeys.has(d.key))}
-              onView={() => navigate(`/data/${d.key}`)} />
-          ))}
-        </s-grid>
+        {view === 'cards' ? (
+          <s-grid gridTemplateColumns="repeat(auto-fill, minmax(230px, 1fr))" gap="base">
+            {predefinedCards.map((d: any) => (
+              <DataStoreCard key={d.key} d={d} enabled={enabledKeys.has(d.key)} records={recordsFor(d.key)}
+                onToggle={() => toggleStore(d.key, !enabledKeys.has(d.key))}
+                onView={() => navigate(`/data/${d.key}`)} />
+            ))}
+          </s-grid>
+        ) : (
+          <DataStoreTable items={predefinedCards} enabledKeys={enabledKeys} recordsFor={recordsFor}
+            onToggle={(d: any) => toggleStore(d.key, !enabledKeys.has(d.key))}
+            onView={(d: any) => navigate(`/data/${d.key}`)} />
+        )}
       </s-section>
       <s-section heading="Custom stores">
         {customStores.length === 0 ? (
           <s-text color="subdued">No custom stores yet — create one to hold reviews, waitlists, or applications.</s-text>
-        ) : (
+        ) : view === 'cards' ? (
           <s-grid gridTemplateColumns="repeat(auto-fill, minmax(230px, 1fr))" gap="base">
             {customStores.map((d: any) => (
               <DataStoreCard key={d.key} d={d} enabled={enabledKeys.has(d.key)} records={recordsFor(d.key)}
@@ -134,6 +187,10 @@ function DataBody({ stores, predefined }: any) {
                 onView={() => navigate(`/data/${d.key}`)} />
             ))}
           </s-grid>
+        ) : (
+          <DataStoreTable items={customStores} enabledKeys={enabledKeys} recordsFor={recordsFor}
+            onToggle={(d: any) => toggleStore(d.key, !enabledKeys.has(d.key))}
+            onView={(d: any) => navigate(`/data/${d.key}`)} />
         )}
       </s-section>
       {modal && <CreateStoreModal onClose={() => setModal(false)} onCreate={createCustom} />}

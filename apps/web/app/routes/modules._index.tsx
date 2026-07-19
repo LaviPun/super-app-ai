@@ -6,7 +6,7 @@ import { getPrisma } from '~/db.server';
 import { QuotaService } from '~/services/billing/quota.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
-  StatTile, StatusBadge, EmptyState, ConfirmModal, LearnMore, fmtNum, type WcTone,
+  StatTile, StatusBadge, EmptyState, ConfirmModal, LearnMore, fmtNum, useViewMode, ViewToggle, type WcTone,
 } from '~/components/merchant/polaris';
 import { CATEGORY_ORDER, getCategoryDisplayLabel, getCategoryTone, getCategoryIcon } from '~/utils/type-label';
 
@@ -171,7 +171,7 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
   const [search, setSearch] = useState('');
   const [type, setType] = useState('All');
   const [status, setStatus] = useState('All');
-  const [view, setView] = useState<'grid' | 'list'>('grid');
+  const [view, setView] = useViewMode('modules');
   const [del, setDel] = useState<any>(null);
   const [builderOpen, setBuilderOpen] = useState(() => searchParams.get('openBuilder') === '1');
   const searchRef = useRef<PolarisField | null>(null);
@@ -332,15 +332,7 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
         <s-option value="PUBLISHED">Published</s-option>
         <s-option value="DRAFT">Draft</s-option>
       </s-select>
-      <s-select
-        label="View"
-        labelAccessibilityVisibility="exclusive"
-        value={view}
-        onChange={(e) => setView(e.currentTarget.value === 'list' ? 'list' : 'grid')}
-      >
-        <s-option value="grid">Grid</s-option>
-        <s-option value="list">List</s-option>
-      </s-select>
+      <ViewToggle view={view} onChange={setView} />
     </s-grid>
   );
 
@@ -391,7 +383,7 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
                 action={<s-button onClick={clearFilters}>Clear filters</s-button>}>
                 Try adjusting your filters or generate something new.
               </EmptyState>
-            ) : view === 'grid' ? (
+            ) : view === 'cards' ? (
               <s-grid gridTemplateColumns="repeat(3, 1fr)" gap="base">
                 {rows.map((m: any) => (
                   <s-clickable key={m.id} href={`/modules/${m.id}`} border="base" borderRadius="base" padding="base">

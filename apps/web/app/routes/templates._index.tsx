@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { MODULE_TEMPLATES } from '@superapp/core';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { EmptyState, LearnMore, type WcTone } from '~/components/merchant/polaris';
+import { EmptyState, LearnMore, useViewMode, ViewToggle, type WcTone } from '~/components/merchant/polaris';
 import { CATEGORY_ORDER, getCategoryDisplayLabel, getCategoryTone, getCategoryIcon } from '~/utils/type-label';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -84,6 +84,7 @@ function TemplatesBody({ templates }: any) {
   const [search, setSearch] = useState('');
   const [cat, setCat] = useState(initial);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [view, setView] = useViewMode('templates');
   const searchRef = useRef<(HTMLElement & { value?: string }) | null>(null);
   const cats = ['All', ...CATEGORY_ORDER];
 
@@ -112,7 +113,7 @@ function TemplatesBody({ templates }: any) {
       </s-paragraph>
       <s-section>
         <s-stack gap="small-100">
-          <s-grid gridTemplateColumns="1fr auto" gap="small-100" alignItems="center">
+          <s-grid gridTemplateColumns="1fr auto auto" gap="small-100" alignItems="center">
             <s-search-field
               ref={searchRef as never}
               label="Search templates"
@@ -121,6 +122,7 @@ function TemplatesBody({ templates }: any) {
               onInput={(e) => setSearch(e.currentTarget.value ?? '')}
             />
             <s-text tone="neutral" color="subdued">{rows.length} of {templates.length}</s-text>
+            <ViewToggle view={view} onChange={setView} />
           </s-grid>
           <s-stack direction="inline" gap="small-100">
             {cats.map((c) => (
@@ -142,7 +144,7 @@ function TemplatesBody({ templates }: any) {
             Try a different category or search term.
           </EmptyState>
         </s-section>
-      ) : (
+      ) : view === 'cards' ? (
         <s-grid gridTemplateColumns="repeat(3, 1fr)" gap="base">
           {rows.slice(0, visibleCount).map((t: any) => (
             // Native CSS containment: the browser skips layout/paint for cards
@@ -178,6 +180,43 @@ function TemplatesBody({ templates }: any) {
             </div>
           ))}
         </s-grid>
+      ) : (
+        // List view (default): a compact table — 60 rows per page is light
+        // enough to render without the card grid's contentVisibility wrappers.
+        <s-section padding="none">
+          <s-table>
+            <s-table-header-row>
+              <s-table-header listSlot="primary">Template</s-table-header>
+              <s-table-header listSlot="inline">Category</s-table-header>
+              <s-table-header>Actions</s-table-header>
+            </s-table-header-row>
+            <s-table-body>
+              {rows.slice(0, visibleCount).map((t: any) => (
+                <s-table-row key={t.id}>
+                  <s-table-cell>
+                    <s-stack gap="none">
+                      <s-link href={`/templates/${encodeURIComponent(t.id)}`}>
+                        <s-text type="strong">{t.name}</s-text>
+                      </s-link>
+                      <s-text tone="neutral" color="subdued">{t.desc}</s-text>
+                    </s-stack>
+                  </s-table-cell>
+                  <s-table-cell>
+                    <s-badge tone={catTone(t.category)}>{getCategoryDisplayLabel(t.category)}</s-badge>
+                  </s-table-cell>
+                  <s-table-cell>
+                    {/* Single action per row — the name link covers "open", so the
+                        narrow Actions column never wraps to two stacked buttons. */}
+                    <Form method="post" action="/api/modules/from-template">
+                      <input type="hidden" name="templateId" value={t.id} />
+                      <s-button type="submit" icon="wand">Use template</s-button>
+                    </Form>
+                  </s-table-cell>
+                </s-table-row>
+              ))}
+            </s-table-body>
+          </s-table>
+        </s-section>
       )}
       {rows.length > visibleCount && (
         <s-stack alignItems="center" padding="base">

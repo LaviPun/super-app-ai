@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
 import { Link, useLocation } from '@remix-run/react';
 
@@ -88,6 +88,44 @@ export function exportCSV(filename: string, rows: Array<Array<string | number | 
   a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+/* ---------- list/card view preference ---------- */
+export type ViewMode = 'list' | 'cards';
+
+/**
+ * Per-page collection view. List is the default everywhere; cards are the
+ * optional mode. The choice persists per page in localStorage. Server render
+ * and first client paint both use 'list', so hydration never mismatches.
+ */
+export function useViewMode(page: string): [ViewMode, (v: ViewMode) => void] {
+  const key = `sa-view:${page}`;
+  const [view, setView] = useState<ViewMode>('list');
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(key);
+      if (stored === 'cards' || stored === 'list') setView(stored);
+    } catch { /* storage unavailable (private mode) — stay on list */ }
+  }, [key]);
+  const set = useCallback((v: ViewMode) => {
+    setView(v);
+    try { window.localStorage.setItem(key, v); } catch { /* non-fatal */ }
+  }, [key]);
+  return [view, set];
+}
+
+export function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (v: ViewMode) => void }) {
+  return (
+    <s-select
+      label="View"
+      labelAccessibilityVisibility="exclusive"
+      value={view}
+      onChange={(e) => onChange(e.currentTarget.value === 'cards' ? 'cards' : 'list')}
+    >
+      <s-option value="list">List</s-option>
+      <s-option value="cards">Cards</s-option>
+    </s-select>
+  );
 }
 
 export function useTableState(initialSort?: string) {
