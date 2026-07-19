@@ -114,6 +114,15 @@ export function useViewMode(page: string): [ViewMode, (v: ViewMode) => void] {
   return [view, set];
 }
 
+/**
+ * Truncated description for table cells: one ellipsized line, full text in the
+ * native hover tooltip (title attr). Light-DOM span — s-text doesn't forward title.
+ */
+export function Desc({ text }: { text?: string | null }) {
+  if (!text) return <s-text color="subdued">—</s-text>;
+  return <span className="sa-m-desc" title={text}>{text}</span>;
+}
+
 export function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (v: ViewMode) => void }) {
   return (
     <s-select

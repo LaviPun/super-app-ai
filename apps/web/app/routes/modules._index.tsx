@@ -6,7 +6,7 @@ import { getPrisma } from '~/db.server';
 import { QuotaService } from '~/services/billing/quota.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
-  StatTile, StatusBadge, EmptyState, ConfirmModal, LearnMore, fmtNum, useViewMode, ViewToggle, type WcTone,
+  StatTile, StatusBadge, EmptyState, ConfirmModal, Desc, LearnMore, fmtNum, useViewMode, ViewToggle, type WcTone,
 } from '~/components/merchant/polaris';
 import { CATEGORY_ORDER, getCategoryDisplayLabel, getCategoryTone, getCategoryIcon } from '~/utils/type-label';
 
@@ -434,6 +434,7 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
                     />
                   </s-table-header>
                   <s-table-header listSlot="primary">Module</s-table-header>
+                  <s-table-header listSlot="secondary">Description</s-table-header>
                   <s-table-header listSlot="inline">Type</s-table-header>
                   <s-table-header>Version</s-table-header>
                   <s-table-header listSlot="secondary">Status</s-table-header>
@@ -452,10 +453,12 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
                         />
                       </s-table-cell>
                       <s-table-cell>
-                        <s-stack gap="none">
-                          <s-link href={`/modules/${r.id}`}><s-text type="strong">{r.name}</s-text></s-link>
-                          <s-text tone="neutral" color="subdued">{r.summary}</s-text>
-                        </s-stack>
+                        <s-link href={`/modules/${r.id}`}><s-text type="strong">{r.name}</s-text></s-link>
+                      </s-table-cell>
+                      <s-table-cell>
+                        {/* Same dedup rule as the cards: a "<category> module" summary
+                            adds nothing next to the Type column. */}
+                        <Desc text={r.summary === `${r.category} module` ? null : r.summary} />
                       </s-table-cell>
                       <s-table-cell>
                         <s-badge tone={catTone(r.rawCategory)}>{r.type}</s-badge>

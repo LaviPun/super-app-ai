@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { MODULE_TEMPLATES } from '@superapp/core';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { EmptyState, LearnMore, useViewMode, ViewToggle, type WcTone } from '~/components/merchant/polaris';
+import { Desc, EmptyState, LearnMore, useViewMode, ViewToggle, type WcTone } from '~/components/merchant/polaris';
 import { CATEGORY_ORDER, getCategoryDisplayLabel, getCategoryTone, getCategoryIcon } from '~/utils/type-label';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -187,6 +187,7 @@ function TemplatesBody({ templates }: any) {
           <s-table>
             <s-table-header-row>
               <s-table-header listSlot="primary">Template</s-table-header>
+              <s-table-header listSlot="secondary">Description</s-table-header>
               <s-table-header listSlot="inline">Category</s-table-header>
               <s-table-header>Actions</s-table-header>
             </s-table-header-row>
@@ -194,12 +195,12 @@ function TemplatesBody({ templates }: any) {
               {rows.slice(0, visibleCount).map((t: any) => (
                 <s-table-row key={t.id}>
                   <s-table-cell>
-                    <s-stack gap="none">
-                      <s-link href={`/templates/${encodeURIComponent(t.id)}`}>
-                        <s-text type="strong">{t.name}</s-text>
-                      </s-link>
-                      <s-text tone="neutral" color="subdued">{t.desc}</s-text>
-                    </s-stack>
+                    <s-link href={`/templates/${encodeURIComponent(t.id)}`}>
+                      <s-text type="strong">{t.name}</s-text>
+                    </s-link>
+                  </s-table-cell>
+                  <s-table-cell>
+                    <Desc text={t.desc} />
                   </s-table-cell>
                   <s-table-cell>
                     <s-badge tone={catTone(t.category)}>{getCategoryDisplayLabel(t.category)}</s-badge>

@@ -5,7 +5,7 @@ import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { DataStoreService, PREDEFINED_STORES } from '~/services/data/data-store.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { LearnMore, fmtNum, useCustomEvent, useViewMode, ViewToggle } from '~/components/merchant/polaris';
+import { Desc, LearnMore, fmtNum, useCustomEvent, useViewMode, ViewToggle } from '~/components/merchant/polaris';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -68,6 +68,7 @@ function DataStoreTable({ items, enabledKeys, recordsFor, onToggle, onView }: an
     <s-table>
       <s-table-header-row>
         <s-table-header listSlot="primary">Store</s-table-header>
+        <s-table-header listSlot="secondary">Description</s-table-header>
         <s-table-header>Records</s-table-header>
         <s-table-header listSlot="inline">Status</s-table-header>
         <s-table-header>Actions</s-table-header>
@@ -78,10 +79,10 @@ function DataStoreTable({ items, enabledKeys, recordsFor, onToggle, onView }: an
           return (
             <s-table-row key={d.key}>
               <s-table-cell>
-                <s-stack gap="none">
-                  <s-text type="strong">{d.name}</s-text>
-                  <s-text tone="neutral" color="subdued">{d.desc}</s-text>
-                </s-stack>
+                <s-text type="strong">{d.name}</s-text>
+              </s-table-cell>
+              <s-table-cell>
+                <Desc text={d.desc} />
               </s-table-cell>
               <s-table-cell>{fmtNum(recordsFor(d.key))}</s-table-cell>
               <s-table-cell>

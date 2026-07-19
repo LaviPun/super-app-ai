@@ -10,7 +10,7 @@ import {
 } from '@superapp/core';
 import crypto from 'crypto';
 import { MerchantShell } from '~/components/merchant/MerchantShell';
-import { EmptyState, useViewMode, ViewToggle } from '~/components/merchant/polaris';
+import { Desc, EmptyState, useViewMode, ViewToggle } from '~/components/merchant/polaris';
 
 export async function loader({ request }: { request: Request }) {
   await shopify.authenticate.admin(request);
@@ -209,6 +209,7 @@ function FlowsTemplatesBody() {
             <s-table>
               <s-table-header-row>
                 <s-table-header listSlot="primary">Template</s-table-header>
+                <s-table-header listSlot="secondary">Description</s-table-header>
                 <s-table-header>Categories</s-table-header>
                 <s-table-header listSlot="inline">Apps</s-table-header>
                 <s-table-header>Actions</s-table-header>
@@ -217,10 +218,10 @@ function FlowsTemplatesBody() {
                 {filtered.map(t => (
                   <s-table-row key={t.templateId}>
                     <s-table-cell>
-                      <s-stack gap="none">
-                        <s-text type="strong">{t.name}</s-text>
-                        <s-text tone="neutral" color="subdued">{t.description}</s-text>
-                      </s-stack>
+                      <s-text type="strong">{t.name}</s-text>
+                    </s-table-cell>
+                    <s-table-cell>
+                      <Desc text={t.description} />
                     </s-table-cell>
                     <s-table-cell>
                       <s-stack direction="inline" gap="small-200">
