@@ -6,7 +6,7 @@ import { getPrisma } from '~/db.server';
 import { QuotaService } from '~/services/billing/quota.service';
 import { MerchantShell } from '~/components/merchant/MerchantShell';
 import {
-  CHART, EmptyState, MiniBars, Progress, StatTile, StatusBadge, Tabs, fmtNum, titleCase,
+  CHART, EmptyState, MiniBars, Progress, StatStrip, StatusBadge, Tabs, fmtNum, titleCase,
 } from '~/components/merchant/polaris';
 
 export async function loader({ request }: { request: Request }) {
@@ -162,6 +162,7 @@ function LogsBody() {
 
   return (
     <s-page heading="Logs & Usage" inlineSize="base">
+      <s-stack gap="base">
       <s-stack gap="small-100">
         <s-stack direction="inline">
           <s-button variant="tertiary" icon="arrow-left" onClick={() => navigate('/')}>Dashboard</s-button>
@@ -191,12 +192,14 @@ function LogsBody() {
             </s-text>
           </s-banner>
 
-          <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="base">
-            <StatTile label="Success rate" value={`${stats.successRate}%`} />
-            <StatTile label="Total jobs (30d)" value={fmtNum(stats.totalJobs)} />
-            <StatTile label="AI requests" value={fmtNum(aiStats.totalRequests)} />
-            <StatTile label="AI cost (30d)" value={`$${(aiStats.totalCostCents / 100).toFixed(2)}`} />
-          </s-grid>
+          <StatStrip
+            items={[
+              { label: 'Success rate', value: `${stats.successRate}%` },
+              { label: 'Total jobs (30d)', value: fmtNum(stats.totalJobs) },
+              { label: 'AI requests', value: fmtNum(aiStats.totalRequests) },
+              { label: 'AI cost (30d)', value: `$${(aiStats.totalCostCents / 100).toFixed(2)}` },
+            ]}
+          />
 
           <s-grid gridTemplateColumns="1fr 1fr" gap="base">
             <s-section heading="Successful jobs (7 days)">
@@ -276,12 +279,14 @@ function LogsBody() {
             </s-stack>
           </s-section>
 
-          <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="base">
-            <StatTile label="Tokens in (30d)" value={fmtNum(aiStats.totalTokensIn)} />
-            <StatTile label="Tokens out (30d)" value={fmtNum(aiStats.totalTokensOut)} />
-            <StatTile label="AI requests (30d)" value={fmtNum(aiStats.totalRequests)} />
-            <StatTile label="Total cost (30d)" value={`$${(aiStats.totalCostCents / 100).toFixed(2)}`} />
-          </s-grid>
+          <StatStrip
+            items={[
+              { label: 'Tokens in (30d)', value: fmtNum(aiStats.totalTokensIn) },
+              { label: 'Tokens out (30d)', value: fmtNum(aiStats.totalTokensOut) },
+              { label: 'AI requests (30d)', value: fmtNum(aiStats.totalRequests) },
+              { label: 'Total cost (30d)', value: `$${(aiStats.totalCostCents / 100).toFixed(2)}` },
+            ]}
+          />
         </>
       )}
 
@@ -365,6 +370,7 @@ function LogsBody() {
           )}
         </s-section>
       )}
+      </s-stack>
     </s-page>
   );
 }

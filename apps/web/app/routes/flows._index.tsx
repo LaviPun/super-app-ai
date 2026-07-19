@@ -8,7 +8,7 @@ import { ActivityLogService } from '~/services/activity/activity.service';
 import { RecipeService } from '~/services/recipes/recipe.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
-  StatTile, StatusBadge, EmptyState, ConfirmModal, MonoChip, LearnMore, fmtNum,
+  StatStrip, StatusBadge, EmptyState, ConfirmModal, MonoChip, LearnMore, fmtNum,
 } from '~/components/merchant/polaris';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -284,20 +284,23 @@ function FlowsBody({ flows, stats }: any) {
       <s-button slot="secondary-actions" icon="theme-template" onClick={() => ctx.go('#/app/templates?type=Flow')}>
         Templates
       </s-button>
+      <s-stack gap="base">
       <s-paragraph color="subdued">
         Automate work: when something happens in your store, run steps automatically. Build visually, monitor every run.{' '}
         <LearnMore anchor="guide-flows" topic="flows" />
       </s-paragraph>
-      <s-grid gridTemplateColumns="repeat(4, 1fr)" gap="base">
-        <StatTile label="Active flows" value={stats.active} />
-        <StatTile label="Runs (7d)" value={fmtNum(stats.runs7d)} />
-        <StatTile label="Drafts" value={stats.drafts} />
-        <StatTile
-          label="Success rate (7d)"
-          value={stats.successRate == null ? '—' : `${stats.successRate.toFixed(1)}%`}
-          sub={stats.successRate == null ? 'No runs yet' : undefined}
-        />
-      </s-grid>
+      <StatStrip
+        items={[
+          { label: 'Active flows', value: stats.active },
+          { label: 'Runs (7d)', value: fmtNum(stats.runs7d) },
+          { label: 'Drafts', value: stats.drafts },
+          {
+            label: 'Success rate (7d)',
+            value: stats.successRate == null ? '—' : `${stats.successRate.toFixed(1)}%`,
+            sub: stats.successRate == null ? 'No runs yet' : undefined,
+          },
+        ]}
+      />
       {flows.length === 0 ? (
         <s-section>
           <EmptyState icon="automation" heading="No flows yet"
@@ -388,6 +391,7 @@ function FlowsBody({ flows, stats }: any) {
       >
         <s-paragraph>This removes “{del?.name}”. Flows it triggers will no longer run on this schedule.</s-paragraph>
       </ConfirmModal>
+      </s-stack>
     </s-page>
   );
 }

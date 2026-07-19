@@ -3,7 +3,7 @@ import { useLoaderData, useNavigate, useNavigation, useSearchParams } from '@rem
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { MerchantShell } from '~/components/merchant/MerchantShell';
-import { EmptyState, MonoChip, StatTile, StatusBadge, fmtNum } from '~/components/merchant/polaris';
+import { EmptyState, MonoChip, StatStrip, StatusBadge, fmtNum } from '~/components/merchant/polaris';
 
 type ParsedPayload = Record<string, unknown> | null;
 
@@ -300,30 +300,35 @@ function JobsBody() {
 
   return (
     <s-page heading="Jobs" inlineSize="large">
-      <s-stack gap="small-100">
-        <s-stack direction="inline">
-          <s-button variant="tertiary" icon="arrow-left" onClick={() => navigate('/')}>Home</s-button>
+      <s-stack gap="base">
+        <s-stack gap="small-100">
+          <s-stack direction="inline">
+            <s-button variant="tertiary" icon="arrow-left" onClick={() => navigate('/')}>Home</s-button>
+          </s-stack>
+          <s-paragraph color="subdued">
+            Detailed queue, execution status, trigger source, and module traceability.
+          </s-paragraph>
         </s-stack>
-        <s-paragraph color="subdued">
-          Detailed queue, execution status, trigger source, and module traceability.
-        </s-paragraph>
-      </s-stack>
 
-      <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="base">
-        <StatTile label="Total jobs" value={fmtNum(stats.total)} />
-        <StatTile label="Running" value={fmtNum(stats.running)} />
-        <StatTile label="Success" value={fmtNum(stats.success)} />
-        <StatTile label="Failed" value={fmtNum(stats.failed)} />
-      </s-grid>
+        <StatStrip
+          items={[
+            { label: 'Total jobs', value: fmtNum(stats.total) },
+            { label: 'Running', value: fmtNum(stats.running) },
+            { label: 'Success', value: fmtNum(stats.success) },
+            { label: 'Failed', value: fmtNum(stats.failed) },
+          ]}
+        />
 
       <s-section heading="Store AI usage and cost">
         <s-stack gap="base">
-          <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="base">
-            <StatTile label="Requests (30d)" value={fmtNum(aiSummary30d.totalRequests)} />
-            <StatTile label="Tokens in / out (30d)" value={`${fmtNum(aiSummary30d.totalTokensIn)} / ${fmtNum(aiSummary30d.totalTokensOut)}`} />
-            <StatTile label="Cost (30d)" value={formatCents(aiSummary30d.totalCostCents)} />
-            <StatTile label="Cost (all time)" value={formatCents(aiSummaryAllTime.totalCostCents)} />
-          </s-grid>
+          <StatStrip
+            items={[
+              { label: 'Requests (30d)', value: fmtNum(aiSummary30d.totalRequests) },
+              { label: 'Tokens in / out (30d)', value: `${fmtNum(aiSummary30d.totalTokensIn)} / ${fmtNum(aiSummary30d.totalTokensOut)}` },
+              { label: 'Cost (30d)', value: formatCents(aiSummary30d.totalCostCents) },
+              { label: 'Cost (all time)', value: formatCents(aiSummaryAllTime.totalCostCents) },
+            ]}
+          />
           {aiSummaryAllTime.byProvider.length > 0 ? (
             <s-table>
               <s-table-header-row>
@@ -494,6 +499,7 @@ function JobsBody() {
           </s-table>
         )}
       </s-section>
+      </s-stack>
     </s-page>
   );
 }

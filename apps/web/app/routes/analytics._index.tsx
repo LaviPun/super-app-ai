@@ -5,7 +5,7 @@ import { getPrisma } from '~/db.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { getCategoryDisplayLabel, getCategoryIcon } from '~/utils/type-label';
 import {
-  CHART, EmptyState, LearnMore, Progress, Sparkline, StatTile, Tabs, exportCSV, fmtCents, fmtNum,
+  CHART, EmptyState, LearnMore, Progress, Sparkline, StatStrip, Tabs, exportCSV, fmtCents, fmtNum,
 } from '~/components/merchant/polaris';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -199,38 +199,40 @@ function AnalyticsBody({ range, days, publishedCount, perf, series, hasMetrics, 
         onChange={setRange}
       />
 
-      <s-grid gridTemplateColumns="repeat(auto-fit, minmax(180px, 1fr))" gap="base">
-        <StatTile
-          label="Module views"
-          value={fmtNum(totals.views)}
-          delta={deltas.views}
-          deltaDir={deltas.viewsDir}
-          trend={hasMetrics ? series : undefined}
-          trendColor={CHART.accent}
-        />
-        <StatTile
-          label="Engagement rate"
-          value={engagementRate}
-          delta={deltas.engagement}
-          deltaDir={deltas.engagementDir}
-          sub={`${fmtNum(totals.interactions)} interactions`}
-        />
-        <StatTile
-          label="Conversions"
-          value={fmtNum(totals.conversions)}
-          delta={deltas.conversions}
-          deltaDir={deltas.conversionsDir}
-          sub={`${fmtNum(totals.actions)} actions`}
-        />
-        <StatTile
-          label="AI spend"
-          value={fmtCents(ai.costCents)}
-          delta={deltas.ai}
-          deltaDir={deltas.aiDir}
-          deltaTone={deltas.aiDir === 'up' ? 'down' : 'up'}
-          sub={`${fmtNum(ai.requests)} requests`}
-        />
-      </s-grid>
+      <StatStrip
+        items={[
+          {
+            label: 'Module views',
+            value: fmtNum(totals.views),
+            delta: deltas.views,
+            deltaDir: deltas.viewsDir,
+            trend: hasMetrics ? series : undefined,
+            trendColor: CHART.accent,
+          },
+          {
+            label: 'Engagement rate',
+            value: engagementRate,
+            delta: deltas.engagement,
+            deltaDir: deltas.engagementDir,
+            sub: `${fmtNum(totals.interactions)} interactions`,
+          },
+          {
+            label: 'Conversions',
+            value: fmtNum(totals.conversions),
+            delta: deltas.conversions,
+            deltaDir: deltas.conversionsDir,
+            sub: `${fmtNum(totals.actions)} actions`,
+          },
+          {
+            label: 'AI spend',
+            value: fmtCents(ai.costCents),
+            delta: deltas.ai,
+            deltaDir: deltas.aiDir,
+            deltaTone: deltas.aiDir === 'up' ? 'bad' : 'good',
+            sub: `${fmtNum(ai.requests)} requests`,
+          },
+        ]}
+      />
 
       <s-grid gridTemplateColumns="2fr 1fr" gap="base">
         <s-section heading="Module views">

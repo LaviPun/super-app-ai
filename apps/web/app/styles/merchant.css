@@ -9,6 +9,14 @@
 /* Pre-upgrade guard: never flash unstyled light-DOM before polaris.js defines the elements. */
 s-page:not(:defined) { visibility: hidden; }
 
+/* Match the Shopify admin canvas exactly (polaris.js --t-bg: rgb(241,241,241)).
+   The vendored global stylesheets paint body AND the root .app-content wrapper
+   with the bluish #f6f8fb brand background; .app-content is content-height, so
+   on short pages the app background visibly "stops" mid-viewport against the
+   admin gray. On the Polaris merchant surface both must be the admin canvas. */
+body:has(.sa-merchant) { background: #f1f1f1; }
+.app-content:has(.sa-merchant) { background: #f1f1f1; }
+
 .sa-merchant {
   font-family: Inter, -apple-system, BlinkMacSystemFont, 'San Francisco', 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
   color: #303030;
@@ -107,6 +115,69 @@ s-page:not(:defined) { visibility: hidden; }
 .sa-m-stat-link { text-decoration: none; color: inherit; display: block; height: 100%; }
 .sa-m-stat-link:hover .sa-m-stat { border-color: #b5b5b5; }
 .sa-m-stat-link:focus-visible { outline: 2px solid #005bd3; outline-offset: 2px; border-radius: 12px; }
+
+/* ---------- KPI analytics strip (Shopify Orders-bar style) ----------
+   One connected card; metrics are divider-separated cells: small label, then
+   value + delta% beside an inline sparkline. Scrolls horizontally if narrow. */
+.sa-m-strip {
+  display: flex;
+  border: 1px solid #e3e3e3;
+  border-radius: 12px;
+  background: #ffffff;
+  overflow-x: auto;
+}
+.sa-m-strip-cell {
+  flex: 1 1 0;
+  min-width: 150px;
+  padding: 10px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-inline-start: 1px solid #ebebeb;
+  text-decoration: none;
+  color: inherit;
+}
+.sa-m-strip-cell:first-child { border-inline-start: none; }
+a.sa-m-strip-cell:hover { background: #fafafa; }
+a.sa-m-strip-cell:focus-visible { outline: 2px solid #005bd3; outline-offset: -2px; border-radius: 8px; }
+.sa-m-strip-label {
+  font-size: 12px;
+  font-weight: 550;
+  color: #616161;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sa-m-strip-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 28px;
+}
+.sa-m-strip-value {
+  font-size: 16px;
+  font-weight: 650;
+  color: #303030;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+}
+.sa-m-strip-delta { font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.sa-m-strip-delta.good { color: #0e9f6e; }
+.sa-m-strip-delta.bad { color: #dc2626; }
+.sa-m-strip-delta.neutral { color: #616161; }
+.sa-m-strip-trend { flex: 0 0 84px; line-height: 0; }
+.sa-m-strip-sub {
+  font-size: 11.5px;
+  color: #616161;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* ---------- key/value list (dense) ---------- */
 .sa-m-kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; align-items: baseline; }

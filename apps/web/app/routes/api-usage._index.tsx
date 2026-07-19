@@ -5,7 +5,7 @@ import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { RateLimitService } from '~/services/shopify/rate-limit.service';
 import { MerchantShell } from '~/components/merchant/MerchantShell';
-import { StatTile, KV, Progress, EmptyState, fmtNum } from '~/components/merchant/polaris';
+import { StatStrip, KV, Progress, EmptyState, fmtNum } from '~/components/merchant/polaris';
 
 /**
  * Shopify Admin API usage — the live rate-limit threshold for this shop, captured
@@ -62,6 +62,7 @@ export default function ApiUsageIndex() {
   return (
     <MerchantShell polaris>
       <s-page heading="API usage" inlineSize="base">
+        <s-stack gap="base">
         <s-paragraph color="subdued">
           Live Shopify Admin API rate limit for your store, captured from every automation call. Updates every few seconds.
         </s-paragraph>
@@ -73,29 +74,31 @@ export default function ApiUsageIndex() {
             </EmptyState>
           </s-section>
         ) : (
-          <s-stack gap="base">
-            <s-grid gridTemplateColumns="repeat(4, 1fr)" gap="base">
-              <StatTile
-                label="Available now"
-                value={snapshot.currentlyAvailable != null ? fmtNum(Math.round(snapshot.currentlyAvailable)) : '—'}
-                sub={snapshot.maximumAvailable != null ? `of ${fmtNum(Math.round(snapshot.maximumAvailable))} points` : undefined}
-              />
-              <StatTile
-                label="Utilization"
-                value={utilPct != null ? `${utilPct}%` : '—'}
-                sub={<Progress value={utilPct ?? 0} tone={utilTone} />}
-              />
-              <StatTile
-                label="Restore rate"
-                value={snapshot.restoreRate != null ? `${fmtNum(Math.round(snapshot.restoreRate))}/s` : '—'}
-                sub="points restored per second"
-              />
-              <StatTile
-                label="Throttled (429s)"
-                value={fmtNum(snapshot.throttledCount)}
-                sub={snapshot.throttledCount > 0 ? 'throttling observed' : 'no throttling'}
-              />
-            </s-grid>
+          <>
+            <StatStrip
+              items={[
+                {
+                  label: 'Available now',
+                  value: snapshot.currentlyAvailable != null ? fmtNum(Math.round(snapshot.currentlyAvailable)) : '—',
+                  sub: snapshot.maximumAvailable != null ? `of ${fmtNum(Math.round(snapshot.maximumAvailable))} points` : undefined,
+                },
+                {
+                  label: 'Utilization',
+                  value: utilPct != null ? `${utilPct}%` : '—',
+                  sub: utilPct != null ? <Progress value={utilPct} tone={utilTone} /> : undefined,
+                },
+                {
+                  label: 'Restore rate',
+                  value: snapshot.restoreRate != null ? `${fmtNum(Math.round(snapshot.restoreRate))}/s` : '—',
+                  sub: 'points restored per second',
+                },
+                {
+                  label: 'Throttled (429s)',
+                  value: fmtNum(snapshot.throttledCount),
+                  sub: snapshot.throttledCount > 0 ? 'throttling observed' : 'no throttling',
+                },
+              ]}
+            />
             <s-section heading="Details">
               <KV
                 rows={[
@@ -106,8 +109,9 @@ export default function ApiUsageIndex() {
                 ]}
               />
             </s-section>
-          </s-stack>
+          </>
         )}
+        </s-stack>
       </s-page>
     </MerchantShell>
   );

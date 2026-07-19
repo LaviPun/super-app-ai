@@ -4,7 +4,7 @@ import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { QuotaService } from '~/services/billing/quota.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { CHART, Sparkline, StatTile, StatusBadge, fmtNum, humanizeResource, titleCase } from '~/components/merchant/polaris';
+import { CHART, Sparkline, StatStrip, StatusBadge, fmtNum, humanizeResource, titleCase } from '~/components/merchant/polaris';
 import { getCategoryDisplayLabel, getCategoryIcon } from '~/utils/type-label';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -171,12 +171,12 @@ export default function Dashboard() {
 
         <QuickActions />
 
-        <s-grid gridTemplateColumns="repeat(auto-fit, minmax(180px, 1fr))" gap="base">
-          <StatTile label="Module views" value={fmtNum(stats.views30d)} sub="last 30 days" trend={hasViewData ? spark : undefined} trendColor={CHART.success} href="/analytics" />
-          <StatTile label="Published modules" value={stats.published} sub={`${stats.drafts} in draft`} href="/modules" />
-          <StatTile label="Active flows" value={stats.activeSchedules} sub={`${fmtNum(stats.workflowRuns)} runs this month`} href="/flows" />
-          <StatTile label="AI credits left" value={aiLeftLabel} sub={aiOfLabel} href="/billing" />
-        </s-grid>
+        <StatStrip items={[
+          { label: 'Module views', value: fmtNum(stats.views30d), sub: 'last 30 days', trend: hasViewData ? spark : undefined, trendColor: CHART.success, href: '/analytics' },
+          { label: 'Published modules', value: stats.published, sub: `${stats.drafts} in draft`, href: '/modules' },
+          { label: 'Active flows', value: stats.activeSchedules, sub: `${fmtNum(stats.workflowRuns)} runs this month`, href: '/flows' },
+          { label: 'AI credits left', value: aiLeftLabel, sub: aiOfLabel, href: '/billing' },
+        ]} />
 
         <s-grid gridTemplateColumns="2fr 1fr" gap="base">
           <s-section heading="Module views — last 14 days">

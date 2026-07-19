@@ -114,6 +114,61 @@ export function useViewMode(page: string): [ViewMode, (v: ViewMode) => void] {
   return [view, set];
 }
 
+/* ---------- KPI analytics strip (Shopify Orders-bar register) ---------- */
+export type StatStripItem = {
+  label: string;
+  value: ReactNode;
+  /** e.g. "12%" — rendered beside the value with a direction arrow */
+  delta?: string;
+  deltaDir?: 'up' | 'down';
+  deltaTone?: 'good' | 'bad' | 'neutral';
+  sub?: ReactNode;
+  trend?: number[];
+  trendColor?: string;
+  href?: string;
+};
+
+/**
+ * One connected metrics bar: divider-separated cells with label, value,
+ * delta% and an inline sparkline — the dense Orders-page register. Use this
+ * for KPI rows instead of a grid of separate StatTile cards.
+ */
+export function StatStrip({ items }: { items: StatStripItem[] }) {
+  return (
+    <div className="sa-m-strip">
+      {items.map((it) => {
+        const deltaCls = 'sa-m-strip-delta ' + (it.deltaTone ?? (it.deltaDir === 'down' ? 'bad' : 'good'));
+        const body = (
+          <>
+            <span className="sa-m-strip-label">{it.label}</span>
+            <span className="sa-m-strip-row">
+              <span className="sa-m-strip-value">
+                {it.value}
+                {it.delta && (
+                  <span className={deltaCls} aria-label={`${it.deltaDir === 'down' ? 'down' : 'up'} ${it.delta}`}>
+                    {it.deltaDir === 'down' ? '↘' : '↗'} {it.delta}
+                  </span>
+                )}
+              </span>
+              {it.trend && it.trend.length > 1 && (
+                <span className="sa-m-strip-trend" aria-hidden="true">
+                  <Sparkline data={it.trend} color={it.trendColor ?? CHART.accent} w={84} h={28} />
+                </span>
+              )}
+            </span>
+            {it.sub && <span className="sa-m-strip-sub">{it.sub}</span>}
+          </>
+        );
+        return it.href ? (
+          <Link key={it.label} to={it.href} className="sa-m-strip-cell">{body}</Link>
+        ) : (
+          <div key={it.label} className="sa-m-strip-cell">{body}</div>
+        );
+      })}
+    </div>
+  );
+}
+
 /**
  * Truncated description for table cells: one ellipsized line, full text in the
  * native hover tooltip (title attr). Light-DOM span — s-text doesn't forward title.

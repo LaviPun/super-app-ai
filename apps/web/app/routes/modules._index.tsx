@@ -6,7 +6,7 @@ import { getPrisma } from '~/db.server';
 import { QuotaService } from '~/services/billing/quota.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
-  StatTile, StatusBadge, EmptyState, ConfirmModal, Desc, LearnMore, fmtNum, useViewMode, ViewToggle, type WcTone,
+  StatStrip, StatusBadge, EmptyState, ConfirmModal, Desc, LearnMore, fmtNum, useViewMode, ViewToggle, type WcTone,
 } from '~/components/merchant/polaris';
 import { CATEGORY_ORDER, getCategoryDisplayLabel, getCategoryTone, getCategoryIcon } from '~/utils/type-label';
 
@@ -358,12 +358,12 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
       {builderOpen && (
         <ModuleBuilderCard open={builderOpen} onClose={() => setBuilderOpen(false)} aiLeftLabel={aiLeftLabel} />
       )}
-      <s-grid gridTemplateColumns="repeat(4, 1fr)" gap="base">
-        <StatTile label="Total modules" value={stats.total} />
-        <StatTile label="Published" value={stats.published} />
-        <StatTile label="Drafts" value={stats.drafts} />
-        <StatTile label="AI credits left" value={aiLeftLabel} sub={aiOfLabel} />
-      </s-grid>
+      <StatStrip items={[
+        { label: 'Total modules', value: stats.total },
+        { label: 'Published', value: stats.published },
+        { label: 'Drafts', value: stats.drafts },
+        { label: 'AI credits left', value: aiLeftLabel, sub: aiOfLabel },
+      ]} />
       <s-section padding="none">
         <s-box padding="base">
           <s-stack gap="small-100">

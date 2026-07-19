@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { EmptyState, LearnMore, StatTile, titleCase, useCustomEvent } from '~/components/merchant/polaris';
+import { EmptyState, LearnMore, StatStrip, titleCase, useCustomEvent } from '~/components/merchant/polaris';
 import { SeverityBadge, TICKET_STATUS_LABEL, TicketStatusBadge } from '~/components/support/badges';
 
 export async function loader({ request }: { request: Request }) {
@@ -176,17 +176,20 @@ function SupportBody({ tickets, modules, stats }: ReturnType<typeof useLoaderDat
       <s-button slot="primary-action" variant="primary" icon="plus" onClick={() => setFormOpen(true)}>
         New ticket
       </s-button>
+      <s-stack gap="base">
       <s-paragraph color="subdued">
         Raise issues and track them here — our support team usually responds within a few minutes.{' '}
         <LearnMore anchor="guide-support" topic="support" />
       </s-paragraph>
 
-      <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="base">
-        <StatTile label="Total tickets" value={stats.total} />
-        <StatTile label="Open" value={stats.open} />
-        <StatTile label="With the team" value={stats.escalated} />
-        <StatTile label="Resolved" value={stats.resolved} />
-      </s-grid>
+      <StatStrip
+        items={[
+          { label: 'Total tickets', value: stats.total },
+          { label: 'Open', value: stats.open },
+          { label: 'With the team', value: stats.escalated },
+          { label: 'Resolved', value: stats.resolved },
+        ]}
+      />
 
       {tickets.length === 0 ? (
         <s-section>
@@ -279,6 +282,7 @@ function SupportBody({ tickets, modules, stats }: ReturnType<typeof useLoaderDat
           )}
         </s-section>
       )}
+      </s-stack>
       {formOpen && <NewTicketModal modules={modules} onClose={() => setFormOpen(false)} />}
     </s-page>
   );
