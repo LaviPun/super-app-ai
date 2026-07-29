@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { EmptyState, LearnMore, StatStrip, titleCase, useCustomEvent } from '~/components/merchant/polaris';
+import { Desc, EmptyState, LearnMore, StatStrip, titleCase, useCustomEvent } from '~/components/merchant/polaris';
 import { SeverityBadge, TICKET_STATUS_LABEL, TicketStatusBadge } from '~/components/support/badges';
 
 export async function loader({ request }: { request: Request }) {
@@ -237,6 +237,7 @@ function SupportBody({ tickets, modules, stats }: ReturnType<typeof useLoaderDat
             </s-grid>
             <s-table-header-row>
               <s-table-header listSlot="primary">Ticket</s-table-header>
+              <s-table-header listSlot="secondary">Description</s-table-header>
               <s-table-header>Severity</s-table-header>
               <s-table-header>Category</s-table-header>
               <s-table-header listSlot="inline">Status</s-table-header>
@@ -246,15 +247,15 @@ function SupportBody({ tickets, modules, stats }: ReturnType<typeof useLoaderDat
               {rows.map((r) => (
                 <s-table-row key={r.id} clickDelegate={`ticket-link-${r.id}`}>
                   <s-table-cell>
-                    <s-stack gap="none">
-                      <s-stack direction="inline" gap="small-200" alignItems="center">
-                        <s-link id={`ticket-link-${r.id}`} onClick={() => navigate(`/support/${r.id}`)}>
-                          <s-text type="strong">{r.subject}</s-text>
-                        </s-link>
-                        {r.source === 'SHOPPER' && <s-badge tone="info">Shopper</s-badge>}
-                      </s-stack>
-                      <s-text color="subdued">{r.summary}</s-text>
+                    <s-stack direction="inline" gap="small-200" alignItems="center">
+                      <s-link id={`ticket-link-${r.id}`} onClick={() => navigate(`/support/${r.id}`)}>
+                        <s-text type="strong">{r.subject}</s-text>
+                      </s-link>
+                      {r.source === 'SHOPPER' && <s-badge tone="info">Shopper</s-badge>}
                     </s-stack>
+                  </s-table-cell>
+                  <s-table-cell>
+                    <Desc text={r.summary} />
                   </s-table-cell>
                   <s-table-cell>
                     {r.severity
