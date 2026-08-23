@@ -347,6 +347,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build workspace packages (evals import @superapp/* from dist)
+        run: pnpm --filter "web^..." run --if-present build
+
       - name: Generate Prisma client
         working-directory: apps/web
         run: pnpm exec prisma generate
@@ -369,10 +372,16 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
+          set -euo pipefail
           mkdir -p scripts/eval-out
-          pnpm evals:report --out scripts/eval-out | tee scripts/eval-out/run.log
-          # The current report is the newest eval-report-*.json.
-          REPORT=$(ls -t scripts/eval-out/eval-report-*.json | head -n1)
+          # pipefail: without it, `| tee` swallowed the runner's exit code and
+          # every nightly failed later at an empty report path (2026-08 audit).
+          pnpm evals:report --out scripts/eval-out 2>&1 | tee scripts/eval-out/run.log
+          REPORT=$(ls -t scripts/eval-out/eval-report-*.json 2>/dev/null | head -n1 || true)
+          if [ -z "$REPORT" ]; then
+            echo "::error::pnpm evals:report exited 0 but wrote no scripts/eval-out/eval-report-*.json"
+            exit 1
+          fi
           echo "REPORT_PATH=$REPORT" >> "$GITHUB_ENV"
 
       - name: Trend gate (fail on >10% quality regression)
