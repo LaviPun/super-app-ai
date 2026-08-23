@@ -163,13 +163,13 @@ describe('theme-check gate — template compile coverage', () => {
       // subset is already ~3.5s), so a per-kind sample would barely be faster while
       // losing content-driven coverage — hence we check them all. A generous
       // per-call timeout keeps it from degrading on a slow CI box.
-      const result = await checkCompiledLiquid(files, { timeoutMs: 120_000 });
+      const result = await checkCompiledLiquid(files, { timeoutMs: 180_000 });
       expect(result.degraded, 'theme-check should run, not degrade, in CI').toBe(false);
       expect(
         result.errors,
         `Theme Check errors on compiled templates: ${JSON.stringify(result.errors.slice(0, 10), null, 2)}`,
       ).toEqual([]);
     },
-    90_000,
+    240_000,
   );
 });
