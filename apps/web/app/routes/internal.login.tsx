@@ -17,6 +17,9 @@ export const links: LinksFunction = () => [
 ];
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { internalSessionStorage, commitInternal } from '~/internal-admin/session.server';
+import { enforceRateLimitWithPolicy, getClientIp } from '~/services/security/rate-limit.server';
+import { AppError } from '~/services/errors/app-error.server';
+import { ActivityLogService } from '~/services/activity/activity.service';
 
 function sanitizeInternalRedirect(rawTo: string): string {
   if (!rawTo) return '/internal';
@@ -37,7 +40,21 @@ async function constantTimePasswordEquals(input: string, expected: string): Prom
   return timingSafeEqual(hash(input), hash(expected));
 }
 
+// Brute-force guard: 5 attempts / 5 minutes per client IP (Redis-backed with
+// in-memory fallback, same infra as the API routes — rate-limit.server.ts).
+const LOGIN_RATE_LIMIT = { limit: 5, windowSec: 300 };
+
 export async function action({ request }: { request: Request }) {
+  const ip = getClientIp(request);
+  try {
+    await enforceRateLimitWithPolicy(`internal-login:${ip}`, LOGIN_RATE_LIMIT);
+  } catch (e) {
+    if (e instanceof AppError && e.code === 'RATE_LIMITED') {
+      return json({ error: 'Too many login attempts. Try again in a few minutes.' }, { status: 429 });
+    }
+    throw e;
+  }
+
   const form = await request.formData();
   const password = String(form.get('password') ?? '');
   const to = sanitizeInternalRedirect(String(form.get('to') ?? '/internal'));
@@ -45,10 +62,23 @@ export async function action({ request }: { request: Request }) {
   const expected = process.env.INTERNAL_ADMIN_PASSWORD;
   if (!expected) return json({ error: 'Internal admin not configured' }, { status: 500 });
 
+  const audit = (outcome: 'failed' | 'success') =>
+    new ActivityLogService()
+      .log({
+        actor: 'INTERNAL_ADMIN',
+        action: 'LOGIN',
+        resource: 'internal:password',
+        details: { outcome },
+        ip,
+      })
+      .catch(() => {});
+
   if (!(await constantTimePasswordEquals(password, expected))) {
+    await audit('failed');
     return json({ error: 'Invalid password' }, { status: 401 });
   }
 
+  await audit('success');
   const session = await internalSessionStorage.getSession(request.headers.get('cookie'));
   session.set('internal_admin', true);
   return redirect(to, { headers: { 'Set-Cookie': await commitInternal(session) } });
