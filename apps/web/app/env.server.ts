@@ -36,6 +36,8 @@ const EnvSchema = z.object({
   INTERNAL_SSO_CLIENT_ID: z.string().optional(),
   INTERNAL_SSO_CLIENT_SECRET: z.string().optional(),
   INTERNAL_SSO_REDIRECT_URI: z.string().url().optional(),
+  /** Comma-separated exact-match email allowlist for internal SSO. REQUIRED whenever INTERNAL_SSO_ISSUER is set. */
+  INTERNAL_SSO_ALLOWED_EMAILS: z.string().optional(),
 
   // Retention
   DEFAULT_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
@@ -71,6 +73,21 @@ const EnvSchema = z.object({
   OTEL_SERVICE_NAME: z.string().default('superapp-web'),
   OTEL_EXPORTER_OTLP_HEADERS: z.string().optional(),
   OTEL_TRACES_SAMPLE_RATE: z.string().optional(),
+}).superRefine((env, ctx) => {
+  if (env.INTERNAL_SSO_ISSUER) {
+    const allowed = (env.INTERNAL_SSO_ALLOWED_EMAILS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (allowed.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['INTERNAL_SSO_ALLOWED_EMAILS'],
+        message:
+          'INTERNAL_SSO_ALLOWED_EMAILS is required (comma-separated emails) when INTERNAL_SSO_ISSUER is set — without it SSO would grant internal admin to any IdP identity.',
+      });
+    }
+  }
 });
 
 export type Env = z.infer<typeof EnvSchema>;
