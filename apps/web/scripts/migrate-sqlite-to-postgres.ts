@@ -3,6 +3,16 @@
  * into the Postgres database at DATABASE_URL. Schema must already be applied
  * (prisma migrate deploy). Idempotent via createMany({ skipDuplicates: true }).
  *
+ * FK ordering is resolved by fixed-point retry (see `fixedPointInsert`). Some
+ * schemas contain a genuine FK *cycle* between two models (e.g. this one:
+ * Module.activeVersionId -> ModuleVersion, ModuleVersion.moduleId -> Module).
+ * When the fixed-point loop stalls on a cycle, `deferNullableCycleEdges`
+ * breaks it generically: any nullable FK column pointing at another
+ * currently-stalled model is nulled out for the phase-1 insert, and its real
+ * value is restored in a phase-2 UPDATE once every table is loaded. A cycle
+ * with no nullable edge has no safe insertion order at all and fails loudly
+ * with the concrete model names, rather than being silently dropped.
+ *
  * Usage:
  *   DATABASE_URL=postgresql://... pnpm --filter web db:copy-sqlite -- --sqlite prisma/dev.db
  * Flags:
@@ -13,6 +23,8 @@ import Database from 'better-sqlite3';
 import { Prisma, PrismaClient } from '@prisma/client';
 
 export type Row = Record<string, unknown>;
+
+export type Pending = { model: Prisma.DMMF.Model; rows: Row[] };
 
 export function parseArgs(argv: string[]) {
   const sqliteIdx = argv.indexOf('--sqlite');
@@ -46,18 +58,29 @@ export const clientKey = (name: string) => name.charAt(0).toLowerCase() + name.s
 /**
  * Fixed-point insertion: attempts every pending item each pass; items whose
  * FK parents aren't inserted yet fail and are retried next pass. Terminates
- * successfully once `pending` is empty, or throws when a full pass makes no
- * progress at all (a genuine unresolvable cycle, e.g. two models whose FKs
- * point at each other with no independently-insertable subset).
+ * successfully once `pending` is empty. On a stalled pass (no item among the
+ * remaining ones succeeded), `onStall` gets one chance to transform the
+ * failed set into something retryable (e.g. by deferring cycle-breaking FK
+ * columns) — if it returns a new list, the loop retries with that list; if it
+ * returns null/undefined, or isn't provided, the loop throws with the
+ * concrete stalled model/item names rather than looping forever or silently
+ * dropping data.
+ *
+ * A hard pass cap (`items.length + 10` full stall-resolution rounds) is a
+ * generic safety net against a broken `onStall` that returns a list which
+ * never actually makes progress — it throws rather than spinning forever.
  */
 export async function fixedPointInsert<T>(
   items: T[],
   key: (item: T) => string,
   attempt: (item: T) => Promise<void>,
   log: (msg: string) => void = () => {},
+  onStall?: (failed: T[]) => T[] | null | undefined,
 ): Promise<void> {
   let pending = items;
   let pass = 0;
+  let stallResolutions = 0;
+  const maxStallResolutions = items.length + 10;
   while (pending.length > 0) {
     pass += 1;
     const failed: T[] = [];
@@ -71,10 +94,88 @@ export async function fixedPointInsert<T>(
       }
     }
     if (failed.length === pending.length) {
+      stallResolutions += 1;
+      if (stallResolutions > maxStallResolutions) {
+        throw new Error(
+          `stall-resolution did not converge after ${maxStallResolutions} attempts; remaining: ${failed.map(key).join(', ')}`,
+        );
+      }
+      const resolved = onStall?.(failed);
+      if (resolved) {
+        log(`pass ${pass}: stall resolved by deferring cycle-breaking field(s) on: ${resolved.map(key).join(', ')}`);
+        pending = resolved;
+        continue;
+      }
       throw new Error(`no progress on pass ${pass}; remaining: ${failed.map(key).join(', ')}`);
     }
     pending = failed;
   }
+}
+
+export type DeferredRestore = {
+  modelName: string;
+  field: string;
+  idField: string;
+  id: unknown;
+  value: unknown;
+};
+
+/**
+ * Breaks a stalled fixed-point pass by deferring nullable FK columns whose
+ * target model is *also* currently stalled — i.e. the column participates in
+ * a cycle among the models that are stuck together. Those columns are nulled
+ * out in the returned (cloned) rows so phase-1 insertion can proceed without
+ * its cyclic dependency; the real values are appended to `restores` so a
+ * phase-2 UPDATE can put them back once every table is loaded.
+ *
+ * Returns null when no stalled model has any nullable cycle-breaking edge —
+ * a genuine hard cycle with no safe insertion order — so the caller can fail
+ * loudly with the concrete model names instead of masking the problem.
+ */
+export function deferNullableCycleEdges(failed: Pending[], restores: DeferredRestore[]): Pending[] | null {
+  const stalledNames = new Set(failed.map((f) => f.model.name));
+  let anyDeferred = false;
+  const resolved: Pending[] = [];
+
+  for (const item of failed) {
+    const deferrableFields = item.model.fields.filter((f) => {
+      if (f.kind !== 'object' || !f.relationFromFields || f.relationFromFields.length === 0) return false;
+      if (!stalledNames.has(f.type)) return false; // only cycle edges among the stalled set
+      return f.relationFromFields.every((fkName) => {
+        const scalar = item.model.fields.find((sf) => sf.name === fkName);
+        return scalar ? !scalar.isRequired : false; // every underlying FK column must be nullable
+      });
+    });
+
+    if (deferrableFields.length === 0) {
+      resolved.push(item); // unresolved by this pass; unchanged, still stalled
+      continue;
+    }
+
+    const idField = item.model.fields.find((f) => f.isId)?.name;
+    if (!idField) {
+      throw new Error(
+        `${item.model.name} has a nullable cycle-breaking FK but no single @id field to key its phase-2 restore on`,
+      );
+    }
+
+    anyDeferred = true;
+    const fkColumns = deferrableFields.flatMap((f) => f.relationFromFields as string[]);
+    const newRows = item.rows.map((row) => {
+      const clone: Row = { ...row };
+      for (const col of fkColumns) {
+        const value = clone[col];
+        if (value !== null && value !== undefined) {
+          restores.push({ modelName: item.model.name, field: col, idField, id: row[idField], value });
+        }
+        clone[col] = null;
+      }
+      return clone;
+    });
+    resolved.push({ model: item.model, rows: newRows });
+  }
+
+  return anyDeferred ? resolved : null;
 }
 
 async function main() {
@@ -91,7 +192,6 @@ async function main() {
     console.log('[copy] target tables truncated');
   }
 
-  type Pending = { model: Prisma.DMMF.Model; rows: Row[] };
   const pending: Pending[] = [];
   const sourceCounts = new Map<string, number>();
 
@@ -118,6 +218,7 @@ async function main() {
     pending.push({ model, rows });
   }
 
+  const restores: DeferredRestore[] = [];
   try {
     await fixedPointInsert(
       pending,
@@ -130,10 +231,27 @@ async function main() {
         });
       },
       (msg) => console.log(`[copy] ${msg}`),
+      (failed) => deferNullableCycleEdges(failed, restores),
     );
   } catch (err) {
     console.error(`[copy] ${(err as Error).message}`);
     process.exit(1);
+  }
+
+  // Phase 2: restore deferred cycle-breaking FK values now that every table
+  // is loaded. Idempotent — it's a pure overwrite to the source value, so a
+  // re-run (with nothing deferred, since the target already has the value)
+  // is either a no-op or an identical repeat write.
+  if (restores.length > 0) {
+    console.log(`[copy] phase 2: restoring ${restores.length} deferred cycle-breaking value(s)`);
+    for (const r of restores) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (pg as any)[clientKey(r.modelName)].update({
+        where: { [r.idField]: r.id },
+        data: { [r.field]: r.value },
+      });
+    }
+    console.log('[copy] phase 2 done');
   }
 
   // Verify counts.

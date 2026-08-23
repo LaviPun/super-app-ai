@@ -4,11 +4,95 @@ import {
   coerce,
   clientKey,
   fixedPointInsert,
+  deferNullableCycleEdges,
+  type Pending,
+  type Row,
+  type DeferredRestore,
 } from '../../scripts/migrate-sqlite-to-postgres';
 
 function field(type: string): Prisma.DMMF.Field {
   return { type } as Prisma.DMMF.Field;
 }
+
+function scalarField(name: string, type: string, opts: Partial<Prisma.DMMF.Field> = {}): Prisma.DMMF.Field {
+  return {
+    name,
+    kind: 'scalar',
+    isList: false,
+    isRequired: true,
+    isUnique: false,
+    isId: false,
+    isReadOnly: false,
+    hasDefaultValue: false,
+    type,
+    isGenerated: false,
+    isUpdatedAt: false,
+    ...opts,
+  } as Prisma.DMMF.Field;
+}
+
+function relationField(
+  name: string,
+  targetModel: string,
+  fromFields: string[],
+  opts: Partial<Prisma.DMMF.Field> = {},
+): Prisma.DMMF.Field {
+  return {
+    name,
+    kind: 'object',
+    isList: false,
+    isRequired: true,
+    isUnique: false,
+    isId: false,
+    isReadOnly: false,
+    hasDefaultValue: false,
+    type: targetModel,
+    relationFromFields: fromFields,
+    relationToFields: ['id'],
+    isGenerated: false,
+    isUpdatedAt: false,
+    ...opts,
+  } as Prisma.DMMF.Field;
+}
+
+function model(name: string, fields: Prisma.DMMF.Field[]): Prisma.DMMF.Model {
+  return {
+    name,
+    dbName: null,
+    fields,
+    primaryKey: null,
+    uniqueFields: [],
+    uniqueIndexes: [],
+    isGenerated: false,
+  } as unknown as Prisma.DMMF.Model;
+}
+
+// Fixtures mirroring the real (only) cycle in the schema: Module.activeVersionId
+// (nullable) -> ModuleVersion.id, ModuleVersion.moduleId (required) -> Module.id.
+const moduleModel = model('Module', [
+  scalarField('id', 'String', { isId: true, hasDefaultValue: true }),
+  scalarField('activeVersionId', 'String', { isRequired: false, isUnique: true }),
+  relationField('activeVersion', 'ModuleVersion', ['activeVersionId'], { isRequired: false }),
+]);
+const moduleVersionModel = model('ModuleVersion', [
+  scalarField('id', 'String', { isId: true, hasDefaultValue: true }),
+  scalarField('moduleId', 'String', { isRequired: true }),
+  relationField('module', 'Module', ['moduleId'], { isRequired: true }),
+]);
+
+// Fixtures for a *hypothetical* cycle with no nullable edge on either side —
+// impossible in the real schema today, but the resolver must still refuse to
+// silently skip it and fail loudly with the concrete model names instead.
+const hardModelA = model('HardA', [
+  scalarField('id', 'String', { isId: true }),
+  scalarField('bId', 'String', { isRequired: true }),
+  relationField('b', 'HardB', ['bId'], { isRequired: true }),
+]);
+const hardModelB = model('HardB', [
+  scalarField('id', 'String', { isId: true }),
+  scalarField('aId', 'String', { isRequired: true }),
+  relationField('a', 'HardA', ['aId'], { isRequired: true }),
+]);
 
 describe('coerce', () => {
   it('passes through null/undefined regardless of declared type', () => {
@@ -123,17 +207,12 @@ describe('fixedPointInsert (FK ordering via retry)', () => {
     expect(passCount).toBe(3);
   });
 
-  it('throws when a genuine cycle makes zero progress in a pass (e.g. Module <-> ModuleVersion style mutual FK)', async () => {
-    // Simulates two models whose FK constraints each require the other to
-    // already be fully inserted — no independently-insertable subset exists,
-    // so the fixed-point loop can never make progress.
-    const items = ['Module', 'ModuleVersion'];
+  it('throws on a stalled pass when no onStall resolver is supplied (baseline: no silent skip)', async () => {
+    const items = ['X', 'Y'];
     const attempt = vi.fn(async () => {
       throw new Error('FK constraint violation');
     });
-    await expect(
-      fixedPointInsert(items, (i) => i, attempt),
-    ).rejects.toThrow(/no progress on pass 1/);
+    await expect(fixedPointInsert(items, (i) => i, attempt)).rejects.toThrow(/no progress on pass 1/);
     expect(attempt).toHaveBeenCalledTimes(2);
   });
 
@@ -148,5 +227,138 @@ describe('fixedPointInsert (FK ordering via retry)', () => {
     };
     await fixedPointInsert(items, (i) => i, secondRunAttempt);
     expect(calls).toEqual(items);
+  });
+});
+
+describe('deferNullableCycleEdges', () => {
+  it('defers only the nullable FK column among the stalled set, leaves already-null rows alone, and leaves the non-nullable side unresolved', () => {
+    const restores: DeferredRestore[] = [];
+    const failed: Pending[] = [
+      {
+        model: moduleModel,
+        rows: [
+          { id: 'mod_1', activeVersionId: 'mv_1' },
+          { id: 'mod_2', activeVersionId: null },
+        ],
+      },
+      { model: moduleVersionModel, rows: [{ id: 'mv_1', moduleId: 'mod_1' }] },
+    ];
+
+    const resolved = deferNullableCycleEdges(failed, restores);
+
+    expect(resolved).not.toBeNull();
+    const moduleItem = resolved!.find((p) => p.model.name === 'Module')!;
+    expect(moduleItem.rows).toEqual([
+      { id: 'mod_1', activeVersionId: null },
+      { id: 'mod_2', activeVersionId: null }, // already null: no-op, no restore needed
+    ]);
+    const versionItem = resolved!.find((p) => p.model.name === 'ModuleVersion')!;
+    // moduleId is required -> not deferrable -> item passes through unchanged, still stalled.
+    expect(versionItem.rows).toEqual([{ id: 'mv_1', moduleId: 'mod_1' }]);
+
+    expect(restores).toEqual([{ modelName: 'Module', field: 'activeVersionId', idField: 'id', id: 'mod_1', value: 'mv_1' }]);
+  });
+
+  it('returns null (nothing deferrable) when a cycle has no nullable edge on either side', () => {
+    const restores: DeferredRestore[] = [];
+    const failed: Pending[] = [
+      { model: hardModelA, rows: [{ id: 'a1', bId: 'b1' }] },
+      { model: hardModelB, rows: [{ id: 'b1', aId: 'a1' }] },
+    ];
+    expect(deferNullableCycleEdges(failed, restores)).toBeNull();
+    expect(restores).toEqual([]);
+  });
+});
+
+describe('fixedPointInsert + deferNullableCycleEdges (Module <-> ModuleVersion cycle resolution)', () => {
+  it('resolves the cycle: Module inserts in phase 1 with activeVersionId deferred (null), ModuleVersion inserts after, and the real value is queued for a phase-2 restore', async () => {
+    const moduleRow: Row = { id: 'mod_1', activeVersionId: 'mv_1' };
+    const versionRow: Row = { id: 'mv_1', moduleId: 'mod_1' };
+    // Handed in cycle order; the algorithm must resolve it regardless.
+    const pending: Pending[] = [
+      { model: moduleModel, rows: [moduleRow] },
+      { model: moduleVersionModel, rows: [versionRow] },
+    ];
+
+    const insertedIds: Record<string, Set<unknown>> = { Module: new Set(), ModuleVersion: new Set() };
+    const insertedRows: Record<string, Row[]> = { Module: [], ModuleVersion: [] };
+    const order: string[] = [];
+
+    // A fake "target DB" that enforces FK constraints exactly like Postgres
+    // would: a row with a non-null FK column fails unless the referenced row
+    // is already committed.
+    const attempt = async (item: Pending) => {
+      for (const row of item.rows) {
+        for (const f of item.model.fields) {
+          if (f.kind !== 'object' || !f.relationFromFields) continue;
+          for (const fk of f.relationFromFields) {
+            const value = row[fk];
+            if (value !== null && value !== undefined && !insertedIds[f.type]?.has(value)) {
+              throw new Error(`FK violation: ${item.model.name}.${fk}=${String(value)} -> ${f.type} not found`);
+            }
+          }
+        }
+      }
+      for (const row of item.rows) {
+        insertedIds[item.model.name]!.add(row.id);
+        insertedRows[item.model.name]!.push(row);
+      }
+      order.push(item.model.name);
+    };
+
+    const restores: DeferredRestore[] = [];
+    await fixedPointInsert(
+      pending,
+      (item) => item.model.name,
+      attempt,
+      () => {},
+      (failed) => deferNullableCycleEdges(failed, restores),
+    );
+
+    // Plan: Module lands before ModuleVersion (phase 1, deferred FK).
+    expect(order.indexOf('Module')).toBeLessThan(order.indexOf('ModuleVersion'));
+    expect(insertedRows.Module![0]!.activeVersionId).toBeNull(); // phase-1 row was nulled
+    expect(insertedRows.ModuleVersion![0]).toEqual({ id: 'mv_1', moduleId: 'mod_1' });
+
+    // Phase 2: exactly one restore queued, carrying the real source value.
+    expect(restores).toEqual([{ modelName: 'Module', field: 'activeVersionId', idField: 'id', id: 'mod_1', value: 'mv_1' }]);
+
+    // Simulate applying the phase-2 restore (what main() does against Prisma)
+    // and confirm it's a pure, idempotent overwrite to the source value.
+    for (const r of restores) {
+      const row = insertedRows[r.modelName]!.find((x) => x.id === r.id)!;
+      row[r.field] = r.value;
+    }
+    expect(insertedRows.Module![0]!.activeVersionId).toBe('mv_1');
+  });
+
+  it('fails loudly with the concrete model names — never silently skips — when a cycle has no nullable edge to defer', async () => {
+    const pending: Pending[] = [
+      { model: hardModelA, rows: [{ id: 'a1', bId: 'b1' }] },
+      { model: hardModelB, rows: [{ id: 'b1', aId: 'a1' }] },
+    ];
+    const restores: DeferredRestore[] = [];
+    const attempt = async () => {
+      throw new Error('FK constraint violation');
+    };
+
+    let caught: Error | undefined;
+    try {
+      await fixedPointInsert(
+        pending,
+        (item) => item.model.name,
+        attempt,
+        () => {},
+        (failed) => deferNullableCycleEdges(failed, restores),
+      );
+    } catch (err) {
+      caught = err as Error;
+    }
+
+    expect(caught).toBeDefined();
+    expect(caught!.message).toMatch(/no progress on pass 1/);
+    expect(caught!.message).toContain('HardA');
+    expect(caught!.message).toContain('HardB');
+    expect(restores).toEqual([]); // nothing silently deferred
   });
 });
