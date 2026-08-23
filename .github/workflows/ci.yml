@@ -88,6 +88,20 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     needs: quality
+    # preview-export.queue.server.test.ts talks to a real Redis at
+    # QUEUE_REDIS_URL=redis://127.0.0.1:6379 (matches apps/web/.env.example's
+    # local dev default) - give the runner the same service so the queue-mode
+    # assertion isn't just testing a fresh install's ECONNREFUSED.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -115,6 +129,13 @@ jobs:
   # function build` and execute the artifact against fixtures. They need a
   # toolchain the plain test job doesn't have: Rust + wasm32-unknown-unknown
   # + the Shopify CLI (pinned to the version the suites were verified with).
+  #
+  # Node 22, not the repo-wide 20: @shopify/cli@4.7.0 declares
+  # engines.node ">=22.12.0" and its bin imports node:module's
+  # enableCompileCache, which doesn't exist on Node 20 - `shopify app
+  # function build` throws SyntaxError before this job's Rust/wasm work
+  # even starts. This job is the only ci.yml job invoking the CLI, so
+  # only it needs the newer runtime.
   test-functions:
     name: Function Extensions (wasm)
     runs-on: ubuntu-latest
@@ -127,7 +148,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@stable
