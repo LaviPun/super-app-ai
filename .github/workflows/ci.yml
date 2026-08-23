@@ -229,7 +229,17 @@ jobs:
 
       - name: Start web dev server
         working-directory: apps/web
-        run: pnpm dev -- --port 4000 > /tmp/web-dev.log 2>&1 &
+        # No `--` before the flags: pnpm's `<script> -- <args>` forwarding
+        # appends a *literal* extra `--` ahead of them here, because the
+        # `dev` script is itself a `&&`-chain ending in `remix vite:dev`
+        # (no trailing `--` of its own) - `remix vite:dev -- --port 4000`
+        # silently fails vite's remix-plugin lookup and exits 1 before
+        # listening, so `pnpm dev --port 4000` (no separator) is required.
+        # --host 127.0.0.1 makes the bind address explicit: Vite's default
+        # `localhost` bind resolves to whichever of ::1/127.0.0.1 the host
+        # prefers, and the next step's health check curls 127.0.0.1
+        # specifically.
+        run: pnpm dev --port 4000 --host 127.0.0.1 > /tmp/web-dev.log 2>&1 &
 
       - name: Wait for app to boot
         run: |
