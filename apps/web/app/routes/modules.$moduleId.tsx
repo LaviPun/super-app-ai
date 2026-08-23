@@ -15,6 +15,8 @@ import { ThemeService } from '~/services/shopify/theme.service';
 import type { Capability, DeployTarget, RecipeSpec } from '@superapp/core';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import { QuotaService } from '~/services/billing/quota.service';
+import { AppError } from '~/services/errors/app-error.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
   ConfirmModal, EmptyState, KV, StatusBadge, Tabs, useCustomEvent, type WcTone,
@@ -248,6 +250,17 @@ export async function action({ request, params }: { request: Request; params: { 
       return json({ error: `Module spec is invalid: ${String(e)}` }, { status: 422 });
     }
     const name = `${mod.name} (copy)`.slice(0, 80);
+
+    // Same plan cap as every other create path.
+    try {
+      await new QuotaService().enforce(mod.shopId, 'moduleCount');
+    } catch (e) {
+      if (e instanceof AppError && e.code === 'RATE_LIMITED') {
+        return json({ error: e.message }, { status: 429 });
+      }
+      throw e;
+    }
+
     const copy = await ms.createDraft(session.shop, { ...spec, name });
     await new ActivityLogService().log({
       actor: 'MERCHANT',

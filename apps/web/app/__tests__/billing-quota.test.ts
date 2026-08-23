@@ -158,3 +158,36 @@ describe('QuotaService.enforce — publishOp / workflowRun / connectorCall', () 
     await expect(new QuotaService().enforce('shop_1', 'connectorCall')).rejects.toBeInstanceOf(AppError);
   });
 });
+
+describe('QuotaService.enforcePublishCap — publish-time published-module cap', () => {
+  it('allows publishing when other published modules are under the cap', async () => {
+    hoisted.getPlanConfig.mockResolvedValue(config({ modulesTotal: 3 }));
+    hoisted.moduleCount.mockResolvedValue(2); // 2 OTHER published modules
+    await expect(new QuotaService().enforcePublishCap('shop_1', 'mod_x')).resolves.toBeUndefined();
+    // The count must EXCLUDE the module being published (re-publish never blocks).
+    expect(hoisted.moduleCount).toHaveBeenCalledWith({
+      where: { shopId: 'shop_1', status: 'PUBLISHED', id: { not: 'mod_x' } },
+    });
+  });
+
+  it('blocks when publishing would exceed the cap (other published >= limit)', async () => {
+    hoisted.getPlanConfig.mockResolvedValue(config({ modulesTotal: 3 }));
+    hoisted.moduleCount.mockResolvedValue(3);
+    try {
+      await new QuotaService().enforcePublishCap('shop_1', 'mod_x');
+      throw new Error('expected enforcePublishCap to throw');
+    } catch (e) {
+      const err = e as AppError;
+      expect(err).toBeInstanceOf(AppError);
+      expect(err.code).toBe('RATE_LIMITED');
+      expect(err.message).toMatch(/Module limit reached/);
+      expect(err.details).toMatchObject({ kind: 'moduleCount', used: '3', limit: '3' });
+    }
+  });
+
+  it('never blocks on unlimited (-1) plans', async () => {
+    hoisted.getPlanConfig.mockResolvedValue(config({ modulesTotal: -1 }));
+    await expect(new QuotaService().enforcePublishCap('shop_1', 'mod_x')).resolves.toBeUndefined();
+    expect(hoisted.moduleCount).not.toHaveBeenCalled();
+  });
+});

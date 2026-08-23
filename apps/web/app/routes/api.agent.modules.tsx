@@ -5,6 +5,8 @@ import { RecipeService } from '~/services/recipes/recipe.service';
 import { RecipeSpecSchema } from '@superapp/core';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import { QuotaService } from '~/services/billing/quota.service';
+import { AppError } from '~/services/errors/app-error.server';
 
 /**
  * Agent API: Module list + create.
@@ -65,11 +67,24 @@ export async function action({ request }: { request: Request }) {
     return json({ error: 'Spec validation failed', details: parsed.error.flatten() }, { status: 400 });
   }
 
+  const prisma = getPrisma();
+  const shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
+
+  // Same plan cap as every other create path (from-recipe / from-template / blueprint).
+  if (shopRow) {
+    try {
+      await new QuotaService().enforce(shopRow.id, 'moduleCount');
+    } catch (e) {
+      if (e instanceof AppError && e.code === 'RATE_LIMITED') {
+        return json({ error: e.message }, { status: 429 });
+      }
+      throw e;
+    }
+  }
+
   const moduleService = new ModuleService();
   const module = await moduleService.createDraft(session.shop, parsed.data);
 
-  const prisma = getPrisma();
-  const shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
   await new ActivityLogService().log({
     actor: 'SYSTEM',
     action: 'MODULE_CREATED',
