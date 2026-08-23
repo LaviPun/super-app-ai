@@ -10,3 +10,8 @@ node_modules
 **/*.spec.ts
 apps/frontend/.next
 apps/web/node_modules
+**/target
+.claude
+.gstack-tools
+.venv-modal
+.impeccable
