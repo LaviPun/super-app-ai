@@ -51,6 +51,10 @@ jobs:
       - name: Build workspace packages (web/api/workers import @superapp/* from dist)
         run: pnpm --filter "web^..." --filter "@superapp/api^..." --filter "@superapp/frontend^..." run --if-present build
 
+      - name: Generate Prisma client (web typecheck needs @prisma/client types)
+        working-directory: apps/web
+        run: pnpm exec prisma generate
+
       - name: Lint (web)
         run: pnpm --filter web lint
 
