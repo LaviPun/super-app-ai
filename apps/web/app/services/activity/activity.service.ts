@@ -173,8 +173,15 @@ export class ActivityLogService {
     const where: Prisma.ActivityLogWhereInput = {};
 
     if (opts.actor) where.actor = opts.actor;
-    if (opts.action) where.action = opts.action;
-    if (opts.excludeActions && opts.excludeActions.length > 0) where.action = { notIn: opts.excludeActions };
+    // action + excludeActions COMBINE — excludeActions must never clobber a
+    // caller-supplied exact action filter.
+    if (opts.excludeActions && opts.excludeActions.length > 0) {
+      where.action = opts.action
+        ? { equals: opts.action, notIn: opts.excludeActions }
+        : { notIn: opts.excludeActions };
+    } else if (opts.action) {
+      where.action = opts.action;
+    }
     if (opts.shopId) where.shopId = opts.shopId;
     if (opts.correlationId) where.correlationId = opts.correlationId;
     if (opts.dateFrom || opts.dateTo) {
