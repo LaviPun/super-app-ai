@@ -29,6 +29,7 @@ import { applyStylePackTokens } from '~/services/ai/apply-style-pack.server';
 import { applyCompositionRules } from '~/services/ai/apply-composition.server';
 import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
 import { generateValidatedBlueprint } from '~/services/ai/llm.server';
+import { finalizeGenerationJob } from '~/services/ai/generation-outcome.server';
 import { planBlueprint } from '~/services/ai/blueprint-planner';
 import { isBlueprintsEnabled } from '~/env.server';
 import type { RecipeSpec } from '@superapp/core';
@@ -318,7 +319,7 @@ export async function action({ request }: { request: Request }) {
 
                   // Attribute the judge call's cost/usage. Judge calls are NOT a
                   // billable merchant unit (requestCount: 0), mirroring how fan-out
-                  // option siblings count 0 toward quota (optionCallBillableUnits).
+                  // option siblings count 0 toward quota (claimOptionBillableUnit).
                   if (res.raw) {
                     try {
                       const { providerId: servedId, costCents } = await attributeServedCost(
@@ -375,7 +376,18 @@ export async function action({ request }: { request: Request }) {
           }
         }
 
-        await jobs.succeed(job.id, { optionCount: validCount, type: classification.moduleType });
+        // WS-QF / AI-2: 0 valid options is a FAILURE — jobs.fail + a typed
+        // terminal error frame so the client shows retry instead of silently
+        // re-running (and re-billing) the whole generation via the batch route.
+        const terminal = await finalizeGenerationJob(jobs, job.id, validCount, {
+          type: classification.moduleType,
+        });
+        if (terminal.kind === 'failed') {
+          send('error', {
+            code: terminal.code,
+            message: `${terminal.message} Please try again — this attempt was not billed.`,
+          });
+        }
       } catch (e: unknown) {
         await jobs.fail(job.id, e);
         if (e instanceof AiProviderNotConfiguredError) {

@@ -748,8 +748,24 @@ export const APPROACH_HINTS: ReadonlyArray<{ label: string; hint: string }> = [
  * individually visible for cost/observability. Every non-fan-out path already
  * records exactly 1 unit per operation, so this is the only place that needed it.
  */
-export function optionCallBillableUnits(optionIndex: number): number {
-  return optionIndex === 0 ? 1 : 0;
+/**
+ * Per-request option-billing state. Exactly ONE billable unit per merchant
+ * request — claimed by the FIRST SUCCESSFUL option call. Failed option calls
+ * never bill (their AiUsage rows carry requestCount 0, so QuotaService's
+ * requestCount sum can't charge quota for a generation the merchant never got).
+ * Claiming is synchronous (argument evaluation), so the parallel option tasks
+ * cannot race the check-and-set.
+ */
+export type GenerationBillingState = { charged: boolean };
+
+export function newGenerationBillingState(): GenerationBillingState {
+  return { charged: false };
+}
+
+export function claimOptionBillableUnit(state: GenerationBillingState, outcome: 'ok' | 'failed'): number {
+  if (outcome === 'failed' || state.charged) return 0;
+  state.charged = true;
+  return 1;
 }
 
 /**
@@ -1678,6 +1694,7 @@ export async function* generateValidatedRecipeOptionsStream(
     | { kind: 'ok'; index: number; approach: string; option: RecipeOption; durationMs: number }
     | { kind: 'err'; index: number; approach: string; error: string; durationMs: number };
 
+  const billing = newGenerationBillingState();
   const tasks: Promise<OneResult>[] = APPROACH_HINTS.slice(0, optionCount).map(async (approach, idx) => {
     const startedAt = Date.now();
     const compiledPrompt = compileCreateSingleRecipePrompt({
@@ -1769,7 +1786,7 @@ export async function* generateValidatedRecipeOptionsStream(
         tokensOut,
         costCents,
         meta: { approach: approach.label, model, repaired: repairedFlag, generationMode: produced.generationMode, durationMs: Date.now() - startedAt },
-        requestCount: optionCallBillableUnits(idx),
+        requestCount: claimOptionBillableUnit(billing, 'ok'),
         prompt: compiledPrompt,
       });
       return {
@@ -1788,7 +1805,7 @@ export async function* generateValidatedRecipeOptionsStream(
         tokensOut,
         costCents,
         meta: { approach: approach.label, model, error: String(err).slice(0, 500), durationMs: Date.now() - startedAt },
-        requestCount: optionCallBillableUnits(idx),
+        requestCount: claimOptionBillableUnit(billing, 'failed'),
         prompt: compiledPrompt,
       });
       return {
@@ -1922,6 +1939,7 @@ export async function generateValidatedRecipeOptionsParallel(
   // (only the SHOPIFY_DOCS_GROUNDING_DISABLED off-switch suppresses it).
   const platformBlock = getShopifyDocsBlock(classification.moduleType);
 
+  const billing = newGenerationBillingState();
   const calls = APPROACH_HINTS.slice(0, optionCount).map(async (approach, idx) => {
     const compiledPrompt = compileCreateSingleRecipePrompt({
       purposeAndGuidance,
@@ -2013,7 +2031,7 @@ export async function generateValidatedRecipeOptionsParallel(
         tokensOut,
         costCents,
         meta: { approach: approach.label, model, repaired: repairedFlag, generationMode: produced.generationMode },
-        requestCount: optionCallBillableUnits(idx),
+        requestCount: claimOptionBillableUnit(billing, 'ok'),
         prompt: compiledPrompt,
       });
       const option: RecipeOption = { explanation, recipe, generationMode: produced.generationMode, qaSummary: qaRetry.qaSummary };
@@ -2027,7 +2045,7 @@ export async function generateValidatedRecipeOptionsParallel(
         tokensOut,
         costCents,
         meta: { approach: approach.label, model, error: String(err).slice(0, 500) },
-        requestCount: optionCallBillableUnits(idx),
+        requestCount: claimOptionBillableUnit(billing, 'failed'),
         prompt: compiledPrompt,
       });
       return { ok: false as const, error: err };
@@ -2718,11 +2736,12 @@ export async function recordAiUsage(
     prompt?: string;
   },
 ) {
-  // Number of quota units this write carries. In the fan-out path only idx 0
-  // carries the unit (see optionCallBillableUnits), so a single swallowed write
-  // here can silently drop the merchant's whole billed generation → free
-  // generation, invisible in the data. Audit enrichment failing must never do
-  // that, so it's computed defensively and separately from the metering write.
+  // Number of quota units this write carries. In the fan-out path only the
+  // first SUCCESSFUL option call carries the unit (see claimOptionBillableUnit),
+  // so a single swallowed write here can silently drop the merchant's whole
+  // billed generation → free generation, invisible in the data. Audit
+  // enrichment failing must never do that, so it's computed defensively and
+  // separately from the metering write.
   const billedUnits = params.requestCount ?? 1;
   const accountAudit = await getProviderAccountAudit(params.providerId).catch(() => null);
   const promptAudit = buildPromptAudit(params.prompt);

@@ -39,6 +39,7 @@ import { classifyModulePublishability } from '~/services/publish/publish-preflig
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { StatusBadge, EmptyState, titleCase } from '~/components/merchant/polaris';
+import { nextStepAfterStream } from '~/utils/generation-outcome';
 
 
 // Embedded route: authenticates, then loads the real AI-credit balance (same
@@ -424,7 +425,8 @@ function GenerateWorkspace() {
   const valFetcher = useFetcher<{ ok?: boolean; schemaOk?: boolean; planTier?: string | null; errors?: { code: string; message: string; field?: string }[]; publish?: { status: 'deployable' | 'needs_runtime'; willDeploy: boolean; reasons: string[]; requiresExtension: string | null }; error?: string }>();
   const [blueprint, setBlueprint] = useState<BlueprintResult | null>(null);
 
-  const [phase, setPhase] = useState<'generating' | 'choosing' | 'ready'>('generating');
+  const [phase, setPhase] = useState<'generating' | 'choosing' | 'ready' | 'failed'>('generating');
+  const [genError, setGenError] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
   const [candidates, setCandidates] = useState<Concept[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -553,6 +555,7 @@ function GenerateWorkspace() {
     fd.set('matchStoreColors', 'true');
     const collected: Record<number, { explanation: string; recipe: Record<string, unknown> }> = {};
     let gotAny = false;
+    let sawErrorFrame: string | null = null;
     try {
       const res = await fetch('/api/ai/create-module/stream', { method: 'POST', body: fd, headers: { Accept: 'text/event-stream' } });
       if (!res.ok || !res.body) throw new Error('stream unavailable');
@@ -607,17 +610,30 @@ function GenerateWorkspace() {
                   if (cid) setSettingsMap((m) => ({ ...m, [cid]: { ...m[cid], ...settingsFromRecipe(payload.recipe) } }));
                 }
               } else if (ev === 'error') {
-                throw new Error(payload.message || 'Generation failed');
+                // Server-terminal failure: the generation RAN and produced nothing.
+                // Do NOT throw into the transport catch — that path auto-refires
+                // the batch route and bills a second request.
+                sawErrorFrame = payload.message || 'Generation failed';
               }
             }
           }
           sep = buf.indexOf('\n\n');
         }
       }
-      if (!gotAny) throw new Error('no options streamed');
+      const next = nextStepAfterStream({ gotAny, sawErrorFrame: sawErrorFrame != null, transportFailed: false });
+      if (next === 'show-retry') {
+        setGenError(sawErrorFrame ?? 'The AI returned no valid concepts.');
+        genStartedRef.current = false;
+        setPhase('failed');
+      }
+      // next === 'proceed' → applyOptions already rendered the chooser.
     } catch {
-      // Batch fallback — only if streaming produced nothing usable.
-      if (!gotAny) proposeFetcher.submit(fd, { method: 'post', action: '/api/ai/create-module' });
+      // Transport failure only (SSE unreachable / !res.ok / no body): the stream
+      // leg billed nothing, so the proven batch route is a safe single retry.
+      const next = nextStepAfterStream({ gotAny, sawErrorFrame: false, transportFailed: true });
+      if (next === 'batch-fallback') {
+        proposeFetcher.submit(fd, { method: 'post', action: '/api/ai/create-module' });
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedPrompt, applyOptions]);
@@ -786,6 +802,7 @@ function GenerateWorkspace() {
     createdRef.current = null;
     finishRef.current = null;
     genStartedRef.current = false;
+    setGenError(null);
     setPhase('generating');
     void streamGenerate();
   };
@@ -829,6 +846,7 @@ function GenerateWorkspace() {
 
   if (!seedPrompt) return null;
   if (phase === 'generating') return <GenLoading prompt={seedPrompt} stepIdx={stepIdx} onCancel={() => navigate('/')} />;
+  if (phase === 'failed') return <GenFailed prompt={seedPrompt} message={genError} onRetry={regenerate} onCancel={() => navigate('/modules')} />;
   if (phase === 'choosing') return <GenChoose prompt={seedPrompt} candidates={candidates} settingsMap={settingsMap} onSelect={openConcept} onRegenerate={regenerate} onCancel={() => navigate('/')} />;
 
   const publishing = confirmFetcher.state !== 'idle' || publishFetcher.state !== 'idle';
@@ -936,6 +954,23 @@ function GenLoading({ prompt, stepIdx, onCancel }: any) {
         </div>
         <div className="gen-progress"><i style={{ width: Math.min(100, (stepIdx / GEN_STEPS.length) * 100) + '%' }} /></div>
         <button className="btn btn-plain btn-plain-subdued" style={{ marginTop: 8 }} onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function GenFailed({ prompt, message, onRetry, onCancel }: any) {
+  return (
+    <div className="gen-loading">
+      <div className="gen-loading-card">
+        <div className="gen-loading-eyebrow"><span className="pulse-dot" />Generation failed</div>
+        <div className="t-h2" style={{ marginTop: 6, textAlign: 'center' }}>No concepts this time</div>
+        <div className="gen-prompt-echo">“{prompt}”</div>
+        <p style={{ textAlign: 'center', margin: '12px 0 4px' }}>
+          {message || 'The AI returned no valid concepts.'} This attempt was not billed.
+        </p>
+        <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={onRetry}>Try again</button>
+        <button className="btn btn-plain btn-plain-subdued" style={{ marginTop: 8 }} onClick={onCancel}>Back to modules</button>
       </div>
     </div>
   );

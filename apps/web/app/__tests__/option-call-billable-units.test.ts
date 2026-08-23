@@ -1,28 +1,40 @@
-import { describe, it, expect } from 'vitest';
-import { optionCallBillableUnits } from '~/services/ai/llm.server';
-
 /**
- * Guards the quota-metering invariant: a single merchant "generate" request fans
- * out into N parallel option calls, but must count as exactly ONE billable request
- * toward the aiRequestsPerMonth quota. Only the first option call carries the unit.
- * If someone "fixes" this back to 1-per-call, one create silently burns 3× quota.
+ * Billing contract for fan-out option generation (WS-QF / AI-2):
+ *  - Exactly ONE billable unit per merchant request, claimed by the FIRST
+ *    SUCCESSFUL option call (argument evaluation is synchronous, so the
+ *    check-and-set can't race across the parallel option tasks).
+ *  - FAILED option calls NEVER bill. QuotaService.countUsage sums requestCount
+ *    over all AiUsage rows, so a requestCount:1 on a RECIPE_GENERATION_OPTION_FAILED
+ *    row would charge quota for a generation the merchant never received.
+ *  - A request where every option fails bills 0 units (regression guard).
  */
-describe('optionCallBillableUnits', () => {
-  it('charges the first option call one billable unit', () => {
-    expect(optionCallBillableUnits(0)).toBe(1);
+import { describe, it, expect } from 'vitest';
+import { newGenerationBillingState, claimOptionBillableUnit } from '~/services/ai/llm.server';
+
+describe('claimOptionBillableUnit', () => {
+  it('bills exactly 1 unit across three successful options', () => {
+    const state = newGenerationBillingState();
+    const units = ['ok', 'ok', 'ok'].map((o) => claimOptionBillableUnit(state, o as 'ok'));
+    expect(units).toEqual([1, 0, 0]);
   });
 
-  it('charges sibling option calls zero (cost is still tracked separately via costCents)', () => {
-    expect(optionCallBillableUnits(1)).toBe(0);
-    expect(optionCallBillableUnits(2)).toBe(0);
+  it('a failed option never bills; the first SUCCESS claims the unit', () => {
+    const state = newGenerationBillingState();
+    expect(claimOptionBillableUnit(state, 'failed')).toBe(0);
+    expect(claimOptionBillableUnit(state, 'ok')).toBe(1);
+    expect(claimOptionBillableUnit(state, 'ok')).toBe(0);
   });
 
-  it('a full 3-option fan-out sums to exactly 1 quota unit', () => {
-    const total = [0, 1, 2].reduce((sum, idx) => sum + optionCallBillableUnits(idx), 0);
-    expect(total).toBe(1);
+  it('REGRESSION: a fully-failed generation bills 0 units (never counted by QuotaService)', () => {
+    const state = newGenerationBillingState();
+    const total = ['failed', 'failed', 'failed']
+      .map((o) => claimOptionBillableUnit(state, o as 'failed'))
+      .reduce((a, b) => a + b, 0);
+    expect(total).toBe(0);
   });
 
-  it('a single-option generation (optionCount=1) still charges 1', () => {
-    expect([0].reduce((sum, idx) => sum + optionCallBillableUnits(idx), 0)).toBe(1);
+  it('single-option request with a success bills exactly 1', () => {
+    const state = newGenerationBillingState();
+    expect(claimOptionBillableUnit(state, 'ok')).toBe(1);
   });
 });
