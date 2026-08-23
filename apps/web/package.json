@@ -11,6 +11,7 @@
     "test": "vitest run",
     "lint": "eslint app scripts --format unix --max-warnings 100",
     "lint:fix": "eslint app scripts --fix",
+    "worker:start": "tsx --tsconfig tsconfig.scripts.json scripts/worker.ts",
     "prisma:migrate": "prisma migrate dev",
     "retention:run": "tsx --tsconfig tsconfig.scripts.json scripts/retention.ts",
     "seed:ai-pricing": "tsx --tsconfig tsconfig.scripts.json scripts/seed-ai-pricing.ts",
