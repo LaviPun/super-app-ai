@@ -66,14 +66,11 @@
           "productDiscountsAdd": {
             "candidates": [
               {
-                "associatedDiscountCode": null,
                 "message": "20% OFF",
-                "prerequisites": null,
                 "targets": [
                   {
                     "cartLine": {
-                      "id": "gid://shopify/CartLine/0",
-                      "quantity": null
+                      "id": "gid://shopify/CartLine/0"
                     }
                   }
                 ],

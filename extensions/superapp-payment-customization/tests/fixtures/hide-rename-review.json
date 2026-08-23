@@ -61,8 +61,7 @@
       "operations": [
         {
           "paymentMethodHide": {
-            "paymentMethodId": "gid://shopify/PaymentCustomizationPaymentMethod/1",
-            "placements": null
+            "paymentMethodId": "gid://shopify/PaymentCustomizationPaymentMethod/1"
           }
         },
         {
