@@ -1,0 +1,19 @@
+# Local dev datastore stack. Ports offset (+1) to avoid clashing with any
+# system Postgres/Redis. Start with: docker compose -f docker-compose.dev.yml up -d
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: superapp
+      POSTGRES_PASSWORD: superapp
+      POSTGRES_DB: superapp
+    volumes:
+      - superapp-pgdata:/var/lib/postgresql/data
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+volumes:
+  superapp-pgdata:

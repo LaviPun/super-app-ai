@@ -3,10 +3,11 @@ generator client {
 }
 
 datasource db {
-  // Prisma 5.x requires a literal datasource provider.
-  // Keep SQLite as the default for local dev; Postgres cutover is documented in
-  // docs/runbooks/postgres-migration.md as a controlled provider flip.
-  provider = "sqlite"
+  // Postgres everywhere since the 2026-08-24 Railway cutover (WS-A).
+  // Local dev: docker-compose.dev.yml (postgresql://superapp:superapp@localhost:5433/superapp).
+  // History: sqlite era archived at prisma/migrations-archive-sqlite-20260824/;
+  // cutover per docs/runbooks/postgres-migration.md.
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
