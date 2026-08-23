@@ -111,5 +111,5 @@ pnpm exec tsx --tsconfig tsconfig.scripts.json scripts/verify-recipe-output.ts \
 `;
 
 writeFileSync(`${dir}/roulette-result.md`, md);
-// eslint-disable-next-line no-console
+ 
 console.log(`wrote ${dir}/roulette-result.md (${md.length} chars)`);

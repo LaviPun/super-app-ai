@@ -6,7 +6,6 @@ import { getAllPlanConfigs } from '~/services/billing/plan-config.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { StatusBadge, KV, EmptyState, fmtCents, titleCase } from '~/components/merchant/polaris';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);

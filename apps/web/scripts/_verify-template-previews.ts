@@ -35,17 +35,17 @@ for (const [, arr] of byCat) {
   }
 }
 
-console.log(`Total templates: ${MODULE_TEMPLATES.length}`);
-console.log(`Sampled: ${rows.length} across ${byCat.size} categories\n`);
+console.info(`Total templates: ${MODULE_TEMPLATES.length}`);
+console.info(`Sampled: ${rows.length} across ${byCat.size} categories\n`);
 for (const r of rows) {
-  console.log(`${r.hash}  ${String(r.len).padStart(6)}b  ${r.kind.padEnd(5)}  [${r.cat}]  ${r.id}`);
+  console.info(`${r.hash}  ${String(r.len).padStart(6)}b  ${r.kind.padEnd(5)}  [${r.cat}]  ${r.id}`);
 }
 
 const uniqueHashes = new Set(rows.map(r => r.hash));
 const errs = rows.filter(r => r.kind === 'ERROR');
-console.log(`\nDistinct output hashes: ${uniqueHashes.size} / ${rows.length}`);
-console.log(`Render errors: ${errs.length}`);
-if (errs.length) errs.forEach(e => console.log(`  ERROR ${e.id}: ${e.hash}`));
+console.info(`\nDistinct output hashes: ${uniqueHashes.size} / ${rows.length}`);
+console.info(`Render errors: ${errs.length}`);
+if (errs.length) errs.forEach(e => console.info(`  ERROR ${e.id}: ${e.hash}`));
 
 // Same-category distinctness check (the actual bug: identical previews within a category)
 for (const [cat, arr] of byCat) {
@@ -55,5 +55,5 @@ for (const [cat, arr] of byCat) {
   });
   const distinct = new Set(hs).size;
   const flag = distinct === hs.length ? 'OK' : 'DUPLICATE!';
-  console.log(`  [${cat}] ${distinct}/${hs.length} distinct  ${flag}`);
+  console.info(`  [${cat}] ${distinct}/${hs.length} distinct  ${flag}`);
 }

@@ -81,9 +81,9 @@ function main(): void {
   const problems: string[] = [];
   let maxTokens = 0;
 
-  console.log(`Shopify docs snapshot — generatedAt=${snapshot.generatedAt} source=${snapshot.source}`);
-  console.log('family'.padEnd(26) + 'chars'.padStart(8) + 'tokens'.padStart(8));
-  console.log('-'.repeat(42));
+  console.info(`Shopify docs snapshot — generatedAt=${snapshot.generatedAt} source=${snapshot.source}`);
+  console.info('family'.padEnd(26) + 'chars'.padStart(8) + 'tokens'.padStart(8));
+  console.info('-'.repeat(42));
 
   for (const [key, block] of families) {
     const doc = (block.docBlock ?? '').trim();
@@ -94,11 +94,11 @@ function main(): void {
       problems.push(`family "${key}" is ${tokens} tokens (> ${MAX_FAMILY_TOKENS})`);
     }
     block.tokenEstimate = tokens; // re-stamp in-memory
-    console.log(key.padEnd(26) + String(doc.length).padStart(8) + String(tokens).padStart(8));
+    console.info(key.padEnd(26) + String(doc.length).padStart(8) + String(tokens).padStart(8));
   }
 
-  console.log('-'.repeat(42));
-  console.log(`families=${families.length}  maxTokens=${maxTokens}  cap=${MAX_FAMILY_TOKENS}`);
+  console.info('-'.repeat(42));
+  console.info(`families=${families.length}  maxTokens=${maxTokens}  cap=${MAX_FAMILY_TOKENS}`);
 
   if (problems.length > 0) {
     console.error('\n✗ validation failed:');
@@ -109,9 +109,9 @@ function main(): void {
   if (restamp) {
     snapshot.generatedAt = new Date().toISOString().slice(0, 10);
     writeFileSync(snapshotPath, JSON.stringify(snapshot, null, 2) + '\n');
-    console.log(`\n✓ re-stamped snapshot (generatedAt=${snapshot.generatedAt}, tokenEstimates updated)`);
+    console.info(`\n✓ re-stamped snapshot (generatedAt=${snapshot.generatedAt}, tokenEstimates updated)`);
   } else {
-    console.log('\n✓ validation passed (run with --restamp to rewrite tokenEstimates + generatedAt)');
+    console.info('\n✓ validation passed (run with --restamp to rewrite tokenEstimates + generatedAt)');
   }
 }
 

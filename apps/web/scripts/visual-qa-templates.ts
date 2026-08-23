@@ -118,7 +118,7 @@ ${missing.length ? `<p><strong>No template found for kinds:</strong> ${missing.j
 ${cells.filter((c) => !c.startsWith('<!--')).map((f) => `<a href="./${f}">${f}</a>`).join('\n')}
 ${cells.filter((c) => c.startsWith('<!--')).join('\n')}`;
   fs.writeFileSync(path.join(OUT, 'index.html'), index);
-  console.log(`wrote ${cells.length} cells to ${OUT}; missing kinds: ${missing.join(', ') || 'none'}`);
+  console.info(`wrote ${cells.length} cells to ${OUT}; missing kinds: ${missing.join(', ') || 'none'}`);
 }
 
 main();

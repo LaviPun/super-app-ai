@@ -335,7 +335,7 @@ export async function action({ request }: { request: Request }) {
     const mode = modeRaw === 'cloud' ? 'cloud' : 'local';
     const providerRaw = String(form.get('supportTriageProviderId') ?? '').trim();
     // Provider id only applies to cloud mode; clear it otherwise.
-    let supportTriageProviderId = mode === 'cloud' ? providerRaw || null : null;
+    const supportTriageProviderId = mode === 'cloud' ? providerRaw || null : null;
     if (supportTriageProviderId) {
       const exists = await prisma.aiProvider.findUnique({ where: { id: supportTriageProviderId } });
       if (!exists) return json({ error: 'Triage provider not found' }, { status: 404 });

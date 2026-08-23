@@ -11,7 +11,6 @@ import {
   ConfirmModal, EmptyState, LearnMore, MonoChip, StatusBadge, titleCase, useCustomEvent,
 } from '~/components/merchant/polaris';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);

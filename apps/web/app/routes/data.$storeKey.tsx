@@ -9,7 +9,6 @@ import { SchemaForm, type JsonSchemaNode, type SectionUiHints } from '~/componen
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { ConfirmModal, EmptyState, MonoChip, useCustomEvent } from '~/components/merchant/polaris';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 export async function loader({ request, params }: { request: Request; params: { storeKey?: string } }) {
   const { session } = await shopify.authenticate.admin(request);

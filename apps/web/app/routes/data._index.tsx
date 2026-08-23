@@ -7,7 +7,6 @@ import { DataStoreService, PREDEFINED_STORES } from '~/services/data/data-store.
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { Desc, LearnMore, fmtNum, useCustomEvent, useViewMode, ViewToggle } from '~/components/merchant/polaris';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 const KEY_REGEX = /^[a-z0-9_]+$/;
 

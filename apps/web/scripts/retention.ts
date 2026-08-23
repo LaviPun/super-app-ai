@@ -41,7 +41,7 @@ async function purge(prisma: any, shopId: string | null, kind: Kind, days: numbe
 }
 
 main().catch((e) => {
-  // eslint-disable-next-line no-console
+   
   console.error(e);
   process.exit(1);
 });

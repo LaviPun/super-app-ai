@@ -7,7 +7,6 @@ import { ActivityLogService, logRequestOutcome } from '~/services/activity/activ
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { Tabs } from '~/components/merchant/polaris';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 type ShopInfo = { storeName: string | null; ownerName: string | null; email: string | null };
 

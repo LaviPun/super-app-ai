@@ -8,7 +8,6 @@ import {
   CHART, EmptyState, LearnMore, Progress, Sparkline, StatStrip, Tabs, exportCSV, fmtCents, fmtNum,
 } from '~/components/merchant/polaris';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 // Same category → icon mapping the modules page uses (shared taxonomy, no heuristics).
 const CAT_ICON: Record<string, string> = { desktop: 'desktop', settings: 'settings', users: 'team', bolt: 'bolt', connect: 'connect', flow: 'automation' };

@@ -11,7 +11,6 @@ import {
   StatStrip, StatusBadge, EmptyState, ConfirmModal, MonoChip, LearnMore, fmtNum,
 } from '~/components/merchant/polaris';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
