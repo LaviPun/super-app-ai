@@ -15,6 +15,10 @@ const hoisted = vi.hoisted(() => ({
   jobSucceed: vi.fn(async () => {}),
   jobFail: vi.fn(async () => {}),
   quotaEnforce: vi.fn(async () => {}),
+  // WS-QF / AI-2 review fix: captures the options object the route passes to
+  // generateValidatedRecipeOptionsStream, so we can assert the request's
+  // correlationId form field actually reaches the generation call.
+  streamCallOptions: [] as Array<Record<string, unknown> | undefined>,
 }));
 
 vi.mock('~/shopify.server', () => ({
@@ -29,7 +33,12 @@ vi.mock('~/services/ai/llm.server', () => ({
   attributeServedCost: vi.fn(),
   recordAiUsage: vi.fn(),
   generateValidatedBlueprint: vi.fn(),
-  generateValidatedRecipeOptionsStream: async function* () {
+  generateValidatedRecipeOptionsStream: async function* (
+    _prompt: string,
+    _classification: unknown,
+    options?: Record<string, unknown>,
+  ) {
+    hoisted.streamCallOptions.push(options);
     for (const ev of hoisted.streamEvents) yield ev;
   },
 }));
@@ -90,15 +99,17 @@ vi.mock('~/services/ai/design-reference.server', () => ({ loadStoreAesthetic: vi
 vi.mock('~/services/ai/blueprint-planner', () => ({ planBlueprint: vi.fn(() => ({ kind: 'single' })) }));
 vi.mock('~/env.server', () => ({ isBlueprintsEnabled: () => false }));
 
-function streamRequest() {
+function streamRequest(fields?: Record<string, string>) {
   const fd = new FormData();
   fd.set('prompt', 'a size guide');
+  for (const [k, v] of Object.entries(fields ?? {})) fd.set(k, v);
   return new Request('https://app.test/api/ai/create-module/stream', { method: 'POST', body: fd });
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   hoisted.streamEvents = [];
+  hoisted.streamCallOptions = [];
 });
 
 describe('api.ai.create-module.stream terminal handling', () => {
@@ -135,5 +146,20 @@ describe('api.ai.create-module.stream terminal handling', () => {
     expect(body).not.toContain('event: error');
     expect(hoisted.jobSucceed).toHaveBeenCalledWith('job-1', expect.objectContaining({ optionCount: 1 }));
     expect(hoisted.jobFail).not.toHaveBeenCalled();
+  });
+
+  it('WS-QF / AI-2 review fix: the request\'s correlationId form field reaches generateValidatedRecipeOptionsStream', async () => {
+    hoisted.streamEvents = [{ kind: 'done', valid: 0, total: 3 }];
+    const { action } = await import('~/routes/api.ai.create-module.stream');
+    await action({ request: streamRequest({ correlationId: 'attempt-42' }) });
+    expect(hoisted.streamCallOptions).toHaveLength(1);
+    expect(hoisted.streamCallOptions[0]).toMatchObject({ correlationId: 'attempt-42' });
+  });
+
+  it('an absent correlationId form field is passed through as undefined (no accidental empty-string id)', async () => {
+    hoisted.streamEvents = [{ kind: 'done', valid: 0, total: 3 }];
+    const { action } = await import('~/routes/api.ai.create-module.stream');
+    await action({ request: streamRequest() });
+    expect(hoisted.streamCallOptions[0]?.correlationId).toBeUndefined();
   });
 });

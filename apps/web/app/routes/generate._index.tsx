@@ -39,7 +39,7 @@ import { classifyModulePublishability } from '~/services/publish/publish-preflig
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { StatusBadge, EmptyState, titleCase } from '~/components/merchant/polaris';
-import { nextStepAfterStream } from '~/utils/generation-outcome';
+import { nextStepAfterStream, withGenerationCorrelationId } from '~/utils/generation-outcome';
 
 
 // Embedded route: authenticates, then loads the real AI-credit balance (same
@@ -553,6 +553,11 @@ function GenerateWorkspace() {
     fd.set('preferredCategory', 'Auto');
     fd.set('preferredBlockType', 'Auto');
     fd.set('matchStoreColors', 'true');
+    // WS-QF / AI-2 review fix: one id per CLICK (not per leg). The batch
+    // fallback below resubmits this SAME FormData, so the id travels
+    // unchanged to whichever leg the server sees — letting it detect a
+    // stream-then-batch retry of one attempt instead of billing it twice.
+    withGenerationCorrelationId(fd, crypto.randomUUID());
     const collected: Record<number, { explanation: string; recipe: Record<string, unknown> }> = {};
     let gotAny = false;
     let sawErrorFrame: string | null = null;
@@ -628,8 +633,11 @@ function GenerateWorkspace() {
       }
       // next === 'proceed' → applyOptions already rendered the chooser.
     } catch {
-      // Transport failure only (SSE unreachable / !res.ok / no body): the stream
-      // leg billed nothing, so the proven batch route is a safe single retry.
+      // Transport failure only (SSE unreachable / !res.ok / no body): usually
+      // the stream leg billed nothing, but it may have billed just before the
+      // drop (WS-QF / AI-2 review finding) — `fd` still carries this attempt's
+      // correlationId, so the server-side dedupe (seedBillingStateForCorrelation
+      // in llm.server.ts) bills 0 here if the stream leg already charged.
       const next = nextStepAfterStream({ gotAny, sawErrorFrame: false, transportFailed: true });
       if (next === 'batch-fallback') {
         proposeFetcher.submit(fd, { method: 'post', action: '/api/ai/create-module' });
@@ -959,7 +967,17 @@ function GenLoading({ prompt, stepIdx, onCancel }: any) {
   );
 }
 
-function GenFailed({ prompt, message, onRetry, onCancel }: any) {
+function GenFailed({
+  prompt,
+  message,
+  onRetry,
+  onCancel,
+}: {
+  prompt: string;
+  message: string | null;
+  onRetry: () => void;
+  onCancel: () => void;
+}) {
   return (
     <div className="gen-loading">
       <div className="gen-loading-card">

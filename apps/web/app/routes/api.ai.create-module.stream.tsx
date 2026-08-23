@@ -89,6 +89,12 @@ export async function action({ request }: { request: Request }) {
   const prompt = String(form.get('prompt') ?? '').trim();
   if (!prompt) return json({ error: 'Missing prompt' }, { status: 400 });
 
+  // WS-QF / AI-2 review fix: client-generated per-attempt id, reused verbatim
+  // on the batch-route fallback if this stream drops after billing — lets the
+  // fallback leg detect the prior charge and bill 0 (see
+  // seedBillingStateForCorrelation in llm.server.ts).
+  const correlationId = String(form.get('correlationId') ?? '').trim() || undefined;
+
   const preferredType = String(form.get('preferredType') ?? 'Auto').trim();
   const preferredCategory = String(form.get('preferredCategory') ?? 'Auto').trim();
   const preferredBlockType = String(form.get('preferredBlockType') ?? 'Auto').trim();
@@ -207,6 +213,7 @@ export async function action({ request }: { request: Request }) {
           optionCount: 3,
           groundingBlock: grounding || undefined,
           exemplar,
+          correlationId,
         })) {
           if (event.kind === 'option') {
             validCount++;

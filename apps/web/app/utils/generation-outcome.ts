@@ -22,3 +22,18 @@ export function nextStepAfterStream(o: StreamOutcomeInput): StreamNextStep {
   if (o.transportFailed) return 'batch-fallback';
   return 'show-retry';
 }
+
+/**
+ * Stamps a generation attempt's FormData with its correlationId (WS-QF / AI-2
+ * review fix). The stream leg sends this id, and — because the batch fallback
+ * in `generate._index.tsx` resubmits the SAME FormData object rather than
+ * building a new one — the fallback leg carries the identical id automatically.
+ * This is what lets the server's cross-leg billing dedupe
+ * (`claimOptionBillableUnit` / `seedBillingStateForCorrelation` in
+ * llm.server.ts) recognize a batch-fallback call as a retry of an
+ * already-billed attempt instead of a fresh, separately-billable request.
+ */
+export function withGenerationCorrelationId(fd: FormData, correlationId: string): FormData {
+  fd.set('correlationId', correlationId);
+  return fd;
+}

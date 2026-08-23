@@ -769,6 +769,41 @@ export function claimOptionBillableUnit(state: GenerationBillingState, outcome: 
 }
 
 /**
+ * Cross-leg billing dedupe (WS-QF / AI-2 review fix).
+ *
+ * `recordAiUsage` (which claims the billable unit) is awaited INSIDE each
+ * option task before the stream generator yields that option's SSE frame. If
+ * the connection drops between that DB write and the client parsing the frame
+ * (the documented Cloudflare-tunnel mid-stream drop), the client sees no
+ * options and no error frame — `nextStepAfterStream` returns 'batch-fallback'
+ * — and without this check the batch route's fresh `GenerationBillingState`
+ * would bill its own unit on top of the stream leg's already-recorded one.
+ *
+ * The client sends the SAME client-generated `correlationId` on the stream
+ * request and (only on transport-failure fallback) the batch request. This
+ * seeds a billing state that is already "charged" when a billed AiUsage row
+ * (requestCount > 0) already exists for that correlationId, so the fallback
+ * leg's successful option calls all claim 0 — cost is still recorded via
+ * their own `AiUsage` rows, just not counted toward quota again.
+ *
+ * The STREAM leg never calls this — it always starts from
+ * `newGenerationBillingState()` and bills normally, because it's always the
+ * first leg to run for a given correlationId. Only a leg that receives a
+ * correlationId performs the pre-check, so batch-route callers that don't
+ * pass one (tournament regeneration, direct non-fallback use) are unaffected.
+ */
+export async function seedBillingStateForCorrelation(
+  usage: Pick<AiUsageService, 'hasBilledUnit'>,
+  correlationId: string | undefined,
+): Promise<GenerationBillingState> {
+  const state = newGenerationBillingState();
+  if (correlationId && (await usage.hasBilledUnit(correlationId))) {
+    state.charged = true;
+  }
+  return state;
+}
+
+/**
  * Compile the prompt for a single-recipe generation call. Used by the parallel
  * path that fires N independent calls (one per approach hint), each with the
  * full per-type token budget.
@@ -1639,6 +1674,13 @@ export async function* generateValidatedRecipeOptionsStream(
     exemplar?: TemplateExemplar;
     /** When this module is one member of a blueprint, coordination context for the prompt. */
     blueprintContext?: string;
+    /**
+     * Client-generated per-attempt id (WS-QF / AI-2). The stream leg never
+     * dedupes on it (it's always the first leg) — it's threaded through only
+     * so the AiUsage rows it writes are discoverable by a later batch-fallback
+     * leg's dedupe check (see seedBillingStateForCorrelation).
+     */
+    correlationId?: string;
   },
 ): AsyncGenerator<RecipeOptionStreamEvent, void, void> {
   const optionCount = Math.max(1, Math.min(3, options?.optionCount ?? 3));
@@ -1787,6 +1829,7 @@ export async function* generateValidatedRecipeOptionsStream(
         costCents,
         meta: { approach: approach.label, model, repaired: repairedFlag, generationMode: produced.generationMode, durationMs: Date.now() - startedAt },
         requestCount: claimOptionBillableUnit(billing, 'ok'),
+        correlationId: options?.correlationId,
         prompt: compiledPrompt,
       });
       return {
@@ -1806,6 +1849,7 @@ export async function* generateValidatedRecipeOptionsStream(
         costCents,
         meta: { approach: approach.label, model, error: String(err).slice(0, 500), durationMs: Date.now() - startedAt },
         requestCount: claimOptionBillableUnit(billing, 'failed'),
+        correlationId: options?.correlationId,
         prompt: compiledPrompt,
       });
       return {
@@ -1888,6 +1932,14 @@ export async function generateValidatedRecipeOptionsParallel(
     exemplar?: TemplateExemplar;
     /** When this module is one member of a blueprint, coordination context for the prompt. */
     blueprintContext?: string;
+    /**
+     * Client-generated per-attempt id (WS-QF / AI-2). When present, this leg's
+     * billing state is seeded via `seedBillingStateForCorrelation` — if the
+     * stream leg for the SAME correlationId already billed a unit, this leg's
+     * successes bill 0 (cross-leg double-bill dedupe). Absent for direct,
+     * non-fallback callers (e.g. tournament regeneration), which bill normally.
+     */
+    correlationId?: string;
   },
 ): Promise<RecipeOption[]> {
   const optionCount = Math.max(1, Math.min(3, options?.optionCount ?? 3));
@@ -1939,7 +1991,10 @@ export async function generateValidatedRecipeOptionsParallel(
   // (only the SHOPIFY_DOCS_GROUNDING_DISABLED off-switch suppresses it).
   const platformBlock = getShopifyDocsBlock(classification.moduleType);
 
-  const billing = newGenerationBillingState();
+  // Cross-leg dedupe (WS-QF / AI-2): when this is a batch-fallback leg for an
+  // attempt whose stream leg already billed (same correlationId), start
+  // already-charged so every success here bills 0 instead of double-billing.
+  const billing = await seedBillingStateForCorrelation(usage, options?.correlationId);
   const calls = APPROACH_HINTS.slice(0, optionCount).map(async (approach, idx) => {
     const compiledPrompt = compileCreateSingleRecipePrompt({
       purposeAndGuidance,
@@ -2032,6 +2087,7 @@ export async function generateValidatedRecipeOptionsParallel(
         costCents,
         meta: { approach: approach.label, model, repaired: repairedFlag, generationMode: produced.generationMode },
         requestCount: claimOptionBillableUnit(billing, 'ok'),
+        correlationId: options?.correlationId,
         prompt: compiledPrompt,
       });
       const option: RecipeOption = { explanation, recipe, generationMode: produced.generationMode, qaSummary: qaRetry.qaSummary };
@@ -2046,6 +2102,7 @@ export async function generateValidatedRecipeOptionsParallel(
         costCents,
         meta: { approach: approach.label, model, error: String(err).slice(0, 500) },
         requestCount: claimOptionBillableUnit(billing, 'failed'),
+        correlationId: options?.correlationId,
         prompt: compiledPrompt,
       });
       return { ok: false as const, error: err };
@@ -2191,6 +2248,13 @@ export async function generateValidatedRecipeOptions(
     exemplar?: TemplateExemplar;
     /** When this module is one member of a blueprint, coordination context for the prompt. */
     blueprintContext?: string;
+    /**
+     * Client-generated per-attempt id (WS-QF / AI-2). Set ONLY by the batch
+     * route's transport-failure fallback (the same id the client already sent
+     * on the stream leg) — direct/non-fallback callers omit it. See
+     * seedBillingStateForCorrelation for the dedupe this enables.
+     */
+    correlationId?: string;
   },
 ): Promise<RecipeOption[]> {
   if (getRecipeSingleJsonSchemaForType(classification.moduleType)) {
@@ -2204,6 +2268,7 @@ export async function generateValidatedRecipeOptions(
       groundingBlock: options?.groundingBlock,
       exemplar: options?.exemplar,
       blueprintContext: options?.blueprintContext,
+      correlationId: options?.correlationId,
     });
   }
   const maxAttempts = options?.maxAttempts ?? 3;
@@ -2356,6 +2421,14 @@ export async function generateValidatedRecipeOptions(
         tokensIn,
         tokensOut,
       );
+      // Cross-leg dedupe (WS-QF / AI-2): this is the legacy non-fan-out path
+      // used by the batch route for types without a per-type JSON Schema. If
+      // this call carries a correlationId whose stream leg already billed
+      // (dropped mid-stream, client fell back here), don't bill again.
+      const requestCount = claimOptionBillableUnit(
+        await seedBillingStateForCorrelation(usage, options?.correlationId),
+        'ok',
+      );
       await recordAiUsage(usage, {
         providerId: servedId,
         shopId: options?.shopId,
@@ -2364,7 +2437,8 @@ export async function generateValidatedRecipeOptions(
         tokensOut,
         costCents,
         meta: { attempts: attempt + 1, model, validOptions: validated.length },
-        requestCount: 1,
+        requestCount,
+        correlationId: options?.correlationId,
         prompt: compiledPrompt,
       });
 
@@ -2734,6 +2808,8 @@ export async function recordAiUsage(
     requestCount?: number;
     meta?: unknown;
     prompt?: string;
+    /** Client-generated per-attempt id (WS-QF / AI-2) — see seedBillingStateForCorrelation. */
+    correlationId?: string;
   },
 ) {
   // Number of quota units this write carries. In the fan-out path only the

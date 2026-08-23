@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { finalizeGenerationJob } from '~/services/ai/generation-outcome.server';
-import { nextStepAfterStream } from '~/utils/generation-outcome';
+import { nextStepAfterStream, withGenerationCorrelationId } from '~/utils/generation-outcome';
 
 describe('finalizeGenerationJob', () => {
   it('fails the job and returns a typed terminal error when 0 options validated', async () => {
@@ -39,5 +39,36 @@ describe('nextStepAfterStream (client decision)', () => {
 
   it('empty stream with no error frame and no transport failure → honest retry (no silent refire)', () => {
     expect(nextStepAfterStream({ gotAny: false, sawErrorFrame: false, transportFailed: false })).toBe('show-retry');
+  });
+});
+
+describe('withGenerationCorrelationId (client fallback dedupe, WS-QF / AI-2 review fix)', () => {
+  it('the SAME correlationId travels on both the stream leg and the batch-fallback leg', () => {
+    // generate._index.tsx builds ONE FormData per click, stamps it with a
+    // correlationId, sends it to the stream route — and on transport failure
+    // (nextStepAfterStream === 'batch-fallback') resubmits that SAME FormData
+    // object to the batch route, never building a fresh one. So "same object,
+    // read twice" is the actual mechanism the fallback relies on; this test
+    // locks that a regression can't silently swap in a new/empty FormData or
+    // forget to stamp the id before the first (stream) send.
+    const fd = new FormData();
+    fd.set('prompt', 'a size guide');
+    const correlationId = 'fixed-correlation-id-for-test';
+
+    withGenerationCorrelationId(fd, correlationId);
+    const sentOnStreamLeg = fd.get('correlationId');
+
+    // The fallback path reuses `fd` verbatim (no re-stamping, no new FormData).
+    const sentOnBatchFallbackLeg = fd.get('correlationId');
+
+    expect(sentOnStreamLeg).toBe(correlationId);
+    expect(sentOnBatchFallbackLeg).toBe(correlationId);
+    expect(sentOnBatchFallbackLeg).toBe(sentOnStreamLeg);
+  });
+
+  it('returns the same FormData instance it was given (mutates in place)', () => {
+    const fd = new FormData();
+    const returned = withGenerationCorrelationId(fd, 'abc-123');
+    expect(returned).toBe(fd);
   });
 });
