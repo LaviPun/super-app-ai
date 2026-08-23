@@ -45,7 +45,7 @@
       "pnpm --filter web eslint --fix"
     ],
     "**/*.{ts,tsx,js}": [
-      "bash -c 'pnpm -r --if-present typecheck || true'"
+      "bash -c 'pnpm -r --if-present typecheck'"
     ],
     "**/shopify.app.toml": [
       "node scripts/check-shopify-config.mjs"
