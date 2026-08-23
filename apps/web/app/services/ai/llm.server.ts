@@ -786,11 +786,27 @@ export function claimOptionBillableUnit(state: GenerationBillingState, outcome: 
  * leg's successful option calls all claim 0 — cost is still recorded via
  * their own `AiUsage` rows, just not counted toward quota again.
  *
- * The STREAM leg never calls this — it always starts from
- * `newGenerationBillingState()` and bills normally, because it's always the
- * first leg to run for a given correlationId. Only a leg that receives a
- * correlationId performs the pre-check, so batch-route callers that don't
- * pass one (tournament regeneration, direct non-fallback use) are unaffected.
+ * UPDATED (Finding 2b, symmetric fix): the STREAM leg now also seeds through
+ * this same check when it carries a correlationId, instead of always starting
+ * from a fresh `newGenerationBillingState()`. The original asymmetric design
+ * assumed the stream leg is always first to run for a given correlationId —
+ * true in wall-clock start order, but NOT true for which leg's `AiUsage`
+ * write actually persists first (the server keeps generating after a client
+ * disconnect; see the `aborted` handling in api.ai.create-module.stream.tsx).
+ * With the symmetric check, whichever leg's write lands first wins the unit
+ * and the other leg's claim sees charged=true, regardless of start order.
+ * Only a leg that receives a correlationId performs the pre-check at all, so
+ * callers that don't pass one (tournament regeneration, direct non-fallback
+ * batch use) are unaffected and bill exactly as before.
+ *
+ * ACCEPTED RESIDUAL (Finding 2c): this is a check-then-act read, not an
+ * atomic claim — both legs can read `hasBilledUnit` as false before either
+ * one's write persists, in which case both bill. This window is narrow (it
+ * requires the two legs' DB round-trips to interleave within the write gap)
+ * and is a known, deliberately parked limitation, not a fix targeted here.
+ * WS-C's queued-generation architecture (server-authoritative, one billing
+ * decision per job rather than per HTTP leg) eliminates this whole class by
+ * construction — this dedupe is the pragmatic mitigation until that lands.
  */
 export async function seedBillingStateForCorrelation(
   usage: Pick<AiUsageService, 'hasBilledUnit'>,
@@ -801,6 +817,36 @@ export async function seedBillingStateForCorrelation(
     state.charged = true;
   }
   return state;
+}
+
+/**
+ * Billing for one attempt of the legacy (non-fan-out) retry loop in
+ * `generateValidatedRecipeOptions` — used for module types without a
+ * per-type JSON Schema (all others use the fan-out `generateValidatedRecipeOptionsParallel`
+ * path and its own `claimOptionBillableUnit`/`seedBillingStateForCorrelation`
+ * wiring instead).
+ *
+ * WS-QF / AI-2 review fix (reopened Finding 1): a failed attempt is not a
+ * billable generation — the merchant got nothing from it — so it bills 0,
+ * matching the fan-out paths' OPTION_FAILED semantics (cost is still recorded
+ * via costCents on that row). Before this fix every failed attempt billed 1
+ * unconditionally, so a fully-failed generation (all `maxAttempts` attempts
+ * fail) billed up to `maxAttempts` units for zero delivered options — the
+ * exact quota leak the fan-out paths were already fixed for.
+ *
+ * A successful attempt claims the request's single billable unit through the
+ * same cross-leg dedupe as the fan-out paths (`seedBillingStateForCorrelation`),
+ * so a batch-fallback call for a correlationId whose stream leg already
+ * billed (or whose own earlier attempt in THIS loop already billed — though
+ * that can't happen since failed attempts never bill) claims 0.
+ */
+export async function legacyRecipeOptionsBillableUnits(
+  usage: Pick<AiUsageService, 'hasBilledUnit'>,
+  correlationId: string | undefined,
+  outcome: 'ok' | 'failed',
+): Promise<number> {
+  if (outcome === 'failed') return 0;
+  return claimOptionBillableUnit(await seedBillingStateForCorrelation(usage, correlationId), 'ok');
 }
 
 /**
@@ -1736,7 +1782,14 @@ export async function* generateValidatedRecipeOptionsStream(
     | { kind: 'ok'; index: number; approach: string; option: RecipeOption; durationMs: number }
     | { kind: 'err'; index: number; approach: string; error: string; durationMs: number };
 
-  const billing = newGenerationBillingState();
+  // Cross-leg dedupe (WS-QF / AI-2 review fix, Finding 2b): symmetric with the
+  // batch/parallel leg — when a correlationId is present, seed from the SAME
+  // hasBilledUnit check so whichever leg's DB write actually persists FIRST
+  // wins the unit; the other leg's claim sees charged=true and bills 0,
+  // regardless of which leg started first in wall-clock terms. (Both legs
+  // read-then-write independently — see the residual-race note on
+  // seedBillingStateForCorrelation.)
+  const billing = await seedBillingStateForCorrelation(usage, options?.correlationId);
   const tasks: Promise<OneResult>[] = APPROACH_HINTS.slice(0, optionCount).map(async (approach, idx) => {
     const startedAt = Date.now();
     const compiledPrompt = compileCreateSingleRecipePrompt({
@@ -2425,10 +2478,7 @@ export async function generateValidatedRecipeOptions(
       // used by the batch route for types without a per-type JSON Schema. If
       // this call carries a correlationId whose stream leg already billed
       // (dropped mid-stream, client fell back here), don't bill again.
-      const requestCount = claimOptionBillableUnit(
-        await seedBillingStateForCorrelation(usage, options?.correlationId),
-        'ok',
-      );
+      const requestCount = await legacyRecipeOptionsBillableUnits(usage, options?.correlationId, 'ok');
       await recordAiUsage(usage, {
         providerId: servedId,
         shopId: options?.shopId,
@@ -2451,6 +2501,12 @@ export async function generateValidatedRecipeOptions(
         tokensIn,
         tokensOut,
       );
+      // WS-QF / AI-2 review fix (reopened Finding 1): a failed attempt is not
+      // a billable generation — the merchant got nothing from it. Before this
+      // fix, every failed attempt in the retry loop billed 1 unconditionally,
+      // so a fully-failed generation (all `maxAttempts` attempts fail) billed
+      // up to `maxAttempts` units for zero delivered options. See
+      // legacyRecipeOptionsBillableUnits — cost is still recorded via costCents.
       await recordAiUsage(usage, {
         providerId: servedId,
         shopId: options?.shopId,
@@ -2459,7 +2515,8 @@ export async function generateValidatedRecipeOptions(
         tokensOut,
         costCents: failCost,
         meta: { attempts: attempt + 1, model, error: String(err).slice(0, 500) },
-        requestCount: 1,
+        requestCount: await legacyRecipeOptionsBillableUnits(usage, options?.correlationId, 'failed'),
+        correlationId: options?.correlationId,
         prompt: compiledPrompt,
       });
     }

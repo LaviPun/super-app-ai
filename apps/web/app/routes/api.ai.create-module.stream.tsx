@@ -179,11 +179,39 @@ export async function action({ request }: { request: Request }) {
   });
   await jobs.start(job.id);
 
+  // WS-QF / AI-2 review fix (Finding 2a): the client can disconnect (tab
+  // closed, tunnel drop, deliberate abandon) while generation is still
+  // running. Without watching for that, the route keeps consuming stream
+  // events and — worse — keeps STARTING new LLM work (the blueprint call,
+  // the judge-polish fan-out) for a response nobody will ever read, burning
+  // tokens for nothing. `aborted` is flipped by whichever signal fires first:
+  // the platform's ReadableStream `cancel()` (called when the underlying sink
+  // is torn down) or the Request's AbortSignal (fired when the underlying
+  // connection closes). Already-in-flight option LLM calls are NOT cancelled
+  // when this flips — `generateValidatedRecipeOptionsStream` fans all of them
+  // out up front, before the first event is even yielded, so there is no safe
+  // way to abort them mid-flight without losing partial work; letting them
+  // finish (and bill/cost-record normally) is accepted. What this DOES stop:
+  // further event processing/`send()`s once the loop notices, and starting
+  // the blueprint/judge-polish phases at all.
+  let aborted = false;
+  request.signal.addEventListener('abort', () => {
+    aborted = true;
+  });
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (event: string, data: unknown) => {
-        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        if (aborted) return;
+        try {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          // Controller already closed by a cancel() the abort listener hasn't
+          // observed yet (ordering isn't guaranteed across runtimes) — treat
+          // it the same as an observed abort rather than throwing.
+          aborted = true;
+        }
       };
 
       send('intent', {
@@ -215,6 +243,14 @@ export async function action({ request }: { request: Request }) {
           exemplar,
           correlationId,
         })) {
+          // WS-QF / AI-2 review fix (Finding 2a): stop consuming once the
+          // client is gone. In-flight option LLM calls already launched by
+          // this generator are not cancelled (accepted — see the comment
+          // above the ReadableStream), but we stop doing any further work
+          // (composition/palette mutation, ranking, send()) for events that
+          // arrive after the disconnect, and — more importantly — this break
+          // means the blueprint/judge-polish phases below never start.
+          if (aborted) break;
           if (event.kind === 'option') {
             validCount++;
             // Composition guardrails (§04/§6) — palette-independent, parity with batch.
@@ -256,9 +292,11 @@ export async function action({ request }: { request: Request }) {
 
         // Blueprint parity: when the request maps to a coordinated set, generate it
         // and stream a `blueprint` event (best-effort — never blocks the options).
+        // WS-QF / AI-2 review fix (Finding 2a): don't START this extra LLM call
+        // at all once the client is known gone — nobody will read the frame.
         try {
           const plan = planBlueprint({ moduleType: classification.moduleType, intent: intentPacket.classification.intent });
-          if (isBlueprintsEnabled() && plan.kind === 'blueprint') {
+          if (!aborted && isBlueprintsEnabled() && plan.kind === 'blueprint') {
             const blueprint = await generateValidatedBlueprint(finalPrompt, plan, {
               shopId: shopRow.id,
               intentPacketJson: serializeIntentPacketForPrompt(intentPacket),
@@ -293,7 +331,10 @@ export async function action({ request }: { request: Request }) {
 
         // Async LLM-judge polish (Phase 5c) — AFTER `done`/`blueprint`, flag-gated
         // and hard-time-boxed so it can never delay or degrade the core response.
-        if (isJudgePolishEnabled() && collected.size > 0) {
+        // WS-QF / AI-2 review fix (Finding 2a): also gated on !aborted — this
+        // fans out one judge LLM call per option, exactly the "new option
+        // work" that shouldn't start for a response nobody will read.
+        if (!aborted && isJudgePolishEnabled() && collected.size > 0) {
           const elapsed = Date.now() - requestStart;
           const timeBox = Math.min(POLISH_MAX_MS, POLISH_TUNNEL_SOFT_BUDGET_MS - elapsed);
           // Skip entirely when the pre-polish flow already ran long, or no budget
@@ -406,8 +447,20 @@ export async function action({ request }: { request: Request }) {
           });
         }
       } finally {
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          /* already closed via cancel()/abort — nothing left to do */
+        }
       }
+    },
+    // WS-QF / AI-2 review fix (Finding 2a): called by the platform when the
+    // consumer goes away (client closed the connection / tab / tunnel drop).
+    // Belt-and-suspenders alongside the Request AbortSignal listener above —
+    // different runtimes surface the disconnect through one, the other, or
+    // both, and whichever fires first wins.
+    cancel() {
+      aborted = true;
     },
   });
 

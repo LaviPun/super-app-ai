@@ -19,6 +19,12 @@ const hoisted = vi.hoisted(() => ({
   // generateValidatedRecipeOptionsStream, so we can assert the request's
   // correlationId form field actually reaches the generation call.
   streamCallOptions: [] as Array<Record<string, unknown> | undefined>,
+  // Finding 2a (round-2 review): a per-test override generator + pull counter,
+  // used to prove the route STOPS consuming (calling .next()) once the client
+  // disconnects mid-stream. null = fall back to the static hoisted.streamEvents
+  // list used by the other tests.
+  customGenerator: null as null | (() => AsyncGenerator<Record<string, unknown>>),
+  pullCount: 0,
 }));
 
 vi.mock('~/shopify.server', () => ({
@@ -39,7 +45,17 @@ vi.mock('~/services/ai/llm.server', () => ({
     options?: Record<string, unknown>,
   ) {
     hoisted.streamCallOptions.push(options);
-    for (const ev of hoisted.streamEvents) yield ev;
+    if (hoisted.customGenerator) {
+      for await (const ev of hoisted.customGenerator()) {
+        hoisted.pullCount++;
+        yield ev;
+      }
+      return;
+    }
+    for (const ev of hoisted.streamEvents) {
+      hoisted.pullCount++;
+      yield ev;
+    }
   },
 }));
 vi.mock('~/services/ai/option-ranking.server', () => ({
@@ -99,17 +115,19 @@ vi.mock('~/services/ai/design-reference.server', () => ({ loadStoreAesthetic: vi
 vi.mock('~/services/ai/blueprint-planner', () => ({ planBlueprint: vi.fn(() => ({ kind: 'single' })) }));
 vi.mock('~/env.server', () => ({ isBlueprintsEnabled: () => false }));
 
-function streamRequest(fields?: Record<string, string>) {
+function streamRequest(fields?: Record<string, string>, signal?: AbortSignal) {
   const fd = new FormData();
   fd.set('prompt', 'a size guide');
   for (const [k, v] of Object.entries(fields ?? {})) fd.set(k, v);
-  return new Request('https://app.test/api/ai/create-module/stream', { method: 'POST', body: fd });
+  return new Request('https://app.test/api/ai/create-module/stream', { method: 'POST', body: fd, signal });
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   hoisted.streamEvents = [];
   hoisted.streamCallOptions = [];
+  hoisted.customGenerator = null;
+  hoisted.pullCount = 0;
 });
 
 describe('api.ai.create-module.stream terminal handling', () => {
@@ -161,5 +179,88 @@ describe('api.ai.create-module.stream terminal handling', () => {
     const { action } = await import('~/routes/api.ai.create-module.stream');
     await action({ request: streamRequest() });
     expect(hoisted.streamCallOptions[0]?.correlationId).toBeUndefined();
+  });
+
+  it('Finding 2a (round-2 review): the route stops consuming the generator once the client disconnects mid-stream', async () => {
+    // A 5-item generator that aborts the SAME AbortController backing
+    // request.signal partway through — right after producing its 2nd item,
+    // before its 3rd item is requested. If the route is correctly watching
+    // for the disconnect, it must not pull items 4 and 5 (or process/send
+    // item 3, which was already mid-flight when the abort fired) — proving
+    // it stopped consuming rather than draining the whole generator
+    // regardless of whether anyone is still listening.
+    const abortController = new AbortController();
+    hoisted.customGenerator = async function* () {
+      yield { kind: 'started', index: 0, approach: 'A', total: 5 };
+      yield {
+        kind: 'option',
+        index: 0,
+        approach: 'A',
+        option: { explanation: 'e0', recipe: { type: 'admin.block', name: 'X0' } },
+      };
+      // The client goes away right here — after item 2 is already in the
+      // client's hands (or lost to the drop), before item 3 is generated.
+      abortController.abort();
+      yield {
+        kind: 'option',
+        index: 1,
+        approach: 'B',
+        option: { explanation: 'e1', recipe: { type: 'admin.block', name: 'X1' } },
+      };
+      yield {
+        kind: 'option',
+        index: 2,
+        approach: 'C',
+        option: { explanation: 'e2', recipe: { type: 'admin.block', name: 'X2' } },
+      };
+      yield { kind: 'done', valid: 3, total: 5 };
+    };
+
+    const { action } = await import('~/routes/api.ai.create-module.stream');
+    const res = await action({ request: streamRequest(undefined, abortController.signal) });
+    const body = await res.text();
+
+    // The generator has 5 items total; the route must stop pulling once it
+    // observes the abort, well short of draining all 5.
+    expect(hoisted.pullCount).toBeLessThan(5);
+    expect(hoisted.pullCount).toBeGreaterThan(0); // it did process at least the pre-abort events
+    // Only the pre-abort option (index 0) should have been sent to the client.
+    expect(body).toContain('"index":0');
+    expect(body).not.toContain('"index":2');
+    expect(body).not.toContain('event: done');
+  });
+
+  it('Finding 2a: ReadableStream.cancel() also sets the aborted flag (belt-and-suspenders with the AbortSignal listener)', async () => {
+    // Some runtimes surface a client disconnect through the stream's own
+    // cancel() callback rather than (or before) the Request AbortSignal. This
+    // drives that path directly: read one chunk, then cancel the reader.
+    hoisted.customGenerator = async function* () {
+      yield { kind: 'started', index: 0, approach: 'A', total: 5 };
+      yield {
+        kind: 'option',
+        index: 0,
+        approach: 'A',
+        option: { explanation: 'e0', recipe: { type: 'admin.block', name: 'X0' } },
+      };
+      // Give the reader's cancel() a chance to run before producing more.
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      yield {
+        kind: 'option',
+        index: 1,
+        approach: 'B',
+        option: { explanation: 'e1', recipe: { type: 'admin.block', name: 'X1' } },
+      };
+      yield { kind: 'done', valid: 2, total: 5 };
+    };
+
+    const { action } = await import('~/routes/api.ai.create-module.stream');
+    const res = await action({ request: streamRequest() });
+    const reader = res.body!.getReader();
+    await reader.read(); // pull the first chunk (the unconditional `intent` frame)
+    await reader.cancel('client went away');
+    // Give the route's background start() a moment to observe the cancellation.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(hoisted.pullCount).toBeLessThan(5);
   });
 });
