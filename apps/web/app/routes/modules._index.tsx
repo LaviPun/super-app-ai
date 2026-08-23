@@ -9,6 +9,7 @@ import {
   StatStrip, StatusBadge, EmptyState, ConfirmModal, Desc, LearnMore, fmtNum, useViewMode, ViewToggle, type WcTone,
 } from '~/components/merchant/polaris';
 import { CATEGORY_ORDER, getCategoryDisplayLabel, getCategoryTone, getCategoryIcon } from '~/utils/type-label';
+import { commitPendingDeletes } from '~/utils/pending-delete';
 
 
 export async function loader({ request }: { request: Request }) {
@@ -194,8 +195,18 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
     return () => { clearInterval(interval); window.removeEventListener('focus', revalidate); };
   }, [revalidate]);
 
-  // Never let an undo timer fire after the component tears down.
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+  // Unmount: COMMIT the pending delete, don't cancel it. The merchant confirmed
+  // the delete; navigating away inside the undo window must not silently undo it.
+  // (Undo while mounted still works via undoPending — this only runs on teardown.)
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      const cur = pendingRef.current;
+      pendingRef.current = null;
+      if (cur) commitPendingDeletes(cur.ids);
+    },
+    [],
+  );
 
   const aiLeftLabel = aiUsage?.aiLeft == null ? '—' : fmtNum(aiUsage.aiLeft);
   const aiOfLabel = aiUsage?.aiLimit == null ? 'unlimited' : `of ${fmtNum(aiUsage.aiLimit)} / month`;
