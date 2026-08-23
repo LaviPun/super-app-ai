@@ -3,6 +3,7 @@ import {
   RECIPE_SPEC_TYPES,
   getExtensionEligibility,
   isRuntimeShipped,
+  functionActivationGap,
   type ModuleType,
   type RecipeSpec,
   type DeployTarget,
@@ -72,6 +73,16 @@ const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
   // writes no artifact, so publishing it directly would false-publish. Gated
   // needs_runtime so the single-publish path fails loudly. See extension-eligibility.ts.
   'platform.extensionBlueprint',
+  // WS-QF / D6 step 1: wasm deployed but Shopify ACTIVATION object unwired on the
+  // single-module publish path (see FUNCTION_ACTIVATION_UNWIRED in
+  // extension-eligibility.ts). Blueprint co-deploy still publishes them
+  // (activationHandledByCoDeploy). WS-E removes these as activation wiring ships.
+  'functions.discountRules',
+  'functions.cartTransform',
+  'functions.deliveryCustomization',
+  'functions.paymentCustomization',
+  'functions.cartAndCheckoutValidation',
+  'functions.fulfillmentConstraints',
 ]);
 // `pos.extension` is now deployable: extensions/superapp-pos-block reads its
 // published config from the app backend (/api/pos/config) via App Authentication
@@ -88,26 +99,26 @@ describe('module deployability audit — every type classified (eligibility mode
   });
 
   for (const type of RECIPE_SPEC_TYPES) {
-    it(`${type} classifier agrees with the registry`, () => {
+    it(`${type} classifier agrees with the registry (manifest ∧ activation)`, () => {
       const shipped = isRuntimeShipped(type, { deployedFunctionHandles: deployed });
+      const expectedDeployable = shipped && !functionActivationGap(type);
       const result = classifyModulePublishability({ type } as RecipeSpec, { deployedExtensions: deployed });
-      expect(result.status).toBe(shipped ? 'deployable' : 'needs_runtime');
-      expect(result.willDeploy).toBe(shipped);
+      expect(result.status).toBe(expectedDeployable ? 'deployable' : 'needs_runtime');
+      expect(result.willDeploy).toBe(expectedDeployable);
     });
   }
 
   it('the needs_runtime set equals the documented pending set (no silent regression)', () => {
     const needsRuntime = RECIPE_SPEC_TYPES.filter(
-      (t) => !isRuntimeShipped(t, { deployedFunctionHandles: deployed }),
+      (t) => !classifyModulePublishability({ type: t } as RecipeSpec, { deployedExtensions: deployed }).willDeploy,
     ).sort();
     expect(needsRuntime).toEqual([...EXPECTED_NEEDS_RUNTIME].sort());
   });
 
   it('reports the deployable surface area (most types)', () => {
-    const deployableCount = RECIPE_SPEC_TYPES.filter((t) =>
-      isRuntimeShipped(t, { deployedFunctionHandles: deployed }),
+    const deployableCount = RECIPE_SPEC_TYPES.filter(
+      (t) => classifyModulePublishability({ type: t } as RecipeSpec, { deployedExtensions: deployed }).willDeploy,
     ).length;
-    // Everything except the documented pending set must be deployable end-to-end.
     expect(deployableCount).toBe(RECIPE_SPEC_TYPES.length - EXPECTED_NEEDS_RUNTIME.size);
   });
 });
@@ -242,7 +253,7 @@ describe('INTEGRITY: no AUDIT-only type false-publishes (PUBLISHED ⇒ real arti
   });
 
   it('a known-deployable type still reaches deployable (gate is not over-broad)', () => {
-    for (const type of ['functions.discountRules', 'theme.section'] as const) {
+    for (const type of ['analytics.pixel', 'theme.section'] as const) {
       const pf = classifyModulePublishability({ type } as RecipeSpec, { deployedExtensions: deployed });
       expect(pf.status, `${type} must stay deployable`).toBe('deployable');
       expect(pf.willDeploy).toBe(true);
@@ -298,7 +309,7 @@ describe('INTEGRITY: declarative pricing mechanism ⇒ needs_runtime (no inert f
     expect(pf.willDeploy).toBe(false);
   });
 
-  it('functions.discountRules with a REAL Function mechanism stays deployable (gate is narrow)', () => {
+  it('functions.discountRules with a REAL Function mechanism passes the pricing gate (deployable under co-deploy)', () => {
     const spec = {
       type: 'functions.discountRules',
       name: 'Real discount',
@@ -307,9 +318,18 @@ describe('INTEGRITY: declarative pricing mechanism ⇒ needs_runtime (no inert f
         pricing: { model: 'single', mechanism: 'shopify-function-discount', discount: { kind: 'percentage', value: 10 } },
       },
     } as unknown as RecipeSpec;
-    const pf = classifyModulePublishability(spec, { deployedExtensions: deployed });
-    expect(pf.status).toBe('deployable');
-    expect(pf.willDeploy).toBe(true);
+    // Single-module path: gated by the ACTIVATION gap (not the pricing gate) —
+    // the reason must be the activation one, proving the pricing gate is narrow.
+    const single = classifyModulePublishability(spec, { deployedExtensions: deployed });
+    expect(single.status).toBe('needs_runtime');
+    expect(single.reasons.join(' ')).toMatch(/activation/i);
+    // Blueprint co-deploy (which activates for itself): fully deployable.
+    const coDeploy = classifyModulePublishability(spec, {
+      deployedExtensions: deployed,
+      activationHandledByCoDeploy: true,
+    });
+    expect(coDeploy.status).toBe('deployable');
+    expect(coDeploy.willDeploy).toBe(true);
   });
 });
 
@@ -320,6 +340,54 @@ describe('INTEGRITY: declarative pricing mechanism ⇒ needs_runtime (no inert f
  * fails the Zod enum (needless retry) and renders red in the module UI (which
  * checks `status === 'PASS'` exactly).
  */
+/**
+ * WS-QF / D6 step 1 (2026-08-24): Function types whose wasm IS deployed but whose
+ * Shopify ACTIVATION object is never created on the single-module publish path
+ * (cartTransformCreate / discountAutomaticAppCreate live only in
+ * bundle-product.service.ts, used by blueprint co-deploy; the delivery/payment/
+ * validation/fulfillment Create mutations exist nowhere). Publishing one writes a
+ * config metaobject and flips PUBLISHED while the Function never runs. Gate them
+ * needs_runtime on the single-module path; blueprint co-deploy opts out via
+ * activationHandledByCoDeploy. WS-E reverts this set type-by-type.
+ */
+const ACTIVATION_UNWIRED_TYPES = [
+  'functions.discountRules',
+  'functions.cartTransform',
+  'functions.deliveryCustomization',
+  'functions.paymentCustomization',
+  'functions.cartAndCheckoutValidation',
+  'functions.fulfillmentConstraints',
+] as const;
+
+describe('INTEGRITY: activation-unwired function types are needs_runtime on single publish', () => {
+  const deployed = deployedFunctionExtensions();
+
+  for (const type of ACTIVATION_UNWIRED_TYPES) {
+    it(`${type} is needs_runtime with an honest activation reason (wasm deployed is not enough)`, () => {
+      const pf = classifyModulePublishability({ type } as RecipeSpec, { deployedExtensions: deployed });
+      expect(pf.status).toBe('needs_runtime');
+      expect(pf.willDeploy).toBe(false);
+      expect(pf.reasons.join(' ')).toMatch(/activation/i);
+    });
+
+    it(`${type} stays deployable for blueprint co-deploy (activationHandledByCoDeploy)`, () => {
+      const pf = classifyModulePublishability({ type } as RecipeSpec, {
+        deployedExtensions: deployed,
+        activationHandledByCoDeploy: true,
+      });
+      expect(pf.status).toBe('deployable');
+      expect(pf.willDeploy).toBe(true);
+    });
+  }
+
+  it('analytics.pixel is NOT gated (webPixelCreate is a real activation)', () => {
+    const pf = classifyModulePublishability({ type: 'analytics.pixel' } as RecipeSpec, {
+      deployedExtensions: deployed,
+    });
+    expect(pf.status).toBe('deployable');
+  });
+});
+
 describe("INTEGRITY: validation-report status casing is normalized ('pass' → 'PASS')", () => {
   it('uppercases lowercase/mixed-case check statuses and overall', () => {
     const repaired = repairHydrateEnvelope({

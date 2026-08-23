@@ -90,10 +90,17 @@ export class PublishService {
     private readonly session?: { shop?: string; accessToken?: string },
   ) {}
 
-  async publish(spec: RecipeSpec, target: DeployTarget): Promise<{ compiledJson?: string; preflight: ModulePublishPreflightResult }> {
+  async publish(
+    spec: RecipeSpec,
+    target: DeployTarget,
+    opts?: { activationHandledByCoDeploy?: boolean },
+  ): Promise<{ compiledJson?: string; preflight: ModulePublishPreflightResult }> {
     // WS5/026: never silently no-op. Gate before any deploy work so a caller
     // cannot report "published" for a type that deploys nothing.
-    const preflight = classifyModulePublishability(spec, { deployedExtensions: deployedFunctionExtensions() });
+    const preflight = classifyModulePublishability(spec, {
+      deployedExtensions: deployedFunctionExtensions(),
+      activationHandledByCoDeploy: opts?.activationHandledByCoDeploy === true,
+    });
     if (!preflight.willDeploy) {
       throw new ModuleNotPublishableError(preflight);
     }

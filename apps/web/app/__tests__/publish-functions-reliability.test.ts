@@ -53,8 +53,18 @@ describe('WS5 publish preflight — SC-001 no silent no-op', () => {
     expect(blocked.status).toBe('needs_runtime');
     expect(blocked.requiresExtension).toBe(FUNCTION_EXTENSION_HANDLES['functions.discountRules']);
 
+    // With the wasm deployed the single-module path is STILL gated: the Shopify
+    // activation object is unwired (WS-QF / D6 step 1) — honest, not silent.
+    const activationGated = classifyModulePublishability(spec, {
+      deployedExtensions: [FUNCTION_EXTENSION_HANDLES['functions.discountRules']!],
+    });
+    expect(activationGated.status).toBe('needs_runtime');
+    expect(activationGated.reasons.join(' ')).toMatch(/activation/i);
+
+    // Blueprint co-deploy (which performs activation itself) stays deployable.
     const ok = classifyModulePublishability(spec, {
       deployedExtensions: [FUNCTION_EXTENSION_HANDLES['functions.discountRules']!],
+      activationHandledByCoDeploy: true,
     });
     expect(ok.status).toBe('deployable');
     expect(ok.willDeploy).toBe(true);
