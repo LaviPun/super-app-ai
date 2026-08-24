@@ -6,7 +6,8 @@ import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagination.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
-import { BillingService, deriveEffectivePlan, type BillingPlan } from '~/services/billing/billing.service';
+import { BillingService } from '~/services/billing/billing.service';
+import { deriveEffectivePlan, type BillingPlan } from '~/services/billing/plan-status';
 import { getAllPlanConfigs } from '~/services/billing/plan-config.service';
 import {
   useAdminCtx,

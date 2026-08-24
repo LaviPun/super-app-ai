@@ -1,22 +1,11 @@
 import { getPrisma } from '~/db.server';
 import { getPlanConfig as getPlanConfigFromDb } from './plan-config.service';
 
-export type BillingPlan = 'FREE' | 'STARTER' | 'GROWTH' | 'PRO' | 'ENTERPRISE';
-
-/**
- * The billing plan of record lives on AppSubscription, not Shop.planTier
- * (which is the Shopify SHOP plan and is no longer written by billing code
- * post-App-Pricing-migration). A subscription row with a non-ACTIVE status
- * (e.g. CANCELLED/EXPIRED left over from a prior cycle) must NOT be read as
- * the merchant's plan — treat it as FREE. Use this everywhere a billing plan
- * is displayed/filtered from a `subscription` relation so the rule stays
- * consistent across merchant + internal-admin surfaces.
- */
-export function deriveEffectivePlan(
-  sub: { planName: string; status: string } | null | undefined,
-): BillingPlan {
-  return sub?.status === 'ACTIVE' ? ((sub.planName as BillingPlan) ?? 'FREE') : 'FREE';
-}
+// deriveEffectivePlan + BillingPlan live in the client-safe ./plan-status
+// module (route components import them; this file is server-only via
+// db.server). Re-exported here so server-side callers keep one import path.
+export { deriveEffectivePlan, type BillingPlan } from './plan-status';
+import type { BillingPlan } from './plan-status';
 
 export type PlanConfig = {
   name: BillingPlan;

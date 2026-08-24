@@ -3,7 +3,7 @@ import { useLoaderData, useNavigate } from '@remix-run/react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { QuotaService } from '~/services/billing/quota.service';
-import { deriveEffectivePlan } from '~/services/billing/billing.service';
+import { deriveEffectivePlan } from '~/services/billing/plan-status';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { CHART, Sparkline, StatStrip, StatusBadge, fmtNum, humanizeResource, titleCase } from '~/components/merchant/polaris';
 import { getCategoryDisplayLabel, getCategoryIcon } from '~/utils/type-label';
