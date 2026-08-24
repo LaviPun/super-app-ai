@@ -64,3 +64,44 @@ describe('shared media-placeholder partial (WS-H placeholder-media fix)', () => 
     expect(offenders).toEqual([]);
   });
 });
+
+/**
+ * CLS restoration (binding follow-up to the WS-H Task 5 byte reclaim). The shared
+ * partial's real-<img> branch emits width/height (passed through from the caller);
+ * every one of the ~21 call sites across the renderer family now passes the
+ * pre-a540c7a dimensions back in, so the ImgWidthAndHeight theme-check offense (and
+ * the CLS regression it was flagging) is gone — not silenced.
+ *
+ * The width/height attributes are written UNCONDITIONALLY on the <img> tag rather
+ * than behind an {% if width != blank %} guard: Shopify's real ImgWidthAndHeight
+ * rule inspects the parsed HTML/Liquid AST for a literal attribute NODE and does
+ * not recognize one wrapped in a Liquid conditional as present, even when every
+ * real call site supplies a value (confirmed empirically against
+ * @shopify/theme-check-node — the conditional form flagged a real ERROR-severity
+ * offense with 21/21 call sites passing width+height). An omitted width/height
+ * still degrades gracefully (browsers ignore an empty width=""/height=""), so the
+ * params stay genuinely optional in practice while satisfying the linter's static
+ * shape requirement.
+ */
+describe('superapp-module-media.liquid width/height (CLS restoration)', () => {
+  const partial = readFileSync(join(SNIPPETS, PARTIAL_FILE), 'utf8');
+
+  it('emits width/height as unconditional attributes on the real <img> branch (theme-check needs the attribute NODE present, not just a conditionally-true value)', () => {
+    expect(partial).toMatch(/<img[^>]*\bwidth="\{\{\s*width\s*\}\}"/);
+    expect(partial).toMatch(/<img[^>]*\bheight="\{\{\s*height\s*\}\}"/);
+  });
+
+  it('the ImgWidthAndHeight theme-check-disable is gone — every call site now carries real dimensions', () => {
+    expect(partial).not.toMatch(/theme-check-disable[^%]*ImgWidthAndHeight/);
+  });
+
+  it('every superapp-module-media render call across the renderer family passes width and height', () => {
+    const family = ['superapp-module-sections.liquid', 'superapp-module-pdp.liquid', 'superapp-module-overlay.liquid', 'superapp-module.liquid', 'superapp-product-bundle.liquid']
+      .map((f) => readFileSync(join(SNIPPETS, f), 'utf8'))
+      .join('\n');
+    const calls = family.match(/\{%\s*render\s*'superapp-module-media'[^%]*%\}/g) ?? [];
+    expect(calls.length).toBeGreaterThanOrEqual(20); // ~21 call sites per the WS-H plan
+    const missing = calls.filter((c) => !/\bwidth:/.test(c) || !/\bheight:/.test(c));
+    expect(missing).toEqual([]);
+  });
+});

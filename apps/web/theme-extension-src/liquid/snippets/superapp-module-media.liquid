@@ -1,4 +1,4 @@
-{% # theme-check-disable OrphanedSnippet, RemoteAsset, ImgWidthAndHeight %}
+{% # theme-check-disable OrphanedSnippet, RemoteAsset %}
 {% doc %}
   Placeholder-aware media emitter (WS-H). Mirrors PreviewService's isPlaceholderUrl()/
   phMedia()/PH_SVG (apps/web/app/services/preview/preview.service.ts:3430-3454) so a
@@ -7,20 +7,31 @@
   storefront. A merchant who hasn't replaced the demo image yet sees a tasteful
   accent-tinted placeholder glyph instead, exactly what the admin preview already shows.
 
-  ImgWidthAndHeight is intentionally disabled here: this partial is shared by ~20
-  call sites whose images span very different aspect ratios (44px avatars to
-  1200px hero media), and the plan's contract (module-design-system.md /
-  WS-H Task 4) is `{ url, alt, css_class }` only — css_class carries the
-  archetype's sizing rules (same contract as PreviewService's phMedia(), which
-  also emits no explicit width/height). Each caller previously hardcoded its own
-  width/height on a bespoke <img>; collapsing to one shared partial trades that
-  per-callsite CLS hint for the placeholder-safety fix and the byte savings from
-  de-duplicating ~20 near-identical emitters. Flagged as a known trade-off, not
-  an oversight — see the WS-H Task 4 report.
+  CLS restoration (binding follow-up to WS-H Task 5): width/height are OPTIONAL
+  params, passed through to the real-<img> branch. Every call site across the
+  renderer family now passes back the pre-a540c7a dimensions it hardcoded on its own
+  bespoke <img> before this partial existed, so the layout-shift hint this partial
+  briefly dropped is restored without expanding the partial's contract into
+  per-archetype aspect-ratio knowledge — the caller still owns its own dimensions,
+  it just hands them through instead of baking them into a caller-local <img>.
+
+  Emission note: the width/height attributes are written UNCONDITIONALLY on the
+  <img> tag (not behind an {% if width != blank %} guard) — Shopify's real
+  ImgWidthAndHeight theme-check rule inspects the parsed HTML/Liquid AST for a
+  literal width/height attribute NODE on the tag; an attribute wrapped in a Liquid
+  conditional isn't recognized as present even when, as here, every real call site
+  supplies a value (confirmed empirically: the conditional form flagged a real
+  ERROR-severity offense against @shopify/theme-check-node even with 21/21 call
+  sites passing width+height). An omitted width/height still degrades gracefully —
+  browsers ignore an empty width="" / height="" exactly as if the attribute were
+  absent — so this keeps the params genuinely optional in practice while satisfying
+  the linter's static shape requirement.
 
   @param {string} url - candidate media URL (may be blank).
   @param {string} alt - alt/aria-label text.
   @param {string} css_class - class(es) the caller's layout expects on either element.
+  @param {number} width - optional intrinsic width (CLS hint) for the real <img> branch.
+  @param {number} height - optional intrinsic height (CLS hint) for the real <img> branch.
 {% enddoc %}
 {% liquid
   assign sa_media_is_placeholder = false
@@ -33,5 +44,5 @@
     <svg class="superapp-ph__glyph" viewBox="0 0 48 48" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="6" y="9" width="36" height="30" rx="3"/><circle cx="17" cy="19" r="3.5"/><path d="M8 34l10-9 7 6 6-6 9 9"/></svg>
   </div>
 {% else %}
-  <img class="{{ css_class }}" src="{{ url | escape }}" alt="{{ alt | escape }}" loading="lazy">
+  <img class="{{ css_class }}" src="{{ url | escape }}" alt="{{ alt | escape }}" loading="lazy" width="{{ width }}" height="{{ height }}">
 {% endif %}
