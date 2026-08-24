@@ -11,9 +11,7 @@ export type QuotaKind = 'aiRequest' | 'publishOp' | 'workflowRun' | 'connectorCa
  */
 export class QuotaService {
   async enforce(shopId: string, kind: QuotaKind): Promise<void> {
-    const prisma = getPrisma();
-    const sub = await prisma.appSubscription.findUnique({ where: { shopId } });
-    const planName = sub?.planName ?? 'FREE';
+    const planName = await this.resolvePlanName(shopId);
     const config = await getPlanConfig(planName);
 
     const limit = this.limitFor(config.quotas, kind);
@@ -43,8 +41,7 @@ export class QuotaService {
    */
   async enforcePublishCap(shopId: string, moduleId: string): Promise<void> {
     const prisma = getPrisma();
-    const sub = await prisma.appSubscription.findUnique({ where: { shopId } });
-    const planName = sub?.planName ?? 'FREE';
+    const planName = await this.resolvePlanName(shopId);
     const config = await getPlanConfig(planName);
     const limit = this.limitFor(config.quotas, 'moduleCount');
     if (limit === -1) return; // unlimited
@@ -62,9 +59,7 @@ export class QuotaService {
   }
 
   async getUsageSummary(shopId: string) {
-    const prisma = getPrisma();
-    const sub = await prisma.appSubscription.findUnique({ where: { shopId } });
-    const planName = sub?.planName ?? 'FREE';
+    const planName = await this.resolvePlanName(shopId);
     const config = await getPlanConfig(planName);
     const monthStart = startOfMonth();
 
@@ -80,6 +75,14 @@ export class QuotaService {
       quotas: config.quotas,
       used: { aiRequests, publishOps, workflowRuns, connectorCalls },
     };
+  }
+
+  /** Non-ACTIVE subscriptions grant no paid quota (cancelled, expired, frozen…). */
+  private async resolvePlanName(shopId: string): Promise<string> {
+    const prisma = getPrisma();
+    const sub = await prisma.appSubscription.findUnique({ where: { shopId } });
+    if (!sub || sub.status !== 'ACTIVE') return 'FREE';
+    return sub.planName;
   }
 
   private limitFor(quotas: Record<string, number>, kind: QuotaKind): number {
