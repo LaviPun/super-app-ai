@@ -111,6 +111,9 @@ model Module {
   // Design from Image (doc 24.4.1)
   sourceType String?  // template | recipe | scratch | image
   sourceJobId String?
+  /// WS-C: carries the originating async-generation Job.correlationId forward into hydrate/publish
+  /// so the funnel can assemble the full classified→optioned→hydrated→published chain.
+  generationCorrelationId String?
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -123,6 +126,8 @@ model Module {
   dataCaptures DataCapture[]
   functionRuleSets FunctionRuleSet[]
   flowAssets  FlowAsset[]
+
+  @@index([generationCorrelationId])
 }
 
 model ModuleVersion {
@@ -355,14 +360,43 @@ model Job {
   /// Inherits the originating request's correlationId; child FlowStepLogs and AiUsage
   /// records share this id for end-to-end trace assembly.
   correlationId String?
+  /// WS-C: coarse pipeline stage for async jobs (classifying | generating | ranking | finalizing), set by
+  /// runGenerationPipeline hooks via JobService.setStage; null for jobs that don't report stage progress.
+  stage     String?
   startedAt DateTime?
   finishedAt DateTime?
   createdAt DateTime @default(now())
+
+  generationOptions AiGenerationOption[]
 
   @@index([status, createdAt])
   @@index([shopId, createdAt])
   @@index([requestId])
   @@index([correlationId])
+}
+
+/// WS-C: per-option persistence for async generation jobs. Written as each option validates so a
+/// dropped client connection can re-fetch state via GET /api/ai/jobs/:jobId without re-spending.
+model AiGenerationOption {
+  id             String   @id @default(cuid())
+  jobId          String
+  job            Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  shopId         String?
+  idx            Int
+  approach       String
+  status         String   // VALID | FAILED
+  explanation    String?
+  recipeJson     String?  // RecipeSpec JSON (final, post-composition/palette)
+  error          String?
+  score          Float?
+  badgesJson     String?  // string[] JSON
+  qaIssuesJson   String?  // string[] of QA issue ids (Task 15)
+  generationMode String?  // delta | freeform
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([jobId, idx])
+  @@index([shopId, createdAt])
 }
 
 model WebhookEvent {
@@ -493,6 +527,9 @@ model AppSettings {
   // Support triage: 'local' (machine-local Ollama) | 'cloud' (AiProvider below / default chain)
   supportTriageMode String @default("local")
   supportTriageProviderId String?
+  // WS-C: ops-promoted QA issue ids (JSON string[]) — promoted ids escalate warn->fail inside
+  // runAllQaGates without a redeploy. Written/read by qa-telemetry.service.ts (Task 15).
+  qaPromotedBlockingIssueIds String?
   // Email delivery (DB-first; null = fall back to EMAIL_* env vars). See services/notifications/mailer.server.ts.
   emailProvider  String? // smtp | sendgrid | generic (null = use env fallback)
   emailFrom      String?
