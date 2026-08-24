@@ -337,6 +337,7 @@ model Job {
   /// Inherits the originating request's correlationId; child FlowStepLogs and AiUsage
   /// records share this id for end-to-end trace assembly.
   correlationId String?
+  maxAttempts Int @default(3)
   startedAt DateTime?
   finishedAt DateTime?
   createdAt DateTime @default(now())
@@ -345,6 +346,7 @@ model Job {
   @@index([shopId, createdAt])
   @@index([requestId])
   @@index([correlationId])
+  @@index([status, startedAt])
 }
 
 model WebhookEvent {
@@ -485,6 +487,16 @@ model AppSettings {
   smtpUser       String?
   smtpPassEnc    String? // encryptJson({ pass })
   smtpSecure     Boolean @default(true)
+  // Ops alerting (WS-G) — Slack incoming webhook + rolling-window threshold.
+  opsSlackWebhookUrlEnc      String?  // encryptJson({ url })
+  opsAlertThresholdCount     Int      @default(3)
+  opsAlertThresholdWindowMin Int      @default(15)
+  sentryLastTestedAt         DateTime?
+  // Integrations Hub Category 2 (WS-INT) — read-only status API keys.
+  uptimeRobotApiKeyEnc    String?  // encryptJson({ apiKey }) — UptimeRobot "read-only" API key
+  uptimeRobotMonitorId    String?  // numeric monitor id, e.g. "8123456"
+  healthchecksApiKeyEnc   String?  // encryptJson({ apiKey }) — healthchecks.io API key
+  healthchecksCheckSlug   String?  @default("superapp-cron")
   // Meta
   updatedAt DateTime @updatedAt
 }
