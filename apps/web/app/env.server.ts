@@ -219,3 +219,22 @@ export function isThemeCheckGateBlocking(): boolean {
 export function isCostRoutingEnabled(): boolean {
   return parseBooleanEnv(process.env.AI_COST_ROUTING_ENABLED, false);
 }
+
+/**
+ * WS-C Task 5 (C7): worker job time budgets, ms. Deadline budgets replace the
+ * old ~90-100s Cloudflare-tunnel discipline for async jobs — the worker has
+ * no HTTP connection to lose, but the underlying LLM calls still need a
+ * bound so a stuck provider call can't hold a BullMQ job (and its slot in
+ * WORKER_CONCURRENCY) open forever. `GENERATION_JOB_BUDGET_MS` covers the
+ * full classify->option-stream->blueprint pipeline; `HYDRATE_JOB_BUDGET_MS`
+ * (Task 8) covers a single hydrate call. Both env-overridable, additive.
+ */
+export function getGenerationJobBudgetMs(): number {
+  const raw = Number.parseInt(process.env.GENERATION_JOB_BUDGET_MS ?? '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 150_000;
+}
+
+export function getHydrateJobBudgetMs(): number {
+  const raw = Number.parseInt(process.env.HYDRATE_JOB_BUDGET_MS ?? '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 90_000;
+}

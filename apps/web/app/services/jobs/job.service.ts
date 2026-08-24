@@ -1,5 +1,6 @@
 import { getPrisma } from '~/db.server';
 import { getRequestContext } from '~/services/observability/correlation.server';
+import type { AppErrorPayload } from '~/services/errors/app-error.server';
 
 export type JobType = 'AI_GENERATE'|'AI_HYDRATE'|'AI_MODIFY'|'PUBLISH'|'CONNECTOR_TEST'|'FLOW_RUN'|'MESSAGING_RUN'|'HTTP_SYNC_RUN'|'THEME_ANALYZE';
 export type JobStatus = 'QUEUED'|'RUNNING'|'SUCCESS'|'FAILED';
@@ -70,6 +71,26 @@ export class JobService {
       where: { id: jobId },
       data: { status: 'FAILED', finishedAt: new Date(), error: String(error) },
     });
+  }
+
+  /**
+   * WS-C Task 5: async worker jobs have no HTTP response to carry a typed
+   * error to the client — the poll route (Task 6) reads `Job.error` back out
+   * and re-hydrates it as the same `AppErrorPayload` shape the inline routes
+   * return directly. Never a bare `String(e)` (D8, no silent failures).
+   */
+  async failWithPayload(jobId: string, payload: AppErrorPayload) {
+    const prisma = getPrisma();
+    return prisma.job.update({
+      where: { id: jobId },
+      data: { status: 'FAILED', finishedAt: new Date(), error: JSON.stringify(payload) },
+    });
+  }
+
+  /** WS-C Task 5: coarse pipeline-stage progress for async jobs (see Job.stage). */
+  async setStage(jobId: string, stage: string) {
+    const prisma = getPrisma();
+    return prisma.job.update({ where: { id: jobId }, data: { stage } });
   }
 
   async listLatest(limit = 200) {
