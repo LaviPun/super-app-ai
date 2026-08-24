@@ -109,6 +109,7 @@ export async function action({ request }: { request: Request }) {
     workflowRunSteps: 0,
     workflowRuns: 0,
     workflowDefs: 0,
+    functionActivations: 0,
   };
 
   // Already-covered models (pre-existing) — DataStoreRecord has no shopId of its own,
@@ -125,8 +126,10 @@ export async function action({ request }: { request: Request }) {
   counts.attributionLinks = (await prisma.attributionLink.deleteMany({ where: { shopId: shop.id } })).count;
 
   // Connector secrets — ConnectorToken uses `tenantId` (not `shopId`) as its shop-scoping
-  // field so it isn't picked up by the schema-introspection completeness test, but it holds
-  // real per-shop encrypted credentials and must be purged like any other shop-scoped model.
+  // field. The schema-introspection completeness test DOES pick this up: it derives its
+  // field-name vocabulary from every model with a direct FK relation to `Shop` (ConnectorToken
+  // declares one via `tenantId`), so `tenantId` is in that vocabulary and this model is
+  // required, not just handled defensively. It holds real per-shop encrypted credentials.
   counts.connectorTokens = (await prisma.connectorToken.deleteMany({ where: { tenantId: shop.id } })).count;
   // ConnectorEndpoint cascades automatically (onDelete: Cascade on connectorId -> Connector).
   counts.connectors = (await prisma.connector.deleteMany({ where: { shopId: shop.id } })).count;
@@ -171,6 +174,12 @@ export async function action({ request }: { request: Request }) {
   ).count;
   counts.workflowRuns = (await prisma.workflowRun.deleteMany({ where: { tenantId: shop.id } })).count;
   counts.workflowDefs = (await prisma.workflowDef.deleteMany({ where: { tenantId: shop.id } })).count;
+
+  // WS-E's post-publish Shopify Function activation record (discount/delivery-customization
+  // GIDs). A leaf — no other model references FunctionActivation.id — so it deletes standalone;
+  // its activation GIDs are shop data (which live Shopify objects this shop's modules created),
+  // not an audit trail, so it's deleted like any other shop-scoped model, not allowlisted.
+  counts.functionActivations = (await prisma.functionActivation.deleteMany({ where: { shopId: shop.id } })).count;
 
   await prisma.activityLog.create({
     data: {

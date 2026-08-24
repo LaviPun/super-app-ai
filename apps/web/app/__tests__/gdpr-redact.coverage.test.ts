@@ -172,6 +172,9 @@ function makePrismaMock() {
     workflowRunStep: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     workflowRun: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     workflowDef: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    // Fix round 2 (post-WS-E-merge): FunctionActivation, caught by the
+    // completeness test's structural FK-to-Shop introspection.
+    functionActivation: { deleteMany: vi.fn(async () => ({ count: 0 })) },
   };
 
   return prisma;
@@ -324,5 +327,6 @@ describe('GDPR redact coverage', () => {
     expect(prismaMock.workflowRunStep.deleteMany).toHaveBeenCalledWith({ where: { run: { tenantId: 'shop-1' } } });
     expect(prismaMock.workflowRun.deleteMany).toHaveBeenCalledWith({ where: { tenantId: 'shop-1' } });
     expect(prismaMock.workflowDef.deleteMany).toHaveBeenCalledWith({ where: { tenantId: 'shop-1' } });
+    expect(prismaMock.functionActivation.deleteMany).toHaveBeenCalledWith(shopScoped);
   });
 });
