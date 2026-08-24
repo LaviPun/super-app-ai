@@ -8,7 +8,7 @@ import {
   messagingChannelSendability,
   checkoutBlockPublishNotes,
   DECLARATIVE_PRICING_MECHANISMS,
-  functionActivationGap,
+  ACTIVATION_WIRED_FUNCTION_TYPES,
 } from '@superapp/core';
 import {
   ModulePublishPreflightResultSchema,
@@ -33,13 +33,30 @@ export type PublishPreflightResult = {
   error?: string;
 };
 
+/**
+ * Function type → additional access scopes required beyond `write_metaobjects`
+ * for its activation object write (ActivationService's ensure* mutations).
+ * Kept in sync with @superapp/core's `ACTIVATION_WIRED_FUNCTION_TYPES` — the
+ * publish path should fail loudly at preflight (missing scope) rather than
+ * deep inside the activation mutation.
+ */
+const FUNCTION_TYPE_REQUIRED_SCOPES: Record<string, string[]> = {
+  'functions.discountRules': ['write_discounts'],
+  'functions.cartTransform': ['write_cart_transforms', 'write_products'],
+  'functions.deliveryCustomization': ['write_delivery_customizations'],
+  'functions.paymentCustomization': ['write_payment_customizations'],
+  'functions.cartAndCheckoutValidation': ['write_validations'],
+  'functions.fulfillmentConstraints': ['write_fulfillment_constraint_rules'],
+};
+
 export async function runPublishPreflight(
   admin: AdminApiContext['admin'],
-  input: { isThemeModule: boolean },
+  input: { isThemeModule: boolean; moduleType?: string },
 ): Promise<PublishPreflightResult> {
   const requiredScopes = [
     'write_metaobjects',
     ...(input.isThemeModule ? ['read_themes'] : []),
+    ...(input.moduleType ? (FUNCTION_TYPE_REQUIRED_SCOPES[input.moduleType] ?? []) : []),
   ];
 
   try {
@@ -95,8 +112,8 @@ export interface ModulePublishabilityContext {
   deployedExtensions?: Iterable<string>;
   /**
    * Blueprint co-deploy only: the caller performs the Shopify activation itself
-   * (BundleProductService.activateCartTransform / ensureAutomaticBundleDiscount),
-   * so the FUNCTION_ACTIVATION_UNWIRED gate does not apply. NEVER set on the
+   * (BundleProductService.activateCartTransform / ActivationService.ensureForFunctionKey),
+   * so the ACTIVATION_WIRED_FUNCTION_TYPES gate does not apply. NEVER set on the
    * single-module publish path.
    */
   activationHandledByCoDeploy?: boolean;
@@ -221,15 +238,18 @@ export function classifyModulePublishability(
     });
   }
 
-  // WS-QF / D6 step 1: wasm deployed is necessary but not sufficient — without the
-  // Shopify activation object the Function never runs (false-publish). Blueprint
-  // co-deploy activates for itself and opts out via activationHandledByCoDeploy.
-  const activationGap = functionActivationGap(type);
-  if (activationGap && !ctx.activationHandledByCoDeploy) {
+  // WS-E (D6 step 2): wasm deployed but activation-object wiring not shipped for
+  // this type yet → honest needs_runtime. Un-gated type-by-type as ActivationService
+  // support lands (ACTIVATION_WIRED_FUNCTION_TYPES). Co-deploy exemption kept from
+  // WS-QF until Task 8 retires it.
+  if (type.startsWith('functions.') && !ACTIVATION_WIRED_FUNCTION_TYPES.has(type) && !ctx.activationHandledByCoDeploy) {
     return ModulePublishPreflightResultSchema.parse({
       moduleType: type,
       status: 'needs_runtime',
-      reasons: [activationGap],
+      reasons: [
+        `${type} compiles and its wasm is deployed, but publish does not yet create the Shopify ` +
+          `activation object that makes the function run. Blocked (honest) until activation wiring ships.`,
+      ],
       ...(eligibility.functionHandle ? { requiresExtension: eligibility.functionHandle } : {}),
       willDeploy: false,
     });

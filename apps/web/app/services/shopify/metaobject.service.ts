@@ -508,6 +508,20 @@ export class MetaobjectService {
     }
   }
 
+  /**
+   * Look up a metaobject's GID by its {type, handle}, without caring about its
+   * fields. Used by UnpublishService to find the metaobject a publish created
+   * (theme module / admin surface / function config / …) so it can be removed
+   * from any refs list and deleted. `null` when no metaobject exists at that
+   * handle — idempotent: an already-gone resource is not an error.
+   */
+  async getMetaobjectIdByHandle(type: string, handle: string): Promise<string | null> {
+    const json = (await this.graphqlJson(METAOBJECT_BY_HANDLE, {
+      handle: { type, handle },
+    })) as { data?: { metaobjectByHandle?: { id?: string } | null } };
+    return json?.data?.metaobjectByHandle?.id ?? null;
+  }
+
   // ─── Delete ────────────────────────────────────────────────────────────────
 
   /** Delete a metaobject by its GID (used on module unpublish/delete). */

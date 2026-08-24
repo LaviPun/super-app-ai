@@ -18,13 +18,19 @@ const hoisted = vi.hoisted(() => {
   const moduleUpdate = vi.fn(async (_args: { where: { id: string }; data: unknown }) => ({}));
   const moduleVersionUpdate = vi.fn(async (_args: { where: { id: string }; data: unknown }) => ({}));
   const recipeFindFirst = vi.fn();
+  // BlueprintService.publishBlueprint resolves shopId via prisma.shop.findUnique
+  // (WS-E Task 3) before publishing anything.
+  const shopFindUnique = vi.fn(async (_args?: unknown) => ({ id: 'shop_1' }));
 
   const publish = vi.fn(async (_spec: { type: string; config?: Record<string, unknown> }, _target?: unknown) => ({ preflight: {} }));
   const resolveComponents = vi.fn();
   const ensureParentBundleProduct = vi.fn(async (_args?: unknown) => 'gid://shopify/ProductVariant/500');
   const activateCartTransform = vi.fn(async (_config?: { bundles: Array<Record<string, unknown>> }) => 'gid://shopify/CartTransform/1');
   const writeBundlePricingRules = vi.fn(async (_mo?: unknown, _rules?: unknown) => {});
-  const ensureAutomaticBundleDiscount = vi.fn(async () => 'gid://shopify/DiscountAutomaticNode/1');
+  // ActivationService.ensureForFunctionKey — WS-E Task 3 replaces
+  // BundleProductService.ensureAutomaticBundleDiscount. Every test in this file
+  // stays on the PLUS plan, so it is never actually invoked here.
+  const ensureForFunctionKey = vi.fn(async (_functionKey?: string) => 'gid://shopify/DiscountAutomaticNode/1');
   const getPlanTier = vi.fn(async (_shopDomain: string) => 'PLUS');
   const ensureTypedStore = vi.fn(async (_shopId: string, key: string, _opts?: { label: string; description?: string; schemaJson?: string }) => ({ key }));
 
@@ -32,12 +38,13 @@ const hoisted = vi.hoisted(() => {
     moduleUpdate,
     moduleVersionUpdate,
     recipeFindFirst,
+    shopFindUnique,
     publish,
     resolveComponents,
     ensureParentBundleProduct,
     activateCartTransform,
     writeBundlePricingRules,
-    ensureAutomaticBundleDiscount,
+    ensureForFunctionKey,
     getPlanTier,
     ensureTypedStore,
   };
@@ -48,11 +55,24 @@ vi.mock('~/db.server', () => ({
     recipe: { findFirst: hoisted.recipeFindFirst },
     module: { update: hoisted.moduleUpdate },
     moduleVersion: { update: hoisted.moduleVersionUpdate },
+    shop: { findUnique: hoisted.shopFindUnique },
   }),
 }));
 
-vi.mock('~/services/publish/publish.service', () => ({
-  PublishService: vi.fn().mockImplementation(() => ({ publish: hoisted.publish })),
+// Mock only the class; keep the real named exports (the refs-list namespace/key
+// constants) so ~/services/modules/module.service.ts's transitive import of
+// UnpublishService (Task 11: unpublishThenDelete) can still resolve them —
+// UnpublishService's REFS_FAMILIES table reads them at module-load time.
+vi.mock('~/services/publish/publish.service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('~/services/publish/publish.service')>();
+  return {
+    ...actual,
+    PublishService: vi.fn().mockImplementation(() => ({ publish: hoisted.publish })),
+  };
+});
+
+vi.mock('~/services/publish/activation.service', () => ({
+  ActivationService: vi.fn().mockImplementation(() => ({ ensureForFunctionKey: hoisted.ensureForFunctionKey })),
 }));
 
 vi.mock('~/services/bundles/bundle-product.service', async (importOriginal) => {
@@ -64,7 +84,6 @@ vi.mock('~/services/bundles/bundle-product.service', async (importOriginal) => {
       ensureParentBundleProduct: hoisted.ensureParentBundleProduct,
       activateCartTransform: hoisted.activateCartTransform,
       writeBundlePricingRules: hoisted.writeBundlePricingRules,
-      ensureAutomaticBundleDiscount: hoisted.ensureAutomaticBundleDiscount,
     })),
   };
 });
@@ -191,6 +210,7 @@ beforeEach(() => {
   hoisted.ensureParentBundleProduct.mockResolvedValue('gid://shopify/ProductVariant/500');
   hoisted.getPlanTier.mockResolvedValue('PLUS');
   hoisted.ensureTypedStore.mockImplementation(async (_shopId: string, key: string) => ({ key }));
+  hoisted.shopFindUnique.mockResolvedValue({ id: 'shop_1' });
 });
 
 // ==========================================================================
@@ -298,7 +318,7 @@ describe('publishBlueprint — composite pre-pass', () => {
     { memberRole: 'price', recordRef: 'skincare-bundle', bindingRole: 'enforcement', reads: ['discountPercentage'], availabilitySource: 'none' },
   ];
 
-  it('provisions the record, injects real GIDs by binding, activates cart-transform after publish (C4)', async () => {
+  it('provisions the record, injects real GIDs by binding, hands the record-resolved bundle to publish (WS-E Task 8 dedup)', async () => {
     hoisted.recipeFindFirst.mockResolvedValue(
       compositeRecipeRow(
         [
@@ -326,11 +346,16 @@ describe('publishBlueprint — composite pre-pass', () => {
     expect(themeCfg.bundleId).toBe('skincare-bundle');
     expect(themeCfg.availabilitySource).toBe('components');
 
-    // C4 — cart-transform activated exactly once, AFTER publish, with the real GID.
-    expect(hoisted.activateCartTransform).toHaveBeenCalledOnce();
-    expect(hoisted.publish.mock.invocationCallOrder[0]!).toBeLessThan(hoisted.activateCartTransform.mock.invocationCallOrder[0]!);
-    const runtimeConfig = hoisted.activateCartTransform.mock.calls[0]![0]!;
-    expect(runtimeConfig.bundles[0]!.parentVariantId).toBe('gid://shopify/ProductVariant/500');
+    // WS-E Task 8 dedup: the blueprint no longer activates the cart transform
+    // itself — the plan-aware activation lives inside
+    // PublishService.publishCartTransform. The blueprint's contract is to hand
+    // the RECORD-resolved bundle (real GIDs — a source the member spec may not
+    // carry) over via cartTransformBundles.
+    expect(hoisted.activateCartTransform).not.toHaveBeenCalled();
+    const cartTransformCall = hoisted.publish.mock.calls.find((c) => c[0].type === 'functions.cartTransform')!;
+    const handed = ((cartTransformCall as unknown[])[2] as { cartTransformBundles?: Array<Record<string, unknown>> }).cartTransformBundles!;
+    expect(handed).toHaveLength(1);
+    expect(handed[0]!.parentVariantId).toBe('gid://shopify/ProductVariant/500');
   });
 
   it('fail-closed on the record: provisioning failure ⇒ ZERO members published, all skipped', async () => {
@@ -378,7 +403,12 @@ describe('publishBlueprint — composite pre-pass', () => {
     // Display member still received the injected real bundle via the binding.
     const themeCfg = hoisted.publish.mock.calls.find((c) => c[0].type === 'theme.section')?.[0].config ?? {};
     expect(themeCfg.bundleId).toBeDefined();
-    expect(hoisted.activateCartTransform).toHaveBeenCalledOnce();
+    // Dedup: the member-resolved bundle is handed to publish, never activated here.
+    expect(hoisted.activateCartTransform).not.toHaveBeenCalled();
+    const cartTransformCall = hoisted.publish.mock.calls.find((c) => c[0].type === 'functions.cartTransform')!;
+    const handed = ((cartTransformCall as unknown[])[2] as { cartTransformBundles?: Array<Record<string, unknown>> }).cartTransformBundles!;
+    expect(handed).toHaveLength(1);
+    expect((handed[0]!.components as unknown[]).length).toBe(2);
   });
 
   it('member failure stays DRAFT; other members still publish (non-atomic)', async () => {

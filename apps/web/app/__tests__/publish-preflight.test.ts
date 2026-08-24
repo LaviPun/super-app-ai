@@ -43,6 +43,27 @@ describe('runPublishPreflight', () => {
     expect(result.missingScopes).toEqual(['write_metaobjects', 'read_themes']);
   });
 
+  it('fails with write_validations missing when moduleType is functions.cartAndCheckoutValidation', async () => {
+    const graphql = vi.fn().mockResolvedValue(
+      graphqlJsonResponse({
+        data: {
+          currentAppInstallation: {
+            accessScopes: [{ handle: 'write_metaobjects' }],
+          },
+        },
+      }),
+    );
+    const admin = { graphql } as unknown as AdminApiContext['admin'];
+
+    const result = await runPublishPreflight(admin, {
+      isThemeModule: false,
+      moduleType: 'functions.cartAndCheckoutValidation',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.missingScopes).toEqual(['write_validations']);
+  });
+
   it('returns error when GraphQL returns top-level errors', async () => {
     const graphql = vi.fn().mockResolvedValue(
       graphqlJsonResponse({

@@ -7,7 +7,12 @@ export async function loader() {
 import { shopify } from '~/shopify.server';
 import { ModuleService } from '~/services/modules/module.service';
 import { RecipeService } from '~/services/recipes/recipe.service';
-import { PublishService, ModuleNotPublishableError } from '~/services/publish/publish.service';
+import {
+  PublishService,
+  ModuleNotPublishableError,
+  PublishPartialFailureError,
+  FunctionKeyAlreadyPublishedError,
+} from '~/services/publish/publish.service';
 import { validateBeforePublish } from '~/services/publish/pre-publish-validator.server';
 import { ThemeService } from '~/services/shopify/theme.service';
 import { CapabilityService } from '~/services/shopify/capability.service';
@@ -23,9 +28,9 @@ import { ActivityLogService, logRequestOutcome } from '~/services/activity/activ
 import { PublishPolicyService } from '~/services/publish/publish-policy.service';
 import { runPublishPreflight } from '~/services/publish/publish-preflight.server';
 import { evaluateFeatureFlag, type FeatureFlagTopology } from '~/services/releases/feature-flags.server';
-import { ProgressivePublishService } from '~/services/releases/progressive-publish.server';
-import { getRecentPublishMetrics } from '~/services/releases/release-metrics.server';
 import { provisionModuleDataStore } from '~/services/publish/provision-data-store.server';
+import { getThemeEmbedStatus, type EmbedStatus } from '~/services/publish/embed-status.server';
+import { publishPartialFailureResponse } from '~/services/publish/publish-error-response.server';
 
 /** Turn thrown value into a string suitable for UI (avoids "[object Object]"). */
 function toErrorMessage(e: unknown): string {
@@ -103,7 +108,7 @@ export async function action({ request }: { request: Request }) {
         ? { kind: 'THEME', themeId: body.themeId ?? '', moduleId: module.id }
         : { kind: 'PLATFORM', moduleId: module.id };
 
-      const preflight = await runPublishPreflight(admin, { isThemeModule });
+      const preflight = await runPublishPreflight(admin, { isThemeModule, moduleType: spec.type });
       if (!preflight.ok) {
         const error = preflight.error
           ? `Publish preflight failed: ${preflight.error}`
@@ -227,8 +232,6 @@ export async function action({ request }: { request: Request }) {
       }
 
       const jobs = new JobService();
-      const progressive = new ProgressivePublishService();
-      const canary = progressive.startCanary();
       const job = await jobs.create({
         shopId: shopRow?.id,
         type: 'PUBLISH',
@@ -236,16 +239,13 @@ export async function action({ request }: { request: Request }) {
           moduleId: module.id,
           target,
           source: 'merchant_api',
-          progressiveStage: canary.stage,
-          progressiveDecision: canary.decision,
         },
       });
       await jobs.start(job.id);
 
       try {
-        const previouslyPublishedVersion = module.versions.find((v) => v.status === 'PUBLISHED');
-        const publisher = new PublishService(admin);
-        await publisher.publish(spec, target);
+        const publisher = new PublishService(admin, { shop: session.shop, shopId: shopRow?.id });
+        const publishResult = await publisher.publish(spec, target);
 
         // R3.3: provision the module's declared typed data store (schemaJson set →
         // typed forms + write-time validation activate). Additive/idempotent; no-op
@@ -286,42 +286,36 @@ export async function action({ request }: { request: Request }) {
           source: 'merchant_api',
           idempotencyKey: `publish:${session.shop}:${module.id}:${draft.id}:${target.kind === 'THEME' ? target.themeId : 'platform'}`,
         });
-        await jobs.succeed(job.id, { ok: true });
+        await jobs.succeed(job.id, { ok: true, ledger: publishResult.ledger });
         await new ActivityLogService().log({ actor: 'MERCHANT', action: 'MODULE_PUBLISHED', resource: `module:${module.id}`, shopId: shopRow?.id, details: { target: target.kind, versionId: draft.id } });
-
-        const rolloutMetrics = await getRecentPublishMetrics({
-          shopId: shopRow?.id,
-          paths: ['/api/publish'],
-          windowMinutes: 30,
-        });
-        const progressiveDecision = progressive.evaluateRamp(rolloutMetrics);
-        if (progressiveDecision.decision === 'ABORT' && previouslyPublishedVersion) {
-          await moduleService.rollbackToVersion(
-            session.shop,
-            module.id,
-            previouslyPublishedVersion.version
-          );
-          await new ActivityLogService().log({
-            actor: 'SYSTEM',
-            action: 'MODULE_ROLLED_BACK',
-            resource: `module:${module.id}`,
-            shopId: shopRow?.id,
-            details: {
-              reason: 'auto_rollback_progressive_publish',
-              moduleId: module.id,
-              fromVersion: draft.version,
-              toVersion: previouslyPublishedVersion.version,
-              rolloutMetrics,
-              progressiveDecision,
-            },
-          });
-        }
 
         await logRequestOutcome({ shopId: shopRow?.id, pathOrIntent: '/api/publish', success: true, details: { moduleId: module.id } });
 
-        return redirect(`/modules/${module.id}?published=1`);
+        // WS-E finding 5: a successful publish does not by itself make a theme
+        // module render — the merchant also needs the app embed on. Advisory-only
+        // (getThemeEmbedStatus never throws), so this can never turn a real
+        // publish success into a reported failure.
+        let embedStatus: EmbedStatus | undefined;
+        if (isThemeModule) {
+          embedStatus = await getThemeEmbedStatus(admin, target.kind === 'THEME' ? target.themeId : undefined);
+        }
+
+        const embedParam = embedStatus && embedStatus !== 'enabled' ? `&embed=${embedStatus}` : '';
+        return redirect(`/modules/${module.id}?published=1${embedParam}`);
       } catch (e) {
         await jobs.fail(job.id, e);
+        // WS-E finding 4: a partial failure carries exactly which ops already
+        // completed (all idempotent) so the merchant knows a republish converges
+        // instead of guessing whether it's safe to retry.
+        if (e instanceof PublishPartialFailureError) {
+          await logRequestOutcome({
+            shopId: shopRow?.id,
+            pathOrIntent: '/api/publish',
+            success: false,
+            details: { failedOp: e.failedOp, completed: e.completed, moduleId: module.id },
+          });
+          return publishPartialFailureResponse(e);
+        }
         // WS5/026: gated/blocked modules fail loudly — never reported as published.
         if (e instanceof ModuleNotPublishableError) {
           await logRequestOutcome({ shopId: shopRow?.id, pathOrIntent: '/api/publish', success: false, details: { error: e.message, status: e.preflight.status } });
@@ -335,6 +329,13 @@ export async function action({ request }: { request: Request }) {
             },
             { status: 422 },
           );
+        }
+        // WS-E final-review fix 1b: a second module of the same function type is
+        // a merchant-fixable conflict (unpublish the other one first), not a
+        // server error — surface it as 409 with the exact guidance message.
+        if (e instanceof FunctionKeyAlreadyPublishedError) {
+          await logRequestOutcome({ shopId: shopRow?.id, pathOrIntent: '/api/publish', success: false, details: { error: e.message, code: e.code } });
+          return json({ error: e.message, code: e.code }, { status: 409 });
         }
         const message = toErrorMessage(e);
         await logRequestOutcome({ shopId: shopRow?.id, pathOrIntent: '/api/publish', success: false, details: { error: message } });

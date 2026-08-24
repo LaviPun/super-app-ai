@@ -24,7 +24,7 @@ let redisStatus: 'ok' | 'fail' = 'fail';
 
 redis.on('ready', () => {
   redisStatus = 'ok';
-  console.log('[worker] redis ready', { prefix: config.queuePrefix });
+  console.info('[worker] redis ready', { prefix: config.queuePrefix });
 });
 redis.on('error', (err) => {
   redisStatus = 'fail';
@@ -43,7 +43,7 @@ const server = http.createServer((req, res) => {
   res.end(JSON.stringify({ error: 'not found' }));
 });
 server.listen(port, '0.0.0.0', () => {
-  console.log('[worker] health server listening', {
+  console.info('[worker] health server listening', {
     port,
     mode: resolveEffectiveMode(config),
     queuePrefix: config.queuePrefix,
@@ -60,7 +60,7 @@ const heartbeat = setInterval(async () => {
 }, 30_000);
 
 function shutdown(signal: string) {
-  console.log(`[worker] ${signal} — shutting down`);
+  console.info(`[worker] ${signal} — shutting down`);
   clearInterval(heartbeat);
   server.close(() => {
     void redis.quit().finally(() => process.exit(0));

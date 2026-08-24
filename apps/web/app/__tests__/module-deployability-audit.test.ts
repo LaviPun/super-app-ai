@@ -3,7 +3,7 @@ import {
   RECIPE_SPEC_TYPES,
   getExtensionEligibility,
   isRuntimeShipped,
-  functionActivationGap,
+  ACTIVATION_WIRED_FUNCTION_TYPES,
   type ModuleType,
   type RecipeSpec,
   type DeployTarget,
@@ -35,13 +35,6 @@ import { repairHydrateEnvelope } from '~/services/ai/llm.server';
 // Types whose runtime is NOT shipped yet. Empty is the goal; shrink this as
 // runtimes land (each removal must coincide with a real extension + compiler wiring).
 const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
-  // Order-routing Function: the crate (extensions/superapp-order-routing, target
-  // cart.fulfillment-groups.location-rankings.generate.run — a REAL 2026-04 API) + full
-  // TS wiring are real and its handle is wired in FUNCTION_RUNTIME_HANDLES, but the handle
-  // is not yet in the deployed-function manifest (deployed-extensions.server.ts), so it
-  // honestly reads needs_runtime until `shopify app deploy` ships the wasm and the handle
-  // is added there — the same honest state as the shipping-discount crate.
-  'functions.orderRoutingLocationRule',
   // Local-pickup / pickup-point delivery-option generators: the crates
   // (extensions/superapp-local-pickup, extensions/superapp-pickup-point) + full TS wiring
   // are real, but these Function APIs are currently only on Shopify's `unstable` version
@@ -50,13 +43,6 @@ const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
   // won't be in the deployed manifest → needs_runtime until Shopify promotes these APIs.
   'functions.localPickupDeliveryOption',
   'functions.pickupPointDeliveryOption',
-  // Shipping-discount Function: the crate (extensions/superapp-shipping-discount,
-  // target cart.delivery-options.discounts.generate.run) + full TS wiring are real,
-  // but its handle is not yet in the deployed-function manifest
-  // (deployed-extensions.server.ts), so it honestly reads needs_runtime until
-  // `shopify app deploy` ships the wasm and the handle is added there. See
-  // discount-packs.md §9.2.
-  'functions.shippingDiscount',
   // flow.automation is now DEPLOYABLE: the compiler persists the flow definition
   // (SHOP_METAFIELD_SET, non-AUDIT → not false-published) and FlowRunnerService
   // consumes the active-version specJson server-side — a linear runner on live
@@ -73,16 +59,46 @@ const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
   // writes no artifact, so publishing it directly would false-publish. Gated
   // needs_runtime so the single-publish path fails loudly. See extension-eligibility.ts.
   'platform.extensionBlueprint',
-  // WS-QF / D6 step 1: wasm deployed but Shopify ACTIVATION object unwired on the
-  // single-module publish path (see FUNCTION_ACTIVATION_UNWIRED in
-  // extension-eligibility.ts). Blueprint co-deploy still publishes them
-  // (activationHandledByCoDeploy). WS-E removes these as activation wiring ships.
-  'functions.discountRules',
-  'functions.cartTransform',
-  'functions.deliveryCustomization',
-  'functions.paymentCustomization',
-  'functions.cartAndCheckoutValidation',
-  'functions.fulfillmentConstraints',
+  // WS-E (D6 step 2): wasm deployed but Shopify ACTIVATION object unwired on the
+  // single-module publish path (see ACTIVATION_WIRED_FUNCTION_TYPES in
+  // extension-eligibility.ts — initially empty ⇒ every functions.* type gates here).
+  // Blueprint co-deploy still publishes them (activationHandledByCoDeploy). Each
+  // WS-E task removes exactly one type from this set as activation wiring ships.
+  // functions.discountRules removed (Task 3, 2026-08-24): ActivationService's
+  // discount kind wires discountAutomaticAppCreate/Update — see
+  // ACTIVATION_WIRED_FUNCTION_TYPES.
+  // functions.deliveryCustomization removed (Task 4, 2026-08-24): ActivationService's
+  // deliveryCustomization kind wires deliveryCustomizationCreate, bound by
+  // functionHandle, adopting the existing node for our function (paginated
+  // deliveryCustomizations scan keyed on functionId) — see
+  // ACTIVATION_WIRED_FUNCTION_TYPES.
+  // functions.paymentCustomization removed (Task 5, 2026-08-24): ActivationService's
+  // paymentCustomization kind wires paymentCustomizationCreate, identical shape to
+  // deliveryCustomization (paginated paymentCustomizations scan keyed on
+  // functionId) — see ACTIVATION_WIRED_FUNCTION_TYPES.
+  // functions.cartAndCheckoutValidation removed (Task 6, 2026-08-24): ActivationService's
+  // validation kind wires validationCreate (enable:true, blockOnFailure:false), adoption
+  // keyed directly off shopifyFunction.handle (paginated validations scan) — see
+  // ACTIVATION_WIRED_FUNCTION_TYPES.
+  // functions.fulfillmentConstraints removed (Task 7, 2026-08-24): ActivationService's
+  // fulfillmentConstraintRule kind wires fulfillmentConstraintRuleCreate
+  // (deliveryMethodTypes: ['SHIPPING','LOCAL','PICK_UP']), adoption keyed off
+  // function.handle over the plain-list fulfillmentConstraintRules (no pagination —
+  // not a connection) — see ACTIVATION_WIRED_FUNCTION_TYPES.
+  // functions.cartTransform removed (Task 8, 2026-08-24): wired via
+  // PublishService.publishCartTransform → BundleProductService (resolveComponents →
+  // ensureParentBundleProduct → activateCartTransform writing $app:bundle_config),
+  // GID recorded via ActivationService.recordCartTransform for unpublish
+  // (cartTransformDelete) — see ACTIVATION_WIRED_FUNCTION_TYPES. All six
+  // WS-QF-original function types are now activation-wired.
+  // Shipping-discount + order-routing Functions: wasm now deployed (WS-E T2 —
+  // superapp-shipping-discount, superapp-order-routing joined the deployed-function
+  // manifest in deployed-extensions.server.ts, reconciling it with
+  // shopify.app.production.toml's extension_directories). Same activation gate as the
+  // six types above — needs_runtime until each gets its ACTIVATION_WIRED_FUNCTION_TYPES
+  // entry.
+  'functions.shippingDiscount',
+  'functions.orderRoutingLocationRule',
 ]);
 // `pos.extension` is now deployable: extensions/superapp-pos-block reads its
 // published config from the app backend (/api/pos/config) via App Authentication
@@ -101,7 +117,8 @@ describe('module deployability audit — every type classified (eligibility mode
   for (const type of RECIPE_SPEC_TYPES) {
     it(`${type} classifier agrees with the registry (manifest ∧ activation)`, () => {
       const shipped = isRuntimeShipped(type, { deployedFunctionHandles: deployed });
-      const expectedDeployable = shipped && !functionActivationGap(type);
+      const activationGated = type.startsWith('functions.') && !ACTIVATION_WIRED_FUNCTION_TYPES.has(type);
+      const expectedDeployable = shipped && !activationGated;
       const result = classifyModulePublishability({ type } as RecipeSpec, { deployedExtensions: deployed });
       expect(result.status).toBe(expectedDeployable ? 'deployable' : 'needs_runtime');
       expect(result.willDeploy).toBe(expectedDeployable);
@@ -309,7 +326,7 @@ describe('INTEGRITY: declarative pricing mechanism ⇒ needs_runtime (no inert f
     expect(pf.willDeploy).toBe(false);
   });
 
-  it('functions.discountRules with a REAL Function mechanism passes the pricing gate (deployable under co-deploy)', () => {
+  it('functions.discountRules with a REAL Function mechanism passes the pricing gate (deployable on single-module path)', () => {
     const spec = {
       type: 'functions.discountRules',
       name: 'Real discount',
@@ -318,12 +335,13 @@ describe('INTEGRITY: declarative pricing mechanism ⇒ needs_runtime (no inert f
         pricing: { model: 'single', mechanism: 'shopify-function-discount', discount: { kind: 'percentage', value: 10 } },
       },
     } as unknown as RecipeSpec;
-    // Single-module path: gated by the ACTIVATION gap (not the pricing gate) —
-    // the reason must be the activation one, proving the pricing gate is narrow.
+    // WS-E Task 3: functions.discountRules is activation-wired — the single-module
+    // path is deployable directly now, proving the pricing gate is narrow (it was
+    // never the activation gate that blocked this spec).
     const single = classifyModulePublishability(spec, { deployedExtensions: deployed });
-    expect(single.status).toBe('needs_runtime');
-    expect(single.reasons.join(' ')).toMatch(/activation/i);
-    // Blueprint co-deploy (which activates for itself): fully deployable.
+    expect(single.status).toBe('deployable');
+    expect(single.willDeploy).toBe(true);
+    // Blueprint co-deploy (which activates for itself) stays deployable too.
     const coDeploy = classifyModulePublishability(spec, {
       deployedExtensions: deployed,
       activationHandledByCoDeploy: true,
@@ -341,23 +359,31 @@ describe('INTEGRITY: declarative pricing mechanism ⇒ needs_runtime (no inert f
  * checks `status === 'PASS'` exactly).
  */
 /**
- * WS-QF / D6 step 1 (2026-08-24): Function types whose wasm IS deployed but whose
- * Shopify ACTIVATION object is never created on the single-module publish path
- * (cartTransformCreate / discountAutomaticAppCreate live only in
- * bundle-product.service.ts, used by blueprint co-deploy; the delivery/payment/
- * validation/fulfillment Create mutations exist nowhere). Publishing one writes a
- * config metaobject and flips PUBLISHED while the Function never runs. Gate them
- * needs_runtime on the single-module path; blueprint co-deploy opts out via
- * activationHandledByCoDeploy. WS-E reverts this set type-by-type.
+ * WS-E activation gate (D6 step 2, 2026-08-24): Function types whose wasm IS
+ * deployed but whose Shopify ACTIVATION object is never created on the
+ * single-module publish path (cartTransformCreate / discountAutomaticAppCreate live
+ * only in bundle-product.service.ts, used by blueprint co-deploy; the
+ * delivery/payment/validation/fulfillment Create mutations exist nowhere).
+ * Publishing one writes a config metaobject and flips PUBLISHED while the Function
+ * never runs. Gate them needs_runtime on the single-module path; blueprint
+ * co-deploy opts out via activationHandledByCoDeploy. This local list is the six
+ * types WS-QF originally gated explicitly; ACTIVATION_WIRED_FUNCTION_TYPES (empty)
+ * now gates them — and every other functions.* type — as a strict superset. Each
+ * WS-E task removes exactly one type from ACTIVATION_WIRED_FUNCTION_TYPES's
+ * complement (i.e. adds it to the wired set) as activation wiring ships.
+ * functions.discountRules removed (Task 3) — now activation-wired.
+ * functions.deliveryCustomization removed (Task 4) — now activation-wired.
+ * functions.paymentCustomization removed (Task 5) — now activation-wired.
+ * functions.cartAndCheckoutValidation removed (Task 6) — now activation-wired.
+ * functions.fulfillmentConstraints removed (Task 7) — now activation-wired.
+ * functions.cartTransform removed (Task 8) — now activation-wired via
+ * PublishService.publishCartTransform (BundleProductService end-to-end), so ALL
+ * SIX original WS-QF-gated types are wired (see the explicit assertion below).
+ * The list now pins the two REMAINING activation-gated function types —
+ * functions.shippingDiscount / functions.orderRoutingLocationRule (WS-E T2:
+ * wasm deployed via extension_directories, but no ActivationService kind yet).
  */
-const ACTIVATION_UNWIRED_TYPES = [
-  'functions.discountRules',
-  'functions.cartTransform',
-  'functions.deliveryCustomization',
-  'functions.paymentCustomization',
-  'functions.cartAndCheckoutValidation',
-  'functions.fulfillmentConstraints',
-] as const;
+const ACTIVATION_UNWIRED_TYPES = ['functions.shippingDiscount', 'functions.orderRoutingLocationRule'] as const;
 
 describe('INTEGRITY: activation-unwired function types are needs_runtime on single publish', () => {
   const deployed = deployedFunctionExtensions();
@@ -385,6 +411,29 @@ describe('INTEGRITY: activation-unwired function types are needs_runtime on sing
       deployedExtensions: deployed,
     });
     expect(pf.status).toBe('deployable');
+  });
+
+  it('NONE of the WS-QF-original-six function types is still gated/needs_runtime (all activation-wired)', () => {
+    // The six function types WS-QF originally gated explicitly (each has a real
+    // activation implementation — five via ActivationService ensure* kinds, and
+    // cartTransform via PublishService.publishCartTransform/BundleProductService;
+    // see FUNCTION_KEY_ACTIVATION). WS-E tasks 3-8 progressively un-gated them via
+    // ACTIVATION_WIRED_FUNCTION_TYPES — as of Task 8 the gated set is EMPTY.
+    // functions.shippingDiscount / functions.orderRoutingLocationRule are a SEPARATE
+    // needs_runtime concern (WS-E T2, no activation wiring yet) and are covered by
+    // the ACTIVATION_UNWIRED_TYPES loop above (see EXPECTED_NEEDS_RUNTIME too).
+    const originalSix = [
+      'functions.discountRules',
+      'functions.deliveryCustomization',
+      'functions.paymentCustomization',
+      'functions.cartAndCheckoutValidation',
+      'functions.fulfillmentConstraints',
+      'functions.cartTransform',
+    ] as const;
+    const gatedFunctionTypes = originalSix
+      .filter((t) => !classifyModulePublishability({ type: t } as RecipeSpec, { deployedExtensions: deployed }).willDeploy)
+      .sort();
+    expect(gatedFunctionTypes).toEqual([]);
   });
 });
 
