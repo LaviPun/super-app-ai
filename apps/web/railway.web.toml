@@ -1,0 +1,10 @@
+# Railway web service — set root directory to repo root and point
+# "Config-as-code file path" at this file in the service settings.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "apps/web/Dockerfile"
+
+[deploy]
+healthcheckPath = "/healthz"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"

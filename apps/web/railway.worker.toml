@@ -1,0 +1,10 @@
+# Railway worker service — same image, worker entrypoint.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "apps/web/Dockerfile"
+
+[deploy]
+startCommand = "pnpm --filter web worker:start"
+healthcheckPath = "/healthz"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
