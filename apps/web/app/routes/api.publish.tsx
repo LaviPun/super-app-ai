@@ -23,8 +23,6 @@ import { ActivityLogService, logRequestOutcome } from '~/services/activity/activ
 import { PublishPolicyService } from '~/services/publish/publish-policy.service';
 import { runPublishPreflight } from '~/services/publish/publish-preflight.server';
 import { evaluateFeatureFlag, type FeatureFlagTopology } from '~/services/releases/feature-flags.server';
-import { ProgressivePublishService } from '~/services/releases/progressive-publish.server';
-import { getRecentPublishMetrics } from '~/services/releases/release-metrics.server';
 import { provisionModuleDataStore } from '~/services/publish/provision-data-store.server';
 
 /** Turn thrown value into a string suitable for UI (avoids "[object Object]"). */
@@ -227,8 +225,6 @@ export async function action({ request }: { request: Request }) {
       }
 
       const jobs = new JobService();
-      const progressive = new ProgressivePublishService();
-      const canary = progressive.startCanary();
       const job = await jobs.create({
         shopId: shopRow?.id,
         type: 'PUBLISH',
@@ -236,14 +232,11 @@ export async function action({ request }: { request: Request }) {
           moduleId: module.id,
           target,
           source: 'merchant_api',
-          progressiveStage: canary.stage,
-          progressiveDecision: canary.decision,
         },
       });
       await jobs.start(job.id);
 
       try {
-        const previouslyPublishedVersion = module.versions.find((v) => v.status === 'PUBLISHED');
         const publisher = new PublishService(admin, { shop: session.shop, shopId: shopRow?.id });
         await publisher.publish(spec, target);
 
@@ -288,34 +281,6 @@ export async function action({ request }: { request: Request }) {
         });
         await jobs.succeed(job.id, { ok: true });
         await new ActivityLogService().log({ actor: 'MERCHANT', action: 'MODULE_PUBLISHED', resource: `module:${module.id}`, shopId: shopRow?.id, details: { target: target.kind, versionId: draft.id } });
-
-        const rolloutMetrics = await getRecentPublishMetrics({
-          shopId: shopRow?.id,
-          paths: ['/api/publish'],
-          windowMinutes: 30,
-        });
-        const progressiveDecision = progressive.evaluateRamp(rolloutMetrics);
-        if (progressiveDecision.decision === 'ABORT' && previouslyPublishedVersion) {
-          await moduleService.rollbackToVersion(
-            session.shop,
-            module.id,
-            previouslyPublishedVersion.version
-          );
-          await new ActivityLogService().log({
-            actor: 'SYSTEM',
-            action: 'MODULE_ROLLED_BACK',
-            resource: `module:${module.id}`,
-            shopId: shopRow?.id,
-            details: {
-              reason: 'auto_rollback_progressive_publish',
-              moduleId: module.id,
-              fromVersion: draft.version,
-              toVersion: previouslyPublishedVersion.version,
-              rolloutMetrics,
-              progressiveDecision,
-            },
-          });
-        }
 
         await logRequestOutcome({ shopId: shopRow?.id, pathOrIntent: '/api/publish', success: true, details: { moduleId: module.id } });
 

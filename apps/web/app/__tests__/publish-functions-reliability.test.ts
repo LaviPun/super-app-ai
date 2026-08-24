@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { ACTIVATION_WIRED_FUNCTION_TYPES, MODULE_TEMPLATES, RECIPE_SPEC_TYPES, type RecipeSpec } from '@superapp/core';
 import { computeRepublishDiff } from '@superapp/platform-contracts';
@@ -232,5 +234,22 @@ describe('PublishService.writeFunctionConfig — preserves managed bundle rules'
       rules: [{ id: 'mod-a', when: { minSubtotal: 100 }, apply: { percentageOff: 10 } }],
     });
     expect(mo.upsertFunctionConfigObject).not.toHaveBeenCalled();
+  });
+});
+
+describe('WS-E: progressive-publish theater is removed (E4)', () => {
+  it('no source file references ProgressivePublishService / startCanary / evaluateRamp', () => {
+    // grep-level guard: the two routes that used it plus the service itself.
+    const files = [
+      'app/routes/api.publish.tsx',
+      'app/routes/api.agent.modules.$moduleId.publish.tsx',
+    ];
+    for (const f of files) {
+      const src = readFileSync(join(__dirname, '..', '..', f), 'utf8');
+      expect(src).not.toMatch(/ProgressivePublishService|startCanary|evaluateRamp|progressiveStage/);
+    }
+    expect(() =>
+      readFileSync(join(__dirname, '..', 'services', 'releases', 'progressive-publish.server.ts'), 'utf8'),
+    ).toThrow();
   });
 });

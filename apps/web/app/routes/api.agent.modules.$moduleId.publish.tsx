@@ -15,8 +15,6 @@ import { JobService } from '~/services/jobs/job.service';
 import { PublishPolicyService } from '~/services/publish/publish-policy.service';
 import { runPublishPreflight } from '~/services/publish/publish-preflight.server';
 import { evaluateFeatureFlag, type FeatureFlagTopology } from '~/services/releases/feature-flags.server';
-import { ProgressivePublishService } from '~/services/releases/progressive-publish.server';
-import { getRecentPublishMetrics } from '~/services/releases/release-metrics.server';
 
 /**
  * Agent API: Publish a module to a theme or platform.
@@ -164,8 +162,6 @@ export async function action({
   }
 
   const jobs = new JobService();
-  const progressive = new ProgressivePublishService();
-  const canary = progressive.startCanary();
   const job = await jobs.create({
     shopId: shopRow?.id,
     type: 'PUBLISH',
@@ -173,14 +169,11 @@ export async function action({
       moduleId,
       target,
       source: 'agent_api',
-      progressiveStage: canary.stage,
-      progressiveDecision: canary.decision,
     },
   });
   await jobs.start(job.id);
 
   try {
-    const previouslyPublishedVersion = mod.versions.find((v) => v.status === 'PUBLISHED');
     const publisher = new PublishService(admin, { shop: session.shop, shopId: shopRow?.id });
     await publisher.publish(spec, target);
     await moduleService.markPublishedWithTransition({
@@ -199,20 +192,6 @@ export async function action({
       shopId: shopRow?.id,
       details: { target: target.kind, versionId: draft.id, source: 'agent_api' },
     }).catch(() => {/* non-fatal */});
-
-    const rolloutMetrics = await getRecentPublishMetrics({
-      shopId: shopRow?.id,
-      paths: ['/api/publish'],
-      windowMinutes: 30,
-    });
-    const progressiveDecision = progressive.evaluateRamp(rolloutMetrics);
-    if (progressiveDecision.decision === 'ABORT' && previouslyPublishedVersion) {
-      await moduleService.rollbackToVersion(
-        session.shop,
-        mod.id,
-        previouslyPublishedVersion.version
-      );
-    }
 
     return json({ ok: true, moduleId, versionId: draft.id, version: draft.version, target: target.kind });
   } catch (e) {
