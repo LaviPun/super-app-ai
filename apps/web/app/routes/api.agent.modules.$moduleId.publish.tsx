@@ -2,7 +2,8 @@ import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { ModuleService } from '~/services/modules/module.service';
 import { RecipeService } from '~/services/recipes/recipe.service';
-import { PublishService } from '~/services/publish/publish.service';
+import { PublishService, PublishPartialFailureError } from '~/services/publish/publish.service';
+import { publishPartialFailureResponse } from '~/services/publish/publish-error-response.server';
 import { validateBeforePublish } from '~/services/publish/pre-publish-validator.server';
 import { CapabilityService } from '~/services/shopify/capability.service';
 import type { Capability, DeployTarget, ModuleType } from '@superapp/core';
@@ -206,6 +207,13 @@ export async function action({
     return json({ ok: true, moduleId, versionId: draft.id, version: draft.version, target: target.kind, embedStatus });
   } catch (e) {
     await jobs.fail(job.id, e);
+    // WS-E finding 4: same structured guidance as api.publish.tsx — a partial
+    // failure here (this is the route the module-detail page's own
+    // Publish/Republish button actually calls) must not degrade to a flat
+    // error string. Shared helper keeps the two routes from drifting.
+    if (e instanceof PublishPartialFailureError) {
+      return publishPartialFailureResponse(e);
+    }
     const message = e instanceof Error ? e.message : 'Publish failed';
     return json({ error: message }, { status: 500 });
   }

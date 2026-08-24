@@ -143,4 +143,32 @@ describe('publish ledger (WS-E finding 4)', () => {
       code: 'MODULE_NOT_PUBLISHABLE',
     });
   });
+
+  it('a FUNCTION_CONFIG_UPSERT whose idempotent diff found nothing to write records itself distinctly (fix round 1 minor: ledger stays truthful)', async () => {
+    // writeFunctionConfig is wrapped by step() at the ops-loop call site with a
+    // detail callback that maps its 'noop' return to a ledger `detail: 'noop'`
+    // entry, so a no-op republish doesn't look identical to a real write.
+    const { admin } = mockAdmin(() => ({ data: {} }));
+    const svc = new PublishService(admin, { shop: 'shop.example.com', shopId: 'shop_1' });
+    const noopMo = {
+      getFunctionConfigByKey: vi.fn().mockResolvedValue({ metaobjectId: 'gid://shopify/Metaobject/1', config: { rate: 10 } }),
+      ensureMetafieldDefinition: vi.fn(),
+      upsertFunctionConfigObject: vi.fn(),
+      setModuleRef: vi.fn(),
+    };
+    const writeFunctionConfig = (
+      svc as unknown as { writeFunctionConfig: (mo: unknown, key: string, config: unknown) => Promise<'written' | 'noop'> }
+    ).writeFunctionConfig;
+    await expect(writeFunctionConfig.call(svc, noopMo, 'discountRules', { rate: 10 })).resolves.toBe('noop');
+    expect(noopMo.upsertFunctionConfigObject).not.toHaveBeenCalled();
+
+    const writtenMo = {
+      getFunctionConfigByKey: vi.fn().mockResolvedValue(null),
+      ensureMetafieldDefinition: vi.fn().mockResolvedValue(undefined),
+      upsertFunctionConfigObject: vi.fn().mockResolvedValue('gid://shopify/Metaobject/2'),
+      setModuleRef: vi.fn().mockResolvedValue(undefined),
+    };
+    await expect(writeFunctionConfig.call(svc, writtenMo, 'discountRules', { rate: 15 })).resolves.toBe('written');
+    expect(writtenMo.upsertFunctionConfigObject).toHaveBeenCalledTimes(1);
+  });
 });

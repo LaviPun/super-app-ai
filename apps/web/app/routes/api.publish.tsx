@@ -25,6 +25,7 @@ import { runPublishPreflight } from '~/services/publish/publish-preflight.server
 import { evaluateFeatureFlag, type FeatureFlagTopology } from '~/services/releases/feature-flags.server';
 import { provisionModuleDataStore } from '~/services/publish/provision-data-store.server';
 import { getThemeEmbedStatus, type EmbedStatus } from '~/services/publish/embed-status.server';
+import { publishPartialFailureResponse } from '~/services/publish/publish-error-response.server';
 
 /** Turn thrown value into a string suitable for UI (avoids "[object Object]"). */
 function toErrorMessage(e: unknown): string {
@@ -308,16 +309,7 @@ export async function action({ request }: { request: Request }) {
             success: false,
             details: { failedOp: e.failedOp, completed: e.completed, moduleId: module.id },
           });
-          return json(
-            {
-              error: e.message,
-              code: e.code,
-              failedOp: e.failedOp,
-              completedOps: e.completed,
-              guidance: 'Republish to converge — completed steps are idempotent and will not duplicate.',
-            },
-            { status: 502 },
-          );
+          return publishPartialFailureResponse(e);
         }
         // WS5/026: gated/blocked modules fail loudly — never reported as published.
         if (e instanceof ModuleNotPublishableError) {

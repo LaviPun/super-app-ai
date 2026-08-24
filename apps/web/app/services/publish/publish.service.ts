@@ -133,11 +133,15 @@ export class PublishService {
 
   /** Run one Shopify-writing step, recording it on success or wrapping the
    *  failure in PublishPartialFailureError (carrying every step completed so
-   *  far) so a caller can surface "republish is safe" instead of guessing. */
-  private async step<T>(op: string, fn: () => Promise<T>): Promise<T> {
+   *  far) so a caller can surface "republish is safe" instead of guessing.
+   *  Optional `detail` derives the ledger entry's `detail` field from the
+   *  step's own result — e.g. so a step whose idempotent-diff decided there
+   *  was nothing to write can record itself as a no-op rather than looking
+   *  identical to a step that made a real write. */
+  private async step<T>(op: string, fn: () => Promise<T>, detail?: (result: T) => string | undefined): Promise<T> {
     try {
       const out = await fn();
-      this.ledger.push({ op });
+      this.ledger.push({ op, detail: detail?.(out) });
       return out;
     } catch (cause) {
       throw new PublishPartialFailureError(op, [...this.ledger], cause);
@@ -330,8 +334,11 @@ export class PublishService {
           break;
 
         case 'FUNCTION_CONFIG_UPSERT':
-          await this.step(`FUNCTION_CONFIG_UPSERT:${op.functionKey}`, () =>
-            this.writeFunctionConfig(mo, op.functionKey, op.config));
+          await this.step(
+            `FUNCTION_CONFIG_UPSERT:${op.functionKey}`,
+            () => this.writeFunctionConfig(mo, op.functionKey, op.config),
+            (outcome) => (outcome === 'noop' ? 'noop' : undefined),
+          );
           // WS-E: the config metaobject alone deploys NOTHING — ensure the Shopify
           // activation object that makes the function execute. Runs even when the
           // config diff is a no-op (a prior partial failure may have written config
@@ -472,11 +479,14 @@ export class PublishService {
       mo.setModuleGidList(ADMIN_SEGMENT_TEMPLATE_NAMESPACE, ADMIN_SEGMENT_TEMPLATE_REFS_KEY, updatedGids));
   }
 
+  /** Returns 'noop' when the idempotent-diff found nothing to write (so the
+   *  ledger step wrapping this call can record it truthfully as skipped
+   *  rather than indistinguishable from a real write), else 'written'. */
   private async writeFunctionConfig(
     mo: MetaobjectService,
     functionKey: string,
     config: unknown,
-  ): Promise<void> {
+  ): Promise<'written' | 'noop'> {
     // WS5/026: idempotent republish — skip the write when nothing changed so a
     // republish is a true no-op (the metaobject is already handle-keyed, so this
     // also guarantees no duplicates).
@@ -511,7 +521,7 @@ export class PublishService {
       existing,
       next,
     });
-    if (diff.action === 'noop') return;
+    if (diff.action === 'noop') return 'noop';
 
     const refKey = `fn_${functionKey}`;
     await mo.ensureMetafieldDefinition(
@@ -519,6 +529,7 @@ export class PublishService {
     );
     const gid = await mo.upsertFunctionConfigObject(functionKey, next);
     await mo.setModuleRef(FUNCTIONS_NAMESPACE, refKey, gid);
+    return 'written';
   }
 
   private async publishCartTransform(spec: RecipeSpec, override?: ResolvedBundle[]): Promise<void> {

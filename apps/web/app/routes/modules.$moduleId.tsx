@@ -393,8 +393,20 @@ function ModuleDetailBody() {
   // publish (the fetcher's JSON carries embedStatus — no URL to read) or from
   // the redirect-based publish flow (?embed=... on the URL after /api/publish).
   const [embedNudge, setEmbedNudge] = useState<string | null>(null);
+  // WS-E finding 4: a PUBLISH_PARTIAL_FAILURE from the agent publish route
+  // carries failedOp + republish guidance — surfaced as a persistent banner
+  // (a toast alone can't hold this much detail) rather than a flat error string.
+  const [publishFailure, setPublishFailure] = useState<{ failedOp?: string; guidance?: string; message: string } | null>(null);
 
-  const publishFetcher = useFetcher<{ ok?: boolean; error?: string; embedStatus?: string }>();
+  const publishFetcher = useFetcher<{
+    ok?: boolean;
+    error?: string;
+    embedStatus?: string;
+    code?: string;
+    failedOp?: string;
+    guidance?: string;
+    completedOps?: unknown[];
+  }>();
   const rollbackFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const unpublishFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const deleteFetcher = useFetcher<{ ok?: boolean; error?: string; name?: string }>();
@@ -450,12 +462,26 @@ function ModuleDetailBody() {
   useEffect(() => {
     if (publishFetcher.data?.ok && publishFetcher.state === 'idle') {
       ctx.toast(isDraft ? 'Published — live in a few minutes' : 'Re-published');
+      setPublishFailure(null);
       if (publishFetcher.data.embedStatus && publishFetcher.data.embedStatus !== 'enabled') {
         setEmbedNudge(publishFetcher.data.embedStatus);
       }
       revalidator.revalidate();
     } else if (publishFetcher.data?.error && publishFetcher.state === 'idle') {
-      ctx.toast(publishFetcher.data.error, { error: true });
+      if (publishFetcher.data.code === 'PUBLISH_PARTIAL_FAILURE') {
+        // Republish-is-the-fix (WS-E finding 4): every completed op is
+        // idempotent, so surface exactly where it stopped instead of a flat
+        // error the merchant can't act on.
+        setPublishFailure({
+          failedOp: publishFetcher.data.failedOp,
+          guidance: publishFetcher.data.guidance,
+          message: publishFetcher.data.error,
+        });
+        ctx.toast('Publish stopped partway through — see details below', { error: true });
+      } else {
+        setPublishFailure(null);
+        ctx.toast(publishFetcher.data.error, { error: true });
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publishFetcher.data, publishFetcher.state]);
@@ -698,6 +724,22 @@ function ModuleDetailBody() {
 
       {justUnpublished && (
         <s-banner tone="info" heading="Module unpublished">This module is no longer live and is now a draft.</s-banner>
+      )}
+
+      {publishFailure && (
+        <s-banner tone="critical" heading="Publish stopped partway through">
+          <s-stack gap="small-100">
+            <s-paragraph>
+              {publishFailure.failedOp ? `Failed at "${publishFailure.failedOp}". ` : ''}
+              {publishFailure.guidance ?? publishFailure.message}
+            </s-paragraph>
+            <s-stack direction="inline">
+              <s-button variant="primary" icon="refresh" loading={isPublishing || undefined} onClick={publish}>
+                Retry publish
+              </s-button>
+            </s-stack>
+          </s-stack>
+        </s-banner>
       )}
 
       {isThemeModule && embedStatus && (
