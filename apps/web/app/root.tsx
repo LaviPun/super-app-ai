@@ -15,9 +15,9 @@ import saGenerateCss from './styles/superapp/generate.css?url';
 import merchantCss from './styles/merchant.css?url';
 import enTranslations from '@shopify/polaris/locales/en.json';
 import { AppProvider as PolarisProvider } from '@shopify/polaris';
-import { AppProvider } from '@shopify/shopify-app-remix/react';
 import { boundary } from '@shopify/shopify-app-remix/server';
 import { ActivityLogger } from '~/components/ActivityLogger';
+import { EmbeddedHeadScripts } from '~/components/EmbeddedHeadScripts';
 
 export const links: LinksFunction = () => [
   // Warm the font-host connections, then load both font stylesheets in parallel —
@@ -127,13 +127,15 @@ export default function App() {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <Meta />
         <Links />
-        {/* Polaris web components (s-page, s-section, …) — polaris.js defines the
-            s-* elements; app-bridge.js (injected by AppProvider) only integrates
-            s-page metadata with the admin title bar. Verified via in-iframe
-            telemetry: without this script the s-* elements never upgrade. */}
-        {embedded && !isInternal && (
-          <script src="https://cdn.shopify.com/shopifycloud/polaris.js" defer />
-        )}
+        {/* App Store requirement (2025-10-15): app-bridge.js must be a plain
+            <script> tag in <head>, before other scripts — see
+            EmbeddedHeadScripts for the full ordering rationale (api-key meta,
+            then app-bridge.js un-deferred, then polaris.js deferred). polaris.js
+            defines the s-* web components (s-page, s-section, s-app-nav, …);
+            app-bridge.js integrates s-page metadata with the admin title bar.
+            Verified via in-iframe telemetry: without polaris.js the s-*
+            elements never upgrade. */}
+        {embedded && !isInternal && <EmbeddedHeadScripts apiKey={apiKey} />}
         {/* Force rounded cards/banners so Polaris’s 0-radius on small viewports never wins */}
         <style dangerouslySetInnerHTML={{ __html: `
           .Polaris-ShadowBevel, .Polaris-LegacyCard, .Polaris-Banner { border-radius: 12px !important; overflow: hidden; }
@@ -144,7 +146,7 @@ export default function App() {
       </head>
       <body>
         {embedded && !isInternal ? (
-          <AppProvider isEmbeddedApp apiKey={apiKey}>
+          <>
             <ClientErrorReporting />
             <ActivityLogger />
             {/* Shopify App Bridge top-level nav — rendered OUTSIDE the app (Shopify admin
@@ -164,7 +166,7 @@ export default function App() {
             <div className="app-content">
               <Outlet />
             </div>
-          </AppProvider>
+          </>
         ) : (
           <PolarisProvider i18n={enTranslations}>
             <ClientErrorReporting />
