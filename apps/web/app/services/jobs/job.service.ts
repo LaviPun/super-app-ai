@@ -93,6 +93,24 @@ export class JobService {
     return prisma.job.update({ where: { id: jobId }, data: { stage } });
   }
 
+  /**
+   * WS-C Task 6. Fetch a Job (with its persisted generation options) scoped
+   * to a shop — the poll route's ONLY read path. Returns null for an
+   * unknown job id AND for a job that belongs to a different shop (or has
+   * no shop at all) — the caller can't tell those apart, which is the
+   * point: a merchant polling another shop's jobId gets the same 404 as
+   * polling a jobId that doesn't exist.
+   */
+  async getForShop(jobId: string, shopDomain: string) {
+    const prisma = getPrisma();
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: { shop: true, generationOptions: { orderBy: { idx: 'asc' } } },
+    });
+    if (!job || job.shop?.shopDomain !== shopDomain) return null;
+    return job;
+  }
+
   async listLatest(limit = 200) {
     const prisma = getPrisma();
     return prisma.job.findMany({ orderBy: { createdAt: 'desc' }, take: limit, include: { shop: true } });
