@@ -1,6 +1,6 @@
 import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
-import { ModuleService } from '~/services/modules/module.service';
+import { RollbackService } from '~/services/publish/rollback.service';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
 import { withApiLogging } from '~/services/observability/api-log.service';
 import { getPrisma } from '~/db.server';
@@ -8,7 +8,7 @@ import { JobService } from '~/services/jobs/job.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
 
 export async function action({ request }: { request: Request }) {
-  const { session } = await shopify.authenticate.admin(request);
+  const { session, admin } = await shopify.authenticate.admin(request);
 
   return withApiLogging(
     { actor: 'MERCHANT', method: request.method, path: '/api/rollback', request, captureRequestBody: true, captureResponseBody: true },
@@ -35,8 +35,8 @@ export async function action({ request }: { request: Request }) {
       await jobs.start(job.id);
 
       try {
-        const ms = new ModuleService();
-        const mv = await ms.rollbackToVersion(session.shop, moduleId, version);
+        const rollback = new RollbackService(admin, { shop: session.shop, shopId: shopRow?.id });
+        const mv = await rollback.rollbackToVersion(moduleId, version);
         await jobs.succeed(job.id, { rolledBackTo: version, versionId: mv.id });
         await new ActivityLogService().log({ actor: 'MERCHANT', action: 'MODULE_ROLLED_BACK', resource: `module:${moduleId}`, shopId: shopRow?.id, details: { version, versionId: mv.id } });
 

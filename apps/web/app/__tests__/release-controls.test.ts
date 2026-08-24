@@ -10,7 +10,6 @@ import {
   getNextReleaseStates,
 } from '~/services/releases/state-machine.server';
 import { evaluateFeatureFlag } from '~/services/releases/feature-flags.server';
-import { ProgressivePublishService } from '~/services/releases/progressive-publish.server';
 
 describe('release controls', () => {
   it('enforces surface capability allowlist by target', () => {
@@ -71,18 +70,6 @@ describe('release controls', () => {
     });
     expect(shopOverride.enabled).toBe(false);
     expect(shopOverride.source).toBe('shop_override');
-  });
-
-  it('evaluates progressive publish canary/ramp decisions', () => {
-    const service = new ProgressivePublishService();
-    const canary = service.startCanary();
-    expect(canary.decision).toBe('PROCEED');
-
-    const hold = service.evaluateRamp({ sampleSize: 10, errorRate: 0.0, p95LatencyMs: 200 });
-    expect(hold.decision).toBe('HOLD');
-
-    const abort = service.evaluateRamp({ sampleSize: 300, errorRate: 0.2, p95LatencyMs: 2000 });
-    expect(abort.decision).toBe('ABORT');
   });
 });
 

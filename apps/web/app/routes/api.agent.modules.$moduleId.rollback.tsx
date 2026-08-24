@@ -1,6 +1,6 @@
 import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
-import { ModuleService } from '~/services/modules/module.service';
+import { RollbackService } from '~/services/publish/rollback.service';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { JobService } from '~/services/jobs/job.service';
@@ -18,7 +18,7 @@ export async function action({
   request: Request;
   params: { moduleId?: string };
 }) {
-  const { session } = await shopify.authenticate.admin(request);
+  const { session, admin } = await shopify.authenticate.admin(request);
   const moduleId = params.moduleId;
   if (!moduleId) return json({ error: 'Missing moduleId' }, { status: 400 });
 
@@ -44,8 +44,8 @@ export async function action({
   await jobs.start(job.id);
 
   try {
-    const ms = new ModuleService();
-    const mv = await ms.rollbackToVersion(session.shop, moduleId, Number(body.version));
+    const rollback = new RollbackService(admin, { shop: session.shop, shopId: shopRow?.id });
+    const mv = await rollback.rollbackToVersion(moduleId, Number(body.version));
     await jobs.succeed(job.id, { rolledBackTo: body.version, versionId: mv.id });
     await new ActivityLogService().log({
       actor: 'SYSTEM',

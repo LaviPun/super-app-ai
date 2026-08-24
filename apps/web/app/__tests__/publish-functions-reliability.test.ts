@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { MODULE_TEMPLATES, RECIPE_SPEC_TYPES, type RecipeSpec } from '@superapp/core';
+import { ACTIVATION_WIRED_FUNCTION_TYPES, MODULE_TEMPLATES, RECIPE_SPEC_TYPES, type RecipeSpec } from '@superapp/core';
 import { computeRepublishDiff } from '@superapp/platform-contracts';
 import {
   FUNCTION_EXTENSION_HANDLES,
@@ -53,13 +55,14 @@ describe('WS5 publish preflight — SC-001 no silent no-op', () => {
     expect(blocked.status).toBe('needs_runtime');
     expect(blocked.requiresExtension).toBe(FUNCTION_EXTENSION_HANDLES['functions.discountRules']);
 
-    // With the wasm deployed the single-module path is STILL gated: the Shopify
-    // activation object is unwired (WS-QF / D6 step 1) — honest, not silent.
-    const activationGated = classifyModulePublishability(spec, {
+    // WS-E Task 3: functions.discountRules is now activation-wired
+    // (ActivationService's discount kind) — with the wasm deployed the
+    // single-module path is deployable again, no co-deploy exemption needed.
+    const activated = classifyModulePublishability(spec, {
       deployedExtensions: [FUNCTION_EXTENSION_HANDLES['functions.discountRules']!],
     });
-    expect(activationGated.status).toBe('needs_runtime');
-    expect(activationGated.reasons.join(' ')).toMatch(/activation/i);
+    expect(activated.status).toBe('deployable');
+    expect(activated.willDeploy).toBe(true);
 
     // Blueprint co-deploy (which performs activation itself) stays deployable.
     const ok = classifyModulePublishability(spec, {
@@ -74,6 +77,39 @@ describe('WS5 publish preflight — SC-001 no silent no-op', () => {
     const spec = specForType('theme.section');
     if (!spec) return;
     expect(classifyModulePublishability(spec).status).toBe('deployable');
+  });
+});
+
+describe('WS-E activation gate (D6 step 2 seam)', () => {
+  it('a functions.* type with a deployed wasm but no wired activation is needs_runtime', () => {
+    for (const type of [
+      'functions.discountRules',
+      'functions.cartTransform',
+      'functions.deliveryCustomization',
+      'functions.paymentCustomization',
+      'functions.cartAndCheckoutValidation',
+      'functions.fulfillmentConstraints',
+    ]) {
+      if (ACTIVATION_WIRED_FUNCTION_TYPES.has(type)) continue; // un-gated by a later WS-E task
+      const spec = specForType(type);
+      if (!spec) continue;
+      const result = classifyModulePublishability(spec, {
+        deployedExtensions: Object.values(FUNCTION_EXTENSION_HANDLES),
+      });
+      expect(result.status, type).toBe('needs_runtime');
+      expect(result.reasons.join(' '), type).toMatch(/activation/i);
+    }
+  });
+
+  it('a wired type with a deployed wasm is deployable', () => {
+    for (const type of ACTIVATION_WIRED_FUNCTION_TYPES) {
+      const spec = specForType(type);
+      if (!spec) continue;
+      const result = classifyModulePublishability(spec, {
+        deployedExtensions: Object.values(FUNCTION_EXTENSION_HANDLES),
+      });
+      expect(result.status, type).toBe('deployable');
+    }
   });
 });
 
@@ -198,5 +234,22 @@ describe('PublishService.writeFunctionConfig — preserves managed bundle rules'
       rules: [{ id: 'mod-a', when: { minSubtotal: 100 }, apply: { percentageOff: 10 } }],
     });
     expect(mo.upsertFunctionConfigObject).not.toHaveBeenCalled();
+  });
+});
+
+describe('WS-E: progressive-publish theater is removed (E4)', () => {
+  it('no source file references ProgressivePublishService / startCanary / evaluateRamp', () => {
+    // grep-level guard: the two routes that used it plus the service itself.
+    const files = [
+      'app/routes/api.publish.tsx',
+      'app/routes/api.agent.modules.$moduleId.publish.tsx',
+    ];
+    for (const f of files) {
+      const src = readFileSync(join(__dirname, '..', '..', f), 'utf8');
+      expect(src).not.toMatch(/ProgressivePublishService|startCanary|evaluateRamp|progressiveStage/);
+    }
+    expect(() =>
+      readFileSync(join(__dirname, '..', 'services', 'releases', 'progressive-publish.server.ts'), 'utf8'),
+    ).toThrow();
   });
 });

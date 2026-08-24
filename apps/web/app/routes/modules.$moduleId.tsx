@@ -12,6 +12,7 @@ import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
 import { MODULE_CATALOG, isCapabilityAllowed, getExtensionEligibility } from '@superapp/core';
 import { compileRecipe } from '~/services/recipes/compiler';
 import { ThemeService } from '~/services/shopify/theme.service';
+import { embedActivationDeepLink } from '~/services/publish/embed-status.server';
 import type { Capability, DeployTarget, RecipeSpec } from '@superapp/core';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
@@ -206,7 +207,12 @@ export async function loader({ request, params }: { request: Request; params: { 
     } catch { return null; }
   })();
 
-  return json({ moduleId, shop: session.shop, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, blueprint, internalNotes, deployment });
+  // WS-E finding 5: the theme-editor deep link that turns on the SuperApp app
+  // embed. Cheap (no Shopify call — just string formatting), so it's always
+  // computed; the post-publish banner below decides whether to show it.
+  const embedDeepLink = embedActivationDeepLink(session.shop);
+
+  return json({ moduleId, shop: session.shop, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, blueprint, internalNotes, deployment, embedDeepLink });
 }
 
 const RUNTIME_LABEL: Record<string, string> = {
@@ -229,7 +235,7 @@ const RUNTIME_LABEL: Record<string, string> = {
  * response.
  */
 export async function action({ request, params }: { request: Request; params: { moduleId?: string } }) {
-  const { session } = await shopify.authenticate.admin(request);
+  const { session, admin } = await shopify.authenticate.admin(request);
   const moduleId = params.moduleId;
   if (!moduleId) return json({ error: 'Missing moduleId' }, { status: 400 });
 
@@ -306,7 +312,9 @@ export async function action({ request, params }: { request: Request; params: { 
   }
 
   if (intent === 'delete') {
-    await ms.deleteModule(session.shop, moduleId);
+    // WS-E: Shopify cleanup runs first — if it throws, the module stays
+    // PUBLISHED (honest) and nothing in the DB is deleted; retry is safe.
+    await ms.unpublishThenDelete(admin, session.shop, moduleId);
     await new ActivityLogService().log({
       actor: 'MERCHANT',
       action: 'MODULE_DELETED',
@@ -374,15 +382,33 @@ function ModuleDetailBody() {
   const [tab, setTab] = useState('overview');
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [delOpen, setDelOpen] = useState(false);
+  const [unpubOpen, setUnpubOpen] = useState(false);
   const [modifyOpen, setModifyOpen] = useState(false);
   const [modifyInstruction, setModifyInstruction] = useState('');
   const [selectedThemeId, setSelectedThemeId] = useState(getDefaultThemeId(themes, publishedThemeId ?? null));
   const [applyingIdx, setApplyingIdx] = useState<number | null>(null);
   const [nameDraft, setNameDraft] = useState(mod.name);
   const [notesDraft, setNotesDraft] = useState(internalNotes ?? '');
+  // WS-E finding 5: embed-activation nudge. Populated either from a same-page
+  // publish (the fetcher's JSON carries embedStatus — no URL to read) or from
+  // the redirect-based publish flow (?embed=... on the URL after /api/publish).
+  const [embedNudge, setEmbedNudge] = useState<string | null>(null);
+  // WS-E finding 4: a PUBLISH_PARTIAL_FAILURE from the agent publish route
+  // carries failedOp + republish guidance — surfaced as a persistent banner
+  // (a toast alone can't hold this much detail) rather than a flat error string.
+  const [publishFailure, setPublishFailure] = useState<{ failedOp?: string; guidance?: string; message: string } | null>(null);
 
-  const publishFetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const publishFetcher = useFetcher<{
+    ok?: boolean;
+    error?: string;
+    embedStatus?: string;
+    code?: string;
+    failedOp?: string;
+    guidance?: string;
+    completedOps?: unknown[];
+  }>();
   const rollbackFetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const unpublishFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const deleteFetcher = useFetcher<{ ok?: boolean; error?: string; name?: string }>();
   const modifyFetcher = useFetcher<{ options?: any[]; error?: string }>();
   const applyFetcher = useFetcher<{ ok?: boolean; version?: number; error?: string }>();
@@ -436,9 +462,26 @@ function ModuleDetailBody() {
   useEffect(() => {
     if (publishFetcher.data?.ok && publishFetcher.state === 'idle') {
       ctx.toast(isDraft ? 'Published — live in a few minutes' : 'Re-published');
+      setPublishFailure(null);
+      if (publishFetcher.data.embedStatus && publishFetcher.data.embedStatus !== 'enabled') {
+        setEmbedNudge(publishFetcher.data.embedStatus);
+      }
       revalidator.revalidate();
     } else if (publishFetcher.data?.error && publishFetcher.state === 'idle') {
-      ctx.toast(publishFetcher.data.error, { error: true });
+      if (publishFetcher.data.code === 'PUBLISH_PARTIAL_FAILURE') {
+        // Republish-is-the-fix (WS-E finding 4): every completed op is
+        // idempotent, so surface exactly where it stopped instead of a flat
+        // error the merchant can't act on.
+        setPublishFailure({
+          failedOp: publishFetcher.data.failedOp,
+          guidance: publishFetcher.data.guidance,
+          message: publishFetcher.data.error,
+        });
+        ctx.toast('Publish stopped partway through — see details below', { error: true });
+      } else {
+        setPublishFailure(null);
+        ctx.toast(publishFetcher.data.error, { error: true });
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publishFetcher.data, publishFetcher.state]);
@@ -452,6 +495,18 @@ function ModuleDetailBody() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rollbackFetcher.data, rollbackFetcher.state]);
+
+  useEffect(() => {
+    if (unpublishFetcher.state !== 'idle') return;
+    if (unpublishFetcher.data?.ok) {
+      ctx.toast('Unpublished — removed from your storefront');
+      setUnpubOpen(false);
+      revalidator.revalidate();
+    } else if (unpublishFetcher.data?.error) {
+      ctx.toast(unpublishFetcher.data.error, { error: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unpublishFetcher.data, unpublishFetcher.state]);
 
   useEffect(() => {
     if (deleteFetcher.state !== 'idle') return;
@@ -538,6 +593,13 @@ function ModuleDetailBody() {
   }, [fillSettingsFetcher.data, fillSettingsFetcher.state]);
 
   const justPublished = searchParams.get('published') === '1';
+  const justUnpublished = searchParams.get('unpublished') === '1';
+  // Redirect-based publish flow (/api/publish, used by the Builder) carries the
+  // embed status on the URL; the same-page fetcher flow carries it in embedNudge
+  // (set above). Either can be present; embedNudge (the more recent action, if
+  // any) wins.
+  const urlEmbedStatus = searchParams.get('embed');
+  const embedStatus = embedNudge ?? (urlEmbedStatus && urlEmbedStatus !== 'enabled' ? urlEmbedStatus : null);
 
   const publish = () => {
     const body: Record<string, string> = {};
@@ -550,6 +612,9 @@ function ModuleDetailBody() {
   const doDelete = () => {
     deleteFetcher.submit({ intent: 'delete' }, { method: 'post' });
     setDelOpen(false);
+  };
+  const doUnpublish = () => {
+    unpublishFetcher.submit({}, { method: 'post', action: `/api/modules/${moduleId}/unpublish` });
   };
   const duplicate = () => {
     duplicateFetcher.submit({ intent: 'duplicate' }, { method: 'post' });
@@ -619,6 +684,9 @@ function ModuleDetailBody() {
         <s-menu>
           <s-button icon="duplicate" onClick={duplicate}>Duplicate</s-button>
           <s-button icon="download" onClick={exportSpec}>Export spec</s-button>
+          {mod.status === 'PUBLISHED' && (
+            <s-button icon="minus-circle" tone="critical" onClick={() => setUnpubOpen(true)}>Unpublish</s-button>
+          )}
           <s-button icon="delete" tone="critical" onClick={() => setDelOpen(true)}>Delete module</s-button>
         </s-menu>
       </s-popover>
@@ -654,6 +722,38 @@ function ModuleDetailBody() {
         <s-banner tone="success" heading="Module published">This module is now live on your storefront.</s-banner>
       )}
 
+      {justUnpublished && (
+        <s-banner tone="info" heading="Module unpublished">This module is no longer live and is now a draft.</s-banner>
+      )}
+
+      {publishFailure && (
+        <s-banner tone="critical" heading="Publish stopped partway through">
+          <s-stack gap="small-100">
+            <s-paragraph>
+              {publishFailure.failedOp ? `Failed at "${publishFailure.failedOp}". ` : ''}
+              {publishFailure.guidance ?? publishFailure.message}
+            </s-paragraph>
+            <s-stack direction="inline">
+              <s-button variant="primary" icon="refresh" loading={isPublishing || undefined} onClick={publish}>
+                Retry publish
+              </s-button>
+            </s-stack>
+          </s-stack>
+        </s-banner>
+      )}
+
+      {isThemeModule && embedStatus && (
+        <s-banner tone="warning" heading="Almost there — turn on the app embed">
+          <s-paragraph>
+            Published modules only appear on your storefront once the “SuperApp Theme Modules”
+            app embed is enabled in your theme.
+          </s-paragraph>
+          <s-button href={data.embedDeepLink} target="_blank" variant="primary">
+            Enable it in the theme editor
+          </s-button>
+        </s-banner>
+      )}
+
       {isThemeModule && themes.length > 0 && (
         <s-box maxInlineSize="360px">
           <s-select label="Publish to theme" value={selectedThemeId} onChange={(e) => setSelectedThemeId(e.currentTarget.value)}>
@@ -669,6 +769,14 @@ function ModuleDetailBody() {
           loading={deleteFetcher.state !== 'idle'}
           onConfirm={doDelete} onClose={() => setDelOpen(false)}>
           <s-paragraph>{`This removes “${mod.name}” and all of its versions. This cannot be undone.`}</s-paragraph>
+        </ConfirmModal>
+      )}
+
+      {unpubOpen && (
+        <ConfirmModal open heading="Unpublish module?" tone="critical" confirmLabel="Unpublish"
+          loading={unpublishFetcher.state !== 'idle'}
+          onConfirm={doUnpublish} onClose={() => setUnpubOpen(false)}>
+          <s-paragraph>{`This removes “${mod.name}” from your storefront/admin and reverts it to a draft. You can publish it again later.`}</s-paragraph>
         </ConfirmModal>
       )}
 

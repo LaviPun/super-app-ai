@@ -20,7 +20,7 @@ export async function action({
   request: Request;
   params: { moduleId?: string };
 }) {
-  const { session } = await shopify.authenticate.admin(request);
+  const { session, admin } = await shopify.authenticate.admin(request);
   const moduleId = params.moduleId;
   if (!moduleId) return json({ error: 'Missing moduleId' }, { status: 400 });
 
@@ -32,7 +32,9 @@ export async function action({
   const mod = await moduleService.getModule(session.shop, moduleId);
   if (!mod) return json({ error: 'Module not found' }, { status: 404 });
 
-  await moduleService.deleteModule(session.shop, moduleId);
+  // WS-E: Shopify cleanup runs first — if it throws, the module stays PUBLISHED
+  // (honest) and nothing in the DB is deleted; the merchant can retry.
+  await moduleService.unpublishThenDelete(admin, session.shop, moduleId);
 
   await new ActivityLogService().log({
     actor: 'MERCHANT',

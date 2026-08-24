@@ -149,55 +149,8 @@ describe('BundleProductService.writeBundlePricingRules', () => {
   });
 });
 
-describe('BundleProductService.ensureAutomaticBundleDiscount', () => {
-  it('returns the existing node without creating a duplicate', async () => {
-    const admin = mockAdmin({
-      // 1st call: lookup existing automatic app discounts
-      data: {
-        discountNodes: {
-          nodes: [
-            {
-              id: 'gid://shopify/DiscountAutomaticNode/1',
-              discount: { __typename: 'DiscountAutomaticApp', title: 'SuperApp Bundle Pricing' },
-            },
-          ],
-        },
-      },
-    });
-    const svc = new BundleProductService(admin);
-    await expect(svc.ensureAutomaticBundleDiscount()).resolves.toBe('gid://shopify/DiscountAutomaticNode/1');
-  });
-
-  it('creates the node when absent (function id looked up, then created)', async () => {
-    const admin = mockAdmin(
-      { data: { discountNodes: { nodes: [] } } },
-      {
-        data: {
-          shopifyFunctions: {
-            nodes: [{ id: 'fn-1', apiType: 'discount', title: 'SuperApp Discount', handle: 'discount-function' }],
-          },
-        },
-      },
-      {
-        data: {
-          discountAutomaticAppCreate: {
-            automaticAppDiscount: { discountId: 'gid://shopify/DiscountAutomaticNode/2' },
-            userErrors: [],
-          },
-        },
-      },
-    );
-    const svc = new BundleProductService(admin);
-    await expect(svc.ensureAutomaticBundleDiscount()).resolves.toBe('gid://shopify/DiscountAutomaticNode/2');
-
-    // The create mutation MUST carry discountClasses: ['PRODUCT'] and the looked-up
-    // functionId — the missing discountClasses field is exactly what made the
-    // fallback inert on a live 2026-04 store (the unified Discounts API requires it).
-    const graphql = (admin as unknown as { graphql: ReturnType<typeof vi.fn> }).graphql;
-    const createVars = graphql.mock.calls[2]?.[1] as {
-      variables: { discount: { discountClasses?: string[]; functionId?: string } };
-    };
-    expect(createVars.variables.discount.discountClasses).toEqual(['PRODUCT']);
-    expect(createVars.variables.discount.functionId).toBe('fn-1');
-  });
-});
+// The discount-node adopt/create/idempotent-republish coverage that used to live
+// here (BundleProductService.ensureAutomaticBundleDiscount) moved to
+// ActivationService's discount kind (WS-E Task 3) — see
+// app/__tests__/activation.service.test.ts. BundleProductService no longer owns
+// any discount-node mutations.
