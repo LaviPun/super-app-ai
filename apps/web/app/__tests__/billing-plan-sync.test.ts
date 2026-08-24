@@ -1,7 +1,9 @@
 /**
  * PlanSyncService — the ONLY writer of App Pricing plan state.
  * Covers: handle mapping, null contract → FREE, idempotent upsert,
- * missing Partner env → graceful no-op, shopGid lazy fetch, sweep batching.
+ * missing Partner env → graceful no-op, shopGid lazy fetch, sweep batching,
+ * ENTERPRISE override guard (syncShop mirrors sweep's), and the first-sync
+ * BILLING_PLAN_CHANGED log guard (no spurious FREE→FREE event for new shops).
  * All I/O mocked (fetch, prisma, unauthenticated admin).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -158,6 +160,30 @@ describe('PlanSyncService.syncShop', () => {
     const res = await new PlanSyncService().syncShop('t.myshopify.com');
     expect(res.changed).toBe(false);
     expect(hoisted.activityLog).not.toHaveBeenCalled();
+  });
+
+  it('an existing ENTERPRISE override is never reconciled away by the Partner API', async () => {
+    hoisted.subFindUnique.mockResolvedValue({ planName: 'ENTERPRISE', status: 'ACTIVE' });
+    const res = await new PlanSyncService().syncShop('t.myshopify.com');
+    expect(res).toEqual({ plan: 'ENTERPRISE', changed: false });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(hoisted.subUpsert).not.toHaveBeenCalled();
+  });
+
+  it('first-ever sync landing on FREE (no prior row) does not log BILLING_PLAN_CHANGED', async () => {
+    hoisted.subFindUnique.mockResolvedValue(null);
+    (fetch as any).mockResolvedValue(partnerResponse(null));
+    const res = await new PlanSyncService().syncShop('t.myshopify.com');
+    expect(res).toEqual({ plan: 'FREE', changed: false });
+    expect(hoisted.activityLog).not.toHaveBeenCalled();
+  });
+
+  it('first-ever sync landing on a paid plan (no prior row) DOES log BILLING_PLAN_CHANGED', async () => {
+    hoisted.subFindUnique.mockResolvedValue(null);
+    (fetch as any).mockResolvedValue(partnerResponse([{ handle: 'growth' }]));
+    const res = await new PlanSyncService().syncShop('t.myshopify.com');
+    expect(res).toEqual({ plan: 'GROWTH', changed: true });
+    expect(hoisted.activityLog).toHaveBeenCalledTimes(1);
   });
 });
 

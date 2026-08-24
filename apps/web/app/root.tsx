@@ -38,7 +38,10 @@ export const links: LinksFunction = () => [
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
-  const isInternal = url.pathname.startsWith('/internal');
+  // Case-insensitive to match the router's own matching (see
+  // security-headers.server.ts's isInternalRouteMatch for the same rule) —
+  // a case-sensitive check here would misclassify e.g. `/Internal/login`.
+  const isInternal = url.pathname.toLowerCase().startsWith('/internal');
 
   // When running on port 4000 (internal admin server), send auth and root to internal login
   const port = url.port || (url.protocol === 'https:' ? '443' : '80');
@@ -118,7 +121,8 @@ function ClientErrorReporting() {
 export default function App() {
   const { apiKey, embedded } = useLoaderData<typeof loader>();
   const location = useLocation();
-  const isInternal = location.pathname.startsWith('/internal');
+  // Same case-insensitive rule as the loader above / security-headers.server.ts.
+  const isInternal = location.pathname.toLowerCase().startsWith('/internal');
 
   return (
     <html lang="en">

@@ -24,7 +24,7 @@ import { loader } from '~/routes/billing.callback';
 beforeEach(() => vi.clearAllMocks());
 
 describe('billing.callback loader', () => {
-  it('syncs from the Partner API (not the URL param) and redirects to /billing', async () => {
+  it('syncs from the Partner API (not the URL param) and redirects to /billing, stripping plan_handle', async () => {
     const res = (await loader({
       request: new Request('https://app.example.com/billing/callback?plan_handle=growth'),
       params: {},
@@ -44,5 +44,24 @@ describe('billing.callback loader', () => {
     } as never)) as Response;
     expect(res.status).toBe(302);
     expect(res.headers.get('Location')).toBe('/billing');
+  });
+
+  it('preserves shop/host/embedded/id_token through the redirect and strips plan_handle', async () => {
+    const res = (await loader({
+      request: new Request(
+        'https://app.example.com/billing/callback?plan_handle=growth&shop=t.myshopify.com&host=YWJjMTIz&embedded=1&id_token=eyJhbGciOiJIUzI1NiJ9.abc',
+      ),
+      params: {},
+      context: {},
+    } as never)) as Response;
+    expect(res.status).toBe(302);
+    const location = res.headers.get('Location') ?? '';
+    const dest = new URL(location, 'https://app.example.com');
+    expect(dest.pathname).toBe('/billing');
+    expect(dest.searchParams.get('plan_handle')).toBeNull();
+    expect(dest.searchParams.get('shop')).toBe('t.myshopify.com');
+    expect(dest.searchParams.get('host')).toBe('YWJjMTIz');
+    expect(dest.searchParams.get('embedded')).toBe('1');
+    expect(dest.searchParams.get('id_token')).toBe('eyJhbGciOiJIUzI1NiJ9.abc');
   });
 });

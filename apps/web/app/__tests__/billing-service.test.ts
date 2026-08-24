@@ -24,9 +24,25 @@ vi.mock('~/db.server', () => ({
   }),
 }));
 
-import { BillingService } from '~/services/billing/billing.service';
+import { BillingService, deriveEffectivePlan } from '~/services/billing/billing.service';
 
 beforeEach(() => vi.clearAllMocks());
+
+describe('deriveEffectivePlan', () => {
+  it('reads the plan off an ACTIVE subscription', () => {
+    expect(deriveEffectivePlan({ planName: 'GROWTH', status: 'ACTIVE' })).toBe('GROWTH');
+  });
+
+  it('falls back to FREE when the subscription is not ACTIVE (stale CANCELLED/EXPIRED row)', () => {
+    expect(deriveEffectivePlan({ planName: 'GROWTH', status: 'CANCELLED' })).toBe('FREE');
+    expect(deriveEffectivePlan({ planName: 'PRO', status: 'EXPIRED' })).toBe('FREE');
+  });
+
+  it('falls back to FREE when there is no subscription row at all', () => {
+    expect(deriveEffectivePlan(null)).toBe('FREE');
+    expect(deriveEffectivePlan(undefined)).toBe('FREE');
+  });
+});
 
 describe('BillingService (App Pricing model)', () => {
   it('no longer exposes a charge-creation path', () => {

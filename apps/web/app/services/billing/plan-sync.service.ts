@@ -49,6 +49,20 @@ export class PlanSyncService {
       return { plan: (existing?.planName as BillingPlan) ?? 'FREE', changed: false };
     }
 
+    // ENTERPRISE is an internal-admin override with no Partner API counterpart
+    // (the Partner API returns null — no active subscription — for these
+    // shops), so an unconditional overwrite here would clobber the override
+    // back to FREE on the merchant's very next visit to /billing/callback.
+    // The cron sweep already guards this (see the `sweep` query below); mirror
+    // it here so both reconcile paths agree. Non-ENTERPRISE overrides
+    // (STARTER/GROWTH/PRO) are intentionally NOT guarded — those are
+    // policy-transient and the next sync legitimately replaces them with the
+    // real Partner API plan.
+    if (existing?.planName === 'ENTERPRISE') {
+      logger.info('[plan-sync] ENTERPRISE override in place — skipping Partner API sync', { shopDomain });
+      return { plan: 'ENTERPRISE', changed: false };
+    }
+
     const shopGid = shop.shopGid ?? (await this.ensureShopGid(shopDomain));
     const sub = await this.fetchActiveSubscription(cfg, shopGid);
     if (sub?.legacySubscriptionId) {
@@ -58,7 +72,13 @@ export class PlanSyncService {
 
     const handle = sub?.items[0]?.handle ?? null;
     const plan: BillingPlan = sub ? (planFromHandle(handle) ?? 'FREE') : 'FREE';
-    const changed = (existing?.planName ?? 'FREE') !== plan || existing?.status !== 'ACTIVE';
+    // First-ever sync (no prior row) is not a "change" unless it lands on
+    // something other than FREE — `existing?.status !== 'ACTIVE'` would
+    // otherwise be trivially true for every brand-new shop (undefined !==
+    // 'ACTIVE') and log a spurious FREE→FREE BILLING_PLAN_CHANGED event.
+    const changed = existing
+      ? existing.planName !== plan || existing.status !== 'ACTIVE'
+      : plan !== 'FREE';
 
     const data = {
       planName: plan,

@@ -3,6 +3,21 @@ import { getPlanConfig as getPlanConfigFromDb } from './plan-config.service';
 
 export type BillingPlan = 'FREE' | 'STARTER' | 'GROWTH' | 'PRO' | 'ENTERPRISE';
 
+/**
+ * The billing plan of record lives on AppSubscription, not Shop.planTier
+ * (which is the Shopify SHOP plan and is no longer written by billing code
+ * post-App-Pricing-migration). A subscription row with a non-ACTIVE status
+ * (e.g. CANCELLED/EXPIRED left over from a prior cycle) must NOT be read as
+ * the merchant's plan — treat it as FREE. Use this everywhere a billing plan
+ * is displayed/filtered from a `subscription` relation so the rule stays
+ * consistent across merchant + internal-admin surfaces.
+ */
+export function deriveEffectivePlan(
+  sub: { planName: string; status: string } | null | undefined,
+): BillingPlan {
+  return sub?.status === 'ACTIVE' ? ((sub.planName as BillingPlan) ?? 'FREE') : 'FREE';
+}
+
 export type PlanConfig = {
   name: BillingPlan;
   displayName: string;
@@ -108,6 +123,15 @@ export class BillingService {
   /**
    * Internal admin only: set a store's plan without going through Shopify billing.
    * Use for support overrides or testing.
+   *
+   * Durability depends on the plan: ENTERPRISE overrides are permanent — the
+   * PlanSyncService (both `syncShop`, run from `/billing/callback`, and the
+   * cron `sweep`) explicitly skips ENTERPRISE rows so the next Partner API
+   * reconcile never clobbers them back to FREE. Any OTHER override
+   * (STARTER/GROWTH/PRO/FREE) is policy-transient: the merchant's next
+   * billing sync legitimately overwrites it with whatever plan the Partner
+   * API reports. Don't rely on a non-ENTERPRISE override surviving past the
+   * merchant's next `/billing/callback` visit or the next cron sweep tick.
    */
   async setPlanForShop(shopId: string, plan: BillingPlan): Promise<void> {
     await this.recordSubscription(shopId, plan, null);

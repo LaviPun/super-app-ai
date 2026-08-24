@@ -15,7 +15,8 @@ import { safeErrorMeta } from '~/services/observability/redact.server';
  */
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session } = await shopify.authenticate.admin(request);
-  const planHandle = new URL(request.url).searchParams.get('plan_handle');
+  const url = new URL(request.url);
+  const planHandle = url.searchParams.get('plan_handle');
   try {
     const { plan } = await new PlanSyncService().syncShop(session.shop);
     logger.info('[billing.callback] plan synced', { shopDomain: session.shop, plan, planHandle });
@@ -26,5 +27,17 @@ export async function loader({ request }: LoaderFunctionArgs) {
       ...safeErrorMeta(err),
     });
   }
-  return redirect('/billing');
+
+  // The welcome link is a top-level document navigation (not a fetch), so
+  // this redirect is followed by the bare browser — any embedded/session
+  // params dropped here are gone. shopify.authenticate.admin on the next
+  // hit requires shop/host/embedded/id_token to be present or it throws its
+  // own redirect to /auth/login, dead-ending the merchant right after they
+  // paid. Carry every incoming param forward EXCEPT plan_handle, which is a
+  // callback-only hint (already consumed above; re-sending it would just
+  // shadow the next sync's Partner API source of truth).
+  const dest = new URLSearchParams(url.searchParams);
+  dest.delete('plan_handle');
+  const qs = dest.toString();
+  return redirect(qs ? `/billing?${qs}` : '/billing');
 }
