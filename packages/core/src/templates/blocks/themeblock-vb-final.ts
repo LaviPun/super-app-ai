@@ -50,6 +50,7 @@ export const VB_FINAL_TEMPLATES: TemplateEntry[] = [
   // ── TBLK-VBF-01 — Two-step newsletter + birthday popup ──
   {
     id: 'TBLK-VBF-01',
+    tier: 'standard',
     name: 'Two-Step Newsletter + Birthday Popup',
     description:
       'Email-capture popup that asks for the email first, then (step two) an optional birthday for a birthday-reward flow — a Klaviyo-style staged form that reveals a welcome code on completion.',
@@ -102,6 +103,7 @@ export const VB_FINAL_TEMPLATES: TemplateEntry[] = [
   // ── TBLK-VBF-02 — SMS + email dual-capture popup with consent ──
   {
     id: 'TBLK-VBF-02',
+    tier: 'standard',
     name: 'SMS + Email Dual-Capture Popup',
     description:
       'Two-step capture that collects an email (with marketing consent) then a mobile number (with a separate SMS consent) — each consent is an unchecked opt-in, and a code is revealed on completion.',
@@ -156,6 +158,7 @@ export const VB_FINAL_TEMPLATES: TemplateEntry[] = [
   // ── TBLK-VBF-03 — Skincare product-finder quiz (proxy.widget, full_page) ──
   {
     id: 'TBLK-VBF-03',
+    tier: 'standard',
     name: 'Skincare Routine Finder Quiz',
     description:
       'A full-page product-finder quiz (app-served, so it costs no theme Liquid) — three questions about skin type and goals route the shopper to the matching skincare collection.',
@@ -217,6 +220,7 @@ export const VB_FINAL_TEMPLATES: TemplateEntry[] = [
   // ── TBLK-VBF-04 — Hero headline A/B experiment ──
   {
     id: 'TBLK-VBF-04',
+    tier: 'standard',
     name: 'Hero Headline A/B Test',
     description:
       'A homepage hero that runs a two-variant A/B test on its headline and CTA label — each visitor is deterministically bucketed and the winning copy is measured against a click goal.',
@@ -270,6 +274,7 @@ export const VB_FINAL_TEMPLATES: TemplateEntry[] = [
   // ── TBLK-VBF-05 — Recent-purchase social-proof toasts ──
   {
     id: 'TBLK-VBF-05',
+    tier: 'standard',
     name: 'Recent-Purchase Sales-Pop',
     description:
       'A rotating corner toast that surfaces recent-purchase social proof (“Ava from Austin bought …”). v1 shows merchant-authored SAMPLE events — a live order feed is a follow-up.',
@@ -306,6 +311,7 @@ export const VB_FINAL_TEMPLATES: TemplateEntry[] = [
   // ── TBLK-VBF-06 — Low-stock urgency toasts ──
   {
     id: 'TBLK-VBF-06',
+    tier: 'standard',
     name: 'Low-Stock Urgency Sales-Pop',
     description:
       'A corner toast queue that nudges with low-stock / high-demand messages on collection and product pages. v1 renders merchant-authored SAMPLE lines (a live inventory feed is a follow-up).',

@@ -15,6 +15,7 @@ export const NATIVE_HOTSPOTS_TEMPLATES: TemplateEntry[] = [
   // NSEC-HS-01 — Living-room "shop the look" (Editorial, luxe).
   {
     id: 'NSEC-HS-01',
+    tier: 'standard',
     name: 'Hotspots — Shop the Living Room',
     description: 'A styled living-room photo with shoppable hotspots over each product — tap a marker for a title/price/link popover, with a numbered list fallback, for a homepage or lookbook.',
     category: 'STOREFRONT_UI',
@@ -58,6 +59,7 @@ export const NATIVE_HOTSPOTS_TEMPLATES: TemplateEntry[] = [
   // NSEC-HS-02 — Outfit of the week (Bold DTC apparel).
   {
     id: 'NSEC-HS-02',
+    tier: 'standard',
     name: 'Hotspots — Outfit of the Week',
     description: 'A full-look outfit shot with shoppable hotspots over each garment — tap a marker for a price/link popover, numbered-list fallback below, for a homepage drop.',
     category: 'STOREFRONT_UI',

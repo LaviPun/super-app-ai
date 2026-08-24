@@ -15,6 +15,7 @@ import type { TemplateEntry } from '../types.js';
 export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   {
     id: 'ADMA-B2B-01',
+    tier: 'standard',
     name: 'Wholesale Pricing Group — Collection',
     description: 'Collection details action that applies a customer-tag wholesale pricing group with quantity breaks to every product in the collection.',
     category: 'ADMIN_UI',
@@ -52,6 +53,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-B2B-02',
+    tier: 'standard',
     name: 'Bulk Wholesale Tag — Collections',
     description: 'Collection index selection action that assigns a shared wholesale pricing group across every selected collection in one pass.',
     category: 'ADMIN_UI',
@@ -81,6 +83,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-B2B-03',
+    tier: 'standard',
     name: 'Company Pricing Profile',
     description: 'Company details action that reviews and edits the B2B pricing profile, payment terms, and catalog assigned to a wholesale company.',
     category: 'ADMIN_UI',
@@ -122,6 +125,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-B2B-04',
+    tier: 'standard',
     name: 'Convert Draft to Wholesale Order',
     description: 'Draft order details action that re-prices a draft against the customer’s wholesale group and applies negotiated quantity-break totals.',
     category: 'ADMIN_UI',
@@ -152,6 +156,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-B2B-05',
+    tier: 'floor',
     name: 'Bulk Wholesale Draft Re-price',
     description: 'Draft order index selection action that applies wholesale pricing groups to a batch of open drafts before sending invoices.',
     category: 'ADMIN_UI',
@@ -181,6 +186,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-B2B-06',
+    tier: 'standard',
     name: 'New Wholesale Draft',
     description: 'Draft order index action that starts a new draft pre-scoped to a wholesale company and its negotiated pricing group.',
     category: 'ADMIN_UI',
@@ -209,6 +215,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-B2B-07',
+    tier: 'standard',
     name: 'Recover Cart with Wholesale Quote',
     description: 'Abandoned checkout action that re-issues the cart as a wholesale-priced draft quote for a tagged B2B buyer.',
     category: 'ADMIN_UI',
@@ -238,6 +245,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-B2B-08',
+    tier: 'standard',
     name: 'Discount Stacking Rules',
     description: 'Discount details action that reviews how this discount combines with automatic, code, and wholesale pricing on the same order.',
     category: 'ADMIN_UI',
@@ -278,6 +286,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-B2B-09',
+    tier: 'floor',
     name: 'Quantity-Break Discount',
     description: 'Discount index action that creates a tiered volume discount whose thresholds mirror the store’s wholesale quantity breaks.',
     category: 'ADMIN_UI',
@@ -307,6 +316,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-B2B-10',
+    tier: 'standard',
     name: 'Bulk Archive Discounts',
     description: 'Discount index selection action that archives a batch of expired or superseded promotions to keep the discount list clean.',
     category: 'ADMIN_UI',
@@ -336,6 +346,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-B2B-11',
+    tier: 'standard',
     name: 'Reissue Gift Card',
     description: 'Gift card details action that reviews balance and expiry, then reissues or tops up the card for a wholesale or VIP customer.',
     category: 'ADMIN_UI',
@@ -369,6 +380,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-B2B-12',
+    tier: 'standard',
     name: 'Issue Reward Gift Card',
     description: 'Customer details action that issues a loyalty reward or wholesale incentive as a store-credit gift card to the customer.',
     category: 'ADMIN_UI',
@@ -403,6 +415,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-B2B-13',
+    tier: 'floor',
     name: 'Bulk Tag Wholesale Customers',
     description: 'Customer index selection action that applies a wholesale customer tag to a batch of accounts so B2B pricing resolves for them.',
     category: 'ADMIN_UI',
@@ -432,6 +445,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-B2B-14',
+    tier: 'standard',
     name: 'Wholesale Purchase Option',
     description: 'Product purchase-option action that attaches a case-pack / minimum-order-quantity purchase option scoped to wholesale buyers.',
     category: 'ADMIN_UI',
@@ -462,6 +476,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-B2B-15',
+    tier: 'standard',
     name: 'Variant Volume Tiers',
     description: 'Product variant purchase-option action that sets per-variant volume-pricing tiers for wholesale buyers on a specific SKU.',
     category: 'ADMIN_UI',
@@ -499,6 +514,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-B2B-16',
+    tier: 'standard',
     name: 'Collection Gift-with-Purchase',
     description: 'Collection details action that configures an automatic gift-with-purchase offer triggered by items from this collection.',
     category: 'ADMIN_UI',

@@ -37,6 +37,7 @@ export const NATIVE_LAUNCH_404_TEMPLATES: TemplateEntry[] = [
   // NSEC-LAUNCH-01 — Coming-soon email-capture teaser on the password page, Bold DTC.
   {
     id: 'NSEC-LAUNCH-01',
+    tier: 'standard',
     name: 'Coming Soon — Email Capture',
     description: 'Pre-launch coming-soon section for the password page: a statement headline, launch-date line, and an email "notify me" capture with a first-order incentive — a high-energy holding page.',
     category: 'STOREFRONT_UI',
@@ -91,6 +92,7 @@ export const NATIVE_LAUNCH_404_TEMPLATES: TemplateEntry[] = [
   // NSEC-LAUNCH-02 — Coming-soon launch countdown on the password page, Editorial Wellness.
   {
     id: 'NSEC-LAUNCH-02',
+    tier: 'standard',
     name: 'Coming Soon — Launch Countdown',
     description: 'Pre-launch coming-soon section for the password page with a live countdown to the opening date, a light-weight display headline, and a quiet email reminder field — a calm, editorial holding page.',
     category: 'STOREFRONT_UI',
@@ -144,6 +146,7 @@ export const NATIVE_LAUNCH_404_TEMPLATES: TemplateEntry[] = [
   // NSEC-LAUNCH-03 — 404 not-found with search + shop-home recovery, Apple HIG Clean.
   {
     id: 'NSEC-LAUNCH-03',
+    tier: 'standard',
     name: '404 — Search & Recover',
     description: 'Not-found section for the 404 page: a plain apology headline, a storefront search box, and clear back-to-home and shop-all CTAs — a content-first way to route a broken URL back into the catalog.',
     category: 'STOREFRONT_UI',
@@ -193,6 +196,7 @@ export const NATIVE_LAUNCH_404_TEMPLATES: TemplateEntry[] = [
   // NSEC-LAUNCH-04 — 404 with popular-collection links, Playful Commerce.
   {
     id: 'NSEC-LAUNCH-04',
+    tier: 'standard',
     name: '404 — Popular Links',
     description: 'Friendly not-found section for the 404 page: a warm apology, a back-home CTA, and a row of reorderable popular-collection link cards — a rounded, welcoming way to keep a lost shopper browsing.',
     category: 'STOREFRONT_UI',

@@ -14,6 +14,7 @@ export const NATIVE_TABS_TEMPLATES: TemplateEntry[] = [
   // NSEC-TAB-01 — Product details tabs (Editorial, luxe).
   {
     id: 'NSEC-TAB-01',
+    tier: 'standard',
     name: 'Tabs — Product Details',
     description: 'A tabbed product-details block splitting description, ingredients, and shipping into an ARIA tablist — all copy stays in the DOM (SEO/no-JS), for a product page.',
     category: 'STOREFRONT_UI',
@@ -55,6 +56,7 @@ export const NATIVE_TABS_TEMPLATES: TemplateEntry[] = [
   // NSEC-TAB-02 — Service plan tabs (Bold DTC / SaaS).
   {
     id: 'NSEC-TAB-02',
+    tier: 'floor',
     name: 'Tabs — Service Plans',
     description: 'A tabbed block comparing monthly, annual, and team service plans in an ARIA tablist — each plan panel stays in the DOM (SEO/no-JS), for a pricing or landing page.',
     category: 'STOREFRONT_UI',

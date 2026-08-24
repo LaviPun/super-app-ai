@@ -48,6 +48,7 @@ export const FUNCTIONS_SHIPPING_FULFILLMENT_ROUTING_TEMPLATES: TemplateEntry[] =
   // universal "spend $X, ship free" native rate the drawer nudges toward).
   {
     id: 'FN-SHIP-01',
+    tier: 'standard',
     name: 'Free Shipping Over Threshold',
     description:
       'Waives delivery for any cart above a spend threshold — the free-shipping goal an UpCart-style reward bar nudges toward, applied at checkout by the shipping Function.',
@@ -70,6 +71,7 @@ export const FUNCTIONS_SHIPPING_FULFILLMENT_ROUTING_TEMPLATES: TemplateEntry[] =
   // entitlement: discount rates rather than waive them — half-off delivery promo).
   {
     id: 'FN-SHIP-02',
+    tier: 'standard',
     name: 'Half-Off Shipping Promo',
     description:
       'Applies a partial (e.g. 50%) discount to delivery for qualifying carts — the discounted-delivery half of a Discount Ninja shipping-entitlement offer.',
@@ -92,6 +94,7 @@ export const FUNCTIONS_SHIPPING_FULFILLMENT_ROUTING_TEMPLATES: TemplateEntry[] =
   // Honest: gate degrades to "no match" until Bold's billing engine tags the member.
   {
     id: 'FN-SHIP-03',
+    tier: 'standard',
     name: 'Member Free Shipping',
     description:
       'Free delivery for tagged members — the Bold Memberships free-shipping perk gated on the member customer tag (applies only once the membership tag is present).',
@@ -114,6 +117,7 @@ export const FUNCTIONS_SHIPPING_FULFILLMENT_ROUTING_TEMPLATES: TemplateEntry[] =
   // Supersedes rules[]; lowers into the Function's rules via lowerPricingToShippingDiscount.
   {
     id: 'FN-SHIP-04',
+    tier: 'standard',
     name: 'Spend-to-Ship-Free (Pricing Pack)',
     description:
       'Spend-threshold free shipping authored through the pricing vocabulary — a free-shipping gate that lowers into the shipping Function; pairs with a cart progress bar.',
@@ -147,6 +151,7 @@ export const FUNCTIONS_SHIPPING_FULFILLMENT_ROUTING_TEMPLATES: TemplateEntry[] =
   // to these zones over N items"). Domestic-only, bulk-order waiver.
   {
     id: 'FN-SHIP-05',
+    tier: 'standard',
     name: 'Domestic Bulk-Order Free Shipping',
     description:
       'Free delivery for domestic carts of N+ units — a country + quantity gated waiver mirroring an Intuitive Shipping zone-restricted free-shipping scenario.',
@@ -172,6 +177,7 @@ export const FUNCTIONS_SHIPPING_FULFILLMENT_ROUTING_TEMPLATES: TemplateEntry[] =
   // prerequisite × subtotal). Honest tag degrade until the VIP tag is applied.
   {
     id: 'FN-SHIP-06',
+    tier: 'standard',
     name: 'VIP Spend Free Shipping',
     description:
       'Free delivery for VIP-tagged customers once they clear a spend floor — a customer-tag prerequisite combined with a subtotal gate (tag must be present to match).',
@@ -199,6 +205,7 @@ export const FUNCTIONS_SHIPPING_FULFILLMENT_ROUTING_TEMPLATES: TemplateEntry[] =
   // Separately" toggle → these lines must be their own parcel).
   {
     id: 'FN-SHIP-07',
+    tier: 'standard',
     name: 'Hazmat Ship-Alone Constraint',
     description:
       'Forces flagged SKUs (hazmat, oversized, fragile) to ship as their own parcel — the fulfillment side of an Intuitive Shipping "pack separately" rule.',
@@ -223,6 +230,7 @@ export const FUNCTIONS_SHIPPING_FULFILLMENT_ROUTING_TEMPLATES: TemplateEntry[] =
   // "blend / group" — perishables travel in one insulated shipment).
   {
     id: 'FN-SHIP-08',
+    tier: 'standard',
     name: 'Cold-Chain Group Constraint',
     description:
       'Keeps perishable / cold-chain SKUs in a single grouped shipment so they travel together — an Intuitive Shipping grouping constraint for temperature-sensitive goods.',
@@ -247,6 +255,7 @@ export const FUNCTIONS_SHIPPING_FULFILLMENT_ROUTING_TEMPLATES: TemplateEntry[] =
   // Shipping multi-origin: this made-to-order line only ships from the craft warehouse).
   {
     id: 'FN-SHIP-09',
+    tier: 'standard',
     name: 'Made-to-Order From Origin Constraint',
     description:
       'Requires made-to-order SKUs to fulfill from a designated location (craft / MTO warehouse) — an Intuitive Shipping multi-origin constraint pinning lines to one origin.',
@@ -274,6 +283,7 @@ export const FUNCTIONS_SHIPPING_FULFILLMENT_ROUTING_TEMPLATES: TemplateEntry[] =
   // freight-dock location (Intuitive Shipping heavy-goods scenario).
   {
     id: 'FN-SHIP-10',
+    tier: 'standard',
     name: 'Freight-Dock Heavy-Goods Constraint',
     description:
       'Heavy freight SKUs ship as their own shipment and fulfill from the freight-dock location — a combined ship-alone + must-fulfill-from Intuitive Shipping heavy-goods rule.',
@@ -306,6 +316,7 @@ export const FUNCTIONS_SHIPPING_FULFILLMENT_ROUTING_TEMPLATES: TemplateEntry[] =
   // Shipping origin selection by destination country → cheaper/faster cross-border).
   {
     id: 'FN-SHIP-11',
+    tier: 'standard',
     name: 'Route EU Orders to EU Hub',
     description:
       'Prefers the EU fulfillment hub for EU-destination orders so cross-border parcels ship from the nearest origin — an Intuitive Shipping destination-based routing rule.',
@@ -333,6 +344,7 @@ export const FUNCTIONS_SHIPPING_FULFILLMENT_ROUTING_TEMPLATES: TemplateEntry[] =
   // priority (Intuitive Shipping origin priority ordering across warehouses).
   {
     id: 'FN-SHIP-12',
+    tier: 'standard',
     name: 'Primary Warehouse Priority Routing',
     description:
       'Ranks the primary warehouse first and a secondary origin next when the primary holds stock — a priority-ordered multi-warehouse routing rule (Intuitive Shipping origins).',
@@ -364,6 +376,7 @@ export const FUNCTIONS_SHIPPING_FULFILLMENT_ROUTING_TEMPLATES: TemplateEntry[] =
   // else to the international origin (destination-split routing, Intuitive Shipping).
   {
     id: 'FN-SHIP-13',
+    tier: 'standard',
     name: 'Domestic vs International Routing Split',
     description:
       'Sends US orders to the domestic distribution center and routes remaining destinations through the international origin — a destination-split multi-origin routing rule.',
@@ -400,6 +413,7 @@ export const FUNCTIONS_SHIPPING_FULFILLMENT_ROUTING_TEMPLATES: TemplateEntry[] =
   // BOPIS surfaced via the local-pickup generator).
   {
     id: 'FN-SHIP-14',
+    tier: 'standard',
     name: 'Flagship Store Pickup (BOPIS)',
     description:
       'Offers free in-store pickup at a flagship location at checkout — a BOPIS local-pickup option (needs_runtime until the generator API ships on a stable Shopify version).',
@@ -429,6 +443,7 @@ export const FUNCTIONS_SHIPPING_FULFILLMENT_ROUTING_TEMPLATES: TemplateEntry[] =
   // handling fee) — the multi-origin BOPIS grid Intuitive Shipping merchants run.
   {
     id: 'FN-SHIP-15',
+    tier: 'standard',
     name: 'Multi-Store Pickup Network (BOPIS)',
     description:
       'Presents a network of store-pickup locations at checkout (free or small handling fee per store) — a multi-location BOPIS option; needs_runtime until the API is stable.',
@@ -469,6 +484,7 @@ export const FUNCTIONS_SHIPPING_FULFILLMENT_ROUTING_TEMPLATES: TemplateEntry[] =
   // pickup-point generator surface. Honest needs_runtime.
   {
     id: 'FN-SHIP-16',
+    tier: 'standard',
     name: 'Parcel Locker Pickup Point',
     description:
       'Offers a third-party parcel-locker pickup point at checkout with the provider identity and address — needs_runtime until the pickup-point generator API ships on a stable version.',

@@ -22,6 +22,7 @@ import type { TemplateEntry } from '../types.js';
 export const AGENTIC_CATALOG_FEED_TEMPLATES: TemplateEntry[] = [
   {
     id: 'AGENT-01',
+    tier: 'standard',
     name: 'AI Channel Catalog Feed',
     description:
       'Publish a structured whole-store product feed at /agentic for AI shopping agents (ChatGPT, Copilot, Gemini) to crawl over HTTP.',
@@ -46,6 +47,7 @@ export const AGENTIC_CATALOG_FEED_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'AGENT-02',
+    tier: 'standard',
     name: 'Normalized Attribute Map',
     description:
       'Enrich the AI catalog feed with normalized shopping attributes (GTIN, brand, size, color, material) mapped from product metafields and fields — so agents parse variants correctly.',
@@ -77,6 +79,7 @@ export const AGENTIC_CATALOG_FEED_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'AGENT-03',
+    tier: 'standard',
     name: 'Compliance Disclosure Feed',
     description:
       'Append required legal disclosures (allergen, prop-65, country-of-origin) verbatim to every AI catalog feed row — so agents surface mandated notices with each product.',
@@ -110,6 +113,7 @@ export const AGENTIC_CATALOG_FEED_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'AGENT-04',
+    tier: 'standard',
     name: 'Curated Collection Feed',
     description:
       'Syndicate a hand-picked collection (e.g. bestsellers or a seasonal edit) as its own AI feed handle — the agentic analogue of a Boost-style merchandised collection tree.',
@@ -140,6 +144,7 @@ export const AGENTIC_CATALOG_FEED_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'AGENT-05',
+    tier: 'standard',
     name: 'Storefront Catalog MCP Endpoint',
     description:
       'Serve a JSON-RPC Storefront-Catalog MCP endpoint (search_catalog / get_product / lookup_catalog) with UCP discovery, so agents query the store live instead of only crawling the feed.',
@@ -168,6 +173,7 @@ export const AGENTIC_CATALOG_FEED_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'AGENT-06',
+    tier: 'standard',
     name: 'Agent Profile & Store Guidance',
     description:
       'Publish a UCP agent-profile document (+ app-served agents.md copy) with free-text guidance an AI agent reads before recommending — e.g. bundle guidance, sizing notes, brand values.',
@@ -194,6 +200,7 @@ export const AGENTIC_CATALOG_FEED_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'AGENT-07',
+    tier: 'standard',
     name: 'Sponsored Products Boost',
     description:
       'Boost a small set of merchant-promoted product GIDs to the top of agentic (MCP + feed) results — config-only, app-served ranking, the agentic analogue of a Boost merchandising pin.',
@@ -222,6 +229,7 @@ export const AGENTIC_CATALOG_FEED_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'AGENT-08',
+    tier: 'standard',
     name: 'Full Agentic Commerce Profile',
     description:
       'The complete agentic profile: crawlable feed, normalized attributes, disclosures, live MCP endpoint, agent guidance, and sponsored boosting — everything an AI channel needs from one store.',

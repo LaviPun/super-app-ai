@@ -35,6 +35,7 @@ export const POSTPURCHASE_THANKYOU_OFFER_TEMPLATES: TemplateEntry[] = [
   // strike-through pricing). A pasted variant GID = recommendation.strategy 'manual'.
   {
     id: 'PPO-01',
+    tier: 'standard',
     name: 'Post-Purchase One-Click Upsell',
     description:
       'One-click upsell of a specific product on the post-purchase page — added to the just-paid order at a set discount, no re-checkout.',
@@ -80,6 +81,7 @@ export const POSTPURCHASE_THANKYOU_OFFER_TEMPLATES: TemplateEntry[] = [
   // A fixed protection-plan variant; the classic post-purchase add-on offer.
   {
     id: 'PPO-02',
+    tier: 'floor',
     name: 'Post-Purchase Warranty / Protection Add-On',
     description:
       'Offer an extended warranty or shipping-protection plan on the post-purchase page — a low-friction add-on tacked onto the paid order.',
@@ -125,6 +127,7 @@ export const POSTPURCHASE_THANKYOU_OFFER_TEMPLATES: TemplateEntry[] = [
   // intent=complementary. STATIC strategy (resolves via Storefront API, no service).
   {
     id: 'PPO-03',
+    tier: 'standard',
     name: 'Post-Purchase Complementary Cross-Sell',
     description:
       'Cross-sell complementary products on the post-purchase page using Shopify product recommendations (goes-well-with), seeded from the order.',
@@ -169,6 +172,7 @@ export const POSTPURCHASE_THANKYOU_OFFER_TEMPLATES: TemplateEntry[] = [
   // fallback so the post-purchase slot is never empty (no fake "AI" result on failure).
   {
     id: 'PPO-04',
+    tier: 'standard',
     name: 'Post-Purchase Best-Sellers Auto-Upsell',
     description:
       'Auto-upsell the store best-sellers on the post-purchase page (dynamic), with a curated collection fallback so the offer is never empty.',
@@ -216,6 +220,7 @@ export const POSTPURCHASE_THANKYOU_OFFER_TEMPLATES: TemplateEntry[] = [
   // chance" downsell after a declined upsell. Fixed variant = manual strategy.
   {
     id: 'PPO-05',
+    tier: 'floor',
     name: 'Post-Purchase Downsell Offer',
     description:
       'A lower-commitment downsell shown as the second post-purchase offer — a discounted single product framed as a last-chance add.',
@@ -263,6 +268,7 @@ export const POSTPURCHASE_THANKYOU_OFFER_TEMPLATES: TemplateEntry[] = [
   // so it degrades honestly to a message card rather than implying a captured review.
   {
     id: 'PPO-06',
+    tier: 'standard',
     name: 'Post-Purchase Thank-You & Review Request',
     description:
       'A thank-you card on the post-purchase page asking the buyer to review their order — appreciation copy, no offered product.',

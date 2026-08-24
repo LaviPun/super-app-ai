@@ -38,6 +38,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 01 — Split landing hero (PageFly hero-banner archetype) ─────────────────
   {
     id: 'TBLK-PAGE-01',
+    tier: 'standard',
     name: 'Landing Hero — Split Copy + Visual',
     description: 'Full-bleed split hero for a custom landing page: headline, sub-copy, and a primary CTA beside a lifestyle image.',
     category: 'STOREFRONT_UI',
@@ -88,6 +89,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 02 — Centered ambient-gradient hero ─────────────────────────────────────
   {
     id: 'TBLK-PAGE-02',
+    tier: 'standard',
     name: 'Landing Hero — Centered Ambient Gradient',
     description: 'Centered, gradient-backdrop landing hero with a bold headline and single CTA — for brand or campaign pages.',
     category: 'STOREFRONT_UI',
@@ -133,6 +135,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 03 — Photo-overlay hero ─────────────────────────────────────────────────
   {
     id: 'TBLK-PAGE-03',
+    tier: 'standard',
     name: 'Landing Hero — Photo Overlay',
     description: 'Full-bleed photo hero with a dark overlay and centered headline + CTA, for editorial campaign landing pages.',
     category: 'STOREFRONT_UI',
@@ -177,6 +180,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 04 — Rich-text "About" story section ────────────────────────────────────
   {
     id: 'TBLK-PAGE-04',
+    tier: 'standard',
     name: 'About Story — Two-Column Rich Text',
     description: 'Two-column brand-story section for an About page: heading with a longer narrative body and a supporting image.',
     category: 'STOREFRONT_UI',
@@ -218,6 +222,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 05 — Feature grid (3-up value props) ────────────────────────────────────
   {
     id: 'TBLK-PAGE-05',
+    tier: 'standard',
     name: 'Feature Grid — 3-Up Value Props',
     description: 'Three-column feature grid of icon + heading + copy blocks for a landing or About page.',
     category: 'STOREFRONT_UI',
@@ -259,6 +264,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 06 — Feature bento grid ─────────────────────────────────────────────────
   {
     id: 'TBLK-PAGE-06',
+    tier: 'standard',
     name: 'Feature Bento — Mixed-Size Tiles',
     description: 'Mixed-size bento grid of feature tiles for a product-story landing page, each tile a reorderable block.',
     category: 'STOREFRONT_UI',
@@ -300,6 +306,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 07 — CTA band ───────────────────────────────────────────────────────────
   {
     id: 'TBLK-PAGE-07',
+    tier: 'standard',
     name: 'CTA Band — Full-Width Conversion',
     description: 'Full-width call-to-action band with a headline and single primary button to close a landing page.',
     category: 'STOREFRONT_UI',
@@ -342,6 +349,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 08 — Countdown launch section (Hextom archetype) ────────────────────────
   {
     id: 'TBLK-PAGE-08',
+    tier: 'standard',
     name: 'Launch Countdown — Full Section',
     description: 'Full-width launch countdown section with message-before, a live timer over an ISO end, message-after, and a CTA.',
     category: 'STOREFRONT_UI',
@@ -389,6 +397,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 09 — Flash-sale countdown with offer tiles ──────────────────────────────
   {
     id: 'TBLK-PAGE-09',
+    tier: 'standard',
     name: 'Flash Sale Countdown — Offer Tiles',
     description: 'Flash-sale countdown section with a live timer plus a row of reorderable offer tiles for a promo landing page.',
     category: 'STOREFRONT_UI',
@@ -436,6 +445,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 10 — Inline newsletter opt-in (Privy archetype) ─────────────────────────
   {
     id: 'TBLK-PAGE-10',
+    tier: 'standard',
     name: 'Newsletter Opt-In — Inline Capture',
     description: 'Inline (non-overlay) email opt-in section with an email field, consent line, and coupon-reveal copy for a landing page.',
     category: 'STOREFRONT_UI',
@@ -479,6 +489,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 11 — Split-image newsletter with benefit list ───────────────────────────
   {
     id: 'TBLK-PAGE-11',
+    tier: 'standard',
     name: 'Newsletter Opt-In — Split Image + Benefits',
     description: 'Split newsletter section: an email capture beside an image, with a reorderable list of subscriber benefits.',
     category: 'STOREFRONT_UI',
@@ -529,6 +540,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 12 — Email + SMS opt-in (Klaviyo/Omnisend dual capture) ──────────────────
   {
     id: 'TBLK-PAGE-12',
+    tier: 'standard',
     name: 'Opt-In — Email + SMS Dual Capture',
     description: 'Inline dual-consent capture section with email and phone fields plus separate marketing-consent lines.',
     category: 'STOREFRONT_UI',
@@ -573,6 +585,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 13 — Coming-soon / password hero ────────────────────────────────────────
   {
     id: 'TBLK-PAGE-13',
+    tier: 'standard',
     name: 'Coming Soon — Password Page Hero',
     description: 'Coming-soon hero for the password (storefront-locked) page: brand headline, teaser copy, and a launch date line.',
     category: 'STOREFRONT_UI',
@@ -616,6 +629,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 14 — Coming-soon opt-in + countdown (password) ──────────────────────────
   {
     id: 'TBLK-PAGE-14',
+    tier: 'standard',
     name: 'Coming Soon — Opt-In + Countdown',
     description: 'Password-page launch section combining a countdown to open date with an inline email waitlist capture.',
     category: 'STOREFRONT_UI',
@@ -662,6 +676,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 15 — 404 "lost" recovery section ────────────────────────────────────────
   {
     id: 'TBLK-PAGE-15',
+    tier: 'standard',
     name: '404 — Friendly Recovery',
     description: 'Full-section 404 with a friendly headline, a search prompt, and reorderable quick-link cards back into the store.',
     category: 'STOREFRONT_UI',
@@ -706,6 +721,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 16 — 404 with product recommendations ───────────────────────────────────
   {
     id: 'TBLK-PAGE-16',
+    tier: 'standard',
     name: '404 — Recover with Recommendations',
     description: 'A 404 recovery section that surfaces recommended products from a chosen collection so a dead link still converts.',
     category: 'STOREFRONT_UI',
@@ -753,6 +769,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 17 — Blog featured / editorial banner ───────────────────────────────────
   {
     id: 'TBLK-PAGE-17',
+    tier: 'standard',
     name: 'Blog Featured Banner — Editorial',
     description: 'Editorial banner for the top of a blog index: a featured-story headline, deck, and read CTA over an image.',
     category: 'STOREFRONT_UI',
@@ -797,6 +814,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 18 — Article CTA / mid-article opt-in ───────────────────────────────────
   {
     id: 'TBLK-PAGE-18',
+    tier: 'standard',
     name: 'Article Inline CTA — Subscribe to Read More',
     description: 'Inline call-to-action block for placement inside an article body: subscribe prompt with an email field.',
     category: 'STOREFRONT_UI',
@@ -840,6 +858,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 19 — FAQ accordion section ──────────────────────────────────────────────
   {
     id: 'TBLK-PAGE-19',
+    tier: 'standard',
     name: 'FAQ — Accordion',
     description: 'FAQ accordion section for a support or landing page — each question a reorderable block with question/answer.',
     category: 'STOREFRONT_UI',
@@ -882,6 +901,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 20 — Testimonials wall ──────────────────────────────────────────────────
   {
     id: 'TBLK-PAGE-20',
+    tier: 'standard',
     name: 'Testimonials — Wall of Love',
     description: 'Grid "wall of love" testimonial section for a landing or About page — each quote a reorderable card block.',
     category: 'STOREFRONT_UI',
@@ -925,6 +945,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 21 — Steps / how-it-works ───────────────────────────────────────────────
   {
     id: 'TBLK-PAGE-21',
+    tier: 'standard',
     name: 'How It Works — Numbered Steps',
     description: 'Numbered how-it-works section for a landing or About page — each step a reorderable block with a heading + copy.',
     category: 'STOREFRONT_UI',
@@ -966,6 +987,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 22 — Contact split section ──────────────────────────────────────────────
   {
     id: 'TBLK-PAGE-22',
+    tier: 'standard',
     name: 'Contact — Split Info + Form Prompt',
     description: 'Split contact section for a Contact page: business hours and support links beside a get-in-touch prompt.',
     category: 'STOREFRONT_UI',
@@ -1014,6 +1036,7 @@ export const TBLK_PAGE_TEMPLATES: TemplateEntry[] = [
   // ── 23 — Support request form (app-proxy → support ticket) ──────────────────
   {
     id: 'TBLK-PAGE-23',
+    tier: 'standard',
     name: 'Support Request Form — App Proxy',
     description:
       'Shopper-facing support form for a Contact/Help page: name, email, subject, and message posted to the app proxy, which opens a triaged support ticket in the merchant inbox.',

@@ -24,6 +24,7 @@ export const MESSAGING_EMAIL_TEMPLATES: TemplateEntry[] = [
   // ── Abandoned cart ──────────────────────────────────────────────────────────
   {
     id: 'MSG-EMAIL-01',
+    tier: 'standard',
     name: 'Abandoned Cart — Single Recovery Email',
     description:
       'One-shot cart-recovery email fired on checkout-start, nudging the shopper back to the items they left behind.',
@@ -63,6 +64,7 @@ export const MESSAGING_EMAIL_TEMPLATES: TemplateEntry[] = [
   // ── Abandoned cart — 3-step drip ──────────────────────────────────────────────
   {
     id: 'MSG-EMAIL-02',
+    tier: 'standard',
     name: 'Abandoned Cart — 3-Email Drip',
     description:
       'Three-touch cart-recovery drip: an immediate reminder, a 1-hour nudge, and a 24-hour last-call, timed on the durable scheduler.',
@@ -110,6 +112,7 @@ export const MESSAGING_EMAIL_TEMPLATES: TemplateEntry[] = [
   // ── Welcome ───────────────────────────────────────────────────────────────────
   {
     id: 'MSG-EMAIL-03',
+    tier: 'standard',
     name: 'Welcome — New Subscriber Greeting',
     description:
       'Single welcome email sent when a new subscriber record lands from a signup form, thanking them and setting expectations.',
@@ -149,6 +152,7 @@ export const MESSAGING_EMAIL_TEMPLATES: TemplateEntry[] = [
   // ── Welcome — 3-email onboarding drip ────────────────────────────────────────
   {
     id: 'MSG-EMAIL-04',
+    tier: 'standard',
     name: 'Welcome — 3-Email Onboarding Series',
     description:
       'Post-signup onboarding drip: an instant welcome, a 2-day brand-story email, and a 5-day first-order incentive.',
@@ -196,6 +200,7 @@ export const MESSAGING_EMAIL_TEMPLATES: TemplateEntry[] = [
   // ── Back-in-stock ────────────────────────────────────────────────────────────
   {
     id: 'MSG-EMAIL-05',
+    tier: 'standard',
     name: 'Back in Stock — Restock Alert',
     description:
       'Notify-me restock alert emailed to the product waitlist when a subscribed variant returns to stock.',
@@ -236,6 +241,7 @@ export const MESSAGING_EMAIL_TEMPLATES: TemplateEntry[] = [
   // ── Price-drop waitlist ──────────────────────────────────────────────────────
   {
     id: 'MSG-EMAIL-06',
+    tier: 'standard',
     name: 'Price Drop — Wishlist Alert',
     description:
       'Emails wishlist subscribers when a saved product drops in price, driving high-intent shoppers back to buy.',
@@ -279,6 +285,7 @@ export const MESSAGING_EMAIL_TEMPLATES: TemplateEntry[] = [
   // ── Review request ───────────────────────────────────────────────────────────
   {
     id: 'MSG-EMAIL-07',
+    tier: 'standard',
     name: 'Review Request — Post-Delivery Ask',
     description:
       'Requests a product review a few days after fulfillment, timed with the durable scheduler off the order-created trigger.',
@@ -324,6 +331,7 @@ export const MESSAGING_EMAIL_TEMPLATES: TemplateEntry[] = [
   // ── Review request — photo review incentive ─────────────────────────────────
   {
     id: 'MSG-EMAIL-08',
+    tier: 'floor',
     name: 'Review Request — Photo Review Incentive',
     description:
       'Follow-up review ask that offers a next-order discount for a photo review, seeded from a data-store of recent buyers.',
@@ -363,6 +371,7 @@ export const MESSAGING_EMAIL_TEMPLATES: TemplateEntry[] = [
   // ── Win-back ─────────────────────────────────────────────────────────────────
   {
     id: 'MSG-EMAIL-09',
+    tier: 'standard',
     name: 'Win-Back — Lapsed Customer Re-engagement',
     description:
       'Long-delay re-engagement email for lapsed customers, timed off their last order via the win-back drip preset.',
@@ -409,6 +418,7 @@ export const MESSAGING_EMAIL_TEMPLATES: TemplateEntry[] = [
   // ── Replenishment / reorder reminder ────────────────────────────────────────
   {
     id: 'MSG-EMAIL-10',
+    tier: 'standard',
     name: 'Replenishment — Reorder Reminder',
     description:
       'Consumable reorder reminder delivered N days after purchase, timed relative to the order via the replenishment drip.',
@@ -454,6 +464,7 @@ export const MESSAGING_EMAIL_TEMPLATES: TemplateEntry[] = [
   // ── Broadcast newsletter blast ──────────────────────────────────────────────
   {
     id: 'MSG-EMAIL-11',
+    tier: 'standard',
     name: 'Newsletter — Broadcast Blast',
     description:
       'One-shot newsletter broadcast to the full subscriber list, sent now or on a scheduled run over the consented audience.',

@@ -39,6 +39,7 @@ export const templates: TemplateEntry[] = [
   // ── 03 · Rebuy — PDP cross-sell recommendations strip (recs) ───────────────
   {
     id: 'PXY-EMB-03',
+    tier: 'floor',
     name: 'Rebuy PDP Cross-Sell Strip (Embedded)',
     description:
       'App-proxy Rebuy recommendation carousel below the product — a Data-Source ruleset resolves personalized cross-sells server-side with an add-to-cart per card.',
@@ -89,6 +90,7 @@ export const templates: TemplateEntry[] = [
   // ── 04 · Rebuy — cart cross-sell recommendations (recs, cart) ──────────────
   {
     id: 'PXY-EMB-04',
+    tier: 'standard',
     name: 'Rebuy Cart Cross-Sell (Embedded)',
     description:
       'App-proxy Rebuy cross-sell embedded on the cart page — recommendations resolved against the live cart contents, shown only when the cart has at least one item.',
@@ -139,6 +141,7 @@ export const templates: TemplateEntry[] = [
   // ── 08 · LoyaltyLion — loyalty launcher / panel (loyalty) ──────────────────
   {
     id: 'PXY-EMB-08',
+    tier: 'floor',
     name: 'LoyaltyLion Rewards Panel (Embedded)',
     description:
       'App-proxy loyalty widget embedded in-page — a tabbed panel (earn / spend / referral / tier) that reads the logged-in shopper\'s points balance server-side; guests see a sign-up splash.',
@@ -190,6 +193,7 @@ export const templates: TemplateEntry[] = [
   // ── 10 · Appikon — back-in-stock "Notify Me" widget (back-in-stock) ────────
   {
     id: 'PXY-EMB-10',
+    tier: 'floor',
     name: 'Notify Me When Available (Embedded)',
     description:
       'App-proxy back-in-stock widget on the product page — a variant-aware "Notify Me" button that captures an email/phone waitlist entry server-side; shows only for sold-out variants.',

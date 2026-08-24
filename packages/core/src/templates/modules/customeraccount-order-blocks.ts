@@ -28,6 +28,7 @@ export const CUSTOMERACCOUNT_ORDER_BLOCKS_TEMPLATES: TemplateEntry[] = [
   // ── Reorder / buy-it-again (Rebuy-grounded) ────────────────────────────────
   {
     id: 'CAB-ORD-01',
+    tier: 'standard',
     name: 'Buy It Again — Order Status Reorder',
     description:
       'One-tap reorder prompt on the order-status page that links back to a prefilled cart seeded from this order (Rebuy-style buy-it-again).',
@@ -71,6 +72,7 @@ export const CUSTOMERACCOUNT_ORDER_BLOCKS_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'CAB-ORD-02',
+    tier: 'standard',
     name: 'Reorder Card — Orders List',
     description:
       'Compact reorder call-to-action on the customer accounts Orders index so returning buyers can restock past purchases without hunting through order history.',
@@ -110,6 +112,7 @@ export const CUSTOMERACCOUNT_ORDER_BLOCKS_TEMPLATES: TemplateEntry[] = [
   // ── Tracking (order.trackingNumber / order.trackingUrl bindings) ───────────
   {
     id: 'CAB-ORD-03',
+    tier: 'standard',
     name: 'Where Is My Order — Live Tracking',
     description:
       'Order-status tracking panel that surfaces the live tracking number and a "Track package" link bound to the Order API fulfillment tracking fields.',
@@ -147,6 +150,7 @@ export const CUSTOMERACCOUNT_ORDER_BLOCKS_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'CAB-ORD-04',
+    tier: 'standard',
     name: 'Fulfillment Status Banner',
     description:
       'Order-status announcement block that reflects the current fulfillment state with a status page deep-link, degrading to static copy when unresolved.',
@@ -184,6 +188,7 @@ export const CUSTOMERACCOUNT_ORDER_BLOCKS_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'CAB-ORD-05',
+    tier: 'standard',
     name: 'Shipment Details — Fulfillment Card',
     description:
       'Tracking card mounted after the fulfillment details region on the order-status page, pairing the carrier tracking number with a track-shipment button.',
@@ -222,6 +227,7 @@ export const CUSTOMERACCOUNT_ORDER_BLOCKS_TEMPLATES: TemplateEntry[] = [
   // ── Review-request (Judge.me / Okendo / Growave-grounded) ──────────────────
   {
     id: 'CAB-ORD-06',
+    tier: 'floor',
     name: 'Write a Review — Order Status Prompt',
     description:
       'Ask-review prompt on the order-status page inviting buyers to review their purchase, matching the Judge.me / Growave post-purchase review CTA.',
@@ -259,6 +265,7 @@ export const CUSTOMERACCOUNT_ORDER_BLOCKS_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'CAB-ORD-07',
+    tier: 'floor',
     name: 'Photo Review Request — Reward Nudge',
     description:
       'Order-status review-request block that offers a reward for a photo review, mirroring Okendo/Growave bonus-points-for-media review capture.',
@@ -296,6 +303,7 @@ export const CUSTOMERACCOUNT_ORDER_BLOCKS_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'CAB-ORD-08',
+    tier: 'standard',
     name: 'Review Request — Inline Feedback Form',
     description:
       'Order-status block that captures a star rating and short comment inline and posts to the app proxy, for merchants collecting first-party review feedback.',
@@ -352,6 +360,7 @@ export const CUSTOMERACCOUNT_ORDER_BLOCKS_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'CAB-ORD-09',
+    tier: 'standard',
     name: 'Ask for a Review — Order Action',
     description:
       'Order-scoped action in the order menu that opens a modal inviting the buyer to review each purchased item, matching the Judge.me "Manage" review dropdown.',
@@ -400,6 +409,7 @@ export const CUSTOMERACCOUNT_ORDER_BLOCKS_TEMPLATES: TemplateEntry[] = [
   // ── Subscription manage (Recharge / Loop-grounded) ─────────────────────────
   {
     id: 'CAB-ORD-10',
+    tier: 'standard',
     name: 'Manage Subscription — Order Status Entry',
     description:
       'Order-status entry point into the subscription portal showing the next order date and status, matching the Recharge/Loop "Manage Subscription" link.',
@@ -437,6 +447,7 @@ export const CUSTOMERACCOUNT_ORDER_BLOCKS_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'CAB-ORD-11',
+    tier: 'standard',
     name: 'Skip or Swap — Subscription Quick Actions',
     description:
       'Order-status subscription card with skip / swap / reschedule shortcuts into the customer portal, mirroring Recharge no-code portal quick actions.',
@@ -475,6 +486,7 @@ export const CUSTOMERACCOUNT_ORDER_BLOCKS_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'CAB-ORD-12',
+    tier: 'standard',
     name: 'Manage Subscription — Orders List Entry',
     description:
       'Subscription management entry on the customer accounts Orders index so subscribers reach skip/pause/cancel from their order history, per Loop/Recharge.',
@@ -512,6 +524,7 @@ export const CUSTOMERACCOUNT_ORDER_BLOCKS_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'CAB-ORD-13',
+    tier: 'standard',
     name: 'Cancellation Retention — Save Offer',
     description:
       'Order-status subscription block that presents a save offer before cancel and links into the retention flow, modeling Recharge cancellation-prevention.',
@@ -554,6 +567,7 @@ export const CUSTOMERACCOUNT_ORDER_BLOCKS_TEMPLATES: TemplateEntry[] = [
   // ── Returns (Order API return status) ──────────────────────────────────────
   {
     id: 'CAB-ORD-14',
+    tier: 'standard',
     name: 'Start a Return — Order Action',
     description:
       'Order-scoped return request: an order-menu action opening a return-reason form that posts to the app proxy, with the current return status surfaced.',

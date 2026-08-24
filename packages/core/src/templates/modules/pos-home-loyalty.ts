@@ -30,6 +30,7 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
   // POS-HOME-01 — the canonical Smile/BON/Rivo "look up a member" home tile.
   {
     id: 'POS-HOME-01',
+    tier: 'floor',
     name: 'Loyalty Lookup Tile',
     description: 'POS Smart Grid home tile that opens a modal to look up the current customer’s points balance and VIP tier from the loyalty ledger.',
     category: 'ADMIN_UI',
@@ -54,6 +55,7 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
   // POS-HOME-02 — the companion modal that actually reads the balance (LOYALTY_READ + binding).
   {
     id: 'POS-HOME-02',
+    tier: 'floor',
     name: 'Points Balance Modal',
     description: 'POS home modal that reads and displays the customer’s current points balance from the app-proxy loyalty ledger.',
     category: 'ADMIN_UI',
@@ -80,6 +82,7 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
   // POS-HOME-04 — redeem points → apply the resulting discount to the open sale (LOYALTY_WRITE, PIN-gated).
   {
     id: 'POS-HOME-04',
+    tier: 'floor',
     name: 'Redeem Points Modal',
     description: 'POS home modal that debits points from the ledger and records the in-store redemption via the app proxy, staff-PIN gated.',
     category: 'ADMIN_UI',
@@ -110,6 +113,7 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
   // POS-HOME-05 — accrue points on an in-store action (LOYALTY_WRITE, no PIN).
   {
     id: 'POS-HOME-05',
+    tier: 'standard',
     name: 'Earn Points Tile',
     description: 'POS home tile that credits loyalty points for an in-store engagement (signup, review, birthday) by writing a ledger entry via the app proxy.',
     category: 'ADMIN_UI',
@@ -139,6 +143,7 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
   // POS-HOME-06 — POS Amount-off reward applied to the current cart (Rivo/Stamped "POS Amount discount").
   {
     id: 'POS-HOME-06',
+    tier: 'standard',
     name: 'Custom Amount Discount Tile',
     description: 'POS home tile that applies a fixed-amount discount to the active sale — the "POS Amount off" reward staff apply in-store, PIN gated.',
     category: 'ADMIN_UI',
@@ -172,6 +177,7 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
   // POS-HOME-07 — POS Percentage-off reward applied to the current cart (Rivo/Stamped "POS Percentage off").
   {
     id: 'POS-HOME-07',
+    tier: 'standard',
     name: 'Custom Percentage Discount Tile',
     description: 'POS home tile that applies a percentage discount to the active sale — the "POS Percentage off" staff reward, PIN gated.',
     category: 'ADMIN_UI',
@@ -206,6 +212,7 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
   // POS-HOME-08 — staff discount modal with a larger override (manager-gated).
   {
     id: 'POS-HOME-08',
+    tier: 'floor',
     name: 'Manager Discount Override Modal',
     description: 'POS home modal for a manager-authorized percentage override applied to the active sale, gated behind a staff PIN with a manager role.',
     category: 'ADMIN_UI',
@@ -240,6 +247,7 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
   // POS-HOME-09 — apply a redemption CODE minted by the loyalty app (APPLY_CODE_DISCOUNT).
   {
     id: 'POS-HOME-09',
+    tier: 'standard',
     name: 'Apply Reward Code Tile',
     description: 'POS home tile that applies a loyalty reward discount code to the active sale — the redemption code minted by the loyalty app, entered by staff.',
     category: 'ADMIN_UI',
@@ -267,6 +275,7 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
   // POS-HOME-12 — display-only rewards catalog tile (NONE action, informational modal).
   {
     id: 'POS-HOME-12',
+    tier: 'floor',
     name: 'Rewards Catalog Tile',
     description: 'POS home tile that opens an informational modal listing the in-store rewards staff can offer, with points cost per reward.',
     category: 'ADMIN_UI',
@@ -291,6 +300,7 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
   // POS-HOME-13 — birthday reward tile: award bonus points on the member's birthday (LOYALTY_WRITE, PIN).
   {
     id: 'POS-HOME-13',
+    tier: 'floor',
     name: 'Birthday Bonus Tile',
     description: 'POS home tile that credits a birthday bonus to the member’s points balance via the app proxy, staff-PIN gated.',
     category: 'ADMIN_UI',
@@ -320,6 +330,7 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
   // POS-HOME-14 — first-order staff discount tile for new members (APPLY_CART_DISCOUNT, no PIN).
   {
     id: 'POS-HOME-14',
+    tier: 'standard',
     name: 'New Member Welcome Discount Tile',
     description: 'POS home tile that applies a fixed welcome discount to a new member’s first in-store purchase on the active sale.',
     category: 'ADMIN_UI',

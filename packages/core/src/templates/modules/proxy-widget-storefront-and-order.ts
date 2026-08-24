@@ -29,6 +29,7 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
   // ── Wishlist (Swym Wishlist Plus) ──────────────────────────────────────────
   {
     id: 'PXY-MOD-01',
+    tier: 'standard',
     name: 'Wishlist Page (Hosted)',
     description: 'Standalone wishlist page served from the app proxy (/apps/superapp/<widgetId>) — a shopper-scoped product grid with remove + add-to-cart, so guest and logged-in lists sync across devices.',
     category: 'STOREFRONT_UI',
@@ -62,6 +63,7 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'PXY-MOD-02',
+    tier: 'floor',
     name: 'Wishlist Drawer Pop-up',
     description: 'Embeddable wishlist pop-up fragment the floating heart launcher opens — a shopper-scoped saved-items drawer with live counter, served from the app proxy so it hydrates the current shopper list without a page reload.',
     category: 'STOREFRONT_UI',
@@ -95,6 +97,7 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'PXY-MOD-03',
+    tier: 'floor',
     name: 'Shared Wishlist / Registry Page',
     description: 'Public shareable wishlist page served from the app proxy (/apps/superapp/<widgetId>) — renders a read-only registry list from a share token so gifters can view and buy, resolving the list per share link.',
     category: 'STOREFRONT_UI',
@@ -130,6 +133,7 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
   // ── Order tracking ─────────────────────────────────────────────────────────
   {
     id: 'PXY-MOD-04',
+    tier: 'floor',
     name: 'Order Tracking Page',
     description: 'Self-serve "where is my order" page served from the app proxy (/apps/superapp/<widgetId>) — shopper enters order number + email and the app-proxy loader returns fulfillment status and tracking, rendered without the theme layout as a first-class store page.',
     category: 'STOREFRONT_UI',
@@ -165,6 +169,7 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
   // ── Recommendations portal (Rebuy / Selleasy) ──────────────────────────────
   {
     id: 'PXY-MOD-07',
+    tier: 'standard',
     name: 'PDP Cross-Sell Carousel (Rebuy)',
     description: 'Embeddable "you may also like" carousel on the product page — client-hydrated from the app proxy so the recommended set resolves per product and shopper, matching Rebuy\'s Data Source-driven cross-sell widget.',
     category: 'STOREFRONT_UI',
@@ -208,6 +213,7 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'PXY-MOD-10',
+    tier: 'floor',
     name: 'Recommendations Portal Page',
     description: 'Standalone "recommended for you" page served from the app proxy (/apps/superapp/<widgetId>) — a full-page personalized product feed resolving per-shopper picks (recently viewed, buy-it-again) as a first-class store page.',
     category: 'STOREFRONT_UI',
@@ -252,6 +258,7 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
   // ── Social proof (ProveSource) + back-in-stock (Appikon) ────────────────────
   {
     id: 'PXY-MOD-19',
+    tier: 'standard',
     name: 'Back-in-Stock Signup Widget (Appikon)',
     description: 'Embeddable back-in-stock notify-me widget on out-of-stock products — served from the app proxy so it captures the shopper email against the variant waitlist, matching Appikon Notify Me.',
     category: 'STOREFRONT_UI',

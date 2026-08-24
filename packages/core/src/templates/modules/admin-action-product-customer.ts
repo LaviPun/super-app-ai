@@ -23,6 +23,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   // ── Customer-details actions (loyalty / email / reviews) ──────────────────
   {
     id: 'ADMA-PRC-01',
+    tier: 'standard',
     name: 'Smile — Loyalty Snapshot',
     description: 'Customer-details action that opens a Smile.io loyalty snapshot modal — points balance, VIP tier, and a link into the member profile.',
     category: 'ADMIN_UI',
@@ -55,6 +56,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-PRC-02',
+    tier: 'standard',
     name: 'Smile — Adjust Points',
     description: 'Customer-details action to review a member before a manual points adjustment — surfaces balance and a deep link to the adjust-points screen.',
     category: 'ADMIN_UI',
@@ -82,6 +84,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-PRC-03',
+    tier: 'standard',
     name: 'LoyaltyLion — Member Activity',
     description: 'Customer-details action opening a LoyaltyLion activity modal — recent earning/redeeming events as a table plus tier progress.',
     category: 'ADMIN_UI',
@@ -117,6 +120,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-PRC-04',
+    tier: 'standard',
     name: 'Bon Loyalty — VIP Tier',
     description: 'Customer-details action showing a Bon Loyalty VIP-tier card — current tier, perks, and spend to the next milestone.',
     category: 'ADMIN_UI',
@@ -148,6 +152,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-PRC-05',
+    tier: 'standard',
     name: 'Growave — Rewards & Wishlist',
     description: 'Customer-details action opening a Growave modal that combines loyalty points and saved-wishlist items for the customer.',
     category: 'ADMIN_UI',
@@ -176,6 +181,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-PRC-06',
+    tier: 'standard',
     name: 'Klaviyo — Profile & Consent',
     description: 'Customer-details action showing the Klaviyo profile — email/SMS consent state and segment membership, with a link to the profile.',
     category: 'ADMIN_UI',
@@ -207,6 +213,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-PRC-07',
+    tier: 'standard',
     name: 'Omnisend — Contact Sync',
     description: 'Customer-details action opening an Omnisend contact card — channel subscriptions and recent campaign engagement.',
     category: 'ADMIN_UI',
@@ -234,6 +241,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-PRC-08',
+    tier: 'standard',
     name: 'Judge.me — Reviewer History',
     description: 'Customer-details action showing this customer’s Judge.me review history — count, average rating, and a link to moderate.',
     category: 'ADMIN_UI',
@@ -263,6 +271,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   // ── Customer-index bulk-selection actions ─────────────────────────────────
   {
     id: 'ADMA-PRC-09',
+    tier: 'standard',
     name: 'Klaviyo — Add to Segment (Bulk)',
     description: 'Customer-index selection action to add the selected customers to a Klaviyo segment — bulk enrichment from the customer list.',
     category: 'ADMIN_UI',
@@ -286,6 +295,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-PRC-10',
+    tier: 'standard',
     name: 'Smile — Bulk Points Bonus',
     description: 'Customer-index selection action to grant a Smile.io bonus-point event to the selected customers.',
     category: 'ADMIN_UI',
@@ -312,6 +322,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-PRC-11',
+    tier: 'standard',
     name: 'Omnisend — Bulk Consent Review',
     description: 'Customer-index selection action to review marketing-consent state for the selected customers before an Omnisend send.',
     category: 'ADMIN_UI',
@@ -338,6 +349,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-PRC-12',
+    tier: 'floor',
     name: 'Customer-index — Export Selection',
     description: 'Customer-index selection action to hand the selected customers to a CSV export or an outbound audience sync (Bold Brain-style Audiences).',
     category: 'ADMIN_UI',
@@ -363,6 +375,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   // ── Customer-segment-details action ───────────────────────────────────────
   {
     id: 'ADMA-PRC-13',
+    tier: 'floor',
     name: 'Segment — Activate Campaign',
     description: 'Customer-segment-details action that turns the open segment into a campaign audience — a bridge into the email/SMS builder.',
     category: 'ADMIN_UI',
@@ -389,6 +402,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-PRC-14',
+    tier: 'floor',
     name: 'Segment — VIP Perk Enrollment',
     description: 'Customer-segment-details action to enroll everyone in the open segment into a loyalty VIP perk or bonus event.',
     category: 'ADMIN_UI',
@@ -417,6 +431,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   // ── Product-details actions ───────────────────────────────────────────────
   {
     id: 'ADMA-PRC-15',
+    tier: 'standard',
     name: 'Loox — Product Reviews',
     description: 'Product-details action opening a Loox review summary for the product — rating, count, and pending photo reviews to moderate.',
     category: 'ADMIN_UI',
@@ -445,6 +460,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-PRC-16',
+    tier: 'standard',
     name: 'Bold Brain — Recommendation Insights',
     description: 'Product-details action showing Bold Brain frequently-bought-together pairs for the product as a table, linking to the widget manager.',
     category: 'ADMIN_UI',
@@ -475,6 +491,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-PRC-17',
+    tier: 'standard',
     name: 'Fast Bundle — Add to Bundle',
     description: 'Product-details action to include the product in a Fast Bundle offer — surfaces existing bundles and a link to the bundle builder.',
     category: 'ADMIN_UI',
@@ -502,6 +519,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-PRC-18',
+    tier: 'standard',
     name: 'Intuitive Shipping — Product Rules',
     description: 'Product-details action showing which Intuitive Shipping rules reference this product (shipping groups, restrictions) and a link to edit them.',
     category: 'ADMIN_UI',
@@ -531,6 +549,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   // ── Product-variant-details action ────────────────────────────────────────
   {
     id: 'ADMA-PRC-19',
+    tier: 'floor',
     name: 'Variant — Bundle Component',
     description: 'Product-variant-details action showing how this specific variant participates in bundles (as a component SKU) with a link to the builder.',
     category: 'ADMIN_UI',
@@ -560,6 +579,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   // ── Product-index bulk-selection action ───────────────────────────────────
   {
     id: 'ADMA-PRC-20',
+    tier: 'standard',
     name: 'Products — Bulk Enable Reviews Widget',
     description: 'Product-index selection action to enable a review-request or reviews widget across the selected products in one pass.',
     category: 'ADMIN_UI',

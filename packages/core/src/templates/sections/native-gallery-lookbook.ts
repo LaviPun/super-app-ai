@@ -35,6 +35,7 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
   // NSEC-GAL-01 — Masonry photo wall, Editorial Wellness.
   {
     id: 'NSEC-GAL-01',
+    tier: 'standard',
     name: 'Gallery — Masonry Wall',
     description: 'Whitespace-forward masonry photo wall of mixed-height image tiles with quiet captions — an imagery-led lookbook grid for a brand or landing page.',
     category: 'STOREFRONT_UI',
@@ -87,6 +88,7 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
   // NSEC-GAL-02 — Masonry gallery, Playful Commerce (UGC / community grid).
   {
     id: 'NSEC-GAL-02',
+    tier: 'standard',
     name: 'Gallery — Community Grid',
     description: 'Friendly rounded masonry grid of customer and community photos with playful captions and a "shop the look" link per tile — a UGC gallery for the homepage.',
     category: 'STOREFRONT_UI',
@@ -140,6 +142,7 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
   // NSEC-GAL-03 — Sticky-scroll narrative lookbook, Editorial Wellness.
   {
     id: 'NSEC-GAL-03',
+    tier: 'standard',
     name: 'Lookbook — Sticky Scroll Story',
     description: 'Story-driven lookbook where imagery pins while chapter copy scrolls past — each block is one narrative chapter with image, headline, and body, for a landing page.',
     category: 'STOREFRONT_UI',
@@ -188,6 +191,7 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
   // NSEC-GAL-05 — Split lookbook (media / copy).
   {
     id: 'NSEC-GAL-05',
+    tier: 'standard',
     name: 'Lookbook — Split Feature',
     description: 'Two-column lookbook pairing a large campaign image with a caption stack of shoppable looks beside it — a content-first split section for the homepage.',
     category: 'STOREFRONT_UI',
@@ -237,6 +241,7 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
   // NSEC-GAL-06 — Split before/after gallery, Tech Utility.
   {
     id: 'NSEC-GAL-06',
+    tier: 'standard',
     name: 'Gallery — Before & After Split',
     description: 'Split gallery pairing before/after image sets with crisp result captions — a proof-forward, data-forward transformation section for a landing or product page.',
     category: 'STOREFRONT_UI',
@@ -287,6 +292,7 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
   // NSEC-GAL-07 — Full-bleed edge-to-edge gallery band, Bold DTC.
   {
     id: 'NSEC-GAL-07',
+    tier: 'standard',
     name: 'Gallery — Full-Bleed Band',
     description: 'Edge-to-edge full-bleed gallery band of large campaign images with high-energy overlay captions and shop links — an immersive lookbook strip for the homepage.',
     category: 'STOREFRONT_UI',
@@ -336,6 +342,7 @@ export const NATIVE_GALLERY_LOOKBOOK_TEMPLATES: TemplateEntry[] = [
   // NSEC-GAL-08 — Full-bleed carousel lookbook (Instagram-style feed), Bold DTC.
   {
     id: 'NSEC-GAL-08',
+    tier: 'standard',
     name: 'Gallery — Shoppable Carousel Feed',
     description: 'Swipeable full-bleed carousel of shoppable feed tiles — each reorderable slide carries an image, caption, and product link — an Instagram-style gallery for the homepage.',
     category: 'STOREFRONT_UI',

@@ -29,6 +29,7 @@ export const NATIVE_FEATURE_BENTO_TEMPLATES: TemplateEntry[] = [
   // 01 — Bento grid, mixed-size tiles, one hero span. Apple-HIG-clean grammar.
   {
     id: 'NSEC-BENTO-01',
+    tier: 'standard',
     name: 'Feature Bento — Mixed-Size Grid',
     description:
       'Feature "why us" band as a bento grid of mixed-size tiles with a spanning hero tile and coordinated group-hover — for the homepage or a landing page.',
@@ -95,6 +96,7 @@ export const NATIVE_FEATURE_BENTO_TEMPLATES: TemplateEntry[] = [
   // 02 — Masonry bento, staggered tiles, imagery-led. Editorial-wellness grammar.
   {
     id: 'NSEC-BENTO-02',
+    tier: 'standard',
     name: 'Feature Bento — Masonry (Imagery-Led)',
     description:
       'Staggered masonry bento of feature tiles with large lifestyle imagery and airy whitespace — an editorial "the details" band for a homepage or brand page.',
@@ -164,6 +166,7 @@ export const NATIVE_FEATURE_BENTO_TEMPLATES: TemplateEntry[] = [
   // 03 — Bold-DTC bento, saturated accent on dark, one hero tile + group-hover glow.
   {
     id: 'NSEC-BENTO-03',
+    tier: 'standard',
     name: 'Feature Bento — Dark, Accent Hero',
     description:
       'High-energy dark bento with a saturated accent and a spanning hero tile — a statement "why it works" band for a homepage or product page.',
@@ -231,6 +234,7 @@ export const NATIVE_FEATURE_BENTO_TEMPLATES: TemplateEntry[] = [
   // 04 — Minimal-luxe bento, near-mono, tight radius, embossed material, duotone tiles.
   {
     id: 'NSEC-BENTO-04',
+    tier: 'standard',
     name: 'Feature Bento — Restrained 2-Up',
     description:
       'Restrained near-mono bento with tight radius and embossed tiles — a quiet "the craft" band for a premium homepage or collection page.',
@@ -300,6 +304,7 @@ export const NATIVE_FEATURE_BENTO_TEMPLATES: TemplateEntry[] = [
   // 05 — Playful-commerce bento, rounded pastel tiles, icon-forward, self-advancing feel.
   {
     id: 'NSEC-BENTO-05',
+    tier: 'standard',
     name: 'Feature Bento — Playful Pastel',
     description:
       'Friendly rounded pastel bento with icon-forward tiles — a warm "what you get" band for a playful homepage or landing page.',
@@ -366,6 +371,7 @@ export const NATIVE_FEATURE_BENTO_TEMPLATES: TemplateEntry[] = [
   // 06 — Feature COLUMNS: even 3-up, icon-over-copy, tech-utility grammar (hairline, dense).
   {
     id: 'NSEC-BENTO-06',
+    tier: 'standard',
     name: 'Feature Columns — 3-Up Icon Row',
     description:
       'Even three-up feature columns with an icon over heading and copy — a crisp, high-trust value-prop row for a homepage, product, or landing page.',
@@ -426,6 +432,7 @@ export const NATIVE_FEATURE_BENTO_TEMPLATES: TemplateEntry[] = [
   // 07 — Feature COLUMNS: 4-up compact grid, inline icon + copy, Apple-HIG clean.
   {
     id: 'NSEC-BENTO-07',
+    tier: 'standard',
     name: 'Feature Columns — 4-Up Compact',
     description:
       'Compact four-up feature columns with an inline icon and one-line copy — a scannable "the essentials" strip for a homepage or collection page.',
@@ -475,6 +482,7 @@ export const NATIVE_FEATURE_BENTO_TEMPLATES: TemplateEntry[] = [
   // 08 — Feature COLUMNS as a horizontal carousel (mobile-first scroll-snap row of tiles).
   {
     id: 'NSEC-BENTO-08',
+    tier: 'standard',
     name: 'Feature Columns — Scroll Carousel',
     description:
       'Feature tiles as a horizontal scroll-snap carousel — a mobile-first, swipeable "here is why" row for a homepage or product page.',

@@ -18,6 +18,7 @@ import type { TemplateEntry } from '../types.js';
 export const MESSAGING_SLACK_TEMPLATES: TemplateEntry[] = [
   {
     id: 'MSG-SLACK-01',
+    tier: 'standard',
     name: 'New Order — Ops Slack Alert',
     description:
       'Post an internal Slack alert to the fulfillment team the moment a new order is created, so ops can start picking without watching the admin.',
@@ -51,6 +52,7 @@ export const MESSAGING_SLACK_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'MSG-SLACK-02',
+    tier: 'floor',
     name: 'Product Updated — Merch Ops Slack Alert',
     description:
       'Alert the merchandising channel in Slack whenever a product is updated (price, inventory, or status change) so the team catches restocks and price edits in real time.',
@@ -84,6 +86,7 @@ export const MESSAGING_SLACK_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'MSG-SLACK-03',
+    tier: 'floor',
     name: 'Low Review Received — CX Ops Slack Alert',
     description:
       'Ping the customer-experience Slack channel when a captured low-star review lands, so CX can reach out before the shopper churns — the internal half of a review-received Flow.',

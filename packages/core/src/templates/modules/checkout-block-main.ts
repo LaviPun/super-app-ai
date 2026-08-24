@@ -34,6 +34,7 @@ export const CHECKOUT_BLOCK_MAIN_TEMPLATES: TemplateEntry[] = [
   // buyer input, no protected data.
   {
     id: 'CHKB-01',
+    tier: 'standard',
     name: 'Checkout Trust & Payment Reassurance',
     description:
       'Trust-badge cluster plus accepted-payment icons in the checkout body — reassures buyers at the point of payment to reduce abandonment.',
@@ -84,6 +85,7 @@ export const CHECKOUT_BLOCK_MAIN_TEMPLATES: TemplateEntry[] = [
   // SSR); `value` is 0..1.
   {
     id: 'CHKB-02',
+    tier: 'standard',
     name: 'Free-Shipping Progress Bar',
     description:
       'Free-shipping goal progress bar rendered after the checkout cart-line list — shows how close the buyer is to unlocking free delivery.',
@@ -129,6 +131,7 @@ export const CHECKOUT_BLOCK_MAIN_TEMPLATES: TemplateEntry[] = [
   // static text (endsAt ISO); no live client timer.
   {
     id: 'CHKB-03',
+    tier: 'standard',
     name: 'Checkout Urgency Banner',
     description:
       'Promotional banner with a countdown deadline placed before the checkout actions — creates urgency to complete the purchase.',
@@ -178,6 +181,7 @@ export const CHECKOUT_BLOCK_MAIN_TEMPLATES: TemplateEntry[] = [
   // write (checkout surface only; skipped under accelerated checkout).
   {
     id: 'CHKB-04',
+    tier: 'standard',
     name: 'Gift Message Field',
     description:
       'Optional gift-message input in the checkout contact area, written to a cart attribute so it flows onto the order for fulfilment.',
@@ -225,6 +229,7 @@ export const CHECKOUT_BLOCK_MAIN_TEMPLATES: TemplateEntry[] = [
   // write, placed near the delivery-address step.
   {
     id: 'CHKB-05',
+    tier: 'floor',
     name: 'Delivery Instructions Field',
     description:
       'Free-text delivery-instructions input near the checkout delivery address, saved to the buyer note so couriers and staff can read it.',
@@ -273,6 +278,7 @@ export const CHECKOUT_BLOCK_MAIN_TEMPLATES: TemplateEntry[] = [
   // at compile time so we omit it.
   {
     id: 'CHKB-06',
+    tier: 'standard',
     name: 'Shipping Protection Opt-In',
     description:
       'Checkbox to add carbon-neutral shipping protection near the checkout reductions, recorded as a cart metafield for order processing.',
@@ -326,6 +332,7 @@ export const CHECKOUT_BLOCK_MAIN_TEMPLATES: TemplateEntry[] = [
   // the thank-you surface (no buyer-input writes there — presentation only).
   {
     id: 'CHKB-07',
+    tier: 'standard',
     name: 'Thank-You Cross-Sell & Social Proof',
     description:
       'Thank-you-page block pairing a follow-up recommendation prompt with a customer testimonial to drive a repeat purchase.',
@@ -379,6 +386,7 @@ export const CHECKOUT_BLOCK_MAIN_TEMPLATES: TemplateEntry[] = [
   // the app holds the Level 1 grant; surfaced as a merchant note, never faked.
   {
     id: 'CHKB-08',
+    tier: 'standard',
     name: 'Thank-You Birthday Collector',
     description:
       'Thank-you-page birthday capture for loyalty perks; declares Level 1 protected-customer-data and degrades to a read-only prompt until buyer-input access ships on this surface.',

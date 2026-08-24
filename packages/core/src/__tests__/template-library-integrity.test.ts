@@ -59,4 +59,10 @@ describe('template library integrity (WS-H)', () => {
     const missing = (RECIPE_SPEC_TYPES as readonly string[]).filter((t) => !coveredTypes.has(t));
     expect(missing).toEqual([]);
   });
+
+  it('every template carries a tier (Tmpl tier-tag library)', async () => {
+    const { ALL_TEMPLATES } = await import('../templates/index.js');
+    const untagged = ALL_TEMPLATES.filter((t) => !t.tier).map((t) => t.id);
+    expect(untagged).toEqual([]);
+  });
 });

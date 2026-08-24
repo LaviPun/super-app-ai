@@ -32,6 +32,7 @@ export const templates: TemplateEntry[] = [
   // TBLK-COL-01 — Faceted filter sidebar (Boost / Shopify Search & Discovery vertical sidebar).
   {
     id: 'TBLK-COL-01',
+    tier: 'standard',
     name: 'Faceted Filter Sidebar',
     description: 'Vertical collapsible filter sidebar for collection and search pages — accordion facet groups (availability, price, type, vendor, size) with product counts.',
     category: 'STOREFRONT_UI',
@@ -84,6 +85,7 @@ export const templates: TemplateEntry[] = [
   // TBLK-COL-02 — Horizontal filter bar + drawer (Boost horizontal / off-canvas layout).
   {
     id: 'TBLK-COL-02',
+    tier: 'standard',
     name: 'Horizontal Filter Bar',
     description: 'Sticky horizontal filter bar above the product grid that opens an off-canvas drawer on mobile — compact facet pills with a result count.',
     category: 'STOREFRONT_UI',
@@ -134,6 +136,7 @@ export const templates: TemplateEntry[] = [
   // TBLK-COL-03 — Sort dropdown / toolbar (Boost + S&D default sort orders).
   {
     id: 'TBLK-COL-03',
+    tier: 'standard',
     name: 'Sort & Result Toolbar',
     description: 'Collection/search toolbar with a "Sort by" dropdown (relevance, price, newest, bestselling) plus a live result count and grid/list view toggle.',
     category: 'STOREFRONT_UI',
@@ -181,6 +184,7 @@ export const templates: TemplateEntry[] = [
   // TBLK-COL-04 — Collection promo banner (Discount Ninja product banner / Hextom promo message).
   {
     id: 'TBLK-COL-04',
+    tier: 'standard',
     name: 'Collection Promo Banner',
     description: 'Full-width promo banner above the collection grid — sale headline, savings copy, and a CTA for flash sales and seasonal drops.',
     category: 'STOREFRONT_UI',
@@ -225,6 +229,7 @@ export const templates: TemplateEntry[] = [
   // TBLK-COL-05 — Tiered free-shipping / spend-goal bar (Discount Ninja "add X more to unlock").
   {
     id: 'TBLK-COL-05',
+    tier: 'standard',
     name: 'Spend-Goal Progress Bar',
     description: 'Slim progress bar above the grid nudging shoppers toward a free-shipping or spend-to-save threshold with "add X more to unlock" tier copy.',
     category: 'STOREFRONT_UI',
@@ -270,6 +275,7 @@ export const templates: TemplateEntry[] = [
   // TBLK-COL-06 — Promotional badge overlay for PLP cards (Discount Ninja badge / Hextom sticker).
   {
     id: 'TBLK-COL-06',
+    tier: 'standard',
     name: 'Product Card Badge Overlay',
     description: 'Corner sale/new/bestseller badges overlaid on collection and search product cards, driven by product tags for automatic per-item merchandising.',
     category: 'STOREFRONT_UI',
@@ -314,6 +320,7 @@ export const templates: TemplateEntry[] = [
   // TBLK-COL-07 — Search results "no results" fallback (Boost InstantSearch no-result behavior).
   {
     id: 'TBLK-COL-07',
+    tier: 'standard',
     name: 'Search No-Results Fallback',
     description: 'Empty-state block for the search results page — a "no results" message with curated fallback suggestions and popular collections to keep shoppers on-site.',
     category: 'STOREFRONT_UI',
@@ -358,6 +365,7 @@ export const templates: TemplateEntry[] = [
   // TBLK-COL-08 — Collection intro / editorial header (S&D collection header pattern).
   {
     id: 'TBLK-COL-08',
+    tier: 'standard',
     name: 'Collection Intro Header',
     description: 'Editorial header for a collection page — title, descriptive intro copy, and an optional lifestyle image, giving merchandised collections a branded lead-in.',
     category: 'STOREFRONT_UI',
@@ -400,6 +408,7 @@ export const templates: TemplateEntry[] = [
   // TBLK-COL-09 — Trust + payment badge row (Hextom trust badges / payment badges on PLP).
   {
     id: 'TBLK-COL-09',
+    tier: 'standard',
     name: 'Collection Trust Badge Row',
     description: 'Reassurance strip below the collection header — free-shipping, easy-returns, and secure-checkout trust marks with a payment-icon row to lift browse confidence.',
     category: 'STOREFRONT_UI',
@@ -443,6 +452,7 @@ export const templates: TemplateEntry[] = [
   // TBLK-COL-10 — Category tile grid for the list-collections page (S&D / merchandising).
   {
     id: 'TBLK-COL-10',
+    tier: 'standard',
     name: 'Category Tile Grid',
     description: 'Shop-by-category tile grid for the collections-list page — reorderable image tiles that route into each collection, turning the index into a merchandised entry point.',
     category: 'STOREFRONT_UI',

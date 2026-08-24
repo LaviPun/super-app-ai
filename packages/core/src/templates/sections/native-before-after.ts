@@ -16,6 +16,7 @@ export const NATIVE_BEFORE_AFTER_TEMPLATES: TemplateEntry[] = [
   // NSEC-BA-01 — Skincare 8-week results (Editorial Wellness, luxe).
   {
     id: 'NSEC-BA-01',
+    tier: 'standard',
     name: 'Before/After — Skincare Results',
     description: 'A drag-to-compare before/after slider proving an 8-week skincare transformation — two labelled images with a clip-path handle, for a product or results page.',
     category: 'STOREFRONT_UI',
@@ -57,6 +58,7 @@ export const NATIVE_BEFORE_AFTER_TEMPLATES: TemplateEntry[] = [
   // NSEC-BA-02 — Furniture restoration (Bold DTC).
   {
     id: 'NSEC-BA-02',
+    tier: 'standard',
     name: 'Before/After — Furniture Restoration',
     description: 'A high-contrast drag-to-compare slider showing a worn piece restored to new — two labelled photos with a scrub handle, for a landing or portfolio page.',
     category: 'STOREFRONT_UI',

@@ -24,6 +24,7 @@ export const VB_BEHAVIOR_TEMPLATES: TemplateEntry[] = [
   // ── TBLK-VBB-01 — Evergreen Flash-Sale Bar (tiles, per-visitor 2h, re-arms) ──
   {
     id: 'TBLK-VBB-01',
+    tier: 'standard',
     name: 'Evergreen Flash-Sale Bar',
     description:
       'Header urgency bar with a per-visitor 2-hour countdown shown as day/hour/minute/second tiles — each shopper gets their own deadline that re-arms when it expires (Hextom evergreen timer).',
@@ -70,6 +71,7 @@ export const VB_BEHAVIOR_TEMPLATES: TemplateEntry[] = [
   // ── TBLK-VBB-02 — Daily Deal Bar (plain string, resets at local midnight) ──
   {
     id: 'TBLK-VBB-02',
+    tier: 'standard',
     name: 'Daily Deal Countdown Bar',
     description:
       'Header deal bar with a plain countdown to the end of the day — the timer resets at local midnight, so "today only" always reads honestly. Hides once the day rolls over.',
@@ -114,6 +116,7 @@ export const VB_BEHAVIOR_TEMPLATES: TemplateEntry[] = [
   // ── TBLK-VBB-03 — Newsletter Popup with Teaser (minimizes on dismiss) ──
   {
     id: 'TBLK-VBB-03',
+    tier: 'standard',
     name: 'Newsletter Popup — Minimizing Teaser',
     description:
       'Email-capture popup that, when dismissed, collapses to a small "Get 10% off" pill in the corner instead of disappearing for the session — one tap reopens it, recovering abandoned signups.',

@@ -26,6 +26,7 @@ import { THEME_PLACEABLE_TEMPLATES } from '../../allowed-values.js';
 export const NATIVE_LOGO_MARQUEE_TRUST_TEMPLATES: TemplateEntry[] = [
   {
     id: 'NSEC-MARQ-01',
+    tier: 'standard',
     name: 'Brand Logo Marquee — Scrolling',
     description:
       'Infinite scroll-velocity logo marquee of partner/retailer brand logos for the homepage — a continuous "trusted by" band above the fold.',
@@ -77,6 +78,7 @@ export const NATIVE_LOGO_MARQUEE_TRUST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-MARQ-02',
+    tier: 'standard',
     name: 'As Seen In — Press Logo Row',
     description:
       'Static centered row of press / publication logos with an "As seen in" eyebrow for the homepage — a mono, evenly-spaced credibility strip.',
@@ -127,6 +129,7 @@ export const NATIVE_LOGO_MARQUEE_TRUST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-MARQ-03',
+    tier: 'standard',
     name: 'Payment & Security Trust Marks',
     description:
       'Centered strip of accepted-payment and security marks (card networks, wallets, SSL/checkout badges) for the cart and product pages to lift checkout confidence.',
@@ -178,6 +181,7 @@ export const NATIVE_LOGO_MARQUEE_TRUST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-MARQ-04',
+    tier: 'standard',
     name: 'Guarantee Icons — Shipping & Returns Strip',
     description:
       'Row of guarantee icons with short labels (free shipping, easy returns, secure checkout, warranty) for the product page — the classic reassurance strip under the buy box.',
@@ -224,6 +228,7 @@ export const NATIVE_LOGO_MARQUEE_TRUST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-MARQ-05',
+    tier: 'standard',
     name: 'Framed Retailer Logo Grid',
     description:
       'Static bordered logo grid of stockists / retail partners inside framed cells for a page or about section — a tidy "available at" credibility block.',
@@ -276,6 +281,7 @@ export const NATIVE_LOGO_MARQUEE_TRUST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-MARQ-06',
+    tier: 'standard',
     name: 'Trust Stat Strip — Big Numbers',
     description:
       'Row of big-number trust stats (customers served, orders shipped, average rating) as authored figures for the homepage — a number-ticker credibility band.',
@@ -322,6 +328,7 @@ export const NATIVE_LOGO_MARQUEE_TRUST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-MARQ-07',
+    tier: 'standard',
     name: 'Certification & Compliance Badges',
     description:
       'Inline strip of certification and compliance marks (organic, cruelty-free, carbon-neutral, GMP) for the product page to signal standards and values.',
@@ -374,6 +381,7 @@ export const NATIVE_LOGO_MARQUEE_TRUST_TEMPLATES: TemplateEntry[] = [
   // ids: visa/mastercard/amex/paypal/shop-pay/apple-pay/google-pay/klarna.
   {
     id: 'NSEC-MARQ-08',
+    tier: 'standard',
     name: 'Payment Methods Strip (Icon Catalog)',
     description: 'Centered row of accepted-payment marks rendered from the built-in badge-icon catalog (no external logo assets) — card networks and wallets to lift checkout confidence on cart and product pages.',
     category: 'STOREFRONT_UI',
@@ -423,6 +431,7 @@ export const NATIVE_LOGO_MARQUEE_TRUST_TEMPLATES: TemplateEntry[] = [
   // 09 — V-A A2: trust/guarantee reassurance row using the catalog's trust glyphs.
   {
     id: 'NSEC-MARQ-09',
+    tier: 'standard',
     name: 'Trust Guarantee Row (Icon Catalog)',
     description: 'Reassurance strip of guarantee icons with labels — secure checkout, free returns, fast shipping, money-back — drawn from the built-in badge-icon catalog for the product page under the buy box.',
     category: 'STOREFRONT_UI',
