@@ -112,12 +112,12 @@ No code. This task is a gate: it forces an explicit, recorded decision before Ta
 **Interfaces:**
 - `RENDER_PACK_BY_AESTHETIC` (`style-packs.server.ts:161`) narrows from `Partial<Record<StylePackId, StorefrontPack>>` mapping to 4 values, to mapping every `StylePackId` to `'luxe' | 'bold'` only. `StorefrontPack` (wherever it's typed — check `apps/web/app/services/ai/style-packs.server.ts` and `apps/web/app/services/preview/preview.service.ts:53`'s local `PreviewPack` alias) narrows from `'luxe' | 'bold' | 'playful' | 'utility'` to `'luxe' | 'bold'`.
 
-- [ ] **Step 1: Inventory every live reference** to `'playful'` / `'utility'` as a `StorefrontPack`/`PreviewPack` value (not as a `StylePackId` — `playful-commerce`/`tech-utility` upstream ids can stay as aesthetic-signal inputs, they just always resolve to `bold`/`luxe` now):
+- [x] **Step 1: Inventory every live reference** to `'playful'` / `'utility'` as a `StorefrontPack`/`PreviewPack` value (not as a `StylePackId` — `playful-commerce`/`tech-utility` upstream ids can stay as aesthetic-signal inputs, they just always resolve to `bold`/`luxe` now):
   ```bash
   grep -rn "'playful'\|'utility'\|\"playful\"\|\"utility\"" apps/web/app packages/core/src --include="*.ts" --include="*.tsx" | grep -v "playful-commerce\|tech-utility"
   ```
   Expect hits in: `style-packs.server.ts` (`RENDER_PACK_BY_AESTHETIC`, `StorefrontPack` type), `preview.service.ts` (`PreviewPack` type + any CSS-class branch keyed on pack), the 3 outlier template files, and any test pinning `resolveStorefrontPack` output to `'playful'`/`'utility'`.
-- [ ] **Step 2: Write the failing test** — extend `apps/web/app/__tests__/apply-style-pack.test.ts` (the existing coverage for `resolveStorefrontPack`; `design-system.test.ts` and `from-template-pack-resolution.test.ts` also exercise this function and must stay green through Step 6) with:
+- [x] **Step 2: Write the failing test** — extend `apps/web/app/__tests__/apply-style-pack.test.ts` (the existing coverage for `resolveStorefrontPack`; `design-system.test.ts` and `from-template-pack-resolution.test.ts` also exercise this function and must stay green through Step 6) with:
   ```ts
   it('every StylePackId resolves to luxe or bold only (H1 pack collapse)', () => {
     const ids: StylePackId[] = ['apple-hig-clean', 'editorial-wellness', 'bold-dtc', 'minimal-luxe', 'playful-commerce', 'tech-utility'];
@@ -128,16 +128,16 @@ No code. This task is a gate: it forces an explicit, recorded decision before Ta
   });
   ```
   Run: `cd apps/web && npx vitest run app/__tests__/apply-style-pack.test.ts`. Expected: FAIL (`bold-dtc`→`bold` and everything else→`luxe` already true today except this test also needs `playful-commerce`/`tech-utility` to resolve rather than falling through to `?? 'luxe'` implicitly — confirm the CURRENT behavior first with a quick manual check before asserting; if it already passes because of the `?? 'luxe'` fallback, this step instead documents that the runtime already collapses and Step 3 is a type-level tightening + template remap only, not a behavior change).
-- [ ] **Step 3: Implement.** In `style-packs.server.ts`, change `RENDER_PACK_BY_AESTHETIC` to map every id to `'luxe'` or `'bold'`; narrow the `StorefrontPack` type. In `preview.service.ts`, narrow `PreviewPack` the same way and delete any dead `'playful'`/`'utility'` CSS-class branches (grep first — the design-system CSS at `extensions/theme-app-extension/assets/superapp-modules.css` likely has `[data-sa-pack="playful"]`/`[data-sa-pack="utility"]` rule blocks; leave the CSS alone in this task — dead CSS is a WS-I cleanup concern, not a WS-H one, unless it's large enough to matter for the Liquid... no, CSS budget is separate and uncontested, so leave it).
-- [ ] **Step 4: Remap the 3 outlier templates** — in each of `native-pricing-comparison.ts`, `native-logo-marquee-trust.ts`, `appembed-body-overlay.ts`, change `pack: 'utility'`/`pack: 'playful'` to whichever of `luxe`/`bold` the template's existing `colors`/tone most resembles (read the file, make the call — this is 3 files, not a script). Re-run `grep -rho "pack: '[a-zA-Z0-9_-]*'" packages/core/src/templates | sort | uniq -c` and confirm only `luxe`/`bold` remain.
-- [ ] **Step 5: Update `module-design-system.md`** — §3.2a "Pack C — Playful Commerce" and §3.2b "Pack D — Tech Utility" become a short "Not currently offered (H1, 2026-08-24)" note pointing at this plan instead of full token-grammar sections; §9.2's pack-selection table drops to 2 rows.
-- [ ] **Step 6: Run the full affected suite:**
+- [x] **Step 3: Implement.** In `style-packs.server.ts`, change `RENDER_PACK_BY_AESTHETIC` to map every id to `'luxe'` or `'bold'`; narrow the `StorefrontPack` type. In `preview.service.ts`, narrow `PreviewPack` the same way and delete any dead `'playful'`/`'utility'` CSS-class branches (grep first — the design-system CSS at `extensions/theme-app-extension/assets/superapp-modules.css` likely has `[data-sa-pack="playful"]`/`[data-sa-pack="utility"]` rule blocks; leave the CSS alone in this task — dead CSS is a WS-I cleanup concern, not a WS-H one, unless it's large enough to matter for the Liquid... no, CSS budget is separate and uncontested, so leave it).
+- [x] **Step 4: Remap the 3 outlier templates** — in each of `native-pricing-comparison.ts`, `native-logo-marquee-trust.ts`, `appembed-body-overlay.ts`, change `pack: 'utility'`/`pack: 'playful'` to whichever of `luxe`/`bold` the template's existing `colors`/tone most resembles (read the file, make the call — this is 3 files, not a script). Re-run `grep -rho "pack: '[a-zA-Z0-9_-]*'" packages/core/src/templates | sort | uniq -c` and confirm only `luxe`/`bold` remain.
+- [x] **Step 5: Update `module-design-system.md`** — §3.2a "Pack C — Playful Commerce" and §3.2b "Pack D — Tech Utility" become a short "Not currently offered (H1, 2026-08-24)" note pointing at this plan instead of full token-grammar sections; §9.2's pack-selection table drops to 2 rows.
+- [x] **Step 6: Run the full affected suite:**
   ```bash
   cd packages/core && pnpm build && cd ../.. && \
   cd apps/web && npx vitest run app/__tests__/apply-style-pack.test.ts app/__tests__/design-system.test.ts app/__tests__/from-template-pack-resolution.test.ts app/__tests__/preview-service.test.ts app/__tests__/design-system-contract.test.ts app/__tests__/richness-qa-templates.test.ts
   ```
   Expected: PASS.
-- [ ] **Step 7: Commit** — `git commit -m "refactor(ws-h): collapse render packs to luxe/bold (H1); remap 3 outlier templates"`.
+- [x] **Step 7: Commit** — `git commit -m "refactor(ws-h): collapse render packs to luxe/bold (H1); remap 3 outlier templates"`.
 
 ---
 
@@ -151,7 +151,7 @@ No code. This task is a gate: it forces an explicit, recorded decision before Ta
 - Consumes: `ensureStoreAesthetic({ admin, shopId, maxWaitMs? })` (unchanged signature, `apps/web/app/services/theme/ensure-aesthetic.server.ts:15`).
 - Mirrors the AI path's gate: only run for `STOREFRONT_LAYOUT_TYPES` (already defined at the top of `from-template.tsx:17-24`), not for every template type (functions/admin/POS/messaging templates have no storefront palette to match).
 
-- [ ] **Step 1: Write the failing test** — copy the mock scaffolding verbatim from the existing `apps/web/app/__tests__/from-template-pack-resolution.test.ts` (same route, same auth/db/quota/module/activity mocks already proven to work against this action) and add one more mock:
+- [x] **Step 1: Write the failing test** — copy the mock scaffolding verbatim from the existing `apps/web/app/__tests__/from-template-pack-resolution.test.ts` (same route, same auth/db/quota/module/activity mocks already proven to work against this action) and add one more mock:
   ```ts
   import { describe, expect, it, vi } from 'vitest';
 
@@ -184,7 +184,7 @@ No code. This task is a gate: it forces an explicit, recorded decision before Ta
   });
   ```
   Run: `cd apps/web && npx vitest run app/__tests__/from-template-aesthetic.test.ts`. Expected: FAIL — `ensureStoreAesthetic` never called today (0 calls in both cases, so the first assertion fails).
-- [ ] **Step 2: Implement** — in `api.modules.from-template.tsx`, destructure `admin` alongside `session` from `shopify.authenticate.admin(request)` (currently only `{ session }` is destructured), and after `shopRow` is resolved (after line 98) and before `quota.enforce`, add:
+- [x] **Step 2: Implement** — in `api.modules.from-template.tsx`, destructure `admin` alongside `session` from `shopify.authenticate.admin(request)` (currently only `{ session }` is destructured), and after `shopRow` is resolved (after line 98) and before `quota.enforce`, add:
   ```ts
   if (STOREFRONT_LAYOUT_TYPES.has(template.type)) {
     // Best-effort, time-boxed — mirrors api.ai.create-module.tsx's AI-path gate.
@@ -194,9 +194,9 @@ No code. This task is a gate: it forces an explicit, recorded decision before Ta
   }
   ```
   Add the import: `import { ensureStoreAesthetic } from '~/services/theme/ensure-aesthetic.server';`.
-- [ ] **Step 3: Run the test again.** Expected: PASS.
-- [ ] **Step 4: Run the full route test suite + affected callers** — `cd apps/web && npx vitest run app/__tests__/from-template-aesthetic.test.ts app/__tests__/from-template-pack-resolution.test.ts`. Expected: PASS (the pack-resolution test must stay green unchanged — this task only adds a call, it doesn't touch `withResolvedPack`).
-- [ ] **Step 5: Commit** — `git commit -m "feat(ws-h): wire ensureStoreAesthetic into template installs (Tmpl-2 install-path gap)"`.
+- [x] **Step 3: Run the test again.** Expected: PASS.
+- [x] **Step 4: Run the full route test suite + affected callers** — `cd apps/web && npx vitest run app/__tests__/from-template-aesthetic.test.ts app/__tests__/from-template-pack-resolution.test.ts`. Expected: PASS (the pack-resolution test must stay green unchanged — this task only adds a call, it doesn't touch `withResolvedPack`).
+- [x] **Step 5: Commit** — `git commit -m "feat(ws-h): wire ensureStoreAesthetic into template installs (Tmpl-2 install-path gap)"`.
 
 ---
 
@@ -212,12 +212,12 @@ Ports `PreviewService.isPlaceholderUrl()`/`phMedia()`/`PH_SVG` (`apps/web/app/se
 **Interfaces:**
 - New Liquid snippet contract: `{% render 'superapp-module-media', url: <string|blank>, alt: <string>, css_class: <string> %}` — outputs a real `<img class="{{ css_class }}" src="..." loading="lazy" alt="...">` when `url` looks real, otherwise `<div class="{{ css_class }} superapp-ph" role="img" aria-label="...">` + the same inline SVG glyph as `PH_SVG`. "Looks real" mirrors `isPlaceholderUrl()`: blank → placeholder; contains `example.com` → placeholder; contains `cdn.shopify.com/s/files/` → placeholder; otherwise real.
 
-- [ ] **Step 1: Enumerate every media-emission call site:**
+- [x] **Step 1: Enumerate every media-emission call site:**
   ```bash
   grep -n '<img\|background-image\|ImageUrl\|VideoUrl' apps/web/theme-extension-src/liquid/snippets/superapp-module-sections.liquid apps/web/theme-extension-src/liquid/snippets/superapp-module-pdp.liquid apps/web/theme-extension-src/liquid/snippets/superapp-module-overlay.liquid
   ```
   This is the exact worklist for Step 4 — record the count so Step 5's verification can assert it dropped to 0 raw `<img src="{{ ... }}"` emissions outside the new partial.
-- [ ] **Step 2: Write the failing test** — a static-content test (no Liquid execution needed here; Task 8 adds real rendering):
+- [x] **Step 2: Write the failing test** — a static-content test (no Liquid execution needed here; Task 8 adds real rendering):
   ```ts
   import { readFileSync } from 'node:fs';
   import { join } from 'node:path';
@@ -245,7 +245,7 @@ Ports `PreviewService.isPlaceholderUrl()`/`phMedia()`/`PH_SVG` (`apps/web/app/se
   });
   ```
   Run: `cd apps/web && npx vitest run app/__tests__/liquid-media-placeholder.test.ts`. Expected: FAIL (partial doesn't exist yet; raw `<img src="{{ mod_cfg....ImageUrl }}">` patterns still present per Step 1's inventory).
-- [ ] **Step 3: Author the partial** (readable source; the build script minifies it):
+- [x] **Step 3: Author the partial** (readable source; the build script minifies it):
   ```liquid
   {% # theme-check-disable OrphanedSnippet, RemoteAsset %}
   {% doc %}
@@ -278,14 +278,14 @@ Ports `PreviewService.isPlaceholderUrl()`/`phMedia()`/`PH_SVG` (`apps/web/app/se
     <img class="{{ css_class }}" src="{{ url }}" alt="{{ alt | escape }}" loading="lazy">
   {% endif %}
   ```
-- [ ] **Step 4: Sweep the call sites from Step 1** — replace each raw `<img src="{{ mod_cfg....ImageUrl }}" ...>` (and any `background-image: url({{ ... }})` inline-style pattern) with `{% render 'superapp-module-media', url: mod_cfg.fields.xImageUrl, alt: ..., css_class: '...' %}`, preserving whatever CSS class each call site previously hardcoded on the `<img>` (pass it as `css_class` so archetype sizing rules keep applying — matches `phMedia()`'s own contract in `preview.service.ts`: "Both carry `cls` so the archetype sizing rules apply either way").
-- [ ] **Step 5: Rebuild and run:**
+- [x] **Step 4: Sweep the call sites from Step 1** — replace each raw `<img src="{{ mod_cfg....ImageUrl }}" ...>` (and any `background-image: url({{ ... }})` inline-style pattern) with `{% render 'superapp-module-media', url: mod_cfg.fields.xImageUrl, alt: ..., css_class: '...' %}`, preserving whatever CSS class each call site previously hardcoded on the `<img>` (pass it as `css_class` so archetype sizing rules keep applying — matches `phMedia()`'s own contract in `preview.service.ts`: "Both carry `cls` so the archetype sizing rules apply either way").
+- [x] **Step 5: Rebuild and run:**
   ```bash
   node scripts/build-theme-liquid.mjs
   cd apps/web && npx vitest run app/__tests__/liquid-media-placeholder.test.ts app/__tests__/kind-archetype-parity.test.ts
   ```
   Expected: PASS. Note the new aggregate total printed by the build — record it, it feeds Task 5's starting point (expect a modest reduction from 99,613 B, since N call sites collapsed to 1 partial definition + N one-line `{% render %}` calls).
-- [ ] **Step 6: Commit** — `git commit -m "fix(ws-h): shared placeholder-aware media partial — no more broken cdn.example.com <img> on real storefronts (Tmpl-3)"`.
+- [x] **Step 6: Commit** — `git commit -m "fix(ws-h): shared placeholder-aware media partial — no more broken cdn.example.com <img> on real storefronts (Tmpl-3)"`.
 
 ---
 

@@ -1,0 +1,41 @@
+{% # theme-check-disable OrphanedSnippet, RemoteAsset, ImgWidthAndHeight %}
+{% doc %}
+  Placeholder-aware media emitter (WS-H). Mirrors PreviewService's isPlaceholderUrl()/
+  phMedia()/PH_SVG (apps/web/app/services/preview/preview.service.ts:3430-3454) so a
+  template's demo cdn.example.com URLs — or Shopify's own illustrative
+  cdn.shopify.com/s/files/ library assets — never render a broken <img> on a real
+  storefront. A merchant who hasn't replaced the demo image yet sees a tasteful
+  accent-tinted placeholder glyph instead, exactly what the admin preview already shows.
+
+  ImgWidthAndHeight is intentionally disabled here: this partial is shared by ~20
+  call sites whose images span very different aspect ratios (44px avatars to
+  1200px hero media), and the plan's contract (module-design-system.md /
+  WS-H Task 4) is `{ url, alt, css_class }` only — css_class carries the
+  archetype's sizing rules (same contract as PreviewService's phMedia(), which
+  also emits no explicit width/height). Each caller previously hardcoded its own
+  width/height on a bespoke <img>; collapsing to one shared partial trades that
+  per-callsite CLS hint for the placeholder-safety fix and the byte savings from
+  de-duplicating ~20 near-identical emitters. Flagged as a known trade-off, not
+  an oversight — see the WS-H Task 4 report.
+
+  @param {string} url - candidate media URL (may be blank).
+  @param {string} alt - alt/aria-label text.
+  @param {string} css_class - class(es) the caller's layout expects on either element.
+{% enddoc %}
+{% liquid
+  assign sa_media_is_placeholder = false
+  if url == blank
+    assign sa_media_is_placeholder = true
+  elsif url contains 'example.com'
+    assign sa_media_is_placeholder = true
+  elsif url contains 'cdn.shopify.com/s/files/'
+    assign sa_media_is_placeholder = true
+  endif
+%}
+{% if sa_media_is_placeholder %}
+  <div class="{{ css_class }} superapp-ph" role="img" aria-label="{{ alt | default: 'Sample image' | escape }}">
+    <svg class="superapp-ph__glyph" viewBox="0 0 48 48" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="6" y="9" width="36" height="30" rx="3"/><circle cx="17" cy="19" r="3.5"/><path d="M8 34l10-9 7 6 6-6 9 9"/></svg>
+  </div>
+{% else %}
+  <img class="{{ css_class }}" src="{{ url }}" alt="{{ alt | escape }}" loading="lazy">
+{% endif %}
