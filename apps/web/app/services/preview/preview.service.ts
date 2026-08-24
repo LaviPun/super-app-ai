@@ -1892,7 +1892,6 @@ export class PreviewService {
     // resolve through the literal same CSS rule. Unmatched/custom variants emit no
     // modifier, matching the base .superapp-fw__icon default sparkle mask.
     const variantHandle = variant.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-+|-+$)/g, '');
-    const KNOWN_FW_VARIANTS = new Set(['whatsapp', 'chat', 'coupon', 'cart', 'scroll-top']);
     const fwIconClass = KNOWN_FW_VARIANTS.has(variantHandle) ? ` superapp-fw__icon--${variantHandle}` : '';
 
     // Anchor: prefer the explicit `anchor` key, then the `corner` key that the
@@ -3514,6 +3513,13 @@ const BADGE_ICON_GLYPH_IDS: string[] = [
 ];
 /** All ids covered by the preview catalog (exported for the id-parity test). */
 export const BADGE_ICON_PREVIEW_IDS: string[] = [...BADGE_ICON_PAYMENT_IDS, ...BADGE_ICON_GLYPH_IDS];
+/**
+ * Floating-widget variant handles with a dedicated `.superapp-fw__icon--<variant>`
+ * CSS mask rule (WS-H Task 5). Unmatched/custom variants fall through to the base
+ * `.superapp-fw__icon` default mask. Exported so preview-icon-css-parity.test.ts
+ * asserts against the real set instead of a hand-duplicated copy that can rot.
+ */
+export const KNOWN_FW_VARIANTS: ReadonlySet<string> = new Set(['whatsapp', 'chat', 'coupon', 'cart', 'scroll-top']);
 /** Resolve a badge-icon id to its data-sa-icon-driven markup, or null when not in the catalog. */
 function badgeIcon(id: string): { mod: 'pay' | 'glyph'; markup: string } | null {
   const key = String(id).trim().toLowerCase();

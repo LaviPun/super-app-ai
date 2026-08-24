@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { RecipeSpec } from '@superapp/core';
-import { PreviewService, BADGE_ICON_PREVIEW_IDS } from '~/services/preview/preview.service';
+import { PreviewService, BADGE_ICON_PREVIEW_IDS, KNOWN_FW_VARIANTS } from '~/services/preview/preview.service';
 
 /**
  * R0 parity coverage guard (WS-H Task 5 fix round 1).
@@ -106,10 +106,12 @@ describe('preview <-> storefront icon CSS class-coverage guard (WS-H Task 5 fix 
   });
 
   it('every known floating-widget variant renders a superapp-fw__icon--<variant> class with a matching CSS mask selector', () => {
-    // Same variant set the storefront Liquid's superapp-modules.css authors rules
-    // for (WS-H Task 5) — 'custom' and any unknown variant deliberately emit NO
-    // modifier class, falling through to the base .superapp-fw__icon default mask.
-    const KNOWN_VARIANTS = ['whatsapp', 'chat', 'coupon', 'cart', 'scroll_top'];
+    // Imports the REAL set PreviewService uses (WS-H Task 5 fix round 2) instead of
+    // a hand-duplicated copy that can rot — 'custom' and any unknown variant
+    // deliberately emit NO modifier class, falling through to the base
+    // .superapp-fw__icon default mask. Source uses '-'-joined handles; this test's
+    // fixture variants use '_' to also exercise the handle-normalization path.
+    const KNOWN_VARIANTS = [...KNOWN_FW_VARIANTS].map((v) => v.replace(/-/g, '_'));
     const missing: string[] = [];
     for (const variant of KNOWN_VARIANTS) {
       const html = fwHtml(variant);
