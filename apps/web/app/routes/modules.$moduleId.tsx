@@ -229,7 +229,7 @@ const RUNTIME_LABEL: Record<string, string> = {
  * response.
  */
 export async function action({ request, params }: { request: Request; params: { moduleId?: string } }) {
-  const { session } = await shopify.authenticate.admin(request);
+  const { session, admin } = await shopify.authenticate.admin(request);
   const moduleId = params.moduleId;
   if (!moduleId) return json({ error: 'Missing moduleId' }, { status: 400 });
 
@@ -306,7 +306,9 @@ export async function action({ request, params }: { request: Request; params: { 
   }
 
   if (intent === 'delete') {
-    await ms.deleteModule(session.shop, moduleId);
+    // WS-E: Shopify cleanup runs first — if it throws, the module stays
+    // PUBLISHED (honest) and nothing in the DB is deleted; retry is safe.
+    await ms.unpublishThenDelete(admin, session.shop, moduleId);
     await new ActivityLogService().log({
       actor: 'MERCHANT',
       action: 'MODULE_DELETED',

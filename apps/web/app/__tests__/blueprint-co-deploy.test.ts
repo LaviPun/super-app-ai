@@ -65,9 +65,17 @@ vi.mock('~/db.server', () => ({
   }),
 }));
 
-vi.mock('~/services/publish/publish.service', () => ({
-  PublishService: vi.fn().mockImplementation(() => ({ publish: hoisted.publish })),
-}));
+// Mock only the class; keep the real named exports (the refs-list namespace/key
+// constants) so ~/services/modules/module.service.ts's transitive import of
+// UnpublishService (Task 11: unpublishThenDelete) can still resolve them —
+// UnpublishService's REFS_FAMILIES table reads them at module-load time.
+vi.mock('~/services/publish/publish.service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('~/services/publish/publish.service')>();
+  return {
+    ...actual,
+    PublishService: vi.fn().mockImplementation(() => ({ publish: hoisted.publish })),
+  };
+});
 
 vi.mock('~/services/publish/activation.service', () => ({
   ActivationService: vi.fn().mockImplementation(() => ({ ensureForFunctionKey: hoisted.ensureForFunctionKey })),

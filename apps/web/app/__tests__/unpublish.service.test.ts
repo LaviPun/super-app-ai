@@ -21,6 +21,9 @@ const capturedCalls: {
 } = {
   moduleUpdate: [], versionUpdateMany: [], moduleDelete: [],
 };
+/** Test-settable hook fired synchronously inside the mocked module.delete, so a
+ *  test can record call ORDER relative to admin.graphql calls (Task 11). */
+const moduleDeleteHooks: { onDelete?: () => void } = {};
 
 vi.mock('~/db.server', () => ({
   getPrisma: () => ({
@@ -47,6 +50,7 @@ vi.mock('~/db.server', () => ({
       },
       delete: async (args: Record<string, unknown>) => {
         capturedCalls.moduleDelete.push(args);
+        moduleDeleteHooks.onDelete?.();
         return args;
       },
     },
@@ -89,6 +93,7 @@ beforeEach(() => {
   capturedCalls.versionUpdateMany = [];
   capturedCalls.moduleDelete = [];
   capturedCalls.moduleFindFirstArgs = undefined;
+  moduleDeleteHooks.onDelete = undefined;
 });
 
 describe('MetaobjectService.getMetaobjectIdByHandle', () => {
@@ -301,5 +306,70 @@ describe('ModuleService.markUnpublished (E7)', () => {
     await expect(new ModuleService().markUnpublished('shop.example.com', 'missing')).rejects.toThrow('Module not found');
     expect(capturedCalls.moduleUpdate).toHaveLength(0);
     expect(capturedCalls.versionUpdateMany).toHaveLength(0);
+  });
+});
+
+describe('ModuleService.unpublishThenDelete', () => {
+  it('published module: Shopify cleanup runs BEFORE the DB delete', async () => {
+    const order: string[] = [];
+    moduleDeleteHooks.onDelete = () => order.push('db');
+
+    const specJson = JSON.stringify({ type: 'theme.section', category: 'STOREFRONT_UI', name: 'Banner', config: {} });
+    moduleFixture.row = {
+      id: 'm1',
+      status: 'PUBLISHED',
+      shop: { id: 'shop_1' },
+      versions: [{ id: 'v1', status: 'PUBLISHED', specJson, targetThemeId: '1' }],
+      activeVersion: { id: 'v1', status: 'PUBLISHED', specJson, targetThemeId: '1' },
+    };
+
+    const { admin } = mockAdmin((op, vars) => {
+      order.push('shopify');
+      switch (op) {
+        case 'MetaobjectByHandle':
+          return { data: { metaobjectByHandle: { id: 'gid://mo/theme1' } } };
+        case 'ShopModuleRefs':
+          return { data: { shop: { metafield: { value: JSON.stringify(['gid://mo/theme1']) } } } };
+        case 'ShopId':
+          return { data: { shop: { id: 'gid://shopify/Shop/1' } } };
+        case 'MetafieldsSet':
+          return { data: { metafieldsSet: { metafields: [{ id: 'mf1' }], userErrors: [] } } };
+        case 'MetaobjectDelete':
+          return { data: { metaobjectDelete: { deletedId: vars?.id, userErrors: [] } } };
+        default:
+          throw new Error(`unexpected ${op}`);
+      }
+    });
+
+    const { ModuleService } = await import('~/services/modules/module.service');
+    await new ModuleService().unpublishThenDelete(admin, 'shop.example.com', 'm1');
+
+    expect(order.length).toBeGreaterThan(0);
+    expect(order.indexOf('shopify')).toBeLessThan(order.indexOf('db'));
+    expect(capturedCalls.moduleDelete[0]).toMatchObject({ where: { id: 'm1' } });
+  });
+
+  it('draft module: no Shopify calls, straight delete', async () => {
+    moduleFixture.row = {
+      id: 'm-draft',
+      status: 'DRAFT',
+      shop: { id: 'shop_1' },
+      versions: [],
+      activeVersion: null,
+    };
+    const { admin, calls } = mockAdmin(() => { throw new Error('no Shopify call expected for a draft module'); });
+    const { ModuleService } = await import('~/services/modules/module.service');
+    await new ModuleService().unpublishThenDelete(admin, 'shop.example.com', 'm-draft');
+    expect(calls).toHaveLength(0);
+    expect(capturedCalls.moduleDelete[0]).toMatchObject({ where: { id: 'm-draft' } });
+  });
+
+  it('throws when the module is not found for this shop — no delete', async () => {
+    moduleFixture.row = null;
+    const { admin, calls } = mockAdmin(() => { throw new Error('no Shopify call expected'); });
+    const { ModuleService } = await import('~/services/modules/module.service');
+    await expect(new ModuleService().unpublishThenDelete(admin, 'shop.example.com', 'missing')).rejects.toThrow('Module not found');
+    expect(calls).toHaveLength(0);
+    expect(capturedCalls.moduleDelete).toHaveLength(0);
   });
 });
