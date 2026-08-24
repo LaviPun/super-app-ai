@@ -1740,6 +1740,8 @@ function GenValidation({ loading, data, hasRecipe }: any) {
   );
 }
 
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';
+
 function gmd(str: string) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
 }
