@@ -12,7 +12,14 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['app/**/*.test.ts', 'app/**/__tests__/**/*.ts'],
+    // NOTE: only app/__tests__/**/*.tsx is included (not app/**/*.test.tsx) —
+    // there are pre-existing, currently-broken *.test.tsx files under
+    // app/routes/ that this scope deliberately leaves untouched.
+    include: [
+      'app/**/*.test.ts',
+      'app/**/__tests__/**/*.ts',
+      'app/**/__tests__/**/*.tsx',
+    ],
     env: {
       INTERNAL_ADMIN_SESSION_SECRET: 'vitest-internal-admin-session-secret-32',
     },

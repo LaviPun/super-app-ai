@@ -55,7 +55,7 @@ function config(quotas: Partial<PlanConfig['quotas']>): PlanConfig {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  hoisted.subFindUnique.mockResolvedValue({ planName: 'STARTER' });
+  hoisted.subFindUnique.mockResolvedValue({ planName: 'STARTER', status: 'ACTIVE' });
   hoisted.aiAggregate.mockResolvedValue({ _sum: { requestCount: 0 } });
   hoisted.jobCount.mockResolvedValue(0);
   hoisted.apiLogCount.mockResolvedValue(0);
@@ -189,5 +189,38 @@ describe('QuotaService.enforcePublishCap — publish-time published-module cap',
     hoisted.getPlanConfig.mockResolvedValue(config({ modulesTotal: -1 }));
     await expect(new QuotaService().enforcePublishCap('shop_1', 'mod_x')).resolves.toBeUndefined();
     expect(hoisted.moduleCount).not.toHaveBeenCalled();
+  });
+});
+
+describe('QuotaService — subscription status', () => {
+  it('treats a CANCELLED subscription as FREE', async () => {
+    hoisted.subFindUnique.mockResolvedValue({ planName: 'GROWTH', status: 'CANCELLED' });
+    hoisted.getPlanConfig.mockResolvedValue(config({ aiRequestsPerMonth: 10 }));
+    hoisted.aiAggregate.mockResolvedValue({ _sum: { requestCount: 5 } });
+    await new QuotaService().enforce('shop_1', 'aiRequest');
+    expect(hoisted.getPlanConfig).toHaveBeenCalledWith('FREE');
+  });
+
+  it('treats an EXPIRED subscription as FREE in getUsageSummary', async () => {
+    hoisted.subFindUnique.mockResolvedValue({ planName: 'PRO', status: 'EXPIRED' });
+    hoisted.getPlanConfig.mockResolvedValue(config({}));
+    const summary = await new QuotaService().getUsageSummary('shop_1');
+    expect(hoisted.getPlanConfig).toHaveBeenCalledWith('FREE');
+    expect(summary.plan).toBe('FREE');
+  });
+
+  it('uses the plan when status is ACTIVE', async () => {
+    hoisted.subFindUnique.mockResolvedValue({ planName: 'GROWTH', status: 'ACTIVE' });
+    hoisted.getPlanConfig.mockResolvedValue(config({ aiRequestsPerMonth: 1000 }));
+    await new QuotaService().enforce('shop_1', 'aiRequest');
+    expect(hoisted.getPlanConfig).toHaveBeenCalledWith('GROWTH');
+  });
+
+  it('enforcePublishCap resolves limits as FREE for a CANCELLED subscription', async () => {
+    hoisted.subFindUnique.mockResolvedValue({ planName: 'GROWTH', status: 'CANCELLED' });
+    hoisted.getPlanConfig.mockResolvedValue(config({ modulesTotal: 3 }));
+    hoisted.moduleCount.mockResolvedValue(0);
+    await new QuotaService().enforcePublishCap('shop_1', 'mod_x');
+    expect(hoisted.getPlanConfig).toHaveBeenCalledWith('FREE');
   });
 });

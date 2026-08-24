@@ -57,7 +57,7 @@ automatically_update_urls_on_dev = false
 include_config_on_deploy = true
 
 [webhooks]
-api_version = "2026-04"
+api_version = "2026-07"
 
 [[webhooks.subscriptions]]
 uri = "/webhooks/customers/data_request"
@@ -120,6 +120,9 @@ uri = "/webhooks"
 # WS-E: write_validations (validationCreate/Update/Delete — checkout-validation
 # activation objects) + write_fulfillment_constraint_rules (Task 7) added. Scope
 # changes need `shopify app deploy` + merchant re-consent before live effect.
+# 2026-08-24: re-consent rollout runbook at docs/runbooks/scope-reconsent.md —
+# deploy + dev-store verification still owner-run. WS-E merged: this IS the final
+# 21-scope list the re-consent must target.
 scopes = "read_checkouts,read_customer_events,read_customers,read_inventory,read_metaobjects,read_orders,read_products,read_themes,write_app_proxy,write_cart_transforms,write_checkouts,write_customers,write_delivery_customizations,write_discounts,write_fulfillment_constraint_rules,write_metaobjects,write_orders,write_payment_customizations,write_pixels,write_products,write_validations"
 # write_themes (033) — required to write native sections/superapp-*.liquid files via the
 # Theme Files API (themeFilesUpsert). It is OPTIONAL here (not in `scopes`) so installs do
@@ -145,7 +148,8 @@ extensions_summary = "Search and report on Super App AI generated modules (store
 redirect_urls = [
   "https://web-production-3fe27.up.railway.app/auth/callback",
   "https://web-production-3fe27.up.railway.app/auth/shopify/callback",
-  "https://web-production-3fe27.up.railway.app/api/auth/callback"
+  "https://web-production-3fe27.up.railway.app/api/auth/callback",
+  "https://web-production-3fe27.up.railway.app/auth/login"
 ]
 
 [metaobjects.app.superapp_module]

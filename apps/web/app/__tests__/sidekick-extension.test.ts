@@ -164,7 +164,7 @@ describe('Sidekick extension declarations', () => {
     expect(toml).toMatch(/target\s*=\s*"admin\.app\.tools\.data"/);
     expect(toml).toMatch(/tools\s*=\s*"\.\/tools\.json"/);
     expect(toml).toMatch(/module\s*=\s*"\.\/src\/index\.js"/);
-    expect(toml).toMatch(/api_version\s*=\s*"2026-04"/);
+    expect(toml).toMatch(/api_version\s*=\s*"2026-07"/);
   });
 
   // The action-link extensions (create/configure/publish) were removed: they declared

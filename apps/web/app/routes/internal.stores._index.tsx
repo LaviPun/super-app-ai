@@ -6,7 +6,8 @@ import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagination.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
-import { BillingService, type BillingPlan } from '~/services/billing/billing.service';
+import { BillingService } from '~/services/billing/billing.service';
+import { deriveEffectivePlan, type BillingPlan } from '~/services/billing/plan-status';
 import { getAllPlanConfigs } from '~/services/billing/plan-config.service';
 import {
   useAdminCtx,
@@ -42,7 +43,22 @@ export async function loader({ request }: { request: Request }) {
 
   const prisma = getPrisma();
   const where: Prisma.ShopWhereInput = {};
-  if (planFilter) where.planTier = planFilter;
+  if (planFilter) {
+    // Billing plan lives on the AppSubscription relation, not Shop.planTier
+    // (the Shopify SHOP plan, unrelated post-App-Pricing-migration). Mirror
+    // deriveEffectivePlan's rule at the query level so pagination stays
+    // correct: FREE means "no row, or a non-ACTIVE row, or an ACTIVE row
+    // whose planName is FREE"; any other tier means an ACTIVE row with that
+    // exact planName.
+    where.OR =
+      planFilter === 'FREE'
+        ? [
+            { subscription: null },
+            { subscription: { NOT: { status: 'ACTIVE' } } },
+            { subscription: { status: 'ACTIVE', planName: 'FREE' } },
+          ]
+        : [{ subscription: { status: 'ACTIVE', planName: planFilter } }];
+  }
   if (search) where.shopDomain = { contains: search };
 
   const [shops, filteredCount, totalCount, activeCount, trialCount, activeProvider, planConfigs] = await Promise.all([
@@ -94,7 +110,7 @@ export async function loader({ request }: { request: Request }) {
       id: s.id,
       domain: s.shopDomain,
       name: s.shopDomain.split('.')[0],
-      plan: s.planTier,
+      plan: deriveEffectivePlan(s.subscription),
       status: s.subscription?.status ?? 'ACTIVE',
       modules: s.modules.length,
       published: s.modules.filter((m: { status: string }) => m.status === 'PUBLISHED').length,
@@ -438,7 +454,7 @@ export default function AdminStores() {
       {bulkPlan && (
         <Modal
           title={'Change plan for ' + sel.size + ' stores'}
-          sub="Internal override — no Shopify billing."
+          sub="Internal override — no Shopify billing. Non-Enterprise overrides are temporary: the next billing sync from Shopify replaces them."
           onClose={() => setBulkPlan(null)}
           footer={
             <>

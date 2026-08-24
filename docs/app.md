@@ -145,7 +145,7 @@ SuperApp offers tiered plans with monthly usage limits:
 | Pro ($299/mo) | 10,000/mo | 5,000/mo | 100,000/mo | 500,000/mo | 1,000 |
 | Enterprise (contact us) | Unlimited | Unlimited | Unlimited | Unlimited | Unlimited |
 
-These are the seeded defaults (`billing.service.ts` → `PLAN_CONFIGS`); the app owner can edit any tier's quotas from the internal **Plan tiers** admin page (a quota of `-1` means unlimited). Starter and Growth include a 14-day free trial, Pro a 7-day trial. You can view your current usage and switch plans from the **Billing** page inside the app.
+These are the seeded defaults (`billing.service.ts` → `PLAN_CONFIGS`); the app owner can edit any tier's quotas from the internal **Plan tiers** admin page (a quota of `-1` means unlimited). Plans are defined and billed via **Shopify App Pricing** — the app no longer creates charges itself. Merchants view their current plan and usage on the app's **Billing** page and select or change plans on the Shopify-hosted pricing page, reached via the "Manage plan" link. Trial days (14 for Starter and Growth, 7 for Pro) are configured on the App Pricing plans in the Partner Dashboard, not in-app.
 
 When you reach a limit, SuperApp shows a clear message explaining which quota was hit and which plan to upgrade to. Limits are enforced server-side.
 
