@@ -25,4 +25,16 @@ describe('template library integrity (WS-H)', () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  it("every *ImageUrl/*VideoUrl demo field uses a recognizably-placeholder domain (Tmpl-3 — so the Liquid partial's detection always fires)", () => {
+    const offenders: string[] = [];
+    for (const file of allTemplateFiles()) {
+      const src = readFileSync(file, 'utf8');
+      const urlFields = src.match(/(?:Image|Video|Poster)Url:\s*'https?:\/\/[^']*'/g) ?? [];
+      for (const f of urlFields) {
+        if (!/example\.com|cdn\.shopify\.com\/s\/files\//.test(f)) offenders.push(`${file}: ${f}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });

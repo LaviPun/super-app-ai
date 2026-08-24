@@ -419,7 +419,7 @@ Task 4 fixed the Liquid renderer's handling of placeholder URLs. This task verif
 **Files:**
 - Modify: `packages/core/src/__tests__/template-library-integrity.test.ts` (append)
 
-- [ ] **Step 1: Write the test** (append to the file from Task 6):
+- [x] **Step 1: Write the test** (append to the file from Task 6):
   ```ts
   it('every *ImageUrl/*VideoUrl demo field uses a recognizably-placeholder domain (Tmpl-3 — so the Liquid partial\'s detection always fires)', () => {
     const offenders: string[] = [];
@@ -433,8 +433,8 @@ Task 4 fixed the Liquid renderer's handling of placeholder URLs. This task verif
     expect(offenders).toEqual([]);
   });
   ```
-- [ ] **Step 2: Run.** `cd packages/core && npx vitest run src/__tests__/template-library-integrity.test.ts`. Expected: PASS immediately (the existing 168 `cdn.example.com` occurrences already match the pattern — this test's job is to catch *future* regressions, not fix anything today). If it fails, that means a demo URL exists on a real-looking domain (a genuine bug worth its own investigation, not a batch fix) — stop and investigate rather than force-passing.
-- [ ] **Step 3: Commit** — `git commit -m "test(ws-h): pin placeholder-domain convention for template demo media fields (Tmpl-3 regression guard)"`.
+- [x] **Step 2: Run.** `cd packages/core && npx vitest run src/__tests__/template-library-integrity.test.ts`. Expected: PASS immediately (the existing 168 `cdn.example.com` occurrences already match the pattern — this test's job is to catch *future* regressions, not fix anything today). If it fails, that means a demo URL exists on a real-looking domain (a genuine bug worth its own investigation, not a batch fix) — stop and investigate rather than force-passing.
+- [x] **Step 3: Commit** — `git commit -m "test(ws-h): pin placeholder-domain convention for template demo media fields (Tmpl-3 regression guard)"`.
 
 ---
 
