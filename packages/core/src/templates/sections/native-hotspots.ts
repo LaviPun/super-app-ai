@@ -89,7 +89,7 @@ export const NATIVE_HOTSPOTS_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'tight', density: 'comfortable' },
         typography: { size: '2XL', weight: 'bold', lineHeight: 'tight', align: 'left' },
-        colors: { text: '#111827', background: '#f8fafc', overlayBackdropOpacity: 0.4, seed: '#e11d48' },
+        colors: { overlayBackdropOpacity: 0.4, seed: '#e11d48' },
         shape: { radius: 'lg', borderWidth: 'none', shadow: 'md', elevation: 'glow' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

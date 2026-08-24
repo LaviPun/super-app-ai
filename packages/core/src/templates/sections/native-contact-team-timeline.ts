@@ -392,7 +392,7 @@ export const NATIVE_CONTACT_TEAM_TIMELINE_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'tight', density: 'compact' },
         typography: { size: 'SM', weight: 'medium', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#e2e8f0', background: '#0f172a', overlayBackdropOpacity: 0.45, seed: '#38bdf8' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#38bdf8' },
         shape: { radius: 'sm', borderWidth: 'thin', shadow: 'none', elevation: 'border' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

@@ -107,7 +107,7 @@ export const NATIVE_MEGA_FAQ_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'medium', density: 'comfortable' },
         typography: { size: 'LG', weight: 'bold', lineHeight: 'normal', align: 'left' },
-        colors: { text: '#f8fafc', background: '#111827', overlayBackdropOpacity: 0.4, seed: '#e11d48' },
+        colors: { overlayBackdropOpacity: 0.4, seed: '#e11d48' },
         shape: { radius: 'lg', borderWidth: 'none', shadow: 'sm', elevation: 'soft' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

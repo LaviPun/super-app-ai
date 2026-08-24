@@ -78,7 +78,7 @@ export const NATIVE_LAUNCH_404_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'center', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
         typography: { size: '2XL', weight: 'bold', lineHeight: 'tight', align: 'center' },
-        colors: { text: '#f8fafc', background: '#0b0b0f', overlayBackdropOpacity: 0.5, seed: '#e11d48' },
+        colors: { overlayBackdropOpacity: 0.5, seed: '#e11d48' },
         shape: { radius: 'lg', borderWidth: 'none', shadow: 'lg', elevation: 'glow' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

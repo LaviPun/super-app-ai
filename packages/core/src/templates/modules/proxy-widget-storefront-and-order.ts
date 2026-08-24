@@ -475,7 +475,7 @@ export const PROXY_WIDGET_STOREFRONT_AND_ORDER_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'floating', anchor: 'bottom', offsetX: 24, offsetY: 24, width: 'auto', zIndex: 'sticky' },
         spacing: { padding: 'medium', margin: 'none', gap: 'tight', density: 'comfortable' },
         typography: { size: 'SM', weight: 'bold', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#ffffff', background: '#7c3aed', overlayBackdropOpacity: 0.45, seed: '#7c3aed' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#7c3aed' },
         shape: { radius: 'full', borderWidth: 'none', shadow: 'lg', elevation: 'glow' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

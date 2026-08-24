@@ -490,7 +490,7 @@ export const templates: TemplateEntry[] = [
         layout: { mode: 'sticky', anchor: 'bottom', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'sticky' },
         spacing: { padding: 'tight', margin: 'none', gap: 'tight', density: 'compact' },
         typography: { size: 'MD', weight: 'bold', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#ffffff', background: '#111827', overlayBackdropOpacity: 0.45, seed: '#8a7f6d' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#8a7f6d' },
         shape: { radius: 'none', borderWidth: 'none', shadow: 'lg' },
         responsive: { hideOnMobile: false, hideOnDesktop: true },
         accessibility: { focusVisible: true, reducedMotion: true },

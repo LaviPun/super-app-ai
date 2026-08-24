@@ -319,7 +319,7 @@ export const NSEC_PDP_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
         typography: { size: 'MD', weight: 'medium', lineHeight: 'normal', align: 'left' },
-        colors: { text: '#0f172a', background: '#0b1220', seed: '#22d3ee', overlayBackdropOpacity: 0.5 },
+        colors: { seed: '#22d3ee', overlayBackdropOpacity: 0.5 },
         shape: { radius: 'xl', borderWidth: 'none', shadow: 'lg', elevation: 'glow' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

@@ -307,7 +307,7 @@ export const templates: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'tight', margin: 'none', gap: 'none', density: 'compact' },
         typography: { size: 'XS', weight: 'medium', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#ffffff', background: '#111827', overlayBackdropOpacity: 0.45, seed: '#0f172a' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#0f172a' },
         shape: { radius: 'none', borderWidth: 'none', shadow: 'none' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         motion: { duration: 'slow', easing: 'standard' },

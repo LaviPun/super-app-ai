@@ -156,7 +156,7 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
         typography: { size: '2XL', weight: 'bold', lineHeight: 'tight', align: 'left' },
-        colors: { text: '#ffffff', background: '#0a0a0a', overlayBackdrop: '#000000', overlayBackdropOpacity: 0.4, seed: '#f43f5e' },
+        colors: { overlayBackdrop: '#000000', overlayBackdropOpacity: 0.4, seed: '#f43f5e' },
         shape: { radius: 'md', borderWidth: 'none', shadow: 'lg', elevation: 'glow' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

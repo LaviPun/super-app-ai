@@ -257,7 +257,7 @@ export const VB_FINAL_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
         typography: { size: 'XL', weight: 'bold', lineHeight: 'tight', align: 'center' },
-        colors: { text: '#111827', background: '#f9fafb', overlayBackdropOpacity: 0.45, seed: '#111827' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#111827' },
         shape: { radius: 'md', borderWidth: 'none', shadow: 'none' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

@@ -599,7 +599,7 @@ export const NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'loose', density: 'comfortable' },
         typography: { size: 'SM', weight: 'medium', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#f5f5f5', background: '#111111', overlayBackdropOpacity: 0.45, seed: '#f5a623' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#f5a623' },
         shape: { radius: 'none', borderWidth: 'none', shadow: 'none', elevation: 'soft' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

@@ -83,7 +83,7 @@ export const NATIVE_TABS_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
         typography: { size: 'XL', weight: 'bold', lineHeight: 'normal', align: 'left' },
-        colors: { text: '#f8fafc', background: '#111827', overlayBackdropOpacity: 0.4, seed: '#22d3ee' },
+        colors: { overlayBackdropOpacity: 0.4, seed: '#22d3ee' },
         shape: { radius: 'lg', borderWidth: 'thin', shadow: 'md', elevation: 'glow' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

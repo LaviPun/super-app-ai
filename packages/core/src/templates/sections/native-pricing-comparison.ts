@@ -193,7 +193,7 @@ export const NATIVE_PRICING_COMPARISON_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'wide', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'tight', density: 'compact' },
         typography: { size: 'SM', weight: 'normal', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#0b1120', background: '#0f172a', overlayBackdropOpacity: 0.45, seed: '#38bdf8' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#38bdf8' },
         shape: { radius: 'md', borderWidth: 'thin', shadow: 'md', elevation: 'border' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

@@ -167,7 +167,7 @@ export const NEWSLETTER_CAPTURE_SECTION_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'bottom', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'tight', density: 'compact' },
         typography: { size: 'SM', weight: 'medium', lineHeight: 'normal', align: 'left' },
-        colors: { text: '#e5e7eb', background: '#0b0f19', seed: '#3b82f6', overlayBackdropOpacity: 0.45 },
+        colors: { seed: '#3b82f6', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'sm', borderWidth: 'thin', shadow: 'none', elevation: 'border' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

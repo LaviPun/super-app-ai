@@ -85,7 +85,7 @@ export const NATIVE_BEFORE_AFTER_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'medium', density: 'compact' },
         typography: { size: '2XL', weight: 'bold', lineHeight: 'tight', align: 'left' },
-        colors: { text: '#f8fafc', background: '#0b0b0f', overlayBackdropOpacity: 0.5, seed: '#e11d48' },
+        colors: { overlayBackdropOpacity: 0.5, seed: '#e11d48' },
         shape: { radius: 'md', borderWidth: 'none', shadow: 'lg', elevation: 'glow' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

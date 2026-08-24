@@ -329,7 +329,7 @@ Task 4 already shaved some bytes; this task finishes the reclaim using the lever
 **Interfaces:**
 - Script contract: `node packages/core/scripts/strip-demo-palettes.mjs [--check]` — without `--check`, rewrites every `colors: { text: '#...', background: '#...', ...rest }` block to `colors: { ...rest }` (drop `text`/`background` only, keep `seed`/`overlayBackdrop`/`overlayBackdropOpacity` — those are legitimate accent/scrim tuning, not full-palette override). With `--check`, exits 1 if any `colors:` block still hardcodes both `text` and `background` (the CI-friendly form, mirroring `build-theme-liquid.mjs --check`'s pattern).
 
-- [ ] **Step 1: Write the failing test** — `packages/core/src/__tests__/template-library-integrity.test.ts`:
+- [x] **Step 1: Write the failing test** — `packages/core/src/__tests__/template-library-integrity.test.ts`:
   ```ts
   import { readFileSync, readdirSync } from 'node:fs';
   import { join } from 'node:path';
@@ -361,7 +361,7 @@ Task 4 already shaved some bytes; this task finishes the reclaim using the lever
   });
   ```
   Run: `cd packages/core && npx vitest run src/__tests__/template-library-integrity.test.ts`. Expected: FAIL, 48 offenders listed.
-- [ ] **Step 2: Write the codemod** (`packages/core/scripts/strip-demo-palettes.mjs`):
+- [x] **Step 2: Write the codemod** (`packages/core/scripts/strip-demo-palettes.mjs`):
   ```js
   #!/usr/bin/env node
   import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
@@ -400,15 +400,15 @@ Task 4 already shaved some bytes; this task finishes the reclaim using the lever
   console.log(`${CHECK ? 'Found' : 'Stripped'} ${offenders} file(s) with hardcoded text+background overrides.`);
   if (CHECK && offenders > 0) process.exit(1);
   ```
-- [ ] **Step 3: Run it for real** — `node packages/core/scripts/strip-demo-palettes.mjs` (no `--check`). Expected console: `Stripped 25 file(s)...`. Spot-check 2-3 diffs by hand (`git diff packages/core/src/templates/sections/native-hero.ts`) to confirm `seed`/`overlayBackdrop*` survived and only `text`/`background` were removed.
-- [ ] **Step 4: Rebuild core and run the integrity test + affected downstream suites** (removing hardcoded colors changes what preview/richness-QA render, so these must be re-checked, not assumed green):
+- [x] **Step 3: Run it for real** — `node packages/core/scripts/strip-demo-palettes.mjs` (no `--check`). Expected console: `Stripped 25 file(s)...`. Spot-check 2-3 diffs by hand (`git diff packages/core/src/templates/sections/native-hero.ts`) to confirm `seed`/`overlayBackdrop*` survived and only `text`/`background` were removed.
+- [x] **Step 4: Rebuild core and run the integrity test + affected downstream suites** (removing hardcoded colors changes what preview/richness-QA render, so these must be re-checked, not assumed green):
   ```bash
   cd packages/core && pnpm build && npx vitest run src/__tests__/template-library-integrity.test.ts && cd ../.. && \
   cd apps/web && npx vitest run app/__tests__/richness-qa-templates.test.ts app/__tests__/design-qa-render.test.ts app/__tests__/preview-service.test.ts
   ```
   Expected: PASS. If richness-QA or design-QA assertions were pinned to the now-removed hardcoded hex values, update those specific assertions to check for the token-driven fallback instead (e.g. absence of the specific literal hex, presence of a CSS custom property reference) — do not weaken the test to "don't check colors at all."
-- [ ] **Step 5: Add the `--check` form to the package script list** for future CI wiring (out of scope to add to `.github/workflows/ci.yml` in this task — that's a one-line follow-up WS-B/WS-J can pick up; note it in the commit body): `packages/core/package.json` scripts gains `"check:demo-palettes": "node scripts/strip-demo-palettes.mjs --check"`.
-- [ ] **Step 6: Commit** — `git commit -m "fix(ws-h): strip 48 hardcoded text+background palette overrides across 25 templates (Tmpl-2)"`.
+- [x] **Step 5: Add the `--check` form to the package script list** for future CI wiring (out of scope to add to `.github/workflows/ci.yml` in this task — that's a one-line follow-up WS-B/WS-J can pick up; note it in the commit body): `packages/core/package.json` scripts gains `"check:demo-palettes": "node scripts/strip-demo-palettes.mjs --check"`.
+- [x] **Step 6: Commit** — `git commit -m "fix(ws-h): strip 48 hardcoded text+background palette overrides across 25 templates (Tmpl-2)"`.
 
 ---
 
