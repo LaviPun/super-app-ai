@@ -94,7 +94,9 @@ export type ActivityAction =
   | 'SUPPORT_TRIAGE_SETTINGS_UPDATED'
   // Ops alerting (WS-G) — OpsAlertService bookkeeping
   | 'OPS_ALERT_OCCURRED'
-  | 'OPS_ALERT_FIRED';
+  | 'OPS_ALERT_FIRED'
+  // Integrations Hub (WS-INT) — every save/test action, one member per tile as it lands
+  | 'OPS_INTEGRATION_TESTED';
 
 export type ActivityActor = 'SYSTEM' | 'MERCHANT' | 'INTERNAL_ADMIN' | 'WEBHOOK' | 'CRON';
 

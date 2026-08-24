@@ -23,4 +23,13 @@ export interface IntegrationTileDef {
   description: string;
 }
 
-export const INTEGRATION_TILES: readonly IntegrationTileDef[] = [];
+export const INTEGRATION_TILES: readonly IntegrationTileDef[] = [
+  {
+    id: 'sentry',
+    category: 'OPS_SERVICE',
+    label: 'Sentry',
+    simpleIconSlug: 'siSentry',
+    configKind: 'ENV_REFLECT',
+    description: 'Error tracking — DSN is set via Railway env var; this sends a test event.',
+  },
+];

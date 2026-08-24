@@ -2,6 +2,7 @@ import { getPrisma } from '~/db.server';
 import { getRequestId, runWithRequestContext, getCorrelationId } from '~/services/observability/correlation.server';
 import { ErrorLogService } from '~/services/observability/error-log.service';
 import { isSensitiveHeader, redact, redactString, safeErrorMeta, safeMeta } from '~/services/observability/redact.server';
+import { OpsAlertService } from '~/services/observability/ops-alert.server';
 
 export class ApiLogService {
   /** Create an in-progress API log entry (status 0, finishedAt null). Returns id for later complete(). */
@@ -242,6 +243,12 @@ export async function withApiLogging(
       const message = err instanceof Error ? err.message : String(err);
       const stack = err instanceof Error ? err.stack : undefined;
       await errLog.write('ERROR', message, stack, errorMeta, route, input.shopId, 'API');
+      // WS-G: the withApiLogging catch is the single re-throw point for every
+      // route wrapped in this helper — fire the ops alert here so no route
+      // needs its own Sentry call (Decision G1).
+      await new OpsAlertService()
+        .fire({ kind: 'API_REQUEST_FAILED', message: `${route} failed: ${message}`, error: err, context: { path: route, requestId, correlationId } })
+        .catch(() => {});
       throw err;
     }
   };
