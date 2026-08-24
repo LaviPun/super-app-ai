@@ -174,8 +174,13 @@ body {
 /* segmented control */
 .seg { display: inline-flex; background: var(--p-surface-secondary); border-radius: var(--p-r-md); padding: 3px; gap: 2px; }
 .seg button { border: 0; background: transparent; height: 28px; padding: 0 12px; border-radius: 6px; font: inherit; font-size: 13px; font-weight: 550; color: var(--p-text-secondary); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
-.seg button[aria-selected="true"] { background: var(--p-surface); color: var(--p-text); box-shadow: var(--p-shadow-100); }
-.seg button:hover:not([aria-selected="true"]) { color: var(--p-text); }
+/* aria-selected: merchant-facing .seg usages (generate._index.tsx) still use it, since
+   those buttons aren't ARIA tabs either but weren't in scope for the internal-admin
+   aria-pressed migration. aria-pressed: internal-admin .seg usages (dashboard/
+   ai-assistant/usage) after that migration — see docs/.../task-8b-report.md. Both
+   selectors must stay so neither family of "seg" buttons loses its active-state style. */
+.seg button[aria-selected="true"], .seg button[aria-pressed="true"] { background: var(--p-surface); color: var(--p-text); box-shadow: var(--p-shadow-100); }
+.seg button:hover:not([aria-selected="true"]):not([aria-pressed="true"]) { color: var(--p-text); }
 
 /* ---------- Badge / status ---------- */
 .badge {
