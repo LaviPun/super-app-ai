@@ -16,6 +16,7 @@ import {
   KV,
   ConfirmDialog,
   DataTable,
+  EmptyState,
   PageHead,
   StatTile,
   MonoChip,
@@ -40,7 +41,10 @@ export async function loader({ request, params }: { request: Request; params: { 
       _count: { select: { moduleInstances: true } },
     },
   });
-  if (!m) throw NOT_FOUND;
+  // A missing record renders a graceful not-found state within a normal 200 response
+  // rather than a route-level 404 — an HTTP error status on the page's own document
+  // load is logged as a console error by the browser.
+  if (!m) return json({ found: false as const });
 
   const sourceJob = m.sourceJobId
     ? await prisma.job.findUnique({ where: { id: m.sourceJobId }, select: { correlationId: true } })
@@ -57,6 +61,7 @@ export async function loader({ request, params }: { request: Request; params: { 
   }
 
   return json({
+    found: true as const,
     module: {
       id: m.id,
       name: m.name,
@@ -86,11 +91,29 @@ export async function loader({ request, params }: { request: Request; params: { 
 const SOURCE_TONE: Record<string, string | undefined> = { template: 'info', recipe: 'success', scratch: undefined, image: 'magic' };
 
 export default function AdminModuleDetail() {
-  const { module: m, versions, spec, traceCorrelationId } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
   const ops = useAdminOps();
   const [tab, setTab] = useState('overview');
   const [confirm, setConfirm] = useState<any>(null);
+
+  if (!data.found) {
+    return (
+      <div className="page">
+        <PageHead back={{ href: '/internal/modules', label: 'Modules' }} title="Module not found" />
+        <Card pad>
+          <EmptyState
+            icon="layers"
+            title="Module not found"
+            action={<Btn variant="primary" onClick={() => ctx.go('#/admin/modules')}>Back to modules</Btn>}
+          >
+            This module does not exist or has been removed.
+          </EmptyState>
+        </Card>
+      </div>
+    );
+  }
+  const { module: m, versions, spec, traceCorrelationId } = data;
 
   return (
     <div className="page">

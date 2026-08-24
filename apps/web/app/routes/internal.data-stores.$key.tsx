@@ -39,7 +39,10 @@ export async function loader({ request, params }: { request: Request; params: { 
       records: { orderBy: { createdAt: 'desc' }, take: 100 },
     },
   });
-  if (!d) throw NOT_FOUND;
+  // A missing record renders a graceful not-found state within a normal 200 response
+  // rather than a route-level 404 — an HTTP error status on the page's own document
+  // load is logged as a console error by the browser.
+  if (!d) return json({ found: false as const });
 
   let schema: string | null = null;
   if (d.schemaJson) {
@@ -51,6 +54,7 @@ export async function loader({ request, params }: { request: Request; params: { 
   }
 
   return json({
+    found: true as const,
     store: {
       id: d.id,
       key: d.key,
@@ -74,9 +78,27 @@ export async function loader({ request, params }: { request: Request; params: { 
 }
 
 export default function AdminDataStoreDetail() {
-  const { store: d, records, schema } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
   const [tab, setTab] = useState('records');
+
+  if (!data.found) {
+    return (
+      <div className="page">
+        <PageHead back={{ href: '/internal/data-stores', label: 'Data Stores' }} title="Data store not found" />
+        <Card pad>
+          <EmptyState
+            icon="database"
+            title="Data store not found"
+            action={<Btn variant="primary" onClick={() => ctx.go('#/admin/data-stores')}>Back to data stores</Btn>}
+          >
+            This data store does not exist or has been removed.
+          </EmptyState>
+        </Card>
+      </div>
+    );
+  }
+  const { store: d, records, schema } = data;
 
   return (
     <div className="page">

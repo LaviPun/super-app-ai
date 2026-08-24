@@ -11,6 +11,7 @@ import {
   Badge,
   StatusBadge,
   Card,
+  EmptyState,
   KV,
   PageHead,
   StatTile,
@@ -38,7 +39,10 @@ export async function loader({ request, params }: { request: Request; params: { 
     where: { id },
     include: { subscription: true, modules: { select: { status: true } } },
   });
-  if (!shop) throw NOT_FOUND;
+  // A missing record renders a graceful not-found state within a normal 200 response
+  // rather than a route-level 404 — an HTTP error status on the page's own document
+  // load is logged as a console error by the browser.
+  if (!shop) return json({ found: false as const });
 
   const since30d = new Date(Date.now() - 30 * 86400000);
   const [aiUsage, errCount, lastApi, planConfig] = await Promise.all([
@@ -55,6 +59,7 @@ export async function loader({ request, params }: { request: Request; params: { 
   const published = shop.modules.filter((m) => m.status === 'PUBLISHED').length;
 
   return json({
+    found: true as const,
     customer: {
       id: shop.id,
       storeId: shop.id,
@@ -86,8 +91,26 @@ const PLAN_TONE: Record<string, string | undefined> = { FREE: undefined, STARTER
 const LIFECYCLE_TONE: Record<string, string | undefined> = { Customer: 'success', Trialing: 'warning', Churned: 'critical' };
 
 export default function AdminCustomerDetail() {
-  const { customer: c, store: s } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
+
+  if (!data.found) {
+    return (
+      <div className="page">
+        <PageHead back={{ href: '/internal/customers', label: 'Customers' }} title="Customer not found" />
+        <Card pad>
+          <EmptyState
+            icon="users"
+            title="Customer not found"
+            action={<Btn variant="primary" onClick={() => ctx.go('#/admin/customers')}>Back to customers</Btn>}
+          >
+            This customer does not exist or has been removed.
+          </EmptyState>
+        </Card>
+      </div>
+    );
+  }
+  const { customer: c, store: s } = data;
 
   // Health from real fields + the store's real 30d ERROR count.
   const errLogs = Array.from({ length: s.errors30d }, () => ({ level: 'ERROR', shop: s.domain }));

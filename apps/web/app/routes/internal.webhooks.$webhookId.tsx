@@ -3,8 +3,11 @@ import { useLoaderData } from '@remix-run/react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import {
+  useAdminCtx,
   Badge,
+  Btn,
   Card,
+  EmptyState,
   KV,
   PageHead,
   StatTile,
@@ -21,9 +24,13 @@ export async function loader({ request, params }: { request: Request; params: { 
 
   const prisma = getPrisma();
   const w = await prisma.webhookEvent.findUnique({ where: { id } });
-  if (!w) throw NOT_FOUND;
+  // A missing record renders a graceful not-found state within a normal 200 response
+  // rather than a route-level 404 — an HTTP error status on the page's own document
+  // load is logged as a console error by the browser.
+  if (!w) return json({ found: false as const });
 
   return json({
+    found: true as const,
     webhook: {
       id: w.id,
       topic: w.topic,
@@ -38,7 +45,26 @@ export async function loader({ request, params }: { request: Request; params: { 
 }
 
 export default function AdminWebhookDetail() {
-  const { webhook: w } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
+  const ctx = useAdminCtx();
+
+  if (!data.found) {
+    return (
+      <div className="page">
+        <PageHead back={{ href: '/internal/webhooks', label: 'Webhooks' }} title="Webhook not found" />
+        <Card pad>
+          <EmptyState
+            icon="transfer"
+            title="Webhook not found"
+            action={<Btn variant="primary" onClick={() => ctx.go('#/admin/webhooks')}>Back to webhooks</Btn>}
+          >
+            This webhook delivery does not exist or has been purged.
+          </EmptyState>
+        </Card>
+      </div>
+    );
+  }
+  const { webhook: w } = data;
 
   return (
     <div className="page">
