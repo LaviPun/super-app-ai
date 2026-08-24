@@ -233,7 +233,13 @@ export async function loader({ request, params }: { request: Request; params: { 
   // loader) — cheap, no extra Shopify call, same pattern as embedDeepLink above.
   const previewToken = mintPreviewToken({ shop: session.shop, moduleId }, 5 * 60_000);
 
-  return json({ moduleId, shop: session.shop, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, blueprint, internalNotes, deployment, embedDeepLink, previewToken });
+  // WS-F Task 11 (D7): restores the "view data captures" link dropped in
+  // d182fdc. modules.$moduleId_.captures.tsx (the real, complete captures
+  // view) already exists but is unreachable from module detail — this is
+  // just the count for the sidebar affordance below.
+  const captureCount = await getPrisma().dataCapture.count({ where: { moduleId, shopId: mod.shopId } });
+
+  return json({ moduleId, shop: session.shop, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, blueprint, internalNotes, deployment, embedDeepLink, previewToken, captureCount });
 }
 
 const RUNTIME_LABEL: Record<string, string> = {
@@ -382,7 +388,7 @@ export default function ModuleDetail() {
 
 function ModuleDetailBody() {
   const data = useLoaderData<typeof loader>();
-  const { moduleId, mod, spec, versions, themes, publishedThemeId, hydration, internalNotes, deployment, previewHtml, previewJson } = data;
+  const { moduleId, mod, spec, versions, themes, publishedThemeId, hydration, internalNotes, deployment, previewHtml, previewJson, captureCount } = data;
   const ctx = useMerchantCtx();
   const navigate = useNavigate();
   const revalidator = useRevalidator();
@@ -930,6 +936,16 @@ function ModuleDetailBody() {
             ) : null}
             <s-section heading="Placement">
               <s-text color="subdued">{placementText(spec, category)}</s-text>
+            </s-section>
+            <s-section heading="Data captures">
+              <s-stack gap="small-100">
+                <KV rows={[['Captured entries', String(captureCount)]]} />
+                {captureCount > 0 ? (
+                  <s-button variant="tertiary" href={`/modules/${moduleId}/captures`}>View captures →</s-button>
+                ) : (
+                  <s-text color="subdued">No captures yet.</s-text>
+                )}
+              </s-stack>
             </s-section>
           </s-stack>
         </s-grid>

@@ -40,11 +40,15 @@ const hoisted = vi.hoisted(() => ({
   render: vi.fn(() => ({ kind: 'HTML' as const, html: '<div></div>' })),
   loadStoreAesthetic: vi.fn(async () => null),
   listThemes: vi.fn(async () => []),
+  dataCaptureCount: vi.fn(async () => 0),
 }));
 
 vi.mock('~/shopify.server', () => ({ shopify: { authenticate: { admin: hoisted.authenticateAdmin } } }));
 vi.mock('~/services/modules/module.service', () => ({
   ModuleService: class { getModule = hoisted.getModule; },
+}));
+vi.mock('~/db.server', () => ({
+  getPrisma: () => ({ dataCapture: { count: hoisted.dataCaptureCount } }),
 }));
 vi.mock('~/services/shopify/capability.service', () => ({
   CapabilityService: class {
@@ -75,6 +79,7 @@ beforeEach(() => {
   hoisted.render.mockReturnValue({ kind: 'HTML', html: '<div></div>' });
   hoisted.loadStoreAesthetic.mockResolvedValue(null);
   hoisted.listThemes.mockResolvedValue([]);
+  hoisted.dataCaptureCount.mockResolvedValue(0);
 });
 
 describe('modules.$moduleId loader — WS-F: hydration.adminConfig forwarding', () => {
@@ -110,5 +115,26 @@ describe('modules.$moduleId loader — WS-F: hydration.adminConfig forwarding', 
     const payload = await res.json();
     expect(payload.hydration.status).toBe('done');
     expect(payload.hydration.adminConfig).toEqual({ jsonSchema, uiSchema, defaults });
+  });
+});
+
+describe('modules.$moduleId loader — WS-F Task 11: data-capture count (D7, restores link dropped in d182fdc)', () => {
+  it('computes captureCount via a shop+module-scoped prisma.dataCapture.count and returns it', async () => {
+    hoisted.getModule.mockResolvedValue(baseModule());
+    hoisted.dataCaptureCount.mockResolvedValue(7);
+    const { loader } = await import('~/routes/modules.$moduleId');
+    const res = await loader({ request: req(), params: { moduleId: 'mod_1' } } as never);
+    const payload = await res.json();
+    expect(payload.captureCount).toBe(7);
+    expect(hoisted.dataCaptureCount).toHaveBeenCalledWith({ where: { moduleId: 'mod_1', shopId: 'shop_1' } });
+  });
+
+  it('is 0 when the module has no captures', async () => {
+    hoisted.getModule.mockResolvedValue(baseModule());
+    hoisted.dataCaptureCount.mockResolvedValue(0);
+    const { loader } = await import('~/routes/modules.$moduleId');
+    const res = await loader({ request: req(), params: { moduleId: 'mod_1' } } as never);
+    const payload = await res.json();
+    expect(payload.captureCount).toBe(0);
   });
 });
