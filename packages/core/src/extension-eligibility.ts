@@ -604,12 +604,26 @@ export function isRuntimeShipped(moduleType: ModuleType, ctx: RuntimeShippedChec
  * over the full `validations` connection — no separate function-id lookup
  * needed) via `validationCreate` (`enable: true`, `blockOnFailure: false`),
  * bound by `functionHandle`.
+ *
+ * `functions.fulfillmentConstraints` (Task 7, 2026-08-24): wired to
+ * `ActivationService`'s fulfillmentConstraintRule kind — ensures/adopts the
+ * single FulfillmentConstraintRule owner object bound to
+ * `superapp-fulfillment-constraints` (adoption keys off the node's
+ * `function.handle`; `fulfillmentConstraintRules` is a PLAIN LIST, not a
+ * connection — validated 2026-08-24 via the dev MCP against the 2026-07
+ * schema (`first`/`after` are unknown arguments; no `nodes`/`pageInfo`) — so
+ * the single-call `.find()` lookup is complete and correct, no pagination
+ * needed unlike the other kinds) via `fulfillmentConstraintRuleCreate`
+ * (`deliveryMethodTypes: ['SHIPPING', 'LOCAL', 'PICK_UP']`), bound by
+ * `functionHandle`. Note: this mutation has NO update — idempotency is
+ * stored-GID + recovery-list only.
  */
 export const ACTIVATION_WIRED_FUNCTION_TYPES: Set<string> = new Set<string>([
   'functions.discountRules',
   'functions.deliveryCustomization',
   'functions.paymentCustomization',
   'functions.cartAndCheckoutValidation',
+  'functions.fulfillmentConstraints',
 ]);
 
 /**

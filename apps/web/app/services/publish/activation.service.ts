@@ -20,6 +20,7 @@ export const FUNCTION_KEY_ACTIVATION: Record<string, { kind: ActivationKind; fun
   deliveryCustomization: { kind: 'deliveryCustomization', functionHandle: 'superapp-delivery-customization' },
   paymentCustomization: { kind: 'paymentCustomization', functionHandle: 'superapp-payment-customization' },
   cartAndCheckoutValidation: { kind: 'validation', functionHandle: 'superapp-cart-checkout-validation' },
+  fulfillmentConstraints: { kind: 'fulfillmentConstraintRule', functionHandle: 'superapp-fulfillment-constraints' },
 };
 
 const DISCOUNT_TITLE = 'SuperApp Discounts';
@@ -239,6 +240,41 @@ const VALIDATION_DELETE = `#graphql
   }
 `;
 
+// `fulfillmentConstraintRules` is a PLAIN LIST (validated 2026-08-24 via Shopify
+// Dev MCP against the 2026-07 schema: `first`/`after` are unknown arguments and
+// the return type carries no `nodes`/`pageInfo`) — it returns ALL rules in one
+// call, unlike the connections above. A single unpaginated `.find()` is
+// therefore complete and correct here; there is no page 2 and thus no
+// double-apply risk from an unpaginated lookup (unlike DISCOUNT_NODES_LOOKUP /
+// DELIVERY_LIST / PAYMENT_LIST / VALIDATION_LIST, which all guard against a
+// real page-2 miss).
+const FCR_LIST = `#graphql
+  query SuperAppFulfillmentConstraintRuleList {
+    fulfillmentConstraintRules { id function { id handle } }
+  }
+`;
+// `fulfillmentConstraintRuleCreate` binds by `functionHandle` (2026-07:
+// `functionId` input is deprecated, same discipline as the other kinds).
+// `deliveryMethodTypes` is REQUIRED and IMMUTABLE — there is no update
+// mutation for this resource, so idempotency is stored-GID + recovery-list
+// only (never a retitle/re-bind path like discount's adopt+retitle).
+const FCR_CREATE = `#graphql
+  mutation SuperAppFulfillmentConstraintRuleCreate($functionHandle: String!, $deliveryMethodTypes: [DeliveryMethodType!]!) {
+    fulfillmentConstraintRuleCreate(functionHandle: $functionHandle, deliveryMethodTypes: $deliveryMethodTypes) {
+      fulfillmentConstraintRule { id }
+      userErrors { field message }
+    }
+  }
+`;
+const FCR_DELETE = `#graphql
+  mutation SuperAppFulfillmentConstraintRuleDelete($id: ID!) {
+    fulfillmentConstraintRuleDelete(id: $id) {
+      success
+      userErrors { field message }
+    }
+  }
+`;
+
 type StoredActivation = { functionKey: string; kind: string; activationGid: string };
 
 /** userError messages that mean "already gone" — deletes treat them as success. */
@@ -265,6 +301,8 @@ export class ActivationService {
         return this.ensurePaymentCustomization(functionKey, mapping.functionHandle);
       case 'validation':
         return this.ensureValidation(functionKey, mapping.functionHandle);
+      case 'fulfillmentConstraintRule':
+        return this.ensureFulfillmentConstraintRule(functionKey, mapping.functionHandle);
       default: {
         // A mapping was added without its ensure implementation — plan violation.
         throw new Error(`ActivationService: kind "${mapping.kind}" has no ensure implementation`);
@@ -289,6 +327,9 @@ export class ActivationService {
         break;
       case 'validation':
         await this.deleteWith(VALIDATION_DELETE, stored.activationGid, 'validationDelete');
+        break;
+      case 'fulfillmentConstraintRule':
+        await this.deleteWith(FCR_DELETE, stored.activationGid, 'fulfillmentConstraintRuleDelete');
         break;
       default:
         throw new Error(`ActivationService: kind "${mapping.kind}" has no delete implementation`);
@@ -620,6 +661,43 @@ export class ActivationService {
       duplicateRiskNote:
         "a duplicate validation bound to this function (double-evaluated at checkout). Investigate the shop's validation count.",
     });
+  }
+
+  // ── fulfillmentConstraintRule ────────────────────────────────────────────
+
+  private async ensureFulfillmentConstraintRule(functionKey: string, functionHandle: string): Promise<string> {
+    const stored = await this.getStored(functionKey);
+    if (stored) return stored.activationGid;
+
+    // Recovery/adoption: exactly ONE fulfillment constraint rule bound to this
+    // function. `fulfillmentConstraintRules` is a PLAIN LIST (not a
+    // connection — validated via Shopify Dev MCP), so a single unpaginated
+    // `.find()` over the full result is complete and correct; there is no
+    // page 2 to miss.
+    const list = await this.graphqlJson<{
+      fulfillmentConstraintRules: Array<{ id: string; function?: { handle?: string } | null }>;
+    }>(FCR_LIST);
+    const found = (list.data?.fulfillmentConstraintRules ?? []).find((n) => n.function?.handle === functionHandle);
+    if (found) {
+      await this.store(functionKey, 'fulfillmentConstraintRule', found.id);
+      return found.id;
+    }
+
+    const created = await this.graphqlJson<{
+      fulfillmentConstraintRuleCreate: { fulfillmentConstraintRule?: { id: string }; userErrors: Array<{ message: string }> };
+    }>(FCR_CREATE, {
+      functionHandle,
+      // The wasm decides per-config which constraints to emit; register for all
+      // delivery method types so config changes never require re-activation
+      // (deliveryMethodTypes is required + immutable — no update mutation exists).
+      deliveryMethodTypes: ['SHIPPING', 'LOCAL', 'PICK_UP'],
+    });
+    const err = created.data?.fulfillmentConstraintRuleCreate?.userErrors?.[0];
+    if (err) throw new Error(`fulfillmentConstraintRuleCreate failed: ${err.message}`);
+    const id = created.data?.fulfillmentConstraintRuleCreate?.fulfillmentConstraintRule?.id;
+    if (!id) throw new Error('fulfillmentConstraintRuleCreate returned no id');
+    await this.store(functionKey, 'fulfillmentConstraintRule', id);
+    return id;
   }
 
   // ── shared plumbing ───────────────────────────────────────────────────────

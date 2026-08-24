@@ -471,6 +471,54 @@ describe('ActivationService — validation kind', () => {
   });
 });
 
+describe('ActivationService — fulfillmentConstraintRule kind', () => {
+  it('creates via functionHandle with the required deliveryMethodTypes on first ensure', async () => {
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'SuperAppFulfillmentConstraintRuleList')
+        return { data: { fulfillmentConstraintRules: [] } };
+      if (op === 'SuperAppFulfillmentConstraintRuleCreate')
+        return { data: { fulfillmentConstraintRuleCreate: { fulfillmentConstraintRule: { id: 'gid://shopify/FulfillmentConstraintRule/1' }, userErrors: [] } } };
+      throw new Error(`unexpected op ${op}`);
+    });
+    const gid = await new ActivationService(admin, 'shop_1').ensureForFunctionKey('fulfillmentConstraints');
+    expect(gid).toBe('gid://shopify/FulfillmentConstraintRule/1');
+    expect(calls.map((c) => c.op)).toEqual([
+      'SuperAppFulfillmentConstraintRuleList',
+      'SuperAppFulfillmentConstraintRuleCreate',
+    ]);
+    expect(calls[1]!.variables).toEqual({
+      functionHandle: 'superapp-fulfillment-constraints',
+      deliveryMethodTypes: ['SHIPPING', 'LOCAL', 'PICK_UP'],
+    });
+  });
+
+  it('adopts an existing rule for our function instead of duplicating', async () => {
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'SuperAppFulfillmentConstraintRuleList')
+        return { data: { fulfillmentConstraintRules: [{ id: 'gid://f/9', function: { id: 'fn_1', handle: 'superapp-fulfillment-constraints' } }] } };
+      throw new Error(`unexpected op ${op}`);
+    });
+    const gid = await new ActivationService(admin, 'shop_1').ensureForFunctionKey('fulfillmentConstraints');
+    expect(gid).toBe('gid://f/9');
+    expect(calls.map((c) => c.op)).not.toContain('SuperAppFulfillmentConstraintRuleCreate');
+  });
+
+  it('stored GID → zero Shopify calls; delete uses fulfillmentConstraintRuleDelete', async () => {
+    db.set('shop_1:fulfillmentConstraints', { functionKey: 'fulfillmentConstraints', kind: 'fulfillmentConstraintRule', activationGid: 'gid://f/1' });
+    const noCall = mockAdmin(() => { throw new Error('no call expected'); });
+    expect(await new ActivationService(noCall.admin, 'shop_1').ensureForFunctionKey('fulfillmentConstraints')).toBe('gid://f/1');
+
+    const del = mockAdmin((op) => {
+      if (op === 'SuperAppFulfillmentConstraintRuleDelete')
+        return { data: { fulfillmentConstraintRuleDelete: { success: true, userErrors: [] } } };
+      throw new Error(`unexpected op ${op}`);
+    });
+    await new ActivationService(del.admin, 'shop_1').deleteForFunctionKey('fulfillmentConstraints');
+    expect(del.calls.map((c) => c.op)).toEqual(['SuperAppFulfillmentConstraintRuleDelete']);
+    expect(db.has('shop_1:fulfillmentConstraints')).toBe(false);
+  });
+});
+
 describe('PublishService → activation hook', () => {
   it('throws (never silently inert) when a mapped functionKey publishes without shopId', async () => {
     const { admin } = mockAdmin(() => ({
