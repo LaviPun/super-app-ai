@@ -184,11 +184,18 @@ export async function loader({ request }: { request: Request }) {
   // AI provider tiles are DB-config (Decision G6) but their save/test flows
   // already live on internal.ai-providers.tsx (Decision: reuse, don't fork) —
   // this loader only reads enough to show each tile's live "configured" state.
-  const aiProviderRows = await prisma.aiProvider.findMany({ select: { provider: true, isActive: true } });
-  const aiProviders: Record<string, { count: number; activeCount: number }> = {};
+  const aiProviderRows = await prisma.aiProvider.findMany({ select: { id: true, provider: true, isActive: true } });
+  const aiProviders: Record<string, { count: number; activeCount: number; soleProviderId: string | null }> = {};
   for (const kind of Object.values(AI_PROVIDER_KIND_BY_TILE_ID)) {
     const rows = aiProviderRows.filter((r) => r.provider === kind);
-    aiProviders[kind] = { count: rows.length, activeCount: rows.filter((r) => r.isActive).length };
+    aiProviders[kind] = {
+      count: rows.length,
+      activeCount: rows.filter((r) => r.isActive).length,
+      // Only unambiguous when exactly one row exists for this kind — the tile's
+      // Test-connection button needs a concrete provider id (Task 22); with 2+
+      // rows the operator tests from internal.ai-providers.tsx per-row instead.
+      soleProviderId: rows.length === 1 ? rows[0]!.id : null,
+    };
   }
 
   return json({
@@ -569,14 +576,37 @@ function EmailTileBody({
   );
 }
 
-/** AI-provider tiles (Task 13) don't get their own save/test action — the real
+/** AI-provider tiles (Task 13) don't get their own save action — the real
  * config surface stays internal.ai-providers.tsx (Decision: reuse, don't fork
  * the AiProviderService writer). "Configure" deep-links there pre-filled with
- * this tile's kind via ?add=<kind>. */
-function AiProviderTileBody({ kind, status }: { kind: ProviderKind; status: { count: number; activeCount: number } | undefined }) {
+ * this tile's kind via ?add=<kind>.
+ *
+ * Test-connection (Task 22) is the one exception: when the kind has exactly one
+ * configured provider row (`soleProviderId`), the tile can post the real probe
+ * directly to internal.ai-providers.tsx's `testConnection` intent — the request
+ * is deep-linked to that route's action, but the result is shown right here in
+ * the Hub. With 2+ rows for a kind the id is ambiguous, so the tile falls back
+ * to "Manage in AI Providers" where each row has its own Test-connection button. */
+function AiProviderTileBody({
+  kind,
+  status,
+}: {
+  kind: ProviderKind;
+  status: { count: number; activeCount: number; soleProviderId: string | null } | undefined;
+}) {
   const ctx = useAdminCtx();
   const count = status?.count ?? 0;
   const activeCount = status?.activeCount ?? 0;
+  const soleProviderId = status?.soleProviderId ?? null;
+  const testFetcher = useFetcher<{ ok?: boolean; message?: string; error?: string }>();
+
+  useEffect(() => {
+    if (testFetcher.state !== 'idle' || !testFetcher.data) return;
+    if (testFetcher.data.error) ctx.toast(testFetcher.data.error, true);
+    else if (testFetcher.data.message) ctx.toast(testFetcher.data.message);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [testFetcher.state, testFetcher.data]);
+
   return (
     <>
       <KV
@@ -589,10 +619,25 @@ function AiProviderTileBody({ kind, status }: { kind: ProviderKind; status: { co
           ],
         ]}
       />
-      <div style={{ marginTop: 10 }}>
+      <div className="row-2" style={{ marginTop: 10 }}>
         <Btn size="sm" onClick={() => ctx.go(`#/admin/ai-providers?tab=providers&add=${kind}`)}>
           {count === 0 ? 'Configure' : 'Manage in AI Providers'}
         </Btn>
+        {soleProviderId ? (
+          <Btn
+            size="sm"
+            className="btn-plain"
+            loading={testFetcher.state !== 'idle'}
+            onClick={() => {
+              const fd = new FormData();
+              fd.set('intent', 'testConnection');
+              fd.set('id', soleProviderId);
+              testFetcher.submit(fd, { method: 'post', action: '/internal/ai-providers' });
+            }}
+          >
+            Test connection
+          </Btn>
+        ) : null}
       </div>
     </>
   );

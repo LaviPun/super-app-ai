@@ -14,6 +14,7 @@ import { ActivityLogService } from '~/services/activity/activity.service';
 import { getPrisma } from '~/db.server';
 import { encryptJson } from '~/services/security/crypto.server';
 import { syncProviderCatalogToDb, getLatestProviderFeaturePreset } from '~/services/ai/provider-model-catalog.server';
+import { testProviderConnection } from '~/services/internal/provider-connection-test.server';
 import {
   useAdminCtx,
   Icon,
@@ -371,6 +372,33 @@ export async function action({ request }: { request: Request }) {
     await service.setActive(id);
     await activity.log({ actor: 'INTERNAL_ADMIN', action: 'PROVIDER_ACTIVATED', resource: `provider:${id}` });
     return json({ ok: true, message: `${provider.name} set as active` });
+  }
+
+  if (intent === 'testConnection') {
+    const id = String(form.get('id') ?? '');
+    if (!id) return json({ error: 'Missing provider id' }, { status: 400 });
+    const provider = await prisma.aiProvider.findUnique({ where: { id } });
+    if (!provider) return json({ error: 'Provider not found' }, { status: 404 });
+    let apiKey = '';
+    try {
+      apiKey = await service.getApiKey(id);
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message : 'Could not read the stored API key.' }, { status: 400 });
+    }
+    const result = await testProviderConnection({
+      provider: provider.provider as ProviderKind,
+      baseUrl: provider.baseUrl,
+      apiKey,
+    });
+    // Audited on every attempt (success or failure) — a real, logged probe, never silent.
+    await activity.log({
+      actor: 'INTERNAL_ADMIN',
+      action: 'PROVIDER_TESTED',
+      resource: `provider:${id}`,
+      details: { name: provider.name, provider: provider.provider, ok: result.ok, error: result.error },
+    });
+    if (!result.ok) return json({ error: result.error ?? 'Connection test failed.' }, { status: 400 });
+    return json({ ok: true, message: `${provider.name}: connection OK` });
   }
 
   if (intent === 'deleteProvider') {
@@ -942,6 +970,15 @@ export default function AdminProviders() {
                 )}
                 <Btn size="sm" icon="edit" onClick={() => setModal(p)}>
                   Edit
+                </Btn>
+                <Btn
+                  size="sm"
+                  icon="refresh"
+                  className="btn-plain"
+                  loading={ops.busy}
+                  onClick={() => ops.submit({ intent: 'testConnection', id: p.id })}
+                >
+                  Test connection
                 </Btn>
                 <Btn size="sm" icon="transfer" className="btn-plain" onClick={() => ctx.go('#/admin/usage')}>
                   Logs
