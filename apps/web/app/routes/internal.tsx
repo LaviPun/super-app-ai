@@ -132,6 +132,7 @@ const ADMIN_NAV: NavSection[] = [
     title: 'AI & Models',
     items: [
       { url: '#/admin/ai-providers', label: 'AI Providers', icon: 'connect' },
+      { url: '#/admin/integrations', label: 'Integrations', icon: 'connect' },
       { url: '#/admin/ai-assistant', label: 'AI Assistant', icon: 'chat', badge: 'New' },
       { url: '#/admin/model-setup', label: 'Local AI Setting', icon: 'desktop' },
       { url: '#/admin/usage', label: 'Usage & Costs', icon: 'chart' },
