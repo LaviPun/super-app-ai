@@ -338,6 +338,7 @@ export async function action({ request }: { request: Request }) {
       create: { id: 'singleton', fallbackAiProviderId },
       update: { fallbackAiProviderId },
     });
+    await activity.log({ actor: 'INTERNAL_ADMIN', action: 'FALLBACK_AI_PROVIDER_UPDATED', details: { fallbackAiProviderId } });
     return json({ ok: true, message: 'Fallback provider saved' });
   }
 
