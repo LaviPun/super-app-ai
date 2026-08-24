@@ -3,7 +3,7 @@ import {
   RECIPE_SPEC_TYPES,
   getExtensionEligibility,
   isRuntimeShipped,
-  functionActivationGap,
+  ACTIVATION_WIRED_FUNCTION_TYPES,
   type ModuleType,
   type RecipeSpec,
   type DeployTarget,
@@ -73,10 +73,11 @@ const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
   // writes no artifact, so publishing it directly would false-publish. Gated
   // needs_runtime so the single-publish path fails loudly. See extension-eligibility.ts.
   'platform.extensionBlueprint',
-  // WS-QF / D6 step 1: wasm deployed but Shopify ACTIVATION object unwired on the
-  // single-module publish path (see FUNCTION_ACTIVATION_UNWIRED in
-  // extension-eligibility.ts). Blueprint co-deploy still publishes them
-  // (activationHandledByCoDeploy). WS-E removes these as activation wiring ships.
+  // WS-E (D6 step 2): wasm deployed but Shopify ACTIVATION object unwired on the
+  // single-module publish path (see ACTIVATION_WIRED_FUNCTION_TYPES in
+  // extension-eligibility.ts — initially empty ⇒ every functions.* type gates here).
+  // Blueprint co-deploy still publishes them (activationHandledByCoDeploy). Each
+  // WS-E task removes exactly one type from this set as activation wiring ships.
   'functions.discountRules',
   'functions.cartTransform',
   'functions.deliveryCustomization',
@@ -101,7 +102,8 @@ describe('module deployability audit — every type classified (eligibility mode
   for (const type of RECIPE_SPEC_TYPES) {
     it(`${type} classifier agrees with the registry (manifest ∧ activation)`, () => {
       const shipped = isRuntimeShipped(type, { deployedFunctionHandles: deployed });
-      const expectedDeployable = shipped && !functionActivationGap(type);
+      const activationGated = type.startsWith('functions.') && !ACTIVATION_WIRED_FUNCTION_TYPES.has(type);
+      const expectedDeployable = shipped && !activationGated;
       const result = classifyModulePublishability({ type } as RecipeSpec, { deployedExtensions: deployed });
       expect(result.status).toBe(expectedDeployable ? 'deployable' : 'needs_runtime');
       expect(result.willDeploy).toBe(expectedDeployable);
@@ -341,14 +343,18 @@ describe('INTEGRITY: declarative pricing mechanism ⇒ needs_runtime (no inert f
  * checks `status === 'PASS'` exactly).
  */
 /**
- * WS-QF / D6 step 1 (2026-08-24): Function types whose wasm IS deployed but whose
- * Shopify ACTIVATION object is never created on the single-module publish path
- * (cartTransformCreate / discountAutomaticAppCreate live only in
- * bundle-product.service.ts, used by blueprint co-deploy; the delivery/payment/
- * validation/fulfillment Create mutations exist nowhere). Publishing one writes a
- * config metaobject and flips PUBLISHED while the Function never runs. Gate them
- * needs_runtime on the single-module path; blueprint co-deploy opts out via
- * activationHandledByCoDeploy. WS-E reverts this set type-by-type.
+ * WS-E activation gate (D6 step 2, 2026-08-24): Function types whose wasm IS
+ * deployed but whose Shopify ACTIVATION object is never created on the
+ * single-module publish path (cartTransformCreate / discountAutomaticAppCreate live
+ * only in bundle-product.service.ts, used by blueprint co-deploy; the
+ * delivery/payment/validation/fulfillment Create mutations exist nowhere).
+ * Publishing one writes a config metaobject and flips PUBLISHED while the Function
+ * never runs. Gate them needs_runtime on the single-module path; blueprint
+ * co-deploy opts out via activationHandledByCoDeploy. This local list is the six
+ * types WS-QF originally gated explicitly; ACTIVATION_WIRED_FUNCTION_TYPES (empty)
+ * now gates them — and every other functions.* type — as a strict superset. Each
+ * WS-E task removes exactly one type from ACTIVATION_WIRED_FUNCTION_TYPES's
+ * complement (i.e. adds it to the wired set) as activation wiring ships.
  */
 const ACTIVATION_UNWIRED_TYPES = [
   'functions.discountRules',

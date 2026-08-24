@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MODULE_TEMPLATES, RECIPE_SPEC_TYPES, type RecipeSpec } from '@superapp/core';
+import { ACTIVATION_WIRED_FUNCTION_TYPES, MODULE_TEMPLATES, RECIPE_SPEC_TYPES, type RecipeSpec } from '@superapp/core';
 import { computeRepublishDiff } from '@superapp/platform-contracts';
 import {
   FUNCTION_EXTENSION_HANDLES,
@@ -74,6 +74,39 @@ describe('WS5 publish preflight — SC-001 no silent no-op', () => {
     const spec = specForType('theme.section');
     if (!spec) return;
     expect(classifyModulePublishability(spec).status).toBe('deployable');
+  });
+});
+
+describe('WS-E activation gate (D6 step 2 seam)', () => {
+  it('a functions.* type with a deployed wasm but no wired activation is needs_runtime', () => {
+    for (const type of [
+      'functions.discountRules',
+      'functions.cartTransform',
+      'functions.deliveryCustomization',
+      'functions.paymentCustomization',
+      'functions.cartAndCheckoutValidation',
+      'functions.fulfillmentConstraints',
+    ]) {
+      if (ACTIVATION_WIRED_FUNCTION_TYPES.has(type)) continue; // un-gated by a later WS-E task
+      const spec = specForType(type);
+      if (!spec) continue;
+      const result = classifyModulePublishability(spec, {
+        deployedExtensions: Object.values(FUNCTION_EXTENSION_HANDLES),
+      });
+      expect(result.status, type).toBe('needs_runtime');
+      expect(result.reasons.join(' '), type).toMatch(/activation/i);
+    }
+  });
+
+  it('a wired type with a deployed wasm is deployable', () => {
+    for (const type of ACTIVATION_WIRED_FUNCTION_TYPES) {
+      const spec = specForType(type);
+      if (!spec) continue;
+      const result = classifyModulePublishability(spec, {
+        deployedExtensions: Object.values(FUNCTION_EXTENSION_HANDLES),
+      });
+      expect(result.status, type).toBe('deployable');
+    }
   });
 });
 

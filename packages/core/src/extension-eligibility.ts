@@ -556,38 +556,22 @@ export function isRuntimeShipped(moduleType: ModuleType, ctx: RuntimeShippedChec
 }
 
 /**
- * WS-QF / D6 step 1 (2026-08-24): Function module types whose wasm extension IS
- * deployed (manifest) but whose Shopify ACTIVATION object is never created on the
- * single-module publish path. Publishing one writes its $app config metaobject and
- * flips the module PUBLISHED, but no cartTransformCreate / discountAutomaticAppCreate /
- * deliveryCustomizationCreate / paymentCustomizationCreate / validationCreate /
- * fulfillmentConstraintRuleCreate ever runs (the first two exist only in the app's
- * bundle co-deploy service; the rest exist nowhere) — the Function never executes,
- * a false-publish. `classifyModulePublishability` gates these needs_runtime unless
- * the caller is the blueprint co-deploy (which performs its own activation).
- * WS-E ships activation wiring and removes types from this set one by one.
+ * WS-E activation gate (D6 step 2). A `functions.*` type whose wasm IS deployed is
+ * still not publishable until the publish path creates its Shopify activation
+ * object — the owner object (automatic discount / delivery customization / payment
+ * customization / validation / fulfillment constraint rule / cart transform) that
+ * makes Shopify actually execute the function. WS-QF gated all function types
+ * (D6 step 1); each WS-E task adds exactly one type here in the same commit that
+ * wires its ActivationService support. NEVER add a type without its activation.
+ *
+ * Empty ⇒ every `functions.*` type is gated `needs_runtime` even with its wasm
+ * deployed (see `classifyModulePublishability` in publish-preflight.server.ts,
+ * which applies the gate as `type.startsWith('functions.') &&
+ * !ACTIVATION_WIRED_FUNCTION_TYPES.has(type) && !ctx.activationHandledByCoDeploy`).
+ * The blueprint co-deploy path performs its own activation and opts out via
+ * `ctx.activationHandledByCoDeploy` until Task 8 retires that exemption.
  */
-export const FUNCTION_ACTIVATION_UNWIRED: ReadonlySet<ModuleType> = new Set<ModuleType>([
-  'functions.discountRules',
-  'functions.cartTransform',
-  'functions.deliveryCustomization',
-  'functions.paymentCustomization',
-  'functions.cartAndCheckoutValidation',
-  'functions.fulfillmentConstraints',
-]);
-
-/** Honest reason string when a type's Shopify activation object is not wired; undefined when unaffected. */
-export function functionActivationGap(moduleType: ModuleType): string | undefined {
-  if (!FUNCTION_ACTIVATION_UNWIRED.has(moduleType)) return undefined;
-  return (
-    `${moduleType}: the Function wasm is deployed, but publishing this module only writes its config ` +
-    `metaobject — the app never creates the Shopify activation object that makes the Function run ` +
-    `(discountAutomaticAppCreate / cartTransformCreate / deliveryCustomizationCreate / ` +
-    `paymentCustomizationCreate / validationCreate / fulfillmentConstraintRuleCreate). Until activation ` +
-    `wiring lands (WS-E), publishing would report PUBLISHED while changing nothing at checkout, so it is ` +
-    `honestly gated needs_runtime.`
-  );
-}
+export const ACTIVATION_WIRED_FUNCTION_TYPES: Set<string> = new Set<string>([]);
 
 /**
  * Whether a module's plan/scope requirements are satisfied for the merchant. This
