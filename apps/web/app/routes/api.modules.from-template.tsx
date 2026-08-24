@@ -8,6 +8,7 @@ import { ActivityLogService } from '~/services/activity/activity.service';
 import { findTemplate, RecipeSpecSchema, getTemplateInstallability, type RecipeSpec } from '@superapp/core';
 import { SettingsService } from '~/services/settings/settings.service';
 import { resolveStorefrontPack, DEFAULT_PACK_ID } from '~/services/ai/style-packs.server';
+import { ensureStoreAesthetic } from '~/services/theme/ensure-aesthetic.server';
 
 /**
  * Types whose renderer stamps `data-sa-pack` from `style.pack`: storefront modules
@@ -63,7 +64,7 @@ function getTemplateSpec(templateId: string, overridesJson: string | null): Reci
 }
 
 export async function action({ request }: { request: Request }) {
-  const { session } = await shopify.authenticate.admin(request);
+  const { session, admin } = await shopify.authenticate.admin(request);
 
   return withApiLogging(
     { actor: 'MERCHANT', method: request.method, path: '/api/modules/from-template', request, captureRequestBody: true, captureResponseBody: true },
@@ -96,6 +97,13 @@ export async function action({ request }: { request: Request }) {
         create: { shopDomain: session.shop, accessToken: '', planTier: 'UNKNOWN' },
         update: {},
       });
+
+      if (STOREFRONT_LAYOUT_TYPES.has(template.type)) {
+        // Best-effort, time-boxed — mirrors api.ai.create-module.tsx's AI-path gate.
+        // Never blocks or fails the install; a stale/missing palette just means the
+        // installed module falls back to the default design reference.
+        await ensureStoreAesthetic({ admin, shopId: shopRow.id });
+      }
 
       const quota = new QuotaService();
       await quota.enforce(shopRow.id, 'moduleCount');
