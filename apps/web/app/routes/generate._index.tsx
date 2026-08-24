@@ -36,6 +36,7 @@ import { JobService } from '~/services/jobs/job.service';
 import { modifyRecipeSpec, AiProviderNotConfiguredError } from '~/services/ai/llm.server';
 import { validateBeforePublish } from '~/services/publish/pre-publish-validator.server';
 import { classifyModulePublishability } from '~/services/publish/publish-preflight.server';
+import { sealAccessToken } from '~/services/shops/access-token.server';
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { StatusBadge, EmptyState, titleCase } from '~/components/merchant/polaris';
@@ -51,7 +52,7 @@ export async function loader({ request }: { request: Request }) {
   let shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
   if (!shopRow) {
     shopRow = await prisma.shop.create({
-      data: { shopDomain: session.shop, accessToken: session.accessToken ?? '', planTier: 'FREE' },
+      data: { shopDomain: session.shop, accessToken: sealAccessToken(session.accessToken ?? ''), planTier: 'FREE' },
     });
   }
 

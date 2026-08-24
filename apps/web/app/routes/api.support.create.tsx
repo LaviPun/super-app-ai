@@ -4,6 +4,7 @@ import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
+import { sealAccessToken } from '~/services/shops/access-token.server';
 import { AppError } from '~/services/errors/app-error.server';
 import { runSupportTriage } from '~/services/support/triage.server';
 import { recordTicketEvent } from '~/services/support/ticket-events.server';
@@ -49,7 +50,7 @@ export async function action({ request }: ActionFunctionArgs) {
   let shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
   if (!shopRow) {
     shopRow = await prisma.shop.create({
-      data: { shopDomain: session.shop, accessToken: session.accessToken ?? '', planTier: 'FREE' },
+      data: { shopDomain: session.shop, accessToken: sealAccessToken(session.accessToken ?? ''), planTier: 'FREE' },
     });
   }
 

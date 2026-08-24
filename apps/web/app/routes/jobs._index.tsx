@@ -2,6 +2,7 @@ import { json } from '@remix-run/node';
 import { useLoaderData, useNavigate, useNavigation, useSearchParams } from '@remix-run/react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
+import { sealAccessToken } from '~/services/shops/access-token.server';
 import { MerchantShell } from '~/components/merchant/MerchantShell';
 import { EmptyState, MonoChip, StatStrip, StatusBadge, fmtNum } from '~/components/merchant/polaris';
 
@@ -61,7 +62,7 @@ export async function loader({ request }: { request: Request }) {
   let shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
   if (!shopRow) {
     shopRow = await prisma.shop.create({
-      data: { shopDomain: session.shop, accessToken: session.accessToken ?? '', planTier: 'FREE' },
+      data: { shopDomain: session.shop, accessToken: sealAccessToken(session.accessToken ?? ''), planTier: 'FREE' },
     });
   }
 

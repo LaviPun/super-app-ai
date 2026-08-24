@@ -9,6 +9,7 @@ import { getRequestContext } from '~/services/observability/correlation.server';
 import { assertSafeTargetUrl } from '~/services/security/ssrf.server';
 import { getConnector } from '~/services/workflows/connectors/index';
 import { emitFlowTriggerSafe, FLOW_TRIGGER_TOPICS } from '~/services/workflows/shopify-flow-bridge';
+import { openAccessToken } from '~/services/shops/access-token.server';
 import { WorkflowEngineService } from '~/services/workflows/workflow-engine.service';
 import { computeResumeAt, parkRemainderAsWorkflow, type ParkStep } from './flow-park';
 import { buildShopAuthResolver } from './auth-resolver.server';
@@ -127,7 +128,7 @@ export class FlowRunnerService {
         await this.executeFlow(shopDomain, admin, job.id, spec as FlowAutomationSpec, event, shopRow?.id, flow.id);
         await jobs.succeed(job.id, { trigger, steps: spec.config.steps.length });
         // Best-effort: notify Shopify Flow that a SuperApp workflow completed.
-        void emitFlowTriggerSafe(shopDomain, shopRow?.accessToken, FLOW_TRIGGER_TOPICS.WORKFLOW_COMPLETED, {
+        void emitFlowTriggerSafe(shopDomain, openAccessToken(shopRow?.accessToken), FLOW_TRIGGER_TOPICS.WORKFLOW_COMPLETED, {
           'Workflow ID': flow.id,
           'Workflow Name': flow.name,
           'Run ID': job.id,
@@ -136,7 +137,7 @@ export class FlowRunnerService {
       } catch (err) {
         await jobs.fail(job.id, err);
         // Best-effort: notify Shopify Flow that a SuperApp workflow failed.
-        void emitFlowTriggerSafe(shopDomain, shopRow?.accessToken, FLOW_TRIGGER_TOPICS.WORKFLOW_FAILED, {
+        void emitFlowTriggerSafe(shopDomain, openAccessToken(shopRow?.accessToken), FLOW_TRIGGER_TOPICS.WORKFLOW_FAILED, {
           'Workflow ID': flow.id,
           'Workflow Name': flow.name,
           'Run ID': job.id,
@@ -187,7 +188,7 @@ export class FlowRunnerService {
       const result = { jobId: job.id, steps: flowSpec.config.steps.length };
       await jobs.succeed(job.id, { trigger: 'MANUAL', steps: result.steps });
       // Best-effort: notify Shopify Flow that a SuperApp workflow completed.
-      void emitFlowTriggerSafe(shopDomain, shopRow?.accessToken, FLOW_TRIGGER_TOPICS.WORKFLOW_COMPLETED, {
+      void emitFlowTriggerSafe(shopDomain, openAccessToken(shopRow?.accessToken), FLOW_TRIGGER_TOPICS.WORKFLOW_COMPLETED, {
         'Workflow ID': flow.id,
         'Workflow Name': flow.name,
         'Run ID': job.id,
@@ -197,7 +198,7 @@ export class FlowRunnerService {
     } catch (err) {
       await jobs.fail(job.id, err);
       // Best-effort: notify Shopify Flow that a SuperApp workflow failed.
-      void emitFlowTriggerSafe(shopDomain, shopRow?.accessToken, FLOW_TRIGGER_TOPICS.WORKFLOW_FAILED, {
+      void emitFlowTriggerSafe(shopDomain, openAccessToken(shopRow?.accessToken), FLOW_TRIGGER_TOPICS.WORKFLOW_FAILED, {
         'Workflow ID': flow.id,
         'Workflow Name': flow.name,
         'Run ID': job.id,
