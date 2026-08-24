@@ -42,6 +42,7 @@ import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShe
 import { StatusBadge, EmptyState, titleCase } from '~/components/merchant/polaris';
 import { nextStepAfterStream, withGenerationCorrelationId } from '~/utils/generation-outcome';
 import { pollJobUntilTerminal, type PolledJobSnapshot } from '~/utils/job-poll';
+import { readActiveGenSession, writeActiveGenSession, clearActiveGenSession } from '~/utils/active-gen-session';
 
 
 // Embedded route: authenticates, then loads the real AI-credit balance (same
@@ -403,51 +404,6 @@ function Field({ label, optional, help, children }: { label?: ReactNode; optiona
   );
 }
 
-// WS-C Task 7: sessionStorage-backed resumable generation session. Keyed by
-// prompt so a reload/reconnect on the SAME prompt resumes the same job
-// (re-fetch, never re-spend — Task 6 review requirement #3); a different
-// prompt just starts fresh. All three are best-effort — sessionStorage can
-// be unavailable (private browsing, quota) and that only degrades the
-// resume UX, it never blocks generation itself.
-const ACTIVE_GEN_SESSION_KEY = 'sa:gen:active';
-
-type ActiveGenSession = { jobId: string; correlationId: string; prompt: string };
-
-function readActiveGenSession(prompt: string): ActiveGenSession | null {
-  try {
-    const raw = sessionStorage.getItem(ACTIVE_GEN_SESSION_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<ActiveGenSession>;
-    if (
-      typeof parsed.jobId === 'string' && parsed.jobId &&
-      typeof parsed.correlationId === 'string' && parsed.correlationId &&
-      parsed.prompt === prompt
-    ) {
-      return { jobId: parsed.jobId, correlationId: parsed.correlationId, prompt };
-    }
-  } catch {
-    // Corrupt or unavailable — treat as no resumable session.
-  }
-  return null;
-}
-
-function writeActiveGenSession(session: ActiveGenSession): void {
-  try {
-    sessionStorage.setItem(ACTIVE_GEN_SESSION_KEY, JSON.stringify(session));
-  } catch {
-    // sessionStorage unavailable — resume-on-reload just won't work; the
-    // in-flight generation itself is unaffected.
-  }
-}
-
-function clearActiveGenSession(): void {
-  try {
-    sessionStorage.removeItem(ACTIVE_GEN_SESSION_KEY);
-  } catch {
-    // ignore
-  }
-}
-
 export default function GeneratePage() {
   return (
     <MerchantShell fullBleed>
@@ -465,10 +421,21 @@ function GenerateWorkspace() {
   // Prefer client-nav router state; fall back to the loader's ?prompt= param so
   // a Sidekick create action-link (which arrives as a fresh URL navigation, no
   // router state) still seeds the generator.
-  const seedPrompt =
+  const stateOrQueryPrompt =
     typeof seed?.prompt === 'string' && seed.prompt.trim()
       ? seed.prompt.trim()
       : (loaderData.seedPrompt ?? '');
+  // WS-C Task 8 commit-0 fold-in (b): `modules._index.tsx` navigates here
+  // with ONLY `location.state.prompt` (no `?prompt=`) — a hard reload loses
+  // that router state entirely, and `stateOrQueryPrompt` above resolves to
+  // ''. Without this fallback the "no prompt" effect below would bounce the
+  // merchant back to /modules instead of resuming their in-flight job. The
+  // effect populates this from the session's OWN persisted prompt (the only
+  // surviving source of truth) — set post-mount only, never at render time,
+  // since sessionStorage is unavailable during SSR and reading it inline
+  // here would desync hydration.
+  const [sessionSeedPrompt, setSessionSeedPrompt] = useState<string | null>(null);
+  const seedPrompt = stateOrQueryPrompt || sessionSeedPrompt || '';
   // WS-C Task 7 (C1): when Redis-backed async jobs are configured, generation
   // enqueues + polls instead of the inline SSE stream.
   const asyncGeneration = loaderData.asyncGeneration;
@@ -507,6 +474,11 @@ function GenerateWorkspace() {
   // generation job — Task 13 stamps this onto the saved Module
   // (generationCorrelationId) so the funnel spine survives past generation.
   const genCorrelationIdRef = useRef<string | null>(null);
+  // WS-C Task 8 commit-0 fold-in (a): aborts the async poll loop on unmount
+  // or when a newer asyncGenerate() supersedes this one (e.g. regenerate) —
+  // no more state updates after unmount, no immortal background poll.
+  // Pattern reused from `internal.ai-assistant.tsx`'s abortRef.
+  const abortRef = useRef<AbortController | null>(null);
 
   const settings = settingsMap[selected ?? ''] || BASE_SETTINGS;
   const set = (patch: any) => setSettingsMap((m) => ({ ...m, [selected!]: { ...m[selected!], ...patch } }));
@@ -556,12 +528,23 @@ function GenerateWorkspace() {
   const activeIdx = candidates.findIndex((c) => c.id === selected);
   const thinking = refineFetcher.state !== 'idle';
 
-  // No seeded prompt (direct visit / refresh): never silently burn an AI
-  // generation on a canned prompt — send the merchant to the real prompt box.
+  // No seeded prompt from state/query (direct visit / refresh): before
+  // bouncing to the real prompt box, check for a resumable async-generation
+  // session this same tab already started (commit-0 fold-in (b) — a
+  // state-seeded nav from `modules._index.tsx` loses `location.state` on a
+  // hard reload, so the session's own persisted prompt is the only
+  // surviving source of truth). Only runs when there's genuinely nothing
+  // else to seed from — a real state/query prompt always wins outright.
   useEffect(() => {
-    if (!seedPrompt) navigate('/modules?openBuilder=1', { replace: true });
+    if (stateOrQueryPrompt) return;
+    const resumable = readActiveGenSession();
+    if (resumable?.prompt) {
+      setSessionSeedPrompt(resumable.prompt);
+      return;
+    }
+    navigate('/modules?openBuilder=1', { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seedPrompt]);
+  }, [stateOrQueryPrompt]);
 
   // Build the chooser concepts from a set of AI options (shared by the streaming
   // and batch paths). Re-runnable: the stream calls it as each option arrives.
@@ -768,7 +751,30 @@ function GenerateWorkspace() {
 
     genCorrelationIdRef.current = correlationId;
 
-    const snapshot = await pollJobUntilTerminal(jobId, { onSnapshot: applyPolledSnapshot });
+    // WS-C Task 8 commit-0 fold-in (a): give this poll its own AbortController,
+    // abort any still-running previous one (e.g. a regenerate() firing a new
+    // asyncGenerate() while an older poll is still in flight) and abort this
+    // one on unmount (cleanup effect below) — nothing left running past the
+    // point the merchant left this screen, and never a state update after.
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    let snapshot: PolledJobSnapshot;
+    try {
+      snapshot = await pollJobUntilTerminal(jobId, { onSnapshot: applyPolledSnapshot, signal: controller.signal });
+    } catch {
+      // Aborted — unmounted or superseded by a newer asyncGenerate() call.
+      // Whichever instance owns the CURRENT controller (if any) will apply
+      // the eventual terminal state; this leg has nothing left to do.
+      return;
+    }
+    if (abortRef.current !== controller) {
+      // Superseded between resolving and this check — a newer poll owns
+      // applying the terminal state now.
+      return;
+    }
+
     if (snapshot.status === 'SUCCESS') {
       clearActiveGenSession();
       // next === 'proceed' equivalent — applyPolledSnapshot already rendered
@@ -783,6 +789,11 @@ function GenerateWorkspace() {
     // on SUCCESS or FAILED (Task 6 review requirement #2).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedPrompt, applyPolledSnapshot, streamGenerate]);
+
+  // Abort any in-flight async-generation poll if this workspace unmounts
+  // (navigate away) mid-poll — no immortal background loop, no state update
+  // after unmount.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   // Kick off real generation when entering the generating phase (once).
   useEffect(() => {

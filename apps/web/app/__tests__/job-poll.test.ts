@@ -128,4 +128,71 @@ describe('pollJobUntilTerminal', () => {
     ).rejects.toMatchObject({ name: 'AbortError' });
     expect(fetcher).not.toHaveBeenCalled();
   });
+
+  // Commit-0 fold-in (c): a permanently-unknown jobId (stale session, wrong
+  // id, evicted job) must not poll forever — after N consecutive 404s it
+  // gives up with an honest terminal FAILED snapshot instead of a real one.
+  describe('permanent-404 give-up', () => {
+    function notFoundResponse() {
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    }
+
+    it('gives up after maxConsecutiveNotFound (default 5) consecutive 404s', async () => {
+      const fetcher = vi.fn(async () => notFoundResponse());
+      const onSnapshot = vi.fn();
+
+      const promise = pollJobUntilTerminal('job_ghost', { fetcher, onSnapshot, intervalMs: 1000 });
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(fetcher).toHaveBeenCalledTimes(5);
+      expect(result.status).toBe('FAILED');
+      expect(result.error).toMatchObject({ error: 'JOB_NOT_FOUND' });
+      // The give-up snapshot is reported to the caller like any other
+      // terminal snapshot, so existing FAILED handling (toast + session
+      // cleanup) applies without a special case.
+      expect(onSnapshot).toHaveBeenCalledTimes(1);
+      expect(onSnapshot).toHaveBeenCalledWith(result);
+    });
+
+    it('honors a custom maxConsecutiveNotFound', async () => {
+      const fetcher = vi.fn(async () => notFoundResponse());
+
+      const promise = pollJobUntilTerminal('job_ghost', { fetcher, intervalMs: 1000, maxConsecutiveNotFound: 2 });
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(result.status).toBe('FAILED');
+    });
+
+    it('a 404 followed by a real snapshot resets the counter (no premature give-up)', async () => {
+      let call = 0;
+      const fetcher = vi.fn(async () => {
+        call += 1;
+        if (call <= 3) return notFoundResponse();
+        if (call === 4) return okResponse(snapshot({ status: 'RUNNING' }));
+        return okResponse(snapshot({ status: 'SUCCESS' }));
+      });
+
+      const promise = pollJobUntilTerminal('job_1', { fetcher, intervalMs: 1000 });
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(result.status).toBe('SUCCESS');
+      expect(fetcher).toHaveBeenCalledTimes(5);
+    });
+
+    it('an aborted signal during the 404 backoff still rejects with AbortError, not a give-up snapshot', async () => {
+      const controller = new AbortController();
+      const fetcher = vi.fn(async () => notFoundResponse());
+
+      const promise = pollJobUntilTerminal('job_ghost', { fetcher, signal: controller.signal, intervalMs: 1000 });
+      const assertion = expect(promise).rejects.toMatchObject({ name: 'AbortError' });
+      await vi.advanceTimersByTimeAsync(0);
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(1000);
+      await assertion;
+    });
+  });
 });

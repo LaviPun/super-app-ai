@@ -39,10 +39,42 @@ export type PollJobOptions = {
   /** Called once per successfully-fetched snapshot, including the terminal one. */
   onSnapshot?: (snapshot: PolledJobSnapshot) => void;
   signal?: AbortSignal;
+  /**
+   * Consecutive 404s (job truly not found — a wrong/expired jobId, never a
+   * transient condition) before giving up. Default 5. Commit-0 fold-in (c):
+   * without this, a permanently-unknown jobId (e.g. a stale `sa:gen:active`
+   * session pointing at a job the DB no longer has) polls forever.
+   */
+  maxConsecutiveNotFound?: number;
 };
 
 const DEFAULT_INTERVAL_MS = 1500;
 const MAX_BACKOFF_MS = 5000;
+const DEFAULT_MAX_CONSECUTIVE_NOT_FOUND = 5;
+
+/**
+ * Synthetic terminal snapshot returned when polling gives up after too many
+ * consecutive 404s. Shaped exactly like a real terminal snapshot so every
+ * caller's existing `status === 'FAILED'` handling (toast the message, clear
+ * the active-session record, etc.) applies unchanged — this is an honest
+ * terminal error, not a special case callers need to know about.
+ */
+function jobNotFoundGiveUpSnapshot(jobId: string): PolledJobSnapshot {
+  return {
+    jobId,
+    type: 'UNKNOWN',
+    status: 'FAILED',
+    stage: null,
+    correlationId: null,
+    options: [],
+    recommendedIndex: null,
+    result: null,
+    error: {
+      error: 'JOB_NOT_FOUND',
+      message: 'We could not find this generation — it may have expired. Please try again.',
+    },
+  };
+}
 
 /**
  * Any `RUNNING` status — including a job mid-retry (`stage: 'retrying'`) —
@@ -98,30 +130,57 @@ export async function pollJobUntilTerminal(
 ): Promise<PolledJobSnapshot> {
   const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
   const fetcher = opts.fetcher ?? fetch;
+  const maxConsecutiveNotFound = opts.maxConsecutiveNotFound ?? DEFAULT_MAX_CONSECUTIVE_NOT_FOUND;
   let backoffMs = intervalMs;
+  let consecutiveNotFound = 0;
 
   for (;;) {
     if (opts.signal?.aborted) throw makeAbortError();
 
     let snapshot: PolledJobSnapshot | null = null;
+    let notFound = false;
     try {
       const res = await fetcher(`/api/ai/jobs/${encodeURIComponent(jobId)}`, {
         method: 'GET',
         ...(opts.signal ? { signal: opts.signal } : {}),
       });
-      if (!res.ok) throw new Error(`poll failed with status ${res.status}`);
-      snapshot = (await res.json()) as PolledJobSnapshot;
+      if (res.status === 404) {
+        notFound = true;
+      } else {
+        if (!res.ok) throw new Error(`poll failed with status ${res.status}`);
+        snapshot = (await res.json()) as PolledJobSnapshot;
+      }
     } catch (e) {
       if (isAbortError(e) || opts.signal?.aborted) throw makeAbortError();
       // Transient failure — retry, never throw, never re-enqueue/re-spend.
+      consecutiveNotFound = 0;
       await delay(Math.min(backoffMs, MAX_BACKOFF_MS), opts.signal);
       backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
       continue;
     }
 
+    if (notFound) {
+      // A 404 is NOT transient the way a 5xx or network blip is — the job
+      // either never existed or the poll route deliberately says "not
+      // yours/gone" (route Task 6: unknown job OR another shop's job both
+      // 404 identically). One 404 could still be a race against the
+      // enqueue-route's write landing, so this only gives up after several
+      // in a row, not on the first one.
+      consecutiveNotFound += 1;
+      if (consecutiveNotFound >= maxConsecutiveNotFound) {
+        const giveUp = jobNotFoundGiveUpSnapshot(jobId);
+        opts.onSnapshot?.(giveUp);
+        return giveUp;
+      }
+      await delay(Math.min(backoffMs, MAX_BACKOFF_MS), opts.signal);
+      backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+      continue;
+    }
+
+    consecutiveNotFound = 0;
     backoffMs = intervalMs;
-    opts.onSnapshot?.(snapshot);
-    if (isTerminal(snapshot.status)) return snapshot;
+    opts.onSnapshot?.(snapshot!);
+    if (isTerminal(snapshot!.status)) return snapshot!;
 
     await delay(intervalMs, opts.signal);
   }
