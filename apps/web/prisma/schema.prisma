@@ -475,7 +475,7 @@ model AppSettings {
   // Module System engine: 'v1' (legacy hand-written configs) | 'v2' (control-pack composer). Default v1 = no behavior change.
   moduleSystemVersion String @default("v1")
   // Support triage: 'local' (machine-local Ollama) | 'cloud' (AiProvider below / default chain)
-  supportTriageMode String @default("local")
+  supportTriageMode String @default("cloud")
   supportTriageProviderId String?
   // Email delivery (DB-first; null = fall back to EMAIL_* env vars). See services/notifications/mailer.server.ts.
   emailProvider  String? // smtp | sendgrid | generic (null = use env fallback)

@@ -114,9 +114,13 @@ export async function resolveTriageConfig(): Promise<TriageConfig> {
   }
 
   // Env override wins when set to a recognized value; otherwise use the DB mode.
+  // D5: no local-model dependency in production — an unset/unrecognized DB value
+  // now means cloud (matching the AppSettings.supportTriageMode @default("cloud")
+  // column default). Local requires an EXPLICIT 'local' DB row value or
+  // SUPPORT_TRIAGE_PROVIDER=local env; it stays a dev-only opt-in, never a fallback.
   const envProviderRaw = process.env.SUPPORT_TRIAGE_PROVIDER?.trim().toLowerCase();
   const envProvider = envProviderRaw === 'cloud' || envProviderRaw === 'local' ? envProviderRaw : undefined;
-  const provider: 'local' | 'cloud' = (envProvider ?? (dbMode === 'cloud' ? 'cloud' : 'local'));
+  const provider: 'local' | 'cloud' = (envProvider ?? (dbMode === 'local' ? 'local' : 'cloud'));
 
   return {
     provider,

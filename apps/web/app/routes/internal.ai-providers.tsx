@@ -294,7 +294,10 @@ export async function loader({ request }: { request: Request }) {
     suggestedProviderId,
     fallbackProviderId: appSettings?.fallbackAiProviderId ?? null,
     supportTriage: {
-      mode: appSettings?.supportTriageMode === 'cloud' ? 'cloud' : 'local',
+      // D5: cloud is now the default — mirrors triage.server.ts's resolveTriageConfig,
+      // which only stays local on an EXPLICIT 'local' AppSettings value (an unset/null
+      // row resolves to cloud, matching supportTriageMode's @default("cloud") column).
+      mode: appSettings?.supportTriageMode === 'local' ? 'local' : 'cloud',
       providerId: appSettings?.supportTriageProviderId ?? null,
       // Machine-local Ollama model (read-only display); env override or the code default.
       localModel: process.env.SUPPORT_TRIAGE_MODEL?.trim() || 'qwen3.5:9b',
