@@ -1721,10 +1721,13 @@ export async function* generateValidatedRecipeOptionsStream(
     /** When this module is one member of a blueprint, coordination context for the prompt. */
     blueprintContext?: string;
     /**
-     * Client-generated per-attempt id (WS-QF / AI-2). The stream leg never
-     * dedupes on it (it's always the first leg) — it's threaded through only
-     * so the AiUsage rows it writes are discoverable by a later batch-fallback
-     * leg's dedupe check (see seedBillingStateForCorrelation).
+     * Client-generated per-attempt id (WS-QF / AI-2). Symmetric with the
+     * batch/parallel leg: when present, this leg also seeds its billing state
+     * from `seedBillingStateForCorrelation`, so whichever leg's `AiUsage`
+     * write persists first wins the billable unit and the other leg's claim
+     * sees charged=true and bills 0, regardless of which leg started first
+     * in wall-clock terms (see `seedBillingStateForCorrelation` for the full
+     * dedupe contract and its accepted residual race).
      */
     correlationId?: string;
   },

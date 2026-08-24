@@ -68,18 +68,20 @@ export async function action({ request }: { request: Request }) {
   }
 
   const prisma = getPrisma();
-  const shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
+  const shopRow = await prisma.shop.upsert({
+    where: { shopDomain: session.shop },
+    create: { shopDomain: session.shop, accessToken: '', planTier: 'UNKNOWN' },
+    update: {},
+  });
 
   // Same plan cap as every other create path (from-recipe / from-template / blueprint).
-  if (shopRow) {
-    try {
-      await new QuotaService().enforce(shopRow.id, 'moduleCount');
-    } catch (e) {
-      if (e instanceof AppError && e.code === 'RATE_LIMITED') {
-        return json({ error: e.message }, { status: 429 });
-      }
-      throw e;
+  try {
+    await new QuotaService().enforce(shopRow.id, 'moduleCount');
+  } catch (e) {
+    if (e instanceof AppError && e.code === 'RATE_LIMITED') {
+      return json({ error: e.message }, { status: 429 });
     }
+    throw e;
   }
 
   const moduleService = new ModuleService();
@@ -89,7 +91,7 @@ export async function action({ request }: { request: Request }) {
     actor: 'SYSTEM',
     action: 'MODULE_CREATED',
     resource: `module:${module.id}`,
-    shopId: shopRow?.id,
+    shopId: shopRow.id,
     details: { name: parsed.data.name, type: parsed.data.type, source: 'agent_api' },
   }).catch(() => {/* non-fatal */});
 

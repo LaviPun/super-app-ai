@@ -985,7 +985,14 @@ function GenFailed({
         <div className="t-h2" style={{ marginTop: 6, textAlign: 'center' }}>No concepts this time</div>
         <div className="gen-prompt-echo">“{prompt}”</div>
         <p style={{ textAlign: 'center', margin: '12px 0 4px' }}>
-          {message || 'The AI returned no valid concepts.'} This attempt was not billed.
+          {(() => {
+            const text = message || 'The AI returned no valid concepts.';
+            // The server's terminal error frame already appends its own
+            // "not billed" sentence (see api.ai.create-module.stream.tsx);
+            // only add the client fallback when the message doesn't already
+            // say it, to avoid doubling the sentence.
+            return /not billed/i.test(text) ? text : `${text} This attempt was not billed.`;
+          })()}
         </p>
         <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={onRetry}>Try again</button>
         <button className="btn btn-plain btn-plain-subdued" style={{ marginTop: 8 }} onClick={onCancel}>Back to modules</button>

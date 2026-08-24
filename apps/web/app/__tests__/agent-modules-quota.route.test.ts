@@ -8,7 +8,12 @@ const hoisted = vi.hoisted(() => ({
   authenticateAdmin: vi.fn(async () => ({ session: { shop: 'test-shop.myshopify.com' } })),
   createDraft: vi.fn(async () => ({ id: 'mod-new', name: 'X', type: 'theme.section', status: 'DRAFT', versions: [{ version: 1 }] })),
   enforce: vi.fn(async () => {}),
-  shopFindUnique: vi.fn(async () => ({ id: 'shop-1' })),
+  // Mirrors the sibling create routes (api.ai.create-module-from-recipe,
+  // api.modules.from-template): `shop.upsert` always returns a row, whether
+  // or not one existed before, so the moduleCount cap can never be skipped
+  // for a shop we haven't seen yet (WS-QF finding: findUnique + `if (shopRow)`
+  // silently no-op'd the cap for a never-before-seen shop).
+  shopUpsert: vi.fn(async () => ({ id: 'shop-1' })),
   log: vi.fn(async () => {}),
 }));
 
@@ -23,7 +28,7 @@ vi.mock('~/services/billing/quota.service', () => ({
     enforce = hoisted.enforce;
   },
 }));
-vi.mock('~/db.server', () => ({ getPrisma: () => ({ shop: { findUnique: hoisted.shopFindUnique } }) }));
+vi.mock('~/db.server', () => ({ getPrisma: () => ({ shop: { upsert: hoisted.shopUpsert } }) }));
 vi.mock('~/services/activity/activity.service', () => ({
   ActivityLogService: class {
     log = hoisted.log;
@@ -58,5 +63,21 @@ describe('api.agent.modules create quota', () => {
     const res = await action({ request: createRequest() });
     expect(res.status).toBe(201);
     expect(hoisted.createDraft).toHaveBeenCalled();
+  });
+
+  it('enforces the cap even for a shop with no prior row (upsert creates it, quota still runs)', async () => {
+    // Simulates a shop hitting this route for the very first time: no Shop
+    // row exists yet, so `upsert` takes the `create` branch. The old
+    // `findUnique` + `if (shopRow)` guard would have skipped the quota check
+    // entirely in this case; `upsert` must not.
+    hoisted.shopUpsert.mockResolvedValueOnce({ id: 'shop-new' });
+    hoisted.enforce.mockRejectedValueOnce(
+      new AppError({ code: 'RATE_LIMITED', message: 'Module limit reached. 3/3.' }),
+    );
+    const { action } = await import('~/routes/api.agent.modules');
+    const res = await action({ request: createRequest() });
+    expect(res.status).toBe(429);
+    expect(hoisted.enforce).toHaveBeenCalledWith('shop-new', 'moduleCount');
+    expect(hoisted.createDraft).not.toHaveBeenCalled();
   });
 });
