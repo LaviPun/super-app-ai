@@ -284,7 +284,7 @@ export const ADMIN_BLOCK_B2B_AND_RESOURCE_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMB-B2B-09',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Collection B2B Visibility',
     description: 'Collection-details block showing which customer tags and companies can see and buy from this collection under B2B catalog scoping.',
     category: 'ADMIN_UI',

@@ -182,7 +182,7 @@ export const CONVERSION_CORE_TEMPLATES: TemplateEntry[] = [
   // ── TBLK-CONV-04 — Bundle Completer (complementary strategy + custom decline) ──
   {
     id: 'TBLK-CONV-04',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Bundle Completer',
     description:
       'Post-add-to-cart modal that offers the complementary product needed to complete the bundle, with a gentle "I’ll pass" decline — resolved live from Shopify complementary recommendations.',

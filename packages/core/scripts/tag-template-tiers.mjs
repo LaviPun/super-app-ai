@@ -17,9 +17,12 @@
  *      (In practice every coverage.ts entry already carries an explicit tier,
  *      so this is a safety net, not a live code path today.)
  *   3. For every remaining copy-variant cluster (see
- *      scripts/lib/cluster-fingerprint.mjs — same fingerprint Task 9's dedupe
- *      used, now re-run against the POST-DEDUPE library so ranking runs against
- *      the final set, not templates about to be deleted): the cluster's single
+ *      scripts/lib/cluster-fingerprint.mjs — same same-file + identity-
+ *      preserving + name/description-similarity fingerprint Task 9's dedupe
+ *      uses (fix round 1), now re-run against the POST-DEDUPE library so
+ *      ranking runs against the final set, not templates about to be deleted;
+ *      on the current library this is 0 clusters, so this rule is dormant
+ *      today but stays correct for future authoring): the cluster's single
  *      "best" member is decided by (a) any member ALREADY tagged `exemplar`
  *      wins outright, else (b) the member with the most non-empty string leaf
  *      values in `spec.config` (a completeness proxy — same idea
@@ -46,7 +49,7 @@
  * Usage: node packages/core/scripts/tag-template-tiers.mjs [--check]
  */
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ALL_TEMPLATES } from '../dist/templates/index.js';
 import { COVERAGE_TEMPLATES } from '../dist/templates/coverage.js';
@@ -55,6 +58,25 @@ import { findClusters } from './lib/cluster-fingerprint.mjs';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC_ROOT = join(HERE, '..', 'src', 'templates');
 const CHECK = process.argv.includes('--check');
+
+function allSourceFiles() {
+  return ['modules', 'blocks', 'sections'].flatMap((d) =>
+    readdirSync(join(SRC_ROOT, d))
+      .filter((f) => f.endsWith('.ts'))
+      .map((f) => join(SRC_ROOT, d, f)),
+  );
+}
+
+function buildFileIndex() {
+  const index = new Map();
+  for (const file of allSourceFiles()) {
+    const src = readFileSync(file, 'utf8');
+    for (const m of src.matchAll(/id:\s*'([^']+)',/g)) {
+      if (m[1]) index.set(m[1], relative(SRC_ROOT, file));
+    }
+  }
+  return index;
+}
 
 /** Count non-empty string leaf values anywhere in a config object — a proxy
  * for "how filled-in is this template" (same idea as dedupe's exemplar-first
@@ -69,7 +91,12 @@ function completeness(value) {
 }
 
 const coverageIds = new Set(COVERAGE_TEMPLATES.map((t) => t.id));
-const clusters = findClusters(ALL_TEMPLATES);
+const fileIndex = buildFileIndex();
+const templatesWithFile = ALL_TEMPLATES.filter((t) => fileIndex.has(t.id)).map((t) => ({
+  ...t,
+  file: fileIndex.get(t.id),
+}));
+const clusters = findClusters(templatesWithFile);
 const clusterByMemberId = new Map();
 for (const cluster of clusters) {
   for (const t of cluster) clusterByMemberId.set(t.id, cluster);
@@ -122,14 +149,6 @@ if (decisions.size === 0) {
 
 if (CHECK) {
   process.exit(0);
-}
-
-function allSourceFiles() {
-  return ['modules', 'blocks', 'sections'].flatMap((d) =>
-    readdirSync(join(SRC_ROOT, d))
-      .filter((f) => f.endsWith('.ts'))
-      .map((f) => join(SRC_ROOT, d, f)),
-  );
 }
 
 /** Insert `tier: '<tier>',` right after the `id: '<id>',` line in `lines`.

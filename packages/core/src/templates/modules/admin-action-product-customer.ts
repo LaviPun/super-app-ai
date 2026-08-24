@@ -349,7 +349,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-PRC-12',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Customer-index — Export Selection',
     description: 'Customer-index selection action to hand the selected customers to a CSV export or an outbound audience sync (Bold Brain-style Audiences).',
     category: 'ADMIN_UI',
@@ -375,7 +375,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   // ── Customer-segment-details action ───────────────────────────────────────
   {
     id: 'ADMA-PRC-13',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Segment — Activate Campaign',
     description: 'Customer-segment-details action that turns the open segment into a campaign audience — a bridge into the email/SMS builder.',
     category: 'ADMIN_UI',
@@ -402,7 +402,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-PRC-14',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Segment — VIP Perk Enrollment',
     description: 'Customer-segment-details action to enroll everyone in the open segment into a loyalty VIP perk or bonus event.',
     category: 'ADMIN_UI',
@@ -549,7 +549,7 @@ export const ADMIN_ACTION_PRODUCT_CUSTOMER_TEMPLATES: TemplateEntry[] = [
   // ── Product-variant-details action ────────────────────────────────────────
   {
     id: 'ADMA-PRC-19',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Variant — Bundle Component',
     description: 'Product-variant-details action showing how this specific variant participates in bundles (as a component SKU) with a link to the builder.',
     category: 'ADMIN_UI',

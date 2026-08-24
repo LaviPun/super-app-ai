@@ -138,7 +138,7 @@ export const ADMIN_DISCOUNT_UI_SETTINGS_TEMPLATES: TemplateEntry[] = [
     // specific price) + value, a highlighted "Most Popular" pre-selected tier, and free
     // shipping as an outcome. Product discount class; Functions-based (no coupon codes).
     id: 'ADUI-04',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Kaching Bundles — Quantity Break Deal',
     description:
       'Product discount settings for a quantity-break / volume deal (per-tier quantity and discount, highlighted tier) on the discount detail page, paired with a product discount Function — Kaching Bundles style.',

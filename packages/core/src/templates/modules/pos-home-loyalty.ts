@@ -30,7 +30,7 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
   // POS-HOME-01 — the canonical Smile/BON/Rivo "look up a member" home tile.
   {
     id: 'POS-HOME-01',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Loyalty Lookup Tile',
     description: 'POS Smart Grid home tile that opens a modal to look up the current customer’s points balance and VIP tier from the loyalty ledger.',
     category: 'ADMIN_UI',
@@ -55,7 +55,7 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
   // POS-HOME-02 — the companion modal that actually reads the balance (LOYALTY_READ + binding).
   {
     id: 'POS-HOME-02',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Points Balance Modal',
     description: 'POS home modal that reads and displays the customer’s current points balance from the app-proxy loyalty ledger.',
     category: 'ADMIN_UI',
@@ -79,10 +79,37 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
     },
   },
 
+  // POS-HOME-03 — VIP tier status tile (tier binding).
+  {
+    id: 'POS-HOME-03',
+    tier: 'standard',
+    name: 'VIP Tier Status Tile',
+    description: 'POS home tile that shows the current customer’s VIP tier (Silver/Gold/Platinum) read from the loyalty ledger, with a modal for tier perks.',
+    category: 'ADMIN_UI',
+    type: 'pos.extension',
+    icon: 'pos',
+    tags: ['pos', 'loyalty', 'vip', 'tier', 'home'],
+    spec: {
+      type: 'pos.extension',
+      name: 'VIP Tier Status Tile',
+      category: 'ADMIN_UI',
+      requires: [],
+      config: {
+        target: 'pos.home.tile.render',
+        label: 'VIP Tier',
+        blockKind: 'tile',
+        presentation: 'TILE_MODAL',
+        action: 'LOYALTY_READ',
+        binding: 'loyalty.tier',
+        appProxyPath: '/apps/loyalty/pos/tier',
+      },
+    },
+  },
+
   // POS-HOME-04 — redeem points → apply the resulting discount to the open sale (LOYALTY_WRITE, PIN-gated).
   {
     id: 'POS-HOME-04',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Redeem Points Modal',
     description: 'POS home modal that debits points from the ledger and records the in-store redemption via the app proxy, staff-PIN gated.',
     category: 'ADMIN_UI',
@@ -212,7 +239,7 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
   // POS-HOME-08 — staff discount modal with a larger override (manager-gated).
   {
     id: 'POS-HOME-08',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Manager Discount Override Modal',
     description: 'POS home modal for a manager-authorized percentage override applied to the active sale, gated behind a staff PIN with a manager role.',
     category: 'ADMIN_UI',
@@ -272,10 +299,63 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
     },
   },
 
+  // POS-HOME-10 — enroll a walk-in customer in the loyalty program (APP_PROXY_POST).
+  {
+    id: 'POS-HOME-10',
+    tier: 'standard',
+    name: 'Enroll Member Modal',
+    description: 'POS home modal that enrolls a walk-in customer in the loyalty program by posting their details to the app-proxy enrollment endpoint.',
+    category: 'ADMIN_UI',
+    type: 'pos.extension',
+    icon: 'pos',
+    tags: ['pos', 'loyalty', 'enroll', 'signup', 'home'],
+    spec: {
+      type: 'pos.extension',
+      name: 'Enroll Member Modal',
+      category: 'ADMIN_UI',
+      requires: [],
+      config: {
+        target: 'pos.home.modal.render',
+        label: 'Join Rewards',
+        blockKind: 'modal',
+        presentation: 'STANDALONE',
+        action: 'APP_PROXY_POST',
+        appProxyPath: '/apps/loyalty/pos/enroll',
+      },
+    },
+  },
+
+  // POS-HOME-11 — scan/lookup a member by QR code (Growave/Rivo QR flow) via app proxy.
+  {
+    id: 'POS-HOME-11',
+    tier: 'standard',
+    name: 'Member QR Lookup Tile',
+    description: 'POS home tile that opens a modal to identify a member by their account QR code and read their loyalty balance from the app proxy.',
+    category: 'ADMIN_UI',
+    type: 'pos.extension',
+    icon: 'pos',
+    tags: ['pos', 'loyalty', 'qr', 'lookup', 'home'],
+    spec: {
+      type: 'pos.extension',
+      name: 'Member QR Lookup Tile',
+      category: 'ADMIN_UI',
+      requires: [],
+      config: {
+        target: 'pos.home.tile.render',
+        label: 'Scan Member QR',
+        blockKind: 'tile',
+        presentation: 'TILE_MODAL',
+        action: 'LOYALTY_READ',
+        binding: 'loyalty.points',
+        appProxyPath: '/apps/loyalty/pos/qr-lookup',
+      },
+    },
+  },
+
   // POS-HOME-12 — display-only rewards catalog tile (NONE action, informational modal).
   {
     id: 'POS-HOME-12',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Rewards Catalog Tile',
     description: 'POS home tile that opens an informational modal listing the in-store rewards staff can offer, with points cost per reward.',
     category: 'ADMIN_UI',
@@ -300,7 +380,7 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
   // POS-HOME-13 — birthday reward tile: award bonus points on the member's birthday (LOYALTY_WRITE, PIN).
   {
     id: 'POS-HOME-13',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Birthday Bonus Tile',
     description: 'POS home tile that credits a birthday bonus to the member’s points balance via the app proxy, staff-PIN gated.',
     category: 'ADMIN_UI',

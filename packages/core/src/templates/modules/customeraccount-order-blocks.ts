@@ -227,7 +227,7 @@ export const CUSTOMERACCOUNT_ORDER_BLOCKS_TEMPLATES: TemplateEntry[] = [
   // ── Review-request (Judge.me / Okendo / Growave-grounded) ──────────────────
   {
     id: 'CAB-ORD-06',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Write a Review — Order Status Prompt',
     description:
       'Ask-review prompt on the order-status page inviting buyers to review their purchase, matching the Judge.me / Growave post-purchase review CTA.',
@@ -265,7 +265,7 @@ export const CUSTOMERACCOUNT_ORDER_BLOCKS_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'CAB-ORD-07',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Photo Review Request — Reward Nudge',
     description:
       'Order-status review-request block that offers a reward for a photo review, mirroring Okendo/Growave bonus-points-for-media review capture.',

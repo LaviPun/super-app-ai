@@ -1,30 +1,27 @@
 #!/usr/bin/env node
 /**
  * Dedupe copy-variant clusters down to a per-cluster cap (WS-H Task 9, H2).
- *
- * A "copy-variant cluster" (see scripts/lib/cluster-fingerprint.mjs) is a group
- * of TemplateEntry objects sharing spec.type + config SHAPE, differing only in
- * copy text. `templateId` has no Prisma foreign key anywhere (H2, WS-H plan) —
- * deleting excess copy-variants down to a cap is safe.
+ * FIX ROUND 1: rebuilt on the corrected same-file + identity-preserving +
+ * name/description-similarity fingerprint (scripts/lib/cluster-fingerprint.mjs)
+ * after the original naive fingerprint deleted 31 genuinely distinct templates
+ * (see that module's header for the full incident writeup). `templateId` has
+ * no Prisma foreign key anywhere (H2) — deleting excess TRUE copy-variants is
+ * still safe, but "true copy-variant" is now checked far more strictly.
  *
  * For every cluster with MORE than `--cap` (default 4) members: keep the first
- * `cap` (preferring any already `tier: 'exemplar'`, then declaration order —
- * the order ALL_TEMPLATES iterates them, which is stable/deterministic), delete
- * the object literal for every other member from its declaring source file.
+ * `cap` (preferring any already `tier: 'exemplar'`, then declaration order),
+ * delete the object literal for every other member from its declaring source
+ * file. With the corrected fingerprint, the honest result across the current
+ * library is 0 clusters even exist (let alone exceed the cap) — see the Task
+ * 8-10 report's "Fix round 1" section for the full per-cluster-group listing
+ * (empty) that justifies this. This script is kept as a permanent, correct
+ * guardrail for FUTURE authoring, not because it currently deletes anything.
  *
- * `--check` reports what WOULD be deleted (id + file) without writing anything.
- * Without `--check`, rewrites the source files for real.
+ * `--check` reports what WOULD be deleted (id + file) without writing
+ * anything. Without `--check`, rewrites the source files for real.
  *
- * Deletion mechanism: line-based, not a whole-tree regex. Every TemplateEntry in
- * this codebase is a top-level array element indented exactly 2 spaces (`  {`
- * ... `  },`), with `id:` as its first property — confirmed by inspection across
- * every file this script touches. For a target id, the entry's bounds are found
- * by scanning outward from the `id: '<id>',` line to the nearest exactly-2-space
- * `{` above and the nearest exactly-2-space `},`/`}` below, plus an optional
- * single-line `//` comment immediately preceding the entry. This is safe against
- * copy text that happens to contain `{`/`}` characters (which a brace-counting
- * approach would have to parse around) because it only ever inspects INDENTATION
- * of whole lines, never nested content.
+ * Deletion mechanism unchanged from the original: line-based, not a
+ * whole-tree regex (see removeEntryById below for the exact contract).
  *
  * Requires a fresh `pnpm --filter @superapp/core build` (reads from dist/) to
  * compute clusters; edits the readable TS SOURCE under src/templates/, not dist.
@@ -32,7 +29,7 @@
  * Usage: node packages/core/scripts/dedupe-copy-variants.mjs [--cap N] [--check]
  */
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ALL_TEMPLATES } from '../dist/templates/index.js';
 import { findClusters } from './lib/cluster-fingerprint.mjs';
@@ -45,6 +42,26 @@ const CHECK = args.includes('--check');
 const capIdx = args.indexOf('--cap');
 const CAP = capIdx !== -1 ? Number(args[capIdx + 1]) : 4;
 
+/** All .ts template source files (same three dirs the integrity test scans). */
+function allSourceFiles() {
+  return ['modules', 'blocks', 'sections'].flatMap((d) =>
+    readdirSync(join(SRC_ROOT, d))
+      .filter((f) => f.endsWith('.ts'))
+      .map((f) => join(SRC_ROOT, d, f)),
+  );
+}
+
+function buildFileIndex() {
+  const index = new Map();
+  for (const file of allSourceFiles()) {
+    const src = readFileSync(file, 'utf8');
+    for (const m of src.matchAll(/id:\s*'([^']+)',/g)) {
+      index.set(m[1], relative(SRC_ROOT, file));
+    }
+  }
+  return index;
+}
+
 function decideKeepAndDelete(cluster, cap) {
   const ranked = [...cluster].sort((a, b) => {
     const aEx = a.tier === 'exemplar' ? 0 : 1;
@@ -53,15 +70,6 @@ function decideKeepAndDelete(cluster, cap) {
     return 0; // stable sort preserves declaration order for ties
   });
   return { keep: ranked.slice(0, cap), remove: ranked.slice(cap) };
-}
-
-/** All .ts template source files (same three dirs the integrity test scans). */
-function allSourceFiles() {
-  return ['modules', 'blocks', 'sections'].flatMap((d) =>
-    readdirSync(join(SRC_ROOT, d))
-      .filter((f) => f.endsWith('.ts'))
-      .map((f) => join(SRC_ROOT, d, f)),
-  );
 }
 
 /** Remove the TemplateEntry object literal for `id` from `lines` (array of source
@@ -80,15 +88,18 @@ function removeEntryById(lines, id) {
   }
   if (startIdx === -1) throw new Error(`could not find opening '  {' for ${id} above line ${idLineIdx}`);
 
-  // Absorb an immediately-preceding single-line `//` comment (own line, same
-  // 2-space indent) as part of the deletion — e.g. `  // POS-HOME-03 — ...`.
-  if (startIdx > 0 && /^\s*\/\/.*$/.test(lines[startIdx - 1])) {
+  // Absorb an immediately-preceding single-line `//` comment ONLY if it looks
+  // like a per-entry annotation (mentions this exact id) — never a shared
+  // section-header comment, which must survive for the entries still below it.
+  // (Fix round 1: the original version absorbed ANY preceding comment line
+  // unconditionally, silently deleting shared `// ── section header ──`
+  // comments along with the first cluster member under them.)
+  if (startIdx > 0 && lines[startIdx - 1].includes(id)) {
     startIdx -= 1;
   }
 
   let endIdx = -1;
   for (let i = idLineIdx + 1; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
     if (lines[i] === '  },' || lines[i] === '  }') {
       endIdx = i;
       break;
@@ -100,10 +111,15 @@ function removeEntryById(lines, id) {
   return { lines: nextLines, removed: true };
 }
 
-const clusters = findClusters(ALL_TEMPLATES);
+const fileIndex = buildFileIndex();
+const templatesWithFile = ALL_TEMPLATES.filter((t) => fileIndex.has(t.id)).map((t) => ({
+  ...t,
+  file: fileIndex.get(t.id),
+}));
+
+const clusters = findClusters(templatesWithFile);
 const oversized = clusters.filter((c) => c.length > CAP);
 
-/** id -> keep|remove decision, flattened across all oversized clusters. */
 const toRemove = new Set();
 const decisions = [];
 for (const cluster of oversized) {
@@ -112,9 +128,8 @@ for (const cluster of oversized) {
   decisions.push({ clusterSize: cluster.length, keep: keep.map((t) => t.id), remove: remove.map((t) => t.id) });
 }
 
-console.log(
-  `${oversized.length} oversized cluster(s) (cap=${CAP}), ${toRemove.size} template(s) to remove:`,
-);
+console.log(`${clusters.length} genuine copy-variant cluster(s) found (any size).`);
+console.log(`${oversized.length} oversized cluster(s) (cap=${CAP}), ${toRemove.size} template(s) to remove:`);
 for (const d of decisions) {
   console.log(`  cluster of ${d.clusterSize}: keep [${d.keep.join(', ')}]  remove [${d.remove.join(', ')}]`);
 }
@@ -130,8 +145,7 @@ if (CHECK) {
 
 let totalRemoved = 0;
 for (const file of allSourceFiles()) {
-  let src = readFileSync(file, 'utf8');
-  let lines = src.split('\n');
+  let lines = readFileSync(file, 'utf8').split('\n');
   let fileChanged = false;
   for (const id of [...toRemove]) {
     const { lines: nextLines, removed } = removeEntryById(lines, id);

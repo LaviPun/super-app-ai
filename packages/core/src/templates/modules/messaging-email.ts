@@ -331,7 +331,7 @@ export const MESSAGING_EMAIL_TEMPLATES: TemplateEntry[] = [
   // ── Review request — photo review incentive ─────────────────────────────────
   {
     id: 'MSG-EMAIL-08',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Review Request — Photo Review Incentive',
     description:
       'Follow-up review ask that offers a next-order discount for a photo review, seeded from a data-store of recent buyers.',

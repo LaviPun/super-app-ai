@@ -53,7 +53,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-02',
-    tier: 'floor',
+    tier: 'standard',
     name: 'POS VIP Tier Panel',
     description: 'Displays the customer\'s VIP tier on the POS customer-details screen so staff can honor tier perks in-store.',
     category: 'ADMIN_UI',
@@ -102,7 +102,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-04',
-    tier: 'floor',
+    tier: 'standard',
     name: 'POS Wholesale Tier Panel',
     description: 'Shows the customer\'s wholesale/B2B pricing tier on the POS customer-details screen so staff apply the right price.',
     category: 'ADMIN_UI',
@@ -126,7 +126,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-05',
-    tier: 'floor',
+    tier: 'standard',
     name: 'POS Store Credit Panel',
     description: 'Displays the customer\'s available store-credit balance on the POS customer-details screen, read from the app proxy.',
     category: 'ADMIN_UI',
@@ -153,7 +153,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   // ── pos.customer-details.action.menu-item + action.render — customer-scoped actions ──
   {
     id: 'POS-CUST-06',
-    tier: 'floor',
+    tier: 'standard',
     name: 'POS Enroll in Loyalty',
     description: 'Adds a customer-details menu action that enrolls the walk-in customer into the loyalty program via the app proxy.',
     category: 'ADMIN_UI',
@@ -208,7 +208,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-08',
-    tier: 'floor',
+    tier: 'standard',
     name: 'POS Apply VIP Member Discount',
     description: 'Customer-details action that applies the customer\'s VIP-tier percentage discount to the cart, gated by a staff PIN.',
     category: 'ADMIN_UI',
@@ -292,7 +292,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-11',
-    tier: 'floor',
+    tier: 'standard',
     name: 'POS Capture Wishlist Email',
     description: 'Customer-details action that captures the walk-in customer\'s email into their wishlist/marketing list via the app proxy.',
     category: 'ADMIN_UI',
@@ -341,6 +341,30 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
     },
   },
   {
+    id: 'POS-CUST-13',
+    tier: 'standard',
+    name: 'POS Send Referral Link',
+    description: 'Customer-details action that emails the customer their loyalty referral link via the app proxy.',
+    category: 'ADMIN_UI',
+    type: 'pos.extension',
+    icon: 'pos',
+    tags: ['pos', 'loyalty', 'referral', 'customer', 'smile'],
+    spec: {
+      type: 'pos.extension',
+      name: 'POS Send Referral Link',
+      category: 'ADMIN_UI',
+      requires: [],
+      config: {
+        target: 'pos.customer-details.action.render',
+        label: 'Send referral link',
+        blockKind: 'action',
+        presentation: 'MENUITEM_ACTION',
+        action: 'APP_PROXY_POST',
+        appProxyPath: '/loyalty/referral-link',
+      },
+    },
+  },
+  {
     id: 'POS-CUST-14',
     tier: 'standard',
     name: 'POS Enroll Menu Item',
@@ -365,7 +389,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-15',
-    tier: 'floor',
+    tier: 'standard',
     name: 'POS Loyalty Actions Menu Item',
     description: 'Customer-details menu-item entry that opens the loyalty redeem/award action sheet at the POS counter.',
     category: 'ADMIN_UI',
@@ -420,7 +444,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-17',
-    tier: 'floor',
+    tier: 'standard',
     name: 'POS Line Flash-Sale Discount',
     description: 'Cart line-item action that applies a flash-sale fixed-amount discount to the selected line at POS.',
     category: 'ADMIN_UI',

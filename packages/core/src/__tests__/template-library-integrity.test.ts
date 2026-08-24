@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { blankStrings } from '../../scripts/lib/cluster-fingerprint.mjs';
+import { findClusters } from '../../scripts/lib/cluster-fingerprint.mjs';
 
 const TEMPLATES_ROOT = join(__dirname, '..', 'templates');
 
@@ -12,6 +12,18 @@ function allTemplateFiles(): string[] {
       .filter((f) => f.endsWith('.ts'))
       .map((f) => join(TEMPLATES_ROOT, d, f)),
   );
+}
+
+/** id -> relative source file, same convention the dedupe scripts use. */
+function buildFileIndex(): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const file of allTemplateFiles()) {
+    const src = readFileSync(file, 'utf8');
+    for (const m of src.matchAll(/id:\s*'([^']+)',/g)) {
+      if (m[1]) index.set(m[1], relative(TEMPLATES_ROOT, file));
+    }
+  }
+  return index;
 }
 
 describe('template library integrity (WS-H)', () => {
@@ -39,17 +51,18 @@ describe('template library integrity (WS-H)', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('no structural-duplicate cluster exceeds 4 members (Tmpl dedupe)', async () => {
+  it('no genuine copy-variant cluster exceeds 4 members (Tmpl dedupe, fix round 1: same-file + identity-preserving fingerprint)', async () => {
     const { ALL_TEMPLATES } = await import('../templates/index.js');
-    const groups = new Map<string, string[]>();
-    for (const t of ALL_TEMPLATES) {
-      const key = t.spec.type + '::' + JSON.stringify(blankStrings(t.spec.config));
-      const bucket = groups.get(key);
-      if (bucket) bucket.push(t.id);
-      else groups.set(key, [t.id]);
-    }
-    const oversized = [...groups.entries()].filter(([, ids]) => ids.length > 4);
-    expect(oversized, JSON.stringify(oversized.map(([, ids]) => ids))).toEqual([]);
+    const fileIndex = buildFileIndex();
+    const templatesWithFile = ALL_TEMPLATES.filter((t) => fileIndex.has(t.id)).map((t) => ({
+      ...t,
+      file: fileIndex.get(t.id)!,
+    }));
+    const oversized = findClusters(templatesWithFile).filter((c) => c.length > 4);
+    expect(
+      oversized,
+      JSON.stringify(oversized.map((c) => c.map((t) => t.id))),
+    ).toEqual([]);
   });
 
   it('every RECIPE_SPEC_TYPE still has at least one template after dedupe (coverage floor)', async () => {

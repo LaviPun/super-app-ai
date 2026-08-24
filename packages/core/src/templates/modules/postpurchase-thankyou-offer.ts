@@ -81,7 +81,7 @@ export const POSTPURCHASE_THANKYOU_OFFER_TEMPLATES: TemplateEntry[] = [
   // A fixed protection-plan variant; the classic post-purchase add-on offer.
   {
     id: 'PPO-02',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Post-Purchase Warranty / Protection Add-On',
     description:
       'Offer an extended warranty or shipping-protection plan on the post-purchase page — a low-friction add-on tacked onto the paid order.',
@@ -220,7 +220,7 @@ export const POSTPURCHASE_THANKYOU_OFFER_TEMPLATES: TemplateEntry[] = [
   // chance" downsell after a declined upsell. Fixed variant = manual strategy.
   {
     id: 'PPO-05',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Post-Purchase Downsell Offer',
     description:
       'A lower-commitment downsell shown as the second post-purchase offer — a discounted single product framed as a last-chance add.',

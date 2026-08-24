@@ -156,7 +156,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-B2B-05',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Bulk Wholesale Draft Re-price',
     description: 'Draft order index selection action that applies wholesale pricing groups to a batch of open drafts before sending invoices.',
     category: 'ADMIN_UI',
@@ -286,7 +286,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-B2B-09',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Quantity-Break Discount',
     description: 'Discount index action that creates a tiered volume discount whose thresholds mirror the store’s wholesale quantity breaks.',
     category: 'ADMIN_UI',
@@ -415,7 +415,7 @@ export const ADMA_B2B_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-B2B-13',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Bulk Tag Wholesale Customers',
     description: 'Customer index selection action that applies a wholesale customer tag to a batch of accounts so B2B pricing resolves for them.',
     category: 'ADMIN_UI',

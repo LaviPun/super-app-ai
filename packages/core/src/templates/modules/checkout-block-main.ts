@@ -229,7 +229,7 @@ export const CHECKOUT_BLOCK_MAIN_TEMPLATES: TemplateEntry[] = [
   // write, placed near the delivery-address step.
   {
     id: 'CHKB-05',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Delivery Instructions Field',
     description:
       'Free-text delivery-instructions input near the checkout delivery address, saved to the buyer note so couriers and staff can read it.',

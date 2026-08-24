@@ -56,7 +56,7 @@ export const NATIVE_TABS_TEMPLATES: TemplateEntry[] = [
   // NSEC-TAB-02 — Service plan tabs (Bold DTC / SaaS).
   {
     id: 'NSEC-TAB-02',
-    tier: 'floor',
+    tier: 'standard',
     name: 'Tabs — Service Plans',
     description: 'A tabbed block comparing monthly, annual, and team service plans in an ARIA tablist — each plan panel stays in the DOM (SEO/no-JS), for a pricing or landing page.',
     category: 'STOREFRONT_UI',
