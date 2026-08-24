@@ -15,8 +15,8 @@ export async function loader({ request, params }: { request: Request; params: { 
   // no embedded-admin session token, so authenticate.admin() would bounce to OAuth and
   // render a blank page. Instead of trusting a raw `?shop=` query param (which let any
   // caller who obtained a (shop, moduleId) pair view that shop's compiled module HTML
-  // with no authentication), the link now carries a short-lived, HMAC/AES-GCM-signed
-  // capability token minted server-side (in the authenticated modules.$moduleId.tsx
+  // with no authentication), the link now carries a short-lived, AES-256-GCM
+  // authenticated-encryption capability token minted server-side (in the authenticated modules.$moduleId.tsx
   // loader) that binds this exact (shop, moduleId) pair to a 5-minute window.
   const token = new URL(request.url).searchParams.get('token')?.trim();
   const ms = new ModuleService();

@@ -28,4 +28,14 @@ describe('preview-token (WS-F: preview.$moduleId.tsx auth gap)', () => {
     const { verifyPreviewToken } = await import('~/services/security/preview-token.server');
     expect(() => verifyPreviewToken('not-a-real-token', { moduleId: 'mod_1' })).toThrow();
   });
+
+  it('rejects a validly-encrypted payload minted for a different purpose (replay-proofing)', async () => {
+    // Simulates a future capability token reusing this same encryptJson/decryptJson
+    // envelope for a different concern — the purpose discriminator must reject it
+    // even though decryption succeeds and the shape happens to overlap.
+    const { encryptJson } = await import('~/services/security/crypto.server');
+    const { verifyPreviewToken } = await import('~/services/security/preview-token.server');
+    const foreignToken = encryptJson({ purpose: 'not-preview', shop: 'acme.myshopify.com', moduleId: 'mod_1', exp: Date.now() + 60_000 });
+    expect(() => verifyPreviewToken(foreignToken, { moduleId: 'mod_1' })).toThrow();
+  });
 });
