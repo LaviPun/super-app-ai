@@ -29,6 +29,13 @@ const shopify = shopifyApp({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   sessionStorage: getSessionStorage() as any,
   distribution: AppDistribution.AppStore,
+  // Managed installation + token exchange: no OAuth redirect dance for the
+  // embedded app. Requires use_legacy_install_flow = false in
+  // shopify.app.production.toml (already set). Flag name is stable through
+  // shopify-app-remix v5.
+  future: {
+    unstable_newEmbeddedAuthStrategy: true,
+  },
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),

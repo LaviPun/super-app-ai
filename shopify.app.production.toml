@@ -142,7 +142,8 @@ extensions_summary = "Search and report on Super App AI generated modules (store
 redirect_urls = [
   "https://web-production-3fe27.up.railway.app/auth/callback",
   "https://web-production-3fe27.up.railway.app/auth/shopify/callback",
-  "https://web-production-3fe27.up.railway.app/api/auth/callback"
+  "https://web-production-3fe27.up.railway.app/api/auth/callback",
+  "https://web-production-3fe27.up.railway.app/auth/login"
 ]
 
 [metaobjects.app.superapp_module]
