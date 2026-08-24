@@ -44,6 +44,46 @@ function maskSecret(enc: string | null | undefined, field: string): string | nul
   }
 }
 
+// Task 11: bounded-timeout, never-throw status read against the real
+// UptimeRobot Monitors API — matches the SLACK_TIMEOUT_MS convention in
+// ops-alert-slack.server.ts. This read-only status key has no boot-time
+// coupling (Decision G5), so both the loader (passive reflect) and the
+// test-connection action call the same helper.
+const UPSTREAM_STATUS_TIMEOUT_MS = 10_000;
+
+type UptimeRobotStatus = { status: 'up' | 'down' | 'unknown' | 'not_configured' | 'error'; error?: string };
+
+async function resolveUptimeRobotStatus(apiKeyEnc: string | null | undefined, monitorId: string | null | undefined): Promise<UptimeRobotStatus> {
+  if (!apiKeyEnc || !monitorId) return { status: 'not_configured' };
+  let apiKey: string;
+  try {
+    apiKey = decryptJson<{ apiKey: string }>(apiKeyEnc).apiKey;
+  } catch {
+    return { status: 'error', error: 'Stored UptimeRobot API key could not be decrypted' };
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), UPSTREAM_STATUS_TIMEOUT_MS);
+  try {
+    const res = await fetch('https://api.uptimerobot.com/v2/getMonitors', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+      body: new URLSearchParams({ api_key: apiKey, monitors: monitorId, format: 'json' }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return { status: 'error', error: `UptimeRobot API responded ${res.status}` };
+    const body = (await res.json()) as { stat?: string; monitors?: Array<{ status?: number }>; error?: { message?: string } };
+    if (body.stat !== 'ok') return { status: 'error', error: body.error?.message ?? 'UptimeRobot API returned an error' };
+    const raw = body.monitors?.[0]?.status;
+    if (raw === 2) return { status: 'up' };
+    if (raw === 9) return { status: 'down' };
+    return { status: 'unknown' };
+  } catch (error) {
+    return { status: 'error', error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 const CATEGORY_LABEL: Record<IntegrationCategory, string> = {
   AI_PROVIDER: 'AI providers',
   OPS_SERVICE: 'Ops services',
@@ -70,9 +110,12 @@ export async function loader({ request }: { request: Request }) {
       opsSlackWebhookUrlEnc: true,
       opsAlertThresholdCount: true,
       opsAlertThresholdWindowMin: true,
+      uptimeRobotApiKeyEnc: true,
+      uptimeRobotMonitorId: true,
     },
   });
   const mailerStatus = await resolveMailerStatus();
+  const uptimeRobotStatus = await resolveUptimeRobotStatus(appSettings?.uptimeRobotApiKeyEnc, appSettings?.uptimeRobotMonitorId);
   return json({
     tiles: INTEGRATION_TILES,
     sentry: {
@@ -96,6 +139,12 @@ export async function loader({ request }: { request: Request }) {
       webhookMasked: maskSecret(appSettings?.opsSlackWebhookUrlEnc, 'url'),
       thresholdCount: appSettings?.opsAlertThresholdCount ?? 3,
       thresholdWindowMin: appSettings?.opsAlertThresholdWindowMin ?? 15,
+    },
+    uptimeRobot: {
+      configured: Boolean(appSettings?.uptimeRobotApiKeyEnc && appSettings?.uptimeRobotMonitorId),
+      monitorId: appSettings?.uptimeRobotMonitorId ?? null,
+      apiKeyMasked: maskSecret(appSettings?.uptimeRobotApiKeyEnc, 'apiKey'),
+      ...uptimeRobotStatus,
     },
   });
 }
@@ -229,6 +278,31 @@ export async function action({ request }: { request: Request }) {
     await prisma.appSettings.upsert({ where: { id: 'singleton' }, create: { id: 'singleton', ...data }, update: data });
     await activity.log({ actor: 'INTERNAL_ADMIN', action: 'OPS_INTEGRATION_SAVED', resource: 'integration:alert-thresholds' });
     return json<ActionResult>({ ok: true, message: 'Alert thresholds saved' });
+  }
+
+  if (intent === 'saveUptimeRobot') {
+    const apiKey = String(form.get('apiKey') ?? '').trim();
+    const monitorId = String(form.get('monitorId') ?? '').trim() || null;
+    const prisma = getPrisma();
+    const data: Record<string, unknown> = { uptimeRobotMonitorId: monitorId };
+    if (apiKey) data.uptimeRobotApiKeyEnc = encryptJson({ apiKey });
+    await prisma.appSettings.upsert({ where: { id: 'singleton' }, create: { id: 'singleton', ...data }, update: data });
+    await activity.log({ actor: 'INTERNAL_ADMIN', action: 'OPS_INTEGRATION_SAVED', resource: 'integration:uptimerobot' });
+    return json<ActionResult>({ ok: true, message: 'UptimeRobot settings saved' });
+  }
+
+  if (intent === 'testUptimeRobot') {
+    const prisma = getPrisma();
+    const settings = await prisma.appSettings.findUnique({
+      where: { id: 'singleton' },
+      select: { uptimeRobotApiKeyEnc: true, uptimeRobotMonitorId: true },
+    });
+    const result = await resolveUptimeRobotStatus(settings?.uptimeRobotApiKeyEnc, settings?.uptimeRobotMonitorId);
+    await activity.log({ actor: 'INTERNAL_ADMIN', action: 'OPS_INTEGRATION_TESTED', resource: 'integration:uptimerobot', details: { status: result.status } });
+    if (result.status === 'error' || result.status === 'not_configured') {
+      return json<ActionResult>({ error: result.error ?? 'UptimeRobot is not configured' }, { status: 400 });
+    }
+    return json<ActionResult>({ ok: true, message: `UptimeRobot monitor is ${result.status}` });
   }
 
   return json<ActionResult>({ error: `Unknown intent: ${intent}` }, { status: 400 });
@@ -454,8 +528,89 @@ function SlackTileBody({
   );
 }
 
+// Shared status-badge vocabulary for the read-only status tiles (Tasks 11-12).
+const OPS_STATUS_TONE: Record<string, 'success' | 'warning' | 'critical' | 'info'> = {
+  up: 'success',
+  down: 'critical',
+  grace: 'warning',
+  paused: 'warning',
+  new: 'info',
+  unknown: 'info',
+  not_configured: 'info',
+  error: 'critical',
+};
+
+const OPS_STATUS_LABEL: Record<string, string> = {
+  up: 'Up',
+  down: 'Down',
+  grace: 'Grace period',
+  paused: 'Paused',
+  new: 'Never pinged yet',
+  unknown: 'Unknown',
+  not_configured: 'Not configured',
+  error: 'Error',
+};
+
+interface UptimeRobotTileState {
+  configured: boolean;
+  monitorId: string | null;
+  apiKeyMasked: string | null;
+  status: string;
+  error?: string;
+}
+
+function UptimeRobotTileBody({
+  uptimeRobot,
+  onSave,
+  onTest,
+  busy,
+}: {
+  uptimeRobot: UptimeRobotTileState;
+  onSave: (apiKey: string, monitorId: string) => void;
+  onTest: () => void;
+  busy: boolean;
+}) {
+  const [apiKey, setApiKey] = useState('');
+  const [monitorId, setMonitorId] = useState(uptimeRobot.monitorId ?? '');
+
+  return (
+    <>
+      <KV
+        rows={[
+          [
+            'Live status',
+            <Badge key="s" tone={OPS_STATUS_TONE[uptimeRobot.status] ?? 'info'} dot>
+              {OPS_STATUS_LABEL[uptimeRobot.status] ?? uptimeRobot.status}
+            </Badge>,
+          ],
+          uptimeRobot.error ? ['Last error', uptimeRobot.error] : false,
+        ]}
+      />
+      <p className="t-xs t-muted" style={{ marginTop: 6 }}>
+        The monitor itself is configured in the UptimeRobot dashboard against <code>/healthz</code> — this only reads its status.
+      </p>
+      <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+        <Field label="Monitor ID">
+          <Input value={monitorId} onChange={(e) => setMonitorId(e.target.value)} placeholder="8123456" />
+        </Field>
+        <Field label="Read-only API key" help={uptimeRobot.apiKeyMasked ? `Currently set: ${uptimeRobot.apiKeyMasked}` : 'Not set'}>
+          <Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="Leave blank to keep existing" />
+        </Field>
+        <div className="row-3">
+          <Btn size="sm" loading={busy} onClick={() => onSave(apiKey, monitorId)}>
+            Save
+          </Btn>
+          <Btn size="sm" variant="secondary" loading={busy} onClick={onTest}>
+            Test connection
+          </Btn>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function IntegrationsHub() {
-  const { tiles, sentry, email, slack } = useLoaderData<typeof loader>();
+  const { tiles, sentry, email, slack, uptimeRobot } = useLoaderData<typeof loader>();
   const ops = useIntentSubmit();
   const testSentry = () => ops.submit({ intent: 'testSentry' });
   const saveEmail = (fields: Record<string, string>) => ops.submit({ intent: 'saveEmail', ...fields });
@@ -464,6 +619,8 @@ export default function IntegrationsHub() {
   const testSlackWebhook = () => ops.submit({ intent: 'testSlackWebhook' });
   const saveAlertThresholds = (thresholdCount: string, thresholdWindowMin: string) =>
     ops.submit({ intent: 'saveAlertThresholds', thresholdCount, thresholdWindowMin });
+  const saveUptimeRobot = (apiKey: string, monitorId: string) => ops.submit({ intent: 'saveUptimeRobot', apiKey, monitorId });
+  const testUptimeRobot = () => ops.submit({ intent: 'testUptimeRobot' });
 
   return (
     <div className="page">
@@ -509,6 +666,9 @@ export default function IntegrationsHub() {
                           onSaveThresholds={saveAlertThresholds}
                           busy={ops.busy}
                         />
+                      ) : null}
+                      {tile.id === 'uptimerobot' ? (
+                        <UptimeRobotTileBody uptimeRobot={uptimeRobot} onSave={saveUptimeRobot} onTest={testUptimeRobot} busy={ops.busy} />
                       ) : null}
                     </div>
                   ))}

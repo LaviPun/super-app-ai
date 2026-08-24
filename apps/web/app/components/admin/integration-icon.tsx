@@ -32,6 +32,10 @@
 // `generic-mail` — a chat-bubble glyph, since it represents the "incoming
 // webhook chat alert" channel, not a Slack-branded mark.
 //
+// Task 11 (UptimeRobot tile): confirmed (again) that no `siUptimerobot`
+// export exists — `generic-pulse` (a bolt/pulse glyph) is the same
+// non-brand-fallback treatment, representing "uptime monitor" generically.
+//
 // Each real simple-icons slug actually in use is imported by name below, so
 // an unresolvable brand fails at BUILD time (missing export) rather than
 // silently rendering a blank icon in production. The hand-authored `generic-*`
@@ -64,10 +68,22 @@ const GENERIC_CHAT_ICON: SimpleIcon = {
   hex: '6B7280',
 };
 
+/** UptimeRobot tile fallback — bolt/pulse glyph (Material "bolt", Apache-2.0). */
+const GENERIC_PULSE_PATH = 'M7,2v11h3v9l7-12h-4l4-8H7z';
+const GENERIC_PULSE_ICON: SimpleIcon = {
+  title: 'UptimeRobot',
+  slug: 'generic-pulse',
+  svg: `<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="${GENERIC_PULSE_PATH}"/></svg>`,
+  path: GENERIC_PULSE_PATH,
+  source: 'https://fonts.google.com/icons (Material Symbols, Apache-2.0)',
+  hex: '6B7280',
+};
+
 const REGISTRY: Record<string, SimpleIcon> = {
   siSentry,
   'generic-mail': GENERIC_MAIL_ICON,
   'generic-chat': GENERIC_CHAT_ICON,
+  'generic-pulse': GENERIC_PULSE_ICON,
 };
 
 export function IntegrationIcon({

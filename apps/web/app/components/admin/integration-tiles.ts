@@ -55,4 +55,14 @@ export const INTEGRATION_TILES: readonly IntegrationTileDef[] = [
     configKind: 'DB',
     description: 'Incoming-webhook alerts for ops failures — fires once the rolling-window failure threshold is crossed (Sentry always fires unconditionally; this and email are threshold-gated).',
   },
+  {
+    id: 'uptimerobot',
+    category: 'OPS_SERVICE',
+    label: 'UptimeRobot',
+    // No siUptimerobot export exists in simple-icons@16 — 'generic-pulse' is
+    // a hand-authored, non-brand fallback, see integration-icon.tsx.
+    simpleIconSlug: 'generic-pulse',
+    configKind: 'DB',
+    description: 'Uptime monitor on /healthz. The monitor itself lives in the UptimeRobot dashboard — this tile only reflects its live status via a read-only API key.',
+  },
 ];

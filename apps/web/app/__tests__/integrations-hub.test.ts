@@ -20,6 +20,11 @@ describe('Integrations Hub tile registry', () => {
     const ids = INTEGRATION_TILES.map((t) => t.id);
     expect(ids).toContain('slack-ops');
   });
+
+  it('includes the uptimerobot tile (Task 11)', () => {
+    const ids = INTEGRATION_TILES.map((t) => t.id);
+    expect(ids).toContain('uptimerobot');
+  });
 });
 
 /**
@@ -94,6 +99,7 @@ function formRequest(fields: Record<string, string>): Request {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
   requireInternalAdminMock.mockResolvedValue(undefined);
   appSettingsFindUniqueMock.mockResolvedValue(null);
   sendEmailMock.mockResolvedValue({ sent: true });
@@ -260,5 +266,88 @@ describe('internal.integrations action — slack tile', () => {
     });
     expect(res.status).toBe(400);
     expect(appSettingsUpsertMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Task 11 (WS-INT): UptimeRobot tile — DB-stored read-only key, live status
+ * from the real UptimeRobot Monitors API (loader-level and test-connection).
+ * Decision G5: no boot-time coupling, so the key is DB-config like email/Slack,
+ * not env-reflect like Sentry.
+ */
+describe('internal.integrations — UptimeRobot tile', () => {
+  it('loader resolves status "up" when the API returns status:2', async () => {
+    appSettingsFindUniqueMock.mockResolvedValueOnce({ uptimeRobotApiKeyEnc: 'enc(...)', uptimeRobotMonitorId: '8123456' });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ stat: 'ok', monitors: [{ status: 2 }] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { loader } = await import('~/routes/internal.integrations');
+    const data = (await (await loader({ request: new Request('https://x/internal/integrations') })).json()) as {
+      uptimeRobot: { status: string };
+    };
+    expect(data.uptimeRobot.status).toBe('up');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.uptimerobot.com/v2/getMonitors',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('loader resolves status "down" when the API returns status:9', async () => {
+    appSettingsFindUniqueMock.mockResolvedValueOnce({ uptimeRobotApiKeyEnc: 'enc(...)', uptimeRobotMonitorId: '8123456' });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ stat: 'ok', monitors: [{ status: 9 }] }), { status: 200 })));
+    const { loader } = await import('~/routes/internal.integrations');
+    const data = (await (await loader({ request: new Request('https://x/internal/integrations') })).json()) as {
+      uptimeRobot: { status: string };
+    };
+    expect(data.uptimeRobot.status).toBe('down');
+  });
+
+  it('loader reports "not_configured" (never throws) when no key/monitor id is set', async () => {
+    appSettingsFindUniqueMock.mockResolvedValueOnce({ uptimeRobotApiKeyEnc: null, uptimeRobotMonitorId: null });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const { loader } = await import('~/routes/internal.integrations');
+    const data = (await (await loader({ request: new Request('https://x/internal/integrations') })).json()) as {
+      uptimeRobot: { status: string };
+    };
+    expect(data.uptimeRobot.status).toBe('not_configured');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('loader reports "error" (never throws) on a network failure — honest status, no fake green', async () => {
+    appSettingsFindUniqueMock.mockResolvedValueOnce({ uptimeRobotApiKeyEnc: 'enc(...)', uptimeRobotMonitorId: '8123456' });
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('ECONNREFUSED'); }));
+    const { loader } = await import('~/routes/internal.integrations');
+    const res = await loader({ request: new Request('https://x/internal/integrations') });
+    const data = (await res.json()) as { uptimeRobot: { status: string; error?: string } };
+    expect(data.uptimeRobot.status).toBe('error');
+    expect(data.uptimeRobot.error).toBeTruthy();
+  });
+
+  it('saveUptimeRobot encrypts the key and audits the save', async () => {
+    const { action } = await import('~/routes/internal.integrations');
+    const res = await action({
+      request: formRequest({ intent: 'saveUptimeRobot', apiKey: 'ur-readonly-key', monitorId: '8123456' }),
+    });
+    expect(((await res.json()) as { ok?: boolean }).ok).toBe(true);
+    expect(encryptJsonMock).toHaveBeenCalledWith({ apiKey: 'ur-readonly-key' });
+    expect(appSettingsUpsertMock).toHaveBeenCalledWith(
+      expect.objectContaining({ update: expect.objectContaining({ uptimeRobotMonitorId: '8123456' }) }),
+    );
+    expect(activityLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'OPS_INTEGRATION_SAVED', resource: 'integration:uptimerobot' }),
+    );
+  });
+
+  it('testUptimeRobot surfaces the real upstream error instead of a fake success (D8)', async () => {
+    appSettingsFindUniqueMock.mockResolvedValueOnce({ uptimeRobotApiKeyEnc: 'enc(...)', uptimeRobotMonitorId: '8123456' });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 401 })));
+    const { action } = await import('~/routes/internal.integrations');
+    const res = await action({ request: formRequest({ intent: 'testUptimeRobot' }) });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toMatch(/401/);
+    expect(activityLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'OPS_INTEGRATION_TESTED', resource: 'integration:uptimerobot' }),
+    );
   });
 });
