@@ -32,7 +32,7 @@ import { validateBeforePublish } from '~/services/publish/pre-publish-validator.
 import { classifyModulePublishability } from '~/services/publish/publish-preflight.server';
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { StatusBadge, EmptyState, titleCase } from '~/components/merchant/polaris';
+import { StatusBadge, EmptyState, Progress, titleCase } from '~/components/merchant/polaris';
 import { nextStepAfterStream, withGenerationCorrelationId, stepIndexForSeenEvents, isStreamEventKind, type StreamEventKind } from '~/utils/generation-outcome';
 import { SchemaForm, type JsonSchemaNode } from '~/components/SchemaForm';
 
@@ -317,28 +317,25 @@ function candMiniProjection(recipe?: Record<string, unknown> | null): {
 }
 
 /**
- * Label/help wrapper for the bespoke controls (swatch rows, segmented fields,
- * range sliders) that have no Polaris web-component equivalent. Local const —
- * the vendored `Field` import is gone; this reuses the legacy field classes
- * that the fullBleed shell still styles.
+ * Label/help wrapper for the bespoke controls (segmented fields, condition
+ * rows) that have no direct Polaris web-component equivalent — mirrors
+ * `<s-text-field>`'s own label/details layout so it reads as one family.
  */
 function Field({ label, optional, help, children }: { label?: ReactNode; optional?: boolean; help?: ReactNode; children?: ReactNode }) {
   return (
-    <div className="field">
+    <s-stack gap="small-100">
       {label && (
-        <div className="row spread">
-          <label className="field-label">{label}{optional && <span className="opt">  (optional)</span>}</label>
-        </div>
+        <s-text type="strong">{label}{optional && <s-text color="subdued"> (optional)</s-text>}</s-text>
       )}
       {children}
-      {help && <div className="field-help">{help}</div>}
-    </div>
+      {help && <s-text color="subdued">{help}</s-text>}
+    </s-stack>
   );
 }
 
 export default function GeneratePage() {
   return (
-    <MerchantShell fullBleed>
+    <MerchantShell polaris fullBleed>
       <GenerateWorkspace />
     </MerchantShell>
   );
@@ -800,47 +797,50 @@ function GenerateWorkspace() {
   const publishing = confirmFetcher.state !== 'idle' || publishFetcher.state !== 'idle';
 
   return (
-    <div className="gen-shell">
-      <header className="gen-head">
-        <div className="row-3" style={{ minWidth: 0 }}>
-          <button className="gen-back-btn" onClick={backToOptions} title="Back to all concepts">
-            <s-icon type="arrow-left" size="small" /><span>All concepts</span>
+    <div className="sa-m-gen-shell">
+      <header className="sa-m-gen-head">
+        <s-stack direction="inline" gap="small-200" alignItems="center">
+          <button className="sa-m-gen-back" onClick={backToOptions} title="Back to all concepts">
+            <s-icon type="arrow-left" size="small" />All concepts
           </button>
-          <span className="tile-ico" style={{ width: 34, height: 34, background: 'var(--p-info-bg)', color: 'var(--sa-secondary)' }}>
+          <s-box padding="small-200" borderRadius="base" background="strong">
             <s-icon type={((activeCand && activeCand.icon) || 'desktop') as never} size="small" />
-          </span>
-          <div className="stack" style={{ gap: 1, minWidth: 0 }}>
-            <div className="row-2"><span className="t-h3">{activeCand ? activeCand.name : 'Module'}</span><StatusBadge status="DRAFT" /></div>
-            <span className="t-xs t-muted">{(activeCand ? activeCand.type : 'Module') + ' · concept ' + (activeIdx + 1) + ' of ' + candidates.length + ' · unsaved'}</span>
-          </div>
-        </div>
-        <div className="row-2">
+          </s-box>
+          <s-stack gap="none">
+            <s-stack direction="inline" gap="small-200" alignItems="center">
+              <s-text type="strong">{activeCand ? activeCand.name : 'Module'}</s-text>
+              <StatusBadge status="DRAFT" />
+            </s-stack>
+            <s-text color="subdued">{(activeCand ? activeCand.type : 'Module') + ' · concept ' + (activeIdx + 1) + ' of ' + candidates.length + ' · unsaved'}</s-text>
+          </s-stack>
+        </s-stack>
+        <s-stack direction="inline" gap="small-200" alignItems="center">
           <s-button icon="wand" onClick={regenerate}>Regenerate</s-button>
           <s-button onClick={() => navigate('/')}>Discard</s-button>
           <s-button loading={(confirmFetcher.state !== 'idle' && finishRef.current?.mode === 'draft') || undefined} onClick={() => finish('draft')}>Save draft</s-button>
           <s-button variant="primary" icon="rocket" loading={publishing || undefined} onClick={() => finish('publish')}>Publish</s-button>
-        </div>
+        </s-stack>
       </header>
       {blueprint && (
         <div style={{ padding: '12px 16px 0' }}>
           <s-banner tone="info" heading={`This request is a full solution: ${blueprint.name} (${blueprint.moduleCount} modules)`}>
-            <div className="stack" style={{ gap: 8 }}>
-              <span className="t-sm">{blueprint.summary}</span>
-              <div className="row-2" style={{ flexWrap: 'wrap', gap: 6 }}>
+            <s-stack gap="small-200">
+              <s-text>{blueprint.summary}</s-text>
+              <s-stack direction="inline" gap="small-100">
                 {blueprint.modules.map((m) => (
                   <s-badge key={m.role}>{`${m.role} · ${titleCase(String(m.type).replace(/\./g, ' '))}`}</s-badge>
                 ))}
-              </div>
+              </s-stack>
               <div>
                 <s-button variant="primary" icon="layer" loading={publishing || undefined} onClick={finishBlueprint}>
                   {`Create all ${blueprint.moduleCount} modules`}
                 </s-button>
               </div>
-            </div>
+            </s-stack>
           </s-banner>
         </div>
       )}
-      <div className="gen-body">
+      <div className="sa-m-gen-body">
         <GenBuildPanel
           moduleType={String((activeCand?.recipe as any)?.type ?? '')}
           config={((activeCand?.recipe as any)?.config ?? {}) as Record<string, unknown>}
@@ -850,20 +850,20 @@ function GenerateWorkspace() {
           thread={thread} thinking={thinking} refine={refine} setRefine={setRefine} onRefine={doRefine}
           credits={credits} dockOpen={dockOpen} setDockOpen={setDockOpen} histOpen={histOpen} setHistOpen={setHistOpen} history={history}
         />
-        <div className="gen-center">
-          <div className="gen-toolbar">
-            <div className="seg">
-              <button aria-selected={device === 'desktop'} onClick={() => setDevice('desktop')}><s-icon type="desktop" size="small" />Desktop</button>
-              <button aria-selected={device === 'mobile'} onClick={() => setDevice('mobile')}><s-icon type="mobile" size="small" />Mobile</button>
-            </div>
-            <div className="grow" />
-            <div className="tabs-mini">
+        <div className="sa-m-gen-center">
+          <div className="sa-m-gen-toolbar">
+            <s-button-group>
+              <s-button variant={device === 'desktop' ? 'primary' : 'tertiary'} icon="desktop" onClick={() => setDevice('desktop')}>Desktop</s-button>
+              <s-button variant={device === 'mobile' ? 'primary' : 'tertiary'} icon="mobile" onClick={() => setDevice('mobile')}>Mobile</s-button>
+            </s-button-group>
+            <div style={{ flex: 1 }} />
+            <s-button-group>
               {(['preview', 'validation'] as const).map((x) => (
-                <button key={x} className={'tab-mini' + (tab === x ? ' sel' : '')} onClick={() => setTab(x)}>{titleCase(x)}</button>
+                <s-button key={x} variant={tab === x ? 'primary' : 'tertiary'} onClick={() => setTab(x)}>{titleCase(x)}</s-button>
               ))}
-            </div>
+            </s-button-group>
           </div>
-          <div className="gen-canvas-wrap">
+          <div className="sa-m-gen-canvas-wrap">
             {tab === 'preview' && (
               <GenPreview
                 recipe={activeCand?.recipe ?? null}
@@ -880,28 +880,33 @@ function GenerateWorkspace() {
 
 function GenLoading({ prompt, stepIdx, onCancel }: any) {
   return (
-    <div className="gen-loading">
-      <div className="gen-loading-card">
-        <div className="gen-orb-wrap">
-          <span className="gen-orb-halo" /><span className="gen-orb-ring r1" /><span className="gen-orb-ring r2" /><span className="gen-orb-ring r3" />
-          <div className="gen-orb"><s-icon type="wand" /></div>
-        </div>
-        <div className="gen-loading-eyebrow"><span className="pulse-dot" />Generating concepts</div>
-        <div className="t-h2" style={{ marginTop: 6, textAlign: 'center' }}>Designing your module</div>
-        <div className="gen-prompt-echo">“{prompt}”</div>
-        <div className="gen-steps">
+    <div className="sa-m-gen-loading">
+      <div className="sa-m-gen-loading-card">
+        <s-box padding="base">
+          <s-spinner size="large" accessibilityLabel="Generating concepts" />
+        </s-box>
+        <div className="sa-m-gen-eyebrow"><span className="sa-m-gen-pulse-dot" />Generating concepts</div>
+        <s-box paddingBlockStart="small-100">
+          <s-heading>Designing your module</s-heading>
+        </s-box>
+        <div className="sa-m-gen-prompt-echo">“{prompt}”</div>
+        <div className="sa-m-gen-steps">
           {GEN_STEPS.map((s, i) => {
             const done = i < stepIdx, active = i === stepIdx;
             return (
-              <div key={i} className={'gen-step' + (done ? ' done' : active ? ' active' : '')}>
-                <span className="gen-step-ico">{done ? <s-icon type="check" size="small" /> : active ? <span className="spinner" style={{ width: 14, height: 14 }} /> : <span className="gen-step-dot" />}</span>
+              <div key={i} className={'sa-m-gen-step' + (done ? ' done' : active ? ' active' : '')}>
+                <span className="sa-m-gen-step-ico">{done ? <s-icon type="check" size="small" /> : active ? <s-spinner size="base" accessibilityLabel={s.label} /> : <span className="sa-m-gen-step-dot" />}</span>
                 <span>{s.label}</span>
               </div>
             );
           })}
         </div>
-        <div className="gen-progress"><i style={{ width: Math.min(100, (stepIdx / GEN_STEPS.length) * 100) + '%' }} /></div>
-        <button className="btn btn-plain btn-plain-subdued" style={{ marginTop: 8 }} onClick={onCancel}>Cancel</button>
+        <s-box inlineSize="100%">
+          <Progress value={stepIdx} max={GEN_STEPS.length} />
+        </s-box>
+        <s-box paddingBlockStart="base">
+          <s-button variant="tertiary" onClick={onCancel}>Cancel</s-button>
+        </s-box>
       </div>
     </div>
   );
@@ -919,23 +924,29 @@ function GenFailed({
   onCancel: () => void;
 }) {
   return (
-    <div className="gen-loading">
-      <div className="gen-loading-card">
-        <div className="gen-loading-eyebrow"><span className="pulse-dot" />Generation failed</div>
-        <div className="t-h2" style={{ marginTop: 6, textAlign: 'center' }}>No concepts this time</div>
-        <div className="gen-prompt-echo">“{prompt}”</div>
-        <p style={{ textAlign: 'center', margin: '12px 0 4px' }}>
-          {(() => {
-            const text = message || 'The AI returned no valid concepts.';
-            // The server's terminal error frame already appends its own
-            // "not billed" sentence (see api.ai.create-module.stream.tsx);
-            // only add the client fallback when the message doesn't already
-            // say it, to avoid doubling the sentence.
-            return /not billed/i.test(text) ? text : `${text} This attempt was not billed.`;
-          })()}
-        </p>
-        <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={onRetry}>Try again</button>
-        <button className="btn btn-plain btn-plain-subdued" style={{ marginTop: 8 }} onClick={onCancel}>Back to modules</button>
+    <div className="sa-m-gen-loading">
+      <div className="sa-m-gen-loading-card">
+        <div className="sa-m-gen-eyebrow"><span className="sa-m-gen-pulse-dot" />Generation failed</div>
+        <s-box paddingBlockStart="small-100">
+          <s-heading>No concepts this time</s-heading>
+        </s-box>
+        <div className="sa-m-gen-prompt-echo">“{prompt}”</div>
+        <s-box paddingBlockEnd="base">
+          <s-paragraph>
+            {(() => {
+              const text = message || 'The AI returned no valid concepts.';
+              // The server's terminal error frame already appends its own
+              // "not billed" sentence (see api.ai.create-module.stream.tsx);
+              // only add the client fallback when the message doesn't already
+              // say it, to avoid doubling the sentence.
+              return /not billed/i.test(text) ? text : `${text} This attempt was not billed.`;
+            })()}
+          </s-paragraph>
+        </s-box>
+        <s-stack gap="small-200" alignItems="center">
+          <s-button variant="primary" onClick={onRetry}>Try again</s-button>
+          <s-button variant="tertiary" onClick={onCancel}>Back to modules</s-button>
+        </s-stack>
       </div>
     </div>
   );
@@ -944,25 +955,27 @@ function GenFailed({
 function GenChoose({ prompt, candidates, onSelect, onRegenerate, onCancel }: any) {
   const n = candidates.length;
   return (
-    <div className="gen-choose">
-      <div className="gen-choose-aurora" />
-      <div className="gen-choose-grid-bg" />
-      <div className="gen-choose-inner">
-        <div className="gen-choose-head">
-          <div className="gen-choose-eyebrow"><span className="pulse-dot" />{n + ' concept' + (n === 1 ? '' : 's') + ' generated'}</div>
-          <h1 className="gen-choose-title">Pick a starting point</h1>
-          <p className="gen-choose-sub">From “{prompt}”. Open any concept to customize it — the rest stay right here until you save. Nothing is stored yet, so you can regenerate anytime.</p>
-          <button className="gen-choose-close" onClick={onCancel} title="Cancel"><s-icon type="x" /></button>
+    <div className="sa-m-gen-choose">
+      <div className="sa-m-gen-choose-inner">
+        <div className="sa-m-gen-choose-head">
+          <div className="sa-m-gen-eyebrow"><span className="sa-m-gen-pulse-dot" />{n + ' concept' + (n === 1 ? '' : 's') + ' generated'}</div>
+          <h1 className="sa-m-gen-choose-title">Pick a starting point</h1>
+          <s-box maxInlineSize="620px">
+            <s-text color="subdued">From “{prompt}”. Open any concept to customize it — the rest stay right here until you save. Nothing is stored yet, so you can regenerate anytime.</s-text>
+          </s-box>
+          <button className="sa-m-gen-choose-close" onClick={onCancel} title="Cancel"><s-icon type="x" /></button>
         </div>
-        <div className="gen-cand-grid">
+        <div className="sa-m-gen-cand-grid">
           {candidates.map((c: any, i: number) => (
             <GenCandCard key={c.id} c={c} idx={i} total={candidates.length} onSelect={() => onSelect(c.id)} />
           ))}
         </div>
-        <div className="gen-choose-foot">
-          <button className="gen-regen-btn" onClick={onRegenerate}><s-icon type="wand" size="small" />Regenerate</button>
-          <span className="t-xs t-muted">Nothing is saved — concepts reset when you regenerate or leave.</span>
-        </div>
+        <s-box paddingBlockStart="base">
+          <s-stack direction="inline" gap="small-300" alignItems="center">
+            <s-button variant="tertiary" icon="wand" onClick={onRegenerate}>Regenerate</s-button>
+            <s-text color="subdued">Nothing is saved — concepts reset when you regenerate or leave.</s-text>
+          </s-stack>
+        </s-box>
       </div>
     </div>
   );
@@ -971,31 +984,30 @@ function GenChoose({ prompt, candidates, onSelect, onRegenerate, onCancel }: any
 function GenCandCard({ c, idx, total, onSelect }: any) {
   const num = String(idx + 1).padStart(2, '0') + ' / ' + String(total).padStart(2, '0');
   return (
-    <button className={'gen-cand' + (c.recommended ? ' gen-cand-recommended' : '')} style={{ ['--acc' as any]: c.accent, animationDelay: (0.08 + idx * 0.12) + 's' }} onClick={onSelect} aria-label={c.recommended ? `${c.name} (recommended)` : c.name}>
-      <span className="gen-cand-scan" />
-      <span className="cand-num">{num}</span>
+    <button className={'sa-m-gen-cand' + (c.recommended ? ' sa-m-gen-cand-recommended' : '')} style={{ ['--acc' as any]: c.accent }} onClick={onSelect} aria-label={c.recommended ? `${c.name} (recommended)` : c.name}>
+      <span className="sa-m-gen-cand-num">{num}</span>
       {c.recommended && (
-        <span className="cand-recommended" style={{ position: 'absolute', top: 12, right: 12 }}>
+        <span style={{ position: 'absolute', top: 12, right: 12 }}>
           <s-badge tone="success" icon="wand">Recommended</s-badge>
         </span>
       )}
-      <div className="cand-head">
-        <span className="cand-ico"><s-icon type={c.icon as never} /></span>
-        <div className="stack" style={{ gap: 2, minWidth: 0, textAlign: 'left' }}>
-          <span className="cand-name">{c.name}</span>
-          <span className="t-xs t-muted">{c.type}</span>
-        </div>
+      <div className="sa-m-gen-cand-head">
+        <span className="sa-m-gen-cand-ico"><s-icon type={c.icon as never} /></span>
+        <s-stack gap="small-100">
+          <s-text type="strong">{c.name}</s-text>
+          <s-text color="subdued">{c.type}</s-text>
+        </s-stack>
       </div>
-      <p className="cand-tagline">{c.tagline}</p>
+      <p className="sa-m-gen-cand-tagline">{c.tagline}</p>
       {c.polished && (
-        <span className="cand-polished" style={{ position: 'absolute', top: 12, left: 12 }} title="Refined by an AI reviewer after generation">
+        <span style={{ position: 'absolute', top: 12, left: 12 }} title="Refined by an AI reviewer after generation">
           <s-badge tone="info" icon="wand">Polished</s-badge>
         </span>
       )}
       <GenCandMini s={candMiniProjection(c.recipe)} accent={c.accent} />
-      <div className="cand-tags">{c.tags.map((t: string) => <span key={t} className="cand-tag">{t}</span>)}</div>
-      <div className="cand-cta">
-        <span className="cand-open"><s-icon type="wand" size="small" />Open & customize</span>
+      <div className="sa-m-gen-cand-tags">{c.tags.map((t: string) => <span key={t} className="sa-m-gen-cand-tag">{t}</span>)}</div>
+      <div className="sa-m-gen-cand-cta">
+        <span><s-icon type="wand" size="small" /> Open &amp; customize</span>
         <s-icon type="arrow-right" />
       </div>
     </button>
@@ -1005,27 +1017,27 @@ function GenCandCard({ c, idx, total, onSelect }: any) {
 function GenCandMini({ s, accent }: any) {
   const r = Math.min(RADIUS_MAP[s.radius] ?? 10, 14);
   const btn = (
-    <span className="cand-btn" style={{ background: s.buttonColor, color: s.buttonText, borderRadius: r }}>
+    <span className="sa-m-gen-mini-btn" style={{ background: s.buttonColor, color: s.buttonText, borderRadius: r }}>
       <s-icon type="cart" size="small" />{s.label}
     </span>
   );
   const chips = s.showVariants && (
-    <span className="cand-chips">{[0, 1, 2].map((i) => <i key={i} className={i === 1 ? 'on' : ''} style={i === 1 ? { borderColor: accent, background: accent } : undefined} />)}</span>
+    <span className="sa-m-gen-mini-chips">{[0, 1, 2].map((i) => <i key={i} className={i === 1 ? 'on' : ''} style={i === 1 ? { borderColor: accent, background: accent } : undefined} />)}</span>
   );
   let bar;
-  if (s.mode === 'floating') bar = <span className="cand-bar cand-bar-floating">{btn}</span>;
+  if (s.mode === 'floating') bar = <span className="sa-m-gen-mini-bar sa-m-gen-mini-bar-floating">{btn}</span>;
   else if (s.mode === 'inline') bar = (
-    <span className="cand-bar cand-bar-inline" style={{ background: s.bg }}>
-      {s.countdown && <span className="cand-count">12:45</span>}{chips}<span className="grow" />{btn}
+    <span className="sa-m-gen-mini-bar sa-m-gen-mini-bar-inline" style={{ background: s.bg }}>
+      {s.countdown && <span className="sa-m-gen-mini-count">12:45</span>}{chips}<span className="sa-m-gen-mini-grow" />{btn}
     </span>
   );
-  else bar = <span className="cand-bar cand-bar-sticky">{chips}<span className="grow" />{btn}</span>;
+  else bar = <span className="sa-m-gen-mini-bar sa-m-gen-mini-bar-sticky">{chips}<span className="sa-m-gen-mini-grow" />{btn}</span>;
   return (
-    <div className="cand-mini">
-      <div className="cand-mini-top"><i /><i /><i /></div>
-      <div className="cand-mini-pdp">
-        <div className="cand-mini-img" />
-        <div className="cand-mini-lines">
+    <div className="sa-m-gen-mini">
+      <div className="sa-m-gen-mini-top"><i /><i /><i /></div>
+      <div className="sa-m-gen-mini-pdp">
+        <div className="sa-m-gen-mini-img" />
+        <div className="sa-m-gen-mini-lines">
           <i className="w3" /><i className="w1" /><i className="w4" style={{ background: accent, opacity: .55 }} /><i className="w2" />
         </div>
       </div>
@@ -1036,7 +1048,7 @@ function GenCandMini({ s, accent }: any) {
 
 function GenBuildPanel(props: any) {
   return (
-    <aside className="gen-build-panel">
+    <aside className="sa-m-gen-build-panel">
       <GenSettingsPanel
         moduleType={props.moduleType} config={props.config} style={props.style}
         setConfigObject={props.setConfigObject} updateSelectedRecipe={props.updateSelectedRecipe}
@@ -1105,10 +1117,15 @@ function GenSettingsPanel({ moduleType, config, style, setConfigObject, updateSe
   const hasFields = !!schema?.properties && Object.keys(schema.properties).length > 0;
 
   return (
-    <div className="gbp-controls">
-      <div className="gen-controls-head"><span className="t-h3">Settings</span><span className="t-xs t-muted">{titleCase(String(moduleType || 'module').replace(/\./g, ' '))}</span></div>
-      <div className="gen-ctrl-body">
-        <div className="stack-4" style={{ padding: 16 }}>
+    <s-stack gap="none">
+      <s-box padding="base" paddingBlockEnd="small-100">
+        <s-stack direction="inline" justifyContent="space-between" alignItems="baseline">
+          <s-text type="strong">Settings</s-text>
+          <s-text color="subdued">{titleCase(String(moduleType || 'module').replace(/\./g, ' '))}</s-text>
+        </s-stack>
+      </s-box>
+      <div className="sa-m-gen-ctrl-body">
+        <s-stack gap="base">
           {schemaLoading && <s-spinner size="base" accessibilityLabel="Loading settings" />}
           {!schemaLoading && hasFields && schema && (
             <SchemaForm schema={schema} value={formValue} onChange={onFormChange} tier="advanced" />
@@ -1117,23 +1134,26 @@ function GenSettingsPanel({ moduleType, config, style, setConfigObject, updateSe
             <s-banner tone="info">No editable settings on this module yet — describe changes in the Builder chat below.</s-banner>
           )}
           {showPricing && (
-            <div style={{ borderTop: '1px solid var(--p-border)', paddingTop: 14 }}>
+            <>
+              <s-divider />
               <PricingControls value={config?.pricing} onChange={(v: unknown) => setConfigObject('pricing', v)} />
-            </div>
+            </>
           )}
           {showRecs && (
-            <div style={{ borderTop: '1px solid var(--p-border)', paddingTop: 14 }}>
+            <>
+              <s-divider />
               <RecommendationControls value={config?.recommendation} onChange={(v: unknown) => setConfigObject('recommendation', v)} />
-            </div>
+            </>
           )}
           {showRules && (
-            <div style={{ borderTop: '1px solid var(--p-border)', paddingTop: 14 }}>
+            <>
+              <s-divider />
               <RuleEngineControls value={config?.ruleEngine} onChange={(v: unknown) => setConfigObject('ruleEngine', v)} />
-            </div>
+            </>
           )}
-        </div>
+        </s-stack>
       </div>
-    </div>
+    </s-stack>
   );
 }
 
@@ -1143,53 +1163,53 @@ function GenBuilderDock({ credits, costPerChange, open, setOpen, thread, thinkin
   const low = !unlimited && credits <= 40, out = !unlimited && credits <= 0;
   const suggestions = ['Use brand green', 'Make it a pill', 'Add a countdown'];
   return (
-    <div className={'gen-dock' + (open ? ' open' : '')}>
-      <button className="gen-dock-head" onClick={() => setOpen(!open)}>
-        <span className="gen-dock-ava"><s-icon type="wand" size="small" /></span>
-        <div className="gen-dock-id">
-          <span className="t-strong t-sm">Builder</span>
-          <span className="t-xs t-muted">{open ? 'Describe a change — applied to the spec' : 'Tap to refine with AI'}</span>
+    <div className="sa-m-gen-dock">
+      <button className="sa-m-gen-dock-head" onClick={() => setOpen(!open)}>
+        <span className="sa-m-gen-dock-ava"><s-icon type="wand" size="small" /></span>
+        <div className="sa-m-gen-dock-id">
+          <s-text type="strong">Builder</s-text>
+          <s-text color="subdued">{open ? 'Describe a change — applied to the spec' : 'Tap to refine with AI'}</s-text>
         </div>
-        <span className={'gen-credit-pill' + (low ? ' low' : '')} title={unlimited ? 'Unlimited AI requests on your plan' : credits.toLocaleString() + ' AI requests remaining this month'}>
+        <span className={'sa-m-gen-credit-pill' + (low ? ' low' : '')} title={unlimited ? 'Unlimited AI requests on your plan' : credits.toLocaleString() + ' AI requests remaining this month'}>
           <s-icon type="bolt" size="small" />{unlimited ? 'Unlimited' : credits.toLocaleString() + ' left'}
         </span>
-        <span className="gen-dock-chev"><s-icon type={open ? 'chevron-down' : 'chevron-up'} /></span>
+        <s-icon type={open ? 'chevron-down' : 'chevron-up'} size="small" />
       </button>
       {open && (
-        <div className="gen-dock-body">
-          <div className={'gen-dock-last' + (last ? '' : ' empty')}>
+        <div className="sa-m-gen-dock-body">
+          <div className={'sa-m-gen-dock-last' + (last ? '' : ' empty')}>
             {last ? (
               <>
-                <span className="gen-last-ico"><s-icon type="check" size="small" /></span>
-                <div className="gen-last-body">
-                  <div className="gen-last-cap">Latest change</div>
-                  <div className="gen-last-text" dangerouslySetInnerHTML={{ __html: gmd(last.text) }} />
+                <span className="sa-m-gen-last-ico"><s-icon type="check" size="small" /></span>
+                <div>
+                  <div className="sa-m-gen-last-cap">Latest change</div>
+                  <div className="sa-m-gen-last-text" dangerouslySetInnerHTML={{ __html: gmd(last.text) }} />
                 </div>
               </>
-            ) : <span className="t-xs t-muted">No changes yet — ask for an edit below and you’ll see what happened here.</span>}
+            ) : <s-text color="subdued">No changes yet — ask for an edit below and you’ll see what happened here.</s-text>}
           </div>
           {thinking && (
-            <div className="gen-dock-thinking">
-              <div className="asst-typing"><span /><span /><span /></div>
-              <span className="t-xs t-muted">Applying your change…</span>
+            <div className="sa-m-gen-dock-thinking">
+              <div className="sa-m-gen-typing"><span /><span /><span /></div>
+              <s-text color="subdued">Applying your change…</s-text>
             </div>
           )}
-          <div className={'gen-dock-input' + (out ? ' is-out' : '')}>
-            <textarea className="gen-refine-input" rows={1} placeholder={out ? 'Out of AI requests — upgrade to keep building' : 'Refine with AI…'}
+          <div className="sa-m-gen-dock-input">
+            <textarea className="sa-m-gen-refine-input" rows={1} placeholder={out ? 'Out of AI requests — upgrade to keep building' : 'Refine with AI…'}
               value={refine} disabled={out} onChange={(e) => setRefine(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onRefine(); } }} />
             <s-button variant="primary" icon="send" accessibilityLabel="Send refinement" onClick={() => onRefine()} disabled={(out || thinking || !refine.trim()) || undefined} />
           </div>
           {!out && (
-            <div className="gen-dock-sugg">
-              {suggestions.map((sg) => <button key={sg} className="example-chip" onClick={() => onRefine(sg)}><s-icon type="wand" size="small" />{sg}</button>)}
+            <div className="sa-m-gen-dock-sugg">
+              {suggestions.map((sg) => <button key={sg} className="sa-m-gen-chip" onClick={() => onRefine(sg)}><s-icon type="wand" size="small" />{sg}</button>)}
             </div>
           )}
-          <div className="gen-dock-foot">
-            <span className="gen-cost-note"><s-icon type="bolt" size="small" />Each change costs <b>{costPerChange === 1 ? '1 AI request' : costPerChange + ' AI requests'}</b></span>
-            <button className="gen-hist-btn" onClick={onOpenHistory}>
-              <s-icon type="clock" size="small" />History{changes ? <span className="gen-hist-count">{changes}</span> : null}
-            </button>
+          <div className="sa-m-gen-dock-foot">
+            <span className="sa-m-gen-cost-note"><s-icon type="bolt" size="small" />Each change costs <b>{costPerChange === 1 ? '1 AI request' : costPerChange + ' AI requests'}</b></span>
+            <s-button variant="tertiary" icon="clock" onClick={onOpenHistory}>
+              History{changes ? <span className="sa-m-gen-hist-count">{changes}</span> : null}
+            </s-button>
           </div>
         </div>
       )}
@@ -1200,32 +1220,31 @@ function GenBuilderDock({ credits, costPerChange, open, setOpen, thread, thinkin
 function GenHistory({ history, credits, onClose }: any) {
   const spent = history.reduce((a: number, h: any) => a + h.cost, 0);
   return (
-    <div className="gen-hist">
-      <div className="gen-hist-head">
-        <div className="stack" style={{ gap: 1 }}>
-          <span className="t-strong t-sm">Change history</span>
-          <span className="t-xs t-muted">{history.length + ' change' + (history.length === 1 ? '' : 's') + ' · ' + spent + ' AI request' + (spent === 1 ? '' : 's') + ' spent'}</span>
-        </div>
-        <button className="gen-hist-x" onClick={onClose} title="Close"><s-icon type="x" size="small" /></button>
+    <div className="sa-m-gen-hist">
+      <div className="sa-m-gen-hist-head">
+        <s-stack gap="none">
+          <s-text type="strong">Change history</s-text>
+          <s-text color="subdued">{history.length + ' change' + (history.length === 1 ? '' : 's') + ' · ' + spent + ' AI request' + (spent === 1 ? '' : 's') + ' spent'}</s-text>
+        </s-stack>
+        <s-button variant="tertiary" icon="x" accessibilityLabel="Close" onClick={onClose} />
       </div>
-      <div className="gen-hist-list">
+      <div className="sa-m-gen-hist-list">
         {history.slice().reverse().map((h: any) => (
-          <div key={h.id} className="gen-hist-row">
-            <span className="gen-hist-dot" />
-            <div className="gen-hist-main">
-              <div className="gen-hist-label">{h.label}</div>
-              <div className="gen-hist-detail">{h.detail}</div>
-              <div className="gen-hist-time">{h.time}</div>
+          <div key={h.id} className="sa-m-gen-hist-row">
+            <span className="sa-m-gen-hist-dot" />
+            <div className="sa-m-gen-hist-main">
+              <div className="sa-m-gen-hist-label">{h.label}</div>
+              <div className="sa-m-gen-hist-detail">{h.detail}</div>
+              <div className="sa-m-gen-hist-time">{h.time}</div>
             </div>
-            <span className="gen-hist-cost">{'−' + h.cost}</span>
+            <span className="sa-m-gen-hist-cost">{'−' + h.cost}</span>
           </div>
         ))}
       </div>
-      <div className="gen-hist-foot">
+      <div className="sa-m-gen-hist-foot">
         <s-icon type="bolt" size="small" />
         <span><b>{credits === null ? 'Unlimited' : credits.toLocaleString()}</b> AI requests remaining</span>
-        <span className="grow" />
-        <a className="gen-hist-topup" href="/billing">Upgrade</a>
+        <a className="sa-m-gen-hist-topup" href="/billing">Upgrade</a>
       </div>
     </div>
   );
@@ -1270,41 +1289,41 @@ function GenPreview({ recipe, device }: { recipe: Record<string, unknown> | null
   }, [specKey, isSimulated, sim.currency, sim.countryCode, sim.isPlus]);
 
   return (
-    <div className={'gen-canvas' + (device === 'mobile' ? ' mobile' : '')}>
+    <div className={'sa-m-gen-canvas' + (device === 'mobile' ? ' mobile' : '')}>
       {isSimulated && (
-        <div className="pv-sim" role="group" aria-label="Simulation context">
-          <span className="t-xs t-muted">Simulate</span>
+        <div className="sa-m-gen-pv-sim" role="group" aria-label="Simulation context">
+          <s-text color="subdued">Simulate</s-text>
           <select aria-label="Currency" value={sim.currency} onChange={(e) => setSim((v) => ({ ...v, currency: e.target.value }))}>
             {['USD', 'CAD', 'GBP', 'EUR'].map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
           <select aria-label="Country" value={sim.countryCode} onChange={(e) => setSim((v) => ({ ...v, countryCode: e.target.value }))}>
             {['US', 'CA', 'GB', 'DE'].map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
-          <label className="pv-sim-plus"><input type="checkbox" checked={sim.isPlus} onChange={(e) => setSim((v) => ({ ...v, isPlus: e.target.checked }))} />Plus</label>
+          <label className="sa-m-gen-pv-sim-plus"><input type="checkbox" checked={sim.isPlus} onChange={(e) => setSim((v) => ({ ...v, isPlus: e.target.checked }))} />Plus</label>
         </div>
       )}
-      <div className="pv-frame">
-        <div className="pv-browser"><span className="pv-dot" /><span className="pv-dot" /><span className="pv-dot" /><div className="pv-url">Live preview · {type || 'module'}</div></div>
-        <div className="pv-live">
+      <div className="sa-m-gen-pv-frame">
+        <div className="sa-m-gen-pv-browser"><span className="sa-m-gen-pv-dot" /><span className="sa-m-gen-pv-dot" /><span className="sa-m-gen-pv-dot" /><div className="sa-m-gen-pv-url">Live preview · {type || 'module'}</div></div>
+        <div className="sa-m-gen-pv-live">
           {state.status === 'idle' && (
-            <div className="pv-msg"><s-icon type="layer" /><span className="t-sm t-muted">Pick a concept to preview it here.</span></div>
+            <div className="sa-m-gen-pv-msg"><s-icon type="layer" /><s-text color="subdued">Pick a concept to preview it here.</s-text></div>
           )}
           {state.status === 'loading' && (
-            <div className="pv-msg"><span className="spinner" style={{ width: 20, height: 20 }} /><span className="t-sm t-muted">Rendering preview…</span></div>
+            <div className="sa-m-gen-pv-msg"><s-spinner size="base" accessibilityLabel="Rendering preview" /><s-text color="subdued">Rendering preview…</s-text></div>
           )}
           {state.status === 'error' && (
-            <div className="pv-msg"><s-icon type="alert-triangle" /><span className="t-sm t-muted">{state.error}</span></div>
+            <div className="sa-m-gen-pv-msg"><s-icon type="alert-triangle" /><s-text color="subdued">{state.error}</s-text></div>
           )}
           {state.status === 'html' && (
             <iframe
               title="Module preview"
-              className="pv-iframe"
+              className="sa-m-gen-pv-iframe"
               srcDoc={state.html}
               sandbox="allow-scripts allow-same-origin allow-popups"
             />
           )}
           {state.status === 'json' && (
-            <pre className="pv-json">{JSON.stringify(state.json, null, 2)}</pre>
+            <pre className="sa-m-gen-pv-json">{JSON.stringify(state.json, null, 2)}</pre>
           )}
         </div>
       </div>
@@ -1314,17 +1333,19 @@ function GenPreview({ recipe, device }: { recipe: Record<string, unknown> | null
 
 function SegField({ value, options, onChange }: any) {
   return (
-    <div className="seg" style={{ width: '100%' }}>
-      {options.map((o: any) => <button key={o[0]} aria-selected={value === o[0]} onClick={() => onChange(o[0])} style={{ flex: 1, justifyContent: 'center' }}>{o[1]}</button>)}
-    </div>
+    <s-button-group>
+      {options.map((o: any) => (
+        <s-button key={o[0]} variant={value === o[0] ? 'primary' : 'tertiary'} onClick={() => onChange(o[0])}>{o[1]}</s-button>
+      ))}
+    </s-button-group>
   );
 }
 function ToggleRow({ label, checked, onChange }: any) {
   return (
-    <div className="row spread">
-      <span className="t-sm">{label}</span>
+    <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+      <s-text>{label}</s-text>
       <s-switch accessibilityLabel={String(label)} checked={checked || undefined} onChange={onChange} />
-    </div>
+    </s-stack>
   );
 }
 
@@ -1336,13 +1357,13 @@ function labelize(s: string): string {
 /** Section header for a pack editor with an on/off switch. */
 function PackHeader({ title, hint, enabled, onToggle }: any) {
   return (
-    <div className="row spread" style={{ marginBottom: enabled ? 10 : 0 }}>
-      <div className="stack" style={{ gap: 1 }}>
-        <span className="t-sm t-strong">{title}</span>
-        {hint && <span className="t-xs t-muted">{hint}</span>}
-      </div>
+    <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+      <s-stack gap="none">
+        <s-text type="strong">{title}</s-text>
+        {hint && <s-text color="subdued">{hint}</s-text>}
+      </s-stack>
       <s-switch accessibilityLabel={String(title)} checked={enabled || undefined} onChange={onToggle} />
-    </div>
+    </s-stack>
   );
 }
 
@@ -1366,7 +1387,7 @@ function RecommendationControls({ value, onChange }: any) {
   const patch = (p: Record<string, unknown>) => onChange({ ...v, ...p });
   const isDynamic = !RECS_STATIC.has(strategy);
   return (
-    <div className="stack-4">
+    <s-stack gap="base">
       <PackHeader
         title="Product recommendations"
         hint="How this widget chooses which products to offer."
@@ -1406,7 +1427,7 @@ function RecommendationControls({ value, onChange }: any) {
           )}
         </>
       )}
-    </div>
+    </s-stack>
   );
 }
 
@@ -1434,7 +1455,7 @@ function RuleEngineControls({ value, onChange }: any) {
     setGroups([...groups, { logic: 'AND', conditions: [{ object: 'product', attribute: 'tags', operator: 'contains', value: '' }] }]);
   };
   return (
-    <div className="stack-4">
+    <s-stack gap="base">
       <PackHeader
         title="Display rules"
         hint="Conditions that decide when this module appears."
@@ -1462,11 +1483,11 @@ function RuleEngineControls({ value, onChange }: any) {
             />
           ))}
           {groups.length < RULE_LIMITS.maxGroups && (
-            <button className="example-chip" onClick={addGroup}><s-icon type="plus" size="small" />Add rule group</button>
+            <s-button variant="tertiary" icon="plus" onClick={addGroup}>Add rule group</s-button>
           )}
         </>
       )}
-    </div>
+    </s-stack>
   );
 }
 
@@ -1478,31 +1499,32 @@ function RuleGroupEditor({ group, index, showOuter, onChange, onRemove }: any) {
     setConds([...conditions, { object: 'product', attribute: 'tags', operator: 'contains', value: '' }]);
   };
   return (
-    <div className="card" style={{ padding: 12 }}>
-      <div className="row spread" style={{ marginBottom: 8 }}>
-        <span className="t-xs t-strong">{showOuter ? `Group ${index + 1}` : 'Conditions'}</span>
-        {showOuter && (
-          <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 2 }}
-            title="Remove group" onClick={onRemove}><s-icon type="delete" size="small" /></button>
-        )}
-      </div>
-      <div className="stack-3">
-        {conditions.map((c, ci) => (
-          <RuleRowEditor
-            key={ci}
-            row={c}
-            showLogic={ci > 0}
-            groupLogic={group?.logic ?? 'AND'}
-            onLogic={(l: string) => onChange({ ...group, logic: l })}
-            onChange={(next: any) => setConds(conditions.map((x, i) => (i === ci ? next : x)))}
-            onRemove={conditions.length > 1 ? () => setConds(conditions.filter((_, i) => i !== ci)) : null}
-          />
-        ))}
-        {conditions.length < RULE_LIMITS.maxRowsPerGroup && (
-          <button className="example-chip" onClick={addRow}><s-icon type="plus" size="small" />Add condition</button>
-        )}
-      </div>
-    </div>
+    <s-box border="base" borderRadius="base" padding="small-200">
+      <s-stack gap="small-200">
+        <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+          <s-text type="strong">{showOuter ? `Group ${index + 1}` : 'Conditions'}</s-text>
+          {showOuter && (
+            <s-button variant="tertiary" tone="critical" icon="delete" accessibilityLabel="Remove group" onClick={onRemove} />
+          )}
+        </s-stack>
+        <s-stack gap="small-200">
+          {conditions.map((c, ci) => (
+            <RuleRowEditor
+              key={ci}
+              row={c}
+              showLogic={ci > 0}
+              groupLogic={group?.logic ?? 'AND'}
+              onLogic={(l: string) => onChange({ ...group, logic: l })}
+              onChange={(next: any) => setConds(conditions.map((x, i) => (i === ci ? next : x)))}
+              onRemove={conditions.length > 1 ? () => setConds(conditions.filter((_, i) => i !== ci)) : null}
+            />
+          ))}
+          {conditions.length < RULE_LIMITS.maxRowsPerGroup && (
+            <s-button variant="tertiary" icon="plus" onClick={addRow}>Add condition</s-button>
+          )}
+        </s-stack>
+      </s-stack>
+    </s-box>
   );
 }
 
@@ -1518,15 +1540,15 @@ function RuleRowEditor({ row, showLogic, groupLogic, onLogic, onChange, onRemove
     onChange({ object: obj, attribute: nextAttrs[0] ?? '', operator: 'equal_to', value: '' });
   };
   return (
-    <div className="stack-2">
+    <s-stack gap="small-100">
       {showLogic && (
-        <div className="seg" style={{ width: 'fit-content' }}>
+        <s-button-group>
           {[['AND', 'AND'], ['OR', 'OR']].map((o) => (
-            <button key={o[0]} aria-selected={groupLogic === o[0]} onClick={() => onLogic(o[0])} style={{ padding: '2px 10px' }}>{o[1]}</button>
+            <s-button key={o[0]} variant={groupLogic === o[0] ? 'primary' : 'tertiary'} onClick={() => onLogic(o[0])}>{o[1]}</s-button>
           ))}
-        </div>
+        </s-button-group>
       )}
-      <div className="row-2" style={{ flexWrap: 'wrap', alignItems: 'flex-end', gap: 6 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 6 }}>
         <div style={{ flex: '1 1 110px' }}>
           <s-select label="Object" labelAccessibilityVisibility="exclusive" value={object} onChange={(e) => setObject(e.currentTarget.value)}>
             {RULE_OBJECTS.map((o) => <s-option key={o} value={o}>{titleCase(o)}</s-option>)}
@@ -1562,11 +1584,10 @@ function RuleRowEditor({ row, showLogic, groupLogic, onLogic, onChange, onRemove
           </div>
         )}
         {onRemove && (
-          <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 6 }}
-            title="Remove condition" onClick={onRemove}><s-icon type="x" size="small" /></button>
+          <s-button variant="tertiary" tone="critical" icon="x" accessibilityLabel="Remove condition" onClick={onRemove} />
         )}
       </div>
-    </div>
+    </s-stack>
   );
 }
 
@@ -1586,7 +1607,7 @@ function PricingControls({ value, onChange }: any) {
     emit(body);
   };
   return (
-    <div className="stack-4">
+    <s-stack gap="base">
       <PackHeader
         title="Pricing & discounts"
         hint="Discount vocabulary; lowered into the Function on publish."
@@ -1613,7 +1634,7 @@ function PricingControls({ value, onChange }: any) {
           )}
         </>
       )}
-    </div>
+    </s-stack>
   );
 }
 
@@ -1623,7 +1644,7 @@ function DiscountFields({ discount, onChange }: any) {
   const kind = d.kind ?? 'percentage';
   const needsValue = KIND_NEEDS_VALUE.has(kind);
   return (
-    <div className="stack-3">
+    <s-stack gap="small-200">
       <s-select label="Discount kind" value={kind} onChange={(e) => onChange({ ...d, kind: e.currentTarget.value })}>
         {DISCOUNT_KINDS.map((k) => <s-option key={k} value={k}>{labelize(k)}</s-option>)}
       </s-select>
@@ -1636,7 +1657,7 @@ function DiscountFields({ discount, onChange }: any) {
         <s-number-field label="How many cheapest become free" min={1} value={String(d.cheapestFreeCount ?? 1)}
           onInput={(e) => onChange({ ...d, cheapestFreeCount: e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value) })} />
       )}
-    </div>
+    </s-stack>
   );
 }
 
@@ -1646,28 +1667,30 @@ function PricingTiers({ tiers, onChange }: any) {
   const setRows = (next: any[]) => onChange({ ...t, rows: next });
   const addRow = () => setRows([...rows, { threshold: rows.length + 2, discount: { kind: 'percentage', value: 10 } }]);
   return (
-    <div className="stack-3">
+    <s-stack gap="small-200">
       <Field label="Tier threshold basis">
         <SegField value={t.basis ?? 'quantity'} options={THRESHOLD_BASIS.map((b) => [b, labelize(b)])} onChange={(b: string) => onChange({ ...t, basis: b })} />
       </Field>
       {rows.map((r, ri) => (
-        <div key={ri} className="card" style={{ padding: 12 }}>
-          <div className="row spread" style={{ marginBottom: 8 }}>
-            <span className="t-xs t-strong">Tier {ri + 1}</span>
-            {rows.length > 1 && (
-              <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 2 }}
-                title="Remove tier" onClick={() => setRows(rows.filter((_, i) => i !== ri))}><s-icon type="delete" size="small" /></button>
-            )}
-          </div>
-          <div className="stack-3">
-            <s-number-field label={`Threshold (${t.basis === 'cart-value' ? 'cart value' : 'quantity'})`} min={1} value={String(r.threshold ?? 1)}
-              onInput={(e) => setRows(rows.map((x, i) => (i === ri ? { ...x, threshold: Number(e.currentTarget.value) } : x)))} />
-            <DiscountFields discount={r.discount} onChange={(dd: unknown) => setRows(rows.map((x, i) => (i === ri ? { ...x, discount: dd } : x)))} />
-          </div>
-        </div>
+        <s-box key={ri} border="base" borderRadius="base" padding="small-200">
+          <s-stack gap="small-200">
+            <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+              <s-text type="strong">Tier {ri + 1}</s-text>
+              {rows.length > 1 && (
+                <s-button variant="tertiary" tone="critical" icon="delete" accessibilityLabel={`Remove tier ${ri + 1}`}
+                  onClick={() => setRows(rows.filter((_, i) => i !== ri))} />
+              )}
+            </s-stack>
+            <s-stack gap="small-200">
+              <s-number-field label={`Threshold (${t.basis === 'cart-value' ? 'cart value' : 'quantity'})`} min={1} value={String(r.threshold ?? 1)}
+                onInput={(e) => setRows(rows.map((x, i) => (i === ri ? { ...x, threshold: Number(e.currentTarget.value) } : x)))} />
+              <DiscountFields discount={r.discount} onChange={(dd: unknown) => setRows(rows.map((x, i) => (i === ri ? { ...x, discount: dd } : x)))} />
+            </s-stack>
+          </s-stack>
+        </s-box>
       ))}
-      <button className="example-chip" onClick={addRow}><s-icon type="plus" size="small" />Add tier</button>
-    </div>
+      <s-button variant="tertiary" icon="plus" onClick={addRow}>Add tier</s-button>
+    </s-stack>
   );
 }
 
@@ -1684,8 +1707,8 @@ function GenValidation({ loading, data, hasRecipe }: any) {
   if (loading || !data) {
     return (
       <div style={{ padding: 20, maxWidth: 640, width: '100%', margin: '0 auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span className="spinner" style={{ width: 16, height: 16 }} />
-        <span className="t-sm t-muted">Running schema and pre-publish checks…</span>
+        <s-spinner size="base" accessibilityLabel="Running checks" />
+        <s-text color="subdued">Running schema and pre-publish checks…</s-text>
       </div>
     );
   }
@@ -1720,22 +1743,34 @@ function GenValidation({ loading, data, hasRecipe }: any) {
         : deployBlocked
           ? <s-banner tone="warning" heading="Valid — but not publishable yet">{(publish!.reasons[0] ?? 'This module type needs its runtime shipped before it can publish.') + ' Publishing will be blocked until then; saving a draft still works.'}</s-banner>
           : <s-banner tone="success" heading="All checks passed">Schema and pre-publish validation both passed — Publish runs these same checks server-side before going live.</s-banner>}
-      <div className="card" style={{ marginTop: 16 }}>
-        {rows.map((r, i) => (
-          <div key={i} className="val-row">
-            <span className="val-ico" style={r.pass ? undefined : { background: 'var(--p-critical-bg)', color: 'var(--p-critical)' }}><s-icon type={r.pass ? 'check' : 'alert-triangle'} size="small" /></span>
-            <div className="grow"><div className="t-sm t-strong">{r.label}</div><div className="t-xs t-muted">{r.detail}</div></div>
-            <s-badge tone={r.pass ? 'success' : 'critical'}>{r.pass ? 'Pass' : 'Fail'}</s-badge>
-          </div>
-        ))}
-        {errors.map((e: any, i: number) => (
-          <div key={'e' + i} className="val-row">
-            <span className="val-ico" style={{ background: 'var(--p-critical-bg)', color: 'var(--p-critical)' }}><s-icon type="alert-triangle" size="small" /></span>
-            <div className="grow"><div className="t-sm t-strong">{e.code}</div><div className="t-xs t-muted">{e.message}</div></div>
-            <s-badge tone="critical">Fail</s-badge>
-          </div>
-        ))}
-      </div>
+      <s-box border="base" borderRadius="base" paddingBlockStart="small-100" paddingBlockEnd="small-100">
+        <s-stack gap="none">
+          {rows.map((r, i) => (
+            <s-box key={i} padding="small-200">
+              <s-stack direction="inline" gap="small-200" alignItems="center">
+                <s-icon type={r.pass ? 'check' : 'alert-triangle'} size="small" tone={r.pass ? 'success' : 'critical'} />
+                <div style={{ flex: 1 }}>
+                  <s-text type="strong">{r.label}</s-text>
+                  <s-text color="subdued">{r.detail}</s-text>
+                </div>
+                <s-badge tone={r.pass ? 'success' : 'critical'}>{r.pass ? 'Pass' : 'Fail'}</s-badge>
+              </s-stack>
+            </s-box>
+          ))}
+          {errors.map((e: any, i: number) => (
+            <s-box key={'e' + i} padding="small-200">
+              <s-stack direction="inline" gap="small-200" alignItems="center">
+                <s-icon type="alert-triangle" size="small" tone="critical" />
+                <div style={{ flex: 1 }}>
+                  <s-text type="strong">{e.code}</s-text>
+                  <s-text color="subdued">{e.message}</s-text>
+                </div>
+                <s-badge tone="critical">Fail</s-badge>
+              </s-stack>
+            </s-box>
+          ))}
+        </s-stack>
+      </s-box>
     </div>
   );
 }
