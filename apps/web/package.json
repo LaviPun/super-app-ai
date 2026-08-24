@@ -54,6 +54,7 @@
     "@superapp/rate-limit": "workspace:*",
     "@superapp/workers": "workspace:*",
     "@xyflow/react": "^12.11.0",
+    "bullmq": "^5.78.0",
     "ioredis": "^5.11.1",
     "isbot": "^5.1.42",
     "linkedom": "^0.18.13",

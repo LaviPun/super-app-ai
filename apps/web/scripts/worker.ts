@@ -3,13 +3,16 @@
  *
  * Boots, connects to the queue Redis (QUEUE_REDIS_URL || REDIS_URL via
  * @superapp/job-orchestration config), serves GET /healthz for Railway's
- * healthcheck, and heartbeats. WS-C mounts real BullMQ Workers here; until
- * then JOB_EXECUTION_MODE stays "inline" and this process only proves the
- * service + Redis wiring.
+ * healthcheck, and heartbeats. When JOB_EXECUTION_MODE=queue and processors
+ * are registered (Task 5), mounts real BullMQ Workers via
+ * createWebWorkerRuntime; otherwise stays health-only, exactly as the WS-A
+ * skeleton did.
  */
 import http from 'node:http';
 import Redis from 'ioredis';
 import { loadJobOrchestratorConfig, resolveEffectiveMode } from '@superapp/job-orchestration';
+import { createWebWorkerRuntime, type WebWorkerRuntime } from '../app/services/jobs/worker-runtime.server.js';
+import { buildWorkerHandlers } from '../app/services/jobs/processors/index.js';
 
 const config = loadJobOrchestratorConfig();
 if (!config.queueRedisUrl) {
@@ -59,13 +62,32 @@ const heartbeat = setInterval(async () => {
   }
 }, 30_000);
 
-function shutdown(signal: string) {
+let runtime: WebWorkerRuntime | null = null;
+if (resolveEffectiveMode(config) === 'queue') {
+  const handlers = buildWorkerHandlers();
+  if (Object.keys(handlers).length > 0) {
+    runtime = createWebWorkerRuntime({ handlers });
+    console.log('[worker] BullMQ workers mounted', { queues: Object.keys(handlers) });
+  } else {
+    console.log('[worker] no handlers registered yet — health-only mode');
+  }
+}
+
+async function shutdown(signal: string) {
   console.log(`[worker] ${signal} — shutting down`);
   clearInterval(heartbeat);
-  server.close(() => {
-    void redis.quit().finally(() => process.exit(0));
-  });
-  setTimeout(() => process.exit(0), 5_000).unref();
+  // Raise the force-exit window when a runtime is mounted so in-flight jobs
+  // can drain via Worker.close() before Railway kills the process.
+  const forceExitMs = runtime ? 30_000 : 5_000;
+  const forceExit = setTimeout(() => process.exit(0), forceExitMs).unref();
+  try {
+    await runtime?.close();
+  } finally {
+    server.close(() => {
+      clearTimeout(forceExit);
+      void redis.quit().finally(() => process.exit(0));
+    });
+  }
 }
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));
