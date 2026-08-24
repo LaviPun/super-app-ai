@@ -15,3 +15,16 @@ apps/web/node_modules
 .gstack-tools
 .venv-modal
 .impeccable
+apps/web/build
+apps/web/prisma/dev.db
+apps/web/prisma/migrations-archive*
+apps/web/prisma/_archived_migrations_pre_baseline
+docs
+specs
+vault
+.env
+**/.env
+**/.env.*
+__pycache__
+*.md
+!apps/web/README.md

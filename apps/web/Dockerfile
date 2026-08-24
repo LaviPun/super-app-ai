@@ -1,42 +1,48 @@
-# apps/web production image — WS-B deployability-gate version.
-#
-# Purpose today: prove every master push builds a runnable image
-# (.github/workflows/deploy.yml). WS-A (launch-program D1, Railway) hardens
-# this: multi-stage prod-only prune, worker-service entrypoint, healthcheck,
-# and real runtime env injection. Keep the build root at the REPO ROOT —
-# apps/web imports @superapp/* workspace packages from their dist/.
-FROM node:20-bookworm-slim
+# syntax=docker/dockerfile:1
+# Build context: repository root. Build with:
+#   docker build -t superapp-web -f apps/web/Dockerfile .
+# One image serves both Railway services:
+#   web    (default CMD): prisma migrate deploy + remix-serve on $PORT
+#   worker (startCommand override): pnpm --filter web worker:start
 
-# Prisma engines need openssl; git-less image → husky must not run.
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssl ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
-ENV HUSKY=0
-RUN npm install -g pnpm@9.15.9
+FROM node:20-alpine AS base
+# Prisma's query engine needs libssl at runtime; node:20-alpine ships neither
+# openssl nor libssl, so `prisma generate` (build stage) and the engine binary
+# (runtime stage) both need it installed here.
+RUN apk add --no-cache openssl
+RUN corepack enable
+WORKDIR /app
 
-WORKDIR /repo
-COPY . .
+FROM base AS build
+# Manifests first for install-layer caching.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY apps/web/package.json apps/web/package.json
+COPY apps/workers/package.json apps/workers/package.json
+COPY packages/core/package.json packages/core/package.json
+COPY packages/data-layer/package.json packages/data-layer/package.json
+COPY packages/db/package.json packages/db/package.json
+COPY packages/intent-graph/package.json packages/intent-graph/package.json
+COPY packages/job-orchestration/package.json packages/job-orchestration/package.json
+COPY packages/network-security/package.json packages/network-security/package.json
+COPY packages/observability/package.json packages/observability/package.json
+COPY packages/platform-contracts/package.json packages/platform-contracts/package.json
+COPY packages/rate-limit/package.json packages/rate-limit/package.json
+COPY packages/security/package.json packages/security/package.json
+RUN pnpm install --frozen-lockfile --filter web...
 
-RUN pnpm install --frozen-lockfile
+# Sources.
+COPY packages packages
+COPY apps/workers apps/workers
+COPY apps/web apps/web
 
-# Build-time placeholders: remix vite:build loads server modules that read
-# these. Real values are injected at RUNTIME by the platform (WS-A). Keep in
-# sync with the CI build job's placeholder env (.github/workflows/ci.yml).
-ENV NODE_ENV=production \
-    SHOPIFY_API_KEY=docker-build-placeholder \
-    SHOPIFY_API_SECRET=docker-build-placeholder \
-    SHOPIFY_APP_URL=https://placeholder.example.com \
-    SCOPES=read_products \
-    DATABASE_URL=file:./dev.db \
-    ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
-    INTERNAL_ADMIN_PASSWORD=docker-build-placeholder \
-    INTERNAL_ADMIN_SESSION_SECRET=docker-build-placeholder
-
-# Workspace dists first (topological), then the app itself
-# (web's build script = `prisma generate && remix vite:build`).
-RUN pnpm --filter "web^..." run --if-present build
+# Build web's workspace dependencies in topological order, then the app.
+RUN pnpm --filter "web^..." build
+RUN pnpm --filter web exec prisma generate
 RUN pnpm --filter web build
 
-ENV PORT=3000
+FROM base AS runtime
+ENV NODE_ENV=production
+COPY --from=build /app /app
+RUN chmod +x /app/apps/web/docker-start.sh
 EXPOSE 3000
-CMD ["pnpm", "--filter", "web", "start"]
+CMD ["/app/apps/web/docker-start.sh"]

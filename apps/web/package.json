@@ -11,6 +11,7 @@
     "test": "vitest run",
     "lint": "eslint app scripts --format unix --max-warnings 100",
     "lint:fix": "eslint app scripts --fix",
+    "worker:start": "tsx --tsconfig tsconfig.scripts.json scripts/worker.ts",
     "prisma:migrate": "prisma migrate dev",
     "retention:run": "tsx --tsconfig tsconfig.scripts.json scripts/retention.ts",
     "seed:ai-pricing": "tsx --tsconfig tsconfig.scripts.json scripts/seed-ai-pricing.ts",
@@ -25,7 +26,8 @@
     "evals:live": "RUN_LIVE_EVALS=1 vitest run app/__tests__/evals.live.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
-    "smoke:internal-ai": "tsx --tsconfig tsconfig.scripts.json scripts/smoke-internal-ai.ts"
+    "smoke:internal-ai": "tsx --tsconfig tsconfig.scripts.json scripts/smoke-internal-ai.ts",
+    "db:copy-sqlite": "tsx --tsconfig tsconfig.scripts.json scripts/migrate-sqlite-to-postgres.ts"
   },
   "dependencies": {
     "@opentelemetry/auto-instrumentations-node": "^0.77.0",
@@ -67,12 +69,14 @@
     "@playwright/test": "^1.60.0",
     "@remix-run/dev": "^2.17.5",
     "@shopify/polaris-types": "^1.0.7",
+    "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^24.10.1",
     "@types/nodemailer": "^8.0.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@typescript-eslint/eslint-plugin": "^8.61.0",
     "@typescript-eslint/parser": "^8.61.0",
+    "better-sqlite3": "^11.10.0",
     "concurrently": "^9.2.1",
     "eslint": "^9.39.4",
     "eslint-formatter-unix": "^9.0.1",

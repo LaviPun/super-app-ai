@@ -47,7 +47,7 @@
     "**/*.{ts,tsx,js}": [
       "bash -c 'pnpm -r --if-present typecheck'"
     ],
-    "**/shopify.app.toml": [
+    "**/shopify.app*.toml": [
       "node scripts/check-shopify-config.mjs"
     ],
     "**/shopify.extension.toml": [
