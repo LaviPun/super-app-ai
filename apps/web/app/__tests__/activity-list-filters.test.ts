@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const hoisted = vi.hoisted(() => ({
-  findMany: vi.fn(async () => []),
+  findMany: vi.fn(async (_args?: { where: Record<string, unknown> }) => [] as unknown[]),
 }));
 
 vi.mock('~/db.server', () => ({

@@ -144,6 +144,9 @@ describe('internal admin route closure (scorecard certification harness)', () =>
     process.env.INTERNAL_SSO_CLIENT_ID = 'client';
     process.env.INTERNAL_SSO_CLIENT_SECRET = 'secret';
     process.env.INTERNAL_SSO_REDIRECT_URI = 'http://127.0.0.1:4000/internal/sso/callback';
+    // WS-QF Task 1: callback now fails closed unless the claimed email is on
+    // the allowlist. This fixture's claims() below returns 'ops@example.com'.
+    process.env.INTERNAL_SSO_ALLOWED_EMAILS = 'ops@example.com';
 
     const session = await internalSessionStorage.getSession();
     session.set('oidc_state', 'state-abc');
