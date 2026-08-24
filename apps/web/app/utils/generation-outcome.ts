@@ -23,6 +23,31 @@ export function nextStepAfterStream(o: StreamOutcomeInput): StreamNextStep {
   return 'show-retry';
 }
 
+export type StreamEventKind = 'option' | 'ranking' | 'blueprint' | 'score' | 'option_updated' | 'error' | 'done';
+
+const STEP_ORDER: Array<{ kind: StreamEventKind; minStep: number }> = [
+  { kind: 'option', minStep: 2 },
+  { kind: 'ranking', minStep: 3 },
+  { kind: 'score', minStep: 4 },
+  { kind: 'option_updated', minStep: 4 },
+  { kind: 'done', minStep: Number.MAX_SAFE_INTEGER }, // clamped to totalSteps below
+];
+
+/**
+ * Real-event-driven replacement for the Builder's old setInterval progress
+ * tick (WS-F). Pure, order-independent-safe: given the set of distinct SSE
+ * event kinds seen so far in a stream, returns which GEN_STEPS index is
+ * "current." Every input here is a REAL SSE frame the route already parses
+ * (option/ranking/score/option_updated/done) — nothing is simulated.
+ */
+export function stepIndexForSeenEvents(seen: ReadonlySet<StreamEventKind>, totalSteps: number): number {
+  let step = 0;
+  for (const { kind, minStep } of STEP_ORDER) {
+    if (seen.has(kind)) step = Math.max(step, minStep);
+  }
+  return Math.min(step, totalSteps);
+}
+
 /**
  * Stamps a generation attempt's FormData with its correlationId (WS-QF / AI-2
  * review fix). The stream leg sends this id, and — because the batch fallback

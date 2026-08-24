@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { finalizeGenerationJob } from '~/services/ai/generation-outcome.server';
-import { nextStepAfterStream, withGenerationCorrelationId } from '~/utils/generation-outcome';
+import { nextStepAfterStream, withGenerationCorrelationId, stepIndexForSeenEvents } from '~/utils/generation-outcome';
 
 describe('finalizeGenerationJob', () => {
   it('fails the job and returns a typed terminal error when 0 options validated', async () => {
@@ -70,5 +70,28 @@ describe('withGenerationCorrelationId (client fallback dedupe, WS-QF / AI-2 revi
     const fd = new FormData();
     const returned = withGenerationCorrelationId(fd, 'abc-123');
     expect(returned).toBe(fd);
+  });
+});
+
+describe('stepIndexForSeenEvents (WS-F: real progress, was a fake setInterval)', () => {
+  it('no events yet → step 0 (fetch in flight)', () => {
+    expect(stepIndexForSeenEvents(new Set(), 5)).toBe(0);
+  });
+  it('first option arrives → advances past "understanding the request"', () => {
+    expect(stepIndexForSeenEvents(new Set(['option']), 5)).toBe(2);
+  });
+  it('ranking arrives → validating/ranking step', () => {
+    expect(stepIndexForSeenEvents(new Set(['option', 'ranking']), 5)).toBe(3);
+  });
+  it('stream done → complete', () => {
+    expect(stepIndexForSeenEvents(new Set(['option', 'ranking', 'done']), 5)).toBe(5);
+  });
+  it('never regresses below a previously-reached step for a lesser event mix', () => {
+    // e.g. a late 'score' event alone shouldn't rewind an already-advanced UI;
+    // caller is responsible for tracking the max seen, this function is a pure
+    // ceiling function over the *seen set*, so assert monotonic inputs behave.
+    const a = stepIndexForSeenEvents(new Set(['option', 'ranking']), 5);
+    const b = stepIndexForSeenEvents(new Set(['option', 'ranking', 'score']), 5);
+    expect(b).toBeGreaterThanOrEqual(a);
   });
 });

@@ -33,7 +33,7 @@ import { classifyModulePublishability } from '~/services/publish/publish-preflig
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { StatusBadge, EmptyState, titleCase } from '~/components/merchant/polaris';
-import { nextStepAfterStream, withGenerationCorrelationId } from '~/utils/generation-outcome';
+import { nextStepAfterStream, withGenerationCorrelationId, stepIndexForSeenEvents, type StreamEventKind } from '~/utils/generation-outcome';
 import { SchemaForm, type JsonSchemaNode } from '~/components/SchemaForm';
 
 
@@ -478,6 +478,11 @@ function GenerateWorkspace() {
     const collected: Record<number, { explanation: string; recipe: Record<string, unknown> }> = {};
     let gotAny = false;
     let sawErrorFrame: string | null = null;
+    // WS-F: real progress — every distinct SSE event kind seen so far maps to
+    // a GEN_STEPS index (stepIndexForSeenEvents), replacing the old fake
+    // setInterval tick that advanced independently of the actual stream.
+    const seenEvents = new Set<StreamEventKind>();
+    setStepIdx(0);
     try {
       const res = await fetch('/api/ai/create-module/stream', { method: 'POST', body: fd, headers: { Accept: 'text/event-stream' } });
       if (!res.ok || !res.body) throw new Error('stream unavailable');
@@ -486,7 +491,11 @@ function GenerateWorkspace() {
       let buf = '';
       for (;;) {
         const { value, done } = await reader.read();
-        if (done) break;
+        if (done) {
+          seenEvents.add('done');
+          setStepIdx(stepIndexForSeenEvents(seenEvents, GEN_STEPS.length));
+          break;
+        }
         buf += dec.decode(value, { stream: true });
         let sep = buf.indexOf('\n\n');
         while (sep !== -1) {
@@ -502,6 +511,8 @@ function GenerateWorkspace() {
             let payload: any = null;
             try { payload = JSON.parse(dataLines.join('\n')); } catch { payload = null; }
             if (payload) {
+              seenEvents.add(ev as StreamEventKind);
+              setStepIdx(stepIndexForSeenEvents(seenEvents, GEN_STEPS.length));
               if (ev === 'option' && payload.option?.recipe) {
                 collected[payload.index] = { explanation: payload.option.explanation ?? '', recipe: payload.option.recipe };
                 gotAny = true;
@@ -569,15 +580,6 @@ function GenerateWorkspace() {
       void streamGenerate();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase]);
-
-  // Step animation while generation is in flight.
-  useEffect(() => {
-    if (phase !== 'generating') return;
-    setStepIdx(0);
-    let i = 0;
-    const tick = setInterval(() => { i += 1; setStepIdx((s) => Math.min(s + 1, GEN_STEPS.length)); if (i >= GEN_STEPS.length) clearInterval(tick); }, 560);
-    return () => clearInterval(tick);
   }, [phase]);
 
   // When real options arrive (or error), build the chooser — one concept per
