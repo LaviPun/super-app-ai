@@ -18,6 +18,7 @@ export type ActivationKind =
 export const FUNCTION_KEY_ACTIVATION: Record<string, { kind: ActivationKind; functionHandle: string }> = {
   discountRules: { kind: 'discount', functionHandle: 'discount-function' },
   deliveryCustomization: { kind: 'deliveryCustomization', functionHandle: 'superapp-delivery-customization' },
+  paymentCustomization: { kind: 'paymentCustomization', functionHandle: 'superapp-payment-customization' },
 };
 
 const DISCOUNT_TITLE = 'SuperApp Discounts';
@@ -37,6 +38,12 @@ export const MAX_DISCOUNT_LOOKUP_PAGES = 20;
  * not the common case.
  */
 export const MAX_DELIVERY_LOOKUP_PAGES = 20;
+
+/**
+ * Cap on paginated paymentCustomizations adoption-lookup pages, same
+ * reasoning as MAX_DISCOUNT_LOOKUP_PAGES / MAX_DELIVERY_LOOKUP_PAGES.
+ */
+export const MAX_PAYMENT_LOOKUP_PAGES = 20;
 
 /**
  * Thrown when a paginated adoption lookup (discount node / delivery
@@ -111,12 +118,14 @@ const DISCOUNT_DELETE = `#graphql
 const DELIVERY_TITLE = 'SuperApp Delivery Customization';
 
 /**
- * Resolves the app-scoped ShopifyFunction id for a handle. Delivery-customization
- * adoption (unlike discount's title match) keys off `functionId` — a
- * DeliveryCustomization node's `functionId` field is authoritative for "is this
- * node bound to OUR function" — so we need the function's own id first. Binding
- * for CREATE still goes through `functionHandle` (2026-07: `functionId` input is
- * deprecated), so this lookup is recovery/adoption-matching only.
+ * Resolves the app-scoped ShopifyFunction id for a handle. Delivery- and
+ * payment-customization adoption (unlike discount's title match) key off
+ * `functionId` — a DeliveryCustomization/PaymentCustomization node's
+ * `functionId` field is authoritative for "is this node bound to OUR
+ * function" — so we need the function's own id first. Binding for CREATE
+ * still goes through `functionHandle` (2026-07: `functionId` input is
+ * deprecated), so this lookup is recovery/adoption-matching only. Shared by
+ * both kinds.
  */
 const FUNCTION_LOOKUP = `#graphql
   query SuperAppFunctionLookup {
@@ -153,6 +162,38 @@ const DELIVERY_DELETE = `#graphql
   }
 `;
 
+const PAYMENT_TITLE = 'SuperApp Payment Customization';
+
+// Unfiltered (no `query:` arg), paginated — same discipline as DELIVERY_LIST:
+// the search-index-backed filter lags a write by several seconds, so a
+// back-to-back republish could miss the just-created node and duplicate-create.
+// Pagination over the full connection is what makes the unfiltered scan safe
+// on a shop with many payment customizations.
+const PAYMENT_LIST = `#graphql
+  query SuperAppPaymentCustomizationList($after: String) {
+    paymentCustomizations(first: 50, after: $after) {
+      nodes { id title enabled functionId }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+`;
+const PAYMENT_CREATE = `#graphql
+  mutation SuperAppPaymentCustomizationCreate($paymentCustomization: PaymentCustomizationInput!) {
+    paymentCustomizationCreate(paymentCustomization: $paymentCustomization) {
+      paymentCustomization { id }
+      userErrors { field message }
+    }
+  }
+`;
+const PAYMENT_DELETE = `#graphql
+  mutation SuperAppPaymentCustomizationDelete($id: ID!) {
+    paymentCustomizationDelete(id: $id) {
+      deletedId
+      userErrors { field message }
+    }
+  }
+`;
+
 type StoredActivation = { functionKey: string; kind: string; activationGid: string };
 
 /** userError messages that mean "already gone" — deletes treat them as success. */
@@ -175,6 +216,8 @@ export class ActivationService {
         return this.ensureDiscount(functionKey, mapping.functionHandle);
       case 'deliveryCustomization':
         return this.ensureDeliveryCustomization(functionKey, mapping.functionHandle);
+      case 'paymentCustomization':
+        return this.ensurePaymentCustomization(functionKey, mapping.functionHandle);
       default: {
         // A mapping was added without its ensure implementation — plan violation.
         throw new Error(`ActivationService: kind "${mapping.kind}" has no ensure implementation`);
@@ -193,6 +236,9 @@ export class ActivationService {
         break;
       case 'deliveryCustomization':
         await this.deleteWith(DELIVERY_DELETE, stored.activationGid, 'deliveryCustomizationDelete');
+        break;
+      case 'paymentCustomization':
+        await this.deleteWith(PAYMENT_DELETE, stored.activationGid, 'paymentCustomizationDelete');
         break;
       default:
         throw new Error(`ActivationService: kind "${mapping.kind}" has no delete implementation`);
@@ -369,6 +415,79 @@ export class ActivationService {
       connectionField: 'deliveryCustomizations',
       duplicateRiskNote:
         "a duplicate delivery customization bound to this function (double-evaluated delivery options). Investigate the shop's delivery-customization count.",
+    });
+  }
+
+  // ── paymentCustomization ─────────────────────────────────────────────────
+
+  private async ensurePaymentCustomization(functionKey: string, functionHandle: string): Promise<string> {
+    const stored = await this.getStored(functionKey);
+    if (stored) return stored.activationGid;
+
+    // Recovery/adoption: exactly ONE payment customization bound to this
+    // function — a second one would run the wasm twice on the same payment
+    // methods. Paginates the FULL paymentCustomizations connection (see
+    // findExistingPaymentCustomization) for the same reason the delivery
+    // lookup does — an unpaginated first-page-only lookup would miss the node
+    // on a shop with many payment customizations and silently fall through
+    // to CREATE.
+    const functionId = await this.lookupFunctionId(functionHandle);
+    const found = await this.findExistingPaymentCustomization(functionKey, functionId);
+    if (found) {
+      await this.store(functionKey, 'paymentCustomization', found.id);
+      return found.id;
+    }
+
+    const created = await this.graphqlJson<{
+      paymentCustomizationCreate: { paymentCustomization?: { id: string }; userErrors: Array<{ message: string }> };
+    }>(PAYMENT_CREATE, {
+      paymentCustomization: { functionHandle, title: PAYMENT_TITLE, enabled: true },
+    });
+    const err = created.data?.paymentCustomizationCreate?.userErrors?.[0];
+    if (err) throw new Error(`paymentCustomizationCreate failed: ${err.message}`);
+    const id = created.data?.paymentCustomizationCreate?.paymentCustomization?.id;
+    if (!id) throw new Error('paymentCustomizationCreate returned no id');
+    await this.store(functionKey, 'paymentCustomization', id);
+    return id;
+  }
+
+  /**
+   * Page through the FULL `paymentCustomizations` connection looking for a
+   * node whose `functionId` matches ours. `first: 50` per page; stops as soon
+   * as a match is found or the connection is exhausted (`pageInfo.hasNextPage`
+   * false). Caps at MAX_PAYMENT_LOOKUP_PAGES pages — if the cap is hit
+   * WITHOUT a verdict (pages remained), it throws rather than letting the
+   * caller fall through to CREATE (see ActivationLookupUnverifiableError).
+   */
+  private async findExistingPaymentCustomization(
+    functionKey: string,
+    functionId: string,
+  ): Promise<{ id: string; functionId: string } | null> {
+    let after: string | undefined;
+    for (let page = 0; page < MAX_PAYMENT_LOOKUP_PAGES; page++) {
+      const lookup = await this.graphqlJson<{
+        paymentCustomizations: {
+          nodes: Array<{ id: string; functionId: string }>;
+          pageInfo?: { hasNextPage: boolean; endCursor?: string | null };
+        };
+      }>(PAYMENT_LIST, after ? { after } : undefined);
+      const found = (lookup.data?.paymentCustomizations?.nodes ?? []).find((n) => n.functionId === functionId);
+      if (found) return found;
+
+      const pageInfo = lookup.data?.paymentCustomizations?.pageInfo;
+      if (!pageInfo?.hasNextPage) return null; // connection exhausted — genuinely safe to create
+      after = pageInfo.endCursor ?? undefined;
+    }
+    // Cap hit while more pages remained: cannot rule out an existing node.
+    console.warn(
+      `[ActivationService] paymentCustomizations lookup for functions.${functionKey} hit the ` +
+        `${MAX_PAYMENT_LOOKUP_PAGES}-page cap without a verdict — refusing to create.`,
+    );
+    throw new ActivationLookupUnverifiableError(functionKey, MAX_PAYMENT_LOOKUP_PAGES, {
+      resourceLabel: 'payment customization',
+      connectionField: 'paymentCustomizations',
+      duplicateRiskNote:
+        "a duplicate payment customization bound to this function (double-evaluated payment methods). Investigate the shop's payment-customization count.",
     });
   }
 

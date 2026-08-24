@@ -24,6 +24,7 @@ import {
   FUNCTION_KEY_ACTIVATION,
   MAX_DELIVERY_LOOKUP_PAGES,
   MAX_DISCOUNT_LOOKUP_PAGES,
+  MAX_PAYMENT_LOOKUP_PAGES,
 } from '~/services/publish/activation.service';
 
 /**
@@ -267,6 +268,95 @@ describe('ActivationService — deliveryCustomization kind', () => {
     await new ActivationService(del.admin, 'shop_1').deleteForFunctionKey('deliveryCustomization');
     expect(del.calls.map((c) => c.op)).toEqual(['SuperAppDeliveryCustomizationDelete']);
     expect(db.has('shop_1:deliveryCustomization')).toBe(false);
+  });
+});
+
+describe('ActivationService — paymentCustomization kind', () => {
+  it('creates via functionHandle with enabled:true on first ensure', async () => {
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'SuperAppFunctionLookup')
+        return { data: { shopifyFunctions: { nodes: [{ id: 'fn_1', apiType: 'payment_customization', title: 't', handle: 'superapp-payment-customization' }] } } };
+      if (op === 'SuperAppPaymentCustomizationList')
+        return { data: { paymentCustomizations: { nodes: [] } } };
+      if (op === 'SuperAppPaymentCustomizationCreate')
+        return { data: { paymentCustomizationCreate: { paymentCustomization: { id: 'gid://shopify/PaymentCustomization/1' }, userErrors: [] } } };
+      throw new Error(`unexpected op ${op}`);
+    });
+    const gid = await new ActivationService(admin, 'shop_1').ensureForFunctionKey('paymentCustomization');
+    expect(gid).toBe('gid://shopify/PaymentCustomization/1');
+    const create = calls.find((c) => c.op === 'SuperAppPaymentCustomizationCreate')!;
+    expect((create.variables!.paymentCustomization as any).functionHandle).toBe('superapp-payment-customization');
+    expect((create.variables!.paymentCustomization as any).enabled).toBe(true);
+    expect((create.variables!.paymentCustomization as any).title).toBe('SuperApp Payment Customization');
+  });
+
+  it('adopts an existing customization for our function instead of duplicating', async () => {
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'SuperAppFunctionLookup')
+        return { data: { shopifyFunctions: { nodes: [{ id: 'fn_1', apiType: 'payment_customization', title: 't', handle: 'superapp-payment-customization' }] } } };
+      if (op === 'SuperAppPaymentCustomizationList')
+        return { data: { paymentCustomizations: { nodes: [{ id: 'gid://p/9', title: 'x', enabled: true, functionId: 'fn_1' }] } } };
+      throw new Error(`unexpected op ${op}`);
+    });
+    const gid = await new ActivationService(admin, 'shop_1').ensureForFunctionKey('paymentCustomization');
+    expect(gid).toBe('gid://p/9');
+    expect(calls.map((c) => c.op)).not.toContain('SuperAppPaymentCustomizationCreate');
+  });
+
+  it('finds the node on page 2 (paginated adoption, no double-create)', async () => {
+    const { admin, calls } = mockAdmin((op, variables) => {
+      if (op === 'SuperAppFunctionLookup')
+        return { data: { shopifyFunctions: { nodes: [{ id: 'fn_1', apiType: 'payment_customization', title: 't', handle: 'superapp-payment-customization' }] } } };
+      if (op === 'SuperAppPaymentCustomizationList') {
+        if (!variables?.after) {
+          return { data: { paymentCustomizations: { nodes: [{ id: 'gid://p/other', title: 'x', enabled: true, functionId: 'fn_other' }], pageInfo: { hasNextPage: true, endCursor: 'cursor-1' } } } };
+        }
+        expect(variables.after).toBe('cursor-1');
+        return { data: { paymentCustomizations: { nodes: [{ id: 'gid://p/9', title: 'x', enabled: true, functionId: 'fn_1' }], pageInfo: { hasNextPage: false, endCursor: null } } } };
+      }
+      throw new Error(`unexpected op ${op}`);
+    });
+    const gid = await new ActivationService(admin, 'shop_1').ensureForFunctionKey('paymentCustomization');
+    expect(gid).toBe('gid://p/9');
+    expect(calls.map((c) => c.op)).toEqual([
+      'SuperAppFunctionLookup',
+      'SuperAppPaymentCustomizationList',
+      'SuperAppPaymentCustomizationList',
+    ]);
+    expect(calls.some((c) => c.op === 'SuperAppPaymentCustomizationCreate')).toBe(false);
+  });
+
+  it('refuses to create when the lookup hits the page cap without a verdict (no blind create)', async () => {
+    let pages = 0;
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'SuperAppFunctionLookup')
+        return { data: { shopifyFunctions: { nodes: [{ id: 'fn_1', apiType: 'payment_customization', title: 't', handle: 'superapp-payment-customization' }] } } };
+      if (op === 'SuperAppPaymentCustomizationList') {
+        pages += 1;
+        return { data: { paymentCustomizations: { nodes: [], pageInfo: { hasNextPage: true, endCursor: `cursor-${pages}` } } } };
+      }
+      throw new Error(`unexpected op ${op}`);
+    });
+    await expect(
+      new ActivationService(admin, 'shop_1').ensureForFunctionKey('paymentCustomization'),
+    ).rejects.toThrow(ActivationLookupUnverifiableError);
+    expect(pages).toBe(MAX_PAYMENT_LOOKUP_PAGES);
+    expect(calls.some((c) => c.op === 'SuperAppPaymentCustomizationCreate')).toBe(false);
+  });
+
+  it('stored GID → zero Shopify calls; delete uses paymentCustomizationDelete', async () => {
+    db.set('shop_1:paymentCustomization', { functionKey: 'paymentCustomization', kind: 'paymentCustomization', activationGid: 'gid://p/1' });
+    const noCall = mockAdmin(() => { throw new Error('no call expected'); });
+    expect(await new ActivationService(noCall.admin, 'shop_1').ensureForFunctionKey('paymentCustomization')).toBe('gid://p/1');
+
+    const del = mockAdmin((op) => {
+      if (op === 'SuperAppPaymentCustomizationDelete')
+        return { data: { paymentCustomizationDelete: { deletedId: 'gid://p/1', userErrors: [] } } };
+      throw new Error(`unexpected op ${op}`);
+    });
+    await new ActivationService(del.admin, 'shop_1').deleteForFunctionKey('paymentCustomization');
+    expect(del.calls.map((c) => c.op)).toEqual(['SuperAppPaymentCustomizationDelete']);
+    expect(db.has('shop_1:paymentCustomization')).toBe(false);
   });
 });
 

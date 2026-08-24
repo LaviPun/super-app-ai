@@ -588,10 +588,19 @@ export function isRuntimeShipped(moduleType: ModuleType, ctx: RuntimeShippedChec
  * itself is not Plus-gated (unlike checkout UI extensions, which are); left
  * unchanged here either way, since `requiresPlan` never blocks deploy (see
  * evaluatePlanEligibility, "NEVER blocks deploy").
+ *
+ * `functions.paymentCustomization` (Task 5, 2026-08-24): wired to
+ * `ActivationService`'s paymentCustomization kind — identical shape to
+ * deliveryCustomization: ensures/adopts the single PaymentCustomization owner
+ * object bound to `superapp-payment-customization` (adoption keys off the
+ * node's `functionId`, paginated over the full `paymentCustomizations`
+ * connection) via `paymentCustomizationCreate`, bound by `functionHandle`
+ * (2026-07: `functionId` input is deprecated for create).
  */
 export const ACTIVATION_WIRED_FUNCTION_TYPES: Set<string> = new Set<string>([
   'functions.discountRules',
   'functions.deliveryCustomization',
+  'functions.paymentCustomization',
 ]);
 
 /**

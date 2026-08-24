@@ -72,8 +72,11 @@ const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
   // functionHandle, adopting the existing node for our function (paginated
   // deliveryCustomizations scan keyed on functionId) — see
   // ACTIVATION_WIRED_FUNCTION_TYPES.
+  // functions.paymentCustomization removed (Task 5, 2026-08-24): ActivationService's
+  // paymentCustomization kind wires paymentCustomizationCreate, identical shape to
+  // deliveryCustomization (paginated paymentCustomizations scan keyed on
+  // functionId) — see ACTIVATION_WIRED_FUNCTION_TYPES.
   'functions.cartTransform',
-  'functions.paymentCustomization',
   'functions.cartAndCheckoutValidation',
   'functions.fulfillmentConstraints',
   // Shipping-discount + order-routing Functions: wasm now deployed (WS-E T2 —
@@ -358,10 +361,10 @@ describe('INTEGRITY: declarative pricing mechanism ⇒ needs_runtime (no inert f
  * complement (i.e. adds it to the wired set) as activation wiring ships.
  * functions.discountRules removed (Task 3) — now activation-wired.
  * functions.deliveryCustomization removed (Task 4) — now activation-wired.
+ * functions.paymentCustomization removed (Task 5) — now activation-wired.
  */
 const ACTIVATION_UNWIRED_TYPES = [
   'functions.cartTransform',
-  'functions.paymentCustomization',
   'functions.cartAndCheckoutValidation',
   'functions.fulfillmentConstraints',
 ] as const;
