@@ -2,6 +2,7 @@ import { getPrisma } from '~/db.server';
 import { captureException, captureMessage } from '~/services/observability/sentry.server';
 import { sendEmail } from '~/services/notifications/mailer.server';
 import { decryptJson } from '~/services/security/crypto.server';
+import { sendSlackAlert } from './ops-alert-slack.server';
 
 export type OpsAlertKind =
   | 'API_REQUEST_FAILED' // withApiLogging catch
@@ -30,10 +31,7 @@ export class OpsAlertService {
   private readonly sendSlack: SlackSender;
 
   constructor(deps: { sendSlack?: SlackSender } = {}) {
-    // Real sender wired in Task 3; default here throws only if actually invoked
-    // without an override AND Task 3 hasn't landed yet — kept import-free to
-    // avoid a circular import with ops-alert-slack.server.ts during Task 2.
-    this.sendSlack = deps.sendSlack ?? (async () => ({ sent: false, error: 'Slack sender not configured' }));
+    this.sendSlack = deps.sendSlack ?? sendSlackAlert;
   }
 
   /** Fire-and-forget-safe: never throws. Sentry unconditional; email/Slack gated by rolling-window threshold. */
