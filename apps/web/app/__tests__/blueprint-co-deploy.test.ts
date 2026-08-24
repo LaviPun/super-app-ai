@@ -17,6 +17,9 @@ const hoisted = vi.hoisted(() => {
   const moduleUpdate = vi.fn(async (_args: { where: { id: string }; data: unknown }) => ({}));
   const moduleVersionUpdate = vi.fn(async (_args: { where: { id: string }; data: unknown }) => ({}));
   const recipeFindFirst = vi.fn();
+  // BlueprintService.publishBlueprint resolves shopId via prisma.shop.findUnique
+  // (WS-E Task 3) before publishing anything.
+  const shopFindUnique = vi.fn(async (_args?: unknown) => ({ id: 'shop_1' }));
 
   // PublishService
   const publish = vi.fn(
@@ -31,7 +34,10 @@ const hoisted = vi.hoisted(() => {
   const ensureParentBundleProduct = vi.fn(async (_args?: unknown) => 'gid://shopify/ProductVariant/500');
   const activateCartTransform = vi.fn(async (_config?: { bundles: Array<Record<string, unknown>> }) => 'gid://shopify/CartTransform/1');
   const writeBundlePricingRules = vi.fn(async (_mo?: unknown, _rules?: unknown) => {});
-  const ensureAutomaticBundleDiscount = vi.fn(async () => 'gid://shopify/DiscountAutomaticNode/1');
+  // ActivationService.ensureForFunctionKey — WS-E Task 3 replaces
+  // BundleProductService.ensureAutomaticBundleDiscount at the bundle-discount
+  // activate site.
+  const ensureForFunctionKey = vi.fn(async (_functionKey?: string) => 'gid://shopify/DiscountAutomaticNode/1');
   // CapabilityService.getPlanTier — plan drives the pricing split at the activate site.
   const getPlanTier = vi.fn(async (_shopDomain: string) => 'PLUS');
 
@@ -39,12 +45,13 @@ const hoisted = vi.hoisted(() => {
     moduleUpdate,
     moduleVersionUpdate,
     recipeFindFirst,
+    shopFindUnique,
     publish,
     resolveComponents,
     ensureParentBundleProduct,
     activateCartTransform,
     writeBundlePricingRules,
-    ensureAutomaticBundleDiscount,
+    ensureForFunctionKey,
     getPlanTier,
   };
 });
@@ -54,11 +61,16 @@ vi.mock('~/db.server', () => ({
     recipe: { findFirst: hoisted.recipeFindFirst },
     module: { update: hoisted.moduleUpdate },
     moduleVersion: { update: hoisted.moduleVersionUpdate },
+    shop: { findUnique: hoisted.shopFindUnique },
   }),
 }));
 
 vi.mock('~/services/publish/publish.service', () => ({
   PublishService: vi.fn().mockImplementation(() => ({ publish: hoisted.publish })),
+}));
+
+vi.mock('~/services/publish/activation.service', () => ({
+  ActivationService: vi.fn().mockImplementation(() => ({ ensureForFunctionKey: hoisted.ensureForFunctionKey })),
 }));
 
 // Mock only the class; keep the real pure helpers (buildBundleRuntimeConfig,
@@ -73,7 +85,6 @@ vi.mock('~/services/bundles/bundle-product.service', async (importOriginal) => {
       ensureParentBundleProduct: hoisted.ensureParentBundleProduct,
       activateCartTransform: hoisted.activateCartTransform,
       writeBundlePricingRules: hoisted.writeBundlePricingRules,
-      ensureAutomaticBundleDiscount: hoisted.ensureAutomaticBundleDiscount,
     })),
   };
 });
@@ -150,6 +161,7 @@ beforeEach(() => {
   hoisted.resolveComponents.mockResolvedValue(resolvedBundle.components);
   hoisted.ensureParentBundleProduct.mockResolvedValue('gid://shopify/ProductVariant/500');
   hoisted.getPlanTier.mockResolvedValue('PLUS');
+  hoisted.shopFindUnique.mockResolvedValue({ id: 'shop_1' });
 });
 
 // ==========================================================================
@@ -366,7 +378,8 @@ describe('publishBlueprint — plan-aware fixed-price split at the activate site
     expect(runtimeConfig.bundles[0]!.price).toBeUndefined();
 
     // The discount node is ensured exactly once (there is a rule to activate).
-    expect(hoisted.ensureAutomaticBundleDiscount).toHaveBeenCalledTimes(1);
+    expect(hoisted.ensureForFunctionKey).toHaveBeenCalledTimes(1);
+    expect(hoisted.ensureForFunctionKey).toHaveBeenCalledWith('discountRules');
 
     // The managed rule is written: keyed `bundle:<id>`, reducing to the fixed price.
     expect(hoisted.writeBundlePricingRules).toHaveBeenCalledTimes(1);
@@ -391,7 +404,7 @@ describe('publishBlueprint — plan-aware fixed-price split at the activate site
     expect(runtimeConfig.bundles[0]!.price).toEqual({ kind: 'fixed-price', value: 49 });
 
     // No discount fallback on Plus.
-    expect(hoisted.ensureAutomaticBundleDiscount).not.toHaveBeenCalled();
+    expect(hoisted.ensureForFunctionKey).not.toHaveBeenCalled();
 
     // writeBundlePricingRules is still called unconditionally — with [] — so any
     // stale managed rule from a prior non-Plus publish is cleared.

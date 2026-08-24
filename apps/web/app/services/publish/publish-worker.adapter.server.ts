@@ -70,7 +70,7 @@ export function createLegacyPublishWorkerAdapters(admin: AdminApiContext['admin'
     },
     shopify: {
       async apply({ payload }) {
-        await new PublishService(admin).publish(payload.spec, payload.target);
+        await new PublishService(admin, { shopId: payload.shopId }).publish(payload.spec, payload.target);
       },
     },
     state: {

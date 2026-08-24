@@ -244,7 +244,7 @@ export async function action({ request }: { request: Request }) {
 
       try {
         const previouslyPublishedVersion = module.versions.find((v) => v.status === 'PUBLISHED');
-        const publisher = new PublishService(admin);
+        const publisher = new PublishService(admin, { shop: session.shop, shopId: shopRow?.id });
         await publisher.publish(spec, target);
 
         // R3.3: provision the module's declared typed data store (schemaJson set →

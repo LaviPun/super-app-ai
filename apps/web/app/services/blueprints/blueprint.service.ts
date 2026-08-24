@@ -18,6 +18,7 @@ import type {
 import { RecipeSpecSchema } from '@superapp/core';
 import { ModuleService } from '~/services/modules/module.service';
 import { PublishService } from '~/services/publish/publish.service';
+import { ActivationService } from '~/services/publish/activation.service';
 import {
   BundleProductService,
   bundleIdFromTitle,
@@ -357,6 +358,15 @@ export class BlueprintService {
     const recipe = await this.getBlueprint(shopDomain, recipeId);
     if (!recipe) throw new Error('Blueprint not found');
 
+    // WS-E: resolve shopId once — required both to construct PublishService (so a
+    // mapped functions.* member's activation hook doesn't throw) and to activate
+    // the shared bundle discount node below. Mirrors the other publish call sites'
+    // shopRow lookup (api.publish.tsx, api.agent.modules.$moduleId.publish.tsx).
+    const prisma = getPrisma();
+    const shop = await prisma.shop.findUnique({ where: { shopDomain } });
+    if (!shop) throw new Error(`Shop not found for domain "${shopDomain}"`);
+    const shopId = shop.id;
+
     const published: BlueprintPublishResult['published'] = [];
     const failed: BlueprintPublishResult['failed'] = [];
     const skipped: BlueprintPublishResult['skipped'] = [];
@@ -445,7 +455,7 @@ export class BlueprintService {
     }
 
     // 3. Publish in dependency order (source first), injecting the resolved record.
-    const publisher = new PublishService(admin);
+    const publisher = new PublishService(admin, { shopId });
     for (const member of orderMembersForCoDeploy(members)) {
       try {
         if (member.target.kind === 'THEME' && !member.target.themeId) {
@@ -473,7 +483,7 @@ export class BlueprintService {
           const bundleSvc = new BundleProductService(admin);
           await bundleSvc.activateCartTransform(split.cartTransformConfig);
           if (split.bundleDiscountRules.length > 0) {
-            await bundleSvc.ensureAutomaticBundleDiscount();
+            await new ActivationService(admin, shopId).ensureForFunctionKey('discountRules');
           }
           // Unconditional: an empty rule set clears any stale managed rule left by a
           // prior non-Plus publish (e.g. after upgrading to Plus or dropping the price).

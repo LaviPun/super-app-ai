@@ -64,7 +64,9 @@ const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
   // extension-eligibility.ts — initially empty ⇒ every functions.* type gates here).
   // Blueprint co-deploy still publishes them (activationHandledByCoDeploy). Each
   // WS-E task removes exactly one type from this set as activation wiring ships.
-  'functions.discountRules',
+  // functions.discountRules removed (Task 3, 2026-08-24): ActivationService's
+  // discount kind wires discountAutomaticAppCreate/Update — see
+  // ACTIVATION_WIRED_FUNCTION_TYPES.
   'functions.cartTransform',
   'functions.deliveryCustomization',
   'functions.paymentCustomization',
@@ -305,7 +307,7 @@ describe('INTEGRITY: declarative pricing mechanism ⇒ needs_runtime (no inert f
     expect(pf.willDeploy).toBe(false);
   });
 
-  it('functions.discountRules with a REAL Function mechanism passes the pricing gate (deployable under co-deploy)', () => {
+  it('functions.discountRules with a REAL Function mechanism passes the pricing gate (deployable on single-module path)', () => {
     const spec = {
       type: 'functions.discountRules',
       name: 'Real discount',
@@ -314,12 +316,13 @@ describe('INTEGRITY: declarative pricing mechanism ⇒ needs_runtime (no inert f
         pricing: { model: 'single', mechanism: 'shopify-function-discount', discount: { kind: 'percentage', value: 10 } },
       },
     } as unknown as RecipeSpec;
-    // Single-module path: gated by the ACTIVATION gap (not the pricing gate) —
-    // the reason must be the activation one, proving the pricing gate is narrow.
+    // WS-E Task 3: functions.discountRules is activation-wired — the single-module
+    // path is deployable directly now, proving the pricing gate is narrow (it was
+    // never the activation gate that blocked this spec).
     const single = classifyModulePublishability(spec, { deployedExtensions: deployed });
-    expect(single.status).toBe('needs_runtime');
-    expect(single.reasons.join(' ')).toMatch(/activation/i);
-    // Blueprint co-deploy (which activates for itself): fully deployable.
+    expect(single.status).toBe('deployable');
+    expect(single.willDeploy).toBe(true);
+    // Blueprint co-deploy (which activates for itself) stays deployable too.
     const coDeploy = classifyModulePublishability(spec, {
       deployedExtensions: deployed,
       activationHandledByCoDeploy: true,
@@ -349,9 +352,9 @@ describe('INTEGRITY: declarative pricing mechanism ⇒ needs_runtime (no inert f
  * now gates them — and every other functions.* type — as a strict superset. Each
  * WS-E task removes exactly one type from ACTIVATION_WIRED_FUNCTION_TYPES's
  * complement (i.e. adds it to the wired set) as activation wiring ships.
+ * functions.discountRules removed (Task 3) — now activation-wired.
  */
 const ACTIVATION_UNWIRED_TYPES = [
-  'functions.discountRules',
   'functions.cartTransform',
   'functions.deliveryCustomization',
   'functions.paymentCustomization',

@@ -18,6 +18,7 @@ import { WebPixelService } from '~/services/shopify/web-pixel.service';
 import { computeRepublishDiff, type ModulePublishPreflightResult } from '@superapp/platform-contracts';
 import { classifyModulePublishability } from '~/services/publish/publish-preflight.server';
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
+import { ActivationService, FUNCTION_KEY_ACTIVATION } from '~/services/publish/activation.service';
 import { ThemeFilesService } from '~/services/publish/theme-files.server';
 import { checkCompiledLiquid, ThemeCheckFailedError } from '~/services/publish/theme-check.server';
 import { isThemeNativeSectionEnabled, isThemeCheckGateBlocking } from '~/env.server';
@@ -86,8 +87,13 @@ export class ThemeNativeSectionDisabledError extends Error {
 export class PublishService {
   constructor(
     private readonly admin: AdminApiContext['admin'],
-    /** Shop domain + offline token, needed only for the native-section REST Asset fallback (033). */
-    private readonly session?: { shop?: string; accessToken?: string },
+    /**
+     * Shop domain + offline token, needed only for the native-section REST Asset
+     * fallback (033). `shopId` (WS-E) is required to activate a mapped
+     * `functions.*` type — publishing one without it throws rather than
+     * silently skipping activation (see `ensureFunctionActivation`).
+     */
+    private readonly session?: { shop?: string; accessToken?: string; shopId?: string },
   ) {}
 
   async publish(
@@ -239,6 +245,12 @@ export class PublishService {
 
         case 'FUNCTION_CONFIG_UPSERT':
           await this.writeFunctionConfig(mo, op.functionKey, op.config);
+          // WS-E: the config metaobject alone deploys NOTHING — ensure the Shopify
+          // activation object that makes the function execute. Runs even when the
+          // config diff is a no-op (a prior partial failure may have written config
+          // without activation). Throws without shopId: fail loudly, never publish a
+          // function silently inert.
+          await this.ensureFunctionActivation(op.functionKey);
           break;
 
         case 'METAOBJECT_ENSURE_DEF':
@@ -412,6 +424,18 @@ export class PublishService {
     );
     const gid = await mo.upsertFunctionConfigObject(functionKey, next);
     await mo.setModuleRef(FUNCTIONS_NAMESPACE, refKey, gid);
+  }
+
+  private async ensureFunctionActivation(functionKey: string): Promise<void> {
+    if (!FUNCTION_KEY_ACTIVATION[functionKey]) return;
+    const shopId = this.session?.shopId;
+    if (!shopId) {
+      throw new Error(
+        `Publishing functions.${functionKey} requires session.shopId for activation wiring — ` +
+          `pass { shopId } to PublishService (WS-E).`,
+      );
+    }
+    await new ActivationService(this.admin, shopId).ensureForFunctionKey(functionKey);
   }
 
   private async writeCheckoutUpsell(

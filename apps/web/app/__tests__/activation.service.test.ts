@@ -1,0 +1,135 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AdminApiContext } from '~/types/shopify';
+
+const db = new Map<string, { functionKey: string; kind: string; activationGid: string }>();
+vi.mock('~/db.server', () => ({
+  getPrisma: () => ({
+    functionActivation: {
+      findUnique: async ({ where }: any) =>
+        db.get(`${where.shopId_functionKey.shopId}:${where.shopId_functionKey.functionKey}`) ?? null,
+      upsert: async ({ where, create }: any) => {
+        db.set(`${where.shopId_functionKey.shopId}:${where.shopId_functionKey.functionKey}`, create);
+        return create;
+      },
+      delete: async ({ where }: any) => {
+        db.delete(`${where.shopId_functionKey.shopId}:${where.shopId_functionKey.functionKey}`);
+      },
+    },
+  }),
+}));
+
+import { ActivationService, FUNCTION_KEY_ACTIVATION } from '~/services/publish/activation.service';
+
+/**
+ * Build an admin whose `graphql` resolves by GraphQL operation name (extracted
+ * from `query <Name>` / `mutation <Name>` in the document) — closer to a real
+ * server than a positional call-order mock, and lets each test assert the exact
+ * mutation sequence by name via `calls.map((c) => c.op)`.
+ */
+function mockAdmin(resolve: (op: string, variables?: Record<string, unknown>) => unknown) {
+  const calls: Array<{ op: string; variables?: Record<string, unknown> }> = [];
+  const graphql = vi.fn(async (query: string, options?: { variables?: Record<string, unknown> }) => {
+    const match = /(?:query|mutation)\s+(\w+)/.exec(query);
+    const op = match?.[1] ?? '<unknown>';
+    calls.push({ op, variables: options?.variables });
+    const payload = resolve(op, options?.variables);
+    return { json: async () => payload };
+  });
+  const admin = { graphql } as unknown as AdminApiContext['admin'];
+  return { admin, calls };
+}
+
+beforeEach(() => db.clear());
+
+describe('ActivationService — discount kind', () => {
+  it('creates the automatic app discount node on first ensure and stores its GID', async () => {
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'SuperAppDiscountActivationLookup')
+        return { data: { discountNodes: { nodes: [] } } };
+      if (op === 'SuperAppDiscountActivationCreate')
+        return { data: { discountAutomaticAppCreate: { automaticAppDiscount: { discountId: 'gid://shopify/DiscountAutomaticNode/1' }, userErrors: [] } } };
+      throw new Error(`unexpected op ${op}`);
+    });
+    const gid = await new ActivationService(admin, 'shop_1').ensureForFunctionKey('discountRules');
+    expect(gid).toBe('gid://shopify/DiscountAutomaticNode/1');
+    expect(calls.map((c) => c.op)).toEqual([
+      'SuperAppDiscountActivationLookup',
+      'SuperAppDiscountActivationCreate',
+    ]);
+    // Create used functionHandle (2026-07: functionId is deprecated) + PRODUCT class.
+    const v = calls[1]!.variables!.discount as Record<string, unknown>;
+    expect(v.functionHandle).toBe('discount-function');
+    expect(v.discountClasses).toEqual(['PRODUCT']);
+    expect(v.title).toBe('SuperApp Discounts');
+  });
+
+  it('second ensure with a stored GID makes NO Shopify calls (idempotent republish)', async () => {
+    db.set('shop_1:discountRules', { functionKey: 'discountRules', kind: 'discount', activationGid: 'gid://x/1' });
+    const { admin, calls } = mockAdmin(() => { throw new Error('no call expected'); });
+    const gid = await new ActivationService(admin, 'shop_1').ensureForFunctionKey('discountRules');
+    expect(gid).toBe('gid://x/1');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('adopts + retitles the legacy "SuperApp Bundle Pricing" node instead of creating a duplicate', async () => {
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'SuperAppDiscountActivationLookup')
+        return { data: { discountNodes: { nodes: [
+          { id: 'gid://shopify/DiscountAutomaticNode/9', discount: { __typename: 'DiscountAutomaticApp', title: 'SuperApp Bundle Pricing' } },
+        ] } } };
+      if (op === 'SuperAppDiscountActivationUpdate')
+        return { data: { discountAutomaticAppUpdate: { automaticAppDiscount: { discountId: 'gid://shopify/DiscountAutomaticNode/9' }, userErrors: [] } } };
+      throw new Error(`unexpected op ${op}`);
+    });
+    const gid = await new ActivationService(admin, 'shop_1').ensureForFunctionKey('discountRules');
+    expect(gid).toBe('gid://shopify/DiscountAutomaticNode/9');
+    expect(calls.map((c) => c.op)).toEqual([
+      'SuperAppDiscountActivationLookup',
+      'SuperAppDiscountActivationUpdate', // retitle to canonical — ONE node per shop, ever (E3)
+    ]);
+  });
+
+  it('deleteForFunctionKey deletes the node and the row; a missing remote node is success', async () => {
+    db.set('shop_1:discountRules', { functionKey: 'discountRules', kind: 'discount', activationGid: 'gid://x/1' });
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'SuperAppDiscountActivationDelete')
+        return { data: { discountAutomaticDelete: { deletedAutomaticDiscountId: null, userErrors: [{ field: null, message: 'Discount not found' }] } } };
+      throw new Error(`unexpected op ${op}`);
+    });
+    await new ActivationService(admin, 'shop_1').deleteForFunctionKey('discountRules');
+    expect(calls.map((c) => c.op)).toEqual(['SuperAppDiscountActivationDelete']);
+    expect(db.size).toBe(0);
+  });
+
+  it('unmapped functionKey → ensure returns null, delete is a no-op', async () => {
+    const { admin, calls } = mockAdmin(() => { throw new Error('no call expected'); });
+    const svc = new ActivationService(admin, 'shop_1');
+    expect(await svc.ensureForFunctionKey('shippingDiscount')).toBeNull();
+    await svc.deleteForFunctionKey('shippingDiscount');
+    expect(calls).toHaveLength(0);
+    expect(FUNCTION_KEY_ACTIVATION.shippingDiscount).toBeUndefined();
+  });
+});
+
+describe('PublishService → activation hook', () => {
+  it('throws (never silently inert) when a mapped functionKey publishes without shopId', async () => {
+    const { admin } = mockAdmin(() => ({
+      data: {
+        metaobjectUpsert: { metaobject: { id: 'gid://m/1' } },
+        metafieldDefinitionCreate: { userErrors: [] },
+        metafieldsSet: { metafields: [] },
+        shop: { id: 'gid://shopify/Shop/1' },
+        metaobjectByHandle: null,
+      },
+    }));
+    const { PublishService } = await import('~/services/publish/publish.service');
+    const svc = new PublishService(admin); // no session.shopId
+    await expect(
+      (async () => {
+        const { MODULE_TEMPLATES } = await import('@superapp/core');
+        const spec = MODULE_TEMPLATES.find((t) => t.spec.type === 'functions.discountRules')!.spec;
+        await svc.publish(spec, { kind: 'PLATFORM', moduleId: 'm1' });
+      })(),
+    ).rejects.toThrow(/shopId/);
+  });
+});

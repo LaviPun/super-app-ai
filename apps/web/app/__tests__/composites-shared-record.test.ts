@@ -18,13 +18,19 @@ const hoisted = vi.hoisted(() => {
   const moduleUpdate = vi.fn(async (_args: { where: { id: string }; data: unknown }) => ({}));
   const moduleVersionUpdate = vi.fn(async (_args: { where: { id: string }; data: unknown }) => ({}));
   const recipeFindFirst = vi.fn();
+  // BlueprintService.publishBlueprint resolves shopId via prisma.shop.findUnique
+  // (WS-E Task 3) before publishing anything.
+  const shopFindUnique = vi.fn(async (_args?: unknown) => ({ id: 'shop_1' }));
 
   const publish = vi.fn(async (_spec: { type: string; config?: Record<string, unknown> }, _target?: unknown) => ({ preflight: {} }));
   const resolveComponents = vi.fn();
   const ensureParentBundleProduct = vi.fn(async (_args?: unknown) => 'gid://shopify/ProductVariant/500');
   const activateCartTransform = vi.fn(async (_config?: { bundles: Array<Record<string, unknown>> }) => 'gid://shopify/CartTransform/1');
   const writeBundlePricingRules = vi.fn(async (_mo?: unknown, _rules?: unknown) => {});
-  const ensureAutomaticBundleDiscount = vi.fn(async () => 'gid://shopify/DiscountAutomaticNode/1');
+  // ActivationService.ensureForFunctionKey — WS-E Task 3 replaces
+  // BundleProductService.ensureAutomaticBundleDiscount. Every test in this file
+  // stays on the PLUS plan, so it is never actually invoked here.
+  const ensureForFunctionKey = vi.fn(async (_functionKey?: string) => 'gid://shopify/DiscountAutomaticNode/1');
   const getPlanTier = vi.fn(async (_shopDomain: string) => 'PLUS');
   const ensureTypedStore = vi.fn(async (_shopId: string, key: string, _opts?: { label: string; description?: string; schemaJson?: string }) => ({ key }));
 
@@ -32,12 +38,13 @@ const hoisted = vi.hoisted(() => {
     moduleUpdate,
     moduleVersionUpdate,
     recipeFindFirst,
+    shopFindUnique,
     publish,
     resolveComponents,
     ensureParentBundleProduct,
     activateCartTransform,
     writeBundlePricingRules,
-    ensureAutomaticBundleDiscount,
+    ensureForFunctionKey,
     getPlanTier,
     ensureTypedStore,
   };
@@ -48,11 +55,16 @@ vi.mock('~/db.server', () => ({
     recipe: { findFirst: hoisted.recipeFindFirst },
     module: { update: hoisted.moduleUpdate },
     moduleVersion: { update: hoisted.moduleVersionUpdate },
+    shop: { findUnique: hoisted.shopFindUnique },
   }),
 }));
 
 vi.mock('~/services/publish/publish.service', () => ({
   PublishService: vi.fn().mockImplementation(() => ({ publish: hoisted.publish })),
+}));
+
+vi.mock('~/services/publish/activation.service', () => ({
+  ActivationService: vi.fn().mockImplementation(() => ({ ensureForFunctionKey: hoisted.ensureForFunctionKey })),
 }));
 
 vi.mock('~/services/bundles/bundle-product.service', async (importOriginal) => {
@@ -64,7 +76,6 @@ vi.mock('~/services/bundles/bundle-product.service', async (importOriginal) => {
       ensureParentBundleProduct: hoisted.ensureParentBundleProduct,
       activateCartTransform: hoisted.activateCartTransform,
       writeBundlePricingRules: hoisted.writeBundlePricingRules,
-      ensureAutomaticBundleDiscount: hoisted.ensureAutomaticBundleDiscount,
     })),
   };
 });
@@ -191,6 +202,7 @@ beforeEach(() => {
   hoisted.ensureParentBundleProduct.mockResolvedValue('gid://shopify/ProductVariant/500');
   hoisted.getPlanTier.mockResolvedValue('PLUS');
   hoisted.ensureTypedStore.mockImplementation(async (_shopId: string, key: string) => ({ key }));
+  hoisted.shopFindUnique.mockResolvedValue({ id: 'shop_1' });
 });
 
 // ==========================================================================

@@ -95,7 +95,7 @@ export interface ModulePublishabilityContext {
   deployedExtensions?: Iterable<string>;
   /**
    * Blueprint co-deploy only: the caller performs the Shopify activation itself
-   * (BundleProductService.activateCartTransform / ensureAutomaticBundleDiscount),
+   * (BundleProductService.activateCartTransform / ActivationService.ensureForFunctionKey),
    * so the ACTIVATION_WIRED_FUNCTION_TYPES gate does not apply. NEVER set on the
    * single-module publish path.
    */

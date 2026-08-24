@@ -572,8 +572,13 @@ export function isRuntimeShipped(moduleType: ModuleType, ctx: RuntimeShippedChec
  * !ACTIVATION_WIRED_FUNCTION_TYPES.has(type) && !ctx.activationHandledByCoDeploy`).
  * The blueprint co-deploy path performs its own activation and opts out via
  * `ctx.activationHandledByCoDeploy` until Task 8 retires that exemption.
+ *
+ * `functions.discountRules` (Task 3, 2026-08-24): wired to `ActivationService`'s
+ * discount kind — ensures/adopts the single automatic-app-discount node
+ * ("SuperApp Discounts", adopting the legacy "SuperApp Bundle Pricing" node when
+ * present) via `discountAutomaticAppCreate`/`Update`, bound by `functionHandle`.
  */
-export const ACTIVATION_WIRED_FUNCTION_TYPES: Set<string> = new Set<string>([]);
+export const ACTIVATION_WIRED_FUNCTION_TYPES: Set<string> = new Set<string>(['functions.discountRules']);
 
 /**
  * Whether a module's plan/scope requirements are satisfied for the merchant. This

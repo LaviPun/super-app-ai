@@ -55,6 +55,24 @@ model Shop {
   flowDeadLetters FlowDeadLetter[]
   apiRateLimit ShopApiRateLimit?
   supportTickets SupportTicket[]
+  functionActivations FunctionActivation[]
+}
+
+/// WS-E: the Shopify activation object (automatic discount, delivery/payment
+/// customization, validation, fulfillment constraint rule, cart transform) that
+/// makes a deployed Function actually execute. One per shop per functionKey;
+/// republish updates in place, unpublish deletes.
+model FunctionActivation {
+  id            String   @id @default(cuid())
+  shopId        String
+  shop          Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  functionKey   String   // compiler FUNCTION_CONFIG_UPSERT key, e.g. "discountRules"
+  kind          String   // ActivationKind
+  activationGid String   // gid://shopify/DiscountAutomaticNode|DeliveryCustomization|...
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([shopId, functionKey])
 }
 
 model Recipe {

@@ -181,7 +181,7 @@ export async function action({
 
   try {
     const previouslyPublishedVersion = mod.versions.find((v) => v.status === 'PUBLISHED');
-    const publisher = new PublishService(admin);
+    const publisher = new PublishService(admin, { shop: session.shop, shopId: shopRow?.id });
     await publisher.publish(spec, target);
     await moduleService.markPublishedWithTransition({
       shopId: shopRow?.id,
