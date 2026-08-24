@@ -24,11 +24,7 @@
 {% enddoc %}
 {% liquid
   assign sa_media_is_placeholder = false
-  if url == blank
-    assign sa_media_is_placeholder = true
-  elsif url contains 'example.com'
-    assign sa_media_is_placeholder = true
-  elsif url contains 'cdn.shopify.com/s/files/'
+  if url == blank or url contains 'example.com' or url contains 'cdn.shopify.com/s/files/'
     assign sa_media_is_placeholder = true
   endif
 %}
@@ -37,5 +33,5 @@
     <svg class="superapp-ph__glyph" viewBox="0 0 48 48" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="6" y="9" width="36" height="30" rx="3"/><circle cx="17" cy="19" r="3.5"/><path d="M8 34l10-9 7 6 6-6 9 9"/></svg>
   </div>
 {% else %}
-  <img class="{{ css_class }}" src="{{ url }}" alt="{{ alt | escape }}" loading="lazy">
+  <img class="{{ css_class }}" src="{{ url | escape }}" alt="{{ alt | escape }}" loading="lazy">
 {% endif %}

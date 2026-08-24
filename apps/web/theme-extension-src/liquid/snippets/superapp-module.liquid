@@ -348,7 +348,7 @@
           {% endif %}
         </div>
         {% if mod_cfg.imageUrl != blank %}
-          <img class="superapp-banner__image" src="{{ mod_cfg.imageUrl | escape }}" alt="" loading="lazy" width="800" height="400">
+          {% render 'superapp-module-media', url: mod_cfg.imageUrl, alt: '', css_class: 'superapp-banner__image' %}
         {% endif %}
       </div>
     </section>

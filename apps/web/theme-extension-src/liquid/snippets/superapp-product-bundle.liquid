@@ -45,7 +45,7 @@
       {% for component in mod_cfg.components %}
         <li class="superapp-bundle__item superapp-row" data-variant-id="{{ component.variantId | escape }}">
           {% if component.imageUrl != blank %}
-            <img class="superapp-bundle__img" src="{{ component.imageUrl | escape }}" alt="" loading="lazy" width="64" height="64">
+            {% render 'superapp-module-media', url: component.imageUrl, alt: '', css_class: 'superapp-bundle__img' %}
           {% endif %}
           <span class="superapp-bundle__item-title">{{ component.title | escape }}</span>
           {% if component.priceLabel != blank %}

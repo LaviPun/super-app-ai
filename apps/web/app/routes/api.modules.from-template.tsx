@@ -101,8 +101,16 @@ export async function action({ request }: { request: Request }) {
       if (STOREFRONT_LAYOUT_TYPES.has(template.type)) {
         // Best-effort, time-boxed — mirrors api.ai.create-module.tsx's AI-path gate.
         // Never blocks or fails the install; a stale/missing palette just means the
-        // installed module falls back to the default design reference.
-        await ensureStoreAesthetic({ admin, shopId: shopRow.id });
+        // installed module falls back to the default design reference. The callee
+        // already swallows its own errors internally, but the try/catch here is a
+        // second, call-site guarantee — the install must survive even if that
+        // internal safety net is ever bypassed (see from-template-aesthetic.test.ts's
+        // "install RESILIENCE" case, fix round 1).
+        try {
+          await ensureStoreAesthetic({ admin, shopId: shopRow.id });
+        } catch {
+          // Deliberately swallowed — see comment above.
+        }
       }
 
       const quota = new QuotaService();

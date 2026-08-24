@@ -98,4 +98,19 @@ describe('template install → ensureStoreAesthetic (WS-H)', () => {
     expect(res.status).toBe(302);
     expect(ensureStoreAesthetic).not.toHaveBeenCalled();
   });
+
+  it('install RESILIENCE (fix round 1): still completes when ensureStoreAesthetic rejects', async () => {
+    // ensureStoreAesthetic's own real implementation never rejects (internal
+    // try/catch) — but the install route's comment claims "Never blocks or
+    // fails the install" unconditionally, so that guarantee must hold even if
+    // the callee's internal safety net is ever bypassed (a bug in that
+    // function, an unexpected throw, etc.). Best-effort must mean best-effort
+    // at the call site too, not only inside the callee.
+    ensureStoreAesthetic.mockRejectedValueOnce(new Error('theme analyze blew up'));
+    const res = await callAction('EMB-BODY-01');
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe('/modules/mod_1');
+    expect(ensureStoreAesthetic).toHaveBeenCalledTimes(1);
+    expect(createDraftMock).toHaveBeenCalledTimes(1);
+  });
 });
