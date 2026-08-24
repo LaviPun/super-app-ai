@@ -204,7 +204,7 @@ function SupportBody({ tickets, modules, stats }: ReturnType<typeof useLoaderDat
       ) : (
         <s-section padding="none">
           <s-table>
-            <s-grid slot="filters" gridTemplateColumns="1fr auto auto auto" gap="small-100" alignItems="center">
+            <s-grid slot="filters" gridTemplateColumns="@container (inline-size > 640px) 1fr auto auto auto, 1fr" gap="small-100" alignItems="center">
               <s-search-field
                 label="Search tickets"
                 labelAccessibilityVisibility="exclusive"

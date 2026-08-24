@@ -181,7 +181,7 @@ function SettingsBody({ shop, counts, account }: any) {
               <s-text tone="neutral" color="subdued">
                 How long to keep logs and AI usage records (days). Blank disables auto-cleanup.
               </s-text>
-              <s-grid gridTemplateColumns="1fr 1fr" gap="base">
+              <s-grid gridTemplateColumns="@container (inline-size > 480px) 1fr 1fr, 1fr" gap="base">
                 <s-number-field label="Default retention (days)" name="retentionDefault" defaultValue={String(shop.retentionDaysDefault ?? 30)} min={1} />
                 <s-number-field label="AI usage (days)" name="retentionAi" defaultValue={String(shop.retentionDaysAi ?? '')} min={1} />
                 <s-number-field label="API logs (days)" name="retentionApi" defaultValue={String(shop.retentionDaysApi ?? '')} min={1} />

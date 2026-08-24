@@ -201,7 +201,7 @@ function LogsBody() {
             ]}
           />
 
-          <s-grid gridTemplateColumns="1fr 1fr" gap="base">
+          <s-grid gridTemplateColumns="@container (inline-size > 560px) 1fr 1fr, 1fr" gap="base">
             <s-section heading="Successful jobs (7 days)">
               <s-stack gap="small-200">
                 <MiniBars data={dailySuccess} color={CHART.success} height={48} />

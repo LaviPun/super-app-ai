@@ -230,7 +230,7 @@ function JobsBody() {
           Open store admin
         </s-button>
         <s-table>
-          <s-grid slot="filters" gridTemplateColumns="auto auto 1fr auto auto" gap="small-100" alignItems="center">
+          <s-grid slot="filters" gridTemplateColumns="@container (inline-size > 700px) auto auto 1fr auto auto, 1fr" gap="small-100" alignItems="center">
             <s-select
               label="Status"
               labelAccessibilityVisibility="exclusive"

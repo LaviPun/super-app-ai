@@ -112,7 +112,7 @@ function TemplatesBody({ templates }: any) {
       </s-paragraph>
       <s-section>
         <s-stack gap="small-100">
-          <s-grid gridTemplateColumns="1fr auto auto" gap="small-100" alignItems="center">
+          <s-grid gridTemplateColumns="@container (inline-size > 560px) 1fr auto auto, 1fr" gap="small-100" alignItems="center">
             <s-search-field
               ref={searchRef as never}
               label="Search templates"

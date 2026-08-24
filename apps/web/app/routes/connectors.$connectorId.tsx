@@ -143,7 +143,7 @@ function ConnectorDetailBody() {
           <s-stack gap="base">
             <s-section>
               <s-stack gap="small-100">
-                <s-grid gridTemplateColumns="auto 1fr auto" gap="small-100" alignItems="end">
+                <s-grid gridTemplateColumns="@container (inline-size > 520px) auto 1fr auto, 1fr" gap="small-100" alignItems="end">
                   <s-select label="Method" labelAccessibilityVisibility="exclusive" value={method} onChange={(e) => setMethod(e.currentTarget.value)}>
                     {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((x) => <s-option key={x} value={x}>{x}</s-option>)}
                   </s-select>
