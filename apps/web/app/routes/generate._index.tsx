@@ -18,12 +18,6 @@ import {
   THRESHOLD_BASIS,
   PRICING_MODELS,
   PRICING_MECHANISMS,
-  STOREFRONT_DENSITY_LEVELS,
-  STOREFRONT_ELEVATION_IDIOMS,
-  STOREFRONT_MOTION_DURATIONS,
-  STOREFRONT_MOTION_EASINGS,
-  STOREFRONT_RADIUS_SCALING_MIN,
-  STOREFRONT_RADIUS_SCALING_MAX,
 } from '@superapp/core';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
@@ -40,6 +34,7 @@ import { deployedFunctionExtensions } from '~/services/publish/deployed-extensio
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { StatusBadge, EmptyState, titleCase } from '~/components/merchant/polaris';
 import { nextStepAfterStream, withGenerationCorrelationId } from '~/utils/generation-outcome';
+import { SchemaForm, type JsonSchemaNode } from '~/components/SchemaForm';
 
 
 // Embedded route: authenticates, then loads the real AI-credit balance (same
@@ -237,8 +232,9 @@ type BlueprintResult = {
   bindings?: unknown[];
 };
 
+// Read by GenCandMini's decorative concept-picker preview only (real editing
+// goes through the recipe's actual config/style — see SchemaForm mount below).
 const RADIUS_MAP: Record<string, number> = { none: 0, sm: 6, md: 10, lg: 16, full: 999 };
-const SHADOW_MAP: Record<string, string> = { none: 'none', sm: '0 1px 2px rgba(20,33,58,.12)', md: '0 4px 12px rgba(20,33,58,.16)', lg: '0 12px 28px rgba(20,33,58,.22)' };
 // Each refine is one AI request against the monthly quota (enforced server-side).
 const COST_PER_CHANGE = 1;
 
@@ -250,29 +246,13 @@ const GEN_STEPS = [
   { icon: 'eye', label: 'Rendering live previews' },
 ];
 
-const BASE_SETTINGS = {
-  label: 'Add to cart', price: '$48.00', buttonColor: '#1F3A5F', buttonText: '#FFFFFF',
-  bg: '#FFFFFF', radius: 'md', size: 'M', mode: 'sticky', anchor: 'bottom', width: 'full',
-  shadow: 'lg', hideMobile: false, showQty: true, showVariants: true, countdown: false,
-  customCss: '',
-};
-
-// Visual concept presets — icon/accent/default layout per slot. Real data (name,
-// tagline, tags, type) comes from the AI recipe attached to each concept.
-// Icon names are Polaris web-component icon types (s-icon).
+// Visual concept presets — icon/accent per slot. Real data (name, tagline, tags,
+// type, settings) comes from the AI recipe attached to each concept. Icon names
+// are Polaris web-component icon types (s-icon).
 const CONCEPT_PRESETS = [
-  {
-    id: 'sticky', name: 'Concept 1', icon: 'desktop', accent: '#6B40D8',
-    settings: { ...BASE_SETTINGS, mode: 'sticky', anchor: 'bottom', buttonColor: '#1F3A5F', radius: 'md', shadow: 'lg' },
-  },
-  {
-    id: 'floating', name: 'Concept 2', icon: 'cart', accent: '#0E9F6E',
-    settings: { ...BASE_SETTINGS, mode: 'floating', buttonColor: '#0E9F6E', radius: 'full', shadow: 'lg', showVariants: false, showQty: false, size: 'L' },
-  },
-  {
-    id: 'inline', name: 'Concept 3', icon: 'layer', accent: '#2F80ED',
-    settings: { ...BASE_SETTINGS, mode: 'inline', buttonColor: '#14213A', radius: 'lg', bg: '#F6F8FB', countdown: true },
-  },
+  { id: 'sticky', name: 'Concept 1', icon: 'desktop', accent: '#6B40D8' },
+  { id: 'floating', name: 'Concept 2', icon: 'cart', accent: '#0E9F6E' },
+  { id: 'inline', name: 'Concept 3', icon: 'layer', accent: '#2F80ED' },
 ];
 
 type Concept = typeof CONCEPT_PRESETS[number] & {
@@ -289,10 +269,6 @@ type Concept = typeof CONCEPT_PRESETS[number] & {
   /** Set when a validated judge polish replaced this concept's recipe (Phase 5c). */
   polished?: boolean;
 };
-
-const STOREFRONT_TYPES = ['theme.section', 'proxy.widget'];
-const SIZE_TO_TYPO: Record<string, string> = { S: 'SM', M: 'MD', L: 'LG' };
-const TYPO_TO_SIZE: Record<string, string> = { SM: 'S', MD: 'M', LG: 'L' };
 
 /** Display label for a real RecipeSpec type. */
 function displayType(t?: unknown): string {
@@ -316,64 +292,28 @@ function tagsFromRecipe(recipe?: Record<string, unknown> | null): string[] {
 }
 
 /**
- * Persist the merchant's control-panel tweaks into the recipe that gets saved:
- * layout/colors/shape/typography/responsive/customCss map onto the real `style`
- * pack (storefront types), content settings onto `config` (theme.section config
- * is an open object; strict configs simply strip unknown keys server-side).
+ * Decorative-only projection of a concept's REAL recipe onto the small mini
+ * preview shown on the concept-picker card (GenCandMini) — read-only, no
+ * write-back. Replaces the old BASE_SETTINGS/settingsFromRecipe two-way
+ * sync: settings editing now writes straight into the recipe's real
+ * config/style via SchemaForm (see GenSettingsPanel), so this is purely "what
+ * does the real recipe say, with sane fallbacks for the card thumbnail."
  */
-function mergeSettingsIntoRecipe(recipe: Record<string, unknown>, s: any): Record<string, unknown> {
-  // Non-storefront modules are edited directly via GenConfigControls (setConfig
-  // writes recipe.config), so never overlay the storefront button/price/toggle
-  // projection onto them — that would clobber real config fields.
-  if (!STOREFRONT_TYPES.includes(String(recipe.type))) {
-    return { ...recipe };
-  }
-  const config = { ...((recipe.config as Record<string, unknown>) ?? {}) };
-  config.label = s.label;
-  config.price = s.price;
-  config.showQty = !!s.showQty;
-  config.showVariants = !!s.showVariants;
-  config.countdown = !!s.countdown;
-  const merged: Record<string, unknown> = { ...recipe, config };
-  {
-    const style = { ...((recipe.style as Record<string, any>) ?? {}) };
-    style.layout = { ...(style.layout ?? {}), mode: s.mode, anchor: s.anchor, width: s.width };
-    style.colors = { ...(style.colors ?? {}), background: s.bg, buttonBg: s.buttonColor, buttonText: s.buttonText };
-    style.shape = { ...(style.shape ?? {}), radius: s.radius, shadow: s.shadow };
-    style.typography = { ...(style.typography ?? {}), size: SIZE_TO_TYPO[s.size] ?? 'MD' };
-    style.responsive = { ...(style.responsive ?? {}), hideOnMobile: !!s.hideMobile };
-    const css = String(s.customCss ?? '').trim();
-    if (css) style.customCss = css.slice(0, 2000);
-    else delete style.customCss;
-    merged.style = style;
-  }
-  return merged;
-}
-
-/** Reverse mapping: seed/update the control panel from what the recipe really says. */
-function settingsFromRecipe(recipe?: Record<string, unknown> | null): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  if (!recipe) return out;
-  const config = (recipe.config as Record<string, unknown>) ?? {};
-  if (typeof config.label === 'string') out.label = config.label;
-  if (typeof config.price === 'string') out.price = config.price;
-  if (typeof config.showQty === 'boolean') out.showQty = config.showQty;
-  if (typeof config.showVariants === 'boolean') out.showVariants = config.showVariants;
-  if (typeof config.countdown === 'boolean') out.countdown = config.countdown;
-  const style = (recipe.style as Record<string, any>) ?? null;
-  if (style) {
-    if (style.layout?.mode && ['sticky', 'inline', 'floating'].includes(style.layout.mode)) out.mode = style.layout.mode;
-    if (style.layout?.anchor && ['top', 'bottom'].includes(style.layout.anchor)) out.anchor = style.layout.anchor;
-    if (typeof style.colors?.buttonBg === 'string') out.buttonColor = style.colors.buttonBg;
-    if (typeof style.colors?.buttonText === 'string') out.buttonText = style.colors.buttonText;
-    if (typeof style.colors?.background === 'string') out.bg = style.colors.background;
-    if (style.shape?.radius && RADIUS_MAP[style.shape.radius] !== undefined) out.radius = style.shape.radius;
-    if (style.shape?.shadow && SHADOW_MAP[style.shape.shadow] !== undefined) out.shadow = style.shape.shadow;
-    if (style.typography?.size && TYPO_TO_SIZE[style.typography.size]) out.size = TYPO_TO_SIZE[style.typography.size];
-    if (typeof style.responsive?.hideOnMobile === 'boolean') out.hideMobile = style.responsive.hideOnMobile;
-    if (typeof style.customCss === 'string') out.customCss = style.customCss;
-  }
-  return out;
+function candMiniProjection(recipe?: Record<string, unknown> | null): {
+  label: string; buttonColor: string; buttonText: string; bg: string; radius: string; mode: string; showVariants: boolean; countdown: boolean;
+} {
+  const config = (recipe?.config as Record<string, unknown>) ?? {};
+  const style = (recipe?.style as Record<string, any>) ?? {};
+  return {
+    label: typeof config.title === 'string' && config.title ? config.title : 'Add to cart',
+    buttonColor: typeof style.colors?.buttonBg === 'string' ? style.colors.buttonBg : '#1F3A5F',
+    buttonText: typeof style.colors?.buttonText === 'string' ? style.colors.buttonText : '#FFFFFF',
+    bg: typeof style.colors?.background === 'string' ? style.colors.background : '#FFFFFF',
+    radius: typeof style.shape?.radius === 'string' ? style.shape.radius : 'md',
+    mode: typeof style.layout?.mode === 'string' ? style.layout.mode : 'sticky',
+    showVariants: true,
+    countdown: false,
+  };
 }
 
 /**
@@ -430,11 +370,9 @@ function GenerateWorkspace() {
   const [stepIdx, setStepIdx] = useState(0);
   const [candidates, setCandidates] = useState<Concept[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const [settingsMap, setSettingsMap] = useState<Record<string, any>>({});
   const [threadMap, setThreadMap] = useState<Record<string, any[]>>({});
   const [device, setDevice] = useState<'desktop' | 'mobile'>('desktop');
   const [tab, setTab] = useState<'preview' | 'validation'>('preview');
-  const [ctrlTab, setCtrlTab] = useState<'basic' | 'advanced' | 'css'>('basic');
   const [refine, setRefine] = useState('');
   // Real AI-credit balance from QuotaService (null = unlimited plan).
   const [credits, setCredits] = useState<number | null>(loaderData.aiLeft);
@@ -449,20 +387,19 @@ function GenerateWorkspace() {
   const handledRefineRef = useRef<unknown>(null);
   const handledPublishRef = useRef<unknown>(null);
 
-  const settings = settingsMap[selected ?? ''] || BASE_SETTINGS;
-  const set = (patch: any) => setSettingsMap((m) => ({ ...m, [selected!]: { ...m[selected!], ...patch } }));
-  // For non-storefront types, edit the generated recipe.config directly (schema-
-  // driven from the real config shape) so preview/validation/save all reflect it.
-  const setConfig = (key: string, value: unknown) => {
+  // WS-F: settings editing now writes straight into the selected concept's real
+  // recipe.config/style (via SchemaForm) instead of a parallel BASE_SETTINGS
+  // projection that got merged in at save time — kills the hard-coded "buy bar"
+  // field set that didn't correspond to any real recipe schema.
+  const updateSelectedRecipe = useCallback((updater: (r: Record<string, unknown>) => Record<string, unknown>) => {
     if (!selected) return;
-    setCandidates((cs) => cs.map((c) => (c.id === selected
-      ? { ...c, recipe: { ...c.recipe, config: { ...((c.recipe as any).config ?? {}), [key]: value } } }
-      : c)));
-  };
+    setCandidates((cs) => cs.map((c) => (c.id === selected && c.recipe ? { ...c, recipe: updater(c.recipe) } : c)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
   // Merchant config for the new packs (rule-engine / recommendation / pricing)
   // writes the pack's whole object straight onto recipe.config[<namespace>] — the
   // flat-pin key the compiler already reads. `undefined` deletes the key (back to
-  // "no pack", byte-identical). Additive: never touches the storefront projection.
+  // "no pack", byte-identical).
   const setConfigObject = (key: string, value: unknown) => {
     if (!selected) return;
     setCandidates((cs) => cs.map((c) => {
@@ -471,24 +408,6 @@ function GenerateWorkspace() {
       if (value === undefined) delete config[key];
       else config[key] = value;
       return { ...c, recipe: { ...c.recipe, config } };
-    }));
-  };
-  // Style tokens (density / elevation / motion / seed / scaling) write straight
-  // into recipe.style.<group>. Kept off the `settings` projection because those
-  // keys aren't in it; mergeSettingsIntoRecipe preserves what it doesn't overwrite
-  // (shape.elevation/scaling, motion, colors.seed all survive the merge).
-  const setStyle = (group: string, patch: Record<string, unknown>) => {
-    if (!selected) return;
-    setCandidates((cs) => cs.map((c) => {
-      if (c.id !== selected) return c;
-      const style = { ...((c.recipe as any)?.style ?? {}) };
-      const prev = { ...((style[group] as Record<string, unknown>) ?? {}) };
-      for (const [k, v] of Object.entries(patch)) {
-        if (v === undefined) delete prev[k];
-        else prev[k] = v;
-      }
-      style[group] = prev;
-      return { ...c, recipe: { ...c.recipe, style } };
     }));
   };
   const thread = threadMap[selected ?? ''] || [];
@@ -525,9 +444,8 @@ function GenerateWorkspace() {
         recommended: recommendedPos != null && i === recommendedPos,
       };
     });
-    const sm: Record<string, any> = {}, tm: Record<string, any[]> = {}, hm: Record<string, any[]> = {};
+    const tm: Record<string, any[]> = {}, hm: Record<string, any[]> = {};
     concs.forEach((c) => {
-      sm[c.id] = { ...c.settings, ...settingsFromRecipe(c.recipe) };
       tm[c.id] = [
         { role: 'user', text: seedPrompt },
         { role: 'assistant', text: c.intro + '\n\nUse the controls on the right to fine-tune it, or ask me to change anything below.' },
@@ -535,7 +453,6 @@ function GenerateWorkspace() {
       hm[c.id] = [{ id: 'h_gen', label: 'Module generated', detail: `Created “${c.name}” from your prompt.`, cost: 1, time: 'Just now' }];
     });
     setCandidates(concs);
-    setSettingsMap(sm);
     setThreadMap(tm);
     setHistoryMap(hm);
     if (bp !== undefined) setBlueprint(bp ?? null);
@@ -605,14 +522,12 @@ function GenerateWorkspace() {
                 if (pos >= 0) setCandidates((cs) => cs.map((c, i) => (i === pos ? { ...c, judgeScore: payload.score } : c)));
               } else if (ev === 'option_updated' && typeof payload.index === 'number' && payload.recipe) {
                 // A validated, not-worse judge polish (Phase 5c). Replace the
-                // concept's recipe + settings and flag it "Polished".
+                // concept's recipe and flag it "Polished".
                 collected[payload.index] = { explanation: collected[payload.index]?.explanation ?? '', recipe: payload.recipe };
                 const keys = Object.keys(collected).map(Number).sort((a, b) => a - b);
                 const pos = keys.indexOf(payload.index);
-                const cid = CONCEPT_PRESETS[pos]?.id;
                 if (pos >= 0) {
                   setCandidates((cs) => cs.map((c, i) => (i === pos ? { ...c, recipe: payload.recipe, name: (payload.recipe?.name as string) || c.name, polished: true } : c)));
-                  if (cid) setSettingsMap((m) => ({ ...m, [cid]: { ...m[cid], ...settingsFromRecipe(payload.recipe) } }));
                 }
               } else if (ev === 'error') {
                 // Server-terminal failure: the generation RAN and produced nothing.
@@ -756,7 +671,6 @@ function GenerateWorkspace() {
     if (!conceptId) return;
     const recipe = data.recipe;
     setCandidates((cs) => cs.map((c) => (c.id === conceptId ? { ...c, recipe, name: (recipe as any)?.name || c.name } : c)));
-    setSettingsMap((m) => ({ ...m, [conceptId]: { ...m[conceptId], ...settingsFromRecipe(recipe) } }));
     setThreadMap((m) => ({ ...m, [conceptId]: [...(m[conceptId] || []), { role: 'assistant', text: data.summary || 'Change applied to the module spec.' }] }));
     if (data.creditsLeft !== undefined) setCredits(data.creditsLeft);
     setHistoryMap((m) => ({
@@ -774,7 +688,7 @@ function GenerateWorkspace() {
     if (!cand?.recipe) return;
     const fd = new FormData();
     fd.set('intent', 'validate');
-    fd.set('spec', JSON.stringify(mergeSettingsIntoRecipe(cand.recipe, settingsMap[selected] || BASE_SETTINGS)));
+    fd.set('spec', JSON.stringify(cand.recipe));
     valFetcher.submit(fd, { method: 'post', action: '/generate' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, selected]);
@@ -798,14 +712,14 @@ function GenerateWorkspace() {
     const fd = new FormData();
     fd.set('intent', 'refine');
     fd.set('instruction', q);
-    fd.set('spec', JSON.stringify(mergeSettingsIntoRecipe(cand.recipe, settingsMap[selected] || BASE_SETTINGS)));
+    fd.set('spec', JSON.stringify(cand.recipe));
     refineFetcher.submit(fd, { method: 'post', action: '/generate' });
   };
 
-  const openConcept = (id: string) => { setSelected(id); setTab('preview'); setCtrlTab('basic'); setPhase('ready'); };
+  const openConcept = (id: string) => { setSelected(id); setTab('preview'); setPhase('ready'); };
   const backToOptions = () => setPhase('choosing');
   const regenerate = () => {
-    setCandidates([]); setSettingsMap({}); setThreadMap({}); setHistoryMap({}); setSelected(null);
+    setCandidates([]); setThreadMap({}); setHistoryMap({}); setSelected(null);
     setBlueprint(null);
     createdRef.current = null;
     finishRef.current = null;
@@ -848,14 +762,14 @@ function GenerateWorkspace() {
     }
     finishRef.current = { mode, conceptId: selected };
     const fd = new FormData();
-    fd.set('spec', JSON.stringify(mergeSettingsIntoRecipe(recipe, settings)));
+    fd.set('spec', JSON.stringify(recipe));
     confirmFetcher.submit(fd, { method: 'post', action: '/api/ai/create-module-from-recipe' });
   };
 
   if (!seedPrompt) return null;
   if (phase === 'generating') return <GenLoading prompt={seedPrompt} stepIdx={stepIdx} onCancel={() => navigate('/')} />;
   if (phase === 'failed') return <GenFailed prompt={seedPrompt} message={genError} onRetry={regenerate} onCancel={() => navigate('/modules')} />;
-  if (phase === 'choosing') return <GenChoose prompt={seedPrompt} candidates={candidates} settingsMap={settingsMap} onSelect={openConcept} onRegenerate={regenerate} onCancel={() => navigate('/')} />;
+  if (phase === 'choosing') return <GenChoose prompt={seedPrompt} candidates={candidates} onSelect={openConcept} onRegenerate={regenerate} onCancel={() => navigate('/')} />;
 
   const publishing = confirmFetcher.state !== 'idle' || publishFetcher.state !== 'idle';
 
@@ -902,11 +816,11 @@ function GenerateWorkspace() {
       )}
       <div className="gen-body">
         <GenBuildPanel
-          settings={settings} set={set} ctrlTab={ctrlTab} setCtrlTab={setCtrlTab}
           moduleType={String((activeCand?.recipe as any)?.type ?? '')}
-          config={((activeCand?.recipe as any)?.config ?? {}) as Record<string, unknown>} setConfig={setConfig}
+          config={((activeCand?.recipe as any)?.config ?? {}) as Record<string, unknown>}
+          style={((activeCand?.recipe as any)?.style ?? {}) as Record<string, unknown>}
           setConfigObject={setConfigObject}
-          style={((activeCand?.recipe as any)?.style ?? {}) as Record<string, unknown>} setStyle={setStyle}
+          updateSelectedRecipe={updateSelectedRecipe}
           thread={thread} thinking={thinking} refine={refine} setRefine={setRefine} onRefine={doRefine}
           credits={credits} dockOpen={dockOpen} setDockOpen={setDockOpen} histOpen={histOpen} setHistOpen={setHistOpen} history={history}
         />
@@ -926,7 +840,7 @@ function GenerateWorkspace() {
           <div className="gen-canvas-wrap">
             {tab === 'preview' && (
               <GenPreview
-                recipe={activeCand?.recipe ? mergeSettingsIntoRecipe(activeCand.recipe, settings) : null}
+                recipe={activeCand?.recipe ?? null}
                 device={device}
               />
             )}
@@ -1001,7 +915,7 @@ function GenFailed({
   );
 }
 
-function GenChoose({ prompt, candidates, settingsMap, onSelect, onRegenerate, onCancel }: any) {
+function GenChoose({ prompt, candidates, onSelect, onRegenerate, onCancel }: any) {
   const n = candidates.length;
   return (
     <div className="gen-choose">
@@ -1016,7 +930,7 @@ function GenChoose({ prompt, candidates, settingsMap, onSelect, onRegenerate, on
         </div>
         <div className="gen-cand-grid">
           {candidates.map((c: any, i: number) => (
-            <GenCandCard key={c.id} c={c} idx={i} total={candidates.length} settings={settingsMap[c.id] || c.settings} onSelect={() => onSelect(c.id)} />
+            <GenCandCard key={c.id} c={c} idx={i} total={candidates.length} onSelect={() => onSelect(c.id)} />
           ))}
         </div>
         <div className="gen-choose-foot">
@@ -1028,7 +942,7 @@ function GenChoose({ prompt, candidates, settingsMap, onSelect, onRegenerate, on
   );
 }
 
-function GenCandCard({ c, idx, total, settings, onSelect }: any) {
+function GenCandCard({ c, idx, total, onSelect }: any) {
   const num = String(idx + 1).padStart(2, '0') + ' / ' + String(total).padStart(2, '0');
   return (
     <button className={'gen-cand' + (c.recommended ? ' gen-cand-recommended' : '')} style={{ ['--acc' as any]: c.accent, animationDelay: (0.08 + idx * 0.12) + 's' }} onClick={onSelect} aria-label={c.recommended ? `${c.name} (recommended)` : c.name}>
@@ -1052,7 +966,7 @@ function GenCandCard({ c, idx, total, settings, onSelect }: any) {
           <s-badge tone="info" icon="wand">Polished</s-badge>
         </span>
       )}
-      <GenCandMini s={settings} accent={c.accent} />
+      <GenCandMini s={candMiniProjection(c.recipe)} accent={c.accent} />
       <div className="cand-tags">{c.tags.map((t: string) => <span key={t} className="cand-tag">{t}</span>)}</div>
       <div className="cand-cta">
         <span className="cand-open"><s-icon type="wand" size="small" />Open & customize</span>
@@ -1097,10 +1011,9 @@ function GenCandMini({ s, accent }: any) {
 function GenBuildPanel(props: any) {
   return (
     <aside className="gen-build-panel">
-      <GenControls
-        settings={props.settings} set={props.set} ctrlTab={props.ctrlTab} setCtrlTab={props.setCtrlTab}
-        moduleType={props.moduleType} config={props.config} setConfig={props.setConfig}
-        setConfigObject={props.setConfigObject} style={props.style} setStyle={props.setStyle}
+      <GenSettingsPanel
+        moduleType={props.moduleType} config={props.config} style={props.style}
+        setConfigObject={props.setConfigObject} updateSelectedRecipe={props.updateSelectedRecipe}
       />
       <GenBuilderDock
         credits={props.credits} costPerChange={COST_PER_CHANGE} open={props.dockOpen} setOpen={props.setDockOpen}
@@ -1109,6 +1022,92 @@ function GenBuildPanel(props: any) {
       />
       {props.histOpen && <GenHistory history={props.history} credits={props.credits} onClose={() => props.setHistOpen(false)} />}
     </aside>
+  );
+}
+
+/**
+ * WS-F: single schema-driven settings editor for every module type, replacing
+ * the old hard-coded "buy bar" control panel (GenControls) and the ad-hoc
+ * JS-type-inferred fallback for other types (GenConfigControls). Fetches the
+ * type's real JSON Schema (config properties + the design-vocabulary `style`
+ * pack) from /api/generate/config-schema and mounts SchemaForm against it —
+ * the schema-registry module itself stays server-only (binding build rule).
+ *
+ * pricing / recommendation / ruleEngine keep their dedicated, structured pack
+ * editors below (tiered/conditional-list UX SchemaForm's generic renderer
+ * can't represent) — the fetched schema excludes those three keys server-side
+ * so there's exactly one editor per field, never two.
+ */
+function GenSettingsPanel({ moduleType, config, style, setConfigObject, updateSelectedRecipe }: any) {
+  const [schema, setSchema] = useState<JsonSchemaNode | null>(null);
+  const [schemaLoading, setSchemaLoading] = useState(false);
+
+  useEffect(() => {
+    if (!moduleType) { setSchema(null); return; }
+    let cancelled = false;
+    setSchemaLoading(true);
+    fetch(`/api/generate/config-schema?type=${encodeURIComponent(moduleType)}`)
+      .then((r) => r.json())
+      .then((d: { jsonSchema?: JsonSchemaNode | null }) => { if (!cancelled) setSchema(d?.jsonSchema ?? null); })
+      .catch(() => { if (!cancelled) setSchema(null); })
+      .finally(() => { if (!cancelled) setSchemaLoading(false); });
+    return () => { cancelled = true; };
+  }, [moduleType]);
+
+  // Which pack editors apply to this type (flat-pin sites in recipe.ts):
+  //   pricing → functions.discountRules + functions.cartTransform ·
+  //   recommendation → checkout.upsell + checkout.block + postPurchase.offer + theme.section ·
+  //   ruleEngine → theme.section + proxy.widget.
+  const showPricing = moduleType === 'functions.discountRules' || moduleType === 'functions.cartTransform';
+  const showRecs = ['checkout.upsell', 'checkout.block', 'postPurchase.offer', 'theme.section'].includes(moduleType);
+  const showRules = moduleType === 'theme.section' || moduleType === 'proxy.widget';
+
+  // `style` is merged into the same form value under a `style` key (matching
+  // the fetched schema's shape) so style-token edits round-trip through one
+  // onChange, then get split back out into the recipe's real, separate
+  // `style` branch — never left nested under `config.style`.
+  const formValue: Record<string, unknown> = { ...config, style };
+  const onFormChange = (next: Record<string, unknown>) => {
+    const { style: nextStyle, ...restConfig } = next as { style?: Record<string, unknown> } & Record<string, unknown>;
+    updateSelectedRecipe((r: Record<string, unknown>) => ({
+      ...r,
+      config: restConfig,
+      ...(nextStyle !== undefined ? { style: nextStyle } : {}),
+    }));
+  };
+
+  const hasFields = !!schema?.properties && Object.keys(schema.properties).length > 0;
+
+  return (
+    <div className="gbp-controls">
+      <div className="gen-controls-head"><span className="t-h3">Settings</span><span className="t-xs t-muted">{titleCase(String(moduleType || 'module').replace(/\./g, ' '))}</span></div>
+      <div className="gen-ctrl-body">
+        <div className="stack-4" style={{ padding: 16 }}>
+          {schemaLoading && <s-spinner size="base" accessibilityLabel="Loading settings" />}
+          {!schemaLoading && hasFields && schema && (
+            <SchemaForm schema={schema} value={formValue} onChange={onFormChange} tier="advanced" />
+          )}
+          {!schemaLoading && !hasFields && !showPricing && !showRecs && !showRules && (
+            <s-banner tone="info">No editable settings on this module yet — describe changes in the Builder chat below.</s-banner>
+          )}
+          {showPricing && (
+            <div style={{ borderTop: '1px solid var(--p-border)', paddingTop: 14 }}>
+              <PricingControls value={config?.pricing} onChange={(v: unknown) => setConfigObject('pricing', v)} />
+            </div>
+          )}
+          {showRecs && (
+            <div style={{ borderTop: '1px solid var(--p-border)', paddingTop: 14 }}>
+              <RecommendationControls value={config?.recommendation} onChange={(v: unknown) => setConfigObject('recommendation', v)} />
+            </div>
+          )}
+          {showRules && (
+            <div style={{ borderTop: '1px solid var(--p-border)', paddingTop: 14 }}>
+              <RuleEngineControls value={config?.ruleEngine} onChange={(v: unknown) => setConfigObject('ruleEngine', v)} />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1287,225 +1286,6 @@ function GenPreview({ recipe, device }: { recipe: Record<string, unknown> | null
   );
 }
 
-/**
- * Settings form for non-storefront modules, driven by the generated config's
- * real shape: top-level scalar fields become editable inputs (writing straight
- * into recipe.config); structured fields are steered to the AI chat.
- */
-// New packs that get a first-class editor on non-storefront types, so they never
-// fall into the "structured — edit via chat" bucket. Keyed by the flat config key.
-const PACK_CONFIG_KEYS = new Set(['pricing', 'recommendation']);
-
-function GenConfigControls({ moduleType, config, setConfig, setConfigObject }: any) {
-  // Which pack editors apply to this type (flat-pin sites in recipe.ts):
-  //   pricing → functions.discountRules + functions.cartTransform ·
-  //   recommendation → checkout.upsell + checkout.block + postPurchase.offer.
-  const showPricing = moduleType === 'functions.discountRules' || moduleType === 'functions.cartTransform';
-  const showRecs = moduleType === 'checkout.upsell' || moduleType === 'checkout.block' || moduleType === 'postPurchase.offer';
-  const entries: [string, unknown][] = Object.entries(config || {});
-  const scalars = entries.filter(([, v]) => v === null || ['string', 'number', 'boolean'].includes(typeof v));
-  // Structured fields we render with a dedicated pack editor are excluded from the
-  // "edit via chat" bucket below (they now have real controls).
-  const complex = entries.filter(([k, v]) => v !== null && typeof v === 'object' && !PACK_CONFIG_KEYS.has(k));
-  const fieldLabel = (key: string) => titleCase(String(key).replace(/([A-Z])/g, ' $1').replace(/[_.]/g, ' ').trim());
-  return (
-    <div className="gbp-controls">
-      <div className="gen-controls-head"><span className="t-h3">Settings</span><span className="t-xs t-muted">{titleCase(String(moduleType || 'module').replace(/\./g, ' '))}</span></div>
-      <div className="gen-ctrl-body">
-        <div className="stack-4" style={{ padding: 16 }}>
-          {scalars.length === 0 && complex.length === 0 && !showPricing && !showRecs && (
-            <s-banner tone="info">No editable settings on this module yet — describe changes in the Builder chat below.</s-banner>
-          )}
-          {scalars.map(([key, val]) => {
-            if (typeof val === 'boolean') {
-              return <ToggleRow key={key} label={fieldLabel(key)} checked={val} onChange={() => setConfig(key, !val)} />;
-            }
-            if (typeof val === 'number') {
-              return (
-                <s-number-field
-                  key={key}
-                  label={fieldLabel(key)}
-                  value={String(val)}
-                  onInput={(e) => setConfig(key, Number(e.currentTarget.value))}
-                />
-              );
-            }
-            return (
-              <s-text-field
-                key={key}
-                label={fieldLabel(key)}
-                value={val == null ? '' : String(val)}
-                onInput={(e) => setConfig(key, e.currentTarget.value ?? '')}
-              />
-            );
-          })}
-          {showPricing && (
-            <div style={{ borderTop: '1px solid var(--p-border)', paddingTop: 14 }}>
-              <PricingControls value={config?.pricing} onChange={(v: unknown) => setConfigObject('pricing', v)} />
-            </div>
-          )}
-          {showRecs && (
-            <div style={{ borderTop: '1px solid var(--p-border)', paddingTop: 14 }}>
-              <RecommendationControls value={config?.recommendation} onChange={(v: unknown) => setConfigObject('recommendation', v)} />
-            </div>
-          )}
-          {complex.length > 0 && (
-            <s-banner tone="info" heading="Structured fields">
-              {complex.map(([k]) => fieldLabel(k)).join(', ')} {complex.length === 1 ? 'is' : 'are'} structured — edit by describing the change in the Builder chat below. The live preview always reflects the real module.
-            </s-banner>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function GenControls({ settings: s, set, ctrlTab, setCtrlTab, moduleType, config, setConfig, setConfigObject, style, setStyle }: any) {
-  const swatches = ['#1F3A5F', '#0E9F6E', '#14213A', '#2F80ED', '#D97706', '#DC2626'];
-  // The visual controls below model a storefront block (button/layout/colors).
-  // For non-storefront types, drive the form off the generated config's real
-  // shape (edit recipe.config directly) instead of the storefront projection.
-  const isStorefront = moduleType === 'theme.section' || moduleType === 'proxy.widget';
-  if (!isStorefront) {
-    return <GenConfigControls moduleType={moduleType} config={config} setConfig={setConfig} setConfigObject={setConfigObject} />;
-  }
-  // Which new packs apply to this storefront type (flat-pin sites in recipe.ts):
-  //   ruleEngine → theme.section + proxy.widget · recommendation → theme.section.
-  const showRules = moduleType === 'theme.section' || moduleType === 'proxy.widget';
-  const showRecs = moduleType === 'theme.section';
-  return (
-    <div className="gbp-controls">
-      <div className="gen-controls-head"><span className="t-h3">Controls</span><span className="t-xs t-muted">Changes apply live</span></div>
-      <div className="gen-ctrl-tabs">
-        {(['basic', 'advanced', 'css'] as const).map((x) => (
-          <button key={x} className={'gen-ctrl-tab' + (ctrlTab === x ? ' sel' : '')} onClick={() => setCtrlTab(x)}>{x === 'css' ? 'Custom CSS' : titleCase(x)}</button>
-        ))}
-      </div>
-      <div className="gen-ctrl-body">
-        {ctrlTab === 'basic' && (
-          <div className="stack-4">
-            <s-text-field label="Button label" value={s.label} onInput={(e) => set({ label: e.currentTarget.value ?? '' })} />
-            <s-text-field label="Price suffix (optional)" value={s.price} onInput={(e) => set({ price: e.currentTarget.value ?? '' })} />
-            <Field label="Button color"><SwatchRow value={s.buttonColor} swatches={swatches} onChange={(c: string) => set({ buttonColor: c })} /></Field>
-            <Field label="Button text color"><SwatchRow value={s.buttonText} swatches={['#FFFFFF', '#14213A']} onChange={(c: string) => set({ buttonText: c })} /></Field>
-            <Field label="Corner radius"><SegField value={s.radius} options={[['none', 'None'], ['sm', 'S'], ['md', 'M'], ['lg', 'L'], ['full', 'Pill']]} onChange={(v: string) => set({ radius: v })} /></Field>
-            <Field label="Button size"><SegField value={s.size} options={[['S', 'S'], ['M', 'M'], ['L', 'L']]} onChange={(v: string) => set({ size: v })} /></Field>
-          </div>
-        )}
-        {ctrlTab === 'advanced' && (
-          <div className="stack-4">
-            <s-select label="Layout mode" details="How the module sits on the page" value={s.mode} onChange={(e) => set({ mode: e.currentTarget.value })}>
-              <s-option value="sticky">Sticky bar</s-option>
-              <s-option value="inline">Inline (in product info)</s-option>
-              <s-option value="floating">Floating button</s-option>
-            </s-select>
-            {s.mode === 'sticky' && <Field label="Anchor"><SegField value={s.anchor} options={[['top', 'Top'], ['bottom', 'Bottom']]} onChange={(v: string) => set({ anchor: v })} /></Field>}
-            <Field label="Background"><SwatchRow value={s.bg} swatches={['#FFFFFF', '#F6F8FB', '#14213A']} onChange={(c: string) => set({ bg: c })} /></Field>
-            <Field label="Shadow"><SegField value={s.shadow} options={[['none', 'None'], ['sm', 'S'], ['md', 'M'], ['lg', 'L']]} onChange={(v: string) => set({ shadow: v })} /></Field>
-            <div className="divider" />
-            <ToggleRow label="Show variant picker" checked={s.showVariants} onChange={() => set({ showVariants: !s.showVariants })} />
-            <ToggleRow label="Show quantity stepper" checked={s.showQty} onChange={() => set({ showQty: !s.showQty })} />
-            <ToggleRow label="Urgency countdown" checked={s.countdown} onChange={() => set({ countdown: !s.countdown })} />
-            <ToggleRow label="Hide on mobile" checked={s.hideMobile} onChange={() => set({ hideMobile: !s.hideMobile })} />
-            <div className="divider" />
-            <StyleTokenControls style={style} setStyle={setStyle} />
-          </div>
-        )}
-        {ctrlTab === 'css' && (
-          <div className="stack-3">
-            <s-banner tone="info">Scoped &amp; sanitized · max 2000 characters. Saved with the module.</s-banner>
-            <s-text-area label="Custom CSS" labelAccessibilityVisibility="exclusive" rows={10} maxLength={2000} value={s.customCss ?? ''}
-              placeholder={'.sa-bar {\n  backdrop-filter: blur(8px);\n}\n.sa-bar__button:hover {\n  transform: translateY(-1px);\n}'}
-              onInput={(e) => set({ customCss: e.currentTarget.value ?? '' })} />
-          </div>
-        )}
-        {ctrlTab === 'basic' && (showRecs || showRules) && (
-          <div className="stack-3" style={{ marginTop: 14, borderTop: '1px solid var(--p-border)', paddingTop: 14 }}>
-            {showRecs && <RecommendationControls value={config?.recommendation} onChange={(v: unknown) => setConfigObject('recommendation', v)} />}
-            {showRules && <RuleEngineControls value={config?.ruleEngine} onChange={(v: unknown) => setConfigObject('ruleEngine', v)} />}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Phase #2 style tokens (design-vocabulary §1) — density / elevation / motion /
- * radius scaling / brand seed. Writes straight into recipe.style.<group> via
- * setStyle; every value is a named token from the manifest (never a raw ms /
- * cubic-bezier / px). All optional: "Auto" clears the key so the compiler falls
- * back to the pack/default, keeping older recipes byte-identical.
- */
-function StyleTokenControls({ style, setStyle }: any) {
-  const spacing = style?.spacing ?? {};
-  const shape = style?.shape ?? {};
-  const motion = style?.motion ?? {};
-  const colors = style?.colors ?? {};
-  const density = spacing.density ?? '';
-  const elevation = shape.elevation ?? '';
-  const scaling = typeof shape.scaling === 'number' ? shape.scaling : 100;
-  const dur = motion.duration ?? '';
-  const ease = motion.easing ?? '';
-  const seedSwatches = ['#1F3A5F', '#0E9F6E', '#2F80ED', '#D97706', '#DC2626', '#7C3AED'];
-  const autoOpt = (label: string) => ({ value: '', label });
-  return (
-    <div className="stack-4">
-      <div className="row spread"><span className="t-sm t-strong">Design tokens</span><span className="t-xs t-muted">Phase 2</span></div>
-      <s-select label="Density" details="Airy for marketing, compact for utility." value={density}
-        onChange={(e) => setStyle('spacing', { density: e.currentTarget.value || undefined })}>
-        {[autoOpt('Auto (pack default)'), ...STOREFRONT_DENSITY_LEVELS.map((d) => ({ value: d, label: titleCase(d) }))].map((o) => (
-          <s-option key={o.value} value={o.value}>{o.label}</s-option>
-        ))}
-      </s-select>
-      <s-select label="Elevation" details="Shadow personality applied to the module surface." value={elevation}
-        onChange={(e) => setStyle('shape', { elevation: e.currentTarget.value || undefined })}>
-        {[autoOpt('Auto (flat / pack default)'), ...STOREFRONT_ELEVATION_IDIOMS.map((v) => ({ value: v, label: titleCase(v) }))].map((o) => (
-          <s-option key={o.value} value={o.value}>{o.label}</s-option>
-        ))}
-      </s-select>
-      <Field label="Corner scaling" help={`Shift the whole radius ladder tighter or softer (${STOREFRONT_RADIUS_SCALING_MIN}–${STOREFRONT_RADIUS_SCALING_MAX}%).`}>
-        <div className="row-2" style={{ alignItems: 'center' }}>
-          <input type="range" min={STOREFRONT_RADIUS_SCALING_MIN} max={STOREFRONT_RADIUS_SCALING_MAX} step={5} value={scaling}
-            style={{ flex: 1 }} onChange={(e) => setStyle('shape', { scaling: Number(e.target.value) })} />
-          <span className="t-mono t-xs t-muted" style={{ width: 42, textAlign: 'right' }}>{scaling}%</span>
-          {typeof shape.scaling === 'number' && (
-            <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 2 }}
-              title="Reset to default" onClick={() => setStyle('shape', { scaling: undefined })}><s-icon type="x" size="small" /></button>
-          )}
-        </div>
-      </Field>
-      <s-select label="Motion duration" details="Named speed; always paired with a reduced-motion fallback." value={dur}
-        onChange={(e) => setStyle('motion', { duration: e.currentTarget.value || undefined })}>
-        {[autoOpt('Auto (base)'), ...STOREFRONT_MOTION_DURATIONS.map((v) => ({ value: v, label: titleCase(v) }))].map((o) => (
-          <s-option key={o.value} value={o.value}>{o.label}</s-option>
-        ))}
-      </s-select>
-      <s-select label="Motion easing" details="Personality of the transition curve." value={ease}
-        onChange={(e) => setStyle('motion', { easing: e.currentTarget.value || undefined })}>
-        {[autoOpt('Auto (standard)'), ...STOREFRONT_MOTION_EASINGS.map((v) => ({ value: v, label: titleCase(v) }))].map((o) => (
-          <s-option key={o.value} value={o.value}>{o.label}</s-option>
-        ))}
-      </s-select>
-      <Field label="Brand seed" optional help="Seeds the OKLCH semantic color ramp. Additive — flat colors above still apply.">
-        <SwatchRow value={colors.seed ?? ''} swatches={seedSwatches} onChange={(c: string) => setStyle('colors', { seed: c })} />
-        {colors.seed && (
-          <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: '4px 2px', marginTop: 4 }}
-            onClick={() => setStyle('colors', { seed: undefined })}><span className="t-xs t-muted">Clear seed</span></button>
-        )}
-      </Field>
-    </div>
-  );
-}
-
-function SwatchRow({ value, swatches, onChange }: any) {
-  return (
-    <div className="row-2 row-wrap">
-      {swatches.map((c: string) => <button key={c} className={'swatch-btn' + (c.toLowerCase() === value.toLowerCase() ? ' sel' : '')} style={{ background: c }} onClick={() => onChange(c)} title={c} />)}
-      <span className="t-mono t-xs t-muted">{value}</span>
-    </div>
-  );
-}
 function SegField({ value, options, onChange }: any) {
   return (
     <div className="seg" style={{ width: '100%' }}>
