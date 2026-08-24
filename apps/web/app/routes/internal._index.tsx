@@ -465,10 +465,10 @@ export default function AdminDashboard() {
               sub={(range === '14d' ? 'Last 14 days' : 'Last 30 days') + ' · all stores'}
               actions={
                 <div className="seg">
-                  <button aria-selected={range === '14d'} onClick={() => setRange('14d')}>
+                  <button aria-pressed={range === '14d'} onClick={() => setRange('14d')}>
                     14d
                   </button>
-                  <button aria-selected={range === '30d'} onClick={() => setRange('30d')}>
+                  <button aria-pressed={range === '30d'} onClick={() => setRange('30d')}>
                     30d
                   </button>
                 </div>

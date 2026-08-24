@@ -117,6 +117,21 @@ export interface FieldProps {
   action?: ReactNode;
 }
 export function Field({ label, optional, help, error, children, action }: FieldProps) {
+  // Auto-associate the visible <label> with its control via id/htmlFor so screen
+  // readers announce a name for the field (axe "label" rule). Only kicks in when
+  // `children` is a single element that doesn't already carry its own id — a
+  // composite field (e.g. a row of custom controls) is left untouched and should
+  // label its own pieces directly (aria-label, etc).
+  const autoId = React.useId();
+  let associatedId: string | undefined;
+  let content = children;
+  if (label && React.isValidElement(children)) {
+    const childProps = (children as React.ReactElement<{ id?: string }>).props;
+    associatedId = childProps.id ?? autoId;
+    if (!childProps.id) {
+      content = React.cloneElement(children as React.ReactElement<{ id?: string }>, { id: associatedId });
+    }
+  }
   return React.createElement(
     'div',
     { className: 'field' },
@@ -124,10 +139,15 @@ export function Field({ label, optional, help, error, children, action }: FieldP
       React.createElement(
         'div',
         { className: 'row spread' },
-        React.createElement('label', { className: 'field-label' }, label, optional && React.createElement('span', { className: 'opt' }, '  (optional)')),
+        React.createElement(
+          'label',
+          { className: 'field-label', htmlFor: associatedId },
+          label,
+          optional && React.createElement('span', { className: 'opt' }, '  (optional)'),
+        ),
         action,
       ),
-    children,
+    content,
     error
       ? React.createElement('div', { className: 'field-error' }, React.createElement(Icon, { name: 'alert', size: 13 }), error)
       : help && React.createElement('div', { className: 'field-help' }, help),

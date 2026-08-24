@@ -263,11 +263,13 @@ export default function AdminSettings() {
                         key={c}
                         type="button"
                         className="swatch"
+                        aria-label={'Use color ' + c}
+                        aria-pressed={c === color}
                         style={{ width: 30, height: 30, background: c, outline: c === color ? '2px solid var(--sa-secondary)' : 'none', outlineOffset: 2 }}
                         onClick={() => setColor(c)}
                       />
                     ))}
-                    <Input mono name="headerColor" value={color} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setColor(e.target.value)} style={{ width: 120 }} />
+                    <Input mono name="headerColor" aria-label="Header / brand color hex value" value={color} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setColor(e.target.value)} style={{ width: 120 }} />
                   </div>
                 </Field>
                 <Field label="Logo URL" optional>

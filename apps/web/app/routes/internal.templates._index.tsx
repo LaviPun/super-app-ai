@@ -187,6 +187,7 @@ export default function AdminTemplates() {
                       size="sm"
                       icon="eye"
                       className="btn-plain"
+                      aria-label={'Preview ' + r.name}
                       onClick={(e: any) => {
                         e.stopPropagation();
                         window.open('/internal/templates/' + encodeURIComponent(r.id) + '/preview', '_blank');
