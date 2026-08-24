@@ -168,8 +168,18 @@ export async function action({ request }: { request: Request }) {
             admin,
           },
           {
-            onIntent: (frame) => {
+            onIntent: async (frame) => {
               send('intent', frame);
+              // WS-C commit-0 fold-in (b): jobs.create now runs BEFORE classify
+              // (Task 4), so this classification metadata is no longer known at
+              // create time — persist it onto Job.payload here instead, so it's
+              // durable for the funnel/ops tooling this plan builds later.
+              await jobs.updatePayload(job.id, {
+                classifiedType: frame.moduleType,
+                intent: frame.intent,
+                exemplarTier: frame.exemplarTier ?? null,
+                exemplarTemplateId: frame.exemplarTemplateId ?? null,
+              });
             },
             onStarted: (o) => {
               send('started', { kind: 'started', ...o });

@@ -22,6 +22,32 @@ export class JobService {
     });
   }
 
+  /**
+   * WS-C commit-0 fold-in (b): merge additional fields into `Job.payload`
+   * after creation. `jobs.create` now runs BEFORE classify (Task 4 moved
+   * classify/RAG into `runGenerationPipeline`, called after the Job already
+   * exists), so `classifiedType`/`intent`/exemplar metadata that used to be
+   * known at create time is only available once the pipeline's `onIntent`
+   * hook fires. Read-merge-write keeps whatever `create`/other callers
+   * already stored (e.g. `promptLen`) rather than clobbering it.
+   */
+  async updatePayload(jobId: string, patch: Record<string, unknown>) {
+    const prisma = getPrisma();
+    const existing = await prisma.job.findUnique({ where: { id: jobId }, select: { payload: true } });
+    let base: Record<string, unknown> = {};
+    if (existing?.payload) {
+      try {
+        base = JSON.parse(existing.payload) as Record<string, unknown>;
+      } catch {
+        base = {};
+      }
+    }
+    return prisma.job.update({
+      where: { id: jobId },
+      data: { payload: JSON.stringify({ ...base, ...patch }) },
+    });
+  }
+
   async start(jobId: string) {
     const prisma = getPrisma();
     return prisma.job.update({

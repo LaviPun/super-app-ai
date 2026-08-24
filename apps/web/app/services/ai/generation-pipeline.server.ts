@@ -50,6 +50,19 @@ export type GenerationIntentFrame = {
   routing: unknown;
   moduleType: string;
   routerDecision: unknown;
+  /**
+   * WS-C commit-0 fold-in (b): the RAG exemplar match, if any, surfaced here so
+   * callers can persist it durably (see `JobService.updatePayload`). Before Task
+   * 4's refactor, `jobs.create` ran AFTER classify/RAG and could stamp
+   * `classifiedType`/`intent`/`exemplarTier`/`exemplarTemplateId` straight onto
+   * `Job.payload` at creation time. Task 4 moved `jobs.create` BEFORE this
+   * pipeline runs (both the stream route and, from Task 5, the worker
+   * processor create the Job first so they have an id to enqueue/report
+   * against), so that metadata is no longer known at create time — callers
+   * that need it durable must merge it in from this hook instead.
+   */
+  exemplarTier?: 1 | 2 | null;
+  exemplarTemplateId?: string | null;
 };
 
 export type GenerationBlueprintFrame = {
@@ -88,6 +101,36 @@ export type GenerationPipelineResult = {
  * SAME classify -> intent -> router -> RAG -> aesthetics -> option-stream ->
  * composition/palette -> ranking -> blueprint orchestration. Auth, rate-limit,
  * quota, Job bookkeeping, judge-polish and SSE mechanics stay in the caller.
+ *
+ * THROW SURFACE (WS-C commit-0 fold-in, c) — read before adding a step here.
+ * Before Task 4, everything this function now does ran INLINE in the stream
+ * route's `action()`, before the `Response`/`ReadableStream` existed. A throw
+ * there became a real HTTP error (`!res.ok`) reaching the client's `fetch`
+ * BEFORE any billing could occur, which is exactly what the client's
+ * transport-failure catch in `generate._index.tsx` (`streamGenerate`) expects
+ * before it safely resubmits via the batch route (`nextStepAfterStream` ->
+ * 'batch-fallback') — a legitimate, no-double-bill retry path.
+ *
+ * This function now runs POST-Response for both of its callers:
+ *   - the stream route calls it from inside the `ReadableStream`'s `start()`,
+ *     after the 200 + SSE headers have already gone out — a throw here is
+ *     caught by that route's own try/catch and turned into a terminal SSE
+ *     `error` frame (see the route's "Do NOT throw into the transport catch"
+ *     comment), which is DIFFERENT client handling (`sawErrorFrame` ->
+ *     'show-retry', not the batch-fallback path) — never a `!res.ok`.
+ *   - the worker processor (Task 5) runs this with no HTTP response at all;
+ *     a throw there fails the BullMQ job (billing-safe via the correlationId
+ *     dedupe seam, but there is no "resubmit as a different request shape"
+ *     fallback the way the old pre-Response 500 gave the client).
+ *
+ * Net effect: the pre-Task-4 safety net of "let it fail loud before the
+ * client has committed to this attempt" no longer exists for code added
+ * here. Any new step in this pipeline must therefore either (a) swallow and
+ * degrade — best-effort, exactly like the composition/palette/blueprint
+ * blocks below already do (`try { ... } catch { /* best-effort *\/ }`) — or
+ * (b) be a DELIBERATE terminal failure the caller is meant to surface as an
+ * SSE `error` frame / a failed+retried job, not an accidental one introduced
+ * by a minor additive feature.
  */
 export async function runGenerationPipeline(
   input: GenerationPipelineInput,
@@ -158,6 +201,8 @@ export async function runGenerationPipeline(
     routing: intentPacket.routing,
     moduleType: classification.moduleType,
     routerDecision,
+    exemplarTier: exemplar?.tier ?? null,
+    exemplarTemplateId: exemplar?.templateId ?? null,
   });
 
   let validCount = 0;
