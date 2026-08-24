@@ -449,8 +449,8 @@ Adds real Liquid execution to the test suite (via `liquidjs` + a 4-filter Shopif
 **Interfaces:**
 - Test-only Shopify-filter shim (lives inline in the test file — this is intentionally not a production module, it exists only to make the readable Liquid source executable in Vitest): registers `money` (format cents as `$X.XX`), `image_url` (identity passthrough — CDN transform params aren't asserted on), `json` (liquidjs may already provide this — verify first, only add if missing), `handle` (slugify: lowercase, spaces/non-alphanumerics → `-`).
 
-- [ ] **Step 1: Add the dependency** — `cd apps/web && pnpm add -D liquidjs`.
-- [ ] **Step 2: Write the failing test:**
+- [x] **Step 1: Add the dependency** — `cd apps/web && pnpm add -D liquidjs`.
+- [x] **Step 2: Write the failing test:**
   ```ts
   import { readFileSync } from 'node:fs';
   import { join } from 'node:path';
@@ -507,10 +507,10 @@ Adds real Liquid execution to the test suite (via `liquidjs` + a 4-filter Shopif
   });
   ```
   Run: `cd apps/web && npx vitest run app/__tests__/liquid-preview-parity.test.ts`. Expected: FAIL first on `liquidjs` module resolution (before Step 1) or a filter/tag error inside `superapp-module-sections.liquid` once dependencies exist — Shopify-specific tags/filters not in the base engine will throw; this is the real signal for which shims are still missing beyond the 4 identified in "Verified ground truth."
-- [ ] **Step 3: Iterate on the shim** until at least the `hero` fixture renders without a Liquid engine error. Common gaps to expect: `{% liquid %}` multi-statement blocks (liquidjs supports this natively, confirm), `{% render 'partial', var: val %}` resolving the Task 4 partial (needs `root: SNIPPETS` correctly pointed — the new `superapp-module-media.liquid` lives there too), `{% doc %}`/`{% schema %}` tags (liquidjs doesn't know these Shopify-only tags by default — register them as no-op custom tags that consume-and-discard their block, mirroring how `{% comment %}` already behaves).
-- [ ] **Step 4: Fill in the remaining 17-19 fixtures** — for each, pull the real `config` from an existing template via `findTemplate()` (`packages/core`) rather than hand-authoring, so the fixture is provably representative of shipped content, not a strawman.
-- [ ] **Step 5: Run the full fixture set.** Expected: PASS for every archetype. Any genuine parity break found here (preview shows something the storefront wouldn't, or vice versa) is a real bug — fix the *rendering* code (PreviewService or the Liquid source), not the test.
-- [ ] **Step 6: Commit** — `git commit -m "test(ws-h): output-level preview<->Liquid parity fixture, one per archetype kind (extends R0 symbol-level guard)"`.
+- [x] **Step 3: Iterate on the shim** until at least the `hero` fixture renders without a Liquid engine error. Common gaps to expect: `{% liquid %}` multi-statement blocks (liquidjs supports this natively, confirm), `{% render 'partial', var: val %}` resolving the Task 4 partial (needs `root: SNIPPETS` correctly pointed — the new `superapp-module-media.liquid` lives there too), `{% doc %}`/`{% schema %}` tags (liquidjs doesn't know these Shopify-only tags by default — register them as no-op custom tags that consume-and-discard their block, mirroring how `{% comment %}` already behaves).
+- [x] **Step 4: Fill in the remaining 17-19 fixtures** — for each, pull the real `config` from an existing template via `findTemplate()` (`packages/core`) rather than hand-authoring, so the fixture is provably representative of shipped content, not a strawman.
+- [x] **Step 5: Run the full fixture set.** Expected: PASS for every archetype. Any genuine parity break found here (preview shows something the storefront wouldn't, or vice versa) is a real bug — fix the *rendering* code (PreviewService or the Liquid source), not the test.
+- [x] **Step 6: Commit** — `git commit -m "test(ws-h): output-level preview<->Liquid parity fixture, one per archetype kind (extends R0 symbol-level guard)"`.
 
 ---
 
@@ -526,7 +526,7 @@ Adds real Liquid execution to the test suite (via `liquidjs` + a 4-filter Shopif
 - `find-copy-variant-clusters.mjs` (read-only report, reusable — this is the exact script used to derive the "34 clusters / 121 templates" figure in "Verified ground truth"): prints every cluster of `TemplateEntry`s sharing `type` + a string-blanked `JSON.stringify(config)` fingerprint, sorted by cluster size descending.
 - `dedupe-copy-variants.mjs [--cap N] [--check]`: for every cluster over `N` (default 4), keep up to `N` members — preferring any already `tier: 'exemplar'`, then earliest-declared — and delete the rest from their source file. `--check` reports what would be deleted without writing.
 
-- [ ] **Step 1: Write the failing test** — append to `template-library-integrity.test.ts`:
+- [x] **Step 1: Write the failing test** — append to `template-library-integrity.test.ts`:
   ```ts
   it('no structural-duplicate cluster exceeds 4 members (Tmpl dedupe)', async () => {
     const { ALL_TEMPLATES } = await import('../templates/index.js');
@@ -549,7 +549,7 @@ Adds real Liquid execution to the test suite (via `liquidjs` + a 4-filter Shopif
   ```
   (`blankStrings` — extract the same recursive string-blanking helper used in the ad hoc analysis script into a small shared function at the top of the test file, or into `find-copy-variant-clusters.mjs` and import it — don't duplicate the logic a third time.)
   Run: `cd packages/core && npx vitest run src/__tests__/template-library-integrity.test.ts`. Expected: FAIL on the first new test — 34 clusters currently exceed 4 (many exceed it by a lot, e.g. the 22-member `PXY-MOD` cluster).
-- [ ] **Step 2: Write `find-copy-variant-clusters.mjs`** (promote the ad hoc analysis used to derive the ground-truth numbers into a committed, reusable script — same fingerprinting logic as the test above, but as a CLI report):
+- [x] **Step 2: Write `find-copy-variant-clusters.mjs`** (promote the ad hoc analysis used to derive the ground-truth numbers into a committed, reusable script — same fingerprinting logic as the test above, but as a CLI report):
   ```js
   #!/usr/bin/env node
   import { ALL_TEMPLATES } from '../dist/templates/index.js';
@@ -572,20 +572,20 @@ Adds real Liquid execution to the test suite (via `liquidjs` + a 4-filter Shopif
   for (const c of clusters) console.log(`  ${c.length}  ${c.map((t) => t.id).join(', ')}`);
   ```
   Run it (`node packages/core/scripts/find-copy-variant-clusters.mjs` after `pnpm --filter @superapp/core build`) and confirm it reproduces the "34 clusters, 121 templates" figure exactly — this is the regression check that the ground-truth number in this plan is still accurate before the codemod runs.
-- [ ] **Step 3: Write `dedupe-copy-variants.mjs`** — reuses the clustering logic (import or copy the same `blankStrings`/grouping code), then for each oversized cluster: sort members (`exemplar`-tier first, then by `id`), keep the first `N` (default 4), and for the rest, find-and-remove their `TemplateEntry` object literal from its source `.ts` file (this requires locating the export array entry by `id:` — do this with a targeted regex per known file structure, e.g. matching from `{ id: '<id>',` to the matching closing `},` at the same brace depth; **verify each deletion by diff before moving to the next file** — this is exactly the kind of mechanical-but-risky edit worth a careful implementation, not a one-shot regex across the whole tree).
-- [ ] **Step 4: Run it for real**, capped at 4: `node packages/core/scripts/dedupe-copy-variants.mjs --cap 4`.
-- [ ] **Step 5: Rebuild and verify:**
+- [x] **Step 3: Write `dedupe-copy-variants.mjs`** — reuses the clustering logic (import or copy the same `blankStrings`/grouping code), then for each oversized cluster: sort members (`exemplar`-tier first, then by `id`), keep the first `N` (default 4), and for the rest, find-and-remove their `TemplateEntry` object literal from its source `.ts` file (this requires locating the export array entry by `id:` — do this with a targeted regex per known file structure, e.g. matching from `{ id: '<id>',` to the matching closing `},` at the same brace depth; **verify each deletion by diff before moving to the next file** — this is exactly the kind of mechanical-but-risky edit worth a careful implementation, not a one-shot regex across the whole tree).
+- [x] **Step 4: Run it for real**, capped at 4: `node packages/core/scripts/dedupe-copy-variants.mjs --cap 4`.
+- [x] **Step 5: Rebuild and verify:**
   ```bash
   cd packages/core && pnpm build && npx vitest run src/__tests__/template-library-integrity.test.ts
   ```
   Expected: PASS on both new tests. Also re-run `node packages/core/scripts/find-copy-variant-clusters.mjs` — expect `0 clusters` over the cap (some clusters of exactly the cap size are fine and expected to remain, e.g. any cluster that was already ≤4).
-- [ ] **Step 6: Run the wider suite** for fallout (RAG search, solution-search ranking, and any test that pins `ALL_TEMPLATES.length` or a specific deleted `id`). There is no dedicated `solution-search.test.ts` file — its consumers are covered by `apps/web/app/__tests__/create-module-stream.route.test.ts` and `apps/web/app/__tests__/requirement-search-generation.test.ts` (confirmed via `grep -rl "solution-search\|searchSolutions" apps/web/app/__tests__`):
+- [x] **Step 6: Run the wider suite** for fallout (RAG search, solution-search ranking, and any test that pins `ALL_TEMPLATES.length` or a specific deleted `id`). There is no dedicated `solution-search.test.ts` file — its consumers are covered by `apps/web/app/__tests__/create-module-stream.route.test.ts` and `apps/web/app/__tests__/requirement-search-generation.test.ts` (confirmed via `grep -rl "solution-search\|searchSolutions" apps/web/app/__tests__`):
   ```bash
   grep -rn "ALL_TEMPLATES.length\|MODULE_TEMPLATES.length" apps/web/app packages/core/src --include="*.ts"
   cd apps/web && npx vitest run app/__tests__/create-module-stream.route.test.ts app/__tests__/requirement-search-generation.test.ts
   ```
   Update any pinned count to the new total (575 minus the deleted count).
-- [ ] **Step 7: Commit** — `git commit -m "refactor(ws-h): dedupe 121 copy-variant templates down to a 4-per-cluster cap across 34 clusters (Tmpl dedupe)"`, with the exact before/after template count in the commit body.
+- [x] **Step 7: Commit** — `git commit -m "refactor(ws-h): dedupe 121 copy-variant templates down to a 4-per-cluster cap across 34 clusters (Tmpl dedupe)"`, with the exact before/after template count in the commit body.
 
 ---
 
@@ -599,7 +599,7 @@ Adds real Liquid execution to the test suite (via `liquidjs` + a 4-filter Shopif
 **Interfaces:**
 - Heuristic (documented in the script, not hidden): a template already tagged keeps its tag. An untagged template gets `tier: 'standard'` by default; `tier: 'floor'` if it's part of a (post-Task-9) surviving copy-variant cluster and is NOT the cluster's best member (cluster ranking: prefer more complete `config` — most populated optional fields — as a proxy for "more finished," same idea `dedupe-copy-variants.mjs` used for "keep the exemplar first"); everything in `COVERAGE_TEMPLATES` (the coverage-floor file) gets `tier: 'floor'` explicitly, since its entries exist to satisfy the "every type has ≥1 template" invariant, not to be recommended.
 
-- [ ] **Step 1: Write the failing test** — append to `template-library-integrity.test.ts`:
+- [x] **Step 1: Write the failing test** — append to `template-library-integrity.test.ts`:
   ```ts
   it('every template carries a tier (Tmpl tier-tag library)', async () => {
     const { ALL_TEMPLATES } = await import('../templates/index.js');
@@ -608,19 +608,19 @@ Adds real Liquid execution to the test suite (via `liquidjs` + a 4-filter Shopif
   });
   ```
   Run: `cd packages/core && npx vitest run src/__tests__/template-library-integrity.test.ts`. Expected: FAIL — currently ~546 (minus whatever Task 9 deleted) untagged ids listed.
-- [ ] **Step 2: Write `tag-template-tiers.mjs`** implementing the heuristic above, `--check`/write modes matching the pattern of the other two scripts in this plan.
-- [ ] **Step 3: Run it for real**, spot-check 5-6 diffs across different files/categories by hand.
-- [ ] **Step 4: Rebuild and verify:**
+- [x] **Step 2: Write `tag-template-tiers.mjs`** implementing the heuristic above, `--check`/write modes matching the pattern of the other two scripts in this plan.
+- [x] **Step 3: Run it for real**, spot-check 5-6 diffs across different files/categories by hand.
+- [x] **Step 4: Rebuild and verify:**
   ```bash
   cd packages/core && pnpm build && npx vitest run src/__tests__/template-library-integrity.test.ts
   ```
   Expected: PASS.
-- [ ] **Step 5: Run `solution-search.server.ts`'s consumers** — tier now affects ranking for 546 more templates than before, so ranking-order assertions in its two known test consumers may shift:
+- [x] **Step 5: Run `solution-search.server.ts`'s consumers** — tier now affects ranking for 546 more templates than before, so ranking-order assertions in its two known test consumers may shift:
   ```bash
   cd apps/web && npx vitest run app/__tests__/create-module-stream.route.test.ts app/__tests__/requirement-search-generation.test.ts
   ```
   Fix any assertion that hardcoded an expected top-result id that a newly-`exemplar`-adjacent-but-actually-`standard` template now displaces — re-verify the NEW ranking is sensible (better match, not just "test now passes"), don't just chase green.
-- [ ] **Step 6: Commit** — `git commit -m "feat(ws-h): tier-tag the remaining ~546 untagged templates (heuristic + coverage-floor pass)"`.
+- [x] **Step 6: Commit** — `git commit -m "feat(ws-h): tier-tag the remaining ~546 untagged templates (heuristic + coverage-floor pass)"`.
 
 ---
 
