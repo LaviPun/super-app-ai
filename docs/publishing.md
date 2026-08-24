@@ -127,6 +127,22 @@ covering the legacy `"SuperApp Bundle Pricing"` title a pre-WS-E path wrote.
 with config written but no activation object created
 (`publish.service.ts:608-618`).
 
+**One PUBLISHED module per functionKey per store (final-review fix 1b).**
+`FunctionActivation` is `@@unique([shopId, functionKey])` — ONE row per shop,
+and the wasm reads ONE shop-level config — so a second module of the same
+`functions.*` type publishing would silently clobber the first's
+config/activation with no error. Before compiling anything, `publish()` looks
+up whether a DIFFERENT module (`id: { not: target.moduleId }`) of the same
+`spec.type` is already `PUBLISHED` on this shop and, if so, throws
+`FunctionKeyAlreadyPublishedError` — a merchant-facing message naming the
+other module and instructing them to unpublish it first. Republishing the
+SAME module is unaffected (it excludes its own moduleId from the lookup).
+Scoped to `FUNCTION_KEY_ACTIVATION`'s keys via `moduleTypeForFunctionKey`
+(`activation.service.ts`) — the same functionKey→activation map
+`ensureFunctionActivation` consults — so this never drifts into a second
+hand-maintained type↔functionKey map. `api.publish.tsx` and
+`api.agent.modules.$moduleId.publish.tsx` both surface the error as HTTP 409.
+
 ### `cartTransform`'s different path
 
 `cartTransform` is wired differently from the other `ActivationService` kinds: the compiler no
@@ -188,11 +204,18 @@ its required scope to `FUNCTION_TYPE_REQUIRED_SCOPES` in
 
 ## 3. Unpublish / delete semantics
 
-`UnpublishService.unpublish(spec, target)` (`unpublish.service.ts`) is the
-exact inverse of what `publish()` wrote for that same spec — it re-compiles
+`UnpublishService.unpublish(spec, target)` (`unpublish.service.ts`) re-compiles
 the SAME spec with the SAME `compileRecipe`, so teardown is derived from the
 identical compile output rather than a hand-maintained mirror that could
-drift.
+drift. **It is no longer a blanket "exact inverse"** (final-review fix 1a/3):
+for any surface backed by a shop-level `FunctionActivation` row —
+`FUNCTION_CONFIG_UPSERT` functionKeys and `cartTransform` — teardown is
+conditional on this being the LAST `PUBLISHED` module of that type on the
+shop. §2's singleton enforcement stops NEW same-functionKey pairs from
+publishing, but a pair from before that guard shipped (or a legitimate
+"module A owns `discountRules`, module B's bundle merges rules into it")
+still needs unpublish itself to check, not just assume it owns the whole
+shop-level resource.
 
 **Ordering: refs BEFORE metaobject (E6).** For every refs-list surface
 (§1's table), unpublish removes the GID from the refs-list metafield FIRST,
@@ -203,9 +226,17 @@ or "ref absent + object present" (harmless — nothing points at it) — never
 "ref present + object absent", which is a dangling reference that would
 error at read time.
 
-**Function surfaces.** For each `FUNCTION_CONFIG_UPSERT` op in the recompiled
-result, `unpublishFunction` deletes the `fn_<functionKey>` shop metafield and
-the config metaobject, then calls
+**Function surfaces — shared-activation guard (final-review fix 1a).** For
+each `FUNCTION_CONFIG_UPSERT` op in the recompiled result, `unpublishFunction`
+first checks `hasPublishedSibling(functionKey, moduleId)` — a
+`prisma.module.count` scoped to `moduleTypeForFunctionKey(functionKey)`
+(`functions.<functionKey>`), `status: 'PUBLISHED'`, excluding the module being
+unpublished (same shape as the web-pixel guard below). If another PUBLISHED
+module of that type still exists, teardown is SKIPPED for that functionKey
+and the skip is recorded in `UnpublishReport.skipped` (`{ functionKey, reason
+}`) — a truthful positive ledger, never a silent "cleaned up" that actually
+left the shared resource alone. Otherwise (this was the last one) it deletes
+the `fn_<functionKey>` shop metafield and the config metaobject, then calls
 `ActivationService.deleteForFunctionKey(functionKey)` to delete the Shopify
 activation object (only if a GID is on record — `deleteForFunctionKey`
 no-ops when nothing was ever stored, since a recovery-adoption delete is out
@@ -223,11 +254,33 @@ and its activation object alive when managed rules remain
 pricing for a merchant who never asked to unpublish bundles.
 
 **`cartTransform`** has no `FUNCTION_CONFIG_UPSERT` op (§2) — unpublish keys
-off `spec.type === 'functions.cartTransform'` directly and calls
-`ActivationService.deleteForFunctionKey('cartTransform')`
-(`unpublish.service.ts:107-113`). The parent bundle product is intentionally
-**not** deleted (a merchant's past orders may reference it — matches Shopify
-guidance against hard-deleting products).
+off `spec.type === 'functions.cartTransform'` directly. It runs the SAME
+`hasPublishedSibling` guard as the function surfaces above before calling
+`ActivationService.deleteForFunctionKey('cartTransform')` — a sibling
+PUBLISHED `functions.cartTransform` module skips teardown and is recorded in
+`skipped`. The parent bundle product is intentionally **not** deleted (a
+merchant's past orders may reference it — matches Shopify guidance against
+hard-deleting products).
+
+**cartTransform's managed-discount leg (final-review fix 3).** A non-Plus
+`cartTransform` publish writes a managed-discount fallback leg —
+`activateBundleCartTransformForPlan` merges `bundle:*` rules into the SHARED
+`discountRules` metaobject and ensures the `discountRules` activation
+(`bundle-activation.server.ts`). Tearing down the LAST `cartTransform` module
+now clears that leg too: `writeBundlePricingRules(mo, [])` (clear-stale
+semantics — strips only the managed rules, is a safe no-op when there's
+nothing managed) plus `ActivationService.deleteForFunctionKey('discountRules')`
+— but ONLY when `hasPublishedSibling('discountRules', undefined)` is false,
+i.e. no OTHER PUBLISHED `functions.discountRules` module owns that same
+shared activation. A real discount module's rules and activation survive a
+bundle unpublish untouched; the skip is recorded the same way.
+
+**Shop metafield surfaces (final-review fix 2).** `SHOP_METAFIELD_SET` ops
+(`flow.automation`, `messaging.campaign`, `integration.httpSync` — each keyed
+by a slug of the module's own name, never shared across modules) are now
+inverted: the ops loop calls `mf.deleteShopMetafield(op.namespace, op.key)`
+for each and records it in `UnpublishReport.deletedShopMetafields`. Previously
+these were never torn down at all.
 
 **Shared web pixel guard.** The app writes ONE shared `WebPixel` per shop.
 `maybeDeleteWebPixel` only deletes it when this was the LAST published
@@ -242,8 +295,14 @@ Both `api.modules.$moduleId.unpublish.tsx` and
 `api.modules.$moduleId.delete.tsx` run Shopify cleanup BEFORE the DB
 transition, and only flip the DB if cleanup succeeds:
 
-- **Unpublish** (`api.modules.$moduleId.unpublish.tsx`): runs
-  `UnpublishService.unpublish()`, then `ModuleService.markUnpublished()`
+- **Unpublish** (`api.modules.$moduleId.unpublish.tsx`): resolves the shop row
+  and now fails loud — `404 { error: 'Shop not found' }` — if it's missing
+  (final-review fix 4), rather than silently constructing
+  `UnpublishService(admin, { shopId: undefined })`, which would make every
+  shopId-gated teardown step (function/cartTransform activation deletes, the
+  shared web-pixel guard, the shared-sibling guards above) a silent no-op
+  while the route still reported `{ ok: true }`. With a resolved shop row it
+  runs `UnpublishService.unpublish()`, then `ModuleService.markUnpublished()`
   (DB-only: flips every `PUBLISHED` version to `UNPUBLISHED`, module to
   `DRAFT` with `activeVersionId: null`). If cleanup throws, the module stays
   `PUBLISHED` (honest) and the merchant can retry — `UnpublishService` is

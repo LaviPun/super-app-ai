@@ -7,7 +7,12 @@ export async function loader() {
 import { shopify } from '~/shopify.server';
 import { ModuleService } from '~/services/modules/module.service';
 import { RecipeService } from '~/services/recipes/recipe.service';
-import { PublishService, ModuleNotPublishableError, PublishPartialFailureError } from '~/services/publish/publish.service';
+import {
+  PublishService,
+  ModuleNotPublishableError,
+  PublishPartialFailureError,
+  FunctionKeyAlreadyPublishedError,
+} from '~/services/publish/publish.service';
 import { validateBeforePublish } from '~/services/publish/pre-publish-validator.server';
 import { ThemeService } from '~/services/shopify/theme.service';
 import { CapabilityService } from '~/services/shopify/capability.service';
@@ -324,6 +329,13 @@ export async function action({ request }: { request: Request }) {
             },
             { status: 422 },
           );
+        }
+        // WS-E final-review fix 1b: a second module of the same function type is
+        // a merchant-fixable conflict (unpublish the other one first), not a
+        // server error — surface it as 409 with the exact guidance message.
+        if (e instanceof FunctionKeyAlreadyPublishedError) {
+          await logRequestOutcome({ shopId: shopRow?.id, pathOrIntent: '/api/publish', success: false, details: { error: e.message, code: e.code } });
+          return json({ error: e.message, code: e.code }, { status: 409 });
         }
         const message = toErrorMessage(e);
         await logRequestOutcome({ shopId: shopRow?.id, pathOrIntent: '/api/publish', success: false, details: { error: message } });

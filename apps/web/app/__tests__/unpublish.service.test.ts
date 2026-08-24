@@ -4,7 +4,13 @@ import type { AdminApiContext } from '~/types/shopify';
 const db = new Map<string, { functionKey: string; kind: string; activationGid: string }>();
 /** Configurable count for the analytics.pixel shared-web-pixel guard
  *  (maybeDeleteWebPixel's prisma.module.count query). */
-const moduleState = { otherPublishedPixelCount: 0 };
+const moduleState = {
+  otherPublishedPixelCount: 0,
+  /** Configurable count-by-type for the shared-function-activation guard
+   *  (UnpublishService.hasPublishedSibling's prisma.module.count query, keyed by
+   *  `where.type`, e.g. "functions.discountRules" / "functions.cartTransform"). */
+  otherPublishedByType: {} as Record<string, number>,
+};
 
 /**
  * Configurable fixture for `ModuleService.markUnpublished` /
@@ -39,7 +45,10 @@ vi.mock('~/db.server', () => ({
       },
     },
     module: {
-      count: async () => moduleState.otherPublishedPixelCount,
+      count: async ({ where }: { where?: { type?: string } } = {}) => {
+        if (where?.type === 'analytics.pixel') return moduleState.otherPublishedPixelCount;
+        return moduleState.otherPublishedByType[where?.type ?? ''] ?? 0;
+      },
       findFirst: async (args: Record<string, unknown>) => {
         capturedCalls.moduleFindFirstArgs = args;
         return moduleFixture.row;
@@ -88,6 +97,7 @@ function mockAdmin(resolve: (op: string, variables?: Record<string, unknown>) =>
 beforeEach(() => {
   db.clear();
   moduleState.otherPublishedPixelCount = 0;
+  moduleState.otherPublishedByType = {};
   moduleFixture.row = null;
   capturedCalls.moduleUpdate = [];
   capturedCalls.versionUpdateMany = [];
@@ -265,7 +275,53 @@ describe('UnpublishService', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('functions.cartTransform: deletes the recorded activation, leaves the parent bundle product alone', async () => {
+  it('functions.cartTransform: deletes the recorded activation, leaves the parent bundle product alone, and clears the (empty/unshared) discountRules leg', async () => {
+    db.set('shop_1:cartTransform', { functionKey: 'cartTransform', kind: 'cartTransform', activationGid: 'gid://shopify/CartTransform/7' });
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'SuperAppCartTransformDelete') return { data: { cartTransformDelete: { deletedId: 'gid://shopify/CartTransform/7', userErrors: [] } } };
+      // Fix 3: the cartTransform branch always probes the shared discountRules leg via
+      // writeBundlePricingRules(mo, []) — no discountRules metaobject exists in this
+      // fixture (pure cartTransform-only shop), so the probe is a genuine no-op (see
+      // BundleProductService.writeBundlePricingRules's `rules.length === 0 && !hadManaged`
+      // early return — no further GraphQL calls follow it).
+      if (op === 'MetaobjectByHandle') return { data: { metaobjectByHandle: null } };
+      throw new Error(`unexpected ${op}`);
+    });
+    const { UnpublishService } = await import('~/services/publish/unpublish.service');
+    const spec = {
+      type: 'functions.cartTransform', category: 'functions', name: 'Bundle',
+      config: { bundles: [{ title: 'Duo', componentSkus: ['SKU-A', 'SKU-B'], bundleSku: 'DUO' }] },
+    } as never;
+    const report = await new UnpublishService(admin, { shopId: 'shop_1' })
+      .unpublish(spec, { kind: 'PLATFORM', moduleId: 'm1' } as never);
+    expect(calls.map((c) => c.op)).toEqual(['SuperAppCartTransformDelete', 'MetaobjectByHandle']);
+    expect(report.deletedActivations).toEqual(['cartTransform', 'discountRules']);
+    expect(report.skipped).toEqual([]);
+    expect(db.has('shop_1:cartTransform')).toBe(false);
+  });
+
+  it('functions.cartTransform: SKIPS shared-activation teardown when a sibling cartTransform module is still PUBLISHED', async () => {
+    moduleState.otherPublishedByType['functions.cartTransform'] = 1;
+    db.set('shop_1:cartTransform', { functionKey: 'cartTransform', kind: 'cartTransform', activationGid: 'gid://shopify/CartTransform/7' });
+    const { admin, calls } = mockAdmin(() => { throw new Error('no Shopify call expected — the shared activation is preserved'); });
+    const { UnpublishService } = await import('~/services/publish/unpublish.service');
+    const spec = {
+      type: 'functions.cartTransform', category: 'functions', name: 'Bundle',
+      config: { bundles: [{ title: 'Duo', componentSkus: ['SKU-A', 'SKU-B'], bundleSku: 'DUO' }] },
+    } as never;
+    const report = await new UnpublishService(admin, { shopId: 'shop_1' })
+      .unpublish(spec, { kind: 'PLATFORM', moduleId: 'm1' } as never);
+    expect(calls).toHaveLength(0);
+    expect(report.deletedActivations).toEqual([]);
+    expect(report.skipped).toEqual([
+      { functionKey: 'cartTransform', reason: 'shared with another PUBLISHED functions.cartTransform module on this shop' },
+    ]);
+    // The stored activation row is NOT cleared — the sibling still needs it.
+    expect(db.has('shop_1:cartTransform')).toBe(true);
+  });
+
+  it('functions.cartTransform: tears down cartTransform but LEAVES the discountRules leg alone when a real discountRules module is still PUBLISHED', async () => {
+    moduleState.otherPublishedByType['functions.discountRules'] = 1;
     db.set('shop_1:cartTransform', { functionKey: 'cartTransform', kind: 'cartTransform', activationGid: 'gid://shopify/CartTransform/7' });
     const { admin, calls } = mockAdmin((op) => {
       if (op === 'SuperAppCartTransformDelete') return { data: { cartTransformDelete: { deletedId: 'gid://shopify/CartTransform/7', userErrors: [] } } };
@@ -278,9 +334,92 @@ describe('UnpublishService', () => {
     } as never;
     const report = await new UnpublishService(admin, { shopId: 'shop_1' })
       .unpublish(spec, { kind: 'PLATFORM', moduleId: 'm1' } as never);
+    // cartTransform itself is unshared → torn down. discountRules is shared with a
+    // real discount module → left untouched (no writeBundlePricingRules/delete call).
     expect(calls.map((c) => c.op)).toEqual(['SuperAppCartTransformDelete']);
     expect(report.deletedActivations).toEqual(['cartTransform']);
-    expect(db.has('shop_1:cartTransform')).toBe(false);
+    expect(report.skipped).toEqual([
+      { functionKey: 'discountRules', reason: 'shared with another PUBLISHED functions.discountRules module on this shop' },
+    ]);
+  });
+
+  it('functions.deliveryCustomization: SKIPS shared-activation teardown when a sibling PUBLISHED module of the same type exists — config + activation survive', async () => {
+    moduleState.otherPublishedByType['functions.deliveryCustomization'] = 1;
+    db.set('shop_1:deliveryCustomization', { functionKey: 'deliveryCustomization', kind: 'deliveryCustomization', activationGid: 'gid://shopify/DeliveryCustomization/1' });
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'MetaobjectByHandle') return { data: { metaobjectByHandle: { id: 'gid://mo/dc', field: { value: JSON.stringify({}) } } } };
+      throw new Error(`unexpected ${op}`);
+    });
+    const { UnpublishService } = await import('~/services/publish/unpublish.service');
+    const spec = { type: 'functions.deliveryCustomization', category: 'functions', name: 'DC', config: {} } as never;
+    const report = await new UnpublishService(admin, { shopId: 'shop_1' })
+      .unpublish(spec, { kind: 'PLATFORM', moduleId: 'm1' } as never);
+    // Only the existence probe runs — no delete/metafield-delete/activation-delete call.
+    expect(calls.map((c) => c.op)).toEqual(['MetaobjectByHandle']);
+    expect(report.deletedMetaobjects).toEqual([]);
+    expect(report.deletedActivations).toEqual([]);
+    expect(report.skipped).toEqual([
+      { functionKey: 'deliveryCustomization', reason: 'shared with another PUBLISHED functions.deliveryCustomization module on this shop' },
+    ]);
+    expect(db.has('shop_1:deliveryCustomization')).toBe(true);
+  });
+
+  it('functions.deliveryCustomization: LAST published module of this type still tears down fully (no false-positive skip)', async () => {
+    moduleState.otherPublishedByType['functions.deliveryCustomization'] = 0;
+    db.set('shop_1:deliveryCustomization', { functionKey: 'deliveryCustomization', kind: 'deliveryCustomization', activationGid: 'gid://shopify/DeliveryCustomization/1' });
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'MetaobjectByHandle') return { data: { metaobjectByHandle: { id: 'gid://mo/dc', field: { value: JSON.stringify({}) } } } };
+      if (op === 'MetaobjectDelete') return { data: { metaobjectDelete: { deletedId: 'gid://mo/dc', userErrors: [] } } };
+      if (op === 'ShopId') return { data: { shop: { id: 'gid://shopify/Shop/1' } } };
+      if (op === 'MetafieldsDelete') return { data: { metafieldsDelete: { userErrors: [] } } };
+      if (op === 'SuperAppDeliveryCustomizationDelete') return { data: { deliveryCustomizationDelete: { deletedId: 'gid://shopify/DeliveryCustomization/1', userErrors: [] } } };
+      throw new Error(`unexpected ${op}`);
+    });
+    const { UnpublishService } = await import('~/services/publish/unpublish.service');
+    const spec = { type: 'functions.deliveryCustomization', category: 'functions', name: 'DC', config: {} } as never;
+    const report = await new UnpublishService(admin, { shopId: 'shop_1' })
+      .unpublish(spec, { kind: 'PLATFORM', moduleId: 'm1' } as never);
+    expect(report.deletedMetaobjects).toEqual(['gid://mo/dc']);
+    expect(report.deletedActivations).toEqual(['deliveryCustomization']);
+    expect(report.skipped).toEqual([]);
+    expect(db.has('shop_1:deliveryCustomization')).toBe(false);
+  });
+
+  it('flow.automation: inverts SHOP_METAFIELD_SET by deleting the shop metafield', async () => {
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'ShopId') return { data: { shop: { id: 'gid://shopify/Shop/1' } } };
+      if (op === 'MetafieldsDelete') return { data: { metafieldsDelete: { userErrors: [] } } };
+      throw new Error(`unexpected ${op}`);
+    });
+    const { UnpublishService } = await import('~/services/publish/unpublish.service');
+    const spec = {
+      type: 'flow.automation', category: 'FLOW', name: 'Welcome Flow',
+      config: { trigger: 'ORDER_CREATED', steps: [] },
+    } as never;
+    const report = await new UnpublishService(admin, { shopId: 'shop_1' })
+      .unpublish(spec, { kind: 'PLATFORM', moduleId: 'm1' } as never);
+    expect(calls.map((c) => c.op)).toEqual(['ShopId', 'MetafieldsDelete']);
+    expect(calls[1]!.variables!.metafields).toEqual([
+      { ownerId: 'gid://shopify/Shop/1', namespace: 'superapp.flow', key: 'flow_welcome-flow' },
+    ]);
+    expect(report.deletedShopMetafields).toEqual(['superapp.flow/flow_welcome-flow']);
+  });
+
+  it('messaging.campaign: inverts SHOP_METAFIELD_SET by deleting the shop metafield', async () => {
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'ShopId') return { data: { shop: { id: 'gid://shopify/Shop/1' } } };
+      if (op === 'MetafieldsDelete') return { data: { metafieldsDelete: { userErrors: [] } } };
+      throw new Error(`unexpected ${op}`);
+    });
+    const { UnpublishService } = await import('~/services/publish/unpublish.service');
+    const spec = {
+      type: 'messaging.campaign', category: 'MESSAGING', name: 'Fall Sale',
+      config: { channel: 'email' },
+    } as never;
+    const report = await new UnpublishService(admin, { shopId: 'shop_1' })
+      .unpublish(spec, { kind: 'PLATFORM', moduleId: 'm1' } as never);
+    expect(calls.map((c) => c.op)).toEqual(['ShopId', 'MetafieldsDelete']);
+    expect(report.deletedShopMetafields).toEqual(['$app:superapp_messaging/campaign_fall-sale']);
   });
 });
 

@@ -2,7 +2,7 @@ import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { ModuleService } from '~/services/modules/module.service';
 import { RecipeService } from '~/services/recipes/recipe.service';
-import { PublishService, PublishPartialFailureError } from '~/services/publish/publish.service';
+import { PublishService, PublishPartialFailureError, FunctionKeyAlreadyPublishedError } from '~/services/publish/publish.service';
 import { publishPartialFailureResponse } from '~/services/publish/publish-error-response.server';
 import { validateBeforePublish } from '~/services/publish/pre-publish-validator.server';
 import { CapabilityService } from '~/services/shopify/capability.service';
@@ -213,6 +213,11 @@ export async function action({
     // error string. Shared helper keeps the two routes from drifting.
     if (e instanceof PublishPartialFailureError) {
       return publishPartialFailureResponse(e);
+    }
+    // WS-E final-review fix 1b: same-functionKey conflict is merchant-fixable
+    // (unpublish the other module first), not a server error — 409.
+    if (e instanceof FunctionKeyAlreadyPublishedError) {
+      return json({ error: e.message, code: e.code }, { status: 409 });
     }
     const message = e instanceof Error ? e.message : 'Publish failed';
     return json({ error: message }, { status: 500 });

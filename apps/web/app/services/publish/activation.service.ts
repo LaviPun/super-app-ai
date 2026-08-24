@@ -28,6 +28,22 @@ export const FUNCTION_KEY_ACTIVATION: Record<string, { kind: ActivationKind; fun
   cartTransform: { kind: 'cartTransform', functionHandle: 'cart-transform-function' },
 };
 
+/**
+ * The module `type` whose compiler emits `FUNCTION_CONFIG_UPSERT { functionKey }`
+ * for a given functionKey (or, for `cartTransform`, whose spec.type keys the
+ * special-cased `publishCartTransform` branch) — every key in
+ * `FUNCTION_KEY_ACTIVATION` maps 1:1 to `functions.<key>` (see each
+ * `recipes/compiler/functions.*.ts`, all literal `functionKey: '<key>'` matching
+ * their own `spec.type` suffix). `FunctionActivation` is `@@unique([shopId,
+ * functionKey])` — ONE row per shop per functionKey, shared by every module of
+ * this type. Publish-time singleton enforcement (`PublishService.publish`) and
+ * unpublish's shared-teardown guard (`UnpublishService`) both call this instead
+ * of hand-maintaining a second type↔functionKey map.
+ */
+export function moduleTypeForFunctionKey(functionKey: string): string {
+  return `functions.${functionKey}`;
+}
+
 const DISCOUNT_TITLE = 'SuperApp Discounts';
 /** Pre-WS-E title written by the removed BundleProductService.ensureAutomaticBundleDiscount. */
 const LEGACY_BUNDLE_DISCOUNT_TITLE = 'SuperApp Bundle Pricing';

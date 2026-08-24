@@ -4,7 +4,8 @@ import { compileRecipe } from '~/services/recipes/compiler';
 import { MetaobjectService } from '~/services/shopify/metaobject.service';
 import { MetafieldService } from '~/services/shopify/metafield.service';
 import { WebPixelService } from '~/services/shopify/web-pixel.service';
-import { ActivationService } from '~/services/publish/activation.service';
+import { ActivationService, moduleTypeForFunctionKey } from '~/services/publish/activation.service';
+import { BundleProductService } from '~/services/bundles/bundle-product.service';
 import { getPrisma } from '~/db.server';
 import {
   THEME_MODULES_NAMESPACE, THEME_MODULE_REFS_KEY,
@@ -24,6 +25,15 @@ export type UnpublishReport = {
   deletedMetaobjects: string[];
   deletedActivations: string[];
   deletedWebPixel: boolean;
+  /** shop metafields deleted by inverting a SHOP_METAFIELD_SET op (fix 2, final review). */
+  deletedShopMetafields: string[];
+  /**
+   * Shared-activation teardown steps SKIPPED because a sibling PUBLISHED module
+   * still owns the functionKey (fix 1a, final review) — kept as an explicit,
+   * truthful entry so the report never reads as "cleaned up" when it deliberately
+   * left a shared resource alone.
+   */
+  skipped: Array<{ functionKey: string; reason: string }>;
 };
 
 /** One refs-list surface family: publish's write mirrored for teardown (E6). */
@@ -63,7 +73,10 @@ export class UnpublishService {
     const result = compileRecipe(spec, target);
     const mo = new MetaobjectService(this.admin);
     const mf = new MetafieldService(this.admin);
-    const report: UnpublishReport = { removedRefs: [], deletedMetaobjects: [], deletedActivations: [], deletedWebPixel: false };
+    const report: UnpublishReport = {
+      removedRefs: [], deletedMetaobjects: [], deletedActivations: [], deletedWebPixel: false,
+      deletedShopMetafields: [], skipped: [],
+    };
     const moduleId = target.moduleId;
 
     // 1. refs-list surfaces — remove ref FIRST, delete metaobject LAST, so a
@@ -93,10 +106,19 @@ export class UnpublishService {
     // 3. ops-driven surfaces
     for (const op of result.ops) {
       if (op.kind === 'FUNCTION_CONFIG_UPSERT') {
-        await this.unpublishFunction(mo, mf, op.functionKey, report);
+        await this.unpublishFunction(mo, mf, op.functionKey, report, moduleId);
       }
       if (op.kind === 'WEB_PIXEL_UPSERT') {
         report.deletedWebPixel = await this.maybeDeleteWebPixel(moduleId);
+      }
+      if (op.kind === 'SHOP_METAFIELD_SET') {
+        // Fix 2 (final review): SHOP_METAFIELD_SET was never inverted — flow.automation
+        // / messaging.campaign / integration.httpSync unpublish left their per-module
+        // shop metafield behind forever. Each op's key is derived from the module's own
+        // name (compiler's `slug(spec.name)`), so it is never shared across modules —
+        // no guard needed, unlike the function-config surfaces below.
+        await mf.deleteShopMetafield(op.namespace, op.key);
+        report.deletedShopMetafields.push(`${op.namespace}/${op.key}`);
       }
       // THEME_ASSET_UPSERT (native sections) is flag-gated and never produced by
       // the default app-block path; when the flag ships live, mirror publish by
@@ -106,10 +128,44 @@ export class UnpublishService {
 
     // 4. cartTransform (no FUNCTION_CONFIG_UPSERT op since Task 8 — keyed off spec type)
     if (spec.type === 'functions.cartTransform' && this.session.shopId) {
-      await new ActivationService(this.admin, this.session.shopId).deleteForFunctionKey('cartTransform');
-      report.deletedActivations.push('cartTransform');
-      // The parent bundle product stays (merchant may have orders referencing it) —
-      // documented behavior, matches Shopify guidance to not hard-delete products.
+      if (await this.hasPublishedSibling('cartTransform', moduleId)) {
+        // Fix 1a (final review): FunctionActivation('cartTransform') is ONE row per
+        // shop, shared by every cartTransform module. A sibling still-PUBLISHED
+        // cartTransform module owns the live shop-wide config — deleting the shared
+        // activation here would break it too. Skip, record the skip.
+        report.skipped.push({
+          functionKey: 'cartTransform',
+          reason: `shared with another PUBLISHED ${moduleTypeForFunctionKey('cartTransform')} module on this shop`,
+        });
+      } else {
+        await new ActivationService(this.admin, this.session.shopId).deleteForFunctionKey('cartTransform');
+        report.deletedActivations.push('cartTransform');
+        // The parent bundle product stays (merchant may have orders referencing it) —
+        // documented behavior, matches Shopify guidance to not hard-delete products.
+
+        // Fix 3 (final review): a non-Plus cartTransform publish writes a
+        // managed-discount fallback leg (activateBundleCartTransformForPlan →
+        // writeBundlePricingRules merges `bundle:*` rules into the SHARED
+        // discountRules metaobject + ensures the discountRules activation — see
+        // bundle-activation.server.ts). Tearing down the LAST cartTransform module
+        // must clear that leg too — but ONLY when no OTHER PUBLISHED
+        // functions.discountRules module owns that same shared discountRules
+        // activation (reuses the fix-1a guard): a real discount module's rules and
+        // activation must survive a bundle unpublish untouched.
+        if (await this.hasPublishedSibling('discountRules', undefined)) {
+          report.skipped.push({
+            functionKey: 'discountRules',
+            reason: `shared with another PUBLISHED ${moduleTypeForFunctionKey('discountRules')} module on this shop`,
+          });
+        } else {
+          // writeBundlePricingRules(mo, []) has clear-stale semantics: it strips only
+          // the `bundle:*`-tagged managed rules (any genuinely-unmanaged rules survive)
+          // and is a safe no-op when there is nothing managed to clear.
+          await new BundleProductService(this.admin).writeBundlePricingRules(mo, []);
+          await new ActivationService(this.admin, this.session.shopId).deleteForFunctionKey('discountRules');
+          report.deletedActivations.push('discountRules');
+        }
+      }
     }
 
     return report;
@@ -120,6 +176,7 @@ export class UnpublishService {
     mf: MetafieldService,
     functionKey: string,
     report: UnpublishReport,
+    moduleId?: string,
   ): Promise<void> {
     const existing = await mo.getFunctionConfigByKey(functionKey);
     if (!existing) return; // already gone — idempotent
@@ -136,6 +193,23 @@ export class UnpublishService {
       }
     }
 
+    // Fix 1a (final review): FunctionActivation is @@unique([shopId, functionKey]) —
+    // ONE row per shop, shared by every module compiling to this functionKey. Before
+    // Task-8-era singleton enforcement (publish-time, PublishService) shipped, two
+    // sibling modules of the same functions.* type could both reach PUBLISHED; even
+    // after that guard, an already-published pair from before it shipped must still be
+    // protected here. Skip teardown (record the skip in the report — a truthful
+    // positive ledger, never a silent "cleaned up" that changed nothing) when a sibling
+    // PUBLISHED module of the same type still exists; still tear down when this was the
+    // last one.
+    if (await this.hasPublishedSibling(functionKey, moduleId)) {
+      report.skipped.push({
+        functionKey,
+        reason: `shared with another PUBLISHED ${moduleTypeForFunctionKey(functionKey)} module on this shop`,
+      });
+      return;
+    }
+
     await mf.deleteShopMetafield(FUNCTIONS_NAMESPACE, `fn_${functionKey}`);
     await mo.deleteMetaobject(existing.metaobjectId);
     report.deletedMetaobjects.push(existing.metaobjectId);
@@ -144,6 +218,25 @@ export class UnpublishService {
       await new ActivationService(this.admin, this.session.shopId).deleteForFunctionKey(functionKey);
       report.deletedActivations.push(functionKey);
     }
+  }
+
+  /** Whether another PUBLISHED module of the type backing `functionKey` still
+   *  exists on this shop (excluding `excludeModuleId`, the module currently being
+   *  unpublished) — the shared-teardown guard fix 1a/fix 3 both call. Mirrors
+   *  `maybeDeleteWebPixel`'s prisma.module.count approach. No shopId ⇒ can't scope
+   *  the query safely ⇒ treated as "no sibling" (matches every other shopId-gated
+   *  Shopify-side write in this service). */
+  private async hasPublishedSibling(functionKey: string, excludeModuleId?: string): Promise<boolean> {
+    if (!this.session.shopId) return false;
+    const count = await getPrisma().module.count({
+      where: {
+        shopId: this.session.shopId,
+        type: moduleTypeForFunctionKey(functionKey),
+        status: 'PUBLISHED',
+        ...(excludeModuleId ? { id: { not: excludeModuleId } } : {}),
+      },
+    });
+    return count > 0;
   }
 
   /** The web pixel is ONE shared app pixel per shop — only delete when this was the

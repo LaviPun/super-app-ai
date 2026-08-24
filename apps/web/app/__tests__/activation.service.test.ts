@@ -22,6 +22,12 @@ vi.mock('~/db.server', () => ({
     shop: {
       findUnique: async () => ({ id: 'shop_1', shopDomain: 'test.myshopify.com', planTier: shopState.planTier }),
     },
+    // PublishService's functionKey singleton guard (WS-E final-review fix 1b) —
+    // these tests never exercise a sibling-module conflict, so "no other PUBLISHED
+    // module of this type" (null) is the correct default everywhere it's consulted.
+    module: {
+      findFirst: async () => null as { name: string } | null,
+    },
   }),
 }));
 

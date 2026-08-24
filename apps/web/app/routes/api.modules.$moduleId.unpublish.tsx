@@ -31,6 +31,14 @@ export async function action({ request, params }: { request: Request; params: { 
       await enforceRateLimit(`unpublish:${session.shop}`);
       const prisma = getPrisma();
       const shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
+      // WS-E final-review fix 4: a missing shop row used to fall through silently —
+      // `new UnpublishService(admin, { shopId: shopRow.id })` would run with
+      // `shopId: undefined`, which makes every shopId-gated teardown step (function
+      // activation deletes, the shared web-pixel guard, the shared-sibling guards)
+      // silently no-op, yet the route still returned `{ ok: true }`. Fail loud instead
+      // (mirrors the `if (!shopRow) return json({ error: 'Shop not found' }, { status:
+      // 404 })` convention used across the app's other shop-scoped routes).
+      if (!shopRow) return json({ error: 'Shop not found' }, { status: 404 });
       const moduleService = new ModuleService();
       const mod = await moduleService.getModule(session.shop, moduleId);
       if (!mod) return json({ error: 'Module not found' }, { status: 404 });
@@ -45,11 +53,11 @@ export async function action({ request, params }: { request: Request; params: { 
         ? { kind: 'THEME', themeId: versionRow.targetThemeId ?? '', moduleId: mod.id }
         : { kind: 'PLATFORM', moduleId: mod.id };
 
-      const report = await new UnpublishService(admin, { shopId: shopRow?.id }).unpublish(spec, target);
+      const report = await new UnpublishService(admin, { shopId: shopRow.id }).unpublish(spec, target);
       await moduleService.markUnpublished(session.shop, moduleId);
       await new ActivityLogService().log({
         actor: 'MERCHANT', action: 'MODULE_UNPUBLISHED', resource: `module:${moduleId}`,
-        shopId: shopRow?.id, details: { report },
+        shopId: shopRow.id, details: { report },
       }).catch(() => {});
 
       const acceptsJson = request.headers.get('Accept')?.includes('application/json');

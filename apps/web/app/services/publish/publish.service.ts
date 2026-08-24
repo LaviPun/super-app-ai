@@ -18,7 +18,7 @@ import { WebPixelService } from '~/services/shopify/web-pixel.service';
 import { computeRepublishDiff, type ModulePublishPreflightResult } from '@superapp/platform-contracts';
 import { classifyModulePublishability } from '~/services/publish/publish-preflight.server';
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
-import { ActivationService, FUNCTION_KEY_ACTIVATION } from '~/services/publish/activation.service';
+import { ActivationService, FUNCTION_KEY_ACTIVATION, moduleTypeForFunctionKey } from '~/services/publish/activation.service';
 import {
   BundleProductService,
   resolveBundleWithPricing,
@@ -108,6 +108,30 @@ export class PublishPartialFailureError extends Error {
 }
 
 /**
+ * Thrown when publishing a `functions.*` module would clobber a DIFFERENT
+ * module's shop-level activation (WS-E final-review fix 1b). `FunctionActivation`
+ * is `@@unique([shopId, functionKey])` — ONE row per shop, and the wasm reads
+ * ONE config per shop — so a second module of the same function type publishing
+ * would silently overwrite the first's config/activation with no error. Refusing
+ * loudly is strictly better than a second publish silently clobbering the first.
+ * Republishing the SAME module (moduleId match) is unaffected — see the
+ * `id: { not: target.moduleId }` exclusion at the call site.
+ */
+export class FunctionKeyAlreadyPublishedError extends Error {
+  readonly code = 'FUNCTION_KEY_ALREADY_PUBLISHED';
+  constructor(
+    readonly moduleType: string,
+    readonly otherModuleName: string,
+  ) {
+    super(
+      `A "${moduleType}" module is already published on this store ("${otherModuleName}"). ` +
+        `Unpublish it first — each store can run one module of this function type at a time.`,
+    );
+    this.name = 'FunctionKeyAlreadyPublishedError';
+  }
+}
+
+/**
  * Thrown when a native-section theme push is requested but the feature is not
  * enabled (flag off) — the app-block path remains the shipping default. Distinct
  * from the old blanket "theme file writes are not used" throw: the seam is
@@ -189,6 +213,32 @@ export class PublishService {
     });
     if (!preflight.willDeploy) {
       throw new ModuleNotPublishableError(preflight);
+    }
+
+    // WS-E final-review fix 1b: refuse a second PUBLISHED module of the SAME
+    // functions.* type on this shop — FunctionActivation is one row per
+    // (shopId, functionKey), and the wasm reads ONE shop-level config, so a
+    // second publish would silently clobber the first's activation/config.
+    // Republishing the SAME module (moduleId match) is always allowed. Keyed
+    // off FUNCTION_KEY_ACTIVATION — the same functionKey→activation map
+    // `ensureFunctionActivation` consults below — via `moduleTypeForFunctionKey`,
+    // so this never drifts into a second hand-maintained type↔functionKey map.
+    if (spec.type.startsWith('functions.') && this.session?.shopId && target.moduleId) {
+      const functionKey = spec.type.slice('functions.'.length);
+      if (FUNCTION_KEY_ACTIVATION[functionKey]) {
+        const other = await getPrisma().module.findFirst({
+          where: {
+            shopId: this.session.shopId,
+            type: moduleTypeForFunctionKey(functionKey),
+            status: 'PUBLISHED',
+            id: { not: target.moduleId },
+          },
+          select: { name: true },
+        });
+        if (other) {
+          throw new FunctionKeyAlreadyPublishedError(spec.type, other.name);
+        }
+      }
     }
 
     const result = compileRecipe(spec, target);
