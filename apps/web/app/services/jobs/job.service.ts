@@ -1,5 +1,6 @@
 import { getPrisma } from '~/db.server';
 import { getRequestContext } from '~/services/observability/correlation.server';
+import { OpsAlertService } from '~/services/observability/ops-alert.server';
 
 export type JobType = 'AI_GENERATE'|'AI_HYDRATE'|'AI_MODIFY'|'PUBLISH'|'CONNECTOR_TEST'|'FLOW_RUN'|'MESSAGING_RUN'|'HTTP_SYNC_RUN'|'THEME_ANALYZE';
 export type JobStatus = 'QUEUED'|'RUNNING'|'SUCCESS'|'FAILED';
@@ -40,10 +41,19 @@ export class JobService {
 
   async fail(jobId: string, error: unknown) {
     const prisma = getPrisma();
-    return prisma.job.update({
+    const updated = await prisma.job.update({
       where: { id: jobId },
       data: { status: 'FAILED', finishedAt: new Date(), error: String(error) },
     });
+    await new OpsAlertService()
+      .fire({
+        kind: 'JOB_FAILED',
+        message: `Job ${jobId} (${updated.type}) failed: ${String(error)}`,
+        error,
+        context: { jobId, jobType: updated.type },
+      })
+      .catch(() => {});
+    return updated;
   }
 
   async listLatest(limit = 200) {
