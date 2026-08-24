@@ -14,6 +14,7 @@ import { compileRecipe } from '~/services/recipes/compiler';
 import { ThemeService } from '~/services/shopify/theme.service';
 import { embedActivationDeepLink } from '~/services/publish/embed-status.server';
 import { mintPreviewToken } from '~/services/security/preview-token.server';
+import { SchemaForm, type JsonSchemaNode, type SectionUiHints } from '~/components/SchemaForm';
 import type { Capability, DeployTarget, RecipeSpec } from '@superapp/core';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
@@ -409,6 +410,12 @@ function ModuleDetailBody() {
   const [applyingIdx, setApplyingIdx] = useState<number | null>(null);
   const [nameDraft, setNameDraft] = useState(mod.name);
   const [notesDraft, setNotesDraft] = useState(internalNotes ?? '');
+  // WS-F: SchemaForm's controlled value for the Settings-tab config editor,
+  // seeded from the current draft spec's `config` branch (hydrate's adminConfig
+  // supplies the schema this is rendered against — see the Settings tab below).
+  const [configValue, setConfigValue] = useState<Record<string, unknown>>(
+    () => ((spec as { config?: Record<string, unknown> } | null)?.config as Record<string, unknown>) ?? {},
+  );
   // WS-E finding 5: embed-activation nudge. Populated either from a same-page
   // publish (the fetcher's JSON carries embedStatus — no URL to read) or from
   // the redirect-based publish flow (?embed=... on the URL after /api/publish).
@@ -435,6 +442,7 @@ function ModuleDetailBody() {
   const duplicateFetcher = useFetcher<{ ok?: boolean; id?: string; name?: string; error?: string }>();
   const renameFetcher = useFetcher<{ ok?: boolean; name?: string; error?: string }>();
   const notesFetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const configFetcher = useFetcher<{ ok?: boolean; version?: number; error?: string }>();
   const hydrateFetcher = useFetcher<{ ok?: boolean; error?: string; message?: string }>();
   const fillSettingsFetcher = useFetcher<{
     ok?: boolean;
@@ -570,6 +578,17 @@ function ModuleDetailBody() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notesFetcher.data, notesFetcher.state]);
+
+  useEffect(() => {
+    if (configFetcher.state !== 'idle') return;
+    if (configFetcher.data?.ok) {
+      ctx.toast(`Settings saved — v${configFetcher.data.version}`);
+      revalidator.revalidate();
+    } else if (configFetcher.data?.error) {
+      ctx.toast(configFetcher.data.error, { error: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configFetcher.data, configFetcher.state]);
 
   useEffect(() => {
     if (applyFetcher.state !== 'idle') return;
@@ -964,6 +983,37 @@ function ModuleDetailBody() {
                 </s-stack>
               </s-stack>
               <s-divider />
+              {data.hydration.adminConfig ? (
+                <>
+                  <s-stack gap="small-100">
+                    <s-text type="strong">Settings</s-text>
+                    <SchemaForm
+                      schema={data.hydration.adminConfig.jsonSchema as JsonSchemaNode}
+                      uiSchema={data.hydration.adminConfig.uiSchema as Record<string, SectionUiHints>}
+                      value={configValue}
+                      onChange={setConfigValue}
+                      tier="advanced"
+                      disabled={configFetcher.state !== 'idle'}
+                    />
+                    <s-stack direction="inline">
+                      <s-button
+                        variant="primary"
+                        icon="check"
+                        loading={configFetcher.state !== 'idle' || undefined}
+                        onClick={() =>
+                          configFetcher.submit(
+                            { configJson: JSON.stringify(configValue) },
+                            { method: 'post', action: `/api/modules/${moduleId}/update-config` },
+                          )
+                        }
+                      >
+                        Save settings
+                      </s-button>
+                    </s-stack>
+                  </s-stack>
+                  <s-divider />
+                </>
+              ) : null}
               {hydration?.status === 'none' && (
                 <>
                   <s-banner tone="info" heading="Generate full settings">
