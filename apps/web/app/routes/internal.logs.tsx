@@ -55,6 +55,9 @@ export async function loader({ request }: { request: Request }) {
       source: l.source,
       shopDomain: l.shop?.shopDomain ?? null,
       createdAt: l.createdAt.toISOString(),
+      // Formatted server-side (once) rather than at component render time — see
+      // internal.activity.tsx's loader comment for why (hydration text mismatch).
+      created: formatRelativeTime(l.createdAt.toISOString()),
       correlationId: l.correlationId ?? null,
       requestId: l.requestId ?? null,
     })),
@@ -70,7 +73,7 @@ export default function AdminLogs() {
   const ts = useTableState();
   const [level, setLevel] = useState('All');
 
-  const ROWS: any[] = data.logs.map((l) => ({ id: l.id, level: l.level, message: l.message, source: l.source, route: l.route, shop: l.shopDomain ?? '—', created: formatRelativeTime(l.createdAt), correlationId: l.correlationId ?? '' }));
+  const ROWS: any[] = data.logs.map((l) => ({ id: l.id, level: l.level, message: l.message, source: l.source, route: l.route, shop: l.shopDomain ?? '—', created: l.created, correlationId: l.correlationId ?? '' }));
   const rows = ROWS.filter((e) => (level === 'All' || e.level === level) && (e.message + e.route).toLowerCase().includes(ts.search.toLowerCase()));
 
   return (

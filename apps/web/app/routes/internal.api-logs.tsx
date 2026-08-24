@@ -62,6 +62,9 @@ export async function loader({ request }: { request: Request }) {
       durationMs: l.durationMs,
       shopDomain: l.shop?.shopDomain ?? null,
       createdAt: l.createdAt.toISOString(),
+      // Formatted server-side (once) rather than at component render time — see
+      // internal.activity.tsx's loader comment for why (hydration text mismatch).
+      created: formatRelativeTime(l.createdAt.toISOString()),
       finishedAt: l.finishedAt?.toISOString() ?? null,
       correlationId: l.correlationId ?? null,
       requestId: l.requestId ?? null,
@@ -117,12 +120,22 @@ export default function AdminApiLogs() {
     return () => es.close();
   }, [live, data.logs, ctx]);
 
-  const mapRow = (l: { id: string; actor: string; method: string; path: string; status: number; durationMs: number; shopDomain: string | null; createdAt: string; correlationId: string | null; requestId: string | null }) => ({
+  // Live (SSE) rows never existed in the server-rendered payload, so it's safe to
+  // format their relative time at render time. Loader-sourced rows reuse the
+  // `created` string the loader already computed — see its comment.
+  const mapLiveRow = (l: { id: string; actor: string; method: string; path: string; status: number; durationMs: number; shopDomain: string | null; createdAt: string; correlationId: string | null; requestId: string | null }) => ({
     id: l.id, actor: l.actor, method: l.method, path: l.path, status: l.status, durationMs: l.durationMs,
     shop: l.shopDomain ?? '—', requestId: l.requestId ?? '—', correlationId: l.correlationId ?? '', success: l.status < 400, created: formatRelativeTime(l.createdAt),
   });
+  const mapLoadedRow = (l: (typeof data.logs)[number]) => ({
+    id: l.id, actor: l.actor, method: l.method, path: l.path, status: l.status, durationMs: l.durationMs,
+    shop: l.shopDomain ?? '—', requestId: l.requestId ?? '—', correlationId: l.correlationId ?? '', success: l.status < 400, created: l.created,
+  });
   const liveIds = new Set(liveRows.map((l) => l.id));
-  const ROWS: any[] = [...liveRows, ...data.logs.filter((l) => !liveIds.has(l.id))].map(mapRow);
+  const ROWS: any[] = [
+    ...liveRows.map(mapLiveRow),
+    ...data.logs.filter((l) => !liveIds.has(l.id)).map(mapLoadedRow),
+  ];
   const rows = ROWS.filter((l) => (actor === 'All' || l.actor === actor) && (l.path + l.shop).toLowerCase().includes(ts.search.toLowerCase()));
 
   return (

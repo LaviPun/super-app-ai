@@ -526,7 +526,7 @@ export default function AdminStoreDetail() {
                   <div key={a.id} className="tl-item">
                     <span className="tl-dot info" />
                     <div className="t-sm t-strong">{titleCase(a.action)}</div>
-                    <div className="t-xs t-muted">{formatRelativeTime(a.createdAt)}</div>
+                    <div className="t-xs t-muted" suppressHydrationWarning>{formatRelativeTime(a.createdAt)}</div>
                   </div>
                 ))}
               </div>
@@ -546,7 +546,7 @@ export default function AdminStoreDetail() {
                 { key: 'type', label: 'Type', render: (r: any) => <Badge>{r.type}</Badge> },
                 { key: 'version', label: 'Version', render: (r: any) => (r.version != null ? 'v' + r.version : '—') },
                 { key: 'status', label: 'Status', render: (r: any) => <StatusBadge value={r.status} /> },
-                { key: 'updated', label: 'Published', render: (r: any) => <span className="cell-sub">{r.publishedAt ? formatRelativeTime(r.publishedAt) : '—'}</span> },
+                { key: 'updated', label: 'Published', render: (r: any) => <span className="cell-sub" suppressHydrationWarning>{r.publishedAt ? formatRelativeTime(r.publishedAt) : '—'}</span> },
               ]}
               rows={mods}
             />
@@ -604,7 +604,7 @@ export default function AdminStoreDetail() {
                   { key: 'tokensIn', label: 'In', num: true, render: (r: any) => fmtNum(r.tokensIn) },
                   { key: 'tokensOut', label: 'Out', num: true, render: (r: any) => fmtNum(r.tokensOut) },
                   { key: 'costCents', label: 'Cost', num: true, render: (r: any) => r.unpriced ? <Badge tone="warning">Unpriced</Badge> : <span className="t-strong">{fmtCents(r.costCents)}</span> },
-                  { key: 'createdAt', label: 'When', render: (r: any) => <span className="cell-sub">{formatRelativeTime(r.createdAt)}</span> },
+                  { key: 'createdAt', label: 'When', render: (r: any) => <span className="cell-sub" suppressHydrationWarning>{formatRelativeTime(r.createdAt)}</span> },
                 ]}
                 rows={data.aiUsageRecent}
               />
@@ -623,7 +623,7 @@ export default function AdminStoreDetail() {
                 { key: 'action', label: 'Action', render: (r: any) => <span className="cell-strong">{titleCase(r.action)}</span> },
                 { key: 'actor', label: 'Actor', render: (r: any) => <Badge tone={r.actor === 'INTERNAL_ADMIN' ? 'warning' : r.actor === 'SYSTEM' ? 'info' : undefined}>{titleCase(r.actor)}</Badge> },
                 { key: 'resource', label: 'Resource', render: (r: any) => r.resource ? <MonoChip>{r.resource}</MonoChip> : <span className="t-muted">—</span> },
-                { key: 'createdAt', label: 'When', render: (r: any) => <span className="cell-sub" title={new Date(r.createdAt).toLocaleString()}>{formatRelativeTime(r.createdAt)}</span> },
+                { key: 'createdAt', label: 'When', render: (r: any) => <span className="cell-sub" title={new Date(r.createdAt).toLocaleString()} suppressHydrationWarning>{formatRelativeTime(r.createdAt)}</span> },
               ]}
               rows={data.activity}
             />

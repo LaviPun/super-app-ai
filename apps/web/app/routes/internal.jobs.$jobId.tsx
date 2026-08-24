@@ -62,6 +62,9 @@ export async function loader({ request, params }: { request: Request; params: { 
     startedAt: job.startedAt?.toISOString() ?? null,
     finishedAt: job.finishedAt?.toISOString() ?? null,
     createdAt: job.createdAt.toISOString(),
+    // Formatted server-side (once) rather than at component render time — see
+    // internal.activity.tsx's loader comment for why (hydration text mismatch).
+    created: formatRelativeTime(job.createdAt.toISOString()),
     durationMs:
       job.startedAt && job.finishedAt ? job.finishedAt.getTime() - job.startedAt.getTime() : null,
   });
@@ -187,7 +190,7 @@ export default function AdminJobDetail() {
         <StatTile label="Status" value={titleCase(j.status)} icon={j.status === 'FAILED' ? 'alert' : 'check'} tone={j.status === 'FAILED' ? 'critical' : j.status === 'QUEUED' ? 'warning' : 'success'} />
         <StatTile label="Attempts" value={j.attempts} icon="replay" tone={j.attempts > 1 ? 'warning' : 'info'} />
         <StatTile label="Duration" value={j.durationMs != null ? fmtMs(j.durationMs) : '—'} icon="clock" tone="info" />
-        <StatTile label="Created" value={formatRelativeTime(j.createdAt)} sub={fmtWhen(j.createdAt)} icon="work" tone="info" />
+        <StatTile label="Created" value={j.created} sub={fmtWhen(j.createdAt)} icon="work" tone="info" />
       </div>
       {j.status === 'FAILED' && j.error ? (
         <div style={{ marginBottom: 16 }}>

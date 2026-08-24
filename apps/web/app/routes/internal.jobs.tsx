@@ -85,6 +85,9 @@ export async function loader({ request }: { request: Request }) {
       error: j.error,
       shopDomain: j.shop?.shopDomain ?? null,
       createdAt: j.createdAt.toISOString(),
+      // Formatted server-side (once) rather than at component render time — see
+      // internal.activity.tsx's loader comment for why (hydration text mismatch).
+      created: formatRelativeTime(j.createdAt.toISOString()),
       attempts: j.attempts,
       startedAt: j.startedAt?.toISOString() ?? null,
       finishedAt: j.finishedAt?.toISOString() ?? null,
@@ -119,7 +122,7 @@ export default function AdminJobs() {
   const ROWS = data.jobs.map((j) => ({
     id: j.id, type: j.type, status: j.status, shop: j.shopDomain ?? '—', attempts: j.attempts ?? 1,
     durationMs: j.startedAt && j.finishedAt ? new Date(j.finishedAt).getTime() - new Date(j.startedAt).getTime() : null,
-    correlationId: j.correlationId ?? '', created: formatRelativeTime(j.createdAt), error: j.error ?? null,
+    correlationId: j.correlationId ?? '', created: j.created, error: j.error ?? null,
   }));
   const rows = ROWS.filter(
     (j) => (status === 'All' || j.status === status) && (type === 'All' || j.type === type) && (j.id + j.shop + j.correlationId).toLowerCase().includes(ts.search.toLowerCase()),

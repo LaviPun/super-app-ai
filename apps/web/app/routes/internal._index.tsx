@@ -258,6 +258,9 @@ export async function loader({ request }: { request: Request }) {
       resource: l.resource ?? '—',
       shop: l.shop?.shopDomain ?? '—',
       createdAt: l.createdAt.toISOString(),
+      // Formatted server-side (once) rather than at component render time — see
+      // internal.activity.tsx's loader comment for why (hydration text mismatch).
+      created: formatRelativeTime(l.createdAt.toISOString()),
     })),
     latestErrors: latestErrors.map((e) => ({
       id: e.id,
@@ -266,6 +269,7 @@ export async function loader({ request }: { request: Request }) {
       route: e.route ?? '—',
       correlationId: e.correlationId ?? null,
       createdAt: e.createdAt.toISOString(),
+      created: formatRelativeTime(e.createdAt.toISOString()),
     })),
   });
 }
@@ -642,7 +646,7 @@ export default function AdminDashboard() {
                 { key: 'action', label: 'Action', render: (r) => <span className="cell-strong">{titleCase(r.action)}</span> },
                 { key: 'resource', label: 'Resource', render: (r) => <span className="cell-sub">{r.resource}</span> },
                 { key: 'shop', label: 'Store' },
-                { key: 'created', label: 'When', render: (r) => <span className="cell-sub">{formatRelativeTime(r.createdAt)}</span> },
+                { key: 'created', label: 'When', render: (r) => <span className="cell-sub">{r.created}</span> },
               ]}
               rows={d.recentActivity}
             />
@@ -680,7 +684,7 @@ export default function AdminDashboard() {
                       <span className="t-sm t-trunc">{e.message}</span>
                       <span className="t-xs t-muted t-mono">{e.route}</span>
                     </div>
-                    <span className="t-xs t-muted">{formatRelativeTime(e.createdAt)}</span>
+                    <span className="t-xs t-muted">{e.created}</span>
                   </a>
                 );
               })}

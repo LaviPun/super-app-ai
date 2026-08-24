@@ -298,7 +298,10 @@ function ConversationMessage({ m }: { m: MessageRow }) {
         <span className="t-sm t-strong">{roleLabel}</span>
         {m.internal && <Badge tone="warning">Internal note</Badge>}
         <span className="grow" />
-        <span className="t-xs t-muted" title={new Date(m.createdAt).toLocaleString()}>{formatRelativeTime(m.createdAt)}</span>
+        {/* suppressHydrationWarning: relative time is genuinely time-sensitive
+            (React's documented pattern) — see internal.activity.tsx's loader
+            comment for the general fix and why a plain re-render isn't used here. */}
+        <span className="t-xs t-muted" title={new Date(m.createdAt).toLocaleString()} suppressHydrationWarning>{formatRelativeTime(m.createdAt)}</span>
       </div>
       <div className="t-sm asst-text" style={{ whiteSpace: 'pre-wrap' }}>
         <MdLite text={m.body} />
@@ -326,7 +329,7 @@ function FlowEvent({ e }: { e: EventRow }) {
         <span className="t-sm t-strong">{titleCase(e.type.replace(/_/g, ' '))}</span>
         <Badge tone={e.actor === 'INTERNAL_ADMIN' ? 'warning' : e.actor === 'AI' ? 'magic' : undefined}>{titleCase(e.actor)}</Badge>
       </div>
-      <div className="t-xs t-muted" title={new Date(e.createdAt).toLocaleString()}>{formatRelativeTime(e.createdAt)}</div>
+      <div className="t-xs t-muted" title={new Date(e.createdAt).toLocaleString()} suppressHydrationWarning>{formatRelativeTime(e.createdAt)}</div>
       {pretty && (
         <details style={{ marginTop: 4 }}>
           <summary className="t-xs t-muted" style={{ cursor: 'pointer' }}>Details</summary>
@@ -357,7 +360,7 @@ function FixProposalCard({
         <Badge tone={FIX_TONE[f.status]}>{titleCase(f.status)}</Badge>
         <div className="stack" style={{ gap: 2, flex: 1 }}>
           <span className="t-sm t-strong">{f.explanation}</span>
-          <span className="t-xs t-muted">
+          <span className="t-xs t-muted" suppressHydrationWarning>
             Module <MonoChip>{f.moduleId}</MonoChip> · {formatRelativeTime(f.createdAt)}
           </span>
         </div>
@@ -503,7 +506,7 @@ export default function AdminSupportTicket() {
                   ['Escalate', t.aiEscalate == null ? '—' : t.aiEscalate ? 'Yes' : 'No'],
                   ['Provider', data.aiMeta.provider ?? '—'],
                   ['Model', data.aiMeta.model ?? '—'],
-                  ['Triaged', t.triagedAt ? formatRelativeTime(t.triagedAt) : '—'],
+                  ['Triaged', t.triagedAt ? <span key="tr" suppressHydrationWarning>{formatRelativeTime(t.triagedAt)}</span> : '—'],
                 ]}
               />
               {t.aiSummary && (

@@ -76,6 +76,9 @@ export async function loader({ request }: { request: Request }) {
       eventId: r.eventId,
       success: r.success,
       processedAt: r.processedAt.toISOString(),
+      // Formatted server-side (once) rather than at component render time — see
+      // internal.activity.tsx's loader comment for why (hydration text mismatch).
+      created: formatRelativeTime(r.processedAt.toISOString()),
     })),
     distinctTopics: distinctTopicsRows.map(d => d.topic),
     successCount,
@@ -92,7 +95,7 @@ export default function AdminWebhooks() {
   const ts = useTableState();
   const [topic, setTopic] = useState('All topics');
 
-  const ROWS = data.rows.map((r) => ({ id: r.id, topic: r.topic, shop: r.shopDomain ?? '—', eventId: r.eventId, success: r.success, created: formatRelativeTime(r.processedAt) }));
+  const ROWS = data.rows.map((r) => ({ id: r.id, topic: r.topic, shop: r.shopDomain ?? '—', eventId: r.eventId, success: r.success, created: r.created }));
   const rows = ROWS.filter((w) => (topic === 'All topics' || w.topic === topic) && (w.topic + w.shop + w.eventId).toLowerCase().includes(ts.search.toLowerCase()));
 
   return (

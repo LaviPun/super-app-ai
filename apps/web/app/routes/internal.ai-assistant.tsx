@@ -405,9 +405,19 @@ export async function loader({ request }: { request: Request }) {
   const modalHealth = probe.modalRemote.health;
   const modalChatProbe = probe.modalRemote.chatProbe;
 
+  // Formatted server-side (once) rather than at component render time — every
+  // other admin route does this in its loader; the session list previously
+  // called formatRelativeTime during render, which could tip over a minute
+  // boundary between the SSR paint and hydration and log a React hydration
+  // text-mismatch warning (a console error the e2e suite's crawl catches).
+  const withUpdatedLabel = <T extends { updatedAt: string }>(s: T) => ({
+    ...s,
+    updatedAtLabel: formatRelativeTime(s.updatedAt),
+  });
+
   return json({
-    sessions,
-    activeSession,
+    sessions: sessions.map(withUpdatedLabel),
+    activeSession: withUpdatedLabel(activeSession),
     messages,
     memories,
     query,
@@ -1238,7 +1248,7 @@ export default function AdminAssistant() {
               <div className="grow stack" style={{ gap: 0, minWidth: 0 }}>
                 <span className="t-sm t-trunc">{s.title}</span>
                 <span className="t-xs t-muted">
-                  {formatRelativeTime(s.updatedAt)} · {s.messageCount} msgs
+                  {s.updatedAtLabel} · {s.messageCount} msgs
                 </span>
               </div>
               <span className="badge" style={{ height: 17, fontSize: 10 }}>

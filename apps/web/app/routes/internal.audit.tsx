@@ -79,6 +79,9 @@ export async function loader({ request }: { request: Request }) {
         details: r.details,
         shopDomain: r.shop?.shopDomain ?? null,
         createdAt: r.createdAt.toISOString(),
+        // Formatted server-side (once) rather than at component render time — see
+        // internal.activity.tsx's loader comment for why (hydration text mismatch).
+        created: formatRelativeTime(r.createdAt.toISOString()),
       };
     }),
     distinctActions: distinctActionsRows.map(d => d.action),
@@ -100,7 +103,7 @@ export default function AdminAudit() {
     action: r.action,
     resource: r.resource ?? r.details ?? '—',
     shop: r.shopDomain ?? '—',
-    created: formatRelativeTime(r.createdAt),
+    created: r.created,
     createdAt: r.createdAt,
   }));
   const rows = ROWS.filter((a) => (action === 'All' || a.action === action) && (a.action + a.resource).toLowerCase().includes(ts.search.toLowerCase()));
