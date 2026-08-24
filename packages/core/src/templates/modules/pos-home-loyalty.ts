@@ -77,32 +77,6 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
     },
   },
 
-  // POS-HOME-03 — VIP tier status tile (tier binding).
-  {
-    id: 'POS-HOME-03',
-    name: 'VIP Tier Status Tile',
-    description: 'POS home tile that shows the current customer’s VIP tier (Silver/Gold/Platinum) read from the loyalty ledger, with a modal for tier perks.',
-    category: 'ADMIN_UI',
-    type: 'pos.extension',
-    icon: 'pos',
-    tags: ['pos', 'loyalty', 'vip', 'tier', 'home'],
-    spec: {
-      type: 'pos.extension',
-      name: 'VIP Tier Status Tile',
-      category: 'ADMIN_UI',
-      requires: [],
-      config: {
-        target: 'pos.home.tile.render',
-        label: 'VIP Tier',
-        blockKind: 'tile',
-        presentation: 'TILE_MODAL',
-        action: 'LOYALTY_READ',
-        binding: 'loyalty.tier',
-        appProxyPath: '/apps/loyalty/pos/tier',
-      },
-    },
-  },
-
   // POS-HOME-04 — redeem points → apply the resulting discount to the open sale (LOYALTY_WRITE, PIN-gated).
   {
     id: 'POS-HOME-04',
@@ -286,57 +260,6 @@ export const POS_HOME_LOYALTY_TEMPLATES: TemplateEntry[] = [
         actionConfig: {
           discountCode: 'LOYALTY-REWARD',
         },
-      },
-    },
-  },
-
-  // POS-HOME-10 — enroll a walk-in customer in the loyalty program (APP_PROXY_POST).
-  {
-    id: 'POS-HOME-10',
-    name: 'Enroll Member Modal',
-    description: 'POS home modal that enrolls a walk-in customer in the loyalty program by posting their details to the app-proxy enrollment endpoint.',
-    category: 'ADMIN_UI',
-    type: 'pos.extension',
-    icon: 'pos',
-    tags: ['pos', 'loyalty', 'enroll', 'signup', 'home'],
-    spec: {
-      type: 'pos.extension',
-      name: 'Enroll Member Modal',
-      category: 'ADMIN_UI',
-      requires: [],
-      config: {
-        target: 'pos.home.modal.render',
-        label: 'Join Rewards',
-        blockKind: 'modal',
-        presentation: 'STANDALONE',
-        action: 'APP_PROXY_POST',
-        appProxyPath: '/apps/loyalty/pos/enroll',
-      },
-    },
-  },
-
-  // POS-HOME-11 — scan/lookup a member by QR code (Growave/Rivo QR flow) via app proxy.
-  {
-    id: 'POS-HOME-11',
-    name: 'Member QR Lookup Tile',
-    description: 'POS home tile that opens a modal to identify a member by their account QR code and read their loyalty balance from the app proxy.',
-    category: 'ADMIN_UI',
-    type: 'pos.extension',
-    icon: 'pos',
-    tags: ['pos', 'loyalty', 'qr', 'lookup', 'home'],
-    spec: {
-      type: 'pos.extension',
-      name: 'Member QR Lookup Tile',
-      category: 'ADMIN_UI',
-      requires: [],
-      config: {
-        target: 'pos.home.tile.render',
-        label: 'Scan Member QR',
-        blockKind: 'tile',
-        presentation: 'TILE_MODAL',
-        action: 'LOYALTY_READ',
-        binding: 'loyalty.points',
-        appProxyPath: '/apps/loyalty/pos/qr-lookup',
       },
     },
   },

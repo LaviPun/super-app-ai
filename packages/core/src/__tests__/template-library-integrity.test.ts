@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { blankStrings } from '../../scripts/lib/cluster-fingerprint.mjs';
 
 const TEMPLATES_ROOT = join(__dirname, '..', 'templates');
 
@@ -36,5 +37,26 @@ describe('template library integrity (WS-H)', () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it('no structural-duplicate cluster exceeds 4 members (Tmpl dedupe)', async () => {
+    const { ALL_TEMPLATES } = await import('../templates/index.js');
+    const groups = new Map<string, string[]>();
+    for (const t of ALL_TEMPLATES) {
+      const key = t.spec.type + '::' + JSON.stringify(blankStrings(t.spec.config));
+      const bucket = groups.get(key);
+      if (bucket) bucket.push(t.id);
+      else groups.set(key, [t.id]);
+    }
+    const oversized = [...groups.entries()].filter(([, ids]) => ids.length > 4);
+    expect(oversized, JSON.stringify(oversized.map(([, ids]) => ids))).toEqual([]);
+  });
+
+  it('every RECIPE_SPEC_TYPE still has at least one template after dedupe (coverage floor)', async () => {
+    const { ALL_TEMPLATES } = await import('../templates/index.js');
+    const { RECIPE_SPEC_TYPES } = await import('../allowed-values.js');
+    const coveredTypes = new Set<string>(ALL_TEMPLATES.map((t) => t.spec.type));
+    const missing = (RECIPE_SPEC_TYPES as readonly string[]).filter((t) => !coveredTypes.has(t));
+    expect(missing).toEqual([]);
   });
 });
