@@ -322,7 +322,12 @@ export class ModuleService {
     if (!module) throw new Error('Module not found');
 
     const publishedVersion = module.activeVersion ?? module.versions.find((v) => v.status === 'PUBLISHED');
-    if (module.status === 'PUBLISHED' && publishedVersion) {
+    if (module.status === 'PUBLISHED') {
+      if (!publishedVersion) {
+        throw new Error(
+          `No published version found for published module ${moduleId} — refusing to delete without Shopify cleanup`,
+        );
+      }
       const spec = new RecipeService().parse(publishedVersion.specJson);
       const target: DeployTarget = spec.type.startsWith('theme.')
         ? { kind: 'THEME', themeId: publishedVersion.targetThemeId ?? '', moduleId: module.id }

@@ -349,6 +349,23 @@ describe('ModuleService.unpublishThenDelete', () => {
     expect(capturedCalls.moduleDelete[0]).toMatchObject({ where: { id: 'm1' } });
   });
 
+  it('published status with no resolvable version: throws instead of silently deleting', async () => {
+    moduleFixture.row = {
+      id: 'm1',
+      status: 'PUBLISHED',
+      shop: { id: 'shop_1' },
+      versions: [],
+      activeVersion: null,
+    };
+    const { admin, calls } = mockAdmin(() => { throw new Error('no Shopify call expected'); });
+    const { ModuleService } = await import('~/services/modules/module.service');
+    await expect(new ModuleService().unpublishThenDelete(admin, 'shop.example.com', 'm1')).rejects.toThrow(
+      'No published version found for published module m1 — refusing to delete without Shopify cleanup',
+    );
+    expect(calls).toHaveLength(0);
+    expect(capturedCalls.moduleDelete).toHaveLength(0);
+  });
+
   it('draft module: no Shopify calls, straight delete', async () => {
     moduleFixture.row = {
       id: 'm-draft',
