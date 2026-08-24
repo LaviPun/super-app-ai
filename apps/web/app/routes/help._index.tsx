@@ -63,9 +63,9 @@ function HelpBody() {
     <s-page heading="Help & guides" inlineSize="base">
       <s-paragraph color="subdued">Everything you need to get the most out of SuperApp AI.</s-paragraph>
 
-      <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+      <s-grid gridTemplateColumns="@container (inline-size > 760px) 2fr 1fr, 1fr" gap="base">
         <s-section heading="Guides">
-          <s-grid gridTemplateColumns="repeat(2, 1fr)" gap="base">
+          <s-grid gridTemplateColumns="@container (inline-size > 480px) repeat(2, 1fr), 1fr" gap="base">
             {GUIDES.map((g) => (
               <s-clickable key={g[1]} id={g[4]} href={g[3]} padding="base" border="base" borderRadius="base">
                 <s-stack gap="small-100">

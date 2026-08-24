@@ -233,7 +233,7 @@ function AnalyticsBody({ range, days, publishedCount, perf, series, hasMetrics, 
         ]}
       />
 
-      <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+      <s-grid gridTemplateColumns="@container (inline-size > 760px) 2fr 1fr, 1fr" gap="base">
         <s-section heading="Module views">
           {hasMetrics ? (
             <s-stack gap="small-100">

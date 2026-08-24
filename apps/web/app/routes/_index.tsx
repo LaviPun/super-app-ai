@@ -178,7 +178,7 @@ export default function Dashboard() {
           { label: 'AI credits left', value: aiLeftLabel, sub: aiOfLabel, href: '/billing' },
         ]} />
 
-        <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+        <s-grid gridTemplateColumns="@container (inline-size > 760px) 2fr 1fr, 1fr" gap="base">
           <s-section heading="Module views — last 14 days">
             {hasViewData ? (
               <s-stack gap="small-100">

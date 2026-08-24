@@ -876,7 +876,7 @@ function ModuleDetailBody() {
       <Tabs tabs={tabs} value={tab} onChange={setTab} />
 
       {tab === 'overview' && (
-        <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+        <s-grid gridTemplateColumns="@container (inline-size > 760px) 2fr 1fr, 1fr" gap="base">
           <s-stack gap="base">
             <s-section padding="none">
               <s-box border="base" borderRadius="base" overflow="hidden">

@@ -144,7 +144,7 @@ function TemplatesBody({ templates }: any) {
           </EmptyState>
         </s-section>
       ) : view === 'cards' ? (
-        <s-grid gridTemplateColumns="repeat(3, 1fr)" gap="base">
+        <s-grid gridTemplateColumns="@container (inline-size > 560px) repeat(3, 1fr), 1fr" gap="base">
           {rows.slice(0, visibleCount).map((t: any) => (
             // Native CSS containment: the browser skips layout/paint for cards
             // scrolled far off-screen (this 3-wide grid runs to 561 cards). The

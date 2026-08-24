@@ -394,7 +394,7 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
                 Try adjusting your filters or generate something new.
               </EmptyState>
             ) : view === 'cards' ? (
-              <s-grid gridTemplateColumns="repeat(3, 1fr)" gap="base">
+              <s-grid gridTemplateColumns="@container (inline-size > 560px) repeat(3, 1fr), 1fr" gap="base">
                 {rows.map((m: any) => (
                   <s-clickable key={m.id} href={`/modules/${m.id}`} border="base" borderRadius="base" padding="base">
                     <s-stack gap="small-100">

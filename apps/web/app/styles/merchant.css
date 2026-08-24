@@ -372,3 +372,16 @@ a.sa-m-strip-cell:focus-visible { outline: 2px solid #005bd3; outline-offset: -2
 .sa-m-gen-hist-topup:hover { text-decoration: underline; }
 
 @media (max-width: 1180px) { .sa-m-gen-body { grid-template-columns: 300px 1fr; } }
+/* Mobile pass (WS-F Task 16): below ~860px the two-pane Builder layout
+   (settings/dock panel + preview canvas) no longer has room side-by-side —
+   stack the settings panel above the canvas instead of squeezing both. */
+@media (max-width: 860px) {
+  .sa-m-gen-body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 46%) 1fr; }
+  .sa-m-gen-build-panel { border-right: 0; border-bottom: 1px solid #e3e3e3; }
+}
+@media (max-width: 480px) {
+  .sa-m-gen-head { padding: 10px 12px; }
+  .sa-m-gen-choose-inner { padding: 20px 14px 32px; }
+  .sa-m-gen-choose-title { font-size: 21px; }
+  .sa-m-gen-loading-card { padding: 22px 18px 20px; }
+}

@@ -139,7 +139,7 @@ function ConnectorDetailBody() {
       <Tabs tabs={tabs} value={tab} onChange={setTab} />
 
       {tab === 'tester' && (
-        <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+        <s-grid gridTemplateColumns="@container (inline-size > 760px) 2fr 1fr, 1fr" gap="base">
           <s-stack gap="base">
             <s-section>
               <s-stack gap="small-100">
