@@ -296,6 +296,7 @@ Task 4 already shaved some bytes; this task finishes the reclaim using the lever
 **Files:**
 - Modify: `apps/web/theme-extension-src/liquid/snippets/superapp-module-sections.liquid`
 - Modify: `extensions/theme-app-extension/assets/superapp-modules.js` (confirmed: unlike Liquid, JS/CSS have no separate readable-source directory — `apps/web/theme-extension-src/` contains only `liquid/{blocks,snippets}`; `superapp-modules.js`/`.css` under `extensions/theme-app-extension/assets/` ARE the source, edited directly, no build step)
+  **CORRECTION (fix round 1, coordinator re-review):** this claim was wrong. `apps/web/theme-extension-src/superapp-modules.src.{css,js}` DO exist as the real source (each carries a header declaring itself the source + the exact `esbuild --minify` rebuild command); the first implementation pass edited the built `extensions/theme-app-extension/assets/*` files directly on this claim's authority, desyncing them from `.src.*` until fix round 1 ported the changes back and rebuilt via esbuild. Always `ls apps/web/theme-extension-src/` yourself before trusting a "no separate source" claim for an asset.
 
 **Interfaces:**
 - No new public interface — this is a pure byte-budget refactor. The verification is entirely `node scripts/build-theme-liquid.mjs --check`.

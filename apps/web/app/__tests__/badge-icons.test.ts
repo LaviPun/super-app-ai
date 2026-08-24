@@ -9,32 +9,39 @@ import { BADGE_ICON_IDS } from '~/services/recipes/kind-archetype';
 /**
  * V-A A2 — trust/payment badge-icon catalog single-source contract.
  *
- * The icon id list lives in ONE place (`BADGE_ICON_IDS` in kind-archetype). The
- * PreviewService hand-authors a mirrored inline-SVG catalog, keyed by the same ids.
+ * The icon id list lives in ONE place (`BADGE_ICON_IDS` in kind-archetype).
  *
- * WS-H Task 5 (Liquid byte reclaim): the storefront no longer hand-authors an inline
- * `<svg><symbol id="sa-ico-<id>">` sprite in Liquid — that ~2 KB catalog never varies
- * per merchant/config, so it moved to `superapp-modules.css` as
- * `.superapp-trust__ico[data-sa-icon="<id>"] { mask-image: ...; }` rules (CSS has a
- * separate, uncontested budget from the Shopify-enforced 100 KB aggregate Liquid wall;
- * see scripts/build-theme-liquid.mjs). The storefront Liquid now emits a
- * `data-sa-icon="<id>"` attribute instead of a `<use href="#sa-ico-<id>">` reference;
- * this test locks the CSS catalog to the same canonical id set so a badge's
- * `fields.icon` can never resolve in the library/PreviewService and silently render
- * blank on the real storefront.
+ * WS-H Task 5 (Liquid byte reclaim) — corrected in the fix-round-1 pass: the
+ * storefront no longer hand-authors an inline `<svg><symbol id="sa-ico-<id>">`
+ * sprite in Liquid — that ~2 KB catalog never varies per merchant/config, so it
+ * moved to `superapp-modules.css` as `.superapp-trust__ico[data-sa-icon="<id>"] {
+ * mask-image: ...; }` rules (CSS has a separate, uncontested budget from the
+ * Shopify-enforced 100 KB aggregate Liquid wall; see
+ * scripts/build-theme-liquid.mjs). The storefront Liquid now emits a
+ * `data-sa-icon="<id>"` attribute instead of a `<use href="#sa-ico-<id>">`
+ * reference. `PreviewService` was updated to match (R0 parity, fix round 1) — it
+ * no longer hand-authors its own inline-SVG mirror; it emits the SAME
+ * `data-sa-icon`-attributed `<span>` and the SAME `superapp-trust__ico[--glyph]`
+ * classes the storefront computes, so preview and storefront resolve the glyph
+ * through the literal same CSS rule (see `preview-icon-css-parity.test.ts` for
+ * the standing class↔selector coverage guard).
+ *
+ * CSS/JS assets have a proper readable SOURCE — `apps/web/theme-extension-src/
+ * superapp-modules.src.{css,js}` — rebuilt into `extensions/theme-app-extension/
+ * assets/superapp-modules.{css,js}` via esbuild --minify (see each source file's
+ * own header for the exact command). This test checks the SHIPPED file (what a
+ * real storefront actually loads), quote-tolerant since esbuild's CSS minifier
+ * drops attribute-selector quotes when they're not needed (`data-sa-icon=visa`
+ * is valid CSS, identical to `data-sa-icon="visa"`).
  */
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '../../../..');
-// CSS has no separate readable-source directory (see scripts/build-theme-liquid.mjs
-// header / apps/web/theme-extension-src/liquid — only Liquid has a source→build split);
-// extensions/theme-app-extension/assets/superapp-modules.css IS the source, edited
-// directly, so there is only one file to check (no src-vs-built distinction here).
 const CSS_ASSET = join(REPO_ROOT, 'extensions/theme-app-extension/assets/superapp-modules.css');
 
-/** Extract `data-sa-icon="<id>"` attribute-selector ids from the CSS mask catalog. */
+/** Extract `data-sa-icon="<id>"` (or unquoted) attribute-selector ids from the CSS mask catalog. */
 function cssIconIds(css: string): string[] {
   const ids = new Set<string>();
-  for (const m of css.matchAll(/\.superapp-trust__ico\[data-sa-icon="([a-z0-9-]+)"\]/g)) {
+  for (const m of css.matchAll(/\.superapp-trust__ico\[data-sa-icon=['"]?([a-z0-9-]+)['"]?\]/g)) {
     if (m[1]) ids.add(m[1]);
   }
   return [...ids];
@@ -71,25 +78,30 @@ describe('badge-icon rendering in the trust preview (A2)', () => {
     return r.kind === 'HTML' ? r.html : JSON.stringify(r.json);
   };
 
-  it('renders a payment wordmark for a payment icon id', () => {
+  it('renders a payment icon as a data-sa-icon span (no --glyph modifier, matching the storefront\'s wide/short pay box) — R0 fix round 1', () => {
     const out = html([{ kind: 'badge', text: 'Visa', fields: { icon: 'visa' } }]);
-    expect(out).toContain('superapp-trust__ico--pay');
-    expect(out).toContain('>VISA<');
+    expect(out).toContain('data-sa-icon="visa"');
+    expect(out).toContain('class="superapp-trust__ico"'); // exact match: no --glyph, no --pay (removed with the sprite)
     expect(out).toContain('superapp-trust__badge--icon');
+    expect(out).not.toContain('>VISA<'); // the glyph is drawn by CSS now, not inline SVG text
   });
 
-  it('renders a stroked glyph for a trust icon id', () => {
+  it('renders a trust glyph as a data-sa-icon span with the --glyph size modifier — R0 fix round 1', () => {
     const out = html([{ kind: 'badge', text: 'Secure checkout', fields: { icon: 'secure-checkout' } }]);
-    expect(out).toContain('superapp-trust__ico--glyph');
-    expect(out).toContain('<path');
+    expect(out).toContain('data-sa-icon="secure-checkout"');
+    expect(out).toContain('class="superapp-trust__ico superapp-trust__ico--glyph"');
+    expect(out).not.toContain('<path'); // the glyph is drawn by CSS now, not an inline <svg><path>
   });
 
   it('falls back to the plain badge (no catalog icon) for an unknown/absent icon', () => {
     const out = html([{ kind: 'badge', text: 'Handmade', fields: { icon: 'not-a-real-icon' } }]);
-    // Markup-only tokens (the `superapp-trust__ico*` class names also live in the
-    // inlined pack stylesheet). No catalog <svg class="superapp-trust__ico…"> is emitted.
+    // No catalog <span data-sa-icon="…"> is emitted for this badge. (The page DOES
+    // contain the substring "data-sa-icon" elsewhere — the inlined real
+    // superapp-modules.css carries the full [data-sa-icon="<id>"] mask catalog as
+    // plain stylesheet text regardless of what this one badge renders — so the
+    // assertion must be scoped to this badge's own attribute value, not the page.)
+    expect(out).not.toContain('data-sa-icon="not-a-real-icon"');
     expect(out).not.toContain('class="superapp-trust__ico');
-    expect(out).not.toContain('viewBox="0 0 44 16"'); // payment wordmark viewBox
     // The pre-A2 badge path (glyph fallback) still renders inside the badge with the label.
     expect(out).toContain('class="superapp-trust__badgeicon"');
     expect(out).toContain('Handmade');
