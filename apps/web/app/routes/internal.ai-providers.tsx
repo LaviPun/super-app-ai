@@ -1096,6 +1096,9 @@ function SupportTriageCard({
         sub="Which model classifies incoming support tickets. Env SUPPORT_TRIAGE_* vars override these when set."
       />
       <div className="card-pad">
+        <p className="t-xs t-muted" style={{ marginBottom: 10 }}>
+          Local triage is dev-only; production always uses cloud unless SUPPORT_TRIAGE_ALLOW_LOCAL is set.
+        </p>
         <div className="grid grid-2">
           <Field label="Triage model" help="Local runs on the machine-local Ollama; Cloud uses an AI provider below.">
             <Select

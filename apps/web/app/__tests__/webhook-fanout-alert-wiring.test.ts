@@ -97,10 +97,19 @@ vi.mock('~/services/observability/redact.server', () => ({
   safeErrorMeta: (err: unknown) => ({ error: String(err) }),
 }));
 
+// Fix round 1: webhooks.tsx also imports markOpsAlerted/wasOpsAlerted from this
+// module (the cross-call-site dedup marker) — reimplement them with the same
+// `__opsAlerted` convention as the real module rather than pulling in the real
+// module (which would transitively import ~/db.server et al) via importOriginal.
 vi.mock('~/services/observability/ops-alert.server', () => ({
   OpsAlertService: class {
     fire = fireMock;
   },
+  markOpsAlerted: (error: unknown) => {
+    if (error && typeof error === 'object') (error as { __opsAlerted?: boolean }).__opsAlerted = true;
+  },
+  wasOpsAlerted: (error: unknown) =>
+    !!(error && typeof error === 'object' && (error as { __opsAlerted?: boolean }).__opsAlerted === true),
 }));
 
 function webhookRequest() {
@@ -139,12 +148,38 @@ describe('webhooks.tsx fan-out → OpsAlertService', () => {
     const res = await action({ request: webhookRequest() });
 
     expect(res.status).toBe(200);
+    // Exactly ONE alert for this failure (fix round 1 — the messaging path must
+    // never double-fire): this test's error is an ordinary, unmarked rejection
+    // (MessagingRunnerService is fully mocked here, so no real jobs.fail runs),
+    // so the webhook catch is the only place that can fire — pin it to exactly once.
+    expect(fireMock).toHaveBeenCalledTimes(1);
     expect(fireMock).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'WEBHOOK_FANOUT_FAILED',
         context: expect.objectContaining({ fanout: 'messaging', shopDomain: 'shop.example.myshopify.com', topic: 'orders/create' }),
       }),
     );
+  });
+
+  it('fix round 1: does NOT fire a second alert when the messaging error is already marked opsAlerted (jobs.fail already fired one)', async () => {
+    authWebhookMock.mockResolvedValue({
+      admin: {},
+      payload: { id: 42 },
+      shop: 'shop.example.myshopify.com',
+      topic: 'orders/create',
+    });
+    // Simulates MessagingRunnerService.runCampaign's real behavior: jobs.fail()
+    // already fired a JOB_FAILED ops alert, and the error was tagged before
+    // re-throwing so this outer catch knows not to fire a redundant one.
+    const err = new Error('messaging boom — already alerted by jobs.fail');
+    (err as { __opsAlerted?: boolean }).__opsAlerted = true;
+    messagingRunMock.mockRejectedValue(err);
+
+    const { action } = await import('~/routes/webhooks');
+    const res = await action({ request: webhookRequest() });
+
+    expect(res.status).toBe(200);
+    expect(fireMock).not.toHaveBeenCalled();
   });
 
   it('fires WEBHOOK_FANOUT_FAILED when the httpSync fan-out throws, and still 200s the webhook', async () => {

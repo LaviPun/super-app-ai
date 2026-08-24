@@ -13,7 +13,7 @@ import {
 import { SHOPIFY_METAOBJECT_CLEANUP_JOB_TYPE } from '~/services/jobs/shopify-metaobject-cleanup.job';
 import { logger } from '~/services/observability/logger.server';
 import { safeErrorMeta } from '~/services/observability/redact.server';
-import { OpsAlertService } from '~/services/observability/ops-alert.server';
+import { OpsAlertService, wasOpsAlerted } from '~/services/observability/ops-alert.server';
 import type { AdminApiContext } from '~/types/shopify';
 
 /**
@@ -105,14 +105,20 @@ export async function action({ request }: { request: Request }) {
         eventId,
         ...safeErrorMeta(err),
       });
-      await new OpsAlertService()
-        .fire({
-          kind: 'WEBHOOK_FANOUT_FAILED',
-          message: `${normalizedTopic} messaging fan-out failed`,
-          error: err,
-          context: { shopDomain: shop, topic: normalizedTopic, fanout: 'messaging' },
-        })
-        .catch(() => {});
+      // MessagingRunnerService.runCampaign already fires a JOB_FAILED ops alert
+      // (via JobService.fail) for a resolution/setup failure and tags the error
+      // before re-throwing — skip firing a second, redundant WEBHOOK_FANOUT_FAILED
+      // alert for the same underlying failure (fix round 1).
+      if (!wasOpsAlerted(err)) {
+        await new OpsAlertService()
+          .fire({
+            kind: 'WEBHOOK_FANOUT_FAILED',
+            message: `${normalizedTopic} messaging fan-out failed`,
+            error: err,
+            context: { shopDomain: shop, topic: normalizedTopic, fanout: 'messaging' },
+          })
+          .catch(() => {});
+      }
     }
 
     // Sibling to the flow runner (build #7a): fan out any PUBLISHED integration.httpSync

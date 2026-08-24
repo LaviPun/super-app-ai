@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Task 8 (WS-G, Decision D5): support triage defaults to CLOUD when AppSettings
@@ -105,5 +105,97 @@ describe('runSupportTriage — cloud-to-cloud failover (never local)', () => {
     await expect(
       runSupportTriage({ subject: 's', description: 'd', shopDomain: 'x.myshopify.com' }),
     ).resolves.toMatchObject({ ok: false, provider: 'cloud' });
+  });
+});
+
+describe('resolveTriageConfig — D5 production gate for local triage (fix round 1)', () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalAllowLocal = process.env.SUPPORT_TRIAGE_ALLOW_LOCAL;
+
+  afterEach(() => {
+    // NODE_ENV is typed non-optional (string) in this project's env types — always
+    // reassign (never `delete`), matching the existing redact.test.ts convention.
+    process.env.NODE_ENV = originalNodeEnv;
+    if (originalAllowLocal === undefined) delete process.env.SUPPORT_TRIAGE_ALLOW_LOCAL;
+    else process.env.SUPPORT_TRIAGE_ALLOW_LOCAL = originalAllowLocal;
+    delete process.env.SUPPORT_TRIAGE_PROVIDER;
+  });
+
+  it('production + AppSettings.supportTriageMode="local" (no override) → coerced to cloud with a visible warning', async () => {
+    findUniqueAppSettingsMock.mockResolvedValue({ supportTriageMode: 'local', supportTriageProviderId: null });
+    delete process.env.SUPPORT_TRIAGE_PROVIDER;
+    delete process.env.SUPPORT_TRIAGE_ALLOW_LOCAL;
+    process.env.NODE_ENV = 'production';
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const { resolveTriageConfig } = await import('~/services/support/triage.server');
+    const config = await resolveTriageConfig();
+
+    expect(config.provider).toBe('cloud');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('refusing local triage in production'));
+    warnSpy.mockRestore();
+  });
+
+  it('production + SUPPORT_TRIAGE_PROVIDER=local (env) with no override → also coerced to cloud', async () => {
+    findUniqueAppSettingsMock.mockResolvedValue({ supportTriageMode: null, supportTriageProviderId: null });
+    process.env.SUPPORT_TRIAGE_PROVIDER = 'local';
+    delete process.env.SUPPORT_TRIAGE_ALLOW_LOCAL;
+    process.env.NODE_ENV = 'production';
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const { resolveTriageConfig } = await import('~/services/support/triage.server');
+    const config = await resolveTriageConfig();
+
+    expect(config.provider).toBe('cloud');
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('production + SUPPORT_TRIAGE_ALLOW_LOCAL=true → local is honored (explicit override)', async () => {
+    findUniqueAppSettingsMock.mockResolvedValue({ supportTriageMode: 'local', supportTriageProviderId: null });
+    delete process.env.SUPPORT_TRIAGE_PROVIDER;
+    process.env.NODE_ENV = 'production';
+    process.env.SUPPORT_TRIAGE_ALLOW_LOCAL = 'true';
+
+    const { resolveTriageConfig } = await import('~/services/support/triage.server');
+    const config = await resolveTriageConfig();
+    expect(config.provider).toBe('local');
+  });
+
+  it('dev (NODE_ENV=development) + local → local is honored, unchanged', async () => {
+    findUniqueAppSettingsMock.mockResolvedValue({ supportTriageMode: 'local', supportTriageProviderId: null });
+    delete process.env.SUPPORT_TRIAGE_PROVIDER;
+    delete process.env.SUPPORT_TRIAGE_ALLOW_LOCAL;
+    process.env.NODE_ENV = 'development';
+
+    const { resolveTriageConfig } = await import('~/services/support/triage.server');
+    const config = await resolveTriageConfig();
+    expect(config.provider).toBe('local');
+  });
+
+  it('test env (NODE_ENV=test) + local → local is honored, unchanged (gate is production-only)', async () => {
+    findUniqueAppSettingsMock.mockResolvedValue({ supportTriageMode: 'local', supportTriageProviderId: null });
+    delete process.env.SUPPORT_TRIAGE_PROVIDER;
+    delete process.env.SUPPORT_TRIAGE_ALLOW_LOCAL;
+    process.env.NODE_ENV = 'test';
+
+    const { resolveTriageConfig } = await import('~/services/support/triage.server');
+    const config = await resolveTriageConfig();
+    expect(config.provider).toBe('local');
+  });
+
+  it('production + default (unset) mode → cloud without the local-refusal warning (nothing to refuse)', async () => {
+    findUniqueAppSettingsMock.mockResolvedValue({ supportTriageMode: null, supportTriageProviderId: null });
+    delete process.env.SUPPORT_TRIAGE_PROVIDER;
+    delete process.env.SUPPORT_TRIAGE_ALLOW_LOCAL;
+    process.env.NODE_ENV = 'production';
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const { resolveTriageConfig } = await import('~/services/support/triage.server');
+    const config = await resolveTriageConfig();
+
+    expect(config.provider).toBe('cloud');
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('refusing local triage in production'));
+    warnSpy.mockRestore();
   });
 });

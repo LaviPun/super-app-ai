@@ -6,26 +6,35 @@ import { getPrisma } from '~/db.server';
 /**
  * Support ticket triage.
  *
- * Local-first: defaults to the machine-local Ollama model (qwen3.5:9b) and can
- * be toggled to the cloud provider chain via the AppSettings.supportTriageMode
- * toggle (internal admin, Phase E) or SUPPORT_TRIAGE_PROVIDER=cloud — same
- * self-hosted-by-default posture as the internal copilot
- * (see services/ai/internal-assistant.server.ts / router-runtime-config).
+ * Cloud-first (D5 — no local-model dependency in production): defaults to the
+ * cloud provider chain (getLlmClient's Claude→OpenAI-style fallback). Local
+ * (the machine-local Ollama model, qwen3.5:9b) is a DEV-ONLY explicit opt-in
+ * via AppSettings.supportTriageMode='local' (internal admin, Phase E) or
+ * SUPPORT_TRIAGE_PROVIDER=local — never a fallback, and never honored in
+ * production (see the D5 technical gate below) unless explicitly overridden.
  *
  * Config precedence (env overrides DB so a dev can toggle without touching the
  * admin UI): a set SUPPORT_TRIAGE_* env var always wins over the AppSettings
- * value; when the env var is unset the persisted AppSettings value is used.
+ * value; when the env var is unset the persisted AppSettings value is used
+ * (an unset/unrecognized value resolves to cloud).
+ *
+ * D5 technical gate: even an explicit 'local' resolution (DB row or env var)
+ * is refused when NODE_ENV==='production', falling back to cloud with a
+ * visible console.warn — unless SUPPORT_TRIAGE_ALLOW_LOCAL is set truthy
+ * ('1'|'true'|'yes'). Dev/test environments are unaffected.
  *
  * DB (AppSettings singleton, written by internal.ai-providers "Support triage"):
- *   supportTriageMode        local | cloud   (default local)
+ *   supportTriageMode        local | cloud   (default cloud)
  *   supportTriageProviderId  AiProvider.id to pin the cloud triage call to (optional)
  *
  * Env overrides:
- *   SUPPORT_TRIAGE_PROVIDER   local | cloud   (overrides supportTriageMode)
- *   SUPPORT_TRIAGE_URL        Ollama base URL (default http://127.0.0.1:11434, localhost-only)
- *   SUPPORT_TRIAGE_MODEL      Ollama model tag (default qwen3.5:9b)
- *   SUPPORT_TRIAGE_TIMEOUT_MS request budget (default 25000, clamped 5000–55000
- *                             to stay under the Cloudflare tunnel ceiling)
+ *   SUPPORT_TRIAGE_PROVIDER     local | cloud   (overrides supportTriageMode)
+ *   SUPPORT_TRIAGE_URL          Ollama base URL (default http://127.0.0.1:11434, localhost-only)
+ *   SUPPORT_TRIAGE_MODEL        Ollama model tag (default qwen3.5:9b)
+ *   SUPPORT_TRIAGE_TIMEOUT_MS   request budget (default 25000, clamped 5000–55000
+ *                               to stay under the Cloudflare tunnel ceiling)
+ *   SUPPORT_TRIAGE_ALLOW_LOCAL  '1'|'true'|'yes' — the ONLY way to honor a 'local'
+ *                               resolution when NODE_ENV==='production' (D5 gate).
  */
 
 export const TRIAGE_CATEGORIES = [
@@ -120,7 +129,28 @@ export async function resolveTriageConfig(): Promise<TriageConfig> {
   // SUPPORT_TRIAGE_PROVIDER=local env; it stays a dev-only opt-in, never a fallback.
   const envProviderRaw = process.env.SUPPORT_TRIAGE_PROVIDER?.trim().toLowerCase();
   const envProvider = envProviderRaw === 'cloud' || envProviderRaw === 'local' ? envProviderRaw : undefined;
-  const provider: 'local' | 'cloud' = (envProvider ?? (dbMode === 'local' ? 'local' : 'cloud'));
+  let provider: 'local' | 'cloud' = envProvider ?? (dbMode === 'local' ? 'local' : 'cloud');
+
+  // D5 technical gate (fix round 1): the default-cloud resolution above only
+  // covers an UNSET/unrecognized mode — an operator can still explicitly set
+  // AppSettings.supportTriageMode='local' or SUPPORT_TRIAGE_PROVIDER=local.
+  // Refuse that in production unless SUPPORT_TRIAGE_ALLOW_LOCAL is set truthy
+  // — "never local in production" is enforced here, not just defaulted.
+  // Dev/test (NODE_ENV !== 'production') is unaffected.
+  if (provider === 'local' && process.env.NODE_ENV === 'production') {
+    const allowLocalInProd = ['1', 'true', 'yes'].includes(
+      (process.env.SUPPORT_TRIAGE_ALLOW_LOCAL ?? '').trim().toLowerCase(),
+    );
+    if (!allowLocalInProd) {
+      // Visible, not silent (D8) — an operator who set local expects to see why
+      // their setting was overridden.
+      console.warn(
+        '[support-triage] refusing local triage in production (D5: no local-model dependency in production) — ' +
+          'falling back to cloud. Set SUPPORT_TRIAGE_ALLOW_LOCAL=true to override (dev/test only, not recommended in prod).',
+      );
+      provider = 'cloud';
+    }
+  }
 
   return {
     provider,

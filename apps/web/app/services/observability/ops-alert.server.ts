@@ -21,6 +21,28 @@ export interface OpsAlertInput {
 
 type SlackSender = (webhookUrl: string, text: string) => Promise<{ sent: boolean; error?: string }>;
 
+/**
+ * Cross-call-site de-dup marker (fix round 1). Some services fire an ops alert
+ * as a side effect of another call (e.g. `JobService.fail` fires `JOB_FAILED`)
+ * and then re-throw the same error so an outer caller can still surface it
+ * (an HTTP 400, a retryable connector result, etc). Without a marker, an outer
+ * catch that ALSO calls `OpsAlertService.fire` (e.g. webhooks.tsx's fan-out
+ * catches) would fire a second, redundant alert for the identical underlying
+ * failure — doubling Sentry noise and advancing two independent threshold
+ * counters for one real incident. The inner call marks the error; the outer
+ * catch checks the marker and skips re-firing while still doing its own
+ * logging/response handling.
+ */
+export function markOpsAlerted(error: unknown): void {
+  if (error && typeof error === 'object') {
+    (error as { __opsAlerted?: boolean }).__opsAlerted = true;
+  }
+}
+
+export function wasOpsAlerted(error: unknown): boolean {
+  return !!(error && typeof error === 'object' && (error as { __opsAlerted?: boolean }).__opsAlerted === true);
+}
+
 type OpsAlertSettings = {
   enableEmailAlerts: boolean;
   alertRecipients: string | null;
