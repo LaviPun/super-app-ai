@@ -50,7 +50,7 @@ const FAQS: [string, string][] = [
 
 export default function HelpIndex() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <HelpBody />
     </MerchantShell>
   );

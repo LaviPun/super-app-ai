@@ -233,7 +233,7 @@ function timeAgo(iso: string | null): string {
 export default function FlowsIndex() {
   const { flows, stats } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <FlowsBody flows={flows} stats={stats} />
     </MerchantShell>
   );

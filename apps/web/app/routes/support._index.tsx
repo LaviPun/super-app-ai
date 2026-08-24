@@ -153,7 +153,7 @@ function NewTicketModal({ modules, onClose }: { modules: Array<{ id: string; nam
 export default function SupportIndex() {
   const data = useLoaderData<typeof loader>();
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <SupportBody {...data} />
     </MerchantShell>
   );

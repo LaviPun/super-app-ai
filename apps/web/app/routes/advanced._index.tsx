@@ -10,7 +10,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export default function AdvancedIndex() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <AdvancedBody />
     </MerchantShell>
   );

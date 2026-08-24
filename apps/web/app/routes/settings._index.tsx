@@ -107,7 +107,7 @@ export async function action({ request }: { request: Request }) {
 export default function SettingsPage() {
   const { shop, counts, account } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <SettingsBody shop={shop} counts={counts} account={account} />
     </MerchantShell>
   );

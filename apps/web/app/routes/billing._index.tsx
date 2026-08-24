@@ -43,7 +43,7 @@ const USAGE_ICON: Record<string, string> = { aiRequests: 'wand', publishOps: 'ro
 export default function BillingPage() {
   const { sub, usage, plans, managePlanUrl } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <BillingBody sub={sub} usage={usage} plans={plans} managePlanUrl={managePlanUrl} />
     </MerchantShell>
   );

@@ -70,7 +70,7 @@ type TestResult = { ok: boolean; status: number; headers: Record<string, string>
 
 export default function ConnectorDetail() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <ConnectorDetailBody />
     </MerchantShell>
   );

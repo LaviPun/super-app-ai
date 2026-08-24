@@ -380,7 +380,7 @@ const MONO_PRE: CSSProperties = {
 
 export default function ModuleDetail() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <ModuleDetailBody />
     </MerchantShell>
   );

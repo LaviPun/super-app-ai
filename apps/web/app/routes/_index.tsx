@@ -164,7 +164,7 @@ export default function Dashboard() {
   const aiOfLabel = usage.aiLimit == null ? 'unlimited' : `of ${fmtNum(usage.aiLimit)} this month`;
 
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <s-page heading={`${greet}, ${titleCase(greetName)}`} inlineSize="base">
         <s-stack gap="base">
         <s-paragraph color="subdued">Here’s how your store is doing with SuperApp AI.</s-paragraph>

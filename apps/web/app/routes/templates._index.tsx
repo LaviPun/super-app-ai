@@ -68,7 +68,7 @@ function interleaveByCategory<T extends { category: string }>(items: T[]): T[] {
 export default function TemplatesIndex() {
   const { templates } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <TemplatesBody templates={templates} />
     </MerchantShell>
   );

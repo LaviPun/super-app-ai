@@ -76,7 +76,7 @@ function timeAgo(iso: string): string {
 
 export default function TicketDetail() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <TicketDetailBody />
     </MerchantShell>
   );

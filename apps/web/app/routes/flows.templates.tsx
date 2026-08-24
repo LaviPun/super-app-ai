@@ -86,7 +86,7 @@ const SORT_OPTIONS = [
 
 export default function FlowsTemplates() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <FlowsTemplatesBody />
     </MerchantShell>
   );

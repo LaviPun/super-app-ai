@@ -183,7 +183,7 @@ export async function loader({ request }: { request: Request }) {
 
 export default function JobsPage() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <JobsBody />
     </MerchantShell>
   );

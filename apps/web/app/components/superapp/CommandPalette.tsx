@@ -25,7 +25,7 @@ export function superappRoute(hash: string): string {
 
    The palette navigates to real routes; it does NOT deep-link to synthesized
    entity IDs. Each entry's `route` is a hash route that superappRoute() maps to
-   a real Remix path (mirrors the shell nav in internal.tsx / MerchantSubnav).
+   a real Remix path (mirrors the shell nav in internal.tsx / SubnavTabs).
    ------------------------------------------------------------------------- */
 type Command = { type: string; icon: string; title: string; sub: string; route: string; kw: string };
 

@@ -147,7 +147,7 @@ export async function loader({ request }: { request: Request }) {
 export default function AnalyticsIndex() {
   const data = useLoaderData<typeof loader>();
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <AnalyticsBody {...(data as any)} />
     </MerchantShell>
   );

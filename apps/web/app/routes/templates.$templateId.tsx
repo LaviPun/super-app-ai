@@ -80,7 +80,7 @@ const RUNTIME_LABEL: Record<string, string> = {
 
 export default function MerchantTemplateDetailRoute() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <MerchantTemplateDetailBody />
     </MerchantShell>
   );

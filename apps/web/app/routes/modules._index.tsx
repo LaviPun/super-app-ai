@@ -158,7 +158,7 @@ function ModuleBuilderCard({ onClose, open, aiLeftLabel }: { onClose: () => void
 export default function ModulesIndex() {
   const { modules, stats, loaderError, aiUsage } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <ModulesBody modules={modules} stats={stats} loaderError={loaderError} aiUsage={aiUsage} />
     </MerchantShell>
   );

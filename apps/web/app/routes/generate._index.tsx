@@ -335,7 +335,7 @@ function Field({ label, optional, help, children }: { label?: ReactNode; optiona
 
 export default function GeneratePage() {
   return (
-    <MerchantShell polaris fullBleed>
+    <MerchantShell fullBleed>
       <GenerateWorkspace />
     </MerchantShell>
   );

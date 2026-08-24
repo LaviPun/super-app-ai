@@ -55,7 +55,7 @@ export async function loader({ request }: { request: Request }) {
 export default function BillingHistory() {
   const { domain, subscription, planChanges } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <BillingHistoryBody domain={domain} subscription={subscription} planChanges={planChanges} />
     </MerchantShell>
   );

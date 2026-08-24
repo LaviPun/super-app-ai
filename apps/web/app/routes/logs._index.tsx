@@ -131,7 +131,7 @@ function usagePct(used: number, limit: number): number {
 
 export default function MerchantLogs() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <LogsBody />
     </MerchantShell>
   );
