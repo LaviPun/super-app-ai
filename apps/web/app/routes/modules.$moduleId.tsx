@@ -178,14 +178,27 @@ export async function loader({ request, params }: { request: Request; params: { 
             // ignore invalid JSON
           }
         }
+        // WS-F: forward the hydrate-produced (jsonSchema, uiSchema, defaults) triple so
+        // the client can mount SchemaForm instead of the hard-coded buy-bar shape.
+        let adminConfig: { jsonSchema: unknown; uiSchema: unknown; defaults: unknown } | null = null;
+        if (hydratedSource.adminConfigSchemaJson) {
+          try {
+            const parsed = JSON.parse(hydratedSource.adminConfigSchemaJson) as { jsonSchema?: unknown; uiSchema?: unknown };
+            const defaults = hydratedSource.adminDefaultsJson ? JSON.parse(hydratedSource.adminDefaultsJson) : {};
+            if (parsed.jsonSchema) adminConfig = { jsonSchema: parsed.jsonSchema, uiSchema: parsed.uiSchema ?? {}, defaults };
+          } catch {
+            // malformed persisted JSON — SchemaForm mount falls back to no-schema state
+          }
+        }
         return {
           status: 'done' as const,
           hydratedAt: hydratedSource.hydratedAt?.toISOString() ?? null,
           validationReport,
           everHydrated,
+          adminConfig,
         };
       })()
-    : { status: 'none' as const, hydratedAt: null, validationReport: null, everHydrated: false };
+    : { status: 'none' as const, hydratedAt: null, validationReport: null, everHydrated: false, adminConfig: null };
 
   // Internal notes live inside the draft spec JSON (no dedicated column) so the
   // Settings-tab notes field can persist without a schema migration.
