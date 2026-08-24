@@ -32,6 +32,15 @@ const WEB_PIXEL_UPDATE = `#graphql
   }
 `;
 
+const WEB_PIXEL_DELETE = `#graphql
+  mutation SuperAppWebPixelDelete($id: ID!) {
+    webPixelDelete(id: $id) {
+      deletedWebPixelId
+      userErrors { field message }
+    }
+  }
+`;
+
 export class WebPixelService {
   constructor(private readonly admin: AdminApiContext['admin']) {}
 
@@ -74,6 +83,26 @@ export class WebPixelService {
     const id = json?.data?.webPixelCreate?.webPixel?.id;
     if (!id) throw new Error('webPixelCreate returned no pixel id');
     return id;
+  }
+
+  /**
+   * Delete the app's web pixel (one shared pixel per shop — the caller decides
+   * whether it's still needed by another published module before calling this).
+   * Returns false when none exists (idempotent — already-gone is success).
+   */
+  async delete(): Promise<boolean> {
+    const id = await this.currentPixelId();
+    if (!id) return false;
+    const res = await this.admin.graphql(WEB_PIXEL_DELETE, { variables: { id } });
+    const json = (await res.json()) as {
+      errors?: Array<{ message?: string }>;
+      data?: { webPixelDelete?: { userErrors?: Array<{ message?: string }> } };
+    };
+    const topLevelErr = json?.errors?.[0]?.message;
+    if (topLevelErr) throw new Error(`webPixelDelete error: ${topLevelErr}`);
+    const err = json?.data?.webPixelDelete?.userErrors?.[0]?.message;
+    if (err) throw new Error(`webPixelDelete error: ${err}`);
+    return true;
   }
 
   private async currentPixelId(): Promise<string | null> {

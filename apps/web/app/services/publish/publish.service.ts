@@ -32,34 +32,37 @@ import { ThemeFilesService } from '~/services/publish/theme-files.server';
 import { checkCompiledLiquid, ThemeCheckFailedError } from '~/services/publish/theme-check.server';
 import { isThemeNativeSectionEnabled, isThemeCheckGateBlocking } from '~/env.server';
 
-const THEME_MODULES_NAMESPACE = 'superapp.theme';
-const THEME_MODULE_REFS_KEY = 'module_refs';
+// Exported (unpublish.service.ts, WS-E Task 9) so publish and unpublish share
+// ONE source of truth for every namespace/key — teardown can never drift from
+// what publish actually wrote.
+export const THEME_MODULES_NAMESPACE = 'superapp.theme';
+export const THEME_MODULE_REFS_KEY = 'module_refs';
 
-const ADMIN_BLOCKS_NAMESPACE = 'superapp.admin';
-const ADMIN_BLOCK_REFS_KEY = 'block_refs';
+export const ADMIN_BLOCKS_NAMESPACE = 'superapp.admin';
+export const ADMIN_BLOCK_REFS_KEY = 'block_refs';
 
-const ADMIN_ACTIONS_NAMESPACE = 'superapp.admin';
-const ADMIN_ACTION_REFS_KEY = 'action_refs';
+export const ADMIN_ACTIONS_NAMESPACE = 'superapp.admin';
+export const ADMIN_ACTION_REFS_KEY = 'action_refs';
 
-const ADMIN_DISCOUNT_UI_NAMESPACE = 'superapp.admin';
-const ADMIN_DISCOUNT_UI_REFS_KEY = 'discount_ui_refs';
+export const ADMIN_DISCOUNT_UI_NAMESPACE = 'superapp.admin';
+export const ADMIN_DISCOUNT_UI_REFS_KEY = 'discount_ui_refs';
 
-const ADMIN_LINK_NAMESPACE = 'superapp.admin';
-const ADMIN_LINK_REFS_KEY = 'link_refs';
+export const ADMIN_LINK_NAMESPACE = 'superapp.admin';
+export const ADMIN_LINK_REFS_KEY = 'link_refs';
 
-const ADMIN_PRINT_NAMESPACE = 'superapp.admin';
-const ADMIN_PRINT_REFS_KEY = 'print_refs';
+export const ADMIN_PRINT_NAMESPACE = 'superapp.admin';
+export const ADMIN_PRINT_REFS_KEY = 'print_refs';
 
-const ADMIN_SEGMENT_TEMPLATE_NAMESPACE = 'superapp.admin';
-const ADMIN_SEGMENT_TEMPLATE_REFS_KEY = 'segment_template_refs';
+export const ADMIN_SEGMENT_TEMPLATE_NAMESPACE = 'superapp.admin';
+export const ADMIN_SEGMENT_TEMPLATE_REFS_KEY = 'segment_template_refs';
 
-const FUNCTIONS_NAMESPACE = 'superapp.functions';
+export const FUNCTIONS_NAMESPACE = 'superapp.functions';
 
-const CHECKOUT_NAMESPACE = 'superapp.checkout';
-const CHECKOUT_UPSELL_REFS_KEY = 'upsell_refs';
+export const CHECKOUT_NAMESPACE = 'superapp.checkout';
+export const CHECKOUT_UPSELL_REFS_KEY = 'upsell_refs';
 
-const CUSTOMER_ACCOUNT_NAMESPACE = 'superapp.customer_account';
-const CUSTOMER_ACCOUNT_BLOCK_REFS_KEY = 'block_refs';
+export const CUSTOMER_ACCOUNT_NAMESPACE = 'superapp.customer_account';
+export const CUSTOMER_ACCOUNT_BLOCK_REFS_KEY = 'block_refs';
 
 /**
  * Thrown when a module is not publishable (WS5/026): `gated` (no publish wiring
