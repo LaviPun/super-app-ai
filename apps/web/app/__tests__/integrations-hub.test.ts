@@ -211,12 +211,25 @@ describe('internal.integrations action — slack tile', () => {
     expect(appSettingsUpsertMock).not.toHaveBeenCalled();
   });
 
-  it('saveSlackWebhook clears the webhook when submitted blank', async () => {
+  it('saveSlackWebhook keeps the existing webhook when submitted blank — never silently wipes it', async () => {
     const { action } = await import('~/routes/internal.integrations');
     const res = await action({ request: formRequest({ intent: 'saveSlackWebhook', webhookUrl: '' }) });
     expect(((await res.json()) as { ok?: boolean }).ok).toBe(true);
+    // Blank must not touch AppSettings at all — an operator saving the tile
+    // after only editing thresholds must not delete the ops-alert channel.
+    expect(appSettingsUpsertMock).not.toHaveBeenCalled();
+    expect(encryptJsonMock).not.toHaveBeenCalled();
+  });
+
+  it('removeSlackWebhook explicitly clears the webhook and audits the removal', async () => {
+    const { action } = await import('~/routes/internal.integrations');
+    const res = await action({ request: formRequest({ intent: 'removeSlackWebhook' }) });
+    expect(((await res.json()) as { ok?: boolean }).ok).toBe(true);
     expect(appSettingsUpsertMock).toHaveBeenCalledWith(
       expect.objectContaining({ update: expect.objectContaining({ opsSlackWebhookUrlEnc: null }) }),
+    );
+    expect(activityLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'OPS_INTEGRATION_SAVED', resource: 'integration:slack', details: { removed: true } }),
     );
   });
 
@@ -364,11 +377,18 @@ describe('internal.integrations — UptimeRobot tile', () => {
  * "new"/"not_configured" status here is expected right now, not a bug —
  * the tile's honesty is about reflecting the real API response, not about
  * pretending the ping already exists.
+ *
+ * Fix round 1: the single-check GET (`/api/v3/checks/{id}`) only accepts a
+ * UUID or `unique_key` in the path — a human slug there 404s forever. Slug
+ * filtering only exists on the LIST endpoint via `?slug=`, so every mocked
+ * response below uses the real `{ checks: [...] }` list shape and every
+ * fetch assertion checks the real list+query-param URL, not a
+ * self-consistent-but-wrong single-check path.
  */
 describe('internal.integrations — Healthchecks.io tile', () => {
-  it('loader resolves status "up" from a real 200 response', async () => {
+  it('loader resolves status "up" from a real 200 list response', async () => {
     appSettingsFindUniqueMock.mockResolvedValueOnce({ healthchecksApiKeyEnc: 'enc(...)', healthchecksCheckSlug: 'superapp-cron' });
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: 'up' }), { status: 200 }));
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ checks: [{ status: 'up' }] }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     const { loader } = await import('~/routes/internal.integrations');
     const data = (await (await loader({ request: new Request('https://x/internal/integrations') })).json()) as {
@@ -376,9 +396,20 @@ describe('internal.integrations — Healthchecks.io tile', () => {
     };
     expect(data.healthchecks.status).toBe('up');
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://healthchecks.io/api/v3/checks/superapp-cron',
+      'https://healthchecks.io/api/v3/checks/?slug=superapp-cron',
       expect.objectContaining({ headers: expect.objectContaining({ 'X-Api-Key': 'test-key' }) }),
     );
+  });
+
+  it('reports "error" (never throws, never fake green) when the slug matches no check', async () => {
+    appSettingsFindUniqueMock.mockResolvedValueOnce({ healthchecksApiKeyEnc: 'enc(...)', healthchecksCheckSlug: 'no-such-check' });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ checks: [] }), { status: 200 })));
+    const { loader } = await import('~/routes/internal.integrations');
+    const data = (await (await loader({ request: new Request('https://x/internal/integrations') })).json()) as {
+      healthchecks: { status: string; error?: string };
+    };
+    expect(data.healthchecks.status).toBe('error');
+    expect(data.healthchecks.error).toMatch(/no-such-check/);
   });
 
   it('loader reports "not_configured" (never throws) when no key is set', async () => {

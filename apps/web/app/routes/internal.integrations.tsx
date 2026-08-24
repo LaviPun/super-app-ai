@@ -84,8 +84,20 @@ async function resolveUptimeRobotStatus(apiKeyEnc: string | null | undefined, mo
   }
 }
 
-// Task 12: same bounded-timeout, never-throw contract as resolveUptimeRobotStatus,
-// against the real Healthchecks.io Management API.
+// Task 12 (fix round 1): same bounded-timeout, never-throw contract as
+// resolveUptimeRobotStatus, against the real Healthchecks.io Management API.
+// The single-check GET (`/api/v3/checks/{id}`) only accepts a UUID or a
+// `unique_key` in the path — a human-readable slug is NOT a valid path
+// identifier there (that endpoint 404s forever for a slug). Slug filtering
+// exists only on the LIST endpoint via the `?slug=` query param, so we call
+// that and read the first (and only, for a unique slug) match out of
+// `body.checks`. We keep storing the human slug in AppSettings — only the
+// request shape changes.
+//
+// Parked follow-up (not fixed here — plan-specified, works today): the
+// UptimeRobot integration above uses their v2 API, which is legacy (a v3
+// successor exists). Migrate when UptimeRobot's v2 API is deprecated or a
+// v3 migration task is scheduled; v2 is fully functional today.
 type HealthchecksStatus = { status: 'up' | 'down' | 'grace' | 'paused' | 'new' | 'not_configured' | 'error'; error?: string };
 const HEALTHCHECKS_KNOWN_STATUSES = ['up', 'down', 'grace', 'paused', 'new'] as const;
 
@@ -100,14 +112,16 @@ async function resolveHealthchecksStatus(apiKeyEnc: string | null | undefined, c
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), UPSTREAM_STATUS_TIMEOUT_MS);
   try {
-    const res = await fetch(`https://healthchecks.io/api/v3/checks/${encodeURIComponent(checkSlug)}`, {
+    const res = await fetch(`https://healthchecks.io/api/v3/checks/?slug=${encodeURIComponent(checkSlug)}`, {
       headers: { 'X-Api-Key': apiKey },
       signal: controller.signal,
     });
     if (!res.ok) return { status: 'error', error: `healthchecks.io API responded ${res.status}` };
-    const body = (await res.json()) as { status?: string };
-    if (body.status && (HEALTHCHECKS_KNOWN_STATUSES as readonly string[]).includes(body.status)) {
-      return { status: body.status as HealthchecksStatus['status'] };
+    const body = (await res.json()) as { checks?: Array<{ status?: string }> };
+    const check = body.checks?.[0];
+    if (!check) return { status: 'error', error: `No healthchecks.io check found with slug "${checkSlug}"` };
+    if (check.status && (HEALTHCHECKS_KNOWN_STATUSES as readonly string[]).includes(check.status)) {
+      return { status: check.status as HealthchecksStatus['status'] };
     }
     return { status: 'error', error: 'Unexpected healthchecks.io response shape' };
   } catch (error) {
@@ -282,11 +296,27 @@ export async function action({ request }: { request: Request }) {
     if (url && !/^https:\/\/hooks\.slack\.com\//.test(url)) {
       return json<ActionResult>({ error: 'Must be a Slack incoming-webhook URL (https://hooks.slack.com/services/...)' }, { status: 400 });
     }
+    if (!url) {
+      // Blank means "leave the existing encrypted value alone" — same
+      // convention as email/UptimeRobot/Healthchecks' apiKey fields, so
+      // saving the tile after only touching thresholds never silently wipes
+      // the configured webhook. Use removeSlackWebhook for intentional
+      // deletion.
+      return json<ActionResult>({ ok: true, message: 'No changes — existing webhook left as-is' });
+    }
     const prisma = getPrisma();
-    const data = { opsSlackWebhookUrlEnc: url ? encryptJson({ url }) : null };
+    const data = { opsSlackWebhookUrlEnc: encryptJson({ url }) };
     await prisma.appSettings.upsert({ where: { id: 'singleton' }, create: { id: 'singleton', ...data }, update: data });
     await activity.log({ actor: 'INTERNAL_ADMIN', action: 'OPS_INTEGRATION_SAVED', resource: 'integration:slack' });
-    return json<ActionResult>({ ok: true, message: url ? 'Slack webhook saved' : 'Slack webhook cleared' });
+    return json<ActionResult>({ ok: true, message: 'Slack webhook saved' });
+  }
+
+  if (intent === 'removeSlackWebhook') {
+    const prisma = getPrisma();
+    const data = { opsSlackWebhookUrlEnc: null };
+    await prisma.appSettings.upsert({ where: { id: 'singleton' }, create: { id: 'singleton', ...data }, update: data });
+    await activity.log({ actor: 'INTERNAL_ADMIN', action: 'OPS_INTEGRATION_SAVED', resource: 'integration:slack', details: { removed: true } });
+    return json<ActionResult>({ ok: true, message: 'Slack webhook removed' });
   }
 
   if (intent === 'testSlackWebhook') {
@@ -541,12 +571,14 @@ interface SlackTileState {
 function SlackTileBody({
   slack,
   onSaveWebhook,
+  onRemoveWebhook,
   onTest,
   onSaveThresholds,
   busy,
 }: {
   slack: SlackTileState;
   onSaveWebhook: (webhookUrl: string) => void;
+  onRemoveWebhook: () => void;
   onTest: () => void;
   onSaveThresholds: (count: string, windowMin: string) => void;
   busy: boolean;
@@ -564,7 +596,10 @@ function SlackTileBody({
         ]}
       />
       <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-        <Field label="Incoming-webhook URL" help={slack.webhookMasked ? `Currently set: ${slack.webhookMasked}` : 'Not set'}>
+        <Field
+          label="Incoming-webhook URL"
+          help={slack.webhookMasked ? `Currently set: ${slack.webhookMasked}. Leave blank to keep it.` : 'Not set'}
+        >
           <Input
             value={webhookUrl}
             onChange={(e) => setWebhookUrl(e.target.value)}
@@ -578,6 +613,11 @@ function SlackTileBody({
           <Btn size="sm" variant="secondary" loading={busy} onClick={onTest}>
             Send test message
           </Btn>
+          {slack.configured ? (
+            <Btn size="sm" variant="critical" loading={busy} onClick={onRemoveWebhook}>
+              Remove
+            </Btn>
+          ) : null}
         </div>
         <div className="row-3" style={{ marginTop: 4 }}>
           <Field label="Alert after N failures" help="Sentry always fires immediately; Slack/email wait for this threshold">
@@ -744,6 +784,7 @@ export default function IntegrationsHub() {
   const saveEmail = (fields: Record<string, string>) => ops.submit({ intent: 'saveEmail', ...fields });
   const testEmail = (to: string) => ops.submit({ intent: 'testEmail', to });
   const saveSlackWebhook = (webhookUrl: string) => ops.submit({ intent: 'saveSlackWebhook', webhookUrl });
+  const removeSlackWebhook = () => ops.submit({ intent: 'removeSlackWebhook' });
   const testSlackWebhook = () => ops.submit({ intent: 'testSlackWebhook' });
   const saveAlertThresholds = (thresholdCount: string, thresholdWindowMin: string) =>
     ops.submit({ intent: 'saveAlertThresholds', thresholdCount, thresholdWindowMin });
@@ -792,6 +833,7 @@ export default function IntegrationsHub() {
                         <SlackTileBody
                           slack={slack}
                           onSaveWebhook={saveSlackWebhook}
+                          onRemoveWebhook={removeSlackWebhook}
                           onTest={testSlackWebhook}
                           onSaveThresholds={saveAlertThresholds}
                           busy={ops.busy}
