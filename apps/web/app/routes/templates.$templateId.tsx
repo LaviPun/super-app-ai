@@ -5,7 +5,7 @@ import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShe
 import { findTemplate, getTemplateInstallability, getTemplateReadiness, getExtensionEligibility } from '@superapp/core';
 import { shopify } from '~/shopify.server';
 import { PreviewService } from '~/services/preview/preview.service';
-import { useTemplateSubmission } from '~/utils/template-detail';
+import { buildTemplateSubmission } from '~/utils/template-detail';
 
 export async function loader({ request, params }: { request: Request; params: { templateId?: string } }) {
   await shopify.authenticate.admin(request);
@@ -108,7 +108,7 @@ function MerchantTemplateDetailBody() {
           variant="primary"
           loading={isUsingTemplate || undefined}
           onClick={() => {
-            const { action, body } = useTemplateSubmission(template.id);
+            const { action, body } = buildTemplateSubmission(template.id);
             useTemplateFetcher.submit(body, { method: 'post', action });
           }}
         >
