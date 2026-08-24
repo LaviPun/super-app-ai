@@ -277,6 +277,7 @@ export class ModuleService {
     }
   }
 
+  /** DB pointer flip ONLY — never call directly for a live rollback; RollbackService republishes first. */
   async rollbackToVersion(shopDomain: string, moduleId: string, version: number) {
     const prisma = getPrisma();
     const mv = await prisma.moduleVersion.findFirst({

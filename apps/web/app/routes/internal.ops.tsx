@@ -6,6 +6,8 @@ import { ActivityLogService, type ActivityAction } from '~/services/activity/act
 import { JobService, type JobType } from '~/services/jobs/job.service';
 import { generateCorrelationId } from '~/services/observability/correlation.server';
 import { ModuleService } from '~/services/modules/module.service';
+import { RollbackService } from '~/services/publish/rollback.service';
+import { unauthenticated } from '~/shopify.server';
 import { ScheduleService } from '~/services/flows/schedule.service';
 import { FlowRunnerService } from '~/services/flows/flow-runner.service';
 import {
@@ -218,7 +220,9 @@ export async function action({ request }: ActionFunctionArgs) {
           target = previous.version;
         }
 
-        await new ModuleService().rollbackToVersion(moduleRow.shop.shopDomain, moduleRow.id, target);
+        const { admin } = await unauthenticated.admin(moduleRow.shop.shopDomain);
+        await new RollbackService(admin, { shop: moduleRow.shop.shopDomain, shopId: moduleRow.shopId })
+          .rollbackToVersion(moduleRow.id, target);
         await audit(
           { version: target },
           { shopId: moduleRow.shopId, resource: `module:${moduleRow.id}` },
