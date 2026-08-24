@@ -42,6 +42,23 @@ describe('nextStepAfterStream (client decision)', () => {
   });
 });
 
+describe('nextStepAfterStream — abort handling (WS-F: Cancel must not bill)', () => {
+  it('an intentional abort never triggers batch-fallback, even with zero options collected', () => {
+    const result = nextStepAfterStream({ gotAny: false, sawErrorFrame: false, transportFailed: true, aborted: true });
+    expect(result).not.toBe('batch-fallback');
+  });
+  it('an intentional abort resolves to the dedicated cancelled step, not a retry prompt either', () => {
+    const result = nextStepAfterStream({ gotAny: false, sawErrorFrame: false, transportFailed: true, aborted: true });
+    expect(result).toBe('cancelled');
+  });
+  it('a non-aborted transport failure still falls back to batch (unchanged behavior)', () => {
+    expect(nextStepAfterStream({ gotAny: false, sawErrorFrame: false, transportFailed: true, aborted: false })).toBe('batch-fallback');
+  });
+  it('aborted takes precedence even if options had already arrived', () => {
+    expect(nextStepAfterStream({ gotAny: true, sawErrorFrame: false, transportFailed: true, aborted: true })).toBe('cancelled');
+  });
+});
+
 describe('withGenerationCorrelationId (client fallback dedupe, WS-QF / AI-2 review fix)', () => {
   it('the SAME correlationId travels on both the stream leg and the batch-fallback leg', () => {
     // generate._index.tsx builds ONE FormData per click, stamps it with a

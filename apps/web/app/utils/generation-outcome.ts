@@ -5,9 +5,15 @@ export type StreamOutcomeInput = {
   sawErrorFrame: boolean;
   /** The SSE transport itself failed (fetch rejected / !res.ok / no body) — the stream leg billed nothing. */
   transportFailed: boolean;
+  /** True when the fetch was aborted by the merchant clicking Cancel (or
+   *  navigating away mid-generation) — an intentional cancel is never a
+   *  transport failure to recover from, and must never trigger the
+   *  batch-fallback (which would bill a second request the merchant already
+   *  told us to stop). Checked first, ahead of every other outcome. */
+  aborted?: boolean;
 };
 
-export type StreamNextStep = 'proceed' | 'show-retry' | 'batch-fallback';
+export type StreamNextStep = 'proceed' | 'show-retry' | 'batch-fallback' | 'cancelled';
 
 /**
  * What the generate UI does after the stream ends (WS-QF / AI-2). A server
@@ -15,8 +21,14 @@ export type StreamNextStep = 'proceed' | 'show-retry' | 'batch-fallback';
  * route would silently start a second billable request, so the merchant gets an
  * honest retry UI instead. The batch fallback survives only for transport
  * failure, where the stream request never generated (and billed 0).
+ *
+ * `aborted` is checked before anything else (WS-F): an intentional Cancel
+ * must never be treated as a transport failure worth falling back from, and
+ * must never be treated as "proceed" just because some options had already
+ * rendered before the click.
  */
 export function nextStepAfterStream(o: StreamOutcomeInput): StreamNextStep {
+  if (o.aborted) return 'cancelled';
   if (o.gotAny) return 'proceed';
   if (o.sawErrorFrame) return 'show-retry';
   if (o.transportFailed) return 'batch-fallback';

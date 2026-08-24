@@ -386,6 +386,12 @@ function GenerateWorkspace() {
   const handledConfirmRef = useRef<unknown>(null);
   const handledRefineRef = useRef<unknown>(null);
   const handledPublishRef = useRef<unknown>(null);
+  // WS-F: the in-flight generation stream's AbortController. Cancel (and
+  // unmounting mid-generation, e.g. the merchant navigating away by any
+  // route) aborts the real fetch instead of merely navigating away while the
+  // request keeps running, keeps billing, and keeps mutating state.
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   // WS-F: settings editing now writes straight into the selected concept's real
   // recipe.config/style (via SchemaForm) instead of a parallel BASE_SETTINGS
@@ -483,8 +489,12 @@ function GenerateWorkspace() {
     // setInterval tick that advanced independently of the actual stream.
     const seenEvents = new Set<StreamEventKind>();
     setStepIdx(0);
+    // WS-F: one AbortController per generation attempt — Cancel (GenLoading's
+    // onCancel) and the unmount-cleanup effect both call abortRef.current?.abort().
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      const res = await fetch('/api/ai/create-module/stream', { method: 'POST', body: fd, headers: { Accept: 'text/event-stream' } });
+      const res = await fetch('/api/ai/create-module/stream', { method: 'POST', body: fd, headers: { Accept: 'text/event-stream' }, signal: controller.signal });
       if (!res.ok || !res.body) throw new Error('stream unavailable');
       const reader = res.body.getReader();
       const dec = new TextDecoder();
@@ -563,16 +573,25 @@ function GenerateWorkspace() {
         setPhase('failed');
       }
       // next === 'proceed' → applyOptions already rendered the chooser.
-    } catch {
+    } catch (err) {
+      // WS-F: distinguish an intentional Cancel from a real transport failure
+      // — `controller.abort()` rejects both `fetch` and `reader.read()` with a
+      // DOMException named 'AbortError'. An abort must never trigger the
+      // batch-fallback (that would bill a second request the merchant just
+      // told us to stop).
+      const aborted = err instanceof DOMException && err.name === 'AbortError';
       // Transport failure only (SSE unreachable / !res.ok / no body): usually
       // the stream leg billed nothing, but it may have billed just before the
       // drop (WS-QF / AI-2 review finding) — `fd` still carries this attempt's
       // correlationId, so the server-side dedupe (seedBillingStateForCorrelation
       // in llm.server.ts) bills 0 here if the stream leg already charged.
-      const next = nextStepAfterStream({ gotAny, sawErrorFrame: false, transportFailed: true });
+      const next = nextStepAfterStream({ gotAny, sawErrorFrame: false, transportFailed: !aborted, aborted });
       if (next === 'batch-fallback') {
         proposeFetcher.submit(fd, { method: 'post', action: '/api/ai/create-module' });
       }
+      // 'cancelled': the merchant asked to stop — no fallback, no toast, no retry UI.
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedPrompt, applyOptions]);
@@ -774,7 +793,7 @@ function GenerateWorkspace() {
   };
 
   if (!seedPrompt) return null;
-  if (phase === 'generating') return <GenLoading prompt={seedPrompt} stepIdx={stepIdx} onCancel={() => navigate('/')} />;
+  if (phase === 'generating') return <GenLoading prompt={seedPrompt} stepIdx={stepIdx} onCancel={() => { abortRef.current?.abort(); navigate('/'); }} />;
   if (phase === 'failed') return <GenFailed prompt={seedPrompt} message={genError} onRetry={regenerate} onCancel={() => navigate('/modules')} />;
   if (phase === 'choosing') return <GenChoose prompt={seedPrompt} candidates={candidates} onSelect={openConcept} onRegenerate={regenerate} onCancel={() => navigate('/')} />;
 
