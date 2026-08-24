@@ -13,6 +13,7 @@ import { MODULE_CATALOG, isCapabilityAllowed, getExtensionEligibility } from '@s
 import { compileRecipe } from '~/services/recipes/compiler';
 import { ThemeService } from '~/services/shopify/theme.service';
 import { embedActivationDeepLink } from '~/services/publish/embed-status.server';
+import { mintPreviewToken } from '~/services/security/preview-token.server';
 import type { Capability, DeployTarget, RecipeSpec } from '@superapp/core';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
@@ -212,7 +213,13 @@ export async function loader({ request, params }: { request: Request; params: { 
   // computed; the post-publish banner below decides whether to show it.
   const embedDeepLink = embedActivationDeepLink(session.shop);
 
-  return json({ moduleId, shop: session.shop, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, blueprint, internalNotes, deployment, embedDeepLink });
+  // WS-F: preview.$moduleId.tsx's bare top-level GET (window.open, no embedded
+  // admin session) is now authorized via a short-lived signed capability token
+  // instead of trusting a raw ?shop= query param. Minted here (authenticated
+  // loader) — cheap, no extra Shopify call, same pattern as embedDeepLink above.
+  const previewToken = mintPreviewToken({ shop: session.shop, moduleId }, 5 * 60_000);
+
+  return json({ moduleId, shop: session.shop, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, blueprint, internalNotes, deployment, embedDeepLink, previewToken });
 }
 
 const RUNTIME_LABEL: Record<string, string> = {
@@ -628,9 +635,10 @@ function ModuleDetailBody() {
     a.remove();
   };
   const openPreview = () => {
-    // Pass the shop so the bare top-level GET in the new tab can render the module's
-    // own compiled preview without the embedded admin session (which it doesn't have).
-    window.open(`/preview/${moduleId}?shop=${encodeURIComponent(data.shop)}`, '_blank', 'noopener,noreferrer');
+    // Pass a short-lived signed capability token so the bare top-level GET in the new
+    // tab can render the module's own compiled preview without the embedded admin
+    // session (which it doesn't have) — and without trusting a raw shop param.
+    window.open(`/preview/${moduleId}?token=${encodeURIComponent(data.previewToken)}`, '_blank', 'noopener,noreferrer');
   };
   const saveName = () => {
     const name = nameDraft.trim();
