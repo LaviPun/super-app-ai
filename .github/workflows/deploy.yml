@@ -23,12 +23,6 @@ jobs:
       - name: Build Docker image
         run: docker build -f apps/web/Dockerfile -t superapp-web:${{ github.sha }} .
 
-      # ─── WS-A HOOK POINT (do not remove) ────────────────────────────────
-      # Railway wiring (launch-program D1) lands exactly here, in this job,
-      # after the image build proves green:
-      #   1. Log in + push superapp-web:${{ github.sha }} to the registry.
-      #   2. Trigger the Railway service deploy (RAILWAY_TOKEN secret).
-      #   3. Post-deploy health probe against the stable application_url.
-      # Until WS-A, this workflow's only contract is: master always builds
-      # a deployable image, or the push goes red.
-      # ────────────────────────────────────────────────────────────────────
+      # WS-A (2026-08): deploys are Railway-native (GitHub auto-deploy per
+      # service, gated by 'Wait for CI'). This job remains as the image-build
+      # gate only: master must always docker-build cleanly on a neutral runner.
