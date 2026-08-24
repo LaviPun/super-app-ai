@@ -4,7 +4,7 @@ import path from 'node:path';
 
 // extensions/ lives at the repo root; vitest runs from apps/web.
 const EXTENSIONS_DIR = path.resolve(process.cwd(), '..', '..', 'extensions');
-const APP_TOML = path.resolve(process.cwd(), '..', '..', 'shopify.app.toml');
+const APP_TOML = path.resolve(process.cwd(), '..', '..', 'shopify.app.production.toml');
 
 // ── Prisma mock ──────────────────────────────────────────────────────────────
 const hoisted = vi.hoisted(() => ({

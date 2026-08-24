@@ -1,0 +1,380 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "675f836397310b8c66a6ca2b5a49923c"
+web_directories = [ "apps/web" ]
+name = "Super App AI"
+application_url = "https://web-production-3fe27.up.railway.app"
+embedded = true
+
+# Deploy scan allow-list. By default Shopify CLI scans every extensions/* dir; we pin an
+# explicit list so `shopify app deploy` EXCLUDES the two unstable-API Function extensions
+# (superapp-local-pickup, superapp-pickup-point — api_version = "unstable", needs_runtime)
+# until the local-pickup / pickup-point delivery-option APIs stabilize on a dated version.
+# They stay on disk (buildable + `config validate` green) but out of the deployed app
+# version. Re-add their dirs here once they're pinned to a stable api_version.
+#
+# ALSO EXCLUDED: superapp-pos-block. Its config declares developer-preview-only POS
+# targets (pos.*.event.observe + pos.return.post/exchange.post.*) which can't deploy to
+# production stores and make `shopify app dev`'s "update dev preview" step fail for the
+# WHOLE app. It stays on disk with every target intact (api_version 2026-07); re-add the
+# dir once those surfaces graduate from developer preview, or once the app/store is
+# enrolled in the POS UI-extensions developer preview.
+# NOTE: `.shopifyignore` is a THEME-CLI mechanism and does NOT gate app-extension deploys —
+# extension_directories is the documented app control (see shopify.dev app-structure).
+extension_directories = [
+  "extensions/admin-link",
+  "extensions/admin-print",
+  "extensions/admin-segment-template",
+  "extensions/admin-ui",
+  "extensions/checkout-ui",
+  "extensions/customer-account-ui",
+  "extensions/discount-function-settings",
+  "extensions/superapp-cart-checkout-validation",
+  "extensions/superapp-cart-transform",
+  "extensions/superapp-delivery-customization",
+  "extensions/superapp-discount",
+  "extensions/superapp-flow-action-send-http",
+  "extensions/superapp-flow-action-send-notification",
+  "extensions/superapp-flow-action-tag-order",
+  "extensions/superapp-flow-action-write-store",
+  "extensions/superapp-flow-trigger-connector-synced",
+  "extensions/superapp-flow-trigger-data-record-created",
+  "extensions/superapp-flow-trigger-module-published",
+  "extensions/superapp-flow-trigger-workflow-completed",
+  "extensions/superapp-flow-trigger-workflow-failed",
+  "extensions/superapp-fulfillment-constraints",
+  "extensions/superapp-order-routing",
+  "extensions/superapp-payment-customization",
+  # "extensions/superapp-pos-block",  # dev-preview-only POS targets — see note above
+  "extensions/superapp-shipping-discount",
+  "extensions/superapp-sidekick-data",
+  "extensions/superapp-web-pixel",
+  "extensions/theme-app-extension",
+]
+
+[build]
+automatically_update_urls_on_dev = false
+include_config_on_deploy = true
+
+[webhooks]
+api_version = "2026-04"
+
+[[webhooks.subscriptions]]
+uri = "/webhooks/customers/data_request"
+compliance_topics = [ "customers/data_request" ]
+
+[[webhooks.subscriptions]]
+uri = "/webhooks/customers/redact"
+compliance_topics = [ "customers/redact" ]
+
+[[webhooks.subscriptions]]
+uri = "/webhooks/shop/redact"
+compliance_topics = [ "shop/redact" ]
+
+[[webhooks.subscriptions]]
+topics = [ "app/uninstalled" ]
+uri = "/webhooks"
+
+[[webhooks.subscriptions]]
+topics = [ "app/scopes_update" ]
+uri = "/webhooks"
+
+[[webhooks.subscriptions]]
+topics = [ "orders/create" ]
+uri = "/webhooks"
+
+[[webhooks.subscriptions]]
+topics = [ "products/update" ]
+uri = "/webhooks"
+
+# integration.httpSync trigger topics (build #7a). Only topics whose required scope the
+# app already holds are declared, so `shopify app config validate` stays green:
+#   customers/create  → read_customers ✓   collections/create → read_products ✓
+# fulfillments/create (needs read_fulfillments) and draft_orders/create (needs
+# read_draft_orders) are SUPPORTED by the runner's trigger map but NOT declared here —
+# they require scopes the app doesn't request yet; add the scope + the subscription
+# together when that sync is needed (kept honest rather than declaring an inert topic
+# the app can't receive).
+[[webhooks.subscriptions]]
+topics = [ "customers/create" ]
+uri = "/webhooks"
+
+[[webhooks.subscriptions]]
+topics = [ "collections/create" ]
+uri = "/webhooks"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+# read_themes powers theme reads (theme list, theme.files) and is required.
+# 2026-07-10 AUDIT: commit c0dafb7 ("aded new ai model") silently shrank this list from 17
+# scopes to 8 while doing an unrelated refactor — read_checkouts, read_inventory, read_orders,
+# write_cart_transforms, write_checkouts, write_delivery_customizations, write_discounts,
+# write_payment_customizations, write_products were all dropped with no mention in the commit.
+# That regression made every bundle-product publish (productSet/cartTransformCreate in
+# bundle-product.service.ts) and every discount/payment/delivery-customization function config
+# write fail with an access-denied error, silently. Restored below, plus write_pixels +
+# read_customer_events which web-pixel.service.ts (webPixelCreate/webPixelUpdate) has always
+# needed but never had. NOTE: this scope list change requires `shopify app deploy` + existing
+# merchants to re-consent (Shopify shows an "additional permissions" banner) before it takes
+# effect live — do not deploy without confirming the re-consent rollout plan.
+scopes = "read_checkouts,read_customer_events,read_customers,read_inventory,read_metaobjects,read_orders,read_products,read_themes,write_app_proxy,write_cart_transforms,write_checkouts,write_customers,write_delivery_customizations,write_discounts,write_metaobjects,write_orders,write_payment_customizations,write_pixels,write_products"
+# write_themes (033) — required to write native sections/superapp-*.liquid files via the
+# Theme Files API (themeFilesUpsert). It is OPTIONAL here (not in `scopes`) so installs do
+# not break before the grant lands. IMPORTANT: write_themes additionally requires a Shopify
+# EXEMPTION (the "page-builder" exception, BFS §3.2.2) to actually modify theme files — the
+# scope alone is not enough. Until that exemption is granted this scope is INERT and the
+# native-section path (THEME_NATIVE_SECTION_ENABLED) stays a no-op; the app-block path is the
+# shipping default. See specs/033-theme-edit-api/design.md §2.2, §8.
+optional_scopes = [ "write_themes" ]
+use_legacy_install_flow = false
+
+[app_proxy]
+url = "/proxy"
+prefix = "apps"
+subpath = "superapp"
+
+[sidekick]
+# Required when the app has any Sidekick-eligible extensions (256-token limit).
+# Consolidated summary Sidekick uses to route merchant questions to us.
+extensions_summary = "Search and report on Super App AI generated modules (storefront popups, banners, bundles, upsells, discount and cart-transform Functions, recommendation blocks, and admin/POS/checkout/customer-account blocks), including each module's status, type, version, and performance."
+
+[auth]
+redirect_urls = [
+  "https://web-production-3fe27.up.railway.app/auth/callback",
+  "https://web-production-3fe27.up.railway.app/auth/shopify/callback",
+  "https://web-production-3fe27.up.railway.app/api/auth/callback"
+]
+
+[metaobjects.app.superapp_module]
+name = "SuperApp Module"
+display_name_field = "name"
+
+  [metaobjects.app.superapp_module.access]
+  admin = "merchant_read_write"
+  storefront = "public_read"
+
+[metaobjects.app.superapp_module.fields.module_id]
+name = "Module ID"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_module.fields.module_type]
+name = "Module Type"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_module.fields.name]
+name = "Name"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_module.fields.activation_type]
+name = "Activation Type"
+type = "single_line_text_field"
+required = false
+
+[metaobjects.app.superapp_module.fields.config_json]
+name = "Config JSON"
+type = "json"
+required = true
+
+[metaobjects.app.superapp_module.fields.style_json]
+name = "Style JSON"
+type = "json"
+required = false
+
+# Surface-targeted placement (theme.section enabled_on/disabled_on). Optional —
+# written only when the module declares placement; absent = renders on every
+# template as before (the storefront render-gate applies no scoping).
+[metaobjects.app.superapp_module.fields.placement_json]
+name = "Placement JSON"
+type = "json"
+required = false
+
+[metaobjects.app.superapp_admin_block]
+name = "SuperApp Admin Block"
+display_name_field = "name"
+
+  [metaobjects.app.superapp_admin_block.access]
+  admin = "merchant_read_write"
+  storefront = "none"
+
+[metaobjects.app.superapp_admin_block.fields.module_id]
+name = "Module ID"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_block.fields.module_type]
+name = "Module Type"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_block.fields.name]
+name = "Name"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_block.fields.target]
+name = "Target"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_block.fields.label]
+name = "Label"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_block.fields.config_json]
+name = "Config JSON"
+type = "json"
+required = true
+
+[metaobjects.app.superapp_admin_action]
+name = "SuperApp Admin Action"
+display_name_field = "name"
+
+  [metaobjects.app.superapp_admin_action.access]
+  admin = "merchant_read_write"
+  storefront = "none"
+
+[metaobjects.app.superapp_admin_action.fields.module_id]
+name = "Module ID"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_action.fields.module_type]
+name = "Module Type"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_action.fields.name]
+name = "Name"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_action.fields.target]
+name = "Target"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_action.fields.label]
+name = "Label"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_action.fields.title]
+name = "Title"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_admin_action.fields.config_json]
+name = "Config JSON"
+type = "json"
+required = true
+
+[metaobjects.app.superapp_function_config]
+name = "SuperApp Function Config"
+display_name_field = "function_key"
+
+  [metaobjects.app.superapp_function_config.access]
+  admin = "merchant_read_write"
+  storefront = "none"
+
+[metaobjects.app.superapp_function_config.fields.function_key]
+name = "Function Key"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_function_config.fields.config_json]
+name = "Config JSON"
+type = "json"
+required = true
+
+[metaobjects.app.superapp_checkout_upsell]
+name = "SuperApp Checkout Upsell"
+display_name_field = "name"
+
+  [metaobjects.app.superapp_checkout_upsell.access]
+  admin = "merchant_read_write"
+  storefront = "public_read"
+
+[metaobjects.app.superapp_checkout_upsell.fields.module_id]
+name = "Module ID"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_checkout_upsell.fields.module_type]
+name = "Module Type"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_checkout_upsell.fields.name]
+name = "Name"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_checkout_upsell.fields.config_json]
+name = "Config JSON"
+type = "json"
+required = true
+
+[metaobjects.app.superapp_customer_account_block]
+name = "SuperApp Customer Account Block"
+display_name_field = "name"
+
+  [metaobjects.app.superapp_customer_account_block.access]
+  admin = "merchant_read_write"
+  storefront = "public_read"
+
+[metaobjects.app.superapp_customer_account_block.fields.module_id]
+name = "Module ID"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_customer_account_block.fields.module_type]
+name = "Module Type"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_customer_account_block.fields.name]
+name = "Name"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_customer_account_block.fields.target]
+name = "Target"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_customer_account_block.fields.config_json]
+name = "Config JSON"
+type = "json"
+required = true
+
+[metaobjects.app.superapp_proxy_widget]
+name = "SuperApp Proxy Widget"
+display_name_field = "name"
+
+  [metaobjects.app.superapp_proxy_widget.access]
+  admin = "merchant_read_write"
+  storefront = "none"
+
+[metaobjects.app.superapp_proxy_widget.fields.widget_id]
+name = "Widget ID"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_proxy_widget.fields.name]
+name = "Name"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.superapp_proxy_widget.fields.config_json]
+name = "Config JSON"
+type = "json"
+required = true
+
+[metaobjects.app.superapp_proxy_widget.fields.style_css]
+name = "Style CSS"
+type = "multi_line_text_field"
+required = false

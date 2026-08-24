@@ -19,7 +19,7 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
 const SENTINELS = {
-  'shopify.app.toml': [
+  'shopify.app.production.toml': [
     'write_themes', // theme edit access (native sections)
     'customers/data_request', // GDPR compliance webhooks
     'customers/redact',
