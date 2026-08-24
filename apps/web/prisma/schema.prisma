@@ -16,6 +16,7 @@ model Shop {
   shopDomain   String   @unique
   accessToken  String
   planTier     String   @default("UNKNOWN")
+  shopGid      String?  // gid://shopify/Shop/… — for Partner API activeSubscription lookups
   timezone     String?  // doc 24.4.1: plan_type (plus/non_plus) aligned via planTier
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -397,6 +398,8 @@ model AppSubscription {
   shop            Shop     @relation(fields: [shopId], references: [id])
   planName        String
   shopifySubId    String?
+  planHandle      String?   // App Pricing plan handle (free|starter|growth|pro); null = internal override / legacy
+  lastSyncedAt    DateTime? // last successful Partner API reconcile
   status          String   @default("ACTIVE") // ACTIVE | CANCELLED | EXPIRED
   trialEndsAt     DateTime?
   currentPeriodEnd DateTime?

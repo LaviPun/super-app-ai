@@ -1,4 +1,4 @@
-api_version = "2026-04"
+api_version = "2026-07"
 
 # SuperApp Admin Print — custom print documents (packing slip / invoice / label /
 # pick list) for orders and products (Print Action Extension API). Each target renders
