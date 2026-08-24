@@ -62,11 +62,12 @@ test.describe('authenticated internal crawl', () => {
     expect(failedRequests, `failed requests:\n${failedRequests.join('\n')}`).toEqual([]);
   });
 
-  test('AI assistant import modal opens', async ({ page }) => {
+  // Realigned to the real UI 2026-08-24 (task-8b): import session is an inline
+  // collapsible panel, not a data-testid-scoped modal dialog — see task-8b-report.md.
+  test('AI assistant import panel opens', async ({ page }) => {
     await page.goto('/internal/ai-assistant');
-    await page.getByTestId('memory-import').getByRole('button', { name: 'Import' }).click();
-    await expect(page.getByRole('dialog')).toBeVisible();
-    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Expand import session' }).click();
+    await expect(page.getByRole('button', { name: 'Import', exact: true })).toBeVisible();
   });
 
   test('templates index loads', async ({ page }) => {

@@ -458,6 +458,10 @@ export function Modal({ title, children, onClose, footer, size = 'md', sub }: Mo
     return () => { document.removeEventListener('keydown', h); document.body.style.overflow = ''; };
   }, [onClose]);
   const widths: Record<string, number> = { sm: 440, md: 560, lg: 760, xl: 920 };
+  // Real dialog semantics: role="dialog"/aria-modal so this is announced (and
+  // focus-trappable) as a modal, and aria-labelledby wires the visible title
+  // in as its accessible name instead of leaving the dialog unnamed.
+  const titleId = React.useId();
   return React.createElement(
     'div',
     {
@@ -467,19 +471,24 @@ export function Modal({ title, children, onClose, footer, size = 'md', sub }: Mo
     },
     React.createElement(
       'div',
-      { style: { width: '100%', maxWidth: widths[size], background: 'var(--p-surface)', borderRadius: 'var(--p-r-lg)', boxShadow: 'var(--p-shadow-500)', animation: 'modalIn .16s ease-out' } },
+      {
+        role: 'dialog',
+        'aria-modal': 'true',
+        ...(title ? { 'aria-labelledby': titleId } : {}),
+        style: { width: '100%', maxWidth: widths[size], background: 'var(--p-surface)', borderRadius: 'var(--p-r-lg)', boxShadow: 'var(--p-shadow-500)', animation: 'modalIn .16s ease-out' },
+      },
       React.createElement(
         'div',
         { className: 'row spread', style: { padding: '16px 20px', borderBottom: '1px solid var(--p-border)' } },
         React.createElement(
           'div',
           { className: 'stack', style: { gap: 2 } },
-          React.createElement('div', { className: 't-h2' }, title),
+          React.createElement('div', { className: 't-h2', id: titleId }, title),
           sub && React.createElement('div', { className: 't-xs t-muted' }, sub),
         ),
         React.createElement(
           'button',
-          { onClick: onClose, style: { border: 0, background: 'none', cursor: 'pointer', padding: 4, color: 'var(--p-icon)' } },
+          { onClick: onClose, 'aria-label': 'Close dialog', style: { border: 0, background: 'none', cursor: 'pointer', padding: 4, color: 'var(--p-icon)' } },
           React.createElement(Icon, { name: 'x', size: 18 }),
         ),
       ),
