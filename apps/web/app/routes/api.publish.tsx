@@ -7,7 +7,7 @@ export async function loader() {
 import { shopify } from '~/shopify.server';
 import { ModuleService } from '~/services/modules/module.service';
 import { RecipeService } from '~/services/recipes/recipe.service';
-import { PublishService, ModuleNotPublishableError } from '~/services/publish/publish.service';
+import { PublishService, ModuleNotPublishableError, PublishPartialFailureError } from '~/services/publish/publish.service';
 import { validateBeforePublish } from '~/services/publish/pre-publish-validator.server';
 import { ThemeService } from '~/services/shopify/theme.service';
 import { CapabilityService } from '~/services/shopify/capability.service';
@@ -238,7 +238,7 @@ export async function action({ request }: { request: Request }) {
 
       try {
         const publisher = new PublishService(admin, { shop: session.shop, shopId: shopRow?.id });
-        await publisher.publish(spec, target);
+        const publishResult = await publisher.publish(spec, target);
 
         // R3.3: provision the module's declared typed data store (schemaJson set →
         // typed forms + write-time validation activate). Additive/idempotent; no-op
@@ -279,7 +279,7 @@ export async function action({ request }: { request: Request }) {
           source: 'merchant_api',
           idempotencyKey: `publish:${session.shop}:${module.id}:${draft.id}:${target.kind === 'THEME' ? target.themeId : 'platform'}`,
         });
-        await jobs.succeed(job.id, { ok: true });
+        await jobs.succeed(job.id, { ok: true, ledger: publishResult.ledger });
         await new ActivityLogService().log({ actor: 'MERCHANT', action: 'MODULE_PUBLISHED', resource: `module:${module.id}`, shopId: shopRow?.id, details: { target: target.kind, versionId: draft.id } });
 
         await logRequestOutcome({ shopId: shopRow?.id, pathOrIntent: '/api/publish', success: true, details: { moduleId: module.id } });
@@ -287,6 +287,27 @@ export async function action({ request }: { request: Request }) {
         return redirect(`/modules/${module.id}?published=1`);
       } catch (e) {
         await jobs.fail(job.id, e);
+        // WS-E finding 4: a partial failure carries exactly which ops already
+        // completed (all idempotent) so the merchant knows a republish converges
+        // instead of guessing whether it's safe to retry.
+        if (e instanceof PublishPartialFailureError) {
+          await logRequestOutcome({
+            shopId: shopRow?.id,
+            pathOrIntent: '/api/publish',
+            success: false,
+            details: { failedOp: e.failedOp, completed: e.completed, moduleId: module.id },
+          });
+          return json(
+            {
+              error: e.message,
+              code: e.code,
+              failedOp: e.failedOp,
+              completedOps: e.completed,
+              guidance: 'Republish to converge — completed steps are idempotent and will not duplicate.',
+            },
+            { status: 502 },
+          );
+        }
         // WS5/026: gated/blocked modules fail loudly — never reported as published.
         if (e instanceof ModuleNotPublishableError) {
           await logRequestOutcome({ shopId: shopRow?.id, pathOrIntent: '/api/publish', success: false, details: { error: e.message, status: e.preflight.status } });

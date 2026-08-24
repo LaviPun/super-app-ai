@@ -78,6 +78,35 @@ export class ModuleNotPublishableError extends Error {
   }
 }
 
+/** One completed (Shopify-writing) step of a publish, in the order it ran. */
+export type PublishOpLedgerEntry = { op: string; detail?: string };
+
+/**
+ * Thrown when `publish()` fails partway through (WS-E finding 4 — per-op publish
+ * ledger). Every write PublishService makes is idempotent (handle-keyed
+ * metaobject upserts, MetafieldsSet, activation ensure-calls) — so a caller never
+ * needs to hand-diagnose which step failed and clean up: republishing from
+ * scratch converges to the same end state without duplicating anything. Carries
+ * `completed` (the ops that already succeeded) and `failedOp` (the one that
+ * didn't) so the merchant/ops UI can surface exactly what happened instead of
+ * a single opaque error.
+ */
+export class PublishPartialFailureError extends Error {
+  readonly code = 'PUBLISH_PARTIAL_FAILURE';
+  constructor(
+    readonly failedOp: string,
+    readonly completed: PublishOpLedgerEntry[],
+    override readonly cause: unknown,
+  ) {
+    super(
+      `Publish failed at "${failedOp}" after ${completed.length} completed step(s): ` +
+        `${cause instanceof Error ? cause.message : String(cause)}. ` +
+        `Republishing is safe — every completed step is idempotent and a republish converges.`,
+    );
+    this.name = 'PublishPartialFailureError';
+  }
+}
+
 /**
  * Thrown when a native-section theme push is requested but the feature is not
  * enabled (flag off) — the app-block path remains the shipping default. Distinct
@@ -97,6 +126,24 @@ export class ThemeNativeSectionDisabledError extends Error {
 }
 
 export class PublishService {
+  /** Ops completed so far in the CURRENT publish() call, in order. Reset at the
+   *  top of every publish() so instance reuse across calls can't leak a stale
+   *  ledger into a later PublishPartialFailureError. */
+  private ledger: PublishOpLedgerEntry[] = [];
+
+  /** Run one Shopify-writing step, recording it on success or wrapping the
+   *  failure in PublishPartialFailureError (carrying every step completed so
+   *  far) so a caller can surface "republish is safe" instead of guessing. */
+  private async step<T>(op: string, fn: () => Promise<T>): Promise<T> {
+    try {
+      const out = await fn();
+      this.ledger.push({ op });
+      return out;
+    } catch (cause) {
+      throw new PublishPartialFailureError(op, [...this.ledger], cause);
+    }
+  }
+
   constructor(
     private readonly admin: AdminApiContext['admin'],
     /**
@@ -126,7 +173,10 @@ export class PublishService {
        */
       cartTransformBundles?: ResolvedBundle[];
     },
-  ): Promise<{ compiledJson?: string; preflight: ModulePublishPreflightResult }> {
+  ): Promise<{ compiledJson?: string; preflight: ModulePublishPreflightResult; ledger: PublishOpLedgerEntry[] }> {
+    // Fresh ledger for this call (WS-E finding 4) — see the `ledger` field doc.
+    this.ledger = [];
+
     // WS5/026: never silently no-op. Gate before any deploy work so a caller
     // cannot report "published" for a type that deploys nothing.
     const preflight = classifyModulePublishability(spec, {
@@ -243,7 +293,8 @@ export class PublishService {
 
     // ── Proxy widget → metaobject (looked up by handle at runtime) ───────────
     if (proxyWidgetPayload) {
-      await mo.upsertProxyWidgetObject(proxyWidgetPayload);
+      await this.step(`upsertMetaobject:superapp-proxy-${proxyWidgetPayload.widgetId}`, () =>
+        mo.upsertProxyWidgetObject(proxyWidgetPayload));
     }
 
     // ── Compiler ops ────────────────────────────────────────────────────────
@@ -257,44 +308,48 @@ export class PublishService {
         case 'THEME_ASSET_UPSERT': {
           if (!isThemeNativeSectionEnabled()) throw new ThemeNativeSectionDisabledError();
           const themeFiles = new ThemeFilesService(this.admin, this.session?.shop, this.session?.accessToken);
-          await themeFiles.upsertSection(op.themeId, op.key, op.value);
+          await this.step(`themeAsset:upsert:${op.key}`, () => themeFiles.upsertSection(op.themeId, op.key, op.value));
           break;
         }
 
         case 'THEME_ASSET_DELETE': {
           if (!isThemeNativeSectionEnabled()) throw new ThemeNativeSectionDisabledError();
           const themeFiles = new ThemeFilesService(this.admin, this.session?.shop, this.session?.accessToken);
-          await themeFiles.deleteFiles(op.themeId, [op.key]);
+          await this.step(`themeAsset:delete:${op.key}`, () => themeFiles.deleteFiles(op.themeId, [op.key]));
           break;
         }
 
         case 'SHOP_METAFIELD_SET':
-          await mf.setShopMetafield(op.namespace, op.key, op.type, op.value);
+          await this.step(`SHOP_METAFIELD_SET:${op.namespace}/${op.key}`, () =>
+            mf.setShopMetafield(op.namespace, op.key, op.type, op.value));
           break;
 
         case 'SHOP_METAFIELD_DELETE':
-          await mf.deleteShopMetafield(op.namespace, op.key);
+          await this.step(`SHOP_METAFIELD_DELETE:${op.namespace}/${op.key}`, () =>
+            mf.deleteShopMetafield(op.namespace, op.key));
           break;
 
         case 'FUNCTION_CONFIG_UPSERT':
-          await this.writeFunctionConfig(mo, op.functionKey, op.config);
+          await this.step(`FUNCTION_CONFIG_UPSERT:${op.functionKey}`, () =>
+            this.writeFunctionConfig(mo, op.functionKey, op.config));
           // WS-E: the config metaobject alone deploys NOTHING — ensure the Shopify
           // activation object that makes the function execute. Runs even when the
           // config diff is a no-op (a prior partial failure may have written config
           // without activation). Throws without shopId: fail loudly, never publish a
           // function silently inert.
-          await this.ensureFunctionActivation(op.functionKey);
+          await this.step(`functionActivation:${op.functionKey}`, () => this.ensureFunctionActivation(op.functionKey));
           break;
 
         case 'METAOBJECT_ENSURE_DEF':
-          await mo.ensureMetafieldDefinition(op.namespace, op.key, op.metaobjectType, op.isList);
+          await this.step(`ensureMetafieldDefinition:${op.namespace}/${op.key}`, () =>
+            mo.ensureMetafieldDefinition(op.namespace, op.key, op.metaobjectType, op.isList));
           break;
 
         case 'WEB_PIXEL_UPSERT':
           // Idempotent: WebPixelService reads the app's current pixel and
           // webPixelUpdate-s it when present, else webPixelCreate-s (settings
           // must match extensions/superapp-web-pixel's [settings] schema).
-          await new WebPixelService(this.admin).upsert(op.settings);
+          await this.step('WEB_PIXEL_UPSERT', () => new WebPixelService(this.admin).upsert(op.settings));
           break;
 
         case 'AUDIT':
@@ -307,7 +362,7 @@ export class PublishService {
       }
     }
 
-    return { compiledJson, preflight };
+    return { compiledJson, preflight, ledger: this.ledger };
   }
 
   // ─── Write helpers ─────────────────────────────────────────────────────────
@@ -317,13 +372,14 @@ export class PublishService {
     moduleId: string,
     payload: ThemeModulePayload,
   ): Promise<void> {
-    await mo.ensureMetafieldDefinition(
-      THEME_MODULES_NAMESPACE, THEME_MODULE_REFS_KEY, '$app:superapp_module', true,
-    );
-    const gid = await mo.upsertModuleObject(moduleId, payload);
+    await this.step(`ensureMetafieldDefinition:${THEME_MODULES_NAMESPACE}/${THEME_MODULE_REFS_KEY}`, () =>
+      mo.ensureMetafieldDefinition(THEME_MODULES_NAMESPACE, THEME_MODULE_REFS_KEY, '$app:superapp_module', true));
+    const gid = await this.step(`upsertMetaobject:superapp-module-${moduleId}`, () =>
+      mo.upsertModuleObject(moduleId, payload));
     const currentGids = await mo.getModuleGidList(THEME_MODULES_NAMESPACE, THEME_MODULE_REFS_KEY);
     const updatedGids = Array.from(new Set([...currentGids, gid]));
-    await mo.setModuleGidList(THEME_MODULES_NAMESPACE, THEME_MODULE_REFS_KEY, updatedGids);
+    await this.step(`setModuleGidList:${THEME_MODULES_NAMESPACE}/${THEME_MODULE_REFS_KEY}`, () =>
+      mo.setModuleGidList(THEME_MODULES_NAMESPACE, THEME_MODULE_REFS_KEY, updatedGids));
   }
 
   private async writeAdminBlock(
@@ -331,13 +387,14 @@ export class PublishService {
     moduleId: string,
     payload: AdminBlockPayload,
   ): Promise<void> {
-    await mo.ensureMetafieldDefinition(
-      ADMIN_BLOCKS_NAMESPACE, ADMIN_BLOCK_REFS_KEY, '$app:superapp_admin_block', true,
-    );
-    const gid = await mo.upsertAdminBlockObject(moduleId, payload);
+    await this.step(`ensureMetafieldDefinition:${ADMIN_BLOCKS_NAMESPACE}/${ADMIN_BLOCK_REFS_KEY}`, () =>
+      mo.ensureMetafieldDefinition(ADMIN_BLOCKS_NAMESPACE, ADMIN_BLOCK_REFS_KEY, '$app:superapp_admin_block', true));
+    const gid = await this.step(`upsertMetaobject:superapp-block-${moduleId}`, () =>
+      mo.upsertAdminBlockObject(moduleId, payload));
     const currentGids = await mo.getModuleGidList(ADMIN_BLOCKS_NAMESPACE, ADMIN_BLOCK_REFS_KEY);
     const updatedGids = Array.from(new Set([...currentGids, gid]));
-    await mo.setModuleGidList(ADMIN_BLOCKS_NAMESPACE, ADMIN_BLOCK_REFS_KEY, updatedGids);
+    await this.step(`setModuleGidList:${ADMIN_BLOCKS_NAMESPACE}/${ADMIN_BLOCK_REFS_KEY}`, () =>
+      mo.setModuleGidList(ADMIN_BLOCKS_NAMESPACE, ADMIN_BLOCK_REFS_KEY, updatedGids));
   }
 
   private async writeAdminAction(
@@ -345,13 +402,14 @@ export class PublishService {
     moduleId: string,
     payload: AdminActionPayload,
   ): Promise<void> {
-    await mo.ensureMetafieldDefinition(
-      ADMIN_ACTIONS_NAMESPACE, ADMIN_ACTION_REFS_KEY, '$app:superapp_admin_action', true,
-    );
-    const gid = await mo.upsertAdminActionObject(moduleId, payload);
+    await this.step(`ensureMetafieldDefinition:${ADMIN_ACTIONS_NAMESPACE}/${ADMIN_ACTION_REFS_KEY}`, () =>
+      mo.ensureMetafieldDefinition(ADMIN_ACTIONS_NAMESPACE, ADMIN_ACTION_REFS_KEY, '$app:superapp_admin_action', true));
+    const gid = await this.step(`upsertMetaobject:superapp-action-${moduleId}`, () =>
+      mo.upsertAdminActionObject(moduleId, payload));
     const currentGids = await mo.getModuleGidList(ADMIN_ACTIONS_NAMESPACE, ADMIN_ACTION_REFS_KEY);
     const updatedGids = Array.from(new Set([...currentGids, gid]));
-    await mo.setModuleGidList(ADMIN_ACTIONS_NAMESPACE, ADMIN_ACTION_REFS_KEY, updatedGids);
+    await this.step(`setModuleGidList:${ADMIN_ACTIONS_NAMESPACE}/${ADMIN_ACTION_REFS_KEY}`, () =>
+      mo.setModuleGidList(ADMIN_ACTIONS_NAMESPACE, ADMIN_ACTION_REFS_KEY, updatedGids));
   }
 
   private async writeAdminDiscountUi(
@@ -359,13 +417,14 @@ export class PublishService {
     moduleId: string,
     payload: AdminDiscountUiPayload,
   ): Promise<void> {
-    await mo.ensureMetafieldDefinition(
-      ADMIN_DISCOUNT_UI_NAMESPACE, ADMIN_DISCOUNT_UI_REFS_KEY, '$app:superapp_admin_discount_ui', true,
-    );
-    const gid = await mo.upsertAdminDiscountUiObject(moduleId, payload);
+    await this.step(`ensureMetafieldDefinition:${ADMIN_DISCOUNT_UI_NAMESPACE}/${ADMIN_DISCOUNT_UI_REFS_KEY}`, () =>
+      mo.ensureMetafieldDefinition(ADMIN_DISCOUNT_UI_NAMESPACE, ADMIN_DISCOUNT_UI_REFS_KEY, '$app:superapp_admin_discount_ui', true));
+    const gid = await this.step(`upsertMetaobject:superapp-discount-ui-${moduleId}`, () =>
+      mo.upsertAdminDiscountUiObject(moduleId, payload));
     const currentGids = await mo.getModuleGidList(ADMIN_DISCOUNT_UI_NAMESPACE, ADMIN_DISCOUNT_UI_REFS_KEY);
     const updatedGids = Array.from(new Set([...currentGids, gid]));
-    await mo.setModuleGidList(ADMIN_DISCOUNT_UI_NAMESPACE, ADMIN_DISCOUNT_UI_REFS_KEY, updatedGids);
+    await this.step(`setModuleGidList:${ADMIN_DISCOUNT_UI_NAMESPACE}/${ADMIN_DISCOUNT_UI_REFS_KEY}`, () =>
+      mo.setModuleGidList(ADMIN_DISCOUNT_UI_NAMESPACE, ADMIN_DISCOUNT_UI_REFS_KEY, updatedGids));
   }
 
   private async writeAdminLink(
@@ -373,13 +432,14 @@ export class PublishService {
     moduleId: string,
     payload: AdminLinkPayload,
   ): Promise<void> {
-    await mo.ensureMetafieldDefinition(
-      ADMIN_LINK_NAMESPACE, ADMIN_LINK_REFS_KEY, '$app:superapp_admin_link', true,
-    );
-    const gid = await mo.upsertAdminLinkObject(moduleId, payload);
+    await this.step(`ensureMetafieldDefinition:${ADMIN_LINK_NAMESPACE}/${ADMIN_LINK_REFS_KEY}`, () =>
+      mo.ensureMetafieldDefinition(ADMIN_LINK_NAMESPACE, ADMIN_LINK_REFS_KEY, '$app:superapp_admin_link', true));
+    const gid = await this.step(`upsertMetaobject:superapp-link-${moduleId}`, () =>
+      mo.upsertAdminLinkObject(moduleId, payload));
     const currentGids = await mo.getModuleGidList(ADMIN_LINK_NAMESPACE, ADMIN_LINK_REFS_KEY);
     const updatedGids = Array.from(new Set([...currentGids, gid]));
-    await mo.setModuleGidList(ADMIN_LINK_NAMESPACE, ADMIN_LINK_REFS_KEY, updatedGids);
+    await this.step(`setModuleGidList:${ADMIN_LINK_NAMESPACE}/${ADMIN_LINK_REFS_KEY}`, () =>
+      mo.setModuleGidList(ADMIN_LINK_NAMESPACE, ADMIN_LINK_REFS_KEY, updatedGids));
   }
 
   private async writeAdminPrint(
@@ -387,13 +447,14 @@ export class PublishService {
     moduleId: string,
     payload: AdminPrintPayload,
   ): Promise<void> {
-    await mo.ensureMetafieldDefinition(
-      ADMIN_PRINT_NAMESPACE, ADMIN_PRINT_REFS_KEY, '$app:superapp_admin_print', true,
-    );
-    const gid = await mo.upsertAdminPrintObject(moduleId, payload);
+    await this.step(`ensureMetafieldDefinition:${ADMIN_PRINT_NAMESPACE}/${ADMIN_PRINT_REFS_KEY}`, () =>
+      mo.ensureMetafieldDefinition(ADMIN_PRINT_NAMESPACE, ADMIN_PRINT_REFS_KEY, '$app:superapp_admin_print', true));
+    const gid = await this.step(`upsertMetaobject:superapp-print-${moduleId}`, () =>
+      mo.upsertAdminPrintObject(moduleId, payload));
     const currentGids = await mo.getModuleGidList(ADMIN_PRINT_NAMESPACE, ADMIN_PRINT_REFS_KEY);
     const updatedGids = Array.from(new Set([...currentGids, gid]));
-    await mo.setModuleGidList(ADMIN_PRINT_NAMESPACE, ADMIN_PRINT_REFS_KEY, updatedGids);
+    await this.step(`setModuleGidList:${ADMIN_PRINT_NAMESPACE}/${ADMIN_PRINT_REFS_KEY}`, () =>
+      mo.setModuleGidList(ADMIN_PRINT_NAMESPACE, ADMIN_PRINT_REFS_KEY, updatedGids));
   }
 
   private async writeAdminSegmentTemplate(
@@ -401,13 +462,14 @@ export class PublishService {
     moduleId: string,
     payload: AdminSegmentTemplatePayload,
   ): Promise<void> {
-    await mo.ensureMetafieldDefinition(
-      ADMIN_SEGMENT_TEMPLATE_NAMESPACE, ADMIN_SEGMENT_TEMPLATE_REFS_KEY, '$app:superapp_admin_segment_template', true,
-    );
-    const gid = await mo.upsertAdminSegmentTemplateObject(moduleId, payload);
+    await this.step(`ensureMetafieldDefinition:${ADMIN_SEGMENT_TEMPLATE_NAMESPACE}/${ADMIN_SEGMENT_TEMPLATE_REFS_KEY}`, () =>
+      mo.ensureMetafieldDefinition(ADMIN_SEGMENT_TEMPLATE_NAMESPACE, ADMIN_SEGMENT_TEMPLATE_REFS_KEY, '$app:superapp_admin_segment_template', true));
+    const gid = await this.step(`upsertMetaobject:superapp-segment-template-${moduleId}`, () =>
+      mo.upsertAdminSegmentTemplateObject(moduleId, payload));
     const currentGids = await mo.getModuleGidList(ADMIN_SEGMENT_TEMPLATE_NAMESPACE, ADMIN_SEGMENT_TEMPLATE_REFS_KEY);
     const updatedGids = Array.from(new Set([...currentGids, gid]));
-    await mo.setModuleGidList(ADMIN_SEGMENT_TEMPLATE_NAMESPACE, ADMIN_SEGMENT_TEMPLATE_REFS_KEY, updatedGids);
+    await this.step(`setModuleGidList:${ADMIN_SEGMENT_TEMPLATE_NAMESPACE}/${ADMIN_SEGMENT_TEMPLATE_REFS_KEY}`, () =>
+      mo.setModuleGidList(ADMIN_SEGMENT_TEMPLATE_NAMESPACE, ADMIN_SEGMENT_TEMPLATE_REFS_KEY, updatedGids));
   }
 
   private async writeFunctionConfig(
@@ -479,14 +541,15 @@ export class PublishService {
       for (const b of bundleInputs) {
         const componentSkus = (b.componentSkus as string[] | undefined) ?? [];
         const title = String(b.title ?? 'Bundle');
-        const components = await svc.resolveComponents(componentSkus);
+        const components = await this.step('cartTransform:resolve', () => svc.resolveComponents(componentSkus));
         if (components.length < 2) {
           throw new Error(
             `Bundle "${title}": only ${components.length}/${componentSkus.length} component SKUs resolved to store variants — fix the SKUs and republish.`,
           );
         }
         const bundleId = bundleIdFromTitle(title);
-        const parentVariantId = await svc.ensureParentBundleProduct({ bundleId, title, components });
+        const parentVariantId = await this.step('cartTransform:parentProduct', () =>
+          svc.ensureParentBundleProduct({ bundleId, title, components }));
         const base: ResolvedBundle = {
           bundleId, title, parentVariantId,
           bundleSku: bundleParentSku(bundleId),
@@ -501,11 +564,12 @@ export class PublishService {
     // co-deploy path's): split Plus-only fixed pricing, activate with the
     // plan-correct config, run the managed-discount fallback leg.
     const shopDomain = await this.resolveShopDomain(shopId);
-    const cartTransformGid = await activateBundleCartTransformForPlan(this.admin, {
-      shopId,
-      shopDomain,
-      bundles: resolved,
-    });
+    const cartTransformGid = await this.step('cartTransform:activate', () =>
+      activateBundleCartTransformForPlan(this.admin, {
+        shopId,
+        shopDomain,
+        bundles: resolved,
+      }));
     // Record for unpublish (Task 10) — kind cartTransform, one per shop.
     await new ActivationService(this.admin, shopId).recordCartTransform(cartTransformGid);
   }
@@ -547,13 +611,14 @@ export class PublishService {
     moduleId: string,
     payload: CheckoutUpsellPayload,
   ): Promise<void> {
-    await mo.ensureMetafieldDefinition(
-      CHECKOUT_NAMESPACE, CHECKOUT_UPSELL_REFS_KEY, '$app:superapp_checkout_upsell', true,
-    );
-    const gid = await mo.upsertCheckoutUpsellObject(moduleId, payload);
+    await this.step(`ensureMetafieldDefinition:${CHECKOUT_NAMESPACE}/${CHECKOUT_UPSELL_REFS_KEY}`, () =>
+      mo.ensureMetafieldDefinition(CHECKOUT_NAMESPACE, CHECKOUT_UPSELL_REFS_KEY, '$app:superapp_checkout_upsell', true));
+    const gid = await this.step(`upsertMetaobject:superapp-checkout-upsell-${moduleId}`, () =>
+      mo.upsertCheckoutUpsellObject(moduleId, payload));
     const currentGids = await mo.getModuleGidList(CHECKOUT_NAMESPACE, CHECKOUT_UPSELL_REFS_KEY);
     const updatedGids = Array.from(new Set([...currentGids, gid]));
-    await mo.setModuleGidList(CHECKOUT_NAMESPACE, CHECKOUT_UPSELL_REFS_KEY, updatedGids);
+    await this.step(`setModuleGidList:${CHECKOUT_NAMESPACE}/${CHECKOUT_UPSELL_REFS_KEY}`, () =>
+      mo.setModuleGidList(CHECKOUT_NAMESPACE, CHECKOUT_UPSELL_REFS_KEY, updatedGids));
   }
 
   private async writeCustomerAccountBlock(
@@ -561,12 +626,13 @@ export class PublishService {
     moduleId: string,
     payload: CustomerAccountBlockPayload,
   ): Promise<void> {
-    await mo.ensureMetafieldDefinition(
-      CUSTOMER_ACCOUNT_NAMESPACE, CUSTOMER_ACCOUNT_BLOCK_REFS_KEY, '$app:superapp_customer_account_block', true,
-    );
-    const gid = await mo.upsertCustomerAccountBlockObject(moduleId, payload);
+    await this.step(`ensureMetafieldDefinition:${CUSTOMER_ACCOUNT_NAMESPACE}/${CUSTOMER_ACCOUNT_BLOCK_REFS_KEY}`, () =>
+      mo.ensureMetafieldDefinition(CUSTOMER_ACCOUNT_NAMESPACE, CUSTOMER_ACCOUNT_BLOCK_REFS_KEY, '$app:superapp_customer_account_block', true));
+    const gid = await this.step(`upsertMetaobject:superapp-ca-block-${moduleId}`, () =>
+      mo.upsertCustomerAccountBlockObject(moduleId, payload));
     const currentGids = await mo.getModuleGidList(CUSTOMER_ACCOUNT_NAMESPACE, CUSTOMER_ACCOUNT_BLOCK_REFS_KEY);
     const updatedGids = Array.from(new Set([...currentGids, gid]));
-    await mo.setModuleGidList(CUSTOMER_ACCOUNT_NAMESPACE, CUSTOMER_ACCOUNT_BLOCK_REFS_KEY, updatedGids);
+    await this.step(`setModuleGidList:${CUSTOMER_ACCOUNT_NAMESPACE}/${CUSTOMER_ACCOUNT_BLOCK_REFS_KEY}`, () =>
+      mo.setModuleGidList(CUSTOMER_ACCOUNT_NAMESPACE, CUSTOMER_ACCOUNT_BLOCK_REFS_KEY, updatedGids));
   }
 }
