@@ -6,6 +6,22 @@ const db = new Map<string, { functionKey: string; kind: string; activationGid: s
  *  (maybeDeleteWebPixel's prisma.module.count query). */
 const moduleState = { otherPublishedPixelCount: 0 };
 
+/**
+ * Configurable fixture for `ModuleService.markUnpublished` /
+ * `ModuleService.unpublishThenDelete` (Tasks 10-11) — module.findFirst
+ * returns this row (or null to simulate "not found"); module.update /
+ * moduleVersion.updateMany / module.delete calls are captured for assertion.
+ */
+const moduleFixture: { row: Record<string, unknown> | null } = { row: null };
+const capturedCalls: {
+  moduleUpdate: unknown[];
+  versionUpdateMany: unknown[];
+  moduleDelete: unknown[];
+  moduleFindFirstArgs?: unknown;
+} = {
+  moduleUpdate: [], versionUpdateMany: [], moduleDelete: [],
+};
+
 vi.mock('~/db.server', () => ({
   getPrisma: () => ({
     functionActivation: {
@@ -21,6 +37,24 @@ vi.mock('~/db.server', () => ({
     },
     module: {
       count: async () => moduleState.otherPublishedPixelCount,
+      findFirst: async (args: Record<string, unknown>) => {
+        capturedCalls.moduleFindFirstArgs = args;
+        return moduleFixture.row;
+      },
+      update: async (args: Record<string, unknown>) => {
+        capturedCalls.moduleUpdate.push(args);
+        return args;
+      },
+      delete: async (args: Record<string, unknown>) => {
+        capturedCalls.moduleDelete.push(args);
+        return args;
+      },
+    },
+    moduleVersion: {
+      updateMany: async (args: Record<string, unknown>) => {
+        capturedCalls.versionUpdateMany.push(args);
+        return { count: 1 };
+      },
     },
     shop: {
       findUnique: async () => ({ id: 'shop_1', shopDomain: 'test.myshopify.com', planTier: 'PLUS' }),
@@ -50,6 +84,11 @@ function mockAdmin(resolve: (op: string, variables?: Record<string, unknown>) =>
 beforeEach(() => {
   db.clear();
   moduleState.otherPublishedPixelCount = 0;
+  moduleFixture.row = null;
+  capturedCalls.moduleUpdate = [];
+  capturedCalls.versionUpdateMany = [];
+  capturedCalls.moduleDelete = [];
+  capturedCalls.moduleFindFirstArgs = undefined;
 });
 
 describe('MetaobjectService.getMetaobjectIdByHandle', () => {
@@ -237,5 +276,30 @@ describe('UnpublishService', () => {
     expect(calls.map((c) => c.op)).toEqual(['SuperAppCartTransformDelete']);
     expect(report.deletedActivations).toEqual(['cartTransform']);
     expect(db.has('shop_1:cartTransform')).toBe(false);
+  });
+});
+
+describe('ModuleService.markUnpublished (E7)', () => {
+  it('flips module to DRAFT, clears activeVersionId, marks published versions UNPUBLISHED', async () => {
+    moduleFixture.row = { id: 'm1', status: 'PUBLISHED', activeVersionId: 'v2' };
+    const { ModuleService } = await import('~/services/modules/module.service');
+    await new ModuleService().markUnpublished('shop.example.com', 'm1');
+
+    expect(capturedCalls.moduleUpdate[0]).toMatchObject({
+      where: { id: 'm1' },
+      data: { status: 'DRAFT', activeVersionId: null },
+    });
+    expect(capturedCalls.versionUpdateMany[0]).toMatchObject({
+      where: { moduleId: 'm1', status: 'PUBLISHED' },
+      data: { status: 'UNPUBLISHED' },
+    });
+  });
+
+  it('throws when the module is not found for this shop', async () => {
+    moduleFixture.row = null;
+    const { ModuleService } = await import('~/services/modules/module.service');
+    await expect(new ModuleService().markUnpublished('shop.example.com', 'missing')).rejects.toThrow('Module not found');
+    expect(capturedCalls.moduleUpdate).toHaveLength(0);
+    expect(capturedCalls.versionUpdateMany).toHaveLength(0);
   });
 });

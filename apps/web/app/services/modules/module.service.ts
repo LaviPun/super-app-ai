@@ -284,6 +284,19 @@ export class ModuleService {
     return mv;
   }
 
+  /** WS-E: DB half of unpublish — Shopify cleanup is UnpublishService's job and MUST
+   *  run first (routes own the ordering). */
+  async markUnpublished(shopDomain: string, moduleId: string) {
+    const prisma = getPrisma();
+    const module = await prisma.module.findFirst({ where: { id: moduleId, shop: { shopDomain } } });
+    if (!module) throw new Error('Module not found');
+    await prisma.moduleVersion.updateMany({
+      where: { moduleId, status: 'PUBLISHED' },
+      data: { status: 'UNPUBLISHED' },
+    });
+    await prisma.module.update({ where: { id: moduleId }, data: { status: 'DRAFT', activeVersionId: null } });
+  }
+
   async deleteModule(shopDomain: string, moduleId: string) {
     const prisma = getPrisma();
     const module = await prisma.module.findFirst({

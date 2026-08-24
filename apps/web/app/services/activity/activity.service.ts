@@ -6,6 +6,7 @@ import { getRequestContext } from '~/services/observability/correlation.server';
 export type ActivityAction =
   | 'MODULE_CREATED'
   | 'MODULE_PUBLISHED'
+  | 'MODULE_UNPUBLISHED'
   | 'MODULE_DELETED'
   | 'MODULE_ROLLED_BACK'
   | 'MODULE_STYLE_UPDATED'

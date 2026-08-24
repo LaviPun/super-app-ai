@@ -374,6 +374,7 @@ function ModuleDetailBody() {
   const [tab, setTab] = useState('overview');
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [delOpen, setDelOpen] = useState(false);
+  const [unpubOpen, setUnpubOpen] = useState(false);
   const [modifyOpen, setModifyOpen] = useState(false);
   const [modifyInstruction, setModifyInstruction] = useState('');
   const [selectedThemeId, setSelectedThemeId] = useState(getDefaultThemeId(themes, publishedThemeId ?? null));
@@ -383,6 +384,7 @@ function ModuleDetailBody() {
 
   const publishFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const rollbackFetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const unpublishFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const deleteFetcher = useFetcher<{ ok?: boolean; error?: string; name?: string }>();
   const modifyFetcher = useFetcher<{ options?: any[]; error?: string }>();
   const applyFetcher = useFetcher<{ ok?: boolean; version?: number; error?: string }>();
@@ -452,6 +454,18 @@ function ModuleDetailBody() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rollbackFetcher.data, rollbackFetcher.state]);
+
+  useEffect(() => {
+    if (unpublishFetcher.state !== 'idle') return;
+    if (unpublishFetcher.data?.ok) {
+      ctx.toast('Unpublished — removed from your storefront');
+      setUnpubOpen(false);
+      revalidator.revalidate();
+    } else if (unpublishFetcher.data?.error) {
+      ctx.toast(unpublishFetcher.data.error, { error: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unpublishFetcher.data, unpublishFetcher.state]);
 
   useEffect(() => {
     if (deleteFetcher.state !== 'idle') return;
@@ -538,6 +552,7 @@ function ModuleDetailBody() {
   }, [fillSettingsFetcher.data, fillSettingsFetcher.state]);
 
   const justPublished = searchParams.get('published') === '1';
+  const justUnpublished = searchParams.get('unpublished') === '1';
 
   const publish = () => {
     const body: Record<string, string> = {};
@@ -550,6 +565,9 @@ function ModuleDetailBody() {
   const doDelete = () => {
     deleteFetcher.submit({ intent: 'delete' }, { method: 'post' });
     setDelOpen(false);
+  };
+  const doUnpublish = () => {
+    unpublishFetcher.submit({}, { method: 'post', action: `/api/modules/${moduleId}/unpublish` });
   };
   const duplicate = () => {
     duplicateFetcher.submit({ intent: 'duplicate' }, { method: 'post' });
@@ -619,6 +637,9 @@ function ModuleDetailBody() {
         <s-menu>
           <s-button icon="duplicate" onClick={duplicate}>Duplicate</s-button>
           <s-button icon="download" onClick={exportSpec}>Export spec</s-button>
+          {mod.status === 'PUBLISHED' && (
+            <s-button icon="minus-circle" tone="critical" onClick={() => setUnpubOpen(true)}>Unpublish</s-button>
+          )}
           <s-button icon="delete" tone="critical" onClick={() => setDelOpen(true)}>Delete module</s-button>
         </s-menu>
       </s-popover>
@@ -654,6 +675,10 @@ function ModuleDetailBody() {
         <s-banner tone="success" heading="Module published">This module is now live on your storefront.</s-banner>
       )}
 
+      {justUnpublished && (
+        <s-banner tone="info" heading="Module unpublished">This module is no longer live and is now a draft.</s-banner>
+      )}
+
       {isThemeModule && themes.length > 0 && (
         <s-box maxInlineSize="360px">
           <s-select label="Publish to theme" value={selectedThemeId} onChange={(e) => setSelectedThemeId(e.currentTarget.value)}>
@@ -669,6 +694,14 @@ function ModuleDetailBody() {
           loading={deleteFetcher.state !== 'idle'}
           onConfirm={doDelete} onClose={() => setDelOpen(false)}>
           <s-paragraph>{`This removes “${mod.name}” and all of its versions. This cannot be undone.`}</s-paragraph>
+        </ConfirmModal>
+      )}
+
+      {unpubOpen && (
+        <ConfirmModal open heading="Unpublish module?" tone="critical" confirmLabel="Unpublish"
+          loading={unpublishFetcher.state !== 'idle'}
+          onConfirm={doUnpublish} onClose={() => setUnpubOpen(false)}>
+          <s-paragraph>{`This removes “${mod.name}” from your storefront/admin and reverts it to a draft. You can publish it again later.`}</s-paragraph>
         </ConfirmModal>
       )}
 
