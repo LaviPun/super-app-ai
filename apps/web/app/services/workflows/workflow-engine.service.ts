@@ -14,7 +14,6 @@ import { evalExpression, resolveValue } from './expression-evaluator';
 import { getPrisma } from '~/db.server';
 import { getConnectorRegistry } from './connectors/index';
 
-const TERMINAL_RUN_STATUSES: RunStatus[] = ['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT'];
 const TERMINAL_STEP_STATUSES: StepStatus[] = ['SUCCESS', 'FAILED', 'SKIPPED'];
 
 // ─── Safety caps (docs/flow-automation.md §9c) ───────────────────────

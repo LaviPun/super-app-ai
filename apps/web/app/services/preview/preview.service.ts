@@ -989,7 +989,7 @@ export class PreviewService {
     const pct = isNaN(startRaw) ? 50 : Math.max(0, Math.min(100, startRaw));
     const imgBlocks = (spec.config.blocks ?? []).filter((b) => typeof b.imageUrl === 'string' && b.imageUrl).slice(0, 2);
     const panes = imgBlocks
-      .map((b, i) => {
+      .map((b) => {
         const bf = (b.fields ?? {}) as Record<string, unknown>;
         const label = String(b.text ?? bf.label ?? '');
         const alt = String(bf.alt ?? label);
