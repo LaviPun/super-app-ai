@@ -58,7 +58,7 @@ const EnvSchema = z.object({
   ALLOW_MERCHANT_CODE_EXECUTION: z.string().optional(),
 
   // Workflow email connector (optional)
-  EMAIL_CONNECTOR_PROVIDER: z.enum(['sendgrid', 'generic']).optional(),
+  EMAIL_CONNECTOR_PROVIDER: z.enum(['sendgrid', 'generic', 'resend', 'postmark']).optional(),
   EMAIL_API_URL: z.string().url().optional(),
   EMAIL_API_KEY_HEADER: z.string().min(1).optional(),
   EMAIL_API_KEY_PREFIX: z.string().optional(),

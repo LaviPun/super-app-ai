@@ -96,7 +96,8 @@ export type ActivityAction =
   | 'OPS_ALERT_OCCURRED'
   | 'OPS_ALERT_FIRED'
   // Integrations Hub (WS-INT) — every save/test action, one member per tile as it lands
-  | 'OPS_INTEGRATION_TESTED';
+  | 'OPS_INTEGRATION_TESTED'
+  | 'OPS_INTEGRATION_SAVED';
 
 export type ActivityActor = 'SYSTEM' | 'MERCHANT' | 'INTERNAL_ADMIN' | 'WEBHOOK' | 'CRON';
 

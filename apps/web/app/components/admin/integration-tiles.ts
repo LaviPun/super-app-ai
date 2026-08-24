@@ -32,4 +32,16 @@ export const INTEGRATION_TILES: readonly IntegrationTileDef[] = [
     configKind: 'ENV_REFLECT',
     description: 'Error tracking — DSN is set via Railway env var; this sends a test event.',
   },
+  {
+    id: 'email',
+    category: 'OPS_SERVICE',
+    label: 'Email',
+    // No single brand honestly represents this tile — it's one logical channel
+    // spanning five interchangeable providers (smtp/sendgrid/generic/resend/
+    // postmark), and simple-icons has no SendGrid export at all. 'generic-mail'
+    // is a hand-authored, non-brand envelope glyph — see integration-icon.tsx.
+    simpleIconSlug: 'generic-mail',
+    configKind: 'DB',
+    description: 'Transactional email for ops alerts and support notifications — SMTP, SendGrid, Resend, Postmark, or a generic JSON API.',
+  },
 ];

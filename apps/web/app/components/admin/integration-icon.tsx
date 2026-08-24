@@ -14,6 +14,18 @@
 // not solved here since this task only wires the Sentry tile (`siSentry`,
 // which exists).
 //
+// Task 9 (email tile): the Hub's single `email` tile spans five interchangeable
+// providers (smtp/sendgrid/generic/resend/postmark) — no single brand logo
+// honestly represents "the email channel" (and simple-icons has no SendGrid
+// entry at all — verified via a full-package keyword search). Rather than pick
+// one provider's logo to stand in for the whole channel, `generic-mail` below
+// is a hand-authored, license-free envelope glyph (Material Design's "email"
+// outline, Apache-2.0) added to the registry as a non-brand fallback — same
+// `REGISTRY[slug] ?? null` lookup contract as every simple-icons entry, so an
+// unresolvable/mistyped slug still fails silently-to-nothing rather than
+// breaking the build (only real simple-icons imports get the build-time
+// missing-export safety net; this one synthetic entry is exempt by design).
+//
 // Each slug actually in use is imported by name below, so an unresolvable
 // brand fails at BUILD time (missing export) rather than silently rendering
 // a blank icon in production.
@@ -21,8 +33,22 @@
 import type { SimpleIcon } from 'simple-icons';
 import { siSentry } from 'simple-icons';
 
+/** Hand-authored, non-brand icon for tiles that don't map to one company's logo.
+ * Glyph: Material Design's "email" outline (Apache-2.0), not a Simple Icons export. */
+const GENERIC_MAIL_PATH =
+  'M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z';
+const GENERIC_MAIL_ICON: SimpleIcon = {
+  title: 'Email',
+  slug: 'generic-mail',
+  svg: `<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="${GENERIC_MAIL_PATH}"/></svg>`,
+  path: GENERIC_MAIL_PATH,
+  source: 'https://fonts.google.com/icons (Material Symbols, Apache-2.0)',
+  hex: '6B7280', // DESIGN.md muted neutral — deliberately not a brand color.
+};
+
 const REGISTRY: Record<string, SimpleIcon> = {
   siSentry,
+  'generic-mail': GENERIC_MAIL_ICON,
 };
 
 export function IntegrationIcon({
