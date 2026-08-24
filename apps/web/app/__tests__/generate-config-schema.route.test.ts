@@ -40,4 +40,32 @@ describe('api.generate.config-schema (WS-F: kills hard-coded buy-bar fields)', (
     const res = await loader({ request: new Request('https://app.test/api/generate/config-schema') } as never);
     expect(res.status).toBe(400);
   });
+
+  it('strips pricing/recommendation/ruleEngine keys — those already have dedicated pack editors in the Builder (PricingControls/RecommendationControls/RuleEngineControls), so SchemaForm must never render a second, worse editor for the same fields', async () => {
+    const { getRecipeJsonSchemaForType } = await import('~/services/ai/recipe-json-schema.server');
+    vi.mocked(getRecipeJsonSchemaForType).mockReturnValueOnce({
+      type: 'object',
+      properties: {
+        config: {
+          type: 'object',
+          properties: {
+            label: { type: 'string' },
+            pricing: { type: 'object', properties: {} },
+            recommendation: { type: 'object', properties: {} },
+            ruleEngine: { type: 'object', properties: {} },
+          },
+        },
+        style: { type: 'object', properties: {} },
+      },
+    } as never);
+
+    const { loader } = await import('~/routes/api.generate.config-schema');
+    const res = await loader({ request: new Request('https://app.test/api/generate/config-schema?type=pricing.tiered') } as never);
+    const payload = (await res.json()) as { jsonSchema: { properties: Record<string, unknown> } };
+
+    expect(payload.jsonSchema.properties.label).toBeDefined();
+    expect(payload.jsonSchema.properties.pricing).toBeUndefined();
+    expect(payload.jsonSchema.properties.recommendation).toBeUndefined();
+    expect(payload.jsonSchema.properties.ruleEngine).toBeUndefined();
+  });
 });

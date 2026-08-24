@@ -33,7 +33,7 @@ import { classifyModulePublishability } from '~/services/publish/publish-preflig
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { StatusBadge, EmptyState, titleCase } from '~/components/merchant/polaris';
-import { nextStepAfterStream, withGenerationCorrelationId, stepIndexForSeenEvents, type StreamEventKind } from '~/utils/generation-outcome';
+import { nextStepAfterStream, withGenerationCorrelationId, stepIndexForSeenEvents, isStreamEventKind, type StreamEventKind } from '~/utils/generation-outcome';
 import { SchemaForm, type JsonSchemaNode } from '~/components/SchemaForm';
 
 
@@ -511,8 +511,13 @@ function GenerateWorkspace() {
             let payload: any = null;
             try { payload = JSON.parse(dataLines.join('\n')); } catch { payload = null; }
             if (payload) {
-              seenEvents.add(ev as StreamEventKind);
-              setStepIdx(stepIndexForSeenEvents(seenEvents, GEN_STEPS.length));
+              // Narrow the raw `event:` field name via the type guard rather
+              // than an unsafe cast — an unrecognized name (e.g. SSE's
+              // default 'message') is simply not tracked for progress.
+              if (isStreamEventKind(ev)) {
+                seenEvents.add(ev);
+                setStepIdx(stepIndexForSeenEvents(seenEvents, GEN_STEPS.length));
+              }
               if (ev === 'option' && payload.option?.recipe) {
                 collected[payload.index] = { explanation: payload.option.explanation ?? '', recipe: payload.option.recipe };
                 gotAny = true;

@@ -23,7 +23,44 @@ export function nextStepAfterStream(o: StreamOutcomeInput): StreamNextStep {
   return 'show-retry';
 }
 
-export type StreamEventKind = 'option' | 'ranking' | 'blueprint' | 'score' | 'option_updated' | 'error' | 'done';
+// The full wire protocol emitted by /api/ai/create-module/stream (see that
+// route's own doc comment) — 10 distinct event kinds. Only 'option',
+// 'ranking', 'score', 'option_updated', and 'done' move STEP_ORDER below;
+// 'intent', 'started', 'option_failed', 'blueprint', and 'error' are real
+// frames the client also receives but don't advance progress (blueprint is
+// flag-gated and handled separately by the caller; error is terminal and
+// handled via sawErrorFrame, not step advancement).
+export type StreamEventKind =
+  | 'intent'
+  | 'started'
+  | 'option'
+  | 'option_failed'
+  | 'ranking'
+  | 'blueprint'
+  | 'score'
+  | 'option_updated'
+  | 'error'
+  | 'done';
+
+const STREAM_EVENT_KINDS: ReadonlySet<string> = new Set<StreamEventKind>([
+  'intent',
+  'started',
+  'option',
+  'option_failed',
+  'ranking',
+  'blueprint',
+  'score',
+  'option_updated',
+  'error',
+  'done',
+]);
+
+/** Type guard so callers can narrow a raw SSE `event:` field name to
+ *  StreamEventKind without an unsafe cast — unrecognized event names (e.g. a
+ *  future server addition, or the SSE default 'message') are simply ignored. */
+export function isStreamEventKind(ev: string): ev is StreamEventKind {
+  return STREAM_EVENT_KINDS.has(ev);
+}
 
 const STEP_ORDER: Array<{ kind: StreamEventKind; minStep: number }> = [
   { kind: 'option', minStep: 2 },
