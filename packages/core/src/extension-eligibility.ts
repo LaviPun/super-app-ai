@@ -577,8 +577,22 @@ export function isRuntimeShipped(moduleType: ModuleType, ctx: RuntimeShippedChec
  * discount kind — ensures/adopts the single automatic-app-discount node
  * ("SuperApp Discounts", adopting the legacy "SuperApp Bundle Pricing" node when
  * present) via `discountAutomaticAppCreate`/`Update`, bound by `functionHandle`.
+ *
+ * `functions.deliveryCustomization` (Task 4, 2026-08-24): wired to
+ * `ActivationService`'s deliveryCustomization kind — ensures/adopts the single
+ * DeliveryCustomization owner object bound to `superapp-delivery-customization`
+ * (adoption keys off the node's `functionId`, paginated over the full
+ * `deliveryCustomizations` connection) via `deliveryCustomizationCreate`, bound
+ * by `functionHandle`. Its REGISTRY entry carries no `requiresPlan` — verified
+ * 2026-08-24 via the dev MCP docs that the Delivery Customization Function API
+ * itself is not Plus-gated (unlike checkout UI extensions, which are); left
+ * unchanged here either way, since `requiresPlan` never blocks deploy (see
+ * evaluatePlanEligibility, "NEVER blocks deploy").
  */
-export const ACTIVATION_WIRED_FUNCTION_TYPES: Set<string> = new Set<string>(['functions.discountRules']);
+export const ACTIVATION_WIRED_FUNCTION_TYPES: Set<string> = new Set<string>([
+  'functions.discountRules',
+  'functions.deliveryCustomization',
+]);
 
 /**
  * Whether a module's plan/scope requirements are satisfied for the merchant. This

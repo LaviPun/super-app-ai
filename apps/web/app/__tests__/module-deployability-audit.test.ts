@@ -67,8 +67,12 @@ const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
   // functions.discountRules removed (Task 3, 2026-08-24): ActivationService's
   // discount kind wires discountAutomaticAppCreate/Update — see
   // ACTIVATION_WIRED_FUNCTION_TYPES.
+  // functions.deliveryCustomization removed (Task 4, 2026-08-24): ActivationService's
+  // deliveryCustomization kind wires deliveryCustomizationCreate, bound by
+  // functionHandle, adopting the existing node for our function (paginated
+  // deliveryCustomizations scan keyed on functionId) — see
+  // ACTIVATION_WIRED_FUNCTION_TYPES.
   'functions.cartTransform',
-  'functions.deliveryCustomization',
   'functions.paymentCustomization',
   'functions.cartAndCheckoutValidation',
   'functions.fulfillmentConstraints',
@@ -353,10 +357,10 @@ describe('INTEGRITY: declarative pricing mechanism ⇒ needs_runtime (no inert f
  * WS-E task removes exactly one type from ACTIVATION_WIRED_FUNCTION_TYPES's
  * complement (i.e. adds it to the wired set) as activation wiring ships.
  * functions.discountRules removed (Task 3) — now activation-wired.
+ * functions.deliveryCustomization removed (Task 4) — now activation-wired.
  */
 const ACTIVATION_UNWIRED_TYPES = [
   'functions.cartTransform',
-  'functions.deliveryCustomization',
   'functions.paymentCustomization',
   'functions.cartAndCheckoutValidation',
   'functions.fulfillmentConstraints',

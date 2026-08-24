@@ -22,6 +22,7 @@ import {
   ActivationLookupUnverifiableError,
   ActivationService,
   FUNCTION_KEY_ACTIVATION,
+  MAX_DELIVERY_LOOKUP_PAGES,
   MAX_DISCOUNT_LOOKUP_PAGES,
 } from '~/services/publish/activation.service';
 
@@ -178,6 +179,94 @@ describe('ActivationService — discount kind', () => {
     await svc.deleteForFunctionKey('shippingDiscount');
     expect(calls).toHaveLength(0);
     expect(FUNCTION_KEY_ACTIVATION.shippingDiscount).toBeUndefined();
+  });
+});
+
+describe('ActivationService — deliveryCustomization kind', () => {
+  it('creates via functionHandle with enabled:true on first ensure', async () => {
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'SuperAppFunctionLookup')
+        return { data: { shopifyFunctions: { nodes: [{ id: 'fn_1', apiType: 'delivery_customization', title: 't', handle: 'superapp-delivery-customization' }] } } };
+      if (op === 'SuperAppDeliveryCustomizationList')
+        return { data: { deliveryCustomizations: { nodes: [] } } };
+      if (op === 'SuperAppDeliveryCustomizationCreate')
+        return { data: { deliveryCustomizationCreate: { deliveryCustomization: { id: 'gid://shopify/DeliveryCustomization/1' }, userErrors: [] } } };
+      throw new Error(`unexpected op ${op}`);
+    });
+    const gid = await new ActivationService(admin, 'shop_1').ensureForFunctionKey('deliveryCustomization');
+    expect(gid).toBe('gid://shopify/DeliveryCustomization/1');
+    const create = calls.find((c) => c.op === 'SuperAppDeliveryCustomizationCreate')!;
+    expect((create.variables!.deliveryCustomization as any).functionHandle).toBe('superapp-delivery-customization');
+    expect((create.variables!.deliveryCustomization as any).enabled).toBe(true);
+  });
+
+  it('adopts an existing customization for our function instead of duplicating', async () => {
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'SuperAppFunctionLookup')
+        return { data: { shopifyFunctions: { nodes: [{ id: 'fn_1', apiType: 'delivery_customization', title: 't', handle: 'superapp-delivery-customization' }] } } };
+      if (op === 'SuperAppDeliveryCustomizationList')
+        return { data: { deliveryCustomizations: { nodes: [{ id: 'gid://d/9', title: 'x', enabled: true, functionId: 'fn_1' }] } } };
+      throw new Error(`unexpected op ${op}`);
+    });
+    const gid = await new ActivationService(admin, 'shop_1').ensureForFunctionKey('deliveryCustomization');
+    expect(gid).toBe('gid://d/9');
+    expect(calls.map((c) => c.op)).not.toContain('SuperAppDeliveryCustomizationCreate');
+  });
+
+  it('finds the node on page 2 (paginated adoption, no double-create)', async () => {
+    const { admin, calls } = mockAdmin((op, variables) => {
+      if (op === 'SuperAppFunctionLookup')
+        return { data: { shopifyFunctions: { nodes: [{ id: 'fn_1', apiType: 'delivery_customization', title: 't', handle: 'superapp-delivery-customization' }] } } };
+      if (op === 'SuperAppDeliveryCustomizationList') {
+        if (!variables?.after) {
+          return { data: { deliveryCustomizations: { nodes: [{ id: 'gid://d/other', title: 'x', enabled: true, functionId: 'fn_other' }], pageInfo: { hasNextPage: true, endCursor: 'cursor-1' } } } };
+        }
+        expect(variables.after).toBe('cursor-1');
+        return { data: { deliveryCustomizations: { nodes: [{ id: 'gid://d/9', title: 'x', enabled: true, functionId: 'fn_1' }], pageInfo: { hasNextPage: false, endCursor: null } } } };
+      }
+      throw new Error(`unexpected op ${op}`);
+    });
+    const gid = await new ActivationService(admin, 'shop_1').ensureForFunctionKey('deliveryCustomization');
+    expect(gid).toBe('gid://d/9');
+    expect(calls.map((c) => c.op)).toEqual([
+      'SuperAppFunctionLookup',
+      'SuperAppDeliveryCustomizationList',
+      'SuperAppDeliveryCustomizationList',
+    ]);
+    expect(calls.some((c) => c.op === 'SuperAppDeliveryCustomizationCreate')).toBe(false);
+  });
+
+  it('refuses to create when the lookup hits the page cap without a verdict (no blind create)', async () => {
+    let pages = 0;
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'SuperAppFunctionLookup')
+        return { data: { shopifyFunctions: { nodes: [{ id: 'fn_1', apiType: 'delivery_customization', title: 't', handle: 'superapp-delivery-customization' }] } } };
+      if (op === 'SuperAppDeliveryCustomizationList') {
+        pages += 1;
+        return { data: { deliveryCustomizations: { nodes: [], pageInfo: { hasNextPage: true, endCursor: `cursor-${pages}` } } } };
+      }
+      throw new Error(`unexpected op ${op}`);
+    });
+    await expect(
+      new ActivationService(admin, 'shop_1').ensureForFunctionKey('deliveryCustomization'),
+    ).rejects.toThrow(ActivationLookupUnverifiableError);
+    expect(pages).toBe(MAX_DELIVERY_LOOKUP_PAGES);
+    expect(calls.some((c) => c.op === 'SuperAppDeliveryCustomizationCreate')).toBe(false);
+  });
+
+  it('stored GID → zero Shopify calls; delete uses deliveryCustomizationDelete', async () => {
+    db.set('shop_1:deliveryCustomization', { functionKey: 'deliveryCustomization', kind: 'deliveryCustomization', activationGid: 'gid://d/1' });
+    const noCall = mockAdmin(() => { throw new Error('no call expected'); });
+    expect(await new ActivationService(noCall.admin, 'shop_1').ensureForFunctionKey('deliveryCustomization')).toBe('gid://d/1');
+
+    const del = mockAdmin((op) => {
+      if (op === 'SuperAppDeliveryCustomizationDelete')
+        return { data: { deliveryCustomizationDelete: { deletedId: 'gid://d/1', userErrors: [] } } };
+      throw new Error(`unexpected op ${op}`);
+    });
+    await new ActivationService(del.admin, 'shop_1').deleteForFunctionKey('deliveryCustomization');
+    expect(del.calls.map((c) => c.op)).toEqual(['SuperAppDeliveryCustomizationDelete']);
+    expect(db.has('shop_1:deliveryCustomization')).toBe(false);
   });
 });
 
