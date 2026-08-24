@@ -7,6 +7,9 @@ import { JobService, type JobType } from '~/services/jobs/job.service';
 import { generateCorrelationId } from '~/services/observability/correlation.server';
 import { ModuleService } from '~/services/modules/module.service';
 import { RollbackService } from '~/services/publish/rollback.service';
+import { PublishService } from '~/services/publish/publish.service';
+import { RecipeService } from '~/services/recipes/recipe.service';
+import type { DeployTarget } from '@superapp/core';
 import { unauthenticated } from '~/shopify.server';
 import { ScheduleService } from '~/services/flows/schedule.service';
 import { FlowRunnerService } from '~/services/flows/flow-runner.service';
@@ -167,7 +170,7 @@ export async function action({ request }: ActionFunctionArgs) {
         const prisma = getPrisma();
         const moduleRow = await prisma.module.findUnique({
           where: { id },
-          include: { shop: true, versions: { orderBy: { version: 'desc' } } },
+          include: { shop: true, activeVersion: true, versions: { orderBy: { version: 'desc' } } },
         });
         if (!moduleRow) return fail(`Module ${id} not found`, 404);
 
@@ -177,16 +180,41 @@ export async function action({ request }: ActionFunctionArgs) {
           return ok(`${moduleRow.name} v${versionRow.version} is already published`);
         }
 
+        // Adjudicated fix: this intent used to call ONLY the DB flip below, so an
+        // internal admin could mark a module "published" with zero Shopify writes,
+        // silently diverging from the merchant /api/publish path. Real publish
+        // FIRST (mirrors the rollback intent's real-publish-then-flip order below)
+        // — only a successful Shopify deploy may move the DB pointer.
+        const spec = new RecipeService().parse(versionRow.specJson);
+        let target: DeployTarget;
+        if (spec.type.startsWith('theme.')) {
+          const themeId = versionRow.targetThemeId ?? moduleRow.activeVersion?.targetThemeId ?? null;
+          if (!themeId) {
+            return fail(
+              `${moduleRow.name} is a theme module with no target theme recorded on either version — ` +
+                `publish it from the merchant Builder instead (internal ops cannot guess a theme).`,
+            );
+          }
+          target = { kind: 'THEME', themeId, moduleId: moduleRow.id };
+        } else {
+          target = { kind: 'PLATFORM', moduleId: moduleRow.id };
+        }
+
+        const { admin } = await unauthenticated.admin(moduleRow.shop.shopDomain);
+        await new PublishService(admin, { shop: moduleRow.shop.shopDomain, shopId: moduleRow.shopId })
+          .publish(spec, target);
+
         await new ModuleService().markPublishedWithTransition({
           shopId: moduleRow.shopId,
           moduleId: moduleRow.id,
           versionId: versionRow.id,
+          targetThemeId: target.kind === 'THEME' ? target.themeId : undefined,
           source: 'system',
           actor: 'INTERNAL_ADMIN',
           idempotencyKey: `internal-ops:publish:${generateCorrelationId()}`,
         });
         await audit(
-          { versionId: versionRow.id, version: versionRow.version },
+          { versionId: versionRow.id, version: versionRow.version, target: target.kind },
           { shopId: moduleRow.shopId, resource: `module:${moduleRow.id}` },
         );
         return ok(`Published ${moduleRow.name} v${versionRow.version}`);
