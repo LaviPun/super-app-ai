@@ -1,7 +1,5 @@
-import type { AdminApiContext } from '~/types/shopify';
 import { getPrisma } from '~/db.server';
 import { getPlanConfig as getPlanConfigFromDb } from './plan-config.service';
-import { isBillingTestModeEnabled } from '~/env.server';
 
 export type BillingPlan = 'FREE' | 'STARTER' | 'GROWTH' | 'PRO' | 'ENTERPRISE';
 
@@ -89,99 +87,7 @@ export const PLAN_CONFIGS: Record<BillingPlan, PlanConfig> = {
   },
 };
 
-type BillingUserError = { message: string };
-type BillingTopLevelError = { message?: string };
-type AppSubscriptionCreatePayload = {
-  appSubscription?: { id?: string };
-  confirmationUrl?: string;
-  userErrors?: BillingUserError[];
-};
-type BillingAppSubscriptionCreateResponse = {
-  data?: { appSubscriptionCreate?: AppSubscriptionCreatePayload };
-  errors?: BillingTopLevelError[];
-};
-
 export class BillingService {
-  /**
-   * Creates a Shopify App Subscription (recurring charge) via GraphQL.
-   * Returns the confirmation URL for the merchant to approve.
-   */
-  async createSubscription(
-    admin: AdminApiContext['admin'],
-    shopId: string,
-    plan: BillingPlan,
-    returnUrl: string
-  ): Promise<{ confirmationUrl: string; subscriptionId: string }> {
-    const config = await getPlanConfigFromDb(plan);
-    if (config.price <= 0) {
-      // Free plan — no Shopify billing charge needed, just record in DB.
-      await this.recordSubscription(shopId, plan, null);
-      return { confirmationUrl: returnUrl, subscriptionId: 'free' };
-    }
-
-    const mutation = `#graphql
-      mutation AppSubscriptionCreate(
-        $name: String!
-        $lineItems: [AppSubscriptionLineItemInput!]!
-        $returnUrl: URL!
-        $trialDays: Int
-        $test: Boolean
-      ) {
-        appSubscriptionCreate(
-          name: $name
-          lineItems: $lineItems
-          returnUrl: $returnUrl
-          trialDays: $trialDays
-          test: $test
-        ) {
-          appSubscription { id status }
-          confirmationUrl
-          userErrors { field message }
-        }
-      }
-    `;
-
-    const res = await admin.graphql(mutation, {
-      variables: {
-        name: `SuperApp ${config.displayName}`,
-        lineItems: [{
-          plan: {
-            appRecurringPricingDetails: {
-              price: { amount: config.price.toFixed(2), currencyCode: 'USD' },
-              interval: 'EVERY_30_DAYS',
-            },
-          },
-        }],
-        returnUrl,
-        trialDays: config.trialDays > 0 ? config.trialDays : null,
-        test: isBillingTestModeEnabled(),
-      },
-    });
-
-    const data = (await res.json()) as BillingAppSubscriptionCreateResponse;
-    const topLevelErrors = data?.errors ?? [];
-    if (topLevelErrors.length) {
-      const msg = topLevelErrors.map((e: { message?: string }) => e.message).filter(Boolean).join('; ');
-      throw new Error(msg || 'Billing API request failed.');
-    }
-    const result = data?.data?.appSubscriptionCreate;
-    const errs = result?.userErrors ?? [];
-    if (errs.length) throw new Error(errs.map((e: { message: string }) => e.message).join('; '));
-
-    const shopifySubId = result?.appSubscription?.id;
-    const confirmationUrl = result?.confirmationUrl;
-    if (!confirmationUrl && !shopifySubId) {
-      throw new Error('Billing API did not return a confirmation URL or subscription.');
-    }
-
-    await this.recordSubscription(shopId, plan, shopifySubId ?? null);
-
-    return {
-      confirmationUrl: confirmationUrl ?? returnUrl,
-      subscriptionId: shopifySubId ?? 'pending',
-    };
-  }
-
   async getActiveSubscription(shopId: string) {
     const prisma = getPrisma();
     return prisma.appSubscription.findUnique({ where: { shopId } });
@@ -205,11 +111,6 @@ export class BillingService {
    */
   async setPlanForShop(shopId: string, plan: BillingPlan): Promise<void> {
     await this.recordSubscription(shopId, plan, null);
-    const prisma = getPrisma();
-    await prisma.shop.update({
-      where: { id: shopId },
-      data: { planTier: plan },
-    });
   }
 
   private async recordSubscription(shopId: string, plan: BillingPlan, shopifySubId: string | null) {

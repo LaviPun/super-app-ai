@@ -44,8 +44,6 @@ const EnvSchema = z.object({
 
   // Persistence redaction hardening
   STRICT_PII_REDACTION: z.string().optional(),
-  // Explicitly controls Shopify test billing mode. If unset, falls back to NODE_ENV for backward compatibility.
-  BILLING_TEST_MODE: z.string().optional(),
 
   // App Pricing plan sync (Partner API). All optional — inert without them (Conf-4).
   SHOPIFY_PARTNER_API_TOKEN: z.string().optional(),
@@ -149,11 +147,6 @@ function parseBooleanEnv(raw: string | undefined, fallback: boolean): boolean {
 export function isStrictPiiRedactionEnabled(): boolean {
   const defaultValue = process.env.NODE_ENV === 'production';
   return parseBooleanEnv(process.env.STRICT_PII_REDACTION, defaultValue);
-}
-
-export function isBillingTestModeEnabled(): boolean {
-  const defaultValue = process.env.NODE_ENV !== 'production';
-  return parseBooleanEnv(process.env.BILLING_TEST_MODE, defaultValue);
 }
 
 /**

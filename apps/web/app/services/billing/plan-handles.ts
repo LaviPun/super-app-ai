@@ -18,3 +18,15 @@ export function planFromHandle(handle: string | null | undefined): BillingPlan |
   if (!handle) return null;
   return PLAN_BY_HANDLE[handle.trim().toLowerCase()] ?? null;
 }
+
+/**
+ * The Shopify-hosted plan selection page for embedded apps under App Pricing.
+ * Returns null (rather than a broken link) when SHOPIFY_APP_HANDLE isn't set —
+ * callers should hide the "Manage plan" button in that case.
+ */
+export function buildManagePlanUrl(shopDomain: string): string | null {
+  const appHandle = process.env.SHOPIFY_APP_HANDLE;
+  if (!appHandle) return null;
+  const storeHandle = shopDomain.replace(/\.myshopify\.com$/i, '');
+  return `https://admin.shopify.com/store/${storeHandle}/charges/${appHandle}/pricing_plans`;
+}
