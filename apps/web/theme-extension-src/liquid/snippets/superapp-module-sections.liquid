@@ -160,7 +160,15 @@
           {% when 'hero' %}
             {% # Hero: eyebrow/title/subtitle/body + media + CTA buttons + proof chips. %}
             {% assign hero_variant = 'centered' %}
-            {% assign hero_media = mod_cfg.fields.mediaImageUrl | default: mod_cfg.fields.backgroundImageUrl | default: mod_cfg.fields.posterImageUrl %}
+            {% # WS-H Task 8 parity fix: the output-level preview<->Liquid fixture
+               caught a real content-loss bug here — a hero template authored with
+               fields.heroImageUrl or fields.imageUrl / mod_cfg.imageUrl (the same
+               field names PreviewService's mediaUrl lookup already accepts) had NO
+               fallback in this chain, so its image silently never rendered on the
+               real storefront while the admin preview showed it fine. Existing
+               mediaImageUrl/backgroundImageUrl/posterImageUrl precedence is
+               unchanged; the new fallbacks only fire when none of those are set. %}
+            {% assign hero_media = mod_cfg.fields.mediaImageUrl | default: mod_cfg.fields.backgroundImageUrl | default: mod_cfg.fields.posterImageUrl | default: mod_cfg.fields.heroImageUrl | default: mod_cfg.fields.imageUrl | default: mod_cfg.imageUrl %}
             {% if mod_cfg.fields.mediaImageUrl != blank or mod_cfg.layout.layout == 'grid' %}{% assign hero_variant = 'split' %}{% endif %}
             {% if mod_cfg.fields.backgroundImageUrl != blank or mod_cfg.fields.videoUrl != blank or mod_cfg.fields.overlayStrength != blank %}{% assign hero_variant = 'overlay' %}{% endif %}
             <div class="superapp-hero superapp-hero--{{ hero_variant }}">
