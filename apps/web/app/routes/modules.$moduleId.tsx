@@ -12,6 +12,7 @@ import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
 import { MODULE_CATALOG, isCapabilityAllowed, getExtensionEligibility } from '@superapp/core';
 import { compileRecipe } from '~/services/recipes/compiler';
 import { ThemeService } from '~/services/shopify/theme.service';
+import { embedActivationDeepLink } from '~/services/publish/embed-status.server';
 import type { Capability, DeployTarget, RecipeSpec } from '@superapp/core';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
@@ -206,7 +207,12 @@ export async function loader({ request, params }: { request: Request; params: { 
     } catch { return null; }
   })();
 
-  return json({ moduleId, shop: session.shop, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, blueprint, internalNotes, deployment });
+  // WS-E finding 5: the theme-editor deep link that turns on the SuperApp app
+  // embed. Cheap (no Shopify call — just string formatting), so it's always
+  // computed; the post-publish banner below decides whether to show it.
+  const embedDeepLink = embedActivationDeepLink(session.shop);
+
+  return json({ moduleId, shop: session.shop, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, blueprint, internalNotes, deployment, embedDeepLink });
 }
 
 const RUNTIME_LABEL: Record<string, string> = {
@@ -383,8 +389,12 @@ function ModuleDetailBody() {
   const [applyingIdx, setApplyingIdx] = useState<number | null>(null);
   const [nameDraft, setNameDraft] = useState(mod.name);
   const [notesDraft, setNotesDraft] = useState(internalNotes ?? '');
+  // WS-E finding 5: embed-activation nudge. Populated either from a same-page
+  // publish (the fetcher's JSON carries embedStatus — no URL to read) or from
+  // the redirect-based publish flow (?embed=... on the URL after /api/publish).
+  const [embedNudge, setEmbedNudge] = useState<string | null>(null);
 
-  const publishFetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const publishFetcher = useFetcher<{ ok?: boolean; error?: string; embedStatus?: string }>();
   const rollbackFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const unpublishFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const deleteFetcher = useFetcher<{ ok?: boolean; error?: string; name?: string }>();
@@ -440,6 +450,9 @@ function ModuleDetailBody() {
   useEffect(() => {
     if (publishFetcher.data?.ok && publishFetcher.state === 'idle') {
       ctx.toast(isDraft ? 'Published — live in a few minutes' : 'Re-published');
+      if (publishFetcher.data.embedStatus && publishFetcher.data.embedStatus !== 'enabled') {
+        setEmbedNudge(publishFetcher.data.embedStatus);
+      }
       revalidator.revalidate();
     } else if (publishFetcher.data?.error && publishFetcher.state === 'idle') {
       ctx.toast(publishFetcher.data.error, { error: true });
@@ -555,6 +568,12 @@ function ModuleDetailBody() {
 
   const justPublished = searchParams.get('published') === '1';
   const justUnpublished = searchParams.get('unpublished') === '1';
+  // Redirect-based publish flow (/api/publish, used by the Builder) carries the
+  // embed status on the URL; the same-page fetcher flow carries it in embedNudge
+  // (set above). Either can be present; embedNudge (the more recent action, if
+  // any) wins.
+  const urlEmbedStatus = searchParams.get('embed');
+  const embedStatus = embedNudge ?? (urlEmbedStatus && urlEmbedStatus !== 'enabled' ? urlEmbedStatus : null);
 
   const publish = () => {
     const body: Record<string, string> = {};
@@ -679,6 +698,18 @@ function ModuleDetailBody() {
 
       {justUnpublished && (
         <s-banner tone="info" heading="Module unpublished">This module is no longer live and is now a draft.</s-banner>
+      )}
+
+      {isThemeModule && embedStatus && (
+        <s-banner tone="warning" heading="Almost there — turn on the app embed">
+          <s-paragraph>
+            Published modules only appear on your storefront once the “SuperApp Theme Modules”
+            app embed is enabled in your theme.
+          </s-paragraph>
+          <s-button href={data.embedDeepLink} target="_blank" variant="primary">
+            Enable it in the theme editor
+          </s-button>
+        </s-banner>
       )}
 
       {isThemeModule && themes.length > 0 && (

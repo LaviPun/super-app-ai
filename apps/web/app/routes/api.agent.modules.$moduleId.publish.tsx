@@ -15,6 +15,7 @@ import { JobService } from '~/services/jobs/job.service';
 import { PublishPolicyService } from '~/services/publish/publish-policy.service';
 import { runPublishPreflight } from '~/services/publish/publish-preflight.server';
 import { evaluateFeatureFlag, type FeatureFlagTopology } from '~/services/releases/feature-flags.server';
+import { getThemeEmbedStatus } from '~/services/publish/embed-status.server';
 
 /**
  * Agent API: Publish a module to a theme or platform.
@@ -193,7 +194,16 @@ export async function action({
       details: { target: target.kind, versionId: draft.id, source: 'agent_api' },
     }).catch(() => {/* non-fatal */});
 
-    return json({ ok: true, moduleId, versionId: draft.id, version: draft.version, target: target.kind });
+    // WS-E finding 5: a successful publish does not by itself make a theme
+    // module render — the merchant also needs the app embed on. Advisory-only
+    // (getThemeEmbedStatus never throws), so this can never turn a real publish
+    // success into a reported failure.
+    let embedStatus: Awaited<ReturnType<typeof getThemeEmbedStatus>> | undefined;
+    if (isThemeModule) {
+      embedStatus = await getThemeEmbedStatus(admin, target.kind === 'THEME' ? target.themeId : undefined);
+    }
+
+    return json({ ok: true, moduleId, versionId: draft.id, version: draft.version, target: target.kind, embedStatus });
   } catch (e) {
     await jobs.fail(job.id, e);
     const message = e instanceof Error ? e.message : 'Publish failed';

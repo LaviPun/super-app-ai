@@ -24,6 +24,7 @@ import { PublishPolicyService } from '~/services/publish/publish-policy.service'
 import { runPublishPreflight } from '~/services/publish/publish-preflight.server';
 import { evaluateFeatureFlag, type FeatureFlagTopology } from '~/services/releases/feature-flags.server';
 import { provisionModuleDataStore } from '~/services/publish/provision-data-store.server';
+import { getThemeEmbedStatus, type EmbedStatus } from '~/services/publish/embed-status.server';
 
 /** Turn thrown value into a string suitable for UI (avoids "[object Object]"). */
 function toErrorMessage(e: unknown): string {
@@ -284,7 +285,17 @@ export async function action({ request }: { request: Request }) {
 
         await logRequestOutcome({ shopId: shopRow?.id, pathOrIntent: '/api/publish', success: true, details: { moduleId: module.id } });
 
-        return redirect(`/modules/${module.id}?published=1`);
+        // WS-E finding 5: a successful publish does not by itself make a theme
+        // module render — the merchant also needs the app embed on. Advisory-only
+        // (getThemeEmbedStatus never throws), so this can never turn a real
+        // publish success into a reported failure.
+        let embedStatus: EmbedStatus | undefined;
+        if (isThemeModule) {
+          embedStatus = await getThemeEmbedStatus(admin, target.kind === 'THEME' ? target.themeId : undefined);
+        }
+
+        const embedParam = embedStatus && embedStatus !== 'enabled' ? `&embed=${embedStatus}` : '';
+        return redirect(`/modules/${module.id}?published=1${embedParam}`);
       } catch (e) {
         await jobs.fail(job.id, e);
         // WS-E finding 4: a partial failure carries exactly which ops already
