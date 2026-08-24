@@ -36,6 +36,11 @@
 // export exists — `generic-pulse` (a bolt/pulse glyph) is the same
 // non-brand-fallback treatment, representing "uptime monitor" generically.
 //
+// Task 12 (Healthchecks.io tile): confirmed (again) that no
+// `siHealthchecksdotio` export exists — `generic-check` (a check-circle
+// glyph) is the same non-brand-fallback treatment, representing "dead-man's-
+// switch status" generically.
+//
 // Each real simple-icons slug actually in use is imported by name below, so
 // an unresolvable brand fails at BUILD time (missing export) rather than
 // silently rendering a blank icon in production. The hand-authored `generic-*`
@@ -79,11 +84,24 @@ const GENERIC_PULSE_ICON: SimpleIcon = {
   hex: '6B7280',
 };
 
+/** Healthchecks.io tile fallback — check-circle glyph (Material "check_circle", Apache-2.0). */
+const GENERIC_CHECK_PATH =
+  'M12,2C6.48,2,2,6.48,2,12s4.48,10,10,10s10-4.48,10-10S17.52,2,12,2z M10,17l-5-5l1.41-1.41L10,14.17l7.59-7.59L19,8L10,17z';
+const GENERIC_CHECK_ICON: SimpleIcon = {
+  title: 'Healthchecks.io',
+  slug: 'generic-check',
+  svg: `<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="${GENERIC_CHECK_PATH}"/></svg>`,
+  path: GENERIC_CHECK_PATH,
+  source: 'https://fonts.google.com/icons (Material Symbols, Apache-2.0)',
+  hex: '6B7280',
+};
+
 const REGISTRY: Record<string, SimpleIcon> = {
   siSentry,
   'generic-mail': GENERIC_MAIL_ICON,
   'generic-chat': GENERIC_CHAT_ICON,
   'generic-pulse': GENERIC_PULSE_ICON,
+  'generic-check': GENERIC_CHECK_ICON,
 };
 
 export function IntegrationIcon({

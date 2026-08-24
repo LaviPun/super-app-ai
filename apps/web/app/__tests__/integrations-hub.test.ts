@@ -25,6 +25,11 @@ describe('Integrations Hub tile registry', () => {
     const ids = INTEGRATION_TILES.map((t) => t.id);
     expect(ids).toContain('uptimerobot');
   });
+
+  it('includes the healthchecks tile (Task 12)', () => {
+    const ids = INTEGRATION_TILES.map((t) => t.id);
+    expect(ids).toContain('healthchecks');
+  });
 });
 
 /**
@@ -348,6 +353,79 @@ describe('internal.integrations — UptimeRobot tile', () => {
     expect(body.error).toMatch(/401/);
     expect(activityLogMock).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'OPS_INTEGRATION_TESTED', resource: 'integration:uptimerobot' }),
+    );
+  });
+});
+
+/**
+ * Task 12 (WS-INT): Healthchecks.io tile — DB-stored read-only key, live
+ * status from the real Healthchecks.io Management API. Per the plan's
+ * binding rule 4: the cron ping itself (PR #13) is not yet merged, so a
+ * "new"/"not_configured" status here is expected right now, not a bug —
+ * the tile's honesty is about reflecting the real API response, not about
+ * pretending the ping already exists.
+ */
+describe('internal.integrations — Healthchecks.io tile', () => {
+  it('loader resolves status "up" from a real 200 response', async () => {
+    appSettingsFindUniqueMock.mockResolvedValueOnce({ healthchecksApiKeyEnc: 'enc(...)', healthchecksCheckSlug: 'superapp-cron' });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: 'up' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { loader } = await import('~/routes/internal.integrations');
+    const data = (await (await loader({ request: new Request('https://x/internal/integrations') })).json()) as {
+      healthchecks: { status: string };
+    };
+    expect(data.healthchecks.status).toBe('up');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://healthchecks.io/api/v3/checks/superapp-cron',
+      expect.objectContaining({ headers: expect.objectContaining({ 'X-Api-Key': 'test-key' }) }),
+    );
+  });
+
+  it('loader reports "not_configured" (never throws) when no key is set', async () => {
+    appSettingsFindUniqueMock.mockResolvedValueOnce({ healthchecksApiKeyEnc: null, healthchecksCheckSlug: 'superapp-cron' });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const { loader } = await import('~/routes/internal.integrations');
+    const data = (await (await loader({ request: new Request('https://x/internal/integrations') })).json()) as {
+      healthchecks: { status: string };
+    };
+    expect(data.healthchecks.status).toBe('not_configured');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('loader reports "error" (never throws) on a non-2xx response — honest status, no fake green', async () => {
+    appSettingsFindUniqueMock.mockResolvedValueOnce({ healthchecksApiKeyEnc: 'enc(...)', healthchecksCheckSlug: 'superapp-cron' });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 401 })));
+    const { loader } = await import('~/routes/internal.integrations');
+    const data = (await (await loader({ request: new Request('https://x/internal/integrations') })).json()) as {
+      healthchecks: { status: string; error?: string };
+    };
+    expect(data.healthchecks.status).toBe('error');
+    expect(data.healthchecks.error).toMatch(/401/);
+  });
+
+  it('saveHealthchecks encrypts the key and audits the save', async () => {
+    const { action } = await import('~/routes/internal.integrations');
+    const res = await action({
+      request: formRequest({ intent: 'saveHealthchecks', apiKey: 'hc-readonly-key', checkSlug: 'superapp-cron' }),
+    });
+    expect(((await res.json()) as { ok?: boolean }).ok).toBe(true);
+    expect(encryptJsonMock).toHaveBeenCalledWith({ apiKey: 'hc-readonly-key' });
+    expect(activityLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'OPS_INTEGRATION_SAVED', resource: 'integration:healthchecks' }),
+    );
+  });
+
+  it('testHealthchecks surfaces the real upstream error instead of a fake success (D8)', async () => {
+    appSettingsFindUniqueMock.mockResolvedValueOnce({ healthchecksApiKeyEnc: 'enc(...)', healthchecksCheckSlug: 'superapp-cron' });
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('ETIMEDOUT'); }));
+    const { action } = await import('~/routes/internal.integrations');
+    const res = await action({ request: formRequest({ intent: 'testHealthchecks' }) });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toMatch(/ETIMEDOUT/);
+    expect(activityLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'OPS_INTEGRATION_TESTED', resource: 'integration:healthchecks' }),
     );
   });
 });

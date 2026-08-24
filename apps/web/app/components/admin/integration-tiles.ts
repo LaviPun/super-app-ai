@@ -65,4 +65,14 @@ export const INTEGRATION_TILES: readonly IntegrationTileDef[] = [
     configKind: 'DB',
     description: 'Uptime monitor on /healthz. The monitor itself lives in the UptimeRobot dashboard — this tile only reflects its live status via a read-only API key.',
   },
+  {
+    id: 'healthchecks',
+    category: 'OPS_SERVICE',
+    label: 'Healthchecks.io',
+    // No siHealthchecksdotio export exists in simple-icons@16 — 'generic-check'
+    // is a hand-authored, non-brand fallback, see integration-icon.tsx.
+    simpleIconSlug: 'generic-check',
+    configKind: 'DB',
+    description: 'Cron dead-man switch ("superapp-cron"). The ping itself is sent by the GitHub Actions cron workflow (PR #13, not yet merged) — this tile only reads status via a read-only API key.',
+  },
 ];

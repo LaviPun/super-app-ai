@@ -84,6 +84,39 @@ async function resolveUptimeRobotStatus(apiKeyEnc: string | null | undefined, mo
   }
 }
 
+// Task 12: same bounded-timeout, never-throw contract as resolveUptimeRobotStatus,
+// against the real Healthchecks.io Management API.
+type HealthchecksStatus = { status: 'up' | 'down' | 'grace' | 'paused' | 'new' | 'not_configured' | 'error'; error?: string };
+const HEALTHCHECKS_KNOWN_STATUSES = ['up', 'down', 'grace', 'paused', 'new'] as const;
+
+async function resolveHealthchecksStatus(apiKeyEnc: string | null | undefined, checkSlug: string | null | undefined): Promise<HealthchecksStatus> {
+  if (!apiKeyEnc || !checkSlug) return { status: 'not_configured' };
+  let apiKey: string;
+  try {
+    apiKey = decryptJson<{ apiKey: string }>(apiKeyEnc).apiKey;
+  } catch {
+    return { status: 'error', error: 'Stored healthchecks.io API key could not be decrypted' };
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), UPSTREAM_STATUS_TIMEOUT_MS);
+  try {
+    const res = await fetch(`https://healthchecks.io/api/v3/checks/${encodeURIComponent(checkSlug)}`, {
+      headers: { 'X-Api-Key': apiKey },
+      signal: controller.signal,
+    });
+    if (!res.ok) return { status: 'error', error: `healthchecks.io API responded ${res.status}` };
+    const body = (await res.json()) as { status?: string };
+    if (body.status && (HEALTHCHECKS_KNOWN_STATUSES as readonly string[]).includes(body.status)) {
+      return { status: body.status as HealthchecksStatus['status'] };
+    }
+    return { status: 'error', error: 'Unexpected healthchecks.io response shape' };
+  } catch (error) {
+    return { status: 'error', error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 const CATEGORY_LABEL: Record<IntegrationCategory, string> = {
   AI_PROVIDER: 'AI providers',
   OPS_SERVICE: 'Ops services',
@@ -112,10 +145,13 @@ export async function loader({ request }: { request: Request }) {
       opsAlertThresholdWindowMin: true,
       uptimeRobotApiKeyEnc: true,
       uptimeRobotMonitorId: true,
+      healthchecksApiKeyEnc: true,
+      healthchecksCheckSlug: true,
     },
   });
   const mailerStatus = await resolveMailerStatus();
   const uptimeRobotStatus = await resolveUptimeRobotStatus(appSettings?.uptimeRobotApiKeyEnc, appSettings?.uptimeRobotMonitorId);
+  const healthchecksStatus = await resolveHealthchecksStatus(appSettings?.healthchecksApiKeyEnc, appSettings?.healthchecksCheckSlug);
   return json({
     tiles: INTEGRATION_TILES,
     sentry: {
@@ -145,6 +181,12 @@ export async function loader({ request }: { request: Request }) {
       monitorId: appSettings?.uptimeRobotMonitorId ?? null,
       apiKeyMasked: maskSecret(appSettings?.uptimeRobotApiKeyEnc, 'apiKey'),
       ...uptimeRobotStatus,
+    },
+    healthchecks: {
+      configured: Boolean(appSettings?.healthchecksApiKeyEnc),
+      checkSlug: appSettings?.healthchecksCheckSlug ?? 'superapp-cron',
+      apiKeyMasked: maskSecret(appSettings?.healthchecksApiKeyEnc, 'apiKey'),
+      ...healthchecksStatus,
     },
   });
 }
@@ -303,6 +345,31 @@ export async function action({ request }: { request: Request }) {
       return json<ActionResult>({ error: result.error ?? 'UptimeRobot is not configured' }, { status: 400 });
     }
     return json<ActionResult>({ ok: true, message: `UptimeRobot monitor is ${result.status}` });
+  }
+
+  if (intent === 'saveHealthchecks') {
+    const apiKey = String(form.get('apiKey') ?? '').trim();
+    const checkSlug = String(form.get('checkSlug') ?? '').trim() || 'superapp-cron';
+    const prisma = getPrisma();
+    const data: Record<string, unknown> = { healthchecksCheckSlug: checkSlug };
+    if (apiKey) data.healthchecksApiKeyEnc = encryptJson({ apiKey });
+    await prisma.appSettings.upsert({ where: { id: 'singleton' }, create: { id: 'singleton', ...data }, update: data });
+    await activity.log({ actor: 'INTERNAL_ADMIN', action: 'OPS_INTEGRATION_SAVED', resource: 'integration:healthchecks' });
+    return json<ActionResult>({ ok: true, message: 'Healthchecks.io settings saved' });
+  }
+
+  if (intent === 'testHealthchecks') {
+    const prisma = getPrisma();
+    const settings = await prisma.appSettings.findUnique({
+      where: { id: 'singleton' },
+      select: { healthchecksApiKeyEnc: true, healthchecksCheckSlug: true },
+    });
+    const result = await resolveHealthchecksStatus(settings?.healthchecksApiKeyEnc, settings?.healthchecksCheckSlug);
+    await activity.log({ actor: 'INTERNAL_ADMIN', action: 'OPS_INTEGRATION_TESTED', resource: 'integration:healthchecks', details: { status: result.status } });
+    if (result.status === 'error' || result.status === 'not_configured') {
+      return json<ActionResult>({ error: result.error ?? 'Healthchecks.io is not configured' }, { status: 400 });
+    }
+    return json<ActionResult>({ ok: true, message: `Healthchecks.io check is ${result.status}` });
   }
 
   return json<ActionResult>({ error: `Unknown intent: ${intent}` }, { status: 400 });
@@ -609,8 +676,69 @@ function UptimeRobotTileBody({
   );
 }
 
+interface HealthchecksTileState {
+  configured: boolean;
+  checkSlug: string;
+  apiKeyMasked: string | null;
+  status: string;
+  error?: string;
+}
+
+function HealthchecksTileBody({
+  healthchecks,
+  onSave,
+  onTest,
+  busy,
+}: {
+  healthchecks: HealthchecksTileState;
+  onSave: (apiKey: string, checkSlug: string) => void;
+  onTest: () => void;
+  busy: boolean;
+}) {
+  const [apiKey, setApiKey] = useState('');
+  const [checkSlug, setCheckSlug] = useState(healthchecks.checkSlug);
+
+  return (
+    <>
+      <KV
+        rows={[
+          [
+            'Live status',
+            <Badge key="s" tone={OPS_STATUS_TONE[healthchecks.status] ?? 'info'} dot>
+              {OPS_STATUS_LABEL[healthchecks.status] ?? healthchecks.status}
+            </Badge>,
+          ],
+          healthchecks.error ? ['Last error', healthchecks.error] : false,
+        ]}
+      />
+      {healthchecks.status === 'new' || healthchecks.status === 'not_configured' ? (
+        <p className="t-xs t-muted" style={{ marginTop: 6 }}>
+          The GitHub Actions cron workflow that pings this check (PR #13) hasn't merged yet — a "never pinged" status here is
+          expected right now, not a failure.
+        </p>
+      ) : null}
+      <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+        <Field label="Check slug">
+          <Input value={checkSlug} onChange={(e) => setCheckSlug(e.target.value)} placeholder="superapp-cron" />
+        </Field>
+        <Field label="Read-only API key" help={healthchecks.apiKeyMasked ? `Currently set: ${healthchecks.apiKeyMasked}` : 'Not set'}>
+          <Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="Leave blank to keep existing" />
+        </Field>
+        <div className="row-3">
+          <Btn size="sm" loading={busy} onClick={() => onSave(apiKey, checkSlug)}>
+            Save
+          </Btn>
+          <Btn size="sm" variant="secondary" loading={busy} onClick={onTest}>
+            Test connection
+          </Btn>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function IntegrationsHub() {
-  const { tiles, sentry, email, slack, uptimeRobot } = useLoaderData<typeof loader>();
+  const { tiles, sentry, email, slack, uptimeRobot, healthchecks } = useLoaderData<typeof loader>();
   const ops = useIntentSubmit();
   const testSentry = () => ops.submit({ intent: 'testSentry' });
   const saveEmail = (fields: Record<string, string>) => ops.submit({ intent: 'saveEmail', ...fields });
@@ -621,6 +749,8 @@ export default function IntegrationsHub() {
     ops.submit({ intent: 'saveAlertThresholds', thresholdCount, thresholdWindowMin });
   const saveUptimeRobot = (apiKey: string, monitorId: string) => ops.submit({ intent: 'saveUptimeRobot', apiKey, monitorId });
   const testUptimeRobot = () => ops.submit({ intent: 'testUptimeRobot' });
+  const saveHealthchecks = (apiKey: string, checkSlug: string) => ops.submit({ intent: 'saveHealthchecks', apiKey, checkSlug });
+  const testHealthchecks = () => ops.submit({ intent: 'testHealthchecks' });
 
   return (
     <div className="page">
@@ -669,6 +799,9 @@ export default function IntegrationsHub() {
                       ) : null}
                       {tile.id === 'uptimerobot' ? (
                         <UptimeRobotTileBody uptimeRobot={uptimeRobot} onSave={saveUptimeRobot} onTest={testUptimeRobot} busy={ops.busy} />
+                      ) : null}
+                      {tile.id === 'healthchecks' ? (
+                        <HealthchecksTileBody healthchecks={healthchecks} onSave={saveHealthchecks} onTest={testHealthchecks} busy={ops.busy} />
                       ) : null}
                     </div>
                   ))}
