@@ -7,6 +7,7 @@ import { captureMessage } from '~/services/observability/sentry.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { encryptJson, decryptJson } from '~/services/security/crypto.server';
 import { sendEmail, resolveMailerStatus } from '~/services/notifications/mailer.server';
+import { sendSlackAlert } from '~/services/observability/ops-alert-slack.server';
 import { INTEGRATION_TILES, type IntegrationCategory } from '~/components/admin/integration-tiles';
 import { IntegrationIcon } from '~/components/admin/integration-icon';
 import {
@@ -66,6 +67,9 @@ export async function loader({ request }: { request: Request }) {
       smtpUser: true,
       smtpPassEnc: true,
       smtpSecure: true,
+      opsSlackWebhookUrlEnc: true,
+      opsAlertThresholdCount: true,
+      opsAlertThresholdWindowMin: true,
     },
   });
   const mailerStatus = await resolveMailerStatus();
@@ -86,6 +90,12 @@ export async function loader({ request }: { request: Request }) {
       apiKeyMasked: maskSecret(appSettings?.emailApiKeyEnc, 'apiKey'),
       smtpPassMasked: maskSecret(appSettings?.smtpPassEnc, 'pass'),
       status: mailerStatus,
+    },
+    slack: {
+      configured: Boolean(appSettings?.opsSlackWebhookUrlEnc),
+      webhookMasked: maskSecret(appSettings?.opsSlackWebhookUrlEnc, 'url'),
+      thresholdCount: appSettings?.opsAlertThresholdCount ?? 3,
+      thresholdWindowMin: appSettings?.opsAlertThresholdWindowMin ?? 15,
     },
   });
 }
@@ -174,6 +184,51 @@ export async function action({ request }: { request: Request }) {
     return result.sent
       ? json<ActionResult>({ ok: true, message: `Test email sent to ${to}` })
       : json<ActionResult>({ error: result.error ?? 'Email send failed' }, { status: 400 });
+  }
+
+  if (intent === 'saveSlackWebhook') {
+    const url = String(form.get('webhookUrl') ?? '').trim();
+    if (url && !/^https:\/\/hooks\.slack\.com\//.test(url)) {
+      return json<ActionResult>({ error: 'Must be a Slack incoming-webhook URL (https://hooks.slack.com/services/...)' }, { status: 400 });
+    }
+    const prisma = getPrisma();
+    const data = { opsSlackWebhookUrlEnc: url ? encryptJson({ url }) : null };
+    await prisma.appSettings.upsert({ where: { id: 'singleton' }, create: { id: 'singleton', ...data }, update: data });
+    await activity.log({ actor: 'INTERNAL_ADMIN', action: 'OPS_INTEGRATION_SAVED', resource: 'integration:slack' });
+    return json<ActionResult>({ ok: true, message: url ? 'Slack webhook saved' : 'Slack webhook cleared' });
+  }
+
+  if (intent === 'testSlackWebhook') {
+    const prisma = getPrisma();
+    const settings = await prisma.appSettings.findUnique({ where: { id: 'singleton' }, select: { opsSlackWebhookUrlEnc: true } });
+    if (!settings?.opsSlackWebhookUrlEnc) {
+      return json<ActionResult>({ error: 'No Slack webhook configured' }, { status: 400 });
+    }
+    let url: string;
+    try {
+      url = decryptJson<{ url: string }>(settings.opsSlackWebhookUrlEnc).url;
+    } catch {
+      return json<ActionResult>({ error: 'Stored Slack webhook could not be decrypted' }, { status: 400 });
+    }
+    const result = await sendSlackAlert(url, 'SuperApp Ops Hub: this is a test message.');
+    await activity.log({ actor: 'INTERNAL_ADMIN', action: 'OPS_INTEGRATION_TESTED', resource: 'integration:slack', details: { sent: result.sent } });
+    // D8 (no silent failures): surface the real upstream error, never a fake "sent" toast.
+    return result.sent
+      ? json<ActionResult>({ ok: true, message: 'Test message sent to Slack' })
+      : json<ActionResult>({ error: result.error ?? 'Slack send failed' }, { status: 400 });
+  }
+
+  if (intent === 'saveAlertThresholds') {
+    const count = Number(form.get('thresholdCount') ?? 3);
+    const windowMin = Number(form.get('thresholdWindowMin') ?? 15);
+    if (!Number.isInteger(count) || count < 1 || !Number.isInteger(windowMin) || windowMin < 1) {
+      return json<ActionResult>({ error: 'Threshold count and window must be positive integers' }, { status: 400 });
+    }
+    const prisma = getPrisma();
+    const data = { opsAlertThresholdCount: count, opsAlertThresholdWindowMin: windowMin };
+    await prisma.appSettings.upsert({ where: { id: 'singleton' }, create: { id: 'singleton', ...data }, update: data });
+    await activity.log({ actor: 'INTERNAL_ADMIN', action: 'OPS_INTEGRATION_SAVED', resource: 'integration:alert-thresholds' });
+    return json<ActionResult>({ ok: true, message: 'Alert thresholds saved' });
   }
 
   return json<ActionResult>({ error: `Unknown intent: ${intent}` }, { status: 400 });
@@ -335,12 +390,80 @@ function SentryTileBody({ configured, lastTestedAt, onTest, busy }: { configured
   );
 }
 
+interface SlackTileState {
+  configured: boolean;
+  webhookMasked: string | null;
+  thresholdCount: number;
+  thresholdWindowMin: number;
+}
+
+function SlackTileBody({
+  slack,
+  onSaveWebhook,
+  onTest,
+  onSaveThresholds,
+  busy,
+}: {
+  slack: SlackTileState;
+  onSaveWebhook: (webhookUrl: string) => void;
+  onTest: () => void;
+  onSaveThresholds: (count: string, windowMin: string) => void;
+  busy: boolean;
+}) {
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [count, setCount] = useState(String(slack.thresholdCount));
+  const [windowMin, setWindowMin] = useState(String(slack.thresholdWindowMin));
+
+  return (
+    <>
+      <KV
+        rows={[
+          ['Status', <Badge key="s" tone={slack.configured ? 'success' : 'warning'} dot>{slack.configured ? 'Configured' : 'Not configured'}</Badge>],
+          ['Webhook', slack.webhookMasked ?? 'not set'],
+        ]}
+      />
+      <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+        <Field label="Incoming-webhook URL" help={slack.webhookMasked ? `Currently set: ${slack.webhookMasked}` : 'Not set'}>
+          <Input
+            value={webhookUrl}
+            onChange={(e) => setWebhookUrl(e.target.value)}
+            placeholder="https://hooks.slack.com/services/..."
+          />
+        </Field>
+        <div className="row-3">
+          <Btn size="sm" loading={busy} onClick={() => onSaveWebhook(webhookUrl)}>
+            Save
+          </Btn>
+          <Btn size="sm" variant="secondary" loading={busy} onClick={onTest}>
+            Send test message
+          </Btn>
+        </div>
+        <div className="row-3" style={{ marginTop: 4 }}>
+          <Field label="Alert after N failures" help="Sentry always fires immediately; Slack/email wait for this threshold">
+            <Input value={count} onChange={(e) => setCount(e.target.value)} style={{ maxWidth: 90 }} />
+          </Field>
+          <Field label="within minutes">
+            <Input value={windowMin} onChange={(e) => setWindowMin(e.target.value)} style={{ maxWidth: 90 }} />
+          </Field>
+          <Btn size="sm" variant="secondary" loading={busy} onClick={() => onSaveThresholds(count, windowMin)}>
+            Save thresholds
+          </Btn>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function IntegrationsHub() {
-  const { tiles, sentry, email } = useLoaderData<typeof loader>();
+  const { tiles, sentry, email, slack } = useLoaderData<typeof loader>();
   const ops = useIntentSubmit();
   const testSentry = () => ops.submit({ intent: 'testSentry' });
   const saveEmail = (fields: Record<string, string>) => ops.submit({ intent: 'saveEmail', ...fields });
   const testEmail = (to: string) => ops.submit({ intent: 'testEmail', to });
+  const saveSlackWebhook = (webhookUrl: string) => ops.submit({ intent: 'saveSlackWebhook', webhookUrl });
+  const testSlackWebhook = () => ops.submit({ intent: 'testSlackWebhook' });
+  const saveAlertThresholds = (thresholdCount: string, thresholdWindowMin: string) =>
+    ops.submit({ intent: 'saveAlertThresholds', thresholdCount, thresholdWindowMin });
 
   return (
     <div className="page">
@@ -377,6 +500,15 @@ export default function IntegrationsHub() {
                       ) : null}
                       {tile.id === 'email' ? (
                         <EmailTileBody email={email} onSave={saveEmail} onTest={testEmail} busy={ops.busy} />
+                      ) : null}
+                      {tile.id === 'slack-ops' ? (
+                        <SlackTileBody
+                          slack={slack}
+                          onSaveWebhook={saveSlackWebhook}
+                          onTest={testSlackWebhook}
+                          onSaveThresholds={saveAlertThresholds}
+                          busy={ops.busy}
+                        />
                       ) : null}
                     </div>
                   ))}

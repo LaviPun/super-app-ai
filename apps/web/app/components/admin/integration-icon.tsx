@@ -26,9 +26,16 @@
 // breaking the build (only real simple-icons imports get the build-time
 // missing-export safety net; this one synthetic entry is exempt by design).
 //
-// Each slug actually in use is imported by name below, so an unresolvable
-// brand fails at BUILD time (missing export) rather than silently rendering
-// a blank icon in production.
+// Task 10 (Slack tile): confirmed (again) against the installed package that
+// no `siSlack` export exists (only `siSlackware`, a different product).
+// `generic-chat` below is the same non-brand-fallback treatment as
+// `generic-mail` — a chat-bubble glyph, since it represents the "incoming
+// webhook chat alert" channel, not a Slack-branded mark.
+//
+// Each real simple-icons slug actually in use is imported by name below, so
+// an unresolvable brand fails at BUILD time (missing export) rather than
+// silently rendering a blank icon in production. The hand-authored `generic-*`
+// entries are exempt from that safety net by design (see above).
 
 import type { SimpleIcon } from 'simple-icons';
 import { siSentry } from 'simple-icons';
@@ -46,9 +53,21 @@ const GENERIC_MAIL_ICON: SimpleIcon = {
   hex: '6B7280', // DESIGN.md muted neutral — deliberately not a brand color.
 };
 
+/** Slack tile fallback — chat-bubble glyph (Material "chat", Apache-2.0). */
+const GENERIC_CHAT_PATH = 'M20,2H4C2.9,2,2,2.9,2,4v18l4-4h14c1.1,0,2-0.9,2-2V4C22,2.9,21.1,2,20,2z';
+const GENERIC_CHAT_ICON: SimpleIcon = {
+  title: 'Slack (incoming webhook)',
+  slug: 'generic-chat',
+  svg: `<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="${GENERIC_CHAT_PATH}"/></svg>`,
+  path: GENERIC_CHAT_PATH,
+  source: 'https://fonts.google.com/icons (Material Symbols, Apache-2.0)',
+  hex: '6B7280',
+};
+
 const REGISTRY: Record<string, SimpleIcon> = {
   siSentry,
   'generic-mail': GENERIC_MAIL_ICON,
+  'generic-chat': GENERIC_CHAT_ICON,
 };
 
 export function IntegrationIcon({

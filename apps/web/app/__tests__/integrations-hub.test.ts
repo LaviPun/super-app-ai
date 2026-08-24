@@ -15,6 +15,11 @@ describe('Integrations Hub tile registry', () => {
       expect(['AI_PROVIDER', 'OPS_SERVICE']).toContain(t.category);
     }
   });
+
+  it('includes the slack-ops tile (Task 10)', () => {
+    const ids = INTEGRATION_TILES.map((t) => t.id);
+    expect(ids).toContain('slack-ops');
+  });
 });
 
 /**
@@ -22,56 +27,85 @@ describe('Integrations Hub tile registry', () => {
  * intents — secrets are encrypted (never stored/echoed in plaintext), every
  * save/test is audited via a typed ActivityAction, and a real send failure
  * surfaces the real error (D8 — no fake "sent" toast).
+ *
+ * Task 10 (Slack tile) reuses this same mock setup — vi.mock calls are
+ * hoisted to module scope regardless of which describe block they're written
+ * in, so every module used by any tile in this file is mocked once, here, at
+ * file scope. `appSettingsFindUniqueMock` is a controllable per-test mock
+ * (unlike a fixed `async () => null`) because the Slack test-connection
+ * intent needs to read back a configured webhook.
  */
-describe('internal.integrations action — email tile', () => {
-  const { requireInternalAdminMock, appSettingsUpsertMock, activityLogMock, encryptJsonMock, sendEmailMock } = vi.hoisted(() => ({
-    requireInternalAdminMock: vi.fn(async (..._args: unknown[]) => undefined),
-    appSettingsUpsertMock: vi.fn(async (..._args: unknown[]) => ({})),
-    activityLogMock: vi.fn(async (..._args: unknown[]) => ({})),
-    encryptJsonMock: vi.fn((value: unknown) => `enc(${JSON.stringify(value)})`),
-    sendEmailMock: vi.fn(async (..._args: unknown[]): Promise<{ sent: boolean; error?: string }> => ({ sent: true })),
-  }));
+const {
+  requireInternalAdminMock,
+  appSettingsFindUniqueMock,
+  appSettingsUpsertMock,
+  activityLogMock,
+  encryptJsonMock,
+  decryptJsonMock,
+  sendEmailMock,
+  sendSlackAlertMock,
+} = vi.hoisted(() => ({
+  requireInternalAdminMock: vi.fn(async (..._args: unknown[]) => undefined),
+  appSettingsFindUniqueMock: vi.fn(async (..._args: unknown[]): Promise<Record<string, unknown> | null> => null),
+  appSettingsUpsertMock: vi.fn(async (..._args: unknown[]) => ({})),
+  activityLogMock: vi.fn(async (..._args: unknown[]) => ({})),
+  encryptJsonMock: vi.fn((value: unknown) => `enc(${JSON.stringify(value)})`),
+  decryptJsonMock: vi.fn((_enc: string) => ({ apiKey: 'test-key', pass: 'x', url: 'https://hooks.slack.com/services/a/b/c' })),
+  sendEmailMock: vi.fn(async (..._args: unknown[]): Promise<{ sent: boolean; error?: string }> => ({ sent: true })),
+  sendSlackAlertMock: vi.fn(async (..._args: unknown[]): Promise<{ sent: boolean; error?: string }> => ({ sent: true })),
+}));
 
-  vi.mock('~/internal-admin/session.server', () => ({
-    requireInternalAdmin: (...args: unknown[]) => requireInternalAdminMock(...args),
-  }));
-  vi.mock('~/db.server', () => ({
-    getPrisma: () => ({
-      appSettings: {
-        findUnique: vi.fn(async () => null),
-        upsert: (...args: unknown[]) => appSettingsUpsertMock(...args),
-      },
-    }),
-  }));
-  vi.mock('~/services/activity/activity.service', () => ({
-    ActivityLogService: class {
-      log = (...args: unknown[]) => activityLogMock(...args);
+vi.mock('~/internal-admin/session.server', () => ({
+  requireInternalAdmin: (...args: unknown[]) => requireInternalAdminMock(...args),
+}));
+vi.mock('~/db.server', () => ({
+  getPrisma: () => ({
+    appSettings: {
+      findUnique: (...args: unknown[]) => appSettingsFindUniqueMock(...args),
+      upsert: (...args: unknown[]) => appSettingsUpsertMock(...args),
     },
-  }));
-  vi.mock('~/services/security/crypto.server', () => ({
-    encryptJson: (value: unknown) => encryptJsonMock(value),
-    decryptJson: () => ({ apiKey: 'x', pass: 'x' }),
-  }));
-  vi.mock('~/services/observability/sentry.server', () => ({
-    captureMessage: vi.fn(),
-  }));
-  vi.mock('~/services/notifications/mailer.server', () => ({
-    sendEmail: (...args: unknown[]) => sendEmailMock(...args),
-    resolveMailerStatus: vi.fn(async () => ({ configured: true, provider: 'sendgrid', from: 'ops@example.com' })),
-  }));
+  }),
+}));
+vi.mock('~/services/activity/activity.service', () => ({
+  ActivityLogService: class {
+    log = (...args: unknown[]) => activityLogMock(...args);
+  },
+}));
+vi.mock('~/services/security/crypto.server', () => ({
+  encryptJson: (value: unknown) => encryptJsonMock(value),
+  decryptJson: (enc: string) => decryptJsonMock(enc),
+}));
+vi.mock('~/services/observability/sentry.server', () => ({
+  captureMessage: vi.fn(),
+}));
+vi.mock('~/services/notifications/mailer.server', () => ({
+  sendEmail: (...args: unknown[]) => sendEmailMock(...args),
+  resolveMailerStatus: vi.fn(async () => ({ configured: true, provider: 'sendgrid', from: 'ops@example.com' })),
+}));
+vi.mock('~/services/observability/ops-alert-slack.server', () => ({
+  sendSlackAlert: (...args: unknown[]) => sendSlackAlertMock(...args),
+}));
 
-  function formRequest(fields: Record<string, string>): Request {
-    const fd = new FormData();
-    for (const [k, v] of Object.entries(fields)) fd.set(k, v);
-    return new Request('https://x/internal/integrations', { method: 'POST', body: fd });
-  }
+function formRequest(fields: Record<string, string>): Request {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) fd.set(k, v);
+  return new Request('https://x/internal/integrations', { method: 'POST', body: fd });
+}
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-    requireInternalAdminMock.mockResolvedValue(undefined);
-    sendEmailMock.mockResolvedValue({ sent: true });
-  });
+beforeEach(() => {
+  vi.clearAllMocks();
+  requireInternalAdminMock.mockResolvedValue(undefined);
+  appSettingsFindUniqueMock.mockResolvedValue(null);
+  sendEmailMock.mockResolvedValue({ sent: true });
+  sendSlackAlertMock.mockResolvedValue({ sent: true });
+  decryptJsonMock.mockImplementation((_enc: string) => ({
+    apiKey: 'test-key',
+    pass: 'x',
+    url: 'https://hooks.slack.com/services/a/b/c',
+  }));
+});
 
+describe('internal.integrations action — email tile', () => {
   it('saveEmail encrypts a submitted API key and audits the save with a typed action', async () => {
     const { action } = await import('~/routes/internal.integrations');
     const res = await action({
@@ -132,5 +166,99 @@ describe('internal.integrations action — email tile', () => {
     const res = await action({ request: formRequest({ intent: 'testEmail', to: 'not-an-email' }) });
     expect(res.status).toBe(400);
     expect(sendEmailMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Task 10 (WS-INT): Slack ops-alert tile — webhook config (encrypted,
+ * validated as a real Slack incoming-webhook URL), a real test-send via the
+ * Task 3 sender, and the rolling-window threshold fields.
+ */
+describe('internal.integrations action — slack tile', () => {
+  it('saveSlackWebhook encrypts the URL and audits the save', async () => {
+    const { action } = await import('~/routes/internal.integrations');
+    const res = await action({
+      request: formRequest({ intent: 'saveSlackWebhook', webhookUrl: 'https://hooks.slack.com/services/a/b/c' }),
+    });
+    const body = (await res.json()) as { ok?: boolean };
+    expect(body.ok).toBe(true);
+    expect(encryptJsonMock).toHaveBeenCalledWith({ url: 'https://hooks.slack.com/services/a/b/c' });
+    expect(appSettingsUpsertMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({ opsSlackWebhookUrlEnc: 'enc({"url":"https://hooks.slack.com/services/a/b/c"})' }),
+      }),
+    );
+    expect(activityLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'OPS_INTEGRATION_SAVED', resource: 'integration:slack' }),
+    );
+  });
+
+  it('saveSlackWebhook rejects a non-Slack URL without writing anything', async () => {
+    const { action } = await import('~/routes/internal.integrations');
+    const res = await action({ request: formRequest({ intent: 'saveSlackWebhook', webhookUrl: 'https://evil.example.com/x' }) });
+    expect(res.status).toBe(400);
+    expect(appSettingsUpsertMock).not.toHaveBeenCalled();
+  });
+
+  it('saveSlackWebhook clears the webhook when submitted blank', async () => {
+    const { action } = await import('~/routes/internal.integrations');
+    const res = await action({ request: formRequest({ intent: 'saveSlackWebhook', webhookUrl: '' }) });
+    expect(((await res.json()) as { ok?: boolean }).ok).toBe(true);
+    expect(appSettingsUpsertMock).toHaveBeenCalledWith(
+      expect.objectContaining({ update: expect.objectContaining({ opsSlackWebhookUrlEnc: null }) }),
+    );
+  });
+
+  it('testSlackWebhook sends a real test message via sendSlackAlert and audits the test', async () => {
+    appSettingsFindUniqueMock.mockResolvedValueOnce({ opsSlackWebhookUrlEnc: 'enc(...)' });
+    const { action } = await import('~/routes/internal.integrations');
+    const res = await action({ request: formRequest({ intent: 'testSlackWebhook' }) });
+    const body = (await res.json()) as { ok?: boolean };
+    expect(body.ok).toBe(true);
+    expect(sendSlackAlertMock).toHaveBeenCalledWith('https://hooks.slack.com/services/a/b/c', expect.any(String));
+    expect(activityLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'OPS_INTEGRATION_TESTED', resource: 'integration:slack', details: { sent: true } }),
+    );
+  });
+
+  it('testSlackWebhook refuses honestly when no webhook is configured (D8)', async () => {
+    appSettingsFindUniqueMock.mockResolvedValueOnce({ opsSlackWebhookUrlEnc: null });
+    const { action } = await import('~/routes/internal.integrations');
+    const res = await action({ request: formRequest({ intent: 'testSlackWebhook' }) });
+    expect(res.status).toBe(400);
+    expect(sendSlackAlertMock).not.toHaveBeenCalled();
+  });
+
+  it('testSlackWebhook surfaces the real upstream error instead of a fake success (D8)', async () => {
+    appSettingsFindUniqueMock.mockResolvedValueOnce({ opsSlackWebhookUrlEnc: 'enc(...)' });
+    sendSlackAlertMock.mockResolvedValueOnce({ sent: false, error: 'Slack webhook responded 404' });
+    const { action } = await import('~/routes/internal.integrations');
+    const res = await action({ request: formRequest({ intent: 'testSlackWebhook' }) });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe('Slack webhook responded 404');
+  });
+
+  it('saveAlertThresholds saves a valid count/window and audits the save', async () => {
+    const { action } = await import('~/routes/internal.integrations');
+    const res = await action({
+      request: formRequest({ intent: 'saveAlertThresholds', thresholdCount: '5', thresholdWindowMin: '30' }),
+    });
+    expect(((await res.json()) as { ok?: boolean }).ok).toBe(true);
+    expect(appSettingsUpsertMock).toHaveBeenCalledWith(
+      expect.objectContaining({ update: { opsAlertThresholdCount: 5, opsAlertThresholdWindowMin: 30 } }),
+    );
+    expect(activityLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'OPS_INTEGRATION_SAVED', resource: 'integration:alert-thresholds' }),
+    );
+  });
+
+  it('saveAlertThresholds rejects a non-positive-integer count/window without writing anything', async () => {
+    const { action } = await import('~/routes/internal.integrations');
+    const res = await action({
+      request: formRequest({ intent: 'saveAlertThresholds', thresholdCount: '0', thresholdWindowMin: '15' }),
+    });
+    expect(res.status).toBe(400);
+    expect(appSettingsUpsertMock).not.toHaveBeenCalled();
   });
 });

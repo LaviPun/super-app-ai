@@ -44,4 +44,15 @@ export const INTEGRATION_TILES: readonly IntegrationTileDef[] = [
     configKind: 'DB',
     description: 'Transactional email for ops alerts and support notifications — SMTP, SendGrid, Resend, Postmark, or a generic JSON API.',
   },
+  {
+    id: 'slack-ops',
+    category: 'OPS_SERVICE',
+    label: 'Slack',
+    // No siSlack export exists in simple-icons@16 (only siSlackware, a
+    // different product) — 'generic-chat' is a hand-authored, non-brand
+    // fallback, see integration-icon.tsx.
+    simpleIconSlug: 'generic-chat',
+    configKind: 'DB',
+    description: 'Incoming-webhook alerts for ops failures — fires once the rolling-window failure threshold is crossed (Sentry always fires unconditionally; this and email are threshold-gated).',
+  },
 ];
