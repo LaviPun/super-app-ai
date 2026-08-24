@@ -169,7 +169,14 @@ describe('api.ai.create-module.stream terminal handling', () => {
   it('WS-QF / AI-2 review fix: the request\'s correlationId form field reaches generateValidatedRecipeOptionsStream', async () => {
     hoisted.streamEvents = [{ kind: 'done', valid: 0, total: 3 }];
     const { action } = await import('~/routes/api.ai.create-module.stream');
-    await action({ request: streamRequest({ correlationId: 'attempt-42' }) });
+    const res = await action({ request: streamRequest({ correlationId: 'attempt-42' }) });
+    // WS-C (Task 4): classify/intent/RAG now run inside runGenerationPipeline,
+    // called from the stream's start() callback — several awaits deep before
+    // generateValidatedRecipeOptionsStream is reached. Draining the body (as
+    // the other tests in this file already do) forces that execution to
+    // complete before asserting on it, instead of relying on it having
+    // already run eagerly by the time action() resolves.
+    await res.text();
     expect(hoisted.streamCallOptions).toHaveLength(1);
     expect(hoisted.streamCallOptions[0]).toMatchObject({ correlationId: 'attempt-42' });
   });
@@ -177,7 +184,9 @@ describe('api.ai.create-module.stream terminal handling', () => {
   it('an absent correlationId form field is passed through as undefined (no accidental empty-string id)', async () => {
     hoisted.streamEvents = [{ kind: 'done', valid: 0, total: 3 }];
     const { action } = await import('~/routes/api.ai.create-module.stream');
-    await action({ request: streamRequest() });
+    const res = await action({ request: streamRequest() });
+    await res.text();
+    expect(hoisted.streamCallOptions).toHaveLength(1);
     expect(hoisted.streamCallOptions[0]?.correlationId).toBeUndefined();
   });
 
