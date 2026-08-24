@@ -19,6 +19,7 @@ export const FUNCTION_KEY_ACTIVATION: Record<string, { kind: ActivationKind; fun
   discountRules: { kind: 'discount', functionHandle: 'discount-function' },
   deliveryCustomization: { kind: 'deliveryCustomization', functionHandle: 'superapp-delivery-customization' },
   paymentCustomization: { kind: 'paymentCustomization', functionHandle: 'superapp-payment-customization' },
+  cartAndCheckoutValidation: { kind: 'validation', functionHandle: 'superapp-cart-checkout-validation' },
 };
 
 const DISCOUNT_TITLE = 'SuperApp Discounts';
@@ -44,6 +45,16 @@ export const MAX_DELIVERY_LOOKUP_PAGES = 20;
  * reasoning as MAX_DISCOUNT_LOOKUP_PAGES / MAX_DELIVERY_LOOKUP_PAGES.
  */
 export const MAX_PAYMENT_LOOKUP_PAGES = 20;
+
+/**
+ * Cap on paginated `validations` adoption-lookup pages, same reasoning as
+ * MAX_DISCOUNT_LOOKUP_PAGES / MAX_DELIVERY_LOOKUP_PAGES / MAX_PAYMENT_LOOKUP_PAGES.
+ * `validations` IS a connection (unlike `fulfillmentConstraintRules`, a plain
+ * list) — an unpaginated first-page-only lookup would miss a legacy/matching
+ * validation past page 1 on a shop with many validations, and silently fall
+ * through to CREATE (double-apply: the wasm would run twice per checkout).
+ */
+export const MAX_VALIDATION_LOOKUP_PAGES = 20;
 
 /**
  * Thrown when a paginated adoption lookup (discount node / delivery
@@ -194,6 +205,40 @@ const PAYMENT_DELETE = `#graphql
   }
 `;
 
+const VALIDATION_TITLE = 'SuperApp Checkout Validation';
+
+// Paginated (unlike DISCOUNT_NODES_LOOKUP/DELIVERY_LIST/PAYMENT_LIST, no
+// search-index filter exists for `validations` in the first place — but the
+// same discipline applies: the connection is scanned in full via `after` so a
+// legacy/matching validation past page 1 is never missed, which would
+// otherwise silently fall through to CREATE and double-apply the wasm at
+// checkout). Node exposes `shopifyFunction.handle` directly — no separate
+// FUNCTION_LOOKUP call needed for adoption matching (unlike delivery/payment).
+const VALIDATION_LIST = `#graphql
+  query SuperAppValidationList($after: String) {
+    validations(first: 25, after: $after) {
+      nodes { id enabled shopifyFunction { id handle } }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+`;
+const VALIDATION_CREATE = `#graphql
+  mutation SuperAppValidationCreate($validation: ValidationCreateInput!) {
+    validationCreate(validation: $validation) {
+      validation { id }
+      userErrors { field message }
+    }
+  }
+`;
+const VALIDATION_DELETE = `#graphql
+  mutation SuperAppValidationDelete($id: ID!) {
+    validationDelete(id: $id) {
+      deletedId
+      userErrors { field message }
+    }
+  }
+`;
+
 type StoredActivation = { functionKey: string; kind: string; activationGid: string };
 
 /** userError messages that mean "already gone" — deletes treat them as success. */
@@ -218,6 +263,8 @@ export class ActivationService {
         return this.ensureDeliveryCustomization(functionKey, mapping.functionHandle);
       case 'paymentCustomization':
         return this.ensurePaymentCustomization(functionKey, mapping.functionHandle);
+      case 'validation':
+        return this.ensureValidation(functionKey, mapping.functionHandle);
       default: {
         // A mapping was added without its ensure implementation — plan violation.
         throw new Error(`ActivationService: kind "${mapping.kind}" has no ensure implementation`);
@@ -239,6 +286,9 @@ export class ActivationService {
         break;
       case 'paymentCustomization':
         await this.deleteWith(PAYMENT_DELETE, stored.activationGid, 'paymentCustomizationDelete');
+        break;
+      case 'validation':
+        await this.deleteWith(VALIDATION_DELETE, stored.activationGid, 'validationDelete');
         break;
       default:
         throw new Error(`ActivationService: kind "${mapping.kind}" has no delete implementation`);
@@ -488,6 +538,87 @@ export class ActivationService {
       connectionField: 'paymentCustomizations',
       duplicateRiskNote:
         "a duplicate payment customization bound to this function (double-evaluated payment methods). Investigate the shop's payment-customization count.",
+    });
+  }
+
+  // ── validation ────────────────────────────────────────────────────────────
+
+  private async ensureValidation(functionKey: string, functionHandle: string): Promise<string> {
+    const stored = await this.getStored(functionKey);
+    if (stored) return stored.activationGid;
+
+    // Recovery/adoption: exactly ONE validation bound to this function — a
+    // second one would run the wasm twice on the same checkout. Paginates the
+    // FULL validations connection (see findExistingValidation) for the same
+    // reason the delivery/payment lookups do — an unpaginated first-page-only
+    // lookup would miss the validation on a shop with many validations and
+    // silently fall through to CREATE. Unlike delivery/payment, adoption keys
+    // directly off `shopifyFunction.handle` (no separate FUNCTION_LOOKUP call).
+    const found = await this.findExistingValidation(functionKey, functionHandle);
+    if (found) {
+      await this.store(functionKey, 'validation', found.id);
+      return found.id;
+    }
+
+    const created = await this.graphqlJson<{
+      validationCreate: { validation?: { id: string }; userErrors: Array<{ message: string }> };
+    }>(VALIDATION_CREATE, {
+      validation: {
+        functionHandle,
+        enable: true,
+        // A validation-function timeout must not brick checkout — validation ERRORS
+        // still always block (platform behavior); this only governs runtime exceptions.
+        blockOnFailure: false,
+        title: VALIDATION_TITLE,
+      },
+    });
+    const err = created.data?.validationCreate?.userErrors?.[0];
+    if (err) throw new Error(`validationCreate failed: ${err.message}`);
+    const id = created.data?.validationCreate?.validation?.id;
+    if (!id) throw new Error('validationCreate returned no id');
+    await this.store(functionKey, 'validation', id);
+    return id;
+  }
+
+  /**
+   * Page through the FULL `validations` connection looking for a node whose
+   * `shopifyFunction.handle` matches ours. `first: 25` per page; stops as soon
+   * as a match is found or the connection is exhausted (`pageInfo.hasNextPage`
+   * false). Caps at MAX_VALIDATION_LOOKUP_PAGES pages — if the cap is hit
+   * WITHOUT a verdict (pages remained), it throws rather than letting the
+   * caller fall through to CREATE (see ActivationLookupUnverifiableError).
+   */
+  private async findExistingValidation(
+    functionKey: string,
+    functionHandle: string,
+  ): Promise<{ id: string } | null> {
+    let after: string | undefined;
+    for (let page = 0; page < MAX_VALIDATION_LOOKUP_PAGES; page++) {
+      const lookup = await this.graphqlJson<{
+        validations: {
+          nodes: Array<{ id: string; shopifyFunction?: { handle?: string } | null }>;
+          pageInfo?: { hasNextPage: boolean; endCursor?: string | null };
+        };
+      }>(VALIDATION_LIST, after ? { after } : undefined);
+      const found = (lookup.data?.validations?.nodes ?? []).find(
+        (n) => n.shopifyFunction?.handle === functionHandle,
+      );
+      if (found) return found;
+
+      const pageInfo = lookup.data?.validations?.pageInfo;
+      if (!pageInfo?.hasNextPage) return null; // connection exhausted — genuinely safe to create
+      after = pageInfo.endCursor ?? undefined;
+    }
+    // Cap hit while more pages remained: cannot rule out an existing node.
+    console.warn(
+      `[ActivationService] validations lookup for functions.${functionKey} hit the ` +
+        `${MAX_VALIDATION_LOOKUP_PAGES}-page cap without a verdict — refusing to create.`,
+    );
+    throw new ActivationLookupUnverifiableError(functionKey, MAX_VALIDATION_LOOKUP_PAGES, {
+      resourceLabel: 'validation',
+      connectionField: 'validations',
+      duplicateRiskNote:
+        "a duplicate validation bound to this function (double-evaluated at checkout). Investigate the shop's validation count.",
     });
   }
 

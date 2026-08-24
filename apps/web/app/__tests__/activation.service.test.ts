@@ -25,6 +25,7 @@ import {
   MAX_DELIVERY_LOOKUP_PAGES,
   MAX_DISCOUNT_LOOKUP_PAGES,
   MAX_PAYMENT_LOOKUP_PAGES,
+  MAX_VALIDATION_LOOKUP_PAGES,
 } from '~/services/publish/activation.service';
 
 /**
@@ -357,6 +358,116 @@ describe('ActivationService — paymentCustomization kind', () => {
     await new ActivationService(del.admin, 'shop_1').deleteForFunctionKey('paymentCustomization');
     expect(del.calls.map((c) => c.op)).toEqual(['SuperAppPaymentCustomizationDelete']);
     expect(db.has('shop_1:paymentCustomization')).toBe(false);
+  });
+});
+
+describe('ActivationService — validation kind', () => {
+  it('creates via functionHandle with enable:true, blockOnFailure:false on first ensure', async () => {
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'SuperAppValidationList')
+        return { data: { validations: { nodes: [] } } };
+      if (op === 'SuperAppValidationCreate')
+        return { data: { validationCreate: { validation: { id: 'gid://shopify/Validation/1' }, userErrors: [] } } };
+      throw new Error(`unexpected op ${op}`);
+    });
+    const gid = await new ActivationService(admin, 'shop_1').ensureForFunctionKey('cartAndCheckoutValidation');
+    expect(gid).toBe('gid://shopify/Validation/1');
+    expect(calls.map((c) => c.op)).toEqual([
+      'SuperAppValidationList',
+      'SuperAppValidationCreate',
+    ]);
+    // No SuperAppFunctionLookup call — validations nodes expose the handle directly.
+    expect(calls.some((c) => c.op === 'SuperAppFunctionLookup')).toBe(false);
+    const v = calls[1]!.variables!.validation as Record<string, unknown>;
+    expect(v).toEqual({
+      functionHandle: 'superapp-cart-checkout-validation',
+      enable: true,
+      blockOnFailure: false,
+      title: 'SuperApp Checkout Validation',
+    });
+  });
+
+  it('adopts an existing validation for our function instead of duplicating', async () => {
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'SuperAppValidationList')
+        return {
+          data: {
+            validations: {
+              nodes: [{ id: 'gid://v/9', enabled: true, shopifyFunction: { id: 'fn_1', handle: 'superapp-cart-checkout-validation' } }],
+            },
+          },
+        };
+      throw new Error(`unexpected op ${op}`);
+    });
+    const gid = await new ActivationService(admin, 'shop_1').ensureForFunctionKey('cartAndCheckoutValidation');
+    expect(gid).toBe('gid://v/9');
+    expect(calls.map((c) => c.op)).not.toContain('SuperAppValidationCreate');
+  });
+
+  it('finds the validation on page 2 (paginated adoption, no double-create)', async () => {
+    const { admin, calls } = mockAdmin((op, variables) => {
+      if (op === 'SuperAppValidationList') {
+        if (!variables?.after) {
+          return {
+            data: {
+              validations: {
+                nodes: [{ id: 'gid://v/other', enabled: true, shopifyFunction: { id: 'fn_other', handle: 'some-other-function' } }],
+                pageInfo: { hasNextPage: true, endCursor: 'cursor-1' },
+              },
+            },
+          };
+        }
+        expect(variables.after).toBe('cursor-1');
+        return {
+          data: {
+            validations: {
+              nodes: [{ id: 'gid://v/9', enabled: true, shopifyFunction: { id: 'fn_1', handle: 'superapp-cart-checkout-validation' } }],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        };
+      }
+      throw new Error(`unexpected op ${op}`);
+    });
+    const gid = await new ActivationService(admin, 'shop_1').ensureForFunctionKey('cartAndCheckoutValidation');
+    expect(gid).toBe('gid://v/9');
+    expect(calls.map((c) => c.op)).toEqual([
+      'SuperAppValidationList',
+      'SuperAppValidationList',
+    ]);
+    expect(calls.some((c) => c.op === 'SuperAppValidationCreate')).toBe(false);
+  });
+
+  it('refuses to create when the lookup hits the page cap without a verdict (no blind create)', async () => {
+    let pages = 0;
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'SuperAppValidationList') {
+        pages += 1;
+        return { data: { validations: { nodes: [], pageInfo: { hasNextPage: true, endCursor: `cursor-${pages}` } } } };
+      }
+      throw new Error(`unexpected op ${op}`);
+    });
+    await expect(
+      new ActivationService(admin, 'shop_1').ensureForFunctionKey('cartAndCheckoutValidation'),
+    ).rejects.toThrow(ActivationLookupUnverifiableError);
+    expect(pages).toBe(MAX_VALIDATION_LOOKUP_PAGES);
+    expect(calls.every((c) => c.op === 'SuperAppValidationList')).toBe(true);
+    expect(calls.some((c) => c.op === 'SuperAppValidationCreate')).toBe(false);
+  });
+
+  it('stored GID → zero Shopify calls; delete uses validationDelete', async () => {
+    db.set('shop_1:cartAndCheckoutValidation', { functionKey: 'cartAndCheckoutValidation', kind: 'validation', activationGid: 'gid://v/1' });
+    const noCall = mockAdmin(() => { throw new Error('no call expected'); });
+    expect(await new ActivationService(noCall.admin, 'shop_1').ensureForFunctionKey('cartAndCheckoutValidation')).toBe('gid://v/1');
+
+    const del = mockAdmin((op) => {
+      if (op === 'SuperAppValidationDelete')
+        return { data: { validationDelete: { deletedId: 'gid://v/1', userErrors: [] } } };
+      throw new Error(`unexpected op ${op}`);
+    });
+    await new ActivationService(del.admin, 'shop_1').deleteForFunctionKey('cartAndCheckoutValidation');
+    expect(del.calls.map((c) => c.op)).toEqual(['SuperAppValidationDelete']);
+    expect(db.has('shop_1:cartAndCheckoutValidation')).toBe(false);
   });
 });
 

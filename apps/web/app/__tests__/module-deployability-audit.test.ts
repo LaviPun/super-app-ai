@@ -76,8 +76,11 @@ const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
   // paymentCustomization kind wires paymentCustomizationCreate, identical shape to
   // deliveryCustomization (paginated paymentCustomizations scan keyed on
   // functionId) — see ACTIVATION_WIRED_FUNCTION_TYPES.
+  // functions.cartAndCheckoutValidation removed (Task 6, 2026-08-24): ActivationService's
+  // validation kind wires validationCreate (enable:true, blockOnFailure:false), adoption
+  // keyed directly off shopifyFunction.handle (paginated validations scan) — see
+  // ACTIVATION_WIRED_FUNCTION_TYPES.
   'functions.cartTransform',
-  'functions.cartAndCheckoutValidation',
   'functions.fulfillmentConstraints',
   // Shipping-discount + order-routing Functions: wasm now deployed (WS-E T2 —
   // superapp-shipping-discount, superapp-order-routing joined the deployed-function
@@ -362,10 +365,10 @@ describe('INTEGRITY: declarative pricing mechanism ⇒ needs_runtime (no inert f
  * functions.discountRules removed (Task 3) — now activation-wired.
  * functions.deliveryCustomization removed (Task 4) — now activation-wired.
  * functions.paymentCustomization removed (Task 5) — now activation-wired.
+ * functions.cartAndCheckoutValidation removed (Task 6) — now activation-wired.
  */
 const ACTIVATION_UNWIRED_TYPES = [
   'functions.cartTransform',
-  'functions.cartAndCheckoutValidation',
   'functions.fulfillmentConstraints',
 ] as const;
 

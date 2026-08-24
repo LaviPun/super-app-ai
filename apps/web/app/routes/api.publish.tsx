@@ -103,7 +103,7 @@ export async function action({ request }: { request: Request }) {
         ? { kind: 'THEME', themeId: body.themeId ?? '', moduleId: module.id }
         : { kind: 'PLATFORM', moduleId: module.id };
 
-      const preflight = await runPublishPreflight(admin, { isThemeModule });
+      const preflight = await runPublishPreflight(admin, { isThemeModule, moduleType: spec.type });
       if (!preflight.ok) {
         const error = preflight.error
           ? `Publish preflight failed: ${preflight.error}`

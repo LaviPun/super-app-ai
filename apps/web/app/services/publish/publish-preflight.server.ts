@@ -33,13 +33,30 @@ export type PublishPreflightResult = {
   error?: string;
 };
 
+/**
+ * Function type → additional access scopes required beyond `write_metaobjects`
+ * for its activation object write (ActivationService's ensure* mutations).
+ * Kept in sync with @superapp/core's `ACTIVATION_WIRED_FUNCTION_TYPES` — the
+ * publish path should fail loudly at preflight (missing scope) rather than
+ * deep inside the activation mutation.
+ */
+const FUNCTION_TYPE_REQUIRED_SCOPES: Record<string, string[]> = {
+  'functions.discountRules': ['write_discounts'],
+  'functions.cartTransform': ['write_cart_transforms', 'write_products'],
+  'functions.deliveryCustomization': ['write_delivery_customizations'],
+  'functions.paymentCustomization': ['write_payment_customizations'],
+  'functions.cartAndCheckoutValidation': ['write_validations'],
+  'functions.fulfillmentConstraints': ['write_fulfillment_constraint_rules'],
+};
+
 export async function runPublishPreflight(
   admin: AdminApiContext['admin'],
-  input: { isThemeModule: boolean },
+  input: { isThemeModule: boolean; moduleType?: string },
 ): Promise<PublishPreflightResult> {
   const requiredScopes = [
     'write_metaobjects',
     ...(input.isThemeModule ? ['read_themes'] : []),
+    ...(input.moduleType ? (FUNCTION_TYPE_REQUIRED_SCOPES[input.moduleType] ?? []) : []),
   ];
 
   try {

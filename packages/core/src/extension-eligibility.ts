@@ -596,11 +596,20 @@ export function isRuntimeShipped(moduleType: ModuleType, ctx: RuntimeShippedChec
  * node's `functionId`, paginated over the full `paymentCustomizations`
  * connection) via `paymentCustomizationCreate`, bound by `functionHandle`
  * (2026-07: `functionId` input is deprecated for create).
+ *
+ * `functions.cartAndCheckoutValidation` (Task 6, 2026-08-24): wired to
+ * `ActivationService`'s validation kind — ensures/adopts the single
+ * Validation owner object bound to `superapp-cart-checkout-validation`
+ * (adoption keys directly off the node's `shopifyFunction.handle`, paginated
+ * over the full `validations` connection — no separate function-id lookup
+ * needed) via `validationCreate` (`enable: true`, `blockOnFailure: false`),
+ * bound by `functionHandle`.
  */
 export const ACTIVATION_WIRED_FUNCTION_TYPES: Set<string> = new Set<string>([
   'functions.discountRules',
   'functions.deliveryCustomization',
   'functions.paymentCustomization',
+  'functions.cartAndCheckoutValidation',
 ]);
 
 /**
