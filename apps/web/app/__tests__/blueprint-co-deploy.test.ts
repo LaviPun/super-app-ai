@@ -293,21 +293,23 @@ describe('publishBlueprint — bundle triangle co-deploy', () => {
 
     // D6 step 2 pin (WS-E Task 1, renamed from WS-QF's D6 step 1): every co-deploy
     // publish call must carry activationHandledByCoDeploy — this is what keeps
-    // activation-gated function types (functions.cartTransform is the source member
-    // here) deployable via co-deploy even though classifyModulePublishability gates
-    // them needs_runtime on the single-module publish path (see
-    // extension-eligibility.ts ACTIVATION_WIRED_FUNCTION_TYPES / blueprint.service.ts:461,
-    // formerly FUNCTION_ACTIVATION_UNWIRED). Without this flag threading,
-    // BlueprintService.publishBlueprint would itself start false-publishing the
-    // cart-transform member.
+    // activation-gated function types deployable via co-deploy even though
+    // classifyModulePublishability gates them needs_runtime on the single-module
+    // publish path (see extension-eligibility.ts ACTIVATION_WIRED_FUNCTION_TYPES).
+    // WS-E Task 8 (fix round 1): the cart-transform member's call ALSO hands over
+    // the blueprint-resolved bundle via cartTransformBundles — the dedup that moved
+    // the plan-aware activation inside PublishService.publishCartTransform.
     const cartTransformCall = hoisted.publish.mock.calls.find((c) => c[0].type === 'functions.cartTransform');
-    expect(cartTransformCall?.[2]).toEqual({ activationHandledByCoDeploy: true });
+    expect(cartTransformCall?.[2]).toEqual({
+      activationHandledByCoDeploy: true,
+      cartTransformBundles: [expect.objectContaining({ bundleId: 'starter-set', parentVariantId: 'gid://shopify/ProductVariant/500' })],
+    });
     for (const call of hoisted.publish.mock.calls) {
-      expect(call[2]).toEqual({ activationHandledByCoDeploy: true });
+      expect((call[2] as { activationHandledByCoDeploy?: boolean }).activationHandledByCoDeploy).toBe(true);
     }
   });
 
-  it('writes $app:bundle_config exactly once, after publish, with the real parentVariantId (C4)', async () => {
+  it('hands the resolved bundle to publish and never activates itself (WS-E Task 8 dedup — single writer)', async () => {
     hoisted.recipeFindFirst.mockResolvedValue(
       recipeRow([
         { id: 'merge', type: 'functions.cartTransform', spec: cartTransformSpec },
@@ -318,18 +320,19 @@ describe('publishBlueprint — bundle triangle co-deploy', () => {
     const { BlueprintService } = await import('~/services/blueprints/blueprint.service');
     await new BlueprintService().publishBlueprint(fakeAdmin, 'test.myshopify.com', 'recipe_1', { themeId: '123' });
 
-    expect(hoisted.activateCartTransform).toHaveBeenCalledTimes(1);
-    const runtimeConfig = hoisted.activateCartTransform.mock.calls[0]![0]!;
-    expect(runtimeConfig.bundles[0]!.parentVariantId).toBe('gid://shopify/ProductVariant/500');
-    expect(runtimeConfig.bundles[0]!.bundleId).toBe('starter-set');
-
-    // ordering: publish invoked before activate (both timestamps captured by call order)
-    expect(hoisted.publish.mock.invocationCallOrder[0]!).toBeLessThan(
-      hoisted.activateCartTransform.mock.invocationCallOrder[0]!,
-    );
+    // The blueprint NO LONGER activates the cart transform itself — the single
+    // $app:bundle_config writer is the plan-aware activation inside
+    // PublishService.publishCartTransform (asserted in activation.service.test.ts).
+    // The blueprint's job is to hand over its RESOLVED bundle.
+    expect(hoisted.activateCartTransform).not.toHaveBeenCalled();
+    const cartTransformCall = hoisted.publish.mock.calls.find((c) => c[0].type === 'functions.cartTransform')!;
+    const handed = (cartTransformCall[2] as { cartTransformBundles?: Array<Record<string, unknown>> }).cartTransformBundles!;
+    expect(handed).toHaveLength(1);
+    expect(handed[0]!.parentVariantId).toBe('gid://shopify/ProductVariant/500');
+    expect(handed[0]!.bundleId).toBe('starter-set');
   });
 
-  it('threads lowered pricing into the runtime config when the bundle carries pricing', async () => {
+  it('threads lowered pricing into the handed-over bundle when the bundle carries pricing', async () => {
     const priced = structuredClone(cartTransformSpec);
     (priced.config.bundles[0] as Record<string, unknown>).pricing = {
       model: 'single',
@@ -344,8 +347,9 @@ describe('publishBlueprint — bundle triangle co-deploy', () => {
     const result = await new BlueprintService().publishBlueprint(fakeAdmin, 'test.myshopify.com', 'recipe_1');
 
     expect(result.resolvedBundle?.price).toEqual({ kind: 'percentage', value: 20 });
-    const runtimeConfig = hoisted.activateCartTransform.mock.calls[0]![0]!;
-    expect(runtimeConfig.bundles[0]!.price).toEqual({ kind: 'percentage', value: 20 });
+    const cartTransformCall = hoisted.publish.mock.calls.find((c) => c[0].type === 'functions.cartTransform')!;
+    const handed = (cartTransformCall[2] as { cartTransformBundles?: Array<Record<string, unknown>> }).cartTransformBundles!;
+    expect(handed[0]!.price).toEqual({ kind: 'percentage', value: 20 });
   });
 });
 
@@ -364,52 +368,32 @@ function fixedPriceSpec() {
   return priced;
 }
 
-describe('publishBlueprint — plan-aware fixed-price split at the activate site', () => {
-  it('non-Plus (BASIC): strips the fixed price from cart-transform config, ensures the discount node once, and writes the managed rule', async () => {
-    hoisted.getPlanTier.mockResolvedValue('BASIC');
+describe('publishBlueprint — plan-aware pricing handover (WS-E Task 8 dedup)', () => {
+  // The plan-aware fixed-price split (splitBundlePricingForPlan + the
+  // managed-discount fallback leg) moved INSIDE PublishService.publishCartTransform
+  // (activateBundleCartTransformForPlan) — the same sequence now serves the
+  // single-module path. Plus/non-Plus split behavior is asserted end-to-end in
+  // activation.service.test.ts ("functions.cartTransform single-module publish").
+  // The blueprint's contract is now: hand the resolved bundle (lowered pricing
+  // included) to publish, and run NO pricing/activation leg of its own.
+  it('hands the lowered fixed price over via cartTransformBundles and runs no activation/pricing leg itself', async () => {
     hoisted.recipeFindFirst.mockResolvedValue(recipeRow([{ id: 'merge', type: 'functions.cartTransform', spec: fixedPriceSpec() }]));
 
     const { BlueprintService } = await import('~/services/blueprints/blueprint.service');
     await new BlueprintService().publishBlueprint(fakeAdmin, 'test.myshopify.com', 'recipe_1');
 
-    // Cart-transform config takes the merge path — the fixed price is stripped.
-    expect(hoisted.activateCartTransform).toHaveBeenCalledTimes(1);
-    const runtimeConfig = hoisted.activateCartTransform.mock.calls[0]![0]!;
-    expect(runtimeConfig.bundles[0]!.price).toBeUndefined();
+    const cartTransformCall = hoisted.publish.mock.calls.find((c) => c[0].type === 'functions.cartTransform')!;
+    const handed = (cartTransformCall[2] as { cartTransformBundles?: Array<Record<string, unknown>> }).cartTransformBundles!;
+    expect(handed).toHaveLength(1);
+    expect(handed[0]!.price).toEqual({ kind: 'fixed-price', value: 49 });
+    // The split needs the REAL parent SKU to target the merged line.
+    expect(handed[0]!.bundleSku).toBe('superapp-bundle-starter-set');
 
-    // The discount node is ensured exactly once (there is a rule to activate).
-    expect(hoisted.ensureForFunctionKey).toHaveBeenCalledTimes(1);
-    expect(hoisted.ensureForFunctionKey).toHaveBeenCalledWith('discountRules');
-
-    // The managed rule is written: keyed `bundle:<id>`, reducing to the fixed price.
-    expect(hoisted.writeBundlePricingRules).toHaveBeenCalledTimes(1);
-    const rules = hoisted.writeBundlePricingRules.mock.calls[0]![1] as Array<{
-      id: string;
-      apply: { fixedPricePerUnit: number };
-    }>;
-    expect(rules).toHaveLength(1);
-    expect(rules[0]!.id).toBe('bundle:starter-set');
-    expect(rules[0]!.apply.fixedPricePerUnit).toBe(49);
-  });
-
-  it('Plus: keeps the fixed price in cart-transform config, does NOT ensure the discount node, and clears managed rules (writes [])', async () => {
-    hoisted.getPlanTier.mockResolvedValue('PLUS');
-    hoisted.recipeFindFirst.mockResolvedValue(recipeRow([{ id: 'merge', type: 'functions.cartTransform', spec: fixedPriceSpec() }]));
-
-    const { BlueprintService } = await import('~/services/blueprints/blueprint.service');
-    await new BlueprintService().publishBlueprint(fakeAdmin, 'test.myshopify.com', 'recipe_1');
-
-    // Byte-identical to today: the fixed price stays on the cart-transform line.
-    const runtimeConfig = hoisted.activateCartTransform.mock.calls[0]![0]!;
-    expect(runtimeConfig.bundles[0]!.price).toEqual({ kind: 'fixed-price', value: 49 });
-
-    // No discount fallback on Plus.
+    // No blueprint-side activation / plan lookup / discount leg — single writer.
+    expect(hoisted.activateCartTransform).not.toHaveBeenCalled();
+    expect(hoisted.getPlanTier).not.toHaveBeenCalled();
     expect(hoisted.ensureForFunctionKey).not.toHaveBeenCalled();
-
-    // writeBundlePricingRules is still called unconditionally — with [] — so any
-    // stale managed rule from a prior non-Plus publish is cleared.
-    expect(hoisted.writeBundlePricingRules).toHaveBeenCalledTimes(1);
-    expect(hoisted.writeBundlePricingRules.mock.calls[0]![1]).toEqual([]);
+    expect(hoisted.writeBundlePricingRules).not.toHaveBeenCalled();
   });
 });
 

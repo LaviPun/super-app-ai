@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AdminApiContext } from '~/types/shopify';
 
 const db = new Map<string, { functionKey: string; kind: string; activationGid: string }>();
+/** Shop row backing both CapabilityService.getPlanTier (lookup by shopDomain) and
+ *  PublishService.resolveShopDomain (lookup by id). `planTier` is mutable so the
+ *  plan-aware cartTransform tests can flip Plus/non-Plus per test. */
+const shopState = { planTier: 'PLUS' };
 vi.mock('~/db.server', () => ({
   getPrisma: () => ({
     functionActivation: {
@@ -14,6 +18,9 @@ vi.mock('~/db.server', () => ({
       delete: async ({ where }: any) => {
         db.delete(`${where.shopId_functionKey.shopId}:${where.shopId_functionKey.functionKey}`);
       },
+    },
+    shop: {
+      findUnique: async () => ({ id: 'shop_1', shopDomain: 'test.myshopify.com', planTier: shopState.planTier }),
     },
   }),
 }));
@@ -47,7 +54,10 @@ function mockAdmin(resolve: (op: string, variables?: Record<string, unknown>) =>
   return { admin, calls };
 }
 
-beforeEach(() => db.clear());
+beforeEach(() => {
+  db.clear();
+  shopState.planTier = 'PLUS';
+});
 
 describe('ActivationService — discount kind', () => {
   it('creates the automatic app discount node on first ensure and stores its GID', async () => {
@@ -585,12 +595,111 @@ describe('functions.cartTransform single-module publish (WS-E bundles decision E
       'SuperAppBundleProductSet',
       'SuperAppCartTransforms',
       'SuperAppCartTransformCreate',
+      // The shared plan-aware sequence's unconditional managed-rule maintenance:
+      // writeBundlePricingRules reads the discountRules function config (no write
+      // follows — no rules to add, none to clear).
+      'MetaobjectByHandle',
     ]);
-    const create = calls.at(-1)!;
+    const create = calls.find((c) => c.op === 'SuperAppCartTransformCreate')!;
     const metafields = create.variables!.metafields as Array<{ key: string; value: string }>;
     const cfg = JSON.parse(metafields[0]!.value) as { bundles: Array<{ bundleId: string; parentVariantId: string }> };
     expect(cfg.bundles[0]).toMatchObject({ bundleId: 'duo', parentVariantId: 'gid://v/parent' });
     // Activation GID stored for unpublish.
+    expect(db.get('shop_1:cartTransform')?.activationGid).toBe('gid://shopify/CartTransform/1');
+  });
+
+  // Fix round 1: the single-module path runs the SAME plan-aware sequence the
+  // blueprint co-deploy path runs (activateBundleCartTransformForPlan).
+  const fixedPriceSpec = {
+    type: 'functions.cartTransform',
+    category: 'functions',
+    name: 'Bundle',
+    config: {
+      bundles: [{
+        title: 'Duo',
+        componentSkus: ['SKU-A', 'SKU-B'],
+        bundleSku: 'DUO',
+        pricing: { model: 'single', mechanism: 'shopify-function-cart-transform', discount: { kind: 'fixed-price', value: 49 } },
+      }],
+    },
+  } as never;
+
+  const planAwareResolver = (op: string) => {
+    switch (op) {
+      case 'SuperAppVariantsBySku':
+        return { data: { productVariants: { nodes: [
+          { id: 'gid://v/1', sku: 'SKU-A', title: 'A', price: '10', product: { title: 'A' } },
+          { id: 'gid://v/2', sku: 'SKU-B', title: 'B', price: '20', product: { title: 'B' } },
+        ] } } };
+      case 'SuperAppBundleProductSet':
+        return { data: { productSet: { product: { variants: { nodes: [{ id: 'gid://v/parent' }] } }, userErrors: [] } } };
+      case 'SuperAppCartTransforms':
+        return { data: { cartTransforms: { nodes: [] } } };
+      case 'SuperAppCartTransformCreate':
+        return { data: { cartTransformCreate: { cartTransform: { id: 'gid://shopify/CartTransform/1' }, userErrors: [] } } };
+      case 'SuperAppDiscountActivationLookup':
+        return { data: { discountNodes: { nodes: [] } } };
+      case 'SuperAppDiscountActivationCreate':
+        return { data: { discountAutomaticAppCreate: { automaticAppDiscount: { discountId: 'gid://shopify/DiscountAutomaticNode/1' }, userErrors: [] } } };
+      case 'MetaobjectByHandle':
+        return { data: { metaobjectByHandle: null } };
+      case 'MetaobjectUpsert':
+        return { data: { metaobjectUpsert: { metaobject: { id: 'gid://m/1' }, userErrors: [] } } };
+      default:
+        return { data: {} };
+    }
+  };
+
+  it('non-Plus + fixed price: strips the Plus-only lineUpdate price from $app:bundle_config and runs the managed-discount fallback', async () => {
+    shopState.planTier = 'BASIC';
+    const { admin, calls } = mockAdmin(planAwareResolver);
+    const { PublishService } = await import('~/services/publish/publish.service');
+    await new PublishService(admin, { shopId: 'shop_1' }).publish(fixedPriceSpec, { kind: 'PLATFORM', moduleId: 'm1' });
+
+    // The activated config takes the merge path — the fixed price is stripped.
+    const create = calls.find((c) => c.op === 'SuperAppCartTransformCreate')!;
+    const metafields = create.variables!.metafields as Array<{ key: string; value: string }>;
+    const cfg = JSON.parse(metafields[0]!.value) as { bundles: Array<Record<string, unknown>> };
+    expect(cfg.bundles[0]!.price).toBeUndefined();
+
+    // The discount fallback leg ran: the discount node is ensured…
+    expect(calls.map((c) => c.op)).toContain('SuperAppDiscountActivationCreate');
+    expect(db.get('shop_1:discountRules')?.activationGid).toBe('gid://shopify/DiscountAutomaticNode/1');
+    // …and the managed rule is written: keyed bundle:<id>, targeting the REAL
+    // parent SKU, reducing to the fixed price.
+    const upsert = calls.find((c) => c.op === 'MetaobjectUpsert')!;
+    const fields = (upsert.variables!.metaobject as { fields: Array<{ key: string; value: string }> }).fields;
+    const written = JSON.parse(fields.find((f) => f.key === 'config_json')!.value) as {
+      rules: Array<{ id: string; when: { skuIn: string[] }; apply: { fixedPricePerUnit: number } }>;
+    };
+    expect(written.rules).toHaveLength(1);
+    expect(written.rules[0]).toEqual({
+      id: 'bundle:duo',
+      when: { skuIn: ['superapp-bundle-duo'] },
+      apply: { fixedPricePerUnit: 49 },
+    });
+
+    // Activation GID stored for unpublish.
+    expect(db.get('shop_1:cartTransform')?.activationGid).toBe('gid://shopify/CartTransform/1');
+  });
+
+  it('Plus + fixed price: keeps the lineUpdate price in $app:bundle_config, no discount fallback', async () => {
+    shopState.planTier = 'PLUS';
+    const { admin, calls } = mockAdmin(planAwareResolver);
+    const { PublishService } = await import('~/services/publish/publish.service');
+    await new PublishService(admin, { shopId: 'shop_1' }).publish(fixedPriceSpec, { kind: 'PLATFORM', moduleId: 'm1' });
+
+    const create = calls.find((c) => c.op === 'SuperAppCartTransformCreate')!;
+    const metafields = create.variables!.metafields as Array<{ key: string; value: string }>;
+    const cfg = JSON.parse(metafields[0]!.value) as { bundles: Array<Record<string, unknown>> };
+    expect(cfg.bundles[0]!.price).toEqual({ kind: 'fixed-price', value: 49 });
+
+    // No discount fallback on Plus — no node ensured, no managed rule written
+    // (the unconditional maintenance read still runs, but finds nothing to clear).
+    expect(calls.map((c) => c.op)).not.toContain('SuperAppDiscountActivationLookup');
+    expect(calls.map((c) => c.op)).not.toContain('SuperAppDiscountActivationCreate');
+    expect(calls.map((c) => c.op)).not.toContain('MetaobjectUpsert');
+    expect(db.has('shop_1:discountRules')).toBe(false);
     expect(db.get('shop_1:cartTransform')?.activationGid).toBe('gid://shopify/CartTransform/1');
   });
 

@@ -310,7 +310,7 @@ describe('publishBlueprint — composite pre-pass', () => {
     { memberRole: 'price', recordRef: 'skincare-bundle', bindingRole: 'enforcement', reads: ['discountPercentage'], availabilitySource: 'none' },
   ];
 
-  it('provisions the record, injects real GIDs by binding, activates cart-transform after publish (C4)', async () => {
+  it('provisions the record, injects real GIDs by binding, hands the record-resolved bundle to publish (WS-E Task 8 dedup)', async () => {
     hoisted.recipeFindFirst.mockResolvedValue(
       compositeRecipeRow(
         [
@@ -338,11 +338,16 @@ describe('publishBlueprint — composite pre-pass', () => {
     expect(themeCfg.bundleId).toBe('skincare-bundle');
     expect(themeCfg.availabilitySource).toBe('components');
 
-    // C4 — cart-transform activated exactly once, AFTER publish, with the real GID.
-    expect(hoisted.activateCartTransform).toHaveBeenCalledOnce();
-    expect(hoisted.publish.mock.invocationCallOrder[0]!).toBeLessThan(hoisted.activateCartTransform.mock.invocationCallOrder[0]!);
-    const runtimeConfig = hoisted.activateCartTransform.mock.calls[0]![0]!;
-    expect(runtimeConfig.bundles[0]!.parentVariantId).toBe('gid://shopify/ProductVariant/500');
+    // WS-E Task 8 dedup: the blueprint no longer activates the cart transform
+    // itself — the plan-aware activation lives inside
+    // PublishService.publishCartTransform. The blueprint's contract is to hand
+    // the RECORD-resolved bundle (real GIDs — a source the member spec may not
+    // carry) over via cartTransformBundles.
+    expect(hoisted.activateCartTransform).not.toHaveBeenCalled();
+    const cartTransformCall = hoisted.publish.mock.calls.find((c) => c[0].type === 'functions.cartTransform')!;
+    const handed = ((cartTransformCall as unknown[])[2] as { cartTransformBundles?: Array<Record<string, unknown>> }).cartTransformBundles!;
+    expect(handed).toHaveLength(1);
+    expect(handed[0]!.parentVariantId).toBe('gid://shopify/ProductVariant/500');
   });
 
   it('fail-closed on the record: provisioning failure ⇒ ZERO members published, all skipped', async () => {
@@ -390,7 +395,12 @@ describe('publishBlueprint — composite pre-pass', () => {
     // Display member still received the injected real bundle via the binding.
     const themeCfg = hoisted.publish.mock.calls.find((c) => c[0].type === 'theme.section')?.[0].config ?? {};
     expect(themeCfg.bundleId).toBeDefined();
-    expect(hoisted.activateCartTransform).toHaveBeenCalledOnce();
+    // Dedup: the member-resolved bundle is handed to publish, never activated here.
+    expect(hoisted.activateCartTransform).not.toHaveBeenCalled();
+    const cartTransformCall = hoisted.publish.mock.calls.find((c) => c[0].type === 'functions.cartTransform')!;
+    const handed = ((cartTransformCall as unknown[])[2] as { cartTransformBundles?: Array<Record<string, unknown>> }).cartTransformBundles!;
+    expect(handed).toHaveLength(1);
+    expect((handed[0]!.components as unknown[]).length).toBe(2);
   });
 
   it('member failure stays DRAFT; other members still publish (non-atomic)', async () => {

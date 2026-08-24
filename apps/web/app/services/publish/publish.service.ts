@@ -21,12 +21,13 @@ import { deployedFunctionExtensions } from '~/services/publish/deployed-extensio
 import { ActivationService, FUNCTION_KEY_ACTIVATION } from '~/services/publish/activation.service';
 import {
   BundleProductService,
-  buildBundleRuntimeConfig,
   resolveBundleWithPricing,
   bundleIdFromTitle,
   bundleParentSku,
   type ResolvedBundle,
 } from '~/services/bundles/bundle-product.service';
+import { activateBundleCartTransformForPlan } from '~/services/bundles/bundle-activation.server';
+import { getPrisma } from '~/db.server';
 import { ThemeFilesService } from '~/services/publish/theme-files.server';
 import { checkCompiledLiquid, ThemeCheckFailedError } from '~/services/publish/theme-check.server';
 import { isThemeNativeSectionEnabled, isThemeCheckGateBlocking } from '~/env.server';
@@ -107,7 +108,21 @@ export class PublishService {
   async publish(
     spec: RecipeSpec,
     target: DeployTarget,
-    opts?: { activationHandledByCoDeploy?: boolean },
+    opts?: {
+      activationHandledByCoDeploy?: boolean;
+      /**
+       * Blueprint co-deploy override (WS-E Task 8 fix round 1): the blueprint
+       * resolves its bundle triangle BEFORE members publish (from the member
+       * config, or from a composite record's entityMap — a source this spec's
+       * own config may not carry) and hands the resolved bundles here so
+       * `publishCartTransform` activates with them instead of re-resolving from
+       * the spec. Present-but-empty means "the blueprint resolved no bundle for
+       * this member" → activation is skipped entirely, preserving the blueprint
+       * path's pre-dedup semantics (it only ever activated with a resolved
+       * bundle). Absent (single-module path) → resolve from the spec config.
+       */
+      cartTransformBundles?: ResolvedBundle[];
+    },
   ): Promise<{ compiledJson?: string; preflight: ModulePublishPreflightResult }> {
     // WS5/026: never silently no-op. Gate before any deploy work so a caller
     // cannot report "published" for a type that deploys nothing.
@@ -139,7 +154,7 @@ export class PublishService {
     // blueprint co-deploy proved out — resolve SKUs → parent bundle product → cart
     // transform activation carrying $app:bundle_config (the ONLY config the wasm reads).
     if (spec.type === 'functions.cartTransform') {
-      await this.publishCartTransform(spec);
+      await this.publishCartTransform(spec, opts?.cartTransformBundles);
     }
 
     // ── Pre-publish Theme Check gate (035) ──────────────────────────────────
@@ -441,37 +456,75 @@ export class PublishService {
     await mo.setModuleRef(FUNCTIONS_NAMESPACE, refKey, gid);
   }
 
-  private async publishCartTransform(spec: RecipeSpec): Promise<void> {
+  private async publishCartTransform(spec: RecipeSpec, override?: ResolvedBundle[]): Promise<void> {
     const shopId = this.session?.shopId;
     if (!shopId) {
       throw new Error('Publishing functions.cartTransform requires session.shopId (WS-E).');
     }
-    const config = (spec as { config?: { bundles?: Array<Record<string, unknown>>; pricing?: unknown } }).config;
-    const bundleInputs = config?.bundles ?? [];
-    const svc = new BundleProductService(this.admin);
-    const resolved: ResolvedBundle[] = [];
-    for (const b of bundleInputs) {
-      const componentSkus = (b.componentSkus as string[] | undefined) ?? [];
-      const title = String(b.title ?? 'Bundle');
-      const components = await svc.resolveComponents(componentSkus);
-      if (components.length < 2) {
-        throw new Error(
-          `Bundle "${title}": only ${components.length}/${componentSkus.length} component SKUs resolved to store variants — fix the SKUs and republish.`,
-        );
+    // Blueprint co-deploy override: present-but-empty = the blueprint resolved no
+    // bundle for this member → no activation (pre-dedup blueprint semantics).
+    if (override && override.length === 0) return;
+
+    let resolved: ResolvedBundle[];
+    if (override) {
+      resolved = override;
+    } else {
+      const config = (spec as { config?: { bundles?: Array<Record<string, unknown>>; pricing?: unknown } }).config;
+      const bundleInputs = config?.bundles ?? [];
+      const svc = new BundleProductService(this.admin);
+      resolved = [];
+      for (const b of bundleInputs) {
+        const componentSkus = (b.componentSkus as string[] | undefined) ?? [];
+        const title = String(b.title ?? 'Bundle');
+        const components = await svc.resolveComponents(componentSkus);
+        if (components.length < 2) {
+          throw new Error(
+            `Bundle "${title}": only ${components.length}/${componentSkus.length} component SKUs resolved to store variants — fix the SKUs and republish.`,
+          );
+        }
+        const bundleId = bundleIdFromTitle(title);
+        const parentVariantId = await svc.ensureParentBundleProduct({ bundleId, title, components });
+        const base: ResolvedBundle = {
+          bundleId, title, parentVariantId,
+          bundleSku: bundleParentSku(bundleId),
+          discountPercentage: Number(b.discountPercentage ?? 0),
+          components,
+        };
+        resolved.push(resolveBundleWithPricing(base, (b.pricing ?? config?.pricing) as never));
       }
-      const bundleId = bundleIdFromTitle(title);
-      const parentVariantId = await svc.ensureParentBundleProduct({ bundleId, title, components });
-      const base: ResolvedBundle = {
-        bundleId, title, parentVariantId,
-        bundleSku: bundleParentSku(bundleId),
-        discountPercentage: Number(b.discountPercentage ?? 0),
-        components,
-      };
-      resolved.push(resolveBundleWithPricing(base, (b.pricing ?? config?.pricing) as never));
     }
-    const cartTransformGid = await svc.activateCartTransform(buildBundleRuntimeConfig(resolved));
+
+    // Plan-aware activation — the ONE shared implementation (also the blueprint
+    // co-deploy path's): split Plus-only fixed pricing, activate with the
+    // plan-correct config, run the managed-discount fallback leg.
+    const shopDomain = await this.resolveShopDomain(shopId);
+    const cartTransformGid = await activateBundleCartTransformForPlan(this.admin, {
+      shopId,
+      shopDomain,
+      bundles: resolved,
+    });
     // Record for unpublish (Task 10) — kind cartTransform, one per shop.
     await new ActivationService(this.admin, shopId).recordCartTransform(cartTransformGid);
+  }
+
+  /**
+   * The plan lookup (`CapabilityService.getPlanTier`) keys off the shop DOMAIN.
+   * Most call sites pass `session.shop`; the worker adapter and blueprint paths
+   * construct PublishService with only `shopId`, so fall back to resolving the
+   * domain from the Shop row. Throws when neither resolves — a cartTransform
+   * publish must never silently guess a plan.
+   */
+  private async resolveShopDomain(shopId: string): Promise<string> {
+    if (this.session?.shop) return this.session.shop;
+    const row = await getPrisma().shop.findUnique({ where: { id: shopId } });
+    const shopDomain = (row as { shopDomain?: string } | null)?.shopDomain;
+    if (!shopDomain) {
+      throw new Error(
+        `Publishing functions.cartTransform: cannot resolve the shop domain for shop "${shopId}" — ` +
+          `required for plan-aware bundle pricing (WS-E).`,
+      );
+    }
+    return shopDomain;
   }
 
   private async ensureFunctionActivation(functionKey: string): Promise<void> {

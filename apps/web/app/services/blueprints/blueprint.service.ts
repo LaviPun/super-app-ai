@@ -18,7 +18,6 @@ import type {
 import { RecipeSpecSchema } from '@superapp/core';
 import { ModuleService } from '~/services/modules/module.service';
 import { PublishService } from '~/services/publish/publish.service';
-import { ActivationService } from '~/services/publish/activation.service';
 import {
   BundleProductService,
   bundleIdFromTitle,
@@ -26,9 +25,6 @@ import {
   resolveBundleWithPricing,
   type ResolvedBundle,
 } from '~/services/bundles/bundle-product.service';
-import { splitBundlePricingForPlan } from '~/services/bundles/bundle-pricing-split';
-import { CapabilityService } from '~/services/shopify/capability.service';
-import { MetaobjectService } from '~/services/shopify/metaobject.service';
 import {
   resolveCompositeRecord,
   type ResolvedCompositeRecord,
@@ -337,10 +333,11 @@ export class BlueprintService {
    *
    * Ordering (design §5): the cart-transform resolution SOURCE publishes first; the
    * `ResolvedBundle` is injected into each dependent member; theme + checkout members
-   * publish after. The `$app:bundle_config` dual-writer ordering (C4) is enforced —
-   * `PublishService.publish(cartTransformSpec)` runs BEFORE
-   * `activateCartTransform(...)`, so the wasm reads the resolved config, not the
-   * compiler's placeholder metaobject.
+   * publish after. The old C4 dual-writer concern is retired (WS-E Task 8): the
+   * compiler's placeholder `superapp-fn-cartTransform` metaobject no longer exists,
+   * and the SINGLE `$app:bundle_config` writer is the plan-aware activation inside
+   * `PublishService.publishCartTransform` — the blueprint hands it the resolved
+   * bundle via `opts.cartTransformBundles` (see step 3 below).
    *
    * Best-effort and NOT atomic (Shopify metaobject writes can't be transactional
    * across surfaces): each member publishes independently; a failed member stays
@@ -455,7 +452,9 @@ export class BlueprintService {
     }
 
     // 3. Publish in dependency order (source first), injecting the resolved record.
-    const publisher = new PublishService(admin, { shopId });
+    //    `shop` (the domain) is passed so the plan-aware cartTransform activation
+    //    inside PublishService.publish can resolve the plan tier.
+    const publisher = new PublishService(admin, { shopId, shop: shopDomain });
     for (const member of orderMembersForCoDeploy(members)) {
       try {
         if (member.target.kind === 'THEME' && !member.target.themeId) {
@@ -468,36 +467,22 @@ export class BlueprintService {
           : bundle
             ? injectResolvedBundle(member.spec, bundle)
             : member.spec;
-        await publisher.publish(spec, member.target, { activationHandledByCoDeploy: true });
-        // C4 — the $app:bundle_config dual-writer ordering. Publish (metaobject
-        // config) THEN activate (runtime metafield with real parentVariantId), so the
-        // wasm reads the resolved config as authoritative. Must NOT precede publish.
-        // Identical ordering on the composite path — the `bundle` came from the same
-        // resolution (the record pre-pass) rather than the member config.
-        if (member.type === 'functions.cartTransform' && bundle) {
-          // WS-E Task 8 dedup check: PublishService.publish now runs
-          // publishCartTransform for this member (activating with the RAW
-          // buildBundleRuntimeConfig of the member's resolved bundles). This second
-          // activation is NOT redundant — its config is the PLAN-AWARE split below
-          // (splitBundlePricingForPlan strips the Plus-only fixed price on non-Plus
-          // shops and adds the managed discount rule), which differs from the raw
-          // config whenever a fixed-price bundle publishes on a non-Plus shop. It
-          // must stay, and must stay AFTER publish (C4 last-writer-wins ordering),
-          // so the wasm reads the plan-correct config.
-          // Plan-aware split: Plus/Enterprise keep the lineUpdate-based fixed price
-          // in the cart-transform config; non-Plus shops get a merge-only config plus
-          // a managed discount rule (cart transform's per-unit lineUpdate is Plus-only).
-          const plan = await new CapabilityService().getPlanTier(shopDomain);
-          const split = splitBundlePricingForPlan([bundle], plan);
-          const bundleSvc = new BundleProductService(admin);
-          await bundleSvc.activateCartTransform(split.cartTransformConfig);
-          if (split.bundleDiscountRules.length > 0) {
-            await new ActivationService(admin, shopId).ensureForFunctionKey('discountRules');
-          }
-          // Unconditional: an empty rule set clears any stale managed rule left by a
-          // prior non-Plus publish (e.g. after upgrading to Plus or dropping the price).
-          await bundleSvc.writeBundlePricingRules(new MetaobjectService(admin), split.bundleDiscountRules);
-        }
+        // WS-E Task 8 (fix round 1): cart-transform activation is deduplicated into
+        // PublishService.publishCartTransform, which runs the ONE plan-aware
+        // sequence (activateBundleCartTransformForPlan: split Plus-only fixed
+        // pricing → activate $app:bundle_config → managed-discount fallback leg).
+        // The blueprint hands over its RESOLVED bundle (member config on the flat
+        // path, or the composite record's entityMap — a source the member spec may
+        // not carry) so publish activates with it instead of re-resolving; an empty
+        // override means "no bundle resolved" → no activation, exactly the
+        // pre-dedup blueprint semantics. The old post-publish second activation is
+        // gone — no more double activation / transient wrong-price window.
+        await publisher.publish(spec, member.target, {
+          activationHandledByCoDeploy: true,
+          ...(member.type === 'functions.cartTransform'
+            ? { cartTransformBundles: bundle ? [bundle] : [] }
+            : {}),
+        });
         await this.markMemberPublished(member);
         published.push({ moduleId: member.moduleId, type: member.type });
       } catch (err) {
