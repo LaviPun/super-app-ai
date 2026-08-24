@@ -37,9 +37,11 @@ import { modifyRecipeSpec, AiProviderNotConfiguredError } from '~/services/ai/ll
 import { validateBeforePublish } from '~/services/publish/pre-publish-validator.server';
 import { classifyModulePublishability } from '~/services/publish/publish-preflight.server';
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
+import { isAsyncJobsEnabled } from '~/services/jobs/enqueue.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { StatusBadge, EmptyState, titleCase } from '~/components/merchant/polaris';
 import { nextStepAfterStream, withGenerationCorrelationId } from '~/utils/generation-outcome';
+import { pollJobUntilTerminal, type PolledJobSnapshot } from '~/utils/job-poll';
 
 
 // Embedded route: authenticates, then loads the real AI-credit balance (same
@@ -84,6 +86,11 @@ export async function loader({ request }: { request: Request }) {
     aiLeft: aiLimit === -1 ? null : Math.max(0, aiLimit - aiUsed),
     defaultThemeId: main ? String(main.id) : themes[0] ? String(themes[0].id) : null,
     seedPrompt: seedPrompt && seedPrompt.trim() ? seedPrompt.trim() : null,
+    // WS-C Task 7: when Redis-backed async jobs are configured, the
+    // workspace enqueues + polls (C1) instead of the inline SSE stream.
+    // Loader-only import (enqueue.server.ts is `.server`) — never reaches
+    // the client bundle.
+    asyncGeneration: isAsyncJobsEnabled(),
   });
 }
 
@@ -396,6 +403,51 @@ function Field({ label, optional, help, children }: { label?: ReactNode; optiona
   );
 }
 
+// WS-C Task 7: sessionStorage-backed resumable generation session. Keyed by
+// prompt so a reload/reconnect on the SAME prompt resumes the same job
+// (re-fetch, never re-spend — Task 6 review requirement #3); a different
+// prompt just starts fresh. All three are best-effort — sessionStorage can
+// be unavailable (private browsing, quota) and that only degrades the
+// resume UX, it never blocks generation itself.
+const ACTIVE_GEN_SESSION_KEY = 'sa:gen:active';
+
+type ActiveGenSession = { jobId: string; correlationId: string; prompt: string };
+
+function readActiveGenSession(prompt: string): ActiveGenSession | null {
+  try {
+    const raw = sessionStorage.getItem(ACTIVE_GEN_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ActiveGenSession>;
+    if (
+      typeof parsed.jobId === 'string' && parsed.jobId &&
+      typeof parsed.correlationId === 'string' && parsed.correlationId &&
+      parsed.prompt === prompt
+    ) {
+      return { jobId: parsed.jobId, correlationId: parsed.correlationId, prompt };
+    }
+  } catch {
+    // Corrupt or unavailable — treat as no resumable session.
+  }
+  return null;
+}
+
+function writeActiveGenSession(session: ActiveGenSession): void {
+  try {
+    sessionStorage.setItem(ACTIVE_GEN_SESSION_KEY, JSON.stringify(session));
+  } catch {
+    // sessionStorage unavailable — resume-on-reload just won't work; the
+    // in-flight generation itself is unaffected.
+  }
+}
+
+function clearActiveGenSession(): void {
+  try {
+    sessionStorage.removeItem(ACTIVE_GEN_SESSION_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export default function GeneratePage() {
   return (
     <MerchantShell fullBleed>
@@ -417,6 +469,9 @@ function GenerateWorkspace() {
     typeof seed?.prompt === 'string' && seed.prompt.trim()
       ? seed.prompt.trim()
       : (loaderData.seedPrompt ?? '');
+  // WS-C Task 7 (C1): when Redis-backed async jobs are configured, generation
+  // enqueues + polls instead of the inline SSE stream.
+  const asyncGeneration = loaderData.asyncGeneration;
 
   const proposeFetcher = useFetcher<{ options?: { index: number; explanation: string; recipe: Record<string, unknown>; qualityBadges?: string[]; score?: number }[]; recommendedIndex?: number; blueprint?: BlueprintResult | null; error?: string; message?: string }>();
   const confirmFetcher = useFetcher<{ moduleId?: string; recipeId?: string; firstModuleId?: string; moduleCount?: number; error?: string }>();
@@ -448,6 +503,10 @@ function GenerateWorkspace() {
   const handledConfirmRef = useRef<unknown>(null);
   const handledRefineRef = useRef<unknown>(null);
   const handledPublishRef = useRef<unknown>(null);
+  // WS-C Task 7: the correlationId of the in-flight/most-recent async
+  // generation job — Task 13 stamps this onto the saved Module
+  // (generationCorrelationId) so the funnel spine survives past generation.
+  const genCorrelationIdRef = useRef<string | null>(null);
 
   const settings = settingsMap[selected ?? ''] || BASE_SETTINGS;
   const set = (patch: any) => setSettingsMap((m) => ({ ...m, [selected!]: { ...m[selected!], ...patch } }));
@@ -646,12 +705,91 @@ function GenerateWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedPrompt, applyOptions]);
 
-  // Kick off real generation when entering the generating phase (stream once).
+  // Map a poll snapshot's persisted VALID options onto the same chooser shape
+  // the SSE `option`/`ranking` frames use (recommendedIndex is a real option
+  // index — map it to its position among the returned options, matching the
+  // streamGenerate `ranking` handling above).
+  const applyPolledSnapshot = useCallback((snapshot: PolledJobSnapshot) => {
+    if (snapshot.options.length === 0) return;
+    const recPos =
+      snapshot.recommendedIndex != null
+        ? snapshot.options.findIndex((o) => o.index === snapshot.recommendedIndex)
+        : -1;
+    applyOptions(
+      snapshot.options.map((o) => ({ explanation: o.explanation, recipe: o.recipe as Record<string, unknown> })),
+      undefined,
+      recPos >= 0 ? recPos : undefined,
+    );
+  }, [applyOptions]);
+
+  // Async generation (C1): enqueue-and-poll instead of SSE. A dropped
+  // connection (reload, nav away and back) resumes the SAME job via the
+  // sessionStorage session key — it never calls the enqueue route again, so
+  // it never re-spends (Task 6 review requirement #3). Falls through to the
+  // inline SSE path on `ASYNC_DISABLED` (503) or an enqueue transport
+  // failure: the enqueue call is the first thing the server route does
+  // after auth/rate-limit/quota, so a transport failure here means nothing
+  // was billed and streamGenerate is a fresh, first attempt.
+  const asyncGenerate = useCallback(async () => {
+    const resumed = readActiveGenSession(seedPrompt);
+    let jobId: string;
+    let correlationId: string;
+
+    if (resumed) {
+      jobId = resumed.jobId;
+      correlationId = resumed.correlationId;
+    } else {
+      const fd = new FormData();
+      fd.set('prompt', seedPrompt);
+      fd.set('preferredType', 'Auto');
+      fd.set('preferredCategory', 'Auto');
+      fd.set('preferredBlockType', 'Auto');
+      fd.set('matchStoreColors', 'true');
+      const newCorrelationId = crypto.randomUUID();
+      withGenerationCorrelationId(fd, newCorrelationId);
+      try {
+        const res = await fetch('/api/ai/generate-async', { method: 'POST', body: fd });
+        if (res.status === 503) {
+          // ASYNC_DISABLED — Redis not configured server-side; fall through
+          // to the inline path unchanged. Nothing was enqueued or billed.
+          void streamGenerate();
+          return;
+        }
+        const data = (await res.json().catch(() => null)) as { jobId?: string; correlationId?: string } | null;
+        if (!res.ok || !data?.jobId) throw new Error('enqueue failed');
+        jobId = data.jobId;
+        correlationId = data.correlationId ?? newCorrelationId;
+      } catch {
+        void streamGenerate();
+        return;
+      }
+      writeActiveGenSession({ jobId, correlationId, prompt: seedPrompt });
+    }
+
+    genCorrelationIdRef.current = correlationId;
+
+    const snapshot = await pollJobUntilTerminal(jobId, { onSnapshot: applyPolledSnapshot });
+    if (snapshot.status === 'SUCCESS') {
+      clearActiveGenSession();
+      // next === 'proceed' equivalent — applyPolledSnapshot already rendered
+      // the chooser via onSnapshot as options streamed in.
+    } else if (snapshot.status === 'FAILED') {
+      setGenError(snapshot.error?.message ?? 'Generation failed.');
+      genStartedRef.current = false;
+      setPhase('failed');
+      clearActiveGenSession();
+    }
+    // QUEUED/RUNNING never reach here — pollJobUntilTerminal only resolves
+    // on SUCCESS or FAILED (Task 6 review requirement #2).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedPrompt, applyPolledSnapshot, streamGenerate]);
+
+  // Kick off real generation when entering the generating phase (once).
   useEffect(() => {
     if (phase !== 'generating' || !seedPrompt) return;
     if (!genStartedRef.current) {
       genStartedRef.current = true;
-      void streamGenerate();
+      void (asyncGeneration ? asyncGenerate() : streamGenerate());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
@@ -809,10 +947,20 @@ function GenerateWorkspace() {
     setBlueprint(null);
     createdRef.current = null;
     finishRef.current = null;
-    genStartedRef.current = false;
     setGenError(null);
+    // A regenerate is a fresh attempt, not a resume of whatever was active
+    // before (a different correlationId, a new job) — drop any stale
+    // session so the next asyncGenerate() enqueues instead of resuming.
+    clearActiveGenSession();
+    // Set the guard true (not false) before dispatching directly below: the
+    // phase→'generating' transition also re-runs the kick-off effect above,
+    // and if the guard were still false that effect would ALSO invoke a
+    // generator — for the async path that's a second, separately-billed
+    // enqueue (its own Job + correlationId), not something the dedupe seam
+    // catches, so this must fire exactly once.
+    genStartedRef.current = true;
     setPhase('generating');
-    void streamGenerate();
+    void (asyncGeneration ? asyncGenerate() : streamGenerate());
   };
 
   // Create the real modules from the generated blueprint, then navigate.
