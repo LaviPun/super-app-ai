@@ -17,7 +17,6 @@ FROM base AS build
 # Manifests first for install-layer caching.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/web/package.json apps/web/package.json
-COPY apps/workers/package.json apps/workers/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/data-layer/package.json packages/data-layer/package.json
 COPY packages/db/package.json packages/db/package.json
@@ -30,9 +29,9 @@ COPY packages/rate-limit/package.json packages/rate-limit/package.json
 COPY packages/security/package.json packages/security/package.json
 RUN pnpm install --frozen-lockfile --filter web...
 
-# Sources.
+# Sources. apps/workers is no longer copied — WS-C (D2/C5) ported its only
+# live import (image-storage processor) into apps/web/app/services/assets/.
 COPY packages packages
-COPY apps/workers apps/workers
 COPY apps/web apps/web
 
 # Build web's workspace dependencies in topological order, then the app.
