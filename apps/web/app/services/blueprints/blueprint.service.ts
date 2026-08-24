@@ -475,6 +475,15 @@ export class BlueprintService {
         // Identical ordering on the composite path — the `bundle` came from the same
         // resolution (the record pre-pass) rather than the member config.
         if (member.type === 'functions.cartTransform' && bundle) {
+          // WS-E Task 8 dedup check: PublishService.publish now runs
+          // publishCartTransform for this member (activating with the RAW
+          // buildBundleRuntimeConfig of the member's resolved bundles). This second
+          // activation is NOT redundant — its config is the PLAN-AWARE split below
+          // (splitBundlePricingForPlan strips the Plus-only fixed price on non-Plus
+          // shops and adds the managed discount rule), which differs from the raw
+          // config whenever a fixed-price bundle publishes on a non-Plus shop. It
+          // must stay, and must stay AFTER publish (C4 last-writer-wins ordering),
+          // so the wasm reads the plan-correct config.
           // Plan-aware split: Plus/Enterprise keep the lineUpdate-based fixed price
           // in the cart-transform config; non-Plus shops get a merge-only config plus
           // a managed discount rule (cart transform's per-unit lineUpdate is Plus-only).

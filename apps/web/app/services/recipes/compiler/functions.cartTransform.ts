@@ -43,10 +43,13 @@ export function compileCartTransform(spec: Extract<RecipeSpec, { type: 'function
 
   return {
     ops: [
-      { kind: 'FUNCTION_CONFIG_UPSERT', functionKey: 'cartTransform', config },
       { kind: 'AUDIT', action: 'compile.functions.cartTransform' },
       ...ops,
     ],
-    compiledJson: JSON.stringify({ metaobjectHandle: 'superapp-fn-cartTransform' }),
+    // WS-E: the wasm reads $app:bundle_config on the CartTransform object — the old
+    // superapp-fn-cartTransform metaobject was a second config source it never read
+    // and is no longer written. The lowered config rides compiledJson to the
+    // publish-time bundle wiring (PublishService.publishCartTransform).
+    compiledJson: JSON.stringify({ cartTransform: config }),
   };
 }

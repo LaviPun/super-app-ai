@@ -21,6 +21,11 @@ export const FUNCTION_KEY_ACTIVATION: Record<string, { kind: ActivationKind; fun
   paymentCustomization: { kind: 'paymentCustomization', functionHandle: 'superapp-payment-customization' },
   cartAndCheckoutValidation: { kind: 'validation', functionHandle: 'superapp-cart-checkout-validation' },
   fulfillmentConstraints: { kind: 'fulfillmentConstraintRule', functionHandle: 'superapp-fulfillment-constraints' },
+  // WS-E Task 8: delete path only — ensure runs through
+  // BundleProductService.activateCartTransform (PublishService.publishCartTransform),
+  // which also writes the $app:bundle_config metafield the wasm reads. The GID is
+  // recorded here via recordCartTransform so unpublish can find it.
+  cartTransform: { kind: 'cartTransform', functionHandle: 'cart-transform-function' },
 };
 
 const DISCOUNT_TITLE = 'SuperApp Discounts';
@@ -275,6 +280,19 @@ const FCR_DELETE = `#graphql
   }
 `;
 
+// cartTransform: DELETE only — the ensure/create path lives in
+// BundleProductService.activateCartTransform (cartTransformCreate + the
+// $app:bundle_config metafield write). Validated against Admin GraphQL 2026-07
+// (Shopify Dev MCP, 2026-08-24; requires write_cart_transforms).
+const CART_TRANSFORM_DELETE = `#graphql
+  mutation SuperAppCartTransformDelete($id: ID!) {
+    cartTransformDelete(id: $id) {
+      deletedId
+      userErrors { field message }
+    }
+  }
+`;
+
 type StoredActivation = { functionKey: string; kind: string; activationGid: string };
 
 /** userError messages that mean "already gone" — deletes treat them as success. */
@@ -303,6 +321,12 @@ export class ActivationService {
         return this.ensureValidation(functionKey, mapping.functionHandle);
       case 'fulfillmentConstraintRule':
         return this.ensureFulfillmentConstraintRule(functionKey, mapping.functionHandle);
+      case 'cartTransform':
+        // Unreachable from the ops loop (the compiler no longer emits a
+        // FUNCTION_CONFIG_UPSERT for cartTransform) — the throw guards regressions.
+        throw new Error(
+          'cartTransform activation is ensured by publishCartTransform (BundleProductService) — not via ensureForFunctionKey',
+        );
       default: {
         // A mapping was added without its ensure implementation — plan violation.
         throw new Error(`ActivationService: kind "${mapping.kind}" has no ensure implementation`);
@@ -330,6 +354,9 @@ export class ActivationService {
         break;
       case 'fulfillmentConstraintRule':
         await this.deleteWith(FCR_DELETE, stored.activationGid, 'fulfillmentConstraintRuleDelete');
+        break;
+      case 'cartTransform':
+        await this.deleteWith(CART_TRANSFORM_DELETE, stored.activationGid, 'cartTransformDelete');
         break;
       default:
         throw new Error(`ActivationService: kind "${mapping.kind}" has no delete implementation`);
@@ -698,6 +725,14 @@ export class ActivationService {
     if (!id) throw new Error('fulfillmentConstraintRuleCreate returned no id');
     await this.store(functionKey, 'fulfillmentConstraintRule', id);
     return id;
+  }
+
+  // ── cartTransform ─────────────────────────────────────────────────────────
+
+  /** cartTransform's ensure runs through BundleProductService.activateCartTransform;
+   *  this records the resulting GID so delete/unpublish can find it. */
+  async recordCartTransform(activationGid: string): Promise<void> {
+    await this.store('cartTransform', 'cartTransform', activationGid);
   }
 
   // ── shared plumbing ───────────────────────────────────────────────────────

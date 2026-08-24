@@ -519,6 +519,96 @@ describe('ActivationService — fulfillmentConstraintRule kind', () => {
   });
 });
 
+describe('ActivationService — cartTransform kind', () => {
+  it('ensureForFunctionKey throws the guard (ensure runs through publishCartTransform, not the ops loop)', async () => {
+    const { admin, calls } = mockAdmin(() => { throw new Error('no call expected'); });
+    await expect(
+      new ActivationService(admin, 'shop_1').ensureForFunctionKey('cartTransform'),
+    ).rejects.toThrow(
+      'cartTransform activation is ensured by publishCartTransform (BundleProductService) — not via ensureForFunctionKey',
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it('recordCartTransform stores the GID; delete uses cartTransformDelete and clears the row', async () => {
+    const noCall = mockAdmin(() => { throw new Error('no call expected'); });
+    await new ActivationService(noCall.admin, 'shop_1').recordCartTransform('gid://shopify/CartTransform/7');
+    expect(db.get('shop_1:cartTransform')).toMatchObject({
+      functionKey: 'cartTransform',
+      kind: 'cartTransform',
+      activationGid: 'gid://shopify/CartTransform/7',
+    });
+
+    const del = mockAdmin((op) => {
+      if (op === 'SuperAppCartTransformDelete')
+        return { data: { cartTransformDelete: { deletedId: 'gid://shopify/CartTransform/7', userErrors: [] } } };
+      throw new Error(`unexpected op ${op}`);
+    });
+    await new ActivationService(del.admin, 'shop_1').deleteForFunctionKey('cartTransform');
+    expect(del.calls.map((c) => c.op)).toEqual(['SuperAppCartTransformDelete']);
+    expect(del.calls[0]!.variables).toEqual({ id: 'gid://shopify/CartTransform/7' });
+    expect(db.has('shop_1:cartTransform')).toBe(false);
+  });
+});
+
+describe('functions.cartTransform single-module publish (WS-E bundles decision E5)', () => {
+  it('resolves components, ensures the parent product, and activates the cart transform with $app:bundle_config', async () => {
+    const { admin, calls } = mockAdmin((op) => {
+      switch (op) {
+        case 'SuperAppVariantsBySku':
+          return { data: { productVariants: { nodes: [
+            { id: 'gid://v/1', sku: 'SKU-A', title: 'A', price: '10', product: { title: 'A' } },
+            { id: 'gid://v/2', sku: 'SKU-B', title: 'B', price: '20', product: { title: 'B' } },
+          ] } } };
+        case 'SuperAppBundleProductSet':
+          return { data: { productSet: { product: { variants: { nodes: [{ id: 'gid://v/parent' }] } }, userErrors: [] } } };
+        case 'SuperAppCartTransforms':
+          return { data: { cartTransforms: { nodes: [] } } };
+        case 'SuperAppCartTransformCreate':
+          return { data: { cartTransformCreate: { cartTransform: { id: 'gid://shopify/CartTransform/1' }, userErrors: [] } } };
+        default:
+          return { data: {} }; // metaobject/metafield plumbing for other module payloads — none here
+      }
+    });
+
+    const { PublishService } = await import('~/services/publish/publish.service');
+    const spec = {
+      type: 'functions.cartTransform',
+      category: 'functions',
+      name: 'Bundle',
+      config: { bundles: [{ title: 'Duo', componentSkus: ['SKU-A', 'SKU-B'], bundleSku: 'DUO' }] },
+    } as never;
+    await new PublishService(admin, { shopId: 'shop_1' }).publish(spec, { kind: 'PLATFORM', moduleId: 'm1' });
+
+    expect(calls.map((c) => c.op)).toEqual([
+      'SuperAppVariantsBySku',
+      'SuperAppBundleProductSet',
+      'SuperAppCartTransforms',
+      'SuperAppCartTransformCreate',
+    ]);
+    const create = calls.at(-1)!;
+    const metafields = create.variables!.metafields as Array<{ key: string; value: string }>;
+    const cfg = JSON.parse(metafields[0]!.value) as { bundles: Array<{ bundleId: string; parentVariantId: string }> };
+    expect(cfg.bundles[0]).toMatchObject({ bundleId: 'duo', parentVariantId: 'gid://v/parent' });
+    // Activation GID stored for unpublish.
+    expect(db.get('shop_1:cartTransform')?.activationGid).toBe('gid://shopify/CartTransform/1');
+  });
+
+  it('fails LOUD when fewer than 2 component SKUs resolve (no placeholder deploy)', async () => {
+    const { admin } = mockAdmin((op) =>
+      op === 'SuperAppVariantsBySku' ? { data: { productVariants: { nodes: [] } } } : { data: {} },
+    );
+    const { PublishService } = await import('~/services/publish/publish.service');
+    const spec = {
+      type: 'functions.cartTransform', category: 'functions', name: 'Bundle',
+      config: { bundles: [{ title: 'Duo', componentSkus: ['SKU-A', 'SKU-B'], bundleSku: 'DUO' }] },
+    } as never;
+    await expect(
+      new PublishService(admin, { shopId: 'shop_1' }).publish(spec, { kind: 'PLATFORM', moduleId: 'm1' }),
+    ).rejects.toThrow(/resolved/i);
+  });
+});
+
 describe('PublishService → activation hook', () => {
   it('throws (never silently inert) when a mapped functionKey publishes without shopId', async () => {
     const { admin } = mockAdmin(() => ({

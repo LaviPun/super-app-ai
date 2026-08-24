@@ -84,9 +84,13 @@ const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
   // fulfillmentConstraintRule kind wires fulfillmentConstraintRuleCreate
   // (deliveryMethodTypes: ['SHIPPING','LOCAL','PICK_UP']), adoption keyed off
   // function.handle over the plain-list fulfillmentConstraintRules (no pagination —
-  // not a connection) — see ACTIVATION_WIRED_FUNCTION_TYPES. After this task,
-  // functions.cartTransform is the ONLY functions.* type still needs_runtime.
-  'functions.cartTransform',
+  // not a connection) — see ACTIVATION_WIRED_FUNCTION_TYPES.
+  // functions.cartTransform removed (Task 8, 2026-08-24): wired via
+  // PublishService.publishCartTransform → BundleProductService (resolveComponents →
+  // ensureParentBundleProduct → activateCartTransform writing $app:bundle_config),
+  // GID recorded via ActivationService.recordCartTransform for unpublish
+  // (cartTransformDelete) — see ACTIVATION_WIRED_FUNCTION_TYPES. All six
+  // WS-QF-original function types are now activation-wired.
   // Shipping-discount + order-routing Functions: wasm now deployed (WS-E T2 —
   // superapp-shipping-discount, superapp-order-routing joined the deployed-function
   // manifest in deployed-extensions.server.ts, reconciling it with
@@ -372,10 +376,14 @@ describe('INTEGRITY: declarative pricing mechanism ⇒ needs_runtime (no inert f
  * functions.paymentCustomization removed (Task 5) — now activation-wired.
  * functions.cartAndCheckoutValidation removed (Task 6) — now activation-wired.
  * functions.fulfillmentConstraints removed (Task 7) — now activation-wired.
- * functions.cartTransform is now the ONLY functions.* type still needs_runtime
- * (later task) — see the module-level `describe` below for an explicit assertion.
+ * functions.cartTransform removed (Task 8) — now activation-wired via
+ * PublishService.publishCartTransform (BundleProductService end-to-end), so ALL
+ * SIX original WS-QF-gated types are wired (see the explicit assertion below).
+ * The list now pins the two REMAINING activation-gated function types —
+ * functions.shippingDiscount / functions.orderRoutingLocationRule (WS-E T2:
+ * wasm deployed via extension_directories, but no ActivationService kind yet).
  */
-const ACTIVATION_UNWIRED_TYPES = ['functions.cartTransform'] as const;
+const ACTIVATION_UNWIRED_TYPES = ['functions.shippingDiscount', 'functions.orderRoutingLocationRule'] as const;
 
 describe('INTEGRITY: activation-unwired function types are needs_runtime on single publish', () => {
   const deployed = deployedFunctionExtensions();
@@ -405,13 +413,15 @@ describe('INTEGRITY: activation-unwired function types are needs_runtime on sing
     expect(pf.status).toBe('deployable');
   });
 
-  it('functions.cartTransform is the ONLY WS-QF-original-six function type still gated/needs_runtime', () => {
+  it('NONE of the WS-QF-original-six function types is still gated/needs_runtime (all activation-wired)', () => {
     // The six function types WS-QF originally gated explicitly (each has a real
-    // ActivationService `kind` implementation — see FUNCTION_KEY_ACTIVATION).
-    // WS-E tasks 3-7 progressively un-gate them via ACTIVATION_WIRED_FUNCTION_TYPES;
+    // activation implementation — five via ActivationService ensure* kinds, and
+    // cartTransform via PublishService.publishCartTransform/BundleProductService;
+    // see FUNCTION_KEY_ACTIVATION). WS-E tasks 3-8 progressively un-gated them via
+    // ACTIVATION_WIRED_FUNCTION_TYPES — as of Task 8 the gated set is EMPTY.
     // functions.shippingDiscount / functions.orderRoutingLocationRule are a SEPARATE
-    // needs_runtime concern (WS-E T2, no ActivationService kind yet) and are out of
-    // scope for this assertion (see EXPECTED_NEEDS_RUNTIME above).
+    // needs_runtime concern (WS-E T2, no activation wiring yet) and are covered by
+    // the ACTIVATION_UNWIRED_TYPES loop above (see EXPECTED_NEEDS_RUNTIME too).
     const originalSix = [
       'functions.discountRules',
       'functions.deliveryCustomization',
@@ -423,7 +433,7 @@ describe('INTEGRITY: activation-unwired function types are needs_runtime on sing
     const gatedFunctionTypes = originalSix
       .filter((t) => !classifyModulePublishability({ type: t } as RecipeSpec, { deployedExtensions: deployed }).willDeploy)
       .sort();
-    expect(gatedFunctionTypes).toEqual(['functions.cartTransform']);
+    expect(gatedFunctionTypes).toEqual([]);
   });
 });
 

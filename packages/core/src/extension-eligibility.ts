@@ -617,6 +617,19 @@ export function isRuntimeShipped(moduleType: ModuleType, ctx: RuntimeShippedChec
  * (`deliveryMethodTypes: ['SHIPPING', 'LOCAL', 'PICK_UP']`), bound by
  * `functionHandle`. Note: this mutation has NO update — idempotency is
  * stored-GID + recovery-list only.
+ *
+ * `functions.cartTransform` (Task 8, 2026-08-24): wired differently from the
+ * five ActivationService ensure* kinds — `PublishService.publishCartTransform`
+ * runs the SAME end-to-end path blueprint co-deploy proved out
+ * (`BundleProductService`: resolveComponents → ensureParentBundleProduct →
+ * `activateCartTransform` via `cartTransformCreate`, writing the
+ * `$app:bundle_config` metafield the wasm reads — the only config source; the
+ * old `superapp-fn-cartTransform` compiler metaobject is removed). The
+ * resulting GID is recorded via `ActivationService.recordCartTransform` for
+ * unpublish (`cartTransformDelete`); `ensureForFunctionKey('cartTransform')`
+ * throws by design. All six original WS-QF-gated kinds are now wired;
+ * `functions.shippingDiscount` / `functions.orderRoutingLocationRule` remain
+ * gated here (wasm deployed, no activation kind yet).
  */
 export const ACTIVATION_WIRED_FUNCTION_TYPES: Set<string> = new Set<string>([
   'functions.discountRules',
@@ -624,6 +637,7 @@ export const ACTIVATION_WIRED_FUNCTION_TYPES: Set<string> = new Set<string>([
   'functions.paymentCustomization',
   'functions.cartAndCheckoutValidation',
   'functions.fulfillmentConstraints',
+  'functions.cartTransform',
 ]);
 
 /**

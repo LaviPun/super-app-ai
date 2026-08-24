@@ -19,6 +19,14 @@ import { computeRepublishDiff, type ModulePublishPreflightResult } from '@supera
 import { classifyModulePublishability } from '~/services/publish/publish-preflight.server';
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
 import { ActivationService, FUNCTION_KEY_ACTIVATION } from '~/services/publish/activation.service';
+import {
+  BundleProductService,
+  buildBundleRuntimeConfig,
+  resolveBundleWithPricing,
+  bundleIdFromTitle,
+  bundleParentSku,
+  type ResolvedBundle,
+} from '~/services/bundles/bundle-product.service';
 import { ThemeFilesService } from '~/services/publish/theme-files.server';
 import { checkCompiledLiquid, ThemeCheckFailedError } from '~/services/publish/theme-check.server';
 import { isThemeNativeSectionEnabled, isThemeCheckGateBlocking } from '~/env.server';
@@ -126,6 +134,13 @@ export class PublishService {
       customerAccountBlockPayload,
       proxyWidgetPayload,
     } = result;
+
+    // WS-E (E5): functions.cartTransform deploys through the SAME end-to-end path the
+    // blueprint co-deploy proved out — resolve SKUs → parent bundle product → cart
+    // transform activation carrying $app:bundle_config (the ONLY config the wasm reads).
+    if (spec.type === 'functions.cartTransform') {
+      await this.publishCartTransform(spec);
+    }
 
     // ── Pre-publish Theme Check gate (035) ──────────────────────────────────
     // Validate compiled native-section Liquid (the only ops that carry Liquid
@@ -424,6 +439,39 @@ export class PublishService {
     );
     const gid = await mo.upsertFunctionConfigObject(functionKey, next);
     await mo.setModuleRef(FUNCTIONS_NAMESPACE, refKey, gid);
+  }
+
+  private async publishCartTransform(spec: RecipeSpec): Promise<void> {
+    const shopId = this.session?.shopId;
+    if (!shopId) {
+      throw new Error('Publishing functions.cartTransform requires session.shopId (WS-E).');
+    }
+    const config = (spec as { config?: { bundles?: Array<Record<string, unknown>>; pricing?: unknown } }).config;
+    const bundleInputs = config?.bundles ?? [];
+    const svc = new BundleProductService(this.admin);
+    const resolved: ResolvedBundle[] = [];
+    for (const b of bundleInputs) {
+      const componentSkus = (b.componentSkus as string[] | undefined) ?? [];
+      const title = String(b.title ?? 'Bundle');
+      const components = await svc.resolveComponents(componentSkus);
+      if (components.length < 2) {
+        throw new Error(
+          `Bundle "${title}": only ${components.length}/${componentSkus.length} component SKUs resolved to store variants — fix the SKUs and republish.`,
+        );
+      }
+      const bundleId = bundleIdFromTitle(title);
+      const parentVariantId = await svc.ensureParentBundleProduct({ bundleId, title, components });
+      const base: ResolvedBundle = {
+        bundleId, title, parentVariantId,
+        bundleSku: bundleParentSku(bundleId),
+        discountPercentage: Number(b.discountPercentage ?? 0),
+        components,
+      };
+      resolved.push(resolveBundleWithPricing(base, (b.pricing ?? config?.pricing) as never));
+    }
+    const cartTransformGid = await svc.activateCartTransform(buildBundleRuntimeConfig(resolved));
+    // Record for unpublish (Task 10) — kind cartTransform, one per shop.
+    await new ActivationService(this.admin, shopId).recordCartTransform(cartTransformGid);
   }
 
   private async ensureFunctionActivation(functionKey: string): Promise<void> {

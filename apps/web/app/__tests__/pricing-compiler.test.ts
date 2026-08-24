@@ -14,6 +14,15 @@ function parseRecipe<T>(raw: unknown): T {
 const upsertConfig = (result: { ops: Array<Record<string, unknown>> }) =>
   result.ops.find((o) => o.kind === 'FUNCTION_CONFIG_UPSERT')?.config as Record<string, unknown>;
 
+/**
+ * WS-E: compileCartTransform no longer emits a FUNCTION_CONFIG_UPSERT op (the
+ * superapp-fn-cartTransform metaobject was a second config source the wasm never
+ * read). The lowered config now rides `compiledJson.cartTransform` to
+ * PublishService.publishCartTransform, which wires it into $app:bundle_config.
+ */
+const cartTransformCompiledConfig = (result: { compiledJson?: string }) =>
+  (JSON.parse(result.compiledJson!) as { cartTransform: Record<string, unknown> }).cartTransform;
+
 const auditActions = (result: { ops: Array<Record<string, unknown>> }) =>
   result.ops.filter((o) => o.kind === 'AUDIT').map((o) => o.action as string);
 
@@ -167,7 +176,7 @@ describe('compileCartTransform — pricing lowering', () => {
       },
     });
     const result = compileCartTransform(spec);
-    const config = upsertConfig(result);
+    const config = cartTransformCompiledConfig(result);
     const bundle = (config.bundles as Array<Record<string, unknown>>)[0]!;
     expect(bundle.tiers).toBeDefined();
     expect((bundle.tiers as Array<Record<string, unknown>>).map((t) => t.threshold)).toEqual([3, 2]);
@@ -206,7 +215,7 @@ describe('back-compat — legacy configs emit byte-identical metaobject (T-BC1/T
       },
     });
     const result = compileCartTransform(spec);
-    const config = upsertConfig(result);
+    const config = cartTransformCompiledConfig(result);
     expect(config).toEqual(spec.config);
     expect(auditActions(result)).toEqual(['compile.functions.cartTransform']);
   });
