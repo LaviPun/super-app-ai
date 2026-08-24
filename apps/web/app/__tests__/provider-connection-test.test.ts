@@ -48,12 +48,20 @@ describe('testProviderConnection', () => {
     vi.unstubAllGlobals();
   });
 
-  it('GEMINI GETs {baseUrl}/v1beta/models?key=... with no auth header', async () => {
+  it('GEMINI GETs {baseUrl}/v1beta/models with x-goog-api-key header, never a ?key= query param', async () => {
     const fetchMock = vi.fn(async () => new Response('{"models":[]}', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     const result = await testProviderConnection({ provider: 'GEMINI', baseUrl: null, apiKey: 'AIza-key' });
     expect(result.ok).toBe(true);
-    expect(fetchMock).toHaveBeenCalledWith('https://generativelanguage.googleapis.com/v1beta/models?key=AIza-key', expect.anything());
+    // Not a query param: Sentry's fetch-breadcrumb instrumentation records full
+    // URLs and beforeSend does not redact breadcrumbs, so a key in the query
+    // string would leak. Matches the gemini.client.server.ts precedent.
+    // The exact-match URL (no query string) plus the header assertion together
+    // prove the key is never appended as a query param.
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://generativelanguage.googleapis.com/v1beta/models',
+      expect.objectContaining({ headers: { 'x-goog-api-key': 'AIza-key' } }),
+    );
     vi.unstubAllGlobals();
   });
 

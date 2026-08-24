@@ -2,10 +2,16 @@
  * GDPR: shop/redact (doc Section 2.4).
  * Shopify sends this when a shop uninstalls the app. Delete or anonymize all data for that shop.
  *
- * Coverage (WS-G, finding Infra-11): every Prisma model with a `shopId` field is either
- * deleted/anonymized below, or listed in REDACT_RETENTION_ALLOWLIST with a reason. This is
- * enforced by a schema-introspection test (`shop-redact-completeness.test.ts`) so a future
- * shop-scoped model fails CI until it's triaged into one bucket or the other.
+ * Coverage (WS-G, finding Infra-11): every Prisma model scoped to a shop — via a direct FK
+ * relation to `Shop`, OR via a field using the same shop-id-field-name convention as a model
+ * that does declare one (`shopId`/`tenantId` today; see shop-redact-completeness.test.ts's
+ * `shopScopingFieldNames`) — is either deleted/anonymized below, or listed in
+ * REDACT_RETENTION_ALLOWLIST with a reason. This is enforced by a schema-introspection test
+ * so a future shop-scoped model fails CI until it's triaged into one bucket or the other. The
+ * field-name-vocabulary approach (not a hardcoded `shopId` literal) is what catches WorkflowRun
+ * below: its `tenantId` column is the shop id, but its own declared relation targets
+ * `WorkflowDef` via a composite key, not `Shop` directly, so a naive "has a Shop relation" check
+ * would have missed it entirely.
  *
  * The Shop row itself is retained (not deleted) — only its *data* is deleted per GDPR
  * shop/redact. Keeping the row lets a future re-install of the same shop domain resume
@@ -23,21 +29,25 @@
  *   - Connector.shopId -> Shop and ConnectorToken.tenantId -> Shop are RESTRICT, but that only
  *     matters if the Shop row itself were deleted (it isn't), so Connector/ConnectorToken can
  *     be deleted independently of order here.
- * Everything else in this route is either standalone (no FK from another shopId-bearing model)
+ *   - WorkflowRun.(workflowId,workflowVersion,tenantId) -> WorkflowDef is RESTRICT, so
+ *     WorkflowRun rows are deleted before WorkflowDef. WorkflowRunStep.runId -> WorkflowRun is
+ *     CASCADE (would clean up automatically), but is deleted explicitly first anyway for
+ *     accurate counts and to keep the order self-documenting rather than relying on cascade.
+ * Everything else in this route is either standalone (no FK from another shop-scoped model)
  * or a child that cascades automatically once its parent is deleted (ConnectorEndpoint via
  * Connector, ModuleVersion/ModuleAsset/FunctionRuleSet/FlowAsset/ImageIngestionJob via Module,
  * ModuleSettingsValues via ModuleInstance, SupportTicketMessage/Event/FixProposal via
- * SupportTicket) — those child tables have no `shopId` of their own so they aren't named
- * individually in the completeness test, but are covered by cascade.
+ * SupportTicket) — those child tables have no shop-scoping field of their own so they aren't
+ * named individually in the completeness test, but are covered by cascade.
  */
 
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 
 /**
- * Models with a `shopId` field that are deliberately NOT deleted/anonymized by this route,
- * with the reason each is retained. Checked by `shop-redact-completeness.test.ts` against
- * every `shopId`-bearing model in schema.prisma.
+ * Models scoped to a shop that are deliberately NOT deleted/anonymized by this route, with the
+ * reason each is retained. Checked by `shop-redact-completeness.test.ts` against every
+ * shop-scoped model in schema.prisma (see that file's `modelsScopedToShop`).
  */
 export const REDACT_RETENTION_ALLOWLIST = [
   // The audit trail of Hub/ops/webhook actions, INCLUDING the GDPR_SHOP_REDACT row this
@@ -96,6 +106,9 @@ export async function action({ request }: { request: Request }) {
     errorLogs: 0,
     aiUsage: 0,
     retentionPolicies: 0,
+    workflowRunSteps: 0,
+    workflowRuns: 0,
+    workflowDefs: 0,
   };
 
   // Already-covered models (pre-existing) — DataStoreRecord has no shopId of its own,
@@ -145,6 +158,19 @@ export async function action({ request }: { request: Request }) {
   counts.errorLogs = (await prisma.errorLog.deleteMany({ where: { shopId: shop.id } })).count;
   counts.aiUsage = (await prisma.aiUsage.deleteMany({ where: { shopId: shop.id } })).count;
   counts.retentionPolicies = (await prisma.retentionPolicy.deleteMany({ where: { shopId: shop.id } })).count;
+
+  // Workflow engine (tenantId-scoped, not shopId — caught by the field-name-vocabulary
+  // introspection, see header comment). WorkflowRunStep has no shop-scoping field of its own
+  // (only runId), so it's scoped via its parent WorkflowRun relation, same pattern as
+  // DataStoreRecord above. Order: WorkflowRunStep -> WorkflowRun -> WorkflowDef — WorkflowRun's
+  // FK to WorkflowDef is RESTRICT, so WorkflowDef must outlive its WorkflowRun rows until they're
+  // gone. WorkflowRun.contextJson/workflowJson can carry raw trigger payloads (webhook/order/
+  // customer data), which is exactly the PII this route exists to purge.
+  counts.workflowRunSteps = (
+    await prisma.workflowRunStep.deleteMany({ where: { run: { tenantId: shop.id } } })
+  ).count;
+  counts.workflowRuns = (await prisma.workflowRun.deleteMany({ where: { tenantId: shop.id } })).count;
+  counts.workflowDefs = (await prisma.workflowDef.deleteMany({ where: { tenantId: shop.id } })).count;
 
   await prisma.activityLog.create({
     data: {

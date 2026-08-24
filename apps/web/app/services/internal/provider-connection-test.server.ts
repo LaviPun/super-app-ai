@@ -5,7 +5,11 @@
 //   OPENAI/GROK/DEEPSEEK/MISTRAL/CUSTOM/AZURE_OPENAI (OpenAI-compatible): GET {baseUrl}/models
 //   ANTHROPIC: GET {baseUrl}/v1/models — the Anthropic Models API, no beta header,
 //     no token cost (lighter than a messages.create ping).
-//   GEMINI: GET {baseUrl}/v1beta/models?key={apiKey}
+//   GEMINI: GET {baseUrl}/v1beta/models with an x-goog-api-key header — NOT a
+//     ?key= query param: Sentry's default fetch-breadcrumb instrumentation
+//     records full request URLs and beforeSend does not redact breadcrumbs,
+//     so a key in the query string would leak into Sentry. Matches the
+//     existing precedent in gemini.client.server.ts.
 import type { ProviderKind } from './ai-provider-kinds';
 
 export interface ProviderConnectionTestInput {
@@ -72,7 +76,10 @@ export async function testProviderConnection(input: ProviderConnectionTestInput)
 
     if (input.provider === 'GEMINI') {
       const base = trimBase(input.baseUrl || DEFAULT_BASE_URLS.GEMINI!);
-      const res = await fetch(`${base}/v1beta/models?key=${encodeURIComponent(apiKey)}`, {
+      const res = await fetch(`${base}/v1beta/models`, {
+        // Gemini authenticates with x-goog-api-key (not a Bearer token, and
+        // never a ?key= query param — see the header comment above).
+        headers: { 'x-goog-api-key': apiKey },
         signal: controller.signal,
       });
       return await toResult(res);

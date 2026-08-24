@@ -56,6 +56,11 @@ const apiLogDeleteManyMock = vi.fn(async () => ({ count: 0 }));
 const errorLogDeleteManyMock = vi.fn(async () => ({ count: 0 }));
 const aiUsageDeleteManyMock = vi.fn(async () => ({ count: 0 }));
 const retentionPolicyDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+// Fix round: WorkflowDef/WorkflowRun/WorkflowRunStep are tenantId-scoped (not shopId),
+// caught by the field-name-vocabulary introspection in shop-redact-completeness.test.ts.
+const workflowRunStepDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const workflowRunDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const workflowDefDeleteManyMock = vi.fn(async () => ({ count: 0 }));
 
 vi.mock('~/db.server', () => ({
   getPrisma: () => ({
@@ -89,6 +94,9 @@ vi.mock('~/db.server', () => ({
     errorLog: { deleteMany: errorLogDeleteManyMock },
     aiUsage: { deleteMany: aiUsageDeleteManyMock },
     retentionPolicy: { deleteMany: retentionPolicyDeleteManyMock },
+    workflowRunStep: { deleteMany: workflowRunStepDeleteManyMock },
+    workflowRun: { deleteMany: workflowRunDeleteManyMock },
+    workflowDef: { deleteMany: workflowDefDeleteManyMock },
   }),
 }));
 
@@ -246,6 +254,10 @@ describe('shop/redact', () => {
     expect(errorLogDeleteManyMock).toHaveBeenCalled();
     expect(aiUsageDeleteManyMock).toHaveBeenCalled();
     expect(retentionPolicyDeleteManyMock).toHaveBeenCalled();
+    // Fix round: workflow engine tables, tenantId-scoped (not shopId).
+    expect(workflowRunStepDeleteManyMock).toHaveBeenCalledWith({ where: { run: { tenantId: 'shop-1' } } });
+    expect(workflowRunDeleteManyMock).toHaveBeenCalledWith({ where: { tenantId: 'shop-1' } });
+    expect(workflowDefDeleteManyMock).toHaveBeenCalledWith({ where: { tenantId: 'shop-1' } });
     const [logArg] = activityLogCreateMock.mock.calls[0] as unknown as [{ data: { action: string; resource: string } }];
     expect(logArg.data.action).toBe('GDPR_SHOP_REDACT');
     expect(logArg.data.resource).toBe('shop:shop-1');

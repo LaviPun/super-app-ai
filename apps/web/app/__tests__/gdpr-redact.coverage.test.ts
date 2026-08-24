@@ -167,6 +167,11 @@ function makePrismaMock() {
     errorLog: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     aiUsage: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     retentionPolicy: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    // Fix round: WorkflowDef/WorkflowRun/WorkflowRunStep are tenantId-scoped (not shopId),
+    // caught by the field-name-vocabulary introspection in shop-redact-completeness.test.ts.
+    workflowRunStep: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    workflowRun: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    workflowDef: { deleteMany: vi.fn(async () => ({ count: 0 })) },
   };
 
   return prisma;
@@ -315,5 +320,9 @@ describe('GDPR redact coverage', () => {
     expect(prismaMock.errorLog.deleteMany).toHaveBeenCalledWith(shopScoped);
     expect(prismaMock.aiUsage.deleteMany).toHaveBeenCalledWith(shopScoped);
     expect(prismaMock.retentionPolicy.deleteMany).toHaveBeenCalledWith(shopScoped);
+    // Fix round: workflow engine tables, tenantId-scoped (not shopId).
+    expect(prismaMock.workflowRunStep.deleteMany).toHaveBeenCalledWith({ where: { run: { tenantId: 'shop-1' } } });
+    expect(prismaMock.workflowRun.deleteMany).toHaveBeenCalledWith({ where: { tenantId: 'shop-1' } });
+    expect(prismaMock.workflowDef.deleteMany).toHaveBeenCalledWith({ where: { tenantId: 'shop-1' } });
   });
 });
