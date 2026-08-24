@@ -35,13 +35,6 @@ import { repairHydrateEnvelope } from '~/services/ai/llm.server';
 // Types whose runtime is NOT shipped yet. Empty is the goal; shrink this as
 // runtimes land (each removal must coincide with a real extension + compiler wiring).
 const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
-  // Order-routing Function: the crate (extensions/superapp-order-routing, target
-  // cart.fulfillment-groups.location-rankings.generate.run — a REAL 2026-04 API) + full
-  // TS wiring are real and its handle is wired in FUNCTION_RUNTIME_HANDLES, but the handle
-  // is not yet in the deployed-function manifest (deployed-extensions.server.ts), so it
-  // honestly reads needs_runtime until `shopify app deploy` ships the wasm and the handle
-  // is added there — the same honest state as the shipping-discount crate.
-  'functions.orderRoutingLocationRule',
   // Local-pickup / pickup-point delivery-option generators: the crates
   // (extensions/superapp-local-pickup, extensions/superapp-pickup-point) + full TS wiring
   // are real, but these Function APIs are currently only on Shopify's `unstable` version
@@ -50,13 +43,6 @@ const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
   // won't be in the deployed manifest → needs_runtime until Shopify promotes these APIs.
   'functions.localPickupDeliveryOption',
   'functions.pickupPointDeliveryOption',
-  // Shipping-discount Function: the crate (extensions/superapp-shipping-discount,
-  // target cart.delivery-options.discounts.generate.run) + full TS wiring are real,
-  // but its handle is not yet in the deployed-function manifest
-  // (deployed-extensions.server.ts), so it honestly reads needs_runtime until
-  // `shopify app deploy` ships the wasm and the handle is added there. See
-  // discount-packs.md §9.2.
-  'functions.shippingDiscount',
   // flow.automation is now DEPLOYABLE: the compiler persists the flow definition
   // (SHOP_METAFIELD_SET, non-AUDIT → not false-published) and FlowRunnerService
   // consumes the active-version specJson server-side — a linear runner on live
@@ -84,6 +70,14 @@ const EXPECTED_NEEDS_RUNTIME: ReadonlySet<ModuleType> = new Set<ModuleType>([
   'functions.paymentCustomization',
   'functions.cartAndCheckoutValidation',
   'functions.fulfillmentConstraints',
+  // Shipping-discount + order-routing Functions: wasm now deployed (WS-E T2 —
+  // superapp-shipping-discount, superapp-order-routing joined the deployed-function
+  // manifest in deployed-extensions.server.ts, reconciling it with
+  // shopify.app.production.toml's extension_directories). Same activation gate as the
+  // six types above — needs_runtime until each gets its ACTIVATION_WIRED_FUNCTION_TYPES
+  // entry.
+  'functions.shippingDiscount',
+  'functions.orderRoutingLocationRule',
 ]);
 // `pos.extension` is now deployable: extensions/superapp-pos-block reads its
 // published config from the app backend (/api/pos/config) via App Authentication

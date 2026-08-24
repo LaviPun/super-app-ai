@@ -97,9 +97,11 @@ const PLUS_ONLY_FUNCTIONS = new Set<ModuleType>([]);
  * the `handle` in each `extensions/<dir>/shopify.extension.toml`. A handle here is
  * only "deployable" once it's also in the deployed-extensions manifest.
  *
- * `orderRoutingLocationRule` NOW has a crate (extensions/superapp-order-routing) targeting
+ * `orderRoutingLocationRule` has a crate (extensions/superapp-order-routing) targeting
  * `cart.fulfillment-groups.location-rankings.generate.run` — a REAL 2026-04 API — so its
- * handle is wired here; it flips deployable once the handle is in the deployed manifest.
+ * handle is wired here, and (WS-E T2) `superapp-order-routing` is now in the deployed
+ * manifest, so `isRuntimeShipped` is true. It still reads `needs_runtime` end-to-end via
+ * the `ACTIVATION_WIRED_FUNCTION_TYPES` gate below (shipped wasm ≠ wired activation).
  *
  * `localPickupDeliveryOption` / `pickupPointDeliveryOption` have crates
  * (extensions/superapp-local-pickup, extensions/superapp-pickup-point) BUT their APIs are
@@ -193,11 +195,11 @@ const REGISTRY: Record<ModuleType, Omit<ExtensionEligibility, 'surface'>> = {
   // Shipping-discount Function (unified Discount API, SHIPPING class). Waives/discounts
   // delivery via cart.delivery-options.discounts.generate.run — the runtime the
   // product-discount Function cannot provide. The crate exists
-  // (extensions/superapp-shipping-discount) but, like every Function, resolves
-  // shipped-ness from the deployed-function manifest: `isRuntimeShipped` returns false
-  // (→ needs_runtime) until `superapp-shipping-discount` appears in the deployed handles.
-  // Needs `write_discounts` in addition to `write_metaobjects` because it is an
-  // automatic discount (discount-packs.md §9.2).
+  // (extensions/superapp-shipping-discount) and (WS-E T2) `superapp-shipping-discount`
+  // is now in the deployed-function manifest, so `isRuntimeShipped` is true. It still
+  // reads `needs_runtime` end-to-end via the `ACTIVATION_WIRED_FUNCTION_TYPES` gate below
+  // (shipped wasm ≠ wired activation). Needs `write_discounts` in addition to
+  // `write_metaobjects` because it is an automatic discount (discount-packs.md §9.2).
   'functions.shippingDiscount': {
     ...fn('functions.shippingDiscount', 'Waives or discounts shipping (free/discounted delivery) via a Function.'),
     requiredScopes: ['write_metaobjects', 'write_discounts'],
