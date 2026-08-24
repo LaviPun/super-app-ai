@@ -410,6 +410,7 @@ function ModuleDetailBody() {
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [delOpen, setDelOpen] = useState(false);
   const [unpubOpen, setUnpubOpen] = useState(false);
+  const [pubOpen, setPubOpen] = useState(false);
   const [modifyOpen, setModifyOpen] = useState(false);
   const [modifyInstruction, setModifyInstruction] = useState('');
   const [selectedThemeId, setSelectedThemeId] = useState(getDefaultThemeId(themes, publishedThemeId ?? null));
@@ -430,6 +431,10 @@ function ModuleDetailBody() {
   // carries failedOp + republish guidance — surfaced as a persistent banner
   // (a toast alone can't hold this much detail) rather than a flat error string.
   const [publishFailure, setPublishFailure] = useState<{ failedOp?: string; guidance?: string; message: string } | null>(null);
+  // WS-F Task 12: drives the post-publish "View storefront" banner. Cleared
+  // on every new publish attempt so a stale success banner never lingers
+  // across a subsequent (possibly failing) republish.
+  const [publishSucceeded, setPublishSucceeded] = useState(false);
 
   const publishFetcher = useFetcher<{
     ok?: boolean;
@@ -497,11 +502,13 @@ function ModuleDetailBody() {
     if (publishFetcher.data?.ok && publishFetcher.state === 'idle') {
       ctx.toast(isDraft ? 'Published — live in a few minutes' : 'Re-published');
       setPublishFailure(null);
+      setPublishSucceeded(true);
       if (publishFetcher.data.embedStatus && publishFetcher.data.embedStatus !== 'enabled') {
         setEmbedNudge(publishFetcher.data.embedStatus);
       }
       revalidator.revalidate();
     } else if (publishFetcher.data?.error && publishFetcher.state === 'idle') {
+      setPublishSucceeded(false);
       if (publishFetcher.data.code === 'PUBLISH_PARTIAL_FAILURE') {
         // Republish-is-the-fix (WS-E finding 4): every completed op is
         // idempotent, so surface exactly where it stopped instead of a flat
@@ -647,6 +654,7 @@ function ModuleDetailBody() {
   const embedStatus = embedNudge ?? (urlEmbedStatus && urlEmbedStatus !== 'enabled' ? urlEmbedStatus : null);
 
   const publish = () => {
+    setPublishSucceeded(false);
     const body: Record<string, string> = {};
     if (isThemeModule && selectedThemeId) body.themeId = selectedThemeId;
     publishFetcher.submit(body, { method: 'post', action: `/api/agent/modules/${moduleId}/publish`, encType: 'application/json' });
@@ -714,8 +722,8 @@ function ModuleDetailBody() {
   return (
     <s-page heading={mod.name} inlineSize="base">
       {isDraft
-        ? <s-button slot="primary-action" variant="primary" icon="rocket" loading={isPublishing || undefined} onClick={publish}>Publish</s-button>
-        : <s-button slot="primary-action" variant="primary" icon="refresh" loading={isPublishing || undefined} onClick={publish}>Republish</s-button>}
+        ? <s-button slot="primary-action" variant="primary" icon="rocket" loading={isPublishing || undefined} onClick={() => setPubOpen(true)}>Publish</s-button>
+        : <s-button slot="primary-action" variant="primary" icon="refresh" loading={isPublishing || undefined} onClick={() => setPubOpen(true)}>Republish</s-button>}
       <s-button slot="secondary-actions" icon="view" onClick={openPreview}>Preview</s-button>
       <s-button slot="secondary-actions" icon="wand" onClick={() => setModifyOpen(true)}>Modify with AI</s-button>
       <s-button
@@ -772,6 +780,17 @@ function ModuleDetailBody() {
         <s-banner tone="info" heading="Module unpublished">This module is no longer live and is now a draft.</s-banner>
       )}
 
+      {publishSucceeded && isThemeModule && (
+        <s-banner tone="success" heading="Published">
+          {/* The module's live URL depends on theme placement, which this app
+              can't resolve to one page without additional placement metadata —
+              the shop's primary domain is the honest, always-real target. */}
+          <s-button href={`https://${data.shop}/`} target="_blank" variant="tertiary" icon="external">
+            View storefront
+          </s-button>
+        </s-banner>
+      )}
+
       {publishFailure && (
         <s-banner tone="critical" heading="Publish stopped partway through">
           <s-stack gap="small-100">
@@ -823,6 +842,19 @@ function ModuleDetailBody() {
           loading={unpublishFetcher.state !== 'idle'}
           onConfirm={doUnpublish} onClose={() => setUnpubOpen(false)}>
           <s-paragraph>{`This removes “${mod.name}” from your storefront/admin and reverts it to a draft. You can publish it again later.`}</s-paragraph>
+        </ConfirmModal>
+      )}
+
+      {pubOpen && (
+        <ConfirmModal open heading={mod.status === 'PUBLISHED' ? 'Republish module?' : 'Publish module?'}
+          confirmLabel={mod.status === 'PUBLISHED' ? 'Republish' : 'Publish'}
+          loading={isPublishing}
+          onConfirm={() => { setPubOpen(false); publish(); }} onClose={() => setPubOpen(false)}>
+          <s-paragraph>
+            {isThemeModule
+              ? `This deploys the module to “${themes.find((t: { id: number; name: string }) => String(t.id) === selectedThemeId)?.name ?? 'the selected theme'}”.`
+              : 'This makes the module live for merchants and customers.'}
+          </s-paragraph>
         </ConfirmModal>
       )}
 
