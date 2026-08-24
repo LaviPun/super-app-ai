@@ -77,27 +77,42 @@ export async function action({ request }: { request: Request }) {
       payload: { promptLen: prompt.length, async: true },
     });
 
-    await enqueueWebJob({
-      id: job.id,
-      jobType: 'AI_GENERATE',
-      payload: {
-        kind: 'WEB_AI_GENERATE',
-        shopId: shopRow.id,
-        shopDomain: session.shop,
-        prompt,
-        preferredType: String(form.get('preferredType') ?? 'Auto').trim(),
-        preferredCategory: String(form.get('preferredCategory') ?? 'Auto').trim(),
-        preferredBlockType: String(form.get('preferredBlockType') ?? 'Auto').trim(),
-        matchStoreColors: String(form.get('matchStoreColors') ?? 'true').trim() !== 'false',
-        optionCount: 3,
-        planTier,
-      },
-      trace: { correlationId, shopId: shopRow.id },
-      // Billing-safe via the correlationId dedupe seam (C2) — a retried
-      // attempt reuses this Job's correlationId, so at most one unit bills
-      // regardless of how many of the 2 attempts actually run.
-      opts: { attempts: 2 },
-    });
+    try {
+      await enqueueWebJob({
+        id: job.id,
+        jobType: 'AI_GENERATE',
+        payload: {
+          kind: 'WEB_AI_GENERATE',
+          shopId: shopRow.id,
+          shopDomain: session.shop,
+          prompt,
+          preferredType: String(form.get('preferredType') ?? 'Auto').trim(),
+          preferredCategory: String(form.get('preferredCategory') ?? 'Auto').trim(),
+          preferredBlockType: String(form.get('preferredBlockType') ?? 'Auto').trim(),
+          matchStoreColors: String(form.get('matchStoreColors') ?? 'true').trim() !== 'false',
+          optionCount: 3,
+          planTier,
+        },
+        trace: { correlationId, shopId: shopRow.id },
+        // Billing-safe via the correlationId dedupe seam (C2) — a retried
+        // attempt reuses this Job's correlationId, so at most one unit bills
+        // regardless of how many of the 2 attempts actually run.
+        opts: { attempts: 2 },
+      });
+    } catch (enqueueErr) {
+      // WS-C commit-0 fold-in (c): jobs.create already committed a QUEUED
+      // Job row above — if the enqueue itself throws (Redis blip, adapter
+      // error), that row is now an orphan nothing will ever pick up or
+      // finish, and the client never received a jobId to poll against.
+      // Fail it explicitly (typed) rather than leaving a phantom QUEUED
+      // job a merchant's poll would hang against forever (D8).
+      await jobs.failWithPayload(job.id, {
+        error: 'INTERNAL_ERROR',
+        message: 'Failed to enqueue the generation job. Please try again.',
+        requestId: job.id,
+      });
+      throw enqueueErr;
+    }
 
     return json({ jobId: job.id, correlationId });
   } catch (e) {

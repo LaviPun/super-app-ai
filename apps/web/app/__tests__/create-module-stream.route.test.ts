@@ -14,6 +14,7 @@ const hoisted = vi.hoisted(() => ({
   jobStart: vi.fn(async () => {}),
   jobSucceed: vi.fn(async () => {}),
   jobFail: vi.fn(async () => {}),
+  jobFailWithPayload: vi.fn(async () => {}),
   jobUpdatePayload: vi.fn(async () => {}),
   quotaEnforce: vi.fn(async () => {}),
   // WS-C commit-0 fold-in (a): per-test override for isBlueprintsEnabled so
@@ -81,6 +82,7 @@ vi.mock('~/services/jobs/job.service', () => ({
     start = hoisted.jobStart;
     succeed = hoisted.jobSucceed;
     fail = hoisted.jobFail;
+    failWithPayload = hoisted.jobFailWithPayload;
     updatePayload = hoisted.jobUpdatePayload;
   },
 }));
@@ -138,7 +140,10 @@ beforeEach(() => {
 });
 
 describe('api.ai.create-module.stream terminal handling', () => {
-  it('0 valid options → jobs.fail + terminal error frame NO_VALID_OPTIONS (never succeed)', async () => {
+  // WS-C commit-0 fold-in (c): finalizeGenerationJob no longer writes the
+  // Job row itself (that was the redundant bare-string write) — the route
+  // now makes the single typed write via failWithPayload.
+  it('0 valid options → jobs.failWithPayload (typed) + terminal error frame NO_VALID_OPTIONS (never succeed, never the bare-string jobs.fail)', async () => {
     hoisted.streamEvents = [
       { kind: 'started', index: 0, approach: 'A', total: 3 },
       { kind: 'option_failed', index: 0, approach: 'A', error: 'invalid' },
@@ -149,7 +154,12 @@ describe('api.ai.create-module.stream terminal handling', () => {
     const body = await res.text();
     expect(body).toContain('event: error');
     expect(body).toContain('NO_VALID_OPTIONS');
-    expect(hoisted.jobFail).toHaveBeenCalledTimes(1);
+    expect(hoisted.jobFailWithPayload).toHaveBeenCalledTimes(1);
+    expect(hoisted.jobFailWithPayload).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({ error: 'NO_VALID_OPTIONS', message: expect.stringMatching(/not billed/) }),
+    );
+    expect(hoisted.jobFail).not.toHaveBeenCalled();
     expect(hoisted.jobSucceed).not.toHaveBeenCalled();
   });
 
@@ -306,6 +316,31 @@ describe('api.ai.create-module.stream terminal handling', () => {
     expect(createOrder).toBeDefined();
     expect(updateOrder).toBeDefined();
     expect(createOrder as number).toBeLessThan(updateOrder as number);
+  });
+
+  it('WS-C commit-0 fold-in (a): a rejected jobs.updatePayload (onIntent telemetry write) does NOT kill the generation — it still completes and sends option/done frames', async () => {
+    hoisted.jobUpdatePayload.mockRejectedValueOnce(new Error('transient DB blip'));
+    hoisted.streamEvents = [
+      { kind: 'started', index: 0, approach: 'A', total: 1 },
+      {
+        kind: 'option',
+        index: 0,
+        approach: 'A',
+        option: { explanation: 'e', recipe: { type: 'admin.block', name: 'X' } },
+      },
+      { kind: 'done', valid: 1, total: 1 },
+    ];
+    const { action } = await import('~/routes/api.ai.create-module.stream');
+    const res = await action({ request: streamRequest() });
+    const body = await res.text();
+    // The load-bearing pipeline work is untouched by the telemetry write's
+    // rejection — options still flow, the job still succeeds, and no error
+    // frame is sent because of it.
+    expect(body).toContain('event: option');
+    expect(body).toContain('event: done');
+    expect(body).not.toContain('event: error');
+    expect(hoisted.jobSucceed).toHaveBeenCalledWith('job-1', expect.objectContaining({ optionCount: 1 }));
+    expect(hoisted.jobUpdatePayload).toHaveBeenCalledTimes(1);
   });
 
   it('WS-C commit-0 fold-in (a), PINNED DECISION: when BLUEPRINTS_ENABLED, `blueprint` fires before `done` (post-Task-4 order) — NOT restored to the pre-refactor done-before-blueprint order, because the stream client (generate._index.tsx streamGenerate) never branches on the `done` SSE event at all: it reads frames until the response body stream CLOSES, so `blueprint` vs `done` ordering is unobservable to it either way. See the THROW SURFACE / ordering comment in generation-pipeline.server.ts for the full reasoning.', async () => {

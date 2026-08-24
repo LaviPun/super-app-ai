@@ -9,7 +9,38 @@ import {
 } from '@superapp/platform-contracts';
 
 export type WebJobHandlerResult = { status: 'SUCCESS' | 'FAILED'; result?: unknown };
-export type WebJobHandler = (envelope: JobEnvelope) => Promise<WebJobHandlerResult>;
+
+/**
+ * WS-C commit-0 fold-in (b): `JobEnvelope` (from `@superapp/platform-contracts`)
+ * is a locked cross-service contract shared with the Cloudflare side — it is
+ * not extended. Attempt info is threaded onto a web-local superset instead,
+ * so processors can tell a mid-retry failure apart from a terminal one
+ * without touching the shared schema.
+ */
+export type WebJobEnvelope = JobEnvelope & {
+  /**
+   * BullMQ's `job.attemptsMade` as seen while THIS attempt is running. BullMQ
+   * only increments it once an attempt finishes (see `Job#shouldRetryJob`),
+   * so it reflects attempts BEFORE this one — 0 on the very first attempt.
+   */
+  attemptsMade: number;
+  /** `job.opts.attempts` — the max attempts configured for this job (queue default or per-enqueue override), when resolvable. */
+  attemptsTotal?: number;
+  /**
+   * True when a failure on THIS attempt is terminal — i.e. BullMQ will not
+   * retry (mirrors `attemptsMade + 1 >= attemptsTotal`, BullMQ's own
+   * `shouldRetryJob` check). Unknown attempts info is treated as final
+   * (fail-safe): a processor must never leave a Job silently stuck
+   * non-terminal because it couldn't tell whether a retry was coming.
+   * Processors MUST gate any terminal `Job.status = FAILED` write on this
+   * flag — a non-final attempt's failure should leave the Job in a
+   * non-terminal state so the poll route never shows a retry-in-progress
+   * job as done.
+   */
+  isFinalAttempt: boolean;
+};
+
+export type WebJobHandler = (envelope: WebJobEnvelope) => Promise<WebJobHandlerResult>;
 
 export type WebWorkerRuntimeOptions = {
   handlers: Partial<Record<PlatformQueueName, WebJobHandler>>;
@@ -44,12 +75,19 @@ export function createWebWorkerRuntime(options: WebWorkerRuntimeOptions): WebWor
       async (bullJob: Job) => {
         const data = (bullJob.data ?? {}) as Record<string, unknown>;
         const trace = JobTraceSchema.safeParse(data.trace);
-        const envelope: JobEnvelope = {
+        const attemptsMade = bullJob.attemptsMade ?? 0;
+        const attemptsTotal = bullJob.opts?.attempts;
+        const envelope: WebJobEnvelope = {
           id: bullJob.id ?? bullJob.name,
           queueName,
           jobType: bullJob.name as PlatformJobType,
           payload: bullJob.data,
           trace: trace.success ? trace.data : { correlationId: bullJob.id ?? 'unknown' },
+          attemptsMade,
+          attemptsTotal,
+          // Fail-safe: unknown attempts info reads as final rather than
+          // leaving a processor unable to ever write a terminal FAILED.
+          isFinalAttempt: attemptsTotal == null ? true : attemptsMade + 1 >= attemptsTotal,
         };
         const result = await handler(envelope);
         if (result.status === 'FAILED') {

@@ -3,22 +3,24 @@ import { finalizeGenerationJob } from '~/services/ai/generation-outcome.server';
 import { nextStepAfterStream, withGenerationCorrelationId } from '~/utils/generation-outcome';
 
 describe('finalizeGenerationJob', () => {
-  it('fails the job and returns a typed terminal error when 0 options validated', async () => {
-    const jobs = { succeed: vi.fn(async (_id: string, _r?: unknown) => {}), fail: vi.fn(async (_id: string, _e?: unknown) => {}) };
+  // WS-C commit-0 fold-in (c): this function no longer writes the FAILED Job
+  // row itself — that was a redundant bare-string write duplicating the
+  // typed `failWithPayload` write both callers (stream route, processor)
+  // already made afterward. It now ONLY decides + returns the terminal
+  // descriminator on failure; each caller does its own single typed write.
+  it('returns a typed terminal error when 0 options validated, WITHOUT writing to the job itself', async () => {
+    const jobs = { succeed: vi.fn(async (_id: string, _r?: unknown) => {}) };
     const terminal = await finalizeGenerationJob(jobs as never, 'job-1', 0, { type: 'theme.section' });
     expect(terminal).toMatchObject({ kind: 'failed', code: 'NO_VALID_OPTIONS' });
-    expect(jobs.fail).toHaveBeenCalledTimes(1);
-    expect(jobs.fail.mock.calls[0]![0]).toBe('job-1');
-    expect(String(jobs.fail.mock.calls[0]![1])).toMatch(/NO_VALID_OPTIONS/);
+    expect(terminal.kind === 'failed' && terminal.message).toMatch(/0 valid options/i);
     expect(jobs.succeed).not.toHaveBeenCalled();
   });
 
   it('succeeds the job with the option count when ≥1 option validated', async () => {
-    const jobs = { succeed: vi.fn(async () => {}), fail: vi.fn(async () => {}) };
+    const jobs = { succeed: vi.fn(async () => {}) };
     const terminal = await finalizeGenerationJob(jobs as never, 'job-1', 2, { type: 'theme.section' });
     expect(terminal).toEqual({ kind: 'succeeded' });
     expect(jobs.succeed).toHaveBeenCalledWith('job-1', expect.objectContaining({ optionCount: 2, type: 'theme.section' }));
-    expect(jobs.fail).not.toHaveBeenCalled();
   });
 });
 

@@ -61,6 +61,64 @@ describe('createWebWorkerRuntime', () => {
     ).rejects.toThrow(/boom/);
     await runtime.close();
   });
+
+  // WS-C commit-0 fold-in (b): processors need to tell a mid-retry failure
+  // apart from a terminal one — BullMQ's `job.attemptsMade` reflects attempts
+  // BEFORE this one (0 on the very first attempt; incremented only once an
+  // attempt finishes), so `isFinalAttempt` is `attemptsMade + 1 >= attemptsTotal`,
+  // mirroring BullMQ's own `Job#shouldRetryJob` check.
+  it('threads attemptsMade/attemptsTotal/isFinalAttempt from the BullMQ job onto the envelope', async () => {
+    process.env.QUEUE_REDIS_URL = 'redis://localhost:6379';
+    const seen: unknown[] = [];
+    const runtime = createWebWorkerRuntime({
+      handlers: {
+        'ai-generation': async (envelope) => {
+          seen.push(envelope);
+          return { status: 'SUCCESS' };
+        },
+      },
+    });
+    const w = runtime.workers[0] as unknown as { processor: (j: unknown) => Promise<unknown> };
+
+    // First attempt of a 2-attempt job: not final.
+    await w.processor({
+      id: 'job_1',
+      name: 'AI_GENERATE',
+      attemptsMade: 0,
+      opts: { attempts: 2 },
+      data: { trace: { correlationId: 'c' } },
+    });
+    expect(seen[0]).toMatchObject({ attemptsMade: 0, attemptsTotal: 2, isFinalAttempt: false });
+
+    // Second (last) attempt of the same 2-attempt job: final.
+    await w.processor({
+      id: 'job_2',
+      name: 'AI_GENERATE',
+      attemptsMade: 1,
+      opts: { attempts: 2 },
+      data: { trace: { correlationId: 'c' } },
+    });
+    expect(seen[1]).toMatchObject({ attemptsMade: 1, attemptsTotal: 2, isFinalAttempt: true });
+
+    await runtime.close();
+  });
+
+  it('treats missing attempts info as final — fail-safe, never silently stuck non-terminal', async () => {
+    process.env.QUEUE_REDIS_URL = 'redis://localhost:6379';
+    const seen: unknown[] = [];
+    const runtime = createWebWorkerRuntime({
+      handlers: {
+        'ai-generation': async (envelope) => {
+          seen.push(envelope);
+          return { status: 'SUCCESS' };
+        },
+      },
+    });
+    const w = runtime.workers[0] as unknown as { processor: (j: unknown) => Promise<unknown> };
+    await w.processor({ id: 'job_3', name: 'AI_GENERATE', data: { trace: { correlationId: 'c' } } });
+    expect(seen[0]).toMatchObject({ attemptsMade: 0, attemptsTotal: undefined, isFinalAttempt: true });
+    await runtime.close();
+  });
 });
 
 describe('enqueueWebJob', () => {

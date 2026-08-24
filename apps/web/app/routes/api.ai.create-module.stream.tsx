@@ -15,6 +15,7 @@ import { QuotaService } from '~/services/billing/quota.service';
 import { CapabilityService } from '~/services/shopify/capability.service';
 import { runGenerationPipeline } from '~/services/ai/generation-pipeline.server';
 import { finalizeGenerationJob } from '~/services/ai/generation-outcome.server';
+import { logger } from '~/services/observability/logger.server';
 
 /** GET disallowed; this is a streaming POST endpoint. */
 export async function loader() {
@@ -174,12 +175,25 @@ export async function action({ request }: { request: Request }) {
               // (Task 4), so this classification metadata is no longer known at
               // create time — persist it onto Job.payload here instead, so it's
               // durable for the funnel/ops tooling this plan builds later.
-              await jobs.updatePayload(job.id, {
-                classifiedType: frame.moduleType,
-                intent: frame.intent,
-                exemplarTier: frame.exemplarTier ?? null,
-                exemplarTemplateId: frame.exemplarTemplateId ?? null,
-              });
+              //
+              // WS-C commit-0 fold-in (a): this is a best-effort telemetry write,
+              // not load-bearing pipeline work — a transient DB blip here must
+              // never kill an otherwise-healthy generation. Swallow + warn; the
+              // funnel/ops view merely loses classification metadata for this
+              // one job.
+              try {
+                await jobs.updatePayload(job.id, {
+                  classifiedType: frame.moduleType,
+                  intent: frame.intent,
+                  exemplarTier: frame.exemplarTier ?? null,
+                  exemplarTemplateId: frame.exemplarTemplateId ?? null,
+                });
+              } catch (err) {
+                logger.warn('onIntent telemetry write failed — generation continues', {
+                  jobId: job.id,
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              }
             },
             onStarted: (o) => {
               send('started', { kind: 'started', ...o });
@@ -298,17 +312,23 @@ export async function action({ request }: { request: Request }) {
           }
         }
 
-        // WS-QF / AI-2: 0 valid options is a FAILURE — jobs.fail + a typed
-        // terminal error frame so the client shows retry instead of silently
-        // re-running (and re-billing) the whole generation via the batch route.
+        // WS-QF / AI-2: 0 valid options is a FAILURE — a typed Job write plus
+        // a terminal error frame so the client shows retry instead of
+        // silently re-running (and re-billing) the whole generation via the
+        // batch route.
+        //
+        // WS-C commit-0 fold-in (c): finalizeGenerationJob only DECIDES the
+        // outcome now — this route makes the single typed write itself
+        // (previously it also wrote a bare-string `jobs.fail` internally,
+        // duplicating the async processor's typed write for the same
+        // outcome).
         const terminal = await finalizeGenerationJob(jobs, job.id, result.validCount, {
           type: moduleType,
         });
         if (terminal.kind === 'failed') {
-          send('error', {
-            code: terminal.code,
-            message: `${terminal.message} Please try again — this attempt was not billed.`,
-          });
+          const message = `${terminal.message} Please try again — this attempt was not billed.`;
+          await jobs.failWithPayload(job.id, { error: terminal.code, message, requestId: job.id });
+          send('error', { code: terminal.code, message });
         }
       } catch (e: unknown) {
         await jobs.fail(job.id, e);

@@ -8,6 +8,7 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { JobEnvelope } from '@superapp/platform-contracts';
+import type { WebJobEnvelope } from '~/services/jobs/worker-runtime.server';
 import type {
   GenerationPipelineInput,
   GenerationPipelineHooks,
@@ -63,13 +64,28 @@ vi.mock('~/services/ai/llm.server', () => ({
 
 import { createAiGenerationJobHandler } from '~/services/jobs/processors/ai-generation.processor.server';
 
-function envelope(payload: Record<string, unknown>): JobEnvelope {
-  return {
+// WS-C commit-0 fold-in (b): defaults to a FINAL attempt (attemptsMade: 0,
+// attemptsTotal: 1) so every pre-existing test in this file — written before
+// attempt-awareness existed — keeps asserting the terminal failWithPayload
+// write it always expected. Tests exercising the non-final branch pass an
+// explicit override.
+function envelope(
+  payload: Record<string, unknown>,
+  attempt?: Partial<Pick<WebJobEnvelope, 'attemptsMade' | 'attemptsTotal' | 'isFinalAttempt'>>,
+): WebJobEnvelope {
+  const base: JobEnvelope = {
     id: 'job-1',
     queueName: 'ai-generation',
     jobType: 'AI_GENERATE',
     payload,
     trace: { correlationId: 'corr-1', shopId: 'shop-1' },
+  };
+  return {
+    ...base,
+    attemptsMade: 0,
+    attemptsTotal: 1,
+    isFinalAttempt: true,
+    ...attempt,
   };
 }
 
@@ -148,6 +164,36 @@ describe('createAiGenerationJobHandler', () => {
         exemplarTemplateId: 'tpl_123',
       }),
     );
+  });
+
+  it('WS-C commit-0 fold-in (a): a rejected jobs.updatePayload (onIntent telemetry write) does NOT stop the generation from succeeding', async () => {
+    hoisted.jobUpdatePayload.mockRejectedValueOnce(new Error('transient DB blip'));
+    hoisted.pipelineImpl.mockImplementationOnce(async (_input, hooks) => {
+      await hooks.onIntent?.({
+        intent: 'banner',
+        surface: 'storefront',
+        confidence: 0.9,
+        confidenceBand: 'direct',
+        alternatives: [],
+        reasons: [],
+        routing: {},
+        moduleType: 'theme.section',
+        routerDecision: {},
+      });
+      await hooks.onOption?.({
+        index: 0,
+        approach: 'polished',
+        option: { explanation: 'e0', recipe: { type: 'theme.section', name: 'A' } as never },
+        durationMs: 5,
+      });
+      return { validCount: 1, moduleType: 'theme.section', collected: new Map([[0, {} as never]]) };
+    });
+    const handler = createAiGenerationJobHandler();
+    const result = await handler(envelope(validPayload));
+    expect(result.status).toBe('SUCCESS');
+    expect(hoisted.jobSucceed).toHaveBeenCalled();
+    expect(hoisted.jobFailWithPayload).not.toHaveBeenCalled();
+    expect(hoisted.jobUpdatePayload).toHaveBeenCalledTimes(1);
   });
 
   it('persists each option via onOption/onOptionFailed as VALID/FAILED rows, writes score+badges on ranking, and succeeds the job with optionCount/recommendedIndex/type', async () => {
@@ -229,5 +275,61 @@ describe('createAiGenerationJobHandler', () => {
       'job-1',
       expect.objectContaining({ error: 'AI_PROVIDER_NOT_CONFIGURED' }),
     );
+  });
+
+  // WS-C commit-0 fold-in (b): a non-final attempt's failure must NOT write
+  // a terminal Job.status=FAILED — the poll route (Task 6) would otherwise
+  // show a job that's about to be retried by BullMQ as permanently failed.
+  describe('attempt-aware terminal writes (commit-0 fold-in b)', () => {
+    it('validCount === 0 on a NON-final attempt -> returns FAILED (so BullMQ retries) WITHOUT calling failWithPayload', async () => {
+      hoisted.pipelineImpl.mockImplementationOnce(async () => ({
+        validCount: 0,
+        moduleType: 'theme.section',
+        collected: new Map(),
+      }));
+      const handler = createAiGenerationJobHandler();
+      const result = await handler(envelope(validPayload, { attemptsMade: 0, attemptsTotal: 2, isFinalAttempt: false }));
+      expect(result.status).toBe('FAILED'); // still throws so BullMQ counts + retries the attempt
+      expect(hoisted.jobFailWithPayload).not.toHaveBeenCalled();
+      expect(hoisted.jobFail).not.toHaveBeenCalled();
+    });
+
+    it('validCount === 0 on the FINAL attempt -> calls failWithPayload NO_VALID_OPTIONS (terminal)', async () => {
+      hoisted.pipelineImpl.mockImplementationOnce(async () => ({
+        validCount: 0,
+        moduleType: 'theme.section',
+        collected: new Map(),
+      }));
+      const handler = createAiGenerationJobHandler();
+      const result = await handler(envelope(validPayload, { attemptsMade: 1, attemptsTotal: 2, isFinalAttempt: true }));
+      expect(result.status).toBe('FAILED');
+      expect(hoisted.jobFailWithPayload).toHaveBeenCalledWith(
+        'job-1',
+        expect.objectContaining({ error: 'NO_VALID_OPTIONS' }),
+      );
+    });
+
+    it('a generic pipeline throw on a NON-final attempt -> returns FAILED WITHOUT calling failWithPayload', async () => {
+      hoisted.pipelineImpl.mockImplementationOnce(async () => {
+        throw new Error('transient provider blip');
+      });
+      const handler = createAiGenerationJobHandler();
+      const result = await handler(envelope(validPayload, { attemptsMade: 0, attemptsTotal: 2, isFinalAttempt: false }));
+      expect(result.status).toBe('FAILED');
+      expect(hoisted.jobFailWithPayload).not.toHaveBeenCalled();
+    });
+
+    it('a generic pipeline throw on the FINAL attempt -> calls failWithPayload INTERNAL_ERROR (terminal)', async () => {
+      hoisted.pipelineImpl.mockImplementationOnce(async () => {
+        throw new Error('transient provider blip');
+      });
+      const handler = createAiGenerationJobHandler();
+      const result = await handler(envelope(validPayload, { attemptsMade: 1, attemptsTotal: 2, isFinalAttempt: true }));
+      expect(result.status).toBe('FAILED');
+      expect(hoisted.jobFailWithPayload).toHaveBeenCalledWith(
+        'job-1',
+        expect.objectContaining({ error: 'INTERNAL_ERROR' }),
+      );
+    });
   });
 });

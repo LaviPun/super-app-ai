@@ -12,6 +12,7 @@ const hoisted = vi.hoisted(() => ({
   enforceRateLimit: vi.fn(async () => {}),
   shopUpsert: vi.fn(async () => ({ id: 'shop-1', planTier: 'BASIC' })),
   jobCreate: vi.fn(async () => ({ id: 'job-1' })),
+  jobFailWithPayload: vi.fn(async () => {}),
   quotaEnforce: vi.fn(async () => {}),
   refreshPlanTier: vi.fn(async () => 'BASIC'),
   isAsyncJobsEnabled: vi.fn(() => true),
@@ -28,6 +29,7 @@ vi.mock('~/db.server', () => ({
 vi.mock('~/services/jobs/job.service', () => ({
   JobService: class {
     create = hoisted.jobCreate;
+    failWithPayload = hoisted.jobFailWithPayload;
   },
 }));
 vi.mock('~/services/billing/quota.service', () => ({
@@ -123,6 +125,22 @@ describe('POST /api/ai/generate-async', () => {
     const body = await res.json();
     expect(body.error).toBe('VALIDATION_ERROR');
     expect(hoisted.enqueueWebJob).not.toHaveBeenCalled();
+  });
+
+  // WS-C commit-0 fold-in (c): enqueueWebJob runs AFTER jobs.create — if it
+  // throws (Redis blip, adapter error), the Job row already exists as
+  // QUEUED but nothing will ever pick it up or finish it. That orphan must
+  // be failed explicitly rather than left as a phantom row a merchant's
+  // poll would hang against forever.
+  it('enqueueWebJob throws after the Job was created -> failWithPayload the orphaned QUEUED Job, then surfaces the error', async () => {
+    hoisted.enqueueWebJob.mockRejectedValueOnce(new Error('redis connection refused'));
+    const { action } = await import('~/routes/api.ai.generate-async');
+    const res = await action({ request: req() });
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(hoisted.jobFailWithPayload).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({ error: expect.any(String), message: expect.any(String) }),
+    );
   });
 
   it('quota exceeded (QuotaService.enforce throws AppError RATE_LIMITED) -> its toResponse() (429) passes through unmodified', async () => {
