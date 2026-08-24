@@ -2,6 +2,7 @@ import { getPrisma } from '~/db.server';
 import { captureException, captureMessage } from '~/services/observability/sentry.server';
 import { sendEmail } from '~/services/notifications/mailer.server';
 import { decryptJson } from '~/services/security/crypto.server';
+import { ActivityLogService } from '~/services/activity/activity.service';
 import { sendSlackAlert } from './ops-alert-slack.server';
 
 export type OpsAlertKind =
@@ -20,31 +21,53 @@ export interface OpsAlertInput {
 
 type SlackSender = (webhookUrl: string, text: string) => Promise<{ sent: boolean; error?: string }>;
 
+type OpsAlertSettings = {
+  enableEmailAlerts: boolean;
+  alertRecipients: string | null;
+  opsSlackWebhookUrlEnc: string | null;
+  opsAlertThresholdCount: number;
+  opsAlertThresholdWindowMin: number;
+};
+
 /**
  * Single fan-out point for ops alerting (Decision G1): Sentry + email + Slack.
  * Sentry fires unconditionally on every alert with an error (Decision G3);
- * email/Slack are gated behind a rolling-window failure-count threshold read
+ * email/Slack are gated behind a rolling-window occurrence-count threshold read
  * from AppSettings, and degrade independently via Promise.allSettled (G2) —
  * a Slack failure must never block the email send, and vice versa.
+ *
+ * Occurrence-counting vs. fired-counting (fix round 1): every `fire()` call
+ * unconditionally records an `OPS_ALERT_OCCURRED` row BEFORE the threshold
+ * gate. The threshold is evaluated against a rolling-window count of THOSE
+ * rows. `OPS_ALERT_FIRED` is written only once the gate opens and no cooldown
+ * is active, and IS the cooldown: while an `OPS_ALERT_FIRED` for the same
+ * alert kind exists within the window, further occurrences keep recording
+ * (so the count for the *next* window stays accurate) but delivery is
+ * suppressed — at most one send per kind per window (Decision G3).
+ *
+ * (Superseded design note: the original version counted `OPS_ALERT_FIRED`
+ * rows for the threshold itself, but that row was only ever written AFTER
+ * the gate passed — a bootstrap deadlock where the counter could never
+ * organically leave zero. Fixed by splitting "occurred" from "fired".)
  */
 export class OpsAlertService {
   private readonly sendSlack: SlackSender;
+  private readonly activity: ActivityLogService;
 
   constructor(deps: { sendSlack?: SlackSender } = {}) {
     this.sendSlack = deps.sendSlack ?? sendSlackAlert;
+    this.activity = new ActivityLogService();
   }
 
-  /** Fire-and-forget-safe: never throws. Sentry unconditional; email/Slack gated by rolling-window threshold. */
+  /** Fire-and-forget-safe: never throws. Sentry unconditional; email/Slack gated by rolling-window threshold + cooldown. */
   async fire(input: OpsAlertInput): Promise<{ sentry: boolean; email: boolean; slack: boolean }> {
     const sentry = this.tryCaptureSentry(input);
 
-    let settings: {
-      enableEmailAlerts: boolean;
-      alertRecipients: string | null;
-      opsSlackWebhookUrlEnc: string | null;
-      opsAlertThresholdCount: number;
-      opsAlertThresholdWindowMin: number;
-    } | null = null;
+    // Record every occurrence unconditionally, BEFORE the threshold gate —
+    // see class doc. Never throws (best-effort bookkeeping).
+    await this.recordOccurrence(input);
+
+    let settings: OpsAlertSettings | null = null;
     try {
       settings = await getPrisma().appSettings.findUnique({
         where: { id: 'singleton' },
@@ -68,21 +91,18 @@ export class OpsAlertService {
     );
     if (!overThreshold) return { sentry, email: false, slack: false };
 
+    const inCooldown = await this.isInCooldown(input.kind, settings.opsAlertThresholdWindowMin);
+    if (inCooldown) return { sentry, email: false, slack: false };
+
+    // Record the fire BEFORE attempting delivery so the cooldown applies to the
+    // decision to send, not to the delivery outcome — a channel failure must
+    // not cause the next occurrence in the same window to retry the send.
+    await this.recordFired(input);
+
     const [emailResult, slackResult] = await Promise.allSettled([
       this.tryEmail(input, settings),
       this.trySlack(input, settings.opsSlackWebhookUrlEnc),
     ]);
-
-    // Record the fire itself so the next window's threshold count includes it.
-    await getPrisma()
-      .activityLog.create({
-        data: {
-          actor: 'SYSTEM',
-          action: 'OPS_ALERT_FIRED',
-          details: JSON.stringify({ kind: input.kind, message: input.message }),
-        },
-      })
-      .catch(() => {});
 
     return {
       sentry,
@@ -101,17 +121,52 @@ export class OpsAlertService {
     }
   }
 
-  /** Rolling-window count of this alert kind already fired via ActivityLog OPS_ALERT_FIRED,
-   *  PLUS this occurrence — mirrors JobService/ApiLog style best-effort counting. */
+  private async recordOccurrence(input: OpsAlertInput): Promise<void> {
+    await this.activity
+      .log({
+        actor: 'SYSTEM',
+        action: 'OPS_ALERT_OCCURRED',
+        details: { kind: input.kind, message: input.message },
+      })
+      .catch(() => {});
+  }
+
+  private async recordFired(input: OpsAlertInput): Promise<void> {
+    await this.activity
+      .log({
+        actor: 'SYSTEM',
+        action: 'OPS_ALERT_FIRED',
+        details: { kind: input.kind, message: input.message },
+      })
+      .catch(() => {});
+  }
+
+  /** Rolling-window count of OPS_ALERT_OCCURRED rows for this alert kind — includes
+   *  the occurrence just recorded by this same fire() call (recordOccurrence runs
+   *  before this is called). */
   private async isOverThreshold(kind: OpsAlertKind, thresholdCount: number, windowMin: number): Promise<boolean> {
+    try {
+      const since = new Date(Date.now() - windowMin * 60_000);
+      const count = await getPrisma().activityLog.count({
+        where: { action: 'OPS_ALERT_OCCURRED', createdAt: { gte: since }, details: { contains: `"kind":"${kind}"` } },
+      });
+      return count >= thresholdCount;
+    } catch {
+      return false; // unreadable window — do not spam on a DB hiccup
+    }
+  }
+
+  /** True if an OPS_ALERT_FIRED for this kind already exists within the window —
+   *  i.e. we already alerted this window, so suppress a repeat send. */
+  private async isInCooldown(kind: OpsAlertKind, windowMin: number): Promise<boolean> {
     try {
       const since = new Date(Date.now() - windowMin * 60_000);
       const count = await getPrisma().activityLog.count({
         where: { action: 'OPS_ALERT_FIRED', createdAt: { gte: since }, details: { contains: `"kind":"${kind}"` } },
       });
-      return count + 1 >= thresholdCount;
+      return count > 0;
     } catch {
-      return false; // unreadable window — do not spam on a DB hiccup
+      return true; // unreadable cooldown state — fail toward suppression, not spam
     }
   }
 

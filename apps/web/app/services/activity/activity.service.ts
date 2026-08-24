@@ -91,7 +91,10 @@ export type ActivityAction =
   | 'SUPPORT_FIX_APPLIED'
   | 'SUPPORT_FIX_REJECTED'
   | 'SUPPORT_NOTIFICATION_SENT'
-  | 'SUPPORT_TRIAGE_SETTINGS_UPDATED';
+  | 'SUPPORT_TRIAGE_SETTINGS_UPDATED'
+  // Ops alerting (WS-G) — OpsAlertService bookkeeping
+  | 'OPS_ALERT_OCCURRED'
+  | 'OPS_ALERT_FIRED';
 
 export type ActivityActor = 'SYSTEM' | 'MERCHANT' | 'INTERNAL_ADMIN' | 'WEBHOOK' | 'CRON';
 
