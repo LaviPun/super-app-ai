@@ -694,8 +694,10 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
         motion: { duration: 'slow', easing: 'enter' },
-        // Festive multi-prize wheel — playful render pack (pill buttons, springy motion).
-        pack: 'playful',
+        // Festive multi-prize wheel — bold render pack (H1, WS-H 2026-08-24 collapse: playful
+        // retired; saturated urgency-red accent + glow elevation + loud "spin now" CTA read
+        // closer to Bold's loud/saturated grammar than Luxe's quiet/hairline one).
+        pack: 'bold',
       },
     },
   },

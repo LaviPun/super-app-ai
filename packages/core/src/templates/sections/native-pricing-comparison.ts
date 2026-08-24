@@ -416,7 +416,9 @@ export const NATIVE_PRICING_COMPARISON_TEMPLATES: TemplateEntry[] = [
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
         motion: { duration: 'fast', easing: 'standard' },
-        pack: 'utility',
+        // H1 (WS-H 2026-08-24 collapse): utility retired — sm radius/thin border/no
+        // shadow/border-elevation is already Luxe's shape profile almost exactly.
+        pack: 'luxe',
       },
     },
   },

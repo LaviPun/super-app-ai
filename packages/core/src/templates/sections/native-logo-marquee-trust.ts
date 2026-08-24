@@ -412,7 +412,10 @@ export const NATIVE_LOGO_MARQUEE_TRUST_TEMPLATES: TemplateEntry[] = [
         shape: { radius: 'md', borderWidth: 'thin', shadow: 'none', elevation: 'border' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
-        pack: 'utility',
+        // H1 (WS-H 2026-08-24 collapse): utility retired — thin border/no shadow/border
+        // elevation on a quiet trust strip reads closer to Luxe than Bold's thick-border,
+        // hard-shadow grammar.
+        pack: 'luxe',
       },
     },
   },

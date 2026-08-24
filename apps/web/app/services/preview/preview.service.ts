@@ -53,7 +53,9 @@ export type PreviewContext = {
 // quality on something the storefront never renders. `render()` sets the active
 // pack for the duration of the (synchronous) render; `pageHtml` wraps the body
 // and inlines the pack stylesheet. Non-storefront surfaces get no wrapper.
-type PreviewPack = 'luxe' | 'bold' | 'playful' | 'utility';
+// H1 (WS-H, 2026-08-24): render packs collapsed to luxe/bold only — see
+// style-packs.server.ts's StorefrontPack for the ruling + data.
+type PreviewPack = 'luxe' | 'bold';
 let activePack: PreviewPack | null = null;
 let activeAccent: string | undefined;
 /** A7 — device-visibility affordance note shown on the preview when device rules are set. */
@@ -101,7 +103,7 @@ const BUYER_FACING_DS_TYPES = new Set<string>([
   'customerAccount.blocks',
 ]);
 
-const PREVIEW_PACKS: readonly PreviewPack[] = ['luxe', 'bold', 'playful', 'utility'];
+const PREVIEW_PACKS: readonly PreviewPack[] = ['luxe', 'bold'];
 function previewPackOf(spec: RecipeSpec): PreviewPack {
   const p = (spec as { style?: { pack?: string } }).style?.pack;
   // 'auto' (unresolved) + anything unknown fall back to Luxe (the can't-look-wrong pack).
