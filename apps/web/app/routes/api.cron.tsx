@@ -24,26 +24,13 @@ import {
 } from '~/services/jobs/shopify-metaobject-cleanup.job';
 import { logger } from '~/services/observability/logger.server';
 import { safeErrorMeta } from '~/services/observability/redact.server';
-import { enforceRateLimit } from '~/services/security/rate-limit.server';
+import { enforceRateLimit, getClientIp } from '~/services/security/rate-limit.server';
 import { AppError } from '~/services/errors/app-error.server';
 import type { AdminApiContext } from '~/types/shopify';
 
 let lastAuditRetentionRunAt: number | null = null;
 let lastLoyaltyExpiryRunAt: number | null = null;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-
-function getClientIp(request: Request): string {
-  const forwardedFor = request.headers.get('x-forwarded-for');
-  if (forwardedFor) {
-    const first = forwardedFor.split(',')[0]?.trim();
-    if (first) return first;
-  }
-
-  const cfIp = request.headers.get('cf-connecting-ip');
-  if (cfIp) return cfIp.trim();
-
-  return 'unknown';
-}
 
 function constantTimeSecretMatch(provided: string, expected: string): boolean {
   const hash = (value: string) => createHash('sha256').update(value).digest();

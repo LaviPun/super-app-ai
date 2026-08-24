@@ -458,7 +458,7 @@ export class BlueprintService {
           : bundle
             ? injectResolvedBundle(member.spec, bundle)
             : member.spec;
-        await publisher.publish(spec, member.target);
+        await publisher.publish(spec, member.target, { activationHandledByCoDeploy: true });
         // C4 — the $app:bundle_config dual-writer ordering. Publish (metaobject
         // config) THEN activate (runtime metafield with real parentVariantId), so the
         // wasm reads the resolved config as authoritative. Must NOT precede publish.

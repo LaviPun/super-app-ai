@@ -6,24 +6,11 @@ import { getPrisma } from '~/db.server';
 import { ErrorLogService } from '~/services/observability/error-log.service';
 import type { ErrorLogSource } from '~/services/observability/error-log.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
-import { enforceRateLimit } from '~/services/security/rate-limit.server';
+import { enforceRateLimit, getClientIp } from '~/services/security/rate-limit.server';
 import { AppError } from '~/services/errors/app-error.server';
 
 const REPORT_SOURCE: ErrorLogSource[] = ['ERROR_BOUNDARY', 'CLIENT'];
 const MAX_META_SIZE = 4_096;
-
-function getClientIp(request: Request): string {
-  const forwardedFor = request.headers.get('x-forwarded-for');
-  if (forwardedFor) {
-    const first = forwardedFor.split(',')[0]?.trim();
-    if (first) return first;
-  }
-
-  const cfIp = request.headers.get('cf-connecting-ip');
-  if (cfIp) return cfIp.trim();
-
-  return 'unknown';
-}
 
 /**
  * Internal-admin pages have no Shopify session (they use their own cookie

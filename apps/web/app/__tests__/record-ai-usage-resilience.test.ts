@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { recordAiUsage } from '~/services/ai/llm.server';
 
 /**
- * The fan-out quota unit rides on a single AiUsage write (only idx 0 carries the
- * billable unit — see optionCallBillableUnits). Before this fix recordAiUsage
+ * The fan-out quota unit rides on a single AiUsage write (only the first
+ * successful option call carries the billable unit — see claimOptionBillableUnit).
+ * Before this fix recordAiUsage
  * swallowed EVERY write error, so one flaky DB write silently dropped a
  * merchant's whole billed generation → free generation, invisible in the data.
  *

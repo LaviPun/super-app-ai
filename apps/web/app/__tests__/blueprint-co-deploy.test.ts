@@ -19,7 +19,13 @@ const hoisted = vi.hoisted(() => {
   const recipeFindFirst = vi.fn();
 
   // PublishService
-  const publish = vi.fn(async (_spec: { type: string; config?: Record<string, unknown> }, _target?: unknown) => ({ preflight: {} }));
+  const publish = vi.fn(
+    async (
+      _spec: { type: string; config?: Record<string, unknown> },
+      _target?: unknown,
+      _opts?: { activationHandledByCoDeploy?: boolean },
+    ) => ({ preflight: {} }),
+  );
   // BundleProductService
   const resolveComponents = vi.fn();
   const ensureParentBundleProduct = vi.fn(async (_args?: unknown) => 'gid://shopify/ProductVariant/500');
@@ -272,6 +278,20 @@ describe('publishBlueprint — bundle triangle co-deploy', () => {
     // checkout member received the real parent variant.
     const checkoutCfg = hoisted.publish.mock.calls.find((c) => c[0].type === 'checkout.block')?.[0].config ?? {};
     expect(checkoutCfg.productVariantGid).toBe('gid://shopify/ProductVariant/500');
+
+    // D6 step 1 pin: every co-deploy publish call must carry
+    // activationHandledByCoDeploy — this is what keeps activation-unwired function
+    // types (functions.cartTransform is the source member here) deployable via
+    // co-deploy even though classifyModulePublishability gates them needs_runtime on
+    // the single-module publish path (see extension-eligibility.ts
+    // FUNCTION_ACTIVATION_UNWIRED / blueprint.service.ts:461). Without this flag
+    // threading, BlueprintService.publishBlueprint would itself start
+    // false-publishing the cart-transform member.
+    const cartTransformCall = hoisted.publish.mock.calls.find((c) => c[0].type === 'functions.cartTransform');
+    expect(cartTransformCall?.[2]).toEqual({ activationHandledByCoDeploy: true });
+    for (const call of hoisted.publish.mock.calls) {
+      expect(call[2]).toEqual({ activationHandledByCoDeploy: true });
+    }
   });
 
   it('writes $app:bundle_config exactly once, after publish, with the real parentVariantId (C4)', async () => {

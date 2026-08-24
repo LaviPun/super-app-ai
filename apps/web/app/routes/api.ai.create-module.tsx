@@ -41,6 +41,13 @@ export async function action({ request }: { request: Request }) {
       let prompt = String(form.get('prompt') ?? '').trim();
       if (!prompt) return json({ error: 'Missing prompt' }, { status: 400 });
 
+      // WS-QF / AI-2 review fix: when this call is the client's transport-failure
+      // fallback from the streaming route, it carries the SAME correlationId the
+      // stream leg used. If that leg already billed before dropping, this leg's
+      // dedupe (seedBillingStateForCorrelation in llm.server.ts) bills 0 instead
+      // of double-charging the merchant for one click.
+      const correlationId = String(form.get('correlationId') ?? '').trim() || undefined;
+
       const preferredType = String(form.get('preferredType') ?? 'Auto').trim();
       const preferredCategory = String(form.get('preferredCategory') ?? 'Auto').trim();
       const preferredBlockType = String(form.get('preferredBlockType') ?? 'Auto').trim();
@@ -150,6 +157,7 @@ export async function action({ request }: { request: Request }) {
           routerDecision,
           groundingBlock: grounding || undefined,
           exemplar,
+          correlationId,
         });
 
         // Composition guardrails (§04/§6): palette-independent — a generated

@@ -9,6 +9,8 @@ import type { Capability, DeployTarget, ModuleType } from '@superapp/core';
 import { getCapabilityNode } from '@superapp/core';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import { QuotaService } from '~/services/billing/quota.service';
+import { AppError } from '~/services/errors/app-error.server';
 import { JobService } from '~/services/jobs/job.service';
 import { PublishPolicyService } from '~/services/publish/publish-policy.service';
 import { runPublishPreflight } from '~/services/publish/publish-preflight.server';
@@ -146,6 +148,21 @@ export async function action({
 
   const prisma = getPrisma();
   const shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
+
+  // WS-QF / Deploy-5: the published-module cap is crossed HERE (moduleCount
+  // counts PUBLISHED modules), so enforce it before any publish work.
+  // Excludes this module from the count, so a re-publish at cap never blocks.
+  if (shopRow) {
+    try {
+      await new QuotaService().enforcePublishCap(shopRow.id, mod.id);
+    } catch (e) {
+      if (e instanceof AppError && e.code === 'RATE_LIMITED') {
+        return json({ error: e.message, code: 'MODULE_LIMIT_REACHED' }, { status: 429 });
+      }
+      throw e;
+    }
+  }
+
   const jobs = new JobService();
   const progressive = new ProgressivePublishService();
   const canary = progressive.startCanary();

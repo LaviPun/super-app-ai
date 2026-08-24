@@ -34,6 +34,33 @@ export class QuotaService {
     }
   }
 
+  /**
+   * Publish-time published-module cap (WS-QF / Deploy-5). `moduleCount` counts
+   * PUBLISHED modules, so /api/publish is exactly where the cap is crossed —
+   * yet it had no check (unlimited drafts could be published past the plan cap).
+   * Counts published modules EXCLUDING the one being published, so re-publishing
+   * an already-published module at cap never blocks.
+   */
+  async enforcePublishCap(shopId: string, moduleId: string): Promise<void> {
+    const prisma = getPrisma();
+    const sub = await prisma.appSubscription.findUnique({ where: { shopId } });
+    const planName = sub?.planName ?? 'FREE';
+    const config = await getPlanConfig(planName);
+    const limit = this.limitFor(config.quotas, 'moduleCount');
+    if (limit === -1) return; // unlimited
+
+    const publishedOthers = await prisma.module.count({
+      where: { shopId, status: 'PUBLISHED', id: { not: moduleId } },
+    });
+    if (publishedOthers >= limit) {
+      throw new AppError({
+        code: 'RATE_LIMITED',
+        message: `Module limit reached. You have ${publishedOthers}/${limit} published modules on the ${config.displayName} plan. Upgrade or unpublish an existing module to publish this one.`,
+        details: { kind: 'moduleCount', used: String(publishedOthers), limit: String(limit), plan: planName },
+      });
+    }
+  }
+
   async getUsageSummary(shopId: string) {
     const prisma = getPrisma();
     const sub = await prisma.appSubscription.findUnique({ where: { shopId } });

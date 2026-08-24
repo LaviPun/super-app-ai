@@ -49,6 +49,10 @@ vi.mock('~/services/jobs/internal-ai-chat-retention.job', () => ({
 
 vi.mock('~/services/security/rate-limit.server', () => ({
   enforceRateLimit: enforceRateLimitMock,
+  // The route now imports the shared hardened getClientIp (rightmost XFF /
+  // cf-connecting-ip) instead of a local leftmost-XFF copy — keep the mock
+  // module shape matching the real export surface.
+  getClientIp: () => '127.0.0.1',
 }));
 
 describe('/api/cron retention loader', () => {

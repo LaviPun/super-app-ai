@@ -51,7 +51,10 @@ describe('GUARDRAIL: every blueprint-catalog member is end-to-end deployable', (
       it(`${intent} → "${member.role}" (${member.moduleType}) is deployable`, () => {
         const preflight = classifyModulePublishability(
           { type: member.moduleType } as RecipeSpec,
-          { deployedExtensions: deployed },
+          // Blueprint members publish via BlueprintService.publishBlueprint, which
+          // passes activationHandledByCoDeploy (it runs the activation mutations
+          // itself — activateCartTransform / ensureAutomaticBundleDiscount).
+          { deployedExtensions: deployed, activationHandledByCoDeploy: true },
         );
         expect(
           preflight.willDeploy,

@@ -45,6 +45,24 @@ export class AiUsageService {
       },
     });
   }
+
+  /**
+   * WS-QF / AI-2 review fix (cross-leg billing dedupe): true when some AiUsage
+   * row already carries a billed unit (requestCount > 0) for this correlationId.
+   * Used to detect that the stream leg of a generation attempt already billed
+   * the merchant before a transport drop sent the client to the batch-route
+   * fallback — the fallback leg must then bill 0 for the same attempt.
+   * `correlationId` is indexed (`@@index([correlationId])`), so this is a cheap
+   * point lookup, not a table scan.
+   */
+  async hasBilledUnit(correlationId: string): Promise<boolean> {
+    const prisma = getPrisma();
+    const row = await prisma.aiUsage.findFirst({
+      where: { correlationId, requestCount: { gt: 0 } },
+      select: { id: true },
+    });
+    return row != null;
+  }
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   messagingChannelSendability,
   checkoutBlockPublishNotes,
   DECLARATIVE_PRICING_MECHANISMS,
+  functionActivationGap,
 } from '@superapp/core';
 import {
   ModulePublishPreflightResultSchema,
@@ -92,6 +93,13 @@ export const FUNCTION_EXTENSION_HANDLES: Record<string, string> = FUNCTION_RUNTI
 export interface ModulePublishabilityContext {
   /** Extension handles known to be deployed via `shopify app deploy` (layer a). */
   deployedExtensions?: Iterable<string>;
+  /**
+   * Blueprint co-deploy only: the caller performs the Shopify activation itself
+   * (BundleProductService.activateCartTransform / ensureAutomaticBundleDiscount),
+   * so the FUNCTION_ACTIVATION_UNWIRED gate does not apply. NEVER set on the
+   * single-module publish path.
+   */
+  activationHandledByCoDeploy?: boolean;
 }
 
 /**
@@ -208,6 +216,20 @@ export function classifyModulePublishability(
       moduleType: type,
       status: 'needs_runtime',
       reasons: [detail],
+      ...(eligibility.functionHandle ? { requiresExtension: eligibility.functionHandle } : {}),
+      willDeploy: false,
+    });
+  }
+
+  // WS-QF / D6 step 1: wasm deployed is necessary but not sufficient — without the
+  // Shopify activation object the Function never runs (false-publish). Blueprint
+  // co-deploy activates for itself and opts out via activationHandledByCoDeploy.
+  const activationGap = functionActivationGap(type);
+  if (activationGap && !ctx.activationHandledByCoDeploy) {
+    return ModulePublishPreflightResultSchema.parse({
+      moduleType: type,
+      status: 'needs_runtime',
+      reasons: [activationGap],
       ...(eligibility.functionHandle ? { requiresExtension: eligibility.functionHandle } : {}),
       willDeploy: false,
     });

@@ -17,6 +17,8 @@ import { getCapabilityNode } from '@superapp/core';
 import { withApiLogging } from '~/services/observability/api-log.service';
 import { getPrisma } from '~/db.server';
 import { JobService } from '~/services/jobs/job.service';
+import { QuotaService } from '~/services/billing/quota.service';
+import { AppError } from '~/services/errors/app-error.server';
 import { ActivityLogService, logRequestOutcome } from '~/services/activity/activity.service';
 import { PublishPolicyService } from '~/services/publish/publish-policy.service';
 import { runPublishPreflight } from '~/services/publish/publish-preflight.server';
@@ -202,6 +204,26 @@ export async function action({ request }: { request: Request }) {
           { error: 'Pre-publish validation failed', errors: validationErrors },
           { status: 400 }
         );
+      }
+
+      // WS-QF / Deploy-5: the published-module cap is crossed HERE (moduleCount
+      // counts PUBLISHED modules), so enforce it before any publish work.
+      // Excludes this module from the count, so a re-publish at cap never blocks.
+      if (shopRow) {
+        try {
+          await new QuotaService().enforcePublishCap(shopRow.id, module.id);
+        } catch (e) {
+          if (e instanceof AppError && e.code === 'RATE_LIMITED') {
+            await logRequestOutcome({
+              shopId: shopRow.id,
+              pathOrIntent: '/api/publish',
+              success: false,
+              details: { error: e.message, moduleId: module.id },
+            });
+            return json({ error: e.message, code: 'MODULE_LIMIT_REACHED' }, { status: 429 });
+          }
+          throw e;
+        }
       }
 
       const jobs = new JobService();

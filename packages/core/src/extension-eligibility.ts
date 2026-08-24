@@ -556,6 +556,40 @@ export function isRuntimeShipped(moduleType: ModuleType, ctx: RuntimeShippedChec
 }
 
 /**
+ * WS-QF / D6 step 1 (2026-08-24): Function module types whose wasm extension IS
+ * deployed (manifest) but whose Shopify ACTIVATION object is never created on the
+ * single-module publish path. Publishing one writes its $app config metaobject and
+ * flips the module PUBLISHED, but no cartTransformCreate / discountAutomaticAppCreate /
+ * deliveryCustomizationCreate / paymentCustomizationCreate / validationCreate /
+ * fulfillmentConstraintRuleCreate ever runs (the first two exist only in the app's
+ * bundle co-deploy service; the rest exist nowhere) — the Function never executes,
+ * a false-publish. `classifyModulePublishability` gates these needs_runtime unless
+ * the caller is the blueprint co-deploy (which performs its own activation).
+ * WS-E ships activation wiring and removes types from this set one by one.
+ */
+export const FUNCTION_ACTIVATION_UNWIRED: ReadonlySet<ModuleType> = new Set<ModuleType>([
+  'functions.discountRules',
+  'functions.cartTransform',
+  'functions.deliveryCustomization',
+  'functions.paymentCustomization',
+  'functions.cartAndCheckoutValidation',
+  'functions.fulfillmentConstraints',
+]);
+
+/** Honest reason string when a type's Shopify activation object is not wired; undefined when unaffected. */
+export function functionActivationGap(moduleType: ModuleType): string | undefined {
+  if (!FUNCTION_ACTIVATION_UNWIRED.has(moduleType)) return undefined;
+  return (
+    `${moduleType}: the Function wasm is deployed, but publishing this module only writes its config ` +
+    `metaobject — the app never creates the Shopify activation object that makes the Function run ` +
+    `(discountAutomaticAppCreate / cartTransformCreate / deliveryCustomizationCreate / ` +
+    `paymentCustomizationCreate / validationCreate / fulfillmentConstraintRuleCreate). Until activation ` +
+    `wiring lands (WS-E), publishing would report PUBLISHED while changing nothing at checkout, so it is ` +
+    `honestly gated needs_runtime.`
+  );
+}
+
+/**
  * Whether a module's plan/scope requirements are satisfied for the merchant. This
  * NEVER blocks deploy — it drives a merchant-facing note ("needs Shopify Plus to
  * take effect"). Returns the unmet requirements so the UI can explain them.

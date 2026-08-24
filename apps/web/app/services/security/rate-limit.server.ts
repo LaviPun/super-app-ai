@@ -125,13 +125,20 @@ function getPolicyLimiter(limit: number, windowSec: number): RateLimiter {
 }
 
 export function getClientIp(request: Request): string {
-  const forwardedFor = request.headers.get('x-forwarded-for');
-  if (forwardedFor) {
-    const first = forwardedFor.split(',')[0]?.trim();
-    if (first) return first;
-  }
+  // Prefer Cloudflare's IP (set by Cloudflare, not client-forgeable through proxy)
   const cfIp = request.headers.get('cf-connecting-ip');
   if (cfIp) return cfIp.trim();
+
+  // Fall back to the rightmost entry of x-forwarded-for (appended by the nearest proxy hop),
+  // never the leftmost (client-controlled). This prevents spoofing via custom XFF headers.
+  const forwardedFor = request.headers.get('x-forwarded-for');
+  if (forwardedFor) {
+    const ips = forwardedFor.split(',').map(ip => ip.trim()).filter(ip => ip.length > 0);
+    if (ips.length > 0) {
+      return ips[ips.length - 1]!;
+    }
+  }
+
   return 'unknown';
 }
 

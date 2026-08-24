@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { InMemoryRateLimiter, RedisRateLimiter } from '~/services/security/rate-limit.server';
+import { InMemoryRateLimiter, RedisRateLimiter, getClientIp } from '~/services/security/rate-limit.server';
 
 describe('InMemoryRateLimiter', () => {
   it('allows requests until the configured limit and then blocks', async () => {
@@ -37,5 +37,78 @@ describe('RedisRateLimiter', () => {
     const limiter = new RedisRateLimiter({ eval: evalMock }, 3, 60);
 
     await expect(limiter.take('shop:a')).resolves.toEqual({ ok: false, retryAfterSec: 9 });
+  });
+});
+
+describe('getClientIp', () => {
+  it('prefers cf-connecting-ip when present', () => {
+    const request = new Request('https://example.com', {
+      headers: {
+        'cf-connecting-ip': '203.0.113.1',
+        'x-forwarded-for': '1.2.3.4, 10.0.0.1',
+      },
+    });
+    expect(getClientIp(request)).toBe('203.0.113.1');
+  });
+
+  it('uses rightmost entry of x-forwarded-for (appended by nearest proxy)', () => {
+    const request = new Request('https://example.com', {
+      headers: {
+        'x-forwarded-for': '1.2.3.4, 10.0.0.1',
+      },
+    });
+    expect(getClientIp(request)).toBe('10.0.0.1');
+  });
+
+  it('handles x-forwarded-for with spaces around entries', () => {
+    const request = new Request('https://example.com', {
+      headers: {
+        'x-forwarded-for': '1.2.3.4 , 10.0.0.1 , 192.168.1.1',
+      },
+    });
+    expect(getClientIp(request)).toBe('192.168.1.1');
+  });
+
+  it('returns unknown when neither header is present', () => {
+    const request = new Request('https://example.com', {
+      headers: {},
+    });
+    expect(getClientIp(request)).toBe('unknown');
+  });
+
+  it('returns unknown when x-forwarded-for is empty', () => {
+    const request = new Request('https://example.com', {
+      headers: {
+        'x-forwarded-for': '',
+      },
+    });
+    expect(getClientIp(request)).toBe('unknown');
+  });
+
+  it('returns unknown when x-forwarded-for contains only whitespace', () => {
+    const request = new Request('https://example.com', {
+      headers: {
+        'x-forwarded-for': '  ,  ,  ',
+      },
+    });
+    expect(getClientIp(request)).toBe('unknown');
+  });
+
+  it('trims whitespace from cf-connecting-ip', () => {
+    const request = new Request('https://example.com', {
+      headers: {
+        'cf-connecting-ip': '  203.0.113.1  ',
+      },
+    });
+    expect(getClientIp(request)).toBe('203.0.113.1');
+  });
+
+  it('handles single entry in x-forwarded-for correctly', () => {
+    const request = new Request('https://example.com', {
+      headers: {
+        'x-forwarded-for': '203.0.113.1',
+      },
+    });
+    expect(getClientIp(request)).toBe('203.0.113.1');
   });
 });
