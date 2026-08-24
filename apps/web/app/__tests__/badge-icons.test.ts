@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -10,32 +10,31 @@ import { BADGE_ICON_IDS } from '~/services/recipes/kind-archetype';
  * V-A A2 — trust/payment badge-icon catalog single-source contract.
  *
  * The icon id list lives in ONE place (`BADGE_ICON_IDS` in kind-archetype). The
- * storefront Liquid hand-authors a `<symbol id="sa-ico-<id>">` sprite and the
- * PreviewService hand-authors a mirrored inline-SVG catalog — both keyed by the SAME
- * ids. This locks all three id sets together so a badge's `fields.icon` can never
- * resolve on one surface and silently vanish on the other.
+ * PreviewService hand-authors a mirrored inline-SVG catalog, keyed by the same ids.
+ *
+ * WS-H Task 5 (Liquid byte reclaim): the storefront no longer hand-authors an inline
+ * `<svg><symbol id="sa-ico-<id>">` sprite in Liquid — that ~2 KB catalog never varies
+ * per merchant/config, so it moved to `superapp-modules.css` as
+ * `.superapp-trust__ico[data-sa-icon="<id>"] { mask-image: ...; }` rules (CSS has a
+ * separate, uncontested budget from the Shopify-enforced 100 KB aggregate Liquid wall;
+ * see scripts/build-theme-liquid.mjs). The storefront Liquid now emits a
+ * `data-sa-icon="<id>"` attribute instead of a `<use href="#sa-ico-<id>">` reference;
+ * this test locks the CSS catalog to the same canonical id set so a badge's
+ * `fields.icon` can never resolve in the library/PreviewService and silently render
+ * blank on the real storefront.
  */
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '../../../..');
-// The badge sprite lives in the content-section sub-snippet of the renderer family;
-// scan the whole `superapp-module*.liquid` family so the parity guard is robust to the
-// sprite moving between files.
-const SRC_SNIPPETS = join(REPO_ROOT, 'apps/web/theme-extension-src/liquid/snippets');
-const BUILT_SNIPPETS = join(REPO_ROOT, 'extensions/theme-app-extension/snippets');
+// CSS has no separate readable-source directory (see scripts/build-theme-liquid.mjs
+// header / apps/web/theme-extension-src/liquid — only Liquid has a source→build split);
+// extensions/theme-app-extension/assets/superapp-modules.css IS the source, edited
+// directly, so there is only one file to check (no src-vs-built distinction here).
+const CSS_ASSET = join(REPO_ROOT, 'extensions/theme-app-extension/assets/superapp-modules.css');
 
-/** Concatenate every `superapp-module*.liquid` renderer-family file in a snippets dir. */
-function readModuleFamily(dir: string): string {
-  return readdirSync(dir)
-    .filter((f) => /^superapp-module.*\.liquid$/.test(f))
-    .sort()
-    .map((f) => readFileSync(join(dir, f), 'utf8'))
-    .join('\n');
-}
-
-/** Extract `sa-ico-<id>` symbol ids from a Liquid file's inline sprite. */
-function spriteIds(liquid: string): string[] {
+/** Extract `data-sa-icon="<id>"` attribute-selector ids from the CSS mask catalog. */
+function cssIconIds(css: string): string[] {
   const ids = new Set<string>();
-  for (const m of liquid.matchAll(/<symbol\s+id="sa-ico-([a-z0-9-]+)"/g)) {
+  for (const m of css.matchAll(/\.superapp-trust__ico\[data-sa-icon="([a-z0-9-]+)"\]/g)) {
     if (m[1]) ids.add(m[1]);
   }
   return [...ids];
@@ -48,12 +47,8 @@ describe('badge-icon catalog — single-source id parity (A2)', () => {
     expect(BADGE_ICON_IDS.length).toBe(16);
   });
 
-  it('the storefront Liquid sprite covers exactly the canonical id set', () => {
-    expect(spriteIds(readModuleFamily(SRC_SNIPPETS)).sort()).toEqual(canonical);
-  });
-
-  it('the built extension sprite carries the same ids (rebuild not forgotten)', () => {
-    expect(spriteIds(readModuleFamily(BUILT_SNIPPETS)).sort()).toEqual(canonical);
+  it('the storefront CSS mask catalog covers exactly the canonical id set (WS-H Task 5: moved out of the Liquid sprite)', () => {
+    expect(cssIconIds(readFileSync(CSS_ASSET, 'utf8')).sort()).toEqual(canonical);
   });
 
   it('the PreviewService catalog covers exactly the canonical id set', () => {
