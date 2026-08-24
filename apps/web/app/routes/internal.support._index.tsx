@@ -310,7 +310,15 @@ export default function AdminSupportQueue() {
                 {
                   key: 'age',
                   label: 'Age',
-                  render: (r: TicketRow) => <span className="cell-sub" title={new Date(r.createdAt).toLocaleString()}>{formatRelativeTime(r.createdAt)}</span>,
+                  // suppressHydrationWarning: this cell mixes loader rows (formatted
+                  // once server-side elsewhere) with live SSE rows that only ever
+                  // exist client-side, so it's computed at render time here — React's
+                  // documented pattern for genuinely time-sensitive text.
+                  render: (r: TicketRow) => (
+                    <span className="cell-sub" title={new Date(r.createdAt).toLocaleString()} suppressHydrationWarning>
+                      {formatRelativeTime(r.createdAt)}
+                    </span>
+                  ),
                 },
               ]}
               rows={rows}

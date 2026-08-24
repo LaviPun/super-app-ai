@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [master]
   pull_request:
-    branches: [main, develop]
+    branches: [master]
   # Nightly quality flywheel (Phase 5b): the deterministic eval suite + optional
   # live tournament run + trend gate. Manual runs via the Actions tab too.
   schedule:
@@ -48,6 +48,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build workspace packages (web/api/workers import @superapp/* from dist)
+        run: pnpm --filter "web^..." --filter "@superapp/api^..." --filter "@superapp/frontend^..." run --if-present build
+
+      - name: Generate Prisma client (web typecheck needs @prisma/client types)
+        working-directory: apps/web
+        run: pnpm exec prisma generate
+
       - name: Lint (web)
         run: pnpm --filter web lint
 
@@ -81,6 +88,20 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     needs: quality
+    # preview-export.queue.server.test.ts talks to a real Redis at
+    # QUEUE_REDIS_URL=redis://127.0.0.1:6379 (matches apps/web/.env.example's
+    # local dev default) - give the runner the same service so the queue-mode
+    # assertion isn't just testing a fresh install's ECONNREFUSED.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -99,8 +120,82 @@ jobs:
         working-directory: apps/web
         run: pnpm exec prisma generate
 
-      - name: Test (all packages)
-        run: pnpm test
+      - name: Test (all non-extension packages)
+        run: pnpm test:packages
+
+  # ─── Job 2b: Function extensions (wasm integration) ──────────────────────
+  #
+  # The six shopify-function suites compile Rust -> wasm via `shopify app
+  # function build` and execute the artifact against fixtures. They need a
+  # toolchain the plain test job doesn't have: Rust + wasm32-unknown-unknown
+  # + the Shopify CLI (pinned to the version the suites were verified with).
+  #
+  # Node 22, not the repo-wide 20: @shopify/cli@4.7.0 declares
+  # engines.node ">=22.12.0" and its bin imports node:module's
+  # enableCompileCache, which doesn't exist on Node 20 - `shopify app
+  # function build` throws SyntaxError before this job's Rust/wasm work
+  # even starts. This job is the only ci.yml job invoking the CLI, so
+  # only it needs the newer runtime.
+  test-functions:
+    name: Function Extensions (wasm)
+    runs-on: ubuntu-latest
+    needs: quality
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            extensions/superapp-cart-checkout-validation
+            extensions/superapp-cart-transform
+            extensions/superapp-delivery-customization
+            extensions/superapp-discount
+            extensions/superapp-fulfillment-constraints
+            extensions/superapp-payment-customization
+
+      - name: Install Shopify CLI
+        run: npm install -g @shopify/cli@4.7.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test (function extensions)
+        run: pnpm test:functions
+        env:
+          SHOPIFY_CLI_NO_ANALYTICS: '1'
+
+  # ─── Job 2c: TAE Liquid aggregate budget (100KB hard limit) ───────────────
+  #
+  # theme-app-extension Liquid has a 100,000-byte AGGREGATE limit enforced by
+  # Shopify at deploy time (see MEMORY: phase-035). scripts/build-theme-liquid.mjs
+  # --check rebuilds the minified copies and exits 1 when over budget. Pure
+  # node:fs — needs no pnpm install.
+  liquid-budget:
+    name: TAE Liquid Budget (100KB)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check aggregate Liquid budget
+        run: node scripts/build-theme-liquid.mjs --check
 
   # ─── Job 3: Internal admin Playwright smoke ───────────────────────────────
   e2e-internal:
@@ -121,6 +216,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build workspace packages (web imports @superapp/* from dist)
+        run: pnpm --filter "web^..." run --if-present build
+
       - name: Setup Prisma schema
         working-directory: apps/web
         run: pnpm exec prisma db push --skip-generate
@@ -131,7 +229,17 @@ jobs:
 
       - name: Start web dev server
         working-directory: apps/web
-        run: pnpm dev -- --port 4000 > /tmp/web-dev.log 2>&1 &
+        # No `--` before the flags: pnpm's `<script> -- <args>` forwarding
+        # appends a *literal* extra `--` ahead of them here, because the
+        # `dev` script is itself a `&&`-chain ending in `remix vite:dev`
+        # (no trailing `--` of its own) - `remix vite:dev -- --port 4000`
+        # silently fails vite's remix-plugin lookup and exits 1 before
+        # listening, so `pnpm dev --port 4000` (no separator) is required.
+        # --host 127.0.0.1 makes the bind address explicit: Vite's default
+        # `localhost` bind resolves to whichever of ::1/127.0.0.1 the host
+        # prefers, and the next step's health check curls 127.0.0.1
+        # specifically.
+        run: pnpm dev --port 4000 --host 127.0.0.1 > /tmp/web-dev.log 2>&1 &
 
       - name: Wait for app to boot
         run: |
@@ -202,6 +310,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build workspace packages (web imports @superapp/* from dist)
+        run: pnpm --filter "web^..." run --if-present build
+
       - name: Generate Prisma client
         working-directory: apps/web
         run: pnpm exec prisma generate
@@ -219,7 +330,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [test, e2e-internal, evals]
+    needs: [test, test-functions, e2e-internal, evals, liquid-budget]
 
     steps:
       - uses: actions/checkout@v4
@@ -233,6 +344,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Build workspace packages (web imports @superapp/* from dist)
+        run: pnpm --filter "web^..." run --if-present build
 
       - name: Build (web)
         working-directory: apps/web
@@ -274,6 +388,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build workspace packages (evals import @superapp/* from dist)
+        run: pnpm --filter "web^..." run --if-present build
+
       - name: Generate Prisma client
         working-directory: apps/web
         run: pnpm exec prisma generate
@@ -296,10 +413,16 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
+          set -euo pipefail
           mkdir -p scripts/eval-out
-          pnpm evals:report --out scripts/eval-out | tee scripts/eval-out/run.log
-          # The current report is the newest eval-report-*.json.
-          REPORT=$(ls -t scripts/eval-out/eval-report-*.json | head -n1)
+          # pipefail: without it, `| tee` swallowed the runner's exit code and
+          # every nightly failed later at an empty report path (2026-08 audit).
+          pnpm evals:report --out scripts/eval-out 2>&1 | tee scripts/eval-out/run.log
+          REPORT=$(ls -t scripts/eval-out/eval-report-*.json 2>/dev/null | head -n1 || true)
+          if [ -z "$REPORT" ]; then
+            echo "::error::pnpm evals:report exited 0 but wrote no scripts/eval-out/eval-report-*.json"
+            exit 1
+          fi
           echo "REPORT_PATH=$REPORT" >> "$GITHUB_ENV"
 
       - name: Trend gate (fail on >10% quality regression)

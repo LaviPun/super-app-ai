@@ -10,7 +10,6 @@ import { ActivityLogService } from '~/services/activity/activity.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { ConfirmModal, LearnMore, Progress, fmtNum, fmtQuota, titleCase } from '~/components/merchant/polaris';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);

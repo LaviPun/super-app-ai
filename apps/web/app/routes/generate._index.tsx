@@ -40,7 +40,6 @@ import { deployedFunctionExtensions } from '~/services/publish/deployed-extensio
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { StatusBadge, EmptyState, titleCase } from '~/components/merchant/polaris';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 // Embedded route: authenticates, then loads the real AI-credit balance (same
 // QuotaService source as the dashboard) and the store's themes so Publish can

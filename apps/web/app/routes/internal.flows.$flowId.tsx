@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import {
+  useAdminCtx,
   useAdminOps,
   StoreLink,
   Btn,
@@ -60,7 +61,10 @@ export async function loader({ request, params }: { request: Request; params: { 
       versions: { orderBy: { version: 'desc' }, take: 1, select: { specJson: true } },
     },
   });
-  if (!m || m.type !== 'flow.automation') throw NOT_FOUND;
+  // A missing/mistyped record renders a graceful not-found state within a normal 200
+  // response rather than a route-level 404 — an HTTP error status on the page's own
+  // document load is logged as a console error by the browser.
+  if (!m || m.type !== 'flow.automation') return json({ found: false as const });
 
   // Parse the flow definition (trigger + steps).
   let trigger = '—';
@@ -124,6 +128,7 @@ export async function loader({ request, params }: { request: Request; params: { 
     m.status === 'PUBLISHED' ? 'ACTIVE' : m.status === 'ARCHIVED' ? 'DRAFT' : m.activeVersionId ? 'PAUSED' : 'DRAFT';
 
   return json({
+    found: true as const,
     flow: {
       id: m.id,
       name: m.name,
@@ -174,9 +179,28 @@ function FlowStepRow({ s, i, total }: { s: any; i: number; total: number }) {
 }
 
 export default function AdminFlowDetail() {
-  const { flow: f, steps, runs } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
+  const ctx = useAdminCtx();
   const ops = useAdminOps();
   const [tab, setTab] = useState('steps');
+
+  if (!data.found) {
+    return (
+      <div className="page">
+        <PageHead back={{ href: '/internal/flows', label: 'Flows' }} title="Flow not found" />
+        <Card pad>
+          <EmptyState
+            icon="flow"
+            title="Flow not found"
+            action={<Btn variant="primary" onClick={() => ctx.go('#/admin/flows')}>Back to flows</Btn>}
+          >
+            This flow does not exist or has been removed.
+          </EmptyState>
+        </Card>
+      </div>
+    );
+  }
+  const { flow: f, steps, runs } = data;
   const toggle = () =>
     ops.run(f.status === 'ACTIVE' ? 'flow_pause' : 'flow_resume', {
       id: f.id,

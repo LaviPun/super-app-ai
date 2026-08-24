@@ -79,7 +79,7 @@ async function main() {
 }
 
 main().catch((error) => {
-  // eslint-disable-next-line no-console
+   
   console.error(
     JSON.stringify(
       {

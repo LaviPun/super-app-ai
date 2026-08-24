@@ -250,8 +250,8 @@ export default function AdminUsage() {
           sub="Last 14 days"
           actions={
             <div className="seg">
-              <button aria-selected={metric === 'cost'} onClick={() => setMetric('cost')}>Cost</button>
-              <button aria-selected={metric === 'calls'} onClick={() => setMetric('calls')}>Requests</button>
+              <button aria-pressed={metric === 'cost'} onClick={() => setMetric('cost')}>Cost</button>
+              <button aria-pressed={metric === 'calls'} onClick={() => setMetric('calls')}>Requests</button>
             </div>
           }
         />

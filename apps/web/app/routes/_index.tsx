@@ -7,7 +7,6 @@ import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShe
 import { CHART, Sparkline, StatStrip, StatusBadge, fmtNum, humanizeResource, titleCase } from '~/components/merchant/polaris';
 import { getCategoryDisplayLabel, getCategoryIcon } from '~/utils/type-label';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 function relativeTime(iso: string): string {
   const secs = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 1000));

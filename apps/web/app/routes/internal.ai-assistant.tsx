@@ -405,9 +405,19 @@ export async function loader({ request }: { request: Request }) {
   const modalHealth = probe.modalRemote.health;
   const modalChatProbe = probe.modalRemote.chatProbe;
 
+  // Formatted server-side (once) rather than at component render time — every
+  // other admin route does this in its loader; the session list previously
+  // called formatRelativeTime during render, which could tip over a minute
+  // boundary between the SSR paint and hydration and log a React hydration
+  // text-mismatch warning (a console error the e2e suite's crawl catches).
+  const withUpdatedLabel = <T extends { updatedAt: string }>(s: T) => ({
+    ...s,
+    updatedAtLabel: formatRelativeTime(s.updatedAt),
+  });
+
   return json({
-    sessions,
-    activeSession,
+    sessions: sessions.map(withUpdatedLabel),
+    activeSession: withUpdatedLabel(activeSession),
     messages,
     memories,
     query,
@@ -1238,7 +1248,7 @@ export default function AdminAssistant() {
               <div className="grow stack" style={{ gap: 0, minWidth: 0 }}>
                 <span className="t-sm t-trunc">{s.title}</span>
                 <span className="t-xs t-muted">
-                  {formatRelativeTime(s.updatedAt)} · {s.messageCount} msgs
+                  {s.updatedAtLabel} · {s.messageCount} msgs
                 </span>
               </div>
               <span className="badge" style={{ height: 17, fontSize: 10 }}>
@@ -1252,7 +1262,7 @@ export default function AdminAssistant() {
         <header className="asst-head">
           <div className="stack" style={{ gap: 1 }}>
             <div className="row-2">
-              <span className="t-h3">AI Assistant</span>
+              <h1 className="t-h3">AI Assistant</h1>
               <Badge tone="magic">{headerModel}</Badge>
             </div>
             <span className="t-xs t-muted">Internal copilot for ops, traces &amp; debugging</span>
@@ -1260,7 +1270,7 @@ export default function AdminAssistant() {
           <div className="row-3">
             <div className="seg">
               <button
-                aria-selected={modeKey === 'localMachine'}
+                aria-pressed={modeKey === 'localMachine'}
                 onClick={() => switchMode('localMachine')}
                 disabled={sessionBusy || activeSession.id === 'unavailable'}
               >
@@ -1268,7 +1278,7 @@ export default function AdminAssistant() {
                 Local
               </button>
               <button
-                aria-selected={modeKey === 'modalRemote'}
+                aria-pressed={modeKey === 'modalRemote'}
                 onClick={() => switchMode('modalRemote')}
                 disabled={sessionBusy || activeSession.id === 'unavailable' || data.assistantLocalOnly}
                 title={data.assistantLocalOnly ? 'Cloud target disabled (local-only mode)' : undefined}
@@ -1397,7 +1407,7 @@ export default function AdminAssistant() {
         <aside className="asst-obs">
           <div className="row spread" style={{ padding: '14px 16px', borderBottom: '1px solid var(--p-border)' }}>
             <span className="t-h3">Observability</span>
-            <button className="btn btn-icon btn-sm btn-plain" onClick={() => setShowObs(false)}>
+            <button className="btn btn-icon btn-sm btn-plain" onClick={() => setShowObs(false)} aria-label="Close observability panel">
               <Icon name="x" size={16} />
             </button>
           </div>
@@ -1498,6 +1508,7 @@ export default function AdminAssistant() {
                   <Toggle
                     checked={activeSession.memoryEnabled}
                     onChange={toggleSessionMemory}
+                    aria-label="Memory for this chat"
                     disabled={activeSession.id === 'unavailable' || sessionBusy}
                   />
                 </span>
@@ -1562,6 +1573,7 @@ export default function AdminAssistant() {
                   size="sm"
                   icon={showImport ? 'chevronUp' : 'chevronDown'}
                   onClick={() => setShowImport((v) => !v)}
+                  aria-label={showImport ? 'Collapse import session' : 'Expand import session'}
                 />
               </div>
               {showImport && (

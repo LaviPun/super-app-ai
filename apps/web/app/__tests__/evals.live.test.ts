@@ -115,7 +115,7 @@ describe.skipIf(!RUN || !HAS_KEY)('Live LLM evals (RUN_LIVE_EVALS=1)', () => {
     const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? sorted[sorted.length - 1];
     const avgValid = STATS.reduce((acc, s) => acc + s.validOptions, 0) / STATS.length;
     // Surface the numbers in the vitest output even when assertions pass.
-    // eslint-disable-next-line no-console
+     
     console.info('[live evals] p95 ms', p95, 'avg valid options', avgValid.toFixed(2));
     expect(p95).toBeLessThan(PER_CALL_BUDGET_MS);
     expect(avgValid).toBeGreaterThanOrEqual(1);

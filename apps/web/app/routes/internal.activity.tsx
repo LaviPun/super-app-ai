@@ -47,6 +47,13 @@ export async function loader({ request }: { request: Request }) {
       details: l.details,
       ip: l.ip,
       createdAt: l.createdAt.toISOString(),
+      // Formatted server-side (once, at the loader's instant) rather than at
+      // component render time — hydration reuses this exact embedded string
+      // instead of recomputing "X ago" against a later Date.now(), which
+      // previously could tip over a minute/hour boundary between the SSR
+      // paint and the client hydration pass and trigger a React hydration
+      // text-mismatch warning (logged as a console error).
+      created: formatRelativeTime(l.createdAt.toISOString()),
       correlationId: l.correlationId ?? null,
       requestId: l.requestId ?? null,
     })),
@@ -100,11 +107,22 @@ export default function AdminActivity() {
     return () => es.close();
   }, [live, data.logs, ctx]);
 
-  const mapRow = (l: LiveActivity) => ({
+  // Live (SSE) rows never existed in the server-rendered payload, so it's safe to
+  // format their relative time at render time. Loader-sourced rows use the
+  // `created` string the loader already computed — reusing it (rather than
+  // recomputing against a later Date.now()) is what keeps SSR and hydration
+  // output identical; see the loader's comment on `created`.
+  const mapLiveRow = (l: LiveActivity) => ({
     id: l.id, actor: l.actor, action: l.action, resource: l.resource ?? '—', shop: l.shopDomain ?? '—', ip: l.ip ?? '—', created: formatRelativeTime(l.createdAt),
   });
+  const mapLoadedRow = (l: (typeof data.logs)[number]) => ({
+    id: l.id, actor: l.actor, action: l.action, resource: l.resource ?? '—', shop: l.shopDomain ?? '—', ip: l.ip ?? '—', created: l.created,
+  });
   const liveIds = new Set(liveRows.map((l) => l.id));
-  const ROWS: any[] = [...liveRows, ...data.logs.filter((l) => !liveIds.has(l.id))].map(mapRow);
+  const ROWS: any[] = [
+    ...liveRows.map(mapLiveRow),
+    ...data.logs.filter((l) => !liveIds.has(l.id)).map(mapLoadedRow),
+  ];
 
   const rows = ROWS.filter(
     (a) => (actor === 'All' || a.actor === actor) && (a.action + a.resource + a.shop).toLowerCase().includes(ts.search.toLowerCase()),

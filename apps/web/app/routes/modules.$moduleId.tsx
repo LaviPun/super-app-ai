@@ -21,7 +21,6 @@ import {
 } from '~/components/merchant/polaris';
 import { getCategoryDisplayLabel, getCategoryTone } from '~/utils/type-label';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 // Real placement description derived from the module's spec + raw category — no hardcoded copy.
 function placementText(spec: any, category: string): string {

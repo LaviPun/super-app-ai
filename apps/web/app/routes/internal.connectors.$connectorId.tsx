@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import {
+  useAdminCtx,
   useAdminOps,
   StoreLink,
   Btn,
@@ -37,7 +38,10 @@ export async function loader({ request, params }: { request: Request; params: { 
       endpoints: { orderBy: { sortOrder: 'asc' } },
     },
   });
-  if (!c) throw NOT_FOUND;
+  // A missing record renders a graceful not-found state within a normal 200 response
+  // rather than a route-level 404 — an HTTP error status on the page's own document
+  // load is logged as a console error by the browser.
+  if (!c) return json({ found: false as const });
 
   const epStatuses = c.endpoints.map((e) => e.lastStatus).filter((s): s is number => s != null);
   const anyError = epStatuses.some((s) => s >= 400);
@@ -49,6 +53,7 @@ export async function loader({ request, params }: { request: Request; params: { 
     .filter(Boolean);
 
   return json({
+    found: true as const,
     connector: {
       id: c.id,
       name: c.name,
@@ -76,13 +81,34 @@ export async function loader({ request, params }: { request: Request; params: { 
 const METHOD_TONE: Record<string, string | undefined> = { GET: 'success', POST: 'info', PUT: 'warning', PATCH: 'warning', DELETE: 'critical' };
 
 export default function AdminConnectorDetail() {
-  const { connector: c, endpoints } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
+  const ctx = useAdminCtx();
   const ops = useAdminOps();
+  // Hooks must run unconditionally on every render (Rules of Hooks) — declared here,
+  // above the not-found early return, seeded from the found record when present.
   const [tab, setTab] = useState('endpoints');
-  const [baseUrl, setBaseUrl] = useState(c.baseUrl);
-  const [authType, setAuthType] = useState(c.auth);
-  const [allowlist, setAllowlist] = useState(c.allowlist);
+  const [baseUrl, setBaseUrl] = useState(data.found ? data.connector.baseUrl : '');
+  const [authType, setAuthType] = useState(data.found ? data.connector.auth : '');
+  const [allowlist, setAllowlist] = useState(data.found ? data.connector.allowlist : '');
   const [credential, setCredential] = useState('');
+
+  if (!data.found) {
+    return (
+      <div className="page">
+        <PageHead back={{ href: '/internal/connectors', label: 'Connectors' }} title="Connector not found" />
+        <Card pad>
+          <EmptyState
+            icon="connect"
+            title="Connector not found"
+            action={<Btn variant="primary" onClick={() => ctx.go('#/admin/connectors')}>Back to connectors</Btn>}
+          >
+            This connector does not exist or has been removed.
+          </EmptyState>
+        </Card>
+      </div>
+    );
+  }
+  const { connector: c, endpoints } = data;
 
   const runTest = () => ops.run('connector_test', { id: c.id, resource: c.name, message: 'Testing ' + c.name });
 

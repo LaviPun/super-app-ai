@@ -63,10 +63,19 @@ export async function loader({ request, params }: { request: Request; params: { 
     shopDomain: log.shop?.shopDomain ?? null,
     metaJson,
     createdAt: log.createdAt.toISOString(),
+    // Formatted server-side (once) rather than at component render time — see
+    // internal.activity.tsx's loader comment for why (hydration text mismatch).
+    created: formatRelativeTime(log.createdAt.toISOString()),
     requestId: log.requestId ?? null,
     correlationId: log.correlationId ?? null,
     occurrences,
-    related: related.map(r => ({ id: r.id, level: r.level, message: r.message, createdAt: r.createdAt.toISOString() })),
+    related: related.map(r => ({
+      id: r.id,
+      level: r.level,
+      message: r.message,
+      createdAt: r.createdAt.toISOString(),
+      created: formatRelativeTime(r.createdAt.toISOString()),
+    })),
   });
 }
 
@@ -80,7 +89,7 @@ export default function AdminErrorDetail() {
     route: d.route ?? '/',
     source: d.source,
     shop: d.shopDomain ?? '—',
-    created: formatRelativeTime(d.createdAt),
+    created: d.created,
     correlationId: d.correlationId ?? '',
   };
   const related = d.related;
@@ -153,7 +162,7 @@ export default function AdminErrorDetail() {
                   <StatusBadge value={r.level} />
                   <div className="grow stack" style={{ gap: 1, minWidth: 0 }}>
                     <span className="t-sm t-trunc">{r.message}</span>
-                    <span className="t-xs t-muted">{formatRelativeTime(r.createdAt)}</span>
+                    <span className="t-xs t-muted">{r.created}</span>
                   </div>
                 </div>
               ))}

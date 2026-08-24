@@ -45,7 +45,7 @@ function shouldEnforceAuth(): boolean {
   const explicitOff = REQUIRE_AUTH === '0' || REQUIRE_AUTH === 'false' || REQUIRE_AUTH === 'no';
   if (explicitOff) {
     if (IS_PRODUCTION) {
-      // eslint-disable-next-line no-console
+       
       console.warn('[internal-ai-router] WARN: ROUTER_REQUIRE_AUTH=0 ignored in production');
       return true;
     }

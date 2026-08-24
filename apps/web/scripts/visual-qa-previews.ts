@@ -63,7 +63,7 @@ function main() {
 <h1>Design-system visual QA — ${cells.length} cells (view at 375×812)</h1>
 ${cells.map((f) => `<a href="./${f}">${f}</a>`).join('\n')}`;
   fs.writeFileSync(path.join(OUT, 'index.html'), index);
-  console.log(`wrote ${cells.length} preview cells + index to ${OUT}`);
+  console.info(`wrote ${cells.length} preview cells + index to ${OUT}`);
 }
 
 main();

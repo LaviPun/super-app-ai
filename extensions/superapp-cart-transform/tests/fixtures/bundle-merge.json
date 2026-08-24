@@ -53,12 +53,10 @@
       "operations": [
         {
           "linesMerge": {
-            "attributes": null,
             "cartLines": [
               { "cartLineId": "gid://shopify/CartLine/1", "quantity": 1 },
               { "cartLineId": "gid://shopify/CartLine/2", "quantity": 1 }
             ],
-            "image": null,
             "parentVariantId": "gid://shopify/ProductVariant/500",
             "title": "Starter Bundle",
             "price": { "percentageDecrease": { "value": "15.0" } }

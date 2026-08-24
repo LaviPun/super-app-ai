@@ -52,6 +52,9 @@ export async function loader({ request, params }: { request: Request; params: { 
     requestId: log.requestId ?? null,
     correlationId: log.correlationId ?? null,
     createdAt: log.createdAt.toISOString(),
+    // Formatted server-side (once) rather than at component render time — see
+    // internal.activity.tsx's loader comment for why (hydration text mismatch).
+    created: formatRelativeTime(log.createdAt.toISOString()),
   });
 }
 
@@ -65,7 +68,7 @@ export default function AdminActivityDetail() {
     resource: d.resource ?? '—',
     shop: d.shopDomain ?? '—',
     ip: d.ip ?? '—',
-    created: formatRelativeTime(d.createdAt),
+    created: d.created,
   };
   const cid = d.correlationId;
   const detailsText = d.detailsJson ?? d.detailsRaw;

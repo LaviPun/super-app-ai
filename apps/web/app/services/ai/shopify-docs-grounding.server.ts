@@ -97,7 +97,7 @@ function warnIfStale(): void {
   const age = snapshotAgeDays();
   if (age !== undefined && age > STALENESS_WARN_DAYS) {
     staleWarned = true;
-    // eslint-disable-next-line no-console
+     
     console.warn(
       `[shopify-docs-grounding] snapshot is ${age} days old (> ${STALENESS_WARN_DAYS}); ` +
         'refresh via apps/web/scripts/build-shopify-docs-snapshot.ts',

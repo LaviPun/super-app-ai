@@ -38,5 +38,5 @@ for (const id of pick) {
   index.push(`${id}  [${kind}]  ${t.category}  "${t.name}"  -> ${id}.html (${r.kind})`);
 }
 writeFileSync(`${outDir}/INDEX.txt`, index.join('\n'));
-console.log(index.join('\n'));
-console.log(`\nWrote ${pick.length} files to ${outDir}`);
+console.info(index.join('\n'));
+console.info(`\nWrote ${pick.length} files to ${outDir}`);

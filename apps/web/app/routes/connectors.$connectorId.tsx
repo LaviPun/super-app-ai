@@ -10,7 +10,6 @@ import {
   ConfirmModal, EmptyState, KV, MonoChip, StatusBadge, Tabs, titleCase, useCustomEvent, type WcTone,
 } from '~/components/merchant/polaris';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 export async function loader({ request, params }: { request: Request; params: { connectorId?: string } }) {
   const { session } = await shopify.authenticate.admin(request);

@@ -14,6 +14,7 @@ import {
   PageHead,
   StatTile,
   MonoChip,
+  EmptyState,
   fmtMs,
   titleCase,
   formatRelativeTime,
@@ -40,9 +41,14 @@ export async function loader({ request, params }: { request: Request; params: { 
     where: { id: jobId },
     include: { shop: true },
   });
-  if (!job) throw NOT_FOUND;
+  // A missing record renders a graceful not-found state within a normal 200 response
+  // (matching internal.stores.$storeId's pattern) rather than a route-level 404 —
+  // an HTTP error status on the page's own document load is logged as a console
+  // error by the browser, which the admin's own "no console errors" contract forbids.
+  if (!job) return json({ found: false as const });
 
   return json({
+    found: true as const,
     id: job.id,
     type: job.type,
     status: job.status,
@@ -56,6 +62,9 @@ export async function loader({ request, params }: { request: Request; params: { 
     startedAt: job.startedAt?.toISOString() ?? null,
     finishedAt: job.finishedAt?.toISOString() ?? null,
     createdAt: job.createdAt.toISOString(),
+    // Formatted server-side (once) rather than at component render time — see
+    // internal.activity.tsx's loader comment for why (hydration text mismatch).
+    created: formatRelativeTime(job.createdAt.toISOString()),
     durationMs:
       job.startedAt && job.finishedAt ? job.finishedAt.getTime() - job.startedAt.getTime() : null,
   });
@@ -86,9 +95,11 @@ function EventRow({ e }: { e: TimelineEvent }) {
 }
 
 export default function AdminJobDetail() {
-  const j = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
-
+  // Hooks must run unconditionally on every render (Rules of Hooks) — declared here,
+  // above the not-found early return, even though `replay`/`replayBusy` are only
+  // exercised once a record is actually loaded.
   const replayFetcher = useFetcher<{ ok: boolean; message: string }>();
   const replayBusy = replayFetcher.state !== 'idle';
   useEffect(() => {
@@ -96,6 +107,25 @@ export default function AdminJobDetail() {
       ctx.toast(replayFetcher.data.message, !replayFetcher.data.ok);
     }
   }, [replayFetcher.state, replayFetcher.data, ctx]);
+
+  if (!data.found) {
+    return (
+      <div className="page">
+        <PageHead back={{ href: '/internal/jobs', label: 'Jobs' }} title="Job not found" />
+        <Card pad>
+          <EmptyState
+            icon="work"
+            title="Job not found"
+            action={<Btn variant="primary" onClick={() => ctx.go('#/admin/jobs')}>Back to jobs</Btn>}
+          >
+            This job does not exist or has been purged.
+          </EmptyState>
+        </Card>
+      </div>
+    );
+  }
+  const j = data;
+
   const replay = () => {
     const fd = new FormData();
     fd.set('intent', 'replay');
@@ -160,7 +190,7 @@ export default function AdminJobDetail() {
         <StatTile label="Status" value={titleCase(j.status)} icon={j.status === 'FAILED' ? 'alert' : 'check'} tone={j.status === 'FAILED' ? 'critical' : j.status === 'QUEUED' ? 'warning' : 'success'} />
         <StatTile label="Attempts" value={j.attempts} icon="replay" tone={j.attempts > 1 ? 'warning' : 'info'} />
         <StatTile label="Duration" value={j.durationMs != null ? fmtMs(j.durationMs) : '—'} icon="clock" tone="info" />
-        <StatTile label="Created" value={formatRelativeTime(j.createdAt)} sub={fmtWhen(j.createdAt)} icon="work" tone="info" />
+        <StatTile label="Created" value={j.created} sub={fmtWhen(j.createdAt)} icon="work" tone="info" />
       </div>
       {j.status === 'FAILED' && j.error ? (
         <div style={{ marginBottom: 16 }}>

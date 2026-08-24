@@ -10,7 +10,6 @@ import {
 } from '~/components/merchant/polaris';
 import { CATEGORY_ORDER, getCategoryDisplayLabel, getCategoryTone, getCategoryIcon } from '~/utils/type-label';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
