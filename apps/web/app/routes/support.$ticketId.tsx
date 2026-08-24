@@ -49,17 +49,17 @@ export async function loader({ request, params }: { request: Request; params: { 
 function statusSteps(status: string): Array<{ key: string; label: string }> {
   const base = [
     { key: 'OPEN', label: 'Open' },
-    { key: 'AI_RESPONDED', label: 'Answered' },
+    { key: 'AI_RESPONDED', label: 'Answered by Maya (AI)' },
   ];
   if (status === 'ESCALATED') base.push({ key: 'ESCALATED', label: 'With the team' });
   base.push({ key: 'RESOLVED', label: 'Resolved' });
   return base;
 }
 
-// Merchant-facing: assistant replies read as a named support rep, not as AI.
+// Merchant-facing: assistant replies are labeled as AI (D4 disclosure).
 const ROLE_LABEL: Record<string, string> = {
   merchant: 'You',
-  assistant: `${SUPPORT_AGENT_NAME} · Support team`,
+  assistant: `${SUPPORT_AGENT_NAME} · AI assistant`,
   human_agent: 'Support team',
   system: 'System',
 };
