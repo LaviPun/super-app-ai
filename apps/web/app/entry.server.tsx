@@ -4,7 +4,7 @@ import { RemixServer } from '@remix-run/react';
 import { createReadableStreamFromReadable } from '@remix-run/node';
 import type { EntryContext } from '@remix-run/node';
 import { isbot } from 'isbot';
-import { applySecurityHeaders } from '~/security-headers.server';
+import { applySecurityHeaders, isInternalRouteMatch } from '~/security-headers.server';
 
 export const streamTimeout = 5000;
 
@@ -14,7 +14,14 @@ export default async function handleRequest(
   responseHeaders: Headers,
   remixContext: EntryContext,
 ) {
-  applySecurityHeaders(request, responseHeaders);
+  // Derive "is /internal" from the router's own matched routes (not a
+  // hand-rolled URL parse) so this can never disagree with what Remix
+  // actually resolved the request to — see security-headers.server.ts.
+  applySecurityHeaders(
+    request,
+    responseHeaders,
+    isInternalRouteMatch(remixContext.staticHandlerContext.matches),
+  );
 
   const userAgent = request.headers.get('user-agent');
   const callbackName = isbot(userAgent ?? '') ? 'onAllReady' : 'onShellReady';
