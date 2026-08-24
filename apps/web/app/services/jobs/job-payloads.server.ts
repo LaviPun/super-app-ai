@@ -28,3 +28,21 @@ export const WebAiGenerateJobPayloadSchema = z.object({
   trace: JobTraceSchema,
 });
 export type WebAiGenerateJobPayload = z.infer<typeof WebAiGenerateJobPayloadSchema>;
+
+/**
+ * WS-C Task 8. `AI_HYDRATE` shares the `ai-generation` queue with
+ * `AI_GENERATE` (PLATFORM_JOB_QUEUE_BY_TYPE maps both there — one Worker per
+ * queue, Task 1). The RecipeSpec itself is deliberately NOT carried in the
+ * payload: the worker re-reads `moduleVersion.specJson` fresh from the DB
+ * (the only source of truth) instead of trusting a possibly-stale queue copy.
+ */
+export const WebAiHydrateJobPayloadSchema = z.object({
+  kind: z.literal('WEB_AI_HYDRATE'),
+  shopId: z.string().min(1),
+  shopDomain: z.string().min(1),
+  moduleId: z.string().min(1),
+  versionId: z.string().min(1),
+  moduleType: z.string().min(1),
+  trace: JobTraceSchema,
+});
+export type WebAiHydrateJobPayload = z.infer<typeof WebAiHydrateJobPayloadSchema>;

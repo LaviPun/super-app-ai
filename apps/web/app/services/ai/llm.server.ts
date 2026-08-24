@@ -2738,7 +2738,23 @@ const HYDRATE_TOKEN_BUDGET = 16000;
 
 export async function hydrateRecipeSpec(
   recipeSpec: RecipeSpec,
-  options?: { shopId?: string; merchantContext?: { planTier?: string; locale?: string }; maxAttempts?: number },
+  options?: {
+    shopId?: string;
+    merchantContext?: { planTier?: string; locale?: string };
+    maxAttempts?: number;
+    /** WS-C Task 8: worker job deadline (epoch ms) — threaded into GenerateHints in Task 10. */
+    deadlineAt?: number;
+    /**
+     * WS-C Task 8 (C8) retry-safe billing. When set, the SUCCESS write claims
+     * its billable unit via `hasBilledUnit(billingKey, { action: 'RECIPE_HYDRATE' })`
+     * (0 if a unit was already billed under this key) and stamps
+     * `correlationId: billingKey` on every AiUsage row this call writes. The
+     * worker passes `billingKey: hydrate:<jobId>` — a BullMQ retry reuses the
+     * same job id, so a second attempt's success bills 0. Omitted (inline
+     * route path, unchanged): every success bills 1, matching prior behavior.
+     */
+    billingKey?: string;
+  },
 ): Promise<HydrateEnvelope> {
   const maxAttempts = options?.maxAttempts ?? MAX_HYDRATE_ATTEMPTS;
   const { client, providerId } = await getLlmClient(options?.shopId ?? null, {
@@ -2766,6 +2782,13 @@ export async function hydrateRecipeSpec(
         tokensIn,
         tokensOut,
       );
+      // C8: a billingKey means retry-safe billing — claim the unit only if
+      // this key hasn't already billed one (a prior attempt of the SAME job,
+      // e.g. a BullMQ retry after a post-generation failure). No billingKey
+      // (inline route path) keeps the unconditional-1 behavior unchanged.
+      const requestCount = options?.billingKey
+        ? (await usage.hasBilledUnit(options.billingKey, { action: 'RECIPE_HYDRATE' })) ? 0 : 1
+        : 1;
       await recordAiUsage(usage, {
         providerId: servedId,
         shopId: options?.shopId,
@@ -2774,8 +2797,9 @@ export async function hydrateRecipeSpec(
         tokensOut,
         costCents,
         meta: { attempts: attempt + 1, model, moduleType: recipeSpec.type },
-        requestCount: 1,
+        requestCount,
         prompt: wrappedPrompt,
+        correlationId: options?.billingKey,
       });
       return envelopeToUse;
     } catch (err) {
@@ -2786,6 +2810,9 @@ export async function hydrateRecipeSpec(
         tokensIn,
         tokensOut,
       );
+      // C8: a failed attempt never bills — the merchant got nothing from it
+      // (same principle WS-QF already applied to generation). Cost is still
+      // recorded via costCents on this row for observability.
       await recordAiUsage(usage, {
         providerId: servedId,
         shopId: options?.shopId,
@@ -2794,8 +2821,9 @@ export async function hydrateRecipeSpec(
         tokensOut,
         costCents: failCost,
         meta: { attempt: attempt + 1, model, moduleType: recipeSpec.type, error: String(err) },
-        requestCount: 1,
+        requestCount: 0,
         prompt: wrappedPrompt,
+        correlationId: options?.billingKey,
       });
     }
   }

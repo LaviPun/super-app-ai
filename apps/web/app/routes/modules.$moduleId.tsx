@@ -23,6 +23,7 @@ import {
   ConfirmModal, EmptyState, KV, StatusBadge, Tabs, useCustomEvent, type WcTone,
 } from '~/components/merchant/polaris';
 import { getCategoryDisplayLabel, getCategoryTone } from '~/utils/type-label';
+import { pollJobUntilTerminal } from '~/utils/job-poll';
 
 
 // Real placement description derived from the module's spec + raw category — no hardcoded copy.
@@ -415,7 +416,11 @@ function ModuleDetailBody() {
   const duplicateFetcher = useFetcher<{ ok?: boolean; id?: string; name?: string; error?: string }>();
   const renameFetcher = useFetcher<{ ok?: boolean; name?: string; error?: string }>();
   const notesFetcher = useFetcher<{ ok?: boolean; error?: string }>();
-  const hydrateFetcher = useFetcher<{ ok?: boolean; error?: string; message?: string }>();
+  const hydrateFetcher = useFetcher<{ ok?: boolean; error?: string; message?: string; async?: boolean; jobId?: string }>();
+  // WS-C Task 8: guards the async hydrate poll against duplicate/overlapping
+  // pollJobUntilTerminal calls (the effect below can re-fire on unrelated
+  // hydrateFetcher.state churn) and aborts a still-running poll on unmount.
+  const hydratePollRef = useRef<{ jobId: string; controller: AbortController } | null>(null);
   const fillSettingsFetcher = useFetcher<{
     ok?: boolean;
     filled?: boolean;
@@ -568,6 +573,32 @@ function ModuleDetailBody() {
 
   useEffect(() => {
     if (hydrateFetcher.state !== 'idle') return;
+    // WS-C Task 8 (C1): queue mode returns { async: true, jobId } immediately
+    // instead of the finished result — poll for the terminal state instead
+    // of treating the enqueue response itself as done.
+    if (hydrateFetcher.data?.async && hydrateFetcher.data.jobId) {
+      const jobId = hydrateFetcher.data.jobId;
+      if (hydratePollRef.current?.jobId === jobId) return; // already polling this job
+      hydratePollRef.current?.controller.abort();
+      const controller = new AbortController();
+      hydratePollRef.current = { jobId, controller };
+      pollJobUntilTerminal(jobId, { signal: controller.signal })
+        .then((snapshot) => {
+          if (hydratePollRef.current?.controller !== controller) return; // superseded
+          hydratePollRef.current = null;
+          if (snapshot.status === 'SUCCESS') {
+            ctx.toast('Full settings generated');
+            revalidator.revalidate();
+          } else if (snapshot.status === 'FAILED') {
+            ctx.toast(snapshot.error?.message ?? 'Hydration failed', { error: true });
+          }
+        })
+        .catch(() => {
+          // Aborted (unmounted or superseded by a newer poll) — nothing left
+          // to apply on this leg.
+        });
+      return;
+    }
     if (hydrateFetcher.data?.ok) {
       ctx.toast('Full settings generated');
       revalidator.revalidate();
@@ -576,6 +607,11 @@ function ModuleDetailBody() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrateFetcher.data, hydrateFetcher.state]);
+
+  // Abort any in-flight hydrate poll on unmount — no state update after
+  // unmount, no immortal background loop (same discipline as
+  // generate._index.tsx's async-generation poll).
+  useEffect(() => () => hydratePollRef.current?.controller.abort(), []);
 
   useEffect(() => {
     if (fillSettingsFetcher.state !== 'idle' || !fillSettingsFetcher.data) return;
