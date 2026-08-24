@@ -37,7 +37,7 @@ const shopify = shopifyApp({
 export default shopify;
 export { shopify };
 export const apiVersion = SHOPIFY_API_VERSION;
-// HTML document headers are emitted via boundary.headers in app/root.tsx.
+// Document response headers (per-shop CSP) are applied in app/entry.server.tsx via applySecurityHeaders.
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
 export const authenticate = shopify.authenticate;
 export const unauthenticated = shopify.unauthenticated;
