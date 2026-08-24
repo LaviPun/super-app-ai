@@ -41,13 +41,22 @@
 // glyph) is the same non-brand-fallback treatment, representing "dead-man's-
 // switch status" generically.
 //
+// Task 13 (AI provider tiles — Grok/DeepSeek/Mistral + the existing OpenAI/
+// Anthropic/Gemini rows getting Hub tiles): re-verified against the installed
+// package — `siAnthropic`, `siGooglegemini`, `siDeepseek`, `siMistralai` DO
+// exist under those names and are imported directly below. `siOpenai` and
+// `siGrok`/`siXdotai` do NOT exist (confirmed again: only `siOpenaigym` and
+// `siNgrok` respectively, both different products) — `generic-spark` (OpenAI
+// tile) and `generic-bolt` (Grok tile) are the same non-brand-fallback
+// treatment as the ops-service tiles above.
+//
 // Each real simple-icons slug actually in use is imported by name below, so
 // an unresolvable brand fails at BUILD time (missing export) rather than
 // silently rendering a blank icon in production. The hand-authored `generic-*`
 // entries are exempt from that safety net by design (see above).
 
 import type { SimpleIcon } from 'simple-icons';
-import { siSentry } from 'simple-icons';
+import { siSentry, siAnthropic, siGooglegemini, siDeepseek, siMistralai } from 'simple-icons';
 
 /** Hand-authored, non-brand icon for tiles that don't map to one company's logo.
  * Glyph: Material Design's "email" outline (Apache-2.0), not a Simple Icons export. */
@@ -96,12 +105,43 @@ const GENERIC_CHECK_ICON: SimpleIcon = {
   hex: '6B7280',
 };
 
+/** OpenAI tile fallback — spark/sparkle glyph (Material "auto_awesome", Apache-2.0). */
+const GENERIC_SPARK_PATH =
+  'M19,9l1.25-2.75L23,5l-2.75-1.25L19,1l-1.25,2.75L15,5l2.75,1.25L19,9z M11.5,9.5L9,4L6.5,9.5L1,12l5.5,2.5L9,20l2.5-5.5L17,12L11.5,9.5z M19,15l-1.25,2.75L15,19l2.75,1.25L19,23l1.25-2.75L23,19l-2.75-1.25L19,15z';
+const GENERIC_SPARK_ICON: SimpleIcon = {
+  title: 'OpenAI',
+  slug: 'generic-spark',
+  svg: `<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="${GENERIC_SPARK_PATH}"/></svg>`,
+  path: GENERIC_SPARK_PATH,
+  source: 'https://fonts.google.com/icons (Material Symbols, Apache-2.0)',
+  hex: '6B7280',
+};
+
+/** Grok (xAI) tile fallback — bolt glyph (Material "bolt", Apache-2.0). Reuses the
+ * same shape family as UptimeRobot's generic-pulse but registered under its own
+ * slug since the two tiles must never share a `simpleIconSlug` (registry test). */
+const GENERIC_BOLT_PATH = 'M11,21l1-7H7l6-11h2l-1,7h5L11,21z';
+const GENERIC_BOLT_ICON: SimpleIcon = {
+  title: 'Grok (xAI)',
+  slug: 'generic-bolt',
+  svg: `<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="${GENERIC_BOLT_PATH}"/></svg>`,
+  path: GENERIC_BOLT_PATH,
+  source: 'https://fonts.google.com/icons (Material Symbols, Apache-2.0)',
+  hex: '6B7280',
+};
+
 const REGISTRY: Record<string, SimpleIcon> = {
   siSentry,
+  siAnthropic,
+  siGooglegemini,
+  siDeepseek,
+  siMistralai,
   'generic-mail': GENERIC_MAIL_ICON,
   'generic-chat': GENERIC_CHAT_ICON,
   'generic-pulse': GENERIC_PULSE_ICON,
   'generic-check': GENERIC_CHECK_ICON,
+  'generic-spark': GENERIC_SPARK_ICON,
+  'generic-bolt': GENERIC_BOLT_ICON,
 };
 
 export function IntegrationIcon({

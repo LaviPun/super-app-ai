@@ -25,6 +25,59 @@ export interface IntegrationTileDef {
 
 export const INTEGRATION_TILES: readonly IntegrationTileDef[] = [
   {
+    id: 'anthropic',
+    category: 'AI_PROVIDER',
+    label: 'Anthropic',
+    simpleIconSlug: 'siAnthropic',
+    configKind: 'DB',
+    description: 'Claude models — primary AI provider by default (MEMORY: Anthropic is primary, OpenAI is automatic fallback).',
+  },
+  {
+    id: 'openai',
+    category: 'AI_PROVIDER',
+    label: 'OpenAI',
+    // simple-icons@16 has no `siOpenai` export (only `siOpenaigym`, a
+    // different product) — 'generic-spark' is a hand-authored, non-brand
+    // fallback, see integration-icon.tsx.
+    simpleIconSlug: 'generic-spark',
+    configKind: 'DB',
+    description: 'GPT models — automatic fallback provider on any Anthropic error.',
+  },
+  {
+    id: 'gemini',
+    category: 'AI_PROVIDER',
+    label: 'Google Gemini',
+    simpleIconSlug: 'siGooglegemini',
+    configKind: 'DB',
+    description: 'Google Gemini models — OpenAI/Anthropic-native, its own dedicated client.',
+  },
+  {
+    id: 'grok',
+    category: 'AI_PROVIDER',
+    label: 'Grok (xAI)',
+    // simple-icons@16 has no `siGrok`/`siXdotai` export — 'generic-bolt' is a
+    // hand-authored, non-brand fallback, see integration-icon.tsx.
+    simpleIconSlug: 'generic-bolt',
+    configKind: 'DB',
+    description: 'xAI Grok — OpenAI Chat Completions-compatible, no dedicated client needed (Decision G7).',
+  },
+  {
+    id: 'deepseek',
+    category: 'AI_PROVIDER',
+    label: 'DeepSeek',
+    simpleIconSlug: 'siDeepseek',
+    configKind: 'DB',
+    description: 'DeepSeek — OpenAI Chat Completions-compatible, no dedicated client needed (Decision G7).',
+  },
+  {
+    id: 'mistral',
+    category: 'AI_PROVIDER',
+    label: 'Mistral',
+    simpleIconSlug: 'siMistralai',
+    configKind: 'DB',
+    description: 'Mistral — OpenAI Chat Completions-compatible, no dedicated client needed (Decision G7).',
+  },
+  {
     id: 'sentry',
     category: 'OPS_SERVICE',
     label: 'Sentry',

@@ -5,6 +5,10 @@ import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { AiProviderService, type ProviderKind } from '~/services/internal/ai-provider.service';
+// Pure constants (no server-only imports) — safe to reference from the client
+// component below without pulling `~/db.server` into the client bundle. See
+// ai-provider-kinds.ts's header comment.
+import { ALLOWED_PROVIDER_KINDS, DEFAULT_BASE_URL_BY_KIND } from '~/services/internal/ai-provider-kinds';
 import { AiAccountObservabilityService } from '~/services/internal/ai-account-observability.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { getPrisma } from '~/db.server';
@@ -53,7 +57,10 @@ type ProviderRating = {
   label: 'Recommended' | 'Good' | 'Watch' | 'Needs attention';
 };
 
-const ALLOWED_PROVIDERS: readonly ProviderKind[] = ['OPENAI', 'ANTHROPIC', 'GEMINI', 'AZURE_OPENAI', 'CUSTOM'];
+// Source of truth is AiProviderService's ALLOWED_PROVIDER_KINDS (WS-INT Task 13) —
+// both this route and the Integrations Hub tile registry import the same array
+// so a new kind can't be added to one without the other.
+const ALLOWED_PROVIDERS: readonly ProviderKind[] = ALLOWED_PROVIDER_KINDS;
 
 function parseOptionalNumber(raw: FormDataEntryValue | null): number | null {
   const text = String(raw ?? '').trim();
@@ -790,6 +797,17 @@ export default function AdminProviders() {
     : 'providers';
   const [modal, setModal] = useState<ProviderRow | 'new' | null>(null);
   const [tab, setTab] = useState(initialTab);
+  // Integrations Hub deep-link: an AI-provider tile's "Configure" button sends
+  // the operator here as /internal/ai-providers?tab=providers&add=<kind> — open
+  // the "Add provider" modal pre-filled with that kind instead of making the
+  // operator pick it again from the dropdown (WS-INT Task 13).
+  const addKindParam = searchParams.get('add');
+  const prefillKind =
+    addKindParam && (ALLOWED_PROVIDERS as readonly string[]).includes(addKindParam) ? (addKindParam as ProviderKind) : null;
+  useEffect(() => {
+    if (prefillKind) setModal('new');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillKind]);
   const [confirm, setConfirm] = useState<ConfirmSpec | null>(null);
   const [priceModal, setPriceModal] = useState<PriceRow | 'new' | null>(null);
   const [acctModal, setAcctModal] = useState<AccountRow | 'link' | null>(null);
@@ -1065,7 +1083,14 @@ export default function AdminProviders() {
           )}
         </Card>
       )}
-      {modal && <ProviderModal provider={modal === 'new' ? null : modal} fallbackProviderId={fallbackProviderId} onClose={() => setModal(null)} />}
+      {modal && (
+        <ProviderModal
+          provider={modal === 'new' ? null : modal}
+          fallbackProviderId={fallbackProviderId}
+          prefillKind={modal === 'new' ? prefillKind : null}
+          onClose={() => setModal(null)}
+        />
+      )}
       {priceModal && <PricingModal price={priceModal === 'new' ? null : priceModal} providers={providers} onClose={() => setPriceModal(null)} />}
       {acctModal && <AccountModal account={acctModal === 'link' ? null : acctModal} providers={providers} onClose={() => setAcctModal(null)} />}
       {confirm && <ConfirmDialog {...confirm} onClose={() => setConfirm(null)} />}
@@ -1138,14 +1163,26 @@ function SupportTriageCard({
   );
 }
 
-function ProviderModal({ provider, fallbackProviderId, onClose }: { provider: ProviderRow | null; fallbackProviderId: string | null; onClose: () => void }) {
+function ProviderModal({
+  provider,
+  fallbackProviderId,
+  prefillKind,
+  onClose,
+}: {
+  provider: ProviderRow | null;
+  fallbackProviderId: string | null;
+  /** Set when opened via an Integrations Hub tile's "Configure" deep-link
+   * (?add=<kind>) — pre-selects the provider type for a brand-new row. */
+  prefillKind?: ProviderKind | null;
+  onClose: () => void;
+}) {
   const { submit, busy } = useIntentSubmit(onClose);
   const anth = provider ? parseAnthropicDisplay(provider.extraConfig) : { skills: [], codeExec: false };
   const [f, setF] = useState({
     name: provider?.name ?? '',
-    provider: provider?.provider ?? 'OPENAI',
+    provider: provider?.provider ?? prefillKind ?? 'OPENAI',
     model: provider?.model ?? '',
-    baseUrl: provider?.baseUrl ?? '',
+    baseUrl: provider?.baseUrl ?? (prefillKind ? (DEFAULT_BASE_URL_BY_KIND[prefillKind] ?? '') : ''),
     apiKey: '',
     skillsText: anth.skills.join(', '),
     codeExec: anth.codeExec,
@@ -1195,10 +1232,21 @@ function ProviderModal({ provider, fallbackProviderId, onClose }: { provider: Pr
                 { value: 'ANTHROPIC', label: 'Anthropic (Claude)' },
                 { value: 'GEMINI', label: 'Google (Gemini)' },
                 { value: 'AZURE_OPENAI', label: 'Azure OpenAI' },
+                { value: 'GROK', label: 'Grok (xAI)' },
+                { value: 'DEEPSEEK', label: 'DeepSeek' },
+                { value: 'MISTRAL', label: 'Mistral' },
                 { value: 'CUSTOM', label: 'Custom (OpenAI-compatible)' },
               ]}
               value={type}
-              onChange={(e: ChangeEvent<HTMLSelectElement>) => set('provider', e.target.value)}
+              onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                const nextKind = e.target.value as ProviderKind;
+                set('provider', nextKind);
+                // Pre-fill the OpenAI-compatible default base URL when switching
+                // to a new-kind provider with an empty base URL — never
+                // overwrites a value the operator already typed.
+                const defaultUrl = DEFAULT_BASE_URL_BY_KIND[nextKind];
+                if (defaultUrl && !f.baseUrl) set('baseUrl', defaultUrl);
+              }}
             />
           </Field>
         </div>

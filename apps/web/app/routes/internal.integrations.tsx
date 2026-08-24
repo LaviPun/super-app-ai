@@ -9,6 +9,7 @@ import { encryptJson, decryptJson } from '~/services/security/crypto.server';
 import { sendEmail, resolveMailerStatus } from '~/services/notifications/mailer.server';
 import { sendSlackAlert } from '~/services/observability/ops-alert-slack.server';
 import { INTEGRATION_TILES, type IntegrationCategory } from '~/components/admin/integration-tiles';
+import type { ProviderKind } from '~/services/internal/ai-provider.service';
 import { IntegrationIcon } from '~/components/admin/integration-icon';
 import {
   useAdminCtx,
@@ -138,6 +139,19 @@ const CATEGORY_LABEL: Record<IntegrationCategory, string> = {
 
 const CATEGORIES: IntegrationCategory[] = ['AI_PROVIDER', 'OPS_SERVICE'];
 
+// Task 13: each AI-provider tile's id maps 1:1 to the AiProvider.provider kind
+// it configures — this is what the tile's "Configure" deep-link pre-fills on
+// the AI Providers page (internal.ai-providers.tsx's ?add=<kind> handler),
+// and what the loader below groups AiProvider rows by for live tile status.
+const AI_PROVIDER_KIND_BY_TILE_ID: Record<string, ProviderKind> = {
+  anthropic: 'ANTHROPIC',
+  openai: 'OPENAI',
+  gemini: 'GEMINI',
+  grok: 'GROK',
+  deepseek: 'DEEPSEEK',
+  mistral: 'MISTRAL',
+};
+
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
   const prisma = getPrisma();
@@ -166,8 +180,20 @@ export async function loader({ request }: { request: Request }) {
   const mailerStatus = await resolveMailerStatus();
   const uptimeRobotStatus = await resolveUptimeRobotStatus(appSettings?.uptimeRobotApiKeyEnc, appSettings?.uptimeRobotMonitorId);
   const healthchecksStatus = await resolveHealthchecksStatus(appSettings?.healthchecksApiKeyEnc, appSettings?.healthchecksCheckSlug);
+
+  // AI provider tiles are DB-config (Decision G6) but their save/test flows
+  // already live on internal.ai-providers.tsx (Decision: reuse, don't fork) —
+  // this loader only reads enough to show each tile's live "configured" state.
+  const aiProviderRows = await prisma.aiProvider.findMany({ select: { provider: true, isActive: true } });
+  const aiProviders: Record<string, { count: number; activeCount: number }> = {};
+  for (const kind of Object.values(AI_PROVIDER_KIND_BY_TILE_ID)) {
+    const rows = aiProviderRows.filter((r) => r.provider === kind);
+    aiProviders[kind] = { count: rows.length, activeCount: rows.filter((r) => r.isActive).length };
+  }
+
   return json({
     tiles: INTEGRATION_TILES,
+    aiProviders,
     sentry: {
       configured: Boolean(process.env.SENTRY_DSN),
       lastTestedAt: appSettings?.sentryLastTestedAt ? appSettings.sentryLastTestedAt.toISOString() : null,
@@ -543,6 +569,35 @@ function EmailTileBody({
   );
 }
 
+/** AI-provider tiles (Task 13) don't get their own save/test action — the real
+ * config surface stays internal.ai-providers.tsx (Decision: reuse, don't fork
+ * the AiProviderService writer). "Configure" deep-links there pre-filled with
+ * this tile's kind via ?add=<kind>. */
+function AiProviderTileBody({ kind, status }: { kind: ProviderKind; status: { count: number; activeCount: number } | undefined }) {
+  const ctx = useAdminCtx();
+  const count = status?.count ?? 0;
+  const activeCount = status?.activeCount ?? 0;
+  return (
+    <>
+      <KV
+        rows={[
+          [
+            'Status',
+            <Badge key="s" tone={count > 0 ? 'success' : 'info'} dot>
+              {count === 0 ? 'Not configured' : `${count} configured${activeCount > 0 ? ' · active' : ''}`}
+            </Badge>,
+          ],
+        ]}
+      />
+      <div style={{ marginTop: 10 }}>
+        <Btn size="sm" onClick={() => ctx.go(`#/admin/ai-providers?tab=providers&add=${kind}`)}>
+          {count === 0 ? 'Configure' : 'Manage in AI Providers'}
+        </Btn>
+      </div>
+    </>
+  );
+}
+
 function SentryTileBody({ configured, lastTestedAt, onTest, busy }: { configured: boolean; lastTestedAt: string | null; onTest: () => void; busy: boolean }) {
   return (
     <>
@@ -778,7 +833,7 @@ function HealthchecksTileBody({
 }
 
 export default function IntegrationsHub() {
-  const { tiles, sentry, email, slack, uptimeRobot, healthchecks } = useLoaderData<typeof loader>();
+  const { tiles, aiProviders, sentry, email, slack, uptimeRobot, healthchecks } = useLoaderData<typeof loader>();
   const ops = useIntentSubmit();
   const testSentry = () => ops.submit({ intent: 'testSentry' });
   const saveEmail = (fields: Record<string, string>) => ops.submit({ intent: 'saveEmail', ...fields });
@@ -823,6 +878,9 @@ export default function IntegrationsHub() {
                         <Badge tone="info">{tile.configKind === 'DB' ? 'Configured here' : 'Env + test'}</Badge>
                       </div>
                       <p className="t-xs t-muted" style={{ marginBottom: 10 }}>{tile.description}</p>
+                      {AI_PROVIDER_KIND_BY_TILE_ID[tile.id] ? (
+                        <AiProviderTileBody kind={AI_PROVIDER_KIND_BY_TILE_ID[tile.id]!} status={aiProviders[AI_PROVIDER_KIND_BY_TILE_ID[tile.id]!]} />
+                      ) : null}
                       {tile.id === 'sentry' ? (
                         <SentryTileBody configured={sentry.configured} lastTestedAt={sentry.lastTestedAt} onTest={testSentry} busy={ops.busy} />
                       ) : null}

@@ -74,6 +74,12 @@ vi.mock('~/db.server', () => ({
       findUnique: (...args: unknown[]) => appSettingsFindUniqueMock(...args),
       upsert: (...args: unknown[]) => appSettingsUpsertMock(...args),
     },
+    // Task 13: the loader also reads AiProvider rows to show each AI-provider
+    // tile's live "configured" count — empty by default, unrelated to the
+    // ops-service tile tests in this file.
+    aiProvider: {
+      findMany: vi.fn(async () => []),
+    },
   }),
 }));
 vi.mock('~/services/activity/activity.service', () => ({
