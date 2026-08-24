@@ -47,6 +47,12 @@ const EnvSchema = z.object({
   // Explicitly controls Shopify test billing mode. If unset, falls back to NODE_ENV for backward compatibility.
   BILLING_TEST_MODE: z.string().optional(),
 
+  // App Pricing plan sync (Partner API). All optional — inert without them (Conf-4).
+  SHOPIFY_PARTNER_API_TOKEN: z.string().optional(),
+  SHOPIFY_PARTNER_ORG_ID: z.string().optional(),
+  SHOPIFY_APP_GID: z.string().optional(),       // gid://shopify/App/<id>
+  SHOPIFY_APP_HANDLE: z.string().optional(),    // app handle from the Partner Dashboard listing URL
+
   /** When set, internal AI assistant never uses modalRemote or cross-target failover (local-only). */
   INTERNAL_AI_LOCAL_ONLY: z.string().optional(),
   INTERNAL_AI_TOOL_AUDIT_RETENTION_DAYS: z.string().optional(),
@@ -148,6 +154,21 @@ export function isStrictPiiRedactionEnabled(): boolean {
 export function isBillingTestModeEnabled(): boolean {
   const defaultValue = process.env.NODE_ENV !== 'production';
   return parseBooleanEnv(process.env.BILLING_TEST_MODE, defaultValue);
+}
+
+/**
+ * Partner API config for App Pricing plan sync (PlanSyncService). Returns null
+ * (rather than throwing) when any required var is absent so sync stays an inert
+ * no-op until the Partner Dashboard runbook (Task 8) supplies real values.
+ */
+export function getPartnerApiConfig():
+  | { token: string; orgId: string; appGid: string }
+  | null {
+  const token = process.env.SHOPIFY_PARTNER_API_TOKEN;
+  const orgId = process.env.SHOPIFY_PARTNER_ORG_ID;
+  const appGid = process.env.SHOPIFY_APP_GID;
+  if (!token || !orgId || !appGid) return null;
+  return { token, orgId, appGid };
 }
 
 /** Internal admin assistant: block cloud target and dual-target fallback when true. */
