@@ -18,7 +18,12 @@ vi.mock('~/db.server', () => ({
   }),
 }));
 
-import { ActivationService, FUNCTION_KEY_ACTIVATION } from '~/services/publish/activation.service';
+import {
+  ActivationLookupUnverifiableError,
+  ActivationService,
+  FUNCTION_KEY_ACTIVATION,
+  MAX_DISCOUNT_LOOKUP_PAGES,
+} from '~/services/publish/activation.service';
 
 /**
  * Build an admin whose `graphql` resolves by GraphQL operation name (extracted
@@ -87,6 +92,71 @@ describe('ActivationService — discount kind', () => {
       'SuperAppDiscountActivationLookup',
       'SuperAppDiscountActivationUpdate', // retitle to canonical — ONE node per shop, ever (E3)
     ]);
+  });
+
+  it('finds the legacy node on page 2 (paginated adoption, no double-create)', async () => {
+    const { admin, calls } = mockAdmin((op, variables) => {
+      if (op === 'SuperAppDiscountActivationLookup') {
+        if (!variables?.after) {
+          // Page 1: full page, no match, more pages remain.
+          return { data: { discountNodes: { nodes: [], pageInfo: { hasNextPage: true, endCursor: 'cursor-1' } } } };
+        }
+        expect(variables.after).toBe('cursor-1');
+        // Page 2: the legacy node lives here.
+        return {
+          data: {
+            discountNodes: {
+              nodes: [
+                { id: 'gid://shopify/DiscountAutomaticNode/9', discount: { __typename: 'DiscountAutomaticApp', title: 'SuperApp Bundle Pricing' } },
+              ],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        };
+      }
+      if (op === 'SuperAppDiscountActivationUpdate')
+        return { data: { discountAutomaticAppUpdate: { automaticAppDiscount: { discountId: 'gid://shopify/DiscountAutomaticNode/9' }, userErrors: [] } } };
+      throw new Error(`unexpected op ${op}`);
+    });
+    const gid = await new ActivationService(admin, 'shop_1').ensureForFunctionKey('discountRules');
+    expect(gid).toBe('gid://shopify/DiscountAutomaticNode/9');
+    // Two lookup pages, then adopt (Update) — CREATE must never fire.
+    expect(calls.map((c) => c.op)).toEqual([
+      'SuperAppDiscountActivationLookup',
+      'SuperAppDiscountActivationLookup',
+      'SuperAppDiscountActivationUpdate',
+    ]);
+    expect(calls.some((c) => c.op === 'SuperAppDiscountActivationCreate')).toBe(false);
+  });
+
+  it('refuses to create when the lookup hits the page cap without a verdict (no blind create)', async () => {
+    let pages = 0;
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'SuperAppDiscountActivationLookup') {
+        pages += 1;
+        // Every page is empty but claims more pages remain — the target node is
+        // never found and the connection is never exhausted, forcing the cap.
+        return { data: { discountNodes: { nodes: [], pageInfo: { hasNextPage: true, endCursor: `cursor-${pages}` } } } };
+      }
+      throw new Error(`unexpected op ${op}`);
+    });
+    await expect(
+      new ActivationService(admin, 'shop_1').ensureForFunctionKey('discountRules'),
+    ).rejects.toThrow(ActivationLookupUnverifiableError);
+    expect(pages).toBe(MAX_DISCOUNT_LOOKUP_PAGES);
+    expect(calls.every((c) => c.op === 'SuperAppDiscountActivationLookup')).toBe(true);
+    expect(calls.some((c) => c.op === 'SuperAppDiscountActivationCreate')).toBe(false);
+  });
+
+  it('a top-level GraphQL error on the lookup throws — never misread as "no node found" (duplicate-create guard)', async () => {
+    const { admin, calls } = mockAdmin((op) => {
+      if (op === 'SuperAppDiscountActivationLookup') return { errors: [{ message: 'Throttled' }] };
+      throw new Error(`unexpected op ${op}`);
+    });
+    await expect(
+      new ActivationService(admin, 'shop_1').ensureForFunctionKey('discountRules'),
+    ).rejects.toThrow(/throttled/i);
+    expect(calls.map((c) => c.op)).toEqual(['SuperAppDiscountActivationLookup']);
   });
 
   it('deleteForFunctionKey deletes the node and the row; a missing remote node is success', async () => {

@@ -23,11 +23,47 @@ const DISCOUNT_TITLE = 'SuperApp Discounts';
 /** Pre-WS-E title written by the removed BundleProductService.ensureAutomaticBundleDiscount. */
 const LEGACY_BUNDLE_DISCOUNT_TITLE = 'SuperApp Bundle Pricing';
 
+/**
+ * Cap on paginated adoption-lookup pages (50/page ⇒ 1000 nodes). A shop this
+ * large is pathological, not the common case — the cap exists so a lookup can
+ * never hang forever, not so it silently gives up and creates a duplicate.
+ */
+export const MAX_DISCOUNT_LOOKUP_PAGES = 20;
+
+/**
+ * Thrown when the discount-node adoption lookup can't rule out an existing
+ * "SuperApp Discounts"/"SuperApp Bundle Pricing" node within
+ * MAX_DISCOUNT_LOOKUP_PAGES pages (i.e. more pages remained when the cap hit).
+ * Creating anyway risks a second automatic-app-discount node for this
+ * function — the wasm would then run twice and double-apply the discount — so
+ * ActivationService refuses to create and surfaces this instead of a silent
+ * duplicate. The publish path sees this as any other publish failure (module
+ * stays unpublished, retryable).
+ */
+export class ActivationLookupUnverifiableError extends Error {
+  constructor(functionKey: string, pagesScanned: number) {
+    super(
+      `ActivationService: could not verify whether a discount node already exists for ` +
+        `functions.${functionKey} after scanning ${pagesScanned} pages of discountNodes — ` +
+        `refusing to create (would risk a duplicate node that double-applies the discount). ` +
+        `Investigate the shop's automatic-discount count.`,
+    );
+    this.name = 'ActivationLookupUnverifiableError';
+  }
+}
+
 // All documents below validated against Admin GraphQL 2026-07 (Shopify Dev MCP).
+// Unfiltered (no `query:` arg) deliberately — see ensureDiscount's paginated
+// findExistingDiscountNode: the discountNodes connection reflects a write
+// immediately, but the search-index-backed filtered form lags for several
+// seconds, so a back-to-back republish could miss the just-created node.
+// Pagination (not a server-side filter) is what makes the unfiltered scan safe
+// on a shop with many discounts.
 const DISCOUNT_NODES_LOOKUP = `#graphql
-  query SuperAppDiscountActivationLookup {
-    discountNodes(first: 50) {
+  query SuperAppDiscountActivationLookup($after: String) {
+    discountNodes(first: 50, after: $after) {
       nodes { id discount { __typename ... on DiscountAutomaticApp { title } } }
+      pageInfo { hasNextPage endCursor }
     }
   }
 `;
@@ -106,14 +142,10 @@ export class ActivationService {
 
     // Recovery/adoption: exactly ONE automatic-app-discount node per shop for this
     // function — a second node would run the wasm twice and double-apply discounts.
-    const lookup = await this.graphqlJson<{
-      discountNodes: { nodes: Array<{ id: string; discount: { __typename: string; title?: string } }> };
-    }>(DISCOUNT_NODES_LOOKUP);
-    const found = (lookup.data?.discountNodes?.nodes ?? []).find(
-      (n) =>
-        n.discount.__typename === 'DiscountAutomaticApp' &&
-        (n.discount.title === DISCOUNT_TITLE || n.discount.title === LEGACY_BUNDLE_DISCOUNT_TITLE),
-    );
+    // Paginates the FULL discountNodes connection (see findExistingDiscountNode) —
+    // an unpaginated first-page-only lookup would miss the legacy/canonical node on
+    // a shop with >50 automatic discounts and silently fall through to CREATE.
+    const found = await this.findExistingDiscountNode(functionKey);
     if (found) {
       if ((lookupTitle(found) ?? '') !== DISCOUNT_TITLE) {
         const upd = await this.graphqlJson<{
@@ -145,6 +177,46 @@ export class ActivationService {
     if (!id) throw new Error('discountAutomaticAppCreate returned no id');
     await this.store(functionKey, 'discount', id);
     return id;
+  }
+
+  /**
+   * Page through the FULL `discountNodes` connection looking for an existing
+   * "SuperApp Discounts"/"SuperApp Bundle Pricing" DiscountAutomaticApp node.
+   * `first: 50` per page; stops as soon as a match is found or the connection
+   * is exhausted (`pageInfo.hasNextPage` false). Caps at
+   * MAX_DISCOUNT_LOOKUP_PAGES pages — if the cap is hit WITHOUT a verdict
+   * (pages remained), it throws rather than letting the caller fall through to
+   * CREATE, which is exactly the double-apply risk this method exists to
+   * prevent (see ActivationLookupUnverifiableError).
+   */
+  private async findExistingDiscountNode(
+    functionKey: string,
+  ): Promise<{ id: string; discount: { __typename: string; title?: string } } | null> {
+    let after: string | undefined;
+    for (let page = 0; page < MAX_DISCOUNT_LOOKUP_PAGES; page++) {
+      const lookup = await this.graphqlJson<{
+        discountNodes: {
+          nodes: Array<{ id: string; discount: { __typename: string; title?: string } }>;
+          pageInfo?: { hasNextPage: boolean; endCursor?: string | null };
+        };
+      }>(DISCOUNT_NODES_LOOKUP, after ? { after } : undefined);
+      const found = (lookup.data?.discountNodes?.nodes ?? []).find(
+        (n) =>
+          n.discount.__typename === 'DiscountAutomaticApp' &&
+          (n.discount.title === DISCOUNT_TITLE || n.discount.title === LEGACY_BUNDLE_DISCOUNT_TITLE),
+      );
+      if (found) return found;
+
+      const pageInfo = lookup.data?.discountNodes?.pageInfo;
+      if (!pageInfo?.hasNextPage) return null; // connection exhausted — genuinely safe to create
+      after = pageInfo.endCursor ?? undefined;
+    }
+    // Cap hit while more pages remained: cannot rule out an existing node.
+    console.warn(
+      `[ActivationService] discountNodes lookup for functions.${functionKey} hit the ` +
+        `${MAX_DISCOUNT_LOOKUP_PAGES}-page cap without a verdict — refusing to create.`,
+    );
+    throw new ActivationLookupUnverifiableError(functionKey, MAX_DISCOUNT_LOOKUP_PAGES);
   }
 
   // ── shared plumbing ───────────────────────────────────────────────────────
