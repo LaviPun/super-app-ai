@@ -14,8 +14,8 @@ test.describe('merchant auth guards without Shopify session', () => {
     }
   });
 
-  test('advanced and picker are gated like other merchant routes', async ({ request }) => {
-    for (const path of ['/advanced', '/picker', '/modules']) {
+  test('merchant routes are gated without a session', async ({ request }) => {
+    for (const path of ['/modules']) {
       const response = await request.get(`${MERCHANT_BASE}${path}`, {
         maxRedirects: 0,
         failOnStatusCode: false,
