@@ -11,6 +11,23 @@
  */
 
 /**
+ * WS-C Task 12. Strip a leading/trailing markdown code fence (```json … ```).
+ * Moved here (verbatim behavior) from the two local copies in
+ * `judge-polish.server.ts` and `template-delta.server.ts` so every raw-JSON
+ * parse path in the AI service tolerates fenced model output the same way.
+ * Idempotent on already-bare JSON (no-op when the text doesn't start with a
+ * fence).
+ */
+export function stripCodeFences(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('```')) return trimmed;
+  return trimmed
+    .replace(/^```[a-zA-Z0-9_-]*\s*\n?/, '')
+    .replace(/\n?```\s*$/, '')
+    .trim();
+}
+
+/**
  * Returns the first balanced JSON object/array substring in `text`, ignoring
  * whitespace and skipping past any leading prose. Returns null if no complete
  * top-level value has arrived yet.

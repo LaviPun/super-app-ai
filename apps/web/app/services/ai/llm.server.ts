@@ -56,6 +56,9 @@ import { runRenderQa } from '~/services/ai/design-qa-render.server';
 import { runRichnessQa, detectRichnessExempt } from '~/services/ai/richness-qa.server';
 import type { OptionQaSummary } from '~/services/ai/option-ranking.server';
 import { mustHaveControlsForType } from '~/services/ai/requirement-spec.server';
+import { stripCodeFences } from '~/services/ai/tolerant-json.server';
+import { TruncatedOutputError } from '~/services/ai/clients/truncation.server';
+import { getHydrateEnvelopeJsonSchema } from '~/services/ai/hydrate-envelope-schema.server';
 
 import { getPrisma } from '~/db.server';
 import { AppError } from '~/services/errors/app-error.server';
@@ -2872,18 +2875,45 @@ export async function hydrateRecipeSpec(
   const prompt = buildHydratePrompt(recipeSpec, options?.merchantContext);
   const wrappedPrompt = prompt + '\n\nOutput only the HydrateEnvelope JSON object.';
 
+  // WS-C Task 12. Bumped after a TruncatedOutputError so the RETRY gets more
+  // room — burning a second attempt at the SAME budget that just truncated
+  // would just truncate again. Capped at 24_000 (well under any provider's
+  // hard ceiling) and computed off the base budget, not compounded, so
+  // repeated truncations don't runaway.
+  const BUMPED_HYDRATE_TOKEN_BUDGET = Math.min(24_000, Math.round(HYDRATE_TOKEN_BUDGET * 1.5));
+  let maxTokensForAttempt = HYDRATE_TOKEN_BUDGET;
+
   let lastErr: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const { rawJson, tokensIn, tokensOut, model, servedProviderId } = await client.generateRecipe(
-      wrappedPrompt,
-      {
-        previousError: lastErr ? String(lastErr) : undefined,
-        maxTokens: HYDRATE_TOKEN_BUDGET,
-        deadlineAt: options?.deadlineAt,
-      },
-    );
+    let rawJson = '';
+    let tokensIn = 0;
+    let tokensOut = 0;
+    let model: string | undefined;
+    let servedProviderId: string | null | undefined;
     try {
-      const parsed = repairHydrateEnvelope(JSON.parse(rawJson));
+      // WS-C Task 12. `client.generateRecipe` moved INSIDE the try: before
+      // this, a throw from the call itself (network/HTTP error, and now
+      // `TruncatedOutputError`) skipped the retry bookkeeping below entirely
+      // — no failed-attempt row, no chance to retry with a bumped budget,
+      // the whole function just rejected on attempt 0.
+      ({ rawJson, tokensIn, tokensOut, model, servedProviderId } = await client.generateRecipe(
+        wrappedPrompt,
+        {
+          previousError: lastErr ? String(lastErr) : undefined,
+          maxTokens: maxTokensForAttempt,
+          // Structured output: forces Anthropic tool_use / OpenAI json_schema
+          // to the HydrateEnvelope shape, so a well-behaved provider can no
+          // longer return prose, a wrapper object, or a shape Zod rejects —
+          // eliminates a whole class of retry-burning parse failures.
+          responseSchema: getHydrateEnvelopeJsonSchema(),
+          deadlineAt: options?.deadlineAt,
+        },
+      ));
+
+      // Fence-strip before parse: a model that ignores "Output only the
+      // JSON" and wraps it in ```json … ``` previously burned a full billed
+      // retry on a `JSON.parse` syntax error instead of just being tolerated.
+      const parsed = repairHydrateEnvelope(JSON.parse(stripCodeFences(rawJson)));
       const envelope = HydrateEnvelopeSchema.parse(parsed);
       const perfect = validatePerfectConfig(envelope);
       const envelopeToUse = perfect.envelope ?? envelope;
@@ -2915,6 +2945,9 @@ export async function hydrateRecipeSpec(
       return envelopeToUse;
     } catch (err) {
       lastErr = err;
+      if (err instanceof TruncatedOutputError) {
+        maxTokensForAttempt = BUMPED_HYDRATE_TOKEN_BUDGET;
+      }
       const { providerId: servedId, costCents: failCost } = await attributeServedCost(
         { servedProviderId, model },
         providerId,
@@ -2937,6 +2970,16 @@ export async function hydrateRecipeSpec(
         correlationId: options?.billingKey,
       });
     }
+  }
+  // WS-C Task 12: when the LAST attempt failed specifically because of
+  // truncation, surface the friendly typed AppError instead of the generic
+  // "validation failed" message — the merchant-facing signal should say
+  // "the model ran out of room", not "the output didn't validate".
+  if (lastErr instanceof TruncatedOutputError) {
+    throw new AppError({
+      code: 'OUTPUT_TRUNCATED',
+      message: `Hydrate output was truncated after ${maxAttempts} attempt(s): ${lastErr.message}`,
+    });
   }
   throw new Error(`Hydrate envelope validation failed after ${maxAttempts} attempts: ${String(lastErr)}`);
 }

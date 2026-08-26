@@ -1,5 +1,6 @@
 import { postJsonWithRetries } from '~/services/ai/http/ai-http.server';
 import { captureAiDebug, isAiDebugCaptureEnabled } from '~/services/ai/debug-capture.server';
+import { TruncatedOutputError } from '~/services/ai/clients/truncation.server';
 
 export async function openAiGenerateRecipe(opts: {
   apiKey: string;
@@ -149,10 +150,13 @@ function extractOutputText(resp: any): string {
   const out = resp?.output;
   if (!Array.isArray(out)) throw new Error('OpenAI response missing output[]');
 
-  // Top-level response truncation (e.g. max_output_tokens hit)
+  // Top-level response truncation (e.g. max_output_tokens hit). WS-C Task 12:
+  // was a generic Error before — now the shared `TruncatedOutputError` so
+  // callers (`hydrateRecipeSpec`) can branch on truncation specifically and
+  // retry with a bumped token budget instead of a generic failed attempt.
   if (resp?.status === 'incomplete') {
     const reason = resp?.incomplete_details?.reason ?? 'unknown';
-    throw new Error(`OpenAI output truncated (${reason}): increase max_output_tokens or reduce prompt complexity`);
+    throw new TruncatedOutputError('OpenAI', `${reason}: increase max_output_tokens or reduce prompt complexity`);
   }
 
   const chunks: string[] = [];
@@ -161,7 +165,7 @@ function extractOutputText(resp: any): string {
     // Message-level truncation
     if (item?.status === 'incomplete') {
       const reason = item?.incomplete_details?.reason ?? 'unknown';
-      throw new Error(`OpenAI output truncated (${reason}): increase max_output_tokens or reduce prompt complexity`);
+      throw new TruncatedOutputError('OpenAI', `${reason}: increase max_output_tokens or reduce prompt complexity`);
     }
     const content = item?.content;
     if (!Array.isArray(content)) continue;

@@ -1,5 +1,6 @@
 import { postJsonWithRetries } from '~/services/ai/http/ai-http.server';
 import { captureAiDebug, isAiDebugCaptureEnabled } from '~/services/ai/debug-capture.server';
+import { TruncatedOutputError } from '~/services/ai/clients/truncation.server';
 
 /** Claude Agent Skills config: skills (anthropic IDs e.g. pptx, xlsx or custom skill_01Ab...) and optional code execution. */
 export type AnthropicSkillsConfig = {
@@ -110,6 +111,17 @@ export async function anthropicGenerateRecipe(opts: {
       logMeta: { provider: 'ANTHROPIC', model: opts.model, actor: 'INTERNAL' },
       shopId: opts.shopId,
     });
+
+    // WS-C Task 12. Anthropic never threw on truncation before this — a
+    // `stop_reason: 'max_tokens'` reply (text OR tool_use cut off mid-call)
+    // silently fell through to `extractText`/`extractToolUseInput`, either
+    // producing a generic parse error downstream or, worse, a
+    // valid-looking-but-incomplete JSON prefix. Detect it here, before
+    // extraction, so callers can retry with a bumped token budget instead of
+    // burning a full billed retry against the same one.
+    if (json?.stop_reason === 'max_tokens') {
+      throw new TruncatedOutputError('Anthropic', 'stop_reason=max_tokens');
+    }
 
     rawJson = useStructured ? extractToolUseInput(json) : extractText(json);
     const usage = json?.usage;
