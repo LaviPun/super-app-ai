@@ -3,7 +3,7 @@
 **Status:** Accepted — **hosting table superseded in part by [ADR-002](./ADR-002-cloudflare-v2-hosting.md)** (2026-06-12)  
 **Date:** 2026-05-19  
 **Deciders:** Engineering (Platform V2 migration)  
-**Related:** [Platform V2 migration plan](../platform-v2-migration-plan.md), [ADR-002 (scoped Cloudflare hosting)](./ADR-002-cloudflare-v2-hosting.md)
+**Related:** [Platform V2 migration plan](./platform-v2-migration-plan.md), [ADR-002 (scoped Cloudflare hosting)](./ADR-002-cloudflare-v2-hosting.md)
 
 > **Superseded notice (2026-06-12):** The Railway-centric hosting column in the Decision table below is historical. The V2 platform now targets **Cloudflare** (Workers, Pages, R2, Queues) as the primary path, with Fastify/BullMQ on Railway/Docker retained only as the optional `PLATFORM_BACKEND=fastify` fallback and for the internal AI router. See [ADR-002](./ADR-002-cloudflare-v2-hosting.md) for the governing hosting policy. All other decisions in this ADR (separated services, RecipeSpec-only, shared Zod contracts, incremental cutover) remain in force.
 

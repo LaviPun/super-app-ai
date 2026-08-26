@@ -1,7 +1,7 @@
 # Platform V2 — Phase 21 Rollout And Cutover
 
 **Status:** Local/testable rollout controls + operator docs shipped; production traffic cutover remains operator-driven  
-**Plan reference:** [platform-v2-migration-plan.md](../platform-v2-migration-plan.md) § Phase 21, §10 Production Readiness
+**Plan reference:** [platform-v2-migration-plan.md](./platform-v2-migration-plan.md) § Phase 21, §10 Production Readiness
 
 ## Scope delivered
 

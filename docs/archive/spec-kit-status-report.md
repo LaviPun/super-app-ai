@@ -46,7 +46,7 @@ Spec Kit directories exist for all V2 phases 1–21, the constitution is ratifie
 | Constitution | [`../.specify/memory/constitution.md`](../.specify/memory/constitution.md) | Governing principles (v1.0.0) |
 | ADR-001 | [`gitbook/02-architecture/v2-migration/ADR-001-platform-v2-architecture.md`](gitbook/02-architecture/v2-migration/ADR-001-platform-v2-architecture.md) | Accepted architecture (Railway-centric; superseded in part by ADR-002) |
 | ADR-002 | [`gitbook/02-architecture/v2-migration/ADR-002-cloudflare-v2-hosting.md`](gitbook/02-architecture/v2-migration/ADR-002-cloudflare-v2-hosting.md) | Scoped Cloudflare-primary hosting policy |
-| Duplicate ADR copy | [`gitbook/02-architecture/ADR-001-platform-v2-architecture.md`](gitbook/02-architecture/ADR-001-platform-v2-architecture.md) | Same content, edit-risk duplicate (M8) |
+| Duplicate ADR copy | [`gitbook-v2-migration/ADR-001-platform-v2-architecture-redirect-stub.md`](gitbook-v2-migration/ADR-001-platform-v2-architecture-redirect-stub.md) | Same content, edit-risk duplicate (M8) |
 | Environment matrix | [`deployment/env-matrix.md`](deployment/env-matrix.md) | Staging/prod vars (Railway + `PLATFORM_BACKEND`) |
 | Implementation status | [`implementation-status.md`](implementation-status.md) | Running changelog of shipped work |
 | Cloudflare runbook | [`gitbook/02-architecture/v2-migration/cloudflare-deployment-runbook.md`](gitbook/02-architecture/v2-migration/cloudflare-deployment-runbook.md) | Cloudflare-only policy |
@@ -212,7 +212,7 @@ Spec Kit phases can include `research.md` (decisions), `data-model.md` (entities
 
 | Document | Path | Role | Staleness |
 |----------|------|------|-----------|
-| Platform V2 migration plan | [`gitbook/02-architecture/platform-v2-migration-plan.md`](gitbook/02-architecture/platform-v2-migration-plan.md) | Canonical phase acceptance | Partially updated |
+| Platform V2 migration plan | [`gitbook/02-architecture/platform-v2-migration-plan.md`](gitbook-v2-migration/platform-v2-migration-plan.md) | Canonical phase acceptance | Partially updated |
 | ADR-001 | [`gitbook/02-architecture/v2-migration/ADR-001-platform-v2-architecture.md`](gitbook/02-architecture/v2-migration/ADR-001-platform-v2-architecture.md) | Architecture decision | Current — hosting table superseded by ADR-002 (banner added; C2 resolved) |
 | ADR-002 | [`gitbook/02-architecture/v2-migration/ADR-002-cloudflare-v2-hosting.md`](gitbook/02-architecture/v2-migration/ADR-002-cloudflare-v2-hosting.md) | Scoped Cloudflare hosting policy (SSOT) | Current |
 | Cloudflare deployment runbook | [`gitbook/02-architecture/v2-migration/cloudflare-deployment-runbook.md`](gitbook/02-architecture/v2-migration/cloudflare-deployment-runbook.md) | Operator procedures | Aligns with master CF policy |

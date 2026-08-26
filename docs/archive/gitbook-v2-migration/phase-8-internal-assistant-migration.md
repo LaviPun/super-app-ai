@@ -1,7 +1,7 @@
 # Platform V2 — Phase 8 Internal Assistant Migration
 
 **Status:** Local/testable vertical slice complete; production cutover remains blocked by live assistant/runtime dependencies  
-**Plan reference:** [platform-v2-migration-plan.md](../platform-v2-migration-plan.md) § Phase 8
+**Plan reference:** [platform-v2-migration-plan.md](./platform-v2-migration-plan.md) § Phase 8
 
 ## Legacy source paths inspected
 

@@ -1,7 +1,7 @@
 # Platform V2 — Phase 20 Testing Matrix
 
 **Status:** Local/testable gate implemented; known baseline failures documented  
-**Plan reference:** [platform-v2-migration-plan.md](../platform-v2-migration-plan.md) § Phase 20
+**Plan reference:** [platform-v2-migration-plan.md](./platform-v2-migration-plan.md) § Phase 20
 
 ## Goal
 

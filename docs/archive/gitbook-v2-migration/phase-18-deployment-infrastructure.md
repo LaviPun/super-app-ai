@@ -1,7 +1,7 @@
 # Platform V2 — Phase 18 Deployment Infrastructure
 
 **Status:** Local/testable deployment scaffolding complete  
-**Plan reference:** [platform-v2-migration-plan.md](../platform-v2-migration-plan.md) § Phase 18
+**Plan reference:** [platform-v2-migration-plan.md](./platform-v2-migration-plan.md) § Phase 18
 
 ## Target topology
 

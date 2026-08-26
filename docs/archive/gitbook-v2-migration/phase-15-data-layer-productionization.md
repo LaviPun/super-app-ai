@@ -1,7 +1,7 @@
 # Platform V2 — Phase 15 Data Layer Productionization
 
 **Status:** Local/testable work complete; production Postgres driver deferred until reviewed migration is applied  
-**Plan reference:** [platform-v2-migration-plan.md](../platform-v2-migration-plan.md) § Phase 15
+**Plan reference:** [platform-v2-migration-plan.md](./platform-v2-migration-plan.md) § Phase 15
 
 ## Implemented foundation
 

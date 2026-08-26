@@ -1,7 +1,7 @@
 # Platform V2 — Phase 14 Intent Graph And Recipe DSL
 
 **Status:** Schema/compiler foundations in `@superapp/core`; production pipeline not enabled  
-**Plan reference:** [platform-v2-migration-plan.md](../platform-v2-migration-plan.md) § Phase 14
+**Plan reference:** [platform-v2-migration-plan.md](./platform-v2-migration-plan.md) § Phase 14
 
 ## Code map
 

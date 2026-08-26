@@ -1,7 +1,7 @@
 # Platform V2 — Phase 16 Observability And Product Analytics
 
 **Status:** Local/testable work complete; production OTel/Sentry/PostHog backends blocked on deployment wiring  
-**Plan reference:** [platform-v2-migration-plan.md](../platform-v2-migration-plan.md) § Phase 16
+**Plan reference:** [platform-v2-migration-plan.md](./platform-v2-migration-plan.md) § Phase 16
 
 ## Implemented foundation
 

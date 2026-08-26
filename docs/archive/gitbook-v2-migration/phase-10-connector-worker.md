@@ -1,7 +1,7 @@
 # Platform V2 — Phase 10 Connector Worker
 
 **Status:** Local/testable connector execution boundary complete  
-**Plan reference:** [platform-v2-migration-plan.md](../platform-v2-migration-plan.md) § Phase 10
+**Plan reference:** [platform-v2-migration-plan.md](./platform-v2-migration-plan.md) § Phase 10
 
 ## Scope delivered
 

@@ -1,7 +1,7 @@
 # Platform V2 — Phase 1 Monorepo Scaffolding
 
 **Status:** Complete (with Phases 2–4 building on this layout)  
-**Plan reference:** [platform-v2-migration-plan.md](../platform-v2-migration-plan.md) § Phase 1
+**Plan reference:** [platform-v2-migration-plan.md](./platform-v2-migration-plan.md) § Phase 1
 
 ## Created packages
 

@@ -1,7 +1,7 @@
 # Platform V2 — Phase 13 Preview Sandbox
 
 **Status:** Partial — Remix merchant preview shell exists; full V2 preview envelope not cut over  
-**Plan reference:** [platform-v2-migration-plan.md](../platform-v2-migration-plan.md) § Phase 13
+**Plan reference:** [platform-v2-migration-plan.md](./platform-v2-migration-plan.md) § Phase 13
 
 ## Current baseline (Remix)
 

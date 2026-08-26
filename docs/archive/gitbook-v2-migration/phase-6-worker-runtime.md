@@ -1,7 +1,7 @@
 # Platform V2 — Phase 6 Worker Runtime
 
 **Status:** Local/testable runtime foundation complete  
-**Plan reference:** [platform-v2-migration-plan.md](../platform-v2-migration-plan.md) § Phase 6
+**Plan reference:** [platform-v2-migration-plan.md](./platform-v2-migration-plan.md) § Phase 6
 
 ## Runtime foundation
 

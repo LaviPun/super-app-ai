@@ -1,7 +1,7 @@
 # Platform V2 — Phase 7 AI Generation Worker
 
 **Status:** Local/testable worker foundation complete  
-**Plan reference:** [platform-v2-migration-plan.md](../platform-v2-migration-plan.md) § Phase 7
+**Plan reference:** [platform-v2-migration-plan.md](./platform-v2-migration-plan.md) § Phase 7
 
 ## Legacy source paths inspected
 

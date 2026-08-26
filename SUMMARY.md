@@ -64,7 +64,7 @@
       * [Platform V2 — Phase 7 AI Generation Worker](docs/gitbook/02-architecture/phase-7-ai-generation-worker.md)
       * [Platform V2 — Phase 8 Internal Assistant Migration](docs/gitbook/02-architecture/phase-8-internal-assistant-migration.md)
       * [Platform V2 — Phase 9 Webhook And Flow Workers](docs/gitbook/02-architecture/phase-9-webhook-flow-workers.md)
-      * [Platform V2 Migration Plan](docs/gitbook/02-architecture/platform-v2-migration-plan.md)
+      * [Platform V2 Migration Plan](docs/archive/gitbook-v2-migration/platform-v2-migration-plan.md)
       * [Platform V2 — Prisma Bounded Contexts](docs/gitbook/02-architecture/prisma-bounded-contexts.md)
       * [Release Operations](docs/gitbook/02-architecture/release-operations.md)
       * [Platform V2 — Risk Ledger: Synchronous Work](docs/gitbook/02-architecture/risk-ledger-sync-work.md)

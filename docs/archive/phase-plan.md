@@ -22,7 +22,7 @@ This plan is structured for iterative development with strong quality gates:
 
 ## Platform V2 migration (Phases 0–21) — branch `vr/v2`
 
-Canonical architecture: [platform-v2-migration-plan.md](./gitbook/02-architecture/platform-v2-migration-plan.md) and [ADR-001](./gitbook-v2-migration/ADR-001-platform-v2-architecture.md).
+Canonical architecture: [platform-v2-migration-plan.md](./gitbook-v2-migration/platform-v2-migration-plan.md) and [ADR-001](./gitbook-v2-migration/ADR-001-platform-v2-architecture.md).
 
 | Phase | Topic | Status on `vr/v2` |
 | ----- | ----- | ----------------- |

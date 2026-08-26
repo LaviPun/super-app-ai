@@ -1,7 +1,7 @@
 # Platform V2 — Phase 11 Publish Worker
 
 **Status:** Core publish boundary + queue stub shipped; live Shopify admin wiring remains in Remix until cutover  
-**Plan reference:** [platform-v2-migration-plan.md](../platform-v2-migration-plan.md) § Phase 11
+**Plan reference:** [platform-v2-migration-plan.md](./platform-v2-migration-plan.md) § Phase 11
 
 ## Code map
 

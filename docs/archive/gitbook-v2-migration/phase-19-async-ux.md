@@ -1,7 +1,7 @@
 # Platform V2 — Phase 19 Async UX
 
 **Status:** Local/testable vertical slice complete; production cutover remains gated on auth, real worker event delivery, and Remix traffic migration  
-**Plan reference:** [platform-v2-migration-plan.md](../platform-v2-migration-plan.md) § Phase 19
+**Plan reference:** [platform-v2-migration-plan.md](./platform-v2-migration-plan.md) § Phase 19
 
 ## Goal
 
