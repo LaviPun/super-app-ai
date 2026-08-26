@@ -1008,6 +1008,9 @@ function GenerateWorkspace() {
     finishRef.current = { mode, conceptId: selected };
     const fd = new FormData();
     fd.set('spec', JSON.stringify(mergeSettingsIntoRecipe(recipe, settings)));
+    // WS-C Task 13 (funnel spine): carry the generation Job's correlationId
+    // forward onto the module so hydrate/publish can chain back to it.
+    fd.set('correlationId', genCorrelationIdRef.current ?? '');
     confirmFetcher.submit(fd, { method: 'post', action: '/api/ai/create-module-from-recipe' });
   };
 

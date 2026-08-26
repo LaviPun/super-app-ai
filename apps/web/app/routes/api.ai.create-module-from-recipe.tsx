@@ -40,6 +40,16 @@ export async function action({ request }: { request: Request }) {
       const moduleService = new ModuleService();
       const mod = await moduleService.createDraft(session.shop, parsed);
 
+      // WS-C Task 13 (funnel spine): stamp the originating generation Job's
+      // correlationId onto the module so hydrate/publish can chain back to it
+      // (same fallback the hydrate route and api.publish already apply via
+      // module.generationCorrelationId). Absent when the concept was created
+      // outside a tracked generation (e.g. hand-authored spec) — no update.
+      const correlationId = String(form.get('correlationId') ?? '').trim();
+      if (correlationId) {
+        await prisma.module.update({ where: { id: mod.id }, data: { generationCorrelationId: correlationId } });
+      }
+
       await new ActivityLogService().log({
         actor: 'MERCHANT',
         action: 'MODULE_CREATED',
