@@ -301,16 +301,6 @@ export class ModuleService {
     await prisma.module.update({ where: { id: moduleId }, data: { status: 'DRAFT', activeVersionId: null } });
   }
 
-  /** DB-only — use unpublishThenDelete wherever an admin client exists. */
-  async deleteModule(shopDomain: string, moduleId: string) {
-    const prisma = getPrisma();
-    const module = await prisma.module.findFirst({
-      where: { id: moduleId, shop: { shopDomain } },
-    });
-    if (!module) throw new Error('Module not found');
-    await prisma.module.delete({ where: { id: moduleId } });
-  }
-
   /** WS-E: deleting a published module must not leave its metaobject rendering
    *  forever — Shopify cleanup runs first; only then do DB rows go. A cleanup
    *  failure aborts the delete (retryable; unpublish is idempotent). */
