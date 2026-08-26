@@ -21,11 +21,24 @@ export async function postJsonWithRetries(opts: {
   headers: Record<string, string>;
   body: unknown;
   timeoutMs?: number;
+  /**
+   * WS-C Task 10 (C7). Epoch ms after which the caller's job/request budget
+   * is exhausted (worker job budgets: generation 150s, hydrate 90s; inline
+   * mode passes a 55s deadline). When set, the effective timeout is
+   * `min(timeoutMs ?? 120_000, deadlineAt - now)` — this single HTTP call
+   * can never outlive the caller's remaining budget, even when `timeoutMs`
+   * itself wasn't tightened by the caller.
+   */
+  deadlineAt?: number;
   maxRetries?: number;
   logMeta: { provider: string; model: string; actor: 'INTERNAL' };
   shopId?: string;
 }): Promise<{ json: any; meta: AiHttpMeta }> {
-  const timeoutMs = opts.timeoutMs ?? 120_000;
+  const requestedTimeoutMs = opts.timeoutMs ?? 120_000;
+  const timeoutMs =
+    opts.deadlineAt !== undefined
+      ? Math.max(0, Math.min(requestedTimeoutMs, opts.deadlineAt - Date.now()))
+      : requestedTimeoutMs;
   const maxRetries = opts.maxRetries ?? 2;
 
   let lastErr: unknown;

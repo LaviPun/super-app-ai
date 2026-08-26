@@ -57,6 +57,7 @@ import type { OptionQaSummary } from '~/services/ai/option-ranking.server';
 import { mustHaveControlsForType } from '~/services/ai/requirement-spec.server';
 
 import { getPrisma } from '~/db.server';
+import { AppError } from '~/services/errors/app-error.server';
 
 export type RecipeOption = {
   explanation: string;
@@ -86,10 +87,41 @@ export interface GenerateHints {
   previousError?: string;
   maxTokens?: number;
   responseSchema?: ResponseSchemaHint;
+  /**
+   * WS-C Task 10 (C7). Epoch ms after which the caller's job/request budget
+   * is exhausted — threaded from the worker job budgets (generation 150s,
+   * hydrate 90s; `GENERATION_JOB_BUDGET_MS`/`HYDRATE_JOB_BUDGET_MS`) or the
+   * inline route's 55s tunnel-discipline deadline. `ConfiguredLlmClient`
+   * (and the env-key clients) use it to bound the provider HTTP call's
+   * timeout to whatever budget remains, and to fail fast with a typed error
+   * instead of firing a call that cannot finish in time.
+   */
+  deadlineAt?: number;
 }
 
 export interface LlmClient {
   generateRecipe(prompt: string, hints?: GenerateHints): Promise<GenerateResult>;
+}
+
+/**
+ * WS-C Task 10 (C7). Shared by every `LlmClient` implementation that talks
+ * to a real provider HTTP endpoint (`ConfiguredLlmClient`, `EnvOpenAiClient`,
+ * `EnvClaudeClient`): turns `hints.deadlineAt` into a bounded `timeoutMs` the
+ * provider client can pass straight to `postJsonWithRetries`. Throws a typed
+ * `AppError` instead of returning a timeout that's already effectively zero
+ * — firing an HTTP call that cannot possibly finish just burns the
+ * remaining budget for no result.
+ */
+function resolveDeadlineTimeoutMs(hints?: GenerateHints): number | undefined {
+  if (hints?.deadlineAt === undefined) return undefined;
+  const remainingMs = hints.deadlineAt - Date.now();
+  if (remainingMs < 5_000) {
+    throw new AppError({
+      code: 'PROVIDER_ERROR',
+      message: 'Generation deadline exhausted before the provider call could start. Please try again.',
+    });
+  }
+  return Math.max(5_000, Math.min(120_000, remainingMs));
 }
 
 /**
@@ -228,6 +260,10 @@ export class ConfiguredLlmClient implements LlmClient {
     const model = provider.model ?? '';
     if (!model) throw new Error('Provider missing default model');
 
+    // WS-C Task 10 (C7). Throws before any provider call if the deadline is
+    // already effectively exhausted.
+    const timeoutMs = resolveDeadlineTimeoutMs(hints);
+
     const augmentedPrompt = hints?.previousError
       ? `${prompt}
 
@@ -256,6 +292,7 @@ export class ConfiguredLlmClient implements LlmClient {
         shopId: this.shopId,
         maxTokens: hints?.maxTokens,
         responseSchema: hints?.responseSchema,
+        timeoutMs,
         openaiFeatures,
       });
     }
@@ -290,6 +327,7 @@ export class ConfiguredLlmClient implements LlmClient {
         skillsConfig,
         maxTokens: hints?.maxTokens,
         responseSchema: hints?.responseSchema,
+        timeoutMs,
       });
     }
 
@@ -338,6 +376,7 @@ class EnvOpenAiClient implements LlmClient {
   ) {}
 
   async generateRecipe(prompt: string, hints?: GenerateHints) {
+    const timeoutMs = resolveDeadlineTimeoutMs(hints);
     const augmentedPrompt = hints?.previousError
       ? `${prompt}\n\n(Previous validation error: ${hints.previousError})`
       : prompt;
@@ -348,6 +387,7 @@ class EnvOpenAiClient implements LlmClient {
       shopId: this.shopId,
       maxTokens: hints?.maxTokens,
       responseSchema: hints?.responseSchema,
+      timeoutMs,
     });
   }
 }
@@ -363,6 +403,7 @@ class EnvClaudeClient implements LlmClient {
   ) {}
 
   async generateRecipe(prompt: string, hints?: GenerateHints) {
+    const timeoutMs = resolveDeadlineTimeoutMs(hints);
     const augmentedPrompt = hints?.previousError
       ? `${prompt}\n\n(Previous validation error: ${hints.previousError})`
       : prompt;
@@ -376,6 +417,7 @@ class EnvClaudeClient implements LlmClient {
       }),
       maxTokens: hints?.maxTokens,
       responseSchema: hints?.responseSchema,
+      timeoutMs,
     });
   }
 }
@@ -973,7 +1015,7 @@ function coerceValidRecipe(candidate: RecipeSpec, original: RecipeSpec): RecipeS
 async function parseValidateAndRepairRecipe(
   rawJson: string,
   client: LlmClient,
-  ctx: { shopId?: string; moduleType: ModuleType },
+  ctx: { shopId?: string; moduleType: ModuleType; deadlineAt?: number },
 ): Promise<RecipeSpec> {
   const parsed = JSON.parse(rawJson);
   const raw = unwrapRecipe(parsed);
@@ -1112,20 +1154,22 @@ async function regenerateSingleRecipeForQa(args: {
   idx: number;
   shopId?: string;
   providerId: string | null;
+  deadlineAt?: number;
 }): Promise<QaRegenResult> {
-  const { client, compiledPrompt, corrective, perBudget, singleSchema, moduleType, idx, shopId, providerId } = args;
+  const { client, compiledPrompt, corrective, perBudget, singleSchema, moduleType, idx, shopId, providerId, deadlineAt } = args;
   const result = await client.generateRecipe(`${compiledPrompt}\n\n${corrective}`, {
     maxTokens: perBudget,
     responseSchema: singleSchema
       ? { name: `RecipeSingle_${moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}_qa`, schema: singleSchema }
       : undefined,
+    deadlineAt,
   });
   // Capture the spend BEFORE parse/repair — the LLM call is billed even if its
   // output is unusable (the QA cost-tracking gap this closes).
   const { costCents } = await attributeServedCost(result, providerId, result.tokensIn, result.tokensOut);
   let recipe: RecipeSpec | null = null;
   try {
-    recipe = await parseValidateAndRepairRecipe(result.rawJson, client, { shopId, moduleType });
+    recipe = await parseValidateAndRepairRecipe(result.rawJson, client, { shopId, moduleType, deadlineAt });
   } catch {
     recipe = null;
   }
@@ -1385,7 +1429,7 @@ function formatTypeEnumViolations(violations: TypeEnumViolation[]): string {
 export async function validateAndRepairRecipe(
   raw: unknown,
   client: LlmClient,
-  _options?: { shopId?: string; moduleType?: ModuleType },
+  _options?: { shopId?: string; moduleType?: ModuleType; deadlineAt?: number },
 ): Promise<{ recipe: RecipeSpec; repaired: boolean }> {
   let current = repairRecipeForValidation(raw);
   let lastError: string | undefined;
@@ -1413,6 +1457,7 @@ export async function validateAndRepairRecipe(
       responseSchema: singleSchema && _options?.moduleType
         ? { name: `RecipeSingle_${_options.moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}`, schema: singleSchema }
         : undefined,
+      deadlineAt: _options?.deadlineAt,
     });
     try {
       const parsed = JSON.parse(rawJson);
@@ -1620,6 +1665,13 @@ async function produceOptionRecipe(args: {
   exemplar?: TemplateExemplar;
   designReferenceBlock?: string;
   designSystemDirective?: string;
+  /**
+   * WS-C Task 10 (C7). NOT threaded into the Tier-1 delta path below
+   * (`generateRecipeViaDelta`, `template-delta.server.ts`) — that call stays
+   * on the shared default timeout. Only the freeform path and its repair
+   * loop are deadline-bounded here.
+   */
+  deadlineAt?: number;
 }): Promise<{
   result: GenerateResult;
   recipe: RecipeSpec;
@@ -1627,7 +1679,7 @@ async function produceOptionRecipe(args: {
   explanation: string;
   generationMode: 'delta' | 'freeform';
 }> {
-  const { idx, approach, client, compiledPrompt, perBudget, singleSchema, moduleType, userRequest, shopId } = args;
+  const { idx, approach, client, compiledPrompt, perBudget, singleSchema, moduleType, userRequest, shopId, deadlineAt } = args;
 
   // Tier-1: option 0 is produced by instantiating + delta-editing the exemplar.
   if (idx === 0 && args.exemplar?.tier === 1 && args.exemplar.specJson) {
@@ -1664,6 +1716,7 @@ async function produceOptionRecipe(args: {
     responseSchema: singleSchema
       ? { name: `RecipeSingle_${moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}`, schema: singleSchema }
       : undefined,
+    deadlineAt,
   });
   const parsed = JSON.parse(result.rawJson);
   const raw = unwrapRecipe(parsed);
@@ -1676,7 +1729,7 @@ async function produceOptionRecipe(args: {
   if (safe.success && validateTypeEnums(safe.data).length === 0) {
     recipe = safe.data;
   } else {
-    const fix = await validateAndRepairRecipe(raw, client, { shopId, moduleType });
+    const fix = await validateAndRepairRecipe(raw, client, { shopId, moduleType, deadlineAt });
     recipe = fix.recipe;
     repairedFlag = fix.repaired;
   }
@@ -1730,6 +1783,8 @@ export async function* generateValidatedRecipeOptionsStream(
      * dedupe contract and its accepted residual race).
      */
     correlationId?: string;
+    /** WS-C Task 10 (C7): worker job deadline (epoch ms), threaded into every option call's `GenerateHints`. */
+    deadlineAt?: number;
   },
 ): AsyncGenerator<RecipeOptionStreamEvent, void, void> {
   const optionCount = Math.max(1, Math.min(3, options?.optionCount ?? 3));
@@ -1839,6 +1894,7 @@ export async function* generateValidatedRecipeOptionsStream(
         exemplar: options?.exemplar,
         designReferenceBlock,
         designSystemDirective,
+        deadlineAt: options?.deadlineAt,
       });
       const { result } = produced;
       tokensIn = result.tokensIn;
@@ -1864,6 +1920,7 @@ export async function* generateValidatedRecipeOptionsStream(
             idx,
             shopId: options?.shopId,
             providerId: servedId,
+            deadlineAt: options?.deadlineAt,
           }),
         { userRequest: prompt, mustHaveControls: mustHaveControlsForType(classification.moduleType, 'basic') },
       );
@@ -1996,6 +2053,8 @@ export async function generateValidatedRecipeOptionsParallel(
      * non-fallback callers (e.g. tournament regeneration), which bill normally.
      */
     correlationId?: string;
+    /** WS-C Task 10 (C7): worker job deadline (epoch ms), threaded into every option call's `GenerateHints`. */
+    deadlineAt?: number;
   },
 ): Promise<RecipeOption[]> {
   const optionCount = Math.max(1, Math.min(3, options?.optionCount ?? 3));
@@ -2097,6 +2156,7 @@ export async function generateValidatedRecipeOptionsParallel(
         exemplar: options?.exemplar,
         designReferenceBlock,
         designSystemDirective,
+        deadlineAt: options?.deadlineAt,
       });
       const { result } = produced;
       tokensIn = result.tokensIn;
@@ -2122,6 +2182,7 @@ export async function generateValidatedRecipeOptionsParallel(
             idx,
             shopId: options?.shopId,
             providerId: servedId,
+            deadlineAt: options?.deadlineAt,
           }),
         { userRequest: prompt, mustHaveControls: mustHaveControlsForType(classification.moduleType, 'basic') },
       );
@@ -2210,6 +2271,8 @@ export async function generateValidatedBlueprint(
     routerDecision?: PromptRouterDecision;
     groundingBlock?: string;
     exemplar?: TemplateExemplar;
+    /** WS-C Task 10 (C7): worker job deadline (epoch ms), threaded into every member's option call. */
+    deadlineAt?: number;
   },
 ): Promise<RecipeBlueprint> {
   const roleList = plan.modules.map((m) => `${m.role} (${m.moduleType})`).join(', ');
@@ -2241,6 +2304,7 @@ export async function generateValidatedBlueprint(
           exemplar: options?.exemplar,
           optionCount: 1,
           blueprintContext,
+          deadlineAt: options?.deadlineAt,
         },
       ).catch((err) => {
         if (m.required) throw new Error(`Blueprint member "${m.role}" (${m.moduleType}) failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -2311,6 +2375,8 @@ export async function generateValidatedRecipeOptions(
      * seedBillingStateForCorrelation for the dedupe this enables.
      */
     correlationId?: string;
+    /** WS-C Task 10 (C7): worker job deadline (epoch ms), threaded into every option call's `GenerateHints`. */
+    deadlineAt?: number;
   },
 ): Promise<RecipeOption[]> {
   if (getRecipeSingleJsonSchemaForType(classification.moduleType)) {
@@ -2325,6 +2391,7 @@ export async function generateValidatedRecipeOptions(
       exemplar: options?.exemplar,
       blueprintContext: options?.blueprintContext,
       correlationId: options?.correlationId,
+      deadlineAt: options?.deadlineAt,
     });
   }
   const maxAttempts = options?.maxAttempts ?? 3;
@@ -2432,6 +2499,7 @@ export async function generateValidatedRecipeOptions(
         responseSchema: optionsJsonSchema
           ? { name: `RecipeOptions_${classification.moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}`, schema: optionsJsonSchema }
           : undefined,
+        deadlineAt: options?.deadlineAt,
       }));
       const parsed = JSON.parse(rawJson);
       const optionsArr = parsed?.options ?? (Array.isArray(parsed) ? parsed : null);
@@ -2457,6 +2525,7 @@ export async function generateValidatedRecipeOptions(
           const { recipe } = await validateAndRepairRecipe(raw, client, {
             shopId: options?.shopId,
             moduleType: classification.moduleType,
+            deadlineAt: options?.deadlineAt,
           });
           validated.push({
             explanation: typeof opt?.explanation === 'string' ? opt.explanation : `Option ${validated.length + 1} (repaired)`,
@@ -2742,7 +2811,7 @@ export async function hydrateRecipeSpec(
     shopId?: string;
     merchantContext?: { planTier?: string; locale?: string };
     maxAttempts?: number;
-    /** WS-C Task 8: worker job deadline (epoch ms) — threaded into GenerateHints in Task 10. */
+    /** WS-C Task 8/10 (C7): worker job deadline (epoch ms), threaded into `GenerateHints.deadlineAt`. */
     deadlineAt?: number;
     /**
      * WS-C Task 8 (C8) retry-safe billing. When set, the SUCCESS write claims
@@ -2769,7 +2838,11 @@ export async function hydrateRecipeSpec(
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const { rawJson, tokensIn, tokensOut, model, servedProviderId } = await client.generateRecipe(
       wrappedPrompt,
-      { previousError: lastErr ? String(lastErr) : undefined, maxTokens: HYDRATE_TOKEN_BUDGET },
+      {
+        previousError: lastErr ? String(lastErr) : undefined,
+        maxTokens: HYDRATE_TOKEN_BUDGET,
+        deadlineAt: options?.deadlineAt,
+      },
     );
     try {
       const parsed = repairHydrateEnvelope(JSON.parse(rawJson));

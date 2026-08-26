@@ -167,6 +167,11 @@ export async function action({ request }: { request: Request }) {
             correlationId,
             planTier,
             admin,
+            // WS-C Task 10 (C7): inline mode keeps the pre-async ~90s tunnel
+            // discipline (docs/debug.md §13/§18) by bounding every LLM call
+            // to a 55s budget from request start, same as the worker's
+            // generation/hydrate job budgets bound theirs.
+            deadlineAt: requestStart + 55_000,
           },
           {
             onIntent: async (frame) => {

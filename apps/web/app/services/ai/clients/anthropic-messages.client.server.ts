@@ -15,6 +15,13 @@ export async function anthropicGenerateRecipe(opts: {
   shopId?: string;
   /** Override default max_tokens (default 8192). Hydration responses including previewHtml need more tokens. */
   maxTokens?: number;
+  /**
+   * WS-C Task 10 (C7). Deadline-bounded HTTP timeout, precomputed by
+   * `ConfiguredLlmClient.callProvider` from `GenerateHints.deadlineAt`.
+   * Forwarded verbatim to `postJsonWithRetries`; absent when the caller
+   * (or Env*Client) didn't pass a `deadlineAt` hint — behavior unchanged.
+   */
+  timeoutMs?: number;
   /** When set, sends container.skills and optional code_execution tool with beta headers. */
   skillsConfig?: AnthropicSkillsConfig;
   /**
@@ -90,6 +97,7 @@ export async function anthropicGenerateRecipe(opts: {
       url,
       headers,
       body,
+      timeoutMs: opts.timeoutMs,
       logMeta: { provider: 'ANTHROPIC', model: opts.model, actor: 'INTERNAL' },
       shopId: opts.shopId,
     });

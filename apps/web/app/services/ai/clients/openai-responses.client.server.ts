@@ -10,6 +10,13 @@ export async function openAiGenerateRecipe(opts: {
   /** Override default max_output_tokens (default 8192). Hydration responses need more tokens. */
   maxTokens?: number;
   /**
+   * WS-C Task 10 (C7). Deadline-bounded HTTP timeout, precomputed by
+   * `ConfiguredLlmClient.callProvider` from `GenerateHints.deadlineAt`.
+   * Forwarded verbatim to `postJsonWithRetries`; absent when the caller
+   * (or Env*Client) didn't pass a `deadlineAt` hint — behavior unchanged.
+   */
+  timeoutMs?: number;
+  /**
    * Optional JSON Schema for structured output. When present, OpenAI Responses
    * will guarantee the response matches the schema (text.format = json_schema).
    * Caller must pass a `name` for the schema; we generate one if missing.
@@ -87,6 +94,7 @@ export async function openAiGenerateRecipe(opts: {
       url,
       headers: { authorization: `Bearer ${opts.apiKey}` },
       body,
+      timeoutMs: opts.timeoutMs,
       logMeta: { provider: 'OPENAI', model: opts.model, actor: 'INTERNAL' },
       shopId: opts.shopId,
     });

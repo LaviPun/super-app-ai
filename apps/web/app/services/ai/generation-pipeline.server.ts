@@ -226,6 +226,7 @@ export async function runGenerationPipeline(
     groundingBlock: grounding || undefined,
     exemplar,
     correlationId: input.correlationId,
+    deadlineAt: input.deadlineAt,
   })) {
     // Stop consuming once the caller signals abandonment. In-flight option LLM
     // calls already launched by this generator are not cancelled (the
@@ -306,6 +307,7 @@ export async function runGenerationPipeline(
         routerDecision,
         groundingBlock: grounding || undefined,
         exemplar,
+        deadlineAt: input.deadlineAt,
       });
       if (blueprint) {
         if (aesthetic) {
