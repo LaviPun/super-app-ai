@@ -107,7 +107,7 @@ The app exposes two parallel API surfaces per resource: a session-authenticated 
 
 - **RecipeSpec generation and hydration endpoints** (`/api/ai/create-module`, `/api/ai/hydrate-module`) — see [`docs/generation.md`](./generation.md), which owns the RecipeSpec contract these endpoints produce.
 - **The full cross-resource Agent API endpoint index** (all `/api/agent/*` routes across modules, connectors, flows, schedules, AI primitives, and config) — see the discovery route itself, `apps/web/app/routes/api.agent.tsx`, and the endpoint count in [`docs/implementation-status.md`](./implementation-status.md) ("Agent API surface"). This doc does not re-list that full index.
-- **The Data Stores Agent/UI API specifically** — documented in full below ([§4a](#4a-api-surfaces)), since data stores are this doc's own subject matter per the [`docs/README.md`](./README.md) canonical table.
+- **The Data Stores Agent/UI API specifically** — documented in full below ([§4c](#4c-api-surfaces)), since data stores are this doc's own subject matter per the [`docs/README.md`](./README.md) canonical table.
 
 ### 4a. What are data stores?
 

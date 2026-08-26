@@ -45,8 +45,8 @@ pnpm --filter web test
 pnpm --filter @superapp/core test
 
 # A single Vitest file, or a name filter
-pnpm --filter web exec vitest run app/services/security/crypto.server.test.ts
-pnpm --filter web exec vitest -t "redacts shopify tokens"
+pnpm --filter web exec vitest run app/__tests__/redact.test.ts
+pnpm --filter web exec vitest -t "safeMeta deep-redacts objects and arrays"
 
 # Typecheck / lint (web)
 pnpm --filter web typecheck
