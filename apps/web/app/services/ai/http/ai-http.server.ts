@@ -69,6 +69,10 @@ export async function postJsonWithRetries(opts: {
   const maxRetries = opts.maxRetries ?? 2;
 
   let lastErr: unknown;
+  // WS-C Task 11. Tracked separately from the attempt index because the
+  // 429-specific retry allowance (`max429RetriesAllowed`) is its own budget,
+  // independent of how many 5xx/network retries happened to precede it.
+  let retry429Count = 0;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     // Re-derive the timeout, and check the deadline, EVERY attempt — a
@@ -139,28 +143,55 @@ export async function postJsonWithRetries(opts: {
         }
       }
 
-      // Rate limits: retry once with a short delay, then fail fast.
-      // Long backoffs cause upstream timeouts (Cloudflare, proxies).
+      // Rate limits: honor retry-after when there's deadline budget to spare
+      // it; without a deadline, keep the tunnel-era discipline (one short
+      // retry, capped at 10s) so we never risk an upstream (Cloudflare)
+      // timeout on the inline path.
+      //
+      // WS-C Task 11. `max429RetriesAllowed`: 1 when the caller passed no
+      // `deadlineAt` (behavior unchanged from before this task); up to 3
+      // when a deadline is set AND there's enough remaining budget to
+      // plausibly wait out retry-after and still attempt the call
+      // (`deadlineAt - now > retryAfterMs + 5_000`) — a worker job's ~90-150s
+      // budget can actually afford to honor a provider's requested backoff
+      // instead of giving up after one try.
       if (res.status === 429) {
-        if (attempt === 0 && hasDeadlineBudget(opts.deadlineAt)) {
-          const retryAfter = parseRetryAfterMs(res.headers);
-          await sleep(retryAfter ? Math.min(retryAfter, 10_000) : 5_000);
+        const retryAfterMs = parseRetryAfterMs(res.headers);
+        const effectiveRetryAfterMs = retryAfterMs ?? 5_000;
+        const hasDeadline = opts.deadlineAt !== undefined;
+        const remainingBudgetMs = hasDeadline ? opts.deadlineAt! - Date.now() : undefined;
+        const max429RetriesAllowed = hasDeadline ? 3 : 1;
+        const canAffordRetryAfterWait =
+          remainingBudgetMs === undefined || remainingBudgetMs > effectiveRetryAfterMs + 5_000;
+
+        if (retry429Count < max429RetriesAllowed && attempt < maxRetries && canAffordRetryAfterWait) {
+          retry429Count++;
+          const sleepMs = hasDeadline
+            ? Math.max(0, Math.min(effectiveRetryAfterMs, 30_000, remainingBudgetMs! - 5_000))
+            : Math.min(effectiveRetryAfterMs, 10_000);
+          await sleep(sleepMs);
           continue;
         }
-        // After one retry (or no deadline budget left for one), fail
+        // Retries exhausted (or no deadline budget left for one): fail
         // immediately with a descriptive error.
+        const budgetExhausted = hasDeadline && !canAffordRetryAfterWait;
         const err = Object.assign(
           new Error(`AI provider rate limited (HTTP 429). ${truncate(text, 400)}`),
-          { nonRetryable: true, statusCode: 429 },
+          { nonRetryable: true, statusCode: 429, ...(budgetExhausted ? { deadlineExhausted: true } : {}) },
         );
         throw err;
       }
 
       if (res.status >= 400) {
         // Mark client errors as non-retryable so the catch block doesn't retry them.
+        // WS-C Task 11 (cosmetic): tag with `deadlineExhausted` when this
+        // 4xx/5xx non-retry is happening because the deadline budget ran
+        // out (e.g. a 5xx that fell through here instead of retrying),
+        // for consistency with the 429 branch and the AbortError path below.
+        const budgetExhausted = opts.deadlineAt !== undefined && !hasDeadlineBudget(opts.deadlineAt);
         const err = Object.assign(
           new Error(`AI provider HTTP ${res.status}: ${truncate(text, 800)}`),
-          { nonRetryable: true }
+          { nonRetryable: true, ...(budgetExhausted ? { deadlineExhausted: true } : {}) }
         );
         throw err;
       }

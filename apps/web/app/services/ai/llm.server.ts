@@ -13,6 +13,7 @@ import { openAiGenerateRecipe } from '~/services/ai/clients/openai-responses.cli
 import { anthropicGenerateRecipe } from '~/services/ai/clients/anthropic-messages.client.server';
 import { openAiCompatibleGenerateRecipe } from '~/services/ai/clients/openai-compatible.client.server';
 import { geminiGenerateRecipe } from '~/services/ai/clients/gemini.client.server';
+import { withProviderSlot, getOptionCallStaggerMs } from '~/services/ai/provider-concurrency.server';
 import { getModuleSummary, getAllTypesSummary } from '~/services/ai/module-summaries.server';
 import { CONFIDENCE_THRESHOLDS } from '~/services/ai/classify.server';
 import { getCatalogDetails, getCatalogDetailsForType } from '~/services/ai/catalog-details.server';
@@ -270,101 +271,118 @@ export class ConfiguredLlmClient implements LlmClient {
 (Previous validation error: ${hints.previousError})`
       : prompt;
 
-    if (provider.provider === 'OPENAI') {
-      let openaiFeatures:
-        | { reasoningEffort?: 'low' | 'medium' | 'high'; verbosity?: 'low' | 'medium' | 'high'; webSearch?: boolean }
-        | undefined;
-      if (provider.extraConfig) {
-        try {
-          const parsed = JSON.parse(provider.extraConfig) as {
-            openaiFeatures?: { reasoningEffort?: 'low' | 'medium' | 'high'; verbosity?: 'low' | 'medium' | 'high'; webSearch?: boolean };
-          };
-          if (parsed.openaiFeatures) openaiFeatures = parsed.openaiFeatures;
-        } catch {
-          // ignore invalid extraConfig
-        }
-      }
-      return openAiGenerateRecipe({
-        apiKey,
-        baseUrl: provider.baseUrl ?? undefined,
-        model,
-        prompt: augmentedPrompt,
-        shopId: this.shopId,
-        maxTokens: hints?.maxTokens,
-        responseSchema: hints?.responseSchema,
-        timeoutMs,
-        deadlineAt: hints?.deadlineAt,
-        openaiFeatures,
-      });
-    }
-
-    if (provider.provider === 'ANTHROPIC') {
-      let skillsConfig: { skills?: string[]; codeExecution?: boolean } | undefined;
-      if (provider.extraConfig) {
-        try {
-          const parsed = JSON.parse(provider.extraConfig) as {
-            skills?: string[];
-            codeExecution?: boolean;
-            anthropicFeatures?: { skills?: string[]; codeExecution?: boolean };
-          };
-          const skills = parsed.anthropicFeatures?.skills ?? parsed.skills;
-          const codeExecution = parsed.anthropicFeatures?.codeExecution ?? parsed.codeExecution;
-          if (skills?.length || codeExecution !== undefined) {
-            skillsConfig = { skills, codeExecution };
+    // WS-C Task 11. The actual outbound HTTP dispatch — not the DB/apiKey
+    // lookups above — is what a provider-side rate limiter sees, so only
+    // this part runs inside the per-provider concurrency slot. Keyed by the
+    // DB provider row id: that's the real unit a rate limit applies to (one
+    // API account/key), even when several `AiProvider` rows share a kind.
+    return withProviderSlot(provider.id, async () => {
+      if (provider.provider === 'OPENAI') {
+        let openaiFeatures:
+          | { reasoningEffort?: 'low' | 'medium' | 'high'; verbosity?: 'low' | 'medium' | 'high'; webSearch?: boolean }
+          | undefined;
+        if (provider.extraConfig) {
+          try {
+            const parsed = JSON.parse(provider.extraConfig) as {
+              openaiFeatures?: { reasoningEffort?: 'low' | 'medium' | 'high'; verbosity?: 'low' | 'medium' | 'high'; webSearch?: boolean };
+            };
+            if (parsed.openaiFeatures) openaiFeatures = parsed.openaiFeatures;
+          } catch {
+            // ignore invalid extraConfig
           }
-        } catch {
-          // ignore invalid extraConfig
         }
+        return openAiGenerateRecipe({
+          apiKey,
+          baseUrl: provider.baseUrl ?? undefined,
+          model,
+          prompt: augmentedPrompt,
+          shopId: this.shopId,
+          maxTokens: hints?.maxTokens,
+          responseSchema: hints?.responseSchema,
+          timeoutMs,
+          deadlineAt: hints?.deadlineAt,
+          openaiFeatures,
+        });
       }
-      skillsConfig = guardAnthropicSkillsConfig(skillsConfig, {
-        blockMerchantCodeExecution: this.blockMerchantCodeExecution,
-      });
-      return anthropicGenerateRecipe({
+
+      if (provider.provider === 'ANTHROPIC') {
+        let skillsConfig: { skills?: string[]; codeExecution?: boolean } | undefined;
+        if (provider.extraConfig) {
+          try {
+            const parsed = JSON.parse(provider.extraConfig) as {
+              skills?: string[];
+              codeExecution?: boolean;
+              anthropicFeatures?: { skills?: string[]; codeExecution?: boolean };
+            };
+            const skills = parsed.anthropicFeatures?.skills ?? parsed.skills;
+            const codeExecution = parsed.anthropicFeatures?.codeExecution ?? parsed.codeExecution;
+            if (skills?.length || codeExecution !== undefined) {
+              skillsConfig = { skills, codeExecution };
+            }
+          } catch {
+            // ignore invalid extraConfig
+          }
+        }
+        skillsConfig = guardAnthropicSkillsConfig(skillsConfig, {
+          blockMerchantCodeExecution: this.blockMerchantCodeExecution,
+        });
+        return anthropicGenerateRecipe({
+          apiKey,
+          baseUrl: provider.baseUrl ?? undefined,
+          model,
+          prompt: augmentedPrompt,
+          shopId: this.shopId,
+          skillsConfig,
+          maxTokens: hints?.maxTokens,
+          responseSchema: hints?.responseSchema,
+          timeoutMs,
+          deadlineAt: hints?.deadlineAt,
+        });
+      }
+
+      if (provider.provider === 'GEMINI') {
+        // WS-C Task 11 scope addition (controller, 2026-08-25): previously
+        // only the fail-fast `resolveDeadlineTimeoutMs` guard applied here —
+        // Gemini itself never got a bounded per-call timeout, so a call that
+        // started just under the guard's floor could still run unbounded.
+        return geminiGenerateRecipe({
+          apiKey,
+          baseUrl: provider.baseUrl ?? undefined,
+          model,
+          prompt: augmentedPrompt,
+          shopId: this.shopId,
+          maxTokens: hints?.maxTokens,
+          responseSchema: hints?.responseSchema,
+          timeoutMs,
+          deadlineAt: hints?.deadlineAt,
+        });
+      }
+
+      // CUSTOM or AZURE_OPENAI: treat as OpenAI-compatible.
+      // WS-C Task 11 scope addition (controller, 2026-08-25): same fix as
+      // Gemini above — thread the bounded timeout/deadline through here too.
+      return openAiCompatibleGenerateRecipe({
         apiKey,
-        baseUrl: provider.baseUrl ?? undefined,
+        baseUrl: provider.baseUrl ?? 'https://api.openai.com',
         model,
         prompt: augmentedPrompt,
         shopId: this.shopId,
-        skillsConfig,
         maxTokens: hints?.maxTokens,
         responseSchema: hints?.responseSchema,
         timeoutMs,
         deadlineAt: hints?.deadlineAt,
+        openaiFeatures: (() => {
+          if (!provider.extraConfig) return undefined;
+          try {
+            const parsed = JSON.parse(provider.extraConfig) as {
+              openaiFeatures?: { reasoningEffort?: 'low' | 'medium' | 'high'; verbosity?: 'low' | 'medium' | 'high'; webSearch?: boolean };
+            };
+            return parsed.openaiFeatures;
+          } catch {
+            return undefined;
+          }
+        })(),
       });
-    }
-
-    if (provider.provider === 'GEMINI') {
-      return geminiGenerateRecipe({
-        apiKey,
-        baseUrl: provider.baseUrl ?? undefined,
-        model,
-        prompt: augmentedPrompt,
-        shopId: this.shopId,
-        maxTokens: hints?.maxTokens,
-        responseSchema: hints?.responseSchema,
-      });
-    }
-
-    // CUSTOM or AZURE_OPENAI: treat as OpenAI-compatible
-    return openAiCompatibleGenerateRecipe({
-      apiKey,
-      baseUrl: provider.baseUrl ?? 'https://api.openai.com',
-      model,
-      prompt: augmentedPrompt,
-      shopId: this.shopId,
-      maxTokens: hints?.maxTokens,
-      responseSchema: hints?.responseSchema,
-      openaiFeatures: (() => {
-        if (!provider.extraConfig) return undefined;
-        try {
-          const parsed = JSON.parse(provider.extraConfig) as {
-            openaiFeatures?: { reasoningEffort?: 'low' | 'medium' | 'high'; verbosity?: 'low' | 'medium' | 'high'; webSearch?: boolean };
-          };
-          return parsed.openaiFeatures;
-        } catch {
-          return undefined;
-        }
-      })(),
     });
   }
 }
@@ -456,6 +474,11 @@ export class AiProviderNotConfiguredError extends Error {
     super('AI provider not configured');
     this.name = 'AiProviderNotConfiguredError';
   }
+}
+
+/** WS-C Task 11. Used to stagger option fan-out calls (see `getOptionCallStaggerMs`). */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -1854,6 +1877,13 @@ export async function* generateValidatedRecipeOptionsStream(
   // seedBillingStateForCorrelation.)
   const billing = await seedBillingStateForCorrelation(usage, options?.correlationId);
   const tasks: Promise<OneResult>[] = APPROACH_HINTS.slice(0, optionCount).map(async (approach, idx) => {
+    // WS-C Task 11 [AI-imp]. Smear the option fan-out over
+    // ~2x getOptionCallStaggerMs() instead of firing all `optionCount` calls
+    // in the same instant — a worker's option fan-out (up to 3 calls) times
+    // WORKER_CONCURRENCY concurrent jobs would otherwise present a provider
+    // rate limiter with a spike rather than a ramp. Read at call time (not
+    // hoisted) so OPTION_CALL_STAGGER_MS=0 in tests disables it cleanly.
+    if (idx > 0) await sleep(idx * getOptionCallStaggerMs());
     const startedAt = Date.now();
     const compiledPrompt = compileCreateSingleRecipePrompt({
       purposeAndGuidance,
@@ -2116,6 +2146,9 @@ export async function generateValidatedRecipeOptionsParallel(
   // already-charged so every success here bills 0 instead of double-billing.
   const billing = await seedBillingStateForCorrelation(usage, options?.correlationId);
   const calls = APPROACH_HINTS.slice(0, optionCount).map(async (approach, idx) => {
+    // WS-C Task 11 [AI-imp]. See the identical comment in
+    // `generateValidatedRecipeOptionsStream` — same stagger, same rationale.
+    if (idx > 0) await sleep(idx * getOptionCallStaggerMs());
     const compiledPrompt = compileCreateSingleRecipePrompt({
       purposeAndGuidance,
       moduleType: classification.moduleType,
