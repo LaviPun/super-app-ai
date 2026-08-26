@@ -14,6 +14,8 @@ For merged-change history grouped by launch-program workstream, see [`../CHANGEL
 | [`data-models.md`](./data-models.md)                               | Data store schema, service layer, UI, and Agent API behavior.                                                  |
 | [`internal-admin.md`](./internal-admin.md)                         | Internal operator dashboard, AI assistant, model setup, logs, jobs, and trace views.                           |
 | [`ai-providers.md`](./ai-providers.md)                             | Merchant-generation providers, internal Qwen router, release gate, and safe target URL behavior.               |
+| [`publishing.md`](./publishing.md)                                  | The publish/unpublish/rollback contract — what actually happens to a merchant's store, cited from code.        |
+| [`flows.md`](./flows.md)                                            | The `flow.automation` module type, the `WorkflowEngineService`, and where design and implementation diverge.   |
 | [`operations.md`](./operations.md)                                 | Topology, deploy flow, observability, SLO pointer, and the runbook index.                                      |
 | [`slos.md`](./slos.md)                                             | Reliability targets, measurement queries, and alert policies.                                                  |
 | [`runbooks/`](./runbooks/index.md)                                 | Incident runbooks for publish failures, provider outages, webhook storms, and connector failures.              |
@@ -25,14 +27,16 @@ For merged-change history grouped by launch-program workstream, see [`../CHANGEL
 | Doc                                                      | Use it for                                                            |
 | -------------------------------------------------------- | --------------------------------------------------------------------- |
 | [`implementation-status.md`](./implementation-status.md) | Shipped work, stabilization notes, and recent implementation history. |
-| [`phase-plan.md`](./archive/phase-plan.md)                       | Roadmap, phase acceptance criteria, and future backlog.               |
+
+Roadmap/phase-plan content was archived in Task 1 — see [`archive/phase-plan.md`](./archive/phase-plan.md) for the historical version; it is no longer maintained.
 
 ## Product And Design
 
 | Doc                                                                      | Use it for                                                                   |
 | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
 | [`app.md`](./app.md)                                                     | Concise merchant-facing product guide.                                       |
-| [`uiux-guideline.md`](./archive/uiux-guideline.md)                               | UI/UX guidance. `DESIGN.md` remains the design-system source of truth.       |
+
+UI/UX guidance was archived in Task 1 — see [`archive/uiux-guideline.md`](./archive/uiux-guideline.md) for the historical version. `DESIGN.md` (repo root) remains the live design-system source of truth.
 
 ## Audit Artifacts
 
