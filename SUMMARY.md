@@ -27,7 +27,7 @@
   * [Plan Changes Verification (per codechange-behave.md)](docs/plan-changes-codechange-verification.md)
   * [Release Safety RACI](docs/raci.md)
   * [Release Dashboard Specification](docs/release-dashboard-spec.md)
-  * [Release Operations](docs/release-operations.md)
+  * [Operations](docs/operations.md)
   * [Shopify development setup (Partner account + Dev store + CLI)](docs/shopify-dev-setup.md)
   * [Service Level Objectives (SLOs) — SuperApp](docs/slos.md)
   * [Spec Kit Status Report — Platform V2](docs/archive/spec-kit-status-report.md)

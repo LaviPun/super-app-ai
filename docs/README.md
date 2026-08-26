@@ -12,7 +12,7 @@ This folder contains the maintained, non-GitBook documentation for the Shopify S
 | [`data-models.md`](./data-models.md)                               | Data store schema, service layer, UI, and Agent API behavior.                                                  |
 | [`internal-admin.md`](./internal-admin.md)                         | Internal operator dashboard, AI assistant, model setup, logs, jobs, and trace views.                           |
 | [`ai-providers.md`](./ai-providers.md)                             | Merchant-generation providers, internal Qwen router, release gate, and safe target URL behavior.               |
-| [`release-operations.md`](./release-operations.md)                 | Release safety controls, idempotency scopes, failure classes, and ownership.                                   |
+| [`operations.md`](./operations.md)                                 | Topology, deploy flow, observability, SLO pointer, and the runbook index.                                      |
 | [`slos.md`](./slos.md)                                             | Reliability targets, measurement queries, and alert policies.                                                  |
 | [`runbooks/`](./runbooks/index.md)                                 | Incident runbooks for publish failures, provider outages, webhook storms, and connector failures.              |
 | [`debug.md`](./debug.md)                                           | Recurring bugs and known fixes.                                                                                |

@@ -113,7 +113,7 @@ A multi-agent audit (~230 issues) drove a large repair campaign (commits `3ca5ca
 - **Remix:** `apps/web/app/services/platform-v2/rollout-cutover.server.ts` + root loader `platformV2Cutover` metadata for operators.
 - **Fastify:** `rollout-cutover` plugin gates `/v1/*` until `FASTIFY_API_ENABLED=true` (`/health`, `/ready` stay available).
 - **Workers:** `apps/workers/src/publish-execution.ts` wires `PUBLISH` to `runPublishJob` when `PUBLISH_WORKER_ENABLED` + `JOB_EXECUTION_MODE=queue`.
-- **Docs:** [`phase-21-rollout-cutover.md`](./archive/gitbook-v2-migration/phase-21-rollout-cutover.md), GitBook SUMMARY V2 section, phase **11/13/14** stubs, rollback notes in [`release-operations.md`](./release-operations.md).
+- **Docs:** [`phase-21-rollout-cutover.md`](./archive/gitbook-v2-migration/phase-21-rollout-cutover.md), GitBook SUMMARY V2 section, phase **11/13/14** stubs, rollback notes formerly in `release-operations.md` (renamed/rewritten as [`operations.md`](./operations.md) — the Platform V2 rollback section itself did not carry over, since that topology is retired; see `operations.md` §1).
 - **Verification:** `pnpm test:v2:fast`, `pnpm --filter web test`, platform-contracts/api/workers unit tests.
 
 ## 2026-05-19 (Production readiness continuation — **97/100**)
