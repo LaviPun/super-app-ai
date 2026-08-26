@@ -122,16 +122,3 @@ export function captureMessage(message: string, level: 'info' | 'warning' | 'err
     Sentry.captureMessage(message, level);
   });
 }
-
-/**
- * Flush queued Sentry events before exiting (e.g. in serverless lambdas).
- * Safe to call when Sentry is disabled.
- */
-export async function flushSentry(timeoutMs = 2000): Promise<void> {
-  if (!_enabled) return;
-  try {
-    await Sentry.flush(timeoutMs);
-  } catch {
-    // ignore flush failures
-  }
-}

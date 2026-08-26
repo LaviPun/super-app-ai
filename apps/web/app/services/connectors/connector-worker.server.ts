@@ -1,6 +1,4 @@
-import { getPrisma } from '~/db.server';
 import {
-  parseConnectorTestJobPayload,
   runConnectorTestJob,
   type ConnectorTestJobDeps,
 } from '~/services/connectors/connector-test-job.server';
@@ -21,16 +19,4 @@ export async function runConnectorWorkerJob(
   if (!job.payload) throw new Error('Connector worker job is missing payload');
 
   return runConnectorTestJob(job.id, JSON.parse(job.payload), deps);
-}
-
-export async function runNextConnectorWorkerJob(deps: ConnectorTestJobDeps = {}): Promise<unknown | null> {
-  const prisma = getPrisma();
-  const job = await prisma.job.findFirst({
-    where: { type: 'CONNECTOR_TEST', status: 'QUEUED' },
-    orderBy: { createdAt: 'asc' },
-  });
-
-  if (!job) return null;
-  parseConnectorTestJobPayload(JSON.parse(job.payload ?? 'null'));
-  return runConnectorWorkerJob(job, deps);
 }

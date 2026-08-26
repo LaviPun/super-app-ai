@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { RecipeSpecSchema, type RecipeSpec } from '@superapp/core';
 
@@ -97,54 +96,6 @@ export class PreviewSafetyError extends Error {
   }
 }
 
-export function parsePreviewSurface(value: string | null | undefined): PreviewSurface {
-  const parsed = PreviewSurfaceSchema.safeParse(value ?? 'generic');
-  if (!parsed.success) return 'generic';
-  return parsed.data;
-}
-
-export function buildPreviewPolicy(): PreviewPolicy {
-  return {
-    csp: PREVIEW_CSP,
-    iframeSandbox: PREVIEW_IFRAME_SANDBOX,
-    allowScripts: false,
-    allowForms: false,
-    allowSameOrigin: false,
-    allowPopups: false,
-    renderer: 'generated-preview-artifact',
-  };
-}
-
-export function createPreviewEnvelope(input: {
-  recipeSpec: RecipeSpec;
-  renderKind: 'HTML' | 'JSON';
-  artifactBody: string;
-  surface: PreviewSurface;
-  shopDomain?: string;
-}): PreviewEnvelope {
-  assertPreviewSpecIsSafe(input.recipeSpec);
-
-  const checksumSha256 = sha256(input.artifactBody);
-  const artifactId = `preview_${checksumSha256.slice(0, 32)}`;
-  const envelope = {
-    version: PREVIEW_ENVELOPE_VERSION,
-    recipeSpec: input.recipeSpec,
-    compiledRenderConfig: {
-      kind: input.renderKind,
-      artifactId,
-      checksumSha256,
-    },
-    policy: buildPreviewPolicy(),
-    allowedAssets: collectAllowedAssets(input.recipeSpec),
-    themeContext: {
-      surface: input.surface,
-      ...(input.shopDomain ? { shopDomain: input.shopDomain } : {}),
-    },
-  };
-
-  return PreviewEnvelopeSchema.parse(envelope);
-}
-
 export function assertGeneratedPreviewHtmlIsSafe(html: string) {
   const lower = html.toLowerCase();
   const blockedPatterns = [
@@ -173,17 +124,6 @@ export function assertPreviewSpecIsSafe(spec: RecipeSpec) {
   if (blocked) {
     throw new PreviewSafetyError(`Unsafe preview input rejected: ${blocked}`);
   }
-}
-
-function collectAllowedAssets(spec: RecipeSpec): string[] {
-  const assets = new Set<string>();
-  visitValues(spec, (value) => {
-    if (typeof value !== 'string') return;
-    if (!looksLikeUrl(value)) return;
-    const parsed = HttpAssetUrlSchema.safeParse(value);
-    if (parsed.success) assets.add(parsed.data);
-  });
-  return Array.from(assets);
 }
 
 function findUnsafeValue(value: unknown): string | null {
@@ -217,17 +157,6 @@ function findUnsafeValue(value: unknown): string | null {
   return null;
 }
 
-function visitValues(value: unknown, visitor: (value: unknown) => void) {
-  visitor(value);
-  if (Array.isArray(value)) {
-    value.forEach((item) => visitValues(item, visitor));
-    return;
-  }
-  if (value && typeof value === 'object') {
-    Object.values(value).forEach((item) => visitValues(item, visitor));
-  }
-}
-
 function looksLikeUrl(value: string) {
   try {
     new URL(value);
@@ -235,8 +164,4 @@ function looksLikeUrl(value: string) {
   } catch {
     return false;
   }
-}
-
-function sha256(value: string) {
-  return createHash('sha256').update(value).digest('hex');
 }

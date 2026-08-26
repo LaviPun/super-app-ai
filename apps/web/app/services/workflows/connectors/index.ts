@@ -28,17 +28,6 @@ export function getConnectorRegistry(): Map<string, Connector> {
   return registry;
 }
 
-export function registerConnector(provider: string, connector: Connector): void {
-  registry.set(provider, connector);
-}
-
 export function getConnector(provider: string): Connector | undefined {
   return registry.get(provider);
-}
-
-export function listConnectors(): Array<{ provider: string; manifest: ReturnType<Connector['manifest']> }> {
-  return Array.from(registry.entries()).map(([provider, connector]) => ({
-    provider,
-    manifest: connector.manifest(),
-  }));
 }

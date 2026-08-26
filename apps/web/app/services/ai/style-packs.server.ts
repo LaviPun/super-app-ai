@@ -301,18 +301,6 @@ export function computeAestheticSignalsFromColors(
   };
 }
 
-export function computeAestheticSignals(
-  palette: StorePalette,
-  typography: StoreTypography,
-): AestheticSignals {
-  return computeAestheticSignalsFromColors(
-    [palette.primary, palette.accent, palette.button],
-    [palette.background, palette.text, ...(palette.neutrals ?? [])],
-    typography.headingFont,
-    palette.background,
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Pack selection (dossier §B3 heuristics)
 // ---------------------------------------------------------------------------

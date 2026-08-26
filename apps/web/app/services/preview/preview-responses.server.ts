@@ -1,5 +1,3 @@
-import { json } from '@remix-run/node';
-import type { PreviewArtifact } from './preview-contracts';
 import {
   PREVIEW_CSP,
   PREVIEW_IFRAME_SANDBOX,
@@ -17,22 +15,6 @@ export function previewArtifactHeaders(envelope?: PreviewEnvelope) {
     'x-superapp-preview-policy': 'sandboxed-generated-artifact',
   });
   return headers;
-}
-
-export function previewArtifactResponse(artifact: PreviewArtifact): Response {
-  if (artifact.kind === 'JSON') {
-    return json(
-      {
-        envelope: artifact.envelope,
-        json: artifact.json,
-      },
-      { headers: previewArtifactHeaders(artifact.envelope) },
-    );
-  }
-
-  const headers = previewArtifactHeaders(artifact.envelope);
-  headers.set('content-type', 'text/html; charset=utf-8');
-  return new Response(artifact.html, { headers });
 }
 
 export function previewShellResponse(input: {

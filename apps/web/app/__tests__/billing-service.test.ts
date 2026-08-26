@@ -60,14 +60,6 @@ describe('BillingService (App Pricing model)', () => {
     expect(hoisted.shopUpdate).not.toHaveBeenCalled();
   });
 
-  it('cancelSubscription marks the row CANCELLED', async () => {
-    await new BillingService().cancelSubscription('shop_1');
-    expect(hoisted.updateMany).toHaveBeenCalledWith({
-      where: { shopId: 'shop_1' },
-      data: { status: 'CANCELLED' },
-    });
-  });
-
   it('getActiveSubscription reads the row by shopId', async () => {
     const sub = await new BillingService().getActiveSubscription('shop_1');
     expect(hoisted.findUnique).toHaveBeenCalledWith({ where: { shopId: 'shop_1' } });

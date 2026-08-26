@@ -29,7 +29,7 @@
  * `advanceBilling` records the intent and returns `needsShopifyApi:true`; it does
  * NOT fake a charge.
  */
-import type { CompositeRecord, Workflow } from '@superapp/core';
+import type { Workflow } from '@superapp/core';
 import { getPrisma } from '~/db.server';
 import { DataStoreService } from '~/services/data/data-store.service';
 import { WorkflowEngineService } from '~/services/workflows/workflow-engine.service';
@@ -295,13 +295,6 @@ export function advanceBilling(contractId: string): BillingResult {
     reason:
       'Shopify subscription billing (SubscriptionContract API + selling plans + write_own_subscription_contracts scope) is a scoped follow-up — no charge is written.',
   };
-}
-
-/** Read the reminder-stage policy defaults declared on a composite record, if any. */
-export function stagesFromRecord(_record: CompositeRecord): ReminderStage[] {
-  // Records may declare stages later; for now callers pass explicit stages. This
-  // hook keeps the record the single policy source when that lands (additive).
-  return [];
 }
 
 export type CustomerSubscription = {
