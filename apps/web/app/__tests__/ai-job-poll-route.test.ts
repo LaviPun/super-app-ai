@@ -140,6 +140,41 @@ describe('GET /api/ai/jobs/:jobId', () => {
     });
   });
 
+  it('FAILED publish job with a structured details payload -> details forwarded verbatim (commit-0 fold-in a)', async () => {
+    hoisted.getForShop.mockResolvedValueOnce({
+      id: 'job-1',
+      type: 'PUBLISH',
+      status: 'FAILED',
+      stage: null,
+      correlationId: 'corr-1',
+      result: null,
+      error: JSON.stringify({
+        error: 'PUBLISH_ERROR',
+        message: 'Publish stopped at markPublishedWithTransition.',
+        requestId: 'job-1',
+        details: {
+          failedOp: 'markPublishedWithTransition',
+          completedOps: '["compileRecipe"]',
+          guidance: 'Republish to converge — completed steps are idempotent and will not duplicate.',
+        },
+      }),
+      generationOptions: [],
+    });
+    const { loader } = await import('~/routes/api.ai.jobs.$jobId');
+    const res = await loader({ request: req('job-1'), params: { jobId: 'job-1' } });
+    const body = await res.json();
+    expect(body.error).toEqual({
+      error: 'PUBLISH_ERROR',
+      message: 'Publish stopped at markPublishedWithTransition.',
+      requestId: 'job-1',
+      details: {
+        failedOp: 'markPublishedWithTransition',
+        completedOps: '["compileRecipe"]',
+        guidance: 'Republish to converge — completed steps are idempotent and will not duplicate.',
+      },
+    });
+  });
+
   it('FAILED job with a legacy plain-string error -> wrapped as { error: INTERNAL_ERROR, message: <string> }, never a 500', async () => {
     hoisted.getForShop.mockResolvedValueOnce({
       id: 'job-1',

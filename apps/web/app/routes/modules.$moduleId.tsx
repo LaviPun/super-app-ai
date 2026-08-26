@@ -23,7 +23,7 @@ import {
   ConfirmModal, EmptyState, KV, StatusBadge, Tabs, useCustomEvent, type WcTone,
 } from '~/components/merchant/polaris';
 import { getCategoryDisplayLabel, getCategoryTone } from '~/utils/type-label';
-import { pollJobUntilTerminal } from '~/utils/job-poll';
+import { pollJobUntilTerminal, derivePublishFailureBanner } from '~/utils/job-poll';
 
 
 // Real placement description derived from the module's spec + raw category — no hardcoded copy.
@@ -649,9 +649,20 @@ function ModuleDetailBody() {
           }
           revalidator.revalidate();
         } else if (snapshot.status === 'FAILED') {
-          // snapshot.error?.message carries WS-E's "republishing is safe"
-          // guidance verbatim for a PublishPartialFailureError (Task 9).
-          ctx.toast(snapshot.error?.message ?? 'Publish failed', { error: true });
+          // Commit-0 fold-in (a): structured guidance now rides through the
+          // poll path (Job.error.details) — reuse the already-tested
+          // sync-path banner (setPublishFailure) instead of a toast-only
+          // message when it's present, exactly like the sync publishFetcher
+          // branch above does for PUBLISH_PARTIAL_FAILURE.
+          const failure = derivePublishFailureBanner(snapshot.error);
+          if (failure) {
+            setPublishFailure(failure);
+            ctx.toast('Publish stopped partway through — see details below', { error: true });
+          } else {
+            // snapshot.error?.message carries WS-E's "republishing is safe"
+            // guidance verbatim for a PublishPartialFailureError (Task 9).
+            ctx.toast(snapshot.error?.message ?? 'Publish failed', { error: true });
+          }
         }
       })
       .catch(() => {

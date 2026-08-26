@@ -7,7 +7,7 @@
  * with an AbortError-named error.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { pollJobUntilTerminal, type PolledJobSnapshot } from '~/utils/job-poll';
+import { derivePublishFailureBanner, pollJobUntilTerminal, type PolledJobSnapshot } from '~/utils/job-poll';
 
 function snapshot(overrides: Partial<PolledJobSnapshot>): PolledJobSnapshot {
   return {
@@ -194,5 +194,45 @@ describe('pollJobUntilTerminal', () => {
       await vi.advanceTimersByTimeAsync(1000);
       await assertion;
     });
+  });
+});
+
+describe('derivePublishFailureBanner', () => {
+  it('a FAILED publish-job snapshot with structured details renders through setPublishFailure (returns the banner shape)', () => {
+    const banner = derivePublishFailureBanner({
+      error: 'PUBLISH_ERROR',
+      message: 'Publish stopped at markPublishedWithTransition.',
+      requestId: 'job_1',
+      details: {
+        failedOp: 'markPublishedWithTransition',
+        completedOps: '["compileRecipe","deployFunctions"]',
+        guidance: 'Republish to converge — completed steps are idempotent and will not duplicate.',
+      },
+    });
+    expect(banner).toEqual({
+      failedOp: 'markPublishedWithTransition',
+      guidance: 'Republish to converge — completed steps are idempotent and will not duplicate.',
+      message: 'Publish stopped at markPublishedWithTransition.',
+    });
+  });
+
+  it('returns null for a plain PUBLISH_ERROR with no details (caller falls back to a toast)', () => {
+    expect(
+      derivePublishFailureBanner({ error: 'PUBLISH_ERROR', message: 'Publish failed unexpectedly.' }),
+    ).toBeNull();
+  });
+
+  it('returns null for a non-publish error even if it happens to carry details', () => {
+    expect(
+      derivePublishFailureBanner({
+        error: 'NOT_FOUND',
+        message: 'Generation job not found.',
+        details: { foo: 'bar' },
+      }),
+    ).toBeNull();
+  });
+
+  it('returns null for a null error', () => {
+    expect(derivePublishFailureBanner(null)).toBeNull();
   });
 });

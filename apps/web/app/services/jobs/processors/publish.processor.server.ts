@@ -28,7 +28,16 @@ import type { AppErrorPayload } from '~/services/errors/app-error.server';
  * no LLM calls). A timeout here always resolves to a plain FAILED (never
  * mistaken for a `PublishPartialFailureError`, since we can't safely read
  * back a ledger from a call we walked away from) — republish-is-idempotent
- * (WS-E) still makes the merchant's next attempt converge. */
+ * (WS-E) still makes the merchant's next attempt converge.
+ *
+ * Commit-0 fold-in (b): this timeout does NOT cancel the in-flight Shopify
+ * writes `publisher.publish()` already issued — `Promise.race` only stops
+ * this handler from waiting on them, the underlying Admin API calls keep
+ * running to completion (or failure) on their own. "Safe" above means
+ * eventually-consistent after a manual republish, not immediately
+ * consistent: until the merchant republishes, `Module`/`ActivityLog` state
+ * can diverge from what Shopify actually holds for however long the
+ * abandoned call takes to resolve. */
 function withBudget<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {

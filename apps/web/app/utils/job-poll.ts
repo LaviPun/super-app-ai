@@ -28,7 +28,7 @@ export type PolledJobSnapshot = {
   }>;
   recommendedIndex: number | null;
   result: unknown | null;
-  error: { error: string; message: string; requestId?: string } | null;
+  error: { error: string; message: string; requestId?: string; details?: Record<string, unknown> } | null;
 };
 
 export type PollJobOptions = {
@@ -184,4 +184,30 @@ export async function pollJobUntilTerminal(
 
     await delay(intervalMs, opts.signal);
   }
+}
+
+/**
+ * Commit-0 fold-in (a). A FAILED publish-job snapshot whose error carries
+ * structured `details` (WS-E's `PublishPartialFailureError` — `failedOp`,
+ * `completedOps`, `guidance` — persisted by the publish processor into
+ * `Job.error.details` and now forwarded by the poll route's `parseJobError`)
+ * should drive the same `setPublishFailure({ failedOp, guidance, message })`
+ * banner the SYNC publish path already uses (`modules.$moduleId.tsx`), not a
+ * toast-only message the merchant can't act on. Returns `null` when the
+ * failure is a plain error (no `details`) — the caller falls back to a toast.
+ *
+ * Pulled out as a pure function (rather than inlined in the route component)
+ * so it is unit-testable without a React/DOM test harness, which this repo
+ * does not otherwise set up for route components.
+ */
+export function derivePublishFailureBanner(
+  error: PolledJobSnapshot['error'],
+): { failedOp?: string; guidance?: string; message: string } | null {
+  if (!error || error.error !== 'PUBLISH_ERROR' || !error.details) return null;
+  const { failedOp, guidance } = error.details;
+  return {
+    ...(typeof failedOp === 'string' ? { failedOp } : {}),
+    ...(typeof guidance === 'string' ? { guidance } : {}),
+    message: error.message,
+  };
 }
