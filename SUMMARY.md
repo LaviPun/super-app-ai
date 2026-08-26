@@ -33,7 +33,7 @@
   * [Spec Kit Status Report — Platform V2](docs/archive/spec-kit-status-report.md)
   * [superai-doc](docs/archive/superai-doc.md)
   * [SuperApp Surface Inventory](docs/archive/superapp-surface-inventory.md)
-  * [Technical documentation — AI Shopify SuperApp](docs/technical.md)
+  * [Architecture — AI Shopify SuperApp](docs/architecture.md)
   * [Super App AI for Shopify — UI/UX Guidelines](docs/archive/uiux-guideline.md)
   * [Archive](docs/archive/README.md)
     * [Gadget.dev option](docs/archive/gadget-option.md)

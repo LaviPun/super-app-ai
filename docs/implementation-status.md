@@ -496,7 +496,7 @@ Closeout closes when (a) every tracking-board `Status` cell moves from `Planned`
 
 ## Universal Module Slot & extension plan ✅ Complete (Metaobject-only, API 2026-04+)
 
-**Status:** Complete. All surfaces migrated to metaobject-only data storage — no legacy JSON metafield blobs. Full architecture in [technical.md](./technical.md) §15.
+**Status:** Complete. All surfaces migrated to metaobject-only data storage — no legacy JSON metafield blobs. Full architecture in [architecture.md](./architecture.md) §7 "Extension architecture".
 
 **Theme app extension — delivered:**
 
@@ -611,7 +611,7 @@ All `/api/agent/*` routes use `shopify.authenticate.admin(request)` (same auth a
 
 ## AI Patch Plan — Remove Generic Outputs ✅ Phases 1–5 Complete
 
-Audit and fixes so the AI produces **no generic outputs** unless truly the best safe fallback, with **maximum creativity** (UI, config, behavior/animations) within documented restrictions (OS 2.0 only, no deprecated injection, no arbitrary merchant code, strict RecipeSpec validation). See also [technical.md](./technical.md) § 7a.
+Audit and fixes so the AI produces **no generic outputs** unless truly the best safe fallback, with **maximum creativity** (UI, config, behavior/animations) within documented restrictions (OS 2.0 only, no deprecated injection, no arbitrary merchant code, strict RecipeSpec validation). See also [generation.md](./generation.md).
 
 ### Root causes — status
 
@@ -623,7 +623,7 @@ Audit and fixes so the AI produces **no generic outputs** unless truly the best 
 | Routing fallback in intent-packet.server.ts | `intent-packet.server.ts` | ✅ Fixed — falls back to `classification.moduleType` not hardcoded 'promo.popup' |
 | Schema/catalog only on retry | `llm.server.ts` | ✅ Fixed — when `confidenceScore < 0.8` (not direct), full schema + style + catalog included on attempt 0 |
 | Stub client when no provider | `getLlmClient()` | ✅ Fixed — throws `AiProviderNotConfiguredError`; setup CTA surfaced in API response |
-| Routing output_schema vs validator | ROUTING_TABLE | ✅ Documented — `StorefrontModuleSpecV1` is implemented as RecipeSpec (see technical.md) |
+| Routing output_schema vs validator | ROUTING_TABLE | ✅ Documented — `StorefrontModuleSpecV1` is implemented as RecipeSpec (see architecture.md / generation.md) |
 | theme.effect schema too small | `recipe.ts`, `allowed-values.ts` | ✅ Fixed — expanded to 7 fields: effectKind, intensity, speed, startTrigger, durationSeconds, overlayPlacement, reducedMotion |
 | Catalog mapping missing effect | `catalog-details.server.ts` | ✅ Fixed — `theme.effect: 'effect'`, `proxy.widget: 'widget'`, `theme.floatingWidget: 'widget'` in TYPE_TO_TEMPLATE_KIND |
 | No invariant tests | `packages/core/src/__tests__/intent-packet.test.ts` | ✅ Added — covers CLEAN_INTENTS completeness, ROUTING_TABLE completeness, blueprint fallback, utility.effect + utility.floating_widget |

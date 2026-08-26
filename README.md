@@ -1134,7 +1134,7 @@ The full documentation set lives under [`docs/`](docs/). Highlights:
 | [`docs/gitbook/README.md`](docs/gitbook/README.md) + [`docs/gitbook/SUMMARY.md`](docs/gitbook/SUMMARY.md) | GitBook-style outline (welcome, guides, architecture, reference, ops, planning) |
 | [`docs/gitbook/06-internal-admin/internal-ai-assistant.md`](docs/gitbook/06-internal-admin/internal-ai-assistant.md) | Internal AI assistant / model setup: routes, probes, release gate, retention (links to `internal-admin.md` + `ai-providers.md`) |
 | [`docs/ai-module-main-doc.md`](docs/ai-module-main-doc.md) | RecipeSpec and capabilities — primary spec for modules |
-| [`docs/technical.md`](docs/technical.md) | High-level architecture, services, security, universal module slot |
+| [`docs/architecture.md`](docs/architecture.md) | High-level architecture, services, security, extension architecture |
 | [`docs/ai-providers.md`](docs/ai-providers.md) | AI provider integration, module-gen vs internal split |
 | [`docs/internal-admin.md`](docs/internal-admin.md) | Internal admin dashboard routes and features |
 | [`docs/app.md`](docs/app.md) | Merchant-facing guide |

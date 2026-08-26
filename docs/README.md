@@ -7,7 +7,7 @@ This folder contains the maintained, non-GitBook documentation for the Shopify S
 | Doc                                                                | Use it for                                                                                                     |
 | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
 | [`shopify-dev-setup.md`](./shopify-dev-setup.md)                   | Local Shopify CLI, Partner account, dev store, scopes, and extension deployment setup.                         |
-| [`technical.md`](./technical.md)                                   | Compact architecture reference: RecipeSpec flow, services, extensions, security, jobs, and release boundaries. |
+| [`architecture.md`](./architecture.md)                             | Process topology, RecipeSpec at a glance, capability gating, security model, data model summary, and extension architecture. |
 | [`ai-module-main-doc.md`](./ai-module-main-doc.md)                 | Full RecipeSpec, allowed values, generator rules, capability gating, and module-builder reference.             |
 | [`superapp-surface-inventory.md`](./archive/superapp-surface-inventory.md) | Practical Shopify surface/capability inventory and current implementation boundaries.                          |
 | [`catalog.md`](./archive/catalog.md)                                       | Generated catalog and curated template model.                                                                  |
