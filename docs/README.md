@@ -15,6 +15,7 @@ This folder contains the maintained, non-GitBook documentation for the Shopify S
 | [`operations.md`](./operations.md)                                 | Topology, deploy flow, observability, SLO pointer, and the runbook index.                                      |
 | [`slos.md`](./slos.md)                                             | Reliability targets, measurement queries, and alert policies.                                                  |
 | [`runbooks/`](./runbooks/index.md)                                 | Incident runbooks for publish failures, provider outages, webhook storms, and connector failures.              |
+| [`testing.md`](./testing.md)                                       | Test categories, local run commands, CI gates, the eval harness, and how to add a test for a new module type.  |
 | [`debug.md`](./debug.md)                                           | Recurring bugs and known fixes.                                                                                |
 
 ## Planning And Status
