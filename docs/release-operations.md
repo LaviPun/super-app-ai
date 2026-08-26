@@ -13,7 +13,7 @@ Target topology while Remix remains the embedded app of record:
 | `apps/workers` | Railway | `apps/workers/Dockerfile`, `apps/workers/railway.toml` | `GET /health`, `GET /ready` on `WORKER_HEALTH_PORT` |
 | Legacy `apps/web` | Existing Fly/host | `apps/web/Dockerfile.internal-router` | Unchanged until cutover |
 
-Environment matrices and RunPod/R2/observability variables: [`deployment/env-matrix.md`](./deployment/env-matrix.md).
+Environment matrices and RunPod/R2/observability variables: [`deployment/env-matrix.md`](./archive/deployment/env-matrix.md).
 
 Local gates before promoting a release candidate:
 
@@ -31,7 +31,7 @@ Rollback: promote the previous Vercel deployment; redeploy the prior Railway ima
 
 ### Platform V2 staged rollback (Phase 21)
 
-Use when a canary release of Next.js, Fastify, or BullMQ workers misbehaves. Full checklist: [`docs/gitbook/02-architecture/v2-migration/phase-21-rollout-cutover.md`](./gitbook/02-architecture/v2-migration/phase-21-rollout-cutover.md).
+Use when a canary release of Next.js, Fastify, or BullMQ workers misbehaves. Full checklist: [`docs/archive/gitbook-v2-migration/phase-21-rollout-cutover.md`](./archive/gitbook-v2-migration/phase-21-rollout-cutover.md).
 
 1. **Traffic back to Remix:** unset or set to `false`: `FRONTEND_NEXT_ENABLED`, `SHOPIFY_EMBEDDED_NEXT_CUTOVER_ENABLED`, `FASTIFY_API_ENABLED`.
 2. **Stop async side effects:** unset worker flags (`AI_GENERATION_ASYNC_ENABLED`, `WEBHOOK_ASYNC_ENABLED`, `FLOW_ASYNC_ENABLED`, `CONNECTOR_WORKER_ENABLED`, `PUBLISH_WORKER_ENABLED`) and set `JOB_EXECUTION_MODE=inline` (or `disabled` to hard-stop enqueue).

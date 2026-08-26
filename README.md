@@ -148,11 +148,11 @@ The trust boundary is enforced by `packages/core/src/recipe.ts` (Zod schema) and
 
 ### Platform V2 Phase 12 (storage and image worker)
 
-Phase 12 of the Platform V2 migration adds generated-asset contracts in `packages/platform-contracts`, the platform job registry in `packages/platform-contracts/src/platform-jobs.ts`, job orchestration in `packages/job-orchestration`, the Fastify API skeleton in `apps/api`, the `ImageWorkerHandler` in `apps/workers`, and BullMQ worker runtime in `apps/workers/src/worker-runtime.ts`. Generated assets and preview exports are stored through a `StorageAdapter` (local filesystem in dev/test, Cloudflare R2 contract with injectable binding in production). Remix preview routes call `schedulePreviewExport()` when `PREVIEW_EXPORT_QUEUE_ENABLED=1`; jobs run inline by default or enqueue to BullMQ when `JOB_EXECUTION_MODE=queue` and Redis is configured. See [`docs/gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md`](docs/gitbook/02-architecture/v2-migration/phase-12-storage-image-worker.md).
+Phase 12 of the Platform V2 migration adds generated-asset contracts in `packages/platform-contracts`, the platform job registry in `packages/platform-contracts/src/platform-jobs.ts`, job orchestration in `packages/job-orchestration`, the Fastify API skeleton in `apps/api`, the `ImageWorkerHandler` in `apps/workers`, and BullMQ worker runtime in `apps/workers/src/worker-runtime.ts`. Generated assets and preview exports are stored through a `StorageAdapter` (local filesystem in dev/test, Cloudflare R2 contract with injectable binding in production). Remix preview routes call `schedulePreviewExport()` when `PREVIEW_EXPORT_QUEUE_ENABLED=1`; jobs run inline by default or enqueue to BullMQ when `JOB_EXECUTION_MODE=queue` and Redis is configured. See [`docs/archive/gitbook-v2-migration/phase-12-storage-image-worker.md`](docs/archive/gitbook-v2-migration/phase-12-storage-image-worker.md).
 
 ### Platform V2 Phase 13 (preview sandbox)
 
-Phase 13 adds a RecipeSpec-safe preview sandbox: envelope contracts in `packages/platform-contracts/src/preview.ts`, Fastify preview data routes in `apps/api` (`/v1/preview/:shopId/:moduleId/envelope` and `/content` with strict CSP), and a Next.js preview shell in `apps/frontend/app/preview/[shopId]/[moduleId]` that embeds exported artifacts in a sandboxed iframe. Preview HTML is served from storage written by Phase 12 `PREVIEW_EXPORT` jobs — no Liquid, no merchant scripts. See [`docs/gitbook/02-architecture/v2-migration/phase-13-preview-sandbox.md`](docs/gitbook/02-architecture/v2-migration/phase-13-preview-sandbox.md).
+Phase 13 adds a RecipeSpec-safe preview sandbox: envelope contracts in `packages/platform-contracts/src/preview.ts`, Fastify preview data routes in `apps/api` (`/v1/preview/:shopId/:moduleId/envelope` and `/content` with strict CSP), and a Next.js preview shell in `apps/frontend/app/preview/[shopId]/[moduleId]` that embeds exported artifacts in a sandboxed iframe. Preview HTML is served from storage written by Phase 12 `PREVIEW_EXPORT` jobs — no Liquid, no merchant scripts. See [`docs/archive/gitbook-v2-migration/phase-13-preview-sandbox.md`](docs/archive/gitbook-v2-migration/phase-13-preview-sandbox.md).
 
 ### Two AI layers
 
@@ -478,7 +478,7 @@ Local storage defaults to `.data/superapp-assets` (override with `LOCAL_STORAGE_
 
 All tests run via **Vitest 3**. Tests live next to the code they exercise; cross-cutting suites live in `apps/web/app/__tests__/`. Vitest config (`apps/web/vitest.config.ts`) sets `environment: 'node'`, aliases `~` to `app/`, and seeds `INTERNAL_ADMIN_SESSION_SECRET` so cookie session code can be exercised.
 
-Current automated baseline is **347 tests** (see [`docs/_glossary.md`](docs/_glossary.md) and `docs/audit/test-baseline.json`).
+Current automated baseline is tracked in `docs/audit/test-baseline.json` (run `pnpm --filter web test` for the live count).
 
 ### Test categories
 
@@ -628,7 +628,7 @@ The Theme Editor cannot enumerate dynamic module lists, so theme app extensions 
 
 ### Module templates
 
-100+ pre-built templates covering all 14 RecipeSpec types live in `packages/core` and are listed in [`docs/catalog.md`](docs/catalog.md). Template readiness enforces required Shopify data-surface flags (`CUSTOMER_DATA`, `PRODUCT_DATA`, `COLLECTION_DATA`, `METAFIELD_DATA`, `METAOBJECT_DATA`, `ORDER_DATA`, `CART_DATA`, `CHECKOUT_DATA`, `FUNCTION_DATA`) and reports precise install blockers.
+100+ pre-built templates covering all 14 RecipeSpec types live in `packages/core` and are listed in [`docs/catalog.md`](docs/archive/catalog.md). Template readiness enforces required Shopify data-surface flags (`CUSTOMER_DATA`, `PRODUCT_DATA`, `COLLECTION_DATA`, `METAFIELD_DATA`, `METAOBJECT_DATA`, `ORDER_DATA`, `CART_DATA`, `CHECKOUT_DATA`, `FUNCTION_DATA`) and reports precise install blockers.
 
 ### Connectors and workflow engine
 
@@ -680,7 +680,7 @@ Note: `extensions/functions/` currently contains the `discount-rules` scaffold; 
 
 The full `/api/agent/*` surface mirrors what the merchant UI can do. Discovery index lives at `GET /api/agent` (returns JSON describing every endpoint), and routing config introspection lives at `GET /api/agent/config`. Every mutating action is logged to `ActivityLog` with `actor: SYSTEM, source: agent_api`.
 
-The current Agent API surface has **30 endpoints** (SSOT: [`docs/_glossary.md`](docs/_glossary.md)).
+The current Agent API surface is discoverable live at `GET /api/agent` (returns JSON describing every endpoint) rather than a hand-maintained count here.
 
 **Auth:** every request requires Shopify admin authentication (session cookie or token). Bodies are `application/json`. Errors return `{ error: string }` with appropriate HTTP status codes.
 
@@ -992,11 +992,10 @@ Node **24.x** (`.nvmrc`) and pnpm **9.15.x** (`packageManager`) are pinned. No C
 
 ## Roadmap and status
 
-- [`docs/phase-plan.md`](docs/phase-plan.md) — full phase plan and acceptance criteria (Phase 0 baseline through Phase 8 production hardening, plus stand-alone tracks for storefront UI styles, workflow engine, agent-native architecture, etc.).
+- [`docs/phase-plan.md`](docs/archive/phase-plan.md) — full phase plan and acceptance criteria (Phase 0 baseline through Phase 8 production hardening, plus stand-alone tracks for storefront UI styles, workflow engine, agent-native architecture, etc.).
 - [`docs/implementation-status.md`](docs/implementation-status.md) — shipped work, stabilization notes, AI Patch Plan progress, and audit history.
-- [`docs/_glossary.md`](docs/_glossary.md) — SSOT for shared numeric facts (test baseline, Agent API endpoint count, and canonical Phase 2 scope label).
-- [`docs/catalog.md`](docs/catalog.md) — template catalog and AI retry mapping.
-- [`docs/superapp-surface-inventory.md`](docs/superapp-surface-inventory.md) — exhaustive surface inventory.
+- [`docs/catalog.md`](docs/archive/catalog.md) — template catalog and AI retry mapping.
+- [`docs/superapp-surface-inventory.md`](docs/archive/superapp-surface-inventory.md) — exhaustive surface inventory.
 
 ---
 
@@ -1032,7 +1031,7 @@ Node **24.x** (`.nvmrc`) and pnpm **9.15.x** (`packageManager`) are pinned. No C
 - **API Worker** — `apps/api/wrangler.jsonc`; deploy with `pnpm --filter @superapp/api deploy:cf`
 - **Queue consumer** — `apps/workers/wrangler.jsonc`; deploy with `pnpm --filter @superapp/workers deploy:cf`
 - **Preview frontend** — `apps/frontend/wrangler.jsonc`; Pages deploy via `deploy:cf` script
-- **Runbook** — [`docs/gitbook/02-architecture/v2-migration/cloudflare-deployment-runbook.md`](docs/gitbook/02-architecture/v2-migration/cloudflare-deployment-runbook.md)
+- **Runbook** — [`docs/archive/gitbook-v2-migration/cloudflare-deployment-runbook.md`](docs/archive/gitbook-v2-migration/cloudflare-deployment-runbook.md)
 - **Railway** — operator runbook in [`deploy/railway-internal-router/`](deploy/railway-internal-router/):
   1. New Railway service in the same project as API/workers; repo root as working directory.
   2. Builder config: [`apps/web/railway.internal-router.toml`](apps/web/railway.internal-router.toml) → `apps/web/Dockerfile.internal-router`.
@@ -1139,16 +1138,16 @@ The full documentation set lives under [`docs/`](docs/). Highlights:
 | [`docs/ai-providers.md`](docs/ai-providers.md) | AI provider integration, module-gen vs internal split |
 | [`docs/internal-admin.md`](docs/internal-admin.md) | Internal admin dashboard routes and features |
 | [`docs/app.md`](docs/app.md) | Merchant-facing guide |
-| [`docs/module-settings-modernization.md`](docs/module-settings-modernization.md) | Module settings patterns |
+| [`docs/module-settings-modernization.md`](docs/archive/module-settings-modernization.md) | Module settings patterns |
 | [`docs/implementation-status.md`](docs/implementation-status.md) | Shipped work, stabilization notes, AI Patch Plan |
-| [`docs/phase-plan.md`](docs/phase-plan.md) | Roadmap and backlog |
+| [`docs/phase-plan.md`](docs/archive/phase-plan.md) | Roadmap and backlog |
 | [`docs/debug.md`](docs/debug.md) | Extension limits, embedded auth, known issues |
-| [`docs/catalog.md`](docs/catalog.md) | Template catalog and AI retry mapping |
+| [`docs/catalog.md`](docs/archive/catalog.md) | Template catalog and AI retry mapping |
 | [`docs/shopify-dev-setup.md`](docs/shopify-dev-setup.md) | Partner account + dev store + CLI walkthrough |
 | [`docs/data-models.md`](docs/data-models.md) | Data store schemas |
 | [`docs/runbooks/`](docs/runbooks/) | Operational runbooks |
 | [`docs/slos.md`](docs/slos.md) | Service-level objectives |
-| [`docs/uiux-guideline.md`](docs/uiux-guideline.md) | UI/UX guidelines |
+| [`docs/uiux-guideline.md`](docs/archive/uiux-guideline.md) | UI/UX guidelines |
 | [`docs/archive/README.md`](docs/archive/README.md) | Archived artifacts and notes |
 | [`DESIGN.md`](DESIGN.md) | Design system source of truth (typography, color, spacing, motion) |
 | [`codechange-behave.md`](codechange-behave.md) | Change-propagation checklist |

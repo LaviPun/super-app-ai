@@ -17,13 +17,12 @@ This plan is structured for iterative development with strong quality gates:
 
 > Cursor guidance: keep each phase as a PR-sized chunk with tests.
 > See [implementation-status.md](./implementation-status.md) for detailed delivery notes.
-> Shared numeric facts are tracked in [`_glossary.md`](./_glossary.md).
 
 ---
 
 ## Platform V2 migration (Phases 0–21) — branch `vr/v2`
 
-Canonical architecture: [platform-v2-migration-plan.md](./gitbook/02-architecture/platform-v2-migration-plan.md) and [ADR-001](./gitbook/02-architecture/v2-migration/ADR-001-platform-v2-architecture.md).
+Canonical architecture: [platform-v2-migration-plan.md](./gitbook/02-architecture/platform-v2-migration-plan.md) and [ADR-001](./gitbook-v2-migration/ADR-001-platform-v2-architecture.md).
 
 | Phase | Topic | Status on `vr/v2` |
 | ----- | ----- | ----------------- |
@@ -33,13 +32,13 @@ Canonical architecture: [platform-v2-migration-plan.md](./gitbook/02-architectur
 | 12 | Storage / image worker | ✅ In tree; flag-gated |
 | 13 | Preview sandbox | ✅ Local; script blocking deferred to hardening |
 | 14 | Intent graph / Recipe DSL | ✅ Foundation; deployable-code gate separate |
-| 15 | Data layer / Postgres | ✅ SQLite + repository; **Postgres driver deferred** — see [phase-15](./gitbook/02-architecture/v2-migration/phase-15-data-layer-productionization.md) + [`packages/db/.env.example`](../packages/db/.env.example) |
+| 15 | Data layer / Postgres | ✅ SQLite + repository; **Postgres driver deferred** — see [phase-15](./gitbook-v2-migration/phase-15-data-layer-productionization.md) + [`packages/db/.env.example`](../packages/db/.env.example) |
 | 16 | Observability | ✅ OTLP hooks; prod backends manual |
-| 17 | Security / compliance | ✅ SSRF, HMAC, GDPR ingress, rate-limit stub — [checklist](./gitbook/02-architecture/v2-migration/phase-17-security-compliance.md) |
-| 18 | Deployment | ✅ Cloudflare-primary ([ADR-002](./gitbook/02-architecture/v2-migration/ADR-002-cloudflare-v2-hosting.md)); Vercel/Railway are the `PLATFORM_BACKEND=fastify` alternate — [hosting guide](./integrations/platform-hosting.md) |
+| 17 | Security / compliance | ✅ SSRF, HMAC, GDPR ingress, rate-limit stub — [checklist](./gitbook-v2-migration/phase-17-security-compliance.md) |
+| 18 | Deployment | ✅ Cloudflare-primary ([ADR-002](./gitbook-v2-migration/ADR-002-cloudflare-v2-hosting.md)); Vercel/Railway are the `PLATFORM_BACKEND=fastify` alternate — [hosting guide](./integrations/platform-hosting.md) |
 | 19 | Async UX | ✅ SSE job events + Next panels |
 | 20 | Testing matrix | ✅ `pnpm test:v2*` + CI workflow |
-| 21 | Rollout / cutover | ✅ Flags default **off** — [phase-21](./gitbook/02-architecture/v2-migration/phase-21-rollout-cutover.md) |
+| 21 | Rollout / cutover | ✅ Flags default **off** — [phase-21](./gitbook-v2-migration/phase-21-rollout-cutover.md) |
 
 **Phase worktrees:** twelve `platform-v2-phase-*` / `vr/v2-phase10-*` worktrees remain at commit `1b0df9d` (pre-V2 land). They are **not blocking** — main workspace on `vr/v2` is canonical; worktrees can be removed after operators confirm no local-only patches.
 

@@ -153,7 +153,7 @@ If you enable a “debug capture” mode later, store it per shop and time-bound
 
 ## 2026-06-14 — Module-generation uplift: call budget + guardrails (specs 022/023)
 
-Source of truth: [`module-system-v2.md`](./module-system-v2.md). Contracts: `packages/platform-contracts/src/{requirement-spec,generation-guardrails}.ts`.
+Source of truth: [`module-system-v2.md`](./archive/module-system-v2.md). Contracts: `packages/platform-contracts/src/{requirement-spec,generation-guardrails}.ts`.
 
 ### Per-create call budget (WS1 / 022)
 Asserted and logged via `AiUsage`:

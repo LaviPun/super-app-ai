@@ -15,7 +15,7 @@ Single source of truth by topic. Prefer these files; avoid duplicating content i
 | Document | Role |
 |----------|------|
 | [`implementation-status.md`](../../implementation-status.md) | What shipped, stabilization, audits-as-narrative, recent changes |
-| [`phase-plan.md`](../../phase-plan.md) | Roadmap, backlog, phased delivery |
+| [`phase-plan.md`](../../archive/phase-plan.md) | Roadmap, backlog, phased delivery |
 | [`README.md`](../../../README.md) (repo root) | Product overview, monorepo layout, agent API summary |
 
 ## Experiences
@@ -32,7 +32,7 @@ Single source of truth by topic. Prefer these files; avoid duplicating content i
 |-------|----------|
 | Architecture, extensions, §15 slots, security | [`technical.md`](../../technical.md) |
 | RecipeSpec, capabilities, allowed values | [`ai-module-main-doc.md`](../../ai-module-main-doc.md) |
-| Template catalog & AI retry mapping | [`catalog.md`](../../catalog.md) |
+| Template catalog & AI retry mapping | [`catalog.md`](../../archive/catalog.md) |
 | Data stores (schema, APIs, UI) | [`data-models.md`](../../data-models.md) |
 | LLM providers & routing | [`ai-providers.md`](../../ai-providers.md) |
 | Shopify CLI / dev environments | [`shopify-dev-setup.md`](../../shopify-dev-setup.md) |
@@ -44,13 +44,13 @@ Single source of truth by topic. Prefer these files; avoid duplicating content i
 |-------|----------|
 | SLOs & measurement | [`slos.md`](../../slos.md) |
 | Incidents | [`runbooks/index.md`](../../runbooks/index.md) (hub) |
-| UI conventions | [`uiux-guideline.md`](../../uiux-guideline.md) + root [`DESIGN.md`](../../../DESIGN.md) |
+| UI conventions | [`uiux-guideline.md`](../../archive/uiux-guideline.md) + root [`DESIGN.md`](../../../DESIGN.md) |
 
 ## Extra reference
 
 | Document | Role |
 |----------|------|
-| [`superai-doc.md`](../../superai-doc.md) | Long-form Shopify/platform constraint inventory (optional deep read) |
+| [`superai-doc.md`](../../archive/superai-doc.md) | Long-form Shopify/platform constraint inventory (optional deep read) |
 | [`plan-changes-codechange-verification.md`](../../plan-changes-codechange-verification.md) | Example propagation checklist for doc/code changes |
 | [`archive/`](../../archive/) | Archived artifacts and notes |
 

@@ -82,9 +82,9 @@ A multi-agent audit (~230 issues) drove a large repair campaign (commits `3ca5ca
 
 ## 2026-06-12 (Backend switch + Anthropic assistant backend)
 
-- **Spec Kit audit:** living status report at [`spec-kit-status-report.md`](./spec-kit-status-report.md) (phase matrix, contract-model inventory, research-artifact gaps, SC-M1–M5, deploy-policy conflicts, remediation P0–P4).
+- **Spec Kit audit:** living status report at [`spec-kit-status-report.md`](./archive/spec-kit-status-report.md) (phase matrix, contract-model inventory, research-artifact gaps, SC-M1–M5, deploy-policy conflicts, remediation P0–P4).
 - **Spec rework (P0–P2):** applied remediation from status report — ADR-002 scoped hosting policy; corrected SC-M5/SC-004 false Railway claims; dual-queue + `PLATFORM_BACKEND` in master spec; `research.md` for phases 002/021; expanded specs 003/008/009/017/019/021; env-matrix Cloudflare vs Fastify sections; task hygiene on stub phases; constitution monorepo update.
-- **`PLATFORM_BACKEND` switch:** single env (`cloudflare` | `fastify`) selects the v2 backend; presets `FASTIFY_API_ENABLED` and `JOB_EXECUTION_MODE` (explicit flags still override). See [`env-matrix.md`](./deployment/env-matrix.md). Recommended: `cloudflare` (matches current deploy direction; no Redis to operate). Decision pending: retire the non-chosen path per spec 021.
+- **`PLATFORM_BACKEND` switch:** single env (`cloudflare` | `fastify`) selects the v2 backend; presets `FASTIFY_API_ENABLED` and `JOB_EXECUTION_MODE` (explicit flags still override). See [`env-matrix.md`](./archive/deployment/env-matrix.md). Recommended: `cloudflare` (matches current deploy direction; no Redis to operate). Decision pending: retire the non-chosen path per spec 021.
 - **Internal assistant `anthropic` backend (selectable option):** added the Anthropic Messages API as a selectable backend for either target (`x-api-key` auth, model from `ANTHROPIC_DEFAULT_MODEL`, default `claude-sonnet-4-6`), with probe (`/v1/models` + `/v1/messages`) and cost mapping. **Superseded same day:** per product direction the internal copilot stays **self-hosted by default** — see the 2026-06-12 (internal vs main chatbot) entry below. Anthropic is never the internal default; it is opt-in via /internal/model-setup.
 - **Operator action:** the configured `ANTHROPIC_API_KEY` authenticates but the account has **no API credits** — top up in the Anthropic Console or cloud chat will keep failing over to local.
 - **Verification:** new unit tests `internal-assistant-anthropic.test.ts` (3) and `rollout-cutover.test.ts` (+5); full web suite and v2 matrix green.
@@ -103,7 +103,7 @@ A multi-agent audit (~230 issues) drove a large repair campaign (commits `3ca5ca
 - **Git hygiene:** `.gitignore` adds `**/.next/` and root `test-results/`; no conflict markers in tree.
 - **Web (Remix):** Internal `<title>` via `internal-route-meta.ts`; probe logic extracted to `assistant-probe-route.server.ts`; merchant auth guards on `/advanced`, `/picker`; unit + Playwright coverage (`merchant-auth-guards`, `internal-route-meta`, merchant e2e).
 - **API security:** Baseline response headers on Fastify (`X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`) — [`security.ts`](../apps/api/src/plugins/security.ts).
-- **Docs:** [`integrations/platform-hosting.md`](./integrations/platform-hosting.md) (Vercel / Railway / RunPod / legacy Remix); [`packages/db/.env.example`](../packages/db/.env.example) Postgres migration path; phase-plan V2 table; production-readiness **98/100**.
+- **Docs:** [`integrations/platform-hosting.md`](./archive/integrations/platform-hosting.md) (Vercel / Railway / RunPod / legacy Remix); [`packages/db/.env.example`](../packages/db/.env.example) Postgres migration path; phase-plan V2 table; production-readiness **98/100**.
 - **Branch:** `vr/v2` pushed to origin after commits; phase worktrees documented as non-blocking at `1b0df9d`.
 - **Verification:** `pnpm --filter @superapp/api test`; `pnpm test:v2:fast`.
 
@@ -113,19 +113,19 @@ A multi-agent audit (~230 issues) drove a large repair campaign (commits `3ca5ca
 - **Remix:** `apps/web/app/services/platform-v2/rollout-cutover.server.ts` + root loader `platformV2Cutover` metadata for operators.
 - **Fastify:** `rollout-cutover` plugin gates `/v1/*` until `FASTIFY_API_ENABLED=true` (`/health`, `/ready` stay available).
 - **Workers:** `apps/workers/src/publish-execution.ts` wires `PUBLISH` to `runPublishJob` when `PUBLISH_WORKER_ENABLED` + `JOB_EXECUTION_MODE=queue`.
-- **Docs:** [`phase-21-rollout-cutover.md`](./gitbook/02-architecture/v2-migration/phase-21-rollout-cutover.md), GitBook SUMMARY V2 section, phase **11/13/14** stubs, rollback notes in [`release-operations.md`](./release-operations.md).
+- **Docs:** [`phase-21-rollout-cutover.md`](./archive/gitbook-v2-migration/phase-21-rollout-cutover.md), GitBook SUMMARY V2 section, phase **11/13/14** stubs, rollback notes in [`release-operations.md`](./release-operations.md).
 - **Verification:** `pnpm test:v2:fast`, `pnpm --filter web test`, platform-contracts/api/workers unit tests.
 
 ## 2026-05-19 (Production readiness continuation — **97/100**)
 
-- **Score:** [`docs/qa/production-readiness.md`](./qa/production-readiness.md) — **98/100** (merchant OAuth manual gate + high audit debt).
+- **Score:** [`docs/qa/production-readiness.md`](./archive/qa/production-readiness.md) — **98/100** (merchant OAuth manual gate + high audit debt).
 - **Fixes:** Remix prod build; safe delete forms; internal `<title>` meta; merchant auth on `/advanced`, `/picker`; `/modules` auth-before-DB; `protobufjs` override (0 critical audit).
-- **Verification:** `pnpm test:v2:fast` (incl. web-build); `pnpm --filter web test` **489** pass; internal Playwright **14/14**; merchant auth-guards **1/1**; prod Lighthouse in [`performance-audit.md`](./qa/performance-audit.md).
-- **Operator gate:** [`docs/qa/merchant-oauth-checklist.md`](./qa/merchant-oauth-checklist.md) before App Store merchant traffic.
+- **Verification:** `pnpm test:v2:fast` (incl. web-build); `pnpm --filter web test` **489** pass; internal Playwright **14/14**; merchant auth-guards **1/1**; prod Lighthouse in [`performance-audit.md`](./archive/qa/performance-audit.md).
+- **Operator gate:** [`docs/qa/merchant-oauth-checklist.md`](./archive/qa/merchant-oauth-checklist.md) before App Store merchant traffic.
 
 ## 2026-05-19 (Autonomous QA pass — internal admin + fixes)
 
-- **Artifacts:** [`docs/qa/qa-report.md`](./qa/qa-report.md), [`fix-log.md`](./qa/fix-log.md), [`security-audit.md`](./qa/security-audit.md), [`performance-audit.md`](./qa/performance-audit.md), [`production-readiness.md`](./qa/production-readiness.md).
+- **Artifacts:** [`docs/qa/qa-report.md`](./archive/qa/qa-report.md), [`fix-log.md`](./archive/qa/fix-log.md), [`security-audit.md`](./archive/qa/security-audit.md), [`performance-audit.md`](./archive/qa/performance-audit.md), [`production-readiness.md`](./archive/qa/production-readiness.md).
 - **Fixes:** Merchant template preview uses `previewShellResponse()` (sandbox iframe + badge); AI assistant Import E2E stabilized via `data-testid="memory-import"`.
 - **Verification:** Playwright internal e2e; route crawls on internal admin and Next frontend dev.
 
@@ -143,7 +143,7 @@ A multi-agent audit (~230 issues) drove a large repair campaign (commits `3ca5ca
 - **Root gate:** `pnpm test:v2` runs `scripts/v2-test-matrix.mjs --continue` — typecheck, lint, unit, integration slices, Playwright, evals, prisma validate, and per-V2-package builds; writes `test-results/v2-matrix.json`.
 - **Fast/CI variants:** `test:v2:fast` (skip evals/e2e/web build), `test:v2:ci` (skip web build), `test:v2:typecheck`, `test:v2:unit`, `test:v2:build`.
 - **GitHub Actions:** [`.github/workflows/v2-matrix.yml`](../.github/workflows/v2-matrix.yml) — parallel jobs for V2 quality, unit, integration, evals (`continue-on-error`), Playwright, and builds. Legacy [`ci.yml`](../.github/workflows/ci.yml) unchanged.
-- **Docs:** [`phase-20-testing-matrix.md`](./gitbook/02-architecture/v2-migration/phase-20-testing-matrix.md).
+- **Docs:** [`phase-20-testing-matrix.md`](./archive/gitbook-v2-migration/phase-20-testing-matrix.md).
 - **Known baseline failures:** Remix `web` production build; stub/strict AI evals (forbidden-surface gate). V2 package typecheck/unit/integration/build slices targeted green.
 - **Merge risks:** `pnpm-lock.yaml` + shared `packages/core` script exports; dual CI evals/prisma until Remix cutover.
 
@@ -154,7 +154,7 @@ A multi-agent audit (~230 issues) drove a large repair campaign (commits `3ca5ca
 - **Fastify:** Shared SSE helper for job events; added `GET /v1/jobs/:jobId/events`; generic job enqueue/status responses now include `links` and event backlog (parity with internal assistant routes).
 - **Next frontend:** `job-events-client` (SSE + polling fallback), `async-job-states` phase mapping, `AsyncJobProgressPanel` + simulated demos on `/internal/ai-assistant`, `/jobs`, and `/internal/data`.
 - **Tests:** Vitest coverage for SSE parsing, UX state resolution, and client fallback; Playwright `async-ux.spec.ts` exercises simulated progress timelines without a live API.
-- **Docs:** [`phase-19-async-ux.md`](./gitbook/02-architecture/v2-migration/phase-19-async-ux.md).
+- **Docs:** [`phase-19-async-ux.md`](./archive/gitbook-v2-migration/phase-19-async-ux.md).
 - **Branch/worktree:** `platform-v2-phase-19-async-ux` at `/Users/lavipun/Work/ai-shopify-superapp-phase19-async-ux` (V2 apps remain uncommitted workspace files until prior phases land).
 
 ## 2026-05-15 (internal AI assistant — chat UX, send guard, docs)
@@ -237,7 +237,7 @@ A multi-agent audit (~230 issues) drove a large repair campaign (commits `3ca5ca
 
 ## 2026-05-01 Internal AI Assistant hardening
 
-- **`/autoplan` (2026-05-01):** Multi-phase review (CEO / Design / Eng / DX) appended to [`phase-plan.md`](./phase-plan.md); eng test-plan artifact `~/.gstack/projects/LaviPun-super-app-ai/lavipun-master-eng-review-test-plan-20260501-autoplan.md`; Codex dual-voice calls unavailable (`codex exec` refresh token — run `codex login` to restore).
+- **`/autoplan` (2026-05-01):** Multi-phase review (CEO / Design / Eng / DX) appended to [`phase-plan.md`](./archive/phase-plan.md); eng test-plan artifact `~/.gstack/projects/LaviPun-super-app-ai/lavipun-master-eng-review-test-plan-20260501-autoplan.md`; Codex dual-voice calls unavailable (`codex exec` refresh token — run `codex login` to restore).
 - Extracted [`assistant-chat-target-probe.server.ts`](../apps/web/app/services/ai/assistant-chat-target-probe.server.ts) for chat-endpoint validation shared by **Setup the Model** and **AI Assistant** loader probes.
 - `/internal/ai-assistant` loader now runs `validateAssistantChatTarget` per target; top bar shows health + chat readiness (amber when router-only); send is blocked with guidance to `/internal/model-setup` when probes fail; removed dead model `<select>` in favor of read-only runtime model.
 - Reference router [`internal-ai-router.ts`](../apps/web/scripts/internal-ai-router.ts) proxies `GET /api/tags` and `POST /api/chat` to `ROUTER_OLLAMA_BASE_URL` with the same Bearer auth rules as `/route` when enabled.
@@ -247,7 +247,7 @@ A multi-agent audit (~230 issues) drove a large repair campaign (commits `3ca5ca
 # Implementation Status — AI Shopify SuperApp
 
 > Last updated: 2026-05-15 (GitBook internal AI navigation + doc cross-links; 2026-05-14 admin AI chat hardening: release gates, decryption surfacing, auto-reprobe, SSRF + `INTERNAL_AI_ALLOW_HOSTS`, prod router auth, session delete + audit retention cron, SSE heartbeat, empty-reply path, import dedupe, modal-proxy URL warning).
-> Current automated test baseline: **347 total** (`docs/audit/test-baseline.json`). Shared numeric facts are tracked in [`docs/_glossary.md`](./_glossary.md).
+> Current automated test baseline: see `docs/audit/test-baseline.json` (run `pnpm --filter web test` for the live count — do not hardcode it in prose).
 > **AI Module doc alignment:** Single source of truth from [ai-module-main-doc.md](./ai-module-main-doc.md); see section below.
 > **Change propagation:** All code changes follow [codechange-behave.md](../codechange-behave.md) (impact map, propagation pass, docs/README updates).
 
@@ -431,7 +431,7 @@ A multi-agent audit (~230 issues) drove a large repair campaign (commits `3ca5ca
 
 ## CEO + Eng Review Controls Sync (2026-04-29) ✅ Decisions Captured
 
-This section captures approved strategic controls from the 2026-04-29 review. The **open backlog checklist for those controls now lives in [phase-plan.md](./phase-plan.md) → "Backlog / future phases" → "CEO + Eng review safety controls"** so this status file stays focused on shipped work. The tracking board below still shows owner/sprint/status for each control; update both files together when status changes.
+This section captures approved strategic controls from the 2026-04-29 review. The **open backlog checklist for those controls now lives in [phase-plan.md](./archive/phase-plan.md) → "Backlog / future phases" → "CEO + Eng review safety controls"** so this status file stays focused on shipped work. The tracking board below still shows owner/sprint/status for each control; update both files together when status changes.
 
 ### Approved controls (tracked for implementation in phase-plan.md)
 
@@ -1890,7 +1890,7 @@ Strict route scorecard `docs/internal-admin-qa-scorecard-2026-05-01.md` was brou
 
 ## 2026-06-14 — Module-generation uplift (specs 022–026)
 
-Build order 23 → 22 → 24 → 25 → 26. Canonical plan: [`module-system-v2.md`](./module-system-v2.md). Each phase: sibling spec folder (`spec.md`/`plan.md`/`tasks.md`/`contracts/`) + typed contract module in `packages/platform-contracts/src/` + tests. Typecheck + vitest green in both `packages/platform-contracts` and `apps/web`.
+Build order 23 → 22 → 24 → 25 → 26. Canonical plan: [`module-system-v2.md`](./archive/module-system-v2.md). Each phase: sibling spec folder (`spec.md`/`plan.md`/`tasks.md`/`contracts/`) + typed contract module in `packages/platform-contracts/src/` + tests. Typecheck + vitest green in both `packages/platform-contracts` and `apps/web`.
 
 | Spec | Workstream | Contract module | Key app code | Status |
 |------|-----------|-----------------|--------------|--------|
