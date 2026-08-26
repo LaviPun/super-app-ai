@@ -117,12 +117,12 @@ The AI's job shrinks to **filling pack values**, not inventing controls — more
 
 Build on existing primitives — no parallel system.
 
-- **Built:** `DataStore`/`DataStoreRecord`, `data-store.service.ts`, record grid `data.$storeKey.tsx`, `module-capture.service.ts` + `api.module-captures.tsx` + `proxy.capture.tsx`, Connector layer.
+- **Built:** `DataStore`/`DataStoreRecord`, `data-store.service.ts`, record grid `data.$storeKey.tsx`, `module-capture.service.ts` + `proxy.capture.tsx`, Connector layer.
 - **Gap (updated 2026-07):** only `DataStore.schemaJson` typed provisioning is still
   dormant (`ensureTypedStore` has zero non-test callers; `provisionFromModuleSpec` does
   not exist). CSV export, browser print-to-PDF, `DataCapture` ingestion, and the
   captures admin view are **all live** (`data.$storeKey_.export.tsx`,
-  `data.$storeKey_.print.tsx`, `api.module-captures.tsx`, `modules.$moduleId_.captures.tsx`).
+  `data.$storeKey_.print.tsx`, `modules.$moduleId_.captures.tsx`).
 
 Plan:
 

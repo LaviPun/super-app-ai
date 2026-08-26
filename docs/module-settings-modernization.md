@@ -146,12 +146,9 @@ Use this checklist for all popup recipes/templates:
 
 ### Capture Endpoints (Theme + Extension + API)
 
-- App proxy capture (storefront/theme-safe): `POST /proxy/capture`
-  - Intended for `submissionMode = APP_PROXY`.
+- App proxy capture (storefront/theme-safe, unauthenticated): `POST /proxy/capture`
+  - The only live capture path. Intended for `submissionMode = APP_PROXY`.
   - Writes `DataCapture`, emits `ModuleEvent`, and can mirror into `DataStoreRecord`.
-- Admin/API capture (authenticated): `POST /api/module-captures`
-  - For internal tools, agents, or server-side extension bridges.
-  - Same persistence behavior as proxy capture.
 
 Recommended `theme.contactForm` APP_PROXY default path: `proxyEndpointPath = "/apps/superapp/capture"`.
 
