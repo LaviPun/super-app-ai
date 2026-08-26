@@ -16,12 +16,18 @@ Source of truth for the write paths:
 - `apps/web/app/services/publish/publish-preflight.server.ts` — the gate seam
 - `packages/core/src/extension-eligibility.ts` — `ACTIVATION_WIRED_FUNCTION_TYPES`
 
+Related docs (do not duplicate their content here — link instead):
+- `docs/generation.md` — how a module's `RecipeSpec` compiles into the payloads this doc describes (§2 output contract, §3 canonical value sets).
+- `docs/operations.md` → "Which runbook do I reach for" index — incident response, deploy topology, rollback escalation.
+- `docs/runbooks/publish-failure.md` — step-by-step triage for a failed/partial publish (detect, triage, contain, fix, post-mortem).
+- `docs/runbooks/publish-live-probe.md` — the live-store verification procedure for each publishable surface.
+
 ---
 
 ## 1. What publish writes per surface
 
 `PublishService.publish(spec, target, opts?)` compiles the module's `RecipeSpec`
-via `compileRecipe` and then, for every non-function surface the compiler
+via `compileRecipe` (see `docs/generation.md` for the compiler's output contract) and then, for every non-function surface the compiler
 produces a payload for, writes ONE handle-keyed metaobject plus appends its GID
 to a shop-level `list.metaobject_reference` metafield ("refs list"). Every
 metaobject write is an upsert keyed by a deterministic handle
@@ -362,6 +368,11 @@ step is idempotent and a republish converges."* This is the actual recovery
 contract, not just messaging — since every write is a handle-keyed upsert or
 an idempotent ensure-call, a caller never needs to hand-diagnose which step
 failed and manually clean up; **republish is the fix**.
+
+For the operator-facing triage procedure when a publish fails in production
+(detect → triage → contain → fix → post-mortem), see
+`docs/runbooks/publish-failure.md` — this section covers only what the code
+does, not how an on-call responder should react to it.
 
 Both merchant-facing publish routes surface this identically via one shared
 helper, `publishPartialFailureResponse` in
