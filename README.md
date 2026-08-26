@@ -556,7 +556,7 @@ type RecipeSpec = {
 };
 ```
 
-Anything outside this closed set is rejected. See [`docs/ai-module-main-doc.md`](docs/ai-module-main-doc.md) for the full canonical reference.
+Anything outside this closed set is rejected. See [`docs/generation.md`](docs/generation.md) for the full canonical reference.
 
 ### Module catalog (RecipeSpec types)
 
@@ -1133,7 +1133,7 @@ The full documentation set lives under [`docs/`](docs/). Highlights:
 |-----|---------|
 | [`docs/gitbook/README.md`](docs/gitbook/README.md) + [`docs/gitbook/SUMMARY.md`](docs/gitbook/SUMMARY.md) | GitBook-style outline (welcome, guides, architecture, reference, ops, planning) |
 | [`docs/gitbook/06-internal-admin/internal-ai-assistant.md`](docs/gitbook/06-internal-admin/internal-ai-assistant.md) | Internal AI assistant / model setup: routes, probes, release gate, retention (links to `internal-admin.md` + `ai-providers.md`) |
-| [`docs/ai-module-main-doc.md`](docs/ai-module-main-doc.md) | RecipeSpec and capabilities — primary spec for modules |
+| [`docs/generation.md`](docs/generation.md) | RecipeSpec and capabilities — primary spec for modules |
 | [`docs/architecture.md`](docs/architecture.md) | High-level architecture, services, security, extension architecture |
 | [`docs/ai-providers.md`](docs/ai-providers.md) | AI provider integration, module-gen vs internal split |
 | [`docs/internal-admin.md`](docs/internal-admin.md) | Internal admin dashboard routes and features |

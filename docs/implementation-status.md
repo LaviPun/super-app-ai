@@ -248,7 +248,7 @@ A multi-agent audit (~230 issues) drove a large repair campaign (commits `3ca5ca
 
 > Last updated: 2026-05-15 (GitBook internal AI navigation + doc cross-links; 2026-05-14 admin AI chat hardening: release gates, decryption surfacing, auto-reprobe, SSRF + `INTERNAL_AI_ALLOW_HOSTS`, prod router auth, session delete + audit retention cron, SSE heartbeat, empty-reply path, import dedupe, modal-proxy URL warning).
 > Current automated test baseline: see `docs/audit/test-baseline.json` (run `pnpm --filter web test` for the live count — do not hardcode it in prose).
-> **AI Module doc alignment:** Single source of truth from [ai-module-main-doc.md](./ai-module-main-doc.md); see section below.
+> **AI Module doc alignment:** Single source of truth from [generation.md](./generation.md); see section below.
 > **Change propagation:** All code changes follow [codechange-behave.md](../codechange-behave.md) (impact map, propagation pass, docs/README updates).
 
 ---
@@ -654,7 +654,7 @@ Audit and fixes so the AI produces **no generic outputs** unless truly the best 
 
 ## AI Module — Full Doc Alignment ✅
 
-Aligned with [ai-module-main-doc.md](./ai-module-main-doc.md). Single source of truth for allowed values; DB and features match doc 24.4 and related sections.
+Aligned with [generation.md](./generation.md). Single source of truth for allowed values; DB and features match related sections there.
 
 | Deliverable | File | Notes |
 |-------------|------|-------|

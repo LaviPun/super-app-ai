@@ -6,7 +6,7 @@
 * [AI Change Propagation & Regression Protocol (SuperApp AI / Shopify App)](codechange-behave.md)
 * [Global App Audit & Auto-Fix Loop Protocol (Production-Grade)](global-audit.md)
 * [Documentation Index](docs/README.md)
-  * [AI Module Generator — Technical Reference](docs/ai-module-main-doc.md)
+  * [AI Module Generator — RecipeSpec Reference](docs/generation.md)
   * [AI provider integration](docs/ai-providers.md)
   * [Merchant documentation — SuperApp](docs/app.md)
   * [Audit — Module Combinations & End-to-End Deployability](docs/archive/audit-module-combinations.md)
