@@ -40,7 +40,7 @@ import { deployedFunctionExtensions } from '~/services/publish/deployed-extensio
 import { isAsyncJobsEnabled } from '~/services/jobs/enqueue.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { StatusBadge, EmptyState, titleCase } from '~/components/merchant/polaris';
-import { nextStepAfterStream, withGenerationCorrelationId } from '~/utils/generation-outcome';
+import { nextStepAfterStream, withGenerationCorrelationId, stampGenerationCorrelationId } from '~/utils/generation-outcome';
 import { pollJobUntilTerminal, type PolledJobSnapshot } from '~/utils/job-poll';
 import { readActiveGenSession, writeActiveGenSession, clearActiveGenSession } from '~/utils/active-gen-session';
 
@@ -599,7 +599,13 @@ function GenerateWorkspace() {
     // fallback below resubmits this SAME FormData, so the id travels
     // unchanged to whichever leg the server sees — letting it detect a
     // stream-then-batch retry of one attempt instead of billing it twice.
-    withGenerationCorrelationId(fd, crypto.randomUUID());
+    // WS-C Task 13 fix round 1: stamps BOTH fd and genCorrelationIdRef with
+    // the same id in one call — this leg previously stamped only fd (via
+    // withGenerationCorrelationId), never the ref, so a save after an
+    // SSE-path generation (the no-Redis default AND the documented fallback
+    // on async transport failure / 503 ASYNC_DISABLED) sent an empty
+    // correlationId and the funnel spine never chained for that traffic.
+    stampGenerationCorrelationId(fd, genCorrelationIdRef, crypto.randomUUID());
     const collected: Record<number, { explanation: string; recipe: Record<string, unknown> }> = {};
     let gotAny = false;
     let sawErrorFrame: string | null = null;

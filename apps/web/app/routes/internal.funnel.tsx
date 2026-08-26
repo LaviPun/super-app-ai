@@ -7,6 +7,7 @@ import {
   ALink,
   Badge,
   Card,
+  CardHead,
   DataTable,
   EmptyState,
   PageHead,
@@ -88,6 +89,12 @@ export default function AdminFunnel() {
         <StatTile label="End-to-end" value={pct(stats.endToEndRate)} icon="chart" tone={endToEndTone} sub="Published / classified" />
       </div>
       <Card style={{ marginBottom: 16 }}>
+        {/* Fix round 1 (controller ruling): recentFailures is deliberately NOT
+            scoped to the days switcher above (hydrate/publish jobs have no
+            natural window relationship to the generate window) — the header
+            says so explicitly so it never reads as a window-scoped count like
+            the tiles above it. */}
+        <CardHead title="Recent failures (all time)" sub="Latest 20 across AI_GENERATE, AI_HYDRATE and PUBLISH — not limited to the window selected above." />
         {failureRows.length === 0 ? (
           <EmptyState icon="check" title="No recent failures">
             Every generate, hydrate and publish job in scope has been succeeding.

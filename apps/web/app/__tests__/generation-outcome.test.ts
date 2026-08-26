@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { finalizeGenerationJob } from '~/services/ai/generation-outcome.server';
-import { nextStepAfterStream, withGenerationCorrelationId } from '~/utils/generation-outcome';
+import { nextStepAfterStream, withGenerationCorrelationId, stampGenerationCorrelationId } from '~/utils/generation-outcome';
 
 describe('finalizeGenerationJob', () => {
   // WS-C commit-0 fold-in (c): this function no longer writes the FAILED Job
@@ -72,5 +72,40 @@ describe('withGenerationCorrelationId (client fallback dedupe, WS-QF / AI-2 revi
     const fd = new FormData();
     const returned = withGenerationCorrelationId(fd, 'abc-123');
     expect(returned).toBe(fd);
+  });
+});
+
+describe('stampGenerationCorrelationId (WS-C Task 13 fix round 1)', () => {
+  // Regression guard for the review finding: streamGenerate() called
+  // withGenerationCorrelationId(fd, uuid) but never wrote uuid into
+  // genCorrelationIdRef — only asyncGenerate() did — so the save FormData's
+  // correlationId (read from the ref) came out empty for every SSE-path
+  // generation. This helper makes "stamp fd" and "stamp the ref" a single
+  // atomic call so streamGenerate and asyncGenerate can't drift again.
+  it('stamps the FormData and the ref with the SAME correlationId', () => {
+    const fd = new FormData();
+    fd.set('prompt', 'a size guide');
+    const ref: { current: string | null } = { current: null };
+
+    const returned = stampGenerationCorrelationId(fd, ref, 'sse-leg-correlation-id');
+
+    expect(fd.get('correlationId')).toBe('sse-leg-correlation-id');
+    expect(ref.current).toBe('sse-leg-correlation-id');
+    expect(returned).toBe('sse-leg-correlation-id');
+    // The exact invariant the save flow depends on (generate._index.tsx's
+    // `fd.set('correlationId', genCorrelationIdRef.current ?? '')` on save):
+    // whatever went out on the wire during generation is what a subsequent
+    // save reads back out of the ref.
+    expect(ref.current).toBe(fd.get('correlationId'));
+  });
+
+  it('overwrites a stale ref value from a previous attempt', () => {
+    const fd = new FormData();
+    const ref: { current: string | null } = { current: 'stale-previous-attempt-id' };
+
+    stampGenerationCorrelationId(fd, ref, 'new-attempt-id');
+
+    expect(ref.current).toBe('new-attempt-id');
+    expect(fd.get('correlationId')).toBe('new-attempt-id');
   });
 });

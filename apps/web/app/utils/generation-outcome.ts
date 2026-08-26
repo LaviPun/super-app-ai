@@ -37,3 +37,25 @@ export function withGenerationCorrelationId(fd: FormData, correlationId: string)
   fd.set('correlationId', correlationId);
   return fd;
 }
+
+/**
+ * WS-C Task 13 fix round 1: stamps a generation attempt's FormData AND its
+ * ref (`genCorrelationIdRef` in generate._index.tsx) with the SAME
+ * correlationId in one call. Before this helper existed, `streamGenerate`
+ * called `withGenerationCorrelationId(fd, ...)` but never set the ref —
+ * only `asyncGenerate` did — so a save after an SSE-path generation (the
+ * no-Redis default, and the documented fallback on async transport failure
+ * / 503 ASYNC_DISABLED) sent an empty correlationId on save and the funnel
+ * spine (WS-C Task 13) never chained `Module.generationCorrelationId` for
+ * that traffic. A single call site for "stamp both" makes that class of bug
+ * structurally harder to reintroduce.
+ */
+export function stampGenerationCorrelationId(
+  fd: FormData,
+  ref: { current: string | null },
+  correlationId: string,
+): string {
+  withGenerationCorrelationId(fd, correlationId);
+  ref.current = correlationId;
+  return correlationId;
+}
