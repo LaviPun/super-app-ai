@@ -6,7 +6,7 @@ import { QuotaService } from '~/services/billing/quota.service';
 import { deriveEffectivePlan } from '~/services/billing/plan-status';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { CHART, Sparkline, StatStrip, StatusBadge, fmtNum, humanizeResource, titleCase } from '~/components/merchant/polaris';
-import { getCategoryDisplayLabel, getCategoryIcon } from '~/utils/type-label';
+import { getCategoryDisplayLabel, catIcon } from '~/utils/type-label';
 import { relativeTimeVerbose } from '~/utils/relative-time';
 import { NON_MERCHANT_ACTIONS } from '~/utils/activity-log';
 
@@ -104,12 +104,6 @@ export async function loader({ request }: { request: Request }) {
         created: relativeTimeVerbose(a.createdAt.toISOString()),
       })),
   });
-}
-
-// Same category → icon mapping the modules page uses (shared taxonomy, no heuristics).
-const CAT_ICON: Record<string, string> = { desktop: 'desktop', settings: 'settings', users: 'team', bolt: 'bolt', connect: 'connect', flow: 'automation' };
-function catIcon(category: string): string {
-  return CAT_ICON[getCategoryIcon(category)] ?? 'layer';
 }
 
 function QuickActions() {
