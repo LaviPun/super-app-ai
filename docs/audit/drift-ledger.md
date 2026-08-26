@@ -1,5 +1,7 @@
 # Drift Ledger
 
+> Rows close via a dated audit pass (see docs/audit/README.md) — strikethrough + **RESOLVED** + commit SHA, never deleted.
+
 | Claim                                                | Reality                                                                                                | Decision                                                                                 | PR  |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- | --- |
 | Lint quality is tightly enforced.                    | `apps/web/package.json` runs lint with `--max-warnings 250`; warning debt remains.                     | Ratchet warning budget down in staged PRs to match intended guardrail.                   | TBD |
