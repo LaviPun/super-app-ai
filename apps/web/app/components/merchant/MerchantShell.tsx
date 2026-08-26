@@ -147,9 +147,13 @@ export function MerchantShell({
         )}
         <SubnavTabs />
         {children}
+        {/* Rendered inside .sa-merchant (both are position:fixed overlays, so
+            nesting has no layout effect) so merchant.css's scoped
+            `.sa-merchant .cmdk`/`.kbd`/etc. rules can reach them without
+            bleeding into internal admin's identically-named shell.css rules. */}
+        {cmdkOpen && <CommandPalette mode="merchant" onClose={() => setCmdkOpen(false)} />}
+        <Toast toast={toast} />
       </div>
-      {cmdkOpen && <CommandPalette mode="merchant" onClose={() => setCmdkOpen(false)} />}
-      <Toast toast={toast} />
     </Ctx.Provider>
   );
 }
