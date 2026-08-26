@@ -139,13 +139,21 @@ describe('WS-C Task 5: enqueue -> worker runtime -> processor -> observable resu
 
     // 2. WORKER RUNTIME — real createWebWorkerRuntime + real buildWorkerHandlers,
     // only the BullMQ Worker class itself is faked (captures the processor).
+    // WS-C Task 9 registers a SECOND handler (the `publish` queue) alongside
+    // `ai-generation` — the worker always mounts both once handlers exist
+    // for both queues, regardless of PUBLISH_ASYNC_ENABLED (that flag only
+    // gates whether `api.publish.tsx` ever enqueues onto it).
     const runtime = createWebWorkerRuntime({ handlers: buildWorkerHandlers() });
-    expect(runtime.workers).toHaveLength(1);
+    expect(runtime.workers).toHaveLength(2);
     expect(workerCtor).toHaveBeenCalledWith('ai-generation', expect.objectContaining({ prefix: 'superapp' }));
+    expect(workerCtor).toHaveBeenCalledWith('publish', expect.objectContaining({ prefix: 'superapp' }));
 
     // 3. PICK UP — hand the runtime EXACTLY what a real BullMQ Job would carry
     // (id/name/data), built straight from what enqueueWebJob captured — this
     // is "the runtime picks up the enqueued job", not a hand-rolled envelope.
+    // `Object.keys` preserves insertion order for string keys, so the
+    // `ai-generation` handler (registered first in buildWorkerHandlers) is
+    // still workers[0].
     const w = runtime.workers[0] as unknown as { processor: (j: unknown) => Promise<unknown> };
     const bullJob = { id: captured!.id, name: captured!.jobType, data: captured!.payload };
     const processorResult = await w.processor(bullJob);

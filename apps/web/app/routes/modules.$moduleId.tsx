@@ -421,6 +421,10 @@ function ModuleDetailBody() {
   // pollJobUntilTerminal calls (the effect below can re-fire on unrelated
   // hydrateFetcher.state churn) and aborts a still-running poll on unmount.
   const hydratePollRef = useRef<{ jobId: string; controller: AbortController } | null>(null);
+  // WS-C Task 9: same duplicate-poll guard for the `?publishing=<jobId>`
+  // async publish flow (redirect-based, from /api/publish — flag-gated
+  // behind PUBLISH_ASYNC_ENABLED, C10).
+  const publishPollRef = useRef<{ jobId: string; controller: AbortController } | null>(null);
   const fillSettingsFetcher = useFetcher<{
     ok?: boolean;
     filled?: boolean;
@@ -612,6 +616,53 @@ function ModuleDetailBody() {
   // unmount, no immortal background loop (same discipline as
   // generate._index.tsx's async-generation poll).
   useEffect(() => () => hydratePollRef.current?.controller.abort(), []);
+
+  // WS-C Task 9: async publish (flag-gated, C10). `/api/publish` redirects
+  // to `?publishing=<jobId>` instead of `?published=1` when it enqueued
+  // rather than published inline — poll for the terminal state, mirroring
+  // the hydrate poll above.
+  useEffect(() => {
+    const jobId = searchParams.get('publishing');
+    if (!jobId) return;
+    if (publishPollRef.current?.jobId === jobId) return; // already polling this job
+    publishPollRef.current?.controller.abort();
+    const controller = new AbortController();
+    publishPollRef.current = { jobId, controller };
+    pollJobUntilTerminal(jobId, { signal: controller.signal })
+      .then((snapshot) => {
+        if (publishPollRef.current?.controller !== controller) return; // superseded
+        publishPollRef.current = null;
+        // Strip `?publishing=` once terminal so a later reload/revalidate
+        // never re-polls a job that has already finished.
+        const next = new URLSearchParams(searchParams);
+        next.delete('publishing');
+        const query = next.toString();
+        navigate(`/modules/${moduleId}${query ? `?${query}` : ''}`, { replace: true });
+        if (snapshot.status === 'SUCCESS') {
+          const result = (snapshot.result ?? null) as { embedStatus?: string } | null;
+          ctx.toast('Published — live in a few minutes');
+          // WS-E finding 5 parity: same embed-activation nudge the
+          // redirect-based `?embed=` URL param and the same-page
+          // publishFetcher flow both already surface.
+          if (result?.embedStatus && result.embedStatus !== 'enabled') {
+            setEmbedNudge(result.embedStatus);
+          }
+          revalidator.revalidate();
+        } else if (snapshot.status === 'FAILED') {
+          // snapshot.error?.message carries WS-E's "republishing is safe"
+          // guidance verbatim for a PublishPartialFailureError (Task 9).
+          ctx.toast(snapshot.error?.message ?? 'Publish failed', { error: true });
+        }
+      })
+      .catch(() => {
+        // Aborted (unmounted or superseded by a newer poll) — nothing left
+        // to apply on this leg.
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  // Abort any in-flight publish poll on unmount.
+  useEffect(() => () => publishPollRef.current?.controller.abort(), []);
 
   useEffect(() => {
     if (fillSettingsFetcher.state !== 'idle' || !fillSettingsFetcher.data) return;

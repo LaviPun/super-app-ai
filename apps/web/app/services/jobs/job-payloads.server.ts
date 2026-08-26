@@ -46,3 +46,28 @@ export const WebAiHydrateJobPayloadSchema = z.object({
   trace: JobTraceSchema,
 });
 export type WebAiHydrateJobPayload = z.infer<typeof WebAiHydrateJobPayloadSchema>;
+
+/**
+ * WS-C Task 9 (flag-gated behind `PUBLISH_ASYNC_ENABLED`, C10). `target` is
+ * carried as `z.unknown()` here and re-validated in the processor via
+ * `DeployTargetSchema` (`@superapp/core`) — the queue payload is never
+ * trusted verbatim for a Shopify-writing decision. Likewise the RecipeSpec
+ * itself is NOT carried: the worker re-reads `moduleVersion.specJson` fresh
+ * from the DB (same "DB is the source of truth" rule Task 8 established for
+ * hydrate). `idempotencyKey` is computed once in the route (before enqueue)
+ * and passed through unchanged so `markPublishedWithTransition` sees the
+ * SAME key the inline path would have used for this exact
+ * shop/module/version/target combination.
+ */
+export const WebPublishJobPayloadSchema = z.object({
+  kind: z.literal('WEB_PUBLISH'),
+  shopId: z.string().min(1),
+  shopDomain: z.string().min(1),
+  moduleId: z.string().min(1),
+  versionId: z.string().min(1),
+  target: z.unknown(),
+  source: z.enum(['merchant_api', 'agent_api', 'system']),
+  idempotencyKey: z.string().min(8),
+  trace: JobTraceSchema,
+});
+export type WebPublishJobPayload = z.infer<typeof WebPublishJobPayloadSchema>;
