@@ -16,7 +16,7 @@
   * [Data Models — Complete Reference](docs/data-models.md)
   * [Debug notes — known bugs and fixes](docs/debug.md)
   * [Failure Class Matrix](docs/failure-class-matrix.md)
-  * [Flow Automation — Architecture, Engine & Connectors](docs/flow-automation.md)
+  * [Flow Automation](docs/flows.md)
   * [Idempotency Scope Matrix](docs/idempotency-matrix.md)
   * [implementation-status](docs/implementation-status.md)
   * [Internal Admin QA Scorecard (2026-05-01)](docs/archive/internal-admin-qa-scorecard-2026-05-01.md)
