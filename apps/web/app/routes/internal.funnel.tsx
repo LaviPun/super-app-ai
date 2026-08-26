@@ -1,13 +1,18 @@
-import { json } from '@remix-run/node';
-import { useLoaderData } from '@remix-run/react';
+import { json, redirect } from '@remix-run/node';
+import { useLoaderData, useSubmit } from '@remix-run/react';
+import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { FunnelService } from '~/services/observability/funnel.service';
+import { QaTelemetryService } from '~/services/observability/qa-telemetry.service';
+import { ActivityLogService } from '~/services/activity/activity.service';
 import {
   useAdminCtx,
   ALink,
   Badge,
+  Btn,
   Card,
   CardHead,
+  ConfirmDialog,
   DataTable,
   EmptyState,
   PageHead,
@@ -16,6 +21,7 @@ import {
   MonoChip,
   titleCase,
   formatRelativeTime,
+  fmtNum,
 } from '~/components/admin/page-kit';
 
 const ALLOWED_WINDOW_DAYS = [1, 7, 30];
@@ -32,18 +38,44 @@ export async function loader({ request }: { request: Request }) {
   const days = ALLOWED_WINDOW_DAYS.includes(requestedDays) ? requestedDays : DEFAULT_WINDOW_DAYS;
 
   const stats = await new FunnelService().windowStats(days);
-
-  // QA render-QA/richness telemetry lands in Task 15 — until then this stays
-  // null and the page renders an EmptyState in its place (D8: an honest "not
-  // wired up yet" beats a fabricated number).
-  const qa = null;
+  const qa = await new QaTelemetryService().topIssues(days);
 
   return json({ stats, qa });
+}
+
+export async function action({ request }: { request: Request }) {
+  await requireInternalAdmin(request);
+  const form = await request.formData();
+  const intent = String(form.get('intent') ?? '');
+  const issueId = String(form.get('issueId') ?? '');
+
+  if ((intent === 'promote' || intent === 'demote') && issueId) {
+    const promoted = intent === 'promote';
+    await new QaTelemetryService().setPromoted(issueId, promoted);
+    await new ActivityLogService().log({
+      actor: 'INTERNAL_ADMIN',
+      action: 'QA_ISSUE_PROMOTION',
+      resource: `qa:${issueId}`,
+      details: { promoted },
+    });
+  }
+
+  const url = new URL(request.url);
+  return redirect(`${url.pathname}${url.search}`);
 }
 
 export default function AdminFunnel() {
   const { stats, qa } = useLoaderData<typeof loader>();
   const ctx = useAdminCtx();
+  const submit = useSubmit();
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    tone: string;
+    icon: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   const days = stats.windowDays;
   // Headline tone: red below 50% end-to-end, amber below 90%, green otherwise —
@@ -126,12 +158,62 @@ export default function AdminFunnel() {
         )}
       </Card>
       <Card>
-        {qa ? null : (
-          <EmptyState icon="chart" title="QA telemetry not wired up yet">
-            Render-QA and richness-floor pass rates will appear here once the QA telemetry summary lands.
+        <CardHead
+          title="QA telemetry"
+          sub={`Top design/render/richness QA issues across generated options (${days}d). Promoting an issue escalates it from warn to blocking for future generations.`}
+        />
+        {qa.topIssues.length === 0 ? (
+          <EmptyState icon="chart" title="No QA issues recorded">
+            Every generated option in this window passed design/render/richness QA cleanly.
           </EmptyState>
+        ) : (
+          <DataTable
+            rowKey="issueId"
+            columns={[
+              { key: 'issueId', label: 'Issue', render: (r) => <MonoChip>{r.issueId}</MonoChip> },
+              { key: 'count', label: 'Occurrences', num: true, render: (r) => fmtNum(r.count) },
+              {
+                key: 'promoted',
+                label: 'Status',
+                render: (r) =>
+                  r.promoted ? <Badge tone="critical">Promoted (blocking)</Badge> : <Badge>Warn</Badge>,
+              },
+              {
+                key: 'act',
+                label: '',
+                render: (r) =>
+                  r.promoted ? (
+                    <Btn
+                      size="sm"
+                      onClick={() => submit({ intent: 'demote', issueId: r.issueId }, { method: 'post' })}
+                    >
+                      Demote
+                    </Btn>
+                  ) : (
+                    <Btn
+                      size="sm"
+                      variant="critical"
+                      onClick={() =>
+                        setConfirm({
+                          title: 'Promote QA issue to blocking',
+                          message: `Promote "${r.issueId}" to blocking? Every future generation whose QA gate reports this issue as a warning will be escalated to a failure and enter the corrective-regeneration loop — this changes generation behavior for ALL merchants immediately.`,
+                          confirmLabel: 'Promote to blocking',
+                          tone: 'critical',
+                          icon: 'alert',
+                          onConfirm: () => submit({ intent: 'promote', issueId: r.issueId }, { method: 'post' }),
+                        })
+                      }
+                    >
+                      Promote
+                    </Btn>
+                  ),
+              },
+            ]}
+            rows={qa.topIssues}
+          />
         )}
       </Card>
+      {confirm && <ConfirmDialog {...confirm} onClose={() => setConfirm(null)} />}
     </div>
   );
 }

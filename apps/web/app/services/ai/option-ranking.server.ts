@@ -29,7 +29,19 @@ import type { RecipeSpec } from '@superapp/core';
 import { verifyRecipe, verifyPenalty } from '~/services/tournament/verify';
 
 /** Per-option design/render/richness QA outcome, recorded at generation time. */
-export type OptionQaSummary = { fails: number; warns: number; autofixes: number };
+export type OptionQaSummary = {
+  fails: number;
+  warns: number;
+  autofixes: number;
+  /**
+   * Ids of every non-autofixed fail/warn issue this option's final QA pass
+   * reported (Task 15). Additive — the ranker only reads the counts above, so
+   * this field does not affect scoring. Persisted verbatim to
+   * `AiGenerationOption.qaIssuesJson` for telemetry aggregation
+   * (`qa-telemetry.service.ts`) and the ops promote-to-blocking loop.
+   */
+  issueIds?: string[];
+};
 
 /**
  * Structural subset of `RecipeOption` this ranker needs. `RecipeOption` from

@@ -15,7 +15,12 @@ import type { AppErrorPayload } from '~/services/errors/app-error.server';
 type PersistOptionInput = {
   index: number;
   approach: string;
-  option?: { explanation: string; recipe: unknown; generationMode?: string };
+  option?: {
+    explanation: string;
+    recipe: unknown;
+    generationMode?: string;
+    qaSummary?: { issueIds?: string[] };
+  };
   error?: string;
 };
 
@@ -70,10 +75,12 @@ export function createAiGenerationJobHandler(): WebJobHandler {
             explanation: o.option?.explanation ?? null,
             recipeJson: o.option ? JSON.stringify(o.option.recipe) : null,
             generationMode: o.option?.generationMode ?? null,
-            // Task 15 populates this from OptionQaSummary.issueIds once that
-            // field exists; qaSummary today only carries fails/warns/autofixes
-            // counts, so there is nothing to persist here yet.
-            qaIssuesJson: null,
+            // Task 15: non-autofixed QA issue ids from this option's final gate
+            // pass, feeding qa-telemetry.service.ts aggregation + the ops
+            // promote-to-blocking loop.
+            qaIssuesJson: o.option?.qaSummary?.issueIds?.length
+              ? JSON.stringify(o.option.qaSummary.issueIds)
+              : null,
             error: o.error ?? null,
           };
           await prisma.aiGenerationOption.upsert({

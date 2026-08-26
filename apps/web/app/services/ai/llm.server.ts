@@ -1087,16 +1087,21 @@ type QaRetryResult = {
 const NO_EXTRA = { extraTokensIn: 0, extraTokensOut: 0, extraCostCents: 0 };
 
 /** Reduce a merged QA result to the ranker's fails/warns/autofixes counts. */
-function qaCounts(result: DesignQaResult): OptionQaSummary {
+export function qaCounts(result: DesignQaResult): OptionQaSummary {
   let fails = 0;
   let warns = 0;
   let autofixes = 0;
+  const issueIds: string[] = [];
   for (const issue of result.issues) {
     if (issue.severity === 'fail') fails++;
     else if (issue.severity === 'warn') warns++;
     if (issue.autofixed) autofixes++;
+    // Task 15: only issues the auto-fixer left in place feed telemetry — an
+    // autofixed issue was already resolved in the stored recipe, so it isn't
+    // a real recurring problem to surface to ops for promotion.
+    else issueIds.push(issue.id);
   }
-  return { fails, warns, autofixes };
+  return { fails, warns, autofixes, issueIds };
 }
 
 /**
@@ -1107,7 +1112,17 @@ function qaCounts(result: DesignQaResult): OptionQaSummary {
  * v2 manifest) that the basicness detector measures coverage against. Absent →
  * only the spec-level `runDesignQa` runs (fully back-compatible).
  */
-type QaGateContext = { userRequest?: string; mustHaveControls?: string[] };
+export type QaGateContext = {
+  userRequest?: string;
+  mustHaveControls?: string[];
+  /**
+   * Ops-promoted issue ids (Task 15, `qa-telemetry.service.ts`). A promoted
+   * id that shows up as `warn` on this run is escalated to `fail` so it fires
+   * the existing corrective-regeneration loop (and the option ranker's
+   * fail-weighted penalty) instead of shipping quietly.
+   */
+  promotedBlockingIssueIds?: Set<string>;
+};
 
 /**
  * Run all three deterministic QA gates and MERGE their issues into one
@@ -1116,7 +1131,7 @@ type QaGateContext = { userRequest?: string; mustHaveControls?: string[] };
  * (possibly auto-fixed) recipe; render + richness are read-only telemetry/floors
  * layered on top. Failure-safe: render/richness each return `[]` on any throw.
  */
-function runAllQaGates(recipe: RecipeSpec, ctx?: QaGateContext): DesignQaResult {
+export function runAllQaGates(recipe: RecipeSpec, ctx?: QaGateContext): DesignQaResult {
   const base = runDesignQa(recipe);
   if (!ctx) return base;
   const richnessExempt = ctx.userRequest ? detectRichnessExempt(ctx.userRequest) : false;
@@ -1125,7 +1140,11 @@ function runAllQaGates(recipe: RecipeSpec, ctx?: QaGateContext): DesignQaResult 
     mustHaveControls: ctx.mustHaveControls,
     richnessExempt,
   });
-  const issues = [...base.issues, ...renderIssues, ...richnessIssues];
+  let issues = [...base.issues, ...renderIssues, ...richnessIssues];
+  const promoted = ctx?.promotedBlockingIssueIds;
+  if (promoted?.size) {
+    issues = issues.map((i) => (promoted.has(i.id) && i.severity === 'warn' ? { ...i, severity: 'fail' as const } : i));
+  }
   return { pass: !issues.some((i) => i.severity === 'fail'), issues, recipe: base.recipe };
 }
 
@@ -1816,6 +1835,8 @@ export async function* generateValidatedRecipeOptionsStream(
     correlationId?: string;
     /** WS-C Task 10 (C7): worker job deadline (epoch ms), threaded into every option call's `GenerateHints`. */
     deadlineAt?: number;
+    /** WS-C Task 15: ops-promoted QA issue ids, escalated warn->fail in each option's QA gate. */
+    promotedBlockingIssueIds?: string[];
   },
 ): AsyncGenerator<RecipeOptionStreamEvent, void, void> {
   const optionCount = Math.max(1, Math.min(3, options?.optionCount ?? 3));
@@ -1960,7 +1981,13 @@ export async function* generateValidatedRecipeOptionsStream(
             providerId: servedId,
             deadlineAt: options?.deadlineAt,
           }),
-        { userRequest: prompt, mustHaveControls: mustHaveControlsForType(classification.moduleType, 'basic') },
+        {
+          userRequest: prompt,
+          mustHaveControls: mustHaveControlsForType(classification.moduleType, 'basic'),
+          promotedBlockingIssueIds: options?.promotedBlockingIssueIds?.length
+            ? new Set(options.promotedBlockingIssueIds)
+            : undefined,
+        },
       );
       recipe = qaRetry.recipe;
       // Fold the corrective-regeneration spend into the recorded usage so the
@@ -2093,6 +2120,8 @@ export async function generateValidatedRecipeOptionsParallel(
     correlationId?: string;
     /** WS-C Task 10 (C7): worker job deadline (epoch ms), threaded into every option call's `GenerateHints`. */
     deadlineAt?: number;
+    /** WS-C Task 15: ops-promoted QA issue ids, escalated warn->fail in each option's QA gate. */
+    promotedBlockingIssueIds?: string[];
   },
 ): Promise<RecipeOption[]> {
   const optionCount = Math.max(1, Math.min(3, options?.optionCount ?? 3));
@@ -2225,7 +2254,13 @@ export async function generateValidatedRecipeOptionsParallel(
             providerId: servedId,
             deadlineAt: options?.deadlineAt,
           }),
-        { userRequest: prompt, mustHaveControls: mustHaveControlsForType(classification.moduleType, 'basic') },
+        {
+          userRequest: prompt,
+          mustHaveControls: mustHaveControlsForType(classification.moduleType, 'basic'),
+          promotedBlockingIssueIds: options?.promotedBlockingIssueIds?.length
+            ? new Set(options.promotedBlockingIssueIds)
+            : undefined,
+        },
       );
       recipe = qaRetry.recipe;
       // Fold the corrective-regeneration spend into the recorded usage so the

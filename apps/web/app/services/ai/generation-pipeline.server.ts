@@ -20,6 +20,7 @@ import { applyCompositionRules } from '~/services/ai/apply-composition.server';
 import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
 import { planBlueprint } from '~/services/ai/blueprint-planner';
 import { isBlueprintsEnabled } from '~/env.server';
+import { QaTelemetryService } from '~/services/observability/qa-telemetry.service';
 
 export type GenerationPipelineInput = {
   shopId: string;
@@ -36,7 +37,12 @@ export type GenerationPipelineInput = {
   admin: AdminApiContext['admin'];
   /** epoch ms — threaded into hints (Task 10) */
   deadlineAt?: number;
-  /** Task 15 */
+  /**
+   * Task 15: ops-promoted QA issue ids to escalate warn->fail this run. Tests
+   * (and any future caller that already has the list) can inject it directly;
+   * production callers leave it undefined and the pipeline loads it once via
+   * `QaTelemetryService` below.
+   */
   promotedBlockingIssueIds?: string[];
 };
 
@@ -138,6 +144,19 @@ export async function runGenerationPipeline(
 ): Promise<GenerationPipelineResult> {
   const { admin, shopId, shopDomain, planTier } = input;
 
+  // Task 15: load ops-promoted QA issue ids once per run. Best-effort per this
+  // function's throw-surface discipline (see the doc comment above) — a
+  // telemetry read failing must never block generation, so it degrades to []
+  // (no escalation this run) rather than throwing.
+  let promotedBlockingIssueIds = input.promotedBlockingIssueIds;
+  if (promotedBlockingIssueIds === undefined) {
+    try {
+      promotedBlockingIssueIds = await new QaTelemetryService().getPromotedBlockingIssueIds();
+    } catch {
+      promotedBlockingIssueIds = [];
+    }
+  }
+
   const constraints: string[] = [];
   if (input.preferredType && input.preferredType !== 'Auto') {
     constraints.push(`Module type must be exactly: ${input.preferredType}.`);
@@ -227,6 +246,7 @@ export async function runGenerationPipeline(
     exemplar,
     correlationId: input.correlationId,
     deadlineAt: input.deadlineAt,
+    promotedBlockingIssueIds,
   })) {
     // Stop consuming once the caller signals abandonment. In-flight option LLM
     // calls already launched by this generator are not cancelled (the
