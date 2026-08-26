@@ -293,6 +293,7 @@ export class ConfiguredLlmClient implements LlmClient {
         maxTokens: hints?.maxTokens,
         responseSchema: hints?.responseSchema,
         timeoutMs,
+        deadlineAt: hints?.deadlineAt,
         openaiFeatures,
       });
     }
@@ -328,6 +329,7 @@ export class ConfiguredLlmClient implements LlmClient {
         maxTokens: hints?.maxTokens,
         responseSchema: hints?.responseSchema,
         timeoutMs,
+        deadlineAt: hints?.deadlineAt,
       });
     }
 
@@ -388,6 +390,7 @@ class EnvOpenAiClient implements LlmClient {
       maxTokens: hints?.maxTokens,
       responseSchema: hints?.responseSchema,
       timeoutMs,
+      deadlineAt: hints?.deadlineAt,
     });
   }
 }
@@ -418,6 +421,7 @@ class EnvClaudeClient implements LlmClient {
       maxTokens: hints?.maxTokens,
       responseSchema: hints?.responseSchema,
       timeoutMs,
+      deadlineAt: hints?.deadlineAt,
     });
   }
 }
@@ -1666,10 +1670,10 @@ async function produceOptionRecipe(args: {
   designReferenceBlock?: string;
   designSystemDirective?: string;
   /**
-   * WS-C Task 10 (C7). NOT threaded into the Tier-1 delta path below
-   * (`generateRecipeViaDelta`, `template-delta.server.ts`) — that call stays
-   * on the shared default timeout. Only the freeform path and its repair
-   * loop are deadline-bounded here.
+   * WS-C Task 10 (C7, fix round 1). Threaded into BOTH the Tier-1 delta
+   * path below (`generateRecipeViaDelta`, `template-delta.server.ts` — the
+   * flagship option-0 path whenever a tier-1 exemplar exists) and the
+   * freeform path + its repair loop.
    */
   deadlineAt?: number;
 }): Promise<{
@@ -1694,6 +1698,7 @@ async function produceOptionRecipe(args: {
         designSystemDirective: args.designSystemDirective,
         maxTokens: getDeltaTokenBudget(moduleType),
         shopId,
+        deadlineAt,
       });
       return {
         result: delta.result,

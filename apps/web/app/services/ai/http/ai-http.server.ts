@@ -11,9 +11,32 @@ export type AiHttpMeta = {
 };
 
 /**
+ * Below this much remaining deadline budget, don't fire (or retry into)
+ * another HTTP attempt — there isn't enough time left for a round-trip to
+ * plausibly land. WS-C Task 10 (C7) fix round 1.
+ */
+const MIN_DEADLINE_BUDGET_MS = 1_000;
+
+/** True when there's enough `deadlineAt` budget left to attempt another call (or always true when no deadline is set). */
+function hasDeadlineBudget(deadlineAt: number | undefined): boolean {
+  return deadlineAt === undefined || deadlineAt - Date.now() >= MIN_DEADLINE_BUDGET_MS;
+}
+
+/** Typed, non-retryable error for "ran out of deadline budget", distinct from "ran out of retry attempts". */
+function deadlineExhaustedError(cause?: unknown): Error & { nonRetryable: true; deadlineExhausted: true } {
+  const causeMessage = cause instanceof Error ? cause.message : cause !== undefined ? String(cause) : undefined;
+  const message = causeMessage
+    ? `AI provider call deadline exhausted (last attempt: ${causeMessage}). Please try again.`
+    : 'AI provider call deadline exhausted before an attempt could be made. Please try again.';
+  return Object.assign(new Error(message), { nonRetryable: true as const, deadlineExhausted: true as const });
+}
+
+/**
  * Provider HTTP helper with:
- * - timeouts
- * - bounded retries for 429/5xx
+ * - timeouts, re-derived against `deadlineAt` on every attempt (never a
+ *   once-computed value that lets each retry silently re-claim a full
+ *   fresh window — see `deadlineAt` below)
+ * - bounded retries for 429/5xx, each gated on remaining deadline budget
  * - metadata logging (no raw prompt/output persisted here)
  */
 export async function postJsonWithRetries(opts: {
@@ -24,10 +47,18 @@ export async function postJsonWithRetries(opts: {
   /**
    * WS-C Task 10 (C7). Epoch ms after which the caller's job/request budget
    * is exhausted (worker job budgets: generation 150s, hydrate 90s; inline
-   * mode passes a 55s deadline). When set, the effective timeout is
-   * `min(timeoutMs ?? 120_000, deadlineAt - now)` — this single HTTP call
-   * can never outlive the caller's remaining budget, even when `timeoutMs`
-   * itself wasn't tightened by the caller.
+   * mode passes a 55s deadline). Both provider clients
+   * (`anthropic-messages.client.server.ts`, `openai-responses.client.server.ts`)
+   * forward `GenerateHints.deadlineAt` here directly (alongside the
+   * `ConfiguredLlmClient`-derived `timeoutMs`) — this is the ONE place that
+   * re-derives the effective timeout on EVERY attempt, so a 429/5xx/network
+   * retry can never re-claim a full fresh window: each attempt's timeout is
+   * `min(timeoutMs ?? 120_000, deadlineAt - now)`, computed fresh right
+   * before that attempt fires, and once the remaining budget drops below
+   * `MIN_DEADLINE_BUDGET_MS` no further attempt (initial OR retry) is made
+   * at all — the failure is reported immediately as a typed, non-retryable
+   * `deadlineExhausted` error instead of sleeping into (or firing) a call
+   * that has no realistic chance of finishing.
    */
   deadlineAt?: number;
   maxRetries?: number;
@@ -35,15 +66,23 @@ export async function postJsonWithRetries(opts: {
   shopId?: string;
 }): Promise<{ json: any; meta: AiHttpMeta }> {
   const requestedTimeoutMs = opts.timeoutMs ?? 120_000;
-  const timeoutMs =
-    opts.deadlineAt !== undefined
-      ? Math.max(0, Math.min(requestedTimeoutMs, opts.deadlineAt - Date.now()))
-      : requestedTimeoutMs;
   const maxRetries = opts.maxRetries ?? 2;
 
   let lastErr: unknown;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    // Re-derive the timeout, and check the deadline, EVERY attempt — a
+    // value computed once before the loop would let each retry re-claim
+    // the full window, multiplying total wall-clock spend up to
+    // (maxRetries+1)x the caller's actual budget.
+    if (!hasDeadlineBudget(opts.deadlineAt)) {
+      throw deadlineExhaustedError(lastErr);
+    }
+    const timeoutMs =
+      opts.deadlineAt !== undefined
+        ? Math.max(0, Math.min(requestedTimeoutMs, opts.deadlineAt - Date.now()))
+        : requestedTimeoutMs;
+
     const started = Date.now();
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), timeoutMs);
@@ -94,7 +133,7 @@ export async function postJsonWithRetries(opts: {
       });
 
       if (res.status >= 500 && res.status <= 599) {
-        if (attempt < maxRetries) {
+        if (attempt < maxRetries && hasDeadlineBudget(opts.deadlineAt)) {
           await sleep(backoffMs(attempt));
           continue;
         }
@@ -103,12 +142,13 @@ export async function postJsonWithRetries(opts: {
       // Rate limits: retry once with a short delay, then fail fast.
       // Long backoffs cause upstream timeouts (Cloudflare, proxies).
       if (res.status === 429) {
-        if (attempt === 0) {
+        if (attempt === 0 && hasDeadlineBudget(opts.deadlineAt)) {
           const retryAfter = parseRetryAfterMs(res.headers);
           await sleep(retryAfter ? Math.min(retryAfter, 10_000) : 5_000);
           continue;
         }
-        // After one retry, fail immediately with a descriptive error
+        // After one retry (or no deadline budget left for one), fail
+        // immediately with a descriptive error.
         const err = Object.assign(
           new Error(`AI provider rate limited (HTTP 429). ${truncate(text, 400)}`),
           { nonRetryable: true, statusCode: 429 },
@@ -140,7 +180,13 @@ export async function postJsonWithRetries(opts: {
       // Non-retryable errors (e.g. 4xx client errors) should propagate immediately.
       if (e?.nonRetryable) throw e;
       lastErr = e;
+      // A timed-out/aborted attempt (or a network error) with no deadline
+      // budget left for another round-trip is NOT retryable either — sleep
+      // into a fresh window only when there's actually time for one.
       if (attempt < maxRetries) {
+        if (!hasDeadlineBudget(opts.deadlineAt)) {
+          throw deadlineExhaustedError(e);
+        }
         await sleep(backoffMs(attempt));
         continue;
       }

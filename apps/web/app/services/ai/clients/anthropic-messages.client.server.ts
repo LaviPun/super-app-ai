@@ -22,6 +22,14 @@ export async function anthropicGenerateRecipe(opts: {
    * (or Env*Client) didn't pass a `deadlineAt` hint — behavior unchanged.
    */
   timeoutMs?: number;
+  /**
+   * WS-C Task 10 (C7, fix round 1). The raw epoch-ms deadline, forwarded
+   * ALONGSIDE `timeoutMs` so `postJsonWithRetries` can re-derive the
+   * effective per-attempt timeout on every retry (a `timeoutMs` fixed once
+   * up front would let each 429/5xx/network retry re-claim a full fresh
+   * window instead of the shrinking remainder of the actual budget).
+   */
+  deadlineAt?: number;
   /** When set, sends container.skills and optional code_execution tool with beta headers. */
   skillsConfig?: AnthropicSkillsConfig;
   /**
@@ -98,6 +106,7 @@ export async function anthropicGenerateRecipe(opts: {
       headers,
       body,
       timeoutMs: opts.timeoutMs,
+      deadlineAt: opts.deadlineAt,
       logMeta: { provider: 'ANTHROPIC', model: opts.model, actor: 'INTERNAL' },
       shopId: opts.shopId,
     });

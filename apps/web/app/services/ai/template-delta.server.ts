@@ -147,6 +147,17 @@ export interface GenerateRecipeViaDeltaParams {
   /** Reduced token budget for the patch call (getDeltaTokenBudget). */
   maxTokens: number;
   shopId?: string;
+  /**
+   * WS-C Task 10 (C7) fix round 1. Worker job deadline (epoch ms), threaded
+   * into the merge-patch call's `GenerateHints` and into the shared repair
+   * loop (`validateAndRepairRecipe`) below — this is the flagship tier-1
+   * option-0 path (`produceOptionRecipe` prefers it whenever an exemplar is
+   * available) and was previously the one gap in the deadline-budget chain:
+   * with no bound here, a stuck delta call could run to the shared 120s
+   * default (or longer across retries) regardless of how little of the
+   * job's budget remained.
+   */
+  deadlineAt?: number;
 }
 
 export interface DeltaGenerationResult {
@@ -187,7 +198,10 @@ export async function generateRecipeViaDelta(
 
   // No structured responseSchema: the model emits { explanation, patch }, NOT the
   // recipe-shaped schema the freeform path uses.
-  const result = await params.client.generateRecipe(prompt, { maxTokens: params.maxTokens });
+  const result = await params.client.generateRecipe(prompt, {
+    maxTokens: params.maxTokens,
+    deadlineAt: params.deadlineAt,
+  });
 
   let parsed: unknown;
   try {
@@ -215,6 +229,7 @@ export async function generateRecipeViaDelta(
     const fix = await validateAndRepairRecipe(patched, params.client, {
       shopId: params.shopId,
       moduleType: params.moduleType,
+      deadlineAt: params.deadlineAt,
     });
     recipe = fix.recipe;
   }

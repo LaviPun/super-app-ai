@@ -235,17 +235,20 @@ describe('postJsonWithRetries deadlineAt (WS-C Task 10, C7)', () => {
       headers: {},
       body: {},
       // Default timeoutMs (120_000) would abort far later than this — the
-      // deadline must be the one that actually fires the abort.
-      deadlineAt: start + 50,
+      // deadline must be the one that actually fires the abort. (Comfortably
+      // above ai-http.server.ts's MIN_DEADLINE_BUDGET_MS floor, so the call
+      // actually fires instead of failing fast pre-fetch — that fail-fast
+      // case is covered separately in ai-http-deadline-retry.test.ts.)
+      deadlineAt: start + 3_000,
       maxRetries: 0,
       logMeta: { provider: 'ANTHROPIC', model: 'test-model', actor: 'INTERNAL' },
     });
     const assertion = expect(promise).rejects.toThrow();
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     await assertion;
 
     expect(abortedAtMs).not.toBeNull();
-    expect(abortedAtMs! - start).toBeLessThanOrEqual(50);
+    expect(abortedAtMs! - start).toBeLessThanOrEqual(3_000);
   });
 
   it('deadlineAt looser than timeoutMs: timeoutMs still wins (the min() picks the tighter bound either way)', async () => {

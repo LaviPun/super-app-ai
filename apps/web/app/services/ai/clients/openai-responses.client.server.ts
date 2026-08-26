@@ -17,6 +17,14 @@ export async function openAiGenerateRecipe(opts: {
    */
   timeoutMs?: number;
   /**
+   * WS-C Task 10 (C7, fix round 1). The raw epoch-ms deadline, forwarded
+   * ALONGSIDE `timeoutMs` so `postJsonWithRetries` can re-derive the
+   * effective per-attempt timeout on every retry (a `timeoutMs` fixed once
+   * up front would let each 429/5xx/network retry re-claim a full fresh
+   * window instead of the shrinking remainder of the actual budget).
+   */
+  deadlineAt?: number;
+  /**
    * Optional JSON Schema for structured output. When present, OpenAI Responses
    * will guarantee the response matches the schema (text.format = json_schema).
    * Caller must pass a `name` for the schema; we generate one if missing.
@@ -95,6 +103,7 @@ export async function openAiGenerateRecipe(opts: {
       headers: { authorization: `Bearer ${opts.apiKey}` },
       body,
       timeoutMs: opts.timeoutMs,
+      deadlineAt: opts.deadlineAt,
       logMeta: { provider: 'OPENAI', model: opts.model, actor: 'INTERNAL' },
       shopId: opts.shopId,
     });
