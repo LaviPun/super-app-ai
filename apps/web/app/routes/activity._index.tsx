@@ -7,6 +7,7 @@ import { ActivityLogService } from '~/services/activity/activity.service';
 import { MerchantShell } from '~/components/merchant/MerchantShell';
 import { EmptyState, MonoChip, humanizeResource, titleCase, type WcTone } from '~/components/merchant/polaris';
 import { relativeTimeVerbose } from '~/utils/relative-time';
+import { NON_MERCHANT_ACTIONS } from '~/utils/activity-log';
 
 // Map a raw ActivityLog action to the design's visual "kind". Falls back to a
 // neutral "activity" kind — never mislabel billing/support/etc. as "module".
@@ -24,12 +25,6 @@ function activityKind(action: string): string {
 }
 const KIND_TONE: Record<string, WcTone> = { module: 'info', flow: 'success', alert: 'critical', data: 'info', connector: 'info', team: 'warning', billing: 'info', support: 'caution', activity: 'neutral' };
 
-// Operational/telemetry events that read as noise (or nonsense) to a merchant —
-// same exclusion the dashboard feed applies.
-const NON_MERCHANT_ACTIONS = [
-  'PAGE_OPENED', 'PAGE_REFRESHED', 'REQUEST_ERROR', 'SERVER_STARTED',
-  'ROUTER_RELEASE_GATE_TRIPPED', 'AI_ASSISTANT_QUERY', 'AI_ASSISTANT_TOOL_CALLED',
-];
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);

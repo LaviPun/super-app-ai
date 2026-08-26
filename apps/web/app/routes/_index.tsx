@@ -8,12 +8,7 @@ import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShe
 import { CHART, Sparkline, StatStrip, StatusBadge, fmtNum, humanizeResource, titleCase } from '~/components/merchant/polaris';
 import { getCategoryDisplayLabel, getCategoryIcon } from '~/utils/type-label';
 import { relativeTimeVerbose } from '~/utils/relative-time';
-
-// Operational/telemetry events that read as noise (or nonsense) to a merchant.
-const NON_MERCHANT_ACTIONS = [
-  'PAGE_OPENED', 'PAGE_REFRESHED', 'REQUEST_ERROR', 'SERVER_STARTED',
-  'ROUTER_RELEASE_GATE_TRIPPED', 'AI_ASSISTANT_QUERY', 'AI_ASSISTANT_TOOL_CALLED',
-];
+import { NON_MERCHANT_ACTIONS } from '~/utils/activity-log';
 
 export async function loader({ request }: { request: Request }) {
   const { session, admin } = await shopify.authenticate.admin(request);
