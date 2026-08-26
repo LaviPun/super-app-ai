@@ -10,6 +10,7 @@ import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShe
 import {
   StatStrip, StatusBadge, EmptyState, ConfirmModal, MonoChip, LearnMore, fmtNum,
 } from '~/components/merchant/polaris';
+import { relativeTimeFloor } from '~/utils/relative-time';
 
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
@@ -221,15 +222,6 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 }
 
-function timeAgo(iso: string | null): string {
-  if (!iso) return '—';
-  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60) return 'just now';
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-}
-
 export default function FlowsIndex() {
   const { flows, stats } = useLoaderData<typeof loader>();
   return (
@@ -342,7 +334,7 @@ function FlowsBody({ flows, stats }: any) {
                   <s-table-cell><MonoChip>{r.trigger}</MonoChip></s-table-cell>
                   <s-table-cell>{fmtNum(r.steps)}</s-table-cell>
                   <s-table-cell>{fmtNum(r.runs7d)}</s-table-cell>
-                  <s-table-cell><s-text tone="neutral" color="subdued">{timeAgo(r.lastRun)}</s-text></s-table-cell>
+                  <s-table-cell><s-text tone="neutral" color="subdued">{relativeTimeFloor(r.lastRun, '—')}</s-text></s-table-cell>
                   <s-table-cell><StatusBadge status={r.status} /></s-table-cell>
                   <s-table-cell>
                     {r.kind === 'module' && (

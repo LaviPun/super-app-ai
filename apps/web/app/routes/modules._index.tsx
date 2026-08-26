@@ -10,6 +10,7 @@ import {
 } from '~/components/merchant/polaris';
 import { CATEGORY_ORDER, getCategoryDisplayLabel, getCategoryTone, getCategoryIcon } from '~/utils/type-label';
 import { commitPendingDeletes } from '~/utils/pending-delete';
+import { relativeTime } from '~/utils/relative-time';
 
 
 export async function loader({ request }: { request: Request }) {
@@ -58,7 +59,7 @@ export async function loader({ request }: { request: Request }) {
           status: m.status,
           version: m.versions[0]?.version ?? 1,
           summary: m.summary ?? `${catLabel} module`,
-          updated: timeAgo(m.updatedAt),
+          updated: relativeTime(m.updatedAt),
           blueprintId: m.recipe?.id ?? null,
           blueprintName: m.recipe?.title ?? null,
         };
@@ -70,17 +71,6 @@ export async function loader({ request }: { request: Request }) {
     const message = err instanceof Error ? err.message : 'Failed to load modules.';
     return json({ aiUsage: { aiLeft: null as number | null, aiLimit: null as number | null }, modules: [] as any[], stats: { total: 0, published: 0, drafts: 0 }, loaderError: message }, { status: 500 });
   }
-}
-
-function timeAgo(d: Date | string): string {
-  const t = new Date(d).getTime();
-  const diff = Date.now() - t;
-  const m = Math.round(diff / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
 }
 
 /* Category → Polaris badge tone / icon. `getCategoryTone` still speaks the

@@ -7,18 +7,7 @@ import { deriveEffectivePlan } from '~/services/billing/plan-status';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { CHART, Sparkline, StatStrip, StatusBadge, fmtNum, humanizeResource, titleCase } from '~/components/merchant/polaris';
 import { getCategoryDisplayLabel, getCategoryIcon } from '~/utils/type-label';
-
-
-function relativeTime(iso: string): string {
-  const secs = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
-  if (secs < 60) return secs + 's ago';
-  const mins = Math.round(secs / 60);
-  if (mins < 60) return mins + 'm ago';
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return hrs + 'h ago';
-  const days = Math.round(hrs / 24);
-  return days === 1 ? 'Yesterday' : days + 'd ago';
-}
+import { relativeTimeVerbose } from '~/utils/relative-time';
 
 // Operational/telemetry events that read as noise (or nonsense) to a merchant.
 const NON_MERCHANT_ACTIONS = [
@@ -117,7 +106,7 @@ export async function loader({ request }: { request: Request }) {
         id: a.id,
         action: a.action,
         resource: humanizeResource(a.resource),
-        created: relativeTime(a.createdAt.toISOString()),
+        created: relativeTimeVerbose(a.createdAt.toISOString()),
       })),
   });
 }

@@ -9,6 +9,7 @@ import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShe
 import {
   ConfirmModal, EmptyState, KV, MonoChip, StatusBadge, Tabs, titleCase, useCustomEvent, type WcTone,
 } from '~/components/merchant/polaris';
+import { relativeTimeHourly } from '~/utils/relative-time';
 
 
 export async function loader({ request, params }: { request: Request; params: { connectorId?: string } }) {
@@ -57,15 +58,6 @@ function authDisplay(t: string): string {
   if (t === 'OAUTH2' || t === 'OAUTH') return 'OAuth 2.0';
   return titleCase(t);
 }
-function timeAgo(iso: string | null): string {
-  if (!iso) return 'never';
-  const diff = Date.now() - new Date(iso).getTime();
-  const h = Math.round(diff / 3600000);
-  if (h < 1) return 'just now';
-  if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
-}
-
 type TestResult = { ok: boolean; status: number; headers: Record<string, string>; bodyPreview: string } | null;
 
 export default function ConnectorDetail() {
@@ -181,7 +173,7 @@ function ConnectorDetailBody() {
                 ['Base URL', <MonoChip key="b">{connector.baseUrl}</MonoChip>],
                 ['Auth', authDisplay(connector.authType)],
                 ['Endpoints', endpoints.length],
-                ['Last test', connector.lastTestedAt ? timeAgo(connector.lastTestedAt) : 'untested'],
+                ['Last test', connector.lastTestedAt ? relativeTimeHourly(connector.lastTestedAt) : 'untested'],
               ]} />
             </s-section>
             <s-section heading="Tips">
@@ -212,7 +204,7 @@ function ConnectorDetailBody() {
                     <s-table-cell><s-text type="strong">{r.name}</s-text></s-table-cell>
                     <s-table-cell><s-badge tone={METHOD_COLOR[r.method] ?? 'neutral'}>{r.method}</s-badge></s-table-cell>
                     <s-table-cell><MonoChip>{r.path}</MonoChip></s-table-cell>
-                    <s-table-cell><s-text color="subdued">{timeAgo(r.lastTestedAt)}</s-text></s-table-cell>
+                    <s-table-cell><s-text color="subdued">{relativeTimeHourly(r.lastTestedAt)}</s-text></s-table-cell>
                     <s-table-cell><s-button>Load</s-button></s-table-cell>
                   </s-table-row>
                 ))}
