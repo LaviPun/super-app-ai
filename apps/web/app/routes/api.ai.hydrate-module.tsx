@@ -6,7 +6,8 @@ import { ModuleService } from '~/services/modules/module.service';
 import { getPrisma } from '~/db.server';
 import { withApiLogging } from '~/services/observability/api-log.service';
 import { QuotaService } from '~/services/billing/quota.service';
-import { hydrateRecipeSpec, AiProviderNotConfiguredError } from '~/services/ai/llm.server';
+import { hydrateRecipeSpec } from '~/services/ai/llm.server';
+import { toAiRouteAppError } from '~/services/ai/ai-route-errors.server';
 import { JobService } from '~/services/jobs/job.service';
 import { enqueueWebJob, isAsyncJobsEnabled } from '~/services/jobs/enqueue.server';
 
@@ -167,17 +168,17 @@ export async function action({ request }: { request: Request }) {
           hydratedAt: hydratedAt.toISOString(),
         });
       } catch (e) {
-        await jobs.fail(job.id, e);
-        if (e instanceof AiProviderNotConfiguredError) {
-          return json(
-            { error: e.code, message: e.message, setupUrl: '/internal/ai-providers' },
-            { status: 503 },
-          );
-        }
-        return json(
-          { error: e instanceof Error ? e.message : String(e) },
-          { status: 422 },
-        );
+        // Hydrate's historical generic-failure status is 422 (envelope failed
+        // to hydrate/validate) — preserved via fallbackCode/fallbackStatus
+        // while still getting the same typed AiProviderNotConfigured/
+        // RATE_LIMITED/OUTPUT_TRUNCATED handling every AI route gets.
+        const appError = toAiRouteAppError(e, {
+          setupUrl: '/internal/ai-providers',
+          fallbackCode: 'VALIDATION_ERROR',
+          fallbackStatus: 422,
+        });
+        await jobs.failWithPayload(job.id, appError.toPayload());
+        return appError.toResponse();
       }
     },
   );

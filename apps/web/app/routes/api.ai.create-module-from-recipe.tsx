@@ -7,6 +7,7 @@ import { getPrisma } from '~/db.server';
 import { withApiLogging } from '~/services/observability/api-log.service';
 import { QuotaService } from '~/services/billing/quota.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import { AppError } from '~/services/errors/app-error.server';
 
 export async function action({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -18,13 +19,18 @@ export async function action({ request }: { request: Request }) {
 
       const form = await request.formData();
       const specJson = String(form.get('spec') ?? '').trim();
-      if (!specJson) return json({ error: 'Missing spec' }, { status: 400 });
+      if (!specJson) {
+        return new AppError({ code: 'VALIDATION_ERROR', message: 'Missing spec' }).toResponse();
+      }
 
       let parsed;
       try {
         parsed = RecipeSpecSchema.parse(JSON.parse(specJson));
       } catch (err) {
-        return json({ error: `Invalid RecipeSpec: ${String(err)}` }, { status: 400 });
+        return new AppError({
+          code: 'VALIDATION_ERROR',
+          message: `Invalid RecipeSpec: ${err instanceof Error ? err.message : String(err)}`,
+        }).toResponse();
       }
 
       const prisma = getPrisma();

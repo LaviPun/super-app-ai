@@ -2,11 +2,11 @@ import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
 import {
-  AiProviderNotConfiguredError,
   getLlmClient,
   attributeServedCost,
   recordAiUsage,
 } from '~/services/ai/llm.server';
+import { toAiRouteAppError } from '~/services/ai/ai-route-errors.server';
 import { AiUsageService } from '~/services/observability/ai-usage.service';
 import { judgeAndPolishOption, isJudgePolishEnabled, polishIsNotWorse } from '~/services/ai/judge-polish.server';
 import { getPrisma } from '~/db.server';
@@ -336,15 +336,12 @@ export async function action({ request }: { request: Request }) {
           send('error', { code: terminal.code, message });
         }
       } catch (e: unknown) {
-        await jobs.fail(job.id, e);
-        if (e instanceof AiProviderNotConfiguredError) {
-          send('error', { code: e.code, message: e.message, setupUrl: '/internal/ai-providers' });
-        } else {
-          send('error', {
-            code: 'GENERATION_FAILED',
-            message: e instanceof Error ? e.message : String(e),
-          });
-        }
+        const appError = toAiRouteAppError(e, { setupUrl: '/internal/ai-providers' });
+        await jobs.failWithPayload(job.id, appError.toPayload());
+        // Terminal SSE frame stays AppErrorPayload MINUS details (setupUrl etc.
+        // stay in the Job ledger, not the wire frame) — the client only reads
+        // message + requestId (generate._index.tsx).
+        send('error', { code: appError.code, message: appError.message, requestId: appError.requestId });
       } finally {
         try {
           controller.close();

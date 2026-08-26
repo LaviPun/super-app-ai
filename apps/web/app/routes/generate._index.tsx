@@ -449,6 +449,9 @@ function GenerateWorkspace() {
 
   const [phase, setPhase] = useState<'generating' | 'choosing' | 'ready' | 'failed'>('generating');
   const [genError, setGenError] = useState<string | null>(null);
+  // Task 16: the typed terminal error's requestId (AppErrorPayload spine),
+  // surfaced in the failed-phase UI so support can correlate via ApiLog.
+  const [genRequestId, setGenRequestId] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
   const [candidates, setCandidates] = useState<Concept[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -609,6 +612,7 @@ function GenerateWorkspace() {
     const collected: Record<number, { explanation: string; recipe: Record<string, unknown> }> = {};
     let gotAny = false;
     let sawErrorFrame: string | null = null;
+    let sawErrorRequestId: string | null = null;
     try {
       const res = await fetch('/api/ai/create-module/stream', { method: 'POST', body: fd, headers: { Accept: 'text/event-stream' } });
       if (!res.ok || !res.body) throw new Error('stream unavailable');
@@ -667,6 +671,7 @@ function GenerateWorkspace() {
                 // Do NOT throw into the transport catch — that path auto-refires
                 // the batch route and bills a second request.
                 sawErrorFrame = payload.message || 'Generation failed';
+                sawErrorRequestId = typeof payload.requestId === 'string' ? payload.requestId : null;
               }
             }
           }
@@ -676,6 +681,7 @@ function GenerateWorkspace() {
       const next = nextStepAfterStream({ gotAny, sawErrorFrame: sawErrorFrame != null, transportFailed: false });
       if (next === 'show-retry') {
         setGenError(sawErrorFrame ?? 'The AI returned no valid concepts.');
+        setGenRequestId(sawErrorRequestId);
         genStartedRef.current = false;
         setPhase('failed');
       }
@@ -787,6 +793,7 @@ function GenerateWorkspace() {
       // the chooser via onSnapshot as options streamed in.
     } else if (snapshot.status === 'FAILED') {
       setGenError(snapshot.error?.message ?? 'Generation failed.');
+      setGenRequestId(snapshot.error?.requestId ?? null);
       genStartedRef.current = false;
       setPhase('failed');
       clearActiveGenSession();
@@ -965,6 +972,7 @@ function GenerateWorkspace() {
     createdRef.current = null;
     finishRef.current = null;
     setGenError(null);
+    setGenRequestId(null);
     // A regenerate is a fresh attempt, not a resume of whatever was active
     // before (a different correlationId, a new job) — drop any stale
     // session so the next asyncGenerate() enqueues instead of resuming.
@@ -1022,7 +1030,7 @@ function GenerateWorkspace() {
 
   if (!seedPrompt) return null;
   if (phase === 'generating') return <GenLoading prompt={seedPrompt} stepIdx={stepIdx} onCancel={() => navigate('/')} />;
-  if (phase === 'failed') return <GenFailed prompt={seedPrompt} message={genError} onRetry={regenerate} onCancel={() => navigate('/modules')} />;
+  if (phase === 'failed') return <GenFailed prompt={seedPrompt} message={genError} requestId={genRequestId} onRetry={regenerate} onCancel={() => navigate('/modules')} />;
   if (phase === 'choosing') return <GenChoose prompt={seedPrompt} candidates={candidates} settingsMap={settingsMap} onSelect={openConcept} onRegenerate={regenerate} onCancel={() => navigate('/')} />;
 
   const publishing = confirmFetcher.state !== 'idle' || publishFetcher.state !== 'idle';
@@ -1138,11 +1146,13 @@ function GenLoading({ prompt, stepIdx, onCancel }: any) {
 function GenFailed({
   prompt,
   message,
+  requestId,
   onRetry,
   onCancel,
 }: {
   prompt: string;
   message: string | null;
+  requestId?: string | null;
   onRetry: () => void;
   onCancel: () => void;
 }) {
@@ -1162,6 +1172,13 @@ function GenFailed({
             return /not billed/i.test(text) ? text : `${text} This attempt was not billed.`;
           })()}
         </p>
+        {requestId && (
+          // Task 16: correlates with ApiLog.requestId — support can look this
+          // up directly instead of asking the merchant to reproduce the error.
+          <p style={{ textAlign: 'center', margin: '0 0 4px', fontSize: 12, opacity: 0.6 }}>
+            Reference: {requestId}
+          </p>
+        )}
         <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={onRetry}>Try again</button>
         <button className="btn btn-plain btn-plain-subdued" style={{ marginTop: 8 }} onClick={onCancel}>Back to modules</button>
       </div>
