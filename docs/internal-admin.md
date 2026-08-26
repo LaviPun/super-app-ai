@@ -1,9 +1,19 @@
 # Internal Developer Admin Dashboard
 
 This dashboard is for the **app owner** (your team), not merchants.
-It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
+It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow
+gated by an email allowlist — see [Security](#security).
 
-> **UI:** As of the 2026-06-16 SuperApp redesign, the admin renders through the vendored `AdminChrome` shell (`apps/web/app/routes/internal.tsx`) — a collapsible left rail grouped **Overview · Operations · Platform · AI & Models · Catalog**, a top bar with global **⌘K** command palette, notifications, avatar, and a health footer. This replaces the prior Polaris `Frame`; auth and loaders are unchanged. See [DESIGN.md](../DESIGN.md) § *Implemented Design System*.
+> **Last audited: 2026-08-27**, against `master@c201150`. This is an audit +
+> refresh pass (per WS-J Task 9), not a ground-up rewrite — most of this doc
+> was already accurate; corrections and additions are called out where they
+> occur.
+
+> **UI:** As of the 2026-06-16 SuperApp redesign, the admin renders through the vendored `AdminChrome` shell (`apps/web/app/routes/internal.tsx`) — a collapsible left rail grouped **Overview · Operations · Support · Platform · AI & Models · Catalog**, a top bar with global **⌘K** command palette, notifications, avatar, and a health footer. This replaces the prior Polaris `Frame`; auth and loaders are unchanged. The shell is built entirely on the vendored `~/components/admin/page-kit` component set — no `@shopify/polaris` import anywhere under `apps/web/app/routes/internal.*` or `apps/web/app/internal-admin/` (confirmed by repo search); do not confuse this with the merchant-facing embedded app, which does use Polaris. See [DESIGN.md](../DESIGN.md) § *Implemented Design System*.
+>
+> **Theme: light-only, by design.** `apps/web/app/styles/superapp/shell.css` pins `color-scheme: light` on the admin viewport root, with an explicit comment citing "owner decision 2026-07-14 — no dark theme" — this is intentional so browsers/UA widgets that default to dark don't get auto-dark-mode-rewritten against an intentionally-light surface. If you're auditing for DESIGN.md compliance, a dark-mode toggle proposal for this shell is a deviation from a real, dated decision, not an oversight.
+>
+> **Operations nav consolidation.** The "Logs" item under **Operations** is one nav entry that groups four routes — Activity, API logs, Error logs, and Audit log — via a shared highlight rule (`internal.tsx`'s `ADMIN_NAV`, the `also` array on the Logs entry); each still has its own route and page (see [Routes](#routes)), this is a navigation grouping, not a merged page.
 
 ---
 
@@ -43,7 +53,8 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 - **Templates** — Module templates (link to recipe-edit) and Flow templates section
 - **Activity log** — covers *everything*: page opened, page refreshed, button/link clicks, settings changes, request success/error (not just modules/server). API log = APIs only; Error log = errors only. Per-entry **View** opens full detail (actor, action, resource, store, IP, details JSON)
 - **AI Providers** — configured providers show **masked API key** (e.g. ••••••••xyz1), model, base URL; for **Claude (ANTHROPIC)** you can set Agent Skills (e.g. pptx, xlsx) and enable code execution; model pricing table
-- **AI Assistant** — `/internal/ai-assistant` personal **Qwen3** test console with local/cloud mode switch, DB-backed multi-chat history, memory controls, tool audits, and resumable SSE chat streaming for internal capability checks
+- **AI Assistant** — `/internal/ai-assistant` personal **Qwen3** test console with local/cloud mode switch, DB-backed multi-chat history, memory controls, tool audits, and resumable SSE chat streaming for internal capability checks. It is also **app-aware** — see [Internal AI Assistant — app awareness](#internal-ai-assistant--app-awareness) below
+- **Support CRM** (`/internal/support`) — merchant support tickets (filed from the storefront/app via `support._index.tsx`/`api.support.create.tsx`, or a shopper-intake path) triaged by a **local** LLM (`qwen3.5:9b` via Ollama, `think:false` + strict JSON) with an optional cloud fallback toggle; a human-approved **AI auto-fix** flow lets an operator ask the AI to propose a corrected `RecipeSpec` from a ticket and apply it after review; SSE live tail (`/internal/support/stream`); email notifications for admin alerts and merchant updates. See [Support CRM](#support-crm) below
 - **Settings** — includes **AI & API keys** (link to Manage AI providers for Claude/OpenAI keys and options), **Password management** (INTERNAL_ADMIN_PASSWORD / SSO), **Environment variables** (.env reference), and **Advanced** (store & plan control). Standalone **Advanced** nav removed; `/internal/advanced` redirects to Settings
 
 ---
@@ -54,8 +65,10 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 |---|---|
 | `/internal/login` | Password or SSO login |
 | `/internal` | Dashboard home (store count, error count, AI calls 24h) |
-| `/internal/ai-providers` | Add/activate AI providers + set model pricing |
+| `/internal/ai-providers` | Add/activate AI providers + set model pricing. See [AI provider management](#ai-provider-management) for what "only writer" means here |
+| `/internal/ai-accounts` | **Redirect only** — `/internal/ai-accounts` 302s to `/internal/ai-providers?tab=accounts` (kept for old deep links / ⌘K entries; the page was merged into AI Providers) |
 | `/internal/ai-assistant` | Qwen3 internal dashboard (local/cloud mode switch, DB-backed sessions/history, memory/tools, observability) |
+| `/internal/model-setup` | "Setup the Model" — local/cloud runtime target configuration for the AI Assistant + internal prompt router (target URLs, backend, model, tokens); surfaces the decryption-failure, release-gate, and Modal-proxy-URL warning banners. Referenced throughout [Internal AI Assistant setup](#internal-ai-assistant-setup) but was missing from this table until this pass |
 | `/internal/usage` | AI usage + costs (last 30 days); per-row **Replay** + **Trace** |
 | `/internal/logs` | Error logs (auto-redacted); per-row **Trace** |
 | `/internal/api-logs` | API access logs with actor, path, status, duration, requestId, correlationId, SSE **Live tail**, per-row **Trace** |
@@ -68,6 +81,10 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 | `/internal/connectors`, `/internal/connectors/:connectorId` | **Platform** — connector list + detail (endpoints, test history, config, test connection) |
 | `/internal/data-stores`, `/internal/data-stores/:key` | **Platform** — data-store list + record detail |
 | `/internal/customers`, `/internal/customers/:customerId` | **Platform** — customers derived from stores + detail |
+| `/internal/support`, `/internal/support/:ticketId` | **Support** — ticket list + detail (triage result, reply, escalate, note, AI auto-fix propose/apply). See [Support CRM](#support-crm) |
+| `/internal/support/stream` | SSE live tail for the support ticket list (new tickets, status changes) |
+| `/internal/release-dashboard` | Publish release-safety metrics: release timeline, rollout stage/decision, rollback budget, transition audit trail (`RolloutPolicyService`, `getRecentPublishMetrics`). **Naming note:** the left-nav labels this "Release Gate" under **AI & Models** (`#/admin/release` → `/internal/release-dashboard` via a hash-route special-case in `CommandPalette.tsx`) — don't confuse it with the unrelated AI-generation release gate (schemaFailRate/fallbackRate trip, surfaced as a banner on `/internal/model-setup`, documented in `docs/ai-providers.md`). Same word, two different systems |
+| `/internal/metaobject-backfill` | One-off operator tool: re-writes theme-module / admin-block / admin-action metaobjects for existing published modules (used for schema migrations that need a backfill pass, not part of normal day-to-day operation) |
 | `/internal/jobs/:jobId` | Background job detail (attempts, payload); **Replay** when the job exists in the DB |
 | `/internal/webhooks/:webhookId` | Webhook delivery detail (attempts, payload, HMAC); **Redeliver** on failures |
 | `/internal/recipe-edit/:id` | Recipe edit detail page |
@@ -90,6 +107,20 @@ It is protected by `INTERNAL_ADMIN_PASSWORD` and an optional SSO (OIDC) flow.
 
 - Protected via `INTERNAL_ADMIN_PASSWORD` + HttpOnly session cookie.
 - Supports OIDC SSO (Google OAuth, Okta, etc.) via `INTERNAL_SSO_*` env vars.
+- **SSO is gated by an email allowlist — fail-closed, not fail-open.**
+  `INTERNAL_SSO_ALLOWED_EMAILS` (comma-separated, exact-match,
+  case-insensitive) is required for an SSO login to succeed
+  (`apps/web/app/internal-admin/sso-allowlist.server.ts`,
+  `evaluateSsoIdentity`): the ID token's `email` claim must be present, must
+  be `email_verified` when the IdP sends that claim, and must appear on the
+  allowlist. **An empty/unset allowlist denies every identity** (`reason:
+  'allowlist_empty'`) — it does not fall back to accepting any authenticated
+  IdP identity. This closes a real prior gap: the callback used to grant
+  internal-admin access to any identity the IdP authenticated, with no
+  allowlist check at all (see the file's own header comment, "fix
+  (WS-QF / Ops-2)" — commit `bbdab2a`). Every denial is best-effort
+  audit-logged (`ActivityLogService`, action `LOGIN`, `outcome: 'denied'`)
+  without ever letting a failed audit write mask the denial.
 - In production: add IP allowlist + MFA in front of `/internal/*`.
 
 ---
@@ -109,13 +140,24 @@ INTERNAL_SSO_REDIRECT_URI=https://your-app.example.com/internal/sso/callback
 
 ## AI provider management
 
-**Architecture:** **Merchant module generation** (RecipeSpec) uses **OpenAI** and **Anthropic (Claude)** only — configure those under AI Providers / Settings. **Internal** flows (prompt router first layer, **Setup the Model**, **AI Assistant**) **always default to the self-hosted Qwen3 ~4B** targets: `localMachine` = local Ollama (active default), `modalRemote` = a cloud-hosted Qwen twin (e.g. Modal). Operators may switch either target to the optional **`anthropic`** backend in **Setup the Model**, but the internal copilot is never hosted-by-default. See [AI providers](./ai-providers.md) (module vs internal split).
+**Architecture:** **Merchant module generation** (RecipeSpec) uses **OpenAI**, **Anthropic (Claude)**, and **Google Gemini** — configure those under AI Providers / Settings (corrected in this pass: this doc previously said "OpenAI and Anthropic only," which is stale — `docs/ai-providers.md`'s own audited product-split table lists all three for module generation). **Internal** flows (prompt router first layer, **Setup the Model**, **AI Assistant**) **always default to the self-hosted Qwen3 ~4B** targets: `localMachine` = local Ollama (active default), `modalRemote` = a cloud-hosted Qwen twin (e.g. Modal). Operators may switch either target to the optional **`anthropic`** backend in **Setup the Model**, but the internal copilot is never hosted-by-default. See [AI providers](./ai-providers.md) (module vs internal split).
 
 Use `/internal/ai-providers` to:
 1. Add a provider (name, type, API key, base URL, default model)
 2. Set it as the global active provider
 3. Set per-store overrides via `/internal/stores`
 4. Add model pricing (cents per 1M tokens) for accurate cost tracking
+
+**`/internal/ai-providers` (via `ai-provider.service.ts`) is the only writer
+of a provider's core config** — name, type, API key, base URL, default model,
+active/inactive state. Two other write paths exist but neither touches that
+core config: `provider-model-catalog.server.ts`'s OpenRouter model-catalog
+auto-sync and `ai-account-observability.service.ts`'s billing/dashboard
+metadata both only merge into `AiProvider.extraConfig` (JSON metadata), and
+`ai-usage.service.ts` lazily creates **inactive, keyless synthetic rows** to
+satisfy a foreign key for env-key-sourced usage — never a config a human
+reviews. See `docs/ai-providers.md` for what's actually stored in
+`extraConfig` (model catalog, Claude Agent Skills config, billing snapshot).
 
 ### Provider types supported
 - `OPENAI` — uses `/v1/responses` API with `json_schema` strict mode
@@ -128,6 +170,15 @@ Use `/internal/ai-providers` to:
 ## Internal AI Assistant setup
 
 The AI Assistant lives at `/internal/ai-assistant` and uses the same runtime target configuration as **Setup the Model** (`/internal/model-setup`).
+
+### Internal AI Assistant — app awareness
+
+The assistant is **app-aware**, not just a bare chat console: `apps/web/app/services/ai/internal-assistant-tools.server.ts` exposes a fixed toolset the assistant selects from per-prompt (`selectToolsForPrompt`), including two tools worth calling out specifically because they read the live app rather than just answering from the model's own training:
+
+- **`searchAppDocs`** — indexes and full-text-searches this very `docs/` directory (`resolveDocsDir()` + `getDocsIndex()`/`searchDocs()`) and returns ranked snippets as grounding context. When `docs/` isn't present on a deployment, it degrades honestly (`available: false` with an explicit reason) rather than silently answering ungrounded.
+- **`getAppOverview`** — a live snapshot query, not documentation: shop counts (total + active subscriptions), module counts by status, flow/connector/data-store counts, the currently-active AI provider, the failed-jobs (DLQ) count, 7-day webhook failure count, and 30-day AI request volume — all fetched in parallel with per-query `.catch()` fallbacks so one failing count never blanks the whole overview.
+
+Both are real and covered by tests (`internal-assistant-search-docs-tool.test.ts`, `internal-assistant-app-aware-routing.test.ts`), not aspirational — confirmed by reading `runAssistantTool`'s `searchAppDocs`/`getAppOverview` branches directly.
 
 When send is blocked because health/chat probes fail on a **local** URL that uses port **8787**, the error banner includes a short hint to run `pnpm --filter web router:internal` and check `ROUTER_OLLAMA_BASE_URL` / `ROUTER_OPENAI_BASE_URL`.
 
@@ -241,6 +292,49 @@ pnpm prisma generate
 - Ensure both local/cloud model target URLs and tokens are configured in `/internal/model-setup`.
 - `ALLOW_MERCHANT_CODE_EXECUTION` should stay unset/false; merchant RecipeSpec generation paths hard-block Anthropic code execution regardless of provider `extraConfig`.
 - Verify SSE compatibility at proxy/load-balancer (no response buffering for `text/event-stream`).
+
+## Support CRM
+
+A merchant-facing support ticket system with an internal-admin operator side,
+living under `apps/web/app/services/support/`. Not documented anywhere in
+this file before this pass — confirmed real and committed (not a partial or
+uncommitted feature) by reading each service file directly.
+
+- **Merchant/shopper intake:** `support._index.tsx` / `support.$ticketId.tsx`
+  (merchant-facing routes) and `api.support.create.tsx` /
+  `api.support.ticket-action.tsx` let a shop create and act on tickets;
+  `shopper-intake.server.ts` handles intake from a storefront-facing path,
+  capping subject/description length and immediately invoking triage.
+- **Triage** (`triage.server.ts`): runs **locally by default** — `qwen3.5:9b`
+  via Ollama, called with `think: false` and a mandatory strict JSON
+  `format` (the file's own comment cites a measured ~3,400 thinking tokens
+  vs. 75 output tokens on this model as the reason `think:false` is
+  non-negotiable, not a tuning choice). An operator can flip
+  `AppSettings.supportTriageMode` to `cloud` from the **same**
+  `/internal/ai-providers` page's "Support triage" card
+  (`AppSettings.supportTriageProviderId` optionally pins the cloud call to a
+  specific provider) — see `docs/ai-providers.md` for the full triage
+  writeup, not duplicated here.
+- **Human-approved AI auto-fix** (`autofix.server.ts`, "Phase G"): from a
+  ticket, an operator can ask the AI to propose a corrected `RecipeSpec`
+  (reusing the existing AI-modify chain, `modifyRecipeSpecOptions`) and then
+  separately apply it — the AI never writes a module directly from a
+  support ticket without that explicit operator approval step.
+- **Notifications** (`notifications.server.ts`, "Phase F"): best-effort,
+  never blocks the caller. Two audiences — operator alerts (escalated,
+  intervention-flagged, triage-failed, new shopper ticket; gated off by
+  default, opt-in via `AppSettings.enableEmailAlerts` + `alertRecipients`)
+  and merchant updates (human replied, resolved; sent to the shop owner's
+  address fetched live from the Shopify Admin API, silently skipped if no
+  Admin client is available).
+- **Ticket event log** (`ticket-events.server.ts`): a typed timeline per
+  ticket — `CREATED`, `TRIAGED`, `TRIAGE_FAILED`, `MERCHANT_REPLIED`,
+  `AI_REPLIED`, `HUMAN_REPLIED`, `NOTE_ADDED`, `ESCALATED`,
+  `INTERVENTION_FLAGGED`, and more.
+- **Operator UI:** `/internal/support` (list) and `/internal/support/:ticketId`
+  (detail — triage result, reply, escalate, note, auto-fix propose/apply),
+  with `/internal/support/stream` providing an SSE live tail of ticket
+  activity, matching the pattern the Logs/API-logs pages already use.
 
 ## Jobs and DLQ
 
