@@ -2,6 +2,8 @@
 
 This folder contains the maintained, non-GitBook documentation for the Shopify SuperApp. GitBook publishing content lives under `docs/gitbook/` and is intentionally not part of this index.
 
+For merged-change history grouped by launch-program workstream, see [`../CHANGELOG.md`](../CHANGELOG.md) (repo root, not under `docs/`).
+
 ## Canonical Docs
 
 | Doc                                                                | Use it for                                                                                                     |

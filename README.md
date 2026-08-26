@@ -1131,6 +1131,7 @@ The full documentation set lives under [`docs/`](docs/). Highlights:
 
 | Doc | Purpose |
 |-----|---------|
+| [`CHANGELOG.md`](CHANGELOG.md) | Merged changes grouped by launch-program workstream (WS-letter) |
 | [`docs/gitbook/README.md`](docs/gitbook/README.md) + [`docs/gitbook/SUMMARY.md`](docs/gitbook/SUMMARY.md) | GitBook-style outline (welcome, guides, architecture, reference, ops, planning) |
 | [`docs/gitbook/06-internal-admin/internal-ai-assistant.md`](docs/gitbook/06-internal-admin/internal-ai-assistant.md) | Internal AI assistant / model setup: routes, probes, release gate, retention (links to `internal-admin.md` + `ai-providers.md`) |
 | [`docs/generation.md`](docs/generation.md) | RecipeSpec and capabilities — primary spec for modules |
@@ -1153,7 +1154,7 @@ The full documentation set lives under [`docs/`](docs/). Highlights:
 | [`codechange-behave.md`](codechange-behave.md) | Change-propagation checklist |
 | [`global-audit.md`](global-audit.md) | Audit checklist |
 
-**Documentation & recent changes:** Top of [`docs/implementation-status.md`](docs/implementation-status.md) (dated bullets + GitBook cross-links).
+**Documentation & recent changes:** [`CHANGELOG.md`](CHANGELOG.md) for merged-workstream history, or the top of [`docs/implementation-status.md`](docs/implementation-status.md) (dated bullets + GitBook cross-links).
 
 ---
 
