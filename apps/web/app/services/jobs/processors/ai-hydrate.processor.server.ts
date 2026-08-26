@@ -1,6 +1,7 @@
 import { RecipeSpecSchema } from '@superapp/core';
 import { AppError } from '~/services/errors/app-error.server';
 import { runWithRequestContext } from '~/services/observability/correlation.server';
+import { logger } from '~/services/observability/logger.server';
 import { getPrisma } from '~/db.server';
 import { JobService } from '~/services/jobs/job.service';
 import { hydrateRecipeSpec, AiProviderNotConfiguredError } from '~/services/ai/llm.server';
@@ -26,6 +27,17 @@ import type { AppErrorPayload } from '~/services/errors/app-error.server';
  * (same job id), so a retried attempt's successful write sees
  * `hasBilledUnit` already true and claims 0; a failed attempt always bills 0
  * regardless (the merchant got nothing from it).
+ *
+ * Final-attempt-only terminal FAILED (review fix, parity with
+ * `ai-generation.processor.server.ts`'s `failFinalOnly`): with `attempts: 2`
+ * on the enqueue, an attempt-1 failure must NOT write `Job.status = FAILED`
+ * — `pollJobUntilTerminal`'s `isTerminal` check would stop polling for good
+ * and the client would show a false "Hydration failed" while BullMQ quietly
+ * retries (and may still succeed). Only the final attempt writes the typed
+ * terminal failure; a non-final attempt just marks the stage 'retrying' and
+ * leaves the Job row RUNNING (from `jobs.start` above) for the retry to
+ * pick up. Either way the handler still returns `{ status: 'FAILED' }` so
+ * the worker runtime throws and BullMQ always counts + retries the attempt.
  */
 export function createAiHydrateJobHandler(): WebJobHandler {
   return async (envelope) => {
@@ -52,6 +64,18 @@ export function createAiHydrateJobHandler(): WebJobHandler {
       async () => {
         const prisma = getPrisma();
         await jobs.start(envelope.id);
+
+        const failFinalOnly = async (payloadOut: AppErrorPayload) => {
+          if (envelope.isFinalAttempt) {
+            await jobs.failWithPayload(envelope.id, payloadOut);
+          } else {
+            await jobs.setStage(envelope.id, 'retrying');
+            logger.warn('non-final attempt failed — leaving Job non-terminal for retry', {
+              jobId: envelope.id,
+              error: payloadOut.error,
+            });
+          }
+        };
 
         try {
           const version = await prisma.moduleVersion.findUnique({ where: { id: payload.versionId } });
@@ -102,7 +126,7 @@ export function createAiHydrateJobHandler(): WebJobHandler {
                     message: 'Hydration failed unexpectedly. Please try again — a retry will not double-bill.',
                     requestId: envelope.id,
                   };
-          await jobs.failWithPayload(envelope.id, payloadOut);
+          await failFinalOnly(payloadOut);
           return { status: 'FAILED', result: { error: { message: payloadOut.message } } };
         }
       },

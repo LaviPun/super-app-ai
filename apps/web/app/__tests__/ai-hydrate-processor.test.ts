@@ -20,6 +20,7 @@ import type { WebJobEnvelope } from '~/services/jobs/worker-runtime.server';
 const hoisted = vi.hoisted(() => ({
   hydrateRecipeSpec: vi.fn(),
   jobStart: vi.fn(async () => {}),
+  jobSetStage: vi.fn(async () => {}),
   jobSucceed: vi.fn(async () => {}),
   jobFailWithPayload: vi.fn(async () => {}),
   versionFindUnique: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock('~/db.server', () => ({
 vi.mock('~/services/jobs/job.service', () => ({
   JobService: class {
     start = hoisted.jobStart;
+    setStage = hoisted.jobSetStage;
     succeed = hoisted.jobSucceed;
     failWithPayload = hoisted.jobFailWithPayload;
   },
@@ -222,5 +224,62 @@ describe('createAiHydrateJobHandler', () => {
       expect.objectContaining({ error: 'VALIDATION_ERROR' }),
     );
     expect(hoisted.hydrateRecipeSpec).not.toHaveBeenCalled();
+  });
+
+  // Review fix: parity with ai-generation.processor.server.ts's failFinalOnly.
+  // With attempts: 2 on the enqueue, an attempt-1 failure must NOT write a
+  // terminal Job.status=FAILED — pollJobUntilTerminal's isTerminal check
+  // would stop polling for good and the client would show a false
+  // "Hydration failed" while BullMQ quietly retries (and may still succeed).
+  describe('attempt-aware terminal writes (review fix, failFinalOnly parity)', () => {
+    it('hydrateRecipeSpec throw on a NON-final attempt -> returns FAILED (so BullMQ retries) WITHOUT calling failWithPayload; sets stage retrying', async () => {
+      hoisted.hydrateRecipeSpec.mockRejectedValueOnce(new Error('transient provider blip'));
+      const handler = createAiHydrateJobHandler();
+      const result = await handler(
+        envelope(validPayload, { attemptsMade: 0, attemptsTotal: 2, isFinalAttempt: false }),
+      );
+      expect(result.status).toBe('FAILED'); // still throws so BullMQ counts + retries the attempt
+      expect(hoisted.jobFailWithPayload).not.toHaveBeenCalled();
+      expect(hoisted.jobSetStage).toHaveBeenCalledWith('job-hydrate-1', 'retrying');
+    });
+
+    it('hydrateRecipeSpec throw on the FINAL attempt -> calls failWithPayload INTERNAL_ERROR (terminal)', async () => {
+      hoisted.hydrateRecipeSpec.mockRejectedValueOnce(new Error('transient provider blip'));
+      const handler = createAiHydrateJobHandler();
+      const result = await handler(
+        envelope(validPayload, { attemptsMade: 1, attemptsTotal: 2, isFinalAttempt: true }),
+      );
+      expect(result.status).toBe('FAILED');
+      expect(hoisted.jobFailWithPayload).toHaveBeenCalledTimes(1);
+      expect(hoisted.jobFailWithPayload).toHaveBeenCalledWith(
+        'job-hydrate-1',
+        expect.objectContaining({ error: 'INTERNAL_ERROR' }),
+      );
+    });
+
+    it('AiProviderNotConfiguredError on a NON-final attempt -> returns FAILED WITHOUT calling failWithPayload', async () => {
+      const { AiProviderNotConfiguredError } = await import('~/services/ai/llm.server');
+      hoisted.hydrateRecipeSpec.mockRejectedValueOnce(new AiProviderNotConfiguredError());
+      const handler = createAiHydrateJobHandler();
+      const result = await handler(
+        envelope(validPayload, { attemptsMade: 0, attemptsTotal: 2, isFinalAttempt: false }),
+      );
+      expect(result.status).toBe('FAILED');
+      expect(hoisted.jobFailWithPayload).not.toHaveBeenCalled();
+      expect(hoisted.jobSetStage).toHaveBeenCalledWith('job-hydrate-1', 'retrying');
+    });
+
+    it('the malformed-payload branch stays un-gated (unconditional failWithPayload) even on a non-final attempt — malformed payloads never become valid on retry', async () => {
+      const handler = createAiHydrateJobHandler();
+      const result = await handler(
+        envelope({ kind: 'WEB_AI_HYDRATE' }, { attemptsMade: 0, attemptsTotal: 2, isFinalAttempt: false }),
+      );
+      expect(result.status).toBe('FAILED');
+      expect(hoisted.jobFailWithPayload).toHaveBeenCalledWith(
+        'job-hydrate-1',
+        expect.objectContaining({ error: 'VALIDATION_ERROR' }),
+      );
+      expect(hoisted.jobSetStage).not.toHaveBeenCalled();
+    });
   });
 });
