@@ -11,7 +11,7 @@ Use this page as a **card index** into the long-form sources. Do not duplicate s
 | LLM providers, costs, models | [`ai-providers.md`](../../ai-providers.md) | Provider config and AI ops |
 | SLOs and measurement SQL | [`slos.md`](../../slos.md) | Reliability targets |
 | Incidents | [`runbooks/index.md`](../../runbooks/index.md) | On-call |
-| Code/doc propagation checklist | [`plan-changes-codechange-verification.md`](../../plan-changes-codechange-verification.md) | Cross-layer changes |
+| Code/doc propagation checklist | [`plan-changes-codechange-verification.md`](../../archive/plan-changes-codechange-verification.md) (archived — one-off historical note) | Cross-layer changes |
 | Optional: exhaustive platform lists | [`superai-doc.md`](../../archive/superai-doc.md) | Rare deep dives |
 
 **Status and releases:** [`implementation-status.md`](../../implementation-status.md) and [`phase-plan.md`](../../archive/phase-plan.md).

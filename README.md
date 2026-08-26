@@ -369,6 +369,13 @@ A couple of setup-time gotchas worth calling out here:
 | `/internal/...` keeps redirecting to `/internal/login` | Cookie `__superapp_internal` not set / not trusted | Confirm `INTERNAL_ADMIN_SESSION_SECRET` matches between processes; in prod the cookie is `Secure`, so plain-HTTP origins won't work |
 | Embedded merchant UI loops the install flow | `SCOPES` doesn't match `shopify.app.toml [access_scopes]` | Align both, then reinstall via `pnpm shopify:dev` |
 | Storefront block doesn't render | Theme app extension app embed not enabled, or slot has no module assigned | Enable the app embed in the Theme Editor; assign a module to the slot in the app |
+| Internal prompt router calls always fall back to deterministic | Circuit is open, or the shop isn't in `INTERNAL_AI_ROUTER_CANARY_SHOPS` | Wait out `INTERNAL_AI_ROUTER_CIRCUIT_COOLDOWN_MS`, add the shop to canary, or unset the canary var to allow all shops |
+| Internal prompt router responds `401` | Missing/bad `INTERNAL_AI_ROUTER_TOKEN`, or `ROUTER_REQUIRE_AUTH` is on | Confirm token parity between the Remix app and the router (`apps/web/scripts/internal-ai-router.ts`) |
+| Internal prompt router responds `429` | Per-tenant rate limit hit (`ROUTER_TENANT_RATE_*`, `ROUTER_TENANT_MAX_ACTIVE_REQUESTS`) | Reduce concurrency, or raise the limit in the router's env — local/Docker `.env`, or the Railway internal-router service's env in production |
+| Webhook handler runs twice on retry | Idempotency guard not applied | Use `apps/web/app/services/flows/idempotency.server.ts` — return early when it returns `false` |
+| Plan gate blocks publish unexpectedly | Module declares a capability with a higher `MIN_PLAN_FOR_CAPABILITY` than the shop's tier (`packages/core/src/capabilities.ts`) | Either downgrade the spec (drop the capability) or upgrade the shop's plan tier |
+| Connector test/dispatch fails with an SSRF error | Target URL not in the connector's allowlist, uses plain HTTP, or resolves to a private/metadata IP | Add the host to the connector's allowlist; use HTTPS; private/metadata-range IPs are blocked by design (`assertSafeTargetUrl`, `packages/network-security/src/ssrf.ts`) |
+| Tests fail with `ENCRYPTION_KEY` missing | `apps/web/vitest.config.ts`'s `test.env` only auto-injects `INTERNAL_ADMIN_SESSION_SECRET` — `ENCRYPTION_KEY` is not set there | Export it in your shell before running tests (matches how `.github/workflows/ci.yml`'s workflow-level `env:` block supplies it in CI) |
 
 ---
 

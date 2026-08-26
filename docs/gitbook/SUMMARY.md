@@ -83,7 +83,7 @@
 
 * [Implementation status](../implementation-status.md)
 * [Phase plan](../archive/phase-plan.md)
-* [Code change verification (example)](../plan-changes-codechange-verification.md)
+* [Code change verification (example, archived)](../archive/plan-changes-codechange-verification.md)
 
 ## Archive
 

@@ -51,7 +51,7 @@ Single source of truth by topic. Prefer these files; avoid duplicating content i
 | Document | Role |
 |----------|------|
 | [`superai-doc.md`](../../archive/superai-doc.md) | Long-form Shopify/platform constraint inventory (optional deep read) |
-| [`plan-changes-codechange-verification.md`](../../plan-changes-codechange-verification.md) | Example propagation checklist for doc/code changes |
+| [`plan-changes-codechange-verification.md`](../../archive/plan-changes-codechange-verification.md) (archived) | Example propagation checklist for doc/code changes |
 | [`archive/`](../../archive/) | Archived artifacts and notes |
 
 ## GitBook-only synthesis
