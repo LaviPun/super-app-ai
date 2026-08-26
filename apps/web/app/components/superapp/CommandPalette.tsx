@@ -33,6 +33,7 @@ const ADMIN_COMMANDS: Command[] = [
   { type: 'Overview', icon: 'home', title: 'Dashboard', sub: 'Platform overview', route: '#/admin', kw: 'home overview kpis' },
   { type: 'Operations', icon: 'store', title: 'Stores', sub: 'Installed shops', route: '#/admin/stores', kw: 'shops merchants installs' },
   { type: 'Operations', icon: 'work', title: 'Jobs', sub: 'Background job queue', route: '#/admin/jobs', kw: 'queue dlq background failed' },
+  { type: 'Operations', icon: 'chart', title: 'Generation Funnel', sub: 'Prompt→publish success rate', route: '#/admin/funnel', kw: 'funnel success rate ai generation' },
   { type: 'Operations', icon: 'live', title: 'Activity Log', sub: 'Recent platform activity', route: '#/admin/activity', kw: 'events audit' },
   { type: 'Operations', icon: 'table', title: 'API Logs', sub: 'Request logs', route: '#/admin/api-logs', kw: 'requests http traces' },
   { type: 'Operations', icon: 'bug', title: 'Error Logs', sub: 'Errors and warnings', route: '#/admin/logs', kw: 'errors warnings exceptions' },
