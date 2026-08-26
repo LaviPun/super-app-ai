@@ -10,8 +10,6 @@
  * Pure + DB-free so it can run inside the generation pipeline and in tests.
  * Source of truth for the numbers: docs/design-system/research-dossier.md §A,§B,§E,§F.
  */
-import type { StorePalette, StoreTypography } from '~/services/theme/theme-analyzer.service';
-
 export type StylePackId =
   | 'apple-hig-clean'
   | 'editorial-wellness'
