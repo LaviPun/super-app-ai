@@ -6,9 +6,9 @@ import { getPrisma } from '~/db.server';
 import { QuotaService } from '~/services/billing/quota.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
-  StatStrip, StatusBadge, EmptyState, ConfirmModal, Desc, LearnMore, fmtNum, useViewMode, ViewToggle, type WcTone,
+  StatStrip, StatusBadge, EmptyState, ConfirmModal, Desc, LearnMore, fmtNum, useViewMode, ViewToggle,
 } from '~/components/merchant/polaris';
-import { CATEGORY_ORDER, getCategoryDisplayLabel, getCategoryTone, getCategoryIcon } from '~/utils/type-label';
+import { CATEGORY_ORDER, getCategoryDisplayLabel, catTone, catIcon } from '~/utils/type-label';
 import { commitPendingDeletes } from '~/utils/pending-delete';
 import { relativeTime } from '~/utils/relative-time';
 
@@ -73,16 +73,6 @@ export async function loader({ request }: { request: Request }) {
   }
 }
 
-/* Category → Polaris badge tone / icon. `getCategoryTone` still speaks the
- * vendored palette ('magic' has no Polaris badge equivalent → 'caution'). */
-const CAT_BADGE_TONE: Record<string, WcTone> = { info: 'info', success: 'success', warning: 'warning', magic: 'caution' };
-function catTone(category: string): WcTone {
-  return CAT_BADGE_TONE[getCategoryTone(category)] ?? 'neutral';
-}
-const CAT_ICON: Record<string, string> = { desktop: 'desktop', settings: 'settings', users: 'team', bolt: 'bolt', connect: 'connect', flow: 'automation' };
-function catIcon(category: string): string {
-  return CAT_ICON[getCategoryIcon(category)] ?? 'layer';
-}
 
 type PolarisField = HTMLElement & { value?: string; focus?: () => void };
 

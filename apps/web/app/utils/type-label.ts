@@ -3,6 +3,8 @@
  * e.g. theme.section -> "Theme section", customerAccount.blocks -> "Customer account blocks"
  */
 
+import type { WcTone } from '~/components/merchant/polaris';
+
 const CATEGORY_LABEL: Record<string, string> = {
   STOREFRONT_UI: 'Storefront UI',
   ADMIN_UI: 'Admin UI',
@@ -68,4 +70,21 @@ export function getCategoryTone(category: string): string {
 export function getCategoryIcon(category: string): string {
   if (!category || typeof category !== 'string') return 'layers';
   return CATEGORY_ICON[category] ?? 'layers';
+}
+
+/*
+ * Category → Polaris badge tone / icon (WS-I dedupe — was duplicated
+ * byte-for-byte across modules._index.tsx, modules.$moduleId.tsx, and
+ * templates._index.tsx, see docs/superpowers/plans/2026-08-24-ws-i-cleanup.md
+ * Task 19). `getCategoryTone`/`getCategoryIcon` above still speak the
+ * vendored palette ('magic' has no Polaris badge equivalent → 'caution').
+ */
+const CAT_BADGE_TONE: Record<string, WcTone> = { info: 'info', success: 'success', warning: 'warning', magic: 'caution' };
+export function catTone(category: string): WcTone {
+  return CAT_BADGE_TONE[getCategoryTone(category)] ?? 'neutral';
+}
+
+const CAT_ICON: Record<string, string> = { desktop: 'desktop', settings: 'settings', users: 'team', bolt: 'bolt', connect: 'connect', flow: 'automation' };
+export function catIcon(category: string): string {
+  return CAT_ICON[getCategoryIcon(category)] ?? 'layer';
 }
