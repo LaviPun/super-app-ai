@@ -189,7 +189,7 @@ async function main() {
   if (truncate) {
     const tables = models.map((m) => `"${m.dbName ?? m.name}"`).join(', ');
     await pg.$executeRawUnsafe(`TRUNCATE TABLE ${tables} RESTART IDENTITY CASCADE`);
-    console.log('[copy] target tables truncated');
+    console.info('[copy] target tables truncated');
   }
 
   const pending: Pending[] = [];
@@ -230,7 +230,7 @@ async function main() {
           skipDuplicates: true,
         });
       },
-      (msg) => console.log(`[copy] ${msg}`),
+      (msg) => console.info(`[copy] ${msg}`),
       (failed) => deferNullableCycleEdges(failed, restores),
     );
   } catch (err) {
@@ -243,7 +243,7 @@ async function main() {
   // re-run (with nothing deferred, since the target already has the value)
   // is either a no-op or an identical repeat write.
   if (restores.length > 0) {
-    console.log(`[copy] phase 2: restoring ${restores.length} deferred cycle-breaking value(s)`);
+    console.info(`[copy] phase 2: restoring ${restores.length} deferred cycle-breaking value(s)`);
     for (const r of restores) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (pg as any)[clientKey(r.modelName)].update({
@@ -251,7 +251,7 @@ async function main() {
         data: { [r.field]: r.value },
       });
     }
-    console.log('[copy] phase 2 done');
+    console.info('[copy] phase 2 done');
   }
 
   // Verify counts.
@@ -262,12 +262,12 @@ async function main() {
     const want = sourceCounts.get(model.name) ?? 0;
     const flag = got >= want ? 'OK ' : 'MISMATCH';
     if (got < want) mismatches += 1;
-    console.log(`[verify] ${flag} ${model.name}: sqlite=${want} postgres=${got}`);
+    console.info(`[verify] ${flag} ${model.name}: sqlite=${want} postgres=${got}`);
   }
   await pg.$disconnect();
   sqlite.close();
   if (mismatches > 0) process.exit(1);
-  console.log('[copy] done — all tables at or above source counts');
+  console.info('[copy] done — all tables at or above source counts');
 }
 
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
