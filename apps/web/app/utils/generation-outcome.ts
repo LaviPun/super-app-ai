@@ -97,6 +97,67 @@ export function stepIndexForSeenEvents(seen: ReadonlySet<StreamEventKind>, total
   return Math.min(step, totalSteps);
 }
 
+// Real Job.stage values the async worker persists (runGenerationPipeline's
+// onStage hook, called from both the stream route and
+// ai-generation.processor.server.ts) — see GenerationPipelineHooks.onStage in
+// generation-pipeline.server.ts. PolledJobSnapshot.stage carries this back to
+// the client on every `GET /api/ai/jobs/:jobId` poll.
+const POLL_STAGE_STEP: Readonly<Record<string, number>> = {
+  // 'classifying' covers BOTH classify AND the RAG exemplar search (they run
+  // back-to-back before the pipeline's next hook fires) — the poll transport
+  // has no finer-grained signal than this single stage name, unlike the
+  // stream transport's separate 'intent' frame, so it stays at step 0 for the
+  // whole stage rather than claiming a "Selecting exemplars" moment it can't
+  // actually observe.
+  classifying: 0,
+  // By the time the worker reports 'generating', classify + exemplar search
+  // have already resolved — jump straight to "Generating concepts" (step 2),
+  // same as the stream path's 'intent' -> 'started' transition.
+  generating: 2,
+  // Every option that reached ranking already passed its own Design QA gate
+  // (see STEP_ORDER's 'ranking' comment above) — same retroactive-complete
+  // reasoning applies here.
+  ranking: 4,
+  finalizing: 5,
+};
+
+/**
+ * Maps the async/poll transport's real `Job.stage` (PolledJobSnapshot.stage)
+ * onto the same GEN_STEPS index space `stepIndexForSeenEvents` uses for the
+ * SSE transport, so the loading animation is driven by real server-reported
+ * progress on both paths (WS-builder-ux) — never a fake timer. `null`
+ * (freshly queued, no stage reported yet) and any unrecognized/future stage
+ * name both degrade to step 0 rather than throwing.
+ */
+export function stepIndexForPollStage(stage: string | null, totalSteps: number): number {
+  const step = stage != null ? (POLL_STAGE_STEP[stage] ?? 0) : 0;
+  return Math.min(step, totalSteps);
+}
+
+const MIN_OPTION_COUNT = 1;
+const MAX_OPTION_COUNT = 3;
+const DEFAULT_OPTION_COUNT = 3;
+
+/**
+ * Clamps a merchant-chosen concept count (the Builder's 1/2/3 segmented
+ * control, WS-builder-ux) to the billing-safe range the generation pipeline
+ * already enforces server-side (`generateValidatedRecipeOptionsStream`/
+ * `...Parallel`'s own `Math.max(1, Math.min(3, ...))`, and
+ * `WebAiGenerateJobPayloadSchema.optionCount`'s `z.number().min(1).max(3)`).
+ * This is the SAME clamp reused at every entry point (client control, and
+ * each server route's FormData read) so the value can never silently drift
+ * out of range between them. Accepts `FormData.get()`'s string shape
+ * directly; any non-finite/garbage/missing input defaults to 3 — today's
+ * existing behavior — rather than throwing.
+ */
+export function clampOptionCount(value: unknown): 1 | 2 | 3 {
+  if (value === null || value === undefined || value === '') return DEFAULT_OPTION_COUNT;
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_OPTION_COUNT;
+  const rounded = Math.round(n);
+  return Math.max(MIN_OPTION_COUNT, Math.min(MAX_OPTION_COUNT, rounded)) as 1 | 2 | 3;
+}
+
 /**
  * Stamps a generation attempt's FormData with its correlationId (WS-QF / AI-2
  * review fix). The stream leg sends this id, and — because the batch fallback

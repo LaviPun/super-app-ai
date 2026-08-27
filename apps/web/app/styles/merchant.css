@@ -288,7 +288,9 @@ a.sa-m-strip-cell:focus-visible { outline: 2px solid #005bd3; outline-offset: -2
 .sa-m-gen-choose-close { position: absolute; top: 0; right: 0; width: 32px; height: 32px; border-radius: 8px; border: 1px solid #e3e3e3; background: #fff; color: #616161; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .sa-m-gen-choose-close:hover { background: #f1f1f1; color: #303030; }
 .sa-m-gen-choose-title { font-size: 26px; font-weight: 650; letter-spacing: -.01em; margin: 12px 0 8px; color: #202223; }
-.sa-m-gen-cand-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 24px; }
+/* auto-fit (not a fixed 3-up repeat): a 1- or 2-concept request (WS-builder-ux
+   concept-count selector) fills the row instead of leaving empty columns. */
+.sa-m-gen-cand-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 24px; }
 @media (max-width: 920px) { .sa-m-gen-cand-grid { grid-template-columns: 1fr; } }
 
 .sa-m-gen-cand { position: relative; text-align: left; background: #fff; border: 1px solid #e3e3e3; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; cursor: pointer; font: inherit; color: inherit; transition: border-color .15s, box-shadow .15s; }

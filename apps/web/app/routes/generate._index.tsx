@@ -34,13 +34,15 @@ import { sealAccessToken } from '~/services/shops/access-token.server';
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
 import { isAsyncJobsEnabled } from '~/services/jobs/enqueue.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { StatusBadge, EmptyState, Progress, titleCase } from '~/components/merchant/polaris';
+import { StatusBadge, EmptyState, Progress, titleCase, useCustomEvent } from '~/components/merchant/polaris';
 import {
   nextStepAfterStream,
   withGenerationCorrelationId,
   stampGenerationCorrelationId,
   resolveGenerationCorrelationId,
   stepIndexForSeenEvents,
+  stepIndexForPollStage,
+  clampOptionCount,
   isStreamEventKind,
   type StreamEventKind,
 } from '~/utils/generation-outcome';
@@ -385,6 +387,13 @@ function GenerateWorkspace() {
   // WS-C Task 7 (C1): when Redis-backed async jobs are configured, generation
   // enqueues + polls instead of the inline SSE stream.
   const asyncGeneration = loaderData.asyncGeneration;
+  // WS-builder-ux: merchant-chosen concept count from the ModuleBuilderCard's
+  // 1/2/3 segmented control (router state) — clamped again client-side (the
+  // server clamps a second time, defense in depth) so a stale/tampered state
+  // value can never send an out-of-range count. `location.state` doesn't
+  // change for the lifetime of this navigation entry, so this needs no
+  // useState of its own.
+  const optionCount = clampOptionCount(seed?.conceptCount);
 
   const proposeFetcher = useFetcher<{ options?: { index: number; explanation: string; recipe: Record<string, unknown>; qualityBadges?: string[]; score?: number }[]; recommendedIndex?: number; blueprint?: BlueprintResult | null; error?: string; message?: string }>();
   const confirmFetcher = useFetcher<{ moduleId?: string; recipeId?: string; firstModuleId?: string; moduleCount?: number; error?: string }>();
@@ -530,6 +539,7 @@ function GenerateWorkspace() {
     fd.set('preferredCategory', 'Auto');
     fd.set('preferredBlockType', 'Auto');
     fd.set('matchStoreColors', 'true');
+    fd.set('optionCount', String(optionCount));
     // WS-QF / AI-2 review fix: one id per CLICK (not per leg). The batch
     // fallback below resubmits this SAME FormData, so the id travels
     // unchanged to whichever leg the server sees — letting it detect a
@@ -718,6 +728,7 @@ function GenerateWorkspace() {
       fd.set('preferredCategory', 'Auto');
       fd.set('preferredBlockType', 'Auto');
       fd.set('matchStoreColors', 'true');
+      fd.set('optionCount', String(optionCount));
       const newCorrelationId = crypto.randomUUID();
       withGenerationCorrelationId(fd, newCorrelationId);
       try {

@@ -709,8 +709,12 @@ export function compileCreateModulePrompt(params: {
   uiDesignerPass?: string;
   frontendDeveloperPass?: string;
   premiumGuardrails?: string;
+  /** WS-builder-ux: merchant-chosen concept count (1-3, default 3). */
+  optionCount?: number;
 }): string {
   const profileGuidance = params.promptProfile ? PROFILE_GUIDANCE[params.promptProfile] : undefined;
+  const optionCount = Math.max(1, Math.min(3, params.optionCount ?? 3));
+  const optionCountWord = optionCount === 1 ? 'one' : optionCount === 2 ? 'two' : 'three';
 
   const parts: string[] = [];
   if (params.designReferenceBlock) {
@@ -725,7 +729,7 @@ export function compileCreateModulePrompt(params: {
   parts.push(
     params.purposeAndGuidance,
     '',
-    'Task: Generate exactly 3 different module options for the merchant\'s request. Vary by approach (content, trigger, when/where it shows, or styling).',
+    `Task: Generate exactly ${optionCountWord} (${optionCount}) different module option${optionCount === 1 ? '' : 's'} for the merchant's request.${optionCount > 1 ? ' Vary by approach (content, trigger, when/where it shows, or styling).' : ''}`,
     '',
     params.typesList,
     '',
@@ -2459,8 +2463,11 @@ export async function generateValidatedRecipeOptions(
     correlationId?: string;
     /** WS-C Task 10 (C7): worker job deadline (epoch ms), threaded into every option call's `GenerateHints`. */
     deadlineAt?: number;
+    /** WS-builder-ux: merchant-chosen concept count (1-3, default 3). Clamped again here defensively. */
+    optionCount?: number;
   },
 ): Promise<RecipeOption[]> {
+  const optionCount = Math.max(1, Math.min(3, options?.optionCount ?? 3));
   if (getRecipeSingleJsonSchemaForType(classification.moduleType)) {
     return generateValidatedRecipeOptionsParallel(prompt, classification, {
       shopId: options?.shopId,
@@ -2468,7 +2475,7 @@ export async function generateValidatedRecipeOptions(
       confidenceScore: options?.confidenceScore,
       promptProfile: options?.promptProfile,
       routerDecision: options?.routerDecision,
-      optionCount: 3,
+      optionCount,
       groundingBlock: options?.groundingBlock,
       exemplar: options?.exemplar,
       blueprintContext: options?.blueprintContext,
@@ -2566,9 +2573,10 @@ export async function generateValidatedRecipeOptions(
       uiDesignerPass,
       frontendDeveloperPass,
       premiumGuardrails,
+      optionCount,
     });
 
-    const optionsBudget = getRecipeOptionsTokenBudget(classification.moduleType, 3);
+    const optionsBudget = getRecipeOptionsTokenBudget(classification.moduleType, optionCount);
     let rawJson = '';
     let tokensIn = 0;
     let tokensOut = 0;
@@ -2584,10 +2592,13 @@ export async function generateValidatedRecipeOptions(
         deadlineAt: options?.deadlineAt,
       }));
       const parsed = JSON.parse(rawJson);
-      const optionsArr = parsed?.options ?? (Array.isArray(parsed) ? parsed : null);
-      if (!Array.isArray(optionsArr) || optionsArr.length === 0) {
+      const optionsArrRaw = parsed?.options ?? (Array.isArray(parsed) ? parsed : null);
+      if (!Array.isArray(optionsArrRaw) || optionsArrRaw.length === 0) {
         throw new Error('Response missing "options" array');
       }
+      // Defensive cap: never validate/repair more than the merchant asked for,
+      // even if the model over-returns (e.g. stale exemplar/cache influence).
+      const optionsArr = optionsArrRaw.slice(0, optionCount);
 
       const validated: RecipeOption[] = [];
       let firstValidationError: string | undefined;
@@ -2619,7 +2630,7 @@ export async function generateValidatedRecipeOptions(
       }
 
       if (validated.length === 0) {
-        throw new Error(firstValidationError ?? 'All 3 options failed Zod validation');
+        throw new Error(firstValidationError ?? `All ${optionCount} option${optionCount === 1 ? '' : 's'} failed Zod validation`);
       }
 
       const { providerId: servedId, costCents } = await attributeServedCost(

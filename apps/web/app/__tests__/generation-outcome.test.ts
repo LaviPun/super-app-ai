@@ -6,6 +6,8 @@ import {
   stampGenerationCorrelationId,
   resolveGenerationCorrelationId,
   stepIndexForSeenEvents,
+  stepIndexForPollStage,
+  clampOptionCount,
 } from '~/utils/generation-outcome';
 
 describe('finalizeGenerationJob', () => {
@@ -190,5 +192,65 @@ describe('stepIndexForSeenEvents (WS-F: real progress, was a fake setInterval)',
     const a = stepIndexForSeenEvents(new Set(['option', 'ranking']), 5);
     const b = stepIndexForSeenEvents(new Set(['option', 'ranking', 'score']), 5);
     expect(b).toBeGreaterThanOrEqual(a);
+  });
+});
+
+describe('stepIndexForPollStage (async/poll path: real Job.stage progress, WS-builder-ux)', () => {
+  // The async worker (ai-generation.processor.server.ts, via runGenerationPipeline's
+  // onStage hook) persists Job.stage through classifying -> generating -> ranking ->
+  // finalizing. PolledJobSnapshot.stage carries this back to the client on every
+  // poll — this maps that REAL server-reported stage onto the same 5-step
+  // GEN_STEPS index space the stream path uses, so both transports drive one
+  // honest progress bar.
+  it('no stage yet (freshly queued) → step 0', () => {
+    expect(stepIndexForPollStage(null, 5)).toBe(0);
+  });
+  it('classifying → step 0 (still "understanding your request")', () => {
+    expect(stepIndexForPollStage('classifying', 5)).toBe(0);
+  });
+  it('generating → step 2 (classify + exemplar selection already resolved server-side)', () => {
+    expect(stepIndexForPollStage('generating', 5)).toBe(2);
+  });
+  it('ranking → step 4 (past design QA, matches the stream path\'s ranking step)', () => {
+    expect(stepIndexForPollStage('ranking', 5)).toBe(4);
+  });
+  it('finalizing → complete', () => {
+    expect(stepIndexForPollStage('finalizing', 5)).toBe(5);
+  });
+  it('an unrecognized/future stage value degrades to step 0 rather than throwing', () => {
+    expect(stepIndexForPollStage('some-future-stage', 5)).toBe(0);
+  });
+});
+
+describe('clampOptionCount (concept-count selector, WS-builder-ux)', () => {
+  it('passes through valid in-range values', () => {
+    expect(clampOptionCount(1)).toBe(1);
+    expect(clampOptionCount(2)).toBe(2);
+    expect(clampOptionCount(3)).toBe(3);
+  });
+  it('clamps above the max down to 3', () => {
+    expect(clampOptionCount(4)).toBe(3);
+    expect(clampOptionCount(100)).toBe(3);
+  });
+  it('clamps below the min up to 1', () => {
+    expect(clampOptionCount(0)).toBe(1);
+    expect(clampOptionCount(-5)).toBe(1);
+  });
+  it('defaults to 3 for missing/undefined input (existing behavior unchanged)', () => {
+    expect(clampOptionCount(undefined)).toBe(3);
+  });
+  it('parses numeric strings (form-data values are always strings)', () => {
+    expect(clampOptionCount('1')).toBe(1);
+    expect(clampOptionCount('2')).toBe(2);
+    expect(clampOptionCount('3')).toBe(3);
+  });
+  it('non-numeric or garbage input defaults to 3 rather than throwing', () => {
+    expect(clampOptionCount('Auto')).toBe(3);
+    expect(clampOptionCount(null)).toBe(3);
+    expect(clampOptionCount(NaN)).toBe(3);
+  });
+  it('rounds a fractional value to the nearest integer before clamping', () => {
+    expect(clampOptionCount(1.6)).toBe(2);
+    expect(clampOptionCount(2.4)).toBe(2);
   });
 });
