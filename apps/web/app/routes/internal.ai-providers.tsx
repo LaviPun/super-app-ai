@@ -124,8 +124,12 @@ export async function loader({ request }: { request: Request }) {
   const prisma = getPrisma();
   const providersRaw = await service.list();
 
-  const [maskedKeys, defaultProviders, prices, usageRows, appSettings, accounts] = await Promise.all([
+  const [maskedKeys, keyPreviews, defaultProviders, prices, usageRows, appSettings, accounts] = await Promise.all([
     Promise.all(providersRaw.map((p) => service.getApiKeyMasked(p.id))),
+    // Reveal-UI preview (prefix + last 4, e.g. "sk-ant-…cAAA") — computed server-side
+    // from the decrypted key; the full key itself is never included in this payload,
+    // only fetched on demand via the 'revealApiKey' action.
+    Promise.all(providersRaw.map((p) => service.getApiKeyPreview(p.id))),
     service.getDefaultProvidersForSettings(),
     prisma.aiModelPrice.findMany({
       where: { isActive: true },
@@ -260,6 +264,7 @@ export async function loader({ request }: { request: Request }) {
       isActive: p.isActive,
       extraConfig: p.extraConfig,
       apiKeyMasked: maskedKeys[i],
+      apiKeyPreview: keyPreviews[i],
       calls30d: seed?.totalRequests ?? 0,
       costCents30d: seed?.totalCostCents ?? 0,
     };
@@ -400,6 +405,29 @@ export async function action({ request }: { request: Request }) {
     });
     if (!result.ok) return json({ error: result.error ?? 'Connection test failed.' }, { status: 400 });
     return json({ ok: true, message: `${provider.name}: connection OK` });
+  }
+
+  if (intent === 'revealApiKey') {
+    const id = String(form.get('id') ?? '');
+    if (!id) return json({ error: 'Missing provider id' }, { status: 400 });
+    const provider = await prisma.aiProvider.findUnique({ where: { id } });
+    if (!provider) return json({ error: 'Provider not found' }, { status: 404 });
+    let apiKey = '';
+    try {
+      apiKey = await service.getApiKey(id);
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message : 'Could not read the stored API key.' }, { status: 400 });
+    }
+    // Audited on every reveal — no key material in the log, only which provider
+    // was revealed and by whom (actor is always INTERNAL_ADMIN here; requireInternalAdmin
+    // gates this whole action).
+    await activity.log({
+      actor: 'INTERNAL_ADMIN',
+      action: 'AI_PROVIDER_KEY_REVEALED',
+      resource: `provider:${id}`,
+      details: { name: provider.name, provider: provider.provider },
+    });
+    return json({ ok: true, apiKey });
   }
 
   if (intent === 'deleteProvider') {
@@ -815,6 +843,56 @@ function useIntentSubmit(onSuccess?: () => void) {
   return { submit, busy: fetcher.state !== 'idle' };
 }
 
+type RevealResult = { ok?: boolean; apiKey?: string; error?: string };
+
+/**
+ * Provider-card "API key" cell: shows the server-computed masked preview
+ * (prefix + last 4, e.g. "sk-ant-…cAAA") by default. "Show" fetches the full
+ * decrypted key on demand via the 'revealApiKey' action (never present in the
+ * initial loader payload) and writes an audit row server-side; "Hide" just
+ * clears local state — no extra request needed to re-mask.
+ */
+function ApiKeyReveal({ providerId, preview }: { providerId: string; preview: string }) {
+  const ctx = useAdminCtx();
+  const fetcher = useFetcher<RevealResult>();
+  const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  const busy = fetcher.state !== 'idle';
+
+  useEffect(() => {
+    if (fetcher.state !== 'idle' || !fetcher.data) return;
+    if (fetcher.data.error) {
+      ctx.toast(fetcher.data.error, true);
+    } else if (fetcher.data.apiKey) {
+      setRevealedKey(fetcher.data.apiKey);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetcher.state, fetcher.data]);
+
+  const reveal = () => {
+    const fd = new FormData();
+    fd.set('intent', 'revealApiKey');
+    fd.set('id', providerId);
+    fetcher.submit(fd, { method: 'post' });
+  };
+
+  return (
+    <span className="row-2" style={{ gap: 6 }}>
+      <span className="t-mono t-xs t-trunc" style={{ maxWidth: 200, display: 'inline-block' }}>
+        {revealedKey ?? preview}
+      </span>
+      {revealedKey ? (
+        <Btn size="sm" className="btn-plain" icon="eye" onClick={() => setRevealedKey(null)}>
+          Hide
+        </Btn>
+      ) : (
+        <Btn size="sm" className="btn-plain" icon="eye" loading={busy} onClick={reveal}>
+          Show
+        </Btn>
+      )}
+    </span>
+  );
+}
+
 export default function AdminProviders() {
   const { providers, prices, accounts, totals30d, providerRatings, fallbackProviderId, envKeyStatus, supportTriage } =
     useLoaderData<typeof loader>();
@@ -932,7 +1010,7 @@ export default function AdminProviders() {
                 rows={[
                   ['Model', p.model ? <MonoChip key="m">{p.model}</MonoChip> : '—'],
                   ['Base URL', p.baseUrl ? <span key="u" className="t-mono t-xs t-trunc" style={{ maxWidth: 200, display: 'inline-block' }}>{p.baseUrl}</span> : '—'],
-                  ['API key', <span key="k" className="t-mono">{p.apiKeyMasked}</span>],
+                  ['API key', <ApiKeyReveal key="k" providerId={p.id} preview={p.apiKeyPreview ?? '—'} />],
                   ['Calls (30d)', fmtNum(p.calls30d)],
                   ['Cost (30d)', fmtCents(p.costCents30d)],
                   rating ? ['Rating (30d)', `${rating.overall}/100 · ${rating.label}`] : null,
