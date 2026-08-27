@@ -18,8 +18,6 @@ FROM base AS build
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/web/package.json apps/web/package.json
 COPY packages/core/package.json packages/core/package.json
-COPY packages/data-layer/package.json packages/data-layer/package.json
-COPY packages/intent-graph/package.json packages/intent-graph/package.json
 COPY packages/job-orchestration/package.json packages/job-orchestration/package.json
 COPY packages/network-security/package.json packages/network-security/package.json
 COPY packages/platform-contracts/package.json packages/platform-contracts/package.json
