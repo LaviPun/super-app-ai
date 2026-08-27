@@ -459,6 +459,7 @@ class EnvGeminiClient implements LlmClient {
   ) {}
 
   async generateRecipe(prompt: string, hints?: GenerateHints) {
+    const timeoutMs = resolveDeadlineTimeoutMs(hints);
     const augmentedPrompt = hints?.previousError
       ? `${prompt}\n\n(Previous validation error: ${hints.previousError})`
       : prompt;
@@ -469,6 +470,8 @@ class EnvGeminiClient implements LlmClient {
       shopId: this.shopId,
       maxTokens: hints?.maxTokens,
       responseSchema: hints?.responseSchema,
+      timeoutMs,
+      deadlineAt: hints?.deadlineAt,
     });
   }
 }

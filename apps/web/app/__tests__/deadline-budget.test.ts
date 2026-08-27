@@ -30,6 +30,7 @@ const hoisted = vi.hoisted(() => ({
   getApiKey: vi.fn(),
   anthropicGenerateRecipe: vi.fn(),
   openAiGenerateRecipe: vi.fn(),
+  geminiGenerateRecipe: vi.fn(),
   priceFindFirst: vi.fn(),
   usageRecord: vi.fn(async (_args: unknown) => {}),
   hasBilledUnit: vi.fn(async () => false),
@@ -55,6 +56,9 @@ vi.mock('~/services/ai/clients/anthropic-messages.client.server', () => ({
 vi.mock('~/services/ai/clients/openai-responses.client.server', () => ({
   openAiGenerateRecipe: (...args: unknown[]) => hoisted.openAiGenerateRecipe(...args),
 }));
+vi.mock('~/services/ai/clients/gemini.client.server', () => ({
+  geminiGenerateRecipe: (...args: unknown[]) => hoisted.geminiGenerateRecipe(...args),
+}));
 vi.mock('~/services/observability/ai-usage.service', () => ({
   AiUsageService: class {
     record = hoisted.usageRecord;
@@ -62,7 +66,7 @@ vi.mock('~/services/observability/ai-usage.service', () => ({
   },
 }));
 
-import { ConfiguredLlmClient, hydrateRecipeSpec } from '~/services/ai/llm.server';
+import { ConfiguredLlmClient, hydrateRecipeSpec, getLlmClient } from '~/services/ai/llm.server';
 import { AppError } from '~/services/errors/app-error.server';
 import type { RecipeSpec } from '@superapp/core';
 
@@ -205,6 +209,70 @@ describe('hydrateRecipeSpec forwards deadlineAt into GenerateHints (WS-C Task 10
 
     const opts = hoisted.anthropicGenerateRecipe.mock.calls[0]![0] as { timeoutMs?: number };
     expect(opts.timeoutMs).toBeUndefined();
+  });
+});
+
+describe('EnvGeminiClient forwards deadlineAt/timeoutMs (parked WS-C follow-up, closed 2026-08-27)', () => {
+  // Unlike EnvOpenAiClient/EnvClaudeClient, EnvGeminiClient previously dropped
+  // `hints.timeoutMs`/`hints.deadlineAt` on the floor instead of forwarding
+  // them into `geminiGenerateRecipe` — a pre-existing gap parked in the WS-C
+  // ledger. This exercises the real env-key fallback path in `getLlmClient`
+  // (no DB provider configured, `defaultAiProvider: 'gemini'`, GEMINI_API_KEY
+  // set) to prove the fix actually reaches the client call, mirroring the
+  // ConfiguredLlmClient/Anthropic+OpenAI assertions above.
+  const ORIGINAL_GEMINI_KEY = process.env.GEMINI_API_KEY;
+  const ORIGINAL_ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
+  const ORIGINAL_OPENAI_KEY = process.env.OPENAI_API_KEY;
+
+  beforeEach(() => {
+    hoisted.providerFindFirst.mockResolvedValue(null); // no active DB provider -> env fallback path
+    hoisted.appSettingsFindUnique.mockResolvedValue({ defaultAiProvider: 'gemini' });
+    process.env.GEMINI_API_KEY = 'test-gemini-key';
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+  });
+
+  afterEach(() => {
+    if (ORIGINAL_GEMINI_KEY === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = ORIGINAL_GEMINI_KEY;
+    if (ORIGINAL_ANTHROPIC_KEY === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = ORIGINAL_ANTHROPIC_KEY;
+    if (ORIGINAL_OPENAI_KEY === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = ORIGINAL_OPENAI_KEY;
+  });
+
+  it('deadlineAt = now + 30s yields a bounded timeoutMs AND the raw deadlineAt forwarded to geminiGenerateRecipe', async () => {
+    hoisted.geminiGenerateRecipe.mockResolvedValueOnce(llmResult('{}'));
+
+    const { client, providerId } = await getLlmClient(null);
+    expect(providerId).toBeNull();
+
+    const now = Date.now();
+    const deadlineAt = now + 30_000;
+    await client.generateRecipe('prompt', { deadlineAt });
+
+    expect(hoisted.geminiGenerateRecipe).toHaveBeenCalledTimes(1);
+    const opts = hoisted.geminiGenerateRecipe.mock.calls[0]![0] as {
+      timeoutMs?: number;
+      deadlineAt?: number;
+    };
+    expect(opts.timeoutMs).toBeGreaterThanOrEqual(25_000);
+    expect(opts.timeoutMs).toBeLessThanOrEqual(30_000);
+    expect(opts.deadlineAt).toBe(deadlineAt);
+  });
+
+  it('no deadlineAt hint: timeoutMs/deadlineAt are both undefined (unbounded — behavior unchanged)', async () => {
+    hoisted.geminiGenerateRecipe.mockResolvedValueOnce(llmResult('{}'));
+
+    const { client } = await getLlmClient(null);
+    await client.generateRecipe('prompt', {});
+
+    const opts = hoisted.geminiGenerateRecipe.mock.calls[0]![0] as {
+      timeoutMs?: number;
+      deadlineAt?: number;
+    };
+    expect(opts.timeoutMs).toBeUndefined();
+    expect(opts.deadlineAt).toBeUndefined();
   });
 });
 
