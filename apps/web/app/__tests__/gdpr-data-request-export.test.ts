@@ -98,7 +98,7 @@ describe('compileCustomerDataExport', () => {
     }
   });
 
-  it('matches SupportTicket by shopperEmail (the model has no customerId column) and excludes internal notes', async () => {
+  it('matches SupportTicket by shopperEmail (the model has no customerId column), case-insensitively, and excludes internal notes', async () => {
     const prisma = makePrismaMock();
     await compileCustomerDataExport(prisma as never, {
       shopId: 'shop-1',
@@ -108,14 +108,60 @@ describe('compileCustomerDataExport', () => {
       webhookEventId: null,
     });
 
+    // mode: 'insensitive' (Postgres) — a plain string-equality where clause would silently
+    // drop tickets whose stored shopperEmail casing differs from the webhook payload's.
     expect(prisma.supportTicket.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { shopId: 'shop-1', shopperEmail: 'shopper@example.com' },
+        where: { shopId: 'shop-1', shopperEmail: { equals: 'shopper@example.com', mode: 'insensitive' } },
         select: expect.objectContaining({
           messages: expect.objectContaining({ where: { internal: false } }),
         }),
       }),
     );
+  });
+
+  it('finds a support ticket whose STORED shopperEmail casing differs from the webhook payload (mixed-case vs lowercase)', async () => {
+    // A prisma fake that actually implements Postgres' `mode: 'insensitive'` filtering
+    // semantics on the `where` shape our code sends, rather than just recording the call —
+    // so this test is red against the historical exact-match `shopperEmail: customerEmail`
+    // code (which passes a plain string, so this fake's case-sensitive branch runs and
+    // finds nothing) and green only once the query is genuinely case-insensitive.
+    const storedTicket = {
+      id: 't1',
+      subject: 'Where is my order',
+      description: 'It has not arrived',
+      status: 'OPEN',
+      source: 'SHOPPER',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      messages: [],
+      shopperEmail: 'Shopper@Example.com',
+    };
+    const prisma = makePrismaMock();
+    prisma.supportTicket.findMany = vi.fn(
+      async ({ where }: { where: { shopId: string; shopperEmail: string | { equals: string; mode?: string } } }) => {
+        if (where.shopId !== 'shop-1') return [];
+        const isInsensitive = typeof where.shopperEmail === 'object' && where.shopperEmail.mode === 'insensitive';
+        const target = typeof where.shopperEmail === 'string' ? where.shopperEmail : where.shopperEmail.equals;
+        const matches = isInsensitive
+          ? storedTicket.shopperEmail.toLowerCase() === target.toLowerCase()
+          : storedTicket.shopperEmail === target;
+        return matches ? [storedTicket] : [];
+      },
+    );
+
+    const result = await compileCustomerDataExport(prisma as never, {
+      shopId: 'shop-1',
+      shopDomain: 'gdpr.myshopify.com',
+      customerId: null,
+      customerEmail: 'shopper@example.com',
+      webhookEventId: null,
+    });
+
+    expect(result.records.supportTickets).toHaveLength(1);
+    expect(result.counts.supportTickets).toBe(1);
+    // Present but no rows found is still a legitimate "no support history" outcome, not an
+    // error — no false note should be added just because the count is zero elsewhere.
   });
 
   it('skips SupportTicket lookup and records a note when no customer email is present', async () => {
@@ -244,5 +290,37 @@ describe('deliverCustomerDataExport', () => {
     const [sendArgs] = sendEmailMock.mock.calls[0] as [{ html: string; text: string }];
     expect(sendArgs.html.toLowerCase()).toContain('truncat');
     expect(sendArgs.text.toLowerCase()).toContain('truncat');
+  });
+
+  it('propagates the TRUNCATED note back onto the caller-owned exportPayload.notes (so ActivityLog shows it too)', async () => {
+    const bigRecords = Array.from({ length: 5000 }, (_, i) => ({
+      id: `c${i}`,
+      captureType: 'note',
+      payload: 'x'.repeat(200),
+      piiFlags: null,
+      createdAt: new Date(),
+    }));
+    const payload = fakeExport({
+      records: { dataCaptures: bigRecords, dataStoreRecords: [], moduleEvents: [], attributionLinks: [], supportTickets: [] },
+      counts: { dataCaptures: bigRecords.length, dataStoreRecords: 0, moduleEvents: 0, attributionLinks: 0, supportTickets: 0 },
+    });
+
+    expect((payload.notes as string[]).some((n) => n.includes('TRUNCATED'))).toBe(false);
+    await deliverCustomerDataExport({ shopDomain: 'gdpr.myshopify.com', exportPayload: payload as never });
+    expect((payload.notes as string[]).some((n) => n.includes('TRUNCATED'))).toBe(true);
+  });
+
+  it('never throws even when serializing the export itself fails (e.g. a circular payload)', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const circular: any = { id: 'c1', captureType: 'note', payload: 'x', piiFlags: null, createdAt: new Date() };
+    circular.self = circular; // forces JSON.stringify inside serializeForDelivery to throw
+    const payload = fakeExport({
+      records: { dataCaptures: [circular], dataStoreRecords: [], moduleEvents: [], attributionLinks: [], supportTickets: [] },
+    });
+
+    await expect(
+      deliverCustomerDataExport({ shopDomain: 'gdpr.myshopify.com', exportPayload: payload as never }),
+    ).resolves.toMatchObject({ emailSent: false });
+    expect(sendEmailMock).not.toHaveBeenCalled();
   });
 });

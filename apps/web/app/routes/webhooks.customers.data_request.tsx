@@ -97,33 +97,55 @@ export async function action({ request }: { request: Request }) {
     reason: 'delivery_threw',
   }));
 
-  await prisma.activityLog.create({
-    data: {
-      actor: 'WEBHOOK',
-      action: 'GDPR_DATA_REQUEST',
-      resource: `customer:${customerId ?? 'shop'}`,
-      shopId: shop.id,
-      details: JSON.stringify({
-        customerId,
-        customerEmail,
-        counts: exportPayload.counts,
-        notes: exportPayload.notes,
-        delivery,
-      }),
-    },
-  });
+  // Post-delivery bookkeeping (ActivityLog + the delivery-failure ErrorLog below) runs
+  // AFTER the WebhookEvent claim above, and after data was already compiled and (attempted
+  // to be) delivered — so a throw here must NOT release the claim: doing so would let
+  // Shopify's redelivery reprocess this event and potentially double-email the merchant.
+  // It's wrapped so a bookkeeping failure can't crash the handler either way; the whole
+  // block is best-effort, with one more loud, catch-all-guarded ErrorLog attempt on failure
+  // so the failure is at least attempted-loudly rather than vanishing silently.
+  try {
+    await prisma.activityLog.create({
+      data: {
+        actor: 'WEBHOOK',
+        action: 'GDPR_DATA_REQUEST',
+        resource: `customer:${customerId ?? 'shop'}`,
+        shopId: shop.id,
+        details: JSON.stringify({
+          customerId,
+          // Cleartext, not redacted: RULING (coordinator review) — the merchant fulfilling
+          // this GDPR request must know which customer it concerns; this is a shop-internal
+          // audit log, not an external surface.
+          customerEmail,
+          counts: exportPayload.counts,
+          notes: exportPayload.notes,
+          delivery,
+        }),
+      },
+    });
 
-  if (!delivery.emailSent) {
-    // Loud, not silent: this is a compliance-relevant failure (data was compiled but
-    // could not be delivered to the merchant) — ops-visible via ErrorLog, not just the
-    // shop-scoped ActivityLog above.
-    await new ErrorLogService().error(
-      `GDPR data_request delivery failed for ${shopDomain}: ${delivery.reason ?? 'unknown'}`,
-      undefined,
-      { shopDomain, customerId, mailerConfigured: delivery.mailerConfigured, reason: delivery.reason },
-      undefined,
-      'SERVER',
-    );
+    if (!delivery.emailSent) {
+      // Loud, not silent: this is a compliance-relevant failure (data was compiled but
+      // could not be delivered to the merchant) — ops-visible via ErrorLog, not just the
+      // shop-scoped ActivityLog above.
+      await new ErrorLogService().error(
+        `GDPR data_request delivery failed for ${shopDomain}: ${delivery.reason ?? 'unknown'}`,
+        undefined,
+        { shopDomain, customerId, mailerConfigured: delivery.mailerConfigured, reason: delivery.reason },
+        undefined,
+        'SERVER',
+      );
+    }
+  } catch (bookkeepingErr) {
+    await new ErrorLogService()
+      .error(
+        `GDPR data_request post-delivery bookkeeping failed for ${shopDomain}`,
+        bookkeepingErr instanceof Error ? bookkeepingErr.stack : undefined,
+        { shopDomain, customerId },
+        bookkeepingErr,
+        'SERVER',
+      )
+      .catch(() => {});
   }
 
   return new Response(undefined, { status: 200 });

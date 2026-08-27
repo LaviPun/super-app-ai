@@ -59,7 +59,9 @@ vi.mock('~/services/flows/idempotency.server', () => ({
 
 vi.mock('~/services/observability/error-log.service', () => ({
   ErrorLogService: class {
-    error = (...args: unknown[]) => errorLogErrorMock(...args);
+    // Always returns a real Promise (matching the real async method) — the route's
+    // catch-all-guarded bookkeeping-failure path chains .catch() off this call.
+    error = (...args: unknown[]) => Promise.resolve(errorLogErrorMock(...args));
     warn = vi.fn(async () => undefined);
     info = vi.fn(async () => undefined);
   },
@@ -196,6 +198,32 @@ describe('customers/data_request', () => {
 
     // Loud, not silent: an ops-visible ErrorLog entry is written too.
     expect(errorLogErrorMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('still returns 200 and does NOT release the WebhookEvent claim when post-delivery bookkeeping (ActivityLog write) throws', async () => {
+    activityLogCreateMock.mockRejectedValueOnce(new Error('db down'));
+    const { action } = await import('~/routes/webhooks.customers.data_request');
+    const res = await action({
+      request: postRequest('https://x.test/webhooks/customers/data_request', {
+        shop_domain: 'gdpr.myshopify.com',
+        customer: { id: 555, email: 'a@b.com' },
+      }),
+    });
+
+    // Data was already compiled + delivered before the throw — the claim must NOT be
+    // released (that would let Shopify's redelivery reprocess and double-email), and the
+    // handler must still ack 200 rather than crash or bubble the bookkeeping error.
+    expect(res.status).toBe(200);
+    expect(unmarkWebhookEventMock).not.toHaveBeenCalled();
+    // Best-effort, catch-all-guarded: a loud ErrorLog attempt is still made for the
+    // bookkeeping failure itself.
+    expect(errorLogErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining('bookkeeping'),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      'SERVER',
+    );
   });
 
   it('is idempotent — a duplicate webhook delivery is skipped (no re-query, no re-email)', async () => {

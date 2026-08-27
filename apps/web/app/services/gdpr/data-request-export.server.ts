@@ -207,7 +207,10 @@ export async function compileCustomerDataExport(
   let supportTickets: CustomerDataExportRecords['supportTickets'] = [];
   if (customerEmail) {
     supportTickets = await prisma.supportTicket.findMany({
-      where: { shopId, shopperEmail: customerEmail },
+      // mode: 'insensitive' (Postgres-only, confirmed this schema's datasource) — a shopper's
+      // stored email casing can differ from what Shopify sends on the webhook payload; an
+      // exact-match comparison would silently drop their support-ticket history from the export.
+      where: { shopId, shopperEmail: { equals: customerEmail, mode: 'insensitive' } },
       select: {
         id: true,
         subject: true,
@@ -344,6 +347,11 @@ function serializeForDelivery(exportPayload: CustomerDataExport): { json: string
 
   if (truncated) {
     clone.notes = [...clone.notes, TRUNCATION_NOTE];
+    // Propagate the truncation note back onto the CALLER's (non-cloned) export too — the
+    // route builds its ActivityLog details from exportPayload.notes after delivery, so
+    // without this the merchant-visible audit trail would silently omit that the emailed
+    // copy was a subset.
+    if (!exportPayload.notes.includes(TRUNCATION_NOTE)) exportPayload.notes.push(TRUNCATION_NOTE);
   }
 
   const json = JSON.stringify(clone);
@@ -383,7 +391,28 @@ async function resolveShopOwnerEmail(shopDomain: string): Promise<string | null>
  * can record a loud, honest failure instead of silently dropping the request.
  */
 export async function deliverCustomerDataExport(opts: DeliverExportOptions): Promise<DeliverExportResult> {
-  const { json, truncated, byteLength } = serializeForDelivery(opts.exportPayload);
+  let json: string;
+  let truncated = false;
+  let byteLength = 0;
+  try {
+    // serializeForDelivery does its own JSON.stringify/parse round-trips (deep clone,
+    // byte-size accounting) which can theoretically throw (e.g. a pathological/circular
+    // export payload) — guarded here so this function's never-throws contract is literally
+    // true, not just true for the common case.
+    const serialized = serializeForDelivery(opts.exportPayload);
+    json = serialized.json;
+    truncated = serialized.truncated;
+    byteLength = serialized.byteLength;
+  } catch {
+    return {
+      emailSent: false,
+      mailerConfigured: false,
+      recipientDomain: null,
+      truncated: false,
+      byteLength: 0,
+      reason: 'serialize_failed',
+    };
+  }
 
   let mailerConfigured = false;
   try {
