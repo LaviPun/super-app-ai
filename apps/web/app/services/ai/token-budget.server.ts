@@ -60,17 +60,28 @@ export function getRepairTokenBudget(type: ModuleType): number {
   return Math.max(MIN_BUDGET, Math.floor(getRecipeTokenBudget(type) / 2));
 }
 
-/** Floor for a delta (JSON merge patch) call — a patch is small, but must clear this. */
+/**
+ * Floor for a delta (JSON merge patch) call — a patch is small, but must clear
+ * this. Sized proportionally to the 0.75x ratio below (was 1200 under the old
+ * 0.5x ratio); left unmoved because it doesn't currently bind (the smallest
+ * listed recipe budget, 2500, yields 1875 at 0.75x) — if a future, smaller
+ * RECIPE_TOKEN_BUDGETS entry makes this floor start binding, raise it
+ * proportionally then.
+ */
 const MIN_DELTA_BUDGET = 1200;
 
 /**
  * Delta (Tier-1 instantiate + merge-patch) calls emit only the *diff* against an
- * inline template spec, not a whole recipe, so they need roughly half the
- * per-recipe budget. Floored at MIN_DELTA_BUDGET so even the most compact types
- * leave room for a non-trivial patch plus its wrapping envelope.
+ * inline template spec, not a whole recipe. Originally set to half the
+ * per-recipe budget, but production logs on Sonnet 5 showed every Tier-1 delta
+ * call truncating (`stop_reason=max_tokens`) and silently falling back to
+ * freeform — Sonnet 5's outputs (explanation + patch, with longer adapted copy)
+ * run longer than the older default model's. Raised to 0.75x so the patch call
+ * has realistic headroom. Floored at MIN_DELTA_BUDGET so even the most compact
+ * types leave room for a non-trivial patch plus its wrapping envelope.
  */
 export function getDeltaTokenBudget(type: ModuleType): number {
-  return Math.max(MIN_DELTA_BUDGET, Math.floor(getRecipeTokenBudget(type) / 2));
+  return Math.max(MIN_DELTA_BUDGET, Math.floor(getRecipeTokenBudget(type) * 0.75));
 }
 
 /**

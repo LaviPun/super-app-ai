@@ -5,7 +5,8 @@ import {
   compileDeltaPrompt,
   generateRecipeViaDelta,
 } from '~/services/ai/template-delta.server';
-import type { GenerateResult, LlmClient } from '~/services/ai/llm.server';
+import type { GenerateHints, GenerateResult, LlmClient } from '~/services/ai/llm.server';
+import { TruncatedOutputError } from '~/services/ai/clients/truncation.server';
 
 /** A valid theme.section RecipeSpec used as the Tier-1 template starting point. */
 const TEMPLATE = {
@@ -164,5 +165,106 @@ describe('generateRecipeViaDelta', () => {
         maxTokens: 1200,
       }),
     ).rejects.toThrow(/did not yield an object/i);
+  });
+
+  describe('truncation retry (mirrors hydrate\'s WS-C Task 12 budget-bump)', () => {
+    /** Throws TruncatedOutputError on the first N calls, then replays `responses`. Records the maxTokens hint per call. */
+    class TruncatingLlmClient implements LlmClient {
+      public prompts: string[] = [];
+      public maxTokensPerCall: Array<number | undefined> = [];
+      private calls = 0;
+      constructor(
+        private readonly truncateFirstNCalls: number,
+        private readonly responses: string[],
+      ) {}
+      async generateRecipe(prompt: string, hints?: GenerateHints): Promise<GenerateResult> {
+        this.prompts.push(prompt);
+        this.maxTokensPerCall.push(hints?.maxTokens);
+        const callIndex = this.calls;
+        this.calls += 1;
+        if (callIndex < this.truncateFirstNCalls) {
+          throw new TruncatedOutputError('Anthropic', 'stop_reason=max_tokens');
+        }
+        const rawJson = this.responses[Math.min(callIndex - this.truncateFirstNCalls, this.responses.length - 1)] ?? '';
+        return { rawJson, tokensIn: 10, tokensOut: 20, model: 'stub', servedProviderId: null };
+      }
+    }
+
+    it('retries once with a bumped budget after a truncation, then succeeds', async () => {
+      const client = new TruncatingLlmClient(1, [
+        JSON.stringify({ explanation: 'Adapted after retry', patch: { name: 'Retried Banner' } }),
+      ]);
+      const { recipe, explanation, generationMode } = await generateRecipeViaDelta({
+        client,
+        templateSpecJson: TEMPLATE_JSON,
+        moduleType: 'theme.section',
+        userRequest: 'summer sale banner',
+        maxTokens: 1200,
+      });
+      expect(generationMode).toBe('delta');
+      expect(explanation).toBe('Adapted after retry');
+      expect(recipe.name).toBe('Retried Banner');
+      // Exactly 2 calls: the truncated attempt + the bumped retry.
+      expect(client.prompts).toHaveLength(2);
+      // The retry asked for MORE room than the initial attempt.
+      expect(client.maxTokensPerCall[0]).toBe(1200);
+      expect(client.maxTokensPerCall[1]).toBeGreaterThan(1200);
+    });
+
+    it('gives up and rethrows (so the caller falls back to freeform) when the retry ALSO truncates', async () => {
+      const client = new TruncatingLlmClient(2, []);
+      await expect(
+        generateRecipeViaDelta({
+          client,
+          templateSpecJson: TEMPLATE_JSON,
+          moduleType: 'theme.section',
+          userRequest: 'x',
+          maxTokens: 1200,
+        }),
+      ).rejects.toThrow(TruncatedOutputError);
+      // Only ONE retry is attempted — never a third call.
+      expect(client.prompts).toHaveLength(2);
+    });
+
+    it('does not retry on a non-truncation error', async () => {
+      class FailOnceClient implements LlmClient {
+        public prompts: string[] = [];
+        async generateRecipe(prompt: string): Promise<GenerateResult> {
+          this.prompts.push(prompt);
+          throw new Error('network blip');
+        }
+      }
+      const client = new FailOnceClient();
+      await expect(
+        generateRecipeViaDelta({
+          client,
+          templateSpecJson: TEMPLATE_JSON,
+          moduleType: 'theme.section',
+          userRequest: 'x',
+          maxTokens: 1200,
+        }),
+      ).rejects.toThrow('network blip');
+      expect(client.prompts).toHaveLength(1);
+    });
+
+    it('the retry is invisible to billing: generateRecipeViaDelta never records AI usage itself, and the returned result carries only the successful call\'s tokens (the truncated attempt contributes none, matching provider clients which throw before usage is known)', async () => {
+      const client = new TruncatingLlmClient(1, [
+        JSON.stringify({ explanation: 'ok', patch: { name: 'Billed Once' } }),
+      ]);
+      const { result } = await generateRecipeViaDelta({
+        client,
+        templateSpecJson: TEMPLATE_JSON,
+        moduleType: 'theme.section',
+        userRequest: 'x',
+        maxTokens: 1200,
+      });
+      // Only the successful (second) call's usage is reflected — 10/20, not
+      // doubled or summed with a phantom first-call cost. The caller
+      // (produceOptionRecipe / the option-level recordAiUsage in llm.server.ts)
+      // bills exactly ONE billable unit per option off of this single result,
+      // regardless of how many attempts generateRecipeViaDelta made internally.
+      expect(result.tokensIn).toBe(10);
+      expect(result.tokensOut).toBe(20);
+    });
   });
 });
