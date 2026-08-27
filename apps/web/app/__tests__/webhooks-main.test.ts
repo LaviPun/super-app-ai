@@ -10,31 +10,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  *    NOT re-process.
  *  - If processing (FlowRunnerService.runForTrigger) throws, the event claim is
  *    released (unmarkWebhookEvent) for Shopify redelivery and the action returns 500.
+ *  - WS-G Task 16: the sibling fan-outs (messaging/httpSync/restock/loyalty) no
+ *    longer run inline — they CLAIM + ENQUEUE (via enqueueOwnedJob) + ACK. The
+ *    primary FlowRunnerService.runForTrigger call is unchanged (still inline).
  */
 
-const {
-  authWebhookMock,
-  checkAndMarkMock,
-  unmarkMock,
-  extractEventIdMock,
-  flowRunMock,
-  messagingRunMock,
-  httpSyncRunMock,
-  accrueForOrderMock,
-  restockRunMock,
-  loggerMock,
-} = vi.hoisted(() => ({
-  authWebhookMock: vi.fn(),
-  checkAndMarkMock: vi.fn(),
-  unmarkMock: vi.fn(),
-  extractEventIdMock: vi.fn(() => 'wh_event_1'),
-  flowRunMock: vi.fn(),
-  messagingRunMock: vi.fn(),
-  httpSyncRunMock: vi.fn(),
-  accrueForOrderMock: vi.fn(),
-  restockRunMock: vi.fn(),
-  loggerMock: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-}));
+const { authWebhookMock, checkAndMarkMock, unmarkMock, extractEventIdMock, flowRunMock, enqueueMock, loggerMock } =
+  vi.hoisted(() => ({
+    authWebhookMock: vi.fn(),
+    checkAndMarkMock: vi.fn(),
+    unmarkMock: vi.fn(),
+    extractEventIdMock: vi.fn(() => 'wh_event_1'),
+    flowRunMock: vi.fn(),
+    enqueueMock: vi.fn(async (_input: { type: string }) => ({ jobId: 'job_x', queued: true })),
+    loggerMock: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+  }));
 
 vi.mock('~/shopify.server', () => ({
   shopify: {
@@ -66,26 +56,8 @@ vi.mock('~/services/flows/flow-runner.service', () => ({
   },
 }));
 
-vi.mock('~/services/messaging/messaging-runner.service', () => ({
-  MessagingRunnerService: class {
-    runForTrigger = messagingRunMock;
-  },
-}));
-
-vi.mock('~/services/integration/http-sync-runner.service', () => ({
-  HttpSyncRunnerService: class {
-    runForTrigger = httpSyncRunMock;
-  },
-}));
-
-vi.mock('~/services/messaging/restock-watcher.server', () => ({
-  RestockWatcherService: class {
-    runForProductUpdate = restockRunMock;
-  },
-}));
-
-vi.mock('~/services/composites/loyalty-accrual.server', () => ({
-  accrueForOrder: accrueForOrderMock,
+vi.mock('~/services/jobs/ops-queue.server', () => ({
+  enqueueOwnedJob: enqueueMock,
 }));
 
 vi.mock('~/services/flows/idempotency.server', () => ({
@@ -121,10 +93,7 @@ describe('webhooks.tsx main action', () => {
     checkAndMarkMock.mockResolvedValue(true);
     unmarkMock.mockResolvedValue(undefined);
     flowRunMock.mockResolvedValue(undefined);
-    messagingRunMock.mockResolvedValue(undefined);
-    httpSyncRunMock.mockResolvedValue(undefined);
-    accrueForOrderMock.mockResolvedValue(undefined);
-    restockRunMock.mockResolvedValue(undefined);
+    enqueueMock.mockResolvedValue({ jobId: 'job_x', queued: true });
     shopFindUniqueMock.mockResolvedValue({ id: 'shop-1' });
   });
 
@@ -155,12 +124,10 @@ describe('webhooks.tsx main action', () => {
     expect(res.status).toBe(200);
     expect(checkAndMarkMock).toHaveBeenCalledTimes(1);
     expect(flowRunMock).not.toHaveBeenCalled();
-    expect(messagingRunMock).not.toHaveBeenCalled();
-    expect(httpSyncRunMock).not.toHaveBeenCalled();
-    expect(accrueForOrderMock).not.toHaveBeenCalled();
+    expect(enqueueMock).not.toHaveBeenCalled();
   });
 
-  it('new event runs the flow trigger and returns 200', async () => {
+  it('new event runs the flow trigger, enqueues siblings (incl. loyalty), and returns 200', async () => {
     authWebhookMock.mockResolvedValue({
       admin: { graphql: vi.fn() },
       payload: { id: 42 },
@@ -183,8 +150,17 @@ describe('webhooks.tsx main action', () => {
       'SHOPIFY_WEBHOOK_ORDER_CREATED',
       { id: 42 },
     );
-    // orders/create also drives loyalty accrual.
-    expect(accrueForOrderMock).toHaveBeenCalledWith('shop-1', { id: 42 });
+    // orders/create drives messaging, httpSync, and loyalty enqueues (not restock).
+    expect(enqueueMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'MESSAGING_RUN', shopId: 'shop-1' }),
+    );
+    expect(enqueueMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'HTTP_SYNC_RUN', shopId: 'shop-1' }),
+    );
+    expect(enqueueMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'LOYALTY_ACCRUAL_RUN', shopId: 'shop-1', payload: { id: 42 } }),
+    );
+    expect(enqueueMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'RESTOCK_WATCH_RUN' }));
     // The claim must NOT be released on success.
     expect(unmarkMock).not.toHaveBeenCalled();
   });
@@ -208,15 +184,12 @@ describe('webhooks.tsx main action', () => {
       eventId: 'wh_event_1',
     });
     // Downstream best-effort fan-out must NOT run once the flow failed.
-    expect(messagingRunMock).not.toHaveBeenCalled();
-    expect(httpSyncRunMock).not.toHaveBeenCalled();
-    expect(accrueForOrderMock).not.toHaveBeenCalled();
+    expect(enqueueMock).not.toHaveBeenCalled();
   });
 
-  it('products/update drives the restock watcher (best-effort sibling) and returns 200', async () => {
-    const graphqlFn = vi.fn();
+  it('products/update enqueues the restock watcher (best-effort sibling) and returns 200', async () => {
     authWebhookMock.mockResolvedValue({
-      admin: { graphql: graphqlFn },
+      admin: { graphql: vi.fn() },
       payload: { id: 100, admin_graphql_api_id: 'gid://shopify/Product/100', variants: [] },
       shop: 'shop.example.myshopify.com',
       topic: 'products/update',
@@ -232,22 +205,29 @@ describe('webhooks.tsx main action', () => {
       'SHOPIFY_WEBHOOK_PRODUCT_UPDATED',
       expect.objectContaining({ id: 100 }),
     );
-    expect(restockRunMock).toHaveBeenCalledTimes(1);
-    const [shopArg, adminGraphqlArg, eventArg] = restockRunMock.mock.calls[0]!;
-    expect(shopArg).toBe('shop.example.myshopify.com');
-    expect(typeof adminGraphqlArg).toBe('function'); // adapted graphql fn passed through
-    expect(eventArg).toMatchObject({ admin_graphql_api_id: 'gid://shopify/Product/100' });
+    expect(enqueueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'RESTOCK_WATCH_RUN',
+        shopId: 'shop-1',
+        payload: { event: expect.objectContaining({ id: 100 }) },
+      }),
+    );
+    // orders/create-only sibling must not fire on products/update.
+    expect(enqueueMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'LOYALTY_ACCRUAL_RUN' }));
     expect(unmarkMock).not.toHaveBeenCalled();
   });
 
-  it('a restock watcher failure does NOT 500 the webhook (best-effort)', async () => {
+  it('a restock enqueue failure does NOT 500 the webhook (best-effort)', async () => {
     authWebhookMock.mockResolvedValue({
       admin: { graphql: vi.fn() },
       payload: { id: 100, variants: [] },
       shop: 'shop.example.myshopify.com',
       topic: 'products/update',
     });
-    restockRunMock.mockRejectedValue(new Error('watcher boom'));
+    enqueueMock.mockImplementation(async (input: { type: string }) => {
+      if (input.type === 'RESTOCK_WATCH_RUN') throw new Error('queue boom');
+      return { jobId: 'job_x', queued: true };
+    });
 
     const mod = await import('~/routes/webhooks');
     const res = await mod.action({ request: webhookRequest() });
@@ -257,7 +237,7 @@ describe('webhooks.tsx main action', () => {
     expect(loggerMock.error).toHaveBeenCalled();
   });
 
-  it('does NOT run the restock watcher on a non-product topic (orders/create)', async () => {
+  it('does NOT enqueue the restock watcher on a non-product topic (orders/create)', async () => {
     authWebhookMock.mockResolvedValue({
       admin: { graphql: vi.fn() },
       payload: { id: 42 },
@@ -268,7 +248,7 @@ describe('webhooks.tsx main action', () => {
     const mod = await import('~/routes/webhooks');
     await mod.action({ request: webhookRequest() });
 
-    expect(restockRunMock).not.toHaveBeenCalled();
+    expect(enqueueMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'RESTOCK_WATCH_RUN' }));
   });
 
   it('app/uninstalled purges sessions and enqueues cleanup, returns 200', async () => {
