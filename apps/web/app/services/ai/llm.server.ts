@@ -163,6 +163,10 @@ export interface GenerateResult {
   tokensOut: number;
   model?: string;
   servedProviderId?: string | null;
+  /** WS P2-A. Populated only by anthropicGenerateRecipe (via ConfiguredLlmClient/EnvClaudeClient); undefined for every other provider. */
+  cacheReadTokens?: number;
+  /** WS P2-A. Populated only by anthropicGenerateRecipe (via ConfiguredLlmClient/EnvClaudeClient); undefined for every other provider. */
+  cacheCreationTokens?: number;
 }
 
 export function guardAnthropicSkillsConfig(
@@ -362,6 +366,7 @@ export class ConfiguredLlmClient implements LlmClient {
           responseSchema: hints?.responseSchema,
           timeoutMs,
           deadlineAt: hints?.deadlineAt,
+          cacheBoundary: hints?.cacheableChars,
         });
       }
 
@@ -468,6 +473,7 @@ class EnvClaudeClient implements LlmClient {
       responseSchema: hints?.responseSchema,
       timeoutMs,
       deadlineAt: hints?.deadlineAt,
+      cacheBoundary: hints?.cacheableChars,
     });
   }
 }

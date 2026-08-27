@@ -102,6 +102,7 @@ const EnvSchema = z.object({
 
   // Feature flags (string-boolean via parseBooleanEnv at read sites)
   AI_COST_ROUTING_ENABLED: z.string().optional(),
+  AI_PROMPT_CACHING_ENABLED: z.string().optional(),
   JUDGE_POLISH_ENABLED: z.string().optional(),
   PREVIEW_EXPORT_QUEUE_ENABLED: z.string().optional(),
   SHOPIFY_DOCS_GROUNDING_DISABLED: z.string().optional(),
@@ -314,6 +315,11 @@ export function isThemeCheckGateBlocking(): boolean {
  */
 export function isCostRoutingEnabled(): boolean {
   return parseBooleanEnv(process.env.AI_COST_ROUTING_ENABLED, false);
+}
+
+/** `AI_PROMPT_CACHING_ENABLED` — Anthropic cache_control breakpoints on generation/hydrate calls. Default off (P2A-5: flip on only after Task 7's eval A/B clears the bar). */
+export function isPromptCachingEnabled(): boolean {
+  return parseBooleanEnv(process.env.AI_PROMPT_CACHING_ENABLED, false);
 }
 
 /**

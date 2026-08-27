@@ -1,6 +1,7 @@
 import { postJsonWithRetries } from '~/services/ai/http/ai-http.server';
 import { captureAiDebug, isAiDebugCaptureEnabled } from '~/services/ai/debug-capture.server';
 import { TruncatedOutputError } from '~/services/ai/clients/truncation.server';
+import { isPromptCachingEnabled } from '~/env.server';
 
 /** Claude Agent Skills config: skills (anthropic IDs e.g. pptx, xlsx or custom skill_01Ab...) and optional code execution. */
 export type AnthropicSkillsConfig = {
@@ -42,6 +43,14 @@ export async function anthropicGenerateRecipe(opts: {
    * Cannot be combined with `skillsConfig` (tools list conflicts with skills).
    */
   responseSchema?: { name?: string; schema: Record<string, unknown> };
+  /**
+   * WS P2-A. Char offset into `opts.prompt` marking the end of the cache-stable
+   * prefix (from CompiledPrompt.cacheableChars). When set AND AI_PROMPT_CACHING_ENABLED
+   * is true, messages[0].content becomes a two-block array with cache_control on
+   * the prefix block. Absent, 0, or flag-off: unchanged single-string content
+   * (byte-identical to pre-P2A behavior).
+   */
+  cacheBoundary?: number;
 }) {
   const base = (opts.baseUrl ?? 'https://api.anthropic.com').replace(/\/$/, '');
   const url = `${base}/v1/messages`;
@@ -49,6 +58,7 @@ export async function anthropicGenerateRecipe(opts: {
   const useSkills = opts.skillsConfig?.skills?.length;
   const useCodeExecution = Boolean(opts.skillsConfig?.codeExecution);
   const useStructured = Boolean(opts.responseSchema) && !useSkills && !useCodeExecution;
+  const cachingEnabled = isPromptCachingEnabled();
 
   const betaParts: string[] = [];
   if (useSkills) betaParts.push('skills-2025-10-02', 'files-api-2025-04-14');
@@ -61,13 +71,31 @@ export async function anthropicGenerateRecipe(opts: {
   };
   if (anthropicBeta) headers['anthropic-beta'] = anthropicBeta;
 
+  const systemText = useStructured
+    ? 'You are a JSON generator. Call the provided tool exactly once with valid arguments matching the schema.'
+    : 'You are a JSON generator. Always respond with valid JSON only. No markdown, no explanation outside the JSON.';
+
+  // WS P2-A: when structured output is active, the forced tool's JSON Schema is
+  // deterministic per (moduleType, mode) or fully global (hydrate) — cache it
+  // together with `system` (render order tools -> system -> messages means a
+  // breakpoint on the last system block caches both).
+  const system = cachingEnabled && useStructured
+    ? [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }]
+    : systemText;
+
+  const hasCacheBoundary = cachingEnabled && typeof opts.cacheBoundary === 'number' && opts.cacheBoundary > 0 && opts.cacheBoundary < opts.prompt.length;
+  const content = hasCacheBoundary
+    ? [
+        { type: 'text', text: opts.prompt.slice(0, opts.cacheBoundary), cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: opts.prompt.slice(opts.cacheBoundary) },
+      ]
+    : opts.prompt;
+
   const body: Record<string, unknown> = {
     model: opts.model,
     max_tokens: opts.maxTokens ?? 8192,
-    system: useStructured
-      ? 'You are a JSON generator. Call the provided tool exactly once with valid arguments matching the schema.'
-      : 'You are a JSON generator. Always respond with valid JSON only. No markdown, no explanation outside the JSON.',
-    messages: [{ role: 'user', content: opts.prompt }],
+    system,
+    messages: [{ role: 'user', content }],
   };
 
   if (useSkills) {
@@ -81,7 +109,9 @@ export async function anthropicGenerateRecipe(opts: {
   }
 
   if (useSkills || useCodeExecution) {
-    body.tools = [{ type: 'code_execution_20250825', name: 'code_execution' }];
+    // WS P2-A: fixed the code_execution_20250825 -> code_execution_20260521 drift
+    // (the _20250825 type string pre-dated this codebase's current API reference).
+    body.tools = [{ type: 'code_execution_20260521', name: 'code_execution' }];
   }
 
   if (useStructured) {
@@ -101,6 +131,8 @@ export async function anthropicGenerateRecipe(opts: {
   let tokensIn = 0;
   let tokensOut = 0;
   let modelOut = opts.model;
+  let cacheReadTokens = 0;
+  let cacheCreationTokens = 0;
   try {
     const { json } = await postJsonWithRetries({
       url,
@@ -127,6 +159,8 @@ export async function anthropicGenerateRecipe(opts: {
     const usage = json?.usage;
     tokensIn = usage?.input_tokens ?? 0;
     tokensOut = usage?.output_tokens ?? 0;
+    cacheReadTokens = usage?.cache_read_input_tokens ?? 0;
+    cacheCreationTokens = usage?.cache_creation_input_tokens ?? 0;
     modelOut = json?.model ?? opts.model;
 
     if (isAiDebugCaptureEnabled()) {
@@ -141,7 +175,7 @@ export async function anthropicGenerateRecipe(opts: {
         durationMs: Date.now() - start,
       });
     }
-    return { rawJson, tokensIn, tokensOut, model: modelOut };
+    return { rawJson, tokensIn, tokensOut, model: modelOut, cacheReadTokens, cacheCreationTokens };
   } catch (err) {
     if (isAiDebugCaptureEnabled()) {
       await captureAiDebug({
