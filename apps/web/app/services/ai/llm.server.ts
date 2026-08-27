@@ -101,6 +101,28 @@ export interface GenerateHints {
    * instead of firing a call that cannot finish in time.
    */
   deadlineAt?: number;
+  /**
+   * WS P2-A. Char offset into the prompt marking the end of the cacheable
+   * static prefix (from CompiledPrompt.cacheableChars). Only
+   * anthropicGenerateRecipe reads this.
+   */
+  cacheableChars?: number;
+}
+
+/**
+ * WS P2-A. Return type of compileCreateModulePrompt/compileCreateSingleRecipePrompt/
+ * buildHydratePrompt. `prompt` is the exact string every caller used before this
+ * change (backward-compatible — everything downstream of prompt-compilation still
+ * treats it as a flat string). `cacheableChars` is the character offset marking the
+ * end of the shop-agnostic, request-agnostic, deterministic-per-(moduleType,mode)
+ * stable prefix; 0 means "no meaningful static block, don't bother caching this one."
+ * Only anthropicGenerateRecipe reads it (via GenerateHints.cacheableChars) — every
+ * other provider client ignores it, so this is a strict no-op for OpenAI/Gemini/
+ * OpenAI-compatible by construction (P2A-4).
+ */
+export interface CompiledPrompt {
+  prompt: string;
+  cacheableChars: number;
 }
 
 export interface LlmClient {
@@ -711,25 +733,23 @@ export function compileCreateModulePrompt(params: {
   premiumGuardrails?: string;
   /** WS-builder-ux: merchant-chosen concept count (1-3, default 3). */
   optionCount?: number;
-}): string {
+}): CompiledPrompt {
   const profileGuidance = params.promptProfile ? PROFILE_GUIDANCE[params.promptProfile] : undefined;
   const optionCount = Math.max(1, Math.min(3, params.optionCount ?? 3));
   const optionCountWord = optionCount === 1 ? 'one' : optionCount === 2 ? 'two' : 'three';
 
-  const parts: string[] = [];
-  if (params.designReferenceBlock) {
-    parts.push(params.designReferenceBlock, '');
-  }
-  if (params.designSystemDirective) {
-    parts.push(params.designSystemDirective, '');
-  }
-  if (params.blueprintContext) {
-    parts.push(params.blueprintContext, '');
-  }
-  parts.push(
+  // STABLE PREFIX: shop-agnostic, request-agnostic, deterministic given only
+  // (moduleType, mode, promptProfile). Every block here is safe to share a
+  // cache entry across every merchant and every request of this shape.
+  // NOTE: the merchant-chosen optionCount (1-3) is a per-request choice, not
+  // derivable from moduleType alone, so the optionCount-dependent task text
+  // lives in the dynamic suffix below (not in this stable block) — otherwise
+  // two requests for the same moduleType with different optionCount would get
+  // different "stable" prefixes, which would violate the byte-stability
+  // guarantee this split exists to provide.
+  const stable: string[] = [];
+  stable.push(
     params.purposeAndGuidance,
-    '',
-    `Task: Generate exactly ${optionCountWord} (${optionCount}) different module option${optionCount === 1 ? '' : 's'} for the merchant's request.${optionCount > 1 ? ' Vary by approach (content, trigger, when/where it shows, or styling).' : ''}`,
     '',
     params.typesList,
     '',
@@ -737,49 +757,40 @@ export function compileCreateModulePrompt(params: {
     params.summary,
     '',
     params.expectations,
+  );
+  if (profileGuidance) stable.push('', profileGuidance);
+  if (params.uiDesignerPass) stable.push('', params.uiDesignerPass);
+  if (params.frontendDeveloperPass) stable.push('', params.frontendDeveloperPass);
+  if (params.premiumGuardrails) stable.push('', params.premiumGuardrails);
+  if (params.settingsPack) stable.push('', params.settingsPack);
+  if (params.fullSchemaSpec) stable.push('', 'Full recipe schema (Zod validation — every field must match):', params.fullSchemaSpec);
+  if (params.styleSchemaSpec) stable.push('', 'Style schema (storefront only):', params.styleSchemaSpec);
+  if (params.platformBlock) stable.push('', params.platformBlock);
+
+  const hasMeaningfulStatic = Boolean(
+    params.purposeAndGuidance || params.fullSchemaSpec || params.settingsPack || params.summary,
+  );
+  const stableText = stable.join('\n');
+
+  // DYNAMIC SUFFIX: varies per shop and/or per request. Never share bytes
+  // across requests, so never worth a cache breakpoint.
+  const dynamic: string[] = [];
+  if (params.designReferenceBlock) dynamic.push(params.designReferenceBlock, '');
+  if (params.designSystemDirective) dynamic.push(params.designSystemDirective, '');
+  if (params.blueprintContext) dynamic.push(params.blueprintContext, '');
+  dynamic.push(
+    `Task: Generate exactly ${optionCountWord} (${optionCount}) different module option${optionCount === 1 ? '' : 's'} for the merchant's request.${optionCount > 1 ? ' Vary by approach (content, trigger, when/where it shows, or styling).' : ''}`,
     '',
     wrapUserRequestForPrompt(params.userRequest),
   );
-  if (profileGuidance) {
-    parts.push('', profileGuidance);
-  }
-  if (params.uiDesignerPass) {
-    parts.push('', params.uiDesignerPass);
-  }
-  if (params.frontendDeveloperPass) {
-    parts.push('', params.frontendDeveloperPass);
-  }
-  if (params.premiumGuardrails) {
-    parts.push('', params.premiumGuardrails);
-  }
-  if (params.settingsPack) {
-    parts.push('', params.settingsPack);
-  }
-  if (params.intentPacketJson) {
-    parts.push('', 'PromptIntentSeedV1 (compact intent+routing context; do not change it):', params.intentPacketJson);
-  }
-  if (params.fullSchemaSpec) {
-    parts.push('', 'Full recipe schema (Zod validation — every field must match):', params.fullSchemaSpec);
-  }
-  if (params.styleSchemaSpec) {
-    parts.push('', 'Style schema (storefront only):', params.styleSchemaSpec);
-  }
-  if (params.catalogDetails) {
-    parts.push('', 'Catalog (examples for inspiration):', params.catalogDetails);
-  }
-  if (params.exemplarBlock) {
-    parts.push('', params.exemplarBlock);
-  }
-  if (params.groundingBlock) {
-    parts.push('', params.groundingBlock);
-  }
-  if (params.platformBlock) {
-    parts.push('', params.platformBlock);
-  }
-  if (params.previousError) {
-    parts.push('', '(Previous validation error — fix in next response):', params.previousError);
-  }
-  return parts.join('\n');
+  if (params.intentPacketJson) dynamic.push('', 'PromptIntentSeedV1 (compact intent+routing context; do not change it):', params.intentPacketJson);
+  if (params.catalogDetails) dynamic.push('', 'Catalog (examples for inspiration):', params.catalogDetails);
+  if (params.exemplarBlock) dynamic.push('', params.exemplarBlock);
+  if (params.groundingBlock) dynamic.push('', params.groundingBlock);
+  if (params.previousError) dynamic.push('', '(Previous validation error — fix in next response):', params.previousError);
+
+  const prompt = hasMeaningfulStatic ? `${stableText}\n${dynamic.join('\n')}` : dynamic.join('\n');
+  return { prompt, cacheableChars: hasMeaningfulStatic ? stableText.length : 0 };
 }
 
 /**
@@ -963,65 +974,55 @@ export function compileCreateSingleRecipePrompt(params: {
   uiDesignerPass?: string;
   frontendDeveloperPass?: string;
   premiumGuardrails?: string;
-}): string {
+}): CompiledPrompt {
   const profileGuidance = params.promptProfile ? PROFILE_GUIDANCE[params.promptProfile] : undefined;
-  const parts: string[] = [];
-  if (params.designReferenceBlock) {
-    parts.push(params.designReferenceBlock, '');
-  }
-  if (params.designSystemDirective) {
-    parts.push(params.designSystemDirective, '');
-  }
-  if (params.blueprintContext) {
-    parts.push(params.blueprintContext, '');
-  }
-  parts.push(
+
+  // STABLE PREFIX: shop-agnostic, request-agnostic, deterministic given only
+  // (moduleType, promptProfile). The task text embeds moduleType, but it's
+  // still deterministic per moduleType (always "exactly 1 module"), so it's
+  // safe here — unlike the multi-option compiler's optionCount-dependent text.
+  const stable: string[] = [];
+  stable.push(
     params.purposeAndGuidance,
     '',
     `Task: Generate exactly 1 module of type "${params.moduleType}" for the merchant's request. Output a JSON object: { "explanation": "1-2 sentences", "recipe": { ...one full RecipeSpec... } }.`,
-  );
-  if (params.approachHint) {
-    parts.push('', params.approachHint);
-  }
-  parts.push(
     '',
     `Recommended type for this request: ${params.moduleType}`,
     params.summary,
     '',
     params.expectations,
-    '',
-    wrapUserRequestForPrompt(params.userRequest),
   );
-  if (profileGuidance) parts.push('', profileGuidance);
-  if (params.uiDesignerPass) parts.push('', params.uiDesignerPass);
-  if (params.frontendDeveloperPass) parts.push('', params.frontendDeveloperPass);
-  if (params.premiumGuardrails) parts.push('', params.premiumGuardrails);
-  if (params.settingsPack) parts.push('', params.settingsPack);
-  if (params.intentPacketJson) {
-    parts.push('', 'PromptIntentSeedV1 (compact intent+routing context; do not change it):', params.intentPacketJson);
-  }
-  if (params.fullSchemaSpec) {
-    parts.push('', 'Full recipe schema (Zod validation — every field must match):', params.fullSchemaSpec);
-  }
-  if (params.styleSchemaSpec) {
-    parts.push('', 'Style schema (storefront only):', params.styleSchemaSpec);
-  }
-  if (params.catalogDetails) {
-    parts.push('', 'Catalog (examples for inspiration):', params.catalogDetails);
-  }
-  if (params.exemplarBlock) {
-    parts.push('', params.exemplarBlock);
-  }
-  if (params.groundingBlock) {
-    parts.push('', params.groundingBlock);
-  }
-  if (params.platformBlock) {
-    parts.push('', params.platformBlock);
-  }
-  if (params.previousError) {
-    parts.push('', '(Previous validation error — fix in next response):', params.previousError);
-  }
-  return parts.join('\n');
+  if (profileGuidance) stable.push('', profileGuidance);
+  if (params.uiDesignerPass) stable.push('', params.uiDesignerPass);
+  if (params.frontendDeveloperPass) stable.push('', params.frontendDeveloperPass);
+  if (params.premiumGuardrails) stable.push('', params.premiumGuardrails);
+  if (params.settingsPack) stable.push('', params.settingsPack);
+  if (params.fullSchemaSpec) stable.push('', 'Full recipe schema (Zod validation — every field must match):', params.fullSchemaSpec);
+  if (params.styleSchemaSpec) stable.push('', 'Style schema (storefront only):', params.styleSchemaSpec);
+  if (params.platformBlock) stable.push('', params.platformBlock);
+
+  const hasMeaningfulStatic = Boolean(
+    params.purposeAndGuidance || params.fullSchemaSpec || params.settingsPack || params.summary,
+  );
+  const stableText = stable.join('\n');
+
+  // DYNAMIC SUFFIX: varies per shop and/or per request (including approachHint,
+  // which differs across the parallel fan-out calls for the SAME moduleType —
+  // the key difference from the multi-option compiler's static profileGuidance).
+  const dynamic: string[] = [];
+  if (params.designReferenceBlock) dynamic.push(params.designReferenceBlock, '');
+  if (params.designSystemDirective) dynamic.push(params.designSystemDirective, '');
+  if (params.blueprintContext) dynamic.push(params.blueprintContext, '');
+  if (params.approachHint) dynamic.push('', params.approachHint);
+  dynamic.push('', wrapUserRequestForPrompt(params.userRequest));
+  if (params.intentPacketJson) dynamic.push('', 'PromptIntentSeedV1 (compact intent+routing context; do not change it):', params.intentPacketJson);
+  if (params.catalogDetails) dynamic.push('', 'Catalog (examples for inspiration):', params.catalogDetails);
+  if (params.exemplarBlock) dynamic.push('', params.exemplarBlock);
+  if (params.groundingBlock) dynamic.push('', params.groundingBlock);
+  if (params.previousError) dynamic.push('', '(Previous validation error — fix in next response):', params.previousError);
+
+  const prompt = hasMeaningfulStatic ? `${stableText}\n${dynamic.join('\n')}` : dynamic.join('\n');
+  return { prompt, cacheableChars: hasMeaningfulStatic ? stableText.length : 0 };
 }
 
 /**
@@ -1205,7 +1206,7 @@ async function applyDesignQaWithRetry(
  */
 async function regenerateSingleRecipeForQa(args: {
   client: LlmClient;
-  compiledPrompt: string;
+  compiledPrompt: CompiledPrompt;
   corrective: string;
   perBudget: number;
   singleSchema: Record<string, unknown> | undefined;
@@ -1216,12 +1217,13 @@ async function regenerateSingleRecipeForQa(args: {
   deadlineAt?: number;
 }): Promise<QaRegenResult> {
   const { client, compiledPrompt, corrective, perBudget, singleSchema, moduleType, idx, shopId, providerId, deadlineAt } = args;
-  const result = await client.generateRecipe(`${compiledPrompt}\n\n${corrective}`, {
+  const result = await client.generateRecipe(`${compiledPrompt.prompt}\n\n${corrective}`, {
     maxTokens: perBudget,
     responseSchema: singleSchema
       ? { name: `RecipeSingle_${moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}_qa`, schema: singleSchema }
       : undefined,
     deadlineAt,
+    cacheableChars: compiledPrompt.cacheableChars,
   });
   // Capture the spend BEFORE parse/repair — the LLM call is billed even if its
   // output is unusable (the QA cost-tracking gap this closes).
@@ -1715,7 +1717,7 @@ async function produceOptionRecipe(args: {
   idx: number;
   approach: { label: string; hint: string };
   client: LlmClient;
-  compiledPrompt: string;
+  compiledPrompt: CompiledPrompt;
   perBudget: number;
   singleSchema: Record<string, unknown> | undefined;
   moduleType: ModuleType;
@@ -1771,12 +1773,13 @@ async function produceOptionRecipe(args: {
   }
 
   // Freeform (default) path.
-  const result = await client.generateRecipe(compiledPrompt, {
+  const result = await client.generateRecipe(compiledPrompt.prompt, {
     maxTokens: perBudget,
     responseSchema: singleSchema
       ? { name: `RecipeSingle_${moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}`, schema: singleSchema }
       : undefined,
     deadlineAt,
+    cacheableChars: compiledPrompt.cacheableChars,
   });
   const parsed = JSON.parse(result.rawJson);
   const raw = unwrapRecipe(parsed);
@@ -2018,7 +2021,7 @@ export async function* generateValidatedRecipeOptionsStream(
         meta: { approach: approach.label, model, repaired: repairedFlag, generationMode: produced.generationMode, durationMs: Date.now() - startedAt },
         requestCount: claimOptionBillableUnit(billing, 'ok'),
         correlationId: options?.correlationId,
-        prompt: compiledPrompt,
+        prompt: compiledPrompt.prompt,
       });
       return {
         kind: 'ok' as const,
@@ -2038,7 +2041,7 @@ export async function* generateValidatedRecipeOptionsStream(
         meta: { approach: approach.label, model, error: String(err).slice(0, 500), durationMs: Date.now() - startedAt },
         requestCount: claimOptionBillableUnit(billing, 'failed'),
         correlationId: options?.correlationId,
-        prompt: compiledPrompt,
+        prompt: compiledPrompt.prompt,
       });
       return {
         kind: 'err' as const,
@@ -2291,7 +2294,7 @@ export async function generateValidatedRecipeOptionsParallel(
         meta: { approach: approach.label, model, repaired: repairedFlag, generationMode: produced.generationMode },
         requestCount: claimOptionBillableUnit(billing, 'ok'),
         correlationId: options?.correlationId,
-        prompt: compiledPrompt,
+        prompt: compiledPrompt.prompt,
       });
       const option: RecipeOption = { explanation, recipe, generationMode: produced.generationMode, qaSummary: qaRetry.qaSummary };
       return { ok: true as const, option };
@@ -2306,7 +2309,7 @@ export async function generateValidatedRecipeOptionsParallel(
         meta: { approach: approach.label, model, error: String(err).slice(0, 500) },
         requestCount: claimOptionBillableUnit(billing, 'failed'),
         correlationId: options?.correlationId,
-        prompt: compiledPrompt,
+        prompt: compiledPrompt.prompt,
       });
       return { ok: false as const, error: err };
     }
@@ -2584,12 +2587,13 @@ export async function generateValidatedRecipeOptions(
     let servedProviderId: string | null | undefined;
 
     try {
-      ({ rawJson, tokensIn, tokensOut, model, servedProviderId } = await client.generateRecipe(compiledPrompt, {
+      ({ rawJson, tokensIn, tokensOut, model, servedProviderId } = await client.generateRecipe(compiledPrompt.prompt, {
         maxTokens: optionsBudget,
         responseSchema: optionsJsonSchema
           ? { name: `RecipeOptions_${classification.moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}`, schema: optionsJsonSchema }
           : undefined,
         deadlineAt: options?.deadlineAt,
+        cacheableChars: compiledPrompt.cacheableChars,
       }));
       const parsed = JSON.parse(rawJson);
       const optionsArrRaw = parsed?.options ?? (Array.isArray(parsed) ? parsed : null);
@@ -2654,7 +2658,7 @@ export async function generateValidatedRecipeOptions(
         meta: { attempts: attempt + 1, model, validOptions: validated.length },
         requestCount,
         correlationId: options?.correlationId,
-        prompt: compiledPrompt,
+        prompt: compiledPrompt.prompt,
       });
 
       return validated;
@@ -2682,7 +2686,7 @@ export async function generateValidatedRecipeOptions(
         meta: { attempts: attempt + 1, model, error: String(err).slice(0, 500) },
         requestCount: await legacyRecipeOptionsBillableUnits(usage, options?.correlationId, 'failed'),
         correlationId: options?.correlationId,
-        prompt: compiledPrompt,
+        prompt: compiledPrompt.prompt,
       });
     }
   }

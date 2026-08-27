@@ -67,7 +67,7 @@ describe('WS2 guardrails — untrusted-input envelope', () => {
   });
 
   it('SC-001: compiled prompts never carry an executable override outside the envelope', () => {
-    const prompt = compileCreateSingleRecipePrompt({
+    const { prompt } = compileCreateSingleRecipePrompt({
       purposeAndGuidance: 'guidance',
       moduleType: 'theme.section',
       summary: 'summary',
@@ -78,7 +78,7 @@ describe('WS2 guardrails — untrusted-input envelope', () => {
     expect(prompt).toContain(PROMPT_ENVELOPE_SYSTEM_RULE);
     expect(prompt.toLowerCase()).not.toContain('ignore all previous instructions');
     // create-module compiler wraps it too
-    const multi = compileCreateModulePrompt({
+    const { prompt: multi } = compileCreateModulePrompt({
       purposeAndGuidance: 'guidance',
       typesList: 'types',
       moduleType: 'theme.section',
