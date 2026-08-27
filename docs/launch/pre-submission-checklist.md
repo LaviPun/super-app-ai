@@ -21,7 +21,10 @@ submission if `master` has moved.
 **Legend:** `[AGENT-VERIFIED]` = run in this session, evidence below.
 `[OWNER-PENDING]` = requires a live store, Partner Dashboard, or interactive
 Shopify CLI login this agent session cannot complete — evidence needed is
-stated explicitly.
+stated explicitly. `[READY-ONCE-MERGED]` = the code that closes the row is
+done and verified (tests/build/gates green) on a not-yet-merged branch;
+closing evidence is mechanical (merge + deploy + a live-URL/live-behavior
+check) rather than an owner decision or missing capability.
 
 ---
 
@@ -239,12 +242,21 @@ end-to-end. **Not executed this session.**
   distinct states per `screenshot-checklist.md`) — list filenames once taken.
 - [ ] **`[OWNER-PENDING]`** App icon (1200×1200, no Shopify trademarks) and
   feature media uploaded.
-- [ ] **`[OWNER-PENDING]`** Privacy policy URL — per
-  `docs/launch/app-store-listing-draft.md:107-110`: **"owner-deferred: URL to
-  be provided before submission (hard blocker for Task 8/10). Do not paste a
-  placeholder URL."** No privacy-policy page exists in this repo as of
-  2026-08-27. Evidence that closes this: the live URL, pasted here once the
-  owner supplies it.
+- [x] **`[READY-ONCE-MERGED]`** Privacy policy URL — self-hosted in-app
+  (no external doc host): `https://web-production-3fe27.up.railway.app/privacy`.
+  Built 2026-08-27 on `feat/public-legal-pages`
+  (`apps/web/app/routes/privacy.tsx`, plus `/contact` and `/terms`), public
+  and unauthenticated, kept off the embedded-app CSP
+  (`apps/web/app/security-headers.server.ts`'s new
+  `PUBLIC_STANDALONE_PATHS`/`isPublicStandalonePath`), covered by
+  `apps/web/app/__tests__/public-legal-routes.test.ts` and the extended
+  `security-headers.test.ts`. Full suite green at merge time (283 files /
+  2773 tests). This row was previously `[OWNER-PENDING]` per
+  `docs/launch/app-store-listing-draft.md:105-113` ("owner-deferred... no
+  privacy-policy page exists in this repo as of 2026-08-27") — that is now
+  closed by code, not by an owner decision. Remaining action is mechanical:
+  once this PR is merged and deployed, confirm the live URL returns 200,
+  then paste it into the Partner Dashboard's privacy-policy field.
 - [ ] **`[OWNER-PENDING]`** Category + tags selected in the Partner Dashboard.
 - [ ] **`[OWNER-PENDING]`** Reviewer notes / test credentials — the committed
   `docs/launch/review-notes.md` has `<OWNER: ...>` placeholders (e.g. the

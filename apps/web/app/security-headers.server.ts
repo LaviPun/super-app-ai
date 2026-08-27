@@ -4,6 +4,23 @@ const INTERNAL_ROUTE_ID = 'routes/internal';
 const INTERNAL_ROUTE_ID_PREFIX = `${INTERNAL_ROUTE_ID}.`;
 
 /**
+ * Public, unauthenticated, top-level pages (Shopify-listing-required legal/
+ * info pages: /privacy, /contact, /terms — see app-store-listing-draft.md).
+ * These are standalone document routes with no Shopify session and are never
+ * meant to be framed by anything (not the Shopify admin iframe, not an
+ * arbitrary third-party site), so they get plain security headers instead of
+ * shopify-app-remix's per-shop embedded-app CSP. Exact-match only (these are
+ * single leaf routes, not a nested tree like /internal), and checked against
+ * the same lower-cased pathname `applySecurityHeaders` already computes, for
+ * the same case-insensitive-router reason documented on `isInternalRouteMatch`.
+ */
+export const PUBLIC_STANDALONE_PATHS = ['/privacy', '/contact', '/terms'] as const;
+
+export function isPublicStandalonePath(pathname: string): boolean {
+  return (PUBLIC_STANDALONE_PATHS as readonly string[]).includes(pathname.toLowerCase());
+}
+
+/**
  * True when any matched route for this request is the /internal admin (or a
  * descendant of it). Route ids follow Remix's flat-routes file convention —
  * app/routes/internal.tsx -> "routes/internal",
@@ -43,6 +60,13 @@ export function isInternalRouteMatch(
  *   falls back to a case-insensitive path-prefix check for the same reason
  *   noted above: a case-sensitive fallback would silently reintroduce the
  *   same class of bug the matched-route check exists to avoid.
+ * - Public standalone pages (/privacy, /contact, /terms — see
+ *   PUBLIC_STANDALONE_PATHS above) are top-level, unauthenticated,
+ *   self-contained pages: never the embedded-app CSP (they carry no shop
+ *   context to key it on), and never framed by anything else either. Checked
+ *   BEFORE the shopify helper below, so — same as /internal — a `?shop=`
+ *   query param can never pull one of these into the per-shop embedded CSP
+ *   branch.
  * - Everything else gets shopify-app-remix's per-shop CSP + app-bridge
  *   preload Link header (App Store iframe-protection requirement).
  */
@@ -55,6 +79,15 @@ export function applySecurityHeaders(
   const internal = isInternalRoute ?? (path === '/internal' || path.startsWith('/internal/'));
   if (internal) {
     headers.set('Content-Security-Policy', "frame-ancestors 'none'");
+    return;
+  }
+  if (isPublicStandalonePath(path)) {
+    // Plain headers for a standalone public page — no shop context, no
+    // embedding anywhere, no session data ever placed on the response.
+    headers.set('Content-Security-Policy', "default-src 'self'; frame-ancestors 'none'");
+    headers.set('X-Frame-Options', 'DENY');
+    headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    headers.set('X-Content-Type-Options', 'nosniff');
     return;
   }
   addDocumentResponseHeaders(request, headers);

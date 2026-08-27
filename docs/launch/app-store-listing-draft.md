@@ -104,10 +104,18 @@ checkout, bundles, upsell, no-code.
 
 ## Contact & Legal (4.5 — Partner Dashboard listing form)
 - **Support email:** `support@lavipun.com` — owner decision, resolved 2026-08-27.
-- **Privacy policy URL:** owner-deferred: URL to be provided before
-  submission (hard blocker for Task 8/10). Do not paste a placeholder URL
-  into the Partner Dashboard form — leave the field empty until the owner
-  supplies the real one.
+- **Privacy policy URL:** `https://web-production-3fe27.up.railway.app/privacy`
+  — self-hosted in-app (no external doc host), added 2026-08-27
+  (`feat/public-legal-pages`, `apps/web/app/routes/privacy.tsx`). Public,
+  unauthenticated, plain (non-embedded-app) headers — see
+  `apps/web/app/security-headers.server.ts`. **Ready to paste into the
+  Partner Dashboard once this PR is merged and deployed** — this closes the
+  previous "owner-deferred" blocker below the moment that happens; verify
+  the URL returns 200 on the live deployment before pasting it in.
+  - Also self-hosted at the same URL pattern: `/contact` (support/contact
+    page — `/support` itself is already the in-app authenticated
+    merchant-ticket route, so the public contact page lives at `/contact`
+    instead) and `/terms` (Terms of Service, optional but included).
 
 ## What NOT to do here (accuracy rules, 4.3.3/4.3.4/4.3.6/4.3.7)
 - No unsubstantiated performance/growth stats in copy or images.

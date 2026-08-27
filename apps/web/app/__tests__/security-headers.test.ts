@@ -32,7 +32,7 @@ vi.mock('~/shopify.server', () => ({
   addDocumentResponseHeaders: hoisted.addDocumentResponseHeaders,
 }));
 
-import { applySecurityHeaders, isInternalRouteMatch } from '~/security-headers.server';
+import { applySecurityHeaders, isInternalRouteMatch, isPublicStandalonePath } from '~/security-headers.server';
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -117,6 +117,62 @@ describe('applySecurityHeaders', () => {
       false,
     );
     expect(hoisted.addDocumentResponseHeaders).toHaveBeenCalledTimes(1);
+  });
+
+  describe.each(['/privacy', '/contact', '/terms'])('public standalone page %s', (path) => {
+    it('gets plain, non-embedded headers and never calls the shopify helper', () => {
+      const headers = new Headers();
+      applySecurityHeaders(new Request(`https://app.example.com${path}`), headers);
+      expect(headers.get('Content-Security-Policy')).toBe("default-src 'self'; frame-ancestors 'none'");
+      expect(headers.get('X-Frame-Options')).toBe('DENY');
+      expect(headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin');
+      expect(headers.get('X-Content-Type-Options')).toBe('nosniff');
+      expect(hoisted.addDocumentResponseHeaders).not.toHaveBeenCalled();
+    });
+
+    it('stays on the plain-header branch even with a forged ?shop= param (no embedded-CSP downgrade)', () => {
+      const headers = new Headers();
+      applySecurityHeaders(
+        new Request(`https://app.example.com${path}?shop=evil.myshopify.com`),
+        headers,
+      );
+      expect(headers.get('Content-Security-Policy')).toBe("default-src 'self'; frame-ancestors 'none'");
+      expect(hoisted.addDocumentResponseHeaders).not.toHaveBeenCalled();
+    });
+
+    it('is matched case-insensitively, same as the internal-route check', () => {
+      const headers = new Headers();
+      applySecurityHeaders(new Request(`https://app.example.com${path.toUpperCase()}`), headers);
+      expect(headers.get('Content-Security-Policy')).toBe("default-src 'self'; frame-ancestors 'none'");
+      expect(hoisted.addDocumentResponseHeaders).not.toHaveBeenCalled();
+    });
+  });
+
+  it('does not treat a public-path lookalike as public (exact match only)', () => {
+    const headers = new Headers();
+    applySecurityHeaders(
+      new Request('https://app.example.com/privacy-policy-lookalike?shop=test-shop.myshopify.com'),
+      headers,
+    );
+    expect(hoisted.addDocumentResponseHeaders).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('isPublicStandalonePath', () => {
+  it.each(['/privacy', '/contact', '/terms'])('returns true for %s', (path) => {
+    expect(isPublicStandalonePath(path)).toBe(true);
+  });
+
+  it('is case-insensitive', () => {
+    expect(isPublicStandalonePath('/Privacy')).toBe(true);
+    expect(isPublicStandalonePath('/CONTACT')).toBe(true);
+  });
+
+  it('returns false for unrelated or nested paths', () => {
+    expect(isPublicStandalonePath('/privacy/sub')).toBe(false);
+    expect(isPublicStandalonePath('/internal')).toBe(false);
+    expect(isPublicStandalonePath('/support')).toBe(false);
+    expect(isPublicStandalonePath('/')).toBe(false);
   });
 });
 

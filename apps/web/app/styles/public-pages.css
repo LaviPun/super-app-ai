@@ -1,0 +1,148 @@
+/* Self-contained styling for the public, unauthenticated legal/info pages
+   (/privacy, /contact, /terms). Deliberately independent of Polaris and the
+   vendored superapp design system — these are standalone top-level pages,
+   not part of the embedded merchant surface or the internal admin, so they
+   don't inherit either design system's chrome (see root.tsx's `isPublic`
+   branch, which renders a bare <Outlet /> for these routes). */
+
+.sa-public-page {
+  --sa-pub-ink: #16181d;
+  --sa-pub-muted: #5b6270;
+  --sa-pub-border: #e3e5e9;
+  --sa-pub-bg: #ffffff;
+  --sa-pub-surface: #f7f7f8;
+  --sa-pub-accent: #2f5eff;
+  --sa-pub-max-width: 720px;
+
+  min-height: 100vh;
+  margin: 0;
+  padding: 48px 24px 80px;
+  background: var(--sa-pub-bg);
+  color: var(--sa-pub-ink);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.sa-public-page__inner {
+  max-width: var(--sa-pub-max-width);
+  margin: 0 auto;
+}
+
+.sa-public-page__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--sa-pub-ink);
+  text-decoration: none;
+  margin-bottom: 40px;
+}
+
+.sa-public-page__brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--sa-pub-accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sa-public-page h1 {
+  font-size: 30px;
+  line-height: 1.25;
+  margin: 0 0 8px;
+  letter-spacing: -0.01em;
+}
+
+.sa-public-page__meta {
+  color: var(--sa-pub-muted);
+  font-size: 14px;
+  margin: 0 0 40px;
+}
+
+.sa-public-page h2 {
+  font-size: 19px;
+  margin: 40px 0 12px;
+  letter-spacing: -0.005em;
+}
+
+.sa-public-page h3 {
+  font-size: 16px;
+  margin: 24px 0 8px;
+}
+
+.sa-public-page p {
+  margin: 0 0 16px;
+  color: var(--sa-pub-ink);
+}
+
+.sa-public-page ul {
+  margin: 0 0 16px;
+  padding-left: 22px;
+}
+
+.sa-public-page li {
+  margin-bottom: 8px;
+}
+
+.sa-public-page a {
+  color: var(--sa-pub-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.sa-public-page a:hover {
+  text-decoration: none;
+}
+
+.sa-public-page code {
+  background: var(--sa-pub-surface);
+  border: 1px solid var(--sa-pub-border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.9em;
+}
+
+.sa-public-page__card {
+  background: var(--sa-pub-surface);
+  border: 1px solid var(--sa-pub-border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin: 16px 0 24px;
+}
+
+.sa-public-page__card p:last-child {
+  margin-bottom: 0;
+}
+
+.sa-public-page__footer {
+  margin-top: 56px;
+  padding-top: 20px;
+  border-top: 1px solid var(--sa-pub-border);
+  color: var(--sa-pub-muted);
+  font-size: 13px;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.sa-public-page__footer a {
+  color: var(--sa-pub-muted);
+}
+
+@media (prefers-color-scheme: dark) {
+  .sa-public-page {
+    --sa-pub-ink: #eceef2;
+    --sa-pub-muted: #9aa1ae;
+    --sa-pub-border: #2b2e35;
+    --sa-pub-bg: #121317;
+    --sa-pub-surface: #1a1c22;
+    --sa-pub-accent: #7fa0ff;
+  }
+}
