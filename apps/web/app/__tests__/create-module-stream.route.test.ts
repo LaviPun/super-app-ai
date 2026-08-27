@@ -207,6 +207,34 @@ describe('api.ai.create-module.stream terminal handling', () => {
     expect(hoisted.streamCallOptions[0]?.correlationId).toBeUndefined();
   });
 
+  // WS-builder-ux: the Builder's 1/2/3 concept-count control threads through
+  // to the generation pipeline via the same `optionCount` field the
+  // correlationId tests above already exercise on this FormData.
+  it('a merchant-chosen optionCount (1) reaches generateValidatedRecipeOptionsStream', async () => {
+    hoisted.streamEvents = [{ kind: 'done', valid: 0, total: 1 }];
+    const { action } = await import('~/routes/api.ai.create-module.stream');
+    const res = await action({ request: streamRequest({ optionCount: '1' }) });
+    await res.text();
+    expect(hoisted.streamCallOptions).toHaveLength(1);
+    expect(hoisted.streamCallOptions[0]).toMatchObject({ optionCount: 1 });
+  });
+
+  it('an out-of-range optionCount is clamped to 3 rather than trusted as-is', async () => {
+    hoisted.streamEvents = [{ kind: 'done', valid: 0, total: 3 }];
+    const { action } = await import('~/routes/api.ai.create-module.stream');
+    const res = await action({ request: streamRequest({ optionCount: '50' }) });
+    await res.text();
+    expect(hoisted.streamCallOptions[0]).toMatchObject({ optionCount: 3 });
+  });
+
+  it('an absent optionCount form field defaults to 3 (unchanged default behavior)', async () => {
+    hoisted.streamEvents = [{ kind: 'done', valid: 0, total: 3 }];
+    const { action } = await import('~/routes/api.ai.create-module.stream');
+    const res = await action({ request: streamRequest() });
+    await res.text();
+    expect(hoisted.streamCallOptions[0]).toMatchObject({ optionCount: 3 });
+  });
+
   it('Finding 2a (round-2 review): the route stops consuming the generator once the client disconnects mid-stream', async () => {
     // A 5-item generator that aborts the SAME AbortController backing
     // request.signal partway through — right after producing its 2nd item,

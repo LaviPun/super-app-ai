@@ -1,7 +1,7 @@
 import { json } from '@remix-run/node';
 import { useNavigate, useLocation, useFetcher, useLoaderData } from '@remix-run/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { ReactNode, KeyboardEvent } from 'react';
 import {
   RecipeSpecSchema,
   RECOMMENDATION_STRATEGIES,
@@ -34,13 +34,15 @@ import { sealAccessToken } from '~/services/shops/access-token.server';
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
 import { isAsyncJobsEnabled } from '~/services/jobs/enqueue.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { StatusBadge, EmptyState, Progress, titleCase } from '~/components/merchant/polaris';
+import { StatusBadge, EmptyState, Progress, titleCase, useCustomEvent } from '~/components/merchant/polaris';
 import {
   nextStepAfterStream,
   withGenerationCorrelationId,
   stampGenerationCorrelationId,
   resolveGenerationCorrelationId,
   stepIndexForSeenEvents,
+  stepIndexForPollStage,
+  clampOptionCount,
   isStreamEventKind,
   type StreamEventKind,
 } from '~/utils/generation-outcome';
@@ -255,12 +257,18 @@ const RADIUS_MAP: Record<string, number> = { none: 0, sm: 6, md: 10, lg: 16, ful
 // Each refine is one AI request against the monthly quota (enforced server-side).
 const COST_PER_CHANGE = 1;
 
+// Real pipeline stages (runGenerationPipeline's onStage hook + the stream's
+// intent/started/option/ranking frames — see stepIndexForSeenEvents and
+// stepIndexForPollStage in ~/utils/generation-outcome, which map BOTH
+// transports' real progress signals onto this same 5-slot index space).
+// Never fake timers — every stage tick reflects a server event that actually
+// happened.
 const GEN_STEPS = [
-  { icon: 'magic', label: 'Understanding your request' },
-  { icon: 'layers', label: 'Exploring module types — Storefront UI' },
-  { icon: 'layers', label: 'Drafting 3 layout concepts' },
-  { icon: 'shield', label: 'Validating each against schema' },
-  { icon: 'eye', label: 'Rendering live previews' },
+  { label: 'Understanding your request' },
+  { label: 'Selecting exemplars' },
+  { label: 'Generating concepts' },
+  { label: 'Design QA' },
+  { label: 'Ranking' },
 ];
 
 // Visual concept presets — icon/accent per slot. Real data (name, tagline, tags,
@@ -385,6 +393,13 @@ function GenerateWorkspace() {
   // WS-C Task 7 (C1): when Redis-backed async jobs are configured, generation
   // enqueues + polls instead of the inline SSE stream.
   const asyncGeneration = loaderData.asyncGeneration;
+  // WS-builder-ux: merchant-chosen concept count from the ModuleBuilderCard's
+  // 1/2/3 segmented control (router state) — clamped again client-side (the
+  // server clamps a second time, defense in depth) so a stale/tampered state
+  // value can never send an out-of-range count. `location.state` doesn't
+  // change for the lifetime of this navigation entry, so this needs no
+  // useState of its own.
+  const optionCount = clampOptionCount(seed?.conceptCount);
 
   const proposeFetcher = useFetcher<{ options?: { index: number; explanation: string; recipe: Record<string, unknown>; qualityBadges?: string[]; score?: number }[]; recommendedIndex?: number; blueprint?: BlueprintResult | null; error?: string; message?: string }>();
   const confirmFetcher = useFetcher<{ moduleId?: string; recipeId?: string; firstModuleId?: string; moduleCount?: number; error?: string }>();
@@ -530,6 +545,7 @@ function GenerateWorkspace() {
     fd.set('preferredCategory', 'Auto');
     fd.set('preferredBlockType', 'Auto');
     fd.set('matchStoreColors', 'true');
+    fd.set('optionCount', String(optionCount));
     // WS-QF / AI-2 review fix: one id per CLICK (not per leg). The batch
     // fallback below resubmits this SAME FormData, so the id travels
     // unchanged to whichever leg the server sees — letting it detect a
@@ -665,6 +681,13 @@ function GenerateWorkspace() {
   // index — map it to its position among the returned options, matching the
   // streamGenerate `ranking` handling above).
   const applyPolledSnapshot = useCallback((snapshot: PolledJobSnapshot) => {
+    // WS-builder-ux: the async transport's real Job.stage (persisted by the
+    // worker's runGenerationPipeline onStage hook) drives the SAME loading
+    // animation the stream transport's SSE events drive — every poll
+    // (including QUEUED/RUNNING snapshots with no options yet) updates it.
+    // Math.max guards against a stale/out-of-order poll response rewinding
+    // an already-more-advanced UI.
+    setStepIdx((prev) => Math.max(prev, stepIndexForPollStage(snapshot.stage, GEN_STEPS.length)));
     if (snapshot.options.length === 0) return;
     const recPos =
       snapshot.recommendedIndex != null
@@ -704,6 +727,7 @@ function GenerateWorkspace() {
   // orphaned job will eventually bill under and the dedupe seam collapses
   // them into one billed unit instead of two.
   const asyncGenerate = useCallback(async () => {
+    setStepIdx(0);
     const resumed = readActiveGenSession(seedPrompt);
     let jobId: string;
     let correlationId: string;
@@ -718,6 +742,7 @@ function GenerateWorkspace() {
       fd.set('preferredCategory', 'Auto');
       fd.set('preferredBlockType', 'Auto');
       fd.set('matchStoreColors', 'true');
+      fd.set('optionCount', String(optionCount));
       const newCorrelationId = crypto.randomUUID();
       withGenerationCorrelationId(fd, newCorrelationId);
       try {
@@ -1088,13 +1113,12 @@ function GenerateWorkspace() {
 }
 
 function GenLoading({ prompt, stepIdx, onCancel }: any) {
+  const currentLabel = GEN_STEPS[Math.min(stepIdx, GEN_STEPS.length - 1)]?.label ?? 'Generating concepts';
   return (
     <div className="sa-m-gen-loading">
       <div className="sa-m-gen-loading-card">
-        <s-box padding="base">
-          <s-spinner size="large" accessibilityLabel="Generating concepts" />
-        </s-box>
-        <div className="sa-m-gen-eyebrow"><span className="sa-m-gen-pulse-dot" />Generating concepts</div>
+        <GenAssemblyArt stepIdx={stepIdx} />
+        <div className="sa-m-gen-eyebrow"><span className="sa-m-gen-pulse-dot" />{currentLabel}</div>
         <s-box paddingBlockStart="small-100">
           <s-heading>Designing your module</s-heading>
         </s-box>
@@ -1118,6 +1142,54 @@ function GenLoading({ prompt, stepIdx, onCancel }: any) {
         </s-box>
       </div>
     </div>
+  );
+}
+
+/**
+ * "AI assembling building blocks" loading animation (WS-builder-ux). A
+ * module-silhouette wireframe assembles one block per completed pipeline
+ * stage — `stepIdx` is the SAME real, event-driven value (never a fake
+ * timer) that advances the textual step list below it
+ * (stepIndexForSeenEvents for the SSE transport, stepIndexForPollStage for
+ * the async/poll transport — both in ~/utils/generation-outcome). Pure
+ * SVG/CSS, no dependencies; the ambient shimmer on not-yet-assembled blocks
+ * is purely decorative ("still working") and is fully disabled under
+ * `prefers-reduced-motion` via the `.sa-m-gen-assembly-block` CSS (see
+ * merchant.css) — the reveal itself still happens, just as an instant
+ * opacity swap with no transition/shimmer.
+ */
+function GenAssemblyArt({ stepIdx }: { stepIdx: number }) {
+  // One block per GEN_STEPS index (5 stages -> 5 pieces of the silhouette) —
+  // block i reveals the instant stage i completes (i < stepIdx), the exact
+  // same "done" condition the step list below already uses.
+  const blocks = [
+    { key: 'hero', x: 16, y: 24, w: 168, h: 38, rx: 6 },
+    { key: 'title', x: 16, y: 70, w: 96, h: 11, rx: 3 },
+    { key: 'subtitle', x: 16, y: 87, w: 132, h: 9, rx: 3 },
+    { key: 'button', x: 16, y: 104, w: 58, h: 18, rx: 9 },
+    { key: 'badge', x: 146, y: 104, w: 38, h: 18, rx: 9 },
+  ] as const;
+  return (
+    <svg className="sa-m-gen-assembly" viewBox="0 0 200 140" role="img" aria-hidden="true">
+      <rect className="sa-m-gen-assembly-frame" x="1" y="1" width="198" height="138" rx="10" />
+      <circle className="sa-m-gen-assembly-dot" cx="14" cy="12" r="2.5" />
+      <circle className="sa-m-gen-assembly-dot" cx="24" cy="12" r="2.5" />
+      <circle className="sa-m-gen-assembly-dot" cx="34" cy="12" r="2.5" />
+      <line className="sa-m-gen-assembly-rule" x1="1" y1="20" x2="199" y2="20" />
+      {blocks.map((b, i) => (
+        <rect
+          key={b.key}
+          data-key={b.key}
+          className={'sa-m-gen-assembly-block' + (i < stepIdx ? ' revealed' : '')}
+          x={b.x}
+          y={b.y}
+          width={b.w}
+          height={b.h}
+          rx={b.rx}
+          style={{ transitionDelay: i < stepIdx ? `${i * 40}ms` : '0ms' }}
+        />
+      ))}
+    </svg>
   );
 }
 
@@ -1172,6 +1244,7 @@ function GenFailed({
 
 function GenChoose({ prompt, candidates, onSelect, onRegenerate, onCancel }: any) {
   const n = candidates.length;
+  const [previewId, setPreviewId] = useState<string | null>(null);
   return (
     <div className="sa-m-gen-choose">
       <div className="sa-m-gen-choose-inner">
@@ -1185,7 +1258,7 @@ function GenChoose({ prompt, candidates, onSelect, onRegenerate, onCancel }: any
         </div>
         <div className="sa-m-gen-cand-grid">
           {candidates.map((c: any, i: number) => (
-            <GenCandCard key={c.id} c={c} idx={i} total={candidates.length} onSelect={() => onSelect(c.id)} />
+            <GenCandCard key={c.id} c={c} idx={i} total={candidates.length} onSelect={() => onSelect(c.id)} onPreview={() => setPreviewId(c.id)} />
           ))}
         </div>
         <s-box paddingBlockStart="base">
@@ -1195,14 +1268,68 @@ function GenChoose({ prompt, candidates, onSelect, onRegenerate, onCancel }: any
           </s-stack>
         </s-box>
       </div>
+      {previewId && (
+        <GenConceptPreviewModal
+          concept={candidates.find((c: any) => c.id === previewId)}
+          onClose={() => setPreviewId(null)}
+          onOpen={() => { setPreviewId(null); onSelect(previewId); }}
+        />
+      )}
     </div>
   );
 }
 
-function GenCandCard({ c, idx, total, onSelect }: any) {
-  const num = String(idx + 1).padStart(2, '0') + ' / ' + String(total).padStart(2, '0');
+/**
+ * Concept-card "Preview" action (WS-builder-ux, feature 2). Renders the
+ * candidate's REAL recipe through the same deterministic `/api/preview` seam
+ * as the selected-concept canvas — before the merchant commits to opening
+ * and customizing it. No AI call; previews are deterministic.
+ */
+function GenConceptPreviewModal({ concept, onClose, onOpen }: { concept: any; onClose: () => void; onOpen: () => void }) {
+  const modalRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    (modalRef.current as (HTMLElement & { show?: () => void }) | null)?.show?.();
+  }, []);
+  useCustomEvent(modalRef, 'afterhide', onClose);
+
+  const recipe = (concept?.recipe as Record<string, unknown> | undefined) ?? null;
+  const type = String((recipe as { type?: unknown } | null)?.type ?? '');
+  const isSimulated = type.startsWith('functions.') || type.startsWith('checkout.') || type.startsWith('postPurchase.');
+  const [sim, setSim] = useState({ currency: 'USD', countryCode: 'US', isPlus: true });
+  const state = useModulePreview(recipe, isSimulated ? sim : null);
+
   return (
-    <button className={'sa-m-gen-cand' + (c.recommended ? ' sa-m-gen-cand-recommended' : '')} style={{ ['--acc' as any]: c.accent }} onClick={onSelect} aria-label={c.recommended ? `${c.name} (recommended)` : c.name}>
+    <s-modal ref={modalRef as never} heading={`Preview — ${concept?.name ?? 'Concept'}`}>
+      <s-stack gap="small-200">
+        {isSimulated && <PreviewSimControls sim={sim} setSim={setSim} />}
+        <div className="sa-m-gen-cand-preview-frame">
+          <div className="sa-m-gen-pv-browser"><span className="sa-m-gen-pv-dot" /><span className="sa-m-gen-pv-dot" /><span className="sa-m-gen-pv-dot" /><div className="sa-m-gen-pv-url">Live preview · {type || 'module'}</div></div>
+          <div className="sa-m-gen-pv-live sa-m-gen-cand-preview-live">
+            <PreviewStatusBody state={state} emptyLabel="Preview unavailable." />
+          </div>
+        </div>
+      </s-stack>
+      <s-button slot="secondary-actions" onClick={onClose}>Close</s-button>
+      <s-button slot="primary-action" variant="primary" icon="wand" onClick={onOpen}>Open &amp; customize</s-button>
+    </s-modal>
+  );
+}
+
+function GenCandCard({ c, idx, total, onSelect, onPreview }: any) {
+  const num = String(idx + 1).padStart(2, '0') + ' / ' + String(total).padStart(2, '0');
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); }
+  };
+  return (
+    <div
+      className={'sa-m-gen-cand' + (c.recommended ? ' sa-m-gen-cand-recommended' : '')}
+      style={{ ['--acc' as any]: c.accent }}
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={onKeyDown}
+      aria-label={c.recommended ? `${c.name} (recommended)` : c.name}
+    >
       <span className="sa-m-gen-cand-num">{num}</span>
       {c.recommended && (
         <span style={{ position: 'absolute', top: 12, right: 12 }}>
@@ -1224,11 +1351,20 @@ function GenCandCard({ c, idx, total, onSelect }: any) {
       )}
       <GenCandMini s={candMiniProjection(c.recipe)} accent={c.accent} />
       <div className="sa-m-gen-cand-tags">{c.tags.map((t: string) => <span key={t} className="sa-m-gen-cand-tag">{t}</span>)}</div>
-      <div className="sa-m-gen-cand-cta">
-        <span><s-icon type="wand" size="small" /> Open &amp; customize</span>
-        <s-icon type="arrow-right" />
+      <div className="sa-m-gen-cand-actions">
+        <button
+          type="button"
+          className="sa-m-gen-cand-preview-btn"
+          onClick={(e) => { e.stopPropagation(); onPreview(); }}
+        >
+          <s-icon type="view" size="small" /> Preview
+        </button>
+        <div className="sa-m-gen-cand-cta">
+          <span><s-icon type="wand" size="small" /> Open &amp; customize</span>
+          <s-icon type="arrow-right" />
+        </div>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -1468,20 +1604,22 @@ function GenHistory({ history, credits, onClose }: any) {
   );
 }
 
+type PreviewState = { status: 'idle' | 'loading' | 'html' | 'json' | 'error'; html?: string; json?: unknown; error?: string };
+
 /**
- * Live preview of the REAL generated module. Renders the merged recipe through
- * `PreviewService` via `/api/preview` in a sandboxed iframe, so what the merchant
- * sees is exactly what will publish (no mock, works for every module type). For
- * Function/checkout/post-purchase modules it drives a deterministic simulation
- * against a representative cart/customer fixture (currency / country / Plus).
+ * Shared deterministic-preview fetcher (WS-builder-ux extraction) — posts a
+ * RAW recipe spec to `/api/preview` (the SAME seam the module-detail page and
+ * the selected-concept canvas below already use: `RecipeService().parse` +
+ * `PreviewService().render`, no persisted moduleId required, no AI call).
+ * Used both by the selected-concept `GenPreview` canvas and by the
+ * concept-card `GenConceptPreviewModal` (before a concept is ever selected),
+ * so "Preview" always renders exactly what will publish.
  */
-function GenPreview({ recipe, device }: { recipe: Record<string, unknown> | null; device: 'desktop' | 'mobile' }) {
-  const type = String((recipe as { type?: unknown } | null)?.type ?? '');
-  const isSimulated = type.startsWith('functions.') || type.startsWith('checkout.') || type.startsWith('postPurchase.');
-  const [sim, setSim] = useState({ currency: 'USD', countryCode: 'US', isPlus: true });
-  const [state, setState] = useState<{ status: 'idle' | 'loading' | 'html' | 'json' | 'error'; html?: string; json?: unknown; error?: string }>({ status: 'idle' });
+function useModulePreview(recipe: Record<string, unknown> | null, simulation: Record<string, unknown> | null): PreviewState {
+  const [state, setState] = useState<PreviewState>({ status: 'idle' });
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const specKey = recipe ? JSON.stringify(recipe) : '';
+  const simKey = simulation ? JSON.stringify(simulation) : '';
 
   useEffect(() => {
     if (!recipe) { setState({ status: 'idle' }); return; }
@@ -1491,7 +1629,7 @@ function GenPreview({ recipe, device }: { recipe: Record<string, unknown> | null
     debounceRef.current = setTimeout(() => {
       const fd = new FormData();
       fd.set('spec', specKey);
-      if (isSimulated) fd.set('simulation', JSON.stringify(sim));
+      if (simKey) fd.set('simulation', simKey);
       fetch('/api/preview', { method: 'POST', body: fd })
         .then((r) => r.json())
         .then((d: { html?: string; json?: unknown; error?: string }) => {
@@ -1504,45 +1642,75 @@ function GenPreview({ recipe, device }: { recipe: Record<string, unknown> | null
     }, 250);
     return () => { cancelled = true; if (debounceRef.current) clearTimeout(debounceRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [specKey, isSimulated, sim.currency, sim.countryCode, sim.isPlus]);
+  }, [specKey, simKey]);
+
+  return state;
+}
+
+/** Simulation context controls (currency/country/Plus) — shared by the canvas and the concept-preview modal. */
+function PreviewSimControls({ sim, setSim }: { sim: { currency: string; countryCode: string; isPlus: boolean }; setSim: (updater: (v: { currency: string; countryCode: string; isPlus: boolean }) => { currency: string; countryCode: string; isPlus: boolean }) => void }) {
+  return (
+    <div className="sa-m-gen-pv-sim" role="group" aria-label="Simulation context">
+      <s-text color="subdued">Simulate</s-text>
+      <select aria-label="Currency" value={sim.currency} onChange={(e) => setSim((v) => ({ ...v, currency: e.target.value }))}>
+        {['USD', 'CAD', 'GBP', 'EUR'].map((c) => <option key={c} value={c}>{c}</option>)}
+      </select>
+      <select aria-label="Country" value={sim.countryCode} onChange={(e) => setSim((v) => ({ ...v, countryCode: e.target.value }))}>
+        {['US', 'CA', 'GB', 'DE'].map((c) => <option key={c} value={c}>{c}</option>)}
+      </select>
+      <label className="sa-m-gen-pv-sim-plus"><input type="checkbox" checked={sim.isPlus} onChange={(e) => setSim((v) => ({ ...v, isPlus: e.target.checked }))} />Plus</label>
+    </div>
+  );
+}
+
+/** Preview status body (loading/error/html/json) — shared by the canvas and the concept-preview modal. */
+function PreviewStatusBody({ state, emptyLabel }: { state: PreviewState; emptyLabel: string }) {
+  return (
+    <>
+      {state.status === 'idle' && (
+        <div className="sa-m-gen-pv-msg"><s-icon type="layer" /><s-text color="subdued">{emptyLabel}</s-text></div>
+      )}
+      {state.status === 'loading' && (
+        <div className="sa-m-gen-pv-msg"><s-spinner size="base" accessibilityLabel="Rendering preview" /><s-text color="subdued">Rendering preview…</s-text></div>
+      )}
+      {state.status === 'error' && (
+        <div className="sa-m-gen-pv-msg"><s-icon type="alert-triangle" /><s-text color="subdued">{state.error}</s-text></div>
+      )}
+      {state.status === 'html' && (
+        <iframe
+          title="Module preview"
+          className="sa-m-gen-pv-iframe"
+          srcDoc={state.html}
+          sandbox="allow-scripts allow-same-origin allow-popups"
+        />
+      )}
+      {state.status === 'json' && (
+        <pre className="sa-m-gen-pv-json">{JSON.stringify(state.json, null, 2)}</pre>
+      )}
+    </>
+  );
+}
+
+/**
+ * Live preview of the REAL generated module. Renders the merged recipe through
+ * `PreviewService` via `/api/preview` in a sandboxed iframe, so what the merchant
+ * sees is exactly what will publish (no mock, works for every module type). For
+ * Function/checkout/post-purchase modules it drives a deterministic simulation
+ * against a representative cart/customer fixture (currency / country / Plus).
+ */
+function GenPreview({ recipe, device }: { recipe: Record<string, unknown> | null; device: 'desktop' | 'mobile' }) {
+  const type = String((recipe as { type?: unknown } | null)?.type ?? '');
+  const isSimulated = type.startsWith('functions.') || type.startsWith('checkout.') || type.startsWith('postPurchase.');
+  const [sim, setSim] = useState({ currency: 'USD', countryCode: 'US', isPlus: true });
+  const state = useModulePreview(recipe, isSimulated ? sim : null);
 
   return (
     <div className={'sa-m-gen-canvas' + (device === 'mobile' ? ' mobile' : '')}>
-      {isSimulated && (
-        <div className="sa-m-gen-pv-sim" role="group" aria-label="Simulation context">
-          <s-text color="subdued">Simulate</s-text>
-          <select aria-label="Currency" value={sim.currency} onChange={(e) => setSim((v) => ({ ...v, currency: e.target.value }))}>
-            {['USD', 'CAD', 'GBP', 'EUR'].map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <select aria-label="Country" value={sim.countryCode} onChange={(e) => setSim((v) => ({ ...v, countryCode: e.target.value }))}>
-            {['US', 'CA', 'GB', 'DE'].map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <label className="sa-m-gen-pv-sim-plus"><input type="checkbox" checked={sim.isPlus} onChange={(e) => setSim((v) => ({ ...v, isPlus: e.target.checked }))} />Plus</label>
-        </div>
-      )}
+      {isSimulated && <PreviewSimControls sim={sim} setSim={setSim} />}
       <div className="sa-m-gen-pv-frame">
         <div className="sa-m-gen-pv-browser"><span className="sa-m-gen-pv-dot" /><span className="sa-m-gen-pv-dot" /><span className="sa-m-gen-pv-dot" /><div className="sa-m-gen-pv-url">Live preview · {type || 'module'}</div></div>
         <div className="sa-m-gen-pv-live">
-          {state.status === 'idle' && (
-            <div className="sa-m-gen-pv-msg"><s-icon type="layer" /><s-text color="subdued">Pick a concept to preview it here.</s-text></div>
-          )}
-          {state.status === 'loading' && (
-            <div className="sa-m-gen-pv-msg"><s-spinner size="base" accessibilityLabel="Rendering preview" /><s-text color="subdued">Rendering preview…</s-text></div>
-          )}
-          {state.status === 'error' && (
-            <div className="sa-m-gen-pv-msg"><s-icon type="alert-triangle" /><s-text color="subdued">{state.error}</s-text></div>
-          )}
-          {state.status === 'html' && (
-            <iframe
-              title="Module preview"
-              className="sa-m-gen-pv-iframe"
-              srcDoc={state.html}
-              sandbox="allow-scripts allow-same-origin allow-popups"
-            />
-          )}
-          {state.status === 'json' && (
-            <pre className="sa-m-gen-pv-json">{JSON.stringify(state.json, null, 2)}</pre>
-          )}
+          <PreviewStatusBody state={state} emptyLabel="Pick a concept to preview it here." />
         </div>
       </div>
     </div>

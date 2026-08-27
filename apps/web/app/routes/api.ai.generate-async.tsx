@@ -8,6 +8,7 @@ import { CapabilityService } from '~/services/shopify/capability.service';
 import { enqueueWebJob, isAsyncJobsEnabled } from '~/services/jobs/enqueue.server';
 import { AppError, toErrorResponse } from '~/services/errors/app-error.server';
 import { generateCorrelationId } from '~/services/observability/correlation.server';
+import { clampOptionCount } from '~/utils/generation-outcome';
 
 /** GET disallowed; this is an enqueue-only POST endpoint. */
 export async function loader() {
@@ -90,7 +91,10 @@ export async function action({ request }: { request: Request }) {
           preferredCategory: String(form.get('preferredCategory') ?? 'Auto').trim(),
           preferredBlockType: String(form.get('preferredBlockType') ?? 'Auto').trim(),
           matchStoreColors: String(form.get('matchStoreColors') ?? 'true').trim() !== 'false',
-          optionCount: 3,
+          // WS-builder-ux: merchant-chosen concept count (Builder's 1/2/3
+          // segmented control), clamped to 1..3 (WebAiGenerateJobPayloadSchema
+          // re-validates this same range server-side too — defense in depth).
+          optionCount: clampOptionCount(form.get('optionCount')),
           planTier,
         },
         trace: { correlationId, shopId: shopRow.id },

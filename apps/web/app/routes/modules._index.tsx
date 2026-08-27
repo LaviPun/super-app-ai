@@ -84,6 +84,10 @@ function ModuleBuilderCard({ onClose, open, aiLeftLabel }: { onClose: () => void
   const ctx = useMerchantCtx();
   const navigate = useNavigate();
   const [prompt, setPrompt] = useState('');
+  // WS-builder-ux: merchant-chosen concept count — threaded through to
+  // /generate as router state, then onto the generation request (server-side
+  // clamped again to 1..3 regardless of what this control sends).
+  const [conceptCount, setConceptCount] = useState<1 | 2 | 3>(3);
   const taRef = useRef<PolarisField | null>(null);
   const examples = ['Sticky add-to-cart bar', 'Free-shipping progress bar', 'Back-in-stock email capture', 'Volume discount: buy 3 save 15%'];
   const addExample = (ex: string) => {
@@ -98,7 +102,7 @@ function ModuleBuilderCard({ onClose, open, aiLeftLabel }: { onClose: () => void
   const generate = () => {
     const q = prompt.trim();
     if (!q) return;
-    navigate('/generate', { state: { prompt: q, type: 'ai' } });
+    navigate('/generate', { state: { prompt: q, type: 'ai', conceptCount } });
   };
   useEffect(() => { if (open) taRef.current?.focus?.(); }, [open]);
   return (
@@ -107,7 +111,7 @@ function ModuleBuilderCard({ onClose, open, aiLeftLabel }: { onClose: () => void
         <s-grid gridTemplateColumns="1fr auto" gap="small-100" alignItems="start">
           <s-stack gap="none">
             <s-heading>Build a module with AI</s-heading>
-            <s-text tone="neutral" color="subdued">Describe what you want — generate 3 concepts to choose from.</s-text>
+            <s-text tone="neutral" color="subdued">{`Describe what you want — generate ${conceptCount} concept${conceptCount === 1 ? '' : 's'} to choose from.`}</s-text>
           </s-stack>
           <s-button variant="tertiary" icon="x" accessibilityLabel="Close builder" onClick={onClose} />
         </s-grid>
@@ -126,13 +130,36 @@ function ModuleBuilderCard({ onClose, open, aiLeftLabel }: { onClose: () => void
           ))}
         </s-stack>
         <s-divider />
-        <s-grid gridTemplateColumns="@container (inline-size > 560px) 1fr auto auto, 1fr" gap="small-100" alignItems="center">
+        <s-grid gridTemplateColumns="@container (inline-size > 680px) 1fr auto auto auto, 1fr" gap="small-100" alignItems="center">
           <s-text tone="neutral" color="subdued"><s-text type="strong">{aiLeftLabel}</s-text> AI credits left</s-text>
+          <ConceptCountField value={conceptCount} onChange={setConceptCount} />
           <s-button icon="theme-template" onClick={() => ctx.go('#/app/templates')}>Templates</s-button>
           <s-button variant="primary" icon="wand" disabled={!prompt.trim() || undefined} onClick={generate}>Generate</s-button>
         </s-grid>
       </s-stack>
     </s-section>
+  );
+}
+
+/** Concept-count segmented control (1/2/3, default 3) — how many AI options the Builder generates. */
+function ConceptCountField({ value, onChange }: { value: 1 | 2 | 3; onChange: (n: 1 | 2 | 3) => void }) {
+  return (
+    <s-stack direction="inline" gap="small-100" alignItems="center">
+      <s-text tone="neutral" color="subdued">Concepts</s-text>
+      <s-button-group>
+        {([1, 2, 3] as const).map((n) => (
+          <s-button
+            key={n}
+            variant={value === n ? 'primary' : 'tertiary'}
+            accessibilityLabel={`Generate ${n} concept${n === 1 ? '' : 's'}`}
+            aria-pressed={value === n}
+            onClick={() => onChange(n)}
+          >
+            {n}
+          </s-button>
+        ))}
+      </s-button-group>
+    </s-stack>
   );
 }
 

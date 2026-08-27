@@ -109,6 +109,25 @@ describe('POST /api/ai/generate-async', () => {
     );
   });
 
+  // WS-builder-ux: the Builder's 1/2/3 concept-count control threads through
+  // to the job payload the worker actually reads (payload.optionCount ->
+  // runGenerationPipeline's optionCount, see ai-generation.processor.server.ts).
+  it('threads a merchant-chosen optionCount (2) through to the enqueued payload', async () => {
+    const { action } = await import('~/routes/api.ai.generate-async');
+    await action({ request: req({ optionCount: '2' }) });
+    expect(hoisted.enqueueWebJob).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ optionCount: 2 }) }),
+    );
+  });
+
+  it('clamps an out-of-range optionCount to 3 rather than trusting the client value', async () => {
+    const { action } = await import('~/routes/api.ai.generate-async');
+    await action({ request: req({ optionCount: '99' }) });
+    expect(hoisted.enqueueWebJob).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ optionCount: 3 }) }),
+    );
+  });
+
   it('generates a correlationId when the client omits one', async () => {
     const { action } = await import('~/routes/api.ai.generate-async');
     const res = await action({ request: req() });

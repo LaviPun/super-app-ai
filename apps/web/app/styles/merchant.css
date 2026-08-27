@@ -267,6 +267,40 @@ a.sa-m-strip-cell:focus-visible { outline: 2px solid #005bd3; outline-offset: -2
 /* generation loading */
 .sa-m-gen-loading { height: 100%; min-height: 480px; display: flex; align-items: center; justify-content: center; padding: 24px; }
 .sa-m-gen-loading-card { width: 100%; max-width: 440px; background: #fff; border-radius: 12px; border: 1px solid #e3e3e3; box-shadow: 0 2px 8px rgba(0,0,0,.06); padding: 30px 32px 28px; display: flex; flex-direction: column; align-items: center; }
+
+/* "AI assembling building blocks" loading animation — a module-silhouette
+   wireframe assembles one piece per completed real pipeline stage (see
+   GenAssemblyArt in generate._index.tsx). Every reveal is driven by the real
+   stepIdx (SSE/poll progress), never a fake timer — only the idle shimmer on
+   not-yet-assembled blocks is decorative "still working" motion. */
+.sa-m-gen-assembly { width: 100%; max-width: 240px; height: auto; margin-bottom: 6px; }
+.sa-m-gen-assembly-frame { fill: #fafafa; stroke: #e3e3e3; stroke-width: 1.5; }
+.sa-m-gen-assembly-dot { fill: #d0d0d0; }
+.sa-m-gen-assembly-rule { stroke: #e3e3e3; stroke-width: 1; }
+.sa-m-gen-assembly-block {
+  fill: #eef2f7;
+  stroke: #dbe3ee;
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: .5;
+  transform-origin: center;
+  transform-box: fill-box;
+  transform: scale(.94);
+  animation: sa-m-gen-assembly-idle 1.6s ease-in-out infinite;
+  transition: fill .26s ease-out, stroke .26s ease-out, opacity .26s ease-out, transform .26s ease-out;
+}
+.sa-m-gen-assembly-block.revealed { stroke-dasharray: none; opacity: 1; transform: scale(1); animation: none; }
+.sa-m-gen-assembly-block[data-key="hero"].revealed { fill: #d8e6fb; stroke: #005bd3; }
+.sa-m-gen-assembly-block[data-key="title"].revealed { fill: #005bd3; stroke: #005bd3; }
+.sa-m-gen-assembly-block[data-key="subtitle"].revealed { fill: #8fb6ec; stroke: #005bd3; }
+.sa-m-gen-assembly-block[data-key="button"].revealed { fill: #005bd3; stroke: #005bd3; }
+.sa-m-gen-assembly-block[data-key="badge"].revealed { fill: #0e9f6e; stroke: #0e9f6e; }
+@keyframes sa-m-gen-assembly-idle { 0%, 100% { opacity: .35; } 50% { opacity: .65; } }
+@media (prefers-reduced-motion: reduce) {
+  .sa-m-gen-assembly-block { animation: none; opacity: .5; transition: none; transform: none; }
+  .sa-m-gen-assembly-block.revealed { opacity: 1; }
+}
+
 .sa-m-gen-eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 11.5px; font-weight: 650; letter-spacing: .05em; text-transform: uppercase; color: #005bd3; }
 .sa-m-gen-pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: sa-m-gen-pulse 1.8s ease-out infinite; flex: none; }
 @keyframes sa-m-gen-pulse { 0% { box-shadow: 0 0 0 0 rgba(0,91,211,.55); } 70% { box-shadow: 0 0 0 8px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
@@ -288,7 +322,9 @@ a.sa-m-strip-cell:focus-visible { outline: 2px solid #005bd3; outline-offset: -2
 .sa-m-gen-choose-close { position: absolute; top: 0; right: 0; width: 32px; height: 32px; border-radius: 8px; border: 1px solid #e3e3e3; background: #fff; color: #616161; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .sa-m-gen-choose-close:hover { background: #f1f1f1; color: #303030; }
 .sa-m-gen-choose-title { font-size: 26px; font-weight: 650; letter-spacing: -.01em; margin: 12px 0 8px; color: #202223; }
-.sa-m-gen-cand-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 24px; }
+/* auto-fit (not a fixed 3-up repeat): a 1- or 2-concept request (WS-builder-ux
+   concept-count selector) fills the row instead of leaving empty columns. */
+.sa-m-gen-cand-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 24px; }
 @media (max-width: 920px) { .sa-m-gen-cand-grid { grid-template-columns: 1fr; } }
 
 .sa-m-gen-cand { position: relative; text-align: left; background: #fff; border: 1px solid #e3e3e3; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; cursor: pointer; font: inherit; color: inherit; transition: border-color .15s, box-shadow .15s; }
@@ -301,7 +337,18 @@ a.sa-m-strip-cell:focus-visible { outline: 2px solid #005bd3; outline-offset: -2
 .sa-m-gen-cand-tagline { font-size: 12.5px; color: #616161; line-height: 1.5; min-height: 36px; }
 .sa-m-gen-cand-tags { display: flex; flex-wrap: wrap; gap: 5px; }
 .sa-m-gen-cand-tag { font-size: 11px; color: #616161; background: #f6f6f7; border: 1px solid #e3e3e3; border-radius: 6px; padding: 3px 8px; }
-.sa-m-gen-cand-cta { display: flex; align-items: center; justify-content: space-between; margin-top: 2px; color: #005bd3; font-weight: 600; font-size: 13px; }
+.sa-m-gen-cand-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; }
+.sa-m-gen-cand-preview-btn { display: inline-flex; align-items: center; gap: 5px; font: inherit; font-size: 12.5px; font-weight: 600; color: #616161; background: #fff; border: 1px solid #e3e3e3; border-radius: 7px; padding: 5px 10px; cursor: pointer; transition: border-color .15s, color .15s; }
+.sa-m-gen-cand-preview-btn:hover { border-color: #005bd3; color: #005bd3; }
+.sa-m-gen-cand-preview-btn:focus-visible { outline: 2px solid #005bd3; outline-offset: 2px; }
+.sa-m-gen-cand-cta { display: flex; align-items: center; gap: 4px; color: #005bd3; font-weight: 600; font-size: 13px; }
+
+/* concept-card Preview modal (reuses the canvas preview frame at a smaller, fixed height) */
+.sa-m-gen-cand-preview-frame { border: 1px solid #e3e3e3; border-radius: 10px; overflow: hidden; background: #fff; }
+.sa-m-gen-cand-preview-live { min-height: 360px; max-height: 60vh; overflow-y: auto; }
+.sa-m-gen-cand-preview-live .sa-m-gen-pv-iframe { height: 360px; }
+.sa-m-gen-cand-preview-live .sa-m-gen-pv-msg { min-height: 360px; }
+.sa-m-gen-cand-preview-live .sa-m-gen-pv-json { max-height: 360px; }
 
 /* concept mini preview */
 .sa-m-gen-mini { position: relative; height: 148px; border-radius: 9px; overflow: hidden; background: #fff; border: 1px solid #e3e3e3; }

@@ -16,6 +16,7 @@ import { CapabilityService } from '~/services/shopify/capability.service';
 import { runGenerationPipeline } from '~/services/ai/generation-pipeline.server';
 import { finalizeGenerationJob } from '~/services/ai/generation-outcome.server';
 import { logger } from '~/services/observability/logger.server';
+import { clampOptionCount } from '~/utils/generation-outcome';
 
 /** GET disallowed; this is a streaming POST endpoint. */
 export async function loader() {
@@ -91,6 +92,10 @@ export async function action({ request }: { request: Request }) {
   // Default true (parity with the batch /api/ai/create-module route): storefront
   // options should match the live store palette unless the merchant opts out.
   const matchStoreColors = String(form.get('matchStoreColors') ?? 'true').trim() !== 'false';
+  // WS-builder-ux: merchant-chosen concept count (Builder's 1/2/3 segmented
+  // control), clamped server-side to the same 1..3 range the pipeline's fan-out
+  // already enforces (defense in depth — never trust the client value as-is).
+  const optionCount = clampOptionCount(form.get('optionCount'));
 
   const prisma = getPrisma();
   const shopRow = await prisma.shop.upsert({
@@ -163,7 +168,7 @@ export async function action({ request }: { request: Request }) {
             preferredCategory,
             preferredBlockType,
             matchStoreColors,
-            optionCount: 3,
+            optionCount,
             correlationId,
             planTier,
             admin,
@@ -220,7 +225,7 @@ export async function action({ request }: { request: Request }) {
         );
         moduleType = result.moduleType;
         const collected = result.collected;
-        send('done', { kind: 'done', valid: result.validCount, total: 3 });
+        send('done', { kind: 'done', valid: result.validCount, total: optionCount });
 
         // Async LLM-judge polish (Phase 5c) — AFTER `done`/`blueprint`, flag-gated
         // and hard-time-boxed so it can never delay or degrade the core response.

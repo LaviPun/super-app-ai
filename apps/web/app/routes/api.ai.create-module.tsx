@@ -24,6 +24,7 @@ import { applyStorePalette } from '~/services/theme/apply-store-palette.server';
 import { applyStylePackTokens } from '~/services/ai/apply-style-pack.server';
 import { applyCompositionRules } from '~/services/ai/apply-composition.server';
 import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
+import { clampOptionCount } from '~/utils/generation-outcome';
 
 /** POST only; GET (e.g. prefetch or redirect) returns 405. */
 export async function loader() {
@@ -54,6 +55,12 @@ export async function action({ request }: { request: Request }) {
       const preferredBlockType = String(form.get('preferredBlockType') ?? 'Auto').trim();
       // Default on: match generated storefront sections to the live theme palette.
       const matchStoreColors = String(form.get('matchStoreColors') ?? 'true').trim() !== 'false';
+      // WS-builder-ux: merchant-chosen concept count (Builder's 1/2/3 segmented
+      // control) — this route is also the streaming leg's transport-failure
+      // fallback, so it must honor the SAME count the stream leg was asked
+      // for (the fallback resubmits the identical FormData, so this value
+      // travels unchanged either way).
+      const optionCount = clampOptionCount(form.get('optionCount'));
 
       const constraints: string[] = [];
       if (preferredType && preferredType !== 'Auto') {
@@ -159,6 +166,7 @@ export async function action({ request }: { request: Request }) {
           groundingBlock: grounding || undefined,
           exemplar,
           correlationId,
+          optionCount,
         });
 
         // Composition guardrails (§04/§6): palette-independent — a generated

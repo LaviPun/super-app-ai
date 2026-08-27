@@ -37,4 +37,29 @@ describe('claimOptionBillableUnit', () => {
     const state = newGenerationBillingState();
     expect(claimOptionBillableUnit(state, 'ok')).toBe(1);
   });
+
+  // WS-builder-ux: the merchant-chosen concept count (1/2/3) fans out into
+  // exactly that many option calls (APPROACH_HINTS.slice(0, optionCount) in
+  // generateValidatedRecipeOptionsStream/...Parallel) — `claimOptionBillableUnit`
+  // itself is optionCount-agnostic (it only tracks "has a unit been claimed
+  // yet" on its own state), so reducing the fan-out must never change the
+  // billed total: still exactly 1 unit, regardless of whether 1, 2, or 3
+  // option calls actually ran.
+  it('a 2-concept request (optionCount=2) still bills exactly 1 unit', () => {
+    const state = newGenerationBillingState();
+    const units = ['ok', 'ok'].map((o) => claimOptionBillableUnit(state, o as 'ok'));
+    expect(units).toEqual([1, 0]);
+    expect(units.reduce((a, b) => a + b, 0)).toBe(1);
+  });
+
+  it('a 2-concept request where the first option fails still bills exactly 1 (the second, successful call claims it)', () => {
+    const state = newGenerationBillingState();
+    expect(claimOptionBillableUnit(state, 'failed')).toBe(0);
+    expect(claimOptionBillableUnit(state, 'ok')).toBe(1);
+  });
+
+  it('a 1-concept request (optionCount=1) that fails bills 0 — never a phantom charge for a single failed call', () => {
+    const state = newGenerationBillingState();
+    expect(claimOptionBillableUnit(state, 'failed')).toBe(0);
+  });
 });
