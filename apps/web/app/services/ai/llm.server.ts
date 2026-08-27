@@ -1595,7 +1595,7 @@ export async function generateValidatedRecipe(
 
   let lastErr: unknown;
   for (let i = 0; i < maxAttempts; i++) {
-    const { rawJson, tokensIn, tokensOut, model, servedProviderId } = await client.generateRecipe(wrappedPrompt, {
+    const { rawJson, tokensIn, tokensOut, model, servedProviderId, cacheReadTokens, cacheCreationTokens } = await client.generateRecipe(wrappedPrompt, {
       previousError: lastErr ? String(lastErr) : undefined,
       maxTokens: options?.maxTokens,
     });
@@ -1627,6 +1627,8 @@ export async function generateValidatedRecipe(
         meta: { attempts: i + 1, model },
         requestCount: 1,
         prompt: wrappedPrompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
       return parsed;
     } catch (err) {
@@ -1672,6 +1674,8 @@ Output a JSON object with a single key "recipe" whose value is the complete upda
     let tokensOut = 0;
     let model: string | undefined;
     let servedProviderId: string | null | undefined;
+    let cacheReadTokens: number | undefined;
+    let cacheCreationTokens: number | undefined;
     try {
       const result = await client.generateRecipe(modifyPrompt, {
         previousError: lastErr ? String(lastErr) : undefined,
@@ -1681,6 +1685,8 @@ Output a JSON object with a single key "recipe" whose value is the complete upda
       tokensOut = result.tokensOut;
       model = result.model;
       servedProviderId = result.servedProviderId;
+      cacheReadTokens = result.cacheReadTokens;
+      cacheCreationTokens = result.cacheCreationTokens;
       const parsed = RecipeSpecSchema.parse(unwrapRecipe(JSON.parse(result.rawJson)));
       if (!options?.allowTypeChange && parsed.type !== currentSpec.type) {
         throw new Error(`AI changed module type from "${currentSpec.type}" to "${parsed.type}". Type changes are not allowed in modify mode.`);
@@ -1708,6 +1714,8 @@ Output a JSON object with a single key "recipe" whose value is the complete upda
         meta: { attempts: i + 1, model },
         requestCount: 1,
         prompt: modifyPrompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
       return parsed;
     } catch (err) {
@@ -1728,6 +1736,8 @@ Output a JSON object with a single key "recipe" whose value is the complete upda
         meta: { attempts: i + 1, model, error: String(err).slice(0, 500) },
         requestCount: 1,
         prompt: modifyPrompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
     }
   }
@@ -1993,6 +2003,8 @@ export async function* generateValidatedRecipeOptionsStream(
     let model: string | undefined;
     let costCents = 0;
     let servedId: string | null = providerId;
+    let cacheReadTokens: number | undefined;
+    let cacheCreationTokens: number | undefined;
     try {
       const produced = await produceOptionRecipe({
         idx,
@@ -2013,6 +2025,8 @@ export async function* generateValidatedRecipeOptionsStream(
       tokensIn = result.tokensIn;
       tokensOut = result.tokensOut;
       model = result.model;
+      cacheReadTokens = result.cacheReadTokens;
+      cacheCreationTokens = result.cacheCreationTokens;
       ({ providerId: servedId, costCents } = await attributeServedCost(result, providerId, tokensIn, tokensOut));
 
       let recipe = produced.recipe;
@@ -2063,6 +2077,8 @@ export async function* generateValidatedRecipeOptionsStream(
         requestCount: claimOptionBillableUnit(billing, 'ok'),
         correlationId: options?.correlationId,
         prompt: compiledPrompt.prompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
       return {
         kind: 'ok' as const,
@@ -2083,6 +2099,8 @@ export async function* generateValidatedRecipeOptionsStream(
         requestCount: claimOptionBillableUnit(billing, 'failed'),
         correlationId: options?.correlationId,
         prompt: compiledPrompt.prompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
       return {
         kind: 'err' as const,
@@ -2265,6 +2283,8 @@ export async function generateValidatedRecipeOptionsParallel(
     let model: string | undefined;
     let costCents = 0;
     let servedId: string | null = providerId;
+    let cacheReadTokens: number | undefined;
+    let cacheCreationTokens: number | undefined;
 
     try {
       const produced = await produceOptionRecipe({
@@ -2286,6 +2306,8 @@ export async function generateValidatedRecipeOptionsParallel(
       tokensIn = result.tokensIn;
       tokensOut = result.tokensOut;
       model = result.model;
+      cacheReadTokens = result.cacheReadTokens;
+      cacheCreationTokens = result.cacheCreationTokens;
       ({ providerId: servedId, costCents } = await attributeServedCost(result, providerId, tokensIn, tokensOut));
 
       let recipe = produced.recipe;
@@ -2336,6 +2358,8 @@ export async function generateValidatedRecipeOptionsParallel(
         requestCount: claimOptionBillableUnit(billing, 'ok'),
         correlationId: options?.correlationId,
         prompt: compiledPrompt.prompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
       const option: RecipeOption = { explanation, recipe, generationMode: produced.generationMode, qaSummary: qaRetry.qaSummary };
       return { ok: true as const, option };
@@ -2351,6 +2375,8 @@ export async function generateValidatedRecipeOptionsParallel(
         requestCount: claimOptionBillableUnit(billing, 'failed'),
         correlationId: options?.correlationId,
         prompt: compiledPrompt.prompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
       return { ok: false as const, error: err };
     }
@@ -2626,9 +2652,11 @@ export async function generateValidatedRecipeOptions(
     let tokensOut = 0;
     let model: string | undefined;
     let servedProviderId: string | null | undefined;
+    let cacheReadTokens: number | undefined;
+    let cacheCreationTokens: number | undefined;
 
     try {
-      ({ rawJson, tokensIn, tokensOut, model, servedProviderId } = await client.generateRecipe(compiledPrompt.prompt, {
+      ({ rawJson, tokensIn, tokensOut, model, servedProviderId, cacheReadTokens, cacheCreationTokens } = await client.generateRecipe(compiledPrompt.prompt, {
         maxTokens: optionsBudget,
         responseSchema: optionsJsonSchema
           ? { name: `RecipeOptions_${classification.moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}`, schema: optionsJsonSchema }
@@ -2700,6 +2728,8 @@ export async function generateValidatedRecipeOptions(
         requestCount,
         correlationId: options?.correlationId,
         prompt: compiledPrompt.prompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
 
       return validated;
@@ -2728,6 +2758,8 @@ export async function generateValidatedRecipeOptions(
         requestCount: await legacyRecipeOptionsBillableUnits(usage, options?.correlationId, 'failed'),
         correlationId: options?.correlationId,
         prompt: compiledPrompt.prompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
     }
   }
@@ -2769,6 +2801,8 @@ export async function modifyRecipeSpecOptions(
     let tokensOut = 0;
     let model: string | undefined;
     let servedProviderId: string | null | undefined;
+    let cacheReadTokens: number | undefined;
+    let cacheCreationTokens: number | undefined;
 
     try {
       const result = await client.generateRecipe(compiledPrompt, {
@@ -2778,6 +2812,8 @@ export async function modifyRecipeSpecOptions(
       tokensOut = result.tokensOut;
       model = result.model;
       servedProviderId = result.servedProviderId;
+      cacheReadTokens = result.cacheReadTokens;
+      cacheCreationTokens = result.cacheCreationTokens;
 
       const parsed = JSON.parse(result.rawJson);
       const optionsArr = parsed?.options ?? (Array.isArray(parsed) ? parsed : null);
@@ -2822,6 +2858,8 @@ export async function modifyRecipeSpecOptions(
         meta: { attempts: attempt + 1, model, validOptions: validated.length },
         requestCount: 1,
         prompt: compiledPrompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
 
       return validated;
@@ -2843,6 +2881,8 @@ export async function modifyRecipeSpecOptions(
         meta: { attempts: attempt + 1, model, error: String(err).slice(0, 500) },
         requestCount: 1,
         prompt: compiledPrompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
     }
   }
@@ -2987,13 +3027,15 @@ export async function hydrateRecipeSpec(
     let tokensOut = 0;
     let model: string | undefined;
     let servedProviderId: string | null | undefined;
+    let cacheReadTokens: number | undefined;
+    let cacheCreationTokens: number | undefined;
     try {
       // WS-C Task 12. `client.generateRecipe` moved INSIDE the try: before
       // this, a throw from the call itself (network/HTTP error, and now
       // `TruncatedOutputError`) skipped the retry bookkeeping below entirely
       // — no failed-attempt row, no chance to retry with a bumped budget,
       // the whole function just rejected on attempt 0.
-      ({ rawJson, tokensIn, tokensOut, model, servedProviderId } = await client.generateRecipe(
+      ({ rawJson, tokensIn, tokensOut, model, servedProviderId, cacheReadTokens, cacheCreationTokens } = await client.generateRecipe(
         wrappedPrompt,
         {
           previousError: lastErr ? String(lastErr) : undefined,
@@ -3039,6 +3081,8 @@ export async function hydrateRecipeSpec(
         requestCount,
         prompt: wrappedPrompt,
         correlationId: options?.billingKey,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
       return envelopeToUse;
     } catch (err) {
@@ -3066,6 +3110,8 @@ export async function hydrateRecipeSpec(
         requestCount: 0,
         prompt: wrappedPrompt,
         correlationId: options?.billingKey,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
     }
   }
@@ -3148,6 +3194,9 @@ export async function recordAiUsage(
     requestCount?: number;
     meta?: unknown;
     prompt?: string;
+    /** WS P2-A: Anthropic cache stats (observability only) — merged into `AiUsage.meta` by AiUsageService. */
+    cacheReadTokens?: number;
+    cacheCreationTokens?: number;
     /** Client-generated per-attempt id (WS-QF / AI-2) — see seedBillingStateForCorrelation. */
     correlationId?: string;
   },
