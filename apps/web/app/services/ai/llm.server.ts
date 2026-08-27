@@ -175,10 +175,18 @@ export function guardAnthropicSkillsConfig(
 ): { skills?: string[]; codeExecution?: boolean } | undefined {
   if (!skillsConfig) return undefined;
   if (!skillsConfig.codeExecution) return skillsConfig;
-  return {
-    ...skillsConfig,
-    codeExecution: !options.blockMerchantCodeExecution && isMerchantCodeExecutionAllowed(),
-  };
+  const codeExecution = !options.blockMerchantCodeExecution && isMerchantCodeExecutionAllowed();
+  if (codeExecution) {
+    // WS P2-A (P2A-3): code execution forces the tools array to
+    // [{type:'code_execution_20260521', ...}], which the Anthropic client's
+    // useStructured gate already treats as mutually exclusive with forced
+    // structured output — an operator enabling this on a provider used for
+    // RecipeSpec/HydrateEnvelope generation silently loses the JSON-shape
+    // reliability WS-C Task 12 built. Not a redesign target (P2A-3); just
+    // make the tradeoff visible in logs instead of silent.
+    console.warn('[ai-skills] codeExecution enabled — structured-output tool-forcing is now disabled for this provider (mutually exclusive in anthropicGenerateRecipe)');
+  }
+  return { ...skillsConfig, codeExecution };
 }
 
 export class StubLlmClient implements LlmClient {
