@@ -24,7 +24,7 @@ import type { AdminApiContext } from '~/types/shopify';
 
 const KNOWN_JOB_TYPES: readonly JobType[] = [
   'AI_GENERATE', 'AI_HYDRATE', 'AI_MODIFY', 'PUBLISH', 'CONNECTOR_TEST', 'FLOW_RUN',
-  'MESSAGING_RUN', 'HTTP_SYNC_RUN', 'RESTOCK_WATCH_RUN', 'LOYALTY_ACCRUAL_RUN', 'THEME_ANALYZE',
+  'MESSAGING_RUN', 'HTTP_SYNC_RUN', 'RESTOCK_WATCH_RUN', 'LOYALTY_ACCRUAL_RUN', 'SUPPORT_TRIAGE_RUN', 'THEME_ANALYZE',
 ];
 
 /** Max failed jobs re-enqueued by a single "Replay all DLQ" request. */

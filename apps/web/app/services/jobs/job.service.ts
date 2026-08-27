@@ -3,7 +3,7 @@ import { getRequestContext } from '~/services/observability/correlation.server';
 import type { AppErrorPayload } from '~/services/errors/app-error.server';
 import { OpsAlertService, markOpsAlerted } from '~/services/observability/ops-alert.server';
 
-export type JobType = 'AI_GENERATE'|'AI_HYDRATE'|'AI_MODIFY'|'PUBLISH'|'CONNECTOR_TEST'|'FLOW_RUN'|'MESSAGING_RUN'|'HTTP_SYNC_RUN'|'RESTOCK_WATCH_RUN'|'LOYALTY_ACCRUAL_RUN'|'THEME_ANALYZE';
+export type JobType = 'AI_GENERATE'|'AI_HYDRATE'|'AI_MODIFY'|'PUBLISH'|'CONNECTOR_TEST'|'FLOW_RUN'|'MESSAGING_RUN'|'HTTP_SYNC_RUN'|'RESTOCK_WATCH_RUN'|'LOYALTY_ACCRUAL_RUN'|'SUPPORT_TRIAGE_RUN'|'THEME_ANALYZE';
 export type JobStatus = 'QUEUED'|'RUNNING'|'SUCCESS'|'FAILED';
 
 export class JobService {

@@ -4,6 +4,7 @@ import { MessagingRunnerService } from '~/services/messaging/messaging-runner.se
 import { HttpSyncRunnerService } from '~/services/integration/http-sync-runner.service';
 import { RestockWatcherService } from '~/services/messaging/restock-watcher.server';
 import { accrueForOrder } from '~/services/composites/loyalty-accrual.server';
+import { runSupportTriageJob } from '~/services/jobs/support-triage-job.server';
 import { unauthenticated } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 
@@ -22,7 +23,8 @@ export type OwnedJobType =
   | 'MESSAGING_RUN'
   | 'HTTP_SYNC_RUN'
   | 'RESTOCK_WATCH_RUN'
-  | 'LOYALTY_ACCRUAL_RUN';
+  | 'LOYALTY_ACCRUAL_RUN'
+  | 'SUPPORT_TRIAGE_RUN';
 
 const OWNED = new Set<string>([
   'CONNECTOR_TEST',
@@ -31,6 +33,7 @@ const OWNED = new Set<string>([
   'HTTP_SYNC_RUN',
   'RESTOCK_WATCH_RUN',
   'LOYALTY_ACCRUAL_RUN',
+  'SUPPORT_TRIAGE_RUN',
 ]);
 
 export function isOwnedJobType(type: string): type is OwnedJobType {
@@ -93,5 +96,9 @@ export const JOB_EXECUTORS: Record<OwnedJobType, (payload: unknown, ctx: { shopI
   LOYALTY_ACCRUAL_RUN: async (payload, ctx) => {
     if (!ctx.shopId) throw new Error('LOYALTY_ACCRUAL_RUN requires shopId');
     return accrueForOrder(ctx.shopId, payload as never);
+  },
+  SUPPORT_TRIAGE_RUN: async (payload) => {
+    const p = payload as { ticketId: string };
+    return runSupportTriageJob(p.ticketId);
   },
 };
