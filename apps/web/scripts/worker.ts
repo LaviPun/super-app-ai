@@ -10,9 +10,11 @@
  */
 import http from 'node:http';
 import Redis from 'ioredis';
+import { Worker } from 'bullmq';
 import { loadJobOrchestratorConfig, resolveEffectiveMode } from '@superapp/job-orchestration';
 import { createWebWorkerRuntime, type WebWorkerRuntime } from '../app/services/jobs/worker-runtime.server.js';
 import { buildWorkerHandlers } from '../app/services/jobs/processors/index.js';
+import { OPS_QUEUE_NAME, processOwnedJobById } from '../app/services/jobs/ops-queue.server.js';
 
 const config = loadJobOrchestratorConfig();
 if (!config.queueRedisUrl) {
@@ -73,15 +75,35 @@ if (resolveEffectiveMode(config) === 'queue') {
   }
 }
 
+// WS-G Task 14 (Decision G8): a SEPARATE BullMQ Worker for the "superapp-ops"
+// queue (CONNECTOR_TEST/FLOW_RUN/MESSAGING_RUN/HTTP_SYNC_RUN/RESTOCK_WATCH_RUN/
+// LOYALTY_ACCRUAL_RUN — job-executors.server.ts), independent of the
+// `createWebWorkerRuntime` platform registry above (see ops-queue.server.ts's
+// doc comment for why this queue is deliberately NOT folded into
+// `PlatformQueueName`). Reuses this script's existing `redis` connection.
+let opsWorker: Worker | null = null;
+if (resolveEffectiveMode(config) === 'queue') {
+  opsWorker = new Worker(
+    OPS_QUEUE_NAME,
+    async (job) => {
+      const jobId = (job.data as { jobId: string }).jobId;
+      await processOwnedJobById(jobId);
+    },
+    { connection: redis, prefix: config.queuePrefix, concurrency: 5 },
+  );
+  opsWorker.on('error', (err) => console.error('[worker] ops-queue bullmq worker error', err.message));
+  console.info('[worker] bullmq Worker mounted', { queue: OPS_QUEUE_NAME });
+}
+
 async function shutdown(signal: string) {
   console.info(`[worker] ${signal} — shutting down`);
   clearInterval(heartbeat);
   // Raise the force-exit window when a runtime is mounted so in-flight jobs
   // can drain via Worker.close() before Railway kills the process.
-  const forceExitMs = runtime ? 30_000 : 5_000;
+  const forceExitMs = runtime || opsWorker ? 30_000 : 5_000;
   const forceExit = setTimeout(() => process.exit(0), forceExitMs).unref();
   try {
-    await runtime?.close();
+    await Promise.all([runtime?.close(), opsWorker?.close()]);
   } finally {
     server.close(() => {
       clearTimeout(forceExit);
