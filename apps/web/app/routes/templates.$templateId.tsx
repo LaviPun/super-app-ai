@@ -1,9 +1,11 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, useNavigate } from '@remix-run/react';
-import { MerchantShell } from '~/components/merchant/MerchantShell';
+import { useEffect } from 'react';
+import { useLoaderData, useNavigate, useFetcher } from '@remix-run/react';
+import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { findTemplate, getTemplateInstallability, getTemplateReadiness, getExtensionEligibility } from '@superapp/core';
 import { shopify } from '~/shopify.server';
 import { PreviewService } from '~/services/preview/preview.service';
+import { buildTemplateSubmission } from '~/utils/template-detail';
 
 export async function loader({ request, params }: { request: Request; params: { templateId?: string } }) {
   await shopify.authenticate.admin(request);
@@ -77,16 +79,38 @@ const RUNTIME_LABEL: Record<string, string> = {
 };
 
 export default function MerchantTemplateDetailRoute() {
+  return (
+    <MerchantShell>
+      <MerchantTemplateDetailBody />
+    </MerchantShell>
+  );
+}
+
+function MerchantTemplateDetailBody() {
   const { template, readiness, installability, requires, deployment, configRows, previewHtml } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
+  const ctx = useMerchantCtx();
+  const useTemplateFetcher = useFetcher<{ error?: string; reasons?: string[] }>();
+  const isUsingTemplate = useTemplateFetcher.state !== 'idle';
+
+  useEffect(() => {
+    if (useTemplateFetcher.state !== 'idle') return;
+    if (useTemplateFetcher.data?.error) {
+      ctx.toast(useTemplateFetcher.data.error, { error: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useTemplateFetcher.data, useTemplateFetcher.state]);
 
   return (
-    <MerchantShell polaris>
       <s-page heading={template.name} inlineSize="base">
         <s-button
           slot="primary-action"
           variant="primary"
-          onClick={() => navigate(`/modules?templateId=${encodeURIComponent(template.id)}`)}
+          loading={isUsingTemplate || undefined}
+          onClick={() => {
+            const { action, body } = buildTemplateSubmission(template.id);
+            useTemplateFetcher.submit(body, { method: 'post', action });
+          }}
         >
           Use template
         </s-button>
@@ -188,7 +212,6 @@ export default function MerchantTemplateDetailRoute() {
           )}
         </s-section>
       </s-page>
-    </MerchantShell>
   );
 }
 

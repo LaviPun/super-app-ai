@@ -27,6 +27,7 @@ export const ADMIN_BLOCK_B2B_AND_RESOURCE_TEMPLATES: TemplateEntry[] = [
   // ── Company (B2B) ─────────────────────────────────────────────────────────
   {
     id: 'ADMB-B2B-01',
+    tier: 'standard',
     name: 'B2B Company Account Summary',
     description: 'Company-details block summarizing the wholesale account — assigned price tier, payment terms, and credit status for a B2B buyer org.',
     category: 'ADMIN_UI',
@@ -61,6 +62,7 @@ export const ADMIN_BLOCK_B2B_AND_RESOURCE_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMB-B2B-02',
+    tier: 'standard',
     name: 'Company Quantity-Break Matrix',
     description: 'Company-details block showing the quantity-break price ladder that applies to this wholesale account across its assigned catalog.',
     category: 'ADMIN_UI',
@@ -91,6 +93,7 @@ export const ADMIN_BLOCK_B2B_AND_RESOURCE_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMB-B2B-03',
+    tier: 'standard',
     name: 'Company Membership & Entitlements',
     description: 'Company-details block listing the active membership plan and the entitlements it unlocks for the buyer organization.',
     category: 'ADMIN_UI',
@@ -123,6 +126,7 @@ export const ADMIN_BLOCK_B2B_AND_RESOURCE_TEMPLATES: TemplateEntry[] = [
   // ── Company location (B2B) ────────────────────────────────────────────────
   {
     id: 'ADMB-B2B-04',
+    tier: 'standard',
     name: 'Location Shipping & Freight Terms',
     description: 'Company-location-details block reading out the freight terms and delivery eligibility resolved for this specific ship-to location.',
     category: 'ADMIN_UI',
@@ -151,6 +155,7 @@ export const ADMIN_BLOCK_B2B_AND_RESOURCE_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMB-B2B-05',
+    tier: 'standard',
     name: 'Location Price List & Catalog',
     description: 'Company-location-details block showing which price list and assigned catalog govern orders placed for this location.',
     category: 'ADMIN_UI',
@@ -183,6 +188,7 @@ export const ADMIN_BLOCK_B2B_AND_RESOURCE_TEMPLATES: TemplateEntry[] = [
   // ── Catalog (merchandising) ───────────────────────────────────────────────
   {
     id: 'ADMB-B2B-06',
+    tier: 'standard',
     name: 'Catalog Publication & Coverage',
     description: 'Catalog-details block summarizing which companies a B2B catalog is published to and how many products and price-list rows it carries.',
     category: 'ADMIN_UI',
@@ -211,6 +217,7 @@ export const ADMIN_BLOCK_B2B_AND_RESOURCE_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMB-B2B-07',
+    tier: 'standard',
     name: 'Catalog Search & Merchandising Health',
     description: 'Catalog-details block reporting search indexing and merchandising coverage for the products in this catalog.',
     category: 'ADMIN_UI',
@@ -246,6 +253,7 @@ export const ADMIN_BLOCK_B2B_AND_RESOURCE_TEMPLATES: TemplateEntry[] = [
   // ── Collection (merchandising) ────────────────────────────────────────────
   {
     id: 'ADMB-B2B-08',
+    tier: 'standard',
     name: 'Collection Merchandising Rules',
     description: 'Collection-details block summarizing the automated sort, boost, and pin rules applied to a collection by the merchandising engine.',
     category: 'ADMIN_UI',
@@ -276,6 +284,7 @@ export const ADMIN_BLOCK_B2B_AND_RESOURCE_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMB-B2B-09',
+    tier: 'standard',
     name: 'Collection B2B Visibility',
     description: 'Collection-details block showing which customer tags and companies can see and buy from this collection under B2B catalog scoping.',
     category: 'ADMIN_UI',
@@ -309,6 +318,7 @@ export const ADMIN_BLOCK_B2B_AND_RESOURCE_TEMPLATES: TemplateEntry[] = [
   // ── Draft order ───────────────────────────────────────────────────────────
   {
     id: 'ADMB-B2B-10',
+    tier: 'standard',
     name: 'Draft Order Wholesale Pricing Audit',
     description: 'Draft-order-details block auditing which wholesale price rules and discounts were applied when this B2B draft order was built.',
     category: 'ADMIN_UI',
@@ -339,6 +349,7 @@ export const ADMIN_BLOCK_B2B_AND_RESOURCE_TEMPLATES: TemplateEntry[] = [
   // ── Abandoned checkout ────────────────────────────────────────────────────
   {
     id: 'ADMB-B2B-11',
+    tier: 'standard',
     name: 'Abandoned Checkout Recovery Context',
     description: 'Abandoned-checkout-details block surfacing the buyer context and recovery status a merchant needs before following up on a stalled cart.',
     category: 'ADMIN_UI',
@@ -369,6 +380,7 @@ export const ADMIN_BLOCK_B2B_AND_RESOURCE_TEMPLATES: TemplateEntry[] = [
   // ── Gift card ─────────────────────────────────────────────────────────────
   {
     id: 'ADMB-B2B-12',
+    tier: 'standard',
     name: 'Gift Card Reward Origin',
     description: 'Gift-card-details block explaining where a gift card came from — a loyalty reward, store credit, or manual issue — with its program context.',
     category: 'ADMIN_UI',

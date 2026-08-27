@@ -5,9 +5,15 @@ export type StreamOutcomeInput = {
   sawErrorFrame: boolean;
   /** The SSE transport itself failed (fetch rejected / !res.ok / no body) — the stream leg billed nothing. */
   transportFailed: boolean;
+  /** True when the fetch was aborted by the merchant clicking Cancel (or
+   *  navigating away mid-generation) — an intentional cancel is never a
+   *  transport failure to recover from, and must never trigger the
+   *  batch-fallback (which would bill a second request the merchant already
+   *  told us to stop). Checked first, ahead of every other outcome. */
+  aborted?: boolean;
 };
 
-export type StreamNextStep = 'proceed' | 'show-retry' | 'batch-fallback';
+export type StreamNextStep = 'proceed' | 'show-retry' | 'batch-fallback' | 'cancelled';
 
 /**
  * What the generate UI does after the stream ends (WS-QF / AI-2). A server
@@ -15,12 +21,80 @@ export type StreamNextStep = 'proceed' | 'show-retry' | 'batch-fallback';
  * route would silently start a second billable request, so the merchant gets an
  * honest retry UI instead. The batch fallback survives only for transport
  * failure, where the stream request never generated (and billed 0).
+ *
+ * `aborted` is checked before anything else (WS-F): an intentional Cancel
+ * must never be treated as a transport failure worth falling back from, and
+ * must never be treated as "proceed" just because some options had already
+ * rendered before the click.
  */
 export function nextStepAfterStream(o: StreamOutcomeInput): StreamNextStep {
+  if (o.aborted) return 'cancelled';
   if (o.gotAny) return 'proceed';
   if (o.sawErrorFrame) return 'show-retry';
   if (o.transportFailed) return 'batch-fallback';
   return 'show-retry';
+}
+
+// The full wire protocol emitted by /api/ai/create-module/stream (see that
+// route's own doc comment) — 10 distinct event kinds. Only 'option',
+// 'ranking', 'score', 'option_updated', and 'done' move STEP_ORDER below;
+// 'intent', 'started', 'option_failed', 'blueprint', and 'error' are real
+// frames the client also receives but don't advance progress (blueprint is
+// flag-gated and handled separately by the caller; error is terminal and
+// handled via sawErrorFrame, not step advancement).
+export type StreamEventKind =
+  | 'intent'
+  | 'started'
+  | 'option'
+  | 'option_failed'
+  | 'ranking'
+  | 'blueprint'
+  | 'score'
+  | 'option_updated'
+  | 'error'
+  | 'done';
+
+const STREAM_EVENT_KINDS: ReadonlySet<string> = new Set<StreamEventKind>([
+  'intent',
+  'started',
+  'option',
+  'option_failed',
+  'ranking',
+  'blueprint',
+  'score',
+  'option_updated',
+  'error',
+  'done',
+]);
+
+/** Type guard so callers can narrow a raw SSE `event:` field name to
+ *  StreamEventKind without an unsafe cast — unrecognized event names (e.g. a
+ *  future server addition, or the SSE default 'message') are simply ignored. */
+export function isStreamEventKind(ev: string): ev is StreamEventKind {
+  return STREAM_EVENT_KINDS.has(ev);
+}
+
+const STEP_ORDER: Array<{ kind: StreamEventKind; minStep: number }> = [
+  { kind: 'option', minStep: 2 },
+  { kind: 'ranking', minStep: 3 },
+  { kind: 'score', minStep: 4 },
+  { kind: 'option_updated', minStep: 4 },
+  { kind: 'done', minStep: Number.MAX_SAFE_INTEGER }, // clamped to totalSteps below
+];
+
+/**
+ * Real-event-driven replacement for the Builder's old setInterval progress
+ * tick (WS-F). Pure, order-independent-safe: given the set of distinct SSE
+ * event kinds seen so far in a stream, returns which GEN_STEPS index is
+ * "current." Every input here is a REAL SSE frame the route already parses
+ * (option/ranking/score/option_updated/done) — nothing is simulated.
+ */
+export function stepIndexForSeenEvents(seen: ReadonlySet<StreamEventKind>, totalSteps: number): number {
+  let step = 0;
+  for (const { kind, minStep } of STEP_ORDER) {
+    if (seen.has(kind)) step = Math.max(step, minStep);
+  }
+  return Math.min(step, totalSteps);
 }
 
 /**

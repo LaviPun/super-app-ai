@@ -21,13 +21,18 @@
             <div class="superapp-pdp">
               <div class="superapp-pdp__gallery">
                 {% if pdp_main != blank %}
-                  <img class="superapp-pdp__media" src="{{ pdp_main | escape }}" alt="{{ mod_cfg.fields.mediaAlt | default: mod_cfg.title | escape }}" loading="lazy" width="900" height="1100">
+                  {% # Shopify's real Liquid parser rejects a filter on a `render` keyword-arg
+                     value (UnsupportedFilterArguments — confirmed via `shopify theme check`
+                     with the theme_app_extension preset; liquidjs tolerated it, the real
+                     parser doesn't). Pre-compute with {% assign %} instead. %}
+                  {% assign sa_media_alt = mod_cfg.fields.mediaAlt | default: mod_cfg.title %}
+                  {% render 'superapp-module-media', url: pdp_main, alt: sa_media_alt, css_class: 'superapp-pdp__media', width: 900, height: 1100 %}
                 {% endif %}
                 {% if pdp_media != blank and pdp_media.size > 1 %}
                   <div class="superapp-pdp__thumbs">
                     {% for section_block in pdp_media offset: 1 limit: 4 %}
                       {% if section_block.imageUrl != blank %}
-                        <img class="superapp-pdp__thumb" src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.text | escape }}" loading="lazy" width="160" height="160">
+                        {% render 'superapp-module-media', url: section_block.imageUrl, alt: section_block.text, css_class: 'superapp-pdp__thumb', width: 160, height: 160 %}
                       {% endif %}
                     {% endfor %}
                   </div>

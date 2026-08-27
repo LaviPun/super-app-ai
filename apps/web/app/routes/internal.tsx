@@ -1,5 +1,5 @@
 import { json } from '@remix-run/node';
-import type { HeadersFunction, MetaFunction } from '@remix-run/node';
+import type { HeadersFunction, LinksFunction, MetaFunction } from '@remix-run/node';
 import { Outlet, useLoaderData, useLocation, useMatches, useNavigate } from '@remix-run/react';
 import { useState, useCallback, useEffect } from 'react';
 import { internalSessionStorage } from '~/internal-admin/session.server';
@@ -13,9 +13,24 @@ import {
   CommandPalette,
   superappRoute,
 } from '~/components/superapp';
+// SuperApp AI design-system (vendored from the Claude Design handoff bundle).
+// Self-contained --p-*/--sa-* tokens + unprefixed .card/.btn/.page classes;
+// does not collide with @shopify/polaris (.Polaris-* / --p-color-*). Internal
+// admin is the last consumer (WS-F Task 15 moved this off root.tsx's global
+// link once generate._index.tsx, the last merchant route on this system,
+// migrated to Polaris web components).
+import saPolarisCss from '~/styles/superapp/polaris.css?url';
+import saShellCss from '~/styles/superapp/shell.css?url';
+import saPagesCss from '~/styles/superapp/pages.css?url';
+
+export const links: LinksFunction = () => [
+  { rel: 'stylesheet', href: saPolarisCss },
+  { rel: 'stylesheet', href: saShellCss },
+  { rel: 'stylesheet', href: saPagesCss },
+];
 
 /** Live nav-badge / health counts surfaced in the admin chrome. */
-type NavCounts = { dlq: number; err: number; wh: number; tickets: number };
+type NavCounts = { dlq: number; err: number; wh: number; tickets: number; unreadReplies: number };
 
 export const meta: MetaFunction<typeof loader> = ({ location, data }) => {
   const appName = data?.settings?.appName ?? 'SuperApp Admin';
@@ -37,12 +52,12 @@ export async function loader({ request }: { request: Request }) {
   // Real cross-shop counts backing the sidebar badges + health footer.
   // Each query is guarded so a missing table degrades to 0 rather than 500ing
   // the whole admin shell.
-  let counts: NavCounts = { dlq: 0, err: 0, wh: 0, tickets: 0 };
+  let counts: NavCounts = { dlq: 0, err: 0, wh: 0, tickets: 0, unreadReplies: 0 };
 
   if (isAuthed) {
     const prisma = getPrisma();
     const since24h = new Date(Date.now() - 86_400_000);
-    const [settingsResult, failedJobs, errors24h, failedWebhooks24h, openTickets] = await Promise.all([
+    const [settingsResult, failedJobs, errors24h, failedWebhooks24h, openTickets, latestEventsByTicket] = await Promise.all([
       new SettingsService().get().catch(() => null),
       prisma.job.count({ where: { status: 'FAILED' } }).catch(() => 0),
       prisma.errorLog.count({ where: { level: 'ERROR', createdAt: { gte: since24h } } }).catch(() => 0),
@@ -52,9 +67,23 @@ export async function loader({ request }: { request: Request }) {
       prisma.supportTicket
         .count({ where: { OR: [{ status: { in: ['OPEN', 'ESCALATED'] } }, { needsIntervention: true }] } })
         .catch(() => 0),
+      // A ticket has an unread merchant reply when its MOST RECENT event is
+      // MERCHANT_REPLIED — i.e. the merchant spoke last and no human/AI event
+      // followed. `distinct: ['ticketId']` + `orderBy: desc` gives exactly one
+      // (the latest) event per open ticket, bounded by the open-ticket count —
+      // no N+1, no new column (derived from the existing append-only log).
+      prisma.supportTicketEvent
+        .findMany({
+          where: { ticket: { status: { in: ['OPEN', 'AI_RESPONDED', 'ESCALATED'] } } },
+          orderBy: { createdAt: 'desc' },
+          distinct: ['ticketId'],
+          select: { ticketId: true, type: true },
+        })
+        .catch(() => [] as Array<{ ticketId: string; type: string }>),
     ]);
     settings = settingsResult;
-    counts = { dlq: failedJobs, err: errors24h, wh: failedWebhooks24h, tickets: openTickets };
+    const unreadReplies = latestEventsByTicket.filter((e) => e.type === 'MERCHANT_REPLIED').length;
+    counts = { dlq: failedJobs, err: errors24h, wh: failedWebhooks24h, tickets: openTickets, unreadReplies };
   }
 
   return json({ isAuthed, settings, counts });
@@ -80,10 +109,14 @@ type NavItem = {
   icon: string;
   exact?: boolean;
   badge?: string;
-  countKey?: 'dlq' | 'err' | 'wh' | 'tickets';
+  countKey?: 'dlq' | 'err' | 'wh' | 'tickets' | 'unreadReplies';
   countTone?: string;
   /** Extra hash routes that should also highlight this item (consolidated pages). */
   also?: string[];
+  /** Hide this item entirely when its countKey's live count is 0 — for a
+   * badge-only nav row (e.g. "Unread replies") that would otherwise sit
+   * permanently in the sidebar with nothing to show. */
+  hideWhenZero?: boolean;
 };
 type NavSection = { title: string; items: NavItem[] };
 
@@ -116,6 +149,14 @@ const ADMIN_NAV: NavSection[] = [
         countTone: 'warning',
         also: ['#/admin/support/'],
       },
+      {
+        url: '#/admin/support?filter=unread',
+        label: 'Unread replies',
+        icon: 'chat',
+        countKey: 'unreadReplies',
+        countTone: 'critical',
+        hideWhenZero: true,
+      },
     ],
   },
   {
@@ -132,6 +173,7 @@ const ADMIN_NAV: NavSection[] = [
     title: 'AI & Models',
     items: [
       { url: '#/admin/ai-providers', label: 'AI Providers', icon: 'connect' },
+      { url: '#/admin/integrations', label: 'Integrations', icon: 'connect' },
       { url: '#/admin/ai-assistant', label: 'AI Assistant', icon: 'chat', badge: 'New' },
       { url: '#/admin/model-setup', label: 'Local AI Setting', icon: 'desktop' },
       { url: '#/admin/usage', label: 'Usage & Costs', icon: 'chart' },
@@ -321,7 +363,9 @@ function AdminChrome({ settings, counts }: { settings: AppSettingsData | null; c
               {ADMIN_NAV.map((sec) => (
                 <div key={sec.title} className="nav-sec">
                   <div className="nav-sec-title">{sec.title}</div>
-                  {sec.items.map(navLink)}
+                  {sec.items
+                    .filter((it) => !it.hideWhenZero || (it.countKey ? counts[it.countKey] > 0 : false))
+                    .map(navLink)}
                 </div>
               ))}
             </div>

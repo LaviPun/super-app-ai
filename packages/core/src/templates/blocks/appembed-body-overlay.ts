@@ -24,6 +24,7 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
   // 01 — Privy centered email-capture popup with coupon reveal (exit-intent).
   {
     id: 'EMB-BODY-01',
+    tier: 'standard',
     name: 'Privy Email Popup — Coupon Reveal',
     description: 'Site-wide centered modal popup that captures email and reveals a discount code, fired on exit intent with a dimmed backdrop — the classic Privy welcome-offer overlay.',
     category: 'STOREFRONT_UI',
@@ -79,6 +80,7 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
   // 02 — Privy top announcement / free-shipping bar (persistent, site-wide).
   {
     id: 'EMB-BODY-02',
+    tier: 'standard',
     name: 'Privy Free-Shipping Bar',
     description: 'Persistent site-wide announcement bar pinned to the top of every page, promoting a free-shipping threshold — Privy\'s dismissible free-shipping / announcement bar embed.',
     category: 'STOREFRONT_UI',
@@ -114,7 +116,7 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'sticky', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'sticky' },
         spacing: { padding: 'tight', margin: 'none', gap: 'tight', density: 'compact' },
         typography: { size: 'SM', weight: 'medium', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#ffffff', background: '#111827', overlayBackdropOpacity: 0.45, seed: '#e07856' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#e07856' },
         shape: { radius: 'none', borderWidth: 'none', shadow: 'none' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -126,6 +128,7 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
   // 03 — Privy spin-to-win wheel (gamified email capture overlay).
   {
     id: 'EMB-BODY-03',
+    tier: 'standard',
     name: 'Privy Spin-to-Win Wheel',
     description: 'Gamified site-wide overlay with a prize wheel of coupon slices that requires an email to spin — Privy\'s spin-to-win email-capture display with per-slice odds.',
     category: 'STOREFRONT_UI',
@@ -182,6 +185,7 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
   // 04 — Justuno exit-intent lightbox popup with discount.
   {
     id: 'EMB-BODY-04',
+    tier: 'standard',
     name: 'Justuno Exit-Intent Lightbox',
     description: 'Center lightbox popup with a dark overlay that fires on exit intent to present a discount and email form — Justuno\'s layered-canvas lightbox promotion.',
     category: 'STOREFRONT_UI',
@@ -235,6 +239,7 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
   // 05 — Justuno corner slide-in / flyout email capture.
   {
     id: 'EMB-BODY-05',
+    tier: 'standard',
     name: 'Justuno Corner Slide-In',
     description: 'Bottom-corner slide-in flyout capturing email after a scroll trigger, non-blocking so shopping continues — Justuno\'s corner-anchored slide-in promotion.',
     category: 'STOREFRONT_UI',
@@ -285,6 +290,7 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
   // 06 — Justuno gamified "mystery offer" tab teaser (persistent floating trigger).
   {
     id: 'EMB-BODY-06',
+    tier: 'standard',
     name: 'Justuno Offer Tab Teaser',
     description: 'Persistent floating side-tab teaser that stays docked at the screen edge and opens an offer frame on click — Justuno\'s minimized "tab" trigger for a promotion.',
     category: 'STOREFRONT_UI',
@@ -319,7 +325,7 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'floating', anchor: 'left', offsetX: 0, offsetY: 0, width: 'auto', zIndex: 'overlay' },
         spacing: { padding: 'tight', margin: 'none', gap: 'none', density: 'compact' },
         typography: { size: 'SM', weight: 'bold', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#ffffff', background: '#7c3aed', overlayBackdropOpacity: 0.45, seed: '#7c3aed' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#7c3aed' },
         shape: { radius: 'md', borderWidth: 'none', shadow: 'md', elevation: 'soft' },
         responsive: { hideOnMobile: true, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -332,6 +338,7 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
   // 07 — ProveSource sales-pop toast (social proof stream).
   {
     id: 'EMB-BODY-07',
+    tier: 'standard',
     name: 'ProveSource Sales Pop Toast',
     description: 'Corner social-proof toast that streams recent-purchase notifications with an avatar and location line, looped and auto-dismissed — ProveSource\'s Stream sales pop.',
     category: 'STOREFRONT_UI',
@@ -384,6 +391,7 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
   // 08 — ProveSource live-visitor counter pill (persistent badge).
   {
     id: 'EMB-BODY-08',
+    tier: 'standard',
     name: 'ProveSource Live Visitor Counter',
     description: 'Compact corner pill showing a live "X people are viewing" count as social proof, pinned site-wide — ProveSource\'s Live-visitors notification.',
     category: 'STOREFRONT_UI',
@@ -432,6 +440,7 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
   // 09 — Swym wishlist launch-point floating button (persistent FAB).
   {
     id: 'EMB-BODY-09',
+    tier: 'standard',
     name: 'Swym Wishlist Floating Button',
     description: 'Persistent floating heart button pinned to a screen corner with a saved-item counter that opens the wishlist page or drawer — Swym\'s Launch Point floating button.',
     category: 'STOREFRONT_UI',
@@ -467,7 +476,7 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'floating', anchor: 'bottom', offsetX: -20, offsetY: -20, width: 'auto', zIndex: 'sticky' },
         spacing: { padding: 'tight', margin: 'none', gap: 'none', density: 'compact' },
         typography: { size: 'SM', weight: 'medium', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#ffffff', background: '#e11d48', overlayBackdropOpacity: 0.45, seed: '#e11d48' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#e11d48' },
         shape: { radius: 'full', borderWidth: 'none', shadow: 'md', elevation: 'soft' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -480,6 +489,7 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
   // 10 — Appikon back-in-stock "Notify Me" overlay form.
   {
     id: 'EMB-BODY-10',
+    tier: 'standard',
     name: 'Appikon Notify-Me Overlay',
     description: 'Overlay signup form for out-of-stock variants that captures email (and phone for SMS) to join the restock waitlist — Appikon\'s "Notify Me When Available" popup.',
     category: 'STOREFRONT_UI',
@@ -535,6 +545,7 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
   // 11 — Wheelio/Privy-class scratch-card discount popup (email-gated reveal, exit-intent).
   {
     id: 'EMB-BODY-11',
+    tier: 'standard',
     name: 'Wheelio Scratch-Card Coupon Popup',
     description: 'Gamified site-wide overlay with a scratch-off panel that reveals a discount code, gated behind an email capture and fired on exit intent — the Wheelio/Privy scratch-card email-capture display. The email is required before the panel unlocks, so the code is only revealed to opted-in shoppers.',
     category: 'STOREFRONT_UI',
@@ -590,6 +601,7 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
   // 12 — First-order welcome scratch card (no email gate, immediate reveal, timed).
   {
     id: 'EMB-BODY-12',
+    tier: 'standard',
     name: 'Welcome Scratch Card — First Order',
     description: 'A refined first-visit welcome overlay with a scratch-off panel that reveals a welcome discount with no email gate — the shopper simply scratches to unlock the code, fired after a short delay on the homepage. Optimized for a low-friction first-order incentive.',
     category: 'STOREFRONT_UI',
@@ -643,6 +655,7 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
   // 13 — Holiday/sale multi-prize spin-to-win wheel (6 slices incl. one no-prize, email-gated).
   {
     id: 'EMB-BODY-13',
+    tier: 'standard',
     name: 'Holiday Spin-to-Win Wheel — Multi-Prize',
     description: 'A festive multi-prize spin-to-win overlay with six weighted coupon slices (including an honest no-prize wedge) that requires an email to spin — a holiday/sale edition of the gamified email-capture wheel. Rarer high-value prizes carry lower odds; the empty slice is a genuine try-again with no code.',
     category: 'STOREFRONT_UI',
@@ -694,8 +707,10 @@ export const EMB_BODY_TEMPLATES: TemplateEntry[] = [
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
         motion: { duration: 'slow', easing: 'enter' },
-        // Festive multi-prize wheel — playful render pack (pill buttons, springy motion).
-        pack: 'playful',
+        // Festive multi-prize wheel — bold render pack (H1, WS-H 2026-08-24 collapse: playful
+        // retired; saturated urgency-red accent + glow elevation + loud "spin now" CTA read
+        // closer to Bold's loud/saturated grammar than Luxe's quiet/hairline one).
+        pack: 'bold',
       },
     },
   },

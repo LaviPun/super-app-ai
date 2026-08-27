@@ -305,7 +305,9 @@ export class ConfiguredLlmClient implements LlmClient {
       });
     }
 
-    // CUSTOM or AZURE_OPENAI: treat as OpenAI-compatible
+    // CUSTOM, AZURE_OPENAI, GROK, DEEPSEEK, MISTRAL: all OpenAI Chat Completions-
+    // compatible dialects (Decision G7, WS-INT Task 13) — no dedicated branch
+    // needed, they correctly fall through to this OpenAI-compatible client.
     return openAiCompatibleGenerateRecipe({
       apiKey,
       baseUrl: provider.baseUrl ?? 'https://api.openai.com',

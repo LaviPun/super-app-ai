@@ -7,6 +7,7 @@ import {
   recordMatchesRuleEngine,
   type MessagingTrigger,
 } from '~/services/messaging/messaging-runner.service';
+import { wasOpsAlerted } from '~/services/observability/ops-alert.server';
 import type { DataStoreService } from '~/services/data/data-store.service';
 import type { JobService } from '~/services/jobs/job.service';
 
@@ -360,5 +361,43 @@ describe('MessagingRunnerService — runCampaignById (admin Send now / test)', (
 describe('recordMatchesRuleEngine', () => {
   it('passes a record when the rule-engine is disabled/absent', () => {
     expect(recordMatchesRuleEngine({ enabled: false, logic: 'AND', groups: [], matchAction: 'SHOW', onUnresolved: 'defer' } as never, { x: 1 })).toBe(true);
+  });
+});
+
+describe('MessagingRunnerService.runCampaign — ops-alert dedup marker (fix round 1)', () => {
+  it('marks the re-thrown error opsAlerted after jobs.fail, so an outer catch (e.g. webhooks.tsx) can skip a redundant fire', async () => {
+    const jobs = fakeJobs();
+    // Force a genuine "resolution/setup failure reaches the outer catch" path:
+    // a small batchSize against a 2-recipient data_store audience triggers
+    // cross-run paging (parkNextPage), and a non-unique-violation engine.startRun
+    // rejection propagates past parkNextPage's own unique-violation swallow —
+    // exactly the class of failure runCampaign's outer catch documents handling.
+    const startRun = vi.fn(async () => {
+      throw new Error('workflow engine down');
+    });
+    const cfg = {
+      ...EMAIL_BROADCAST,
+      batchSize: 1,
+      respectConsent: false,
+      audience: { source: 'data_store', storeKey: 'waitlist', addressField: 'email', recipients: [] },
+    };
+    const runner = new MessagingRunnerService({
+      prisma: fakePrisma({ moduleFindFirst: fakeModule(cfg) }),
+      dataStore: fakeDataStore([{ email: 'a@x.com' }, { email: 'b@x.com' }], 2),
+      jobs,
+      getConnector: () => fakeEmailConnector() as unknown as Connector,
+      engine: { startRun } as never,
+    });
+
+    let caught: unknown;
+    try {
+      await runner.runCampaignById('test.myshopify.com', admin, 'mod_1', {});
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    expect(jobs.fail).toHaveBeenCalledTimes(1);
+    expect(wasOpsAlerted(caught)).toBe(true);
   });
 });

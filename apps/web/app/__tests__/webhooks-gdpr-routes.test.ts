@@ -81,6 +81,39 @@ const attributionLinkFindManyMock = vi.fn(async () => []);
 const attributionLinkDeleteManyMock = vi.fn(async () => ({ count: 0 }));
 const supportTicketFindManyMock = vi.fn(async () => []);
 
+// Task 21 (shop-redact completeness, Infra-11) — every other shopId-bearing model deleted by
+// webhooks.shop.redact.tsx. Stubbed to a no-op deleteMany; the `shop/redact` test below asserts
+// each is actually called and scoped to the target shop.
+const connectorTokenDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const connectorDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const moduleInstanceDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const moduleAssetDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const functionRuleSetDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const flowAssetDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const imageIngestionJobDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const moduleDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const recipeDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const flowDeadLetterDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const flowScheduleDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const flowStepLogDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const themeProfileDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const shopApiRateLimitDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const appSubscriptionDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const supportTicketDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const jobDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const apiLogDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const errorLogDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const aiUsageDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const retentionPolicyDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+// Fix round: WorkflowDef/WorkflowRun/WorkflowRunStep are tenantId-scoped (not shopId),
+// caught by the field-name-vocabulary introspection in shop-redact-completeness.test.ts.
+const workflowRunStepDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const workflowRunDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+const workflowDefDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+// Fix round 2 (post-WS-E-merge): FunctionActivation, caught by the
+// completeness test's structural FK-to-Shop introspection.
+const functionActivationDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+
 vi.mock('~/db.server', () => ({
   getPrisma: () => ({
     $transaction: <T>(queries: Promise<T>[]) => Promise.all(queries),
@@ -92,7 +125,31 @@ vi.mock('~/db.server', () => ({
     moduleEvent: { findMany: moduleEventFindManyMock, deleteMany: moduleEventDeleteManyMock },
     moduleMetricsDaily: { deleteMany: moduleMetricsDailyDeleteManyMock },
     attributionLink: { findMany: attributionLinkFindManyMock, deleteMany: attributionLinkDeleteManyMock },
-    supportTicket: { findMany: supportTicketFindManyMock },
+    supportTicket: { findMany: supportTicketFindManyMock, deleteMany: supportTicketDeleteManyMock },
+    connectorToken: { deleteMany: connectorTokenDeleteManyMock },
+    connector: { deleteMany: connectorDeleteManyMock },
+    moduleInstance: { deleteMany: moduleInstanceDeleteManyMock },
+    moduleAsset: { deleteMany: moduleAssetDeleteManyMock },
+    functionRuleSet: { deleteMany: functionRuleSetDeleteManyMock },
+    flowAsset: { deleteMany: flowAssetDeleteManyMock },
+    imageIngestionJob: { deleteMany: imageIngestionJobDeleteManyMock },
+    module: { deleteMany: moduleDeleteManyMock },
+    recipe: { deleteMany: recipeDeleteManyMock },
+    flowDeadLetter: { deleteMany: flowDeadLetterDeleteManyMock },
+    flowSchedule: { deleteMany: flowScheduleDeleteManyMock },
+    flowStepLog: { deleteMany: flowStepLogDeleteManyMock },
+    themeProfile: { deleteMany: themeProfileDeleteManyMock },
+    shopApiRateLimit: { deleteMany: shopApiRateLimitDeleteManyMock },
+    appSubscription: { deleteMany: appSubscriptionDeleteManyMock },
+    job: { deleteMany: jobDeleteManyMock },
+    apiLog: { deleteMany: apiLogDeleteManyMock },
+    errorLog: { deleteMany: errorLogDeleteManyMock },
+    aiUsage: { deleteMany: aiUsageDeleteManyMock },
+    retentionPolicy: { deleteMany: retentionPolicyDeleteManyMock },
+    workflowRunStep: { deleteMany: workflowRunStepDeleteManyMock },
+    workflowRun: { deleteMany: workflowRunDeleteManyMock },
+    workflowDef: { deleteMany: workflowDefDeleteManyMock },
+    functionActivation: { deleteMany: functionActivationDeleteManyMock },
   }),
 }));
 
@@ -341,6 +398,33 @@ describe('shop/redact', () => {
     expect(moduleEventDeleteManyMock).toHaveBeenCalled();
     expect(moduleMetricsDailyDeleteManyMock).toHaveBeenCalled();
     expect(attributionLinkDeleteManyMock).toHaveBeenCalled();
+    // Task 21 (Infra-11) coverage — every other shopId-bearing model is purged too.
+    expect(connectorTokenDeleteManyMock).toHaveBeenCalled();
+    expect(connectorDeleteManyMock).toHaveBeenCalled();
+    expect(moduleInstanceDeleteManyMock).toHaveBeenCalled();
+    expect(moduleAssetDeleteManyMock).toHaveBeenCalled();
+    expect(functionRuleSetDeleteManyMock).toHaveBeenCalled();
+    expect(flowAssetDeleteManyMock).toHaveBeenCalled();
+    expect(imageIngestionJobDeleteManyMock).toHaveBeenCalled();
+    expect(moduleDeleteManyMock).toHaveBeenCalled();
+    expect(recipeDeleteManyMock).toHaveBeenCalled();
+    expect(flowDeadLetterDeleteManyMock).toHaveBeenCalled();
+    expect(flowScheduleDeleteManyMock).toHaveBeenCalled();
+    expect(flowStepLogDeleteManyMock).toHaveBeenCalled();
+    expect(themeProfileDeleteManyMock).toHaveBeenCalled();
+    expect(shopApiRateLimitDeleteManyMock).toHaveBeenCalled();
+    expect(appSubscriptionDeleteManyMock).toHaveBeenCalled();
+    expect(supportTicketDeleteManyMock).toHaveBeenCalled();
+    expect(jobDeleteManyMock).toHaveBeenCalled();
+    expect(apiLogDeleteManyMock).toHaveBeenCalled();
+    expect(errorLogDeleteManyMock).toHaveBeenCalled();
+    expect(aiUsageDeleteManyMock).toHaveBeenCalled();
+    expect(retentionPolicyDeleteManyMock).toHaveBeenCalled();
+    // Fix round: workflow engine tables, tenantId-scoped (not shopId).
+    expect(workflowRunStepDeleteManyMock).toHaveBeenCalledWith({ where: { run: { tenantId: 'shop-1' } } });
+    expect(workflowRunDeleteManyMock).toHaveBeenCalledWith({ where: { tenantId: 'shop-1' } });
+    expect(workflowDefDeleteManyMock).toHaveBeenCalledWith({ where: { tenantId: 'shop-1' } });
+    expect(functionActivationDeleteManyMock).toHaveBeenCalled();
     const [logArg] = activityLogCreateMock.mock.calls[0] as unknown as [{ data: { action: string; resource: string } }];
     expect(logArg.data.action).toBe('GDPR_SHOP_REDACT');
     expect(logArg.data.resource).toBe('shop:shop-1');

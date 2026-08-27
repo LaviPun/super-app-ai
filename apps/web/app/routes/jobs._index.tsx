@@ -2,6 +2,7 @@ import { json } from '@remix-run/node';
 import { useLoaderData, useNavigate, useNavigation, useSearchParams } from '@remix-run/react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
+import { sealAccessToken } from '~/services/shops/access-token.server';
 import { MerchantShell } from '~/components/merchant/MerchantShell';
 import { EmptyState, MonoChip, StatStrip, StatusBadge, fmtNum } from '~/components/merchant/polaris';
 
@@ -46,10 +47,6 @@ function durationSeconds(startedAt: string | null, finishedAt: string | null, cr
   return `${sec.toFixed(1)}s`;
 }
 
-function formatCents(cents: number): string {
-  return `$${(cents / 100).toFixed(4)}`;
-}
-
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
   const prisma = getPrisma();
@@ -61,7 +58,7 @@ export async function loader({ request }: { request: Request }) {
   let shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
   if (!shopRow) {
     shopRow = await prisma.shop.create({
-      data: { shopDomain: session.shop, accessToken: session.accessToken ?? '', planTier: 'FREE' },
+      data: { shopDomain: session.shop, accessToken: sealAccessToken(session.accessToken ?? ''), planTier: 'FREE' },
     });
   }
 
@@ -107,14 +104,12 @@ export async function loader({ request }: { request: Request }) {
   ]);
 
   const moduleIds = new Set<string>();
-  const correlations = new Set<string>();
   const parsedById = new Map<string, ParsedPayload>();
   for (const job of jobs) {
     const parsed = safeParseJson(job.payload);
     parsedById.set(job.id, parsed);
     const moduleId = asString(parsed?.moduleId);
     if (moduleId) moduleIds.add(moduleId);
-    if (job.correlationId) correlations.add(job.correlationId);
   }
 
   const modules = moduleIds.size
@@ -124,91 +119,6 @@ export async function loader({ request }: { request: Request }) {
       })
     : [];
   const moduleById = new Map(modules.map((m) => [m.id, m]));
-
-  const aiUsageRows = correlations.size
-    ? await prisma.aiUsage.findMany({
-        where: { shopId: shopRow.id, correlationId: { in: Array.from(correlations) } },
-        include: { provider: true },
-      })
-    : [];
-  const aiUsageByCorrelation = new Map<
-    string,
-    { tokensIn: number; tokensOut: number; costCents: number; providers: string[]; models: string[]; requests: number }
-  >();
-  for (const row of aiUsageRows) {
-    const corr = row.correlationId;
-    if (!corr) continue;
-    const current = aiUsageByCorrelation.get(corr) ?? {
-      tokensIn: 0,
-      tokensOut: 0,
-      costCents: 0,
-      providers: [],
-      models: [],
-      requests: 0,
-    };
-    current.tokensIn += row.tokensIn;
-    current.tokensOut += row.tokensOut;
-    current.costCents += row.costCents;
-    current.requests += row.requestCount;
-    if (row.provider?.name && !current.providers.includes(row.provider.name)) current.providers.push(row.provider.name);
-    if (row.provider?.model && !current.models.includes(row.provider.model)) current.models.push(row.provider.model);
-    aiUsageByCorrelation.set(corr, current);
-  }
-
-  // Bounded AI-usage aggregation: groupBy in the DB instead of loading every row.
-  const since30d = new Date(Date.now() - 30 * 86400000);
-  const [aiGrouped30d, aiGroupedAllTime] = await Promise.all([
-    prisma.aiUsage.groupBy({
-      by: ['providerId'],
-      where: { shopId: shopRow.id, createdAt: { gte: since30d } },
-      _sum: { requestCount: true, tokensIn: true, tokensOut: true, costCents: true },
-    }),
-    prisma.aiUsage.groupBy({
-      by: ['providerId'],
-      where: { shopId: shopRow.id },
-      _sum: { requestCount: true, tokensIn: true, tokensOut: true, costCents: true },
-    }),
-  ]);
-  const providerIds = [...new Set([...aiGrouped30d, ...aiGroupedAllTime].map((g) => g.providerId))];
-  const providers = providerIds.length
-    ? await prisma.aiProvider.findMany({
-        where: { id: { in: providerIds } },
-        select: { id: true, name: true, provider: true, model: true },
-      })
-    : [];
-  const providerById = new Map(providers.map((p) => [p.id, p]));
-  const summarizeAiGroups = (groups: typeof aiGrouped30d) => {
-    let totalRequests = 0;
-    let totalTokensIn = 0;
-    let totalTokensOut = 0;
-    let totalCostCents = 0;
-    const byProvider = groups.map((g) => {
-      const p = providerById.get(g.providerId);
-      const requests = g._sum.requestCount ?? 0;
-      const tokensIn = g._sum.tokensIn ?? 0;
-      const tokensOut = g._sum.tokensOut ?? 0;
-      const costCents = g._sum.costCents ?? 0;
-      totalRequests += requests;
-      totalTokensIn += tokensIn;
-      totalTokensOut += tokensOut;
-      totalCostCents += costCents;
-      return {
-        provider: p?.name ?? p?.provider ?? 'Unknown provider',
-        model: p?.model ?? '—',
-        requests,
-        tokensIn,
-        tokensOut,
-        costCents,
-      };
-    });
-    return {
-      totalRequests,
-      totalTokensIn,
-      totalTokensOut,
-      totalCostCents,
-      byProvider: byProvider.sort((a, b) => b.costCents - a.costCents),
-    };
-  };
 
   const distinctTypes = [...new Set(jobs.map((j) => j.type))].sort();
   const running = jobs.filter((j) => j.status === 'RUNNING' || j.status === 'QUEUED').length;
@@ -244,7 +154,6 @@ export async function loader({ request }: { request: Request }) {
       triggerSource,
       payloadText: job.payload,
       resultText: job.result,
-      aiUsage: job.correlationId ? aiUsageByCorrelation.get(job.correlationId) ?? null : null,
     };
   });
 
@@ -270,21 +179,19 @@ export async function loader({ request }: { request: Request }) {
     distinctTypes,
     jobs: jobsData,
     events: eventsData,
-    aiSummary30d: summarizeAiGroups(aiGrouped30d),
-    aiSummaryAllTime: summarizeAiGroups(aiGroupedAllTime),
   });
 }
 
 export default function JobsPage() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <JobsBody />
     </MerchantShell>
   );
 }
 
 function JobsBody() {
-  const { shopDomain, stats, filters, distinctTypes, jobs, events, aiSummary30d, aiSummaryAllTime } = useLoaderData<typeof loader>();
+  const { shopDomain, stats, filters, distinctTypes, jobs, events } = useLoaderData<typeof loader>();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const nav = useNavigation();
@@ -319,51 +226,12 @@ function JobsBody() {
           ]}
         />
 
-      <s-section heading="Store AI usage and cost">
-        <s-stack gap="base">
-          <StatStrip
-            items={[
-              { label: 'Requests (30d)', value: fmtNum(aiSummary30d.totalRequests) },
-              { label: 'Tokens in / out (30d)', value: `${fmtNum(aiSummary30d.totalTokensIn)} / ${fmtNum(aiSummary30d.totalTokensOut)}` },
-              { label: 'Cost (30d)', value: formatCents(aiSummary30d.totalCostCents) },
-              { label: 'Cost (all time)', value: formatCents(aiSummaryAllTime.totalCostCents) },
-            ]}
-          />
-          {aiSummaryAllTime.byProvider.length > 0 ? (
-            <s-table>
-              <s-table-header-row>
-                <s-table-header listSlot="primary">Provider</s-table-header>
-                <s-table-header>Model</s-table-header>
-                <s-table-header>Requests</s-table-header>
-                <s-table-header>Tokens in</s-table-header>
-                <s-table-header>Tokens out</s-table-header>
-                <s-table-header listSlot="inline">Cost</s-table-header>
-              </s-table-header-row>
-              <s-table-body>
-                {aiSummaryAllTime.byProvider.map((row) => (
-                  <s-table-row key={`${row.provider}-${row.model}`}>
-                    <s-table-cell><s-text type="strong">{row.provider}</s-text></s-table-cell>
-                    <s-table-cell><MonoChip>{row.model}</MonoChip></s-table-cell>
-                    <s-table-cell>{fmtNum(row.requests)}</s-table-cell>
-                    <s-table-cell>{fmtNum(row.tokensIn)}</s-table-cell>
-                    <s-table-cell>{fmtNum(row.tokensOut)}</s-table-cell>
-                    <s-table-cell>{formatCents(row.costCents)}</s-table-cell>
-                  </s-table-row>
-                ))}
-              </s-table-body>
-            </s-table>
-          ) : (
-            <s-text color="subdued">No AI usage recorded for this store yet.</s-text>
-          )}
-        </s-stack>
-      </s-section>
-
       <s-section heading="Execution jobs" padding="none">
         <s-button slot="primary-action" variant="tertiary" icon="external" href={storeAdminUrl} target="_blank">
           Open store admin
         </s-button>
         <s-table>
-          <s-grid slot="filters" gridTemplateColumns="auto auto 1fr auto auto" gap="small-100" alignItems="center">
+          <s-grid slot="filters" gridTemplateColumns="@container (inline-size > 700px) auto auto 1fr auto auto, 1fr" gap="small-100" alignItems="center">
             <s-select
               label="Status"
               labelAccessibilityVisibility="exclusive"
@@ -402,7 +270,6 @@ function JobsBody() {
             <s-table-header>Trigger</s-table-header>
             <s-table-header>Module</s-table-header>
             <s-table-header>Target</s-table-header>
-            <s-table-header>AI usage</s-table-header>
             <s-table-header>Duration</s-table-header>
             <s-table-header>Correlation</s-table-header>
             <s-table-header>Error</s-table-header>
@@ -428,18 +295,6 @@ function JobsBody() {
                 </s-table-cell>
                 <s-table-cell>
                   {j.targetKind ? `${j.targetKind}${j.themeId ? ` · theme ${j.themeId}` : ''}` : <s-text color="subdued">—</s-text>}
-                </s-table-cell>
-                <s-table-cell>
-                  {j.aiUsage ? (
-                    <s-stack gap="none">
-                      <s-text>{formatCents(j.aiUsage.costCents)}</s-text>
-                      <s-text color="subdued">
-                        {fmtNum(j.aiUsage.tokensIn)}/{fmtNum(j.aiUsage.tokensOut)} tok{j.aiUsage.providers.length > 0 ? ` · ${j.aiUsage.providers[0]}` : ''}
-                      </s-text>
-                    </s-stack>
-                  ) : (
-                    <s-text color="subdued">—</s-text>
-                  )}
                 </s-table-cell>
                 <s-table-cell>{durationSeconds(j.startedAt, j.finishedAt, j.createdAt)}</s-table-cell>
                 <s-table-cell>

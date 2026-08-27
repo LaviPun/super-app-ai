@@ -31,6 +31,7 @@ export const NEWSLETTER_CAPTURE_SECTION_TEMPLATES: TemplateEntry[] = [
   // NSEC-NEWS-01 — Privy-style inline embedded capture (scroll box → inline block), homepage.
   {
     id: 'NSEC-NEWS-01',
+    tier: 'standard',
     name: 'Newsletter — Inline Embedded Capture',
     description:
       'Inline email-capture block for the homepage — headline, single email field, and CTA that reveals a welcome discount on signup. Privy-style embedded form.',
@@ -82,6 +83,7 @@ export const NEWSLETTER_CAPTURE_SECTION_TEMPLATES: TemplateEntry[] = [
   // NSEC-NEWS-02 — Split-image editorial capture (Klaviyo side-image form), page surface.
   {
     id: 'NSEC-NEWS-02',
+    tier: 'standard',
     name: 'Newsletter — Split Image Capture',
     description:
       'Two-column newsletter capture with a lifestyle side image on one half and the email form on the other — editorial signup for a landing page. Klaviyo side-image form layout.',
@@ -134,6 +136,7 @@ export const NEWSLETTER_CAPTURE_SECTION_TEMPLATES: TemplateEntry[] = [
   // NSEC-NEWS-03 — Footer newsletter strip (Klaviyo "Embedded Form in Footer" pattern).
   {
     id: 'NSEC-NEWS-03',
+    tier: 'standard',
     name: 'Newsletter — Footer Strip',
     description:
       'Compact full-width newsletter strip for the footer — one-line email field and button that persists site-wide across the homepage and content pages. Klaviyo footer embed pattern.',
@@ -167,7 +170,7 @@ export const NEWSLETTER_CAPTURE_SECTION_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'bottom', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'tight', density: 'compact' },
         typography: { size: 'SM', weight: 'medium', lineHeight: 'normal', align: 'left' },
-        colors: { text: '#e5e7eb', background: '#0b0f19', seed: '#3b82f6', overlayBackdropOpacity: 0.45 },
+        colors: { seed: '#3b82f6', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'sm', borderWidth: 'thin', shadow: 'none', elevation: 'border' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -180,6 +183,7 @@ export const NEWSLETTER_CAPTURE_SECTION_TEMPLATES: TemplateEntry[] = [
   // NSEC-NEWS-04 — Multi-step email → SMS capture (Klaviyo/Privy multi-step form, blocks = steps).
   {
     id: 'NSEC-NEWS-04',
+    tier: 'standard',
     name: 'Newsletter — Multi-Step Email then SMS',
     description:
       'Progressive multi-step capture — step 1 email, step 2 phone/SMS consent, step 3 discount reveal — as reorderable step blocks. Klaviyo/Privy multi-step signup form.',
@@ -240,6 +244,7 @@ export const NEWSLETTER_CAPTURE_SECTION_TEMPLATES: TemplateEntry[] = [
   // NSEC-NEWS-05 — Popup-style centered capture card (Privy/Omnisend popup rendered in-body).
   {
     id: 'NSEC-NEWS-05',
+    tier: 'standard',
     name: 'Newsletter — Popup-Style Welcome Card',
     description:
       'Centered welcome-offer capture card styled like a popup, rendered in-body where placed — dimmed-card framing, email field, and discount reveal. Privy/Omnisend welcome popup look.',
@@ -292,6 +297,7 @@ export const NEWSLETTER_CAPTURE_SECTION_TEMPLATES: TemplateEntry[] = [
   // NSEC-NEWS-06 — Blog/article inline capture with trust badges (Omnisend inline + legal-consent block).
   {
     id: 'NSEC-NEWS-06',
+    tier: 'standard',
     name: 'Newsletter — Article Inline with Trust Badges',
     description:
       'Inline capture placed mid- or end-of-article, with a short pitch, email field, and a row of trust badges (subscriber count, no-spam, unsubscribe). Omnisend inline form with consent block.',
@@ -340,6 +346,7 @@ export const NEWSLETTER_CAPTURE_SECTION_TEMPLATES: TemplateEntry[] = [
   // NSEC-NEWS-07 — Minimal-luxe centered single-field capture (Editorial/Minimal-Luxe, homepage hero band).
   {
     id: 'NSEC-NEWS-07',
+    tier: 'standard',
     name: 'Newsletter — Minimal Centered Capture',
     description:
       'Restrained centered single-line capture band for the homepage — hairline underline field, one word CTA, near-mono palette.',
@@ -385,6 +392,7 @@ export const NEWSLETTER_CAPTURE_SECTION_TEMPLATES: TemplateEntry[] = [
   // NSEC-NEWS-08 — Benefit-grid capture with value props (Privy/Omnisend benefit blocks), page surface.
   {
     id: 'NSEC-NEWS-08',
+    tier: 'standard',
     name: 'Newsletter — Benefit Grid Capture',
     description:
       'Newsletter capture over a grid of value-prop cards — each benefit a reorderable block — with the email form beneath. Conversion-focused signup for a landing page.',

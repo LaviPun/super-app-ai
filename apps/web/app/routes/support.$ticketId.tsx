@@ -5,7 +5,7 @@ import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { titleCase } from '~/components/merchant/polaris';
-import { SUPPORT_AGENT_NAME, TICKET_STATUS_TONE, TicketStatusBadge } from '~/components/support/badges';
+import { SUPPORT_AGENT_NAME, TICKET_STATUS_LABEL, TICKET_STATUS_TONE, TicketStatusBadge } from '~/components/support/badges';
 
 export async function loader({ request, params }: { request: Request; params: { ticketId?: string } }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -49,17 +49,17 @@ export async function loader({ request, params }: { request: Request; params: { 
 function statusSteps(status: string): Array<{ key: string; label: string }> {
   const base = [
     { key: 'OPEN', label: 'Open' },
-    { key: 'AI_RESPONDED', label: 'Answered' },
+    { key: 'AI_RESPONDED', label: TICKET_STATUS_LABEL.AI_RESPONDED ?? 'Answered by Maya (AI)' },
   ];
   if (status === 'ESCALATED') base.push({ key: 'ESCALATED', label: 'With the team' });
   base.push({ key: 'RESOLVED', label: 'Resolved' });
   return base;
 }
 
-// Merchant-facing: assistant replies read as a named support rep, not as AI.
+// Merchant-facing: assistant replies are labeled as AI (D4 disclosure).
 const ROLE_LABEL: Record<string, string> = {
   merchant: 'You',
-  assistant: `${SUPPORT_AGENT_NAME} · Support team`,
+  assistant: `${SUPPORT_AGENT_NAME} · AI assistant`,
   human_agent: 'Support team',
   system: 'System',
 };
@@ -76,7 +76,7 @@ function timeAgo(iso: string): string {
 
 export default function TicketDetail() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <TicketDetailBody />
     </MerchantShell>
   );

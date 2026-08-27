@@ -2,6 +2,7 @@ import { getPrisma } from '~/db.server';
 import { persistJsonSafely } from '~/services/observability/redact.server';
 import { parseDataModel, validateRecord } from '@superapp/core';
 import { emitFlowTriggerSafe, FLOW_TRIGGER_TOPICS } from '~/services/workflows/shopify-flow-bridge';
+import { openAccessToken } from '~/services/shops/access-token.server';
 
 /** Thrown when a record payload fails the store's typed schema (DataStore.schemaJson). */
 export class RecordValidationError extends Error {
@@ -202,7 +203,7 @@ export class DataStoreService {
 
     // Best-effort: notify Shopify Flow that a data store record was created.
     if (store?.shop) {
-      void emitFlowTriggerSafe(store.shop.shopDomain, store.shop.accessToken, FLOW_TRIGGER_TOPICS.DATA_RECORD_CREATED, {
+      void emitFlowTriggerSafe(store.shop.shopDomain, openAccessToken(store.shop.accessToken), FLOW_TRIGGER_TOPICS.DATA_RECORD_CREATED, {
         'Store Key': store.key,
         'Record ID': record.id,
         'Record Title': record.title ?? '',

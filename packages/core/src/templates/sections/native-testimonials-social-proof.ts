@@ -26,6 +26,7 @@ import { THEME_PLACEABLE_TEMPLATES } from '../../allowed-values.js';
 export const NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES: TemplateEntry[] = [
   {
     id: 'NSEC-TEST-01',
+    tier: 'standard',
     name: 'Wall of Love — Photo Review Grid',
     description:
       'Masonry "wall of love" grid of verified-buyer photo reviews for the product page, with star cards and reviewer avatars.',
@@ -99,6 +100,7 @@ export const NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-TEST-02',
+    tier: 'standard',
     name: 'Testimonials Carousel — Curated Quotes',
     description:
       'Auto-advancing carousel of curated best reviews for the homepage — the classic "Testimonials" slider variant with star rows and attribution.',
@@ -170,6 +172,7 @@ export const NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-TEST-03',
+    tier: 'standard',
     name: 'Single-Quote Spotlight',
     description:
       'Full-width single-quote spotlight for the homepage — one large marquee testimonial with star rating and named attribution for maximum trust weight.',
@@ -219,6 +222,7 @@ export const NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-TEST-04',
+    tier: 'standard',
     name: 'Reviews Feed — List with Rating Summary',
     description:
       'Vertical review-feed list for the product page with a left summary rail: average score, star-distribution bars, and review count.',
@@ -283,6 +287,7 @@ export const NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-TEST-05',
+    tier: 'standard',
     name: 'UGC Media Gallery — Photo & Video',
     description:
       'Site-wide customer media gallery grid of photo and video reviews for a content page — a "Happy Customers" UGC wall pulled from your best media reviews.',
@@ -359,6 +364,7 @@ export const NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-TEST-06',
+    tier: 'standard',
     name: 'Review Cards Slider — Compact',
     description:
       'Compact swipeable "Cards" carousel of short reviews for the product page — reviewer avatar, star row, and a one-line quote per card.',
@@ -433,6 +439,7 @@ export const NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-TEST-07',
+    tier: 'standard',
     name: 'Social Proof Stat Bar',
     description:
       'A compact big-number social-proof bar for the homepage — aggregate rating, review count, and "units sold" number-ticker stats sit side by side.',
@@ -477,6 +484,7 @@ export const NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-TEST-08',
+    tier: 'standard',
     name: 'Verified Reviews — Attribute Summary Rail',
     description:
       'PDP reviews module with an attribute summary rail (fit, quality, value averages) alongside a filterable list of verified reviews.',
@@ -561,6 +569,7 @@ export const NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-TEST-09',
+    tier: 'standard',
     name: 'As Seen In — Press & Rating Marquee',
     description:
       'A scroll-velocity press marquee for the homepage: publication logos beside a store-wide star rating and review count for instant credibility.',
@@ -599,7 +608,7 @@ export const NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'loose', density: 'comfortable' },
         typography: { size: 'SM', weight: 'medium', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#f5f5f5', background: '#111111', overlayBackdropOpacity: 0.45, seed: '#f5a623' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#f5a623' },
         shape: { radius: 'none', borderWidth: 'none', shadow: 'none', elevation: 'soft' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -610,6 +619,7 @@ export const NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-TEST-10',
+    tier: 'standard',
     name: 'Collection Social Proof — Rating Row',
     description:
       'A trust strip for the collection page pairing a store-wide star rating with three short verified quotes to reassure shoppers while they browse.',
@@ -672,6 +682,7 @@ export const NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES: TemplateEntry[] = [
   // storefront/preview renderer; the static grid is untouched for specs without them.
   {
     id: 'NSEC-TEST-11',
+    tier: 'standard',
     name: 'Review Carousel — Rated Cards (Loox-style)',
     description: 'Swipeable scroll-snap carousel of verified photo reviews with reviewer avatars, half-star precision ratings, and a verified-buyer chip — the Loox/Judge.me "Cards" slider for the product page.',
     category: 'STOREFRONT_UI',
@@ -716,6 +727,7 @@ export const NATIVE_TESTIMONIALS_SOCIAL_PROOF_TEMPLATES: TemplateEntry[] = [
   // 12 — V-A A4: minimal-luxe founder-story quotes carousel (initials avatars, no photos).
   {
     id: 'NSEC-TEST-12',
+    tier: 'standard',
     name: 'Founder Story Quotes — Minimal Carousel',
     description: 'Quiet, editorial scroll-snap carousel of founder and team quotes with initials-avatar chips and role titles — a minimal-luxe "in their words" strip with no review photos.',
     category: 'STOREFRONT_UI',

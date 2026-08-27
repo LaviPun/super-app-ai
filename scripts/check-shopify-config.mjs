@@ -19,6 +19,15 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
 const SENTINELS = {
+  // LEGACY dev-loop file (see the header comment atop shopify.app.toml) — still
+  // rewritten by `shopify app dev` until the dev app exists, so still guarded.
+  'shopify.app.toml': [
+    'write_themes', // theme edit access (native sections)
+    'customers/data_request', // GDPR compliance webhooks
+    'customers/redact',
+    'shop/redact',
+    '[webhooks]', // subscription block
+  ],
   'shopify.app.production.toml': [
     'write_themes', // theme edit access (native sections)
     'customers/data_request', // GDPR compliance webhooks

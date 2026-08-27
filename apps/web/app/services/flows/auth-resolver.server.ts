@@ -1,5 +1,6 @@
 import type { AuthContext } from '@superapp/core';
 import { getPrisma } from '~/db.server';
+import { openAccessToken } from '~/services/shops/access-token.server';
 
 /**
  * R3.5 durable scheduler — per-tenant auth resolver for resumed (parked) runs
@@ -28,7 +29,7 @@ export function buildShopAuthResolver(tenantId: string): (provider: string) => P
           // scope-revoked case.
           throw new Error(`No offline Shopify token for shop ${tenantId} (uninstalled or token revoked)`);
         }
-        return { type: 'shopify', shop: shop.shopDomain, accessToken: shop.accessToken };
+        return { type: 'shopify', shop: shop.shopDomain, accessToken: openAccessToken(shop.accessToken) };
       }
       case 'email':
         return { type: 'api_key', apiKey: process.env.EMAIL_API_KEY ?? '' };
