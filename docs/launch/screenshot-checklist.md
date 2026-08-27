@@ -5,10 +5,10 @@ Shopify enforces uniqueness since 2026-03-26; do not submit two screenshots
 of the same screen with only cosmetic differences). 4-7 total. Order matters:
 image 1-3 appear in the App Store search/preview card.
 
-Every route below is verified to exist on master @ c201150 (this branch's
-base) at the time of writing — re-check each path still resolves before
-capturing, since WS-C/F/G/H may rename or restructure these pages once they
-merge.
+Every route below is re-verified to exist on master @ 8a656af (2026-08-27,
+post WS-C/F/G/H merge) — all six paths still resolve unchanged. Re-check each
+path still resolves immediately before capturing, in case a later change
+renames or restructures a page.
 
 | # | Screen | State to capture | Why this one |
 |---|---|---|---|
@@ -32,11 +32,12 @@ simple pattern — legible at the small size the App Store list renders it.
 
 ## Feature media
 Either a 2-3 minute screencast (can reuse Task 5's walkthrough,
-`docs/launch/review-notes.md`, as the script — but note that doc's own
-caveats: the publish ceremony/confirm-dialog/"view on storefront" link and
-the AI-disclosure fix described there are still pending an unmerged PR as of
-this writing, so don't script a screencast around UI that isn't live yet) or
-one additional 1600×900 static image. If a video: show install → generate →
+`docs/launch/review-notes.md`, as the script — refreshed 2026-08-27: the
+publish ceremony/confirm-dialog/"view on storefront" link (WS-F) and the
+AI-disclosure fix (WS-F, D4) are both merged and live on master now, so the
+screencast can show the real UI end-to-end; the one remaining conditional is
+whether the deployed service has `JOB_EXECUTION_MODE=queue` set — see that
+doc's step 2) or one additional 1600×900 static image. If a video: show install → generate →
 publish → storefront result end-to-end — this doubles as material for the
 demo screencast requirement (4.5.3) if it's long/detailed enough; confirm
 with the Partner Dashboard's current guidance on whether the feature-media
