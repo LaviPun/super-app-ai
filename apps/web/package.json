@@ -51,7 +51,6 @@
     "@superapp/network-security": "workspace:*",
     "@superapp/platform-contracts": "workspace:*",
     "@superapp/rate-limit": "workspace:*",
-    "@superapp/workers": "workspace:*",
     "@xyflow/react": "^12.11.0",
     "bullmq": "^5.78.0",
     "ioredis": "^5.11.1",
