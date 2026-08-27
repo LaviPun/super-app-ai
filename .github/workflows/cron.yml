@@ -1,0 +1,29 @@
+name: cron
+
+# WS-A Task 10: fires the app's /api/cron endpoint every 5 minutes so
+# FlowSchedule / retention / resume-sweep work runs without a laptop or a
+# dedicated Railway cron container. Chained to a healthchecks.io dead-man's
+# switch so both "GitHub Actions stopped scheduling" and "the app is down"
+# alert a human. Requires repo secrets CRON_SECRET, CRON_BASE_URL,
+# HEALTHCHECKS_PING_URL (owner-provisioned; see docs/runbooks/postgres-migration.md).
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Fire /api/cron
+        run: |
+          curl --fail-with-body -sS --max-time 60 \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.CRON_BASE_URL }}/api/cron"
+      - name: Dead-man's switch ping
+        if: success()
+        run: curl -fsS --max-time 10 "${{ secrets.HEALTHCHECKS_PING_URL }}"

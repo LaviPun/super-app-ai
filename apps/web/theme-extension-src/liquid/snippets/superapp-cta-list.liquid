@@ -1,0 +1,16 @@
+{% # theme-check-disable OrphanedSnippet %}
+{% doc %}
+  Shared block-driven CTA button list (WS-H Task 5 byte reclaim). Renders one <a> per
+  block in `ctas` (already filtered to kind:'cta' by the caller), style-modified via
+  fields.style (default 'primary'). Used by every archetype whose blocks carry a CTA
+  list with a per-item style modifier (hero / cta / launch), so the loop body — same
+  shape at every call site — lives once instead of being duplicated per archetype.
+
+  @param {array} ctas - blocks of kind 'cta'.
+  @param {string} cp - BEM block class prefix, e.g. 'superapp-hero__cta'.
+  @param {string} dl - fallback link text when a block has no text (pass '' for none).
+{% enddoc %}
+{% for section_block in ctas %}
+  {% assign cbtn_style = section_block.fields.style | default: 'primary' | handle %}
+  {% if section_block.url != blank %}<a class="{{ cp }} {{ cp }}--{{ cbtn_style }}" href="{{ section_block.url | escape }}">{{ section_block.text | default: dl | escape }}</a>{% endif %}
+{% endfor %}
