@@ -1,10 +1,10 @@
 import { json } from '@remix-run/node';
-import { useFetcher, useLoaderData } from '@remix-run/react';
-import { useEffect } from 'react';
+import { useLoaderData } from '@remix-run/react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import {
   useAdminCtx,
+  useAdminOps,
   Btn,
   Badge,
   StatusBadge,
@@ -100,13 +100,16 @@ export default function AdminJobDetail() {
   // Hooks must run unconditionally on every render (Rules of Hooks) — declared here,
   // above the not-found early return, even though `replay`/`replayBusy` are only
   // exercised once a record is actually loaded.
-  const replayFetcher = useFetcher<{ ok: boolean; message: string }>();
-  const replayBusy = replayFetcher.state !== 'idle';
-  useEffect(() => {
-    if (replayFetcher.state === 'idle' && replayFetcher.data) {
-      ctx.toast(replayFetcher.data.message, !replayFetcher.data.ok);
-    }
-  }, [replayFetcher.state, replayFetcher.data, ctx]);
+  //
+  // Replays go through the audited /internal/ops path (job_replay), same as the
+  // jobs list page — this used to be a bespoke fetcher posting directly to
+  // `/internal/jobs` with `intent=replay`, a route+action that never existed,
+  // so clicking "Replay job" here always crashed with a full-page Remix error
+  // ("Route 'routes/internal.jobs' does not have an action"). useAdminOps
+  // also surfaces /internal/ops's honest-refusal responses (e.g. job types
+  // this worker doesn't own yet) as a toast instead of a stack trace.
+  const ops = useAdminOps();
+  const replayBusy = ops.busy;
 
   if (!data.found) {
     return (
@@ -126,12 +129,7 @@ export default function AdminJobDetail() {
   }
   const j = data;
 
-  const replay = () => {
-    const fd = new FormData();
-    fd.set('intent', 'replay');
-    fd.set('jobId', j.id);
-    replayFetcher.submit(fd, { method: 'post', action: '/internal/jobs' });
-  };
+  const replay = () => ops.run('job_replay', { id: j.id, message: 'Replay job' });
 
   // Real lifecycle events from the job row's timestamps — no fabricated attempt logs.
   const events: TimelineEvent[] = [
