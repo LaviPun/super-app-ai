@@ -274,6 +274,45 @@ Flow jobs also produce per-step logs (`FlowStepLog`) for granular debugging.
 
 ---
 
+## Integrations Hub
+
+`/internal/integrations` is a marketplace-style grid of every external service the app talks to, grouped into AI-provider and ops-service categories, plus the ops-alert fan-out that some of those tiles feed.
+
+### Category 1 — AI providers
+
+One tile per provider kind (Anthropic, OpenAI, Gemini, Grok, DeepSeek, Mistral). These tiles don't fork a separate config surface — "Configure" / "Manage in AI Providers" deep-links into `/internal/ai-providers`, which stays the single `AiProvider` writer (`AiProviderService`). Grok/DeepSeek/Mistral need no new HTTP client: they speak the same OpenAI Chat Completions dialect as the existing `CUSTOM`/`AZURE_OPENAI` fallthrough in `llm.server.ts`, so adding a kind is a config-only change (a `ProviderKind` union member + a default base URL).
+
+Each configured provider gets a "Test connection" button — on the provider's own row in `/internal/ai-providers`, and on the Hub tile itself when a kind has exactly one row configured (otherwise the id is ambiguous and the tile points at the per-row buttons instead). The probe is a minimal, cheap "are these credentials valid" request, not a real generation call: OpenAI-compatible kinds `GET {baseUrl}/models` with a Bearer key, Anthropic `GET {baseUrl}/v1/models` with `x-api-key`, Gemini `GET {baseUrl}/v1beta/models` with an `x-goog-api-key` header — never a `?key=` query param, since Sentry's default fetch-breadcrumb instrumentation records full request URLs and `beforeSend` doesn't redact breadcrumbs, so a key in the query string would leak. A failure surfaces the real upstream status and error body — never a generic "something went wrong" — and every attempt (success or failure) is audited (`PROVIDER_TESTED`).
+
+### Category 2 — Ops services
+
+Each tile is explicitly one of a small set of configuration models, chosen per-service by how the app actually depends on it at runtime:
+
+- **DB-config, full read/write** (Slack, Email): the app calls out to these at request/job time, so their credentials live in `AppSettings`, encrypted, with the existing DB-wins-over-env-var precedence pattern already used by the mailer and support-triage config. Email gains `resend`/`postmark` provider kinds alongside the existing `smtp`/`sendgrid`/`generic`.
+- **DB-config, read-only status key** (UptimeRobot, Healthchecks.io): nothing in the app boots against either service — UptimeRobot only ever polls `/healthz` from outside, and the healthchecks.io ping is sent by the cron workflow, not the Node process. Their tiles store a read-only status-API key in `AppSettings` so the Hub can pull and display live check/monitor status; the tile is explicit that the ping/monitor itself lives in the external dashboard, not in this app.
+- **Env-only, reflect + test** (Sentry): the DSN is read once at process boot by `sentry.server.ts`'s lazy `init()` for uncaught-exception hooks to work; moving it to DB-config would need an async, per-request-rechecked init, which conflicts with "zero runtime cost when unset." The tile shows masked env status and a "Send test event" button (`captureMessage`), recording `AppSettings.sentryLastTestedAt`.
+
+Every Hub save/test action is audited via `ActivityLog` with a real `ActivityAction` — never an untyped string — and a static-analysis test (`hub-activity-audit-coverage.test.ts`) greps both `internal.integrations.tsx` and `internal.ai-providers.tsx` for every mutating `intent` branch and fails the suite if one doesn't call `activity.log`.
+
+### Ops-alert fan-out
+
+`OpsAlertService` (`apps/web/app/services/observability/ops-alert.server.ts`) is the single point that fires an alert — no call site invokes Sentry or sends a Slack/email message directly. It fans out to each channel via `Promise.allSettled` (one channel's failure never blocks another):
+
+- **Sentry** — unconditional. Every call to `fire()` that carries an `error` captures it immediately; Sentry is already a curated, deduped stream by design, so it isn't gated.
+- **Email and Slack** — gated by a rolling-window threshold plus a cooldown, tracked via two distinct `ActivityLog` action rows rather than one: every `fire()` call unconditionally records an `OPS_ALERT_OCCURRED` row first, and the threshold (`AppSettings.opsAlertThresholdCount` within `opsAlertThresholdWindowMin` minutes) is evaluated against a rolling-window count of those `OPS_ALERT_OCCURRED` rows. `OPS_ALERT_FIRED` is written only once that gate opens, and it drives the cooldown, not the threshold: while an `OPS_ALERT_FIRED` for the same alert kind exists within the window, further occurrences keep incrementing the `OCCURRED` count (so the next window's count stays accurate) but delivery is suppressed — at most one send per kind per window. Splitting the two rows this way avoids a bootstrap deadlock a single-counter design has: if the same row both gated delivery and recorded the threshold count, the counter could never organically leave zero.
+
+A couple of failure-suppression rules keep the channel pager-grade rather than noisy:
+- **Double-alert seam:** some call sites fire an alert as a side effect of another call and then re-throw the same error so an outer layer can still handle it (an HTTP response, a retry decision). `JobService.fail` fires `JOB_FAILED` and marks the error (`markOpsAlerted`); if that same error later reaches `withApiLogging`'s catch (e.g. a route that awaits a job inline), it sees the mark (`wasOpsAlerted`) and skips its own `API_REQUEST_FAILED` fire — one root cause pages once, not once per layer. The `ErrorLog` write and the rethrow itself are unaffected either way.
+- **Expected 4xx client errors don't page:** `withApiLogging`'s catch also skips the fire when the error is an `AppError` with a 4xx status (`RATE_LIMITED`, `VALIDATION_ERROR`, `NOT_FOUND`, etc.) — those are expected client-facing outcomes, not operational incidents. A 5xx `AppError`, or any non-`AppError` (unknown/unexpected) failure, still fires unconditionally. The `ErrorLog` write stays unconditional regardless of this gate too.
+
+Call sites wired into `fire()` today: the shared `withApiLogging` catch (`API_REQUEST_FAILED`), `JobService.fail` (`JOB_FAILED`), the webhook route's per-connector best-effort catches (`WEBHOOK_FANOUT_FAILED`), and support-triage failure notifications (`TRIAGE_FAILED`).
+
+### DLQ replay — what's real today
+
+The Jobs page's Replay button (`/internal/ops`, and `/internal/jobs`) writes a fresh `Job` row with `status: QUEUED`. **As of this writing there is no consumer that dequeues and executes that row** — `apps/web/scripts/worker.ts` is still the skeleton described in its own header comment (boots, connects to Redis, serves `/healthz`, heartbeats; mounts no BullMQ `Worker`). Mounting the real worker, wiring webhook fan-out to enqueue instead of running inline, and the stuck-RUNNING sweep are scoped to job kinds this admin surface owns end-to-end (`CONNECTOR_TEST`, `FLOW_RUN`, `MESSAGING_RUN`, `HTTP_SYNC_RUN`, and the composite fan-out kinds) — deliberately never `AI_GENERATE`/`AI_HYDRATE`/`AI_MODIFY`/`PUBLISH`, whose inline-execution entrypoints belong to a separate, larger migration. That work needs `QUEUE_REDIS_URL` live in the deployment environment and is tracked separately; until it lands, treat "Replay" as writing a database row for investigation, not as re-running the failed work — the honest state is documented here rather than left to look done because a button exists.
+
+---
+
 ## Provider HTTP clients
 
 Provider calls:
