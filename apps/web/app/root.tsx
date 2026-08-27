@@ -17,6 +17,7 @@ import { AppProvider as PolarisProvider } from '@shopify/polaris';
 import { boundary } from '@shopify/shopify-app-remix/server';
 import { ActivityLogger } from '~/components/ActivityLogger';
 import { EmbeddedHeadScripts } from '~/components/EmbeddedHeadScripts';
+import { isPublicStandalonePath } from '~/security-headers.server';
 
 export const links: LinksFunction = () => [
   // Warm the font-host connections, then load both font stylesheets in parallel —
@@ -37,6 +38,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
   // security-headers.server.ts's isInternalRouteMatch for the same rule) —
   // a case-sensitive check here would misclassify e.g. `/Internal/login`.
   const isInternal = url.pathname.toLowerCase().startsWith('/internal');
+  // Public, unauthenticated legal/info pages (/privacy, /contact, /terms —
+  // see security-headers.server.ts). These carry no Shopify session and must
+  // never render the embedded merchant shell (App Bridge script, s-app-nav,
+  // etc.) or the Polaris merchant chrome — they're plain standalone pages.
+  const isPublic = isPublicStandalonePath(url.pathname);
 
   // When running on port 4000 (internal admin server), send auth and root to internal login
   const port = url.port || (url.protocol === 'https:' ? '443' : '80');
@@ -46,7 +52,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   return json({
     apiKey: process.env.SHOPIFY_API_KEY || '',
-    embedded: !isInternal,
+    embedded: !isInternal && !isPublic,
+    isPublic,
   });
 }
 
@@ -114,7 +121,7 @@ function ClientErrorReporting() {
 }
 
 export default function App() {
-  const { apiKey, embedded } = useLoaderData<typeof loader>();
+  const { apiKey, embedded, isPublic } = useLoaderData<typeof loader>();
   const location = useLocation();
   // Same case-insensitive rule as the loader above / security-headers.server.ts.
   const isInternal = location.pathname.toLowerCase().startsWith('/internal');
@@ -133,8 +140,9 @@ export default function App() {
             defines the s-* web components (s-page, s-section, s-app-nav, …);
             app-bridge.js integrates s-page metadata with the admin title bar.
             Verified via in-iframe telemetry: without polaris.js the s-*
-            elements never upgrade. */}
-        {embedded && !isInternal && <EmbeddedHeadScripts apiKey={apiKey} />}
+            elements never upgrade. Never injected on /privacy, /contact,
+            /terms — those are plain standalone pages, not the embedded app. */}
+        {embedded && !isInternal && !isPublic && <EmbeddedHeadScripts apiKey={apiKey} />}
         {/* Force rounded cards/banners so Polaris’s 0-radius on small viewports never wins */}
         <style dangerouslySetInnerHTML={{ __html: `
           .Polaris-ShadowBevel, .Polaris-LegacyCard, .Polaris-Banner { border-radius: 12px !important; overflow: hidden; }
@@ -144,7 +152,11 @@ export default function App() {
         ` }} />
       </head>
       <body>
-        {embedded && !isInternal ? (
+        {isPublic ? (
+          // Plain standalone page: no App Bridge, no Polaris provider, no
+          // merchant/internal chrome — the route owns its own layout/styles.
+          <Outlet />
+        ) : embedded && !isInternal ? (
           <>
             <ClientErrorReporting />
             <ActivityLogger />
