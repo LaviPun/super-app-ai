@@ -3,7 +3,8 @@ import { isTargetAllowedForType } from '@superapp/core';
 import { compileRecipe } from '../recipes/compiler/index.js';
 import { checkNonDestructive } from '../recipes/compiler/non-destructive.js';
 import type { LlmClient } from './llm.server.js';
-import { StubLlmClient } from './llm.server.js';
+import { StubLlmClient, ConfiguredLlmClient, getLlmClient } from './llm.server.js';
+import { getPrisma } from '../../db.server.js';
 import { parityChecklist, type ParityFamily } from './eval-quality.server.js';
 import { runRichnessQa, detectRichnessExempt } from './richness-qa.server.js';
 import { rankOptions } from './option-ranking.server.js';
@@ -80,6 +81,62 @@ export type RunEvalsOptions = {
    */
   judgeClient?: LlmClient;
 };
+
+/** Thrown when EVAL_PROVIDER_ID names a provider that is not in the eval DB. */
+export class EvalProviderNotFoundError extends Error {
+  constructor(evalProviderId: string) {
+    super(`provider '${evalProviderId}' not found in eval DB — seed it or unset EVAL_PROVIDER_ID`);
+    this.name = 'EvalProviderNotFoundError';
+  }
+}
+
+export type EvalClientResolution = {
+  client: LlmClient;
+  /** Honest human-readable description for the "[evals] Using provider:" log line. */
+  label: string;
+};
+
+/**
+ * Resolves the LlmClient an eval run scores. Validity contract: an eval run
+ * must score EXACTLY the model it claims to score, so this never wraps the
+ * client in a cross-provider fallback and never attaches ANTHROPIC_SKILLS env.
+ *
+ *  - unset / empty  -> StubLlmClient (CI pipeline check, no API key needed)
+ *  - 'env'          -> env-configured client via getLlmClient with fallback
+ *                      disabled and env skills ignored
+ *  - anything else  -> the AiProvider row with that id OR name, pinned via
+ *                      ConfiguredLlmClient (the production DB-provider path,
+ *                      which has no fallback wrapping by construction).
+ *                      Missing row -> EvalProviderNotFoundError (fail fast;
+ *                      never silently fall through to the env client).
+ */
+export async function resolveEvalLlmClient(evalProviderId: string | undefined | null): Promise<EvalClientResolution> {
+  const id = evalProviderId?.trim();
+  if (!id) {
+    return {
+      client: new StubLlmClient(),
+      label: 'stub (StubLlmClient — set EVAL_PROVIDER_ID for a live run)',
+    };
+  }
+
+  if (id === 'env') {
+    const resolved = await getLlmClient(undefined, { disableFallback: true, ignoreEnvSkills: true });
+    return {
+      client: resolved.client,
+      label: resolved.providerId
+        ? `db provider ${resolved.providerId}`
+        : resolved.envModelDescription ?? 'env',
+    };
+  }
+
+  const prisma = getPrisma();
+  const row = await prisma.aiProvider.findFirst({ where: { OR: [{ id }, { name: id }] } });
+  if (!row) throw new EvalProviderNotFoundError(id);
+  return {
+    client: new ConfiguredLlmClient(row.id),
+    label: `${row.name} (${row.provider}/${row.model ?? 'default model'}, id=${row.id})`,
+  };
+}
 
 export const GOLDEN_PROMPTS: GoldenPrompt[] = [
   // ── Original golden fixtures (kept, ids stable) ─────────────────────────────
