@@ -18,7 +18,7 @@ vi.mock('bullmq', () => ({
 vi.mock('ioredis', () => ({ default: class { quit = vi.fn(async () => {}); } }));
 
 import { createWebWorkerRuntime } from '~/services/jobs/worker-runtime.server';
-import { enqueueWebJob, isAsyncJobsEnabled } from '~/services/jobs/enqueue.server';
+import { enqueueWebJob } from '~/services/jobs/enqueue.server';
 
 describe('createWebWorkerRuntime', () => {
   it('mounts one Worker per registered queue and rebuilds the envelope from payload.trace', async () => {

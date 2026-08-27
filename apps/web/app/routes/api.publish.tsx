@@ -17,7 +17,7 @@ import { validateBeforePublish } from '~/services/publish/pre-publish-validator.
 import { ThemeService } from '~/services/shopify/theme.service';
 import { CapabilityService } from '~/services/shopify/capability.service';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
-import type { DeployTarget, ModuleType } from '@superapp/core';
+import type { Capability, DeployTarget, ModuleType } from '@superapp/core';
 import { getCapabilityNode } from '@superapp/core';
 import { withApiLogging } from '~/services/observability/api-log.service';
 import { getPrisma } from '~/db.server';
@@ -146,7 +146,9 @@ export async function action({ request }: { request: Request }) {
         targetKind: target.kind,
       });
       if (!policy.allowed) {
-        const capabilityReasons = policy.blocked.map((c: any) => caps.explainCapabilityGate(c) ?? String(c));
+        const capabilityReasons = policy.blocked.map(
+          (c: Capability) => caps.explainCapabilityGate(c) ?? String(c),
+        );
         return json(
           {
             error: 'Plan does not allow this module',
