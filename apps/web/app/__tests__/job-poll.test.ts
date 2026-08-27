@@ -195,6 +195,66 @@ describe('pollJobUntilTerminal', () => {
       await assertion;
     });
   });
+
+  // WS-C final review (IMPORTANT-2b): a worker crash/stall on the FINAL
+  // attempt can leave the Job row stuck RUNNING forever — nothing 404s,
+  // nothing ever reaches SUCCESS/FAILED, so the 404 give-up logic above
+  // never fires. `maxWallClockMs` is the backstop against that.
+  describe('wall-clock give-up (a job that never reaches SUCCESS/FAILED)', () => {
+    it('gives up after maxWallClockMs with a POLL_TIMEOUT snapshot, surfaced like any other failure', async () => {
+      const fetcher = vi.fn(async () => okResponse(snapshot({ status: 'RUNNING' })));
+      const onSnapshot = vi.fn();
+
+      const promise = pollJobUntilTerminal('job_stuck', {
+        fetcher,
+        onSnapshot,
+        intervalMs: 1000,
+        maxWallClockMs: 5000,
+      });
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(result.status).toBe('FAILED');
+      expect(result.error).toMatchObject({ error: 'POLL_TIMEOUT' });
+      // Reported through the SAME onSnapshot callback as a real terminal
+      // snapshot — no special case needed in callers (mirrors the
+      // JOB_NOT_FOUND give-up above).
+      expect(onSnapshot).toHaveBeenCalledWith(result);
+    });
+
+    it('never times out while the job keeps making real progress within the budget, only actually-stuck ones', async () => {
+      let call = 0;
+      const fetcher = vi.fn(async () => {
+        call += 1;
+        // Resolves well within the wall-clock budget — must not be treated
+        // as timed out just because it took a few polls.
+        if (call < 3) return okResponse(snapshot({ status: 'RUNNING' }));
+        return okResponse(snapshot({ status: 'SUCCESS' }));
+      });
+
+      const promise = pollJobUntilTerminal('job_1', { fetcher, intervalMs: 1000, maxWallClockMs: 5000 });
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(result.status).toBe('SUCCESS');
+      expect(result.error).toBeNull();
+    });
+
+    it('defaults to a generous 10-minute budget when maxWallClockMs is not given', async () => {
+      const fetcher = vi.fn(async () => okResponse(snapshot({ status: 'RUNNING' })));
+
+      const promise = pollJobUntilTerminal('job_stuck', { fetcher, intervalMs: 60_000 });
+      // Well under the 10-minute default — must still be polling, not timed out.
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(fetcher).toHaveBeenCalled();
+
+      // Past the default — now it must give up.
+      await vi.advanceTimersByTimeAsync(6 * 60_000);
+      const result = await promise;
+      expect(result.status).toBe('FAILED');
+      expect(result.error).toMatchObject({ error: 'POLL_TIMEOUT' });
+    });
+  });
 });
 
 describe('derivePublishFailureBanner', () => {

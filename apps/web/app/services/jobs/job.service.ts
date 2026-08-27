@@ -87,6 +87,36 @@ export class JobService {
     });
   }
 
+  /**
+   * WS-C final review (IMPORTANT-2a): atomically fails a Job ONLY if it is
+   * still RUNNING. Used by `worker-runtime.server.ts`'s BullMQ `'failed'`
+   * event handler to reconcile a row after a worker hard-crash (SIGKILL/
+   * OOM) or a stall BullMQ gave up retrying — neither runs the normal
+   * processor code path (`failWithPayload` above) that would otherwise
+   * finalize this row, so without this it stays RUNNING forever, invisible
+   * to `/internal/funnel` and spinning the merchant's poll indefinitely.
+   *
+   * The `status: 'RUNNING'` guard inside the WHERE clause (not a separate
+   * read-then-write) makes this atomically race-safe against the normal
+   * processor path finishing around the same moment — it can never clobber
+   * a SUCCESS/FAILED row a processor already wrote. This reuses the exact
+   * same `AppErrorPayload` JSON shape `failWithPayload` writes (same
+   * single-writer discipline / terminal-write format), it's just a
+   * conditional variant needed only because THIS call site races with the
+   * processor in a way no HTTP route call site does.
+   *
+   * Returns true iff it actually flipped the row (false when the row was
+   * already terminal, or unknown — both are legitimate no-ops here).
+   */
+  async failIfStillRunning(jobId: string, payload: AppErrorPayload): Promise<boolean> {
+    const prisma = getPrisma();
+    const result = await prisma.job.updateMany({
+      where: { id: jobId, status: 'RUNNING' },
+      data: { status: 'FAILED', finishedAt: new Date(), error: JSON.stringify(payload) },
+    });
+    return result.count > 0;
+  }
+
   /** WS-C Task 5: coarse pipeline-stage progress for async jobs (see Job.stage). */
   async setStage(jobId: string, stage: string) {
     const prisma = getPrisma();

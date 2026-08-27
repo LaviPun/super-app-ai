@@ -87,6 +87,13 @@ export function createPublishJobHandler(): WebJobHandler {
         requestId: envelope.trace.requestId ?? envelope.id,
         details: { issues: JSON.stringify(parsed.error.flatten()) },
       });
+      // Malformed payloads never become valid on retry. worker-runtime.server.ts
+      // throws on ANY FAILED result, so BullMQ still retries this up to the
+      // queue's attempts cap — that's fine because the Job row is already
+      // terminal FAILED (failWithPayload above), so every retry's processor
+      // run just re-hits this guard and re-writes the SAME terminal payload,
+      // an idempotent no-op (see ai-generation.processor.server.ts for the
+      // fuller version of this note, WS-C final review MINOR-1).
       return { status: 'FAILED', result: { error: { message: 'invalid payload' } } };
     }
     const payload = parsed.data;

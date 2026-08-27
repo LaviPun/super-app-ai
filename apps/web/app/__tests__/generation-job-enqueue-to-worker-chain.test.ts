@@ -26,10 +26,16 @@ vi.mock('bullmq', () => ({
   Worker: class {
     opts: unknown;
     processor: (job: unknown) => Promise<unknown>;
+    // WS-C final review (IMPORTANT-2a): createWebWorkerRuntime now registers
+    // a `'failed'` listener on every constructed Worker — this stub must
+    // support `.on()` or that registration throws at construction time.
     constructor(queueName: string, processor: (job: unknown) => Promise<unknown>, opts: unknown) {
       workerCtor(queueName, opts);
       this.processor = processor;
       this.opts = opts;
+    }
+    on() {
+      return this;
     }
     close = vi.fn(async () => {});
   },

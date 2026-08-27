@@ -46,11 +46,15 @@ export function createAiGenerationJobHandler(): WebJobHandler {
         requestId: envelope.trace.requestId ?? envelope.id,
         details: { issues: JSON.stringify(parsed.error.flatten()) },
       });
-      // Malformed payloads never become valid on retry — report FAILED
-      // without throwing so BullMQ's attempts cap (not an infinite loop)
-      // bounds it; the queue attempts:2 policy still applies at the
-      // enqueue side, this just avoids burning both attempts on a payload
-      // that will fail identically both times.
+      // Malformed payloads never become valid on retry. Correction (WS-C
+      // final review, MINOR-1): returning `{status:'FAILED'}` here does NOT
+      // avoid burning attempts — worker-runtime.server.ts throws on ANY
+      // FAILED result, so BullMQ still retries up to the queue's attempts
+      // cap regardless. What actually makes that harmless: the Job row is
+      // already terminal FAILED (via failWithPayload above) before we
+      // return, so every retry's processor run just re-hits this same guard
+      // and re-writes the SAME terminal payload — an idempotent no-op, not
+      // a fresh attempt at generation.
       return { status: 'FAILED', result: { error: { message: 'invalid payload' } } };
     }
     const payload = parsed.data;

@@ -46,11 +46,28 @@ export type PollJobOptions = {
    * session pointing at a job the DB no longer has) polls forever.
    */
   maxConsecutiveNotFound?: number;
+  /**
+   * WS-C final review (IMPORTANT-2b): max wall-clock time to keep polling a
+   * job that keeps returning a real, non-404 snapshot but never reaches a
+   * terminal status. Covers a worker hard-crash (SIGKILL/OOM) or an
+   * event-loop stall on the FINAL BullMQ attempt — neither runs the normal
+   * processor code path, so the Prisma Job row can be left RUNNING forever
+   * with nothing else guaranteed to flip it terminal (the worker-runtime
+   * `failed`-event reconciliation added alongside this fix covers the case
+   * where BullMQ itself detects the failure; this covers the belt-and-
+   * suspenders case where it doesn't — e.g. the whole container is killed
+   * with no other worker instance around to notice the stall). Deliberately
+   * generous — 10 minutes default — since this must never fire on a normal
+   * generation (seconds), only stop a client spinning forever against a row
+   * nothing will ever finish.
+   */
+  maxWallClockMs?: number;
 };
 
 const DEFAULT_INTERVAL_MS = 1500;
 const MAX_BACKOFF_MS = 5000;
 const DEFAULT_MAX_CONSECUTIVE_NOT_FOUND = 5;
+const DEFAULT_MAX_WALL_CLOCK_MS = 10 * 60 * 1000;
 
 /**
  * Synthetic terminal snapshot returned when polling gives up after too many
@@ -84,6 +101,33 @@ function jobNotFoundGiveUpSnapshot(jobId: string): PolledJobSnapshot {
  */
 function isTerminal(status: PolledJobSnapshot['status']): boolean {
   return status === 'SUCCESS' || status === 'FAILED';
+}
+
+/**
+ * Synthetic terminal snapshot returned when polling gives up after exceeding
+ * `maxWallClockMs` (WS-C final review IMPORTANT-2b) — the job kept returning
+ * a real, non-404 snapshot the whole time, it just never reached SUCCESS or
+ * FAILED. Shaped exactly like a real terminal snapshot (status FAILED), same
+ * pattern as `jobNotFoundGiveUpSnapshot` above, so every caller's existing
+ * `status === 'FAILED'` handling (toast the message, clear the active-session
+ * record, etc.) applies unchanged — an honest terminal error surfaced like
+ * any other failure, not a special case callers need to know about.
+ */
+function pollTimedOutSnapshot(jobId: string): PolledJobSnapshot {
+  return {
+    jobId,
+    type: 'UNKNOWN',
+    status: 'FAILED',
+    stage: null,
+    correlationId: null,
+    options: [],
+    recommendedIndex: null,
+    result: null,
+    error: {
+      error: 'POLL_TIMEOUT',
+      message: 'This generation is taking far longer than expected and may have stalled. Please try again.',
+    },
+  };
 }
 
 function makeAbortError(): Error {
@@ -131,11 +175,21 @@ export async function pollJobUntilTerminal(
   const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
   const fetcher = opts.fetcher ?? fetch;
   const maxConsecutiveNotFound = opts.maxConsecutiveNotFound ?? DEFAULT_MAX_CONSECUTIVE_NOT_FOUND;
+  const maxWallClockMs = opts.maxWallClockMs ?? DEFAULT_MAX_WALL_CLOCK_MS;
+  const startedAt = Date.now();
   let backoffMs = intervalMs;
   let consecutiveNotFound = 0;
 
   for (;;) {
     if (opts.signal?.aborted) throw makeAbortError();
+
+    // WS-C final review (IMPORTANT-2b): give up on a job that keeps polling
+    // as a real, non-terminal snapshot forever — see maxWallClockMs doc above.
+    if (Date.now() - startedAt >= maxWallClockMs) {
+      const timedOut = pollTimedOutSnapshot(jobId);
+      opts.onSnapshot?.(timedOut);
+      return timedOut;
+    }
 
     let snapshot: PolledJobSnapshot | null = null;
     let notFound = false;
