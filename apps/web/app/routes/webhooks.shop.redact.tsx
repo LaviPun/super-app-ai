@@ -59,14 +59,6 @@ export const REDACT_RETENTION_ALLOWLIST = [
   // actions, not shop customer data) rendered at /internal/audit. Required (non-nullable)
   // shopId, but the rows describe admin/system actions taken, not the shop's own data.
   'AuditLog',
-  // WS-C (async generation, C1): AiGenerationOption.job -> Job is `onDelete: Cascade`, and
-  // `prisma.job.deleteMany({ where: { shopId: shop.id } })` below already deletes every Job
-  // row for this shop — so every AiGenerationOption row for this shop is removed automatically
-  // as a side effect, same as the cascade children documented in the file header above. It's
-  // named individually here (unlike those) only because it ALSO carries its own denormalized
-  // `shopId` copy (used for cheap shop-scoped queries without a Job join), which is what makes
-  // the completeness test's shopId-field scan pick it up despite being fully cascade-covered.
-  'AiGenerationOption',
 ] as const;
 
 export async function action({ request }: { request: Request }) {
@@ -110,6 +102,7 @@ export async function action({ request }: { request: Request }) {
     appSubscriptions: 0,
     supportTickets: 0,
     jobs: 0,
+    aiGenerationOptions: 0,
     apiLogs: 0,
     errorLogs: 0,
     aiUsage: 0,
@@ -164,6 +157,13 @@ export async function action({ request }: { request: Request }) {
   counts.appSubscriptions = (await prisma.appSubscription.deleteMany({ where: { shopId: shop.id } })).count;
   // SupportTicketMessage/Event/FixProposal cascade automatically (ticketId -> SupportTicket).
   counts.supportTickets = (await prisma.supportTicket.deleteMany({ where: { shopId: shop.id } })).count;
+  // WS-C (async generation, C1): AiGenerationOption.job -> Job is `onDelete: Cascade`, so this
+  // would be removed automatically once Job is deleted below — deleted explicitly first anyway,
+  // same rationale as WorkflowRunStep above, for an accurate count and audit-record parity with
+  // the other denormalized-shopId models in this route rather than a silent, uncounted cascade.
+  counts.aiGenerationOptions = (
+    await prisma.aiGenerationOption.deleteMany({ where: { shopId: shop.id } })
+  ).count;
   counts.jobs = (await prisma.job.deleteMany({ where: { shopId: shop.id } })).count;
   counts.apiLogs = (await prisma.apiLog.deleteMany({ where: { shopId: shop.id } })).count;
   counts.errorLogs = (await prisma.errorLog.deleteMany({ where: { shopId: shop.id } })).count;

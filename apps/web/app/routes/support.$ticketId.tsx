@@ -6,6 +6,7 @@ import { getPrisma } from '~/db.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { titleCase } from '~/components/merchant/polaris';
 import { SUPPORT_AGENT_NAME, TICKET_STATUS_LABEL, TICKET_STATUS_TONE, TicketStatusBadge } from '~/components/support/badges';
+import { relativeTime } from '~/utils/relative-time';
 
 export async function loader({ request, params }: { request: Request; params: { ticketId?: string } }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -63,16 +64,6 @@ const ROLE_LABEL: Record<string, string> = {
   human_agent: 'Support team',
   system: 'System',
 };
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.round(diff / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
-}
 
 export default function TicketDetail() {
   return (
@@ -158,7 +149,7 @@ function TicketDetailBody() {
           {ticket.source === 'SHOPPER'
             ? `From shopper${ticket.shopperEmail ? ` · ${ticket.shopperEmail}` : ''}`
             : 'Raised by you'}
-          {' · '}Opened {timeAgo(ticket.createdAt)}
+          {' · '}Opened {relativeTime(ticket.createdAt)}
         </s-text>
       </s-stack>
 
@@ -248,7 +239,7 @@ function MessageBubble({ role, body, createdAt }: { role: string; body: string; 
   if (role === 'system') {
     return (
       <s-stack alignItems="center">
-        <s-text color="subdued">{body} · {timeAgo(createdAt)}</s-text>
+        <s-text color="subdued">{body} · {relativeTime(createdAt)}</s-text>
       </s-stack>
     );
   }
@@ -258,7 +249,7 @@ function MessageBubble({ role, body, createdAt }: { role: string; body: string; 
     <s-stack gap="small-300" alignItems={mine ? 'end' : 'start'}>
       <s-stack direction="inline" gap="small-200" alignItems="center">
         <s-text type="strong" color="subdued">{ROLE_LABEL[role] ?? titleCase(role)}</s-text>
-        <s-text color="subdued">{timeAgo(createdAt)}</s-text>
+        <s-text color="subdued">{relativeTime(createdAt)}</s-text>
       </s-stack>
       <s-box
         padding="small-100"

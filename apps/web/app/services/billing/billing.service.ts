@@ -97,14 +97,6 @@ export class BillingService {
     return prisma.appSubscription.findUnique({ where: { shopId } });
   }
 
-  async cancelSubscription(shopId: string) {
-    const prisma = getPrisma();
-    await prisma.appSubscription.updateMany({
-      where: { shopId },
-      data: { status: 'CANCELLED' },
-    });
-  }
-
   async getPlanConfig(planName: string): Promise<PlanConfig> {
     return getPlanConfigFromDb(planName);
   }

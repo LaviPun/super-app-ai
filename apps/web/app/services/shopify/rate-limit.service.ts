@@ -32,64 +32,6 @@ export function extractAdminCost(body: unknown): AdminCost | null {
   return { throttleStatus: cost.throttleStatus, actualQueryCost: cost.actualQueryCost ?? null };
 }
 
-// shopDomain → shopId, to avoid a lookup on every tracked call.
-const shopIdCache = new Map<string, string>();
-
-/**
- * Record the throttle snapshot from an Admin response for `shopDomain`. Pass
- * `{ throttled: true }` when the call returned HTTP 429.
- */
-export async function recordAdminThrottle(
-  shopDomain: string,
-  body: unknown,
-  opts?: { throttled?: boolean },
-): Promise<void> {
-  if (process.env.NODE_ENV === 'test') return;
-  const throttled = opts?.throttled ?? false;
-  try {
-    const cost = extractAdminCost(body);
-    if (!cost && !throttled) return;
-
-    const prisma = getPrisma();
-    let shopId = shopIdCache.get(shopDomain);
-    if (!shopId) {
-      const shop = await prisma.shop.findUnique({ where: { shopDomain }, select: { id: true } });
-      if (!shop) return;
-      shopId = shop.id;
-      shopIdCache.set(shopDomain, shopId);
-    }
-
-    const ts = cost?.throttleStatus;
-    await prisma.shopApiRateLimit.upsert({
-      where: { shopId },
-      create: {
-        shopId,
-        currentlyAvailable: ts?.currentlyAvailable ?? null,
-        maximumAvailable: ts?.maximumAvailable ?? null,
-        restoreRate: ts?.restoreRate ?? null,
-        lastQueryCost: cost?.actualQueryCost ?? null,
-        totalCalls: 1,
-        throttledCount: throttled ? 1 : 0,
-        lastThrottledAt: throttled ? new Date() : null,
-      },
-      update: {
-        ...(ts
-          ? {
-              currentlyAvailable: ts.currentlyAvailable,
-              maximumAvailable: ts.maximumAvailable,
-              restoreRate: ts.restoreRate,
-            }
-          : {}),
-        ...(cost?.actualQueryCost != null ? { lastQueryCost: cost.actualQueryCost } : {}),
-        totalCalls: { increment: 1 },
-        ...(throttled ? { throttledCount: { increment: 1 }, lastThrottledAt: new Date() } : {}),
-      },
-    });
-  } catch {
-    /* never break a real API call on a telemetry write failure */
-  }
-}
-
 export class RateLimitService {
   async getByShopId(shopId: string) {
     return getPrisma().shopApiRateLimit.findUnique({ where: { shopId } });

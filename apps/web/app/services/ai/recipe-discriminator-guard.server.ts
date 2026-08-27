@@ -20,10 +20,6 @@ export class RecipeDiscriminatorError extends Error {
 
 const KNOWN_TYPES = new Set<string>(RECIPE_SPEC_TYPES);
 
-export function isKnownModuleType(value: unknown): value is ModuleType {
-  return typeof value === 'string' && KNOWN_TYPES.has(value);
-}
-
 /**
  * Throw {@link RecipeDiscriminatorError} when the candidate's `type` is missing,
  * unknown, or (when `expectedType` is given) mismatched. Returns silently when

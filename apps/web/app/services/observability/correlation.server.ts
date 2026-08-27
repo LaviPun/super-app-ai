@@ -56,24 +56,3 @@ export function getRequestId(): string {
 export function getCorrelationId(): string {
   return storage.getStore()?.correlationId ?? generateCorrelationId();
 }
-
-/**
- * Remix-compatible middleware helper.
- * Call this at the top of every loader/action to establish request context.
- *
- * Reads `x-correlation-id` so an upstream caller (cron, agent, retry) can keep
- * the same correlation across multiple requests.
- */
-export async function withRequestContext<T>(
-  request: Request,
-  actor: 'MERCHANT' | 'INTERNAL' | 'WEBHOOK' | 'APP_PROXY',
-  fn: () => Promise<T>
-): Promise<T> {
-  const requestId =
-    request.headers.get('x-request-id') ??
-    request.headers.get('x-shopify-request-id') ??
-    generateRequestId();
-  const correlationId = request.headers.get('x-correlation-id') ?? requestId;
-
-  return runWithRequestContext({ requestId, correlationId, actor, startedAt: Date.now() }, fn);
-}

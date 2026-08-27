@@ -3,17 +3,10 @@ import { useLoaderData, useNavigate, useSearchParams } from '@remix-run/react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { getCategoryDisplayLabel, getCategoryIcon } from '~/utils/type-label';
+import { getCategoryDisplayLabel, catIcon } from '~/utils/type-label';
 import {
   CHART, EmptyState, LearnMore, Progress, Sparkline, StatStrip, Tabs, exportCSV, fmtCents, fmtNum,
 } from '~/components/merchant/polaris';
-
-
-// Same category → icon mapping the modules page uses (shared taxonomy, no heuristics).
-const CAT_ICON: Record<string, string> = { desktop: 'desktop', settings: 'settings', users: 'team', bolt: 'bolt', connect: 'connect', flow: 'automation' };
-function catIcon(category: string): string {
-  return CAT_ICON[getCategoryIcon(category)] ?? 'layer';
-}
 
 /** Real percent change vs the previous window, or null when there is no baseline. */
 function pctDelta(current: number, previous: number): string | null {

@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { MODULE_TEMPLATES } from '@superapp/core';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { Desc, EmptyState, LearnMore, useViewMode, ViewToggle, type WcTone } from '~/components/merchant/polaris';
-import { CATEGORY_ORDER, getCategoryDisplayLabel, getCategoryTone, getCategoryIcon } from '~/utils/type-label';
+import { Desc, EmptyState, LearnMore, useViewMode, ViewToggle } from '~/components/merchant/polaris';
+import { CATEGORY_ORDER, getCategoryDisplayLabel, catTone, catIcon } from '~/utils/type-label';
 
 
 export async function loader({ request }: { request: Request }) {
@@ -21,17 +21,6 @@ export async function loader({ request }: { request: Request }) {
     tags: t.tags ?? [],
   }));
   return json({ templates });
-}
-
-/* Category → Polaris badge tone / icon. `getCategoryTone` still speaks the
- * vendored palette ('magic' has no Polaris badge equivalent → 'caution'). */
-const CAT_BADGE_TONE: Record<string, WcTone> = { info: 'info', success: 'success', warning: 'warning', magic: 'caution' };
-function catTone(category: string): WcTone {
-  return CAT_BADGE_TONE[getCategoryTone(category)] ?? 'neutral';
-}
-const CAT_ICON: Record<string, string> = { desktop: 'desktop', settings: 'settings', users: 'team', bolt: 'bolt', connect: 'connect', flow: 'automation' };
-function catIcon(category: string): string {
-  return CAT_ICON[getCategoryIcon(category)] ?? 'layer';
 }
 
 // Client-side incremental rendering: SSR + hydrating all 561 cards at once

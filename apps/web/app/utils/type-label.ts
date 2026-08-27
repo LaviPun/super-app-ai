@@ -3,58 +3,7 @@
  * e.g. theme.section -> "Theme section", customerAccount.blocks -> "Customer account blocks"
  */
 
-export type TypeBadgeTone =
-  | 'info'
-  | 'success'
-  | 'warning'
-  | 'attention'
-  | 'critical'
-  | 'new';
-
-const SMALL_WORDS = new Set(['and', 'or', 'the', 'of', 'for', 'to', 'in', 'on']);
-
-/** Converts camelCase to readable sentence-style, e.g. "cartAndCheckoutValidation" -> "Cart and checkout validation" */
-function humanizeCamel(str: string): string {
-  if (!str) return str;
-  const withSpaces = str.replace(/([A-Z])/g, ' $1').trim();
-  return withSpaces
-    .split(/\s+/)
-    .map((w, i) => {
-      const lower = w.toLowerCase();
-      if (i > 0 && SMALL_WORDS.has(lower)) return lower;
-      return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
-    })
-    .join(' ');
-}
-
-/** Namespace prefix to human label (with trailing space if used before suffix). Empty for functions (suffix only). */
-const NAMESPACE_LABEL: Record<string, string> = {
-  theme: 'Theme ',
-  functions: '', // e.g. "Cart and checkout validation" with no prefix
-  customerAccount: 'Customer account ',
-  checkout: 'Checkout ',
-  flow: 'Flow ',
-  integration: 'Integration ',
-  platform: 'Platform ',
-  proxy: 'Proxy ',
-};
-
-/**
- * Returns a human-readable label for the module type (sentence-style).
- * theme.section -> "Theme section"
- * functions.cartAndCheckoutValidation -> "Cart and checkout validation"
- * customerAccount.blocks -> "Customer account blocks"
- */
-export function getTypeDisplayLabel(fullType: string): string {
-  if (!fullType || typeof fullType !== 'string') return fullType ?? '';
-  const trimmed = fullType.trim();
-  const parts = trimmed.split('.');
-  const prefix = parts[0] ?? '';
-  const suffix = parts[parts.length - 1] ?? trimmed;
-  const namespace = NAMESPACE_LABEL[prefix] ?? prefix ? humanizeCamel(prefix) + ' ' : '';
-  const suffixLabel = humanizeCamel(suffix);
-  return (namespace + suffixLabel).trim() || trimmed;
-}
+import type { WcTone } from '~/components/merchant/polaris';
 
 const CATEGORY_LABEL: Record<string, string> = {
   STOREFRONT_UI: 'Storefront UI',
@@ -123,33 +72,19 @@ export function getCategoryIcon(category: string): string {
   return CATEGORY_ICON[category] ?? 'layers';
 }
 
-/** Returns the last segment only (kept for URL/keys). e.g. "theme.section" -> "section" */
-export function getTypeShortLabel(fullType: string): string {
-  if (!fullType || typeof fullType !== 'string') return fullType ?? '';
-  const parts = fullType.trim().split('.');
-  return parts[parts.length - 1] ?? fullType;
+/*
+ * Category → Polaris badge tone / icon (WS-I dedupe — was duplicated
+ * byte-for-byte across modules._index.tsx, modules.$moduleId.tsx, and
+ * templates._index.tsx, see docs/superpowers/plans/2026-08-24-ws-i-cleanup.md
+ * Task 19). `getCategoryTone`/`getCategoryIcon` above still speak the
+ * vendored palette ('magic' has no Polaris badge equivalent → 'caution').
+ */
+const CAT_BADGE_TONE: Record<string, WcTone> = { info: 'info', success: 'success', warning: 'warning', magic: 'caution' };
+export function catTone(category: string): WcTone {
+  return CAT_BADGE_TONE[getCategoryTone(category)] ?? 'neutral';
 }
 
-/** Returns a consistent Badge tone for the type based on its namespace (prefix). */
-export function getTypeTone(fullType: string): TypeBadgeTone {
-  if (!fullType || typeof fullType !== 'string') return 'info';
-  const prefix = fullType.split('.')[0] ?? '';
-  switch (prefix) {
-    case 'theme':
-      return 'info';
-    case 'functions':
-      return 'warning';
-    case 'customerAccount':
-      return 'success';
-    case 'checkout':
-      return 'attention';
-    case 'flow':
-      return 'new';
-    case 'integration':
-      return 'critical';
-    case 'platform':
-    case 'proxy':
-    default:
-      return 'info';
-  }
+const CAT_ICON: Record<string, string> = { desktop: 'desktop', settings: 'settings', users: 'team', bolt: 'bolt', connect: 'connect', flow: 'automation' };
+export function catIcon(category: string): string {
+  return CAT_ICON[getCategoryIcon(category)] ?? 'layer';
 }

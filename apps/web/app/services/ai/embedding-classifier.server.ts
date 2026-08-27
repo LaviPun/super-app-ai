@@ -140,9 +140,3 @@ export async function findIntentByEmbedding(prompt: string): Promise<EmbeddingMa
     alternatives: rest.slice(0, 3),
   };
 }
-
-/** Invalidate the in-memory embedding cache (e.g. after intent examples update). */
-export function invalidateEmbeddingCache(): void {
-  cachedIntentVectors = null;
-  cacheLoadPromise = null;
-}

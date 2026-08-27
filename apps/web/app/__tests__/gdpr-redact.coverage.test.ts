@@ -163,6 +163,10 @@ function makePrismaMock() {
     appSubscription: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     supportTicket: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     job: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    // Fix round 3 (WS-I micro-fix): AiGenerationOption moved from the retention
+    // allowlist to an explicit deleteMany for audit-record parity with the other
+    // denormalized-shopId, cascade-covered models above (WorkflowRunStep etc.).
+    aiGenerationOption: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     apiLog: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     errorLog: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     aiUsage: { deleteMany: vi.fn(async () => ({ count: 0 })) },
@@ -316,6 +320,9 @@ describe('GDPR redact coverage', () => {
     expect(prismaMock.appSubscription.deleteMany).toHaveBeenCalledWith(shopScoped);
     expect(prismaMock.supportTicket.deleteMany).toHaveBeenCalledWith(shopScoped);
     expect(prismaMock.job.deleteMany).toHaveBeenCalledWith(shopScoped);
+    // Fix round 3: AiGenerationOption, moved off the retention allowlist to an
+    // explicit deleteMany (see the route file's comment at this call site).
+    expect(prismaMock.aiGenerationOption.deleteMany).toHaveBeenCalledWith(shopScoped);
     expect(prismaMock.apiLog.deleteMany).toHaveBeenCalledWith(shopScoped);
     expect(prismaMock.errorLog.deleteMany).toHaveBeenCalledWith(shopScoped);
     expect(prismaMock.aiUsage.deleteMany).toHaveBeenCalledWith(shopScoped);

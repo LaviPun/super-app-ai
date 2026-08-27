@@ -22,9 +22,9 @@ import { QuotaService } from '~/services/billing/quota.service';
 import { AppError } from '~/services/errors/app-error.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
-  ConfirmModal, EmptyState, KV, StatusBadge, Tabs, useCustomEvent, type WcTone,
+  ConfirmModal, EmptyState, KV, StatusBadge, Tabs, useCustomEvent,
 } from '~/components/merchant/polaris';
-import { getCategoryDisplayLabel, getCategoryTone } from '~/utils/type-label';
+import { getCategoryDisplayLabel, catTone } from '~/utils/type-label';
 import { pollJobUntilTerminal, derivePublishFailureBanner } from '~/utils/job-poll';
 
 
@@ -365,12 +365,6 @@ function getDefaultThemeId(
   if (publishedMatch) return String(publishedThemeId);
   const main = themes.find(t => String(t.role).toLowerCase() === 'main');
   return main ? String(main.id) : String(themes[0]!.id);
-}
-
-/* Vendored category tone → Polaris badge tone ('magic' has no equivalent → 'caution'). */
-const CAT_BADGE_TONE: Record<string, WcTone> = { info: 'info', success: 'success', warning: 'warning', magic: 'caution' };
-function catTone(category: string): WcTone {
-  return CAT_BADGE_TONE[getCategoryTone(category)] ?? 'neutral';
 }
 
 const MONO_PRE: CSSProperties = {

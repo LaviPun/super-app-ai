@@ -6,6 +6,8 @@ import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { MerchantShell } from '~/components/merchant/MerchantShell';
 import { EmptyState, MonoChip, humanizeResource, titleCase, type WcTone } from '~/components/merchant/polaris';
+import { relativeTimeVerbose } from '~/utils/relative-time';
+import { NON_MERCHANT_ACTIONS } from '~/utils/activity-log';
 
 // Map a raw ActivityLog action to the design's visual "kind". Falls back to a
 // neutral "activity" kind — never mislabel billing/support/etc. as "module".
@@ -21,25 +23,8 @@ function activityKind(action: string): string {
   if (a.includes('ERROR') || a.includes('FAIL') || a.includes('WARNING') || a.includes('GATE')) return 'alert';
   return 'activity';
 }
-function relativeTime(d: Date): string {
-  const secs = Math.max(1, Math.round((Date.now() - new Date(d).getTime()) / 1000));
-  if (secs < 60) return secs + 's ago';
-  const mins = Math.round(secs / 60);
-  if (mins < 60) return mins + 'm ago';
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return hrs + 'h ago';
-  const days = Math.round(hrs / 24);
-  return days === 1 ? 'Yesterday' : days + 'd ago';
-}
-
 const KIND_TONE: Record<string, WcTone> = { module: 'info', flow: 'success', alert: 'critical', data: 'info', connector: 'info', team: 'warning', billing: 'info', support: 'caution', activity: 'neutral' };
 
-// Operational/telemetry events that read as noise (or nonsense) to a merchant —
-// same exclusion the dashboard feed applies.
-const NON_MERCHANT_ACTIONS = [
-  'PAGE_OPENED', 'PAGE_REFRESHED', 'REQUEST_ERROR', 'SERVER_STARTED',
-  'ROUTER_RELEASE_GATE_TRIPPED', 'AI_ASSISTANT_QUERY', 'AI_ASSISTANT_TOOL_CALLED',
-];
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -52,7 +37,7 @@ export async function loader({ request }: { request: Request }) {
     resource: humanizeResource(r.resource),
     actor: r.actor === 'MERCHANT' ? 'You' : titleCase(r.actor),
     kind: activityKind(r.action),
-    created: relativeTime(r.createdAt),
+    created: relativeTimeVerbose(r.createdAt),
   }));
   return json({ activity });
 }

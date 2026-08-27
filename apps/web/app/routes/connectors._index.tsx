@@ -10,6 +10,7 @@ import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShe
 import {
   ConfirmModal, EmptyState, LearnMore, MonoChip, StatusBadge, titleCase, useCustomEvent,
 } from '~/components/merchant/polaris';
+import { relativeTimeHourly } from '~/utils/relative-time';
 
 
 export async function loader({ request }: { request: Request }) {
@@ -131,15 +132,6 @@ function authDisplay(t: string): string {
   if (t === 'OAUTH2' || t === 'OAUTH') return 'OAuth 2.0';
   return titleCase(t);
 }
-function timeAgo(iso: string | null): string {
-  if (!iso) return 'never';
-  const diff = Date.now() - new Date(iso).getTime();
-  const h = Math.round(diff / 3600000);
-  if (h < 1) return 'just now';
-  if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
-}
-
 export default function ConnectorsIndex() {
   const { connectors, stats } = useLoaderData<typeof loader>();
   return (
@@ -204,7 +196,7 @@ function ConnectorsBody({ connectors }: any) {
       baseUrl: c.baseUrl,
       auth: c.authType,
       endpoints: c.endpointCount,
-      lastTested: timeAgo(c.lastTest?.at ?? c.lastTestedAt),
+      lastTested: relativeTimeHourly(c.lastTest?.at ?? c.lastTestedAt),
       lastStatus: c.lastTest?.httpStatus ?? null,
       lastOk: c.lastTest ? c.lastTest.ok : Boolean(c.lastTestedAt),
       everTested: Boolean(c.lastTest || c.lastTestedAt),

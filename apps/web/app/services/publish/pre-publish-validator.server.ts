@@ -142,23 +142,3 @@ function validateCheckoutOrAccountsModule(
 
   return errors;
 }
-
-/**
- * Validates that a JSON string is strict JSON (no trailing commas, no comments).
- * Use for theme extension schema files (doc 27.2).
- */
-export function validateStrictJson(jsonString: string): ValidationError[] {
-  const errors: ValidationError[] = [];
-  if (/,\s*[}\]']/.test(jsonString) || /\/\*[\s\S]*?\*\/|\/\/[^\n]*/m.test(jsonString)) {
-    errors.push({
-      code: 'INVALID_JSON',
-      message: 'Theme extension JSON must be strict: no trailing commas, no comments (doc 27.2).',
-    });
-  }
-  try {
-    JSON.parse(jsonString);
-  } catch {
-    errors.push({ code: 'INVALID_JSON', message: 'Invalid JSON syntax.' });
-  }
-  return errors;
-}

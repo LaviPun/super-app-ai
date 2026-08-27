@@ -7,6 +7,7 @@ import { sealAccessToken } from '~/services/shops/access-token.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { Desc, EmptyState, LearnMore, StatStrip, titleCase, useCustomEvent } from '~/components/merchant/polaris';
 import { SeverityBadge, TICKET_STATUS_LABEL, TicketStatusBadge } from '~/components/support/badges';
+import { relativeTime } from '~/utils/relative-time';
 
 export async function loader({ request }: { request: Request }) {
   const { session } = await shopify.authenticate.admin(request);
@@ -43,7 +44,7 @@ export async function loader({ request }: { request: Request }) {
       source: t.source,
       shopperEmail: t.shopperEmail,
       triageFailed: Boolean(t.aiTriageError),
-      updated: timeAgo(t.updatedAt),
+      updated: relativeTime(t.updatedAt),
     })),
     modules,
     stats: {
@@ -53,16 +54,6 @@ export async function loader({ request }: { request: Request }) {
       resolved: tickets.filter((t) => t.status === 'RESOLVED').length,
     },
   });
-}
-
-function timeAgo(d: Date | string): string {
-  const diff = Date.now() - new Date(d).getTime();
-  const m = Math.round(diff / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
 }
 
 /**

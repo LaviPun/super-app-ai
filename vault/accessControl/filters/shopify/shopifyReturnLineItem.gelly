@@ -1,3 +1,0 @@
-filter ($session: Session) on ShopifyReturnLineItem [
-  where shopId == $session.shopId
-]

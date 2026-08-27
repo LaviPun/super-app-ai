@@ -101,6 +101,9 @@ const shopApiRateLimitDeleteManyMock = vi.fn(async () => ({ count: 0 }));
 const appSubscriptionDeleteManyMock = vi.fn(async () => ({ count: 0 }));
 const supportTicketDeleteManyMock = vi.fn(async () => ({ count: 0 }));
 const jobDeleteManyMock = vi.fn(async () => ({ count: 0 }));
+// Fix round 3 (WS-I micro-fix): AiGenerationOption moved off the retention
+// allowlist to an explicit deleteMany, see webhooks.shop.redact.tsx.
+const aiGenerationOptionDeleteManyMock = vi.fn(async () => ({ count: 0 }));
 const apiLogDeleteManyMock = vi.fn(async () => ({ count: 0 }));
 const errorLogDeleteManyMock = vi.fn(async () => ({ count: 0 }));
 const aiUsageDeleteManyMock = vi.fn(async () => ({ count: 0 }));
@@ -142,6 +145,7 @@ vi.mock('~/db.server', () => ({
     shopApiRateLimit: { deleteMany: shopApiRateLimitDeleteManyMock },
     appSubscription: { deleteMany: appSubscriptionDeleteManyMock },
     job: { deleteMany: jobDeleteManyMock },
+    aiGenerationOption: { deleteMany: aiGenerationOptionDeleteManyMock },
     apiLog: { deleteMany: apiLogDeleteManyMock },
     errorLog: { deleteMany: errorLogDeleteManyMock },
     aiUsage: { deleteMany: aiUsageDeleteManyMock },

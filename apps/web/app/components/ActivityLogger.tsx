@@ -57,23 +57,3 @@ export function logActivityClick(
     }),
   }).catch(() => {});
 }
-
-/**
- * Log request outcome (success or error) from the client after a fetcher/submit completes.
- * Use in addition to server-side logging for full coverage.
- */
-export function logActivityRequestOutcome(
-  success: boolean,
-  pathOrMethod: string,
-  details?: { status?: number; error?: string; [k: string]: unknown }
-) {
-  fetch('/api/activity', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      action: success ? 'REQUEST_SUCCESS' : 'REQUEST_ERROR',
-      resource: pathOrMethod,
-      details: { outcome: success ? 'success' : 'error', ...details },
-    }),
-  }).catch(() => {});
-}

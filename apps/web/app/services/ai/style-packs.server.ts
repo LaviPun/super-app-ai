@@ -10,8 +10,6 @@
  * Pure + DB-free so it can run inside the generation pipeline and in tests.
  * Source of truth for the numbers: docs/design-system/research-dossier.md §A,§B,§E,§F.
  */
-import type { StorePalette, StoreTypography } from '~/services/theme/theme-analyzer.service';
-
 export type StylePackId =
   | 'apple-hig-clean'
   | 'editorial-wellness'
@@ -309,18 +307,6 @@ export function computeAestheticSignalsFromColors(
     fontClass: classifyFont(headingFontHint),
     hasUsableColors,
   };
-}
-
-export function computeAestheticSignals(
-  palette: StorePalette,
-  typography: StoreTypography,
-): AestheticSignals {
-  return computeAestheticSignalsFromColors(
-    [palette.primary, palette.accent, palette.button],
-    [palette.background, palette.text, ...(palette.neutrals ?? [])],
-    typography.headingFont,
-    palette.background,
-  );
 }
 
 // ---------------------------------------------------------------------------

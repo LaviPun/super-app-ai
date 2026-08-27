@@ -36,13 +36,3 @@ export function exportCSV(filename: string, rows: any[], columns?: string[]) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch { /* download blocked — silent */ }
 }
-
-// Live nav counts (DLQ / errors / failed webhooks) computed from real rows the
-// caller passes; empty arrays yield zero counts.
-export function navCounts(jobs: any[] = [], errors: any[] = [], webhooks: any[] = []) {
-  return {
-    dlq: jobs.filter((j) => j.status === 'FAILED').length,
-    err: errors.filter((e) => e.level === 'ERROR').length,
-    wh: webhooks.filter((w) => !w.success).length,
-  };
-}

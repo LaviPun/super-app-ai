@@ -8,7 +8,6 @@ node_modules
 **/__tests__
 **/*.test.ts
 **/*.spec.ts
-apps/frontend/.next
 apps/web/node_modules
 **/target
 .claude
@@ -21,7 +20,6 @@ apps/web/prisma/migrations-archive*
 apps/web/prisma/_archived_migrations_pre_baseline
 docs
 specs
-vault
 .env
 **/.env
 **/.env.*

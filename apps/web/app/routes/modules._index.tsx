@@ -7,10 +7,11 @@ import { QuotaService } from '~/services/billing/quota.service';
 import { sealAccessToken } from '~/services/shops/access-token.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
-  StatStrip, StatusBadge, EmptyState, ConfirmModal, Desc, LearnMore, fmtNum, useViewMode, ViewToggle, type WcTone,
+  StatStrip, StatusBadge, EmptyState, ConfirmModal, Desc, LearnMore, fmtNum, useViewMode, ViewToggle,
 } from '~/components/merchant/polaris';
-import { CATEGORY_ORDER, getCategoryDisplayLabel, getCategoryTone, getCategoryIcon } from '~/utils/type-label';
+import { CATEGORY_ORDER, getCategoryDisplayLabel, catTone, catIcon } from '~/utils/type-label';
 import { commitPendingDeletes } from '~/utils/pending-delete';
+import { relativeTime } from '~/utils/relative-time';
 
 
 export async function loader({ request }: { request: Request }) {
@@ -59,7 +60,7 @@ export async function loader({ request }: { request: Request }) {
           status: m.status,
           version: m.versions[0]?.version ?? 1,
           summary: m.summary ?? `${catLabel} module`,
-          updated: timeAgo(m.updatedAt),
+          updated: relativeTime(m.updatedAt),
           blueprintId: m.recipe?.id ?? null,
           blueprintName: m.recipe?.title ?? null,
         };
@@ -73,27 +74,6 @@ export async function loader({ request }: { request: Request }) {
   }
 }
 
-function timeAgo(d: Date | string): string {
-  const t = new Date(d).getTime();
-  const diff = Date.now() - t;
-  const m = Math.round(diff / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
-}
-
-/* Category → Polaris badge tone / icon. `getCategoryTone` still speaks the
- * vendored palette ('magic' has no Polaris badge equivalent → 'caution'). */
-const CAT_BADGE_TONE: Record<string, WcTone> = { info: 'info', success: 'success', warning: 'warning', magic: 'caution' };
-function catTone(category: string): WcTone {
-  return CAT_BADGE_TONE[getCategoryTone(category)] ?? 'neutral';
-}
-const CAT_ICON: Record<string, string> = { desktop: 'desktop', settings: 'settings', users: 'team', bolt: 'bolt', connect: 'connect', flow: 'automation' };
-function catIcon(category: string): string {
-  return CAT_ICON[getCategoryIcon(category)] ?? 'layer';
-}
 
 type PolarisField = HTMLElement & { value?: string; focus?: () => void };
 
