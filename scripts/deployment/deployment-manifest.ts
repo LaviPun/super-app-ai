@@ -1,9 +1,6 @@
 import { z } from 'zod';
 
 export const DeploymentServiceSchema = z.enum([
-  'frontend',
-  'api',
-  'workers',
   'internal-router',
   'legacy-remix',
 ]);
@@ -34,54 +31,6 @@ export type DeploymentManifest = z.infer<typeof DeploymentManifestSchema>;
 export const deploymentManifest: DeploymentManifest = {
   version: 1,
   targets: [
-    {
-      service: 'frontend',
-      platform: 'vercel',
-      configFiles: ['apps/frontend/vercel.json', 'apps/frontend/.env.example'],
-      env: [
-        {
-          name: 'NEXT_PUBLIC_API_BASE_URL',
-          required: true,
-          secret: false,
-          description: 'Public Fastify API origin used by the Next migration shell.',
-        },
-      ],
-    },
-    {
-      service: 'api',
-      platform: 'railway',
-      healthPath: '/health',
-      readinessPath: '/ready',
-      configFiles: ['apps/api/Dockerfile', 'apps/api/railway.toml', 'apps/api/.env.example'],
-      env: [
-        { name: 'NODE_ENV', required: true, secret: false, description: 'Runtime mode.' },
-        { name: 'HOST', required: true, secret: false, description: 'Bind host (0.0.0.0 in Railway).' },
-        { name: 'PORT', required: true, secret: false, description: 'HTTP port exposed by Railway.' },
-        { name: 'API_SERVICE_VERSION', required: false, secret: false, description: 'Health payload version label.' },
-        { name: 'JOB_EXECUTION_MODE', required: true, secret: false, description: 'inline | queue | disabled.' },
-        { name: 'QUEUE_PROVIDER', required: true, secret: false, description: 'memory (local) or bullmq (staging/prod).' },
-        { name: 'JOB_STORE_PROVIDER', required: true, secret: false, description: 'memory or repository.' },
-        { name: 'QUEUE_REDIS_URL', required: true, secret: true, description: 'Redis URL when QUEUE_PROVIDER=bullmq.' },
-        { name: 'QUEUE_PREFIX', required: true, secret: false, description: 'BullMQ key prefix.' },
-        { name: 'DATABASE_URL', required: true, secret: true, description: 'Managed Postgres for job ledger (repository store).' },
-      ],
-    },
-    {
-      service: 'workers',
-      platform: 'railway',
-      healthPath: '/health',
-      readinessPath: '/ready',
-      configFiles: ['apps/workers/Dockerfile', 'apps/workers/railway.toml', 'apps/workers/.env.example'],
-      env: [
-        { name: 'NODE_ENV', required: true, secret: false, description: 'Runtime mode.' },
-        { name: 'WORKER_HEALTH_HOST', required: true, secret: false, description: 'Health server bind host.' },
-        { name: 'WORKER_HEALTH_PORT', required: true, secret: false, description: 'Health server port for Railway checks.' },
-        { name: 'QUEUE_PROVIDER', required: true, secret: false, description: 'bullmq in staging/prod.' },
-        { name: 'QUEUE_REDIS_URL', required: true, secret: true, description: 'Shared Redis with API queues.' },
-        { name: 'QUEUE_PREFIX', required: true, secret: false, description: 'Must match API QUEUE_PREFIX.' },
-        { name: 'WORKER_CONCURRENCY', required: true, secret: false, description: 'Per-queue BullMQ concurrency.' },
-      ],
-    },
     {
       service: 'internal-router',
       platform: 'railway',

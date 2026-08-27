@@ -9,9 +9,6 @@ describe('deployment manifest', () => {
   it('parses and references existing config artifacts', () => {
     const manifest = DeploymentManifestSchema.parse(deploymentManifest);
     expect(manifest.targets.map((t) => t.service)).toEqual([
-      'frontend',
-      'api',
-      'workers',
       'internal-router',
       'legacy-remix',
     ]);
@@ -21,12 +18,5 @@ describe('deployment manifest', () => {
         expect(existsSync(resolve(repoRoot, file)), file).toBe(true);
       }
     }
-  });
-
-  it('requires redis-backed queue env for api and workers', () => {
-    const api = deploymentManifest.targets.find((t) => t.service === 'api');
-    const workers = deploymentManifest.targets.find((t) => t.service === 'workers');
-    expect(api?.env.some((row) => row.name === 'QUEUE_REDIS_URL' && row.required)).toBe(true);
-    expect(workers?.env.some((row) => row.name === 'QUEUE_REDIS_URL' && row.required)).toBe(true);
   });
 });

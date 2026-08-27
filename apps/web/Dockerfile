@@ -19,14 +19,11 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/web/package.json apps/web/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/data-layer/package.json packages/data-layer/package.json
-COPY packages/db/package.json packages/db/package.json
 COPY packages/intent-graph/package.json packages/intent-graph/package.json
 COPY packages/job-orchestration/package.json packages/job-orchestration/package.json
 COPY packages/network-security/package.json packages/network-security/package.json
-COPY packages/observability/package.json packages/observability/package.json
 COPY packages/platform-contracts/package.json packages/platform-contracts/package.json
 COPY packages/rate-limit/package.json packages/rate-limit/package.json
-COPY packages/security/package.json packages/security/package.json
 RUN pnpm install --frozen-lockfile --filter web...
 
 # Sources. apps/workers is no longer copied — WS-C (D2/C5) ported its only
