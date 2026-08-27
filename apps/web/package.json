@@ -27,7 +27,8 @@
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "smoke:internal-ai": "tsx --tsconfig tsconfig.scripts.json scripts/smoke-internal-ai.ts",
-    "db:copy-sqlite": "tsx --tsconfig tsconfig.scripts.json scripts/migrate-sqlite-to-postgres.ts"
+    "db:copy-sqlite": "tsx --tsconfig tsconfig.scripts.json scripts/migrate-sqlite-to-postgres.ts",
+    "submission:check": "tsx --tsconfig tsconfig.scripts.json scripts/submission-conformance-check.ts"
   },
   "dependencies": {
     "@opentelemetry/auto-instrumentations-node": "^0.77.0",
