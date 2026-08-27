@@ -1,5 +1,5 @@
-// SOURCE for assets/superapp-modules.js — edit HERE, then rebuild the shipped asset with:
-//   apps/web/node_modules/.bin/esbuild apps/web/theme-extension-src/superapp-modules.src.js --minify --outfile=extensions/theme-app-extension/assets/superapp-modules.js --allow-overwrite
+// SOURCE for assets/superapp-modules.js — edit HERE, then rebuild the shipped asset with (from repo root):
+//   node_modules/.pnpm/node_modules/.bin/esbuild apps/web/theme-extension-src/superapp-modules.src.js --minify --outfile=extensions/theme-app-extension/assets/superapp-modules.js --allow-overwrite
 // The shipped asset is minified to stay under Shopify's 30KB app-block JS budget (AssetSizeAppBlockJavaScript).
 /* SuperApp theme extension runtime (vanilla JS, no deps). Loaded once per page
    via each block's schema "javascript" attribute. Two features:
@@ -1947,6 +1947,46 @@
     Array.prototype.forEach.call(els, setupBeforeAfter);
   }
 
+  /* WS-H Task 5 (Liquid byte reclaim): the generic theme.section renderer used to
+     compute its layout-modifier class (`superapp-layout--<x>`), the `--sa-cols` clamp,
+     and the minimal/textonly content-shape variant entirely in a Liquid {% liquid %}
+     block (three `| append:` chains building a class string). That's now read off raw
+     data-sa-* attributes on the rendered <section> and applied here instead — same
+     progressive-enhancement lever this file already uses for before-after/hotspots/
+     tabs. No-JS guardrail: the <section> class Liquid emits directly is always the
+     plain `superapp-section superapp-section--<kind> sa-reveal` base (the
+     stacked/no-variant default), so a JS-disabled storefront still renders correctly,
+     just without these refinements. */
+  function applySectionLayout(el) {
+    if (el.dataset.saLayBound) return;
+    el.dataset.saLayBound = '1';
+    var layout = el.getAttribute('data-sa-lay');
+    if (layout && layout !== 'stacked') el.classList.add('superapp-layout--' + layout);
+    var blocks = parseInt(el.getAttribute('data-sa-blk'), 10);
+    if (isNaN(blocks)) blocks = 0;
+    var colsAttr = el.getAttribute('data-sa-cols');
+    if (colsAttr) {
+      var cols = parseInt(colsAttr, 10);
+      if (!isNaN(cols)) {
+        cols = Math.max(1, Math.min(4, cols));
+        if (blocks > 0 && blocks < cols) cols = blocks;
+        el.style.setProperty('--sa-cols', String(cols));
+      }
+    }
+    var hasImage = el.getAttribute('data-sa-img') === '1';
+    var hasBody = el.getAttribute('data-sa-bdy') === '1';
+    var blockHasImage = el.getAttribute('data-sa-bi') === 'true';
+    if (!hasImage && !hasBody && blocks === 0) {
+      el.classList.add('superapp-section--minimal');
+    } else if (blocks > 0 && !blockHasImage) {
+      el.classList.add('superapp-section--textonly');
+    }
+  }
+  function initSectionLayouts() {
+    var els = document.querySelectorAll('.superapp-section[data-sa-lay]');
+    Array.prototype.forEach.call(els, applySectionLayout);
+  }
+
   /* B10: shoppable image hotspots. The <ul> of hotspot links is the no-JS fallback;
      we overlay numbered markers on the base image (positioned from each item's
      data-x/data-y percent) and open a focus-trapped popover card (title/price/thumb/
@@ -2525,6 +2565,8 @@
   }
 
   ready(function () {
+    /* WS-H Task 5: generic theme.section layout/variant class enhancement. */
+    initSectionLayouts();
     /* R2.1: resolve display rules first — reveal/remove deferred non-popup modules,
        and let the popup engine consult the same rules in open(). */
     gateModules();

@@ -25,7 +25,7 @@ export async function loader({ request }: { request: Request }) {
 export default function DataIndex() {
   const { stores, predefined } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <DataBody stores={stores} predefined={predefined} />
     </MerchantShell>
   );

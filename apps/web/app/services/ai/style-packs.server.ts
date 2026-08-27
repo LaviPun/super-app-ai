@@ -149,28 +149,38 @@ export const DEFAULT_PACK_ID: StylePackId = 'apple-hig-clean';
 // ---------------------------------------------------------------------------
 // Two-pack render grammar (module-design-system.md §3.3 / §9.2)
 // ---------------------------------------------------------------------------
+//
+// H1 (WS-H, 2026-08-24, controller ruling): collapsed from 4 render packs back
+// to 2 (`luxe`, `bold`). `playful`/`utility` were widened in on 2026-07-14 but
+// never became a real second pair of maintained directions — 99.35% of
+// authored pack-bearing template content (177 luxe + 127 bold of 307) and
+// every low-confidence `resolveStorefrontPack` fallback already resolved to
+// luxe/bold only, and this file's own prior comment already conceded
+// apple-hig-clean/editorial-wellness/minimal-luxe "intentionally collapse to
+// Luxe." See docs/design-system/module-design-system.md §10 (2026-08-24 row)
+// and docs/superpowers/plans/2026-08-24-ws-h-templates.md (H1) for the data.
+// Investing in playful/utility as real third/fourth packs remains available
+// as a standalone follow-up, not folded into this collapse.
 
-/** The storefront render packs — the four values of the runtime `--sa-*` token map. */
-export type StorefrontPack = 'luxe' | 'bold' | 'playful' | 'utility';
+/** The storefront render packs — the two values of the runtime `--sa-*` token map. */
+export type StorefrontPack = 'luxe' | 'bold';
 
 /**
- * Map each aesthetic-selection pack to its personality-explicit render pack.
- * Packs not listed here (apple-hig-clean, editorial-wellness, minimal-luxe)
- * intentionally collapse to Luxe — their differences sit inside Luxe's range.
+ * Map each aesthetic-selection pack to its render pack. Only `bold-dtc` maps to
+ * a non-default pack; every other aesthetic id (including the former
+ * `playful-commerce`/`tech-utility` personality-explicit ids) collapses to Luxe
+ * — their differences sit inside Luxe's range.
  */
 const RENDER_PACK_BY_AESTHETIC: Partial<Record<StylePackId, StorefrontPack>> = {
   'bold-dtc': 'bold',
-  'playful-commerce': 'playful',
-  'tech-utility': 'utility',
 };
 
 /**
- * Collapse the six aesthetic-selection packs to the four storefront render packs
- * (module-design-system.md §9.2). `bold ← {bold-dtc}`, `playful ← {playful-commerce}`,
- * `utility ← {tech-utility}`, `luxe ← {apple-hig-clean, editorial-wellness, minimal-luxe}`
- * AND anything on low confidence. Bias to Luxe (the "can't-look-wrong" pack) on
- * weak aesthetic evidence — never ship a personality-heavy grammar on a low-confidence
- * signal.
+ * Collapse the six aesthetic-selection packs to the two storefront render packs
+ * (module-design-system.md §9.2, H1). `bold ← {bold-dtc}`, `luxe ← everything
+ * else` (apple-hig-clean, editorial-wellness, minimal-luxe, playful-commerce,
+ * tech-utility) AND anything on low confidence. Bias to Luxe (the
+ * "can't-look-wrong" pack) on weak aesthetic evidence.
  */
 export function resolveStorefrontPack(selection: PackSelection): StorefrontPack {
   if (selection.confidence < 0.34) return 'luxe';
@@ -426,28 +436,11 @@ function storefrontPackGrammarLines(pack: StorefrontPack): string[] {
       '  • Decoration: badge chips, inline ★ proof, accent numerals. Voice: direct, urgent ("Fuel the grind.", "Once it\'s gone, it\'s gone.").',
     ];
   }
-  if (pack === 'playful') {
-    return [
-      'Render pack: PLAYFUL COMMERCE — bright, friendly, energetic; rounded everything, springy overshoot, multi-accent chips, pill CTAs, confetti on wins. Emit tokens matching:',
-      '  • Density: spacing.density "comfortable", padding "medium".',
-      '  • Typography: rounded-sans display at typography.size "XL"–"2XL", weight "bold", lineHeight "tight"–"normal" (NOT all-caps — friendly, not shouty).',
-      '  • Shape: shape.radius "lg"–"full" (rounded cards, PILL CTAs); shape.borderWidth "thin"; shape.elevation "soft" (dual soft drop shadow, never a hard offset).',
-      '  • Motion: motion.duration "base" (~240ms), motion.easing "enter" with springy overshoot; hover = translateY lift, press = scale-down.',
-      '  • CTA: accent fill, PILL radius ("full"), soft shadow, cheerful label.',
-      '  • Decoration: colorful chips, soft gradient washes, confetti on conversion beats. Voice: warm, upbeat ("Let\'s go!", "Treat yourself").',
-    ];
-  }
-  if (pack === 'utility') {
-    return [
-      'Render pack: TECH UTILITY — cool, gridded, data-dense, precise; compact rhythm, geometric/neo-grotesk + mono numerals, near-zero radius, fast mechanical micro-motion only. Emit tokens matching:',
-      '  • Density: spacing.density "compact", padding "tight"–"medium".',
-      '  • Typography: geometric/neo-grotesk display at typography.size "LG"–"XL", weight "medium"–"bold", lineHeight "normal"; mono numerals + uppercase mono labels.',
-      '  • Shape: shape.radius "none"–"sm" (near-zero); shape.borderWidth "thin" (1px structural grid lines); shape.elevation "border" (1px ring + tiny shadow).',
-      '  • Motion: motion.duration "fast" (~120ms), motion.easing "mechanical" (near-linear, no springs); micro-only.',
-      '  • CTA: accent or ink fill, radius "sm", minimal shadow, mono/geometric label.',
-      '  • Decoration: mono data readouts, thin grid rules, schematic/spec framing. Voice: precise, factual ("Ships in 24h", "99.98% uptime").',
-    ];
-  }
+  // H1 (WS-H, 2026-08-24): the Playful Commerce / Tech Utility grammar branches
+  // that used to live here were removed when StorefrontPack collapsed to
+  // luxe/bold only (see module-design-system.md §3.2a/§3.2b — "not currently
+  // offered"). `pack` can no longer be anything but 'bold' or (falling through
+  // below) 'luxe'.
   return [
     'Render pack: MINIMAL LUXE — near-monochrome, editorial, hairline detail, long fades, accent used sparingly, quiet/considered voice. Emit tokens matching:',
     '  • Density: spacing.density "airy", padding "loose".',
@@ -478,8 +471,6 @@ export function buildDesignSystemDirective(opts: {
   const RENDER_PACK_NAME: Record<StorefrontPack, string> = {
     luxe: 'Minimal Luxe',
     bold: 'Bold DTC',
-    playful: 'Playful Commerce',
-    utility: 'Tech Utility',
   };
   const renderPackName = RENDER_PACK_NAME[renderPack];
   const brand = (opts.brandColors ?? []).filter(isHexColor);
@@ -490,8 +481,6 @@ export function buildDesignSystemDirective(opts: {
   const fontLine = `THEME FONTS: the module inherits the store theme's fonts automatically via the storefront — do NOT set or override font-family anywhere (not in style, not in any customCss/customHtml). Express hierarchy with typography.size + typography.weight only.${feel}`;
   const EFFECTS_BY_PACK: Record<StorefrontPack, string> = {
     bold: 'Bold → loud effects — confetti burst, fireworks, glitter, balloons.',
-    playful: 'Playful → celebratory effects — confetti burst (signature win beat), balloons, glitter.',
-    utility: 'Utility → no particle effects, or a restrained shimmer only (a data/tool store rarely wants decoration).',
     luxe: 'Luxe → quiet effects — embers/fireflies, petals, soft snow, shimmer.',
   };
   const effectsLine = `Effects (only for an \`effect\` module): ${EFFECTS_BY_PACK[renderPack]} Every effect ships a prefers-reduced-motion branch that renders nothing.`;

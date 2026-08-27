@@ -1,5 +1,6 @@
 import { adminGraphqlUrl } from '~/shopify-api.server';
 import { getPrisma } from '~/db.server';
+import { openAccessToken } from '~/services/shops/access-token.server';
 
 /**
  * Shopify Flow Bridge — integration layer between SuperApp workflow engine
@@ -307,7 +308,7 @@ export async function handleFlowAction(
       }
 
       const result = await connector.invoke(
-        { type: 'shopify', shop: shopDomain, accessToken: shopRow.accessToken },
+        { type: 'shopify', shop: shopDomain, accessToken: openAccessToken(shopRow.accessToken) },
         {
           runId: `flow-action-${Date.now()}`,
           stepId: actionId,

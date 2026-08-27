@@ -32,6 +32,7 @@ export const CONVERSION_CORE_TEMPLATES: TemplateEntry[] = [
   // ── TBLK-CONV-01 — Free Shipping Progress Bar (single tier, minimal luxe) ──
   {
     id: 'TBLK-CONV-01',
+    tier: 'standard',
     name: 'Free Shipping Progress Bar',
     description:
       'Cart-page progress bar showing how much more the shopper must spend to unlock free shipping, with live "{remaining} away" copy driven by the real cart total.',
@@ -78,6 +79,7 @@ export const CONVERSION_CORE_TEMPLATES: TemplateEntry[] = [
   // ── TBLK-CONV-02 — Cart Rewards Ladder (3 tiers shipping→discount→gift, bold) ──
   {
     id: 'TBLK-CONV-02',
+    tier: 'standard',
     name: 'Cart Rewards Ladder',
     description:
       'Three-tier cart-goal bar that ladders free shipping → a discount → a free gift, with milestone markers and "spend {remaining} more" copy that advances tier by tier.',
@@ -128,6 +130,7 @@ export const CONVERSION_CORE_TEMPLATES: TemplateEntry[] = [
   // ── TBLK-CONV-03 — Candy Rack Post-Add Upsell (related strategy) ──
   {
     id: 'TBLK-CONV-03',
+    tier: 'standard',
     name: 'Candy Rack Post-Add Upsell',
     description:
       'Post-add-to-cart offer modal that pops after Add to Cart with a related product and a one-tap "add to order" button — the Candy Rack flagship upsell, resolved live from Shopify related recommendations.',
@@ -179,6 +182,7 @@ export const CONVERSION_CORE_TEMPLATES: TemplateEntry[] = [
   // ── TBLK-CONV-04 — Bundle Completer (complementary strategy + custom decline) ──
   {
     id: 'TBLK-CONV-04',
+    tier: 'standard',
     name: 'Bundle Completer',
     description:
       'Post-add-to-cart modal that offers the complementary product needed to complete the bundle, with a gentle "I’ll pass" decline — resolved live from Shopify complementary recommendations.',
@@ -230,6 +234,7 @@ export const CONVERSION_CORE_TEMPLATES: TemplateEntry[] = [
   // ── TBLK-CONV-05 — Sticky Add-to-Cart (minimal luxe) ──
   {
     id: 'TBLK-CONV-05',
+    tier: 'standard',
     name: 'Sticky Add to Cart',
     description:
       'Sticky add-to-cart bar that slides in from the bottom when the product’s buy box scrolls out of view, with the real product title, price and a one-tap add — quiet, minimal styling.',
@@ -273,6 +278,7 @@ export const CONVERSION_CORE_TEMPLATES: TemplateEntry[] = [
   // ── TBLK-CONV-06 — Sticky Add-to-Cart with Quantity (bold) ──
   {
     id: 'TBLK-CONV-06',
+    tier: 'standard',
     name: 'Sticky Add to Cart — Quantity',
     description:
       'Bold sticky add-to-cart bar with a variant picker and a quantity stepper, revealed when the buy box scrolls away — for stores that want the full buy controls always at thumb reach.',

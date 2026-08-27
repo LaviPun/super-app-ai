@@ -1,6 +1,7 @@
 import { getPrisma } from '~/db.server';
 import { getRequestContext } from '~/services/observability/correlation.server';
 import type { AppErrorPayload } from '~/services/errors/app-error.server';
+import { OpsAlertService, markOpsAlerted } from '~/services/observability/ops-alert.server';
 
 export type JobType = 'AI_GENERATE'|'AI_HYDRATE'|'AI_MODIFY'|'PUBLISH'|'CONNECTOR_TEST'|'FLOW_RUN'|'MESSAGING_RUN'|'HTTP_SYNC_RUN'|'THEME_ANALYZE';
 export type JobStatus = 'QUEUED'|'RUNNING'|'SUCCESS'|'FAILED';
@@ -67,10 +68,25 @@ export class JobService {
 
   async fail(jobId: string, error: unknown) {
     const prisma = getPrisma();
-    return prisma.job.update({
+    const updated = await prisma.job.update({
       where: { id: jobId },
       data: { status: 'FAILED', finishedAt: new Date(), error: String(error) },
     });
+    await new OpsAlertService()
+      .fire({
+        kind: 'JOB_FAILED',
+        message: `Job ${jobId} (${updated.type}) failed: ${String(error)}`,
+        error,
+        context: { jobId, jobType: updated.type },
+      })
+      .catch(() => {});
+    // Double-alert seam fix: this failure may still be rethrown by the caller
+    // and land in an outer withApiLogging catch (e.g. an inline-executed job
+    // whose route awaits it directly) — mark it so that catch doesn't fire a
+    // second, redundant API_REQUEST_FAILED alert for the same underlying
+    // failure this JOB_FAILED alert already covers.
+    markOpsAlerted(error);
+    return updated;
   }
 
   /**

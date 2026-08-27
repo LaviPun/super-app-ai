@@ -2095,12 +2095,16 @@ export const STOREFRONT_MOTION_EASINGS = ['standard', 'enter', 'exit', 'mechanic
 // V-B B13 entrance-animation vocabulary (035). One-shot on-enter motion for a module
 // root, honoring prefers-reduced-motion (instant). `none` (absent) ≡ pre-B13 behavior.
 export const STOREFRONT_MOTION_ENTRANCES = ['none', 'fade', 'rise', 'zoom'] as const;
-// Four-pack render grammar (module-design-system.md §3.3.1). `auto` is resolved app-side
-// at generation (resolveStorefrontPack, §9.2) to a concrete pack; the storefront reads the
-// resolved value from style_json.pack and stamps `.superapp-scope[data-sa-pack]`.
-// `playful`/`utility` are personality-explicit and only auto-picked on a clear high-confidence
-// signal; ambiguous/low-confidence resolves to `luxe`. Additive — never remove a value.
-export const STOREFRONT_STYLE_PACKS = ['auto', 'luxe', 'bold', 'playful', 'utility'] as const;
+// Two-pack render grammar (module-design-system.md §3.3.1, H1 collapse ruling
+// 2026-08-24 — see docs/superpowers/plans/2026-08-24-ws-h-templates.md Task 1/2).
+// `auto` is resolved app-side at generation (resolveStorefrontPack, §9.2) to a
+// concrete pack; the storefront reads the resolved value from style_json.pack and
+// stamps `.superapp-scope[data-sa-pack]`. `playful`/`utility` were retired by H1
+// (not currently offered — see module-design-system.md §3.2a/§3.2b) and are no
+// longer valid values; a spec carrying either is a legacy/manual value and now
+// FAILS schema validation via StorefrontStyleSchema's `z.enum`, matching every
+// other narrowed enum in that schema (none silently coerce invalid values).
+export const STOREFRONT_STYLE_PACKS = ['auto', 'luxe', 'bold'] as const;
 // Global radius scaling knob (Radix `scaling`): shift a whole module tight↔soft in one move.
 export const STOREFRONT_RADIUS_SCALING_MIN = 50;
 export const STOREFRONT_RADIUS_SCALING_MAX = 150;

@@ -58,6 +58,7 @@ export const templates: TemplateEntry[] = [
   // ── Trust / payment badges (Hextom USB) ──────────────────────────────────
   {
     id: 'TBLK-PDP-01',
+    tier: 'standard',
     name: 'Trust Badge Row (Under Buy Button)',
     description:
       'Inline trust-badge strip under the product buy button — secure-checkout, money-back, and fast-shipping badges as a horizontal row on the product page.',
@@ -97,6 +98,7 @@ export const templates: TemplateEntry[] = [
   },
   {
     id: 'TBLK-PDP-02',
+    tier: 'standard',
     name: 'Payment Icons Strip',
     description:
       'Accepted-payment icon strip for the product page — a reorderable row of gateway badges (Visa, Mastercard, Amex, PayPal, Shop Pay) with an optional caption.',
@@ -139,6 +141,7 @@ export const templates: TemplateEntry[] = [
   },
   {
     id: 'TBLK-PDP-03',
+    tier: 'standard',
     name: 'Guarantee Badge Grid (Mono)',
     description:
       'Monochrome guarantee-badge grid — single-color icon cards for quality, returns, and support, styled black-and-white to match the store.',
@@ -181,6 +184,7 @@ export const templates: TemplateEntry[] = [
   // ── Size chart / product info (Globo Product Options) ─────────────────────
   {
     id: 'TBLK-PDP-04',
+    tier: 'standard',
     name: 'Size Chart Table',
     description:
       'Size-chart section for apparel product pages — a labeled measurement grid (size, chest, waist, length) that renders as a reorderable row-per-size block table.',
@@ -222,6 +226,7 @@ export const templates: TemplateEntry[] = [
   },
   {
     id: 'TBLK-PDP-05',
+    tier: 'standard',
     name: 'Size Chart Popup (Image)',
     description:
       'Overlay size-chart for the product page — a "View size chart" trigger that opens an uploaded measurement-diagram image in a modal, for stores using a graphic size guide.',
@@ -263,6 +268,7 @@ export const templates: TemplateEntry[] = [
   },
   {
     id: 'TBLK-PDP-06',
+    tier: 'standard',
     name: 'Product Info Accordion',
     description:
       'Collapsible product-info section for the product page — reorderable accordion blocks for details, materials, shipping, and care, matching Globo paragraph/popup info blocks.',
@@ -305,6 +311,7 @@ export const templates: TemplateEntry[] = [
   // ── Bought-together / add-ons (Selleasy) ──────────────────────────────────
   {
     id: 'TBLK-PDP-07',
+    tier: 'standard',
     name: 'Bought Together (Classic Row)',
     description:
       'Amazon-style "frequently bought together" display strip on the product page — a horizontal product row with a combined total and one "add all" CTA (presentational bundle shell).',
@@ -347,6 +354,7 @@ export const templates: TemplateEntry[] = [
   },
   {
     id: 'TBLK-PDP-08',
+    tier: 'standard',
     name: 'Product Add-Ons (Card List)',
     description:
       'Optional product add-ons list for the product page — checkbox add-on cards (gift wrap, warranty, express) shown below the buy button as a Selleasy card_list layout.',
@@ -386,6 +394,7 @@ export const templates: TemplateEntry[] = [
   },
   {
     id: 'TBLK-PDP-09',
+    tier: 'standard',
     name: 'Complete the Look (Card Slider)',
     description:
       'Cross-sell carousel on the product page — a swipeable "complete the look" card slider of complementary products, mirroring Selleasy card_slider add-on layout.',
@@ -431,6 +440,7 @@ export const templates: TemplateEntry[] = [
   // ── Sticky add-to-cart (Hextom button / cart urgency lineage) ─────────────
   {
     id: 'TBLK-PDP-10',
+    tier: 'standard',
     name: 'Sticky Add-to-Cart Bar',
     description:
       'Sticky add-to-cart bar for the product page — a bottom-anchored bar with product title, price, and buy button that follows the shopper as they scroll the PDP.',
@@ -466,6 +476,7 @@ export const templates: TemplateEntry[] = [
   },
   {
     id: 'TBLK-PDP-11',
+    tier: 'standard',
     name: 'Sticky ATC (Mobile-Only)',
     description:
       'Mobile-only sticky buy bar for the product page — a compact bottom add-to-cart bar shown on phones and hidden on desktop, where the buy button stays in view.',
@@ -490,7 +501,7 @@ export const templates: TemplateEntry[] = [
         layout: { mode: 'sticky', anchor: 'bottom', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'sticky' },
         spacing: { padding: 'tight', margin: 'none', gap: 'tight', density: 'compact' },
         typography: { size: 'MD', weight: 'bold', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#ffffff', background: '#111827', overlayBackdropOpacity: 0.45, seed: '#8a7f6d' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#8a7f6d' },
         shape: { radius: 'none', borderWidth: 'none', shadow: 'lg' },
         responsive: { hideOnMobile: false, hideOnDesktop: true },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -503,6 +514,7 @@ export const templates: TemplateEntry[] = [
   // ── Review summary / rating (Loox · Judge.me · Okendo) ────────────────────
   {
     id: 'TBLK-PDP-12',
+    tier: 'standard',
     name: 'Review Summary Header',
     description:
       'Aggregate review-summary header for the product page — average score, star row, and a 5-bar rating distribution, matching the Judge.me / Okendo summary-rail pattern.',
@@ -546,6 +558,7 @@ export const templates: TemplateEntry[] = [
   },
   {
     id: 'TBLK-PDP-13',
+    tier: 'standard',
     name: 'Star Rating Snippet (Inline)',
     description:
       'Compact inline star-rating snippet for the product title area — a star row plus "(count)" that scrolls to the reviews section on click, mirroring the Loox / Okendo badge.',
@@ -582,6 +595,7 @@ export const templates: TemplateEntry[] = [
   },
   {
     id: 'TBLK-PDP-14',
+    tier: 'standard',
     name: 'Photo Review Wall',
     description:
       'Photo-review "wall of love" grid for the product page — verified-buyer star cards with customer-photo thumbnails, seeded from the Loox media-gallery pattern.',

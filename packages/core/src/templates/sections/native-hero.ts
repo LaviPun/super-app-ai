@@ -24,6 +24,7 @@ export const NATIVE_HERO_TEMPLATES: TemplateEntry[] = [
   // NSEC-HERO-01 — Split hero (copy / visual), Apple HIG Clean.
   {
     id: 'NSEC-HERO-01',
+    tier: 'standard',
     name: 'Hero — Split',
     description: 'Two-column homepage hero with copy on the left and a product visual on the right, dual CTAs — a content-first layout for the index page.',
     category: 'STOREFRONT_UI',
@@ -72,6 +73,7 @@ export const NATIVE_HERO_TEMPLATES: TemplateEntry[] = [
   // NSEC-HERO-03 — Centered hero, Editorial Wellness.
   {
     id: 'NSEC-HERO-03',
+    tier: 'standard',
     name: 'Hero — Centered Editorial',
     description: 'Centered, whitespace-forward hero with a light-weight display headline and a single quiet CTA — an editorial opener for a brand or landing page.',
     category: 'STOREFRONT_UI',
@@ -117,6 +119,7 @@ export const NATIVE_HERO_TEMPLATES: TemplateEntry[] = [
   // NSEC-HERO-04 — Centered hero with stat chips, Tech Utility.
   {
     id: 'NSEC-HERO-04',
+    tier: 'standard',
     name: 'Hero — Centered with Proof Stats',
     description: 'Centered hero backed by a row of animated proof stats (customers, rating, ship time) — a high-trust, data-forward opener for the homepage.',
     category: 'STOREFRONT_UI',
@@ -151,7 +154,7 @@ export const NATIVE_HERO_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'compact' },
         typography: { size: 'XL', weight: 'bold', lineHeight: 'tight', align: 'center' },
-        colors: { text: '#e5e7eb', background: '#0a0f1a', overlayBackdropOpacity: 0.45, seed: '#22d3ee' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#22d3ee' },
         shape: { radius: 'sm', borderWidth: 'thin', shadow: 'none', elevation: 'border' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -164,6 +167,7 @@ export const NATIVE_HERO_TEMPLATES: TemplateEntry[] = [
   // NSEC-HERO-05 — Photo hero with overlay, Bold DTC.
   {
     id: 'NSEC-HERO-05',
+    tier: 'standard',
     name: 'Hero — Photo Overlay (Full Bleed)',
     description: 'Full-bleed photo hero with a darkening overlay and centered white headline plus CTA — an immersive campaign opener for the homepage.',
     category: 'STOREFRONT_UI',
@@ -197,7 +201,7 @@ export const NATIVE_HERO_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'center', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
         typography: { size: '2XL', weight: 'bold', lineHeight: 'tight', align: 'center' },
-        colors: { text: '#ffffff', background: '#111111', overlayBackdrop: '#000000', overlayBackdropOpacity: 0.5, seed: '#1f3a2e' },
+        colors: { overlayBackdrop: '#000000', overlayBackdropOpacity: 0.5, seed: '#1f3a2e' },
         shape: { radius: 'none', borderWidth: 'none', shadow: 'none', elevation: 'soft' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -210,6 +214,7 @@ export const NATIVE_HERO_TEMPLATES: TemplateEntry[] = [
   // NSEC-HERO-07 — Ambient gradient hero, Bold DTC.
   {
     id: 'NSEC-HERO-07',
+    tier: 'standard',
     name: 'Hero — Ambient Gradient',
     description: 'Centered hero over a soft multi-stop ambient gradient background (no photo), with dual CTAs — a fast, image-free opener for the homepage.',
     category: 'STOREFRONT_UI',
@@ -244,7 +249,7 @@ export const NATIVE_HERO_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
         typography: { size: '2XL', weight: 'bold', lineHeight: 'tight', align: 'center' },
-        colors: { text: '#ffffff', background: '#4c1d95', overlayBackdropOpacity: 0.45, seed: '#7c3aed' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#7c3aed' },
         shape: { radius: 'lg', borderWidth: 'none', shadow: 'lg', elevation: 'glow' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -257,6 +262,7 @@ export const NATIVE_HERO_TEMPLATES: TemplateEntry[] = [
   // NSEC-HERO-08 — Ambient gradient hero with feature chips, Playful Commerce.
   {
     id: 'NSEC-HERO-08',
+    tier: 'standard',
     name: 'Hero — Gradient with Feature Chips',
     description: 'Friendly rounded hero on a pastel gradient with a row of feature chips (free shipping, easy returns, rewards) beneath the CTA — a welcoming homepage opener.',
     category: 'STOREFRONT_UI',
@@ -306,6 +312,7 @@ export const NATIVE_HERO_TEMPLATES: TemplateEntry[] = [
   // NSEC-HERO-09 — Video hero, Bold DTC.
   {
     id: 'NSEC-HERO-09',
+    tier: 'standard',
     name: 'Hero — Background Video',
     description: 'Full-bleed background-video hero with an overlay, centered headline, and CTA — a cinematic campaign opener for the homepage (poster fallback for reduced-motion).',
     category: 'STOREFRONT_UI',
@@ -343,7 +350,7 @@ export const NATIVE_HERO_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'center', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
         typography: { size: '2XL', weight: 'bold', lineHeight: 'tight', align: 'center' },
-        colors: { text: '#ffffff', background: '#000000', overlayBackdrop: '#000000', overlayBackdropOpacity: 0.4, seed: '#4f46e5' },
+        colors: { overlayBackdrop: '#000000', overlayBackdropOpacity: 0.4, seed: '#4f46e5' },
         shape: { radius: 'none', borderWidth: 'none', shadow: 'none', elevation: 'soft' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -356,6 +363,7 @@ export const NATIVE_HERO_TEMPLATES: TemplateEntry[] = [
   // NSEC-HERO-10 — Media carousel hero (slideshow), Apple HIG Clean.
   {
     id: 'NSEC-HERO-10',
+    tier: 'standard',
     name: 'Hero — Slideshow Carousel',
     description: 'Rotating slideshow hero: each reorderable slide block carries its own image, headline, and link — a multi-message opener for the homepage.',
     category: 'STOREFRONT_UI',
@@ -391,7 +399,7 @@ export const NATIVE_HERO_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'center', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'none', margin: 'none', gap: 'none', density: 'comfortable' },
         typography: { size: '2XL', weight: 'bold', lineHeight: 'tight', align: 'left' },
-        colors: { text: '#ffffff', background: '#111827', overlayBackdrop: '#000000', overlayBackdropOpacity: 0.35, seed: '#e07856' },
+        colors: { overlayBackdrop: '#000000', overlayBackdropOpacity: 0.35, seed: '#e07856' },
         shape: { radius: 'none', borderWidth: 'none', shadow: 'none', elevation: 'soft' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

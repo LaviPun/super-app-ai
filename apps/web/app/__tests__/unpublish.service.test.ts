@@ -367,7 +367,7 @@ describe('UnpublishService', () => {
   it('functions.deliveryCustomization: LAST published module of this type still tears down fully (no false-positive skip)', async () => {
     moduleState.otherPublishedByType['functions.deliveryCustomization'] = 0;
     db.set('shop_1:deliveryCustomization', { functionKey: 'deliveryCustomization', kind: 'deliveryCustomization', activationGid: 'gid://shopify/DeliveryCustomization/1' });
-    const { admin, calls } = mockAdmin((op) => {
+    const { admin } = mockAdmin((op) => {
       if (op === 'MetaobjectByHandle') return { data: { metaobjectByHandle: { id: 'gid://mo/dc', field: { value: JSON.stringify({}) } } } };
       if (op === 'MetaobjectDelete') return { data: { metaobjectDelete: { deletedId: 'gid://mo/dc', userErrors: [] } } };
       if (op === 'ShopId') return { data: { shop: { id: 'gid://shopify/Shop/1' } } };

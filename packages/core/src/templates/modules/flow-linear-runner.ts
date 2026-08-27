@@ -20,6 +20,7 @@ export const FLOW_LINEAR_RUNNER_TEMPLATES: TemplateEntry[] = [
   // restock → persist the demand record → wait out the rate interval → notify + tag).
   {
     id: 'FLOW-01',
+    tier: 'standard',
     name: 'Back-in-Stock Waitlist Fan-Out',
     description:
       'When a product restocks, records the demand signal to a waitlist store, waits out the rate interval, then emails the merchant and tags the customer — an Appikon-style notify-me engine.',
@@ -65,6 +66,7 @@ export const FLOW_LINEAR_RUNNER_TEMPLATES: TemplateEntry[] = [
   // reminder note; the two DELAYs each park durably).
   {
     id: 'FLOW-02',
+    tier: 'standard',
     name: 'Abandoned-Order Nudge Drip',
     description:
       'On a new draft order, waits one hour then emails a first nudge, waits a day, then leaves a follow-up note and tags the order for reporting — a PushOwl-style multi-step recovery drip.',
@@ -105,6 +107,7 @@ export const FLOW_LINEAR_RUNNER_TEMPLATES: TemplateEntry[] = [
   // paid → wait for delivery window → tag the customer + Slack the review team).
   {
     id: 'FLOW-03',
+    tier: 'standard',
     name: 'Post-Purchase Review Request',
     description:
       'After an order is created, waits seven days for delivery, then tags the customer as review-eligible and posts to the review team Slack channel — a Judge.me-style review-request cadence.',
@@ -138,6 +141,7 @@ export const FLOW_LINEAR_RUNNER_TEMPLATES: TemplateEntry[] = [
   // record the VIP order to a segment store; else tag standard.
   {
     id: 'FLOW-04',
+    tier: 'standard',
     name: 'VIP Order Tag & Segment Router',
     description:
       'On each new order, branches on order total: high-value orders tag the customer VIP, annotate the order, and write to a VIP segment store; everyone else is tagged standard — a Klaviyo-style segmentation branch.',
@@ -184,6 +188,7 @@ export const FLOW_LINEAR_RUNNER_TEMPLATES: TemplateEntry[] = [
   // order → long durable wait → tag win-back + email the merchant to re-engage).
   {
     id: 'FLOW-05',
+    tier: 'standard',
     name: 'Win-Back Reactivation Timer',
     description:
       'After an order, waits thirty days then tags the customer for win-back and emails the merchant to trigger a re-engagement offer — a long durable-wait lapsed-customer timer.',
@@ -218,6 +223,7 @@ export const FLOW_LINEAR_RUNNER_TEMPLATES: TemplateEntry[] = [
   // fulfillment created → wait the renewal-lead window → note the renewal + Slack ops).
   {
     id: 'FLOW-06',
+    tier: 'standard',
     name: 'Subscription Renewal Reminder',
     description:
       'When a fulfillment is created, waits the renewal-lead window then annotates the order with a renewal reminder and posts to the subscriptions ops Slack — a Loop-style renewal dunning cadence.',

@@ -29,6 +29,7 @@ export const templates: TemplateEntry[] = [
   // ── TBLK-CART-01 — Free-shipping goal bar (UpCart tiered-rewards progress) ──
   {
     id: 'TBLK-CART-01',
+    tier: 'standard',
     name: 'Free Shipping Goal Bar',
     description:
       'Cart-page progress bar that shows how much more to spend to unlock free shipping, with a "spend X more" message above the cart line items.',
@@ -77,6 +78,7 @@ export const templates: TemplateEntry[] = [
   // ── TBLK-CART-02 — Tiered rewards ladder (UpCart 3-tier rewards bar) ──
   {
     id: 'TBLK-CART-02',
+    tier: 'standard',
     name: 'Tiered Rewards Ladder',
     description:
       'Cart-page multi-tier rewards bar (free shipping → discount → free gift) with a milestone per tier, showing progress toward each unlock.',
@@ -126,6 +128,7 @@ export const templates: TemplateEntry[] = [
   // ── TBLK-CART-03 — Cart goal → free gift (Corner slide-cart free-gift) ──
   {
     id: 'TBLK-CART-03',
+    tier: 'standard',
     name: 'Cart Goal — Free Gift Unlock',
     description:
       'Single-goal cart progress bar that unlocks a free gift at a spend threshold, with celebratory "unlocked" copy on the cart page.',
@@ -179,6 +182,7 @@ export const templates: TemplateEntry[] = [
   // ── TBLK-CART-04 — In-cart upsell cards (UpCart upsell module) ──
   {
     id: 'TBLK-CART-04',
+    tier: 'standard',
     name: 'In-Cart Upsell Cards',
     description:
       'Cart-page upsell strip of recommended add-on products with image, price and an add button, shown below the cart line items.',
@@ -225,6 +229,7 @@ export const templates: TemplateEntry[] = [
   // ── TBLK-CART-05 — Cart add-ons / bundle (Selleasy cart add-ons, add-all) ──
   {
     id: 'TBLK-CART-05',
+    tier: 'standard',
     name: 'Cart Add-Ons Bundle',
     description:
       'Cart-page "complete your order" add-on grid with checkbox-style selection and an add-all bundle CTA, driving cross-sell AOV.',
@@ -274,6 +279,7 @@ export const templates: TemplateEntry[] = [
   // ── TBLK-CART-06 — Rotating cart announcements (UpCart announcements module) ──
   {
     id: 'TBLK-CART-06',
+    tier: 'standard',
     name: 'Cart Announcement Bar',
     description:
       'Cart-page announcement strip that rotates through shipping, returns and promo messages above the line items.',
@@ -307,7 +313,7 @@ export const templates: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'tight', margin: 'none', gap: 'none', density: 'compact' },
         typography: { size: 'XS', weight: 'medium', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#ffffff', background: '#111827', overlayBackdropOpacity: 0.45, seed: '#0f172a' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#0f172a' },
         shape: { radius: 'none', borderWidth: 'none', shadow: 'none' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         motion: { duration: 'slow', easing: 'standard' },
@@ -320,6 +326,7 @@ export const templates: TemplateEntry[] = [
   // ── TBLK-CART-07 — Reserved-cart urgency timer (Hextom reserved-cart timer) ──
   {
     id: 'TBLK-CART-07',
+    tier: 'standard',
     name: 'Reserved Cart Timer',
     description:
       'Cart-page urgency banner with a countdown that frames the cart as reserved for a limited time to reduce checkout drop-off.',
@@ -364,6 +371,7 @@ export const templates: TemplateEntry[] = [
   // ── TBLK-CART-08 — Empty-cart recommendations (UpCart empty-cart module) ──
   {
     id: 'TBLK-CART-08',
+    tier: 'standard',
     name: 'Empty Cart Recommendations',
     description:
       'Recommendation strip shown on the cart page when the cart is empty, with a "you may also like" grid and a shop-now CTA.',

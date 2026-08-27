@@ -31,6 +31,7 @@ export const NATIVE_STATS_CTA_BAND_TEMPLATES: TemplateEntry[] = [
   // ── Stats variants ───────────────────────────────────────────────────────────
   {
     id: 'NSEC-STATS-01',
+    tier: 'standard',
     name: 'Stats — Animated Counter Row',
     description: 'A horizontal row of animated count-up metrics ("12,000+ sold") for the homepage — one accent, four evenly spaced stat blocks.',
     category: 'STOREFRONT_UI',
@@ -78,6 +79,7 @@ export const NATIVE_STATS_CTA_BAND_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-STATS-02',
+    tier: 'standard',
     name: 'Stats — Card Grid',
     description: 'A 2x2 grid of elevated stat cards for the About/brand page — each metric on its own soft-shadow card with a supporting caption.',
     category: 'STOREFRONT_UI',
@@ -125,6 +127,7 @@ export const NATIVE_STATS_CTA_BAND_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-STATS-03',
+    tier: 'standard',
     name: 'Stats — Big Number Split',
     description: 'A two-up split: one oversized hero metric on the left, a stacked list of supporting stats on the right — for a data-forward brand story.',
     category: 'STOREFRONT_UI',
@@ -161,7 +164,7 @@ export const NATIVE_STATS_CTA_BAND_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'wide', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'loose', density: 'compact' },
         typography: { size: '2XL', weight: 'bold', lineHeight: 'tight', align: 'left' },
-        colors: { text: '#e2e8f0', background: '#0b1120', seed: '#38bdf8', overlayBackdropOpacity: 0.45 },
+        colors: { seed: '#38bdf8', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'sm', borderWidth: 'thin', shadow: 'none', elevation: 'border' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -172,6 +175,7 @@ export const NATIVE_STATS_CTA_BAND_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-STATS-04',
+    tier: 'standard',
     name: 'Stats — Trust Bar (Compact Inline)',
     description: 'A slim, single-row trust strip of icon-led metrics sitting under the product hero — compact, quiet, one accent, no card chrome.',
     category: 'STOREFRONT_UI',
@@ -217,6 +221,7 @@ export const NATIVE_STATS_CTA_BAND_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-STATS-05',
+    tier: 'standard',
     name: 'Stats — Milestone Timeline',
     description: 'Year-anchored milestone metrics arranged as a horizontal timeline for a founder/heritage page — each block a "since 20XX" achievement.',
     category: 'STOREFRONT_UI',
@@ -264,6 +269,7 @@ export const NATIVE_STATS_CTA_BAND_TEMPLATES: TemplateEntry[] = [
   // ── CTA band variants ────────────────────────────────────────────────────────
   {
     id: 'NSEC-STATS-06',
+    tier: 'standard',
     name: 'CTA Band — Centered Gradient',
     description: 'A full-width centered call-to-action band on a bold gradient ground — one headline, one supporting line, one primary button.',
     category: 'STOREFRONT_UI',
@@ -296,7 +302,7 @@ export const NATIVE_STATS_CTA_BAND_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
         typography: { size: '2XL', weight: 'bold', lineHeight: 'tight', align: 'center' },
-        colors: { text: '#ffffff', background: '#4f46e5', seed: '#7c3aed', overlayBackdropOpacity: 0.45 },
+        colors: { seed: '#7c3aed', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'lg', borderWidth: 'none', shadow: 'md', elevation: 'glow' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -307,6 +313,7 @@ export const NATIVE_STATS_CTA_BAND_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-STATS-07',
+    tier: 'standard',
     name: 'CTA Band — Split with Media',
     description: 'A two-column CTA band: persuasive copy and a button on one side, a supporting image on the other — for a page or homepage promo.',
     category: 'STOREFRONT_UI',
@@ -348,6 +355,7 @@ export const NATIVE_STATS_CTA_BAND_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-STATS-08',
+    tier: 'standard',
     name: 'CTA Band — Newsletter Capture',
     description: 'An inline email-capture CTA band with a headline, incentive line, and a single input+button row — for footer or content pages.',
     category: 'STOREFRONT_UI',
@@ -390,6 +398,7 @@ export const NATIVE_STATS_CTA_BAND_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-STATS-09',
+    tier: 'standard',
     name: 'CTA Band — Countdown Urgency',
     description: 'A high-contrast CTA band pairing a promo headline with a static countdown deadline line and a primary button — for sale/launch pages.',
     category: 'STOREFRONT_UI',
@@ -421,7 +430,7 @@ export const NATIVE_STATS_CTA_BAND_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
         typography: { size: '2XL', weight: 'bold', lineHeight: 'tight', align: 'center' },
-        colors: { text: '#fef2f2', background: '#991b1b', seed: '#ef4444', overlayBackdropOpacity: 0.45 },
+        colors: { seed: '#ef4444', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'md', borderWidth: 'none', shadow: 'md', elevation: 'glow' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -432,6 +441,7 @@ export const NATIVE_STATS_CTA_BAND_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-STATS-10',
+    tier: 'standard',
     name: 'Stats + CTA — Proof-to-Action Band',
     description: 'A combined band: a row of proof metrics above a single call-to-action button — the "here is the proof, now buy" homepage closer.',
     category: 'STOREFRONT_UI',

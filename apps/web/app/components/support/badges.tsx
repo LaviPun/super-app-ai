@@ -14,14 +14,14 @@ export const TICKET_STATUS_TONE: Record<string, WcTone> = {
   RESOLVED: 'neutral',
 };
 
-// Merchant-facing support persona: first-line (AI-drafted) replies are shown under
-// this name. One place to change it; picked for cross-market pronounceability/trust.
+// Merchant-facing support persona: Maya is disclosed as an AI assistant (D4 —
+// "instant AI answer, humans on escalation"). One place to change the name.
 export const SUPPORT_AGENT_NAME = 'Maya';
 
-// Merchant-facing status labels: support reads as a human team, so no "AI" wording.
+// Merchant-facing status labels: honest about AI vs human authorship (D4).
 export const TICKET_STATUS_LABEL: Record<string, string> = {
   OPEN: 'Open',
-  AI_RESPONDED: 'Answered',
+  AI_RESPONDED: 'Answered by Maya (AI)',
   ESCALATED: 'With the team',
   RESOLVED: 'Resolved',
 };

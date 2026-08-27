@@ -11,9 +11,11 @@
  *   smtp     — real SMTP via nodemailer (host/port/secure/user/pass)
  *   sendgrid — SendGrid v3 mail/send over raw fetch
  *   generic  — any JSON HTTP email API over raw fetch
+ *   resend   — Resend /emails over raw fetch (Bearer auth)
+ *   postmark — Postmark /email over raw fetch (X-Postmark-Server-Token auth)
  *
  * Env fallbacks (used only when the corresponding DB field is null):
- *   EMAIL_CONNECTOR_PROVIDER  'sendgrid' (default) | 'generic'  (env has no 'smtp')
+ *   EMAIL_CONNECTOR_PROVIDER  'sendgrid' (default) | 'generic' | 'resend' | 'postmark' (env has no 'smtp')
  *   EMAIL_API_URL             endpoint (default https://api.sendgrid.com/v3/mail/send;
  *                             required for the generic provider)
  *   EMAIL_API_KEY             API key (required for fetch providers — unset ⇒ disabled)
@@ -29,9 +31,11 @@ import nodemailer from 'nodemailer';
 import { getPrisma } from '~/db.server';
 import { decryptJson } from '~/services/security/crypto.server';
 
-type EmailProvider = 'smtp' | 'sendgrid' | 'generic';
+type EmailProvider = 'smtp' | 'sendgrid' | 'generic' | 'resend' | 'postmark';
 
 const DEFAULT_SENDGRID_API_URL = 'https://api.sendgrid.com/v3/mail/send';
+const DEFAULT_RESEND_API_URL = 'https://api.resend.com/emails';
+const DEFAULT_POSTMARK_API_URL = 'https://api.postmarkapp.com/email';
 const SEND_TIMEOUT_MS = 15_000;
 
 export interface SendEmailInput {
@@ -122,6 +126,8 @@ function resolveEnvProvider(): EmailProvider {
   const configured = process.env.EMAIL_CONNECTOR_PROVIDER?.trim().toLowerCase();
   if (configured === 'generic') return 'generic';
   if (configured === 'sendgrid') return 'sendgrid';
+  if (configured === 'resend') return 'resend';
+  if (configured === 'postmark') return 'postmark';
   // A bare EMAIL_API_URL implies a generic endpoint.
   return envStr('EMAIL_API_URL') ? 'generic' : 'sendgrid';
 }
@@ -132,7 +138,11 @@ async function resolveConfig(): Promise<ResolvedMailerConfig> {
 
   const dbProvider = row?.emailProvider?.trim().toLowerCase();
   const provider: EmailProvider =
-    dbProvider === 'smtp' || dbProvider === 'sendgrid' || dbProvider === 'generic'
+    dbProvider === 'smtp' ||
+    dbProvider === 'sendgrid' ||
+    dbProvider === 'generic' ||
+    dbProvider === 'resend' ||
+    dbProvider === 'postmark'
       ? dbProvider
       : resolveEnvProvider();
 
@@ -140,7 +150,13 @@ async function resolveConfig(): Promise<ResolvedMailerConfig> {
 
   const apiUrlRaw = (row?.emailApiUrl?.trim() || null) ?? envStr('EMAIL_API_URL');
   const apiUrl =
-    provider === 'sendgrid' ? apiUrlRaw ?? DEFAULT_SENDGRID_API_URL : apiUrlRaw;
+    provider === 'sendgrid'
+      ? apiUrlRaw ?? DEFAULT_SENDGRID_API_URL
+      : provider === 'resend'
+        ? apiUrlRaw ?? DEFAULT_RESEND_API_URL
+        : provider === 'postmark'
+          ? apiUrlRaw ?? DEFAULT_POSTMARK_API_URL
+          : apiUrlRaw;
   const apiKey = tryDecrypt<{ apiKey: string }>(row?.emailApiKeyEnc ?? null, 'apiKey') ?? envStr('EMAIL_API_KEY');
 
   return {
@@ -157,15 +173,29 @@ async function resolveConfig(): Promise<ResolvedMailerConfig> {
   };
 }
 
-function buildAuthHeader(apiKey: string): Record<string, string> {
-  const keyHeader = process.env.EMAIL_API_KEY_HEADER?.trim() || 'Authorization';
+/**
+ * resend and postmark speak fixed, distinct auth conventions (Bearer / a bespoke
+ * server-token header) — unlike sendgrid/generic, which stay overridable via
+ * EMAIL_API_KEY_HEADER/EMAIL_API_KEY_PREFIX for arbitrary "generic" JSON APIs.
+ * An explicit env override still wins for every provider (e.g. a proxy that
+ * needs a different header name in front of any of them).
+ */
+function buildAuthHeader(provider: 'sendgrid' | 'generic' | 'resend' | 'postmark', apiKey: string): Record<string, string> {
+  const envHeader = process.env.EMAIL_API_KEY_HEADER?.trim();
+  const envPrefix = process.env.EMAIL_API_KEY_PREFIX;
+  if (provider === 'postmark') {
+    const keyHeader = envHeader || 'X-Postmark-Server-Token';
+    const keyPrefix = envPrefix ?? '';
+    return { [keyHeader]: `${keyPrefix}${apiKey}` };
+  }
+  const keyHeader = envHeader || 'Authorization';
   const defaultPrefix = keyHeader.toLowerCase() === 'authorization' ? 'Bearer ' : '';
-  const keyPrefix = process.env.EMAIL_API_KEY_PREFIX ?? defaultPrefix;
+  const keyPrefix = envPrefix ?? defaultPrefix;
   return { [keyHeader]: `${keyPrefix}${apiKey}` };
 }
 
 function buildFetchPayload(
-  provider: 'sendgrid' | 'generic',
+  provider: 'sendgrid' | 'generic' | 'resend' | 'postmark',
   recipients: string[],
   from: string,
   input: SendEmailInput,
@@ -182,6 +212,25 @@ function buildFetchPayload(
       content,
     };
   }
+  if (provider === 'resend') {
+    return {
+      from,
+      to: recipients,
+      subject: input.subject,
+      html: input.html,
+      text: input.text,
+    };
+  }
+  if (provider === 'postmark') {
+    // Postmark's Email API uses PascalCase fields and a single comma-joined To string.
+    return {
+      From: from,
+      To: recipients.join(','),
+      Subject: input.subject,
+      HtmlBody: input.html,
+      TextBody: input.text,
+    };
+  }
   return {
     to: recipients.length === 1 ? recipients[0] : recipients,
     from,
@@ -193,7 +242,7 @@ function buildFetchPayload(
 }
 
 async function sendViaFetch(
-  provider: 'sendgrid' | 'generic',
+  provider: 'sendgrid' | 'generic' | 'resend' | 'postmark',
   config: ResolvedMailerConfig,
   recipients: string[],
   from: string,
@@ -207,7 +256,7 @@ async function sendViaFetch(
   try {
     const res = await fetch(config.apiUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...buildAuthHeader(config.apiKey) },
+      headers: { 'Content-Type': 'application/json', ...buildAuthHeader(provider, config.apiKey) },
       body: JSON.stringify(buildFetchPayload(provider, recipients, from, input)),
       signal: controller.signal,
     });

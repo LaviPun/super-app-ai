@@ -21,6 +21,7 @@ export const ADMIN_BLOCK_ORDER_DETAILS_TEMPLATES: TemplateEntry[] = [
   // ADMB-ORD-01 — Subscription status card (Recharge / Appstle contract state)
   {
     id: 'ADMB-ORD-01',
+    tier: 'standard',
     name: 'Subscription Contract Status',
     description:
       'Order-page card summarizing the buyer’s subscription contract — status, plan, frequency and next charge — for support and dunning triage.',
@@ -57,6 +58,7 @@ export const ADMIN_BLOCK_ORDER_DETAILS_TEMPLATES: TemplateEntry[] = [
   // ADMB-ORD-02 — Customer lifetime value card (LTV / repeat-purchase context)
   {
     id: 'ADMB-ORD-02',
+    tier: 'standard',
     name: 'Customer Lifetime Value',
     description:
       'Order-page card showing the customer’s lifetime value, order count and average order value so merchants can gauge account worth while handling the order.',
@@ -89,6 +91,7 @@ export const ADMIN_BLOCK_ORDER_DETAILS_TEMPLATES: TemplateEntry[] = [
   // ADMB-ORD-03 — Loyalty tier & points card (Smile / LoyaltyLion / BON ledger)
   {
     id: 'ADMB-ORD-03',
+    tier: 'standard',
     name: 'Loyalty Tier & Points',
     description:
       'Order-page card showing the customer’s loyalty tier, points balance and progress to the next tier — for merchants running Smile, LoyaltyLion or BON style programs.',
@@ -124,6 +127,7 @@ export const ADMIN_BLOCK_ORDER_DETAILS_TEMPLATES: TemplateEntry[] = [
   // ADMB-ORD-04 — Order risk & fraud signal card
   {
     id: 'ADMB-ORD-04',
+    tier: 'standard',
     name: 'Order Risk & Fraud Signals',
     description:
       'Order-page card surfacing risk level and the fraud signals behind it (AVS/CVV, address mismatch, velocity) so merchants can review before fulfilling.',
@@ -162,6 +166,7 @@ export const ADMIN_BLOCK_ORDER_DETAILS_TEMPLATES: TemplateEntry[] = [
   // ADMB-ORD-05 — Customer tags & segment context card (BON_[tier] tags etc.)
   {
     id: 'ADMB-ORD-05',
+    tier: 'standard',
     name: 'Customer Tags & Segments',
     description:
       'Order-page card listing the customer’s tags and matched segments (VIP, wholesale, loyalty-tier tags) to give merchants routing and service context.',
@@ -196,6 +201,7 @@ export const ADMIN_BLOCK_ORDER_DETAILS_TEMPLATES: TemplateEntry[] = [
   // ADMB-ORD-06 — Support & fulfillment quick-actions card
   {
     id: 'ADMB-ORD-06',
+    tier: 'standard',
     name: 'Order Ops Quick Actions',
     description:
       'Order-page card giving support and ops staff a compact set of deep-links and inert action buttons — open the subscription portal, log a ticket, flag for review — alongside key order facts.',

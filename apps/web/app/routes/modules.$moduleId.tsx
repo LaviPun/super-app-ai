@@ -13,6 +13,8 @@ import { MODULE_CATALOG, isCapabilityAllowed, getExtensionEligibility } from '@s
 import { compileRecipe } from '~/services/recipes/compiler';
 import { ThemeService } from '~/services/shopify/theme.service';
 import { embedActivationDeepLink } from '~/services/publish/embed-status.server';
+import { mintPreviewToken } from '~/services/security/preview-token.server';
+import { SchemaForm, type JsonSchemaNode, type SectionUiHints } from '~/components/SchemaForm';
 import type { Capability, DeployTarget, RecipeSpec } from '@superapp/core';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
@@ -178,14 +180,27 @@ export async function loader({ request, params }: { request: Request; params: { 
             // ignore invalid JSON
           }
         }
+        // WS-F: forward the hydrate-produced (jsonSchema, uiSchema, defaults) triple so
+        // the client can mount SchemaForm instead of the hard-coded buy-bar shape.
+        let adminConfig: { jsonSchema: unknown; uiSchema: unknown; defaults: unknown } | null = null;
+        if (hydratedSource.adminConfigSchemaJson) {
+          try {
+            const parsed = JSON.parse(hydratedSource.adminConfigSchemaJson) as { jsonSchema?: unknown; uiSchema?: unknown };
+            const defaults = hydratedSource.adminDefaultsJson ? JSON.parse(hydratedSource.adminDefaultsJson) : {};
+            if (parsed.jsonSchema) adminConfig = { jsonSchema: parsed.jsonSchema, uiSchema: parsed.uiSchema ?? {}, defaults };
+          } catch {
+            // malformed persisted JSON — SchemaForm mount falls back to no-schema state
+          }
+        }
         return {
           status: 'done' as const,
           hydratedAt: hydratedSource.hydratedAt?.toISOString() ?? null,
           validationReport,
           everHydrated,
+          adminConfig,
         };
       })()
-    : { status: 'none' as const, hydratedAt: null, validationReport: null, everHydrated: false };
+    : { status: 'none' as const, hydratedAt: null, validationReport: null, everHydrated: false, adminConfig: null };
 
   // Internal notes live inside the draft spec JSON (no dedicated column) so the
   // Settings-tab notes field can persist without a schema migration.
@@ -213,7 +228,19 @@ export async function loader({ request, params }: { request: Request; params: { 
   // computed; the post-publish banner below decides whether to show it.
   const embedDeepLink = embedActivationDeepLink(session.shop);
 
-  return json({ moduleId, shop: session.shop, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, blueprint, internalNotes, deployment, embedDeepLink });
+  // WS-F: preview.$moduleId.tsx's bare top-level GET (window.open, no embedded
+  // admin session) is now authorized via a short-lived signed capability token
+  // instead of trusting a raw ?shop= query param. Minted here (authenticated
+  // loader) — cheap, no extra Shopify call, same pattern as embedDeepLink above.
+  const previewToken = mintPreviewToken({ shop: session.shop, moduleId }, 5 * 60_000);
+
+  // WS-F Task 11 (D7): restores the "view data captures" link dropped in
+  // d182fdc. modules.$moduleId_.captures.tsx (the real, complete captures
+  // view) already exists but is unreachable from module detail — this is
+  // just the count for the sidebar affordance below.
+  const captureCount = await getPrisma().dataCapture.count({ where: { moduleId, shopId: mod.shopId } });
+
+  return json({ moduleId, shop: session.shop, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, blueprint, internalNotes, deployment, embedDeepLink, previewToken, captureCount });
 }
 
 const RUNTIME_LABEL: Record<string, string> = {
@@ -354,7 +381,7 @@ const MONO_PRE: CSSProperties = {
 
 export default function ModuleDetail() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <ModuleDetailBody />
     </MerchantShell>
   );
@@ -362,7 +389,7 @@ export default function ModuleDetail() {
 
 function ModuleDetailBody() {
   const data = useLoaderData<typeof loader>();
-  const { moduleId, mod, spec, versions, themes, publishedThemeId, hydration, internalNotes, deployment, previewHtml, previewJson } = data;
+  const { moduleId, mod, spec, versions, themes, publishedThemeId, hydration, internalNotes, deployment, previewHtml, previewJson, captureCount } = data;
   const ctx = useMerchantCtx();
   const navigate = useNavigate();
   const revalidator = useRevalidator();
@@ -384,12 +411,19 @@ function ModuleDetailBody() {
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [delOpen, setDelOpen] = useState(false);
   const [unpubOpen, setUnpubOpen] = useState(false);
+  const [pubOpen, setPubOpen] = useState(false);
   const [modifyOpen, setModifyOpen] = useState(false);
   const [modifyInstruction, setModifyInstruction] = useState('');
   const [selectedThemeId, setSelectedThemeId] = useState(getDefaultThemeId(themes, publishedThemeId ?? null));
   const [applyingIdx, setApplyingIdx] = useState<number | null>(null);
   const [nameDraft, setNameDraft] = useState(mod.name);
   const [notesDraft, setNotesDraft] = useState(internalNotes ?? '');
+  // WS-F: SchemaForm's controlled value for the Settings-tab config editor,
+  // seeded from the current draft spec's `config` branch (hydrate's adminConfig
+  // supplies the schema this is rendered against — see the Settings tab below).
+  const [configValue, setConfigValue] = useState<Record<string, unknown>>(
+    () => ((spec as { config?: Record<string, unknown> } | null)?.config as Record<string, unknown>) ?? {},
+  );
   // WS-E finding 5: embed-activation nudge. Populated either from a same-page
   // publish (the fetcher's JSON carries embedStatus — no URL to read) or from
   // the redirect-based publish flow (?embed=... on the URL after /api/publish).
@@ -398,6 +432,10 @@ function ModuleDetailBody() {
   // carries failedOp + republish guidance — surfaced as a persistent banner
   // (a toast alone can't hold this much detail) rather than a flat error string.
   const [publishFailure, setPublishFailure] = useState<{ failedOp?: string; guidance?: string; message: string } | null>(null);
+  // WS-F Task 12: drives the post-publish "View storefront" banner. Cleared
+  // on every new publish attempt so a stale success banner never lingers
+  // across a subsequent (possibly failing) republish.
+  const [publishSucceeded, setPublishSucceeded] = useState(false);
 
   const publishFetcher = useFetcher<{
     ok?: boolean;
@@ -416,6 +454,7 @@ function ModuleDetailBody() {
   const duplicateFetcher = useFetcher<{ ok?: boolean; id?: string; name?: string; error?: string }>();
   const renameFetcher = useFetcher<{ ok?: boolean; name?: string; error?: string }>();
   const notesFetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const configFetcher = useFetcher<{ ok?: boolean; version?: number; error?: string }>();
   const hydrateFetcher = useFetcher<{ ok?: boolean; error?: string; message?: string; async?: boolean; jobId?: string }>();
   // WS-C Task 8: guards the async hydrate poll against duplicate/overlapping
   // pollJobUntilTerminal calls (the effect below can re-fire on unrelated
@@ -472,11 +511,13 @@ function ModuleDetailBody() {
     if (publishFetcher.data?.ok && publishFetcher.state === 'idle') {
       ctx.toast(isDraft ? 'Published — live in a few minutes' : 'Re-published');
       setPublishFailure(null);
+      setPublishSucceeded(true);
       if (publishFetcher.data.embedStatus && publishFetcher.data.embedStatus !== 'enabled') {
         setEmbedNudge(publishFetcher.data.embedStatus);
       }
       revalidator.revalidate();
     } else if (publishFetcher.data?.error && publishFetcher.state === 'idle') {
+      setPublishSucceeded(false);
       if (publishFetcher.data.code === 'PUBLISH_PARTIAL_FAILURE') {
         // Republish-is-the-fix (WS-E finding 4): every completed op is
         // idempotent, so surface exactly where it stopped instead of a flat
@@ -559,6 +600,17 @@ function ModuleDetailBody() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notesFetcher.data, notesFetcher.state]);
+
+  useEffect(() => {
+    if (configFetcher.state !== 'idle') return;
+    if (configFetcher.data?.ok) {
+      ctx.toast(`Settings saved — v${configFetcher.data.version}`);
+      revalidator.revalidate();
+    } else if (configFetcher.data?.error) {
+      ctx.toast(configFetcher.data.error, { error: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configFetcher.data, configFetcher.state]);
 
   useEffect(() => {
     if (applyFetcher.state !== 'idle') return;
@@ -700,6 +752,7 @@ function ModuleDetailBody() {
   const embedStatus = embedNudge ?? (urlEmbedStatus && urlEmbedStatus !== 'enabled' ? urlEmbedStatus : null);
 
   const publish = () => {
+    setPublishSucceeded(false);
     const body: Record<string, string> = {};
     if (isThemeModule && selectedThemeId) body.themeId = selectedThemeId;
     publishFetcher.submit(body, { method: 'post', action: `/api/agent/modules/${moduleId}/publish`, encType: 'application/json' });
@@ -726,9 +779,10 @@ function ModuleDetailBody() {
     a.remove();
   };
   const openPreview = () => {
-    // Pass the shop so the bare top-level GET in the new tab can render the module's
-    // own compiled preview without the embedded admin session (which it doesn't have).
-    window.open(`/preview/${moduleId}?shop=${encodeURIComponent(data.shop)}`, '_blank', 'noopener,noreferrer');
+    // Pass a short-lived signed capability token so the bare top-level GET in the new
+    // tab can render the module's own compiled preview without the embedded admin
+    // session (which it doesn't have) — and without trusting a raw shop param.
+    window.open(`/preview/${moduleId}?token=${encodeURIComponent(data.previewToken)}`, '_blank', 'noopener,noreferrer');
   };
   const saveName = () => {
     const name = nameDraft.trim();
@@ -766,8 +820,8 @@ function ModuleDetailBody() {
   return (
     <s-page heading={mod.name} inlineSize="base">
       {isDraft
-        ? <s-button slot="primary-action" variant="primary" icon="rocket" loading={isPublishing || undefined} onClick={publish}>Publish</s-button>
-        : <s-button slot="primary-action" variant="primary" icon="refresh" loading={isPublishing || undefined} onClick={publish}>Republish</s-button>}
+        ? <s-button slot="primary-action" variant="primary" icon="rocket" loading={isPublishing || undefined} onClick={() => setPubOpen(true)}>Publish</s-button>
+        : <s-button slot="primary-action" variant="primary" icon="refresh" loading={isPublishing || undefined} onClick={() => setPubOpen(true)}>Republish</s-button>}
       <s-button slot="secondary-actions" icon="view" onClick={openPreview}>Preview</s-button>
       <s-button slot="secondary-actions" icon="wand" onClick={() => setModifyOpen(true)}>Modify with AI</s-button>
       <s-button
@@ -824,6 +878,17 @@ function ModuleDetailBody() {
         <s-banner tone="info" heading="Module unpublished">This module is no longer live and is now a draft.</s-banner>
       )}
 
+      {publishSucceeded && isThemeModule && (
+        <s-banner tone="success" heading="Published">
+          {/* The module's live URL depends on theme placement, which this app
+              can't resolve to one page without additional placement metadata —
+              the shop's primary domain is the honest, always-real target. */}
+          <s-button href={`https://${data.shop}/`} target="_blank" variant="tertiary" icon="external">
+            View storefront
+          </s-button>
+        </s-banner>
+      )}
+
       {publishFailure && (
         <s-banner tone="critical" heading="Publish stopped partway through">
           <s-stack gap="small-100">
@@ -878,6 +943,19 @@ function ModuleDetailBody() {
         </ConfirmModal>
       )}
 
+      {pubOpen && (
+        <ConfirmModal open heading={mod.status === 'PUBLISHED' ? 'Republish module?' : 'Publish module?'}
+          confirmLabel={mod.status === 'PUBLISHED' ? 'Republish' : 'Publish'}
+          loading={isPublishing}
+          onConfirm={() => { setPubOpen(false); publish(); }} onClose={() => setPubOpen(false)}>
+          <s-paragraph>
+            {isThemeModule
+              ? `This deploys the module to “${themes.find((t: { id: number; name: string }) => String(t.id) === selectedThemeId)?.name ?? 'the selected theme'}”.`
+              : 'This makes the module live for merchants and customers.'}
+          </s-paragraph>
+        </ConfirmModal>
+      )}
+
       {modifyOpen && (
         <ModifyAiModal
           instruction={modifyInstruction}
@@ -896,7 +974,7 @@ function ModuleDetailBody() {
       <Tabs tabs={tabs} value={tab} onChange={setTab} />
 
       {tab === 'overview' && (
-        <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+        <s-grid gridTemplateColumns="@container (inline-size > 760px) 2fr 1fr, 1fr" gap="base">
           <s-stack gap="base">
             <s-section padding="none">
               <s-box border="base" borderRadius="base" overflow="hidden">
@@ -989,6 +1067,16 @@ function ModuleDetailBody() {
             <s-section heading="Placement">
               <s-text color="subdued">{placementText(spec, category)}</s-text>
             </s-section>
+            <s-section heading="Data captures">
+              <s-stack gap="small-100">
+                <KV rows={[['Captured entries', String(captureCount)]]} />
+                {captureCount > 0 ? (
+                  <s-button variant="tertiary" href={`/modules/${moduleId}/captures`}>View captures →</s-button>
+                ) : (
+                  <s-text color="subdued">No captures yet.</s-text>
+                )}
+              </s-stack>
+            </s-section>
           </s-stack>
         </s-grid>
       )}
@@ -1041,6 +1129,37 @@ function ModuleDetailBody() {
                 </s-stack>
               </s-stack>
               <s-divider />
+              {data.hydration.adminConfig ? (
+                <>
+                  <s-stack gap="small-100">
+                    <s-text type="strong">Settings</s-text>
+                    <SchemaForm
+                      schema={data.hydration.adminConfig.jsonSchema as JsonSchemaNode}
+                      uiSchema={data.hydration.adminConfig.uiSchema as Record<string, SectionUiHints>}
+                      value={configValue}
+                      onChange={setConfigValue}
+                      tier="advanced"
+                      disabled={configFetcher.state !== 'idle'}
+                    />
+                    <s-stack direction="inline">
+                      <s-button
+                        variant="primary"
+                        icon="check"
+                        loading={configFetcher.state !== 'idle' || undefined}
+                        onClick={() =>
+                          configFetcher.submit(
+                            { configJson: JSON.stringify(configValue) },
+                            { method: 'post', action: `/api/modules/${moduleId}/update-config` },
+                          )
+                        }
+                      >
+                        Save settings
+                      </s-button>
+                    </s-stack>
+                  </s-stack>
+                  <s-divider />
+                </>
+              ) : null}
               {hydration?.status === 'none' && (
                 <>
                   <s-banner tone="info" heading="Generate full settings">

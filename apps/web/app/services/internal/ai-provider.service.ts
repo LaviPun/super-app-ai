@@ -1,7 +1,13 @@
 import { getPrisma } from '~/db.server';
 import { encryptJson, decryptJson } from '~/services/security/crypto.server';
 
-export type ProviderKind = 'OPENAI' | 'ANTHROPIC' | 'GEMINI' | 'AZURE_OPENAI' | 'CUSTOM';
+// Re-exported from the pure (no server-import) kinds module so existing server
+// callers keep importing from `ai-provider.service`, while client components
+// import `ai-provider-kinds` directly to avoid pulling `~/db.server` into the
+// client bundle (see that file's header comment — WS-INT Task 13 build-fix).
+export type { ProviderKind } from './ai-provider-kinds';
+export { ALLOWED_PROVIDER_KINDS, DEFAULT_BASE_URL_BY_KIND } from './ai-provider-kinds';
+import type { ProviderKind } from './ai-provider-kinds';
 
 /** JSON stored in AiProvider.extraConfig for ANTHROPIC: skills list and code execution flag. */
 export type AnthropicExtraConfig = {

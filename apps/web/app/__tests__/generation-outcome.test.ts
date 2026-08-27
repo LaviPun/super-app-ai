@@ -5,6 +5,7 @@ import {
   withGenerationCorrelationId,
   stampGenerationCorrelationId,
   resolveGenerationCorrelationId,
+  stepIndexForSeenEvents,
 } from '~/utils/generation-outcome';
 
 describe('finalizeGenerationJob', () => {
@@ -46,6 +47,23 @@ describe('nextStepAfterStream (client decision)', () => {
 
   it('empty stream with no error frame and no transport failure → honest retry (no silent refire)', () => {
     expect(nextStepAfterStream({ gotAny: false, sawErrorFrame: false, transportFailed: false })).toBe('show-retry');
+  });
+});
+
+describe('nextStepAfterStream — abort handling (WS-F: Cancel must not bill)', () => {
+  it('an intentional abort never triggers batch-fallback, even with zero options collected', () => {
+    const result = nextStepAfterStream({ gotAny: false, sawErrorFrame: false, transportFailed: true, aborted: true });
+    expect(result).not.toBe('batch-fallback');
+  });
+  it('an intentional abort resolves to the dedicated cancelled step, not a retry prompt either', () => {
+    const result = nextStepAfterStream({ gotAny: false, sawErrorFrame: false, transportFailed: true, aborted: true });
+    expect(result).toBe('cancelled');
+  });
+  it('a non-aborted transport failure still falls back to batch (unchanged behavior)', () => {
+    expect(nextStepAfterStream({ gotAny: false, sawErrorFrame: false, transportFailed: true, aborted: false })).toBe('batch-fallback');
+  });
+  it('aborted takes precedence even if options had already arrived', () => {
+    expect(nextStepAfterStream({ gotAny: true, sawErrorFrame: false, transportFailed: true, aborted: true })).toBe('cancelled');
   });
 });
 
@@ -149,5 +167,28 @@ describe('resolveGenerationCorrelationId (WS-C final review, IMPORTANT-1)', () =
 
     expect(fd.get('correlationId')).toBe(newCorrelationId);
     expect(ref.current).toBe(newCorrelationId);
+  });
+});
+
+describe('stepIndexForSeenEvents (WS-F: real progress, was a fake setInterval)', () => {
+  it('no events yet → step 0 (fetch in flight)', () => {
+    expect(stepIndexForSeenEvents(new Set(), 5)).toBe(0);
+  });
+  it('first option arrives → advances past "understanding the request"', () => {
+    expect(stepIndexForSeenEvents(new Set(['option']), 5)).toBe(2);
+  });
+  it('ranking arrives → validating/ranking step', () => {
+    expect(stepIndexForSeenEvents(new Set(['option', 'ranking']), 5)).toBe(3);
+  });
+  it('stream done → complete', () => {
+    expect(stepIndexForSeenEvents(new Set(['option', 'ranking', 'done']), 5)).toBe(5);
+  });
+  it('never regresses below a previously-reached step for a lesser event mix', () => {
+    // e.g. a late 'score' event alone shouldn't rewind an already-advanced UI;
+    // caller is responsible for tracking the max seen, this function is a pure
+    // ceiling function over the *seen set*, so assert monotonic inputs behave.
+    const a = stepIndexForSeenEvents(new Set(['option', 'ranking']), 5);
+    const b = stepIndexForSeenEvents(new Set(['option', 'ranking', 'score']), 5);
+    expect(b).toBeGreaterThanOrEqual(a);
   });
 });
