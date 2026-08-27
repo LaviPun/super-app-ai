@@ -1,7 +1,7 @@
 # Platform V2 — Phase 5 Job Orchestration
 
 **Status:** Local/testable work complete; production DB/Redis cutover blocked on external dependencies  
-**Plan reference:** [platform-v2-migration-plan.md](../platform-v2-migration-plan.md) § Phase 5
+**Plan reference:** [platform-v2-migration-plan.md](../../archive/gitbook-v2-migration/platform-v2-migration-plan.md) § Phase 5
 
 ## Implemented foundation
 

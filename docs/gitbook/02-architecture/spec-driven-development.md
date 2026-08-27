@@ -58,7 +58,7 @@ export SPECIFY_FEATURE=013-your-feature
 | Migration artifact | Spec Kit artifact |
 |--------------------|-------------------|
 | `docs/phase-plan.md` § Phase N | High-level roadmap |
-| `docs/gitbook/02-architecture/v2-migration/phase-N-*.md` | Implementation record / merge notes |
+| `docs/archive/gitbook-v2-migration/phase-N-*.md` | Implementation record / merge notes |
 | `specs/0NN-<phase-name>/spec.md` | Testable requirements & acceptance |
 | `specs/0NN-<phase-name>/plan.md` | Technical plan (packages, routes, workers) |
 | `specs/0NN-<phase-name>/tasks.md` | Checklist for `/speckit-implement` |
@@ -69,9 +69,9 @@ For the **next** phase, use phase number as `--number` (e.g. `--number 13`) so d
 
 **Master index:** [`specs/000-platform-v2-master/spec.md`](../../../specs/000-platform-v2-master/spec.md) — phase coverage matrix, env vars, dual-queue architecture, deferred items, links to all `specs/0NN-*` directories.
 
-**Living audit:** [`docs/spec-kit-status-report.md`](../../../docs/spec-kit-status-report.md) — contract inventory, research gaps, SC-M1–M5 honesty, remediation tracker (updated 2026-06-12 spec rework).
+**Living audit:** [`docs/spec-kit-status-report.md`](../../../docs/archive/spec-kit-status-report.md) — contract inventory, research gaps, SC-M1–M5 honesty, remediation tracker (updated 2026-06-12 spec rework).
 
-**Deploy policy:** Scoped Cloudflare-primary hosting per [ADR-002](./v2-migration/ADR-002-cloudflare-v2-hosting.md) and [cloudflare-deployment-runbook.md](./v2-migration/cloudflare-deployment-runbook.md). Do not duplicate the phase matrix here — use the master spec table.
+**Deploy policy:** Scoped Cloudflare-primary hosting per [ADR-002](../../archive/gitbook-v2-migration/ADR-002-cloudflare-v2-hosting.md) and [cloudflare-deployment-runbook.md](../../archive/gitbook-v2-migration/cloudflare-deployment-runbook.md). Do not duplicate the phase matrix here — use the master spec table.
 
 ## Brownfield vs greenfield
 

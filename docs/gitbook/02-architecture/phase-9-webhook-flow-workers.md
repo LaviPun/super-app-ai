@@ -1,7 +1,7 @@
 # Platform V2 — Phase 9 Webhook And Flow Workers
 
 **Status:** Local/testable ingress and worker foundations complete; production cutover blocked by live Shopify runtime wiring, durable webhook audit persistence, and V2 flow persistence  
-**Plan reference:** [platform-v2-migration-plan.md](../platform-v2-migration-plan.md) § Phase 9
+**Plan reference:** [platform-v2-migration-plan.md](../../archive/gitbook-v2-migration/platform-v2-migration-plan.md) § Phase 9
 
 ## Legacy source paths inspected
 

@@ -154,7 +154,7 @@ The `--allow-updates` flag is required when not in an interactive terminal. Cust
 
 ## 2026-06-14 — Functions two-layer deploy (spec 026)
 
-Source of truth: [`module-system-v2.md`](./module-system-v2.md). Contract: `packages/platform-contracts/src/publish-functions.ts` (`FunctionDeploymentContractSchema`).
+Source of truth: [`module-system-v2.md`](./archive/module-system-v2.md). Contract: `packages/platform-contracts/src/publish-functions.ts` (`FunctionDeploymentContractSchema`).
 
 A Shopify Function module deploys in **two layers**:
 1. **(a) wasm extension** — the function lives in `extensions/<handle>/` and ships via `shopify app deploy` (build/CI). `extensionHandle` + `wasmDeployed` track this.

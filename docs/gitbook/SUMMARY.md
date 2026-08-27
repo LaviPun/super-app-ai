@@ -10,7 +10,7 @@
 
 * [Merchant guide](../app.md)
 * [Internal admin (app owner)](../internal-admin.md)
-* [Module settings patterns](../module-settings-modernization.md)
+* [Module settings patterns](../archive/module-settings-modernization.md)
 
 ## Architecture
 
@@ -19,22 +19,22 @@
 * [System architecture](02-architecture/system-architecture.md)
 * [Data model](02-architecture/data-model.md)
 * [Spec-driven development (Spec Kit)](02-architecture/spec-driven-development.md)
-* [Platform V2 migration plan](02-architecture/platform-v2-migration-plan.md)
+* [Platform V2 migration plan](../archive/gitbook-v2-migration/platform-v2-migration-plan.md)
 * [V2 master spec index](../../../specs/000-platform-v2-master/spec.md)
-* [V2 Phase 12 — storage & image worker](02-architecture/v2-migration/phase-12-storage-image-worker.md)
-* [ADR-001 — Platform V2 architecture](02-architecture/v2-migration/ADR-001-platform-v2-architecture.md)
+* [V2 Phase 12 — storage & image worker](../archive/gitbook-v2-migration/phase-12-storage-image-worker.md)
+* [ADR-001 — Platform V2 architecture](../archive/gitbook-v2-migration/ADR-001-platform-v2-architecture.md)
 * [Technical reference (full)](../technical.md)
 
 ### Platform V2 migration
 
-* [V2 migration plan (master)](02-architecture/platform-v2-migration-plan.md)
-* [ADR-001 Platform V2 architecture](02-architecture/v2-migration/ADR-001-platform-v2-architecture.md)
-* [Target monorepo layout](02-architecture/v2-migration/target-monorepo-layout.md)
-* [Phase 20 — Testing matrix](02-architecture/v2-migration/phase-20-testing-matrix.md)
-* [Phase 21 — Rollout and cutover](02-architecture/v2-migration/phase-21-rollout-cutover.md)
-* [Phase 11 — Publish worker](02-architecture/v2-migration/phase-11-publish-worker.md)
-* [Phase 13 — Preview sandbox](02-architecture/v2-migration/phase-13-preview-sandbox.md)
-* [Phase 14 — Intent graph](02-architecture/v2-migration/phase-14-intent-graph.md)
+* [V2 migration plan (master)](../archive/gitbook-v2-migration/platform-v2-migration-plan.md)
+* [ADR-001 Platform V2 architecture](../archive/gitbook-v2-migration/ADR-001-platform-v2-architecture.md)
+* [Target monorepo layout](../archive/gitbook-v2-migration/target-monorepo-layout.md)
+* [Phase 20 — Testing matrix](../archive/gitbook-v2-migration/phase-20-testing-matrix.md)
+* [Phase 21 — Rollout and cutover](../archive/gitbook-v2-migration/phase-21-rollout-cutover.md)
+* [Phase 11 — Publish worker](../archive/gitbook-v2-migration/phase-11-publish-worker.md)
+* [Phase 13 — Preview sandbox](../archive/gitbook-v2-migration/phase-13-preview-sandbox.md)
+* [Phase 14 — Intent graph](../archive/gitbook-v2-migration/phase-14-intent-graph.md)
 
 ## Backend & platform
 
@@ -64,10 +64,10 @@
 
 * [Reference index (canonical files)](09-reference/reference-library.md)
 * [AI module specification](../ai-module-main-doc.md)
-* [Module catalog](../catalog.md)
+* [Module catalog](../archive/catalog.md)
 * [Data models (stores)](../data-models.md)
 * [AI providers](../ai-providers.md)
-* [Platform constraints (long form)](../superai-doc.md)
+* [Platform constraints (long form)](../archive/superai-doc.md)
 
 ## Operations & quality
 
@@ -77,13 +77,13 @@
 * [SLOs](../slos.md)
 * [Debug & troubleshooting](../debug.md)
 * [Shopify dev setup](../shopify-dev-setup.md)
-* [UI/UX guidelines](../uiux-guideline.md)
+* [UI/UX guidelines](../archive/uiux-guideline.md)
 
 ## Planning & roadmap
 
 * [Implementation status](../implementation-status.md)
-* [Phase plan](../phase-plan.md)
-* [Code change verification (example)](../plan-changes-codechange-verification.md)
+* [Phase plan](../archive/phase-plan.md)
+* [Code change verification (example, archived)](../archive/plan-changes-codechange-verification.md)
 
 ## Archive
 

@@ -84,7 +84,7 @@ SLOs: [`slos.md`](../slos.md)
 {% endtabs %}
 
 {% hint style="success" %}
-**Design system:** the Internal Admin and Merchant Dashboard are a 1:1 build of the approved Claude Design handoff. Tokens, shells, and nav are documented in [`DESIGN.md`](../../DESIGN.md) § *Implemented Design System* and [`uiux-guideline.md`](../uiux-guideline.md).
+**Design system:** the Internal Admin and Merchant Dashboard are a 1:1 build of the approved Claude Design handoff. Tokens, shells, and nav are documented in [`DESIGN.md`](../../DESIGN.md) § *Implemented Design System* and [`uiux-guideline.md`](../archive/uiux-guideline.md).
 {% endhint %}
 
 ## How this book is organized

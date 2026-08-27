@@ -256,7 +256,7 @@ export class ShopifyConnector implements Connector {
       }
 
       case 'order.routeToLocation': {
-        // Our own order routing (docs/flow-automation.md §5): resolve the
+        // Our own order routing (docs/flows.md §2, "Connectors"): resolve the
         // order's fulfillment order, then fulfillmentOrderMove it.
         const { orderId, newLocationId } = req.inputs;
         const query = `#graphql

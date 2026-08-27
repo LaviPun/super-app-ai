@@ -174,4 +174,4 @@ flowchart LR
 ## V2 database strategy
 
 - **Phase 0–4:** Keep SQLite/Postgres in `apps/web`; new apps use contracts only.
-- **Later phase:** `packages/db` shared Prisma client; Postgres cutover per [platform-v2-migration-plan.md](../platform-v2-migration-plan.md).
+- **Later phase:** `packages/db` shared Prisma client; Postgres cutover per [platform-v2-migration-plan.md](../../archive/gitbook-v2-migration/platform-v2-migration-plan.md).

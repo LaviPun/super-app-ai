@@ -87,7 +87,7 @@ export function evalExpression(expr: Expression, ctx: RunContext): boolean {
 }
 
 /**
- * Evaluate an Expression tree to a VALUE (docs/flow-automation.md §expressions):
+ * Evaluate an Expression tree to a VALUE (docs/flows.md §2, "Expression language"):
  * boolean ops return booleans; arithmetic/string/array/date/util ops return
  * their computed value. Safe — no eval; unknown ops resolve to undefined.
  */
