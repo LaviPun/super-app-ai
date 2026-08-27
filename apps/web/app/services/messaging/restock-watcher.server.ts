@@ -116,8 +116,6 @@ type CapturePayload = Record<string, unknown> & {
   status?: unknown;
 };
 
-type CaptureRow = { id: string; customerId: string | null; captureType: string; payload: string };
-
 /** One variant's post-update state, parsed from the products/update payload. */
 type VariantState = { variantGid: string; qty: number | null; price: number | null };
 

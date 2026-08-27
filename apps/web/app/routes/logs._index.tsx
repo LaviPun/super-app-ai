@@ -22,7 +22,6 @@ export async function loader({ request }: { request: Request }) {
   }
 
   const since30d = new Date(Date.now() - 30 * 86400000);
-  const since7d = new Date(Date.now() - 7 * 86400000);
 
   const quota = new QuotaService();
   const usage = await quota.getUsageSummary(shopRow.id);
