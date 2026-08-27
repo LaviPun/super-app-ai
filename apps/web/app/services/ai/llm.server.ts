@@ -1222,11 +1222,22 @@ async function regenerateSingleRecipeForQa(args: {
   providerId: string | null;
   deadlineAt?: number;
 }): Promise<QaRegenResult> {
-  const { client, compiledPrompt, corrective, perBudget, singleSchema, moduleType, idx, shopId, providerId, deadlineAt } = args;
+  const { client, compiledPrompt, corrective, perBudget, singleSchema, moduleType, shopId, providerId, deadlineAt } = args;
+  // WS P2-A fix round 1 (review finding 1): tool name must be index-invariant
+  // — it renders inside `tools`, which serializes before `system`/`messages`
+  // in the request body, so a name that varies per fan-out option (or per QA
+  // regen vs. the original call) would change the `tools` block bytes and
+  // invalidate BOTH cache breakpoints (system + message-prefix) for every
+  // sibling call. Nothing downstream matches on this string (Anthropic's
+  // `extractToolUseInput` matches by content type, not name) — it only needs
+  // to be a valid identifier unique per (moduleType) tool-choice, not per call.
+  // Reusing the same name as the main option call (below, produceOptionRecipe)
+  // additionally lets a QA-triggered corrective regen share that call's cache
+  // lineage instead of fragmenting into its own.
   const result = await client.generateRecipe(`${compiledPrompt.prompt}\n\n${corrective}`, {
     maxTokens: perBudget,
     responseSchema: singleSchema
-      ? { name: `RecipeSingle_${moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}_qa`, schema: singleSchema }
+      ? { name: `RecipeSingle_${moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}`, schema: singleSchema }
       : undefined,
     deadlineAt,
     cacheableChars: compiledPrompt.cacheableChars,
@@ -1779,10 +1790,14 @@ async function produceOptionRecipe(args: {
   }
 
   // Freeform (default) path.
+  // WS P2-A fix round 1 (review finding 1): tool name is index-invariant (no
+  // `_${idx}` suffix) so the 3 parallel fan-out option calls for one request
+  // — and any QA corrective regen, see regenerateSingleRecipeForQa above —
+  // share an identical `tools` block and therefore the same cache lineage.
   const result = await client.generateRecipe(compiledPrompt.prompt, {
     maxTokens: perBudget,
     responseSchema: singleSchema
-      ? { name: `RecipeSingle_${moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}`, schema: singleSchema }
+      ? { name: `RecipeSingle_${moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}`, schema: singleSchema }
       : undefined,
     deadlineAt,
     cacheableChars: compiledPrompt.cacheableChars,
