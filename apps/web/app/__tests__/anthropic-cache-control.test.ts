@@ -66,6 +66,35 @@ describe('anthropicGenerateRecipe cache_control', () => {
     expect(body.messages).toEqual([{ role: 'user', content: 'STATICDYNAMIC' }]);
   });
 
+  // Review finding 4(a): every other test in this file sets the flag
+  // explicitly (on or off) — none exercises the actual production default,
+  // which is the env var being entirely absent rather than set to 'false'.
+  it('defaults caching off when AI_PROMPT_CACHING_ENABLED is entirely unset, even with a cacheBoundary', async () => {
+    delete process.env.AI_PROMPT_CACHING_ENABLED;
+    await anthropicGenerateRecipe({ apiKey: 'k', model: 'claude-sonnet-5', prompt: 'STATIC' + 'DYNAMIC', cacheBoundary: 6 });
+    const body = postJsonWithRetries.mock.calls[0]![0].body;
+    expect(body.messages).toEqual([{ role: 'user', content: 'STATICDYNAMIC' }]);
+  });
+
+  // Review finding 4(b): the "puts cache_control on the system block" test
+  // below only proves the flag-ON shape; nothing proved the flag-OFF shape
+  // stays byte-identical to pre-batch (a plain string, not a one-block array)
+  // when responseSchema/structured-output is also active — the one case
+  // where the two conditions (`cachingEnabled && useStructured`) interact.
+  it('keeps system as a plain string when the flag is off, even with responseSchema (structured output) active', async () => {
+    process.env.AI_PROMPT_CACHING_ENABLED = 'false';
+    await anthropicGenerateRecipe({
+      apiKey: 'k',
+      model: 'claude-sonnet-5',
+      prompt: 'p',
+      responseSchema: { name: 'emit_recipe', schema: { type: 'object', properties: {} } },
+    });
+    const body = postJsonWithRetries.mock.calls[0]![0].body;
+    expect(body.system).toBe(
+      'You are a JSON generator. Call the provided tool exactly once with valid arguments matching the schema.',
+    );
+  });
+
   it('puts cache_control on the system block when responseSchema (structured output) is active', async () => {
     await anthropicGenerateRecipe({
       apiKey: 'k',
