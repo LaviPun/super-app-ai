@@ -39,6 +39,7 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
   // ── HERO (5) ──────────────────────────────────────────────────────────────
   {
     id: 'TBLK-IDX-01',
+    tier: 'standard',
     name: 'Hero — Split Copy / Visual',
     description: 'Full-width homepage hero split into a copy column and a product-visual column, with a primary and secondary CTA.',
     category: 'STOREFRONT_UI',
@@ -84,6 +85,7 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
 
   {
     id: 'TBLK-IDX-02',
+    tier: 'standard',
     name: 'Hero — Centered Statement',
     description: 'Centered, editorial homepage hero: big light-weight display headline over a single CTA, generous whitespace.',
     category: 'STOREFRONT_UI',
@@ -126,6 +128,7 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
 
   {
     id: 'TBLK-IDX-03',
+    tier: 'standard',
     name: 'Hero — Photo Overlay',
     description: 'Full-bleed photo homepage hero with a text overlay and scrim, headline + CTA anchored bottom-left.',
     category: 'STOREFRONT_UI',
@@ -156,7 +159,7 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
         typography: { size: '2XL', weight: 'bold', lineHeight: 'tight', align: 'left' },
-        colors: { text: '#ffffff', background: '#0a0a0a', overlayBackdrop: '#000000', overlayBackdropOpacity: 0.4, seed: '#f43f5e' },
+        colors: { overlayBackdrop: '#000000', overlayBackdropOpacity: 0.4, seed: '#f43f5e' },
         shape: { radius: 'md', borderWidth: 'none', shadow: 'lg', elevation: 'glow' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -168,6 +171,7 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
 
   {
     id: 'TBLK-IDX-04',
+    tier: 'standard',
     name: 'Hero — Ambient Gradient',
     description: 'Centered homepage hero on a soft ambient-gradient background with a rounded pill CTA.',
     category: 'STOREFRONT_UI',
@@ -211,6 +215,7 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
   // ── FEATURE BENTO / VALUE-PROP (5) ─────────────────────────────────────────
   {
     id: 'TBLK-IDX-06',
+    tier: 'standard',
     name: 'Feature Bento — Mixed Tiles',
     description: 'Bento grid of mixed-size feature tiles for the homepage, each block a value-prop with icon, heading and body.',
     category: 'STOREFRONT_UI',
@@ -253,6 +258,7 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
 
   {
     id: 'TBLK-IDX-07',
+    tier: 'standard',
     name: 'Value Props — Three Column',
     description: 'Three-column value-prop row for the homepage: shipping, guarantee, support. Clean columns with icons.',
     category: 'STOREFRONT_UI',
@@ -293,6 +299,7 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
 
   {
     id: 'TBLK-IDX-08',
+    tier: 'standard',
     name: 'Feature Bento — Editorial',
     description: 'Editorial bento grid pairing lifestyle imagery with short prose for a brand-story homepage section.',
     category: 'STOREFRONT_UI',
@@ -333,6 +340,7 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'TBLK-IDX-10',
+    tier: 'standard',
     name: 'Feature Bento — Playful Tiles',
     description: 'Friendly, rounded bento tiles with pastel fills for a homepage benefits section.',
     category: 'STOREFRONT_UI',
@@ -375,6 +383,7 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
   // ── SOCIAL PROOF (8) ───────────────────────────────────────────────────────
   {
     id: 'TBLK-IDX-11',
+    tier: 'standard',
     name: 'Social Proof — Wall of Love',
     description: 'Photo-review "wall of love" grid for the homepage — verified-buyer star cards with media thumbnails. Grounded in Loox review-wall UGC pattern.',
     category: 'STOREFRONT_UI',
@@ -419,6 +428,7 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
 
   {
     id: 'TBLK-IDX-12',
+    tier: 'standard',
     name: 'Social Proof — Testimonial Carousel',
     description: 'Curated best-reviews testimonial slider for the homepage, one quote per slide with attribution. Grounded in Fera/Loox testimonial-carousel pattern.',
     category: 'STOREFRONT_UI',
@@ -459,6 +469,7 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
 
   {
     id: 'TBLK-IDX-13',
+    tier: 'standard',
     name: 'Social Proof — Single Spotlight',
     description: 'Single hero-quote spotlight for the homepage: one big testimonial with reviewer photo and star row.',
     category: 'STOREFRONT_UI',
@@ -497,6 +508,7 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
 
   {
     id: 'TBLK-IDX-14',
+    tier: 'standard',
     name: 'Social Proof — Rating Banner',
     description: 'Full-width overall store-rating banner for the homepage: aggregate stars, average score and review count. Grounded in Fera overall-rating banner.',
     category: 'STOREFRONT_UI',
@@ -533,6 +545,7 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
 
   {
     id: 'TBLK-IDX-15',
+    tier: 'standard',
     name: 'Social Proof — Trust Badge Row',
     description: 'Row of trust marks for the homepage: guarantees, secure checkout, free returns. Grounded in Loox aggregate trust-badge pattern.',
     category: 'STOREFRONT_UI',
@@ -574,6 +587,7 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
 
   {
     id: 'TBLK-IDX-16',
+    tier: 'standard',
     name: 'Social Proof — Logo Marquee',
     description: 'Scroll-velocity logo/press marquee for the homepage: "as seen in" press and retail-partner logos. Grounded in design-vocabulary logo/trust marquee.',
     category: 'STOREFRONT_UI',
@@ -616,6 +630,7 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
 
   {
     id: 'TBLK-IDX-17',
+    tier: 'standard',
     name: 'Social Proof — Stats Row',
     description: 'Animated stats row for the homepage: units sold, happy customers, average rating as big-number counters. Grounded in design-vocabulary stats row.',
     category: 'STOREFRONT_UI',
@@ -656,6 +671,7 @@ export const TBLK_IDX_TEMPLATES: TemplateEntry[] = [
 
   {
     id: 'TBLK-IDX-18',
+    tier: 'standard',
     name: 'Social Proof — UGC Masonry Gallery',
     description: 'Site-wide UGC photo/video masonry gallery for the homepage, each tile linking to the source review. Grounded in Loox/Fera media-gallery pattern.',
     category: 'STOREFRONT_UI',

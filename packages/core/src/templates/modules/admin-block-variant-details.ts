@@ -26,6 +26,7 @@ export const ADMIN_BLOCK_VARIANT_DETAILS_TEMPLATES: TemplateEntry[] = [
   // min/max cycles), §functional_model SellingPlanGroup.
   {
     id: 'ADMB-VAR-01',
+    tier: 'standard',
     name: 'Variant Subscription Plan Status',
     description:
       'Admin block on the product-variant page showing the selling plan attached to this variant — billing type, frequencies, save %, and active subscriber count.',
@@ -67,6 +68,7 @@ export const ADMIN_BLOCK_VARIANT_DETAILS_TEMPLATES: TemplateEntry[] = [
   // (plan type, interval, discount) + reviews_signal (retention metrics).
   {
     id: 'ADMB-VAR-02',
+    tier: 'standard',
     name: 'Variant Subscription Metrics',
     description:
       'Admin block on the product-variant page reporting subscription performance for this variant — active subscribers, plan type, interval, and recent churn.',
@@ -110,6 +112,7 @@ export const ADMIN_BLOCK_VARIANT_DETAILS_TEMPLATES: TemplateEntry[] = [
   // §functional_model Box/Package. Flags missing weight/dimensions honestly.
   {
     id: 'ADMB-VAR-03',
+    tier: 'standard',
     name: 'Variant Shipping Profile',
     description:
       'Admin block on the product-variant page showing shipping readiness for this variant — weight, dimensions, and whether SmartBoxing/volume rating can price it.',

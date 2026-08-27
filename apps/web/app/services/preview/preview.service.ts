@@ -53,7 +53,9 @@ export type PreviewContext = {
 // quality on something the storefront never renders. `render()` sets the active
 // pack for the duration of the (synchronous) render; `pageHtml` wraps the body
 // and inlines the pack stylesheet. Non-storefront surfaces get no wrapper.
-type PreviewPack = 'luxe' | 'bold' | 'playful' | 'utility';
+// H1 (WS-H, 2026-08-24): render packs collapsed to luxe/bold only — see
+// style-packs.server.ts's StorefrontPack for the ruling + data.
+type PreviewPack = 'luxe' | 'bold';
 let activePack: PreviewPack | null = null;
 let activeAccent: string | undefined;
 /** A7 — device-visibility affordance note shown on the preview when device rules are set. */
@@ -101,7 +103,7 @@ const BUYER_FACING_DS_TYPES = new Set<string>([
   'customerAccount.blocks',
 ]);
 
-const PREVIEW_PACKS: readonly PreviewPack[] = ['luxe', 'bold', 'playful', 'utility'];
+const PREVIEW_PACKS: readonly PreviewPack[] = ['luxe', 'bold'];
 function previewPackOf(spec: RecipeSpec): PreviewPack {
   const p = (spec as { style?: { pack?: string } }).style?.pack;
   // 'auto' (unresolved) + anything unknown fall back to Luxe (the can't-look-wrong pack).
@@ -1251,7 +1253,7 @@ export class PreviewService {
           if (catalog) {
             return `
             <div class="superapp-trust__badge superapp-trust__badge--icon">
-              ${catalog.svg}
+              ${catalog.markup}
               <span class="superapp-trust__badgelabel">${esc(b.text ?? '')}</span>
               ${caption ? `<span class="superapp-trust__badgecap">${esc(caption)}</span>` : ''}
             </div>`;
@@ -1879,16 +1881,18 @@ export class PreviewService {
     const offsetX = Number(this.cfg(spec, 'offsetX') ?? 24);
     const offsetY = Number(this.cfg(spec, 'offsetY') ?? 24);
     const variant = String(this.cfg(spec, 'variant') ?? 'custom');
-
-    const variantIcons: Record<string, string> = {
-      whatsapp: '💬',
-      chat: '💬',
-      coupon: '🏷️',
-      cart: '🛒',
-      scroll_top: '↑',
-      custom: '⭐',
-    };
-    const icon = variantIcons[variant] ?? '⭐';
+    // R0 parity: the storefront Liquid emits `superapp-fw__icon superapp-fw__icon--{{
+    // fw_variant | handle }}` and lets a CSS mask-image rule in superapp-modules.css
+    // draw the glyph (WS-H Task 5 — moved out of a per-variant inline <svg> case
+    // block). Previewing a literal emoji character here used to be harmless when the
+    // icon span had no CSS of its own; now `.superapp-fw__icon` carries a real
+    // mask-image + background-color:currentColor rule, which CLIPS any text content
+    // to the mask shape (the emoji got clipped away). Emitting the SAME modifier
+    // class the storefront computes — instead of any glyph content — makes the two
+    // resolve through the literal same CSS rule. Unmatched/custom variants emit no
+    // modifier, matching the base .superapp-fw__icon default sparkle mask.
+    const variantHandle = variant.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-+|-+$)/g, '');
+    const fwIconClass = KNOWN_FW_VARIANTS.has(variantHandle) ? ` superapp-fw__icon--${variantHandle}` : '';
 
     // Anchor: prefer the explicit `anchor` key, then the `corner` key that the
     // template library actually uses (e.g. 'bottom-right', 'left'), then the
@@ -1940,7 +1944,7 @@ export class PreviewService {
           <div class="preview-product"><span>Product C</span><span>$19</span></div>
         </div>
         <div class="superapp-fw" style="${posX} ${posY} ${extraTransform} ${bubbleStyle}">
-          <span class="superapp-fw__icon">${icon}</span>
+          <span class="superapp-fw__icon${fwIconClass}" aria-hidden="true"></span>
           ${label ? `<span class="superapp-fw__label">${esc(label)}</span>` : ''}
           ${subtitle ? `<span class="superapp-fw__sub">${esc(subtitle)}</span>` : ''}
         </div>
@@ -1994,7 +1998,6 @@ export class PreviewService {
         transition: transform 0.15s ease, box-shadow 0.15s ease;
       }
       .superapp-fw:hover { transform: scale(1.06); box-shadow: 0 8px 28px rgba(0,0,0,0.28); }
-      .superapp-fw__icon { font-size: 22px; line-height: 1; }
       .superapp-fw__label { font-size: 14px; font-weight: 600; }
       .superapp-fw__sub { font-size: 12px; font-weight: 400; opacity: 0.85; }
     `);
@@ -3488,45 +3491,48 @@ function glyph(name: string): string {
 }
 
 /**
- * A2 — curated badge-icon catalog (preview mirror of the storefront Liquid sprite).
- * Payment marks render as compact wordmarks (fill), trust marks as line glyphs
- * (stroke). Keyed by the SAME ids as `BADGE_ICON_IDS` (single source of truth); the
- * union of these two maps is asserted equal to that list by badge-icons.test.ts. The
- * storefront authors its own `<symbol>` bodies; only the id set is single-sourced.
+ * A2 — curated badge-icon catalog (preview mirror of the storefront Liquid). The
+ * icon GLYPH itself is drawn by a CSS `mask-image` rule keyed on
+ * `[data-sa-icon="<id>"]` in `superapp-modules.css` (WS-H Task 5 — moved out of a
+ * hand-authored inline `<svg><symbol>` sprite that never varied per merchant). This
+ * catalog's job is now only the ID SET (single-sourced against `BADGE_ICON_IDS`,
+ * asserted by badge-icons.test.ts) plus which SIZE variant (`pay` wide/short vs
+ * `glyph` square) each id gets — the same `superapp-trust__ico[--glyph]` classing
+ * the storefront Liquid computes via its `sa_pay_ids contains icon` check.
+ *
+ * R0 parity: `preview.service.ts` inlines the REAL `superapp-modules.css` (see
+ * `loadPackCss()`), so emitting the SAME `data-sa-icon` attribute + the SAME
+ * `superapp-trust__ico[--glyph]` classes the storefront emits — rather than
+ * preview's own inline SVG markup — means preview and storefront resolve the icon
+ * glyph through the literal same CSS rule, not two independently-maintained ones.
+ * preview-icon-css-parity.test.ts guards every id here against a matching CSS rule.
  */
-const BADGE_ICON_PAYMENT: Record<string, string> = {
-  visa: 'VISA', mastercard: 'MC', amex: 'AMEX', paypal: 'PayPal',
-  'shop-pay': 'Shop', 'apple-pay': 'Pay', 'google-pay': 'GPay', klarna: 'Klarna',
-};
-const BADGE_ICON_GLYPH: Record<string, string> = {
-  'secure-checkout': '<path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/>',
-  'free-returns': '<path d="M3 9a9 9 0 1 1 2 6"/><path d="M3 4v5h5"/>',
-  'fast-shipping': '<path d="M1 6h13v9H1z"/><path d="M14 9h4l3 3v3h-7z"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>',
-  'money-back': '<circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9h4a2 2 0 0 1 0 4H9"/>',
-  warranty: '<path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="M12 8v4l3 2"/>',
-  support: '<path d="M4 3h4l2 5-3 2a12 12 0 0 0 5 5l2-3 5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 2 5a2 2 0 0 1 2-2z"/>',
-  eco: '<path d="M4 20c8 2 16-4 16-14C10 6 4 10 4 20z"/><path d="M4 20c2-6 6-9 12-11"/>',
-  lock: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
-};
+const BADGE_ICON_PAYMENT_IDS: string[] = ['visa', 'mastercard', 'amex', 'paypal', 'shop-pay', 'apple-pay', 'google-pay', 'klarna'];
+const BADGE_ICON_GLYPH_IDS: string[] = [
+  'secure-checkout', 'free-returns', 'fast-shipping', 'money-back', 'warranty', 'support', 'eco', 'lock',
+];
 /** All ids covered by the preview catalog (exported for the id-parity test). */
-export const BADGE_ICON_PREVIEW_IDS: string[] = [...Object.keys(BADGE_ICON_PAYMENT), ...Object.keys(BADGE_ICON_GLYPH)];
-/** Resolve a badge-icon id to its inline-SVG mark, or null when not in the catalog. */
-function badgeIcon(id: string): { mod: 'pay' | 'glyph'; svg: string } | null {
+export const BADGE_ICON_PREVIEW_IDS: string[] = [...BADGE_ICON_PAYMENT_IDS, ...BADGE_ICON_GLYPH_IDS];
+/**
+ * Floating-widget variant handles with a dedicated `.superapp-fw__icon--<variant>`
+ * CSS mask rule (WS-H Task 5). Unmatched/custom variants fall through to the base
+ * `.superapp-fw__icon` default mask. Exported so preview-icon-css-parity.test.ts
+ * asserts against the real set instead of a hand-duplicated copy that can rot.
+ */
+export const KNOWN_FW_VARIANTS: ReadonlySet<string> = new Set(['whatsapp', 'chat', 'coupon', 'cart', 'scroll-top']);
+/** Resolve a badge-icon id to its data-sa-icon-driven markup, or null when not in the catalog. */
+function badgeIcon(id: string): { mod: 'pay' | 'glyph'; markup: string } | null {
   const key = String(id).trim().toLowerCase();
-  const pay = BADGE_ICON_PAYMENT[key];
-  if (pay != null) {
+  if (BADGE_ICON_PAYMENT_IDS.includes(key)) {
     return {
       mod: 'pay',
-      svg: `<svg class="superapp-trust__ico superapp-trust__ico--pay" viewBox="0 0 44 16" aria-hidden="true"><text x="22" y="12">${esc(
-        pay,
-      )}</text></svg>`,
+      markup: `<span class="superapp-trust__ico" data-sa-icon="${escAttr(key)}" aria-hidden="true"></span>`,
     };
   }
-  const glyphBody = BADGE_ICON_GLYPH[key];
-  if (glyphBody != null) {
+  if (BADGE_ICON_GLYPH_IDS.includes(key)) {
     return {
       mod: 'glyph',
-      svg: `<svg class="superapp-trust__ico superapp-trust__ico--glyph" viewBox="0 0 24 24" aria-hidden="true">${glyphBody}</svg>`,
+      markup: `<span class="superapp-trust__ico superapp-trust__ico--glyph" data-sa-icon="${escAttr(key)}" aria-hidden="true"></span>`,
     };
   }
   return null;

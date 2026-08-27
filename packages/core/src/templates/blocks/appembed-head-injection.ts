@@ -31,6 +31,7 @@ export const APPEMBED_HEAD_INJECTION_TEMPLATES: TemplateEntry[] = [
   // ── EMB-HEAD-01 · Product rich-snippet JSON-LD (reviews aggregate) ────────────
   {
     id: 'EMB-HEAD-01',
+    tier: 'standard',
     name: 'Product Rich Snippet (Review JSON-LD)',
     description: 'Injects Product + AggregateRating JSON-LD into the product page <head> so Google shows star ratings in search results — reads the mirrored reviews.rating / reviews.rating_count metafields.',
     category: 'STOREFRONT_UI',
@@ -73,6 +74,7 @@ export const APPEMBED_HEAD_INJECTION_TEMPLATES: TemplateEntry[] = [
   // ── EMB-HEAD-02 · Organization + WebSite JSON-LD (sitelinks search box) ───────
   {
     id: 'EMB-HEAD-02',
+    tier: 'standard',
     name: 'Organization & Sitelinks Search JSON-LD',
     description: 'Injects Organization + WebSite JSON-LD (logo, social profiles, sitelinks search box action) into the homepage <head> so the brand appears correctly in Google Knowledge Panel and search.',
     category: 'STOREFRONT_UI',
@@ -112,6 +114,7 @@ export const APPEMBED_HEAD_INJECTION_TEMPLATES: TemplateEntry[] = [
   // ── EMB-HEAD-03 · BreadcrumbList JSON-LD (collection navigation) ──────────────
   {
     id: 'EMB-HEAD-03',
+    tier: 'standard',
     name: 'Breadcrumb JSON-LD',
     description: 'Injects BreadcrumbList JSON-LD into collection and product page <head> so Google renders the category breadcrumb trail above the search result instead of a bare URL.',
     category: 'STOREFRONT_UI',
@@ -148,6 +151,7 @@ export const APPEMBED_HEAD_INJECTION_TEMPLATES: TemplateEntry[] = [
   // ── EMB-HEAD-04 · Open Graph + Twitter Card meta (social share) ───────────────
   {
     id: 'EMB-HEAD-04',
+    tier: 'standard',
     name: 'Open Graph & Twitter Card Meta',
     description: 'Injects Open Graph + Twitter Card <meta> tags into the <head> so shared product and page links render a rich preview card (title, description, image) on Facebook, X, and iMessage.',
     category: 'STOREFRONT_UI',
@@ -187,6 +191,7 @@ export const APPEMBED_HEAD_INJECTION_TEMPLATES: TemplateEntry[] = [
   // ── EMB-HEAD-05 · Resource preload / preconnect (perf) ────────────────────────
   {
     id: 'EMB-HEAD-05',
+    tier: 'standard',
     name: 'Resource Preload & Preconnect Hints',
     description: 'Injects <link rel="preconnect"> and <link rel="preload"> resource hints into the <head> to warm CDN/font connections and prioritize the hero image — cuts LCP on the homepage and product page.',
     category: 'STOREFRONT_UI',
@@ -224,6 +229,7 @@ export const APPEMBED_HEAD_INJECTION_TEMPLATES: TemplateEntry[] = [
   // ── EMB-HEAD-06 · Marketing pixel bootstrap (Klaviyo/Omnisend onsite tag) ─────
   {
     id: 'EMB-HEAD-06',
+    tier: 'standard',
     name: 'Marketing Pixel Bootstrap (Onsite Tag)',
     description: 'Bootstraps a marketing platform onsite tag (Klaviyo/Omnisend style) in the <head> — loads the tracking script and form renderer that fire browse/cart events; injects nothing until a public key is set and marketing consent is granted.',
     category: 'STOREFRONT_UI',
@@ -263,6 +269,7 @@ export const APPEMBED_HEAD_INJECTION_TEMPLATES: TemplateEntry[] = [
   // ── EMB-HEAD-07 · Social-proof pixel bootstrap (ProveSource style) ────────────
   {
     id: 'EMB-HEAD-07',
+    tier: 'standard',
     name: 'Social-Proof Pixel Bootstrap',
     description: 'Bootstraps a social-proof pixel (ProveSource style) in the <head> that fetches sales/visitor events from the vendor backend and renders corner toast + inline trust widgets site-wide; loads nothing until a site ID is supplied.',
     category: 'STOREFRONT_UI',
@@ -300,6 +307,7 @@ export const APPEMBED_HEAD_INJECTION_TEMPLATES: TemplateEntry[] = [
   // ── EMB-HEAD-08 · Consent Mode v2 defaults ───────────────────────────────────
   {
     id: 'EMB-HEAD-08',
+    tier: 'standard',
     name: 'Consent Mode v2 Defaults',
     description: 'Injects a Google Consent Mode v2 default-state block at the top of the <head> (ad_storage, analytics_storage, ad_user_data, ad_personalization = denied by default) so downstream tags respect consent until the banner grants it.',
     category: 'STOREFRONT_UI',

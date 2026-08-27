@@ -19,6 +19,7 @@ import type { TemplateEntry } from '../types.js';
 export const ADMIN_ACTION_ORDER_TEMPLATES: TemplateEntry[] = [
   {
     id: 'ADMA-ORD-01',
+    tier: 'standard',
     name: 'Fulfillment Readiness Check',
     description: 'Order-details action that surfaces whether an order is ready to fulfill — zone, box, and weight/dimension checks before a shipping label is bought.',
     category: 'ADMIN_UI',
@@ -54,6 +55,7 @@ export const ADMIN_ACTION_ORDER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-ORD-02',
+    tier: 'standard',
     name: 'Apply Fulfillment Hold',
     description: 'Order-details action to review an order against fulfillment-hold rules (address risk, restricted zone, PO Box) before releasing it to the warehouse.',
     category: 'ADMIN_UI',
@@ -87,6 +89,7 @@ export const ADMIN_ACTION_ORDER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-ORD-03',
+    tier: 'standard',
     name: 'Bulk Fulfill Selected Orders',
     description: 'Order-index selection action that groups the selected orders by destination zone and shipping method for a single bulk fulfillment pass.',
     category: 'ADMIN_UI',
@@ -125,6 +128,7 @@ export const ADMIN_ACTION_ORDER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-ORD-04',
+    tier: 'standard',
     name: 'Buy Shipping Label',
     description: 'Fulfilled-card action that shows the qualifying rates for the shipment’s zone and box so the label can be bought without leaving the order.',
     category: 'ADMIN_UI',
@@ -158,6 +162,7 @@ export const ADMIN_ACTION_ORDER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-ORD-05',
+    tier: 'standard',
     name: 'Tag & Note Order',
     description: 'Order-details action that applies a routing tag and an order note in one step — the same tag/note side-effect an upsell app writes on generated orders.',
     category: 'ADMIN_UI',
@@ -190,6 +195,7 @@ export const ADMIN_ACTION_ORDER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-ORD-06',
+    tier: 'standard',
     name: 'Bulk Tag Selected Orders',
     description: 'Order-index selection action that previews the tags to apply across the selected orders and how many already carry each tag.',
     category: 'ADMIN_UI',
@@ -222,6 +228,7 @@ export const ADMIN_ACTION_ORDER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-ORD-07',
+    tier: 'standard',
     name: 'Reorder Items for Customer',
     description: 'Order-details action that reviews the lines to duplicate into a new draft order — a manual reorder / win-back for a lapsed or subscription customer.',
     category: 'ADMIN_UI',
@@ -260,6 +267,7 @@ export const ADMIN_ACTION_ORDER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-ORD-08',
+    tier: 'standard',
     name: 'Convert Draft to Reorder',
     description: 'Draft-order-details action that reviews a draft built as a reorder before it is sent — checks stock, shipping eligibility, and any applied discount.',
     category: 'ADMIN_UI',
@@ -289,6 +297,7 @@ export const ADMIN_ACTION_ORDER_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMA-ORD-09',
+    tier: 'standard',
     name: 'Bulk Send Review Requests',
     description: 'Order-index selection action that previews the post-fulfillment review-request emails to queue for the selected orders and which are eligible.',
     category: 'ADMIN_UI',

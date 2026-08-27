@@ -18,6 +18,7 @@ export const SIZE_CHART_TEMPLATES: TemplateEntry[] = [
   // ── TBLK-SIZE-01 — Apparel size chart (body measurements), minimal luxe ──
   {
     id: 'TBLK-SIZE-01',
+    tier: 'standard',
     name: 'Apparel Size Chart Modal',
     description:
       'A "Size guide" link on the product page that opens a modal with a body-measurement table (chest / waist / hip by size), so shoppers pick the right fit without leaving the page.',
@@ -62,6 +63,7 @@ export const SIZE_CHART_TEMPLATES: TemplateEntry[] = [
   // ── TBLK-SIZE-02 — Shoe size conversion (US/UK/EU/CM), bold DTC ──
   {
     id: 'TBLK-SIZE-02',
+    tier: 'standard',
     name: 'Shoe Size Conversion Modal',
     description:
       'A "Size & fit" trigger on footwear product pages opening a modal with an international shoe-size conversion table (US / UK / EU / CM) so global shoppers order the right size with confidence.',

@@ -4,7 +4,7 @@
 >
 > **Scope.** Every **storefront-renderable** template the app generates — the theme-app-extension module kinds and the native-section archetypes the 200+ library entries compile to. It governs *look, tokens, layout, effects, and micro-interactions*. It sits **under** the root `DESIGN.md` "Generated-Module Bible" (Apple-HIG floor) and **over** the raw recipe schema (`packages/core/src/recipe.ts`, `storefront-style.ts`, `allowed-values.ts`).
 >
-> **Four selectable render packs — Minimal Luxe · Bold DTC · Playful Commerce · Tech Utility — over one shared token grammar.** Luxe/Bold are the two everyday directions; Playful/Utility are personality-explicit and auto-selected only on a clear high-confidence signal (low confidence → Luxe). A pack is a *grammar mapping* (which enum value each token resolves to). Brand **colors + fonts inherit from the merchant's live theme** (extracted `StorePalette`/`StoreTypography`); the pack supplies structure + one tweakable accent. Every render still clears the Apple-HIG floor.
+> **Two selectable render packs — Minimal Luxe · Bold DTC — over one shared token grammar.** (**H1, 2026-08-24:** Playful Commerce / Tech Utility are **not currently offered** — see §3.2a/§3.2b and §10.) A pack is a *grammar mapping* (which enum value each token resolves to). Brand **colors + fonts inherit from the merchant's live theme** (extracted `StorePalette`/`StoreTypography`); the pack supplies structure + one tweakable accent. Every render still clears the Apple-HIG floor.
 >
 > **Binds to the pipeline (§9.1):** pack selection (`style-packs.server.ts`) · token compilation to `--sa-*` (`style-compiler.ts`) · the generation prompt (grammar + packs + effects + micro-interactions) · the design-QA gate (`design-qa.server.ts`) · the runtime CSS (`assets/superapp-modules.css`). Every generated module is authored, compiled, and QA'd against the vocabulary below — nothing here is decorative documentation.
 >
@@ -96,7 +96,7 @@ Every storefront template (`theme.section`, `proxy.widget`) is styled from this 
 
 ## 3. The render packs (concrete token mapping)
 
-> **Four render packs — Minimal Luxe · Bold DTC · Playful Commerce · Tech Utility — over one shared token grammar.** Luxe (calm/premium) and Bold (loud/saturated) are the two everyday directions; Playful (rounded/springy/multi-accent) and Utility (compact/geometric/near-zero radius) are the two personality-explicit directions, selected only on a **clear high-confidence aesthetic signal**. Low confidence still resolves **Luxe** (the can't-look-wrong pack), and `apple-hig-clean` / `editorial-wellness` / `minimal-luxe` intentionally collapse to Luxe (§9.2). All four are values of the *same* `--sa-*` token map on `.superapp-scope[data-sa-pack]`; markup is invariant.
+> **Two render packs — Minimal Luxe · Bold DTC — over one shared token grammar.** Luxe (calm/premium) and Bold (loud/saturated) are the two directions every template authors against. Low confidence resolves **Luxe** (the can't-look-wrong pack), and `apple-hig-clean` / `editorial-wellness` / `minimal-luxe` intentionally collapse to Luxe (§9.2). Both are values of the *same* `--sa-*` token map on `.superapp-scope[data-sa-pack]`; markup is invariant. **(H1, 2026-08-24: Playful Commerce / Tech Utility retired from the selectable set — §3.2a/§3.2b, §10.)**
 
 ### 3.1 Pack A — Minimal Luxe
 > Near-monochrome, editorial, hairline detail, long fades. **Pick when** the store is calm/warm/luxury/near-monochrome, serif or thin display (beauty, fashion, wellness, home, jewelry).
@@ -132,39 +132,11 @@ Every storefront template (`theme.section`, `proxy.widget`) is styled from this 
 
 **Voice:** direct, urgent — "Fuel the grind.", "Send it", "Once it's gone, it's gone."
 
-### 3.2a Pack C — Playful Commerce
-> Bright, friendly, energetic — rounded everything, springy overshoot, multi-accent chips/gradients. **Pick when** the store is bright/high-spread/rounded (kids, novelty, food/candy, DTC toys, hobby). Resolved only from `playful-commerce` on a **clear** high-confidence signal (many saturated colors + rounded display); low confidence falls back to Luxe.
+### 3.2a Pack C — Playful Commerce (not currently offered, H1 2026-08-24)
+Playful Commerce is **not a selectable render pack.** `resolveStorefrontPack` never returns it — the `playful-commerce` aesthetic signal now collapses to Luxe like every other non-`bold-dtc` id (§9.2). It was widened in on 2026-07-14 as a real personality-explicit direction but never became a maintained second pair alongside Luxe/Bold: at the time of the 2026-08-24 collapse only 1 of 307 pack-bearing template specs authored it. The rounded/springy/multi-accent grammar the old §3.2a documented here (pill CTAs, soft dual shadow, confetti on wins) remains a legitimate direction for a future standalone investment — see the plan's "Out of scope" note (`docs/superpowers/plans/2026-08-24-ws-h-templates.md`) — but is not built or QA'd today. See §10 for the ruling and data.
 
-| Grammar token | Resolves to |
-|---|---|
-| `spacing.density` / padding | `comfortable` / `medium` |
-| `typography` | rounded-sans display, `800`, `XL`–`2XL`, `lineHeight tight`–`normal`; friendly numerals |
-| `colors` | inherits store; accent `var(--sa-accent,#7c5cff)` used **liberally** as chips/tints; multi-accent + soft gradients welcomed |
-| `shape.radius` | `lg`–`full` (16–24px, **pill CTAs**) |
-| `shape.borderWidth` | `thin` (soft dual shadow carries elevation, not borders) |
-| `shape.elevation` | `soft` (dual soft drop shadow) |
-| `motion` | `duration base` (~240ms), springy `easing` overshoot `cubic-bezier(.34,1.56,.64,1)`; hover `translateY(-3px)`, press `scale(.97)` |
-| CTA | accent fill, **pill** radius, soft shadow, cheerful label |
-| Decoration | colorful chips, emoji-free stickers, gradient washes, confetti on wins |
-
-**Voice:** warm, upbeat — "Let's go!", "Treat yourself", "You're in 🎉" (copy stays emoji-light).
-
-### 3.2b Pack D — Tech Utility
-> Cool, gridded, data-dense, precise — compact rhythm, geometric/neo-grotesk + mono numerals, near-zero radius, fast micro-motion only. **Pick when** the store is tool/SaaS/hardware/electronics/B2B (cool accent, screenshots/diagrams, spec tables). Resolved only from `tech-utility` on a **clear** high-confidence signal (cool accent + geometric/mono font); low confidence falls back to Luxe.
-
-| Grammar token | Resolves to |
-|---|---|
-| `spacing.density` / padding | `compact` / `tight`–`medium` |
-| `typography` | geometric/neo-grotesk display, `600`, `LG`–`XL`, `lineHeight normal`; **mono numerals/labels**, uppercase mono labels `.08em` |
-| `colors` | inherits store; cool accent `var(--sa-accent,#0284c7)` used sparingly; monochrome neutrals, visible 1px hairlines |
-| `shape.radius` | `none`–`sm` (**near-zero**, 4px) |
-| `shape.borderWidth` | `thin` (structural 1px grid lines) |
-| `shape.elevation` | `border` (1px ring + tiny shadow) |
-| `motion` | `duration fast` (~120ms), `easing mechanical` (near-linear); no springs; micro-only |
-| CTA | accent or ink fill, `sm` radius, minimal shadow, mono/geometric label |
-| Decoration | mono data readouts, thin grid rules, schematic/spec framing |
-
-**Voice:** precise, factual — "Ships in 24h", "99.98% uptime", "2× faster".
+### 3.2b Pack D — Tech Utility (not currently offered, H1 2026-08-24)
+Tech Utility is **not a selectable render pack.** `resolveStorefrontPack` never returns it — the `tech-utility` aesthetic signal now collapses to Luxe like every other non-`bold-dtc` id (§9.2). It was widened in on 2026-07-14 alongside Playful but never became a maintained third pack: at the time of the 2026-08-24 collapse only 2 of 307 pack-bearing template specs authored it. The compact/geometric/near-zero-radius/mechanical-motion grammar the old §3.2b documented here remains a legitimate direction for a future standalone investment — see the plan's "Out of scope" note (`docs/superpowers/plans/2026-08-24-ws-h-templates.md`) — but is not built or QA'd today. See §10 for the ruling and data.
 
 ### 3.3 Pack toggle, theme inheritance & override precedence
 
@@ -425,16 +397,14 @@ This doc is wired into every stage that produces a module, so a generated module
 **Rule:** any new template, effect, or interaction must be added *here first* (grammar + pack mapping + QA check), then to the prompt/compiler/CSS — never the reverse.
 
 ### 9.2 Auto-select the pack
-From extracted aesthetic signals (bg luminance, accent saturation, hue family, palette spread, heading-font class), same heuristic as the "Bible" style packs. The six aesthetic packs collapse to the **four render packs** via `resolveStorefrontPack`:
+From extracted aesthetic signals (bg luminance, accent saturation, hue family, palette spread, heading-font class), same heuristic as the "Bible" style packs. The six aesthetic packs collapse to the **two render packs** via `resolveStorefrontPack`:
 
 | Render pack | Aesthetic packs that resolve to it |
 |---|---|
 | `bold` | `bold-dtc` |
-| `playful` | `playful-commerce` |
-| `utility` | `tech-utility` |
-| `luxe` (default) | `apple-hig-clean`, `editorial-wellness`, `minimal-luxe`, **and anything on low confidence** |
+| `luxe` (default) | `apple-hig-clean`, `editorial-wellness`, `minimal-luxe`, `playful-commerce`, `tech-utility`, **and anything on low confidence** |
 
-**Four-pack decision (2026-07-14).** The system launched as a deliberate 2-pack collapse (Luxe/Bold) — two can't-look-wrong directions that cover the whole library. Playful and Utility are now first-class render packs because they are *structurally distinct* (rounded/springy/multi-accent vs compact/geometric/mono/near-zero-radius), not just recolored — collapsing them into Bold/Luxe was throwing away the exact grammar a candy store or a SaaS tool wants. They stay **opt-in via a clear high-confidence signal only**: `resolveStorefrontPack` returns `luxe` whenever `selection.confidence < 0.34`, and `apple-hig-clean` / `editorial-wellness` / `minimal-luxe` **intentionally still collapse to `luxe`** (their differences are within Luxe's range). So the *default surface area* is unchanged — ambiguous stores still get Luxe — while a store that unmistakably reads playful or utility now gets a pack built for it. **Bias to Luxe (the "can't-look-wrong" pack) on low confidence**; never silently pick a personality-heavy pack. Merchant overrides via `stylePack` (§3.3.1).
+**Two-pack decision (H1, ruled 2026-08-24).** The system launched as a deliberate 2-pack collapse (Luxe/Bold), widened to 4 on 2026-07-14 (Playful, Utility as personality-explicit render packs), and was collapsed back to 2 on 2026-08-24 after WS-H's Task 1 measured that Playful/Utility never became a real maintained pair: 99.35% of authored pack-bearing template content (177 luxe + 127 bold of 307) and every low-confidence fallback already resolved to luxe/bold only, and only 3 template files ever authored `playful`/`utility`. `resolveStorefrontPack` returns `luxe` whenever `selection.confidence < 0.34` or the aesthetic id isn't `bold-dtc` — **bias to Luxe (the "can't-look-wrong" pack)** on anything but a clear Bold DTC signal. Merchant overrides via `stylePack` (§3.3.1). See §10 (2026-08-24 row) for the full ruling and `docs/superpowers/plans/2026-08-24-ws-h-templates.md` (H1) for the data.
 
 ### 9.3 Runtime tokens
 The pack + `StorefrontStyle` resolve to `--sa-*` custom properties (`--sa-radius`, `--sa-radius-lg`, `--sa-btn-radius`, `--sa-border-w`, `--sa-border-color`, `--sa-shadow`, `--sa-overlay-shadow`, `--sa-accent`, `--sa-ink`, `--sa-font-display`, `--sa-display-weight/-transform/-spacing`, `--sa-label-transform/-spacing`, `--sa-motion`, `--sa-ease`, `--sa-lift`, `--sa-press`, `--sa-pad`) set once on the `.superapp-scope[data-sa-pack]` wrapper; every renderer reads the same tokens. Full map: `assets/superapp-modules.css` (this folder).
@@ -451,6 +421,7 @@ The pack + `StorefrontStyle` resolve to `--sa-*` custom properties (`--sa-radius
 
 | Date | Decision | Rationale |
 |---|---|---|
+| 2026-08-24 | **RULED: collapsed the render packs 4 → 2 (`luxe`, `bold`), reversing the 2026-07-14 widening.** Controller ruling on WS-H Task 1's data (`docs/superpowers/plans/2026-08-24-ws-h-templates.md`, H1): of 307 pack-bearing template specs, `luxe` 177 (57.7%) + `bold` 127 (41.4%) = 99.35%, vs. `utility` 2 (0.65%) and `playful` 1 (0.33%) across exactly 3 files (`appembed-body-overlay.ts`, `native-pricing-comparison.ts`, `native-logo-marquee-trust.ts`). `resolveStorefrontPack`'s low-confidence fallback already only ever resolves `luxe`, never `playful`/`utility`, and `style-packs.server.ts`'s own comment already conceded `apple-hig-clean`/`editorial-wellness`/`minimal-luxe` "intentionally collapse to Luxe." §3.2a/§3.2b (Playful Commerce / Tech Utility) become "not currently offered" backlog notes; §9.2's pack table drops to 2 rows; the 3 outlier templates are remapped to `luxe`/`bold` by hand (WS-H Task 2). | Shipping "4 packs" in docs while 99.35% of real authored content and every low-confidence fallback is `luxe`/`bold` is a doc/code mismatch this program's "no silent failures" / "no numeric claims without measurement" discipline exists to catch. `playful`/`utility` were 3 templates nobody kept in sync, not a maintained third and fourth pack. Investing in them as real packs (redesigning the token grammar into something templates actually use, authoring content, QA coverage) remains available as a standalone follow-up — scoped out of WS-H as a multi-week design investment, not a cleanup task. |
 | 2026-07-14 | **Widened the render packs 2 → 4** — added `playful` (Playful Commerce: rounded, springy, multi-accent, pill CTAs, soft dual shadow, confetti on wins) and `utility` (Tech Utility: compact, geometric/mono, near-zero radius, 1px grid, fast mechanical micro-motion) alongside `luxe`/`bold`. `resolveStorefrontPack` now maps `playful-commerce→playful`, `tech-utility→utility`, `bold-dtc→bold`, everything else + low-confidence→`luxe` (apple-hig-clean/editorial-wellness/minimal-luxe still collapse to luxe by design). Additive across the stack: `STOREFRONT_STYLE_PACKS` gains the two values, two new `[data-sa-pack=playful\|utility]` token maps in the extension CSS, all four Liquid block `stylePack` selects, style-compiler + preview pack stamping, and design-QA pack-fidelity checks for the new packs. `auto` picks playful/utility only on a clear high-confidence signal. | Playful and Utility are structurally distinct grammars (not recolors of Bold/Luxe); collapsing them discarded the exact vocabulary a candy/toy store or a SaaS/hardware store wants. Kept opt-in (high-confidence only) so the default surface area (ambiguous → Luxe) is unchanged. Doc-first per §9.1, then allowed-values → style-packs → CSS → Liquid/compiler/preview → QA → tests. |
 | 2026-07-14 | **Shipped the spin-to-win wheel + scratch-card popup runtime** (competitor-parity gap: "spin to win" requests were rendering a static popup). The `popup` branch now upgrades to a wheel on `blocks[] kind:'slice'` and a scratch card on `kind:'scratch'` — **zero schema change** (`blocks[].kind` is free-form; the wheel already shipped as vocabulary `EMB-BODY-03`). Weighted-random pick over `fields.oddsWeight`, eased CSS-transform spin, canvas scratch-erase (~50% threshold), coupon reveal + copy-to-clipboard, optional email gate reusing the app-proxy capture path. Reduced-motion → instant reveal. Feature-gated so classic popups render byte-identically. Docs first (§4.1 rows + note, §5.2 block kinds, §7.2/§7.4), then Liquid + JS + CSS + preview parity + tests. **Honesty:** only merchant-configured `couponCode`s reveal; empty code / lose-ish label = honest no-prize. **Note:** no `kind:'scratch'` template ships yet — the renderer supports it, a vocabulary template is a follow-up. | Gamified email capture is table-stakes Privy/Justuno parity; the data (`slice` blocks with codes + odds) already existed in the vocabulary but rendered as a plain popup. Doc-first per §9.1, then the generic shipped renderer — no per-module codegen. |
 | 2026-07-10 | **Filled the audit gaps.** Built the dedicated `pdp` renderer branch (gallery + buy box) and the new `sticky-atc` archetype (fixed bottom add-to-cart bar) — alias table, self-header list, Liquid branches, and `.superapp-pdp` / `.superapp-satc` token CSS in both packs with reduced-motion branches; `sticky-atc` removed from the `technical` alias list. Added the four live archetypes (`cta` · `upsell` · `band` · `technical`) + `sticky-atc` to the Template Gallery §06 in both packs, and completed the indexes (`shooting-stars` in §07 effects, `carousel` in §08 interactions). Reference: `docs/design-system/AUDIT-2026-07-10.md`. | Sticky ATC + PDP buy box are the two highest-converting surfaces in ecommerce; they must be first-class in the system, not fallthroughs. Doc first, then renderer + gallery — per §9.1. |

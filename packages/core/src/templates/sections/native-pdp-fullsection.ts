@@ -34,6 +34,7 @@ export const NSEC_PDP_TEMPLATES: TemplateEntry[] = [
   // ── NSEC-PDP-01 — Loox-style photo review wall ──────────────────────────────
   {
     id: 'NSEC-PDP-01',
+    tier: 'standard',
     name: 'Photo Review Wall',
     description: 'Full-width "wall of love" photo-review grid for the product page — verified-buyer star cards with customer media, in the Loox house style.',
     category: 'STOREFRONT_UI',
@@ -85,6 +86,7 @@ export const NSEC_PDP_TEMPLATES: TemplateEntry[] = [
   // ── NSEC-PDP-02 — Judge.me-style review widget with rating-distribution header ─
   {
     id: 'NSEC-PDP-02',
+    tier: 'standard',
     name: 'Review Widget — Rating Summary + Cards',
     description: 'PDP review section with an average-rating hero, a 5-bar rating-distribution chart, and stacked review cards — the Judge.me widget composition.',
     category: 'STOREFRONT_UI',
@@ -138,6 +140,7 @@ export const NSEC_PDP_TEMPLATES: TemplateEntry[] = [
   // ── NSEC-PDP-03 — Testimonial carousel (Loox/Judge.me carousel theme) ─────────
   {
     id: 'NSEC-PDP-03',
+    tier: 'standard',
     name: 'Testimonial Carousel',
     description: 'Auto-advancing testimonial carousel of quote-forward review slides for the product page, matching the Loox/Judge.me carousel widget theme.',
     category: 'STOREFRONT_UI',
@@ -188,6 +191,7 @@ export const NSEC_PDP_TEMPLATES: TemplateEntry[] = [
   // ── NSEC-PDP-04 — Frequently Bought Together (Selleasy classic FBT) ───────────
   {
     id: 'NSEC-PDP-04',
+    tier: 'standard',
     name: 'Frequently Bought Together',
     description: 'Amazon-style "frequently bought together" strip on the product page — bundled product row with a combined total and an add-all block, in the Selleasy FBT layout.',
     category: 'STOREFRONT_UI',
@@ -236,6 +240,7 @@ export const NSEC_PDP_TEMPLATES: TemplateEntry[] = [
   // ── NSEC-PDP-05 — Product add-ons grid (Selleasy card grid) ───────────────────
   {
     id: 'NSEC-PDP-05',
+    tier: 'standard',
     name: 'Product Add-Ons Grid',
     description: 'Card grid of optional add-ons and complementary products below the product details, in the Selleasy "product add-ons" card layout with an add button per card.',
     category: 'STOREFRONT_UI',
@@ -284,6 +289,7 @@ export const NSEC_PDP_TEMPLATES: TemplateEntry[] = [
   // ── NSEC-PDP-06 — Feature / benefit bento grid ───────────────────────────────
   {
     id: 'NSEC-PDP-06',
+    tier: 'standard',
     name: 'Feature Highlights — Bento Grid',
     description: 'Mixed-size bento grid of product benefits and materials below the buy box — icon-led feature tiles that tell the "why buy" story on the product page.',
     category: 'STOREFRONT_UI',
@@ -319,7 +325,7 @@ export const NSEC_PDP_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
         typography: { size: 'MD', weight: 'medium', lineHeight: 'normal', align: 'left' },
-        colors: { text: '#0f172a', background: '#0b1220', seed: '#22d3ee', overlayBackdropOpacity: 0.5 },
+        colors: { seed: '#22d3ee', overlayBackdropOpacity: 0.5 },
         shape: { radius: 'xl', borderWidth: 'none', shadow: 'lg', elevation: 'glow' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -332,6 +338,7 @@ export const NSEC_PDP_TEMPLATES: TemplateEntry[] = [
   // ── NSEC-PDP-07 — Comparison / "why us" table ────────────────────────────────
   {
     id: 'NSEC-PDP-07',
+    tier: 'standard',
     name: 'Comparison Table — Us vs Them',
     description: 'Full-width comparison table on the product page contrasting this product against generic alternatives across the attributes buyers care about.',
     category: 'STOREFRONT_UI',
@@ -379,6 +386,7 @@ export const NSEC_PDP_TEMPLATES: TemplateEntry[] = [
   // ── NSEC-PDP-08 — Product FAQ accordion ──────────────────────────────────────
   {
     id: 'NSEC-PDP-08',
+    tier: 'standard',
     name: 'Product FAQ Accordion',
     description: 'Full-width FAQ accordion on the product page answering the sizing, shipping, and care questions that block a purchase, reducing pre-sale support load.',
     category: 'STOREFRONT_UI',

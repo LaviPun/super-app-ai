@@ -20,6 +20,7 @@ export const NATIVE_UGC_GRID_TEMPLATES: TemplateEntry[] = [
   // 01 — customer photos wall, bold DTC, 2-up on mobile.
   {
     id: 'NSEC-UGC-01',
+    tier: 'standard',
     name: 'Customer Photos Grid (UGC)',
     description: 'Social-proof wall of real customer photos in a tight aspect-ratio grid; hovering or focusing a tile reveals the caption, the customer’s @handle and a Shop-this link. Drops to a neat two-column layout on mobile.',
     category: 'STOREFRONT_UI',
@@ -66,6 +67,7 @@ export const NATIVE_UGC_GRID_TEMPLATES: TemplateEntry[] = [
   // 02 — influencer lookbook, minimal-luxe.
   {
     id: 'NSEC-UGC-02',
+    tier: 'standard',
     name: 'Influencer Lookbook (UGC)',
     description: 'Editorial influencer lookbook grid — larger, quieter tiles where the overlay names the creator’s @handle and links straight to the featured piece. A refined take on shoppable social proof for premium brands.',
     category: 'STOREFRONT_UI',

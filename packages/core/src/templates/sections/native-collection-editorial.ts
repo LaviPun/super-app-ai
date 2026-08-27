@@ -33,6 +33,7 @@ import { THEME_PLACEABLE_TEMPLATES } from '../../allowed-values.js';
 export const NATIVE_COLLECTION_EDITORIAL_TEMPLATES: TemplateEntry[] = [
   {
     id: 'NSEC-COLL-01',
+    tier: 'standard',
     name: 'Collection Editorial Hero',
     description:
       'Full-width photo-overlay hero above a collection grid — campaign headline, standfirst, and a shop-the-edit CTA over an editorial banner image.',
@@ -68,7 +69,7 @@ export const NATIVE_COLLECTION_EDITORIAL_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'airy' },
         typography: { size: '2XL', weight: 'bold', lineHeight: 'tight', align: 'center' },
-        colors: { text: '#ffffff', background: '#111111', overlayBackdrop: '#000000', overlayBackdropOpacity: 0.35, seed: '#8a6d3b' },
+        colors: { overlayBackdrop: '#000000', overlayBackdropOpacity: 0.35, seed: '#8a6d3b' },
         shape: { radius: 'none', borderWidth: 'none', shadow: 'none', elevation: 'soft' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -79,6 +80,7 @@ export const NATIVE_COLLECTION_EDITORIAL_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-COLL-02',
+    tier: 'standard',
     name: 'Collection Story — Seasonal Narrative',
     description:
       'Stacked editorial narrative between the collection header and grid — eyebrow, long-form heading, and reorderable story paragraphs with inline imagery.',
@@ -139,6 +141,7 @@ export const NATIVE_COLLECTION_EDITORIAL_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-COLL-03',
+    tier: 'standard',
     name: 'Collection Lookbook Grid',
     description:
       'Editorial lookbook grid above a collection — reorderable image tiles, each linking to a sub-edit, for a magazine-style category landing.',
@@ -210,6 +213,7 @@ export const NATIVE_COLLECTION_EDITORIAL_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-COLL-04',
+    tier: 'standard',
     name: 'Collection Split Intro',
     description:
       'Two-column editorial intro above the grid — imagery on one side, a category standfirst and CTA on the other, for a considered collection landing.',
@@ -256,6 +260,7 @@ export const NATIVE_COLLECTION_EDITORIAL_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-COLL-05',
+    tier: 'standard',
     name: 'Collection Category Carousel',
     description:
       'Editorial category carousel above the grid — swipeable slides, each a sub-category with its own image and shop link, for browsing a large collection.',
@@ -324,6 +329,7 @@ export const NATIVE_COLLECTION_EDITORIAL_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'NSEC-COLL-06',
+    tier: 'standard',
     name: 'Collection Curated Promo Band',
     description:
       'Editorial promo band above the collection grid — a bold seasonal message strip with an accent background and a single shop-the-sale CTA.',
@@ -356,7 +362,7 @@ export const NATIVE_COLLECTION_EDITORIAL_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'tight', density: 'comfortable' },
         typography: { size: 'XL', weight: 'bold', lineHeight: 'tight', align: 'center' },
-        colors: { text: '#ffffff', background: '#b91c1c', overlayBackdropOpacity: 0.45, seed: '#b91c1c' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#b91c1c' },
         shape: { radius: 'md', borderWidth: 'none', shadow: 'sm', elevation: 'glow' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

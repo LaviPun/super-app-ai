@@ -27,6 +27,7 @@ export const FUNCTIONS_DISCOUNT_RULES_TEMPLATES: TemplateEntry[] = [
   // ── FN-DISC-01 — Spend-to-Save tiered cart discount (Discount Ninja "Spend-to-Save Tiers") ──
   {
     id: 'FN-DISC-01',
+    tier: 'standard',
     name: 'Spend-to-Save Cart Tiers',
     description:
       'Automatic order discount that grows with cart subtotal — buy-more-save-more tiers priced at checkout by the discount Function.',
@@ -79,6 +80,7 @@ export const FUNCTIONS_DISCOUNT_RULES_TEMPLATES: TemplateEntry[] = [
   // ── FN-DISC-02 — Quantity-break volume tiers (Kaching "Quantity Break" grid) ──
   {
     id: 'FN-DISC-02',
+    tier: 'standard',
     name: 'Quantity Break Volume Tiers',
     description:
       'Buy-more-save-more quantity breaks on eligible products — Amazon-style tier grid pricing applied as a checkout-level product discount.',
@@ -123,6 +125,7 @@ export const FUNCTIONS_DISCOUNT_RULES_TEMPLATES: TemplateEntry[] = [
   // ── FN-DISC-03 — Mix-and-match BOGO (Discount Ninja "Mix-and-Match BOGO" / Kaching BXGY) ──
   {
     id: 'FN-DISC-03',
+    tier: 'standard',
     name: 'Mix-and-Match BOGO',
     description:
       'Buy any 1 from a collection, get the next one free — mix-and-match buy-X-get-Y priced by the discount Function.',
@@ -165,6 +168,7 @@ export const FUNCTIONS_DISCOUNT_RULES_TEMPLATES: TemplateEntry[] = [
   // ── FN-DISC-04 — Buy 2 Get 1 half-off (multi-tier BOGO with partial reward) ──
   {
     id: 'FN-DISC-04',
+    tier: 'standard',
     name: 'Buy 2 Get 1 Half Off',
     description:
       'Buy two eligible products and take 50% off a third — buy-X-get-Y with a partial-percentage reward arm.',
@@ -207,6 +211,7 @@ export const FUNCTIONS_DISCOUNT_RULES_TEMPLATES: TemplateEntry[] = [
   // ── FN-DISC-05 — Gift with purchase over threshold (Discount Ninja "Auto Free Gift" / GWP) ──
   {
     id: 'FN-DISC-05',
+    tier: 'standard',
     name: 'Free Gift Over $100',
     description:
       'Auto-add a free gift product when the cart crosses a spend threshold — gift-with-purchase priced at $0 by the discount Function.',
@@ -242,6 +247,7 @@ export const FUNCTIONS_DISCOUNT_RULES_TEMPLATES: TemplateEntry[] = [
   // ── FN-DISC-06 — Choose-your-gift (Discount Ninja "Choose Your Gift" — selectable GWP) ──
   {
     id: 'FN-DISC-06',
+    tier: 'standard',
     name: 'Choose Your Free Gift',
     description:
       'Spend past a threshold and pick one free gift from a curated set — selectable gift-with-purchase, priced free at checkout.',
@@ -281,6 +287,7 @@ export const FUNCTIONS_DISCOUNT_RULES_TEMPLATES: TemplateEntry[] = [
   // ── FN-DISC-07 — Cheapest-item-free mix & match (Kaching / Discount Ninja "cheapest free") ──
   {
     id: 'FN-DISC-07',
+    tier: 'standard',
     name: 'Buy 3, Cheapest Free',
     description:
       'Add three eligible items and the cheapest one is free — cheapest-free mix-and-match tier applied by the discount Function.',
@@ -323,6 +330,7 @@ export const FUNCTIONS_DISCOUNT_RULES_TEMPLATES: TemplateEntry[] = [
   // ── FN-DISC-08 — Buy 4 pay for 3 (cheapest-free, multi-tier) ──
   {
     id: 'FN-DISC-08',
+    tier: 'standard',
     name: 'Buy 4 Pay for 3',
     description:
       'Two mix-and-match tiers — buy 4 get the cheapest free, buy 6 get the two cheapest free — priced by the discount Function.',
@@ -373,6 +381,7 @@ export const FUNCTIONS_DISCOUNT_RULES_TEMPLATES: TemplateEntry[] = [
   // ── FN-DISC-09 — Volume tiers to a specific price (Kaching "specific fixed price") ──
   {
     id: 'FN-DISC-09',
+    tier: 'standard',
     name: 'Volume Fixed-Price Tiers',
     description:
       'Quantity tiers that set an exact bundle price (e.g. 2 for $30, 3 for $40) — fixed-price volume breaks priced at checkout.',
@@ -415,6 +424,7 @@ export const FUNCTIONS_DISCOUNT_RULES_TEMPLATES: TemplateEntry[] = [
   // ── FN-DISC-10 — Flat percentage on a collection (Discount Ninja "Percentage Discount") ──
   {
     id: 'FN-DISC-10',
+    tier: 'standard',
     name: 'Collection Percentage Sale',
     description:
       'A flat automatic percentage off a chosen collection — the classic single-rate product discount applied at checkout.',
@@ -448,6 +458,7 @@ export const FUNCTIONS_DISCOUNT_RULES_TEMPLATES: TemplateEntry[] = [
   // ── FN-DISC-11 — Fixed-amount clearance with .99 price ending (Bold "Override Cents") ──
   {
     id: 'FN-DISC-11',
+    tier: 'standard',
     name: 'Clearance Dollars-Off (.99 ending)',
     description:
       'A fixed dollar amount off with a forced .99 price ending — the Bold "override cents" clearance pattern, priced at checkout.',
@@ -481,6 +492,7 @@ export const FUNCTIONS_DISCOUNT_RULES_TEMPLATES: TemplateEntry[] = [
   // ── FN-DISC-12 — VIP / member customer-tag discount (Discount Ninja tag audience; Bold member perk) ──
   {
     id: 'FN-DISC-12',
+    tier: 'standard',
     name: 'VIP Member Discount',
     description:
       'An exclusive automatic percentage for customers carrying a VIP/member tag — the member perk degrades to no discount until the tag is present.',
@@ -514,6 +526,7 @@ export const FUNCTIONS_DISCOUNT_RULES_TEMPLATES: TemplateEntry[] = [
   // ── FN-DISC-13 — Spend $X get $Y off for tagged wholesale customers ──
   {
     id: 'FN-DISC-13',
+    tier: 'standard',
     name: 'Wholesale Spend-X-Get-Y',
     description:
       'Wholesale-tagged buyers who spend past a subtotal threshold get a fixed amount off the order — a tag-gated spend-X-get-Y order discount.',
@@ -563,6 +576,7 @@ export const FUNCTIONS_DISCOUNT_RULES_TEMPLATES: TemplateEntry[] = [
   // ── FN-DISC-14 — Spend-X, get a free gift from a collection with a usage cap ──
   {
     id: 'FN-DISC-14',
+    tier: 'standard',
     name: 'Spend $200 Get a Bonus Item',
     description:
       'Cross the $200 spend threshold and auto-receive a bonus item, capped by a per-promotion usage limit — gift-with-purchase priced free at checkout.',

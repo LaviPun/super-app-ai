@@ -32,6 +32,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   // ── pos.product-details ───────────────────────────────────────────────────
   {
     id: 'POS-PROD-01',
+    tier: 'standard',
     name: 'POS Product Points Preview',
     description: 'Shows the loyalty points a customer would earn for this product on the POS product-details screen.',
     category: 'ADMIN_UI',
@@ -56,6 +57,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-PROD-02',
+    tier: 'standard',
     name: 'POS Product Review Snapshot',
     description: 'Displays the product star rating and review count in-store so staff can talk to the reviews on the POS product-details block.',
     category: 'ADMIN_UI',
@@ -79,6 +81,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-PROD-03',
+    tier: 'standard',
     name: 'POS Add Recommended Add-On',
     description: 'Menu-item action on the POS product-details screen that adds a paired accessory line item to the cart.',
     category: 'ADMIN_UI',
@@ -104,6 +107,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-PROD-04',
+    tier: 'standard',
     name: 'POS Product Line Discount',
     description: 'Product-details action that applies a fixed percentage line discount to the selected item, PIN-gated for staff.',
     category: 'ADMIN_UI',
@@ -135,6 +139,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-PROD-05',
+    tier: 'standard',
     name: 'POS Tag Product Property',
     description: 'Product-details action that stamps a gift-wrap property onto the added line item for fulfillment staff.',
     category: 'ADMIN_UI',
@@ -162,6 +167,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   // ── pos.order-details ─────────────────────────────────────────────────────
   {
     id: 'POS-PROD-06',
+    tier: 'standard',
     name: 'POS Order Loyalty Balance',
     description: 'Shows the customer loyalty points balance on the POS order-details block after a sale is looked up.',
     category: 'ADMIN_UI',
@@ -186,6 +192,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-PROD-07',
+    tier: 'standard',
     name: 'POS Order Number Reference',
     description: 'Displays the live order name on the POS order-details block so staff can reference it during service.',
     category: 'ADMIN_UI',
@@ -209,6 +216,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-PROD-08',
+    tier: 'standard',
     name: 'POS Award Bonus Points',
     description: 'Order-details action that writes a bonus loyalty-ledger entry for the customer, PIN-gated to prevent abuse.',
     category: 'ADMIN_UI',
@@ -237,6 +245,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-PROD-09',
+    tier: 'standard',
     name: 'POS Request Order Review',
     description: 'Order-details menu-item action that forwards the order to the review-request queue so a review email/SMS is scheduled.',
     category: 'ADMIN_UI',
@@ -260,6 +269,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-PROD-10',
+    tier: 'standard',
     name: 'POS Order Fulfillment Note',
     description: 'Order-details action that adds a staff handoff note to the cart for the fulfillment team.',
     category: 'ADMIN_UI',
@@ -286,6 +296,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   // ── pos.purchase.post ─────────────────────────────────────────────────────
   {
     id: 'POS-PROD-11',
+    tier: 'standard',
     name: 'POS Post-Sale Points Earned',
     description: 'Shows how many loyalty points the completed sale earned on the POS purchase-post block.',
     category: 'ADMIN_UI',
@@ -310,6 +321,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-PROD-12',
+    tier: 'standard',
     name: 'POS Post-Sale Tier Status',
     description: 'Displays the customer VIP tier on the POS purchase-post block after checkout completes.',
     category: 'ADMIN_UI',
@@ -334,6 +346,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-PROD-13',
+    tier: 'standard',
     name: 'POS Post-Sale Referral Prompt',
     description: 'Purchase-post menu-item action that opens the referral share modal so staff can offer a refer-a-friend link.',
     category: 'ADMIN_UI',
@@ -356,6 +369,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-PROD-14',
+    tier: 'standard',
     name: 'POS Post-Sale Redeem Reward',
     description: 'Purchase-post action that applies a fixed-amount loyalty redemption discount to the cart, PIN-gated.',
     category: 'ADMIN_UI',
@@ -387,6 +401,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-PROD-15',
+    tier: 'standard',
     name: 'POS Post-Sale Enroll Customer',
     description: 'Purchase-post action that posts the completed sale context to the loyalty proxy to enroll the customer in the program.',
     category: 'ADMIN_UI',
@@ -410,6 +425,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-PROD-16',
+    tier: 'standard',
     name: 'POS Post-Sale Cart Total Recap',
     description: 'Shows the sale grand total on the POS purchase-post block as a quick confirmation for staff.',
     category: 'ADMIN_UI',
@@ -434,6 +450,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   // ── receipt header / footer ───────────────────────────────────────────────
   {
     id: 'POS-PROD-17',
+    tier: 'standard',
     name: 'POS Receipt Loyalty Header',
     description: 'Prints a loyalty points-balance line in the POS receipt header for the customer to keep.',
     category: 'ADMIN_UI',
@@ -461,6 +478,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-PROD-18',
+    tier: 'standard',
     name: 'POS Receipt Review Invite Footer',
     description: 'Prints a review-request invitation with a short link in the POS receipt footer.',
     category: 'ADMIN_UI',
@@ -486,6 +504,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-PROD-19',
+    tier: 'standard',
     name: 'POS Receipt Referral Footer',
     description: 'Prints a refer-a-friend message and reward reminder in the POS receipt footer.',
     category: 'ADMIN_UI',
@@ -512,6 +531,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   // ── event.observe (UI-less background handlers) ───────────────────────────
   {
     id: 'POS-PROD-20',
+    tier: 'standard',
     name: 'POS Transaction Loyalty Accrual',
     description: 'Background observer that forwards each completed POS sale to the loyalty proxy to accrue points automatically.',
     category: 'ADMIN_UI',
@@ -537,6 +557,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-PROD-21',
+    tier: 'standard',
     name: 'POS Transaction Review Trigger',
     description: 'Background observer that forwards completed POS sales to the review-request pipeline so a review invite is scheduled.',
     category: 'ADMIN_UI',
@@ -562,6 +583,7 @@ export const POS_PRODUCT_ORDER_POST_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-PROD-22',
+    tier: 'standard',
     name: 'POS Cart Upsell Watcher',
     description: 'Background observer that forwards POS cart changes to the upsell service so relevant add-on suggestions can be surfaced.',
     category: 'ADMIN_UI',

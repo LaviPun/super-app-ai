@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { RecipeSpec } from '@superapp/core';
 import { applyStylePackTokens } from '~/services/ai/apply-style-pack.server';
-import { resolveStorefrontPack, type PackSelection } from '~/services/ai/style-packs.server';
+import { resolveStorefrontPack, type PackSelection, type StylePackId } from '~/services/ai/style-packs.server';
 import type { StorePalette } from '~/services/theme/theme-analyzer.service';
 
 const sel = (packId: PackSelection['packId'], confidence: number): PackSelection => ({
@@ -33,18 +33,28 @@ type Styled = {
   style: { pack?: string; spacing: Record<string, unknown>; shape: Record<string, unknown>; motion: Record<string, unknown> };
 };
 
-describe('resolveStorefrontPack (6→4 collapse)', () => {
-  it('maps each personality-explicit aesthetic pack to its own render pack', () => {
-    expect(resolveStorefrontPack(sel('bold-dtc', 0.8))).toBe('bold');
-    expect(resolveStorefrontPack(sel('playful-commerce', 0.8))).toBe('playful');
-    expect(resolveStorefrontPack(sel('tech-utility', 0.8))).toBe('utility');
+describe('resolveStorefrontPack (H1: collapsed to luxe/bold only, 2026-08-24)', () => {
+  it('every StylePackId resolves to luxe or bold only (H1 pack collapse)', () => {
+    const ids: StylePackId[] = [
+      'apple-hig-clean',
+      'editorial-wellness',
+      'bold-dtc',
+      'minimal-luxe',
+      'playful-commerce',
+      'tech-utility',
+    ];
+    for (const packId of ids) {
+      const result = resolveStorefrontPack({ packId, confidence: 1, alternatives: [], reason: 'test' });
+      expect(['luxe', 'bold']).toContain(result);
+    }
   });
-  it('collapses the calm/clean/premium packs to luxe', () => {
-    for (const p of ['apple-hig-clean', 'editorial-wellness', 'minimal-luxe'] as const) {
+  it('maps bold-dtc to bold; everything else (incl. the former playful/utility ids) to luxe', () => {
+    expect(resolveStorefrontPack(sel('bold-dtc', 0.8))).toBe('bold');
+    for (const p of ['apple-hig-clean', 'editorial-wellness', 'minimal-luxe', 'playful-commerce', 'tech-utility'] as const) {
       expect(resolveStorefrontPack(sel(p, 0.8))).toBe('luxe');
     }
   });
-  it('biases to luxe on low confidence for every personality-heavy pack', () => {
+  it('biases to luxe on low confidence for every aesthetic pack', () => {
     expect(resolveStorefrontPack(sel('bold-dtc', 0.2))).toBe('luxe');
     expect(resolveStorefrontPack(sel('playful-commerce', 0.2))).toBe('luxe');
     expect(resolveStorefrontPack(sel('tech-utility', 0.2))).toBe('luxe');
@@ -60,9 +70,9 @@ describe('applyStylePackTokens', () => {
     expect(EASINGS).toContain(r.style.motion.easing);
   });
 
-  it('resolves + sets the render grammar (style.pack ∈ the four render packs)', () => {
+  it('resolves + sets the render grammar (style.pack ∈ the two render packs, H1)', () => {
     const r = applyStylePackTokens(section({}), palette, {}) as unknown as Styled;
-    expect(['luxe', 'bold', 'playful', 'utility']).toContain(r.style.pack);
+    expect(['luxe', 'bold']).toContain(r.style.pack);
   });
 
   it('respects a pack the model/merchant already chose', () => {

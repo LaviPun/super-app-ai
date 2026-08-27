@@ -24,6 +24,7 @@ export const NATIVE_FAQ_ACCORDION_TEMPLATES: TemplateEntry[] = [
   // generous whitespace, hierarchy by weight. The canonical FAQ surface.
   {
     id: 'NSEC-FAQ-01',
+    tier: 'standard',
     name: 'FAQ — Single-Column Accordion',
     description: 'Stacked expand/collapse FAQ for a page or product — one question open at a time, clean neutral rows with a chevron toggle.',
     category: 'STOREFRONT_UI',
@@ -75,6 +76,7 @@ export const NATIVE_FAQ_ACCORDION_TEMPLATES: TemplateEntry[] = [
   // page. Editorial Wellness grammar: airy, border-carried, calm.
   {
     id: 'NSEC-FAQ-02',
+    tier: 'standard',
     name: 'FAQ — Two-Column Accordion',
     description: 'Two-column FAQ grid that packs a long question list onto a wide page — each column an independent expand/collapse stack.',
     category: 'STOREFRONT_UI',
@@ -127,6 +129,7 @@ export const NATIVE_FAQ_ACCORDION_TEMPLATES: TemplateEntry[] = [
   // filter box; Tech Utility grammar — dense, hairline, high-trust.
   {
     id: 'NSEC-FAQ-03',
+    tier: 'standard',
     name: 'FAQ — Searchable Help Center',
     description: 'Help-center style FAQ with a filter box above a stacked accordion — buyers type to narrow the question list before expanding an answer.',
     category: 'STOREFRONT_UI',
@@ -180,6 +183,7 @@ export const NATIVE_FAQ_ACCORDION_TEMPLATES: TemplateEntry[] = [
   // the renderer groups them into Shipping / Returns / Product tabs-or-headers.
   {
     id: 'NSEC-FAQ-04',
+    tier: 'standard',
     name: 'FAQ — Categorized by Topic',
     description: 'Topic-grouped FAQ accordion — questions bucketed into Shipping, Returns, and Product headers so buyers jump to their concern fast.',
     category: 'STOREFRONT_UI',
@@ -232,6 +236,7 @@ export const NATIVE_FAQ_ACCORDION_TEMPLATES: TemplateEntry[] = [
   // drops under an add-to-cart block; answers the buyer's last-mile objections.
   {
     id: 'NSEC-FAQ-05',
+    tier: 'standard',
     name: 'FAQ — Product Shipping & Returns',
     description: 'Compact PDP accordion answering shipping, returns, and care right under the buy button — reduces last-mile hesitation on the product page.',
     category: 'STOREFRONT_UI',

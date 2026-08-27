@@ -41,13 +41,23 @@ AssetSizeAppBlockJavaScript:
   enabled: true
   threshold_in_bytes: 64000
 
-# AssetSizeAppBlockCSS raised from the 100 KB preset default to 120 KB.
-# Rationale (V-B renderer batch B9–B12): the four new surfaces added their
+# AssetSizeAppBlockCSS raised from the 100 KB preset default to 120 KB, then to 130 KB.
+# Rationale (V-B renderer batch B9–B12, 100 KB → 120 KB): the four new surfaces added their
 # structural + two-pack CSS (before/after clip-path panes, hotspot markers +
 # popover, tabgroup panels, FAQ search chips) to assets/superapp-modules.css,
 # nudging the minified sheet over the 100 KB preset. Unlike the aggregate Liquid
 # limit this is a theme-check LINT ceiling we own; the sheet still gzips to a
 # fraction of the wire budget, so the threshold tracks the shipped style surface.
+# Rationale (WS-H Task 5, 120 KB → 130 KB): the trust-badge icon sprite (a static
+# <svg><symbol> catalog) and the floating-widget per-variant icon set moved OUT of the
+# byte-budgeted Liquid family into CSS mask-image rules here — the reclaim lever this
+# task exists to pull (assets/superapp-modules.{css,js} have separate, uncontested
+# budget vs. the Shopify-enforced 100 KB aggregate Liquid wall; see
+# scripts/build-theme-liquid.mjs). Net new CSS ~19.6 KB (16 trust-badge glyphs + 5
+# floating-widget glyphs, each a self-contained data-URI mask so the glyph still
+# inherits the live per-pack accent color via background-color:currentColor) against a
+# ~4.8 KB Liquid-side reclaim. Same "lint ceiling we own, still gzips well" reasoning
+# as every threshold bump above.
 AssetSizeAppBlockCSS:
   enabled: true
-  threshold_in_bytes: 120000
+  threshold_in_bytes: 130000
