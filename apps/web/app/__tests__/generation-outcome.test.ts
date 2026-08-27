@@ -176,21 +176,25 @@ describe('stepIndexForSeenEvents (WS-F: real progress, was a fake setInterval)',
   it('no events yet → step 0 (fetch in flight)', () => {
     expect(stepIndexForSeenEvents(new Set(), 5)).toBe(0);
   });
-  it('first option arrives → advances past "understanding the request"', () => {
-    expect(stepIndexForSeenEvents(new Set(['option']), 5)).toBe(2);
+  it('intent frame arrives → past "understanding the request" (classify + exemplar search resolved)', () => {
+    expect(stepIndexForSeenEvents(new Set(['intent']), 5)).toBe(1);
   });
-  it('ranking arrives → validating/ranking step', () => {
-    expect(stepIndexForSeenEvents(new Set(['option', 'ranking']), 5)).toBe(3);
+  it('first option/started arrives → "generating concepts"', () => {
+    expect(stepIndexForSeenEvents(new Set(['intent', 'option']), 5)).toBe(2);
+    expect(stepIndexForSeenEvents(new Set(['intent', 'started']), 5)).toBe(2);
+  });
+  it('ranking arrives → past design QA, into the ranking step', () => {
+    expect(stepIndexForSeenEvents(new Set(['intent', 'option', 'ranking']), 5)).toBe(4);
   });
   it('stream done → complete', () => {
-    expect(stepIndexForSeenEvents(new Set(['option', 'ranking', 'done']), 5)).toBe(5);
+    expect(stepIndexForSeenEvents(new Set(['intent', 'option', 'ranking', 'done']), 5)).toBe(5);
   });
   it('never regresses below a previously-reached step for a lesser event mix', () => {
     // e.g. a late 'score' event alone shouldn't rewind an already-advanced UI;
     // caller is responsible for tracking the max seen, this function is a pure
     // ceiling function over the *seen set*, so assert monotonic inputs behave.
-    const a = stepIndexForSeenEvents(new Set(['option', 'ranking']), 5);
-    const b = stepIndexForSeenEvents(new Set(['option', 'ranking', 'score']), 5);
+    const a = stepIndexForSeenEvents(new Set(['intent', 'option', 'ranking']), 5);
+    const b = stepIndexForSeenEvents(new Set(['intent', 'option', 'ranking', 'score']), 5);
     expect(b).toBeGreaterThanOrEqual(a);
   });
 });

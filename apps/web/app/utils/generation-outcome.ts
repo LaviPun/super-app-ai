@@ -74,9 +74,30 @@ export function isStreamEventKind(ev: string): ev is StreamEventKind {
   return STREAM_EVENT_KINDS.has(ev);
 }
 
+// Builder loading-animation stage labels (WS-builder-ux): Understanding your
+// request -> Selecting exemplars -> Generating concepts -> Design QA -> Ranking
+// (see GEN_STEPS in generate._index.tsx). Both transports map their real
+// progress signals onto this same 5-slot index space:
+//  - 'intent' (stream) fires once classify + RAG exemplar search have BOTH
+//    resolved (the frame carries exemplarTier/exemplarTemplateId — the actual
+//    exemplar-selection OUTCOME) — so seeing it jumps past step 0 straight to
+//    step 1, "Selecting exemplars", which is already complete by then.
+//  - 'started'/'option' mark the per-option generate+QA fan-out running —
+//    step 2, "Generating concepts" (each option's own Design QA gate already
+//    runs inline before that option's frame is sent, so there is no separate
+//    wire event for it).
+//  - 'ranking' fires only after every option settled AND the deterministic
+//    ranker ran — by construction every arrived option already passed its
+//    QA gate, so seeing 'ranking' retroactively completes step 3 ("Design
+//    QA") the instant it completes step 4 ("Ranking") itself.
+//  - 'score'/'option_updated' are the post-`done` async judge-polish frames;
+//    clamped to the last real step like before.
+//  - 'done' completes everything.
 const STEP_ORDER: Array<{ kind: StreamEventKind; minStep: number }> = [
+  { kind: 'intent', minStep: 1 },
+  { kind: 'started', minStep: 2 },
   { kind: 'option', minStep: 2 },
-  { kind: 'ranking', minStep: 3 },
+  { kind: 'ranking', minStep: 4 },
   { kind: 'score', minStep: 4 },
   { kind: 'option_updated', minStep: 4 },
   { kind: 'done', minStep: Number.MAX_SAFE_INTEGER }, // clamped to totalSteps below
@@ -87,7 +108,8 @@ const STEP_ORDER: Array<{ kind: StreamEventKind; minStep: number }> = [
  * tick (WS-F). Pure, order-independent-safe: given the set of distinct SSE
  * event kinds seen so far in a stream, returns which GEN_STEPS index is
  * "current." Every input here is a REAL SSE frame the route already parses
- * (option/ranking/score/option_updated/done) — nothing is simulated.
+ * (intent/started/option/ranking/score/option_updated/done) — nothing is
+ * simulated.
  */
 export function stepIndexForSeenEvents(seen: ReadonlySet<StreamEventKind>, totalSteps: number): number {
   let step = 0;

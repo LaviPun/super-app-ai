@@ -257,12 +257,18 @@ const RADIUS_MAP: Record<string, number> = { none: 0, sm: 6, md: 10, lg: 16, ful
 // Each refine is one AI request against the monthly quota (enforced server-side).
 const COST_PER_CHANGE = 1;
 
+// Real pipeline stages (runGenerationPipeline's onStage hook + the stream's
+// intent/started/option/ranking frames — see stepIndexForSeenEvents and
+// stepIndexForPollStage in ~/utils/generation-outcome, which map BOTH
+// transports' real progress signals onto this same 5-slot index space).
+// Never fake timers — every stage tick reflects a server event that actually
+// happened.
 const GEN_STEPS = [
-  { icon: 'magic', label: 'Understanding your request' },
-  { icon: 'layers', label: 'Exploring module types — Storefront UI' },
-  { icon: 'layers', label: 'Drafting 3 layout concepts' },
-  { icon: 'shield', label: 'Validating each against schema' },
-  { icon: 'eye', label: 'Rendering live previews' },
+  { label: 'Understanding your request' },
+  { label: 'Selecting exemplars' },
+  { label: 'Generating concepts' },
+  { label: 'Design QA' },
+  { label: 'Ranking' },
 ];
 
 // Visual concept presets — icon/accent per slot. Real data (name, tagline, tags,
@@ -675,6 +681,13 @@ function GenerateWorkspace() {
   // index — map it to its position among the returned options, matching the
   // streamGenerate `ranking` handling above).
   const applyPolledSnapshot = useCallback((snapshot: PolledJobSnapshot) => {
+    // WS-builder-ux: the async transport's real Job.stage (persisted by the
+    // worker's runGenerationPipeline onStage hook) drives the SAME loading
+    // animation the stream transport's SSE events drive — every poll
+    // (including QUEUED/RUNNING snapshots with no options yet) updates it.
+    // Math.max guards against a stale/out-of-order poll response rewinding
+    // an already-more-advanced UI.
+    setStepIdx((prev) => Math.max(prev, stepIndexForPollStage(snapshot.stage, GEN_STEPS.length)));
     if (snapshot.options.length === 0) return;
     const recPos =
       snapshot.recommendedIndex != null
@@ -714,6 +727,7 @@ function GenerateWorkspace() {
   // orphaned job will eventually bill under and the dedupe seam collapses
   // them into one billed unit instead of two.
   const asyncGenerate = useCallback(async () => {
+    setStepIdx(0);
     const resumed = readActiveGenSession(seedPrompt);
     let jobId: string;
     let correlationId: string;
@@ -1099,13 +1113,12 @@ function GenerateWorkspace() {
 }
 
 function GenLoading({ prompt, stepIdx, onCancel }: any) {
+  const currentLabel = GEN_STEPS[Math.min(stepIdx, GEN_STEPS.length - 1)]?.label ?? 'Generating concepts';
   return (
     <div className="sa-m-gen-loading">
       <div className="sa-m-gen-loading-card">
-        <s-box padding="base">
-          <s-spinner size="large" accessibilityLabel="Generating concepts" />
-        </s-box>
-        <div className="sa-m-gen-eyebrow"><span className="sa-m-gen-pulse-dot" />Generating concepts</div>
+        <GenAssemblyArt stepIdx={stepIdx} />
+        <div className="sa-m-gen-eyebrow"><span className="sa-m-gen-pulse-dot" />{currentLabel}</div>
         <s-box paddingBlockStart="small-100">
           <s-heading>Designing your module</s-heading>
         </s-box>
@@ -1129,6 +1142,54 @@ function GenLoading({ prompt, stepIdx, onCancel }: any) {
         </s-box>
       </div>
     </div>
+  );
+}
+
+/**
+ * "AI assembling building blocks" loading animation (WS-builder-ux). A
+ * module-silhouette wireframe assembles one block per completed pipeline
+ * stage — `stepIdx` is the SAME real, event-driven value (never a fake
+ * timer) that advances the textual step list below it
+ * (stepIndexForSeenEvents for the SSE transport, stepIndexForPollStage for
+ * the async/poll transport — both in ~/utils/generation-outcome). Pure
+ * SVG/CSS, no dependencies; the ambient shimmer on not-yet-assembled blocks
+ * is purely decorative ("still working") and is fully disabled under
+ * `prefers-reduced-motion` via the `.sa-m-gen-assembly-block` CSS (see
+ * merchant.css) — the reveal itself still happens, just as an instant
+ * opacity swap with no transition/shimmer.
+ */
+function GenAssemblyArt({ stepIdx }: { stepIdx: number }) {
+  // One block per GEN_STEPS index (5 stages -> 5 pieces of the silhouette) —
+  // block i reveals the instant stage i completes (i < stepIdx), the exact
+  // same "done" condition the step list below already uses.
+  const blocks = [
+    { key: 'hero', x: 16, y: 24, w: 168, h: 38, rx: 6 },
+    { key: 'title', x: 16, y: 70, w: 96, h: 11, rx: 3 },
+    { key: 'subtitle', x: 16, y: 87, w: 132, h: 9, rx: 3 },
+    { key: 'button', x: 16, y: 104, w: 58, h: 18, rx: 9 },
+    { key: 'badge', x: 146, y: 104, w: 38, h: 18, rx: 9 },
+  ] as const;
+  return (
+    <svg className="sa-m-gen-assembly" viewBox="0 0 200 140" role="img" aria-hidden="true">
+      <rect className="sa-m-gen-assembly-frame" x="1" y="1" width="198" height="138" rx="10" />
+      <circle className="sa-m-gen-assembly-dot" cx="14" cy="12" r="2.5" />
+      <circle className="sa-m-gen-assembly-dot" cx="24" cy="12" r="2.5" />
+      <circle className="sa-m-gen-assembly-dot" cx="34" cy="12" r="2.5" />
+      <line className="sa-m-gen-assembly-rule" x1="1" y1="20" x2="199" y2="20" />
+      {blocks.map((b, i) => (
+        <rect
+          key={b.key}
+          data-key={b.key}
+          className={'sa-m-gen-assembly-block' + (i < stepIdx ? ' revealed' : '')}
+          x={b.x}
+          y={b.y}
+          width={b.w}
+          height={b.h}
+          rx={b.rx}
+          style={{ transitionDelay: i < stepIdx ? `${i * 40}ms` : '0ms' }}
+        />
+      ))}
+    </svg>
   );
 }
 
