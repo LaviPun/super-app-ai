@@ -27,7 +27,7 @@ let redisStatus: 'ok' | 'fail' = 'fail';
 
 redis.on('ready', () => {
   redisStatus = 'ok';
-  console.log('[worker] redis ready', { prefix: config.queuePrefix });
+  console.info('[worker] redis ready', { prefix: config.queuePrefix });
 });
 redis.on('error', (err) => {
   redisStatus = 'fail';
@@ -46,7 +46,7 @@ const server = http.createServer((req, res) => {
   res.end(JSON.stringify({ error: 'not found' }));
 });
 server.listen(port, '0.0.0.0', () => {
-  console.log('[worker] health server listening', {
+  console.info('[worker] health server listening', {
     port,
     mode: resolveEffectiveMode(config),
     queuePrefix: config.queuePrefix,
@@ -67,14 +67,14 @@ if (resolveEffectiveMode(config) === 'queue') {
   const handlers = buildWorkerHandlers();
   if (Object.keys(handlers).length > 0) {
     runtime = createWebWorkerRuntime({ handlers });
-    console.log('[worker] BullMQ workers mounted', { queues: Object.keys(handlers) });
+    console.info('[worker] BullMQ workers mounted', { queues: Object.keys(handlers) });
   } else {
-    console.log('[worker] no handlers registered yet — health-only mode');
+    console.info('[worker] no handlers registered yet — health-only mode');
   }
 }
 
 async function shutdown(signal: string) {
-  console.log(`[worker] ${signal} — shutting down`);
+  console.info(`[worker] ${signal} — shutting down`);
   clearInterval(heartbeat);
   // Raise the force-exit window when a runtime is mounted so in-flight jobs
   // can drain via Worker.close() before Railway kills the process.
