@@ -11,6 +11,18 @@ on:
     - cron: '0 3 * * *' # 03:00 UTC daily
   workflow_dispatch: {}
 
+# WS-B follow-up: ci.yml already triggered on `pull_request` (see git blame —
+# present since the initial commit), but with no concurrency group a rapid
+# sequence of pushes to the same PR queued a full pipeline per push instead of
+# superseding the stale one. Group by PR number for pull_request events (each
+# new push to the same PR cancels the previous run) and by ref otherwise, and
+# only cancel-in-progress for pull_request — a push to master (or the nightly
+# schedule/workflow_dispatch) must always run to completion, never get
+# cancelled by a later trigger on the same ref.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # Shared env block — no secrets here (safe for forks and PRs)
 env:
   NODE_ENV: test
@@ -76,6 +88,19 @@ jobs:
       - name: Prisma validate
         working-directory: apps/web
         run: pnpm exec prisma validate
+
+      # WS-H built this guard (packages/core/scripts/strip-demo-palettes.mjs
+      # --check, Tmpl-2) as an npm script but never wired it into CI — it
+      # fails non-zero if any template `colors:` block hardcodes both `text`
+      # and `background` (a demo palette that would fight the merchant's real
+      # store aesthetic). Fast (pure fs scan, no build/deps needed) and
+      # deterministic, so it runs here rather than waiting on the full test
+      # suite. The equivalent invariant is also asserted by
+      # packages/core/src/__tests__/template-library-integrity.test.ts (run by
+      # the `test` job below via `pnpm -r test`) — this step just fails fast
+      # and makes the specific guard visible by name in the quality job.
+      - name: Check demo palettes (Tmpl-2 guard)
+        run: pnpm --filter @superapp/core run check:demo-palettes
 
   # ─── Job 2: Unit tests ───────────────────────────────────────────────────
   test:
@@ -211,6 +236,49 @@ jobs:
 
       - name: Check aggregate Liquid budget
         run: node scripts/build-theme-liquid.mjs --check
+
+  # ─── Job 2d: Theme Check CLI (authoritative Liquid gate) ──────────────────
+  #
+  # The program's other pre-publish Liquid gate (services/publish/theme-check.server.ts,
+  # exercised by apps/web/app/__tests__/theme-check-gate.test.ts) runs Shopify's
+  # @shopify/theme-check-node LIBRARY in-process. That library and the real
+  # `shopify theme check` CLI do not always agree — the CLI is the one Shopify
+  # itself runs at `shopify app deploy` time, and it has been observed to catch
+  # offense classes (e.g. UnsupportedFilterArguments) the node-API path missed.
+  # This job runs the real CLI against extensions/theme-app-extension (which
+  # already carries its own .theme-check.yml extending the
+  # `theme_app_extension` preset) as the authoritative floor under the node-API
+  # gate, not a replacement for it.
+  #
+  # Auth: `theme check` is a pure static linter — no theme, store, or Partners
+  # auth is required to run it locally or here; verified by running it in this
+  # worktree (`cd extensions/theme-app-extension && shopify theme check`,
+  # exit 0, "15 files inspected with no offenses found", no login prompt).
+  # SHOPIFY_CLI_NO_ANALYTICS disables its one network call (usage telemetry);
+  # nothing here depends on repo secrets, so it runs on PRs too.
+  #
+  # Node 22, not the repo-wide 20 — same reason as `test-functions` above:
+  # @shopify/cli@4.7.0 requires engines.node >=22.12.0.
+  theme-check:
+    name: Theme Check (shopify CLI)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Shopify CLI
+        run: npm install -g @shopify/cli@4.7.0
+
+      - name: Run theme check (theme_app_extension preset)
+        working-directory: extensions/theme-app-extension
+        run: shopify theme check --path .
+        env:
+          SHOPIFY_CLI_NO_ANALYTICS: '1'
 
   # ─── Job 3: Internal admin Playwright smoke ───────────────────────────────
   e2e-internal:
@@ -361,7 +429,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [test, test-functions, e2e-internal, evals, liquid-budget]
+    needs: [test, test-functions, e2e-internal, evals, liquid-budget, theme-check]
 
     steps:
       - uses: actions/checkout@v4
