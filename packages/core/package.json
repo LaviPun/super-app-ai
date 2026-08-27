@@ -10,7 +10,8 @@
     "dev": "tsc -p tsconfig.json -w",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "lint": "echo \"(optional) add eslint\""
+    "lint": "echo \"(optional) add eslint\"",
+    "check:demo-palettes": "node scripts/strip-demo-palettes.mjs --check"
   },
   "dependencies": {
     "zod": "^3.25.76"

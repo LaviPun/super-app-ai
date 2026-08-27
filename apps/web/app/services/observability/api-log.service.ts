@@ -2,6 +2,8 @@ import { getPrisma } from '~/db.server';
 import { getRequestId, runWithRequestContext, getCorrelationId } from '~/services/observability/correlation.server';
 import { ErrorLogService } from '~/services/observability/error-log.service';
 import { isSensitiveHeader, redact, redactString, safeErrorMeta, safeMeta } from '~/services/observability/redact.server';
+import { OpsAlertService, wasOpsAlerted } from '~/services/observability/ops-alert.server';
+import { AppError } from '~/services/errors/app-error.server';
 
 export class ApiLogService {
   /** Create an in-progress API log entry (status 0, finishedAt null). Returns id for later complete(). */
@@ -242,6 +244,31 @@ export async function withApiLogging(
       const message = err instanceof Error ? err.message : String(err);
       const stack = err instanceof Error ? err.stack : undefined;
       await errLog.write('ERROR', message, stack, errorMeta, route, input.shopId, 'API');
+      // WS-G: the withApiLogging catch is the single re-throw point for every
+      // route wrapped in this helper — fire the ops alert here so no route
+      // needs its own Sentry call (Decision G1). ErrorLog above stays
+      // unconditional regardless of the two gates below — those only affect
+      // whether this failure also pages ops.
+      //
+      // Gate 1 (double-alert seam, fix round 2): skip when the same error
+      // object already fired an alert closer to its source (e.g.
+      // JobService.fail already fired JOB_FAILED for a job awaited inline by
+      // this route and marked the error via markOpsAlerted) — one root cause
+      // should page once, not once per layer it passes through.
+      //
+      // Gate 2 (fix round 2): skip when the error is an AppError with a 4xx
+      // status (RATE_LIMITED, VALIDATION_ERROR, NOT_FOUND, etc.) — those are
+      // expected client-facing outcomes, not operational incidents, and
+      // paging on every rate-limit hit would train operators to ignore the
+      // channel. 5xx AppErrors and any non-AppError (unknown/unexpected)
+      // failure still fire unconditionally.
+      const alreadyAlerted = wasOpsAlerted(err);
+      const isExpectedClientError = err instanceof AppError && err.status >= 400 && err.status < 500;
+      if (!alreadyAlerted && !isExpectedClientError) {
+        await new OpsAlertService()
+          .fire({ kind: 'API_REQUEST_FAILED', message: `${route} failed: ${message}`, error: err, context: { path: route, requestId, correlationId } })
+          .catch(() => {});
+      }
       throw err;
     }
   };

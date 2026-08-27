@@ -17,11 +17,13 @@ import { validateBeforePublish } from '~/services/publish/pre-publish-validator.
 import { ThemeService } from '~/services/shopify/theme.service';
 import { CapabilityService } from '~/services/shopify/capability.service';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
-import type { DeployTarget, ModuleType } from '@superapp/core';
+import type { Capability, DeployTarget, ModuleType } from '@superapp/core';
 import { getCapabilityNode } from '@superapp/core';
 import { withApiLogging } from '~/services/observability/api-log.service';
 import { getPrisma } from '~/db.server';
 import { JobService } from '~/services/jobs/job.service';
+import { enqueueWebJob, isAsyncJobsEnabled } from '~/services/jobs/enqueue.server';
+import { isPublishAsyncEnabled } from '~/env.server';
 import { QuotaService } from '~/services/billing/quota.service';
 import { AppError } from '~/services/errors/app-error.server';
 import { ActivityLogService, logRequestOutcome } from '~/services/activity/activity.service';
@@ -144,7 +146,9 @@ export async function action({ request }: { request: Request }) {
         targetKind: target.kind,
       });
       if (!policy.allowed) {
-        const capabilityReasons = policy.blocked.map((c: any) => caps.explainCapabilityGate(c) ?? String(c));
+        const capabilityReasons = policy.blocked.map(
+          (c: Capability) => caps.explainCapabilityGate(c) ?? String(c),
+        );
         return json(
           {
             error: 'Plan does not allow this module',
@@ -231,16 +235,81 @@ export async function action({ request }: { request: Request }) {
         }
       }
 
+      // Computed once, shared by both the sync and async (Task 9) paths so
+      // `markPublishedWithTransition` sees the SAME key either way for this
+      // exact shop/module/version/target combination.
+      const idempotencyKey = `publish:${session.shop}:${module.id}:${draft.id}:${target.kind === 'THEME' ? target.themeId : 'platform'}`;
+
       const jobs = new JobService();
       const job = await jobs.create({
         shopId: shopRow?.id,
         type: 'PUBLISH',
+        // WS-C Task 13 (funnel spine): chains this publish Job back to the
+        // generation attempt that created the module, when known — same
+        // fallback the hydrate route already applies.
+        correlationId: module.generationCorrelationId ?? undefined,
         payload: {
           moduleId: module.id,
           target,
           source: 'merchant_api',
         },
       });
+
+      // WS-C Task 9 (C10): publish moves onto the worker ONLY when BOTH
+      // `isAsyncJobsEnabled()` (queue mode / Redis configured) AND
+      // `PUBLISH_ASYNC_ENABLED` are on — flipping the latter is an OWNER
+      // decision post-burn-in, not a WS-C exit criterion. The `shopRow`
+      // guard exists because the poll route (`getForShop`) only ever shows
+      // a Job that belongs to a shop; without a shop row there is no jobId
+      // a merchant could usefully poll, so this falls through to the
+      // unchanged inline path instead (same as the sync path already
+      // tolerates a missing shopRow today).
+      if (isAsyncJobsEnabled() && isPublishAsyncEnabled() && shopRow) {
+        try {
+          await enqueueWebJob({
+            id: job.id,
+            jobType: 'PUBLISH',
+            payload: {
+              kind: 'WEB_PUBLISH',
+              shopId: shopRow.id,
+              shopDomain: session.shop,
+              moduleId: module.id,
+              versionId: draft.id,
+              target,
+              source: 'merchant_api',
+              idempotencyKey,
+            },
+            trace: { correlationId: job.correlationId ?? job.id, shopId: shopRow.id },
+            // Publish retries are a human decision (WS-E made every op
+            // idempotent, so a manual republish always converges) — not an
+            // automatic BullMQ retry: attempts: 1.
+            opts: { attempts: 1 },
+          });
+        } catch (enqueueErr) {
+          // jobs.create already committed a QUEUED Job row above — if the
+          // enqueue itself throws (Redis blip, adapter error), that row is
+          // now an orphan nothing will ever pick up, and the client never
+          // got a jobId to poll (D8; same guard api.ai.generate-async.tsx
+          // and api.ai.hydrate-module.tsx already apply).
+          await jobs.failWithPayload(job.id, {
+            error: 'INTERNAL_ERROR',
+            message: 'Failed to enqueue the publish job. Please try again.',
+            requestId: job.id,
+          });
+          await logRequestOutcome({
+            shopId: shopRow.id,
+            pathOrIntent: '/api/publish',
+            success: false,
+            details: {
+              error: enqueueErr instanceof Error ? enqueueErr.message : String(enqueueErr),
+              moduleId: module.id,
+            },
+          });
+          return json({ error: 'Failed to enqueue the publish job. Please try again.' }, { status: 500 });
+        }
+        return redirect(`/modules/${module.id}?publishing=${job.id}`);
+      }
+
       await jobs.start(job.id);
 
       try {
@@ -284,7 +353,7 @@ export async function action({ request }: { request: Request }) {
           versionId: draft.id,
           targetThemeId: target.kind === 'THEME' ? target.themeId : undefined,
           source: 'merchant_api',
-          idempotencyKey: `publish:${session.shop}:${module.id}:${draft.id}:${target.kind === 'THEME' ? target.themeId : 'platform'}`,
+          idempotencyKey,
         });
         await jobs.succeed(job.id, { ok: true, ledger: publishResult.ledger });
         await new ActivityLogService().log({ actor: 'MERCHANT', action: 'MODULE_PUBLISHED', resource: `module:${module.id}`, shopId: shopRow?.id, details: { target: target.kind, versionId: draft.id } });

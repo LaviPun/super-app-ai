@@ -642,7 +642,12 @@ export function Toast({ toast }: { toast?: ToastData | null }) {
   return React.createElement(
     'div',
     {
-      style: { position: 'fixed', bottom: 22, left: '50%', transform: 'translateX(-50%)', zIndex: 200, background: toast.error ? 'var(--p-critical-text)' : '#14213A', color: '#fff', padding: '11px 16px', borderRadius: 10, boxShadow: 'var(--p-shadow-500)', fontSize: 13.5, fontWeight: 500, animation: 'toastIn .2s ease-out', display: 'flex', alignItems: 'center', gap: 9 },
+      // Literal values (not var(--p-critical-text)/var(--p-shadow-500)) so this
+      // renders correctly on merchant routes too, where the vendored token
+      // stylesheet (polaris.css) isn't loaded (WS-F: it's internal-admin-only
+      // since Task 15). Same resolved values as polaris.css's tokens, so
+      // internal admin's rendering is byte-for-byte unchanged.
+      style: { position: 'fixed', bottom: 22, left: '50%', transform: 'translateX(-50%)', zIndex: 200, background: toast.error ? '#9c1c1c' : '#14213A', color: '#fff', padding: '11px 16px', borderRadius: 10, boxShadow: '0 12px 32px rgba(20,33,58,.16), 0 2px 8px rgba(20,33,58,.08)', fontSize: 13.5, fontWeight: 500, animation: 'toastIn .2s ease-out', display: 'flex', alignItems: 'center', gap: 9 },
     },
     React.createElement(Icon, { name: toast.error ? 'alert' : 'check', size: 16 }),
     toast.message,

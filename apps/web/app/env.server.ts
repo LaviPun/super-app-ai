@@ -58,7 +58,7 @@ const EnvSchema = z.object({
   ALLOW_MERCHANT_CODE_EXECUTION: z.string().optional(),
 
   // Workflow email connector (optional)
-  EMAIL_CONNECTOR_PROVIDER: z.enum(['sendgrid', 'generic']).optional(),
+  EMAIL_CONNECTOR_PROVIDER: z.enum(['sendgrid', 'generic', 'resend', 'postmark']).optional(),
   EMAIL_API_URL: z.string().url().optional(),
   EMAIL_API_KEY_HEADER: z.string().min(1).optional(),
   EMAIL_API_KEY_PREFIX: z.string().optional(),
@@ -77,6 +77,77 @@ const EnvSchema = z.object({
   OTEL_SERVICE_NAME: z.string().default('superapp-web'),
   OTEL_EXPORTER_OTLP_HEADERS: z.string().optional(),
   OTEL_TRACES_SAMPLE_RATE: z.string().optional(),
+  SENTRY_RELEASE: z.string().optional(),
+  SENTRY_TRACES_SAMPLE_RATE: z.string().optional(),
+
+  // Redis / queue (WS-A)
+  REDIS_URL: z.string().min(1).optional(),
+  QUEUE_REDIS_URL: z.string().min(1).optional(),
+  QUEUE_PREFIX: z.string().optional(),
+  QUEUE_DEFAULT_ATTEMPTS: z.coerce.number().int().positive().optional(),
+  QUEUE_DEFAULT_BACKOFF_MS: z.coerce.number().int().positive().optional(),
+  JOB_EXECUTION_MODE: z.enum(['inline', 'queue', 'disabled']).default('inline'),
+  PLATFORM_V2_ENABLED: z.string().optional(),
+
+  // AI providers
+  ANTHROPIC_API_KEY: z.string().optional(),
+  OPENAI_API_KEY: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
+  ANTHROPIC_DEFAULT_MODEL: z.string().optional(),
+  OPENAI_DEFAULT_MODEL: z.string().optional(),
+  GEMINI_DEFAULT_MODEL: z.string().optional(),
+  ANTHROPIC_CODE_EXECUTION: z.string().optional(),
+  ANTHROPIC_SKILLS: z.string().optional(),
+  LLM_PROVIDER: z.string().optional(),
+
+  // Feature flags (string-boolean via parseBooleanEnv at read sites)
+  AI_COST_ROUTING_ENABLED: z.string().optional(),
+  JUDGE_POLISH_ENABLED: z.string().optional(),
+  PREVIEW_EXPORT_QUEUE_ENABLED: z.string().optional(),
+  SHOPIFY_DOCS_GROUNDING_DISABLED: z.string().optional(),
+  SIDEKICK_EXTENSION_ENABLED: z.string().optional(),
+  BLUEPRINTS_ENABLED: z.string().optional(),
+  THEME_NATIVE_SECTION_ENABLED: z.string().optional(),
+  THEME_CHECK_GATE: z.string().optional(),
+  RELEASE_GLOBAL_KILL_SWITCH: z.string().optional(),
+  RELEASE_SURFACE_ADMIN_ENABLED: z.string().optional(),
+  RELEASE_SURFACE_CHECKOUT_ENABLED: z.string().optional(),
+  RELEASE_SURFACE_CUSTOMER_ACCOUNT_ENABLED: z.string().optional(),
+  RELEASE_SURFACE_FLOW_ENABLED: z.string().optional(),
+  RELEASE_SURFACE_FUNCTIONS_ENABLED: z.string().optional(),
+  RELEASE_SURFACE_INTEGRATION_ENABLED: z.string().optional(),
+  RELEASE_SURFACE_POS_ENABLED: z.string().optional(),
+  RELEASE_SURFACE_THEME_ENABLED: z.string().optional(),
+
+  // Internal AI router client + Modal proxy + triage
+  INTERNAL_AI_ALLOW_HOSTS: z.string().optional(),
+  INTERNAL_AI_ROUTER_URL: z.string().url().optional(),
+  INTERNAL_AI_ROUTER_TOKEN: z.string().optional(),
+  INTERNAL_AI_ROUTER_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+  INTERNAL_AI_ROUTER_SHADOW: z.string().optional(),
+  INTERNAL_AI_ROUTER_DUAL_TARGET_ENABLED: z.string().optional(),
+  INTERNAL_AI_ROUTER_CANARY_SHOPS: z.string().optional(),
+  INTERNAL_AI_ROUTER_CIRCUIT_FAILURE_THRESHOLD: z.coerce.number().int().positive().optional(),
+  INTERNAL_AI_ROUTER_CIRCUIT_COOLDOWN_MS: z.coerce.number().int().positive().optional(),
+  INTERNAL_AI_CHAT_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+  MODAL_ROUTER_URL: z.string().url().optional(),
+  MODAL_ROUTER_TOKEN: z.string().optional(),
+  MODAL_ROUTER_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+  SUPPORT_TRIAGE_PROVIDER: z.string().optional(),
+  SUPPORT_TRIAGE_MODEL: z.string().optional(),
+  SUPPORT_TRIAGE_URL: z.string().url().optional(),
+  SUPPORT_TRIAGE_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+
+  // Email / Slack connectors (EMAIL_API_KEY was read but never registered)
+  EMAIL_API_KEY: z.string().optional(),
+  SLACK_WEBHOOK_URL: z.string().url().optional(),
+
+  // Shopify misc
+  SHOPIFY_API_VERSION: z.string().optional(),
+  SHOP_CUSTOM_DOMAIN: z.string().optional(),
+  SHOPIFY_DEPLOYED_FUNCTION_EXTENSIONS: z.string().optional(),
+  APP_URL: z.string().url().optional(),
+  PORT: z.coerce.number().int().positive().optional(),
 }).superRefine((env, ctx) => {
   if (env.INTERNAL_SSO_ISSUER) {
     const allowed = (env.INTERNAL_SSO_ALLOWED_EMAILS ?? '')
@@ -98,9 +169,20 @@ export type Env = z.infer<typeof EnvSchema>;
 
 let _env: Env | undefined;
 
+/** Variables that must be present (non-empty) in production, on top of the always-required set. */
+const PROD_REQUIRED = [
+  'REDIS_URL',
+  'CRON_SECRET',
+  'SENTRY_DSN',
+  'ANTHROPIC_API_KEY',
+  'OPENAI_API_KEY',
+] as const;
+
 /**
  * Validates process.env at boot. Call once from entry points.
  * Throws with a clear list of missing/invalid vars so the app never starts misconfigured.
+ * In production, also fails fast if any PROD_REQUIRED variable is missing/empty —
+ * a misconfigured Railway service should refuse to boot rather than limp along.
  */
 export function validateEnv(): Env {
   if (_env) return _env;
@@ -112,6 +194,20 @@ export function validateEnv(): Env {
       .map((i) => `  • ${i.path.join('.')}: ${i.message}`)
       .join('\n');
     throw new Error(`[env] Boot failed — invalid environment:\n${issues}`);
+  }
+
+  if (result.data.NODE_ENV === 'production') {
+    const missing = PROD_REQUIRED.filter((k) => {
+      const v = result.data[k];
+      return v === undefined || v === '';
+    });
+    if (missing.length > 0) {
+      throw new Error(
+        `[env] Boot failed — required in production but missing:\n${missing
+          .map((k) => `  • ${k}`)
+          .join('\n')}`,
+      );
+    }
   }
 
   _env = result.data;
@@ -218,4 +314,47 @@ export function isThemeCheckGateBlocking(): boolean {
  */
 export function isCostRoutingEnabled(): boolean {
   return parseBooleanEnv(process.env.AI_COST_ROUTING_ENABLED, false);
+}
+
+/**
+ * WS-C Task 5 (C7): worker job time budgets, ms. Deadline budgets replace the
+ * old ~90-100s Cloudflare-tunnel discipline for async jobs — the worker has
+ * no HTTP connection to lose, but the underlying LLM calls still need a
+ * bound so a stuck provider call can't hold a BullMQ job (and its slot in
+ * WORKER_CONCURRENCY) open forever. `GENERATION_JOB_BUDGET_MS` covers the
+ * full classify->option-stream->blueprint pipeline; `HYDRATE_JOB_BUDGET_MS`
+ * (Task 8) covers a single hydrate call. Both env-overridable, additive.
+ */
+export function getGenerationJobBudgetMs(): number {
+  const raw = Number.parseInt(process.env.GENERATION_JOB_BUDGET_MS ?? '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 150_000;
+}
+
+export function getHydrateJobBudgetMs(): number {
+  const raw = Number.parseInt(process.env.HYDRATE_JOB_BUDGET_MS ?? '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 90_000;
+}
+
+/**
+ * WS-C Task 9 (C7): publish job budget, ms — bounds the worker's
+ * Shopify-writing phase (`PublishService.publish` + provisioning + theme
+ * embed check) the same way the generation/hydrate budgets bound their LLM
+ * calls, so a stuck Admin API call can't hold a BullMQ job (and its
+ * WORKER_CONCURRENCY slot) open forever.
+ */
+export function getPublishJobBudgetMs(): number {
+  const raw = Number.parseInt(process.env.PUBLISH_JOB_BUDGET_MS ?? '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 120_000;
+}
+
+/**
+ * WS-C Task 9 (C10, controller ruling): async publish stays OFF by default
+ * even once `JOB_EXECUTION_MODE=queue` turns on generation/hydrate —
+ * flipping this is a post-burn-in OWNER decision, NOT a WS-C exit
+ * criterion. When OFF, `api.publish.tsx`'s sync path is byte-unchanged;
+ * when ON it additionally requires `isAsyncJobsEnabled()` (queue mode) to
+ * actually enqueue instead of publishing inline.
+ */
+export function isPublishAsyncEnabled(): boolean {
+  return parseBooleanEnv(process.env.PUBLISH_ASYNC_ENABLED, false);
 }

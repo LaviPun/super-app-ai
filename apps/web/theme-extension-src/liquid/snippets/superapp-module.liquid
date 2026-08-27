@@ -348,7 +348,7 @@
           {% endif %}
         </div>
         {% if mod_cfg.imageUrl != blank %}
-          <img class="superapp-banner__image" src="{{ mod_cfg.imageUrl | escape }}" alt="" loading="lazy" width="800" height="400">
+          {% render 'superapp-module-media', url: mod_cfg.imageUrl, alt: '', css_class: 'superapp-banner__image', width: 800, height: 400 %}
         {% endif %}
       </div>
     </section>
@@ -489,20 +489,12 @@
         <button class="superapp-fw" type="button" aria-label="{{ fw_label | default: fw_variant | escape }}">
       {% endif %}
         <span class="superapp-fw__dot" aria-hidden="true"></span>
-        <span class="superapp-fw__icon" aria-hidden="true">
-          {% case fw_variant %}
-            {% when 'whatsapp', 'chat' %}
-              <svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M10 2c-4.42 0-8 3.13-8 7 0 1.66.67 3.18 1.79 4.38-.14 1.13-.6 2.16-1.29 2.98-.16.19-.2.45-.1.68.1.23.32.38.57.38 1.6 0 3.06-.55 4.24-1.35A9.6 9.6 0 0 0 10 16c4.42 0 8-3.13 8-7s-3.58-7-8-7Z"/></svg>
-            {% when 'coupon' %}
-              <svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M2.5 4A1.5 1.5 0 0 0 1 5.5v2.02a1 1 0 0 0 .55.9 1.75 1.75 0 0 1 0 3.16 1 1 0 0 0-.55.9V14.5A1.5 1.5 0 0 0 2.5 16h15a1.5 1.5 0 0 0 1.5-1.5v-2.02a1 1 0 0 0-.55-.9 1.75 1.75 0 0 1 0-3.16 1 1 0 0 0 .55-.9V5.5A1.5 1.5 0 0 0 17.5 4h-15Zm10 1.5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Zm-5 7a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm5.35-6.85-6 6a.5.5 0 0 0 .7.7l6-6a.5.5 0 0 0-.7-.7Z"/></svg>
-            {% when 'cart' %}
-              <svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M2 2.5a.5.5 0 0 1 .5-.5h1.4a1 1 0 0 1 .97.76L5.1 4H16.5a1 1 0 0 1 .97 1.24l-1.2 4.8A1.5 1.5 0 0 1 14.82 11.2H7.02a1.5 1.5 0 0 1-1.46-1.16L4.02 3.5H2.5a.5.5 0 0 1-.5-.5ZM7 14a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"/></svg>
-            {% when 'scroll_top' %}
-              <svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M10 6.5a1 1 0 0 1 .7.29l5 5a1 1 0 0 1-1.4 1.42L10 8.91l-4.3 4.3a1 1 0 0 1-1.4-1.42l5-5A1 1 0 0 1 10 6.5Z"/></svg>
-            {% else %}
-              <svg viewBox="0 0 20 20" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M10 1.5a.6.6 0 0 1 .56.38l1.9 4.9 4.9 1.9a.6.6 0 0 1 0 1.12l-4.9 1.9-1.9 4.9a.6.6 0 0 1-1.12 0l-1.9-4.9-4.9-1.9a.6.6 0 0 1 0-1.12l4.9-1.9 1.9-4.9A.6.6 0 0 1 10 1.5Z"/></svg>
-          {% endcase %}
-        </span>
+        {% # WS-H Task 5: the 5 per-variant glyphs moved to superapp-modules.css mask-image
+           rules (.superapp-fw__icon--variant) — a static icon set that never varies per
+           merchant doesn't belong as inline svg duplicated across a case/when dispatch in
+           the byte-budgeted Liquid family. Unmatched/custom variants fall through to the
+           base .superapp-fw__icon mask (the same sparkle glyph the old default branch drew). %}
+        <span class="superapp-fw__icon superapp-fw__icon--{{ fw_variant | handle }}" aria-hidden="true"></span>
         {% if fw_label != blank %}<span class="superapp-fw__label">{{ fw_label | escape }}</span>{% endif %}
       {% if fw_action_url != blank %}
         </a>

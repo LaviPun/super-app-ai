@@ -1,5 +1,6 @@
 import { postJsonWithRetries } from '~/services/ai/http/ai-http.server';
 import { captureAiDebug, isAiDebugCaptureEnabled } from '~/services/ai/debug-capture.server';
+import { TruncatedOutputError } from '~/services/ai/clients/truncation.server';
 
 /** Claude Agent Skills config: skills (anthropic IDs e.g. pptx, xlsx or custom skill_01Ab...) and optional code execution. */
 export type AnthropicSkillsConfig = {
@@ -15,6 +16,21 @@ export async function anthropicGenerateRecipe(opts: {
   shopId?: string;
   /** Override default max_tokens (default 8192). Hydration responses including previewHtml need more tokens. */
   maxTokens?: number;
+  /**
+   * WS-C Task 10 (C7). Deadline-bounded HTTP timeout, precomputed by
+   * `ConfiguredLlmClient.callProvider` from `GenerateHints.deadlineAt`.
+   * Forwarded verbatim to `postJsonWithRetries`; absent when the caller
+   * (or Env*Client) didn't pass a `deadlineAt` hint — behavior unchanged.
+   */
+  timeoutMs?: number;
+  /**
+   * WS-C Task 10 (C7, fix round 1). The raw epoch-ms deadline, forwarded
+   * ALONGSIDE `timeoutMs` so `postJsonWithRetries` can re-derive the
+   * effective per-attempt timeout on every retry (a `timeoutMs` fixed once
+   * up front would let each 429/5xx/network retry re-claim a full fresh
+   * window instead of the shrinking remainder of the actual budget).
+   */
+  deadlineAt?: number;
   /** When set, sends container.skills and optional code_execution tool with beta headers. */
   skillsConfig?: AnthropicSkillsConfig;
   /**
@@ -90,9 +106,22 @@ export async function anthropicGenerateRecipe(opts: {
       url,
       headers,
       body,
+      timeoutMs: opts.timeoutMs,
+      deadlineAt: opts.deadlineAt,
       logMeta: { provider: 'ANTHROPIC', model: opts.model, actor: 'INTERNAL' },
       shopId: opts.shopId,
     });
+
+    // WS-C Task 12. Anthropic never threw on truncation before this — a
+    // `stop_reason: 'max_tokens'` reply (text OR tool_use cut off mid-call)
+    // silently fell through to `extractText`/`extractToolUseInput`, either
+    // producing a generic parse error downstream or, worse, a
+    // valid-looking-but-incomplete JSON prefix. Detect it here, before
+    // extraction, so callers can retry with a bumped token budget instead of
+    // burning a full billed retry against the same one.
+    if (json?.stop_reason === 'max_tokens') {
+      throw new TruncatedOutputError('Anthropic', 'stop_reason=max_tokens');
+    }
 
     rawJson = useStructured ? extractToolUseInput(json) : extractText(json);
     const usage = json?.usage;

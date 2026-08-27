@@ -13,6 +13,7 @@ import { openAiGenerateRecipe } from '~/services/ai/clients/openai-responses.cli
 import { anthropicGenerateRecipe } from '~/services/ai/clients/anthropic-messages.client.server';
 import { openAiCompatibleGenerateRecipe } from '~/services/ai/clients/openai-compatible.client.server';
 import { geminiGenerateRecipe } from '~/services/ai/clients/gemini.client.server';
+import { withProviderSlot, getOptionCallStaggerMs } from '~/services/ai/provider-concurrency.server';
 import { getModuleSummary, getAllTypesSummary } from '~/services/ai/module-summaries.server';
 import { CONFIDENCE_THRESHOLDS } from '~/services/ai/classify.server';
 import { getCatalogDetails, getCatalogDetailsForType } from '~/services/ai/catalog-details.server';
@@ -55,8 +56,12 @@ import { runRenderQa } from '~/services/ai/design-qa-render.server';
 import { runRichnessQa, detectRichnessExempt } from '~/services/ai/richness-qa.server';
 import type { OptionQaSummary } from '~/services/ai/option-ranking.server';
 import { mustHaveControlsForType } from '~/services/ai/requirement-spec.server';
+import { stripCodeFences } from '~/services/ai/tolerant-json.server';
+import { TruncatedOutputError } from '~/services/ai/clients/truncation.server';
+import { getHydrateEnvelopeJsonSchema } from '~/services/ai/hydrate-envelope-schema.server';
 
 import { getPrisma } from '~/db.server';
+import { AppError } from '~/services/errors/app-error.server';
 
 export type RecipeOption = {
   explanation: string;
@@ -86,10 +91,41 @@ export interface GenerateHints {
   previousError?: string;
   maxTokens?: number;
   responseSchema?: ResponseSchemaHint;
+  /**
+   * WS-C Task 10 (C7). Epoch ms after which the caller's job/request budget
+   * is exhausted — threaded from the worker job budgets (generation 150s,
+   * hydrate 90s; `GENERATION_JOB_BUDGET_MS`/`HYDRATE_JOB_BUDGET_MS`) or the
+   * inline route's 55s tunnel-discipline deadline. `ConfiguredLlmClient`
+   * (and the env-key clients) use it to bound the provider HTTP call's
+   * timeout to whatever budget remains, and to fail fast with a typed error
+   * instead of firing a call that cannot finish in time.
+   */
+  deadlineAt?: number;
 }
 
 export interface LlmClient {
   generateRecipe(prompt: string, hints?: GenerateHints): Promise<GenerateResult>;
+}
+
+/**
+ * WS-C Task 10 (C7). Shared by every `LlmClient` implementation that talks
+ * to a real provider HTTP endpoint (`ConfiguredLlmClient`, `EnvOpenAiClient`,
+ * `EnvClaudeClient`): turns `hints.deadlineAt` into a bounded `timeoutMs` the
+ * provider client can pass straight to `postJsonWithRetries`. Throws a typed
+ * `AppError` instead of returning a timeout that's already effectively zero
+ * — firing an HTTP call that cannot possibly finish just burns the
+ * remaining budget for no result.
+ */
+function resolveDeadlineTimeoutMs(hints?: GenerateHints): number | undefined {
+  if (hints?.deadlineAt === undefined) return undefined;
+  const remainingMs = hints.deadlineAt - Date.now();
+  if (remainingMs < 5_000) {
+    throw new AppError({
+      code: 'PROVIDER_ERROR',
+      message: 'Generation deadline exhausted before the provider call could start. Please try again.',
+    });
+  }
+  return Math.max(5_000, Math.min(120_000, remainingMs));
 }
 
 /**
@@ -228,103 +264,131 @@ export class ConfiguredLlmClient implements LlmClient {
     const model = provider.model ?? '';
     if (!model) throw new Error('Provider missing default model');
 
+    // WS-C Task 10 (C7). Throws before any provider call if the deadline is
+    // already effectively exhausted.
+    const timeoutMs = resolveDeadlineTimeoutMs(hints);
+
     const augmentedPrompt = hints?.previousError
       ? `${prompt}
 
 (Previous validation error: ${hints.previousError})`
       : prompt;
 
-    if (provider.provider === 'OPENAI') {
-      let openaiFeatures:
-        | { reasoningEffort?: 'low' | 'medium' | 'high'; verbosity?: 'low' | 'medium' | 'high'; webSearch?: boolean }
-        | undefined;
-      if (provider.extraConfig) {
-        try {
-          const parsed = JSON.parse(provider.extraConfig) as {
-            openaiFeatures?: { reasoningEffort?: 'low' | 'medium' | 'high'; verbosity?: 'low' | 'medium' | 'high'; webSearch?: boolean };
-          };
-          if (parsed.openaiFeatures) openaiFeatures = parsed.openaiFeatures;
-        } catch {
-          // ignore invalid extraConfig
-        }
-      }
-      return openAiGenerateRecipe({
-        apiKey,
-        baseUrl: provider.baseUrl ?? undefined,
-        model,
-        prompt: augmentedPrompt,
-        shopId: this.shopId,
-        maxTokens: hints?.maxTokens,
-        responseSchema: hints?.responseSchema,
-        openaiFeatures,
-      });
-    }
-
-    if (provider.provider === 'ANTHROPIC') {
-      let skillsConfig: { skills?: string[]; codeExecution?: boolean } | undefined;
-      if (provider.extraConfig) {
-        try {
-          const parsed = JSON.parse(provider.extraConfig) as {
-            skills?: string[];
-            codeExecution?: boolean;
-            anthropicFeatures?: { skills?: string[]; codeExecution?: boolean };
-          };
-          const skills = parsed.anthropicFeatures?.skills ?? parsed.skills;
-          const codeExecution = parsed.anthropicFeatures?.codeExecution ?? parsed.codeExecution;
-          if (skills?.length || codeExecution !== undefined) {
-            skillsConfig = { skills, codeExecution };
+    // WS-C Task 11. The actual outbound HTTP dispatch — not the DB/apiKey
+    // lookups above — is what a provider-side rate limiter sees, so only
+    // this part runs inside the per-provider concurrency slot. Keyed by the
+    // DB provider row id: that's the real unit a rate limit applies to (one
+    // API account/key), even when several `AiProvider` rows share a kind.
+    return withProviderSlot(provider.id, async () => {
+      if (provider.provider === 'OPENAI') {
+        let openaiFeatures:
+          | { reasoningEffort?: 'low' | 'medium' | 'high'; verbosity?: 'low' | 'medium' | 'high'; webSearch?: boolean }
+          | undefined;
+        if (provider.extraConfig) {
+          try {
+            const parsed = JSON.parse(provider.extraConfig) as {
+              openaiFeatures?: { reasoningEffort?: 'low' | 'medium' | 'high'; verbosity?: 'low' | 'medium' | 'high'; webSearch?: boolean };
+            };
+            if (parsed.openaiFeatures) openaiFeatures = parsed.openaiFeatures;
+          } catch {
+            // ignore invalid extraConfig
           }
-        } catch {
-          // ignore invalid extraConfig
         }
+        return openAiGenerateRecipe({
+          apiKey,
+          baseUrl: provider.baseUrl ?? undefined,
+          model,
+          prompt: augmentedPrompt,
+          shopId: this.shopId,
+          maxTokens: hints?.maxTokens,
+          responseSchema: hints?.responseSchema,
+          timeoutMs,
+          deadlineAt: hints?.deadlineAt,
+          openaiFeatures,
+        });
       }
-      skillsConfig = guardAnthropicSkillsConfig(skillsConfig, {
-        blockMerchantCodeExecution: this.blockMerchantCodeExecution,
-      });
-      return anthropicGenerateRecipe({
-        apiKey,
-        baseUrl: provider.baseUrl ?? undefined,
-        model,
-        prompt: augmentedPrompt,
-        shopId: this.shopId,
-        skillsConfig,
-        maxTokens: hints?.maxTokens,
-        responseSchema: hints?.responseSchema,
-      });
-    }
 
-    if (provider.provider === 'GEMINI') {
-      return geminiGenerateRecipe({
-        apiKey,
-        baseUrl: provider.baseUrl ?? undefined,
-        model,
-        prompt: augmentedPrompt,
-        shopId: this.shopId,
-        maxTokens: hints?.maxTokens,
-        responseSchema: hints?.responseSchema,
-      });
-    }
-
-    // CUSTOM or AZURE_OPENAI: treat as OpenAI-compatible
-    return openAiCompatibleGenerateRecipe({
-      apiKey,
-      baseUrl: provider.baseUrl ?? 'https://api.openai.com',
-      model,
-      prompt: augmentedPrompt,
-      shopId: this.shopId,
-      maxTokens: hints?.maxTokens,
-      responseSchema: hints?.responseSchema,
-      openaiFeatures: (() => {
-        if (!provider.extraConfig) return undefined;
-        try {
-          const parsed = JSON.parse(provider.extraConfig) as {
-            openaiFeatures?: { reasoningEffort?: 'low' | 'medium' | 'high'; verbosity?: 'low' | 'medium' | 'high'; webSearch?: boolean };
-          };
-          return parsed.openaiFeatures;
-        } catch {
-          return undefined;
+      if (provider.provider === 'ANTHROPIC') {
+        let skillsConfig: { skills?: string[]; codeExecution?: boolean } | undefined;
+        if (provider.extraConfig) {
+          try {
+            const parsed = JSON.parse(provider.extraConfig) as {
+              skills?: string[];
+              codeExecution?: boolean;
+              anthropicFeatures?: { skills?: string[]; codeExecution?: boolean };
+            };
+            const skills = parsed.anthropicFeatures?.skills ?? parsed.skills;
+            const codeExecution = parsed.anthropicFeatures?.codeExecution ?? parsed.codeExecution;
+            if (skills?.length || codeExecution !== undefined) {
+              skillsConfig = { skills, codeExecution };
+            }
+          } catch {
+            // ignore invalid extraConfig
+          }
         }
-      })(),
+        skillsConfig = guardAnthropicSkillsConfig(skillsConfig, {
+          blockMerchantCodeExecution: this.blockMerchantCodeExecution,
+        });
+        return anthropicGenerateRecipe({
+          apiKey,
+          baseUrl: provider.baseUrl ?? undefined,
+          model,
+          prompt: augmentedPrompt,
+          shopId: this.shopId,
+          skillsConfig,
+          maxTokens: hints?.maxTokens,
+          responseSchema: hints?.responseSchema,
+          timeoutMs,
+          deadlineAt: hints?.deadlineAt,
+        });
+      }
+
+      if (provider.provider === 'GEMINI') {
+        // WS-C Task 11 scope addition (controller, 2026-08-25): previously
+        // only the fail-fast `resolveDeadlineTimeoutMs` guard applied here —
+        // Gemini itself never got a bounded per-call timeout, so a call that
+        // started just under the guard's floor could still run unbounded.
+        return geminiGenerateRecipe({
+          apiKey,
+          baseUrl: provider.baseUrl ?? undefined,
+          model,
+          prompt: augmentedPrompt,
+          shopId: this.shopId,
+          maxTokens: hints?.maxTokens,
+          responseSchema: hints?.responseSchema,
+          timeoutMs,
+          deadlineAt: hints?.deadlineAt,
+        });
+      }
+
+      // CUSTOM, AZURE_OPENAI, GROK, DEEPSEEK, MISTRAL: all OpenAI Chat
+      // Completions-compatible dialects (Decision G7, WS-INT Task 13) — no
+      // dedicated branch needed, they correctly fall through to this
+      // OpenAI-compatible client.
+      // WS-C Task 11 scope addition (controller, 2026-08-25): same fix as
+      // Gemini above — thread the bounded timeout/deadline through here too.
+      return openAiCompatibleGenerateRecipe({
+        apiKey,
+        baseUrl: provider.baseUrl ?? 'https://api.openai.com',
+        model,
+        prompt: augmentedPrompt,
+        shopId: this.shopId,
+        maxTokens: hints?.maxTokens,
+        responseSchema: hints?.responseSchema,
+        timeoutMs,
+        deadlineAt: hints?.deadlineAt,
+        openaiFeatures: (() => {
+          if (!provider.extraConfig) return undefined;
+          try {
+            const parsed = JSON.parse(provider.extraConfig) as {
+              openaiFeatures?: { reasoningEffort?: 'low' | 'medium' | 'high'; verbosity?: 'low' | 'medium' | 'high'; webSearch?: boolean };
+            };
+            return parsed.openaiFeatures;
+          } catch {
+            return undefined;
+          }
+        })(),
+      });
     });
   }
 }
@@ -338,6 +402,7 @@ class EnvOpenAiClient implements LlmClient {
   ) {}
 
   async generateRecipe(prompt: string, hints?: GenerateHints) {
+    const timeoutMs = resolveDeadlineTimeoutMs(hints);
     const augmentedPrompt = hints?.previousError
       ? `${prompt}\n\n(Previous validation error: ${hints.previousError})`
       : prompt;
@@ -348,6 +413,8 @@ class EnvOpenAiClient implements LlmClient {
       shopId: this.shopId,
       maxTokens: hints?.maxTokens,
       responseSchema: hints?.responseSchema,
+      timeoutMs,
+      deadlineAt: hints?.deadlineAt,
     });
   }
 }
@@ -363,6 +430,7 @@ class EnvClaudeClient implements LlmClient {
   ) {}
 
   async generateRecipe(prompt: string, hints?: GenerateHints) {
+    const timeoutMs = resolveDeadlineTimeoutMs(hints);
     const augmentedPrompt = hints?.previousError
       ? `${prompt}\n\n(Previous validation error: ${hints.previousError})`
       : prompt;
@@ -376,6 +444,8 @@ class EnvClaudeClient implements LlmClient {
       }),
       maxTokens: hints?.maxTokens,
       responseSchema: hints?.responseSchema,
+      timeoutMs,
+      deadlineAt: hints?.deadlineAt,
     });
   }
 }
@@ -410,6 +480,11 @@ export class AiProviderNotConfiguredError extends Error {
     super('AI provider not configured');
     this.name = 'AiProviderNotConfiguredError';
   }
+}
+
+/** WS-C Task 11. Used to stagger option fan-out calls (see `getOptionCallStaggerMs`). */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -973,7 +1048,7 @@ function coerceValidRecipe(candidate: RecipeSpec, original: RecipeSpec): RecipeS
 async function parseValidateAndRepairRecipe(
   rawJson: string,
   client: LlmClient,
-  ctx: { shopId?: string; moduleType: ModuleType },
+  ctx: { shopId?: string; moduleType: ModuleType; deadlineAt?: number },
 ): Promise<RecipeSpec> {
   const parsed = JSON.parse(rawJson);
   const raw = unwrapRecipe(parsed);
@@ -1015,16 +1090,21 @@ type QaRetryResult = {
 const NO_EXTRA = { extraTokensIn: 0, extraTokensOut: 0, extraCostCents: 0 };
 
 /** Reduce a merged QA result to the ranker's fails/warns/autofixes counts. */
-function qaCounts(result: DesignQaResult): OptionQaSummary {
+export function qaCounts(result: DesignQaResult): OptionQaSummary {
   let fails = 0;
   let warns = 0;
   let autofixes = 0;
+  const issueIds: string[] = [];
   for (const issue of result.issues) {
     if (issue.severity === 'fail') fails++;
     else if (issue.severity === 'warn') warns++;
     if (issue.autofixed) autofixes++;
+    // Task 15: only issues the auto-fixer left in place feed telemetry — an
+    // autofixed issue was already resolved in the stored recipe, so it isn't
+    // a real recurring problem to surface to ops for promotion.
+    else issueIds.push(issue.id);
   }
-  return { fails, warns, autofixes };
+  return { fails, warns, autofixes, issueIds };
 }
 
 /**
@@ -1035,7 +1115,17 @@ function qaCounts(result: DesignQaResult): OptionQaSummary {
  * v2 manifest) that the basicness detector measures coverage against. Absent →
  * only the spec-level `runDesignQa` runs (fully back-compatible).
  */
-type QaGateContext = { userRequest?: string; mustHaveControls?: string[] };
+export type QaGateContext = {
+  userRequest?: string;
+  mustHaveControls?: string[];
+  /**
+   * Ops-promoted issue ids (Task 15, `qa-telemetry.service.ts`). A promoted
+   * id that shows up as `warn` on this run is escalated to `fail` so it fires
+   * the existing corrective-regeneration loop (and the option ranker's
+   * fail-weighted penalty) instead of shipping quietly.
+   */
+  promotedBlockingIssueIds?: Set<string>;
+};
 
 /**
  * Run all three deterministic QA gates and MERGE their issues into one
@@ -1044,7 +1134,7 @@ type QaGateContext = { userRequest?: string; mustHaveControls?: string[] };
  * (possibly auto-fixed) recipe; render + richness are read-only telemetry/floors
  * layered on top. Failure-safe: render/richness each return `[]` on any throw.
  */
-function runAllQaGates(recipe: RecipeSpec, ctx?: QaGateContext): DesignQaResult {
+export function runAllQaGates(recipe: RecipeSpec, ctx?: QaGateContext): DesignQaResult {
   const base = runDesignQa(recipe);
   if (!ctx) return base;
   const richnessExempt = ctx.userRequest ? detectRichnessExempt(ctx.userRequest) : false;
@@ -1053,7 +1143,11 @@ function runAllQaGates(recipe: RecipeSpec, ctx?: QaGateContext): DesignQaResult 
     mustHaveControls: ctx.mustHaveControls,
     richnessExempt,
   });
-  const issues = [...base.issues, ...renderIssues, ...richnessIssues];
+  let issues = [...base.issues, ...renderIssues, ...richnessIssues];
+  const promoted = ctx?.promotedBlockingIssueIds;
+  if (promoted?.size) {
+    issues = issues.map((i) => (promoted.has(i.id) && i.severity === 'warn' ? { ...i, severity: 'fail' as const } : i));
+  }
   return { pass: !issues.some((i) => i.severity === 'fail'), issues, recipe: base.recipe };
 }
 
@@ -1112,20 +1206,22 @@ async function regenerateSingleRecipeForQa(args: {
   idx: number;
   shopId?: string;
   providerId: string | null;
+  deadlineAt?: number;
 }): Promise<QaRegenResult> {
-  const { client, compiledPrompt, corrective, perBudget, singleSchema, moduleType, idx, shopId, providerId } = args;
+  const { client, compiledPrompt, corrective, perBudget, singleSchema, moduleType, idx, shopId, providerId, deadlineAt } = args;
   const result = await client.generateRecipe(`${compiledPrompt}\n\n${corrective}`, {
     maxTokens: perBudget,
     responseSchema: singleSchema
       ? { name: `RecipeSingle_${moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}_qa`, schema: singleSchema }
       : undefined,
+    deadlineAt,
   });
   // Capture the spend BEFORE parse/repair — the LLM call is billed even if its
   // output is unusable (the QA cost-tracking gap this closes).
   const { costCents } = await attributeServedCost(result, providerId, result.tokensIn, result.tokensOut);
   let recipe: RecipeSpec | null = null;
   try {
-    recipe = await parseValidateAndRepairRecipe(result.rawJson, client, { shopId, moduleType });
+    recipe = await parseValidateAndRepairRecipe(result.rawJson, client, { shopId, moduleType, deadlineAt });
   } catch {
     recipe = null;
   }
@@ -1385,7 +1481,7 @@ function formatTypeEnumViolations(violations: TypeEnumViolation[]): string {
 export async function validateAndRepairRecipe(
   raw: unknown,
   client: LlmClient,
-  _options?: { shopId?: string; moduleType?: ModuleType },
+  _options?: { shopId?: string; moduleType?: ModuleType; deadlineAt?: number },
 ): Promise<{ recipe: RecipeSpec; repaired: boolean }> {
   let current = repairRecipeForValidation(raw);
   let lastError: string | undefined;
@@ -1413,6 +1509,7 @@ export async function validateAndRepairRecipe(
       responseSchema: singleSchema && _options?.moduleType
         ? { name: `RecipeSingle_${_options.moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}`, schema: singleSchema }
         : undefined,
+      deadlineAt: _options?.deadlineAt,
     });
     try {
       const parsed = JSON.parse(rawJson);
@@ -1620,6 +1717,13 @@ async function produceOptionRecipe(args: {
   exemplar?: TemplateExemplar;
   designReferenceBlock?: string;
   designSystemDirective?: string;
+  /**
+   * WS-C Task 10 (C7, fix round 1). Threaded into BOTH the Tier-1 delta
+   * path below (`generateRecipeViaDelta`, `template-delta.server.ts` — the
+   * flagship option-0 path whenever a tier-1 exemplar exists) and the
+   * freeform path + its repair loop.
+   */
+  deadlineAt?: number;
 }): Promise<{
   result: GenerateResult;
   recipe: RecipeSpec;
@@ -1627,7 +1731,7 @@ async function produceOptionRecipe(args: {
   explanation: string;
   generationMode: 'delta' | 'freeform';
 }> {
-  const { idx, approach, client, compiledPrompt, perBudget, singleSchema, moduleType, userRequest, shopId } = args;
+  const { idx, approach, client, compiledPrompt, perBudget, singleSchema, moduleType, userRequest, shopId, deadlineAt } = args;
 
   // Tier-1: option 0 is produced by instantiating + delta-editing the exemplar.
   if (idx === 0 && args.exemplar?.tier === 1 && args.exemplar.specJson) {
@@ -1642,6 +1746,7 @@ async function produceOptionRecipe(args: {
         designSystemDirective: args.designSystemDirective,
         maxTokens: getDeltaTokenBudget(moduleType),
         shopId,
+        deadlineAt,
       });
       return {
         result: delta.result,
@@ -1664,6 +1769,7 @@ async function produceOptionRecipe(args: {
     responseSchema: singleSchema
       ? { name: `RecipeSingle_${moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}`, schema: singleSchema }
       : undefined,
+    deadlineAt,
   });
   const parsed = JSON.parse(result.rawJson);
   const raw = unwrapRecipe(parsed);
@@ -1676,7 +1782,7 @@ async function produceOptionRecipe(args: {
   if (safe.success && validateTypeEnums(safe.data).length === 0) {
     recipe = safe.data;
   } else {
-    const fix = await validateAndRepairRecipe(raw, client, { shopId, moduleType });
+    const fix = await validateAndRepairRecipe(raw, client, { shopId, moduleType, deadlineAt });
     recipe = fix.recipe;
     repairedFlag = fix.repaired;
   }
@@ -1730,6 +1836,10 @@ export async function* generateValidatedRecipeOptionsStream(
      * dedupe contract and its accepted residual race).
      */
     correlationId?: string;
+    /** WS-C Task 10 (C7): worker job deadline (epoch ms), threaded into every option call's `GenerateHints`. */
+    deadlineAt?: number;
+    /** WS-C Task 15: ops-promoted QA issue ids, escalated warn->fail in each option's QA gate. */
+    promotedBlockingIssueIds?: string[];
   },
 ): AsyncGenerator<RecipeOptionStreamEvent, void, void> {
   const optionCount = Math.max(1, Math.min(3, options?.optionCount ?? 3));
@@ -1794,6 +1904,13 @@ export async function* generateValidatedRecipeOptionsStream(
   // seedBillingStateForCorrelation.)
   const billing = await seedBillingStateForCorrelation(usage, options?.correlationId);
   const tasks: Promise<OneResult>[] = APPROACH_HINTS.slice(0, optionCount).map(async (approach, idx) => {
+    // WS-C Task 11 [AI-imp]. Smear the option fan-out over
+    // ~2x getOptionCallStaggerMs() instead of firing all `optionCount` calls
+    // in the same instant — a worker's option fan-out (up to 3 calls) times
+    // WORKER_CONCURRENCY concurrent jobs would otherwise present a provider
+    // rate limiter with a spike rather than a ramp. Read at call time (not
+    // hoisted) so OPTION_CALL_STAGGER_MS=0 in tests disables it cleanly.
+    if (idx > 0) await sleep(idx * getOptionCallStaggerMs());
     const startedAt = Date.now();
     const compiledPrompt = compileCreateSingleRecipePrompt({
       purposeAndGuidance,
@@ -1839,6 +1956,7 @@ export async function* generateValidatedRecipeOptionsStream(
         exemplar: options?.exemplar,
         designReferenceBlock,
         designSystemDirective,
+        deadlineAt: options?.deadlineAt,
       });
       const { result } = produced;
       tokensIn = result.tokensIn;
@@ -1864,8 +1982,15 @@ export async function* generateValidatedRecipeOptionsStream(
             idx,
             shopId: options?.shopId,
             providerId: servedId,
+            deadlineAt: options?.deadlineAt,
           }),
-        { userRequest: prompt, mustHaveControls: mustHaveControlsForType(classification.moduleType, 'basic') },
+        {
+          userRequest: prompt,
+          mustHaveControls: mustHaveControlsForType(classification.moduleType, 'basic'),
+          promotedBlockingIssueIds: options?.promotedBlockingIssueIds?.length
+            ? new Set(options.promotedBlockingIssueIds)
+            : undefined,
+        },
       );
       recipe = qaRetry.recipe;
       // Fold the corrective-regeneration spend into the recorded usage so the
@@ -1996,6 +2121,10 @@ export async function generateValidatedRecipeOptionsParallel(
      * non-fallback callers (e.g. tournament regeneration), which bill normally.
      */
     correlationId?: string;
+    /** WS-C Task 10 (C7): worker job deadline (epoch ms), threaded into every option call's `GenerateHints`. */
+    deadlineAt?: number;
+    /** WS-C Task 15: ops-promoted QA issue ids, escalated warn->fail in each option's QA gate. */
+    promotedBlockingIssueIds?: string[];
   },
 ): Promise<RecipeOption[]> {
   const optionCount = Math.max(1, Math.min(3, options?.optionCount ?? 3));
@@ -2052,6 +2181,9 @@ export async function generateValidatedRecipeOptionsParallel(
   // already-charged so every success here bills 0 instead of double-billing.
   const billing = await seedBillingStateForCorrelation(usage, options?.correlationId);
   const calls = APPROACH_HINTS.slice(0, optionCount).map(async (approach, idx) => {
+    // WS-C Task 11 [AI-imp]. See the identical comment in
+    // `generateValidatedRecipeOptionsStream` — same stagger, same rationale.
+    if (idx > 0) await sleep(idx * getOptionCallStaggerMs());
     const compiledPrompt = compileCreateSingleRecipePrompt({
       purposeAndGuidance,
       moduleType: classification.moduleType,
@@ -2097,6 +2229,7 @@ export async function generateValidatedRecipeOptionsParallel(
         exemplar: options?.exemplar,
         designReferenceBlock,
         designSystemDirective,
+        deadlineAt: options?.deadlineAt,
       });
       const { result } = produced;
       tokensIn = result.tokensIn;
@@ -2122,8 +2255,15 @@ export async function generateValidatedRecipeOptionsParallel(
             idx,
             shopId: options?.shopId,
             providerId: servedId,
+            deadlineAt: options?.deadlineAt,
           }),
-        { userRequest: prompt, mustHaveControls: mustHaveControlsForType(classification.moduleType, 'basic') },
+        {
+          userRequest: prompt,
+          mustHaveControls: mustHaveControlsForType(classification.moduleType, 'basic'),
+          promotedBlockingIssueIds: options?.promotedBlockingIssueIds?.length
+            ? new Set(options.promotedBlockingIssueIds)
+            : undefined,
+        },
       );
       recipe = qaRetry.recipe;
       // Fold the corrective-regeneration spend into the recorded usage so the
@@ -2210,6 +2350,8 @@ export async function generateValidatedBlueprint(
     routerDecision?: PromptRouterDecision;
     groundingBlock?: string;
     exemplar?: TemplateExemplar;
+    /** WS-C Task 10 (C7): worker job deadline (epoch ms), threaded into every member's option call. */
+    deadlineAt?: number;
   },
 ): Promise<RecipeBlueprint> {
   const roleList = plan.modules.map((m) => `${m.role} (${m.moduleType})`).join(', ');
@@ -2241,6 +2383,7 @@ export async function generateValidatedBlueprint(
           exemplar: options?.exemplar,
           optionCount: 1,
           blueprintContext,
+          deadlineAt: options?.deadlineAt,
         },
       ).catch((err) => {
         if (m.required) throw new Error(`Blueprint member "${m.role}" (${m.moduleType}) failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -2311,6 +2454,8 @@ export async function generateValidatedRecipeOptions(
      * seedBillingStateForCorrelation for the dedupe this enables.
      */
     correlationId?: string;
+    /** WS-C Task 10 (C7): worker job deadline (epoch ms), threaded into every option call's `GenerateHints`. */
+    deadlineAt?: number;
   },
 ): Promise<RecipeOption[]> {
   if (getRecipeSingleJsonSchemaForType(classification.moduleType)) {
@@ -2325,6 +2470,7 @@ export async function generateValidatedRecipeOptions(
       exemplar: options?.exemplar,
       blueprintContext: options?.blueprintContext,
       correlationId: options?.correlationId,
+      deadlineAt: options?.deadlineAt,
     });
   }
   const maxAttempts = options?.maxAttempts ?? 3;
@@ -2432,6 +2578,7 @@ export async function generateValidatedRecipeOptions(
         responseSchema: optionsJsonSchema
           ? { name: `RecipeOptions_${classification.moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}`, schema: optionsJsonSchema }
           : undefined,
+        deadlineAt: options?.deadlineAt,
       }));
       const parsed = JSON.parse(rawJson);
       const optionsArr = parsed?.options ?? (Array.isArray(parsed) ? parsed : null);
@@ -2457,6 +2604,7 @@ export async function generateValidatedRecipeOptions(
           const { recipe } = await validateAndRepairRecipe(raw, client, {
             shopId: options?.shopId,
             moduleType: classification.moduleType,
+            deadlineAt: options?.deadlineAt,
           });
           validated.push({
             explanation: typeof opt?.explanation === 'string' ? opt.explanation : `Option ${validated.length + 1} (repaired)`,
@@ -2738,7 +2886,23 @@ const HYDRATE_TOKEN_BUDGET = 16000;
 
 export async function hydrateRecipeSpec(
   recipeSpec: RecipeSpec,
-  options?: { shopId?: string; merchantContext?: { planTier?: string; locale?: string }; maxAttempts?: number },
+  options?: {
+    shopId?: string;
+    merchantContext?: { planTier?: string; locale?: string };
+    maxAttempts?: number;
+    /** WS-C Task 8/10 (C7): worker job deadline (epoch ms), threaded into `GenerateHints.deadlineAt`. */
+    deadlineAt?: number;
+    /**
+     * WS-C Task 8 (C8) retry-safe billing. When set, the SUCCESS write claims
+     * its billable unit via `hasBilledUnit(billingKey, { action: 'RECIPE_HYDRATE' })`
+     * (0 if a unit was already billed under this key) and stamps
+     * `correlationId: billingKey` on every AiUsage row this call writes. The
+     * worker passes `billingKey: hydrate:<jobId>` — a BullMQ retry reuses the
+     * same job id, so a second attempt's success bills 0. Omitted (inline
+     * route path, unchanged): every success bills 1, matching prior behavior.
+     */
+    billingKey?: string;
+  },
 ): Promise<HydrateEnvelope> {
   const maxAttempts = options?.maxAttempts ?? MAX_HYDRATE_ATTEMPTS;
   const { client, providerId } = await getLlmClient(options?.shopId ?? null, {
@@ -2749,14 +2913,45 @@ export async function hydrateRecipeSpec(
   const prompt = buildHydratePrompt(recipeSpec, options?.merchantContext);
   const wrappedPrompt = prompt + '\n\nOutput only the HydrateEnvelope JSON object.';
 
+  // WS-C Task 12. Bumped after a TruncatedOutputError so the RETRY gets more
+  // room — burning a second attempt at the SAME budget that just truncated
+  // would just truncate again. Capped at 24_000 (well under any provider's
+  // hard ceiling) and computed off the base budget, not compounded, so
+  // repeated truncations don't runaway.
+  const BUMPED_HYDRATE_TOKEN_BUDGET = Math.min(24_000, Math.round(HYDRATE_TOKEN_BUDGET * 1.5));
+  let maxTokensForAttempt = HYDRATE_TOKEN_BUDGET;
+
   let lastErr: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const { rawJson, tokensIn, tokensOut, model, servedProviderId } = await client.generateRecipe(
-      wrappedPrompt,
-      { previousError: lastErr ? String(lastErr) : undefined, maxTokens: HYDRATE_TOKEN_BUDGET },
-    );
+    let rawJson = '';
+    let tokensIn = 0;
+    let tokensOut = 0;
+    let model: string | undefined;
+    let servedProviderId: string | null | undefined;
     try {
-      const parsed = repairHydrateEnvelope(JSON.parse(rawJson));
+      // WS-C Task 12. `client.generateRecipe` moved INSIDE the try: before
+      // this, a throw from the call itself (network/HTTP error, and now
+      // `TruncatedOutputError`) skipped the retry bookkeeping below entirely
+      // — no failed-attempt row, no chance to retry with a bumped budget,
+      // the whole function just rejected on attempt 0.
+      ({ rawJson, tokensIn, tokensOut, model, servedProviderId } = await client.generateRecipe(
+        wrappedPrompt,
+        {
+          previousError: lastErr ? String(lastErr) : undefined,
+          maxTokens: maxTokensForAttempt,
+          // Structured output: forces Anthropic tool_use / OpenAI json_schema
+          // to the HydrateEnvelope shape, so a well-behaved provider can no
+          // longer return prose, a wrapper object, or a shape Zod rejects —
+          // eliminates a whole class of retry-burning parse failures.
+          responseSchema: getHydrateEnvelopeJsonSchema(),
+          deadlineAt: options?.deadlineAt,
+        },
+      ));
+
+      // Fence-strip before parse: a model that ignores "Output only the
+      // JSON" and wraps it in ```json … ``` previously burned a full billed
+      // retry on a `JSON.parse` syntax error instead of just being tolerated.
+      const parsed = repairHydrateEnvelope(JSON.parse(stripCodeFences(rawJson)));
       const envelope = HydrateEnvelopeSchema.parse(parsed);
       const perfect = validatePerfectConfig(envelope);
       const envelopeToUse = perfect.envelope ?? envelope;
@@ -2766,6 +2961,13 @@ export async function hydrateRecipeSpec(
         tokensIn,
         tokensOut,
       );
+      // C8: a billingKey means retry-safe billing — claim the unit only if
+      // this key hasn't already billed one (a prior attempt of the SAME job,
+      // e.g. a BullMQ retry after a post-generation failure). No billingKey
+      // (inline route path) keeps the unconditional-1 behavior unchanged.
+      const requestCount = options?.billingKey
+        ? (await usage.hasBilledUnit(options.billingKey, { action: 'RECIPE_HYDRATE' })) ? 0 : 1
+        : 1;
       await recordAiUsage(usage, {
         providerId: servedId,
         shopId: options?.shopId,
@@ -2774,18 +2976,25 @@ export async function hydrateRecipeSpec(
         tokensOut,
         costCents,
         meta: { attempts: attempt + 1, model, moduleType: recipeSpec.type },
-        requestCount: 1,
+        requestCount,
         prompt: wrappedPrompt,
+        correlationId: options?.billingKey,
       });
       return envelopeToUse;
     } catch (err) {
       lastErr = err;
+      if (err instanceof TruncatedOutputError) {
+        maxTokensForAttempt = BUMPED_HYDRATE_TOKEN_BUDGET;
+      }
       const { providerId: servedId, costCents: failCost } = await attributeServedCost(
         { servedProviderId, model },
         providerId,
         tokensIn,
         tokensOut,
       );
+      // C8: a failed attempt never bills — the merchant got nothing from it
+      // (same principle WS-QF already applied to generation). Cost is still
+      // recorded via costCents on this row for observability.
       await recordAiUsage(usage, {
         providerId: servedId,
         shopId: options?.shopId,
@@ -2794,10 +3003,21 @@ export async function hydrateRecipeSpec(
         tokensOut,
         costCents: failCost,
         meta: { attempt: attempt + 1, model, moduleType: recipeSpec.type, error: String(err) },
-        requestCount: 1,
+        requestCount: 0,
         prompt: wrappedPrompt,
+        correlationId: options?.billingKey,
       });
     }
+  }
+  // WS-C Task 12: when the LAST attempt failed specifically because of
+  // truncation, surface the friendly typed AppError instead of the generic
+  // "validation failed" message — the merchant-facing signal should say
+  // "the model ran out of room", not "the output didn't validate".
+  if (lastErr instanceof TruncatedOutputError) {
+    throw new AppError({
+      code: 'OUTPUT_TRUNCATED',
+      message: `Hydrate output was truncated after ${maxAttempts} attempt(s): ${lastErr.message}`,
+    });
   }
   throw new Error(`Hydrate envelope validation failed after ${maxAttempts} attempts: ${String(lastErr)}`);
 }

@@ -1,7 +1,8 @@
 import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
-import { generateValidatedRecipeOptions, generateValidatedBlueprint, AiProviderNotConfiguredError } from '~/services/ai/llm.server';
+import { generateValidatedRecipeOptions, generateValidatedBlueprint } from '~/services/ai/llm.server';
+import { toAiRouteAppError } from '~/services/ai/ai-route-errors.server';
 import { rankOptions } from '~/services/ai/option-ranking.server';
 import { planBlueprint } from '~/services/ai/blueprint-planner';
 import { isBlueprintsEnabled } from '~/env.server';
@@ -274,32 +275,10 @@ export async function action({ request }: { request: Request }) {
               }
             : null,
         });
-      } catch (e: any) {
-        await jobs.fail(job.id, e);
-        if (e instanceof AiProviderNotConfiguredError) {
-          return json(
-            {
-              error: e.code,
-              message: e.message,
-              setupUrl: '/internal/ai-providers',
-            },
-            { status: 503 }
-          );
-        }
-        // Surface rate limit errors with a 429 so the client can show a retry message
-        if (e?.statusCode === 429 || (e instanceof Error && e.message.includes('rate_limit'))) {
-          return json(
-            {
-              error: 'RATE_LIMITED',
-              message: 'AI providers are currently busy. Please wait a moment and try again.',
-            },
-            { status: 429 }
-          );
-        }
-        return json(
-          { error: e instanceof Error ? e.message : String(e) },
-          { status: 500 }
-        );
+      } catch (e: unknown) {
+        const appError = toAiRouteAppError(e, { setupUrl: '/internal/ai-providers' });
+        await jobs.failWithPayload(job.id, appError.toPayload());
+        return appError.toResponse();
       }
     },
   );

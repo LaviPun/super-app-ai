@@ -2,37 +2,20 @@ import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
 import {
-  generateValidatedRecipeOptionsStream,
-  AiProviderNotConfiguredError,
   getLlmClient,
   attributeServedCost,
   recordAiUsage,
-  type RecipeOption,
 } from '~/services/ai/llm.server';
-import { rankOptions } from '~/services/ai/option-ranking.server';
+import { toAiRouteAppError } from '~/services/ai/ai-route-errors.server';
 import { AiUsageService } from '~/services/observability/ai-usage.service';
 import { judgeAndPolishOption, isJudgePolishEnabled, polishIsNotWorse } from '~/services/ai/judge-polish.server';
 import { getPrisma } from '~/db.server';
 import { JobService } from '~/services/jobs/job.service';
 import { QuotaService } from '~/services/billing/quota.service';
 import { CapabilityService } from '~/services/shopify/capability.service';
-import { classifyUserIntent, CONFIDENCE_THRESHOLDS } from '~/services/ai/classify.server';
-import { augmentWithCheapClassifier } from '~/services/ai/cheap-classifier.server';
-import { buildIntentPacket } from '~/services/ai/intent-packet.server';
-import { serializeIntentPacketForPrompt } from '~/services/ai/token-budget.server';
-import { buildPromptRouterDecision } from '~/services/ai/prompt-router.server';
-import { extractRequirementSpec } from '~/services/ai/requirement-spec.server';
-import { searchSolutions } from '~/services/ai/solution-search.server';
-import { ensureStoreAesthetic } from '~/services/theme/ensure-aesthetic.server';
-import { applyStorePalette } from '~/services/theme/apply-store-palette.server';
-import { applyStylePackTokens } from '~/services/ai/apply-style-pack.server';
-import { applyCompositionRules } from '~/services/ai/apply-composition.server';
-import { loadStoreAesthetic } from '~/services/ai/design-reference.server';
-import { generateValidatedBlueprint } from '~/services/ai/llm.server';
+import { runGenerationPipeline } from '~/services/ai/generation-pipeline.server';
 import { finalizeGenerationJob } from '~/services/ai/generation-outcome.server';
-import { planBlueprint } from '~/services/ai/blueprint-planner';
-import { isBlueprintsEnabled } from '~/env.server';
-import type { RecipeSpec } from '@superapp/core';
+import { logger } from '~/services/observability/logger.server';
 
 /** GET disallowed; this is a streaming POST endpoint. */
 export async function loader() {
@@ -69,6 +52,13 @@ export async function loader() {
  * (JUDGE_POLISH_ENABLED) and every failure is silent — the core flow is never
  * delayed or degraded. See judge-polish.server.ts.
  *
+ * WS-C (Task 4): the classify -> intent -> router -> RAG -> aesthetics ->
+ * option-stream -> composition/palette -> ranking -> blueprint orchestration
+ * now lives in `runGenerationPipeline` (generation-pipeline.server.ts), shared
+ * with the async worker processor (Task 5). This route keeps auth/rate-limit/
+ * quota/Job bookkeeping/judge-polish/SSE mechanics and wires the pipeline's
+ * hooks straight into `send(...)`, preserving today's event names/payloads.
+ *
  * Use when the merchant UI wants progressive option rendering. The non-streaming
  * `/api/ai/create-module` route still works for clients that prefer batch.
  */
@@ -98,13 +88,9 @@ export async function action({ request }: { request: Request }) {
   const preferredType = String(form.get('preferredType') ?? 'Auto').trim();
   const preferredCategory = String(form.get('preferredCategory') ?? 'Auto').trim();
   const preferredBlockType = String(form.get('preferredBlockType') ?? 'Auto').trim();
-
-  const constraints: string[] = [];
-  if (preferredType && preferredType !== 'Auto') constraints.push(`Module type must be exactly: ${preferredType}.`);
-  if (preferredCategory && preferredCategory !== 'Auto') constraints.push(`Category must be: ${preferredCategory}.`);
-  if (preferredBlockType && preferredBlockType !== 'Auto') {
-    constraints.push(`For customer account blocks, target must be: ${preferredBlockType}.`);
-  }
+  // Default true (parity with the batch /api/ai/create-module route): storefront
+  // options should match the live store palette unless the merchant opts out.
+  const matchStoreColors = String(form.get('matchStoreColors') ?? 'true').trim() !== 'false';
 
   const prisma = getPrisma();
   const shopRow = await prisma.shop.upsert({
@@ -119,50 +105,6 @@ export async function action({ request }: { request: Request }) {
   const caps = new CapabilityService();
   let planTier = shopRow.planTier ?? 'UNKNOWN';
   if (planTier === 'UNKNOWN') planTier = await caps.refreshPlanTier(session.shop, admin);
-  if (planTier && planTier !== 'UNKNOWN') {
-    constraints.push(
-      `Merchant plan tier: ${planTier}. Only suggest module types the merchant can publish on this plan.`,
-    );
-  }
-
-  const finalPrompt = constraints.length > 0
-    ? `Constraints: ${constraints.join(' ')}\n\nUser request: ${prompt}`
-    : prompt;
-
-  let classification = await classifyUserIntent(finalPrompt, preferredType);
-  classification = await augmentWithCheapClassifier(classification, finalPrompt, shopRow.id);
-  const intentPacket = buildIntentPacket(finalPrompt, classification, {
-    storeContext: { shop_domain: session.shop, theme_os2: true },
-  });
-  const routerDecision = await buildPromptRouterDecision({
-    prompt: finalPrompt,
-    classification,
-    intentPacket,
-    shopDomain: session.shop,
-    operationClass: 'P0_CREATE',
-  });
-
-  const confidence = intentPacket.classification.confidence;
-  const band =
-    confidence >= CONFIDENCE_THRESHOLDS.DIRECT
-      ? 'direct'
-      : confidence >= CONFIDENCE_THRESHOLDS.WITH_ALTERNATIVES
-        ? 'with_alternatives'
-        : 'fallback';
-
-  // Parity with the batch route: RAG grounding + live store-palette matching so
-  // streamed storefront options look the same as the non-streaming path.
-  const requirementSpec = await extractRequirementSpec({ userRequest: finalPrompt, classification, intentPacket });
-  const { grounding, exemplar } = searchSolutions(requirementSpec);
-  const isStorefrontType =
-    classification.moduleType === 'theme.section' || classification.moduleType === 'proxy.widget';
-  // Default true (parity with the batch /api/ai/create-module route): storefront
-  // options should match the live store palette unless the merchant opts out.
-  const matchStoreColors = String(form.get('matchStoreColors') ?? 'true').trim() !== 'false';
-  if (isStorefrontType && matchStoreColors) {
-    await ensureStoreAesthetic({ admin, shopId: shopRow.id });
-  }
-  const aesthetic = isStorefrontType && matchStoreColors ? await loadStoreAesthetic(shopRow.id) : null;
 
   const jobs = new JobService();
   const job = await jobs.create({
@@ -170,11 +112,7 @@ export async function action({ request }: { request: Request }) {
     type: 'AI_GENERATE',
     payload: {
       promptLen: prompt.length,
-      classifiedType: classification.moduleType,
-      intent: intentPacket.classification.intent,
       stream: true,
-      exemplarTier: exemplar?.tier ?? null,
-      exemplarTemplateId: exemplar?.templateId ?? null,
     },
   });
   await jobs.start(job.id);
@@ -214,120 +152,75 @@ export async function action({ request }: { request: Request }) {
         }
       };
 
-      send('intent', {
-        intent: intentPacket.classification.intent,
-        surface: intentPacket.classification.surface,
-        confidence,
-        confidenceBand: band,
-        alternatives: intentPacket.classification.alternatives ?? [],
-        reasons: intentPacket.classification.reasons ?? [],
-        routing: intentPacket.routing,
-        moduleType: classification.moduleType,
-        routerDecision,
-      });
-
-      let validCount = 0;
-      // Collect the FINAL (post-mutation) options so we can emit a deterministic
-      // `ranking` frame once all options have arrived (Phase 2c). Keyed by real
-      // option index — failed options simply never enter the map.
-      const collected = new Map<number, RecipeOption>();
+      let moduleType = 'theme.section';
       try {
-        for await (const event of generateValidatedRecipeOptionsStream(finalPrompt, classification, {
-          shopId: shopRow.id,
-          intentPacketJson: serializeIntentPacketForPrompt(intentPacket),
-          confidenceScore: confidence,
-          promptProfile: intentPacket.routing.prompt_profile,
-          routerDecision,
-          optionCount: 3,
-          groundingBlock: grounding || undefined,
-          exemplar,
-          correlationId,
-        })) {
-          // WS-QF / AI-2 review fix (Finding 2a): stop consuming once the
-          // client is gone. In-flight option LLM calls already launched by
-          // this generator are not cancelled (accepted — see the comment
-          // above the ReadableStream), but we stop doing any further work
-          // (composition/palette mutation, ranking, send()) for events that
-          // arrive after the disconnect, and — more importantly — this break
-          // means the blueprint/judge-polish phases below never start.
-          if (aborted) break;
-          if (event.kind === 'option') {
-            validCount++;
-            // Composition guardrails (§04/§6) — palette-independent, parity with batch.
-            if (event.option?.recipe) {
+        const result = await runGenerationPipeline(
+          {
+            shopId: shopRow.id,
+            shopDomain: session.shop,
+            prompt,
+            preferredType,
+            preferredCategory,
+            preferredBlockType,
+            matchStoreColors,
+            optionCount: 3,
+            correlationId,
+            planTier,
+            admin,
+            // WS-C Task 10 (C7): inline mode keeps the pre-async ~90s tunnel
+            // discipline (docs/debug.md §13/§18) by bounding every LLM call
+            // to a 55s budget from request start, same as the worker's
+            // generation/hydrate job budgets bound theirs.
+            deadlineAt: requestStart + 55_000,
+          },
+          {
+            onIntent: async (frame) => {
+              send('intent', frame);
+              // WS-C commit-0 fold-in (b): jobs.create now runs BEFORE classify
+              // (Task 4), so this classification metadata is no longer known at
+              // create time — persist it onto Job.payload here instead, so it's
+              // durable for the funnel/ops tooling this plan builds later.
+              //
+              // WS-C commit-0 fold-in (a): this is a best-effort telemetry write,
+              // not load-bearing pipeline work — a transient DB blip here must
+              // never kill an otherwise-healthy generation. Swallow + warn; the
+              // funnel/ops view merely loses classification metadata for this
+              // one job.
               try {
-                applyCompositionRules(event.option.recipe as RecipeSpec);
-              } catch {
-                /* composition clamp is best-effort */
+                await jobs.updatePayload(job.id, {
+                  classifiedType: frame.moduleType,
+                  intent: frame.intent,
+                  exemplarTier: frame.exemplarTier ?? null,
+                  exemplarTemplateId: frame.exemplarTemplateId ?? null,
+                });
+              } catch (err) {
+                logger.warn('onIntent telemetry write failed — generation continues', {
+                  jobId: job.id,
+                  error: err instanceof Error ? err.message : String(err),
+                });
               }
-            }
-            // Snap storefront options onto the live store palette (parity with batch).
-            if (aesthetic && event.option?.recipe) {
-              try {
-                applyStorePalette(event.option.recipe as RecipeSpec, aesthetic.palette);
-                applyStylePackTokens(event.option.recipe as RecipeSpec, aesthetic.palette, aesthetic.typography);
-              } catch {
-                /* palette match is best-effort */
-              }
-            }
-            if (event.option) collected.set(event.index, event.option);
-          }
-          // Emit the deterministic ranking just before `done` so the client can
-          // preselect the recommended option. A client that ignores this event is
-          // unaffected (purely additive).
-          if (event.kind === 'done' && collected.size > 0) {
-            const entries = [...collected.entries()].sort((a, b) => a[0] - b[0]);
-            const ranking = rankOptions(entries.map(([, opt]) => opt));
-            send('ranking', {
-              recommendedIndex: entries[ranking.recommendedIndex]?.[0] ?? entries[0]![0],
-              scores: ranking.scores.map((s) => ({
-                index: entries[s.index]![0],
-                score: s.score,
-                badges: s.badges,
-              })),
-            });
-          }
-          send(event.kind, event);
-        }
-
-        // Blueprint parity: when the request maps to a coordinated set, generate it
-        // and stream a `blueprint` event (best-effort — never blocks the options).
-        // WS-QF / AI-2 review fix (Finding 2a): don't START this extra LLM call
-        // at all once the client is known gone — nobody will read the frame.
-        try {
-          const plan = planBlueprint({ moduleType: classification.moduleType, intent: intentPacket.classification.intent });
-          if (!aborted && isBlueprintsEnabled() && plan.kind === 'blueprint') {
-            const blueprint = await generateValidatedBlueprint(finalPrompt, plan, {
-              shopId: shopRow.id,
-              intentPacketJson: serializeIntentPacketForPrompt(intentPacket),
-              confidenceScore: confidence,
-              promptProfile: intentPacket.routing.prompt_profile,
-              routerDecision,
-              groundingBlock: grounding || undefined,
-              exemplar,
-            });
-            if (blueprint) {
-              if (aesthetic) {
-                for (const member of blueprint.modules) {
-                  if (member.recipe.type === 'theme.section' || member.recipe.type === 'proxy.widget') {
-                    try { applyStorePalette(member.recipe as RecipeSpec, aesthetic.palette); applyStylePackTokens(member.recipe as RecipeSpec, aesthetic.palette, aesthetic.typography); } catch { /* best-effort */ }
-                  }
-                }
-              }
-              send('blueprint', {
-                name: blueprint.name,
-                summary: blueprint.summary,
-                moduleCount: blueprint.modules.length,
-                modules: blueprint.modules.map((m) => ({ role: m.role, type: m.recipe.type, explanation: m.explanation, recipe: m.recipe })),
-                links: blueprint.links ?? [],
-                // R3.1 — forward the composite manifest so the client can persist it.
-                ...(blueprint.sharedRecords?.length ? { sharedRecords: blueprint.sharedRecords, bindings: blueprint.bindings ?? [] } : {}),
-              });
-            }
-          }
-        } catch {
-          /* blueprint is additive — never fail the stream */
-        }
+            },
+            onStarted: (o) => {
+              send('started', { kind: 'started', ...o });
+            },
+            onOption: (o) => {
+              send('option', { kind: 'option', ...o });
+            },
+            onOptionFailed: (o) => {
+              send('option_failed', { kind: 'option_failed', ...o });
+            },
+            onRanking: (r) => {
+              send('ranking', r);
+            },
+            onBlueprint: (b) => {
+              send('blueprint', b);
+            },
+            isAborted: () => aborted,
+          },
+        );
+        moduleType = result.moduleType;
+        const collected = result.collected;
+        send('done', { kind: 'done', valid: result.validCount, total: 3 });
 
         // Async LLM-judge polish (Phase 5c) — AFTER `done`/`blueprint`, flag-gated
         // and hard-time-boxed so it can never delay or degrade the core response.
@@ -360,7 +253,7 @@ export async function action({ request }: { request: Request }) {
                   if (remaining <= 0) return;
                   const res = await judgeAndPolishOption(option.recipe, {
                     client: judgeClient,
-                    userRequest: finalPrompt,
+                    userRequest: prompt,
                     timeoutMs: Math.min(remaining, timeBox),
                   });
                   if (!res) return; // timed out — nothing to score or bill
@@ -424,28 +317,31 @@ export async function action({ request }: { request: Request }) {
           }
         }
 
-        // WS-QF / AI-2: 0 valid options is a FAILURE — jobs.fail + a typed
-        // terminal error frame so the client shows retry instead of silently
-        // re-running (and re-billing) the whole generation via the batch route.
-        const terminal = await finalizeGenerationJob(jobs, job.id, validCount, {
-          type: classification.moduleType,
+        // WS-QF / AI-2: 0 valid options is a FAILURE — a typed Job write plus
+        // a terminal error frame so the client shows retry instead of
+        // silently re-running (and re-billing) the whole generation via the
+        // batch route.
+        //
+        // WS-C commit-0 fold-in (c): finalizeGenerationJob only DECIDES the
+        // outcome now — this route makes the single typed write itself
+        // (previously it also wrote a bare-string `jobs.fail` internally,
+        // duplicating the async processor's typed write for the same
+        // outcome).
+        const terminal = await finalizeGenerationJob(jobs, job.id, result.validCount, {
+          type: moduleType,
         });
         if (terminal.kind === 'failed') {
-          send('error', {
-            code: terminal.code,
-            message: `${terminal.message} Please try again — this attempt was not billed.`,
-          });
+          const message = `${terminal.message} Please try again — this attempt was not billed.`;
+          await jobs.failWithPayload(job.id, { error: terminal.code, message, requestId: job.id });
+          send('error', { code: terminal.code, message });
         }
       } catch (e: unknown) {
-        await jobs.fail(job.id, e);
-        if (e instanceof AiProviderNotConfiguredError) {
-          send('error', { code: e.code, message: e.message, setupUrl: '/internal/ai-providers' });
-        } else {
-          send('error', {
-            code: 'GENERATION_FAILED',
-            message: e instanceof Error ? e.message : String(e),
-          });
-        }
+        const appError = toAiRouteAppError(e, { setupUrl: '/internal/ai-providers' });
+        await jobs.failWithPayload(job.id, appError.toPayload());
+        // Terminal SSE frame stays AppErrorPayload MINUS details (setupUrl etc.
+        // stay in the Job ledger, not the wire frame) — the client only reads
+        // message + requestId (generate._index.tsx).
+        send('error', { code: appError.code, message: appError.message, requestId: appError.requestId });
       } finally {
         try {
           controller.close();

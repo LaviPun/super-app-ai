@@ -30,7 +30,11 @@ on:
 
 env:
   NODE_ENV: test
-  DATABASE_URL: file:./dev.db
+  # WS-A (2026-08-24): apps/web's Prisma schema provider is postgresql (SQLite
+  # retired). This job only runs `prisma validate`/`generate` — no live DB
+  # connection needed — but the URL scheme must still match the schema's
+  # declared provider or Prisma fails fast with P1012.
+  DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
   SHOPIFY_API_KEY: ci-placeholder
   SHOPIFY_API_SECRET: ci-placeholder
   SHOPIFY_APP_URL: https://placeholder.example.com

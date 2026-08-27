@@ -227,7 +227,12 @@ describe('design-system contract — preview parity matrix (R0)', () => {
   ];
 
   for (const { kind, config } of kinds) {
-    for (const pack of ['luxe', 'bold', 'playful', 'utility'] as const) {
+    // H1 (WS-H 2026-08-24): render packs collapsed to luxe/bold only — see
+    // style-packs.server.ts's StorefrontPack. The CSS token maps for
+    // playful/utility still exist (dead-CSS cleanup deferred to WS-I, see the
+    // "defines all four pack token maps" test above), so this loop only covers
+    // the two packs `previewPackOf` can now actually select.
+    for (const pack of ['luxe', 'bold'] as const) {
       it(`renders ${kind} × ${pack} inside the pack scope with the real stylesheet`, () => {
         const spec = {
           type: 'theme.section',

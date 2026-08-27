@@ -43,6 +43,7 @@ export const TEMPLATES: TemplateEntry[] = [
   // ─── Announcement / countdown bars (header group) ───────────────────────────
   {
     id: 'TBLK-HDR-01',
+    tier: 'standard',
     name: 'Announcement Bar — Static Message',
     description:
       'Full-width single-row announcement bar for the header group — rotating-free static promo line with an optional CTA and dismiss X.',
@@ -81,7 +82,7 @@ export const TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'sticky', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'sticky' },
         spacing: { padding: 'tight', margin: 'none', gap: 'tight', density: 'compact' },
         typography: { size: 'SM', weight: 'medium', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#ffffff', background: '#111827', overlayBackdropOpacity: 0.45, seed: '#0f172a' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#0f172a' },
         shape: { radius: 'none', borderWidth: 'none', shadow: 'none' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -91,6 +92,7 @@ export const TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'TBLK-HDR-02',
+    tier: 'standard',
     name: 'Announcement Bar — Rotating Messages',
     description:
       'Header announcement bar that cycles through several promo messages — a classic Hextom Countdown Timer Bar rotation, each message an independent block.',
@@ -137,6 +139,7 @@ export const TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'TBLK-HDR-03',
+    tier: 'standard',
     name: 'Countdown Bar — Flash Sale (Standard Timer)',
     description:
       'Header urgency bar with a client-side countdown to a sale end time (Hextom Standard-timer pattern) — message-before + timer + optional CTA; display-only, no enforced discount.',
@@ -178,7 +181,7 @@ export const TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'sticky', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'sticky' },
         spacing: { padding: 'tight', margin: 'none', gap: 'medium', density: 'compact' },
         typography: { size: 'MD', weight: 'bold', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#ffffff', background: '#b91c1c', seed: '#b91c1c', overlayBackdropOpacity: 0.45 },
+        colors: { seed: '#b91c1c', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'none', borderWidth: 'none', shadow: 'sm' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -189,6 +192,7 @@ export const TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'TBLK-HDR-04',
+    tier: 'standard',
     name: 'Countdown Bar — Daily Recurring',
     description:
       'Header countdown bar for a daily recurring window (Hextom Daily-timer pattern) with a circle-tile timer and dismiss control; timer math is client-side, display-only.',
@@ -241,6 +245,7 @@ export const TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'TBLK-HDR-05',
+    tier: 'standard',
     name: 'Announcement Bar — Dismissible with Link',
     description:
       'A dismissible header bar with a single tappable message (Hextom "make entire bar clickable" mode) that remembers dismissal per visitor — quiet, understated styling.',
@@ -290,6 +295,7 @@ export const TEMPLATES: TemplateEntry[] = [
   // ─── USP / trust / payment strips ───────────────────────────────────────────
   {
     id: 'TBLK-HDR-06',
+    tier: 'standard',
     name: 'USP Strip — Icon Value Props',
     description:
       'A four-up USP strip of value-prop icons (free shipping, easy returns, secure checkout, support) for the footer or below the header — each prop a reorderable block.',
@@ -330,6 +336,7 @@ export const TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'TBLK-HDR-07',
+    tier: 'standard',
     name: 'Trust Badge Row',
     description:
       'A centered row of trust-guarantee badges (Hextom trust-badge widget) — money-back, secure, verified, carbon-neutral — as reorderable badge blocks for the footer.',
@@ -370,6 +377,7 @@ export const TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'TBLK-HDR-08',
+    tier: 'standard',
     name: 'Payment Icons Strip',
     description:
       'A footer strip of accepted-payment icons (Hextom payment-badge widget) in single-color or multicolor, reorderable per gateway — reassurance at the bottom of every page.',
@@ -412,6 +420,7 @@ export const TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'TBLK-HDR-09',
+    tier: 'standard',
     name: 'Free-Shipping Progress Bar',
     description:
       'A header goal bar nudging shoppers toward a free-shipping threshold (Hextom cart-progress / free-shipping-message widget) — copy is display-only; the fill is client-side.',
@@ -458,6 +467,7 @@ export const TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'TBLK-HDR-10',
+    tier: 'standard',
     name: 'USP Strip — Marquee Ticker',
     description:
       'A scrolling marquee of short value-prop phrases for the footer group — an ambient, low-cost ticker of shipping / returns / guarantee lines, each phrase a block.',
@@ -489,7 +499,7 @@ export const TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'tight', margin: 'none', gap: 'medium', density: 'compact' },
         typography: { size: 'XS', weight: 'medium', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#f8fafc', background: '#0f172a', seed: '#38bdf8', overlayBackdropOpacity: 0.45 },
+        colors: { seed: '#38bdf8', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'none', borderWidth: 'none', shadow: 'none' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -502,6 +512,7 @@ export const TEMPLATES: TemplateEntry[] = [
   // ─── Newsletter footer capture ──────────────────────────────────────────────
   {
     id: 'TBLK-HDR-11',
+    tier: 'standard',
     name: 'Newsletter Footer — Inline Email Capture',
     description:
       'An inline footer email-capture form (Klaviyo Embedded Form / Omnisend inline signup pattern) — heading, body, email field, submit, and consent line; site-wide in the footer group.',
@@ -544,6 +555,7 @@ export const TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'TBLK-HDR-12',
+    tier: 'standard',
     name: 'Newsletter Footer — Split Image Signup',
     description:
       'A two-column footer newsletter block — lifestyle image beside an email form (Klaviyo side-image form pattern) with a discount incentive; imagery-led styling.',
@@ -592,6 +604,7 @@ export const TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'TBLK-HDR-13',
+    tier: 'standard',
     name: 'Newsletter Footer — Email + SMS Consent',
     description:
       'A footer signup collecting both email and SMS with separate consent (Klaviyo/Omnisend dual-channel form) — two capture fields plus explicit per-channel consent lines.',
@@ -626,7 +639,7 @@ export const TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'medium', density: 'comfortable' },
         typography: { size: 'MD', weight: 'normal', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#f8fafc', background: '#111827', seed: '#38bdf8', overlayBackdropOpacity: 0.45 },
+        colors: { seed: '#38bdf8', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'md', borderWidth: 'thin', shadow: 'none', elevation: 'border' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -636,6 +649,7 @@ export const TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'TBLK-HDR-14',
+    tier: 'standard',
     name: 'Footer — Newsletter + Social + Trust',
     description:
       'A rich multi-column footer combining an email signup, social links, and a trust line (the "designed footer" surface) — social and trust rows are reorderable blocks.',
@@ -671,7 +685,7 @@ export const TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'loose', margin: 'none', gap: 'loose', density: 'comfortable' },
         typography: { size: 'MD', weight: 'normal', lineHeight: 'normal', align: 'left' },
-        colors: { text: '#e2e8f0', background: '#0f172a', seed: '#f5a623', overlayBackdropOpacity: 0.45 },
+        colors: { seed: '#f5a623', overlayBackdropOpacity: 0.45 },
         shape: { radius: 'none', borderWidth: 'none', shadow: 'none' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

@@ -22,6 +22,21 @@ export async function geminiGenerateRecipe(opts: {
   maxTokens?: number;
   /** Optional JSON Schema for structured output. */
   responseSchema?: { name?: string; schema: Record<string, unknown> };
+  /**
+   * WS-C Task 11 scope addition (controller, 2026-08-25). Deadline-bounded
+   * HTTP timeout, precomputed by `ConfiguredLlmClient.callProvider` from
+   * `GenerateHints.deadlineAt`. Mirrors the Anthropic/OpenAI clients — before
+   * this, Gemini only got the fail-fast exhausted-deadline guard, never a
+   * bounded per-call timeout. Forwarded verbatim to `postJsonWithRetries`.
+   */
+  timeoutMs?: number;
+  /**
+   * WS-C Task 11 scope addition. The raw epoch-ms deadline, forwarded
+   * ALONGSIDE `timeoutMs` so `postJsonWithRetries` can re-derive the
+   * effective per-attempt timeout on every retry (see the Anthropic/OpenAI
+   * clients for the full rationale).
+   */
+  deadlineAt?: number;
 }): Promise<GeminiResult> {
   const start = Date.now();
   const base = (opts.baseUrl?.trim() || DEFAULT_GEMINI_BASE_URL).replace(/\/$/, '');
@@ -55,6 +70,8 @@ export async function geminiGenerateRecipe(opts: {
       // Gemini authenticates with x-goog-api-key (not a Bearer token).
       headers: { 'x-goog-api-key': opts.apiKey },
       body,
+      timeoutMs: opts.timeoutMs,
+      deadlineAt: opts.deadlineAt,
       logMeta: { provider: 'GEMINI', model: opts.model, actor: 'INTERNAL' },
       shopId: opts.shopId,
     });

@@ -21,6 +21,7 @@ export const NATIVE_STOCK_COUNTER_TEMPLATES: TemplateEntry[] = [
   // 01 — urgency PDP counter, threshold 10, emphasised styling.
   {
     id: 'NSEC-STOCK-01',
+    tier: 'standard',
     name: 'Low-Stock Urgency Counter (PDP)',
     description: 'Product-page urgency chip that shows the real remaining inventory when stock falls to ten or fewer — pulsing accent styling to nudge the purchase. Renders nothing when stock is healthy or untracked.',
     category: 'STOREFRONT_UI',
@@ -59,6 +60,7 @@ export const NATIVE_STOCK_COUNTER_TEMPLATES: TemplateEntry[] = [
   // 02 — minimal-luxe variant, threshold 5, quiet styling.
   {
     id: 'NSEC-STOCK-02',
+    tier: 'standard',
     name: 'Minimal Low-Stock Note (Luxe)',
     description: 'Understated low-stock note that appears only when five or fewer units remain — quiet, no pulsing — for stores that want honest scarcity without the hard sell. Hidden when stock is healthy or untracked.',
     category: 'STOREFRONT_UI',

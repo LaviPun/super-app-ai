@@ -11,6 +11,21 @@ export async function openAiCompatibleGenerateRecipe(opts: {
   maxTokens?: number;
   /** Optional JSON Schema for structured output. */
   responseSchema?: { name?: string; schema: Record<string, unknown> };
+  /**
+   * WS-C Task 11 scope addition (controller, 2026-08-25). Deadline-bounded
+   * HTTP timeout, precomputed by `ConfiguredLlmClient.callProvider` from
+   * `GenerateHints.deadlineAt`. Mirrors the Anthropic/OpenAI-responses
+   * clients — before this, CUSTOM/AZURE_OPENAI providers only got the
+   * fail-fast exhausted-deadline guard, never a bounded per-call timeout.
+   * Forwarded verbatim to `postJsonWithRetries`.
+   */
+  timeoutMs?: number;
+  /**
+   * WS-C Task 11 scope addition. The raw epoch-ms deadline, forwarded
+   * ALONGSIDE `timeoutMs` so `postJsonWithRetries` can re-derive the
+   * effective per-attempt timeout on every retry.
+   */
+  deadlineAt?: number;
   openaiFeatures?: {
     reasoningEffort?: 'low' | 'medium' | 'high';
     verbosity?: 'low' | 'medium' | 'high';
@@ -66,6 +81,8 @@ async function tryResponses(opts: {
   shopId?: string;
   maxTokens?: number;
   responseSchema?: { name?: string; schema: Record<string, unknown> };
+  timeoutMs?: number;
+  deadlineAt?: number;
   openaiFeatures?: {
     reasoningEffort?: 'low' | 'medium' | 'high';
     verbosity?: 'low' | 'medium' | 'high';
@@ -100,6 +117,8 @@ async function tryResponses(opts: {
     url,
     headers: { authorization: `Bearer ${opts.apiKey}` },
     body,
+    timeoutMs: opts.timeoutMs,
+    deadlineAt: opts.deadlineAt,
     logMeta: { provider: 'CUSTOM', model: opts.model, actor: 'INTERNAL' },
     shopId: opts.shopId,
   });
@@ -120,6 +139,8 @@ async function tryChatCompletions(opts: {
   shopId?: string;
   maxTokens?: number;
   responseSchema?: { name?: string; schema: Record<string, unknown> };
+  timeoutMs?: number;
+  deadlineAt?: number;
   openaiFeatures?: {
     reasoningEffort?: 'low' | 'medium' | 'high';
     verbosity?: 'low' | 'medium' | 'high';
@@ -167,6 +188,8 @@ async function tryChatCompletions(opts: {
     url,
     headers: { authorization: `Bearer ${opts.apiKey}` },
     body,
+    timeoutMs: opts.timeoutMs,
+    deadlineAt: opts.deadlineAt,
     logMeta: { provider: 'CUSTOM', model: opts.model, actor: 'INTERNAL' },
     shopId: opts.shopId,
   });

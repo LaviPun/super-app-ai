@@ -23,6 +23,7 @@ export const ADMIN_DISCOUNT_UI_SETTINGS_TEMPLATES: TemplateEntry[] = [
     // "Spend-to-Save Tiers" — buy-more-save-more up to 5 tiers, audience/geo gating,
     // stacking, schedule. Order discount class; the tier rows + gates are the knobs.
     id: 'ADUI-01',
+    tier: 'standard',
     name: 'Discount Ninja — Spend-to-Save Tiers',
     description:
       'Order-level tiered promotion settings (buy-more-save-more) on the discount detail page, paired with an order discount Function — Discount Ninja style.',
@@ -61,6 +62,7 @@ export const ADMIN_DISCOUNT_UI_SETTINGS_TEMPLATES: TemplateEntry[] = [
     // for a BOGO / free-gift offer — trigger set, trigger quantity, reward, discount kind
     // (new price / percentage / amount), account-gating and tag eligibility, offer limit.
     id: 'ADUI-02',
+    tier: 'standard',
     name: 'Ultimate Special Offers — BOGO & Free Gift',
     description:
       'Product discount settings for a Buy-X-Get-Y / free-gift offer on the discount detail page, paired with a product discount Function — Ultimate Special Offers style.',
@@ -98,6 +100,7 @@ export const ADMIN_DISCOUNT_UI_SETTINGS_TEMPLATES: TemplateEntry[] = [
     // editor — percentage vs dollar amount, override-cents (.99 price ending), scheduled
     // start/end date range, discount tag stamped on members, storefront sale message.
     id: 'ADUI-03',
+    tier: 'standard',
     name: 'Bold Discounts — Scheduled Flash Sale',
     description:
       'Product discount settings for a scheduled flash sale (percentage or amount, price-ending, date range) on the discount detail page, paired with a product discount Function — Bold Discounts style.',
@@ -135,6 +138,7 @@ export const ADMIN_DISCOUNT_UI_SETTINGS_TEMPLATES: TemplateEntry[] = [
     // specific price) + value, a highlighted "Most Popular" pre-selected tier, and free
     // shipping as an outcome. Product discount class; Functions-based (no coupon codes).
     id: 'ADUI-04',
+    tier: 'standard',
     name: 'Kaching Bundles — Quantity Break Deal',
     description:
       'Product discount settings for a quantity-break / volume deal (per-tier quantity and discount, highlighted tier) on the discount detail page, paired with a product discount Function — Kaching Bundles style.',

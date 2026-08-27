@@ -6,9 +6,9 @@ import { MerchantShell } from '~/components/merchant/MerchantShell';
  * route's `ErrorBoundary` so an unhandled loader/action/render error renders
  * an in-app recovery page instead of the browser's crash screen.
  *
- * It renders a fresh `<MerchantShell polaris>` — the shell has no loader
- * dependency, so the subnav and ⌘K palette stay alive — and deliberately does
- * NOT call `useMerchantCtx` (the surrounding shell may not have mounted when the
+ * It renders a fresh `<MerchantShell>` — the shell has no loader dependency,
+ * so the subnav and ⌘K palette stay alive — and deliberately does NOT call
+ * `useMerchantCtx` (the surrounding shell may not have mounted when the
  * error is thrown).
  */
 export function MerchantErrorBoundary() {
@@ -23,7 +23,7 @@ export function MerchantErrorBoundary() {
   }
 
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <s-page heading="Something went wrong" inlineSize="small">
         <s-section>
           <s-stack gap="base">

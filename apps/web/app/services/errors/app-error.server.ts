@@ -11,7 +11,11 @@ export type ErrorCode =
   | 'COMPILE_ERROR'
   | 'PUBLISH_ERROR'
   | 'AI_PROVIDER_NOT_CONFIGURED'
-  | 'INTERNAL_ERROR';
+  | 'INTERNAL_ERROR'
+  // WS-C (Task 5+): async generation surface.
+  | 'ASYNC_DISABLED'
+  | 'NO_VALID_OPTIONS'
+  | 'OUTPUT_TRUNCATED';
 
 export interface AppErrorPayload {
   error: ErrorCode;
@@ -75,6 +79,9 @@ function statusForCode(code: ErrorCode): number {
     PUBLISH_ERROR: 500,
     AI_PROVIDER_NOT_CONFIGURED: 503,
     INTERNAL_ERROR: 500,
+    ASYNC_DISABLED: 503,
+    NO_VALID_OPTIONS: 422,
+    OUTPUT_TRUNCATED: 502,
   };
   return map[code] ?? 500;
 }

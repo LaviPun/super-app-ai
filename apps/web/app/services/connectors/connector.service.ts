@@ -3,6 +3,7 @@ import { persistJsonSafely } from '~/services/observability/redact.server';
 import { encryptJson, decryptJson } from '~/services/security/crypto.server';
 import { assertSafeTargetUrl } from '~/services/security/ssrf.server';
 import { emitFlowTriggerSafe, FLOW_TRIGGER_TOPICS } from '~/services/workflows/shopify-flow-bridge';
+import { openAccessToken } from '~/services/shops/access-token.server';
 
 export type ConnectorAuth =
   | { type: 'API_KEY'; headerName: string; apiKey: string }
@@ -175,7 +176,7 @@ export class ConnectorService {
 
       // Best-effort: notify Shopify Flow that a connector finished syncing.
       if (res.ok) {
-        void emitFlowTriggerSafe(shopDomain, connector.shop?.accessToken, FLOW_TRIGGER_TOPICS.CONNECTOR_SYNCED, {
+        void emitFlowTriggerSafe(shopDomain, openAccessToken(connector.shop?.accessToken), FLOW_TRIGGER_TOPICS.CONNECTOR_SYNCED, {
           'Connector ID': connector.id,
           'Connector Name': connector.name,
           'Sync Status': 'success',

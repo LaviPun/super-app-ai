@@ -3,6 +3,7 @@ import { useLoaderData, useFetcher } from '@remix-run/react';
 import { useEffect, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
+import { sealAccessToken } from '~/services/shops/access-token.server';
 import { ActivityLogService, logRequestOutcome } from '~/services/activity/activity.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { Tabs } from '~/components/merchant/polaris';
@@ -21,7 +22,7 @@ export async function loader({ request }: { request: Request }) {
 
   if (!shopRow) {
     shopRow = await prisma.shop.create({
-      data: { shopDomain: session.shop, accessToken: session.accessToken ?? '', planTier: 'FREE' },
+      data: { shopDomain: session.shop, accessToken: sealAccessToken(session.accessToken ?? ''), planTier: 'FREE' },
       include: { subscription: true },
     });
   }
@@ -107,7 +108,7 @@ export async function action({ request }: { request: Request }) {
 export default function SettingsPage() {
   const { shop, counts, account } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <SettingsBody shop={shop} counts={counts} account={account} />
     </MerchantShell>
   );
@@ -181,7 +182,7 @@ function SettingsBody({ shop, counts, account }: any) {
               <s-text tone="neutral" color="subdued">
                 How long to keep logs and AI usage records (days). Blank disables auto-cleanup.
               </s-text>
-              <s-grid gridTemplateColumns="1fr 1fr" gap="base">
+              <s-grid gridTemplateColumns="@container (inline-size > 480px) 1fr 1fr, 1fr" gap="base">
                 <s-number-field label="Default retention (days)" name="retentionDefault" defaultValue={String(shop.retentionDaysDefault ?? 30)} min={1} />
                 <s-number-field label="AI usage (days)" name="retentionAi" defaultValue={String(shop.retentionDaysAi ?? '')} min={1} />
                 <s-number-field label="API logs (days)" name="retentionApi" defaultValue={String(shop.retentionDaysApi ?? '')} min={1} />

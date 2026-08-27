@@ -1,0 +1,69 @@
+name: db-backup
+
+# WS-A Task 12 addition: free Hobby-plan backup stopgap. Railway's own daily
+# Postgres backup (7-day retention) is dashboard-only and, as of this
+# workflow's authoring, NOT YET ENABLED by the owner (see
+# docs/runbooks/postgres-migration.md). This workflow is an independent,
+# always-on second line of defense: nightly pg_dump uploaded as a GitHub
+# Actions artifact (30-day retention). It requires the owner to set the
+# DATABASE_BACKUP_URL repo secret (a Postgres connection string reachable
+# from GitHub's runners — e.g. the Railway TCP-proxy URL, ideally a read-only
+# role). Until that secret is set, the job no-ops with a clear notice instead
+# of failing the schedule.
+
+on:
+  schedule:
+    - cron: "0 4 * * *" # 04:00 UTC nightly
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check DATABASE_BACKUP_URL is configured
+        id: check
+        run: |
+          if [ -z "${{ secrets.DATABASE_BACKUP_URL }}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: No-op notice (secret not set)
+        if: steps.check.outputs.configured == 'false'
+        run: |
+          echo "::warning::DATABASE_BACKUP_URL repo secret is not set — skipping backup." \
+            "This is the free Hobby-plan pg_dump backup stopgap (WS-A Task 12)." \
+            "Set it to a Postgres connection string reachable from GitHub Actions" \
+            "runners (e.g. the Railway Postgres TCP-proxy URL) to enable nightly backups." \
+            "See docs/runbooks/postgres-migration.md."
+
+      - name: Install postgresql-client
+        if: steps.check.outputs.configured == 'true'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Dump + gzip
+        if: steps.check.outputs.configured == 'true'
+        env:
+          DATABASE_BACKUP_URL: ${{ secrets.DATABASE_BACKUP_URL }}
+        run: |
+          set -euo pipefail
+          STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+          echo "DUMP_STAMP=${STAMP}" >> "$GITHUB_ENV"
+          pg_dump --no-owner --no-privileges --format=plain --dbname="$DATABASE_BACKUP_URL" \
+            | gzip -9 > "superapp-postgres-${STAMP}.sql.gz"
+
+      - name: Upload backup artifact
+        if: steps.check.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: superapp-postgres-${{ env.DUMP_STAMP }}
+          path: superapp-postgres-${{ env.DUMP_STAMP }}.sql.gz
+          retention-days: 30
+          if-no-files-found: error

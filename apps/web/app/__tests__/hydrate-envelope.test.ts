@@ -176,6 +176,7 @@ describe('HydrateEnvelope → ModuleVersion persist shape', () => {
     expect(validationReportJson).toContain('"overall":"PASS"');
     expect(JSON.parse(validationReportJson).checks.length).toBeGreaterThan(0);
     expect(implementationPlanJson === null || typeof implementationPlanJson === 'string').toBe(true);
+    expect(uiTokensJson === null || typeof uiTokensJson === 'string').toBe(true);
 
     expect(JSON.parse(adminConfigJson).schemaVersion).toBe('1.0');
     expect(JSON.parse(themeEditorSettingsJson).fields.length).toBe(2);

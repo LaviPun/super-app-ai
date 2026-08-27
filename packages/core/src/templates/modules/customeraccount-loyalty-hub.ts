@@ -19,6 +19,7 @@ export const CAB_LOY_TEMPLATES: TemplateEntry[] = [
   // ── CAB-LOY-01 — Smile.io: Loyalty Hub points dashboard (Profile page) ──────
   {
     id: 'CAB-LOY-01',
+    tier: 'standard',
     name: 'Smile Loyalty Hub — Points Dashboard',
     description: 'Full loyalty-hub points dashboard on the customer account profile page — live balance, tier status, and a redeem CTA modeled on Smile.io.',
     category: 'CUSTOMER_ACCOUNT',
@@ -65,6 +66,7 @@ export const CAB_LOY_TEMPLATES: TemplateEntry[] = [
   // ── CAB-LOY-02 — Smile.io: Earned-points banner on order status ─────────────
   {
     id: 'CAB-LOY-02',
+    tier: 'standard',
     name: 'Smile Earned-Points Banner',
     description: 'Order-status announcement telling the customer how many loyalty points this order earned, in the Smile.io "you earned N points" pattern.',
     category: 'CUSTOMER_ACCOUNT',
@@ -103,6 +105,7 @@ export const CAB_LOY_TEMPLATES: TemplateEntry[] = [
   // ── CAB-LOY-03 — LoyaltyLion: tabbed rewards panel (page render) ────────────
   {
     id: 'CAB-LOY-03',
+    tier: 'standard',
     name: 'LoyaltyLion Rewards Panel',
     description: 'Account-page rewards panel with earn/spend messaging and a claim-reward modal, modeled on the LoyaltyLion loyalty pop-up tabs.',
     category: 'CUSTOMER_ACCOUNT',
@@ -149,6 +152,7 @@ export const CAB_LOY_TEMPLATES: TemplateEntry[] = [
   // ── CAB-LOY-04 — LoyaltyLion: VIP tier progress (profile) ───────────────────
   {
     id: 'CAB-LOY-04',
+    tier: 'standard',
     name: 'LoyaltyLion VIP Tier Progress',
     description: 'Profile-page VIP tier status block showing current tier and progress toward the next boundary, in the LoyaltyLion tier pattern.',
     category: 'CUSTOMER_ACCOUNT',
@@ -189,6 +193,7 @@ export const CAB_LOY_TEMPLATES: TemplateEntry[] = [
   // ── CAB-LOY-05 — Rivo: account sidebar loyalty embed (page) ──────────────────
   {
     id: 'CAB-LOY-05',
+    tier: 'standard',
     name: 'Rivo Account Loyalty Embed',
     description: 'Compact account-page loyalty embed showing points, tier, and a referral share button, modeled on the Rivo branded account sidebar.',
     category: 'CUSTOMER_ACCOUNT',
@@ -233,6 +238,7 @@ export const CAB_LOY_TEMPLATES: TemplateEntry[] = [
   // ── CAB-LOY-06 — Rivo: referral invite form (profile) ───────────────────────
   {
     id: 'CAB-LOY-06',
+    tier: 'standard',
     name: 'Rivo Refer-a-Friend Form',
     description: 'Profile-page referral form capturing a friend’s email and note, posted to the app proxy, in the Rivo advocate-invite pattern.',
     category: 'CUSTOMER_ACCOUNT',
@@ -278,6 +284,7 @@ export const CAB_LOY_TEMPLATES: TemplateEntry[] = [
   // ── CAB-LOY-07 — Growave: store-credit balance (profile) ────────────────────
   {
     id: 'CAB-LOY-07',
+    tier: 'standard',
     name: 'Growave Store-Credit Balance',
     description: 'Profile-page store-credit balance block with a spend CTA, modeled on the Growave loyalty store-credit reward type.',
     category: 'CUSTOMER_ACCOUNT',
@@ -317,6 +324,7 @@ export const CAB_LOY_TEMPLATES: TemplateEntry[] = [
   // ── CAB-LOY-08 — Growave: loyalty info + rewards on order status ─────────────
   {
     id: 'CAB-LOY-08',
+    tier: 'standard',
     name: 'Growave Loyalty Info — Order Status',
     description: 'Order-status loyalty info block showing points earned plus store credit, modeled on the Growave order-status loyalty widget.',
     category: 'CUSTOMER_ACCOUNT',
@@ -362,6 +370,7 @@ export const CAB_LOY_TEMPLATES: TemplateEntry[] = [
   // ── CAB-LOY-09 — Swym: wishlist rail on profile ─────────────────────────────
   {
     id: 'CAB-LOY-09',
+    tier: 'standard',
     name: 'Swym Wishlist Rail',
     description: 'Profile-page wishlist block linking to the customer’s saved products, modeled on the Swym Wishlist Plus account wishlist rail.',
     category: 'CUSTOMER_ACCOUNT',
@@ -400,6 +409,7 @@ export const CAB_LOY_TEMPLATES: TemplateEntry[] = [
   // ── CAB-LOY-10 — Swym: back-in-stock / price-drop alert opt-in form ──────────
   {
     id: 'CAB-LOY-10',
+    tier: 'standard',
     name: 'Swym Wishlist Alerts Opt-In',
     description: 'Profile-page form to opt into back-in-stock and price-drop alerts for wishlisted products, in the Swym watchlist-alert pattern.',
     category: 'CUSTOMER_ACCOUNT',
@@ -446,6 +456,7 @@ export const CAB_LOY_TEMPLATES: TemplateEntry[] = [
   // ── CAB-LOY-11 — Bold: membership self-service panel (page) ──────────────────
   {
     id: 'CAB-LOY-11',
+    tier: 'standard',
     name: 'Bold Membership Self-Service',
     description: 'Account-page membership panel showing plan status with pause/cancel actions, modeled on the Bold Memberships self-service UI.',
     category: 'CUSTOMER_ACCOUNT',
@@ -491,6 +502,7 @@ export const CAB_LOY_TEMPLATES: TemplateEntry[] = [
   // ── CAB-LOY-12 — Bold: member perks summary (profile) ───────────────────────
   {
     id: 'CAB-LOY-12',
+    tier: 'standard',
     name: 'Bold Member Perks Summary',
     description: 'Profile-page block listing active membership perks — store credit, member discount, and free shipping — in the Bold auto-applied-perks pattern.',
     category: 'CUSTOMER_ACCOUNT',
@@ -531,6 +543,7 @@ export const CAB_LOY_TEMPLATES: TemplateEntry[] = [
   // ── CAB-LOY-13 — Order action: start a return / redeem reward (order action) ─
   {
     id: 'CAB-LOY-13',
+    tier: 'standard',
     name: 'Loyalty Order Action — Redeem or Return',
     description: 'Order-scoped action menu-item that opens a modal to redeem loyalty points or request a return for items in this order.',
     category: 'CUSTOMER_ACCOUNT',
@@ -591,6 +604,7 @@ export const CAB_LOY_TEMPLATES: TemplateEntry[] = [
   // ── CAB-LOY-14 — Order-index loyalty announcement (points summary) ──────────
   {
     id: 'CAB-LOY-14',
+    tier: 'standard',
     name: 'Loyalty Order-Index Announcement',
     description: 'Announcement above the customer’s order list summarizing their points balance and store credit with a link to the rewards hub.',
     category: 'CUSTOMER_ACCOUNT',

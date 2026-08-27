@@ -28,6 +28,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   // ── pos.customer-details.block.render — persistent info panels (LOYALTY_READ / bindings) ──
   {
     id: 'POS-CUST-01',
+    tier: 'standard',
     name: 'POS Loyalty Balance Panel',
     description: 'Shows the customer\'s live loyalty points balance on the POS customer-details screen, read from the app proxy.',
     category: 'ADMIN_UI',
@@ -52,6 +53,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-02',
+    tier: 'standard',
     name: 'POS VIP Tier Panel',
     description: 'Displays the customer\'s VIP tier on the POS customer-details screen so staff can honor tier perks in-store.',
     category: 'ADMIN_UI',
@@ -76,6 +78,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-03',
+    tier: 'standard',
     name: 'POS Wishlist Lookup Panel',
     description: 'Surfaces the customer\'s saved wishlist on the POS customer-details screen so staff can pull items in-store.',
     category: 'ADMIN_UI',
@@ -99,6 +102,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-04',
+    tier: 'standard',
     name: 'POS Wholesale Tier Panel',
     description: 'Shows the customer\'s wholesale/B2B pricing tier on the POS customer-details screen so staff apply the right price.',
     category: 'ADMIN_UI',
@@ -122,6 +126,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-05',
+    tier: 'standard',
     name: 'POS Store Credit Panel',
     description: 'Displays the customer\'s available store-credit balance on the POS customer-details screen, read from the app proxy.',
     category: 'ADMIN_UI',
@@ -148,6 +153,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   // ── pos.customer-details.action.menu-item + action.render — customer-scoped actions ──
   {
     id: 'POS-CUST-06',
+    tier: 'standard',
     name: 'POS Enroll in Loyalty',
     description: 'Adds a customer-details menu action that enrolls the walk-in customer into the loyalty program via the app proxy.',
     category: 'ADMIN_UI',
@@ -171,6 +177,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-07',
+    tier: 'standard',
     name: 'POS Redeem Points for Cart Discount',
     description: 'Customer-details action that redeems loyalty points and applies the resulting cart discount at the POS counter.',
     category: 'ADMIN_UI',
@@ -201,6 +208,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-08',
+    tier: 'standard',
     name: 'POS Apply VIP Member Discount',
     description: 'Customer-details action that applies the customer\'s VIP-tier percentage discount to the cart, gated by a staff PIN.',
     category: 'ADMIN_UI',
@@ -231,6 +239,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-09',
+    tier: 'standard',
     name: 'POS Apply Wholesale Code',
     description: 'Customer-details action that applies the customer\'s wholesale discount code to the cart at POS.',
     category: 'ADMIN_UI',
@@ -257,6 +266,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-10',
+    tier: 'standard',
     name: 'POS Tag Customer Note',
     description: 'Customer-details action that writes a staff note onto the cart, e.g. a wholesale account or VIP flag for the sale.',
     category: 'ADMIN_UI',
@@ -282,6 +292,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-11',
+    tier: 'standard',
     name: 'POS Capture Wishlist Email',
     description: 'Customer-details action that captures the walk-in customer\'s email into their wishlist/marketing list via the app proxy.',
     category: 'ADMIN_UI',
@@ -305,6 +316,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-12',
+    tier: 'standard',
     name: 'POS Award Bonus Points',
     description: 'Customer-details action that credits manual bonus loyalty points to the customer ledger via the app proxy, PIN-gated.',
     category: 'ADMIN_UI',
@@ -330,6 +342,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-13',
+    tier: 'standard',
     name: 'POS Send Referral Link',
     description: 'Customer-details action that emails the customer their loyalty referral link via the app proxy.',
     category: 'ADMIN_UI',
@@ -353,6 +366,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-14',
+    tier: 'standard',
     name: 'POS Enroll Menu Item',
     description: 'Customer-details menu-item entry that opens the loyalty enrollment action for a non-member walk-in.',
     category: 'ADMIN_UI',
@@ -375,6 +389,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-15',
+    tier: 'standard',
     name: 'POS Loyalty Actions Menu Item',
     description: 'Customer-details menu-item entry that opens the loyalty redeem/award action sheet at the POS counter.',
     category: 'ADMIN_UI',
@@ -399,6 +414,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   // ── pos.cart.line-item-details.* — selected cart line actions (line-item context) ──
   {
     id: 'POS-CUST-16',
+    tier: 'standard',
     name: 'POS Line Wholesale Discount',
     description: 'Cart line-item action that applies the wholesale percentage discount to the selected line, gated by a staff PIN.',
     category: 'ADMIN_UI',
@@ -428,6 +444,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-17',
+    tier: 'standard',
     name: 'POS Line Flash-Sale Discount',
     description: 'Cart line-item action that applies a flash-sale fixed-amount discount to the selected line at POS.',
     category: 'ADMIN_UI',
@@ -457,6 +474,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-18',
+    tier: 'standard',
     name: 'POS Line Gift Note',
     description: 'Cart line-item action that stamps a gift-message property onto the selected line for the sale.',
     category: 'ADMIN_UI',
@@ -484,6 +502,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-19',
+    tier: 'standard',
     name: 'POS Line Add Recommended Add-On',
     description: 'Cart line-item action that adds a recommended cross-sell add-on line for the selected product at POS.',
     category: 'ADMIN_UI',
@@ -510,6 +529,7 @@ export const POS_CUSTOMER_AND_CART_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'POS-CUST-20',
+    tier: 'standard',
     name: 'POS Line Discount Menu Item',
     description: 'Cart line-item menu-item entry that opens the line-discount action sheet for the selected line at POS.',
     category: 'ADMIN_UI',

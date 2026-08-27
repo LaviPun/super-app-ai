@@ -23,6 +23,7 @@ import { MESSAGING_CHANNELS_SHIPPED, MESSAGING_DRIP_PRESET_ENTRY, messagingChann
 import { getPrisma } from '~/db.server';
 import { RecipeService } from '~/services/recipes/recipe.service';
 import { JobService } from '~/services/jobs/job.service';
+import { markOpsAlerted } from '~/services/observability/ops-alert.server';
 import { DataStoreService } from '~/services/data/data-store.service';
 import { getConnector } from '~/services/workflows/connectors/index';
 import { WorkflowEngineService } from '~/services/workflows/workflow-engine.service';
@@ -442,7 +443,11 @@ export class MessagingRunnerService {
     } catch (err) {
       // Only a resolution/setup failure reaches here (per-recipient failures are
       // caught above); mark the job failed and rethrow so callers surface it.
+      // jobs.fail() itself fires a JOB_FAILED ops alert — tag the error so an
+      // outer catch (e.g. webhooks.tsx's messaging fan-out catch) doesn't fire a
+      // second, redundant alert for the same underlying failure (fix round 1).
       await this.jobs.fail(job.id, err);
+      markOpsAlerted(err);
       throw err;
     }
   }

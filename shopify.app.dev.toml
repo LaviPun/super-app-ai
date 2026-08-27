@@ -1,0 +1,20 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "db12f8260ec0d1a62646c9a972a4a324"
+application_url = "https://example.com"
+embedded = true
+name = "Super App AI Dev"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_checkouts,read_customer_events,read_customers,read_inventory,read_metaobjects,read_orders,read_products,read_themes,write_app_proxy,write_cart_transforms,write_checkouts,write_customers,write_delivery_customizations,write_discounts,write_metaobjects,write_orders,write_payment_customizations,write_pixels,write_products"
+
+[auth]
+redirect_urls = [ "https://example.com/api/auth" ]
+
+[webhooks]
+api_version = "2026-10"
+
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true

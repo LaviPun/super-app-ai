@@ -55,10 +55,19 @@ export class AiUsageService {
    * `correlationId` is indexed (`@@index([correlationId])`), so this is a cheap
    * point lookup, not a table scan.
    */
-  async hasBilledUnit(correlationId: string): Promise<boolean> {
+  /**
+   * WS-C Task 8 (C8): optional `action` filter, additive to the WS-QF/AI-2
+   * signature above — every existing 1-arg caller (generation's cross-leg
+   * dedupe) is unaffected. Hydrate's retry-safe billing passes
+   * `{ action: 'RECIPE_HYDRATE' }` so a BullMQ retry's `hasBilledUnit` check
+   * only matches a genuinely-successful prior hydrate write for the SAME
+   * job (via its stable `billingKey`), not an unrelated row that happens to
+   * share the correlationId.
+   */
+  async hasBilledUnit(correlationId: string, opts?: { action?: string }): Promise<boolean> {
     const prisma = getPrisma();
     const row = await prisma.aiUsage.findFirst({
-      where: { correlationId, requestCount: { gt: 0 } },
+      where: { correlationId, requestCount: { gt: 0 }, ...(opts?.action ? { action: opts.action } : {}) },
       select: { id: true },
     });
     return row != null;

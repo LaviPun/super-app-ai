@@ -3,6 +3,7 @@ import { useLoaderData, useNavigate, useNavigation } from '@remix-run/react';
 import { useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
+import { sealAccessToken } from '~/services/shops/access-token.server';
 import { QuotaService } from '~/services/billing/quota.service';
 import { MerchantShell } from '~/components/merchant/MerchantShell';
 import {
@@ -16,12 +17,11 @@ export async function loader({ request }: { request: Request }) {
   let shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
   if (!shopRow) {
     shopRow = await prisma.shop.create({
-      data: { shopDomain: session.shop, accessToken: session.accessToken ?? '', planTier: 'FREE' },
+      data: { shopDomain: session.shop, accessToken: sealAccessToken(session.accessToken ?? ''), planTier: 'FREE' },
     });
   }
 
   const since30d = new Date(Date.now() - 30 * 86400000);
-  const since7d = new Date(Date.now() - 7 * 86400000);
 
   const quota = new QuotaService();
   const usage = await quota.getUsageSummary(shopRow.id);
@@ -131,7 +131,7 @@ function usagePct(used: number, limit: number): number {
 
 export default function MerchantLogs() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <LogsBody />
     </MerchantShell>
   );
@@ -201,7 +201,7 @@ function LogsBody() {
             ]}
           />
 
-          <s-grid gridTemplateColumns="1fr 1fr" gap="base">
+          <s-grid gridTemplateColumns="@container (inline-size > 560px) 1fr 1fr, 1fr" gap="base">
             <s-section heading="Successful jobs (7 days)">
               <s-stack gap="small-200">
                 <MiniBars data={dailySuccess} color={CHART.success} height={48} />
