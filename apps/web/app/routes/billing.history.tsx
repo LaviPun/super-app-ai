@@ -55,7 +55,7 @@ export async function loader({ request }: { request: Request }) {
 export default function BillingHistory() {
   const { domain, subscription, planChanges } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <BillingHistoryBody domain={domain} subscription={subscription} planChanges={planChanges} />
     </MerchantShell>
   );
@@ -79,7 +79,7 @@ function BillingHistoryBody({ domain, subscription, planChanges }: any) {
         <s-paragraph color="subdued">Plan changes and subscription details for {domain}. Invoices are issued by Shopify.</s-paragraph>
       </s-stack>
 
-      <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+      <s-grid gridTemplateColumns="@container (inline-size > 760px) 2fr 1fr, 1fr" gap="base">
         <s-section heading="Plan changes">
           {planChanges.length === 0 ? (
             <EmptyState icon="plan" heading="No plan changes yet">

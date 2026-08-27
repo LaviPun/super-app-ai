@@ -14,6 +14,7 @@ export const NATIVE_MEGA_FAQ_TEMPLATES: TemplateEntry[] = [
   // NSEC-MFAQ-01 — 20-item searchable help center with categories (Editorial, luxe).
   {
     id: 'NSEC-MFAQ-01',
+    tier: 'standard',
     name: 'FAQ — Searchable Help Center',
     description: 'A 20-question searchable help center with category chips (Orders, Shipping, Returns, Product, Account) filtering the accordion live, for a help or support page.',
     category: 'STOREFRONT_UI',
@@ -73,6 +74,7 @@ export const NATIVE_MEGA_FAQ_TEMPLATES: TemplateEntry[] = [
   // NSEC-MFAQ-02 — Shipping & returns mega-FAQ (Bold DTC).
   {
     id: 'NSEC-MFAQ-02',
+    tier: 'standard',
     name: 'FAQ — Shipping & Returns',
     description: 'A searchable shipping-and-returns mega-FAQ — a focused set of delivery, returns, and refund questions with a live filter, for a shipping-policy or support page.',
     category: 'STOREFRONT_UI',
@@ -107,7 +109,7 @@ export const NATIVE_MEGA_FAQ_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'container', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'medium', density: 'comfortable' },
         typography: { size: 'LG', weight: 'bold', lineHeight: 'normal', align: 'left' },
-        colors: { text: '#f8fafc', background: '#111827', overlayBackdropOpacity: 0.4, seed: '#e11d48' },
+        colors: { overlayBackdropOpacity: 0.4, seed: '#e11d48' },
         shape: { radius: 'lg', borderWidth: 'none', shadow: 'sm', elevation: 'soft' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

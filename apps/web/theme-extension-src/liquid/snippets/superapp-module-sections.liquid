@@ -19,27 +19,26 @@
       executed here (fixed-template allowlist, per DESIGN.md) — only structured,
       declarative content is rendered.
     {% endcomment %}
-    {% # R2.5 layout archetype: modifier class + column count. `stacked` (default) is a no-op. %}
+    {% # R2.5 layout archetype + content-shape modifiers (docs §7 F7 / §4.3, §6.1 column
+       clamp): WS-H Task 5 moved the CLASS-STRING computation (layout modifier, --sa-cols
+       clamp, minimal/textonly variant) to superapp-modules.js, which reads the raw
+       data-sa-* values emitted on the <section> below and applies the equivalent
+       classes/style on DOMContentLoaded — same lever the file already uses for its
+       before-after/hotspots/tabs kinds. No-JS guardrail: the <section> class in Liquid
+       always carries the plain `superapp-section superapp-section--{{ kind }} sa-reveal`
+       base (the `stacked`/no-variant default), so a JS-disabled storefront still renders
+       correctly — just without the layout/column/minimal/textonly refinements. The
+       has-blocks/block-has-image booleans below stay ASSIGNED in Liquid (rather than
+       inlined) because sa_sec_has_blocks also gates which archetype content renders
+       (structural, not presentational) and block-has-image needs a for-loop;
+       has-image/has-body are cheap enough to inline directly into the data-sa-img/
+       data-sa-bdy attribute values below, as an inline conditional tag rather than a
+       separate assign. Also note: Shopify's real Liquid/HTML parser rejects a bare
+       comparison printed inside a double-curly output tag (confirmed against Shopify's
+       own theme linter package — liquidjs tolerates it, the real parser doesn't) —
+       that's why has-image/has-body use an inline conditional tag instead of printing
+       the mod_cfg.imageUrl-is-blank comparison directly. %}
     {% liquid
-      assign layout_class = ''
-      assign layout_cols = ''
-      assign layout_kind = mod_cfg.layout.layout | handle
-      if layout_kind != blank and layout_kind != 'stacked'
-        assign layout_class = ' superapp-layout--' | append: layout_kind
-      endif
-      if mod_cfg.layout.columns != blank
-        # §6.1 column clamp: keep --sa-cols in [1,4] and never exceed the block count
-        # (a 3-up grid with 2 blocks becomes 2 columns, not a dangling row).
-        assign sa_cols_req = mod_cfg.layout.columns | at_least: 1 | at_most: 4
-        if mod_cfg.blocks != blank and mod_cfg.blocks.size > 0 and mod_cfg.blocks.size < sa_cols_req
-          assign sa_cols_req = mod_cfg.blocks.size
-        endif
-        assign layout_cols = ' style="--sa-cols:' | append: sa_cols_req | append: '"'
-      endif
-
-      # Content-shape modifiers (docs §7 F7 / §4.3): minimal when there is no image,
-      # body, or blocks (title/subtitle/cta or less); text-only when blocks exist but
-      # none carries an image; empty when there is nothing at all to show.
       assign sa_sec_has_blocks = false
       if mod_cfg.blocks != blank and mod_cfg.blocks.size > 0
         assign sa_sec_has_blocks = true
@@ -52,13 +51,6 @@
             break
           endif
         endfor
-      endif
-      assign sa_sec_variant = ''
-      unless mod_cfg.imageUrl != blank or mod_cfg.body != blank or sa_sec_has_blocks
-        assign sa_sec_variant = ' superapp-section--minimal'
-      endunless
-      if sa_sec_has_blocks and sa_sec_block_has_image == false
-        assign sa_sec_variant = sa_sec_variant | append: ' superapp-section--textonly'
       endif
       assign sa_sec_empty = false
       if mod_cfg.title == blank and mod_cfg.subtitle == blank and mod_cfg.body == blank and sa_sec_has_blocks == false and mod_cfg.ctaText == blank
@@ -147,7 +139,7 @@
         assign sa_self_header = true
       endif
     %}
-    <section class="superapp-section superapp-section--{{ kind | handle }}{{ layout_class }}{{ sa_sec_variant }} sa-reveal"{{ layout_cols }} data-module-id="{{ module_id | escape }}" data-section-kind="{{ kind | escape }}">
+    <section class="superapp-section superapp-section--{{ kind | handle }} sa-reveal" data-module-id="{{ module_id | escape }}" data-section-kind="{{ kind | escape }}" data-sa-lay="{{ mod_cfg.layout.layout | handle }}" data-sa-cols="{{ mod_cfg.layout.columns }}" data-sa-blk="{{ mod_cfg.blocks.size }}" data-sa-img="{% if mod_cfg.imageUrl != blank %}1{% endif %}" data-sa-bdy="{% if mod_cfg.body != blank %}1{% endif %}" data-sa-bi="{{ sa_sec_block_has_image }}">
       <div class="superapp-section__inner superapp-container">
         {% if sa_sec_empty %}
           <div class="superapp-section__empty" role="note">Nothing to show yet</div>
@@ -168,7 +160,15 @@
           {% when 'hero' %}
             {% # Hero: eyebrow/title/subtitle/body + media + CTA buttons + proof chips. %}
             {% assign hero_variant = 'centered' %}
-            {% assign hero_media = mod_cfg.fields.mediaImageUrl | default: mod_cfg.fields.backgroundImageUrl | default: mod_cfg.fields.posterImageUrl %}
+            {% # WS-H Task 8 parity fix: the output-level preview<->Liquid fixture
+               caught a real content-loss bug here — a hero template authored with
+               fields.heroImageUrl or fields.imageUrl / mod_cfg.imageUrl (the same
+               field names PreviewService's mediaUrl lookup already accepts) had NO
+               fallback in this chain, so its image silently never rendered on the
+               real storefront while the admin preview showed it fine. Existing
+               mediaImageUrl/backgroundImageUrl/posterImageUrl precedence is
+               unchanged; the new fallbacks only fire when none of those are set. %}
+            {% assign hero_media = mod_cfg.fields.mediaImageUrl | default: mod_cfg.fields.backgroundImageUrl | default: mod_cfg.fields.posterImageUrl | default: mod_cfg.fields.heroImageUrl | default: mod_cfg.fields.imageUrl | default: mod_cfg.imageUrl %}
             {% if mod_cfg.fields.mediaImageUrl != blank or mod_cfg.layout.layout == 'grid' %}{% assign hero_variant = 'split' %}{% endif %}
             {% if mod_cfg.fields.backgroundImageUrl != blank or mod_cfg.fields.videoUrl != blank or mod_cfg.fields.overlayStrength != blank %}{% assign hero_variant = 'overlay' %}{% endif %}
             <div class="superapp-hero superapp-hero--{{ hero_variant }}">
@@ -198,7 +198,10 @@
                 {% endif %}
                 <span class="superapp-hero__scrim" aria-hidden="true" style="opacity:{{ hero_ov }}"></span>
               {% elsif hero_media != blank %}
-                <img class="superapp-hero__media" src="{{ hero_media | escape }}" alt="{{ mod_cfg.fields.mediaAlt | default: mod_cfg.fields.backgroundAlt | escape }}" loading="lazy" width="1200" height="900">
+                {% # UnsupportedFilterArguments (real Shopify Liquid, not liquidjs): a filter
+                   on a `render` keyword-arg value is invalid — pre-compute instead. %}
+                {% assign sa_media_alt = mod_cfg.fields.mediaAlt | default: mod_cfg.fields.backgroundAlt %}
+                {% render 'superapp-module-media', url: hero_media, alt: sa_media_alt, css_class: 'superapp-hero__media', width: 1200, height: 900 %}
               {% endif %}
               <div class="superapp-hero__content">
                 {% if mod_cfg.fields.eyebrow != blank %}<span class="superapp-hero__eyebrow">{{ mod_cfg.fields.eyebrow | escape }}</span>{% endif %}
@@ -210,10 +213,7 @@
                   {% assign hero_ctas = mod_cfg.blocks | where: 'kind', 'cta' %}
                   {% if hero_ctas.size > 0 %}
                     <div class="superapp-hero__ctas superapp-cluster">
-                      {% for section_block in hero_ctas %}
-                        {% assign hero_cta_style = section_block.fields.style | default: 'primary' | handle %}
-                        {% if section_block.url != blank %}<a class="superapp-hero__cta superapp-hero__cta--{{ hero_cta_style }}" href="{{ section_block.url | escape }}">{{ section_block.text | default: 'Shop now' | escape }}</a>{% endif %}
-                      {% endfor %}
+                      {% render 'superapp-cta-list', ctas: hero_ctas, cp: 'superapp-hero__cta', dl: 'Shop now' %}
                     </div>
                   {% endif %}
                   {% assign hero_stats = mod_cfg.blocks | where: 'kind', 'stat' %}
@@ -267,7 +267,9 @@
               {% assign ba_i = 0 %}
               {% for section_block in mod_cfg.blocks %}
                 {% if section_block.imageUrl != blank and ba_i < 2 %}
-                  <figure class="superapp-beforeafter__pane"><img src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.fields.alt | default: section_block.text | escape }}" loading="lazy" width="1000" height="1000">{% if section_block.text != blank %}<figcaption>{{ section_block.text | escape }}</figcaption>{% endif %}</figure>
+                  {% # UnsupportedFilterArguments fix (real Shopify Liquid): pre-compute alt. %}
+                  {% assign sa_media_alt = section_block.fields.alt | default: section_block.text %}
+                  <figure class="superapp-beforeafter__pane">{% render 'superapp-module-media', url: section_block.imageUrl, alt: sa_media_alt, css_class: '', width: 1000, height: 1000 %}{% if section_block.text != blank %}<figcaption>{{ section_block.text | escape }}</figcaption>{% endif %}</figure>
                   {% assign ba_i = ba_i | plus: 1 %}
                 {% endif %}
               {% endfor %}
@@ -281,7 +283,7 @@
             {% # Hotspot geometry rides a JSON config (merchant data, not template bytes) — the runtime reads x/y/title/price/url/thumb from it to build markers + popovers. The list below is the SEO/no-JS/mobile interface. %}
             {% assign hs_base = mod_cfg.imageUrl | default: mod_cfg.fields.imageUrl %}
             <div class="superapp-hotspots">
-              {% if hs_base != blank %}<img class="superapp-hotspots__base" src="{{ hs_base | escape }}" alt="{{ mod_cfg.fields.imageAlt | default: mod_cfg.title | escape }}" loading="lazy" width="1200" height="900">{% endif %}
+              {% if hs_base != blank %}{% assign sa_media_alt = mod_cfg.fields.imageAlt | default: mod_cfg.title %}{% render 'superapp-module-media', url: hs_base, alt: sa_media_alt, css_class: 'superapp-hotspots__base', width: 1200, height: 900 %}{% endif %}
               <script type="application/json" data-sa-hotspots-config>{{ mod_cfg.blocks | json }}</script>
               <ul class="superapp-hotspots__list">
                 {% for section_block in mod_cfg.blocks %}{% if section_block.kind == 'hotspot' %}<li>{% if section_block.url != blank %}<a href="{{ section_block.url | escape }}">{% endif %}{{ section_block.text | default: section_block.fields.title | default: 'Shop this' | escape }}{% if section_block.fields.price != blank %}<span class="superapp-hotspots__price">{{ section_block.fields.price | escape }}</span>{% endif %}{% if section_block.url != blank %}</a>{% endif %}</li>{% endif %}{% endfor %}
@@ -298,7 +300,8 @@
                   {% assign gal_cap = section_block.fields.caption | default: section_block.text %}
                   <figure class="superapp-gallery__item{% if gal_ugc %} superapp-gallery__item--ugc{% endif %}{% if section_block.fields.span != blank %} superapp-gallery__item--{{ section_block.fields.span | handle }}{% endif %}">
                     {% if section_block.url != blank and gal_ugc == false %}<a class="superapp-gallery__link" href="{{ section_block.url | escape }}">{% endif %}
-                    <img src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.fields.alt | default: section_block.text | escape }}" loading="lazy" width="600" height="600">
+                    {% assign sa_media_alt = section_block.fields.alt | default: section_block.text %}
+                    {% render 'superapp-module-media', url: section_block.imageUrl, alt: sa_media_alt, css_class: '', width: 600, height: 600 %}
                     {% if section_block.url != blank and gal_ugc == false %}</a>{% endif %}
                     {% if gal_ugc %}
                       {% assign gal_shop = section_block.fields.productUrl | default: section_block.url %}
@@ -320,7 +323,7 @@
             <div class="superapp-collection">
               {% if coll_media != blank %}
                 <div class="superapp-collection__media">
-                  <img src="{{ coll_media | escape }}" alt="{{ mod_cfg.fields.mediaAlt | escape }}" loading="lazy" width="1200" height="800">
+                  {% render 'superapp-module-media', url: coll_media, alt: mod_cfg.fields.mediaAlt, css_class: '', width: 1200, height: 800 %}
                 </div>
               {% endif %}
               <div class="superapp-collection__content">
@@ -334,7 +337,8 @@
                     {% if section_block.kind == 'story' or section_block.kind == 'tile' or section_block.kind == 'slide' %}
                       <div class="superapp-collection__story">
                         {% if section_block.imageUrl != blank %}
-                          <img class="superapp-collection__storyimg" src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.fields.caption | default: section_block.text | escape }}" loading="lazy" width="800" height="600">
+                          {% assign sa_media_alt = section_block.fields.caption | default: section_block.text %}
+                          {% render 'superapp-module-media', url: section_block.imageUrl, alt: sa_media_alt, css_class: 'superapp-collection__storyimg', width: 800, height: 600 %}
                         {% endif %}
                         {% if section_block.text != blank %}<p class="superapp-collection__text superapp-measure">{{ section_block.text | escape | newline_to_br }}</p>{% endif %}
                         {% if section_block.fields.caption != blank %}<span class="superapp-collection__caption">{{ section_block.fields.caption | escape }}</span>{% endif %}
@@ -353,18 +357,14 @@
               {% if mod_cfg.title != blank %}<h2 class="superapp-cta__title">{{ mod_cfg.title | escape }}</h2>{% endif %}
               {% assign cta_text = mod_cfg.subtitle | default: mod_cfg.fields.bodyText | default: mod_cfg.body %}
               {% if cta_text != blank %}<p class="superapp-cta__text superapp-measure">{{ cta_text | escape | newline_to_br }}</p>{% endif %}
-              {% assign cta_blocks = '' %}
-              {% if mod_cfg.blocks != blank %}{% assign cta_blocks = mod_cfg.blocks | where: 'kind', 'cta' %}{% endif %}
+              {% assign cta_blocks = mod_cfg.blocks | where: 'kind', 'cta' %}
               {% assign cta_show_actions = false %}
               {% if cta_blocks != blank and cta_blocks.size > 0 %}{% assign cta_show_actions = true %}{% endif %}
               {% if mod_cfg.ctaText != blank and mod_cfg.ctaUrl != blank %}{% assign cta_show_actions = true %}{% endif %}
               {% if cta_show_actions %}
                 <div class="superapp-cta__actions superapp-cluster">
                   {% if cta_blocks != blank and cta_blocks.size > 0 %}
-                    {% for section_block in cta_blocks %}
-                      {% assign cta_style = section_block.fields.style | default: 'primary' | handle %}
-                      {% if section_block.url != blank %}<a class="superapp-cta__button superapp-cta__button--{{ cta_style }}" href="{{ section_block.url | escape }}">{{ section_block.text | default: 'Get started' | escape }}</a>{% endif %}
-                    {% endfor %}
+                    {% render 'superapp-cta-list', ctas: cta_blocks, cp: 'superapp-cta__button', dl: 'Get started' %}
                   {% elsif mod_cfg.ctaText != blank and mod_cfg.ctaUrl != blank %}
                     <a class="superapp-cta__button superapp-cta__button--primary" href="{{ mod_cfg.ctaUrl | escape }}">{{ mod_cfg.ctaText | escape }}</a>
                   {% endif %}
@@ -394,7 +394,7 @@
                 {% if section_block.kind == 'team-member' %}
                   <figure class="superapp-team__member">
                     {% if section_block.imageUrl != blank %}
-                      <img class="superapp-team__photo" src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.text | escape }}" loading="lazy" width="320" height="320">
+                      {% render 'superapp-module-media', url: section_block.imageUrl, alt: section_block.text, css_class: 'superapp-team__photo', width: 320, height: 320 %}
                     {% endif %}
                     {% if section_block.text != blank %}<figcaption class="superapp-team__name">{{ section_block.text | escape }}</figcaption>{% endif %}
                     {% if section_block.fields.role != blank %}<span class="superapp-team__role">{{ section_block.fields.role | escape }}</span>{% endif %}
@@ -431,7 +431,7 @@
                 {% if section_block.kind == 'product-card' or section_block.kind == 'product' or section_block.kind == 'addon' %}
                   <div class="superapp-upsell__product superapp-row">
                     {% if section_block.imageUrl != blank %}
-                      <img class="superapp-upsell__thumb" src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.text | escape }}" loading="lazy" width="240" height="240">
+                      {% render 'superapp-module-media', url: section_block.imageUrl, alt: section_block.text, css_class: 'superapp-upsell__thumb', width: 240, height: 240 %}
                     {% endif %}
                     {% if section_block.text != blank %}<span class="superapp-upsell__name">{{ section_block.text | escape }}</span>{% endif %}
                     {% if section_block.fields.price != blank %}<span class="superapp-upsell__price">{{ section_block.fields.price | escape }}</span>{% endif %}
@@ -469,8 +469,7 @@
               {% if band_text != blank %}<span class="superapp-band__text">{{ band_text | escape }}</span>{% endif %}
               {% if mod_cfg.subtitle != blank %}<span class="superapp-band__text superapp-band__text--sub">{{ mod_cfg.subtitle | escape }}</span>{% endif %}
               {% if band_cd != blank or mod_cfg.countdown.enabled %}<span class="superapp-band__countdown" data-sa-countdown="{{ band_cd | escape }}" data-sa-cd="{{ mod_cfg.countdown | json | escape }}" hidden></span>{% endif %}
-              {% assign band_ctas = '' %}
-              {% if mod_cfg.blocks != blank %}{% assign band_ctas = mod_cfg.blocks | where: 'kind', 'cta' %}{% endif %}
+              {% assign band_ctas = mod_cfg.blocks | where: 'kind', 'cta' %}
               {% if band_ctas != blank and band_ctas.size > 0 %}
                 {% for section_block in band_ctas %}
                   {% if section_block.url != blank %}<a class="superapp-band__cta" href="{{ section_block.url | escape }}">{{ section_block.text | default: 'Shop' | escape }}</a>{% endif %}
@@ -681,7 +680,7 @@
                     {% if t_rich %}
                       {% assign t_pct = t_rating | times: 20 %}
                       {% if section_block.fields.avatarUrl != blank %}
-                        <img class="superapp-testimonial__avatar" src="{{ section_block.fields.avatarUrl | escape }}" alt="" loading="lazy" width="44" height="44">
+                        {% render 'superapp-module-media', url: section_block.fields.avatarUrl, alt: '', css_class: 'superapp-testimonial__avatar', width: 44, height: 44 %}
                       {% else %}<span class="superapp-testimonial__avatar superapp-testimonial__avatar--initials" aria-hidden="true">{{ section_block.fields.author | default: '?' | slice: 0 | upcase }}</span>{% endif %}
                       <span class="superapp-testimonial__stars" role="img" aria-label="Rated {{ t_rating }} out of 5" style="--sa-star-fill: {{ t_pct }}%;"><span class="superapp-testimonial__starsfill">&#9733;&#9733;&#9733;&#9733;&#9733;</span></span>
                     {% else %}
@@ -704,32 +703,36 @@
             {% if sa_kind_h == 'trust-badges' or sa_kind_h == 'trust-badge' or sa_kind_h == 'payment-badges' %}{% assign trust_variant = 'badges' %}{% endif %}
             {% assign trust_badge_blocks = mod_cfg.blocks | where: 'kind', 'badge' %}
             {% if trust_badge_blocks.size > 0 %}{% assign trust_variant = 'badges' %}{% endif %}
-            {% # A2 curated badge-icon catalog. A badge's fields.icon selects a <symbol> from the inline sprite below; payment ids get fill styling, trust ids get stroke styling (CSS modifier). Unknown/absent icon → the existing image/text fallback. Sprite emitted once when any badge carries an icon. %}
-            {% assign trust_has_icon = false %}
-            {% for bb in trust_badge_blocks %}{% if bb.fields.icon != blank %}{% assign trust_has_icon = true %}{% break %}{% endif %}{% endfor %}
+            {% # A2 curated badge-icon catalog (WS-H Task 5: the icon glyphs themselves moved to
+               superapp-modules.css as mask-image rules keyed on [data-sa-icon="<id>"] — a
+               static, never-merchant-varying inline <svg><symbol> sprite doesn't belong in
+               the byte-budgeted Liquid family. A badge's fields.icon selects the CSS mask;
+               payment ids keep the wide/short badge box, trust ids get the square glyph box
+               (superapp-trust__ico--glyph). Unknown/absent icon → the existing image/text
+               fallback (data-sa-icon with no matching CSS rule renders an empty, still
+               correctly-sized box — never a broken reference). %}
             {% assign sa_pay_ids = 'visa mastercard amex paypal shop-pay apple-pay google-pay klarna' | split: ' ' %}
-            {% if trust_has_icon %}<svg class="superapp-icosprite" aria-hidden="true" focusable="false"><symbol id="sa-ico-visa" viewBox="0 0 44 16"><text x="22" y="12">VISA</text></symbol><symbol id="sa-ico-mastercard" viewBox="0 0 44 16"><text x="22" y="12">MC</text></symbol><symbol id="sa-ico-amex" viewBox="0 0 44 16"><text x="22" y="12">AMEX</text></symbol><symbol id="sa-ico-paypal" viewBox="0 0 44 16"><text x="22" y="12">PayPal</text></symbol><symbol id="sa-ico-shop-pay" viewBox="0 0 44 16"><text x="22" y="12">Shop</text></symbol><symbol id="sa-ico-apple-pay" viewBox="0 0 44 16"><text x="22" y="12">Pay</text></symbol><symbol id="sa-ico-google-pay" viewBox="0 0 44 16"><text x="22" y="12">GPay</text></symbol><symbol id="sa-ico-klarna" viewBox="0 0 44 16"><text x="22" y="12">Klarna</text></symbol><symbol id="sa-ico-secure-checkout" viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></symbol><symbol id="sa-ico-free-returns" viewBox="0 0 24 24"><path d="M3 9a9 9 0 1 1 2 6"/><path d="M3 4v5h5"/></symbol><symbol id="sa-ico-fast-shipping" viewBox="0 0 24 24"><path d="M1 6h13v9H1z"/><path d="M14 9h4l3 3v3h-7z"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></symbol><symbol id="sa-ico-money-back" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9h4a2 2 0 0 1 0 4H9"/></symbol><symbol id="sa-ico-warranty" viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="M12 8v4l3 2"/></symbol><symbol id="sa-ico-support" viewBox="0 0 24 24"><path d="M4 3h4l2 5-3 2a12 12 0 0 0 5 5l2-3 5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 2 5a2 2 0 0 1 2-2z"/></symbol><symbol id="sa-ico-eco" viewBox="0 0 24 24"><path d="M4 20c8 2 16-4 16-14C10 6 4 10 4 20z"/><path d="M4 20c2-6 6-9 12-11"/></symbol><symbol id="sa-ico-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol></svg>{% endif %}
             <div class="superapp-trust superapp-trust--{{ trust_variant }}">
               {% for section_block in mod_cfg.blocks %}
                 {% assign trust_alt = section_block.fields.alt | default: section_block.fields.name | default: section_block.text %}
                 {% if section_block.kind == 'badge' %}
                   {% if section_block.fields.icon != blank %}
-                    {% if sa_pay_ids contains section_block.fields.icon %}{% assign ico_mod = 'pay' %}{% else %}{% assign ico_mod = 'glyph' %}{% endif %}
+                    {% if sa_pay_ids contains section_block.fields.icon %}{% assign ico_mod = '' %}{% else %}{% assign ico_mod = ' superapp-trust__ico--glyph' %}{% endif %}
                     <div class="superapp-trust__badge superapp-trust__badge--icon">
-                      <svg class="superapp-trust__ico superapp-trust__ico--{{ ico_mod }}" aria-hidden="true"><use href="#sa-ico-{{ section_block.fields.icon | handle }}"></use></svg>
+                      <span class="superapp-trust__ico{{ ico_mod }}" data-sa-icon="{{ section_block.fields.icon | handle }}" aria-hidden="true"></span>
                       {% if section_block.text != blank %}<span class="superapp-trust__badgelabel">{{ section_block.text | escape }}</span>{% endif %}
                       {% if section_block.fields.caption != blank %}<span class="superapp-trust__badgecap">{{ section_block.fields.caption | escape }}</span>{% endif %}
                     </div>
                   {% else %}
                   <div class="superapp-trust__badge">
                     {% if section_block.imageUrl != blank %}
-                      <img src="{{ section_block.imageUrl | escape }}" alt="{{ trust_alt | escape }}" loading="lazy" width="80" height="48">
+                      {% render 'superapp-module-media', url: section_block.imageUrl, alt: trust_alt, css_class: '', width: 80, height: 48 %}
                     {% elsif section_block.text != blank %}{{ section_block.text | escape }}{% endif %}
                   </div>
                   {% endif %}
                 {% elsif section_block.imageUrl != blank %}
                   {% if section_block.url != blank %}<a class="superapp-trust__logo" href="{{ section_block.url | escape }}">{% else %}<span class="superapp-trust__logo">{% endif %}
-                  <img src="{{ section_block.imageUrl | escape }}" alt="{{ trust_alt | escape }}" loading="lazy" width="160" height="48">
+                  {% render 'superapp-module-media', url: section_block.imageUrl, alt: trust_alt, css_class: '', width: 160, height: 48 %}
                   {% if section_block.url != blank %}</a>{% else %}</span>{% endif %}
                 {% elsif section_block.text != blank %}
                   <span class="superapp-trust__logo superapp-trust__logo--word">{{ section_block.text | escape }}</span>
@@ -794,10 +797,7 @@
                 {% assign launch_ctas = mod_cfg.blocks | where: 'kind', 'cta' %}
                 {% if launch_ctas.size > 0 %}
                   <div class="superapp-launch__ctas superapp-cluster">
-                    {% for section_block in launch_ctas %}
-                      {% assign launch_cta_style = section_block.fields.style | default: 'primary' | handle %}
-                      {% if section_block.url != blank %}<a class="superapp-launch__cta superapp-launch__cta--{{ launch_cta_style }}" href="{{ section_block.url | escape }}">{{ section_block.text | escape }}</a>{% endif %}
-                    {% endfor %}
+                    {% render 'superapp-cta-list', ctas: launch_ctas, cp: 'superapp-launch__cta', dl: '' %}
                   </div>
                 {% endif %}
                 {% assign launch_links = mod_cfg.blocks | where: 'kind', 'link' %}
@@ -807,7 +807,7 @@
                       {% if section_block.url != blank %}
                         <a class="superapp-launch__linkcard" href="{{ section_block.url | escape }}">
                           {% if section_block.imageUrl != blank %}
-                            <img src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.text | escape }}" loading="lazy" width="400" height="300">
+                            {% render 'superapp-module-media', url: section_block.imageUrl, alt: section_block.text, css_class: '', width: 400, height: 300 %}
                           {% endif %}
                           <span class="superapp-launch__linklabel">{{ section_block.text | escape }}</span>
                           {% if section_block.fields.caption != blank %}<span class="superapp-launch__linkcaption">{{ section_block.fields.caption | escape }}</span>{% endif %}
@@ -824,7 +824,7 @@
           {% else %}
             {% # Generic section (unknown kind, or archetype with no blocks): image / body / blocks / CTA. %}
             {% if mod_cfg.imageUrl != blank %}
-              <img class="superapp-section__image" src="{{ mod_cfg.imageUrl | escape }}" alt="" loading="lazy" width="1200" height="600">
+              {% render 'superapp-module-media', url: mod_cfg.imageUrl, alt: '', css_class: 'superapp-section__image', width: 1200, height: 600 %}
             {% endif %}
             {% if mod_cfg.body != blank %}
               <div class="superapp-section__body superapp-measure">{{ mod_cfg.body | escape | newline_to_br }}</div>
@@ -877,7 +877,7 @@
                         {% if section_block.fields.author != blank %}<cite class="superapp-block__author">{{ section_block.fields.author | escape }}</cite>{% endif %}
                       {% when 'team-member' %}
                         {% if section_block.imageUrl != blank %}
-                          <img class="superapp-block__photo" src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.text | escape }}" loading="lazy" width="240" height="240">
+                          {% render 'superapp-module-media', url: section_block.imageUrl, alt: section_block.text, css_class: 'superapp-block__photo', width: 240, height: 240 %}
                         {% endif %}
                         {% if section_block.text != blank %}<h3 class="superapp-block__heading">{{ section_block.text | escape }}</h3>{% endif %}
                         {% if section_block.fields.role != blank %}<span class="superapp-block__label">{{ section_block.fields.role | escape }}</span>{% endif %}
@@ -891,18 +891,20 @@
                         {% if section_block.fields.detail != blank %}<p class="superapp-section__block-text">{{ section_block.fields.detail | escape | newline_to_br }}</p>{% endif %}
                       {% when 'logo', 'badge' %}
                         {% if section_block.imageUrl != blank %}
-                          <img class="superapp-block__logo" src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.fields.alt | default: section_block.fields.name | default: section_block.text | escape }}" loading="lazy" width="120" height="48">
+                          {% assign sa_media_alt = section_block.fields.alt | default: section_block.fields.name | default: section_block.text %}
+                          {% render 'superapp-module-media', url: section_block.imageUrl, alt: sa_media_alt, css_class: 'superapp-block__logo', width: 120, height: 48 %}
                         {% elsif section_block.text != blank %}<span class="superapp-block__label">{{ section_block.text | escape }}</span>{% endif %}
                       {% when 'slide', 'media' %}
                         {% if section_block.imageUrl != blank %}
-                          <img class="superapp-section__block-img" src="{{ section_block.imageUrl | escape }}" alt="{{ section_block.fields.alt | default: section_block.text | escape }}" loading="lazy" width="600" height="400">
+                          {% assign sa_media_alt = section_block.fields.alt | default: section_block.text %}
+                          {% render 'superapp-module-media', url: section_block.imageUrl, alt: sa_media_alt, css_class: 'superapp-section__block-img', width: 600, height: 400 %}
                         {% endif %}
                         {% assign blk_cap = section_block.fields.headline | default: section_block.fields.caption | default: section_block.text %}
                         {% if blk_cap != blank %}<p class="superapp-section__block-text">{{ blk_cap | escape }}</p>{% endif %}
                         {% if section_block.url != blank %}<a class="superapp-section__block-link" href="{{ section_block.url | escape }}">{{ section_block.fields.ctaLabel | default: 'Shop' | escape }}</a>{% endif %}
                       {% else %}
                         {% if section_block.imageUrl != blank %}
-                          <img class="superapp-section__block-img" src="{{ section_block.imageUrl | escape }}" alt="" loading="lazy" width="400" height="300">
+                          {% render 'superapp-module-media', url: section_block.imageUrl, alt: '', css_class: 'superapp-section__block-img', width: 400, height: 300 %}
                         {% endif %}
                         {% if section_block.text != blank %}
                           <p class="superapp-section__block-text">{{ section_block.text | escape | newline_to_br }}</p>

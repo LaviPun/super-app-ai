@@ -18,6 +18,7 @@ import { getPrisma } from '~/db.server';
 import { sendEmail } from '~/services/notifications/mailer.server';
 import { recordTicketEvent } from '~/services/support/ticket-events.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
+import { OpsAlertService } from '~/services/observability/ops-alert.server';
 
 export type SupportNotificationKind =
   | 'escalated'
@@ -193,6 +194,21 @@ async function notifyAdmins(
     text: textLines.join('\n'),
   });
   await recordAttempt(ticket, kind, result.sent, recipients);
+
+  // Ops alert scope (Decision G1): triage_failed is an infrastructure failure
+  // (the triage model call itself broke) — fire OpsAlertService alongside the
+  // admin email. escalated/intervention_flagged are ticket-routing signals, not
+  // infra failures, so they stay email-only.
+  if (kind === 'triage_failed') {
+    await new OpsAlertService()
+      .fire({
+        kind: 'TRIAGE_FAILED',
+        message: `Triage failed for ticket ${ticket.id}: ${extra.reason ?? 'unknown'}`,
+        context: { ticketId: ticket.id, shopDomain },
+      })
+      .catch(() => {});
+  }
+
   return { sent: result.sent };
 }
 

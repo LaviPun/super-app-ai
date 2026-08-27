@@ -6,26 +6,35 @@ import { getPrisma } from '~/db.server';
 /**
  * Support ticket triage.
  *
- * Local-first: defaults to the machine-local Ollama model (qwen3.5:9b) and can
- * be toggled to the cloud provider chain via the AppSettings.supportTriageMode
- * toggle (internal admin, Phase E) or SUPPORT_TRIAGE_PROVIDER=cloud — same
- * self-hosted-by-default posture as the internal copilot
- * (see services/ai/internal-assistant.server.ts / router-runtime-config).
+ * Cloud-first (D5 — no local-model dependency in production): defaults to the
+ * cloud provider chain (getLlmClient's Claude→OpenAI-style fallback). Local
+ * (the machine-local Ollama model, qwen3.5:9b) is a DEV-ONLY explicit opt-in
+ * via AppSettings.supportTriageMode='local' (internal admin, Phase E) or
+ * SUPPORT_TRIAGE_PROVIDER=local — never a fallback, and never honored in
+ * production (see the D5 technical gate below) unless explicitly overridden.
  *
  * Config precedence (env overrides DB so a dev can toggle without touching the
  * admin UI): a set SUPPORT_TRIAGE_* env var always wins over the AppSettings
- * value; when the env var is unset the persisted AppSettings value is used.
+ * value; when the env var is unset the persisted AppSettings value is used
+ * (an unset/unrecognized value resolves to cloud).
+ *
+ * D5 technical gate: even an explicit 'local' resolution (DB row or env var)
+ * is refused when NODE_ENV==='production', falling back to cloud with a
+ * visible console.warn — unless SUPPORT_TRIAGE_ALLOW_LOCAL is set truthy
+ * ('1'|'true'|'yes'). Dev/test environments are unaffected.
  *
  * DB (AppSettings singleton, written by internal.ai-providers "Support triage"):
- *   supportTriageMode        local | cloud   (default local)
+ *   supportTriageMode        local | cloud   (default cloud)
  *   supportTriageProviderId  AiProvider.id to pin the cloud triage call to (optional)
  *
  * Env overrides:
- *   SUPPORT_TRIAGE_PROVIDER   local | cloud   (overrides supportTriageMode)
- *   SUPPORT_TRIAGE_URL        Ollama base URL (default http://127.0.0.1:11434, localhost-only)
- *   SUPPORT_TRIAGE_MODEL      Ollama model tag (default qwen3.5:9b)
- *   SUPPORT_TRIAGE_TIMEOUT_MS request budget (default 25000, clamped 5000–55000
- *                             to stay under the Cloudflare tunnel ceiling)
+ *   SUPPORT_TRIAGE_PROVIDER     local | cloud   (overrides supportTriageMode)
+ *   SUPPORT_TRIAGE_URL          Ollama base URL (default http://127.0.0.1:11434, localhost-only)
+ *   SUPPORT_TRIAGE_MODEL        Ollama model tag (default qwen3.5:9b)
+ *   SUPPORT_TRIAGE_TIMEOUT_MS   request budget (default 25000, clamped 5000–55000
+ *                               to stay under the Cloudflare tunnel ceiling)
+ *   SUPPORT_TRIAGE_ALLOW_LOCAL  '1'|'true'|'yes' — the ONLY way to honor a 'local'
+ *                               resolution when NODE_ENV==='production' (D5 gate).
  */
 
 export const TRIAGE_CATEGORIES = [
@@ -114,9 +123,34 @@ export async function resolveTriageConfig(): Promise<TriageConfig> {
   }
 
   // Env override wins when set to a recognized value; otherwise use the DB mode.
+  // D5: no local-model dependency in production — an unset/unrecognized DB value
+  // now means cloud (matching the AppSettings.supportTriageMode @default("cloud")
+  // column default). Local requires an EXPLICIT 'local' DB row value or
+  // SUPPORT_TRIAGE_PROVIDER=local env; it stays a dev-only opt-in, never a fallback.
   const envProviderRaw = process.env.SUPPORT_TRIAGE_PROVIDER?.trim().toLowerCase();
   const envProvider = envProviderRaw === 'cloud' || envProviderRaw === 'local' ? envProviderRaw : undefined;
-  const provider: 'local' | 'cloud' = (envProvider ?? (dbMode === 'cloud' ? 'cloud' : 'local'));
+  let provider: 'local' | 'cloud' = envProvider ?? (dbMode === 'local' ? 'local' : 'cloud');
+
+  // D5 technical gate (fix round 1): the default-cloud resolution above only
+  // covers an UNSET/unrecognized mode — an operator can still explicitly set
+  // AppSettings.supportTriageMode='local' or SUPPORT_TRIAGE_PROVIDER=local.
+  // Refuse that in production unless SUPPORT_TRIAGE_ALLOW_LOCAL is set truthy
+  // — "never local in production" is enforced here, not just defaulted.
+  // Dev/test (NODE_ENV !== 'production') is unaffected.
+  if (provider === 'local' && process.env.NODE_ENV === 'production') {
+    const allowLocalInProd = ['1', 'true', 'yes'].includes(
+      (process.env.SUPPORT_TRIAGE_ALLOW_LOCAL ?? '').trim().toLowerCase(),
+    );
+    if (!allowLocalInProd) {
+      // Visible, not silent (D8) — an operator who set local expects to see why
+      // their setting was overridden.
+      console.warn(
+        '[support-triage] refusing local triage in production (D5: no local-model dependency in production) — ' +
+          'falling back to cloud. Set SUPPORT_TRIAGE_ALLOW_LOCAL=true to override (dev/test only, not recommended in prod).',
+      );
+      provider = 'cloud';
+    }
+  }
 
   return {
     provider,
@@ -140,13 +174,13 @@ function assertLocalTriageUrl(url: string): void {
   }
 }
 
-function buildTriagePrompt(input: TriageInput): { system: string; user: string } {
+export function buildTriagePrompt(input: TriageInput): { system: string; user: string } {
   const system = [
     'You are the support triage assistant for SuperApp, a Shopify app that generates storefront modules, discounts, and automations for merchants.',
     'Classify the merchant-reported issue below. Respond with ONLY a JSON object with keys:',
     'severity ("low"|"medium"|"high"|"critical"), category (one of: ' + TRIAGE_CATEGORIES.join(', ') + '),',
     'summary (one or two sentences, plain English, for the support team),',
-    'suggestedReply (a short, polite first reply to the merchant: acknowledge, state what happens next; never promise a fix time; write it as Maya, a friendly human support representative — never mention AI, bots, or automation, and do not add a signature since the UI already shows your name),',
+    "suggestedReply (a short, polite first reply to the merchant: acknowledge, state what happens next; never promise a fix time; write it as Maya, SuperApp's AI support assistant — it is fine and expected to say you are an AI when it is natural to do so, never claim to be a human; do not add a signature since the UI already shows your name),",
     'escalate (boolean: true if a human should look at this — merchant-impacting bugs, billing problems, anything you are unsure about),',
     'confidence (0-1).',
     'Severity guide: critical = storefront/checkout broken or revenue-impacting for the merchant; high = a feature is broken; medium = degraded or intermittent; low = question, cosmetic, or feature request.',

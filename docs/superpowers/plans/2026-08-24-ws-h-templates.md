@@ -45,7 +45,7 @@ Every number here was measured directly, not copied from the audit artifact. Re-
 
 | # | Decision |
 |---|----------|
-| H1 | **Pack collapse recommendation (Task 1 presents data; controller rules).** Recommend collapsing the documented/selectable pack set from 4 to 2 (`luxe`, `bold`) — see the pack-reality data above. `playful-commerce`/`tech-utility` retreat to an explicit "not currently offered" backlog note in `module-design-system.md` rather than being silently half-supported. This is a recommendation, not yet a decision — Task 1 is a gate, not an implementation. |
+| H1 | **RULED 2026-08-24 (controller): COLLAPSE.** Render packs collapse from 4 to 2 (`luxe`, `bold`) — see the pack-reality data above (99.35% of authored pack-bearing template content and every low-confidence fallback already resolves to `luxe`/`bold`; only 3 files author `playful`/`utility`). `playful-commerce`/`tech-utility` retreat to an explicit "not currently offered" backlog note in `module-design-system.md` rather than being silently half-supported. Task 2 executes the collapse as written. |
 | H2 | **Dedupe by deletion, not by hiding.** `templateId` has no Prisma foreign key anywhere (`grep -n templateId apps/web/prisma/schema.prisma` → one hit, a JSON-blob comment) — only `AppSettings.templateSpecOverrides` (JSON keyed by templateId, harmlessly orphans an unused key) and `ActivityLog.details` (historical JSON snapshot, doesn't need the template to still exist) reference template IDs, and neither does so via FK. Deleting excess copy-variants is therefore safe; Task 9 deletes down to a cap rather than building a variant-grouping UI layer. |
 | H3 | **Placeholder-media fix ports `PreviewService`'s existing logic verbatim rather than inventing new rules.** `isPlaceholderUrl()` / `phMedia()` / `PH_SVG` (`apps/web/app/services/preview/preview.service.ts:3430-3454`) are the source of truth for "does this URL look real"; Task 6 reimplements the same two predicates in Liquid so preview and storefront agree by construction, not by two independently-maintained rule sets. |
 | H4 | **Parity fixture asserts structural markers, not byte-identity.** PreviewService intentionally wraps output in a different outer shell than the storefront (admin preview chrome vs. theme page chrome) — Task 8's fixture asserts that the SAME set of modifier classes, `data-sa-*` attributes, and placeholder-vs-real-media decisions appear in both renders for a given fixture spec, not that the HTML strings are identical. |
@@ -92,10 +92,12 @@ No code. This task is a gate: it forces an explicit, recorded decision before Ta
 
 **Recommendation (H1): collapse to the honest 2-pack (`luxe`, `bold`).** The data shows `playful`/`utility` are not a maintained third and fourth pack — they're 3 templates nobody has kept in sync with the rest of the library, propped up by a code comment that already treats them as an edge case of Luxe. Shipping "4 packs" in docs while 99.35% of real authored content and every low-confidence fallback is `luxe`/`bold` is exactly the kind of doc/code mismatch this program's [D8] "no silent failures" and WS-J's "no numeric claims without measurement" discipline exist to catch. Investing in `playful`/`tech-utility` as real third/fourth packs (redesigning `module-design-system.md` §3.2a/§3.2b's token grammar into something templates actually use, authoring template content for them, adding QA coverage) is a legitimate alternative — it is a multi-week design investment, not a WS-H-sized task, and should be scoped as a standalone follow-up if chosen.
 
-- [ ] **Step 1: Record the ruling.** Add a row to this plan's Decisions of record table (H1 becomes a ruling, not a recommendation) and to `docs/design-system/module-design-system.md`'s existing "Decisions log" (§10) with the date and the data above. Two valid outcomes:
+- [x] **Step 1: Record the ruling.** Add a row to this plan's Decisions of record table (H1 becomes a ruling, not a recommendation) and to `docs/design-system/module-design-system.md`'s existing "Decisions log" (§10) with the date and the data above. Two valid outcomes:
   - **Collapse (recommended):** proceed to Task 2 as written.
   - **Invest:** skip Task 2's collapse steps; instead file a follow-up spec-track item ("WS-H-follow: Playful/Tech-Utility pack investment") and leave the 3 outlier files and 4-pack docs as-is. Tasks 3-10 are unaffected either way.
-- [ ] **Step 2: Commit the decision record** (docs-only): `git commit -m "docs(ws-h): pack decision recorded — <collapse|invest> (Task 1)"`.
+
+  **RULED: COLLAPSE (controller ruling, 2026-08-24; H1 above is the ruling record; `module-design-system.md` §10 carries the matching row).**
+- [x] **Step 2: Commit the decision record** (docs-only): `git commit -m "docs(ws-h): pack decision recorded — collapse (Task 1)"`.
 
 ---
 
@@ -110,12 +112,12 @@ No code. This task is a gate: it forces an explicit, recorded decision before Ta
 **Interfaces:**
 - `RENDER_PACK_BY_AESTHETIC` (`style-packs.server.ts:161`) narrows from `Partial<Record<StylePackId, StorefrontPack>>` mapping to 4 values, to mapping every `StylePackId` to `'luxe' | 'bold'` only. `StorefrontPack` (wherever it's typed — check `apps/web/app/services/ai/style-packs.server.ts` and `apps/web/app/services/preview/preview.service.ts:53`'s local `PreviewPack` alias) narrows from `'luxe' | 'bold' | 'playful' | 'utility'` to `'luxe' | 'bold'`.
 
-- [ ] **Step 1: Inventory every live reference** to `'playful'` / `'utility'` as a `StorefrontPack`/`PreviewPack` value (not as a `StylePackId` — `playful-commerce`/`tech-utility` upstream ids can stay as aesthetic-signal inputs, they just always resolve to `bold`/`luxe` now):
+- [x] **Step 1: Inventory every live reference** to `'playful'` / `'utility'` as a `StorefrontPack`/`PreviewPack` value (not as a `StylePackId` — `playful-commerce`/`tech-utility` upstream ids can stay as aesthetic-signal inputs, they just always resolve to `bold`/`luxe` now):
   ```bash
   grep -rn "'playful'\|'utility'\|\"playful\"\|\"utility\"" apps/web/app packages/core/src --include="*.ts" --include="*.tsx" | grep -v "playful-commerce\|tech-utility"
   ```
   Expect hits in: `style-packs.server.ts` (`RENDER_PACK_BY_AESTHETIC`, `StorefrontPack` type), `preview.service.ts` (`PreviewPack` type + any CSS-class branch keyed on pack), the 3 outlier template files, and any test pinning `resolveStorefrontPack` output to `'playful'`/`'utility'`.
-- [ ] **Step 2: Write the failing test** — extend `apps/web/app/__tests__/apply-style-pack.test.ts` (the existing coverage for `resolveStorefrontPack`; `design-system.test.ts` and `from-template-pack-resolution.test.ts` also exercise this function and must stay green through Step 6) with:
+- [x] **Step 2: Write the failing test** — extend `apps/web/app/__tests__/apply-style-pack.test.ts` (the existing coverage for `resolveStorefrontPack`; `design-system.test.ts` and `from-template-pack-resolution.test.ts` also exercise this function and must stay green through Step 6) with:
   ```ts
   it('every StylePackId resolves to luxe or bold only (H1 pack collapse)', () => {
     const ids: StylePackId[] = ['apple-hig-clean', 'editorial-wellness', 'bold-dtc', 'minimal-luxe', 'playful-commerce', 'tech-utility'];
@@ -126,16 +128,16 @@ No code. This task is a gate: it forces an explicit, recorded decision before Ta
   });
   ```
   Run: `cd apps/web && npx vitest run app/__tests__/apply-style-pack.test.ts`. Expected: FAIL (`bold-dtc`→`bold` and everything else→`luxe` already true today except this test also needs `playful-commerce`/`tech-utility` to resolve rather than falling through to `?? 'luxe'` implicitly — confirm the CURRENT behavior first with a quick manual check before asserting; if it already passes because of the `?? 'luxe'` fallback, this step instead documents that the runtime already collapses and Step 3 is a type-level tightening + template remap only, not a behavior change).
-- [ ] **Step 3: Implement.** In `style-packs.server.ts`, change `RENDER_PACK_BY_AESTHETIC` to map every id to `'luxe'` or `'bold'`; narrow the `StorefrontPack` type. In `preview.service.ts`, narrow `PreviewPack` the same way and delete any dead `'playful'`/`'utility'` CSS-class branches (grep first — the design-system CSS at `extensions/theme-app-extension/assets/superapp-modules.css` likely has `[data-sa-pack="playful"]`/`[data-sa-pack="utility"]` rule blocks; leave the CSS alone in this task — dead CSS is a WS-I cleanup concern, not a WS-H one, unless it's large enough to matter for the Liquid... no, CSS budget is separate and uncontested, so leave it).
-- [ ] **Step 4: Remap the 3 outlier templates** — in each of `native-pricing-comparison.ts`, `native-logo-marquee-trust.ts`, `appembed-body-overlay.ts`, change `pack: 'utility'`/`pack: 'playful'` to whichever of `luxe`/`bold` the template's existing `colors`/tone most resembles (read the file, make the call — this is 3 files, not a script). Re-run `grep -rho "pack: '[a-zA-Z0-9_-]*'" packages/core/src/templates | sort | uniq -c` and confirm only `luxe`/`bold` remain.
-- [ ] **Step 5: Update `module-design-system.md`** — §3.2a "Pack C — Playful Commerce" and §3.2b "Pack D — Tech Utility" become a short "Not currently offered (H1, 2026-08-24)" note pointing at this plan instead of full token-grammar sections; §9.2's pack-selection table drops to 2 rows.
-- [ ] **Step 6: Run the full affected suite:**
+- [x] **Step 3: Implement.** In `style-packs.server.ts`, change `RENDER_PACK_BY_AESTHETIC` to map every id to `'luxe'` or `'bold'`; narrow the `StorefrontPack` type. In `preview.service.ts`, narrow `PreviewPack` the same way and delete any dead `'playful'`/`'utility'` CSS-class branches (grep first — the design-system CSS at `extensions/theme-app-extension/assets/superapp-modules.css` likely has `[data-sa-pack="playful"]`/`[data-sa-pack="utility"]` rule blocks; leave the CSS alone in this task — dead CSS is a WS-I cleanup concern, not a WS-H one, unless it's large enough to matter for the Liquid... no, CSS budget is separate and uncontested, so leave it).
+- [x] **Step 4: Remap the 3 outlier templates** — in each of `native-pricing-comparison.ts`, `native-logo-marquee-trust.ts`, `appembed-body-overlay.ts`, change `pack: 'utility'`/`pack: 'playful'` to whichever of `luxe`/`bold` the template's existing `colors`/tone most resembles (read the file, make the call — this is 3 files, not a script). Re-run `grep -rho "pack: '[a-zA-Z0-9_-]*'" packages/core/src/templates | sort | uniq -c` and confirm only `luxe`/`bold` remain.
+- [x] **Step 5: Update `module-design-system.md`** — §3.2a "Pack C — Playful Commerce" and §3.2b "Pack D — Tech Utility" become a short "Not currently offered (H1, 2026-08-24)" note pointing at this plan instead of full token-grammar sections; §9.2's pack-selection table drops to 2 rows.
+- [x] **Step 6: Run the full affected suite:**
   ```bash
   cd packages/core && pnpm build && cd ../.. && \
   cd apps/web && npx vitest run app/__tests__/apply-style-pack.test.ts app/__tests__/design-system.test.ts app/__tests__/from-template-pack-resolution.test.ts app/__tests__/preview-service.test.ts app/__tests__/design-system-contract.test.ts app/__tests__/richness-qa-templates.test.ts
   ```
   Expected: PASS.
-- [ ] **Step 7: Commit** — `git commit -m "refactor(ws-h): collapse render packs to luxe/bold (H1); remap 3 outlier templates"`.
+- [x] **Step 7: Commit** — `git commit -m "refactor(ws-h): collapse render packs to luxe/bold (H1); remap 3 outlier templates"`.
 
 ---
 
@@ -149,7 +151,7 @@ No code. This task is a gate: it forces an explicit, recorded decision before Ta
 - Consumes: `ensureStoreAesthetic({ admin, shopId, maxWaitMs? })` (unchanged signature, `apps/web/app/services/theme/ensure-aesthetic.server.ts:15`).
 - Mirrors the AI path's gate: only run for `STOREFRONT_LAYOUT_TYPES` (already defined at the top of `from-template.tsx:17-24`), not for every template type (functions/admin/POS/messaging templates have no storefront palette to match).
 
-- [ ] **Step 1: Write the failing test** — copy the mock scaffolding verbatim from the existing `apps/web/app/__tests__/from-template-pack-resolution.test.ts` (same route, same auth/db/quota/module/activity mocks already proven to work against this action) and add one more mock:
+- [x] **Step 1: Write the failing test** — copy the mock scaffolding verbatim from the existing `apps/web/app/__tests__/from-template-pack-resolution.test.ts` (same route, same auth/db/quota/module/activity mocks already proven to work against this action) and add one more mock:
   ```ts
   import { describe, expect, it, vi } from 'vitest';
 
@@ -182,7 +184,7 @@ No code. This task is a gate: it forces an explicit, recorded decision before Ta
   });
   ```
   Run: `cd apps/web && npx vitest run app/__tests__/from-template-aesthetic.test.ts`. Expected: FAIL — `ensureStoreAesthetic` never called today (0 calls in both cases, so the first assertion fails).
-- [ ] **Step 2: Implement** — in `api.modules.from-template.tsx`, destructure `admin` alongside `session` from `shopify.authenticate.admin(request)` (currently only `{ session }` is destructured), and after `shopRow` is resolved (after line 98) and before `quota.enforce`, add:
+- [x] **Step 2: Implement** — in `api.modules.from-template.tsx`, destructure `admin` alongside `session` from `shopify.authenticate.admin(request)` (currently only `{ session }` is destructured), and after `shopRow` is resolved (after line 98) and before `quota.enforce`, add:
   ```ts
   if (STOREFRONT_LAYOUT_TYPES.has(template.type)) {
     // Best-effort, time-boxed — mirrors api.ai.create-module.tsx's AI-path gate.
@@ -192,9 +194,9 @@ No code. This task is a gate: it forces an explicit, recorded decision before Ta
   }
   ```
   Add the import: `import { ensureStoreAesthetic } from '~/services/theme/ensure-aesthetic.server';`.
-- [ ] **Step 3: Run the test again.** Expected: PASS.
-- [ ] **Step 4: Run the full route test suite + affected callers** — `cd apps/web && npx vitest run app/__tests__/from-template-aesthetic.test.ts app/__tests__/from-template-pack-resolution.test.ts`. Expected: PASS (the pack-resolution test must stay green unchanged — this task only adds a call, it doesn't touch `withResolvedPack`).
-- [ ] **Step 5: Commit** — `git commit -m "feat(ws-h): wire ensureStoreAesthetic into template installs (Tmpl-2 install-path gap)"`.
+- [x] **Step 3: Run the test again.** Expected: PASS.
+- [x] **Step 4: Run the full route test suite + affected callers** — `cd apps/web && npx vitest run app/__tests__/from-template-aesthetic.test.ts app/__tests__/from-template-pack-resolution.test.ts`. Expected: PASS (the pack-resolution test must stay green unchanged — this task only adds a call, it doesn't touch `withResolvedPack`).
+- [x] **Step 5: Commit** — `git commit -m "feat(ws-h): wire ensureStoreAesthetic into template installs (Tmpl-2 install-path gap)"`.
 
 ---
 
@@ -210,12 +212,12 @@ Ports `PreviewService.isPlaceholderUrl()`/`phMedia()`/`PH_SVG` (`apps/web/app/se
 **Interfaces:**
 - New Liquid snippet contract: `{% render 'superapp-module-media', url: <string|blank>, alt: <string>, css_class: <string> %}` — outputs a real `<img class="{{ css_class }}" src="..." loading="lazy" alt="...">` when `url` looks real, otherwise `<div class="{{ css_class }} superapp-ph" role="img" aria-label="...">` + the same inline SVG glyph as `PH_SVG`. "Looks real" mirrors `isPlaceholderUrl()`: blank → placeholder; contains `example.com` → placeholder; contains `cdn.shopify.com/s/files/` → placeholder; otherwise real.
 
-- [ ] **Step 1: Enumerate every media-emission call site:**
+- [x] **Step 1: Enumerate every media-emission call site:**
   ```bash
   grep -n '<img\|background-image\|ImageUrl\|VideoUrl' apps/web/theme-extension-src/liquid/snippets/superapp-module-sections.liquid apps/web/theme-extension-src/liquid/snippets/superapp-module-pdp.liquid apps/web/theme-extension-src/liquid/snippets/superapp-module-overlay.liquid
   ```
   This is the exact worklist for Step 4 — record the count so Step 5's verification can assert it dropped to 0 raw `<img src="{{ ... }}"` emissions outside the new partial.
-- [ ] **Step 2: Write the failing test** — a static-content test (no Liquid execution needed here; Task 8 adds real rendering):
+- [x] **Step 2: Write the failing test** — a static-content test (no Liquid execution needed here; Task 8 adds real rendering):
   ```ts
   import { readFileSync } from 'node:fs';
   import { join } from 'node:path';
@@ -243,7 +245,7 @@ Ports `PreviewService.isPlaceholderUrl()`/`phMedia()`/`PH_SVG` (`apps/web/app/se
   });
   ```
   Run: `cd apps/web && npx vitest run app/__tests__/liquid-media-placeholder.test.ts`. Expected: FAIL (partial doesn't exist yet; raw `<img src="{{ mod_cfg....ImageUrl }}">` patterns still present per Step 1's inventory).
-- [ ] **Step 3: Author the partial** (readable source; the build script minifies it):
+- [x] **Step 3: Author the partial** (readable source; the build script minifies it):
   ```liquid
   {% # theme-check-disable OrphanedSnippet, RemoteAsset %}
   {% doc %}
@@ -276,14 +278,14 @@ Ports `PreviewService.isPlaceholderUrl()`/`phMedia()`/`PH_SVG` (`apps/web/app/se
     <img class="{{ css_class }}" src="{{ url }}" alt="{{ alt | escape }}" loading="lazy">
   {% endif %}
   ```
-- [ ] **Step 4: Sweep the call sites from Step 1** — replace each raw `<img src="{{ mod_cfg....ImageUrl }}" ...>` (and any `background-image: url({{ ... }})` inline-style pattern) with `{% render 'superapp-module-media', url: mod_cfg.fields.xImageUrl, alt: ..., css_class: '...' %}`, preserving whatever CSS class each call site previously hardcoded on the `<img>` (pass it as `css_class` so archetype sizing rules keep applying — matches `phMedia()`'s own contract in `preview.service.ts`: "Both carry `cls` so the archetype sizing rules apply either way").
-- [ ] **Step 5: Rebuild and run:**
+- [x] **Step 4: Sweep the call sites from Step 1** — replace each raw `<img src="{{ mod_cfg....ImageUrl }}" ...>` (and any `background-image: url({{ ... }})` inline-style pattern) with `{% render 'superapp-module-media', url: mod_cfg.fields.xImageUrl, alt: ..., css_class: '...' %}`, preserving whatever CSS class each call site previously hardcoded on the `<img>` (pass it as `css_class` so archetype sizing rules keep applying — matches `phMedia()`'s own contract in `preview.service.ts`: "Both carry `cls` so the archetype sizing rules apply either way").
+- [x] **Step 5: Rebuild and run:**
   ```bash
   node scripts/build-theme-liquid.mjs
   cd apps/web && npx vitest run app/__tests__/liquid-media-placeholder.test.ts app/__tests__/kind-archetype-parity.test.ts
   ```
   Expected: PASS. Note the new aggregate total printed by the build — record it, it feeds Task 5's starting point (expect a modest reduction from 99,613 B, since N call sites collapsed to 1 partial definition + N one-line `{% render %}` calls).
-- [ ] **Step 6: Commit** — `git commit -m "fix(ws-h): shared placeholder-aware media partial — no more broken cdn.example.com <img> on real storefronts (Tmpl-3)"`.
+- [x] **Step 6: Commit** — `git commit -m "fix(ws-h): shared placeholder-aware media partial — no more broken cdn.example.com <img> on real storefronts (Tmpl-3)"`.
 
 ---
 
@@ -294,6 +296,7 @@ Task 4 already shaved some bytes; this task finishes the reclaim using the lever
 **Files:**
 - Modify: `apps/web/theme-extension-src/liquid/snippets/superapp-module-sections.liquid`
 - Modify: `extensions/theme-app-extension/assets/superapp-modules.js` (confirmed: unlike Liquid, JS/CSS have no separate readable-source directory — `apps/web/theme-extension-src/` contains only `liquid/{blocks,snippets}`; `superapp-modules.js`/`.css` under `extensions/theme-app-extension/assets/` ARE the source, edited directly, no build step)
+  **CORRECTION (fix round 1, coordinator re-review):** this claim was wrong. `apps/web/theme-extension-src/superapp-modules.src.{css,js}` DO exist as the real source (each carries a header declaring itself the source + the exact `esbuild --minify` rebuild command); the first implementation pass edited the built `extensions/theme-app-extension/assets/*` files directly on this claim's authority, desyncing them from `.src.*` until fix round 1 ported the changes back and rebuilt via esbuild. Always `ls apps/web/theme-extension-src/` yourself before trusting a "no separate source" claim for an asset.
 
 **Interfaces:**
 - No new public interface — this is a pure byte-budget refactor. The verification is entirely `node scripts/build-theme-liquid.mjs --check`.
@@ -326,7 +329,7 @@ Task 4 already shaved some bytes; this task finishes the reclaim using the lever
 **Interfaces:**
 - Script contract: `node packages/core/scripts/strip-demo-palettes.mjs [--check]` — without `--check`, rewrites every `colors: { text: '#...', background: '#...', ...rest }` block to `colors: { ...rest }` (drop `text`/`background` only, keep `seed`/`overlayBackdrop`/`overlayBackdropOpacity` — those are legitimate accent/scrim tuning, not full-palette override). With `--check`, exits 1 if any `colors:` block still hardcodes both `text` and `background` (the CI-friendly form, mirroring `build-theme-liquid.mjs --check`'s pattern).
 
-- [ ] **Step 1: Write the failing test** — `packages/core/src/__tests__/template-library-integrity.test.ts`:
+- [x] **Step 1: Write the failing test** — `packages/core/src/__tests__/template-library-integrity.test.ts`:
   ```ts
   import { readFileSync, readdirSync } from 'node:fs';
   import { join } from 'node:path';
@@ -358,7 +361,7 @@ Task 4 already shaved some bytes; this task finishes the reclaim using the lever
   });
   ```
   Run: `cd packages/core && npx vitest run src/__tests__/template-library-integrity.test.ts`. Expected: FAIL, 48 offenders listed.
-- [ ] **Step 2: Write the codemod** (`packages/core/scripts/strip-demo-palettes.mjs`):
+- [x] **Step 2: Write the codemod** (`packages/core/scripts/strip-demo-palettes.mjs`):
   ```js
   #!/usr/bin/env node
   import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
@@ -397,15 +400,15 @@ Task 4 already shaved some bytes; this task finishes the reclaim using the lever
   console.log(`${CHECK ? 'Found' : 'Stripped'} ${offenders} file(s) with hardcoded text+background overrides.`);
   if (CHECK && offenders > 0) process.exit(1);
   ```
-- [ ] **Step 3: Run it for real** — `node packages/core/scripts/strip-demo-palettes.mjs` (no `--check`). Expected console: `Stripped 25 file(s)...`. Spot-check 2-3 diffs by hand (`git diff packages/core/src/templates/sections/native-hero.ts`) to confirm `seed`/`overlayBackdrop*` survived and only `text`/`background` were removed.
-- [ ] **Step 4: Rebuild core and run the integrity test + affected downstream suites** (removing hardcoded colors changes what preview/richness-QA render, so these must be re-checked, not assumed green):
+- [x] **Step 3: Run it for real** — `node packages/core/scripts/strip-demo-palettes.mjs` (no `--check`). Expected console: `Stripped 25 file(s)...`. Spot-check 2-3 diffs by hand (`git diff packages/core/src/templates/sections/native-hero.ts`) to confirm `seed`/`overlayBackdrop*` survived and only `text`/`background` were removed.
+- [x] **Step 4: Rebuild core and run the integrity test + affected downstream suites** (removing hardcoded colors changes what preview/richness-QA render, so these must be re-checked, not assumed green):
   ```bash
   cd packages/core && pnpm build && npx vitest run src/__tests__/template-library-integrity.test.ts && cd ../.. && \
   cd apps/web && npx vitest run app/__tests__/richness-qa-templates.test.ts app/__tests__/design-qa-render.test.ts app/__tests__/preview-service.test.ts
   ```
   Expected: PASS. If richness-QA or design-QA assertions were pinned to the now-removed hardcoded hex values, update those specific assertions to check for the token-driven fallback instead (e.g. absence of the specific literal hex, presence of a CSS custom property reference) — do not weaken the test to "don't check colors at all."
-- [ ] **Step 5: Add the `--check` form to the package script list** for future CI wiring (out of scope to add to `.github/workflows/ci.yml` in this task — that's a one-line follow-up WS-B/WS-J can pick up; note it in the commit body): `packages/core/package.json` scripts gains `"check:demo-palettes": "node scripts/strip-demo-palettes.mjs --check"`.
-- [ ] **Step 6: Commit** — `git commit -m "fix(ws-h): strip 48 hardcoded text+background palette overrides across 25 templates (Tmpl-2)"`.
+- [x] **Step 5: Add the `--check` form to the package script list** for future CI wiring (out of scope to add to `.github/workflows/ci.yml` in this task — that's a one-line follow-up WS-B/WS-J can pick up; note it in the commit body): `packages/core/package.json` scripts gains `"check:demo-palettes": "node scripts/strip-demo-palettes.mjs --check"`.
+- [x] **Step 6: Commit** — `git commit -m "fix(ws-h): strip 48 hardcoded text+background palette overrides across 25 templates (Tmpl-2)"`.
 
 ---
 
@@ -416,7 +419,7 @@ Task 4 fixed the Liquid renderer's handling of placeholder URLs. This task verif
 **Files:**
 - Modify: `packages/core/src/__tests__/template-library-integrity.test.ts` (append)
 
-- [ ] **Step 1: Write the test** (append to the file from Task 6):
+- [x] **Step 1: Write the test** (append to the file from Task 6):
   ```ts
   it('every *ImageUrl/*VideoUrl demo field uses a recognizably-placeholder domain (Tmpl-3 — so the Liquid partial\'s detection always fires)', () => {
     const offenders: string[] = [];
@@ -430,8 +433,8 @@ Task 4 fixed the Liquid renderer's handling of placeholder URLs. This task verif
     expect(offenders).toEqual([]);
   });
   ```
-- [ ] **Step 2: Run.** `cd packages/core && npx vitest run src/__tests__/template-library-integrity.test.ts`. Expected: PASS immediately (the existing 168 `cdn.example.com` occurrences already match the pattern — this test's job is to catch *future* regressions, not fix anything today). If it fails, that means a demo URL exists on a real-looking domain (a genuine bug worth its own investigation, not a batch fix) — stop and investigate rather than force-passing.
-- [ ] **Step 3: Commit** — `git commit -m "test(ws-h): pin placeholder-domain convention for template demo media fields (Tmpl-3 regression guard)"`.
+- [x] **Step 2: Run.** `cd packages/core && npx vitest run src/__tests__/template-library-integrity.test.ts`. Expected: PASS immediately (the existing 168 `cdn.example.com` occurrences already match the pattern — this test's job is to catch *future* regressions, not fix anything today). If it fails, that means a demo URL exists on a real-looking domain (a genuine bug worth its own investigation, not a batch fix) — stop and investigate rather than force-passing.
+- [x] **Step 3: Commit** — `git commit -m "test(ws-h): pin placeholder-domain convention for template demo media fields (Tmpl-3 regression guard)"`.
 
 ---
 
@@ -446,8 +449,8 @@ Adds real Liquid execution to the test suite (via `liquidjs` + a 4-filter Shopif
 **Interfaces:**
 - Test-only Shopify-filter shim (lives inline in the test file — this is intentionally not a production module, it exists only to make the readable Liquid source executable in Vitest): registers `money` (format cents as `$X.XX`), `image_url` (identity passthrough — CDN transform params aren't asserted on), `json` (liquidjs may already provide this — verify first, only add if missing), `handle` (slugify: lowercase, spaces/non-alphanumerics → `-`).
 
-- [ ] **Step 1: Add the dependency** — `cd apps/web && pnpm add -D liquidjs`.
-- [ ] **Step 2: Write the failing test:**
+- [x] **Step 1: Add the dependency** — `cd apps/web && pnpm add -D liquidjs`.
+- [x] **Step 2: Write the failing test:**
   ```ts
   import { readFileSync } from 'node:fs';
   import { join } from 'node:path';
@@ -504,10 +507,10 @@ Adds real Liquid execution to the test suite (via `liquidjs` + a 4-filter Shopif
   });
   ```
   Run: `cd apps/web && npx vitest run app/__tests__/liquid-preview-parity.test.ts`. Expected: FAIL first on `liquidjs` module resolution (before Step 1) or a filter/tag error inside `superapp-module-sections.liquid` once dependencies exist — Shopify-specific tags/filters not in the base engine will throw; this is the real signal for which shims are still missing beyond the 4 identified in "Verified ground truth."
-- [ ] **Step 3: Iterate on the shim** until at least the `hero` fixture renders without a Liquid engine error. Common gaps to expect: `{% liquid %}` multi-statement blocks (liquidjs supports this natively, confirm), `{% render 'partial', var: val %}` resolving the Task 4 partial (needs `root: SNIPPETS` correctly pointed — the new `superapp-module-media.liquid` lives there too), `{% doc %}`/`{% schema %}` tags (liquidjs doesn't know these Shopify-only tags by default — register them as no-op custom tags that consume-and-discard their block, mirroring how `{% comment %}` already behaves).
-- [ ] **Step 4: Fill in the remaining 17-19 fixtures** — for each, pull the real `config` from an existing template via `findTemplate()` (`packages/core`) rather than hand-authoring, so the fixture is provably representative of shipped content, not a strawman.
-- [ ] **Step 5: Run the full fixture set.** Expected: PASS for every archetype. Any genuine parity break found here (preview shows something the storefront wouldn't, or vice versa) is a real bug — fix the *rendering* code (PreviewService or the Liquid source), not the test.
-- [ ] **Step 6: Commit** — `git commit -m "test(ws-h): output-level preview<->Liquid parity fixture, one per archetype kind (extends R0 symbol-level guard)"`.
+- [x] **Step 3: Iterate on the shim** until at least the `hero` fixture renders without a Liquid engine error. Common gaps to expect: `{% liquid %}` multi-statement blocks (liquidjs supports this natively, confirm), `{% render 'partial', var: val %}` resolving the Task 4 partial (needs `root: SNIPPETS` correctly pointed — the new `superapp-module-media.liquid` lives there too), `{% doc %}`/`{% schema %}` tags (liquidjs doesn't know these Shopify-only tags by default — register them as no-op custom tags that consume-and-discard their block, mirroring how `{% comment %}` already behaves).
+- [x] **Step 4: Fill in the remaining 17-19 fixtures** — for each, pull the real `config` from an existing template via `findTemplate()` (`packages/core`) rather than hand-authoring, so the fixture is provably representative of shipped content, not a strawman.
+- [x] **Step 5: Run the full fixture set.** Expected: PASS for every archetype. Any genuine parity break found here (preview shows something the storefront wouldn't, or vice versa) is a real bug — fix the *rendering* code (PreviewService or the Liquid source), not the test.
+- [x] **Step 6: Commit** — `git commit -m "test(ws-h): output-level preview<->Liquid parity fixture, one per archetype kind (extends R0 symbol-level guard)"`.
 
 ---
 
@@ -523,7 +526,7 @@ Adds real Liquid execution to the test suite (via `liquidjs` + a 4-filter Shopif
 - `find-copy-variant-clusters.mjs` (read-only report, reusable — this is the exact script used to derive the "34 clusters / 121 templates" figure in "Verified ground truth"): prints every cluster of `TemplateEntry`s sharing `type` + a string-blanked `JSON.stringify(config)` fingerprint, sorted by cluster size descending.
 - `dedupe-copy-variants.mjs [--cap N] [--check]`: for every cluster over `N` (default 4), keep up to `N` members — preferring any already `tier: 'exemplar'`, then earliest-declared — and delete the rest from their source file. `--check` reports what would be deleted without writing.
 
-- [ ] **Step 1: Write the failing test** — append to `template-library-integrity.test.ts`:
+- [x] **Step 1: Write the failing test** — append to `template-library-integrity.test.ts`:
   ```ts
   it('no structural-duplicate cluster exceeds 4 members (Tmpl dedupe)', async () => {
     const { ALL_TEMPLATES } = await import('../templates/index.js');
@@ -546,7 +549,7 @@ Adds real Liquid execution to the test suite (via `liquidjs` + a 4-filter Shopif
   ```
   (`blankStrings` — extract the same recursive string-blanking helper used in the ad hoc analysis script into a small shared function at the top of the test file, or into `find-copy-variant-clusters.mjs` and import it — don't duplicate the logic a third time.)
   Run: `cd packages/core && npx vitest run src/__tests__/template-library-integrity.test.ts`. Expected: FAIL on the first new test — 34 clusters currently exceed 4 (many exceed it by a lot, e.g. the 22-member `PXY-MOD` cluster).
-- [ ] **Step 2: Write `find-copy-variant-clusters.mjs`** (promote the ad hoc analysis used to derive the ground-truth numbers into a committed, reusable script — same fingerprinting logic as the test above, but as a CLI report):
+- [x] **Step 2: Write `find-copy-variant-clusters.mjs`** (promote the ad hoc analysis used to derive the ground-truth numbers into a committed, reusable script — same fingerprinting logic as the test above, but as a CLI report):
   ```js
   #!/usr/bin/env node
   import { ALL_TEMPLATES } from '../dist/templates/index.js';
@@ -569,20 +572,20 @@ Adds real Liquid execution to the test suite (via `liquidjs` + a 4-filter Shopif
   for (const c of clusters) console.log(`  ${c.length}  ${c.map((t) => t.id).join(', ')}`);
   ```
   Run it (`node packages/core/scripts/find-copy-variant-clusters.mjs` after `pnpm --filter @superapp/core build`) and confirm it reproduces the "34 clusters, 121 templates" figure exactly — this is the regression check that the ground-truth number in this plan is still accurate before the codemod runs.
-- [ ] **Step 3: Write `dedupe-copy-variants.mjs`** — reuses the clustering logic (import or copy the same `blankStrings`/grouping code), then for each oversized cluster: sort members (`exemplar`-tier first, then by `id`), keep the first `N` (default 4), and for the rest, find-and-remove their `TemplateEntry` object literal from its source `.ts` file (this requires locating the export array entry by `id:` — do this with a targeted regex per known file structure, e.g. matching from `{ id: '<id>',` to the matching closing `},` at the same brace depth; **verify each deletion by diff before moving to the next file** — this is exactly the kind of mechanical-but-risky edit worth a careful implementation, not a one-shot regex across the whole tree).
-- [ ] **Step 4: Run it for real**, capped at 4: `node packages/core/scripts/dedupe-copy-variants.mjs --cap 4`.
-- [ ] **Step 5: Rebuild and verify:**
+- [x] **Step 3: Write `dedupe-copy-variants.mjs`** — reuses the clustering logic (import or copy the same `blankStrings`/grouping code), then for each oversized cluster: sort members (`exemplar`-tier first, then by `id`), keep the first `N` (default 4), and for the rest, find-and-remove their `TemplateEntry` object literal from its source `.ts` file (this requires locating the export array entry by `id:` — do this with a targeted regex per known file structure, e.g. matching from `{ id: '<id>',` to the matching closing `},` at the same brace depth; **verify each deletion by diff before moving to the next file** — this is exactly the kind of mechanical-but-risky edit worth a careful implementation, not a one-shot regex across the whole tree).
+- [x] **Step 4: Run it for real**, capped at 4: `node packages/core/scripts/dedupe-copy-variants.mjs --cap 4`.
+- [x] **Step 5: Rebuild and verify:**
   ```bash
   cd packages/core && pnpm build && npx vitest run src/__tests__/template-library-integrity.test.ts
   ```
   Expected: PASS on both new tests. Also re-run `node packages/core/scripts/find-copy-variant-clusters.mjs` — expect `0 clusters` over the cap (some clusters of exactly the cap size are fine and expected to remain, e.g. any cluster that was already ≤4).
-- [ ] **Step 6: Run the wider suite** for fallout (RAG search, solution-search ranking, and any test that pins `ALL_TEMPLATES.length` or a specific deleted `id`). There is no dedicated `solution-search.test.ts` file — its consumers are covered by `apps/web/app/__tests__/create-module-stream.route.test.ts` and `apps/web/app/__tests__/requirement-search-generation.test.ts` (confirmed via `grep -rl "solution-search\|searchSolutions" apps/web/app/__tests__`):
+- [x] **Step 6: Run the wider suite** for fallout (RAG search, solution-search ranking, and any test that pins `ALL_TEMPLATES.length` or a specific deleted `id`). There is no dedicated `solution-search.test.ts` file — its consumers are covered by `apps/web/app/__tests__/create-module-stream.route.test.ts` and `apps/web/app/__tests__/requirement-search-generation.test.ts` (confirmed via `grep -rl "solution-search\|searchSolutions" apps/web/app/__tests__`):
   ```bash
   grep -rn "ALL_TEMPLATES.length\|MODULE_TEMPLATES.length" apps/web/app packages/core/src --include="*.ts"
   cd apps/web && npx vitest run app/__tests__/create-module-stream.route.test.ts app/__tests__/requirement-search-generation.test.ts
   ```
   Update any pinned count to the new total (575 minus the deleted count).
-- [ ] **Step 7: Commit** — `git commit -m "refactor(ws-h): dedupe 121 copy-variant templates down to a 4-per-cluster cap across 34 clusters (Tmpl dedupe)"`, with the exact before/after template count in the commit body.
+- [x] **Step 7: Commit** — `git commit -m "refactor(ws-h): dedupe 121 copy-variant templates down to a 4-per-cluster cap across 34 clusters (Tmpl dedupe)"`, with the exact before/after template count in the commit body.
 
 ---
 
@@ -596,7 +599,7 @@ Adds real Liquid execution to the test suite (via `liquidjs` + a 4-filter Shopif
 **Interfaces:**
 - Heuristic (documented in the script, not hidden): a template already tagged keeps its tag. An untagged template gets `tier: 'standard'` by default; `tier: 'floor'` if it's part of a (post-Task-9) surviving copy-variant cluster and is NOT the cluster's best member (cluster ranking: prefer more complete `config` — most populated optional fields — as a proxy for "more finished," same idea `dedupe-copy-variants.mjs` used for "keep the exemplar first"); everything in `COVERAGE_TEMPLATES` (the coverage-floor file) gets `tier: 'floor'` explicitly, since its entries exist to satisfy the "every type has ≥1 template" invariant, not to be recommended.
 
-- [ ] **Step 1: Write the failing test** — append to `template-library-integrity.test.ts`:
+- [x] **Step 1: Write the failing test** — append to `template-library-integrity.test.ts`:
   ```ts
   it('every template carries a tier (Tmpl tier-tag library)', async () => {
     const { ALL_TEMPLATES } = await import('../templates/index.js');
@@ -605,19 +608,19 @@ Adds real Liquid execution to the test suite (via `liquidjs` + a 4-filter Shopif
   });
   ```
   Run: `cd packages/core && npx vitest run src/__tests__/template-library-integrity.test.ts`. Expected: FAIL — currently ~546 (minus whatever Task 9 deleted) untagged ids listed.
-- [ ] **Step 2: Write `tag-template-tiers.mjs`** implementing the heuristic above, `--check`/write modes matching the pattern of the other two scripts in this plan.
-- [ ] **Step 3: Run it for real**, spot-check 5-6 diffs across different files/categories by hand.
-- [ ] **Step 4: Rebuild and verify:**
+- [x] **Step 2: Write `tag-template-tiers.mjs`** implementing the heuristic above, `--check`/write modes matching the pattern of the other two scripts in this plan.
+- [x] **Step 3: Run it for real**, spot-check 5-6 diffs across different files/categories by hand.
+- [x] **Step 4: Rebuild and verify:**
   ```bash
   cd packages/core && pnpm build && npx vitest run src/__tests__/template-library-integrity.test.ts
   ```
   Expected: PASS.
-- [ ] **Step 5: Run `solution-search.server.ts`'s consumers** — tier now affects ranking for 546 more templates than before, so ranking-order assertions in its two known test consumers may shift:
+- [x] **Step 5: Run `solution-search.server.ts`'s consumers** — tier now affects ranking for 546 more templates than before, so ranking-order assertions in its two known test consumers may shift:
   ```bash
   cd apps/web && npx vitest run app/__tests__/create-module-stream.route.test.ts app/__tests__/requirement-search-generation.test.ts
   ```
   Fix any assertion that hardcoded an expected top-result id that a newly-`exemplar`-adjacent-but-actually-`standard` template now displaces — re-verify the NEW ranking is sensible (better match, not just "test now passes"), don't just chase green.
-- [ ] **Step 6: Commit** — `git commit -m "feat(ws-h): tier-tag the remaining ~546 untagged templates (heuristic + coverage-floor pass)"`.
+- [x] **Step 6: Commit** — `git commit -m "feat(ws-h): tier-tag the remaining ~546 untagged templates (heuristic + coverage-floor pass)"`.
 
 ---
 

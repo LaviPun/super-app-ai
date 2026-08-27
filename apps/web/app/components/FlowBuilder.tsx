@@ -226,7 +226,7 @@ function StepFields({ step, connectorOptions, onChange }: {
               <s-option key={o.value} value={o.value}>{o.label}</s-option>
             ))}
           </s-select>
-          <s-grid gridTemplateColumns="8rem 1fr" gap="small-100">
+          <s-grid gridTemplateColumns="@container (inline-size > 420px) 8rem 1fr, 1fr" gap="small-100">
             <s-select label="Method" labelAccessibilityVisibility="exclusive" value={step.method} onInput={(e) => onChange({ method: e.currentTarget.value })}>
               {METHOD_OPTIONS.map((o) => (
                 <s-option key={o.value} value={o.value}>{o.label}</s-option>
@@ -239,7 +239,7 @@ function StepFields({ step, connectorOptions, onChange }: {
       {step.kind === 'SEND_HTTP_REQUEST' && (
         <>
           <s-url-field label="URL" value={step.url} onInput={(e) => onChange({ url: e.currentTarget.value })} placeholder="https://api.example.com/endpoint" details="Must be HTTPS" />
-          <s-grid gridTemplateColumns="9rem 1fr" gap="small-100">
+          <s-grid gridTemplateColumns="@container (inline-size > 440px) 9rem 1fr, 1fr" gap="small-100">
             <s-select label="Method" value={step.method} onInput={(e) => onChange({ method: e.currentTarget.value })}>
               {HTTP_METHOD_OPTIONS.map((o) => (
                 <s-option key={o.value} value={o.value}>{o.label}</s-option>
@@ -252,7 +252,7 @@ function StepFields({ step, connectorOptions, onChange }: {
             </s-select>
           </s-grid>
           {step.authType === 'basic' && (
-            <s-grid key="auth-basic" gridTemplateColumns="1fr 1fr" gap="small-100">
+            <s-grid key="auth-basic" gridTemplateColumns="@container (inline-size > 480px) 1fr 1fr, 1fr" gap="small-100">
               <s-text-field label="Username" value={step.authConfig?.username ?? ''} onInput={(e) => onChange({ authConfig: { ...step.authConfig, username: e.currentTarget.value } })} autocomplete="off" />
               <s-password-field label="Password" value={step.authConfig?.password ?? ''} onInput={(e) => onChange({ authConfig: { ...step.authConfig, password: e.currentTarget.value } })} autocomplete="off" />
             </s-grid>
@@ -261,7 +261,7 @@ function StepFields({ step, connectorOptions, onChange }: {
             <s-password-field key="auth-bearer" label="Bearer Token" value={step.authConfig?.token ?? ''} onInput={(e) => onChange({ authConfig: { ...step.authConfig, token: e.currentTarget.value } })} autocomplete="off" />
           )}
           {step.authType === 'custom_header' && (
-            <s-grid key="auth-custom-header" gridTemplateColumns="1fr 1fr" gap="small-100">
+            <s-grid key="auth-custom-header" gridTemplateColumns="@container (inline-size > 480px) 1fr 1fr, 1fr" gap="small-100">
               <s-text-field label="Header Name" value={step.authConfig?.headerName ?? ''} onInput={(e) => onChange({ authConfig: { ...step.authConfig, headerName: e.currentTarget.value } })} autocomplete="off" placeholder="X-API-Key" />
               <s-password-field label="Header Value" value={step.authConfig?.headerValue ?? ''} onInput={(e) => onChange({ authConfig: { ...step.authConfig, headerValue: e.currentTarget.value } })} autocomplete="off" />
             </s-grid>

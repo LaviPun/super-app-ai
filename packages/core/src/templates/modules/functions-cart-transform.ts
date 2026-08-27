@@ -31,6 +31,7 @@ export const FUNCTIONS_CART_TRANSFORM_TEMPLATES: TemplateEntry[] = [
   // FN-CART-01 — Fixed bundle merged into one clean cart line (Fast Bundle "BAP" / Kaching)
   {
     id: 'FN-CART-01',
+    tier: 'standard',
     name: 'Fixed Bundle — Single Merged Line',
     description: 'Merges a fixed set of component SKUs into one clean bundle line on the cart page, expanding to real components at checkout — the Fast Bundle / Kaching cart-transform model.',
     category: 'FUNCTION',
@@ -62,6 +63,7 @@ export const FUNCTIONS_CART_TRANSFORM_TEMPLATES: TemplateEntry[] = [
   // FN-CART-02 — Fixed bundle price via priceEnding (Bold "override cent values")
   {
     id: 'FN-CART-02',
+    tier: 'standard',
     name: 'Fixed-Price Bundle (.99 Ending)',
     description: 'Sells a merged bundle at one fixed price forced to a .99 ending — the Bold Bundles "fixed bundle price + override cent values" pattern lowered into a cart-transform Function.',
     category: 'FUNCTION',
@@ -104,6 +106,7 @@ export const FUNCTIONS_CART_TRANSFORM_TEMPLATES: TemplateEntry[] = [
   // FN-CART-03 — Mix-and-match "pick any N from collection" merged bundle (Moon / Bold M&M)
   {
     id: 'FN-CART-03',
+    tier: 'standard',
     name: 'Mix & Match — Pick Any 3',
     description: 'Lets shoppers pick any 3 items from a curated set and merges them into a single discounted bundle line at a percentage off — the Moon / Bold mix-and-match model.',
     category: 'FUNCTION',
@@ -142,6 +145,7 @@ export const FUNCTIONS_CART_TRANSFORM_TEMPLATES: TemplateEntry[] = [
   // FN-CART-04 — Tiered quantity-break bundle with mixed discount kinds per tier (Kaching / Fast Bundle)
   {
     id: 'FN-CART-04',
+    tier: 'standard',
     name: 'Volume Bundle — Tiered Quantity Breaks',
     description: 'Merges multi-buy quantity-break tiers into a bundle line, mixing percentage and fixed-price rewards across tiers — the Kaching / Fast Bundle "buy more, save more" ladder.',
     category: 'FUNCTION',
@@ -187,6 +191,7 @@ export const FUNCTIONS_CART_TRANSFORM_TEMPLATES: TemplateEntry[] = [
   // FN-CART-05 — Frequently-bought-together merged bundle at a fixed price (Amazon-style)
   {
     id: 'FN-CART-05',
+    tier: 'standard',
     name: 'Frequently Bought Together',
     description: 'Merges a hero product with its two most-common add-ons into one bundle line at a fixed savings price — the Amazon-style "frequently bought together" cross-sell bundle.',
     category: 'FUNCTION',
@@ -225,6 +230,7 @@ export const FUNCTIONS_CART_TRANSFORM_TEMPLATES: TemplateEntry[] = [
   // FN-CART-06 — Gift-with-purchase merged bundle (Moon / Kaching GWP)
   {
     id: 'FN-CART-06',
+    tier: 'standard',
     name: 'Gift With Purchase Bundle',
     description: 'Merges a qualifying product with a free gift SKU into one bundle line, pricing the gift arm free above a cart-value threshold — the Moon / Kaching gift-with-purchase reward.',
     category: 'FUNCTION',
@@ -269,6 +275,7 @@ export const FUNCTIONS_CART_TRANSFORM_TEMPLATES: TemplateEntry[] = [
   // FN-CART-07 — Build-a-box fixed price with combinable stacking (Wide / Bundler)
   {
     id: 'FN-CART-07',
+    tier: 'standard',
     name: 'Build-a-Box — Fixed Box Price',
     description: 'Merges a build-a-box selection into one line sold at a flat box price, stackable with product discounts — the Wide Bundles / Bundler build-a-box model.',
     category: 'FUNCTION',
@@ -311,6 +318,7 @@ export const FUNCTIONS_CART_TRANSFORM_TEMPLATES: TemplateEntry[] = [
   // FN-CART-08 — Multi-bundle catalog: several fixed bundles in one cart-transform module
   {
     id: 'FN-CART-08',
+    tier: 'standard',
     name: 'Bundle Catalog — Multiple Kits',
     description: 'Registers several fixed bundle kits in one cart-transform module, each merging to its own clean line — the multi-deal catalog a bundle app publishes for a whole store.',
     category: 'FUNCTION',

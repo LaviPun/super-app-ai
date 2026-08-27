@@ -42,6 +42,7 @@ export const NATIVE_CONTACT_TEAM_TIMELINE_TEMPLATES: TemplateEntry[] = [
   // ── Contact / map — variant 1: split (map left, address + inline email right) ──
   {
     id: 'NSEC-CONT-01',
+    tier: 'standard',
     name: 'Contact — Split Map & Details',
     description:
       'Two-column contact section for the contact page — an embedded map beside address, hours and an inline email-capture field.',
@@ -95,6 +96,7 @@ export const NATIVE_CONTACT_TEAM_TIMELINE_TEMPLATES: TemplateEntry[] = [
   // ── Contact / map — variant 2: stacked (centered form over full-width map) ──
   {
     id: 'NSEC-CONT-02',
+    tier: 'standard',
     name: 'Contact — Stacked Form Over Map',
     description:
       'Centered contact form stacked above a full-width map band — the compact single-column contact layout for narrow pages.',
@@ -143,6 +145,7 @@ export const NATIVE_CONTACT_TEAM_TIMELINE_TEMPLATES: TemplateEntry[] = [
   // ── Contact / map — variant 3: card grid (method cards, no form) ──
   {
     id: 'NSEC-CONT-03',
+    tier: 'standard',
     name: 'Contact — Method Cards',
     description:
       'Grid of contact-method cards (email, chat, store visit, press) — a formless "how to reach us" section for a page or the homepage.',
@@ -186,6 +189,7 @@ export const NATIVE_CONTACT_TEAM_TIMELINE_TEMPLATES: TemplateEntry[] = [
   // ── Team — variant 4: portrait grid (staff cards with role + socials) ──
   {
     id: 'NSEC-CONT-04',
+    tier: 'standard',
     name: 'Team — Portrait Grid',
     description:
       'Meet-the-team grid of portrait cards — each block is a member with photo, name, role and an optional profile link.',
@@ -230,6 +234,7 @@ export const NATIVE_CONTACT_TEAM_TIMELINE_TEMPLATES: TemplateEntry[] = [
   // ── Team — variant 5: horizontal roster carousel (larger teams) ──
   {
     id: 'NSEC-CONT-05',
+    tier: 'standard',
     name: 'Team — Roster Carousel',
     description:
       'Horizontally scrolling team roster for larger teams — swipeable portrait cards with name and role, one member per block.',
@@ -275,6 +280,7 @@ export const NATIVE_CONTACT_TEAM_TIMELINE_TEMPLATES: TemplateEntry[] = [
   // ── Timeline — variant 6: vertical milestone story (brand history) ──
   {
     id: 'NSEC-CONT-06',
+    tier: 'standard',
     name: 'Timeline — Milestone Story',
     description:
       'Vertical brand-history timeline — one milestone block per year with date, headline and photo, alternating down the spine.',
@@ -319,6 +325,7 @@ export const NATIVE_CONTACT_TEAM_TIMELINE_TEMPLATES: TemplateEntry[] = [
   // ── How-to steps — variant 7: numbered vertical steps (setup / how-it-works) ──
   {
     id: 'NSEC-CONT-07',
+    tier: 'standard',
     name: 'How It Works — Numbered Steps',
     description:
       'Numbered how-it-works section — one step block per stage with a number badge, headline and short instruction, stacked top to bottom.',
@@ -361,6 +368,7 @@ export const NATIVE_CONTACT_TEAM_TIMELINE_TEMPLATES: TemplateEntry[] = [
   // ── How-to steps — variant 8: horizontal process strip (dense, tech-utility) ──
   {
     id: 'NSEC-CONT-08',
+    tier: 'standard',
     name: 'How It Works — Horizontal Process Strip',
     description:
       'Horizontal process strip — evenly spaced step columns with connectors, a dense "how it works" layout for wide content pages.',
@@ -392,7 +400,7 @@ export const NATIVE_CONTACT_TEAM_TIMELINE_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'full', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'tight', density: 'compact' },
         typography: { size: 'SM', weight: 'medium', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#e2e8f0', background: '#0f172a', overlayBackdropOpacity: 0.45, seed: '#38bdf8' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#38bdf8' },
         shape: { radius: 'sm', borderWidth: 'thin', shadow: 'none', elevation: 'border' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },

@@ -34,6 +34,7 @@ import type { TemplateEntry } from '../types.js';
 export const CHECKOUT_UPSELL_MAIN_TEMPLATES: TemplateEntry[] = [
   {
     id: 'CHKU-01',
+    tier: 'standard',
     name: 'Checkout Add-On: Shipping Protection',
     description:
       'In-checkout one-tap add-on offering shipping protection (or a warranty) as a single fixed product merged into the order — Honeycomb-style order-merge upsell.',
@@ -66,6 +67,7 @@ export const CHECKOUT_UPSELL_MAIN_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'CHKU-02',
+    tier: 'standard',
     name: 'Checkout Cross-Sell: Frequently Bought Together',
     description:
       'In-checkout cross-sell that offers a complementary product for what is already in the cart — Candy Rack "frequently bought together", resolved statically at checkout.',
@@ -107,6 +109,7 @@ export const CHECKOUT_UPSELL_MAIN_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'CHKU-03',
+    tier: 'standard',
     name: 'Checkout Upgrade: Premium Variant Swap',
     description:
       'In-checkout true-upsell that offers the higher-value variant of a cart item at a small discount — Bold AI Upsell upgrade/replace pattern presented as an add-to-order.',
@@ -139,6 +142,7 @@ export const CHECKOUT_UPSELL_MAIN_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'CHKU-04',
+    tier: 'standard',
     name: 'Checkout Cross-Sell: From a Collection',
     description:
       'In-checkout cross-sell that draws a single random offer from a chosen collection, excluding sale tags and items already in the cart — ReConvert collection-source recommendation.',
@@ -181,6 +185,7 @@ export const CHECKOUT_UPSELL_MAIN_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'CHKU-05',
+    tier: 'standard',
     name: 'Checkout Smart Auto-Upsell: Trending',
     description:
       'In-checkout Smart Auto-Upsell that offers a trending product chosen by the recommendation service, degrading to a related-product pick where the service is unavailable — Candy Rack Smart upsell.',
@@ -225,6 +230,7 @@ export const CHECKOUT_UPSELL_MAIN_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'CHKU-06',
+    tier: 'standard',
     name: 'Checkout Replenishment: Buy It Again',
     description:
       'In-checkout upsell that re-offers a merchant-picked replenishment favorite (checkout cannot reach order-history ranking, so the pick is manual) — Bold buy-it-again replenishment.',

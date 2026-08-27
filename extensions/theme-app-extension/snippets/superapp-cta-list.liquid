@@ -1,0 +1,1 @@
+{%# theme-check-disable OrphanedSnippet%}{%for section_block in ctas%}{%assign cbtn_style=section_block.fields.style|default:'primary'|handle%}{%if section_block.url != blank%}<a class="{{cp}} {{cp}}--{{cbtn_style}}" href="{{section_block.url|escape}}">{{section_block.text|default:dl|escape}}</a>{%endif%}{%endfor%}

@@ -143,7 +143,7 @@ function timeAgo(iso: string | null): string {
 export default function ConnectorsIndex() {
   const { connectors, stats } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <ConnectorsBody connectors={connectors} stats={stats} />
     </MerchantShell>
   );

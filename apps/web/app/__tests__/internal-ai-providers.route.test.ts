@@ -11,13 +11,17 @@ vi.mock('~/internal-admin/session.server', () => ({
   requireInternalAdmin: requireInternalAdminMock,
 }));
 
-vi.mock('~/services/internal/ai-provider.service', () => ({
-  AiProviderService: class {
-    upsertDefaultOpenAI = upsertDefaultOpenAIMock;
-    upsertDefaultClaude = upsertDefaultClaudeMock;
-    updateExtraConfig = updateExtraConfigMock;
-  },
-}));
+vi.mock('~/services/internal/ai-provider.service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('~/services/internal/ai-provider.service')>();
+  return {
+    ...actual,
+    AiProviderService: class {
+      upsertDefaultOpenAI = upsertDefaultOpenAIMock;
+      upsertDefaultClaude = upsertDefaultClaudeMock;
+      updateExtraConfig = updateExtraConfigMock;
+    },
+  };
+});
 
 vi.mock('~/services/activity/activity.service', () => ({
   ActivityLogService: class {
