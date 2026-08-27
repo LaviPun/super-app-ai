@@ -62,7 +62,15 @@ export function runChecks(repoRoot: string): CheckResult[] {
   });
 
   // 4. GDPR compliance_topics declared in shopify.app.production.toml
-  const toml = read(repoRoot, 'shopify.app.production.toml') ?? '';
+  // NOTE: this and check 8 below are POSITIVE assertions (enumerate required
+  // facts) — defaulting `toml` to '' when the file is unreadable is safe
+  // here because an empty string trivially satisfies zero required topics /
+  // zero parsed scopes, so both checks correctly FAIL on a missing file.
+  // Check 9 (restricted-scopes-not-requested) is a NEGATIVE assertion
+  // (absence of a bad thing) and must NOT reuse this default — see its own
+  // comment below for why it reads `tomlRaw` (nullable) directly instead.
+  const tomlRaw = read(repoRoot, 'shopify.app.production.toml');
+  const toml = tomlRaw ?? '';
   const requiredTopics = ['customers/data_request', 'customers/redact', 'shop/redact'];
   const missingTopics = requiredTopics.filter((t) => !toml.includes(`"${t}"`));
   results.push({
@@ -74,7 +82,10 @@ export function runChecks(repoRoot: string): CheckResult[] {
         : `missing compliance_topics: ${missingTopics.join(', ')}`,
   });
 
-  // 5. GDPR webhook route handlers exist and delete/anonymize (not just log)
+  // 5. GDPR webhook route files exist. Existence only — this does NOT verify
+  //    the handlers actually delete/anonymize data rather than just log; that
+  //    behavioral check is manual (Task 4 / docs/launch/gdpr-verification.md),
+  //    since it requires reading each handler body for intent, not just presence.
   const gdprRoutes: Array<[string, string]> = [
     ['apps/web/app/routes/webhooks.customers.data_request.tsx', 'customers/data_request'],
     ['apps/web/app/routes/webhooks.customers.redact.tsx', 'customers/redact'],
@@ -103,14 +114,22 @@ export function runChecks(repoRoot: string): CheckResult[] {
         : 'billing plan-sync service or plan-handles map missing',
   });
 
-  // 7. Hand-rolled Billing API subscription flow removed (D3)
-  const billingService = read(repoRoot, 'apps/web/app/services/billing/billing.service.ts') ?? '';
+  // 7. Hand-rolled Billing API subscription flow removed (D3).
+  // NEGATIVE assertion (checking a bad string is ABSENT) — must not default
+  // a missing/unreadable source file to '' and call that a pass: an empty
+  // string trivially "doesn't contain" anything, which would vacuously PASS
+  // when the file is simply gone. Read the raw (nullable) source and fail
+  // loudly if it's missing, before checking for the bad string.
+  const billingServiceRaw = read(repoRoot, 'apps/web/app/services/billing/billing.service.ts');
   results.push({
     id: 'billing-api-flow-removed',
-    pass: !billingService.includes('appSubscriptionCreate'),
-    detail: billingService.includes('appSubscriptionCreate')
-      ? 'billing.service.ts still contains appSubscriptionCreate — App Pricing migration incomplete'
-      : 'no appSubscriptionCreate call site in billing.service.ts',
+    pass: billingServiceRaw !== null && !billingServiceRaw.includes('appSubscriptionCreate'),
+    detail:
+      billingServiceRaw === null
+        ? 'apps/web/app/services/billing/billing.service.ts is missing — cannot verify appSubscriptionCreate is absent'
+        : billingServiceRaw.includes('appSubscriptionCreate')
+          ? 'billing.service.ts still contains appSubscriptionCreate — App Pricing migration incomplete'
+          : 'no appSubscriptionCreate call site in billing.service.ts',
   });
 
   // 8. Declared scopes line is non-empty and parses (shape check only — the
@@ -127,14 +146,23 @@ export function runChecks(repoRoot: string): CheckResult[] {
   });
 
   // 9. Restricted-scope avoidance (App Store Requirements 3.2.1-3.2.3 — request
-  // only when the feature genuinely needs it; this app requests none of them)
+  // only when the feature genuinely needs it; this app requests none of them).
+  // NEGATIVE assertion (checking bad scopes are ABSENT) — same trap as check
+  // 7: `scopes` defaults to [] whenever the toml is missing/unparseable
+  // (see check 8), and an empty list trivially contains none of the
+  // restricted scopes, which would vacuously PASS. Require BOTH that the
+  // toml was actually read AND that a scopes list was actually parsed from
+  // it before asserting "no restricted scopes requested" — otherwise this
+  // check cannot make that claim at all and must fail loudly instead.
   const restricted = ['read_all_orders', 'write_payment_mandate', 'write_checkout_extensions_apis'];
+  const canVerifyRestrictedScopes = tomlRaw !== null && scopes.length > 0;
   const requested = restricted.filter((s) => scopes.includes(s) || (toml.match(/optional_scopes[^\]]*\]/)?.[0] ?? '').includes(s));
   results.push({
     id: 'restricted-scopes-not-requested',
-    pass: requested.length === 0,
-    detail:
-      requested.length === 0
+    pass: canVerifyRestrictedScopes && requested.length === 0,
+    detail: !canVerifyRestrictedScopes
+      ? 'shopify.app.production.toml is missing or its scopes line could not be parsed — cannot verify restricted-scope avoidance'
+      : requested.length === 0
         ? 'none of the reviewer-scrutinized restricted scopes are requested'
         : `restricted scopes requested — must be justified in docs/launch/scope-justifications.md: ${requested.join(', ')}`,
   });

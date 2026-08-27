@@ -24,11 +24,9 @@ pnpm --dir apps/web exec prisma studio
 # or: psql -c "select action, details, \"createdAt\" from \"ActivityLog\" where action like 'GDPR_%' order by \"createdAt\" desc limit 5;"
 ```
 
-Then run the completeness test:
-
-```bash
-cd apps/web && npx vitest run app/__tests__/shop-redact-completeness.test.ts
-```
+Then run the shop/redact completeness test — see "Completeness test —
+current status" below for why that test isn't in this branch's own
+`apps/web/app/__tests__/` directory.
 
 ## `customers/data_request` — resolved finding (2026-08-27)
 
@@ -112,43 +110,46 @@ above. This is tracked as an open item, not resolved by this task.
 
 ## Completeness test — current status
 
-`apps/web/app/__tests__/shop-redact-completeness.test.ts` did **not**
-already exist on this branch (grepped `shop/redact completeness` and
-`shopId-bearing` across `apps/web/app/__tests__/*.test.ts` before writing —
-zero matches), so it was added here per Step 2 of this task's brief.
+**This branch intentionally carries no `shop-redact-completeness.test.ts` of
+its own.** An earlier revision of this task added one (grepped
+`shop/redact completeness` / `shopId-bearing` across
+`apps/web/app/__tests__/*.test.ts` first, found nothing, then wrote a naked
+failing test per the brief's Step 2). On review, that was reverted: WS-G's
+PR #17 (`feat/ws-g-ops-integrations`, commit `1342a60` "fix(ws-g): shop/redact
+deletes every shopId-bearing model … [Infra-11]") already adds a superior
+test at the **exact same path**
+(`apps/web/app/__tests__/shop-redact-completeness.test.ts`, field-vocabulary
+introspection, 3 tests) that lands **green** together with WS-G's actual fix.
+Keeping a duplicate, permanently-red version of that file on this branch
+would (a) conflict on file creation when PR #17 merges, and (b) leave CI
+red here for a gap this branch doesn't fix and isn't responsible for closing.
 
-Confirmed via `git merge-base --is-ancestor <WS-G shop/redact fix commit>
-HEAD` that PR #17 (WS-G, commit `1342a60` "fix(ws-g): shop/redact deletes
-every shopId-bearing model … [Infra-11]" on branch
-`feat/ws-g-ops-integrations`) is **not** merged into this branch. Per this
-task's brief, that means the completeness test is *expected* to fail right
-now — this is the correct, honest state, not a bug in the test.
+**The underlying gap itself is still real and still true on master** — see
+below for the finding, independent of which test verifies it:
 
-Actual run on this branch (2026-08-27):
-
-```
-FAIL  app/__tests__/shop-redact-completeness.test.ts
-  shop/redact completeness > every shopId-bearing model is handled by
-  webhooks.shop.redact.tsx or documented as retained
-  AssertionError: undeleted + unexplained models: ...
-```
-
-The schema has 31 `shopId`-bearing models (counted by the test itself from
-`apps/web/prisma/schema.prisma`). `webhooks.shop.redact.tsx` deletes 5 of
-them directly — `DataStore`, `DataCapture`, `ModuleEvent`,
+The schema has 31 `shopId`-bearing Prisma models (verified by hand on
+2026-08-27, cross-checked against the model list `apps/web/prisma/schema.prisma`
+would yield via a `shopId` field grep). `webhooks.shop.redact.tsx` deletes 5
+of them directly — `DataStore`, `DataCapture`, `ModuleEvent`,
 `ModuleMetricsDaily`, `AttributionLink` — plus `DataStoreRecord` (not itself
 `shopId`-bearing; deleted via its `dataStore` relation) —
 `apps/web/app/routes/webhooks.shop.redact.tsx:35-44`. It also writes (not
 deletes) an `ActivityLog` row for the redaction event itself
-(`webhooks.shop.redact.tsx:46-54`), which the test's substring check counts
-as "touched" even though that row isn't shop data being redacted — it's the
-compliance record of the redaction. That leaves exactly **25** `shopId`
-models neither deleted nor listed in the test's `RETAINED_WITH_REASON`
-allowlist (e.g. `Module`, `Recipe`, `Connector`, `ConnectorToken`, `Job`,
-`WorkflowRun`, `SupportTicket` — full list is the assertion failure's
-diff), so the test correctly fails with exit code 1.
-**Re-run this test after PR #17 merges — do not weaken it to pass early.**
+(`webhooks.shop.redact.tsx:46-54`), which is the compliance record of the
+redaction, not shop data being redacted. That leaves **25** `shopId` models
+neither deleted nor documented as retained-with-reason (e.g. `Module`,
+`Recipe`, `Connector`, `ConnectorToken`, `Job`, `WorkflowRun`,
+`SupportTicket`, …) — this is finding [Infra-11], and it is the gap PR #17
+closes.
+
+**Verification path:** this red state closes automatically when PR #17
+merges — its own `shop-redact-completeness.test.ts` (field-vocabulary
+introspection, 3 tests) becomes part of the suite and passes because that
+PR's fix makes it pass. Nothing in this branch needs to change for that to
+happen; there is no duplicate test here to reconcile or delete at merge
+time.
 
 ```bash
+# After PR #17 merges, confirm it landed green:
 cd apps/web && npx vitest run app/__tests__/shop-redact-completeness.test.ts
 ```
