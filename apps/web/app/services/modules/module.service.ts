@@ -3,6 +3,7 @@ import type { DeployTarget, RecipeSpec } from '@superapp/core';
 import { validateTypeEnums } from '@superapp/core';
 import { ReleaseTransitionService } from '~/services/releases/release-transition.service';
 import { emitFlowTriggerSafe, FLOW_TRIGGER_TOPICS } from '~/services/workflows/shopify-flow-bridge';
+import { openAccessToken } from '~/services/shops/access-token.server';
 import { RecipeService } from '~/services/recipes/recipe.service';
 import { UnpublishService } from '~/services/publish/unpublish.service';
 import type { AdminApiContext } from '~/types/shopify';
@@ -164,7 +165,7 @@ export class ModuleService {
     if (publishedModule) {
       void emitFlowTriggerSafe(
         publishedModule.shop.shopDomain,
-        publishedModule.shop.accessToken,
+        openAccessToken(publishedModule.shop.accessToken),
         FLOW_TRIGGER_TOPICS.MODULE_PUBLISHED,
         {
           'Module ID': publishedModule.id,

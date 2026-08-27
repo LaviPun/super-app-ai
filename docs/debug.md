@@ -498,6 +498,8 @@ On a 429 from Anthropic, the old retry logic used 15s–30s backoffs (3 attempts
 
 Never use long backoffs (>10s) in request handlers that go through Cloudflare tunnels or any proxy with a timeout. Fail fast, surface a clean error, let the client retry.
 
+**Historical: production moved to Railway (WS-A, 2026-08-24); the ≤60s handler budget REMAINS in force until WS-C moves generation async.**
+
 ---
 
 ## 14. Anthropic org rate limit (10K tokens/min) — all requests fail with 429
@@ -670,6 +672,8 @@ The `previewHtml` field remains in `HydrateEnvelopeSchema` as `optional()` for f
 ### Rule
 
 Do not bundle large generative tasks (HTML generation, multi-section reports) in the same AI call as structured JSON output. Each call must stay well under the timeout budget. Deterministic alternatives (like `PreviewService`) are always preferable for UI previews.
+
+**Historical: production moved to Railway (WS-A, 2026-08-24); the ≤60s handler budget REMAINS in force until WS-C moves generation async.**
 
 ---
 

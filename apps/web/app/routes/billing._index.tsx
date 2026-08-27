@@ -6,6 +6,7 @@ import { buildManagePlanUrl } from '~/services/billing/plan-handles';
 import { getAllPlanConfigs } from '~/services/billing/plan-config.service';
 import { QuotaService } from '~/services/billing/quota.service';
 import { getPrisma } from '~/db.server';
+import { sealAccessToken } from '~/services/shops/access-token.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { LearnMore, Progress, fmtNum, fmtQuota, titleCase } from '~/components/merchant/polaris';
 
@@ -17,7 +18,7 @@ export async function loader({ request }: { request: Request }) {
 
   if (!shopRow) {
     shopRow = await prisma.shop.create({
-      data: { shopDomain: session.shop, accessToken: session.accessToken ?? '', planTier: 'FREE' },
+      data: { shopDomain: session.shop, accessToken: sealAccessToken(session.accessToken ?? ''), planTier: 'FREE' },
     });
   }
 

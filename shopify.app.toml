@@ -1,5 +1,14 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
+# LEGACY — production config lives in shopify.app.production.toml; do NOT run
+# `shopify app dev` against production; dev app creation pending (owner).
+# This file remains the working default only because `shopify.app.dev.toml`
+# doesn't exist yet (Task 9 was blocked on the CLI's interactive-only dev-app
+# creation flow — see docs/runbooks/postgres-migration.md and
+# .superpowers/sdd/2026-08-24-ws-a-hosting/task-9-report.md). Once a real
+# `shopify.app.dev.toml` is created, retire this file
+# (`git rm shopify.app.toml && shopify app config use dev`).
+
 client_id = "675f836397310b8c66a6ca2b5a49923c"
 web_directories = [ "apps/web" ]
 name = "Super App AI"

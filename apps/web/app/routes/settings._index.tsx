@@ -3,6 +3,7 @@ import { useLoaderData, useFetcher } from '@remix-run/react';
 import { useEffect, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
+import { sealAccessToken } from '~/services/shops/access-token.server';
 import { ActivityLogService, logRequestOutcome } from '~/services/activity/activity.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { Tabs } from '~/components/merchant/polaris';
@@ -21,7 +22,7 @@ export async function loader({ request }: { request: Request }) {
 
   if (!shopRow) {
     shopRow = await prisma.shop.create({
-      data: { shopDomain: session.shop, accessToken: session.accessToken ?? '', planTier: 'FREE' },
+      data: { shopDomain: session.shop, accessToken: sealAccessToken(session.accessToken ?? ''), planTier: 'FREE' },
       include: { subscription: true },
     });
   }
