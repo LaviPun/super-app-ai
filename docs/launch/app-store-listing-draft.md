@@ -71,7 +71,8 @@ more" — do NOT describe usage-based overage billing in the listing.
 **Correction vs. an earlier internal plan (D10 in
 `docs/superpowers/plans/2026-08-24-launch-program.md`):** that plan proposed
 a "$5 per 10 additional generations" Shopify usage-charge overage on top of
-the flat plans. As of this branch (master @ c201150), **no usage-charge
+the flat plans. Re-verified 2026-08-27 on master @ 8a656af (post
+WS-C/F/G/H merge): **no usage-charge
 mechanism exists in code** — there is no `AppUsageRecord`/usage-charge model
 in `apps/web/prisma/schema.prisma` and no call site for
 `appUsageRecordCreate` anywhere in `apps/web/app` or `packages/core`. Quotas

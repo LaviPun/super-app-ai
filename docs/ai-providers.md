@@ -6,6 +6,7 @@
 |-------|--------|--------|
 | **Merchant module generation** (RecipeSpec JSON, compiler, merchant-facing flows) | **OpenAI**, **Anthropic (Claude)**, and **Google Gemini** | `getLlmClient` → `/internal/ai-providers`, store overrides, env fallbacks (`OPENAI_*`, `ANTHROPIC_*`, `GEMINI_*`). Uses Responses/Messages/generateContent APIs with strict JSON. A default (active) provider plus an optional operator-assigned fallback provider (`AppSettings.fallbackAiProviderId`). |
 | **Internal + first-layer** (prompt router, internal AI Assistant, operator tooling) | **Qwen3 ~4B** class | `INTERNAL_AI_ROUTER_*`, `/internal/model-setup` dual targets (`localMachine` / `modalRemote`), reference [`internal-ai-router.ts`](../apps/web/scripts/internal-ai-router.ts). |
+| **Support ticket triage** (severity/category/summary/suggested-reply, not module generation) | **`qwen3.5:9b`** (local Ollama, default) or the merchant-generation provider chain (cloud toggle) | `AppSettings.supportTriageMode`, `/internal/ai-providers` "Support triage" card, `apps/web/app/services/support/triage.server.ts`. See [§ Support ticket triage](#support-ticket-triage-separate-local-qwen-model). |
 
 Other provider kinds in Internal Admin (e.g. Azure OpenAI, custom OpenAI-compatible) exist for integration flexibility; **RecipeSpec generation runs on the configured default provider (OpenAI / Anthropic / Gemini), with automatic failover to the assigned fallback provider** when the default call fails.
 
@@ -15,6 +16,8 @@ Other provider kinds in Internal Admin (e.g. Azure OpenAI, custom OpenAI-compati
 - Metadata logging (status, duration, provider request id, body hashes)
 - No raw prompt/output persisted to logs by default
 
+**Release gate / eval harness.** This doc covers the prompt router's own release gate ([§ Release gate](#release-gate)); the RecipeSpec generation quality gate (golden-prompt evals, `schemaValidRate`/`compilerSuccessRate` thresholds) is run via `pnpm --filter web evals` (`apps/web/app/services/ai/evals.server.ts`) — see [`docs/testing.md`](./testing.md) for the eval commands and CI wiring rather than re-deriving them here.
+
 ## Providers implemented
 - **OpenAI Responses API** (`openai-responses.client.server.ts`): uses `text.format: { type: 'json_object' }`. Default `max_output_tokens: 8192`. Accepts `maxTokens` override — hydration passes `16000`. Set `OPENAI_API_KEY` (and optionally `OPENAI_DEFAULT_MODEL`, default `gpt-4o-mini`).
 - **Anthropic Messages API** (`anthropic-messages.client.server.ts`): system prompt forces JSON-only output. Default `max_tokens: 8192`. Accepts `maxTokens` override. Supports **Claude Agent Skills** and **code execution** when configured (see below). Set `ANTHROPIC_API_KEY` (and optionally `ANTHROPIC_DEFAULT_MODEL`, default `claude-sonnet-4-20250514`).
@@ -22,10 +25,17 @@ Other provider kinds in Internal Admin (e.g. Azure OpenAI, custom OpenAI-compati
 - **Google Gemini** (`gemini.client.server.ts`): `POST /v1beta/models/{model}:generateContent`, auth via `x-goog-api-key`, system instruction forces JSON-only, `generationConfig.responseMimeType: 'application/json'` plus native `responseSchema` (JSON-Schema keywords Gemini rejects are stripped). Default `maxOutputTokens: 8192`. Set `GEMINI_API_KEY` (and optionally `GEMINI_DEFAULT_MODEL`, default `gemini-2.5-flash`).
 
 ## Default & fallback selection
-- The **default** AI for module generation is the globally **active** `AiProvider` (set on `/internal/ai-providers` via *Set global active*; `AiProvider.isActive`). Per-shop overrides (`Shop.aiProviderOverrideId`) take precedence when present.
-- The **fallback** AI is `AppSettings.fallbackAiProviderId`, chosen on the same page (*Default & fallback AI* card). When set and different from the active provider, `getLlmClient` wraps the pair in `FallbackLlmClient`: the fallback runs automatically only if the default call throws.
-- Env path (no DB providers): `defaultAiProvider` (`openai | claude | gemini`) selects the primary from env keys; OpenAI is the implicit fallback for claude/gemini when `OPENAI_API_KEY` is also set.
-- Cost attribution: usage is attributed to the provider that **actually served** the request. Each `ConfiguredLlmClient` stamps `servedProviderId` on its result, so when the fallback serves, `attributeServedCost` keys the price lookup on (fallback providerId, served model) and records the `AiUsage` row under the fallback provider — not the default. Env-key clients (no DB row) carry no `servedProviderId` and price at 0, as before. The served model is also recorded in `AiUsage.meta`.
+
+`getLlmClient()` (`apps/web/app/services/ai/llm.server.ts`) resolves the client to use, in this order:
+
+1. **Per-shop override** (`Shop.aiProviderOverrideId`) — a deliberate merchant/operator pin. Wins outright, never re-ranked by cost.
+2. **Cost-ranked routing** — gated behind `AI_COST_ROUTING_ENABLED` (default **off**; `isCostRoutingEnabled()` in `env.server.ts`). When enabled, `getCostRankedActiveProviders()` builds a cheapest-first chain across every active, priced provider. Seeding `AiModelPrice` for cost observability does **not** by itself reroute traffic — the flag is a separate lever from the pricing data.
+3. **`resolveProviderIdForShop`** — the ordinary single active-provider path (`AiProvider.isActive`, set on `/internal/ai-providers` via *Set global active*).
+4. **Env-key path** (no DB providers configured) — `AppSettings.defaultAiProvider` (`openai | claude | gemini`) selects the primary from `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`GEMINI_API_KEY`; OpenAI is the implicit fallback for claude/gemini when `OPENAI_API_KEY` is also set.
+
+In every DB-backed branch above, `withManualFallback()` appends the operator-assigned `AppSettings.fallbackAiProviderId` (*Default & fallback AI* card, same `/internal/ai-providers` page) as the last leg of the chain, unless it's already covered. `FallbackLlmClient` tries each client in order and only advances to the next on **any** thrown error (rate limit, unexpected content blocks, model error, etc.) — this is provider-agnostic; it is not specifically "Claude primary, OpenAI fallback" except in the env-key path, where that is literally the configured pair.
+
+Cost attribution: usage is attributed to the provider that **actually served** the request. Each `ConfiguredLlmClient` stamps `servedProviderId` on its result, so when a later leg of the chain serves, `attributeServedCost` keys the price lookup on (served providerId, served model) and records the `AiUsage` row under that provider — not the one first tried. Env-key clients (no DB row) carry no `servedProviderId` and price at 0, as before. The served model is also recorded in `AiUsage.meta`.
 
 ## Internal admin provider workflow
 - Internal Admin → `AI Providers` is credentials-first: operators enter only provider credentials/default model.
@@ -65,7 +75,7 @@ A single hydrate (or create-module) call can use a large share of the 10K input 
 
 The **prompt router** chooses how much structured context (catalog slices, full schema, intent packet, etc.) is attached before the main RecipeSpec compiler runs. It is **not** a merchant-facing creative model: outputs must stay inside `PromptRouterDecision` JSON (`apps/web/app/schemas/prompt-router.server.ts`).
 
-- **Remix client** (`INTERNAL_AI_ROUTER_URL`): calls `POST /route` with bearer auth when configured; otherwise uses deterministic confidence gating only. Tunables include `ROUTER_CONFIDENCE_MAX_DELTA`, shadow mode (`INTERNAL_AI_ROUTER_SHADOW`), canary shops (`INTERNAL_AI_ROUTER_CANARY_SHOPS`), circuit breaker thresholds, and `INTERNAL_AI_ROUTER_TIMEOUT_MS`. See root `README.md` → “Internal Prompt Router”.
+- **Remix client** (`INTERNAL_AI_ROUTER_URL`): calls `POST /route` with bearer auth when configured; otherwise uses deterministic confidence gating only. Tunables include `ROUTER_CONFIDENCE_MAX_DELTA`, shadow mode (`INTERNAL_AI_ROUTER_SHADOW`), canary shops (`INTERNAL_AI_ROUTER_CANARY_SHOPS`), circuit breaker thresholds, and `INTERNAL_AI_ROUTER_TIMEOUT_MS`. For the `/internal/model-setup` UI that configures these at runtime (dual-target config, decryption-failure banner, release-gate banner), see [`docs/internal-admin.md`](./internal-admin.md).
 - **Reference service**: `pnpm --filter web router:internal` → `apps/web/scripts/internal-ai-router.ts` (Ollama or OpenAI-compatible backend). Defaults target **Qwen3-4B-class** routing models; point `ROUTER_OPENAI_BASE_URL` at vLLM/Ollama as needed.
 - **Production self-host path**: Railway Docker service per [`deploy/railway-internal-router/README.md`](../deploy/railway-internal-router/README.md) (not Kubernetes).
 - **Modal edge** (optional): `deploy/modal-qwen-router/` proxies HTTPS traffic to an upstream `/route` implementation.
@@ -92,15 +102,12 @@ Operators should treat a tripped gate as "stop promoting this target": investiga
 
 ### Safe target URLs
 
-`assertSafeTargetUrl` in [`internal-assistant.server.ts`](../apps/web/app/services/ai/internal-assistant.server.ts) is the SSRF guard for every assistant-chat target URL (used by both `/internal/ai-assistant` chat send and the `assistant-chat-target-probe` health check).
+`assertSafeTargetUrl` in [`internal-assistant.server.ts`](../apps/web/app/services/ai/internal-assistant.server.ts) is the SSRF guard for every assistant-chat target URL (used by both `/internal/ai-assistant` chat send and its health probe). It's a thin wrapper (`context: 'Assistant target URL'`, `allowHttpLocalhost: true`) around the shared `assertSafeTargetUrl` in `packages/network-security/src/ssrf.ts` — that shared module, not this route file, is where to verify the exact rule set.
 
-- **`http://` is local-only**: the only allowed hostnames are exact-match `127.0.0.1`, `localhost`, and `::1`. Anything else (including `http://localhost.attacker.example`) is rejected with `Assistant target URL must be https or localhost http`.
-- **`https://` is general-purpose, with explicit rejections**:
-  - Link-local IPv4 (`169.254.0.0/16`, regex match) is rejected.
-  - IPv6 link-local (`fe80::/10`, prefix match) is rejected.
-  - Known cloud metadata hosts (`metadata.google.internal`; the AWS IMDS IP `169.254.169.254` is already caught by the IPv4 rule) are rejected.
-- **Opt-in allowlist**: set `INTERNAL_AI_ALLOW_HOSTS` to a comma-separated list of hostnames (case-insensitive, exact match) that should bypass the localhost/link-local/metadata checks. Use this for trusted internal HTTPS endpoints such as `internal.svc.cluster.local` or a service-mesh DNS name. Allowlisted hosts are accepted for both `http:` and `https:`.
-- Any other protocol (`file:`, `ftp:`, etc.) is rejected with the same "must be https or localhost http" error.
+- **`http://` is local-only**: allowed only for `127.0.0.1`, `localhost`, `::1`, plus any hostname listed in `INTERNAL_AI_ALLOW_HOSTS` (comma-separated, case-insensitive). Any other `http://` hostname is rejected (`... http is only allowed for localhost hosts`).
+- **`https://` goes through the full shared SSRF check**: a blocklist of known cloud-metadata hostnames (`metadata.google.internal`, `instance-data.ec2.internal`, `metadata.azure.internal`, etc.), then DNS resolution of the hostname followed by a check of **every resolved address** against a private/reserved-range blocklist — not just link-local. That blocklist covers RFC1918 private IPv4 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), loopback, link-local (`169.254.0.0/16`, `fe80::/10`), CGNAT (`100.64.0.0/10`), several IETF-reserved IPv4 blocks, and IPv6 loopback/link-local/unique-local/reserved ranges. This is broader than "link-local + metadata hosts only" — re-read `assertSafeIPv4`/`assertSafeIPv6` in the shared module rather than trusting a summary if the exact boundary matters.
+- **`INTERNAL_AI_ALLOW_HOSTS` only affects the `http://` path.** It does **not** exempt an `https://` request from the metadata/private-range checks above — a hostname on the allowlist that resolves to a private IP over `https://` is still rejected. (An earlier version of this doc claimed the allowlist bypasses checks "for both `http:` and `https:`" — that's not what the code does; the wrapper only ever passes the allowlist as `allowedHttpHostnames`, which the shared module only consults on the `http://` branch.)
+- Any other protocol (`file:`, `ftp:`, etc.) is rejected.
 
 ### `ROUTER_REQUIRE_AUTH`
 
@@ -109,13 +116,11 @@ The reference router (`apps/web/scripts/internal-ai-router.ts`) reads `ROUTER_RE
 - In **non-production** (`NODE_ENV !== 'production'`): `ROUTER_REQUIRE_AUTH=0|false|no` disables auth, as before. Useful for local development against an unset `INTERNAL_AI_ROUTER_TOKEN`.
 - In **production** (`NODE_ENV === 'production'`): the explicit `0`/`false`/`no` override is **ignored**. The router logs `[internal-ai-router] WARN: ROUTER_REQUIRE_AUTH=0 ignored in production` on startup and keeps bearer auth on. There is no supported way to run the router without auth in production.
 
-### Auto-reprobe
+### Target health probing
 
-The internal AI Assistant page now auto-reprobes its target health when chat is blocked.
-
-- New resource route: [`/internal/ai-assistant/probe`](../apps/web/app/routes/internal.ai-assistant.probe.tsx) returns `{ localMachine, modalRemote, parseError? }` where each side has `health` (liveness) and `chatProbe` (chat-endpoint validation) results. Both `GET` and `POST` are admin-gated via `requireInternalAdmin`.
-- While the preferred target's chat probe reports `ok: false`, [`/internal/ai-assistant`](../apps/web/app/routes/internal.ai-assistant.tsx) polls `/internal/ai-assistant/probe` every **20 seconds** with an `AbortController`. Polling stops as soon as the probe returns success — the send button unblocks the moment the host recovers without a manual page refresh.
-- A manual "Recheck" button next to the status pill triggers an immediate probe call.
+- Resource route: [`/internal/ai-assistant/probe`](../apps/web/app/routes/internal.ai-assistant.probe.tsx) returns `{ localMachine, modalRemote, parseError? }` where each side has `health` (liveness) and `chatProbe` (chat-endpoint validation) results, via the shared `probeAssistantTargets()` service (`apps/web/app/services/ai/assistant-probe-route.server.ts`) — the same function backing the dashboard KPI tile. Both `GET` and `POST` are admin-gated via `requireInternalAdmin`.
+- [`/internal/ai-assistant`](../apps/web/app/routes/internal.ai-assistant.tsx) shows the probe result from its own loader (refreshed on ordinary Remix revalidation — e.g. after sending a chat message or switching session) and offers a manual **"Recheck"** button next to the status pill that calls the probe route on demand and overlays the fresh result until the next loader revalidation.
+- **Correction:** an earlier version of this doc described an automatic 20-second background poll while chat is blocked. No such interval-based auto-poll exists in the current route — re-verify against `apps/web/app/routes/internal.ai-assistant.tsx` before restating that claim; as of this writing, recovery requires either a manual "Recheck" click or an action that triggers a loader revalidation.
 
 ### Safe switching runbook
 
@@ -129,31 +134,43 @@ Use this sequence when promoting `modalRemote`:
 6. Disable shadow mode only after metrics remain within your promotion thresholds.
 7. If errors spike, rollback to previous target (keeps shadow mode on as safety rail).
 
+## Support ticket triage (separate local Qwen model)
+
+Distinct from the internal prompt router above — this is a **different** local-first Qwen deployment, used only to triage merchant support tickets (severity/category/summary/suggested reply), not to route module-generation requests. Implemented in `apps/web/app/services/support/triage.server.ts`.
+
+- **Local-first default**: targets a machine-local Ollama model (`qwen3.5:9b`) at `http://127.0.0.1:11434` (localhost-only — `SUPPORT_TRIAGE_URL` is rejected if it doesn't resolve to a local host). `think: false` and a strict JSON `format` schema are mandatory on the Ollama call — thinking mode was measured burning far more tokens than the visible output on this model, so it's disabled outright rather than budgeted around.
+- **Cloud toggle**: `AppSettings.supportTriageMode` (`local | cloud`, default `local`) plus an optional `AppSettings.supportTriageProviderId` to pin the cloud call to a specific `AiProvider`, both set from the same **Support triage** card on `/internal/ai-providers`. When `cloud`, triage runs through the ordinary `getLlmClient()`/`FallbackLlmClient` chain described above instead of the local Ollama call.
+- **Env overrides win over the DB toggle**: `SUPPORT_TRIAGE_PROVIDER` (`local | cloud`) overrides `supportTriageMode`; `SUPPORT_TRIAGE_URL` and `SUPPORT_TRIAGE_MODEL` override the local Ollama endpoint/model; `SUPPORT_TRIAGE_TIMEOUT_MS` (default 25000, clamped 5000–55000 to stay under the Cloudflare tunnel ceiling) overrides the request budget. This mirrors the internal copilot's "self-hosted by default, cloud opt-in" posture.
+- Cold model load on the reference hardware (16 GB M1 Pro, 2026-07-14 measurement) dominates end-to-end latency, so the Ollama call sets a 30-minute `keep_alive` to keep the model resident between requests rather than reloading it per ticket.
+
 ## Fallback chain
 
-When both `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are set (and no DB provider is configured), `FallbackLlmClient` wraps Claude as primary and OpenAI as fallback. Any error from Claude — 429, unexpected content blocks (`server_tool_use`), model errors — silently retries with OpenAI. If OpenAI also fails, the primary error is re-thrown.
+`FallbackLlmClient.generateRecipe()` catches any error from the client it wraps and retries the next client in the chain; if every leg fails, the **first** (primary) error is re-thrown (more informative for debugging than the last leg's error). See [§ Default & fallback selection](#default--fallback-selection) for how the chain itself is built — it varies by whether cost routing, a DB-configured fallback, or the plain env-key pair (Claude primary / OpenAI fallback, when both `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are set and no DB provider exists) is in play.
 
 ## Token limits per call type
 
 | Call | Anthropic | OpenAI |
 |------|-----------|--------|
-| Recipe generation | 8192 (default) | 8192 (default) |
-| Hydration (`hydrateRecipeSpec`) | 16000 | 16000 |
+| Recipe generation | `max_tokens: 8192` (default) | `max_output_tokens: 8192` (default; "visible" budget, see below) |
+| Hydration (`hydrateRecipeSpec`) | `HYDRATE_TOKEN_BUDGET = 16000` | `HYDRATE_TOKEN_BUDGET = 16000` |
 
 These are passed via `hints.maxTokens` through `LlmClient.generateRecipe`. Individual client functions accept `maxTokens` and pass it to the provider API.
+
+**OpenAI reasoning models get extra headroom.** `openai-responses.client.server.ts` caps `max_output_tokens` at the visible-JSON budget above for ordinary models, but reasoning models (`gpt-5*`, `o1`/`o3`/`o4*`) spend output tokens on hidden reasoning *before* the visible answer, and Shopify's/OpenAI's cap covers both combined — so the client adds a fixed `REASONING_HEADROOM` (6000 tokens) on top of the caller's budget for those models specifically, rather than letting reasoning silently eat the visible JSON's allowance. The configured default model (`gpt-4o-mini`) is not a reasoning model, so this only matters if `OPENAI_DEFAULT_MODEL`/a DB provider's model is switched to one.
 
 ## Common pitfalls
 
 - **Do not set `max_output_tokens` below 8192 for OpenAI** — the hydration envelope easily exceeds 4096 tokens and the response will be truncated (invalid JSON). See debug.md §17.
 - **Do not add large generative tasks (HTML, reports) to the hydration prompt** — they inflate output size and push response time past the Cloudflare tunnel timeout (~90s). See debug.md §18.
 - **Model name must be `gpt-4o-mini`, not `gpt-5-mini`** — check `OPENAI_DEFAULT_MODEL` in `.env` or the DB `AiProvider.model` field.
+- **There is no production stub fallback.** `StubLlmClient` exists in `llm.server.ts` but is only ever constructed by the eval/tournament harnesses (`evals.server.ts`, `tournament.server.ts`) — `getLlmClient()`'s production path throws `AiProviderNotConfiguredError` when no provider (DB or env-key) resolves. Don't assume an unconfigured shop silently gets stub/placeholder output.
 
 ## Notes
 If you enable a “debug capture” mode later, store it per shop and time-bound it (e.g. 15 minutes) to avoid retaining sensitive data.
 
 ## 2026-06-14 — Module-generation uplift: call budget + guardrails (specs 022/023)
 
-Source of truth: [`module-system-v2.md`](./module-system-v2.md). Contracts: `packages/platform-contracts/src/{requirement-spec,generation-guardrails}.ts`.
+Source of truth: [`generation.md`](./generation.md) §4 "Module System v2". Contracts: `packages/platform-contracts/src/{requirement-spec,generation-guardrails}.ts`.
 
 ### Per-create call budget (WS1 / 022)
 Asserted and logged via `AiUsage`:

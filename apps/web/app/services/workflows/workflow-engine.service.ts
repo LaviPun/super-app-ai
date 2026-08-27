@@ -16,7 +16,7 @@ import { getConnectorRegistry } from './connectors/index';
 
 const TERMINAL_STEP_STATUSES: StepStatus[] = ['SUCCESS', 'FAILED', 'SKIPPED'];
 
-// ─── Safety caps (docs/flow-automation.md §9c) ───────────────────────
+// ─── Safety caps (docs/flows.md §2, "Reliability primitives") ───────────────────────
 /** Hard cap on node executions per run — stops a runaway/pathological loop. */
 export const MAX_NODE_EXECUTIONS = 10_000;
 /** Bounds nested loop/parallel sub-graph recursion. */

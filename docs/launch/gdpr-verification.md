@@ -24,132 +24,90 @@ pnpm --dir apps/web exec prisma studio
 # or: psql -c "select action, details, \"createdAt\" from \"ActivityLog\" where action like 'GDPR_%' order by \"createdAt\" desc limit 5;"
 ```
 
-Then run the shop/redact completeness test — see "Completeness test —
-current status" below for why that test isn't in this branch's own
-`apps/web/app/__tests__/` directory.
+Then run the shop/redact completeness test (see "Completeness test — current
+status" below; it is now merged and green).
 
-## `customers/data_request` — resolved finding (2026-08-27)
+## `customers/data_request` — resolved (2026-08-27, merged #23)
 
-**Verdict: the current handler does NOT deliver customer data. It only
-records a count in an internal audit log. This is a functional gap, not a
-documentation gap, and must be fixed before submission.**
+**Verdict: the handler now compiles a real customer data export and attempts
+to deliver it to the shop owner by email. The count-only/no-op-filter defect
+described in the prior revision of this doc is fixed.**
 
-Evidence — `apps/web/app/routes/webhooks.customers.data_request.tsx:27-51`
-(full handler body, master @ c201150 / this branch):
+Evidence — `apps/web/app/routes/webhooks.customers.data_request.tsx`
+(master @ 8a656af, full handler re-read 2026-08-27):
 
-```ts
-const captures = await prisma.dataCapture.findMany({
-  where: { shopId: shop.id, ...(customerId != null ? {} : {}) },
-  select: { id: true, captureType: true, createdAt: true },
-  take: 1000,
-});
-dataRequested.dataCapturesCount = captures.length;
+- Lines 30-34: imports `compileCustomerDataExport` and
+  `deliverCustomerDataExport` from
+  `apps/web/app/services/gdpr/data-request-export.server.ts`.
+- Lines 68-89: compiles the export (`compileCustomerDataExport`, scoped by
+  `shopId` **and** `customerId`/`customerEmail` — the ternary no-op-filter
+  bug from the prior handler is gone); on a compile failure the webhook
+  releases its idempotency claim and 500s so Shopify redelivers.
+- Lines 91-98: calls `deliverCustomerDataExport` to email the compiled
+  export to the shop owner; a delivery failure never throws — it returns a
+  structured `{ emailSent: false, reason }` instead.
+- Lines 107-138: writes an `ActivityLog` row (`action: 'GDPR_DATA_REQUEST'`)
+  with the compiled counts and delivery result, and — if `!delivery.emailSent`
+  — logs a loud `ErrorLogService` entry so an unconfigured mailer or
+  unresolvable owner email is visible to ops, not silently dropped.
 
-await prisma.activityLog.create({
-  data: {
-    actor: 'WEBHOOK',
-    action: 'GDPR_DATA_REQUEST',
-    resource: `customer:${customerId ?? 'shop'}`,
-    shopId: shop.id,
-    details: JSON.stringify({ customerId, dataRequested }),
-  },
-});
+Model coverage (`apps/web/app/services/gdpr/data-request-export.server.ts:20-34`):
+`DataCapture`, `DataStoreRecord`, `ModuleEvent`, `AttributionLink` (the same
+set `customers/redact` already scopes to `customerId`) plus `SupportTicket`
+(+ non-internal `SupportTicketMessage` rows, matched by `shopperEmail` since
+`SupportTicket` has no `customerId` column). Shopify order data itself is
+never stored in this app's database, so the export explicitly notes that
+full order records must be pulled from Shopify Admin directly
+(`ORDER_DATA_NOTE`, `data-request-export.server.ts:138-141`).
 
-return new Response(undefined, { status: 200 });
-```
-
-What it actually does:
-1. Looks up the shop.
-2. Queries up to 1,000 `DataCapture` rows for the shop and counts them
-   (`dataCapturesCount`).
-3. Writes one `ActivityLog` row containing that count — an **internal**
-   audit-log entry, not visible to the merchant or the customer, and not a
-   data export in any form (no file, no email, no API response body beyond
-   the log write).
-4. Returns HTTP 200.
-
-What it does NOT do, and Shopify's `customers/data_request` compliance
-webhook expects it to (the merchant must be able to provide the requested
-customer data within 30 days — see Shopify's GDPR webhooks documentation):
-- It does not compile an actual data package (the customer's records, not
-  just a count of them).
-- It does not deliver that package anywhere the merchant or customer could
-  retrieve it — no email, no download link, no dashboard surface, no webhook
-  callback to a merchant-configured endpoint.
-- It only queries `DataCapture`. It does not look at any of the other
-  customer-linked models this app has (e.g. `DataStoreRecord`,
-  `ModuleEvent`, `AttributionLink` — the same set `customers/redact`
-  correctly scopes to `customerId`, see below), so even the *count* it logs
-  is incomplete.
-
-**Additional defect found while reading this handler** (separate from the
-delivery gap above, file:line evidence):
-`webhooks.customers.data_request.tsx:35` —
-`where: { shopId: shop.id, ...(customerId != null ? {} : {}) }` — both
-branches of that ternary spread an empty object, so the query is never
-actually filtered by `customerId`. It queries every `DataCapture` row for
-the whole shop regardless of which customer the request is about. Compare
-with `webhooks.customers.redact.tsx:36-41`, which correctly filters
-`dataCapture.deleteMany` by both `shopId` and `customerId`.
+**Delivery is mailer-gated, not code-gated.** `deliverCustomerDataExport`
+(`data-request-export.server.ts:393-433`) calls `resolveMailerStatus()`; if
+the transactional mailer isn't configured on the deployed service, it
+returns `{ emailSent: false, mailerConfigured: false, reason:
+'mailer_not_configured' }` rather than throwing — the webhook still 200s
+(the data *was* compiled, satisfying the compliance requirement to have it
+ready), but the merchant won't actually receive the email until the mailer
+is configured. **This is an owner-run deployment/config item, not a code
+gap** — track it alongside the burn-in/mailer-configuration items in the
+pre-submission checklist.
 
 **Contrast with `customers/redact`** (`webhooks.customers.redact.tsx:33-79`):
-that handler is a real, customer-scoped deletion — it transactionally
-deletes `DataCapture`, `DataStoreRecord`, `ModuleEvent`, and
-`AttributionLink` rows filtered by both `shopId` and `customerId`, then logs
-the deletion counts. `customers/redact` is functionally sound;
-`customers/data_request` is not.
+unchanged from the prior revision of this doc — a real, customer-scoped
+transactional deletion across `DataCapture`, `DataStoreRecord`,
+`ModuleEvent`, `AttributionLink`. Both `customers/redact` and
+`customers/data_request` are now functionally sound.
 
-**Gap to close before Task 8 / submission:** implement an actual
-data-request delivery path — at minimum, compile the customer's records
-across the same model set `customers/redact` already scopes to (plus
-whichever others actually hold customer-identifying data) and deliver them
-to the merchant (e.g., a signed export attached to an internal
-notification, or logged in full rather than as a count, per whatever
-mechanism the owner picks) — and fix the no-op `customerId` filter noted
-above. This is tracked as an open item, not resolved by this task.
+## Completeness test — current status (merged, green)
 
-## Completeness test — current status
-
-**This branch intentionally carries no `shop-redact-completeness.test.ts` of
-its own.** An earlier revision of this task added one (grepped
-`shop/redact completeness` / `shopId-bearing` across
-`apps/web/app/__tests__/*.test.ts` first, found nothing, then wrote a naked
-failing test per the brief's Step 2). On review, that was reverted: WS-G's
-PR #17 (`feat/ws-g-ops-integrations`, commit `1342a60` "fix(ws-g): shop/redact
-deletes every shopId-bearing model … [Infra-11]") already adds a superior
-test at the **exact same path**
-(`apps/web/app/__tests__/shop-redact-completeness.test.ts`, field-vocabulary
-introspection, 3 tests) that lands **green** together with WS-G's actual fix.
-Keeping a duplicate, permanently-red version of that file on this branch
-would (a) conflict on file creation when PR #17 merges, and (b) leave CI
-red here for a gap this branch doesn't fix and isn't responsible for closing.
-
-**The underlying gap itself is still real and still true on master** — see
-below for the finding, independent of which test verifies it:
-
-The schema has 31 `shopId`-bearing Prisma models (verified by hand on
-2026-08-27, cross-checked against the model list `apps/web/prisma/schema.prisma`
-would yield via a `shopId` field grep). `webhooks.shop.redact.tsx` deletes 5
-of them directly — `DataStore`, `DataCapture`, `ModuleEvent`,
-`ModuleMetricsDaily`, `AttributionLink` — plus `DataStoreRecord` (not itself
-`shopId`-bearing; deleted via its `dataStore` relation) —
-`apps/web/app/routes/webhooks.shop.redact.tsx:35-44`. It also writes (not
-deletes) an `ActivityLog` row for the redaction event itself
-(`webhooks.shop.redact.tsx:46-54`), which is the compliance record of the
-redaction, not shop data being redacted. That leaves **25** `shopId` models
-neither deleted nor documented as retained-with-reason (e.g. `Module`,
-`Recipe`, `Connector`, `ConnectorToken`, `Job`, `WorkflowRun`,
-`SupportTicket`, …) — this is finding [Infra-11], and it is the gap PR #17
-closes.
-
-**Verification path:** this red state closes automatically when PR #17
-merges — its own `shop-redact-completeness.test.ts` (field-vocabulary
-introspection, 3 tests) becomes part of the suite and passes because that
-PR's fix makes it pass. Nothing in this branch needs to change for that to
-happen; there is no duplicate test here to reconcile or delete at merge
-time.
+`apps/web/app/__tests__/shop-redact-completeness.test.ts` is now on master
+(WS-G, PR #17, commit landed with finding **[Infra-11]** closed) and passes.
+Re-run:
 
 ```bash
-# After PR #17 merges, confirm it landed green:
 cd apps/web && npx vitest run app/__tests__/shop-redact-completeness.test.ts
 ```
+
+Actual output (2026-08-27, master @ 8a656af, with CI's env-var set —
+`DATABASE_URL`/`SHOPIFY_APP_URL`/etc. per `.github/workflows/ci.yml`, no live
+Postgres required since the test only reads `schema.prisma` and the route
+source as text):
+
+```
+ ✓ app/__tests__/shop-redact-completeness.test.ts (3 tests) 3ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+```
+
+The test (`apps/web/app/__tests__/shop-redact-completeness.test.ts`) derives
+every shop-scoped model from `schema.prisma` by field-name vocabulary
+(`shopId`/`tenantId`-style FKs to `Shop`, not a hardcoded list), diffs that
+against every model `webhooks.shop.redact.tsx` actually deletes/updates, and
+fails on anything neither handled nor explicitly retained via
+`REDACT_RETENTION_ALLOWLIST` (exported from
+`apps/web/app/routes/webhooks.shop.redact.tsx`). All 3 tests pass: every
+shop-scoped model is handled or allowlisted, every allowlist entry is a real
+shop-scoped model (no stale entries), and the field-vocabulary regression
+guard confirms both `shopId` and `tenantId` conventions are picked up. The
+[Infra-11] gap (25 of 31 shop-scoped models left undeleted) described in the
+prior revision of this doc is closed.

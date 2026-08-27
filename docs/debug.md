@@ -2,6 +2,8 @@
 
 This doc records recurring bugs and their resolutions so they are not repeated.
 
+> **This is an append-only ledger** (Decision J5) — entries are never deleted, only marked `SUPERSEDED` when the underlying system was retired/replaced. Before another doc re-describes a constraint as currently live (a timeout, a datasource quirk, a since-removed platform), check here first for a `SUPERSEDED` marker on the same root cause — see the dated-audit convention in [`docs/audit/README.md`](./audit/README.md).
+
 ---
 
 ## 1. Customer Account UI extension — bundle resolution failures
@@ -475,6 +477,8 @@ Also: after changing a Remix file, **restart the dev server** — HMR does not a
 
 ## 13. Anthropic 429 causes `Unable to decode turbo-stream response` (blank page, no error shown)
 
+**SUPERSEDED (WS-A, 2026-08-24):** production moved off the Cloudflare tunnel onto Railway's stable `application_url` — the ~90–100s hard tunnel cutoff described below no longer applies to production. The ≤60s handler budget and the "fail fast, don't long-backoff" rule below **remain in force in the default deploy** (Railway's edge tolerates longer requests than the tunnel did, and WS-C (#19, merged 2026-08-27) built the mechanism that relaxes the budget by moving generation async — but `JOB_EXECUTION_MODE` still defaults to `inline`, so the budget only actually relaxes once a deploy explicitly sets `JOB_EXECUTION_MODE=queue` with `QUEUE_REDIS_URL` live; see [`docs/operations.md`](./operations.md) §1). Root cause kept verbatim below for the pattern; only the "tunnel" mechanism is retired, not the constraint it revealed.
+
 **Route:** `apps/web/app/routes/api.ai.create-module.tsx`
 **Date:** 2026-03-06
 
@@ -498,7 +502,7 @@ On a 429 from Anthropic, the old retry logic used 15s–30s backoffs (3 attempts
 
 Never use long backoffs (>10s) in request handlers that go through Cloudflare tunnels or any proxy with a timeout. Fail fast, surface a clean error, let the client retry.
 
-**Historical: production moved to Railway (WS-A, 2026-08-24); the ≤60s handler budget REMAINS in force until WS-C moves generation async.**
+**Historical: production moved to Railway (WS-A, 2026-08-24); the ≤60s handler budget REMAINS in force by default — WS-C (#19, merged) built the async engine that relaxes it, but only once a deploy opts in via `JOB_EXECUTION_MODE=queue`.**
 
 ---
 
@@ -645,6 +649,8 @@ Never hardcode `max_output_tokens` in a client function. Always accept it as an 
 
 ## 18. Hydration 200s+ duration exceeds Cloudflare timeout → turbo-stream decode error
 
+**SUPERSEDED (WS-A, 2026-08-24):** same as §13 — production no longer runs behind the Cloudflare tunnel (Railway has a stable `application_url`), so the specific ~90–100s tunnel cutoff below is historical for production. The ≤60s handler budget and "don't bundle large generative tasks in one AI call" rule **remain in force by default** — WS-C (#19, merged) moves generation async, but only when a deploy sets `JOB_EXECUTION_MODE=queue`; see §13 above and [`docs/operations.md`](./operations.md) §1.
+
 **Route:** `apps/web/app/routes/api.ai.hydrate-module.tsx`
 **Date:** 2026-03-07
 
@@ -673,7 +679,7 @@ The `previewHtml` field remains in `HydrateEnvelopeSchema` as `optional()` for f
 
 Do not bundle large generative tasks (HTML generation, multi-section reports) in the same AI call as structured JSON output. Each call must stay well under the timeout budget. Deterministic alternatives (like `PreviewService`) are always preferable for UI previews.
 
-**Historical: production moved to Railway (WS-A, 2026-08-24); the ≤60s handler budget REMAINS in force until WS-C moves generation async.**
+**Historical: production moved to Railway (WS-A, 2026-08-24); the ≤60s handler budget REMAINS in force by default — WS-C (#19, merged) built the async engine that relaxes it, but only once a deploy opts in via `JOB_EXECUTION_MODE=queue`.**
 
 ---
 
@@ -733,6 +739,8 @@ Keep entries short and copy-paste friendly so the next person can fix without re
 ---
 
 ## Quick reference: Cloudflare tunnel timeout rules
+
+**SUPERSEDED (WS-A, 2026-08-24):** this section documents the production Cloudflare tunnel's request timeout, which no longer exists — production runs on Railway with a stable `application_url` (no ~90–100s hard cutoff). The per-handler budgets below **remain the current guidance by default** — WS-C (#19, merged) built the async engine that relaxes them, but a deploy has to explicitly set `JOB_EXECUTION_MODE=queue` (default is `inline`) for that relaxation to take effect; only the "why" (a tunnel timeout) is historical. Local dev via `shopify app dev` still tunnels (see §7), but that's a separate, still-current mechanism this section isn't about.
 
 Cloudflare tunnels (trycloudflare.com) have a hard request timeout of ~90–100 seconds. Any server handler that takes longer will drop the connection mid-response — the client sees `Unable to decode turbo-stream response` (Remix) or a generic network error.
 

@@ -1,6 +1,6 @@
 # Platform V2 — Target Monorepo Layout
 
-Future-state directory map from [platform-v2-migration-plan.md](../platform-v2-migration-plan.md) Phase 1. **Scaffolding begins Phase 1; behavior migration is later.**
+Future-state directory map from [platform-v2-migration-plan.md](../../archive/gitbook-v2-migration/platform-v2-migration-plan.md) Phase 1. **Scaffolding begins Phase 1; behavior migration is later.**
 
 ```
 ai-shopify-superapp/

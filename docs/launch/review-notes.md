@@ -8,12 +8,13 @@ fresh for this submission — never reuse a personal or production login>`
 **Emergency developer contact:** `<OWNER: name + email, kept current per
 requirement 4.5.6 — Shopify may need to reach a human fast>`
 
-> This walkthrough describes **master @ c201150** (this branch's base) as
-> verified by reading the actual route code, not the aspirational plan.
-> Where a step depends on a workstream still in an unmerged PR (WS-C, WS-F,
-> WS-G, WS-H), it's marked **Pending (unmerged PR)** below with what's true
-> today instead. Re-verify this whole doc once those PRs land — some of the
-> "current" behavior described here will change.
+> **Refreshed 2026-08-27** — this walkthrough describes **master @ 8a656af**
+> (this branch's base) as verified by reading the actual route code, not the
+> aspirational plan. WS-C, WS-F, WS-G, and WS-H have all merged since the
+> previous revision of this doc; every "Pending (unmerged PR)" note below has
+> been re-checked against the merged code and either confirmed live or
+> replaced with what's actually true today. The one remaining conditional
+> behavior (step 2) is a runtime flag, not an unmerged PR.
 
 ## Walkthrough (matches the demo screencast, requirement 4.5.3)
 
@@ -24,46 +25,50 @@ requirement 4.5.6 — Shopify may need to reach a human fast>`
    immediately after the permission grant screen.
 2. **Generate a module** — `/generate` (`apps/web/app/routes/generate._index.tsx`),
    describe "a banner announcing free shipping over $50" (or pick a
-   template). Expect a draft with a preview. **Pending (unmerged PR, WS-C
-   generation-job polling UI):** on this branch the generation path is the
-   inline SSE/synchronous flow with a route-handler budget of ≤60s (per
-   `docs/superpowers/plans/2026-08-24-launch-program.md`'s global constraint
-   "Route handler budget stays ≤ 60s only until WS-C moves generation
-   async"); it has not yet moved to the async job-polling route. If
-   generation is slow on the reviewer's test prompt, that's the known
-   ceiling — pick a simple prompt for the demo.
+   template). Expect a draft with a preview. **WS-C (async engine, PR #19)
+   is merged, but its enqueue-and-poll path is only active when the
+   orchestrator's effective mode is `queue`** —
+   `apps/web/app/services/jobs/enqueue.server.ts:17-19`
+   (`isAsyncJobsEnabled()` returns `resolveEffectiveMode(...) === 'queue'`)
+   gated by `JOB_EXECUTION_MODE`, which **defaults to `'inline'`**
+   (`apps/web/app/env.server.ts:89`). Unless the deployed service has
+   `JOB_EXECUTION_MODE=queue` set (Redis configured), the reviewer will see
+   the same inline SSE/synchronous flow as before, with a route-handler
+   budget of ≤60s. Confirm the actual deployed value before the demo —
+   if it's `queue`, the reviewer instead sees the enqueue-and-poll UI
+   (`generate._index.tsx:681-732`); if it's unset/`inline`, pick a simple
+   prompt so generation finishes inside the 60s ceiling.
 3. **Publish** — from the module detail page
    (`apps/web/app/routes/modules.$moduleId.tsx`), pick a theme from the
-   **"Publish to theme"** dropdown (line ~759) and click **Publish**. As
-   verified in the current route code: there is **no confirmation dialog**
-   before Publish and **no "view on storefront" link** shown after success
-   today — publish is a direct action that ends in a toast, "Published —
-   live in a few minutes" (`modules.$moduleId.tsx:464`).
-   **Pending (unmerged PR #18, WS-F):** the plan for a publish
-   *ceremony* (confirm-before-publish + a "view on storefront" link) is
-   `feat/ws-f-merchant-ui` commit `923bc6f`, not yet merged. Don't expect a
-   confirm dialog or storefront link in the demo build unless that PR has
-   landed by submission time — re-check before recording the screencast.
-   Storefront must render the banner after the theme app embed is enabled —
-   first publish of a theme module surfaces an embed-status nudge on the
-   module detail page when the app block isn't added yet
-   (`modules.$moduleId.tsx:466-467,602,745`, backed by
-   `apps/web/app/services/publish/embed-status.server.ts`). This part is
-   live on master today, unlike the ceremony/link above.
+   **"Publish to theme"** dropdown and click **Publish**. **WS-F (PR #18,
+   merchant UI) is merged and the publish ceremony is live**: a confirm
+   dialog appears before the action runs
+   (`modules.$moduleId.tsx:947-956`, `ConfirmModal` heading "Publish
+   module?"/"Republish module?"), and on success a "Module published"
+   banner (`modules.$moduleId.tsx:873-874`) is followed by a **"View
+   storefront"** link/button for theme modules
+   (`modules.$moduleId.tsx:881-888`, opens the shop's storefront domain in
+   a new tab). Storefront must render the banner after the theme app embed
+   is enabled — first publish of a theme module surfaces an embed-status
+   nudge on the module detail page when the app block isn't added yet
+   (`modules.$moduleId.tsx:427-430,748-752`, backed by
+   `apps/web/app/services/publish/embed-status.server.ts`). Both the
+   ceremony and the embed nudge are live on master today.
 4. **Rollback** — from the module's version history, click **Roll back**
-   next to a non-active version (`modules.$moduleId.tsx:916`, wired to
-   `POST /api/rollback`). This is live on master. Confirm the storefront
-   reverts.
+   next to a non-active version (`modules.$moduleId.tsx:1102`, wired to
+   `POST /api/rollback` via `modules.$moduleId.tsx:761`). This is live on
+   master. Confirm the storefront reverts.
 5. **Unpublish** — confirm the storefront no longer renders the module; the
    module detail page has an explicit "Unpublish module?" confirm dialog
-   (`modules.$moduleId.tsx:776`) and shows "Unpublished — removed from your
-   storefront" on success. Per `docs/publishing.md`, confirm the underlying
+   (`modules.$moduleId.tsx:939`) and shows "Unpublished — removed from your
+   storefront" on success (`modules.$moduleId.tsx:552`). Per
+   `docs/publishing.md`, confirm the underlying
    metaobject/activation object is actually removed, not just hidden in the
    app's UI — cross-check against that doc's §3 (unpublish/delete
    semantics) if anything looks off.
 6. **Billing** — `/billing` (`apps/web/app/routes/billing._index.tsx`) shows
    the current App Pricing plan (read-only) with a **"Manage plan"** button
-   (lines 108, 141) that calls `buildManagePlanUrl` and opens Shopify's
+   (lines 109, 142) that calls `buildManagePlanUrl` and opens Shopify's
    hosted pricing page in the top window. That button/URL only appears once
    `SHOPIFY_APP_HANDLE` is configured on the deployed service (see
    `docs/runbooks/app-pricing-setup.md` Step 3) — if it's missing in the
@@ -72,21 +77,18 @@ requirement 4.5.6 — Shopify may need to reach a human fast>`
    dev-store installs show $0 via the "Free for partners and developers"
    checkbox on each paid plan in the Partner Dashboard (owner-configured;
    see `docs/runbooks/app-pricing-setup.md` Step 2).
-7. **AI disclosure** — **NOT YET DONE on master.** The merchant support chat
-   surface exists (`apps/web/app/routes/support.$ticketId.tsx`) and its
-   assistant is internally named "Maya" (`SUPPORT_AGENT_NAME`,
-   `apps/web/app/components/support/badges.tsx:19`), but the merchant-facing
-   label deliberately reads as a **named human support rep, not as AI** —
-   see the comment at `support.$ticketId.tsx:59`: "Merchant-facing:
-   assistant replies read as a named support rep, not as AI," and the
-   `ROLE_LABEL` map at lines 60-64 (`assistant: 'Maya · Support team'`, no
-   AI wording). This is the opposite of what's needed: launch-program.md's
-   D4 requirement is "Maya is disclosed as AI. All support copy tells one
-   honest story ('instant AI answer, humans on escalation')," tracked as
-   WS-F Task UI-5, still on the unmerged `feat/ws-f-merchant-ui` branch.
-   **Do not point a reviewer at the support chat as an example of AI
-   disclosure until that PR lands and this note is updated** — as of this
-   branch it would show the opposite of the required disclosure.
+7. **AI disclosure** — **LIVE on master (WS-F, PR #18, D4 resolved).** The
+   merchant support chat surface (`apps/web/app/routes/support.$ticketId.tsx`)
+   labels its assistant honestly as AI: `SUPPORT_AGENT_NAME = 'Maya'`
+   (`apps/web/app/components/support/badges.tsx:19`), the ticket-status label
+   for an AI-answered ticket reads **"Answered by Maya (AI)"**
+   (`badges.tsx:24`, rendered via `TicketStatusBadge` at
+   `support.$ticketId.tsx:156`), and the chat transcript's `ROLE_LABEL` map
+   reads **"Maya · AI assistant"** for assistant-authored messages
+   (`support.$ticketId.tsx:60-64`, rendered at line 260). This matches D4
+   ("Maya is disclosed as AI... 'instant AI answer, humans on escalation'")
+   — point the reviewer at any AI-answered support ticket to see the
+   disclosure live.
 
 ## Known limitations to disclose up front (avoid a confused rejection)
 
@@ -101,13 +103,17 @@ requirement 4.5.6 — Shopify may need to reach a human fast>`
   app-block path (theme app extension) is the live default and does not need
   this scope. Do not let a reviewer treat the optional-scope prompt absence
   as a bug.
-- The AI-disclosure gap described in Walkthrough step 7 above — fix before
-  submission or be ready to explain it if a reviewer asks why the "AI"
-  support assistant reads as a person.
-- The `customers/data_request` GDPR webhook handler does not yet deliver an
-  actual customer data package (see `docs/launch/gdpr-verification.md` for
-  the full finding) — this is a functional gap that should be closed before
-  submission, not just disclosed.
+- The `customers/data_request` GDPR webhook handler now compiles and
+  attempts to email an actual customer data package to the shop owner
+  (`apps/web/app/services/gdpr/data-request-export.server.ts`, merged #23 —
+  see `docs/launch/gdpr-verification.md`). Delivery still depends on the
+  transactional mailer being configured on the deployed service
+  (`resolveMailerStatus()`,
+  `data-request-export.server.ts:417-427` — an unconfigured mailer returns
+  `mailerConfigured: false` and the request is logged as a loud delivery
+  failure, not silently dropped). Confirm the mailer is configured on the
+  reviewer's environment before the demo, or be ready to explain the honest
+  failure path if it isn't.
 - Connector/Flow automation features require the merchant to configure a
   connector first — the reviewer's test store should have at least one
   configured (owner: seed one, or document that this surface is best-effort

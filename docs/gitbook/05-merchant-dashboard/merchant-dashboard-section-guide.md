@@ -32,8 +32,8 @@ The merchant app was rebuilt 1:1 from the Claude Design handoff (2026-06-16). Na
 {% step %}
 ### Advanced settings model
 
-{% content-ref url="../../module-settings-modernization.md" %}
-[module-settings-modernization.md](../../module-settings-modernization.md)
+{% content-ref url="../../archive/module-settings-modernization.md" %}
+[module-settings-modernization.md](../../archive/module-settings-modernization.md)
 {% endcontent-ref %}
 {% endstep %}
 {% endstepper %}
@@ -47,5 +47,5 @@ The merchant app was rebuilt 1:1 from the Claude Design handoff (2026-06-16). Na
 ## Canonical references
 
 * Merchant product guide: [`app.md`](../../app.md)
-* Settings model details: [`module-settings-modernization.md`](../../module-settings-modernization.md)
+* Settings model details: [`module-settings-modernization.md`](../../archive/module-settings-modernization.md)
 * Delivery updates: [`implementation-status.md`](../../implementation-status.md)

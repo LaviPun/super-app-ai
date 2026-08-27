@@ -10,7 +10,7 @@ Captured before any V2 behavior or monorepo scaffolding changes to production Re
 | Commit SHA | `1b0df9d6442d1f60eb14975edda8f0eccba2907c` |
 | Commit message | `v1: ignore local Playwright auth and test output.` |
 | Captured | 2026-05-19 (Asia/Kolkata) |
-| Authoritative plan | [platform-v2-migration-plan.md](../platform-v2-migration-plan.md) |
+| Authoritative plan | [platform-v2-migration-plan.md](../../archive/gitbook-v2-migration/platform-v2-migration-plan.md) |
 
 ## Baseline check results
 
