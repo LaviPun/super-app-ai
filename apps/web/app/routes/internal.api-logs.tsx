@@ -1,6 +1,6 @@
 import { json } from '@remix-run/node';
 import { useLoaderData } from '@remix-run/react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import { buildNextCursorUrl } from '~/services/internal/pagination.server';
@@ -24,6 +24,7 @@ import {
   formatRelativeTime,
 } from '~/components/admin/page-kit';
 import { LogTabs } from '~/components/admin/LogTabs';
+import { useLiveTail } from '~/hooks/useLiveTail';
 
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
@@ -98,27 +99,18 @@ export default function AdminApiLogs() {
   const [liveRows, setLiveRows] = useState<LiveLog[]>([]);
 
   // Live tail: consume the real SSE endpoint. New `log` events are prepended;
-  // the EventSource is closed on toggle-off/unmount.
-  useEffect(() => {
-    if (!live) return;
-    const since = data.logs[0]?.createdAt ?? new Date().toISOString();
-    const es = new EventSource('/internal/api-logs/stream?since=' + encodeURIComponent(since));
-    es.addEventListener('log', (evt) => {
-      try {
-        const l = JSON.parse((evt as MessageEvent).data) as LiveLog;
-        setLiveRows((prev) => (prev.some((p) => p.id === l.id) ? prev : [l, ...prev].slice(0, 200)));
-      } catch {
-        // ignore malformed frames
-      }
-    });
-    es.onerror = () => {
-      if (es.readyState === EventSource.CLOSED) {
-        setLive(false);
-        ctx.toast('Live tail disconnected', true);
-      }
-    };
-    return () => es.close();
-  }, [live, data.logs, ctx]);
+  // the EventSource is closed on toggle-off/unmount. See useLiveTail for the
+  // reconnect/give-up-loudly behavior.
+  const since = data.logs[0]?.createdAt ?? new Date().toISOString();
+  const tailStatus = useLiveTail<LiveLog>({
+    enabled: live,
+    url: live ? '/internal/api-logs/stream?since=' + encodeURIComponent(since) : null,
+    onEvent: (l) => setLiveRows((prev) => (prev.some((p) => p.id === l.id) ? prev : [l, ...prev].slice(0, 200))),
+    onGiveUp: (message) => {
+      setLive(false);
+      ctx.toast(message, true);
+    },
+  });
 
   // Live (SSE) rows never existed in the server-rendered payload, so it's safe to
   // format their relative time at render time. Loader-sourced rows reuse the
@@ -152,9 +144,19 @@ export default function AdminApiLogs() {
       <LogTabs active="api-logs" />
       {live && (
         <div style={{ marginBottom: 14 }}>
-          <Banner tone="info" title="Live tail active">
-            Streaming new requests via SSE. New rows appear at the top.
-          </Banner>
+          {tailStatus === 'reconnecting' ? (
+            <Banner tone="warning" title="Live tail reconnecting…">
+              The stream dropped — retrying. Rows will resume once reconnected.
+            </Banner>
+          ) : tailStatus === 'connecting' ? (
+            <Banner tone="info" title="Live tail connecting…">
+              Opening the stream.
+            </Banner>
+          ) : (
+            <Banner tone="info" title="Live tail active">
+              Streaming new requests via SSE. New rows appear at the top.
+            </Banner>
+          )}
         </div>
       )}
       <Card>
