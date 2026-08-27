@@ -1,3 +1,4 @@
+# api_version: 2026-07
 
 schema {
   query: Input
@@ -68,6 +69,13 @@ type BuyerIdentity {
   Used to manage and track purchases made by businesses rather than individual customers.
   """
   purchasingCompany: PurchasingCompany
+
+  """
+  Represents the [Shop User](https://help.shopify.com/en/manual/online-sales-channels/shop/sign-in-features)
+   corresponding to the customer within the shop, if the buyer is a Shop User. Can be used to request [Shop User
+   metafields](https://shopify.dev/docs/api/shop-user-custom-data).
+  """
+  shopUser: ShopUser
 }
 
 """
@@ -327,7 +335,8 @@ input CartFulfillmentGroupsLocationRankingsGenerateRunResult {
   """
   The ordered list of operations that rank locations for each fulfillment group,
   which includes one or more items to be shipped together.
-  The locations with the highest ranking are selected to fulfill the order.
+  Locations are selected in ascending rank order.
+  If several operations rank the same location in a group, then the last of those operations is used.
   """
   operations: [Operation!]!
 }
@@ -2907,7 +2916,7 @@ An operation to apply to the fulfillment group inventory locations.
 input DeprecatedOperation @oneOf {
   """
   A request to rank the locations associated with a fulfillment group.
-  The ranking determines the priority in which the locations are selected to fulfill the order.
+  Locations are selected from the lowest rank to the highest rank.
   """
   rank: FulfillmentGroupRankedLocations @deprecated(reason: "Use `FulfillmentGroupLocationRankingAddOperation` instead.")
 }
@@ -3078,7 +3087,8 @@ input FulfillmentGroupLocationRankingAddOperation {
   fulfillmentGroupHandle: Handle!
 
   """
-  The ranked locations for this fulfillment group.
+  The ranked locations for this fulfillment group. Only the `rank` values matter, not the order of this list.
+  Inventory locations that you omit are ranked last.
   """
   rankings: [RankedLocation!]!
 }
@@ -3093,7 +3103,8 @@ input FulfillmentGroupRankedLocations {
   fulfillmentGroupHandle: Handle!
 
   """
-  The ranked locations for this fulfillment group.
+  The ranked locations for this fulfillment group. Only the `rank` values matter, not the order of this list.
+  Inventory locations that you omit are ranked last.
   """
   rankings: [RankedLocation!]!
 }
@@ -3108,7 +3119,8 @@ input FunctionResult {
   """
   The ordered list of operations that rank locations for each fulfillment group,
   which includes one or more items to be shipped together.
-  The locations with the highest ranking are selected to fulfill the order.
+  Locations are selected in ascending rank order.
+  If several operations rank the same location in a group, then the last of those operations is used.
   """
   operations: [DeprecatedOperation!]!
 }
@@ -3121,7 +3133,8 @@ input FunctionRunResult {
   """
   The ordered list of operations that rank locations for each fulfillment group,
   which includes one or more items to be shipped together.
-  The locations with the highest ranking are selected to fulfill the order.
+  Locations are selected in ascending rank order.
+  If several operations rank the same location in a group, then the last of those operations is used.
   """
   operations: [DeprecatedOperation!]!
 }
@@ -4728,7 +4741,7 @@ An operation to apply to the fulfillment group inventory locations.
 input Operation @oneOf {
   """
   A request to rank the locations associated with a fulfillment group.
-  The ranking determines the priority in which the locations are selected to fulfill the order.
+  Locations are selected from the lowest rank to the highest rank.
   """
   fulfillmentGroupLocationRankingAdd: FulfillmentGroupLocationRankingAddOperation
 }
@@ -4913,6 +4926,40 @@ type ProductVariant implements HasMetafields {
   id: ID!
 
   """
+  Whether the product variant is in any of the specified collections. The variant must be in at least one
+  collection from the list to return `true`. A variant is considered to be in a collection when the variant
+  itself is a member of the collection, or when its product is a member of the collection.
+
+  A collection is a group of products that can be displayed in online stores and other sales channels in
+  categories, which makes it easy for customers to find them. For example, an athletics store might create
+  different collections for running attire and accessories.
+  """
+  inAnyCollection(
+    """
+    A list of [globally-unique collection IDs](https://shopify.dev/docs/api/usage/gids)
+    to check membership against. For example, `gid://shopify/Collection/123`, `gid://shopify/Collection/456`.
+    """
+    ids: [ID!]! = []
+  ): Boolean!
+
+  """
+  Whether the product variant is in each of the specified collections. A variant is considered to be in a
+  collection when the variant itself is a member of the collection, or when its product is a member of the
+  collection.
+
+  A collection is a group of products that can be displayed in online stores and other sales channels in
+  categories, which makes it easy for customers to find them. For example, an athletics store might create
+  different collections for running attire and accessories.
+  """
+  inCollections(
+    """
+    A list of [globally-unique collection IDs](https://shopify.dev/docs/api/usage/gids)
+    to check membership against. For example, `gid://shopify/Collection/123`, `gid://shopify/Collection/456`.
+    """
+    ids: [ID!]! = []
+  ): [CollectionMembership!]!
+
+  """
   A [custom field](https://shopify.dev/docs/apps/build/custom-data) that stores additional information
   about a Shopify resource, such as products, orders, and
   [many more](https://shopify.dev/docs/api/admin-graphql/latest/enums/MetafieldOwnerType).
@@ -4995,16 +5042,18 @@ type PurchasingCompany {
 }
 
 """
-A location with a rank associated with it.
+A location with a rank associated with it. A lower rank means a higher priority.
 """
 input RankedLocation {
   """
-  The location handle.
+  The location handle. Must be one of the fulfillment group's inventory locations; others are ignored.
   """
   locationHandle: Handle!
 
   """
-  The location's rank.
+  The location's rank, a non-negative integer. Lower ranks are tried first.
+  Only the relative order matters, so gaps are allowed: `0`, `5`, `10` ranks the same as `0`, `1`, `2`.
+  Locations with the same rank are ordered by the next location rule.
   """
   rank: Int!
 }
@@ -5152,6 +5201,34 @@ type Shop implements HasMetafields {
 }
 
 """
+Represents information about the buyer that is interacting with the cart.
+"""
+type ShopUser implements HasMetafields {
+  """
+  A [custom field](https://shopify.dev/docs/apps/build/custom-data) that stores additional information
+  about a Shopify resource, such as products, orders, and
+  [many more](https://shopify.dev/docs/api/admin-graphql/latest/enums/MetafieldOwnerType).
+  Using [metafields with Shopify Functions](https://shopify.dev/docs/apps/build/functions/input-output/metafields-for-input-queries)
+  enables you to customize the checkout experience.
+  """
+  metafield(
+    """
+    The unique identifier for the metafield within its namespace. A metafield is composed of a
+    namespace and a key, in the format `namespace.key`.
+    """
+    key: String!
+
+    """
+    A category that organizes a group of metafields. Namespaces are used to prevent naming conflicts
+    between different apps or different parts of the same app. If omitted, then the
+    [app-reserved namespace](https://shopify.dev/docs/apps/build/custom-data/ownership)
+    is used.
+    """
+    namespace: String
+  ): Metafield
+}
+
+"""
 A subset of the [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) format that
 includes the time but not the date or timezone which is determined from context.
 For example, "05:43:21".
@@ -5187,4 +5264,3 @@ enum WeightUnit {
   """
   POUNDS
 }
-

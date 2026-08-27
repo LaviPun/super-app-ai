@@ -1,4 +1,4 @@
-api_version = "2026-04"
+api_version = "2026-07"
 
 # SuperApp Discount Function Settings — the admin UI a merchant sees inside a
 # discount's details page when the discount is powered by a SuperApp discount

@@ -1,9 +1,12 @@
 import { getPrisma } from '~/db.server';
-import type { RecipeSpec } from '@superapp/core';
+import type { DeployTarget, RecipeSpec } from '@superapp/core';
 import { validateTypeEnums } from '@superapp/core';
 import { ReleaseTransitionService } from '~/services/releases/release-transition.service';
 import { emitFlowTriggerSafe, FLOW_TRIGGER_TOPICS } from '~/services/workflows/shopify-flow-bridge';
 import { openAccessToken } from '~/services/shops/access-token.server';
+import { RecipeService } from '~/services/recipes/recipe.service';
+import { UnpublishService } from '~/services/publish/unpublish.service';
+import type { AdminApiContext } from '~/types/shopify';
 
 /**
  * Drift-closure gate (plan 1b) for NEW writes. A spec's per-type enum fields
@@ -275,6 +278,7 @@ export class ModuleService {
     }
   }
 
+  /** DB pointer flip ONLY — never call directly for a live rollback; RollbackService republishes first. */
   async rollbackToVersion(shopDomain: string, moduleId: string, version: number) {
     const prisma = getPrisma();
     const mv = await prisma.moduleVersion.findFirst({
@@ -285,12 +289,53 @@ export class ModuleService {
     return mv;
   }
 
+  /** WS-E: DB half of unpublish — Shopify cleanup is UnpublishService's job and MUST
+   *  run first (routes own the ordering). */
+  async markUnpublished(shopDomain: string, moduleId: string) {
+    const prisma = getPrisma();
+    const module = await prisma.module.findFirst({ where: { id: moduleId, shop: { shopDomain } } });
+    if (!module) throw new Error('Module not found');
+    await prisma.moduleVersion.updateMany({
+      where: { moduleId, status: 'PUBLISHED' },
+      data: { status: 'UNPUBLISHED' },
+    });
+    await prisma.module.update({ where: { id: moduleId }, data: { status: 'DRAFT', activeVersionId: null } });
+  }
+
+  /** DB-only — use unpublishThenDelete wherever an admin client exists. */
   async deleteModule(shopDomain: string, moduleId: string) {
     const prisma = getPrisma();
     const module = await prisma.module.findFirst({
       where: { id: moduleId, shop: { shopDomain } },
     });
     if (!module) throw new Error('Module not found');
+    await prisma.module.delete({ where: { id: moduleId } });
+  }
+
+  /** WS-E: deleting a published module must not leave its metaobject rendering
+   *  forever — Shopify cleanup runs first; only then do DB rows go. A cleanup
+   *  failure aborts the delete (retryable; unpublish is idempotent). */
+  async unpublishThenDelete(admin: AdminApiContext['admin'], shopDomain: string, moduleId: string) {
+    const prisma = getPrisma();
+    const module = await prisma.module.findFirst({
+      where: { id: moduleId, shop: { shopDomain } },
+      include: { versions: true, activeVersion: true, shop: { select: { id: true } } },
+    });
+    if (!module) throw new Error('Module not found');
+
+    const publishedVersion = module.activeVersion ?? module.versions.find((v) => v.status === 'PUBLISHED');
+    if (module.status === 'PUBLISHED') {
+      if (!publishedVersion) {
+        throw new Error(
+          `No published version found for published module ${moduleId} — refusing to delete without Shopify cleanup`,
+        );
+      }
+      const spec = new RecipeService().parse(publishedVersion.specJson);
+      const target: DeployTarget = spec.type.startsWith('theme.')
+        ? { kind: 'THEME', themeId: publishedVersion.targetThemeId ?? '', moduleId: module.id }
+        : { kind: 'PLATFORM', moduleId: module.id };
+      await new UnpublishService(admin, { shopId: module.shop.id }).unpublish(spec, target);
+    }
     await prisma.module.delete({ where: { id: moduleId } });
   }
 }

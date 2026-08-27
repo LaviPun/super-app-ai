@@ -1,4 +1,4 @@
-import type { RunContext, Expression, ValueOrTemplate } from '@superapp/core';
+import type { RunContext, Expression } from '@superapp/core';
 
 /**
  * Resolves a ValueOrTemplate against the current run context.

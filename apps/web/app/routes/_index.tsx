@@ -4,6 +4,7 @@ import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { sealAccessToken } from '~/services/shops/access-token.server';
 import { QuotaService } from '~/services/billing/quota.service';
+import { deriveEffectivePlan } from '~/services/billing/plan-status';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { CHART, Sparkline, StatStrip, StatusBadge, fmtNum, humanizeResource, titleCase } from '~/components/merchant/polaris';
 import { getCategoryDisplayLabel, getCategoryIcon } from '~/utils/type-label';
@@ -46,7 +47,7 @@ export async function loader({ request }: { request: Request }) {
     prisma.module.count({ where: { shopId: shopRow.id, status: 'PUBLISHED' } }),
     prisma.module.count({ where: { shopId: shopRow.id, status: 'DRAFT' } }),
     prisma.flowSchedule.count({ where: { shopId: shopRow.id } }),
-    prisma.appSubscription.findFirst({ where: { shopId: shopRow.id, status: 'ACTIVE' } }),
+    prisma.appSubscription.findUnique({ where: { shopId: shopRow.id } }),
     prisma.module.findMany({ where: { shopId: shopRow.id }, orderBy: { updatedAt: 'desc' }, take: 4, select: { id: true, name: true, category: true, status: true } }),
     quota.getUsageSummary(shopRow.id),
     prisma.moduleMetricsDaily.aggregate({ where: { shopId: shopRow.id, date: { gte: since30d } }, _sum: { impressions: true } }),
@@ -95,7 +96,7 @@ export async function loader({ request }: { request: Request }) {
       drafts: draftCount,
       schedules: scheduleCount,
       activeSchedules,
-      planName: sub?.planName ?? 'Free',
+      planName: deriveEffectivePlan(sub),
       workflowRuns: usage.used?.workflowRuns ?? 0,
       views30d: views30d._sum.impressions ?? 0,
     },

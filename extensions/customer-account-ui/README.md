@@ -67,7 +67,7 @@ the required context resolves to the literal content, never an error.
 | `subscription.nextOrderDate` / `status` | app-owned (via app proxy)               | — |
 
 Order/customer/returns/store-credit are read via the Customer Account GraphQL API
-(`fetch('shopify://customer-account/api/2026-04/graphql.json')`, auth automatic).
+(`fetch('shopify://customer-account/api/2026-07/graphql.json')`, auth automatic).
 The current order id (order-scoped targets) comes from the `shopify.order` global.
 Loyalty points and subscription data are app-owned and read through the app proxy.
 

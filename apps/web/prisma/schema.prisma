@@ -16,6 +16,7 @@ model Shop {
   shopDomain   String   @unique
   accessToken  String
   planTier     String   @default("UNKNOWN")
+  shopGid      String?  // gid://shopify/Shop/… — for Partner API activeSubscription lookups
   timezone     String?  // doc 24.4.1: plan_type (plus/non_plus) aligned via planTier
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -55,6 +56,24 @@ model Shop {
   flowDeadLetters FlowDeadLetter[]
   apiRateLimit ShopApiRateLimit?
   supportTickets SupportTicket[]
+  functionActivations FunctionActivation[]
+}
+
+/// WS-E: the Shopify activation object (automatic discount, delivery/payment
+/// customization, validation, fulfillment constraint rule, cart transform) that
+/// makes a deployed Function actually execute. One per shop per functionKey;
+/// republish updates in place, unpublish deletes.
+model FunctionActivation {
+  id            String   @id @default(cuid())
+  shopId        String
+  shop          Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  functionKey   String   // compiler FUNCTION_CONFIG_UPSERT key, e.g. "discountRules"
+  kind          String   // ActivationKind
+  activationGid String   // gid://shopify/DiscountAutomaticNode|DeliveryCustomization|...
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([shopId, functionKey])
 }
 
 model Recipe {
@@ -397,6 +416,8 @@ model AppSubscription {
   shop            Shop     @relation(fields: [shopId], references: [id])
   planName        String
   shopifySubId    String?
+  planHandle      String?   // App Pricing plan handle (free|starter|growth|pro); null = internal override / legacy
+  lastSyncedAt    DateTime? // last successful Partner API reconcile
   status          String   @default("ACTIVE") // ACTIVE | CANCELLED | EXPIRED
   trialEndsAt     DateTime?
   currentPeriodEnd DateTime?

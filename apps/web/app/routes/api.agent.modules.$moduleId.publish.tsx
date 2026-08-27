@@ -2,7 +2,8 @@ import { json } from '@remix-run/node';
 import { shopify } from '~/shopify.server';
 import { ModuleService } from '~/services/modules/module.service';
 import { RecipeService } from '~/services/recipes/recipe.service';
-import { PublishService } from '~/services/publish/publish.service';
+import { PublishService, PublishPartialFailureError, FunctionKeyAlreadyPublishedError } from '~/services/publish/publish.service';
+import { publishPartialFailureResponse } from '~/services/publish/publish-error-response.server';
 import { validateBeforePublish } from '~/services/publish/pre-publish-validator.server';
 import { CapabilityService } from '~/services/shopify/capability.service';
 import type { Capability, DeployTarget, ModuleType } from '@superapp/core';
@@ -15,8 +16,7 @@ import { JobService } from '~/services/jobs/job.service';
 import { PublishPolicyService } from '~/services/publish/publish-policy.service';
 import { runPublishPreflight } from '~/services/publish/publish-preflight.server';
 import { evaluateFeatureFlag, type FeatureFlagTopology } from '~/services/releases/feature-flags.server';
-import { ProgressivePublishService } from '~/services/releases/progressive-publish.server';
-import { getRecentPublishMetrics } from '~/services/releases/release-metrics.server';
+import { getThemeEmbedStatus } from '~/services/publish/embed-status.server';
 
 /**
  * Agent API: Publish a module to a theme or platform.
@@ -69,7 +69,7 @@ export async function action({
     ? { kind: 'THEME', themeId: body.themeId ?? '', moduleId }
     : { kind: 'PLATFORM', moduleId };
 
-  const preflight = await runPublishPreflight(admin, { isThemeModule });
+  const preflight = await runPublishPreflight(admin, { isThemeModule, moduleType: spec.type });
   if (!preflight.ok) {
     const error = preflight.error
       ? `Publish preflight failed: ${preflight.error}`
@@ -164,8 +164,6 @@ export async function action({
   }
 
   const jobs = new JobService();
-  const progressive = new ProgressivePublishService();
-  const canary = progressive.startCanary();
   const job = await jobs.create({
     shopId: shopRow?.id,
     type: 'PUBLISH',
@@ -173,15 +171,12 @@ export async function action({
       moduleId,
       target,
       source: 'agent_api',
-      progressiveStage: canary.stage,
-      progressiveDecision: canary.decision,
     },
   });
   await jobs.start(job.id);
 
   try {
-    const previouslyPublishedVersion = mod.versions.find((v) => v.status === 'PUBLISHED');
-    const publisher = new PublishService(admin);
+    const publisher = new PublishService(admin, { shop: session.shop, shopId: shopRow?.id });
     await publisher.publish(spec, target);
     await moduleService.markPublishedWithTransition({
       shopId: shopRow?.id,
@@ -200,23 +195,30 @@ export async function action({
       details: { target: target.kind, versionId: draft.id, source: 'agent_api' },
     }).catch(() => {/* non-fatal */});
 
-    const rolloutMetrics = await getRecentPublishMetrics({
-      shopId: shopRow?.id,
-      paths: ['/api/publish'],
-      windowMinutes: 30,
-    });
-    const progressiveDecision = progressive.evaluateRamp(rolloutMetrics);
-    if (progressiveDecision.decision === 'ABORT' && previouslyPublishedVersion) {
-      await moduleService.rollbackToVersion(
-        session.shop,
-        mod.id,
-        previouslyPublishedVersion.version
-      );
+    // WS-E finding 5: a successful publish does not by itself make a theme
+    // module render — the merchant also needs the app embed on. Advisory-only
+    // (getThemeEmbedStatus never throws), so this can never turn a real publish
+    // success into a reported failure.
+    let embedStatus: Awaited<ReturnType<typeof getThemeEmbedStatus>> | undefined;
+    if (isThemeModule) {
+      embedStatus = await getThemeEmbedStatus(admin, target.kind === 'THEME' ? target.themeId : undefined);
     }
 
-    return json({ ok: true, moduleId, versionId: draft.id, version: draft.version, target: target.kind });
+    return json({ ok: true, moduleId, versionId: draft.id, version: draft.version, target: target.kind, embedStatus });
   } catch (e) {
     await jobs.fail(job.id, e);
+    // WS-E finding 4: same structured guidance as api.publish.tsx — a partial
+    // failure here (this is the route the module-detail page's own
+    // Publish/Republish button actually calls) must not degrade to a flat
+    // error string. Shared helper keeps the two routes from drifting.
+    if (e instanceof PublishPartialFailureError) {
+      return publishPartialFailureResponse(e);
+    }
+    // WS-E final-review fix 1b: same-functionKey conflict is merchant-fixable
+    // (unpublish the other module first), not a server error — 409.
+    if (e instanceof FunctionKeyAlreadyPublishedError) {
+      return json({ error: e.message, code: e.code }, { status: 409 });
+    }
     const message = e instanceof Error ? e.message : 'Publish failed';
     return json({ error: message }, { status: 500 });
   }

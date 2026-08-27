@@ -33,7 +33,8 @@ import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import { AiProviderService } from '~/services/internal/ai-provider.service';
 import { ActivityLogService } from '~/services/activity/activity.service';
-import { BillingService, type BillingPlan } from '~/services/billing/billing.service';
+import { BillingService } from '~/services/billing/billing.service';
+import { deriveEffectivePlan, type BillingPlan } from '~/services/billing/plan-status';
 import { getAllPlanConfigs } from '~/services/billing/plan-config.service';
 import { RecipeService } from '~/services/recipes/recipe.service';
 import { compileRecipe } from '~/services/recipes/compiler';
@@ -387,7 +388,7 @@ export default function AdminStoreDetail() {
 
   const [tab, setTab] = useState('overview');
   const [planModal, setPlanModal] = useState(false);
-  const [planChoice, setPlanChoice] = useState(real?.planTier ?? 'FREE');
+  const [planChoice, setPlanChoice] = useState(deriveEffectivePlan(real?.subscription));
   const [providerChoice, setProviderChoice] = useState(real?.aiProviderOverrideId ?? '');
   const busy = fetcher.state !== 'idle';
 
@@ -420,7 +421,7 @@ export default function AdminStoreDetail() {
     id: real.id,
     domain: real.shopDomain,
     name: real.shopDomain.split('.')[0],
-    plan: real.planTier,
+    plan: deriveEffectivePlan(real.subscription),
     status: real.subscription?.status ?? 'ACTIVE',
     modules: real.modulesCount,
     published: real.publishedCount,
@@ -679,7 +680,7 @@ export default function AdminStoreDetail() {
       {planModal && (
         <Modal
           title="Change plan"
-          sub={s.name + ' — internal override (no Shopify billing)'}
+          sub={s.name + ' — internal override (no Shopify billing). Non-Enterprise overrides are temporary: the next billing sync from Shopify replaces them.'}
           onClose={() => setPlanModal(false)}
           footer={
             <>

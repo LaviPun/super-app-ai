@@ -53,7 +53,7 @@ describe('GUARDRAIL: every blueprint-catalog member is end-to-end deployable', (
           { type: member.moduleType } as RecipeSpec,
           // Blueprint members publish via BlueprintService.publishBlueprint, which
           // passes activationHandledByCoDeploy (it runs the activation mutations
-          // itself — activateCartTransform / ensureAutomaticBundleDiscount).
+          // itself — activateCartTransform / ActivationService.ensureForFunctionKey).
           { deployedExtensions: deployed, activationHandledByCoDeploy: true },
         );
         expect(

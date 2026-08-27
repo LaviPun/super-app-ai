@@ -1,216 +1,76 @@
 /**
- * Unit tests for the paid-billing path: BillingService.createSubscription.
- *
- * A bug here mischarges paying merchants, so we assert the exact GraphQL
- * mutation variables (name, line-item pricing, returnUrl), the trialDays
- * handling (present when >0, null when 0), and the `test` flag wiring to
- * isBillingTestModeEnabled — plus userError / top-level-error surfacing.
- *
- * All I/O is mocked: no Shopify network call, no DB.
+ * BillingService after the App Pricing migration: no charge creation —
+ * Shopify owns charging. What's left: subscription reads, internal plan
+ * override (which must NOT touch Shop.planTier — that's the Shopify shop
+ * plan, not the billing plan).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ─── hoisted mocks ────────────────────────────────────────────────────────────
-
-const hoisted = vi.hoisted(() => {
-  const upsert = vi.fn(async () => ({}));
-  const update = vi.fn(async () => ({}));
-  const getPlanConfig = vi.fn();
-  const isBillingTestModeEnabled = vi.fn(() => false);
-  return { upsert, update, getPlanConfig, isBillingTestModeEnabled };
-});
+const hoisted = vi.hoisted(() => ({
+  upsert: vi.fn(async () => ({})),
+  updateMany: vi.fn(async () => ({})),
+  findUnique: vi.fn(async () => ({ planName: 'GROWTH', status: 'ACTIVE' })),
+  shopUpdate: vi.fn(async () => ({})),
+}));
 
 vi.mock('~/db.server', () => ({
   getPrisma: () => ({
-    appSubscription: { upsert: hoisted.upsert, updateMany: vi.fn(), findUnique: vi.fn() },
-    shop: { update: hoisted.update },
+    appSubscription: {
+      upsert: hoisted.upsert,
+      updateMany: hoisted.updateMany,
+      findUnique: hoisted.findUnique,
+    },
+    shop: { update: hoisted.shopUpdate },
   }),
 }));
 
-vi.mock('~/services/billing/plan-config.service', () => ({
-  getPlanConfig: hoisted.getPlanConfig,
-}));
+import { BillingService, deriveEffectivePlan } from '~/services/billing/billing.service';
 
-vi.mock('~/env.server', () => ({
-  isBillingTestModeEnabled: hoisted.isBillingTestModeEnabled,
-}));
+beforeEach(() => vi.clearAllMocks());
 
-import { BillingService, type PlanConfig } from '~/services/billing/billing.service';
+describe('deriveEffectivePlan', () => {
+  it('reads the plan off an ACTIVE subscription', () => {
+    expect(deriveEffectivePlan({ planName: 'GROWTH', status: 'ACTIVE' })).toBe('GROWTH');
+  });
 
-// ─── helpers ──────────────────────────────────────────────────────────────────
+  it('falls back to FREE when the subscription is not ACTIVE (stale CANCELLED/EXPIRED row)', () => {
+    expect(deriveEffectivePlan({ planName: 'GROWTH', status: 'CANCELLED' })).toBe('FREE');
+    expect(deriveEffectivePlan({ planName: 'PRO', status: 'EXPIRED' })).toBe('FREE');
+  });
 
-function makeConfig(over: Partial<PlanConfig> = {}): PlanConfig {
-  return {
-    name: 'STARTER',
-    displayName: 'Starter',
-    price: 19,
-    trialDays: 14,
-    quotas: {
-      aiRequestsPerMonth: 200,
-      publishOpsPerMonth: 50,
-      workflowRunsPerMonth: 1000,
-      connectorCallsPerMonth: 5000,
-      modulesTotal: 20,
-    },
-    ...over,
-  };
-}
-
-/** Build a fake admin whose graphql() returns the given JSON response. */
-function makeAdmin(response: unknown) {
-  const graphql = vi.fn(async () => ({ json: async () => response }));
-  return { admin: { graphql } as any, graphql };
-}
-
-function okResponse(over: Record<string, unknown> = {}) {
-  return {
-    data: {
-      appSubscriptionCreate: {
-        appSubscription: { id: 'gid://shopify/AppSubscription/1', status: 'PENDING' },
-        confirmationUrl: 'https://shop.myshopify.com/confirm/1',
-        userErrors: [],
-        ...over,
-      },
-    },
-  };
-}
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  hoisted.isBillingTestModeEnabled.mockReturnValue(false);
-});
-
-// ─── free plan: no Shopify charge ───────────────────────────────────────────────
-
-describe('createSubscription — free plan', () => {
-  it('records the subscription and skips the GraphQL charge', async () => {
-    hoisted.getPlanConfig.mockResolvedValue(makeConfig({ name: 'FREE', displayName: 'Free', price: 0, trialDays: 0 }));
-    const { admin, graphql } = makeAdmin(okResponse());
-    const svc = new BillingService();
-
-    const res = await svc.createSubscription(admin, 'shop_1', 'FREE', 'https://return.example/app');
-
-    expect(graphql).not.toHaveBeenCalled();
-    expect(res).toEqual({ confirmationUrl: 'https://return.example/app', subscriptionId: 'free' });
-    expect(hoisted.upsert).toHaveBeenCalledTimes(1);
+  it('falls back to FREE when there is no subscription row at all', () => {
+    expect(deriveEffectivePlan(null)).toBe('FREE');
+    expect(deriveEffectivePlan(undefined)).toBe('FREE');
   });
 });
 
-// ─── paid plan: mutation variables ──────────────────────────────────────────────
-
-describe('createSubscription — paid plan mutation variables', () => {
-  it('sends name, USD recurring line item at the plan price, and returnUrl', async () => {
-    hoisted.getPlanConfig.mockResolvedValue(makeConfig({ displayName: 'Growth', price: 79, trialDays: 14 }));
-    const { admin, graphql } = makeAdmin(okResponse());
-    const svc = new BillingService();
-
-    await svc.createSubscription(admin, 'shop_1', 'GROWTH', 'https://return.example/app');
-
-    expect(graphql).toHaveBeenCalledTimes(1);
-    const [, opts] = graphql.mock.calls[0] as unknown as [string, { variables: any }];
-    const v = opts.variables;
-    expect(v.name).toBe('SuperApp Growth');
-    expect(v.returnUrl).toBe('https://return.example/app');
-    expect(v.lineItems).toHaveLength(1);
-    const pricing = v.lineItems[0].plan.appRecurringPricingDetails;
-    expect(pricing.price).toEqual({ amount: '79.00', currencyCode: 'USD' });
-    expect(pricing.interval).toBe('EVERY_30_DAYS');
+describe('BillingService (App Pricing model)', () => {
+  it('no longer exposes a charge-creation path', () => {
+    expect((BillingService.prototype as unknown as Record<string, unknown>).createSubscription).toBeUndefined();
   });
 
-  it('formats the price with two decimals (toFixed)', async () => {
-    hoisted.getPlanConfig.mockResolvedValue(makeConfig({ price: 299 }));
-    const { admin, graphql } = makeAdmin(okResponse());
-    await new BillingService().createSubscription(admin, 'shop_1', 'PRO', 'https://r');
-    const [, opts] = graphql.mock.calls[0] as unknown as [string, { variables: any }];
-    expect(opts.variables.lineItems[0].plan.appRecurringPricingDetails.price.amount).toBe('299.00');
-  });
-});
-
-// ─── trialDays ──────────────────────────────────────────────────────────────────
-
-describe('createSubscription — trialDays', () => {
-  it('passes trialDays when the plan has a positive trial', async () => {
-    hoisted.getPlanConfig.mockResolvedValue(makeConfig({ trialDays: 14 }));
-    const { admin, graphql } = makeAdmin(okResponse());
-    await new BillingService().createSubscription(admin, 'shop_1', 'STARTER', 'https://r');
-    const [, opts] = graphql.mock.calls[0] as unknown as [string, { variables: any }];
-    expect(opts.variables.trialDays).toBe(14);
-  });
-
-  it('sends null (not 0) when the plan has no trial', async () => {
-    hoisted.getPlanConfig.mockResolvedValue(makeConfig({ trialDays: 0 }));
-    const { admin, graphql } = makeAdmin(okResponse());
-    await new BillingService().createSubscription(admin, 'shop_1', 'STARTER', 'https://r');
-    const [, opts] = graphql.mock.calls[0] as unknown as [string, { variables: any }];
-    expect(opts.variables.trialDays).toBeNull();
-  });
-});
-
-// ─── test flag ──────────────────────────────────────────────────────────────────
-
-describe('createSubscription — test flag', () => {
-  it('sets test:true when billing test mode is enabled', async () => {
-    hoisted.isBillingTestModeEnabled.mockReturnValue(true);
-    hoisted.getPlanConfig.mockResolvedValue(makeConfig());
-    const { admin, graphql } = makeAdmin(okResponse());
-    await new BillingService().createSubscription(admin, 'shop_1', 'STARTER', 'https://r');
-    const [, opts] = graphql.mock.calls[0] as unknown as [string, { variables: any }];
-    expect(opts.variables.test).toBe(true);
-  });
-
-  it('sets test:false when billing test mode is disabled (real charge)', async () => {
-    hoisted.isBillingTestModeEnabled.mockReturnValue(false);
-    hoisted.getPlanConfig.mockResolvedValue(makeConfig());
-    const { admin, graphql } = makeAdmin(okResponse());
-    await new BillingService().createSubscription(admin, 'shop_1', 'STARTER', 'https://r');
-    const [, opts] = graphql.mock.calls[0] as unknown as [string, { variables: any }];
-    expect(opts.variables.test).toBe(false);
-  });
-});
-
-// ─── success result + recording ─────────────────────────────────────────────────
-
-describe('createSubscription — success', () => {
-  it('returns the confirmationUrl + subscriptionId and records the sub', async () => {
-    hoisted.getPlanConfig.mockResolvedValue(makeConfig());
-    const { admin } = makeAdmin(okResponse());
-    const res = await new BillingService().createSubscription(admin, 'shop_1', 'STARTER', 'https://r');
-    expect(res).toEqual({
-      confirmationUrl: 'https://shop.myshopify.com/confirm/1',
-      subscriptionId: 'gid://shopify/AppSubscription/1',
-    });
-    expect(hoisted.upsert).toHaveBeenCalledTimes(1);
-  });
-});
-
-// ─── error surfacing ────────────────────────────────────────────────────────────
-
-describe('createSubscription — errors', () => {
-  it('throws when appSubscriptionCreate returns userErrors', async () => {
-    hoisted.getPlanConfig.mockResolvedValue(makeConfig());
-    const { admin } = makeAdmin(
-      okResponse({ userErrors: [{ field: ['test'], message: 'Test charges not allowed on live app.' }], confirmationUrl: null, appSubscription: null })
+  it('setPlanForShop records the override without touching Shop.planTier', async () => {
+    await new BillingService().setPlanForShop('shop_1', 'ENTERPRISE');
+    expect(hoisted.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { shopId: 'shop_1' },
+        update: expect.objectContaining({ planName: 'ENTERPRISE', status: 'ACTIVE' }),
+      }),
     );
-    await expect(
-      new BillingService().createSubscription(admin, 'shop_1', 'STARTER', 'https://r')
-    ).rejects.toThrow('Test charges not allowed on live app.');
-    expect(hoisted.upsert).not.toHaveBeenCalled();
+    expect(hoisted.shopUpdate).not.toHaveBeenCalled();
   });
 
-  it('throws when the GraphQL response has top-level errors', async () => {
-    hoisted.getPlanConfig.mockResolvedValue(makeConfig());
-    const { admin } = makeAdmin({ errors: [{ message: 'Throttled' }] });
-    await expect(
-      new BillingService().createSubscription(admin, 'shop_1', 'STARTER', 'https://r')
-    ).rejects.toThrow('Throttled');
-    expect(hoisted.upsert).not.toHaveBeenCalled();
+  it('cancelSubscription marks the row CANCELLED', async () => {
+    await new BillingService().cancelSubscription('shop_1');
+    expect(hoisted.updateMany).toHaveBeenCalledWith({
+      where: { shopId: 'shop_1' },
+      data: { status: 'CANCELLED' },
+    });
   });
 
-  it('throws when neither a confirmationUrl nor a subscription id is returned', async () => {
-    hoisted.getPlanConfig.mockResolvedValue(makeConfig());
-    const { admin } = makeAdmin(okResponse({ confirmationUrl: null, appSubscription: null }));
-    await expect(
-      new BillingService().createSubscription(admin, 'shop_1', 'STARTER', 'https://r')
-    ).rejects.toThrow(/did not return a confirmation URL/);
+  it('getActiveSubscription reads the row by shopId', async () => {
+    const sub = await new BillingService().getActiveSubscription('shop_1');
+    expect(hoisted.findUnique).toHaveBeenCalledWith({ where: { shopId: 'shop_1' } });
+    expect(sub).toEqual({ planName: 'GROWTH', status: 'ACTIVE' });
   });
 });

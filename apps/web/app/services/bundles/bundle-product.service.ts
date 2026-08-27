@@ -220,48 +220,6 @@ const METAFIELDS_SET = `#graphql
   }
 `;
 
-// Idempotency lookup uses the `discountNodes` superset connection because it
-// reflects the write immediately — a search-index-backed connection lags for
-// several seconds after a create, so a back-to-back republish would miss the
-// just-created node and hit a "Title must be unique" error. DiscountCode* nodes
-// are filtered out by the __typename check.
-const DISCOUNT_NODES_QUERY = `#graphql
-  query SuperAppBundlePricingDiscountLookup {
-    discountNodes(first: 50) {
-      nodes {
-        id
-        discount { __typename ... on DiscountAutomaticApp { title } }
-      }
-    }
-  }
-`;
-
-const SHOPIFY_FUNCTIONS_QUERY = `#graphql
-  query SuperAppBundlePricingFunctionLookup {
-    shopifyFunctions(first: 50) {
-      nodes { id apiType title handle }
-    }
-  }
-`;
-
-/**
- * Stable handle of the superapp-discount extension (extensions/superapp-discount/
- * shopify.extension.toml). On API 2026-04 the unified Discounts API reports this
- * function's `apiType` as `discount` (NOT the legacy `product_discounts`), and the
- * shop also carries a second `discount`-type function (superapp-shipping-discount),
- * so we key off the extension handle to bind the discount node to the right wasm.
- */
-const DISCOUNT_FUNCTION_HANDLE = 'discount-function';
-
-const DISCOUNT_AUTOMATIC_APP_CREATE = `#graphql
-  mutation SuperAppBundlePricingDiscountCreate($discount: DiscountAutomaticAppInput!) {
-    discountAutomaticAppCreate(automaticAppDiscount: $discount) {
-      automaticAppDiscount { discountId }
-      userErrors { message }
-    }
-  }
-`;
-
 export class BundleProductService {
   constructor(private readonly admin: AdminClient) {}
 
@@ -397,55 +355,6 @@ export class BundleProductService {
       ...config,
       rules: [...unmanaged, ...rules],
     });
-  }
-
-  /**
-   * Idempotently ensure the automatic app discount node that activates the
-   * superapp-discount function for bundle pricing. Title-keyed lookup first;
-   * creates via discountAutomaticAppCreate when absent. Requires write_discounts
-   * (already in shopify.app.toml scopes). Returns the discount node GID.
-   */
-  async ensureAutomaticBundleDiscount(): Promise<string> {
-    const TITLE = 'SuperApp Bundle Pricing';
-    const lookup = await this.graphqlJson<{
-      discountNodes: {
-        nodes: Array<{ id: string; discount: { __typename: string; title?: string } }>;
-      };
-    }>(DISCOUNT_NODES_QUERY);
-    const existing = (lookup.data?.discountNodes?.nodes ?? []).find(
-      (n) => n.discount.__typename === 'DiscountAutomaticApp' && n.discount.title === TITLE,
-    );
-    if (existing) return existing.id;
-
-    const fns = await this.graphqlJson<{
-      shopifyFunctions: { nodes: Array<{ id: string; apiType: string; title: string; handle: string }> };
-    }>(SHOPIFY_FUNCTIONS_QUERY);
-    const fn = (fns.data?.shopifyFunctions?.nodes ?? []).find((n) => n.handle === DISCOUNT_FUNCTION_HANDLE);
-    if (!fn) throw new Error(`superapp-discount function not deployed (no function with handle "${DISCOUNT_FUNCTION_HANDLE}" found)`);
-
-    const created = await this.graphqlJson<{
-      discountAutomaticAppCreate: {
-        automaticAppDiscount?: { discountId: string };
-        userErrors: Array<{ message: string }>;
-      };
-    }>(DISCOUNT_AUTOMATIC_APP_CREATE, {
-      discount: {
-        title: TITLE,
-        functionId: fn.id,
-        // API 2026-04 unified Discounts: functions on the `discounts` apiType MUST
-        // declare their discountClasses. superapp-discount targets
-        // cart.lines.discounts.generate.run → PRODUCT (per-line) discounts.
-        discountClasses: ['PRODUCT'],
-        startsAt: new Date().toISOString(),
-        combinesWith: { orderDiscounts: false, productDiscounts: false, shippingDiscounts: true },
-      },
-    });
-    const result = created.data?.discountAutomaticAppCreate;
-    const err = result?.userErrors?.[0];
-    if (err) throw new Error(`discountAutomaticAppCreate failed: ${err.message}`);
-    const id = result?.automaticAppDiscount?.discountId;
-    if (!id) throw new Error('discountAutomaticAppCreate returned no id');
-    return id;
   }
 
   /** Write an app-owned ($app namespace) json metafield on an owner resource. */

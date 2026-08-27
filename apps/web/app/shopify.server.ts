@@ -6,7 +6,7 @@ import { initOtel } from '~/services/observability/otel.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
 
 initOtel();
-const SHOPIFY_API_VERSION = '2026-04';
+const SHOPIFY_API_VERSION = '2026-07';
 
 if (process.env.NODE_ENV !== 'test') validateEnv();
 
@@ -29,6 +29,13 @@ const shopify = shopifyApp({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   sessionStorage: getSessionStorage() as any,
   distribution: AppDistribution.AppStore,
+  // Managed installation + token exchange: no OAuth redirect dance for the
+  // embedded app. Requires use_legacy_install_flow = false in
+  // shopify.app.production.toml (already set). Flag name is stable through
+  // shopify-app-remix v5.
+  future: {
+    unstable_newEmbeddedAuthStrategy: true,
+  },
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),
@@ -37,7 +44,7 @@ const shopify = shopifyApp({
 export default shopify;
 export { shopify };
 export const apiVersion = SHOPIFY_API_VERSION;
-// HTML document headers are emitted via boundary.headers in app/root.tsx.
+// Document response headers (per-shop CSP) are applied in app/entry.server.tsx via applySecurityHeaders.
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
 export const authenticate = shopify.authenticate;
 export const unauthenticated = shopify.unauthenticated;

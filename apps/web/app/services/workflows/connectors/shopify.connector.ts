@@ -423,7 +423,6 @@ export class ShopifyConnector implements Connector {
     timeoutMs: number,
     variables?: Record<string, unknown>,
   ): Promise<InvokeResult> {
-    const start = Date.now();
     const res = await this.graphqlInternal(url, headers, query, timeoutMs, variables);
     if (!res.ok) return res.result;
     return connectorSuccess(res.body as Record<string, unknown>, {

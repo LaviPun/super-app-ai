@@ -43,9 +43,6 @@ const hoisted = vi.hoisted(() => ({
   jobStart: vi.fn(async () => {}),
   jobSucceed: vi.fn(async () => {}),
   jobFail: vi.fn(async () => {}),
-  startCanary: vi.fn(() => ({ stage: 'canary', decision: 'PROCEED' })),
-  evaluateRamp: vi.fn(() => ({ decision: 'CONTINUE' })),
-  getRecentPublishMetrics: vi.fn(async () => ({})),
 }));
 
 vi.mock('~/shopify.server', () => ({
@@ -106,15 +103,6 @@ vi.mock('~/services/publish/publish-preflight.server', () => ({
 }));
 vi.mock('~/services/releases/feature-flags.server', () => ({
   evaluateFeatureFlag: hoisted.evaluateFeatureFlag,
-}));
-vi.mock('~/services/releases/progressive-publish.server', () => ({
-  ProgressivePublishService: class {
-    startCanary = hoisted.startCanary;
-    evaluateRamp = hoisted.evaluateRamp;
-  },
-}));
-vi.mock('~/services/releases/release-metrics.server', () => ({
-  getRecentPublishMetrics: hoisted.getRecentPublishMetrics,
 }));
 
 function createRequest() {

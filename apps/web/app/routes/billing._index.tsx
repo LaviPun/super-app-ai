@@ -1,15 +1,14 @@
 import { json } from '@remix-run/node';
-import { useLoaderData, useFetcher } from '@remix-run/react';
-import { useEffect, useState } from 'react';
+import { useLoaderData } from '@remix-run/react';
 import { shopify } from '~/shopify.server';
-import { BillingService, type BillingPlan } from '~/services/billing/billing.service';
+import { BillingService } from '~/services/billing/billing.service';
+import { buildManagePlanUrl } from '~/services/billing/plan-handles';
 import { getAllPlanConfigs } from '~/services/billing/plan-config.service';
 import { QuotaService } from '~/services/billing/quota.service';
 import { getPrisma } from '~/db.server';
 import { sealAccessToken } from '~/services/shops/access-token.server';
-import { ActivityLogService } from '~/services/activity/activity.service';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { ConfirmModal, LearnMore, Progress, fmtNum, fmtQuota, titleCase } from '~/components/merchant/polaris';
+import { LearnMore, Progress, fmtNum, fmtQuota, titleCase } from '~/components/merchant/polaris';
 
 
 export async function loader({ request }: { request: Request }) {
@@ -31,74 +30,32 @@ export async function loader({ request }: { request: Request }) {
     quota.getUsageSummary(shopRow.id),
     getAllPlanConfigs(),
   ]);
-  return json({ shopId: shopRow.id, sub, usage, plans });
-}
-
-export async function action({ request }: { request: Request }) {
-  const { session, admin } = await shopify.authenticate.admin(request);
-  const prisma = getPrisma();
-  const shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
-  if (!shopRow) throw new Response('Shop not found', { status: 404 });
-
-  const form = await request.formData();
-  const planRaw = String(form.get('plan') ?? 'STARTER');
-  const ALLOWED_PLANS: BillingPlan[] = ['FREE', 'STARTER', 'GROWTH', 'PRO', 'ENTERPRISE'];
-  if (!ALLOWED_PLANS.includes(planRaw as BillingPlan)) {
-    return json({ error: `Unknown plan: ${planRaw}` }, { status: 400 });
-  }
-  const plan = planRaw as BillingPlan;
-
-  const billing = new BillingService();
-  const returnUrl = `${process.env.SHOPIFY_APP_URL}/billing`;
-
-  try {
-    const config = await billing.getPlanConfig(plan);
-    if (config.price < 0) {
-      // "Contact us" plans can't be self-served — otherwise createSubscription
-      // would record them without any Shopify charge.
-      return json({ error: `${config.displayName} plans are set up by our team — reach out via the Help page.` }, { status: 400 });
-    }
-    const { confirmationUrl } = await billing.createSubscription(admin, shopRow.id, plan, returnUrl);
-    await new ActivityLogService().log({ actor: 'MERCHANT', action: 'BILLING_PLAN_CHANGED', shopId: shopRow.id, details: { plan } });
-    if (confirmationUrl && confirmationUrl !== returnUrl) {
-      return json({ confirmationUrl });
-    }
-    return json({ ok: true, message: `Plan changed to ${config.displayName}.` });
-  } catch (e) {
-    return json({ error: String(e) }, { status: 500 });
-  }
+  return json({
+    shopId: shopRow.id,
+    sub,
+    usage,
+    plans,
+    managePlanUrl: buildManagePlanUrl(session.shop),
+  });
 }
 
 const USAGE_ICON: Record<string, string> = { aiRequests: 'wand', publishOps: 'rocket', workflowRuns: 'automation', connectorCalls: 'connect' };
 
 export default function BillingPage() {
-  const { sub, usage, plans } = useLoaderData<typeof loader>();
+  const { sub, usage, plans, managePlanUrl } = useLoaderData<typeof loader>();
   return (
     <MerchantShell polaris>
-      <BillingBody sub={sub} usage={usage} plans={plans} />
+      <BillingBody sub={sub} usage={usage} plans={plans} managePlanUrl={managePlanUrl} />
     </MerchantShell>
   );
 }
 
-function BillingBody({ sub, usage, plans }: any) {
+function BillingBody({ sub, usage, plans, managePlanUrl }: any) {
   const ctx = useMerchantCtx();
-  const changeFetcher = useFetcher<{ confirmationUrl?: string; error?: string; ok?: boolean; message?: string }>();
-  const current = (sub?.planName ?? 'FREE').toUpperCase();
+  // Mirrors Task 6's enforcement rule: a non-ACTIVE subscription means FREE,
+  // regardless of what planName is stored on the row.
+  const current = sub?.status === 'ACTIVE' ? (sub?.planName ?? 'FREE') : 'FREE';
   const currentPlan = plans.find((p: any) => p.name === current);
-  // Plan currently being submitted (so only that card's button shows a spinner).
-  const pendingPlan = changeFetcher.state !== 'idle' ? changeFetcher.formData?.get('plan') : null;
-
-  useEffect(() => {
-    if (changeFetcher.data?.confirmationUrl) {
-      // Navigate the top-level window to Shopify's managed-pricing confirmation.
-      if (typeof window !== 'undefined') window.open(changeFetcher.data.confirmationUrl, '_top');
-    } else if (changeFetcher.data?.error) {
-      ctx.toast(changeFetcher.data.error, { error: true });
-    } else if (changeFetcher.data?.ok) {
-      ctx.toast(changeFetcher.data.message || 'Plan updated');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [changeFetcher.data]);
 
   const usageRows: [string, string, number, number][] = [
     ['AI generations', 'aiRequests', usage.used.aiRequests, usage.quotas.aiRequestsPerMonth],
@@ -106,18 +63,6 @@ function BillingBody({ sub, usage, plans }: any) {
     ['Workflow runs', 'workflowRuns', usage.used.workflowRuns, usage.quotas.workflowRunsPerMonth],
     ['Connector calls', 'connectorCalls', usage.used.connectorCalls, usage.quotas.connectorCallsPerMonth],
   ];
-
-  const changePlan = (name: string) => {
-    changeFetcher.submit({ plan: name }, { method: 'post' });
-  };
-
-  // Downgrades lose quota immediately — never let that happen on a single click.
-  const [downgradeTo, setDowngradeTo] = useState<any | null>(null);
-  const requestPlanChange = (p: any) => {
-    const isDowngrade = currentPlan && p.price !== -1 && currentPlan.price !== -1 && p.price < currentPlan.price;
-    if (isDowngrade) setDowngradeTo(p);
-    else changePlan(p.name);
-  };
 
   return (
     <s-page heading="Plan & usage" inlineSize="base">
@@ -160,7 +105,9 @@ function BillingBody({ sub, usage, plans }: any) {
             </s-stack>
             <s-divider />
             <s-stack gap="small-100">
-              <s-button variant="primary" onClick={() => document.getElementById('billing-plans')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Change plan</s-button>
+              {managePlanUrl && (
+                <s-button variant="primary" onClick={() => window.open(managePlanUrl, '_top')}>Manage plan</s-button>
+              )}
               <s-button variant="secondary" icon="receipt" onClick={() => ctx.go('#/app/billing/history')}>Billing history</s-button>
             </s-stack>
           </s-stack>
@@ -168,6 +115,7 @@ function BillingBody({ sub, usage, plans }: any) {
       </s-grid>
 
       <s-section id="billing-plans" heading="Plans">
+        <s-paragraph color="subdued">Plans are billed by Shopify. Select or change your plan on the Shopify-hosted pricing page.</s-paragraph>
         <s-grid gridTemplateColumns="repeat(4, 1fr)" gap="base">
           {plans.filter((p: any) => p.name !== 'FREE').map((p: any) => (
             <s-box key={p.name} padding="base" border="base" borderRadius="base" background={p.name === current ? 'subdued' : undefined}>
@@ -187,39 +135,17 @@ function BillingBody({ sub, usage, plans }: any) {
                   ))}
                 </s-stack>
                 {p.name === current
-                  ? <s-button disabled>Current plan</s-button>
+                  ? <s-badge tone="success">Current</s-badge>
                   : p.price === -1
                     ? <s-button onClick={() => ctx.go('#/app/help')}>Contact us</s-button>
-                    : <s-button variant={p.name === 'PRO' ? 'primary' : 'secondary'} loading={pendingPlan === p.name || undefined} onClick={() => requestPlanChange(p)}>{`Choose ${titleCase(p.name)}`}</s-button>}
+                    : managePlanUrl && (
+                        <s-button variant="secondary" onClick={() => window.open(managePlanUrl, '_top')}>Manage plan</s-button>
+                      )}
               </s-stack>
             </s-box>
           ))}
         </s-grid>
       </s-section>
-
-      <ConfirmModal
-        open={!!downgradeTo}
-        heading={downgradeTo ? `Switch to ${titleCase(downgradeTo.name)}?` : 'Switch plan?'}
-        confirmLabel="Switch plan"
-        tone="critical"
-        loading={changeFetcher.state !== 'idle' || undefined}
-        onConfirm={() => { if (downgradeTo) { changePlan(downgradeTo.name); setDowngradeTo(null); } }}
-        onClose={() => setDowngradeTo(null)}
-      >
-        {downgradeTo && currentPlan && (
-          <s-stack gap="small-100">
-            <s-paragraph>
-              {`Downgrading from ${titleCase(current)} to ${titleCase(downgradeTo.name)} lowers your monthly limits immediately:`}
-            </s-paragraph>
-            <s-stack gap="none">
-              <s-text tone="neutral" color="subdued">{`AI generations: ${fmtQuota(currentPlan.quotas.aiRequestsPerMonth)} → ${fmtQuota(downgradeTo.quotas.aiRequestsPerMonth)}`}</s-text>
-              <s-text tone="neutral" color="subdued">{`Publishes: ${fmtQuota(currentPlan.quotas.publishOpsPerMonth)} → ${fmtQuota(downgradeTo.quotas.publishOpsPerMonth)}`}</s-text>
-              <s-text tone="neutral" color="subdued">{`Workflow runs: ${fmtQuota(currentPlan.quotas.workflowRunsPerMonth)} → ${fmtQuota(downgradeTo.quotas.workflowRunsPerMonth)}`}</s-text>
-              <s-text tone="neutral" color="subdued">{`Connector calls: ${fmtQuota(currentPlan.quotas.connectorCallsPerMonth)} → ${fmtQuota(downgradeTo.quotas.connectorCallsPerMonth)}`}</s-text>
-            </s-stack>
-          </s-stack>
-        )}
-      </ConfirmModal>
     </s-page>
   );
 }

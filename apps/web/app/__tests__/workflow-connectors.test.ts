@@ -4,7 +4,7 @@ import { SuperAppConnector } from '~/services/workflows/connectors/superapp.conn
 import { ShopifyConnector } from '~/services/workflows/connectors/shopify.connector';
 
 vi.mock('~/shopify-api.server', () => ({
-  adminGraphqlUrl: () => 'https://test.myshopify.com/admin/api/2026-04/graphql.json',
+  adminGraphqlUrl: () => 'https://test.myshopify.com/admin/api/2026-07/graphql.json',
 }));
 
 const req = (operation: string, inputs: Record<string, unknown>): InvokeRequest => ({

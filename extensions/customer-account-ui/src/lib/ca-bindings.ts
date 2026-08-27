@@ -8,7 +8,7 @@
  * Data sources
  * ────────────
  * - Order / customer / returns / store-credit / subscription → the Customer
- *   Account GraphQL API via `fetch('shopify://customer-account/api/2026-04/graphql.json')`
+ *   Account GraphQL API via `fetch('shopify://customer-account/api/2026-07/graphql.json')`
  *   (auth handled automatically; gated app-wide by the customer_read_* protected
  *   customer-data scopes). See README for the scope matrix.
  * - Loyalty points → app-owned (our DB), read through the app proxy. Store-credit
@@ -21,7 +21,7 @@
  */
 import type { CaBinding } from './ca-content';
 
-const CA_GRAPHQL_URL = 'shopify://customer-account/api/2026-04/graphql.json';
+const CA_GRAPHQL_URL = 'shopify://customer-account/api/2026-07/graphql.json';
 
 /** Minimal, defensive view of the customer-account `shopify` global. */
 type CaGlobal = {

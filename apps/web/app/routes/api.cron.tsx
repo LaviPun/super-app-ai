@@ -14,6 +14,7 @@ import { FlowRunnerService } from '~/services/flows/flow-runner.service';
 import { MessagingRunnerService } from '~/services/messaging/messaging-runner.service';
 import { HttpSyncRunnerService } from '~/services/integration/http-sync-runner.service';
 import { WorkflowEngineService } from '~/services/workflows/workflow-engine.service';
+import { PlanSyncService } from '~/services/billing/plan-sync.service';
 import { buildShopAuthResolver } from '~/services/flows/auth-resolver.server';
 import { runInternalAiAuditRetention } from '~/services/jobs/internal-ai-audit-retention.job';
 import { runInternalAiChatRetention } from '~/services/jobs/internal-ai-chat-retention.job';
@@ -145,6 +146,18 @@ export async function loader({ request }: { request: Request }) {
     logger.warn('[api.cron] httpSync dead-letter replay failed', safeErrorMeta(err));
   }
 
+  // App Pricing has no subscription webhooks: reconcile plan state (cancels,
+  // freezes, out-of-band changes) against the Partner API. Best-effort; own
+  // try/catch so a sweep failure never 500s the tick.
+  let planSyncSweep: { synced: number; failed: number } | null = null;
+  try {
+    const { synced, failed } = await new PlanSyncService().sweep();
+    planSyncSweep = { synced, failed };
+    if (synced || failed) logger.info('[api.cron] plan-sync sweep', { synced, failed });
+  } catch (err) {
+    logger.warn('[api.cron] plan-sync sweep failed', safeErrorMeta(err));
+  }
+
   // Bounded drain of post-uninstall cleanup jobs queued by the app/uninstalled webhook.
   let uninstallCleanup: MetaobjectCleanupDrainResult | null = null;
   try {
@@ -186,5 +199,5 @@ export async function loader({ request }: { request: Request }) {
     }
   }
 
-  return json({ ran: results.length, results, resumeSweep, httpSyncReplay, uninstallCleanup, auditRetention, chatRetention, loyaltyExpiry });
+  return json({ ran: results.length, results, resumeSweep, httpSyncReplay, uninstallCleanup, auditRetention, chatRetention, loyaltyExpiry, planSyncSweep });
 }

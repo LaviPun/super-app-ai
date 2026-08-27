@@ -28,6 +28,11 @@ export const DEPLOYED_FUNCTION_EXTENSION_HANDLES = [
   'superapp-payment-customization',
   'superapp-cart-checkout-validation',
   'superapp-fulfillment-constraints',
+  // Deployed via extension_directories (shopify.app.production.toml) — pinned by
+  // __tests__/deployed-manifest-consistency.test.ts. Their MODULE TYPES stay
+  // needs_runtime via ACTIVATION_WIRED_FUNCTION_TYPES until activation is wired.
+  'superapp-shipping-discount',
+  'superapp-order-routing',
 ] as const;
 
 /**
