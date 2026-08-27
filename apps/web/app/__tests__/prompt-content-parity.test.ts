@@ -31,9 +31,19 @@ import { buildHydratePrompt } from '~/services/ai/hydrate-prompt.server';
  * line, which the old code joined into a single string via `+` before
  * ever pushing it — changes line boundaries without changing content. A
  * word multiset catches any real drop/duplication/mutation while staying
- * tolerant of exactly the reordering and re-joining the plan's binding
- * constraint permits ("same information reaches the model; only
- * ordering/structure changes").
+ * tolerant of exactly the reordering and re-joining this batch performs.
+ *
+ * Note on the plan text: the plan's Global Constraints (line 24 of
+ * docs/superpowers/plans/2026-08-28-p2-a-generation-context.md) state
+ * "`CompiledPrompt.prompt` stays byte-identical to today's flat-string
+ * output" for any non-caching caller — but that specific sub-claim is not
+ * literally satisfiable alongside the plan's own Architecture section
+ * (line 7), which mandates reordering the prompt into a stable prefix +
+ * dynamic suffix for EVERY caller, Anthropic or not. Reordering necessarily
+ * changes the byte sequence. This was adjudicated (final whole-branch
+ * review, finding 1) as: content parity is what's actually required and
+ * guaranteed — semantic/word-multiset identity, proven here — not byte
+ * identity, which no implementation of the mandated split could achieve.
  */
 function sortedWords(s: string): string[] {
   return s.split(/\s+/).filter((w) => w.length > 0).sort();

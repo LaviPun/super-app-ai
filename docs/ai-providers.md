@@ -26,7 +26,7 @@ Other provider kinds in Internal Admin (e.g. Azure OpenAI, custom OpenAI-compati
 
 ### Prompt caching (P2-A)
 
-Anthropic legs (`anthropic-messages.client.server.ts`) use `cache_control` breakpoints behind `AI_PROMPT_CACHING_ENABLED` (default off) — see `docs/superpowers/plans/2026-08-28-p2-a-generation-context.md`. OpenAI/Gemini/OpenAI-compatible legs receive the exact same flat prompt string as before this change; neither client reads the new `cacheableChars` hint, so this is a strict no-op for those providers.
+Anthropic legs (`anthropic-messages.client.server.ts`) use `cache_control` breakpoints behind `AI_PROMPT_CACHING_ENABLED` (default off) — see `docs/superpowers/plans/2026-08-28-p2-a-generation-context.md`. All providers, including OpenAI/Gemini/OpenAI-compatible, now receive prompts with reordered blocks (the stable-prefix/dynamic-suffix split that makes Anthropic caching possible) — this is not byte-identical to the pre-P2-A flat string, but is semantically identical content: the same information reaches the model, only block order changed, pinned by the word-multiset parity test (`apps/web/app/__tests__/prompt-content-parity.test.ts`) against the pre-split base commit. `cache_control` itself, and the `cacheableChars` hint that drives it, are Anthropic-only — neither the OpenAI, OpenAI-compatible, nor Gemini client reads `cacheableChars`, so those legs see only the reordering, never a cache breakpoint.
 
 Provider-side automatic caching (Task 4 doc-verification spike, provider docs fetched 2026-08-28 — starting point for a future P2-D cost-optimization track):
 
