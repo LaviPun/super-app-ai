@@ -475,6 +475,27 @@ export function runRichnessQa(recipe: RecipeSpec, opts: RichnessQaOpts = {}): Qa
       }
     }
 
+    // 1d) advancedCustom-as-primary-content (WARN). config.advancedCustom.customHtml/
+    // customJs is intentionally NOT executed in the merchant's in-app preview
+    // (docs/generation.md §4 — sandboxed there, only live on the published
+    // storefront), so a module that builds substantial bespoke markup/behavior
+    // there renders as empty/minimal in the very surface the merchant judges it
+    // from — even though it may work fine once published. Heuristic, not
+    // structural: only fires when the escape hatch carries REAL content (not a
+    // short nudge) so a small enhancement snippet never trips it.
+    const advancedCustom = (config as { advancedCustom?: { customHtml?: unknown; customJs?: unknown } }).advancedCustom;
+    const customHtmlLen = typeof advancedCustom?.customHtml === 'string' ? advancedCustom.customHtml.trim().length : 0;
+    const customJsLen = typeof advancedCustom?.customJs === 'string' ? advancedCustom.customJs.trim().length : 0;
+    if (customHtmlLen > 150 || customJsLen > 150) {
+      issues.push({
+        id: 'richness.advancedCustom-primary',
+        severity: 'warn',
+        message:
+          'config.advancedCustom carries substantial custom HTML/JS, but it is NOT rendered in the merchant in-app preview (only on the live storefront after publish) — the merchant reviewing this module will see it as thin or broken. Prefer the matching structured field/pack (e.g. config.countdown for a live timer) so the preview shows the real content; keep advancedCustom for a small enhancement on top, not the primary implementation.',
+        autofixed: false,
+      });
+    }
+
     // 2) Basicness — only when there is a pack expectation to measure against.
     const expected = (opts.mustHaveControls ?? []).filter((ns) => ns && ns.length > 0);
     if (expected.length > 0) {
