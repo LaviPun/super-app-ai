@@ -97,7 +97,7 @@ describe('buildHydratePrompt', () => {
       requires: ['THEME_ASSETS'],
       config: { kind: 'popup', activation: 'overlay', fields: {}, blocks: [], title: 'Hi', body: '', trigger: 'ON_LOAD', delaySeconds: 0, frequency: 'ONCE_PER_DAY', maxShowsPerDay: 0, showOnPages: 'ALL', customPageUrls: [], autoCloseSeconds: 0, showCloseButton: true, countdownEnabled: false, countdownSeconds: 0, countdownLabel: '', ctaText: '', ctaUrl: '', secondaryCtaText: '',       secondaryCtaUrl: '' },
     } as Parameters<typeof buildHydratePrompt>[0];
-    const prompt = buildHydratePrompt(spec);
+    const { prompt } = buildHydratePrompt(spec);
     expect(prompt).toContain('theme.section');
     expect(prompt).toContain('Test Popup');
     expect(prompt).toContain('HydrateEnvelope');
@@ -106,7 +106,7 @@ describe('buildHydratePrompt', () => {
 
   it('includes merchant context and type-specific guidance when provided', () => {
     const spec = { type: 'theme.section', name: 'X', category: 'STOREFRONT_UI', requires: [], config: { kind: 'popup', activation: 'overlay' } } as unknown as Parameters<typeof buildHydratePrompt>[0];
-    const prompt = buildHydratePrompt(spec, { planTier: 'GROWTH', locale: 'fr' });
+    const { prompt } = buildHydratePrompt(spec, { planTier: 'GROWTH', locale: 'fr' });
     expect(prompt).toContain('plan=GROWTH');
     expect(prompt).toContain('locale=fr');
     expect(prompt).toMatch(/mobile fallback|Popup|Section/);
@@ -114,7 +114,7 @@ describe('buildHydratePrompt', () => {
 
   it('references version 1.0 and adminConfig in prompt', () => {
     const spec = { type: 'theme.section', name: 'B', category: 'STOREFRONT_UI', requires: [], config: {} } as unknown as Parameters<typeof buildHydratePrompt>[0];
-    const prompt = buildHydratePrompt(spec);
+    const { prompt } = buildHydratePrompt(spec);
     expect(prompt).toContain('"1.0"');
     expect(prompt).toContain('adminConfig');
   });

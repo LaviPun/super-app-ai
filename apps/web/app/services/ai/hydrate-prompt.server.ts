@@ -3,6 +3,7 @@
  * config envelope. Token-optimized to stay within provider rate limits (e.g. 10k input/min).
  */
 import type { RecipeSpec } from '@superapp/core';
+import type { CompiledPrompt } from '~/services/ai/llm.server';
 
 /** Compact group list to reduce prompt tokens; full semantics in schema. */
 const REQUIRED_GROUPS = 'content, layout, style, behavior, animation, visibility_targeting, rules_scheduling, localization, accessibility, performance, analytics';
@@ -22,12 +23,17 @@ function getTypeSpecificGuidance(spec: RecipeSpec): string {
   return '';
 }
 
-export function buildHydratePrompt(recipeSpec: RecipeSpec, merchantContext?: { planTier?: string; locale?: string }): string {
+export function buildHydratePrompt(recipeSpec: RecipeSpec, merchantContext?: { planTier?: string; locale?: string }): CompiledPrompt {
   const planTier = merchantContext?.planTier ?? 'STANDARD';
   const locale = merchantContext?.locale ?? 'en';
 
-  const parts: string[] = [
-    'Convert RecipeSpec → HydrateEnvelopeV1 (single JSON). Context: plan=' + planTier + ', locale=' + locale + '. Advanced toggles only for GROWTH+.',
+  // STABLE PREFIX: fixed shape instructions, deterministic given only
+  // (recipeSpec.type, recipeSpec.config.kind) — shared across every merchant
+  // hydrating a recipe of this (type, kind), and across plan tiers/locales too
+  // (those move to the end of the prefix rather than the front, so they don't
+  // fragment the cache key for a handful of low-cardinality values).
+  const stable: string[] = [
+    'Convert RecipeSpec → HydrateEnvelopeV1 (single JSON). Advanced toggles only for GROWTH+.',
     'Envelope version MUST be exactly "1.0".',
     'Rules: JSON only, no markdown.',
 
@@ -45,10 +51,17 @@ export function buildHydratePrompt(recipeSpec: RecipeSpec, merchantContext?: { p
 
     // ── adminConfig ──
     ENVELOPE_GROUPS + getTypeSpecificGuidance(recipeSpec),
+  ];
+  const stableText = stable.join('\n');
 
+  // DYNAMIC SUFFIX: per-shop plan/locale context (low-cardinality but still
+  // per-request), then the fully-unique RecipeSpec JSON, last.
+  const dynamic = [
+    `Context: plan=${planTier}, locale=${locale}.`,
     'RecipeSpec:',
     JSON.stringify(recipeSpec),
     'Output ONLY the JSON object.',
   ];
-  return parts.join('\n');
+
+  return { prompt: `${stableText}\n${dynamic.join('\n')}`, cacheableChars: stableText.length };
 }

@@ -2928,8 +2928,8 @@ export async function hydrateRecipeSpec(
   });
   const usage = new AiUsageService();
 
-  const prompt = buildHydratePrompt(recipeSpec, options?.merchantContext);
-  const wrappedPrompt = prompt + '\n\nOutput only the HydrateEnvelope JSON object.';
+  const compiled = buildHydratePrompt(recipeSpec, options?.merchantContext);
+  const wrappedPrompt = compiled.prompt + '\n\nOutput only the HydrateEnvelope JSON object.';
 
   // WS-C Task 12. Bumped after a TruncatedOutputError so the RETRY gets more
   // room — burning a second attempt at the SAME budget that just truncated
@@ -2963,6 +2963,7 @@ export async function hydrateRecipeSpec(
           // eliminates a whole class of retry-burning parse failures.
           responseSchema: getHydrateEnvelopeJsonSchema(),
           deadlineAt: options?.deadlineAt,
+          cacheableChars: compiled.cacheableChars,
         },
       ));
 
