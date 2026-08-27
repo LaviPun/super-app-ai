@@ -153,7 +153,7 @@ export function CommandPalette({ mode, onClose }: { mode: 'admin' | 'merchant'; 
         'div',
         { className: 'cmdk-head' },
         React.createElement(Icon, { name: 'search', size: 18, className: 't-muted' }),
-        React.createElement('input', { ref: inputRef, className: 'cmdk-input', placeholder: 'Search across stores, modules, jobs, logs, templates…', value: q, onChange: (e: any) => setQ(e.target.value) }),
+        React.createElement('input', { ref: inputRef, className: 'cmdk-input', placeholder: 'Jump to a page — Stores, Jobs, Logs, Templates… (or paste a correlation ID)', value: q, onChange: (e: any) => setQ(e.target.value) }),
         React.createElement('kbd', { className: 'kbd' }, 'Esc'),
       ),
       React.createElement(
