@@ -303,7 +303,18 @@ a.sa-m-strip-cell:focus-visible { outline: 2px solid #005bd3; outline-offset: -2
 .sa-m-gen-cand-tagline { font-size: 12.5px; color: #616161; line-height: 1.5; min-height: 36px; }
 .sa-m-gen-cand-tags { display: flex; flex-wrap: wrap; gap: 5px; }
 .sa-m-gen-cand-tag { font-size: 11px; color: #616161; background: #f6f6f7; border: 1px solid #e3e3e3; border-radius: 6px; padding: 3px 8px; }
-.sa-m-gen-cand-cta { display: flex; align-items: center; justify-content: space-between; margin-top: 2px; color: #005bd3; font-weight: 600; font-size: 13px; }
+.sa-m-gen-cand-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; }
+.sa-m-gen-cand-preview-btn { display: inline-flex; align-items: center; gap: 5px; font: inherit; font-size: 12.5px; font-weight: 600; color: #616161; background: #fff; border: 1px solid #e3e3e3; border-radius: 7px; padding: 5px 10px; cursor: pointer; transition: border-color .15s, color .15s; }
+.sa-m-gen-cand-preview-btn:hover { border-color: #005bd3; color: #005bd3; }
+.sa-m-gen-cand-preview-btn:focus-visible { outline: 2px solid #005bd3; outline-offset: 2px; }
+.sa-m-gen-cand-cta { display: flex; align-items: center; gap: 4px; color: #005bd3; font-weight: 600; font-size: 13px; }
+
+/* concept-card Preview modal (reuses the canvas preview frame at a smaller, fixed height) */
+.sa-m-gen-cand-preview-frame { border: 1px solid #e3e3e3; border-radius: 10px; overflow: hidden; background: #fff; }
+.sa-m-gen-cand-preview-live { min-height: 360px; max-height: 60vh; overflow-y: auto; }
+.sa-m-gen-cand-preview-live .sa-m-gen-pv-iframe { height: 360px; }
+.sa-m-gen-cand-preview-live .sa-m-gen-pv-msg { min-height: 360px; }
+.sa-m-gen-cand-preview-live .sa-m-gen-pv-json { max-height: 360px; }
 
 /* concept mini preview */
 .sa-m-gen-mini { position: relative; height: 148px; border-radius: 9px; overflow: hidden; background: #fff; border: 1px solid #e3e3e3; }
