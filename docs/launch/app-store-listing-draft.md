@@ -101,6 +101,13 @@ current category taxonomy at listing time (categories change more often than
 this plan can track); tags should include: ai, automation, discounts,
 checkout, bundles, upsell, no-code.
 
+## Contact & Legal (4.5 — Partner Dashboard listing form)
+- **Support email:** `support@lavipun.com` — owner decision, resolved 2026-08-27.
+- **Privacy policy URL:** owner-deferred: URL to be provided before
+  submission (hard blocker for Task 8/10). Do not paste a placeholder URL
+  into the Partner Dashboard form — leave the field empty until the owner
+  supplies the real one.
+
 ## What NOT to do here (accuracy rules, 4.3.3/4.3.4/4.3.6/4.3.7)
 - No unsubstantiated performance/growth stats in copy or images.
 - No customer reviews/testimonials in listing text or images.
