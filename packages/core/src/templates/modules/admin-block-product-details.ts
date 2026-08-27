@@ -28,6 +28,7 @@ import type { TemplateEntry } from '../types.js';
 export const ADMIN_BLOCK_PRODUCT_DETAILS_TEMPLATES: TemplateEntry[] = [
   {
     id: 'ADMB-PRD-01',
+    tier: 'standard',
     name: 'Product Reviews Summary Panel',
     description:
       'Admin product-details block that surfaces this product\'s review aggregate — average rating, total count, verified share, and the 5-star distribution — for at-a-glance social-proof health.',
@@ -73,6 +74,7 @@ export const ADMIN_BLOCK_PRODUCT_DETAILS_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMB-PRD-02',
+    tier: 'standard',
     name: 'UGC Media & Q&A Panel',
     description:
       'Admin product-details block that reports collected photo/video review media and open Q&A for this product, so merchants can curate visual UGC and answer pending questions.',
@@ -111,6 +113,7 @@ export const ADMIN_BLOCK_PRODUCT_DETAILS_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMB-PRD-03',
+    tier: 'standard',
     name: 'Shipping Rules Panel',
     description:
       'Admin product-details block that shows which shipping scenarios, zones, and rate conditions apply to this product — package dimensions, weight, and any per-product shipping overrides.',
@@ -154,6 +157,7 @@ export const ADMIN_BLOCK_PRODUCT_DETAILS_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMB-PRD-04',
+    tier: 'standard',
     name: 'Loyalty & Rewards Panel',
     description:
       'Admin product-details block that reports how this product participates in the loyalty program — points-per-purchase, active earn rules, and reward/redemption eligibility.',
@@ -197,6 +201,7 @@ export const ADMIN_BLOCK_PRODUCT_DETAILS_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMB-PRD-05',
+    tier: 'standard',
     name: 'Review Metafields Panel',
     description:
       'Admin product-details block that displays the standard review metafields mirrored onto this product — reviews.rating and reviews.rating_count — the values native theme elements and Google rich snippets read.',

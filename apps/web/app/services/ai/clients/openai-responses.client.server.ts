@@ -1,5 +1,6 @@
 import { postJsonWithRetries } from '~/services/ai/http/ai-http.server';
 import { captureAiDebug, isAiDebugCaptureEnabled } from '~/services/ai/debug-capture.server';
+import { TruncatedOutputError } from '~/services/ai/clients/truncation.server';
 
 export async function openAiGenerateRecipe(opts: {
   apiKey: string;
@@ -9,6 +10,21 @@ export async function openAiGenerateRecipe(opts: {
   shopId?: string;
   /** Override default max_output_tokens (default 8192). Hydration responses need more tokens. */
   maxTokens?: number;
+  /**
+   * WS-C Task 10 (C7). Deadline-bounded HTTP timeout, precomputed by
+   * `ConfiguredLlmClient.callProvider` from `GenerateHints.deadlineAt`.
+   * Forwarded verbatim to `postJsonWithRetries`; absent when the caller
+   * (or Env*Client) didn't pass a `deadlineAt` hint — behavior unchanged.
+   */
+  timeoutMs?: number;
+  /**
+   * WS-C Task 10 (C7, fix round 1). The raw epoch-ms deadline, forwarded
+   * ALONGSIDE `timeoutMs` so `postJsonWithRetries` can re-derive the
+   * effective per-attempt timeout on every retry (a `timeoutMs` fixed once
+   * up front would let each 429/5xx/network retry re-claim a full fresh
+   * window instead of the shrinking remainder of the actual budget).
+   */
+  deadlineAt?: number;
   /**
    * Optional JSON Schema for structured output. When present, OpenAI Responses
    * will guarantee the response matches the schema (text.format = json_schema).
@@ -87,6 +103,8 @@ export async function openAiGenerateRecipe(opts: {
       url,
       headers: { authorization: `Bearer ${opts.apiKey}` },
       body,
+      timeoutMs: opts.timeoutMs,
+      deadlineAt: opts.deadlineAt,
       logMeta: { provider: 'OPENAI', model: opts.model, actor: 'INTERNAL' },
       shopId: opts.shopId,
     });
@@ -132,10 +150,13 @@ function extractOutputText(resp: any): string {
   const out = resp?.output;
   if (!Array.isArray(out)) throw new Error('OpenAI response missing output[]');
 
-  // Top-level response truncation (e.g. max_output_tokens hit)
+  // Top-level response truncation (e.g. max_output_tokens hit). WS-C Task 12:
+  // was a generic Error before — now the shared `TruncatedOutputError` so
+  // callers (`hydrateRecipeSpec`) can branch on truncation specifically and
+  // retry with a bumped token budget instead of a generic failed attempt.
   if (resp?.status === 'incomplete') {
     const reason = resp?.incomplete_details?.reason ?? 'unknown';
-    throw new Error(`OpenAI output truncated (${reason}): increase max_output_tokens or reduce prompt complexity`);
+    throw new TruncatedOutputError('OpenAI', `${reason}: increase max_output_tokens or reduce prompt complexity`);
   }
 
   const chunks: string[] = [];
@@ -144,7 +165,7 @@ function extractOutputText(resp: any): string {
     // Message-level truncation
     if (item?.status === 'incomplete') {
       const reason = item?.incomplete_details?.reason ?? 'unknown';
-      throw new Error(`OpenAI output truncated (${reason}): increase max_output_tokens or reduce prompt complexity`);
+      throw new TruncatedOutputError('OpenAI', `${reason}: increase max_output_tokens or reduce prompt complexity`);
     }
     const content = item?.content;
     if (!Array.isArray(content)) continue;

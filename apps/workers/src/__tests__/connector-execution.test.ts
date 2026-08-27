@@ -9,6 +9,20 @@ import {
   type ConnectorRecord,
 } from '../connector-execution.js';
 import { createProcessorRegistry } from '../processors.js';
+import type { AiGenerationAdapter } from '../ai-generation.js';
+
+// WS-C Task 17: the built-in stub AI adapter was removed — createProcessorRegistry
+// now requires a real adapter (every registry it builds touches
+// AI_GENERATE/AI_HYDRATE/AI_MODIFY regardless of which job type a test cares
+// about). This suite never exercises AI jobs, so a throwing local double is
+// enough to satisfy the required option.
+function unusedAiAdapter(): AiGenerationAdapter {
+  return {
+    generate: () => Promise.reject(new Error('not used')),
+    hydrate: () => Promise.reject(new Error('not used')),
+    modify: () => Promise.reject(new Error('not used')),
+  };
+}
 
 const baseJob = {
   id: 'job-connector-1',
@@ -114,6 +128,7 @@ describe('connector execution processors', () => {
     const registry = createProcessorRegistry({
       logger: silentLogger(),
       connectorHttpClient: createStubConnectorHttpClient(),
+      aiAdapter: unusedAiAdapter(),
     });
 
     const result = await registry.CONNECTOR_CALL({

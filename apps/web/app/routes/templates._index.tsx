@@ -57,7 +57,7 @@ function interleaveByCategory<T extends { category: string }>(items: T[]): T[] {
 export default function TemplatesIndex() {
   const { templates } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <TemplatesBody templates={templates} />
     </MerchantShell>
   );
@@ -101,7 +101,7 @@ function TemplatesBody({ templates }: any) {
       </s-paragraph>
       <s-section>
         <s-stack gap="small-100">
-          <s-grid gridTemplateColumns="1fr auto auto" gap="small-100" alignItems="center">
+          <s-grid gridTemplateColumns="@container (inline-size > 560px) 1fr auto auto, 1fr" gap="small-100" alignItems="center">
             <s-search-field
               ref={searchRef as never}
               label="Search templates"
@@ -133,7 +133,7 @@ function TemplatesBody({ templates }: any) {
           </EmptyState>
         </s-section>
       ) : view === 'cards' ? (
-        <s-grid gridTemplateColumns="repeat(3, 1fr)" gap="base">
+        <s-grid gridTemplateColumns="@container (inline-size > 560px) repeat(3, 1fr), 1fr" gap="base">
           {rows.slice(0, visibleCount).map((t: any) => (
             // Native CSS containment: the browser skips layout/paint for cards
             // scrolled far off-screen (this 3-wide grid runs to 561 cards). The

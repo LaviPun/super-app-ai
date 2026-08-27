@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findTemplate, type RecipeSpec } from '@superapp/core';
+import { findTemplate } from '@superapp/core';
 import { defaultSimulationInput } from '@superapp/platform-contracts';
 import { simulateFunction } from '~/services/preview/function-simulation.server';
 

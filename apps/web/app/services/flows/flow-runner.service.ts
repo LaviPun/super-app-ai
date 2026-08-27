@@ -9,6 +9,7 @@ import { getRequestContext } from '~/services/observability/correlation.server';
 import { assertSafeTargetUrl } from '~/services/security/ssrf.server';
 import { getConnector } from '~/services/workflows/connectors/index';
 import { emitFlowTriggerSafe, FLOW_TRIGGER_TOPICS } from '~/services/workflows/shopify-flow-bridge';
+import { openAccessToken } from '~/services/shops/access-token.server';
 import { WorkflowEngineService } from '~/services/workflows/workflow-engine.service';
 import { computeResumeAt, parkRemainderAsWorkflow, type ParkStep } from './flow-park';
 import { buildShopAuthResolver } from './auth-resolver.server';
@@ -78,6 +79,8 @@ type FlowStep = {
   mode?: 'duration' | 'until';
   durationMs?: number;
   until?: string;
+  // ROUTE_ORDER step
+  newLocationId?: string;
 };
 
 /**
@@ -127,7 +130,7 @@ export class FlowRunnerService {
         await this.executeFlow(shopDomain, admin, job.id, spec as FlowAutomationSpec, event, shopRow?.id, flow.id);
         await jobs.succeed(job.id, { trigger, steps: spec.config.steps.length });
         // Best-effort: notify Shopify Flow that a SuperApp workflow completed.
-        void emitFlowTriggerSafe(shopDomain, shopRow?.accessToken, FLOW_TRIGGER_TOPICS.WORKFLOW_COMPLETED, {
+        void emitFlowTriggerSafe(shopDomain, openAccessToken(shopRow?.accessToken), FLOW_TRIGGER_TOPICS.WORKFLOW_COMPLETED, {
           'Workflow ID': flow.id,
           'Workflow Name': flow.name,
           'Run ID': job.id,
@@ -136,7 +139,7 @@ export class FlowRunnerService {
       } catch (err) {
         await jobs.fail(job.id, err);
         // Best-effort: notify Shopify Flow that a SuperApp workflow failed.
-        void emitFlowTriggerSafe(shopDomain, shopRow?.accessToken, FLOW_TRIGGER_TOPICS.WORKFLOW_FAILED, {
+        void emitFlowTriggerSafe(shopDomain, openAccessToken(shopRow?.accessToken), FLOW_TRIGGER_TOPICS.WORKFLOW_FAILED, {
           'Workflow ID': flow.id,
           'Workflow Name': flow.name,
           'Run ID': job.id,
@@ -187,7 +190,7 @@ export class FlowRunnerService {
       const result = { jobId: job.id, steps: flowSpec.config.steps.length };
       await jobs.succeed(job.id, { trigger: 'MANUAL', steps: result.steps });
       // Best-effort: notify Shopify Flow that a SuperApp workflow completed.
-      void emitFlowTriggerSafe(shopDomain, shopRow?.accessToken, FLOW_TRIGGER_TOPICS.WORKFLOW_COMPLETED, {
+      void emitFlowTriggerSafe(shopDomain, openAccessToken(shopRow?.accessToken), FLOW_TRIGGER_TOPICS.WORKFLOW_COMPLETED, {
         'Workflow ID': flow.id,
         'Workflow Name': flow.name,
         'Run ID': job.id,
@@ -197,7 +200,7 @@ export class FlowRunnerService {
     } catch (err) {
       await jobs.fail(job.id, err);
       // Best-effort: notify Shopify Flow that a SuperApp workflow failed.
-      void emitFlowTriggerSafe(shopDomain, shopRow?.accessToken, FLOW_TRIGGER_TOPICS.WORKFLOW_FAILED, {
+      void emitFlowTriggerSafe(shopDomain, openAccessToken(shopRow?.accessToken), FLOW_TRIGGER_TOPICS.WORKFLOW_FAILED, {
         'Workflow ID': flow.id,
         'Workflow Name': flow.name,
         'Run ID': job.id,
@@ -489,7 +492,24 @@ export class FlowRunnerService {
       return { written: true, recordId: record.id };
     }
 
-    return { skipped: true, kind: step.kind };
+    if (step.kind === 'ROUTE_ORDER') {
+      const orderGid = flowEvent.admin_graphql_api_id;
+      // Same convention as TAG_ORDER/ADD_ORDER_NOTE: a flow can be attached to a
+      // non-order trigger and reuse a shared step catalog, so a missing order in
+      // the *event* is a graceful no-op. A missing *destination* is a step
+      // misconfiguration, not an absent trigger fact — that must fail loudly.
+      if (!orderGid) return { routed: false, reason: 'no order in event' };
+      if (!step.newLocationId) {
+        throw new Error('ROUTE_ORDER step is missing newLocationId');
+      }
+      const result = await routeOrderToLocation(admin, orderGid, step.newLocationId);
+      return { routed: true, ...result };
+    }
+
+    // Any step kind not handled above must fail the run loudly, never silently
+    // skip (D8: no silent failures). A silent `{ skipped: true }` here would let
+    // a flow report SUCCESS on every run of a step that never actually executed.
+    throw new Error(`Unknown flow step kind: ${step.kind}`);
   }
 }
 
@@ -647,6 +667,55 @@ async function executeSendHttpRequest(step: FlowStep): Promise<unknown> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Route an order's fulfillment order to a new location (fulfillmentOrderMove).
+ * Ports the same lookup-then-move logic already shipped for the canonical
+ * engine path (ShopifyConnector's `order.routeToLocation` operation,
+ * shopify.connector.ts) onto the `admin.graphql` client the linear runner's
+ * other order steps (tagOrder/addOrderNote) already use, so ROUTE_ORDER
+ * genuinely executes here instead of falling through to a silent skip.
+ */
+async function routeOrderToLocation(admin: AdminApiContext['admin'], orderId: string, newLocationId: string) {
+  const lookupQuery = `#graphql
+    query OrderFulfillmentOrders($id: ID!) {
+      order(id: $id) {
+        fulfillmentOrders(first: 10) {
+          nodes { id assignedLocation { location { id } } }
+        }
+      }
+    }
+  `;
+  const lookupRes = await admin.graphql(lookupQuery, { variables: { id: orderId } });
+  const lookupJson = await lookupRes.json();
+  const fulfillmentOrders: Array<{ id: string; assignedLocation?: { location?: { id?: string } } }> =
+    lookupJson?.data?.order?.fulfillmentOrders?.nodes ?? [];
+  // Prefer a fulfillment order not already assigned to the destination.
+  const target = fulfillmentOrders.find(fo => fo?.assignedLocation?.location?.id !== newLocationId) ?? fulfillmentOrders[0];
+  if (!target) {
+    throw new Error(`No fulfillment orders found for order ${orderId}`);
+  }
+
+  const moveMutation = `#graphql
+    mutation FulfillmentOrderMove($id: ID!, $newLocationId: ID!) {
+      fulfillmentOrderMove(id: $id, newLocationId: $newLocationId) {
+        movedFulfillmentOrder { id }
+        userErrors { field message }
+      }
+    }
+  `;
+  const moveRes = await admin.graphql(moveMutation, { variables: { id: target.id, newLocationId } });
+  const moveJson = await moveRes.json();
+  const payload = moveJson?.data?.fulfillmentOrderMove;
+  const userErrors = payload?.userErrors ?? [];
+  if (userErrors.length > 0) {
+    throw new Error(`fulfillmentOrderMove failed: ${userErrors.map((e: { message: string }) => e.message).join('; ')}`);
+  }
+  return {
+    movedFulfillmentOrderId: payload?.movedFulfillmentOrder?.id ?? target.id,
+    locationId: newLocationId,
+  };
 }
 
 async function tagOrder(admin: AdminApiContext['admin'], orderId: string, tags: string[]) {

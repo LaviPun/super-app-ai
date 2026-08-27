@@ -27,6 +27,7 @@ import type { TemplateEntry } from '../types.js';
 export const INTEG_TEMPLATES: TemplateEntry[] = [
   {
     id: 'INTEG-01',
+    tier: 'standard',
     name: 'Klaviyo — Placed Order → Profile Event Sync',
     description:
       'On every order/create, forward the order + buyer identity to a connected Klaviyo integration so the Placed Order metric and profile update in Klaviyo\'s cloud.',
@@ -61,6 +62,7 @@ export const INTEG_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'INTEG-02',
+    tier: 'standard',
     name: 'Klaviyo — New Customer → Subscriber Profile',
     description:
       'On customer/create, push the new customer (email, marketing consent, name) to a connected Klaviyo integration to create or update the subscriber profile.',
@@ -95,6 +97,7 @@ export const INTEG_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'INTEG-03',
+    tier: 'standard',
     name: 'Omnisend — Order → Contact + Event Sync',
     description:
       'On order/create, sync the order to a connected Omnisend integration so the contact record and Placed Order event update in Omnisend\'s cloud contact timeline.',
@@ -128,6 +131,7 @@ export const INTEG_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'INTEG-04',
+    tier: 'standard',
     name: 'Omnisend — Product Update → Catalog Reconcile',
     description:
       'On product/update, re-sync the product (title, price, inventory, image) to a connected Omnisend integration to reconcile its catalog for recommendation and price-drop use.',
@@ -161,6 +165,7 @@ export const INTEG_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'INTEG-05',
+    tier: 'standard',
     name: 'Brevo PushOwl — Back-in-Stock Reconcile',
     description:
       'On product/update, forward inventory + price to a connected Brevo/PushOwl integration so its back-in-stock and price-drop waitlists reconcile and fire web-push automations.',
@@ -193,6 +198,7 @@ export const INTEG_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'INTEG-06',
+    tier: 'standard',
     name: 'Recharge — New Order → Subscription Sync',
     description:
       'On order/create, forward the order + customer reference to a connected Recharge integration to reconcile subscription/charge state keyed to the Shopify customer.',
@@ -226,6 +232,7 @@ export const INTEG_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'INTEG-07',
+    tier: 'standard',
     name: 'Loop Subscriptions — Customer → Contract Reconcile',
     description:
       'On customer/create, push the customer to a connected Loop Subscriptions integration to reconcile the subscriber record its subscription contracts and Flows key off.',
@@ -259,6 +266,7 @@ export const INTEG_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'INTEG-08',
+    tier: 'standard',
     name: 'Intuitive Shipping — Collection → Zone Rule Reconcile',
     description:
       'On collection/create, forward the collection to a connected Intuitive Shipping integration so its scenario/zone conditions that target by collection stay reconciled.',

@@ -2,6 +2,7 @@ import { json } from '@remix-run/node';
 import { useLoaderData, useNavigate } from '@remix-run/react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
+import { sealAccessToken } from '~/services/shops/access-token.server';
 import { QuotaService } from '~/services/billing/quota.service';
 import { deriveEffectivePlan } from '~/services/billing/plan-status';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
@@ -18,7 +19,7 @@ export async function loader({ request }: { request: Request }) {
   let shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
   if (!shopRow) {
     shopRow = await prisma.shop.create({
-      data: { shopDomain: session.shop, accessToken: session.accessToken ?? '', planTier: 'FREE' },
+      data: { shopDomain: session.shop, accessToken: sealAccessToken(session.accessToken ?? ''), planTier: 'FREE' },
     });
   }
 
@@ -142,7 +143,7 @@ export default function Dashboard() {
   const aiOfLabel = usage.aiLimit == null ? 'unlimited' : `of ${fmtNum(usage.aiLimit)} this month`;
 
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <s-page heading={`${greet}, ${titleCase(greetName)}`} inlineSize="base">
         <s-stack gap="base">
         <s-paragraph color="subdued">Here’s how your store is doing with SuperApp AI.</s-paragraph>
@@ -156,7 +157,7 @@ export default function Dashboard() {
           { label: 'AI credits left', value: aiLeftLabel, sub: aiOfLabel, href: '/billing' },
         ]} />
 
-        <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+        <s-grid gridTemplateColumns="@container (inline-size > 760px) 2fr 1fr, 1fr" gap="base">
           <s-section heading="Module views — last 14 days">
             {hasViewData ? (
               <s-stack gap="small-100">

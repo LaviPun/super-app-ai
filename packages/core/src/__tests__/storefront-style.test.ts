@@ -72,6 +72,24 @@ describe('StorefrontStyleSchema', () => {
     expect(style.customCss?.length).toBe(2000);
   });
 
+  it('accepts the two-pack render grammar (auto/luxe/bold)', () => {
+    for (const pack of ['auto', 'luxe', 'bold'] as const) {
+      const style = StorefrontStyleSchema.parse({ pack });
+      expect(style.pack).toBe(pack);
+    }
+  });
+
+  it('rejects a legacy/retired pack value (H1 collapse, 2026-08-24): playful/utility no longer parse', () => {
+    // STOREFRONT_STYLE_PACKS narrowed from ['auto','luxe','bold','playful','utility']
+    // to ['auto','luxe','bold'] (packages/core/src/allowed-values.ts). Every other
+    // enum in StorefrontStyleSchema rejects out-of-range values via z.enum with no
+    // .catch()/coercion fallback (see the offsetX/hex-color/customCss-length tests
+    // above), so an old spec or manual payload carrying a retired pack value must
+    // FAIL validation the same way, not silently coerce to luxe/bold.
+    expect(() => StorefrontStyleSchema.parse({ pack: 'playful' })).toThrow();
+    expect(() => StorefrontStyleSchema.parse({ pack: 'utility' })).toThrow();
+  });
+
   it('accepts all advanced spacing/shape/accessibility fields', () => {
     const style = StorefrontStyleSchema.parse({
       spacing: { padding: 'loose', margin: 'tight', gap: 'none' },
@@ -119,5 +137,21 @@ describe('RecipeSpec style field', () => {
       config: { widgetId: 'abc-123', title: 'Hello', mode: 'HTML' },
     });
     expect((spec as any).style).toBeUndefined();
+  });
+
+  it('a full theme.section spec carrying a legacy pack:"playful" FAILS validation end-to-end (H1 collapse)', () => {
+    // Before the H1 collapse this legacy/manual payload validated and would have
+    // rendered luxe in admin preview (PreviewPack already narrowed) while stamping
+    // raw data-sa-pack="playful" on the storefront — the exact divergence this
+    // regression test pins closed at the schema layer.
+    expect(() =>
+      RecipeSpecSchema.parse({
+        type: 'theme.section',
+        name: 'Legacy Banner',
+        category: 'STOREFRONT_UI',
+        config: { kind: 'banner', fields: { heading: 'Hi' } },
+        style: { pack: 'playful' },
+      }),
+    ).toThrow();
   });
 });

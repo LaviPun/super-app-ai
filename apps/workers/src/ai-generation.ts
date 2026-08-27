@@ -47,62 +47,6 @@ export type AiGenerationHandlerOptions = {
   logger: WorkerLogger;
 };
 
-export class StubAiGenerationAdapter implements AiGenerationAdapter {
-  async generate(input: { prompt: string }): Promise<AiWorkerResult> {
-    return {
-      recipeSpec: {
-        type: 'theme.section',
-        name: 'Generated banner',
-        category: 'STOREFRONT_UI',
-        requires: ['THEME_ASSETS'],
-        config: {
-          kind: 'banner',
-          activation: 'section',
-          title: input.prompt.slice(0, 60) || 'Store announcement',
-          subtitle: 'Generated safely as RecipeSpec JSON.',
-          fields: { ctaText: 'Shop now', ctaUrl: 'https://example.com/collections/all' },
-          blocks: [],
-        },
-      },
-      options: [],
-      model: 'stub-ai-worker',
-      tokensIn: input.prompt.length,
-      tokensOut: 128,
-    };
-  }
-
-  async hydrate(input: { moduleId: string; sourceSpec?: Record<string, unknown> }): Promise<AiWorkerResult> {
-    return {
-      recipeSpec: input.sourceSpec,
-      validationReport: { overall: 'PASS', checks: [] },
-      hydratedAt: new Date().toISOString(),
-      model: 'stub-ai-worker',
-    };
-  }
-
-  async modify(input: { moduleId: string; instruction: string }): Promise<AiWorkerResult> {
-    return {
-      recipeSpec: {
-        type: 'theme.section',
-        name: `Modified ${input.moduleId}`,
-        category: 'STOREFRONT_UI',
-        requires: ['THEME_ASSETS'],
-        config: {
-          kind: 'banner',
-          activation: 'section',
-          title: input.instruction.slice(0, 60) || 'Updated announcement',
-          subtitle: 'Modified safely as RecipeSpec JSON.',
-          fields: { ctaText: 'Learn more', ctaUrl: 'https://example.com/collections/all' },
-          blocks: [],
-        },
-      },
-      model: 'stub-ai-worker',
-      tokensIn: input.instruction.length,
-      tokensOut: 96,
-    };
-  }
-}
-
 export function createAiGenerationProcessor(options: AiGenerationHandlerOptions) {
   return async (job: WorkerJobEnvelope): Promise<WorkerProcessorResult> => {
     if (!isAiJobType(job.type)) {

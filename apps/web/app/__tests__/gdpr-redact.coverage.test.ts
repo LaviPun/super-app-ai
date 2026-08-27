@@ -141,6 +141,40 @@ function makePrismaMock() {
     activityLog: {
       create: vi.fn(async () => ({ id: 'activity-1' })),
     },
+    // Task 21 (shop-redact completeness, Infra-11) extended the route to purge every
+    // shopId-bearing model. This test only exercises the pre-existing six tables above in
+    // detail; the rest are stubbed to a no-op deleteMany (count 0) so the route's full run
+    // doesn't throw — coverage that every one of these calls actually exists in the route is
+    // enforced separately by shop-redact-completeness.test.ts's schema-introspection check.
+    connectorToken: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    connector: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    moduleInstance: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    moduleAsset: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    functionRuleSet: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    flowAsset: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    imageIngestionJob: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    module: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    recipe: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    flowDeadLetter: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    flowSchedule: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    flowStepLog: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    themeProfile: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    shopApiRateLimit: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    appSubscription: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    supportTicket: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    job: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    apiLog: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    errorLog: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    aiUsage: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    retentionPolicy: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    // Fix round: WorkflowDef/WorkflowRun/WorkflowRunStep are tenantId-scoped (not shopId),
+    // caught by the field-name-vocabulary introspection in shop-redact-completeness.test.ts.
+    workflowRunStep: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    workflowRun: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    workflowDef: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    // Fix round 2 (post-WS-E-merge): FunctionActivation, caught by the
+    // completeness test's structural FK-to-Shop introspection.
+    functionActivation: { deleteMany: vi.fn(async () => ({ count: 0 })) },
   };
 
   return prisma;
@@ -159,9 +193,6 @@ describe('GDPR redact coverage', () => {
     const targetCustomer = '12345';
     prismaMock.__state.dataStores.push({ id: 'store-1', shopId: 'shop-1' });
     prismaMock.__state.dataStores.push({ id: 'store-2', shopId: 'shop-other' });
-    const targetShopStoreIds = new Set(
-      prismaMock.__state.dataStores.filter((store) => store.shopId === 'shop-1').map((store) => store.id),
-    );
 
     prismaMock.__state.dataCaptures.push(
       { id: 'cap-1', shopId: 'shop-1', customerId: targetCustomer },
@@ -254,5 +285,45 @@ describe('GDPR redact coverage', () => {
     expect(prismaMock.__state.moduleEvents.filter((row) => row.shopId === 'shop-1')).toHaveLength(0);
     expect(prismaMock.__state.moduleMetricsDaily.filter((row) => row.shopId === 'shop-1')).toHaveLength(0);
     expect(prismaMock.__state.attributionLinks.filter((row) => row.shopId === 'shop-1')).toHaveLength(0);
+  });
+
+  it('shop/redact scopes every Task-21 (Infra-11) model deletion to the target shop, not global', async () => {
+    const { action } = await import('../routes/webhooks.shop.redact');
+    const request = new Request('https://example.test/webhooks/shop/redact', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ shop_domain: 'gdpr.myshopify.com' }),
+    });
+
+    const response = await action({ request });
+    expect(response.status).toBe(200);
+
+    const shopScoped = { where: { shopId: 'shop-1' } };
+    expect(prismaMock.connectorToken.deleteMany).toHaveBeenCalledWith({ where: { tenantId: 'shop-1' } });
+    expect(prismaMock.connector.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.moduleInstance.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.moduleAsset.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.functionRuleSet.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.flowAsset.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.imageIngestionJob.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.module.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.recipe.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.flowDeadLetter.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.flowSchedule.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.flowStepLog.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.themeProfile.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.shopApiRateLimit.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.appSubscription.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.supportTicket.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.job.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.apiLog.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.errorLog.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.aiUsage.deleteMany).toHaveBeenCalledWith(shopScoped);
+    expect(prismaMock.retentionPolicy.deleteMany).toHaveBeenCalledWith(shopScoped);
+    // Fix round: workflow engine tables, tenantId-scoped (not shopId).
+    expect(prismaMock.workflowRunStep.deleteMany).toHaveBeenCalledWith({ where: { run: { tenantId: 'shop-1' } } });
+    expect(prismaMock.workflowRun.deleteMany).toHaveBeenCalledWith({ where: { tenantId: 'shop-1' } });
+    expect(prismaMock.workflowDef.deleteMany).toHaveBeenCalledWith({ where: { tenantId: 'shop-1' } });
+    expect(prismaMock.functionActivation.deleteMany).toHaveBeenCalledWith(shopScoped);
   });
 });

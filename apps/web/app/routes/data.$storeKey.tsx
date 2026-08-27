@@ -49,7 +49,7 @@ export async function loader({ request, params }: { request: Request; params: { 
 
 export default function DataStoreDetail() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <DataStoreDetailBody />
     </MerchantShell>
   );

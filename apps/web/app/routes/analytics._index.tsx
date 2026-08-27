@@ -140,7 +140,7 @@ export async function loader({ request }: { request: Request }) {
 export default function AnalyticsIndex() {
   const data = useLoaderData<typeof loader>();
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <AnalyticsBody {...(data as any)} />
     </MerchantShell>
   );
@@ -226,7 +226,7 @@ function AnalyticsBody({ range, days, publishedCount, perf, series, hasMetrics, 
         ]}
       />
 
-      <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+      <s-grid gridTemplateColumns="@container (inline-size > 760px) 2fr 1fr, 1fr" gap="base">
         <s-section heading="Module views">
           {hasMetrics ? (
             <s-stack gap="small-100">

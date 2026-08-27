@@ -22,6 +22,7 @@ import {
   type LlmClient,
   type RecipeOption,
 } from '~/services/ai/llm.server';
+import { stripCodeFences } from '~/services/ai/tolerant-json.server';
 
 /**
  * Apply an RFC 7386 JSON Merge Patch to `target`, returning a new value (does not
@@ -55,19 +56,6 @@ export function applyMergePatch(target: unknown, patch: unknown): unknown {
 /** True for a plain (non-array) object. */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-/**
- * Strip a leading/trailing markdown code fence (```json … ```), mirroring how the
- * freeform path tolerates fenced model output before `JSON.parse`.
- */
-function stripCodeFences(text: string): string {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith('```')) return trimmed;
-  return trimmed
-    .replace(/^```[a-zA-Z0-9_-]*\s*\n?/, '')
-    .replace(/\n?```\s*$/, '')
-    .trim();
 }
 
 /**
@@ -147,6 +135,17 @@ export interface GenerateRecipeViaDeltaParams {
   /** Reduced token budget for the patch call (getDeltaTokenBudget). */
   maxTokens: number;
   shopId?: string;
+  /**
+   * WS-C Task 10 (C7) fix round 1. Worker job deadline (epoch ms), threaded
+   * into the merge-patch call's `GenerateHints` and into the shared repair
+   * loop (`validateAndRepairRecipe`) below — this is the flagship tier-1
+   * option-0 path (`produceOptionRecipe` prefers it whenever an exemplar is
+   * available) and was previously the one gap in the deadline-budget chain:
+   * with no bound here, a stuck delta call could run to the shared 120s
+   * default (or longer across retries) regardless of how little of the
+   * job's budget remained.
+   */
+  deadlineAt?: number;
 }
 
 export interface DeltaGenerationResult {
@@ -187,7 +186,10 @@ export async function generateRecipeViaDelta(
 
   // No structured responseSchema: the model emits { explanation, patch }, NOT the
   // recipe-shaped schema the freeform path uses.
-  const result = await params.client.generateRecipe(prompt, { maxTokens: params.maxTokens });
+  const result = await params.client.generateRecipe(prompt, {
+    maxTokens: params.maxTokens,
+    deadlineAt: params.deadlineAt,
+  });
 
   let parsed: unknown;
   try {
@@ -215,6 +217,7 @@ export async function generateRecipeViaDelta(
     const fix = await validateAndRepairRecipe(patched, params.client, {
       shopId: params.shopId,
       moduleType: params.moduleType,
+      deadlineAt: params.deadlineAt,
     });
     recipe = fix.recipe;
   }

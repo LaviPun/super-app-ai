@@ -62,7 +62,7 @@ type TestResult = { ok: boolean; status: number; headers: Record<string, string>
 
 export default function ConnectorDetail() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <ConnectorDetailBody />
     </MerchantShell>
   );
@@ -131,11 +131,11 @@ function ConnectorDetailBody() {
       <Tabs tabs={tabs} value={tab} onChange={setTab} />
 
       {tab === 'tester' && (
-        <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+        <s-grid gridTemplateColumns="@container (inline-size > 760px) 2fr 1fr, 1fr" gap="base">
           <s-stack gap="base">
             <s-section>
               <s-stack gap="small-100">
-                <s-grid gridTemplateColumns="auto 1fr auto" gap="small-100" alignItems="end">
+                <s-grid gridTemplateColumns="@container (inline-size > 520px) auto 1fr auto, 1fr" gap="small-100" alignItems="end">
                   <s-select label="Method" labelAccessibilityVisibility="exclusive" value={method} onChange={(e) => setMethod(e.currentTarget.value)}>
                     {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((x) => <s-option key={x} value={x}>{x}</s-option>)}
                   </s-select>

@@ -225,7 +225,7 @@ export async function action({ request }: ActionFunctionArgs) {
 export default function FlowsIndex() {
   const { flows, stats } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <FlowsBody flows={flows} stats={stats} />
     </MerchantShell>
   );
@@ -272,7 +272,7 @@ function FlowsBody({ flows, stats }: any) {
       <s-button slot="primary-action" variant="primary" icon="plus" onClick={() => navigate('/flows/build/new')}>
         Build a flow
       </s-button>
-      <s-button slot="secondary-actions" icon="theme-template" onClick={() => ctx.go('#/app/templates?type=Flow')}>
+      <s-button slot="secondary-actions" icon="theme-template" onClick={() => navigate('/flows/templates')}>
         Templates
       </s-button>
       <s-stack gap="base">

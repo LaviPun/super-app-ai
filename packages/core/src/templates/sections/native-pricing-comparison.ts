@@ -29,6 +29,7 @@ export const NATIVE_PRICING_COMPARISON_TEMPLATES: TemplateEntry[] = [
   // 01 — 3-tier compare, recommended highlight (the canonical design-vocabulary case).
   {
     id: 'NSEC-PRICE-01',
+    tier: 'standard',
     name: 'Pricing — 3-Tier Compare (Recommended Highlight)',
     description: 'Three-column pricing compare on the page with an emphasized "recommended" middle tier — accent border, lift, and badge. Reorderable plan blocks.',
     category: 'STOREFRONT_UI',
@@ -71,6 +72,7 @@ export const NATIVE_PRICING_COMPARISON_TEMPLATES: TemplateEntry[] = [
   // 02 — Monthly/annual toggle framing, 2-tier simple.
   {
     id: 'NSEC-PRICE-02',
+    tier: 'standard',
     name: 'Pricing — 2-Tier Simple (Monthly / Annual)',
     description: 'Two-column pricing block with a monthly/annual framing note and a highlighted premium tier — for a focused free-vs-pro decision on a landing page.',
     category: 'STOREFRONT_UI',
@@ -112,6 +114,7 @@ export const NATIVE_PRICING_COMPARISON_TEMPLATES: TemplateEntry[] = [
   // 03 — Feature comparison MATRIX (rows = features, cols = plans).
   {
     id: 'NSEC-PRICE-03',
+    tier: 'standard',
     name: 'Pricing — Feature Comparison Matrix',
     description: 'Full feature-by-plan comparison table where each row is a feature and columns are the plans, with check/dash cells — the "compare all features" grid under a pricing block.',
     category: 'STOREFRONT_UI',
@@ -163,6 +166,7 @@ export const NATIVE_PRICING_COMPARISON_TEMPLATES: TemplateEntry[] = [
   // 04 — 4-tier compact grid (enterprise ladder).
   {
     id: 'NSEC-PRICE-04',
+    tier: 'standard',
     name: 'Pricing — 4-Tier Compact Grid',
     description: 'Dense four-column pricing grid from free to enterprise with a highlighted business tier — a compact plan ladder for SaaS-style catalogs.',
     category: 'STOREFRONT_UI',
@@ -193,7 +197,7 @@ export const NATIVE_PRICING_COMPARISON_TEMPLATES: TemplateEntry[] = [
         layout: { mode: 'inline', anchor: 'top', offsetX: 0, offsetY: 0, width: 'wide', zIndex: 'base' },
         spacing: { padding: 'medium', margin: 'none', gap: 'tight', density: 'compact' },
         typography: { size: 'SM', weight: 'normal', lineHeight: 'normal', align: 'center' },
-        colors: { text: '#0b1120', background: '#0f172a', overlayBackdropOpacity: 0.45, seed: '#38bdf8' },
+        colors: { overlayBackdropOpacity: 0.45, seed: '#38bdf8' },
         shape: { radius: 'md', borderWidth: 'thin', shadow: 'md', elevation: 'border' },
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
@@ -206,6 +210,7 @@ export const NATIVE_PRICING_COMPARISON_TEMPLATES: TemplateEntry[] = [
   // 05 — Single hero-plan spotlight (one product, framed as a plan).
   {
     id: 'NSEC-PRICE-05',
+    tier: 'standard',
     name: 'Pricing — Single Plan Spotlight',
     description: 'One-plan pricing spotlight card with a large price, an itemized feature list, and a prominent CTA — for a single-offer or membership page.',
     category: 'STOREFRONT_UI',
@@ -246,6 +251,7 @@ export const NATIVE_PRICING_COMPARISON_TEMPLATES: TemplateEntry[] = [
   // 06 — Two-product "this vs that" head-to-head comparison.
   {
     id: 'NSEC-PRICE-06',
+    tier: 'standard',
     name: 'Pricing — Head-to-Head Compare (This vs That)',
     description: 'Side-by-side two-column head-to-head comparison contrasting two options attribute by attribute, with a winner-highlighted column — a "why choose us" table.',
     category: 'STOREFRONT_UI',
@@ -295,6 +301,7 @@ export const NATIVE_PRICING_COMPARISON_TEMPLATES: TemplateEntry[] = [
   // 07 — Tiered bundle / quantity pricing (buy-more-save-more, presentation only).
   {
     id: 'NSEC-PRICE-07',
+    tier: 'standard',
     name: 'Pricing — Tiered Quantity (Buy More, Save More)',
     description: 'Quantity-tier pricing block presenting buy-more-save-more bundles (1 / 2 / 3-pack) with per-unit prices and a best-value badge — a volume-pricing display card.',
     category: 'STOREFRONT_UI',
@@ -339,6 +346,7 @@ export const NATIVE_PRICING_COMPARISON_TEMPLATES: TemplateEntry[] = [
   // pre-selected and, on the storefront, sets the product quantity input.
   {
     id: 'NSEC-VOL-01',
+    tier: 'standard',
     name: 'Volume Bundles — 3-Tier Percent Off (Kaching-style)',
     description: 'Three selectable quantity-break rows (buy 1 / 2 / 3) with percent-off savings and a highlighted best-value tier — picking a row sets the product quantity for Add-to-cart.',
     category: 'STOREFRONT_UI',
@@ -381,6 +389,7 @@ export const NATIVE_PRICING_COMPARISON_TEMPLATES: TemplateEntry[] = [
   // 09 — V-A A1: B2B per-unit price breaks, 4 tiers.
   {
     id: 'NSEC-VOL-02',
+    tier: 'standard',
     name: 'Bulk B2B Price Breaks — 4-Tier Per Unit',
     description: 'Four wholesale quantity tiers (1 / 5 / 10 / 25) with a falling per-unit price and a highlighted volume tier — a B2B "price breaks" selector that drives the quantity input.',
     category: 'STOREFRONT_UI',
@@ -416,7 +425,9 @@ export const NATIVE_PRICING_COMPARISON_TEMPLATES: TemplateEntry[] = [
         responsive: { hideOnMobile: false, hideOnDesktop: false },
         accessibility: { focusVisible: true, reducedMotion: true },
         motion: { duration: 'fast', easing: 'standard' },
-        pack: 'utility',
+        // H1 (WS-H 2026-08-24 collapse): utility retired — sm radius/thin border/no
+        // shadow/border-elevation is already Luxe's shape profile almost exactly.
+        pack: 'luxe',
       },
     },
   },

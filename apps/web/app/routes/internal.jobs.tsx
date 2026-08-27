@@ -25,6 +25,42 @@ import {
   formatRelativeTime,
 } from '~/components/admin/page-kit';
 
+export interface JobTypeHealthWindow {
+  window: '15m' | '1h' | '24h';
+  successRatePct: number | null;
+  total: number;
+}
+
+const HEALTH_WINDOWS: ReadonlyArray<{ key: JobTypeHealthWindow['window']; ms: number }> = [
+  { key: '15m', ms: 15 * 60_000 },
+  { key: '1h', ms: 60 * 60_000 },
+  { key: '24h', ms: 24 * 60 * 60_000 },
+];
+
+/** Pure — no Prisma/db access. Given the widest window's job rows (24h, the
+ * loader's single fetch), computes per-JobType success-rate over 15m/1h/24h
+ * by re-filtering the same in-memory row set (never a fabricated 100% on no
+ * data — `successRatePct` is null when `total === 0`, never divides by zero). */
+export function computeHealthWindows(
+  jobs: Array<{ type: string; status: string; createdAt: Date }>,
+): Record<string, JobTypeHealthWindow[]> {
+  const now = Date.now();
+  const types = [...new Set(jobs.map((j) => j.type))].sort();
+  const result: Record<string, JobTypeHealthWindow[]> = {};
+  for (const type of types) {
+    result[type] = HEALTH_WINDOWS.map(({ key, ms }) => {
+      const since = now - ms;
+      const inWindow = jobs.filter(
+        (j) => j.type === type && j.createdAt.getTime() >= since && (j.status === 'SUCCESS' || j.status === 'FAILED'),
+      );
+      const success = inWindow.filter((j) => j.status === 'SUCCESS').length;
+      const total = inWindow.length;
+      return { window: key, total, successRatePct: total === 0 ? null : Math.round((success / total) * 1000) / 10 };
+    });
+  }
+  return result;
+}
+
 export async function loader({ request }: { request: Request }) {
   await requireInternalAdmin(request);
   const url = new URL(request.url);
@@ -55,7 +91,8 @@ export async function loader({ request }: { request: Request }) {
   }
 
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000);
-  const [jobs, succeeded7d, running, queued, failed, typeRows] = await Promise.all([
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 3600 * 1000);
+  const [jobs, succeeded7d, running, queued, failed, typeRows, healthRows] = await Promise.all([
     prisma.job.findMany({
       where,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -69,8 +106,15 @@ export async function loader({ request }: { request: Request }) {
     prisma.job.count({ where: { status: 'QUEUED' } }),
     prisma.job.count({ where: { status: 'FAILED' } }),
     prisma.job.findMany({ distinct: ['type'], select: { type: true }, orderBy: { type: 'asc' } }),
+    // 24h is the widest window — 15m/1h are re-derived in memory from this same
+    // fetch (computeHealthWindows) rather than three separate queries.
+    prisma.job.findMany({
+      where: { createdAt: { gte: twentyFourHoursAgo }, status: { in: ['SUCCESS', 'FAILED'] } },
+      select: { type: true, status: true, createdAt: true },
+    }),
   ]);
   const nextCursorHref = buildNextCursorUrl(url, jobs, page.take);
+  const healthWindows = computeHealthWindows(healthRows);
 
   const sortedJobs = [...jobs].sort((a, b) => {
     const order = (s: string) => (s === 'RUNNING' ? 0 : s === 'QUEUED' ? 1 : 2);
@@ -95,10 +139,28 @@ export async function loader({ request }: { request: Request }) {
     })),
     counts: { succeeded7d, running, queued, failed },
     distinctTypes: typeRows.map(t => t.type),
+    healthWindows,
     filters: { status, type, search, correlationId, dateFrom: dateFrom?.toISOString(), dateTo: dateTo?.toISOString() },
     nextCursorHref,
     pageSize: page.take,
   });
+}
+
+// green ≥95%, yellow 80-94%, red <80%, gray "no data" — matches the StatusBadge
+// tone vocabulary used elsewhere on this page.
+function healthTone(pct: number | null): 'success' | 'warning' | 'critical' | 'info' {
+  if (pct == null) return 'info';
+  if (pct >= 95) return 'success';
+  if (pct >= 80) return 'warning';
+  return 'critical';
+}
+
+function HealthWindowBadge({ w }: { w: JobTypeHealthWindow }) {
+  return (
+    <Badge tone={healthTone(w.successRatePct)} dot>
+      {w.successRatePct == null ? 'no data' : `${w.successRatePct}%`}
+    </Badge>
+  );
 }
 
 export default function AdminJobs() {
@@ -128,6 +190,7 @@ export default function AdminJobs() {
     (j) => (status === 'All' || j.status === status) && (type === 'All' || j.type === type) && (j.id + j.shop + j.correlationId).toLowerCase().includes(ts.search.toLowerCase()),
   );
   const { succeeded7d, running, queued, failed } = data.counts;
+  const healthTypes = Object.keys(data.healthWindows).sort();
 
   return (
     <div className="page">
@@ -163,6 +226,35 @@ export default function AdminJobs() {
         <StatTile label="Queued" value={queued} icon="clock" tone="warning" />
         <StatTile label="Failed (DLQ)" value={failed} icon="alert" tone="critical" />
       </div>
+      {healthTypes.length > 0 && (
+        <Card style={{ marginBottom: 16 }}>
+          <div className="card-pad">
+            <div className="t-strong" style={{ marginBottom: 10 }}>Job type health</div>
+            <DataTable
+              rowKey="type"
+              columns={[
+                { key: 'type', label: 'Type', render: (r: { type: string }) => <Badge>{titleCase(r.type)}</Badge> },
+                {
+                  key: '15m',
+                  label: '15m',
+                  render: (r: { type: string }) => <HealthWindowBadge w={data.healthWindows[r.type]!.find((w) => w.window === '15m')!} />,
+                },
+                {
+                  key: '1h',
+                  label: '1h',
+                  render: (r: { type: string }) => <HealthWindowBadge w={data.healthWindows[r.type]!.find((w) => w.window === '1h')!} />,
+                },
+                {
+                  key: '24h',
+                  label: '24h',
+                  render: (r: { type: string }) => <HealthWindowBadge w={data.healthWindows[r.type]!.find((w) => w.window === '24h')!} />,
+                },
+              ]}
+              rows={healthTypes.map((type) => ({ type }))}
+            />
+          </div>
+        </Card>
+      )}
       <Card>
         {data.jobs.length === 0 ? (
           <EmptyState icon="work" title="No jobs yet">

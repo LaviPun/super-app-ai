@@ -86,7 +86,7 @@ const SORT_OPTIONS = [
 
 export default function FlowsTemplates() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <FlowsTemplatesBody />
     </MerchantShell>
   );
@@ -130,7 +130,7 @@ function FlowsTemplatesBody() {
         </s-paragraph>
       </s-stack>
 
-      <s-grid gridTemplateColumns="2fr 1fr 1fr 1fr auto" gap="small-100">
+      <s-grid gridTemplateColumns="@container (inline-size > 700px) 2fr 1fr 1fr 1fr auto, 1fr" gap="small-100">
         <s-search-field
           label="Search templates"
           labelAccessibilityVisibility="exclusive"

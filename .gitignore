@@ -68,6 +68,9 @@ apps/web/scripts/smoke-out/
 # Vendored gstack (nested git repo; do not commit)
 .gstack-tools/
 .gstack/
+
+# Local scratch space for task work (dev.db copies, dumps, etc.)
+.scratch/
 apps/web/scripts/tournament-out/
 
 # Generated per-extension bundle manifests (CLI-written; corrupt on dev-bundle write races)

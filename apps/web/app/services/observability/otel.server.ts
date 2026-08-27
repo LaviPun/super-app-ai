@@ -97,7 +97,7 @@ export function initOtel(): void {
       process.on('SIGINT', () => {
         sdk.shutdown().catch(console.error);
       });
-    } catch (_) {
+    } catch {
       // OTEL packages not available or failed to load (e.g. Vite SSR) — no-op
     }
   })();

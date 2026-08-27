@@ -29,6 +29,7 @@ import type { TemplateEntry } from '../types.js';
 export const ADMIN_BLOCK_CUSTOMER_DETAILS_TEMPLATES: TemplateEntry[] = [
   {
     id: 'ADMB-CUS-01',
+    tier: 'standard',
     name: 'Loyalty & Points Summary (Smile-style)',
     description:
       'Pins a customer’s loyalty snapshot on the admin customer-details page — points balance, VIP tier, lifetime spend, and a jump into the loyalty program.',
@@ -67,6 +68,7 @@ export const ADMIN_BLOCK_CUSTOMER_DETAILS_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMB-CUS-02',
+    tier: 'standard',
     name: 'Points Ledger & Referrals (LoyaltyLion-style)',
     description:
       'Shows the recent points-ledger rows and referral status for a customer on the admin customer-details page — earned/redeemed history plus their referral link.',
@@ -109,6 +111,7 @@ export const ADMIN_BLOCK_CUSTOMER_DETAILS_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMB-CUS-03',
+    tier: 'standard',
     name: 'Reviews History (Yotpo-style)',
     description:
       'Lists the reviews a customer has written across products on the admin customer-details page — rating, product, verified/media state, and moderation status.',
@@ -150,6 +153,7 @@ export const ADMIN_BLOCK_CUSTOMER_DETAILS_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMB-CUS-04',
+    tier: 'standard',
     name: 'Active Subscriptions (Recharge-style)',
     description:
       'Surfaces a customer’s active subscriptions on the admin customer-details page — product, cadence, next charge date, and status, with a jump to the subscription portal.',
@@ -190,6 +194,7 @@ export const ADMIN_BLOCK_CUSTOMER_DETAILS_TEMPLATES: TemplateEntry[] = [
   },
   {
     id: 'ADMB-CUS-05',
+    tier: 'standard',
     name: 'Retention Snapshot — Loyalty + Subscription (Growave-style)',
     description:
       'A combined retention card on the admin customer-details page — loyalty tier, wishlist activity, and subscription status in one at-a-glance block for repeat buyers.',

@@ -1,6 +1,6 @@
 import { json } from '@remix-run/node';
 import { useNavigate, useLocation, useFetcher, useLoaderData } from '@remix-run/react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   RecipeSpecSchema,
@@ -18,12 +18,6 @@ import {
   THRESHOLD_BASIS,
   PRICING_MODELS,
   PRICING_MECHANISMS,
-  STOREFRONT_DENSITY_LEVELS,
-  STOREFRONT_ELEVATION_IDIOMS,
-  STOREFRONT_MOTION_DURATIONS,
-  STOREFRONT_MOTION_EASINGS,
-  STOREFRONT_RADIUS_SCALING_MIN,
-  STOREFRONT_RADIUS_SCALING_MAX,
 } from '@superapp/core';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
@@ -36,10 +30,23 @@ import { JobService } from '~/services/jobs/job.service';
 import { modifyRecipeSpec, AiProviderNotConfiguredError } from '~/services/ai/llm.server';
 import { validateBeforePublish } from '~/services/publish/pre-publish-validator.server';
 import { classifyModulePublishability } from '~/services/publish/publish-preflight.server';
+import { sealAccessToken } from '~/services/shops/access-token.server';
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
+import { isAsyncJobsEnabled } from '~/services/jobs/enqueue.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import { StatusBadge, EmptyState, titleCase } from '~/components/merchant/polaris';
-import { nextStepAfterStream, withGenerationCorrelationId } from '~/utils/generation-outcome';
+import { StatusBadge, EmptyState, Progress, titleCase } from '~/components/merchant/polaris';
+import {
+  nextStepAfterStream,
+  withGenerationCorrelationId,
+  stampGenerationCorrelationId,
+  resolveGenerationCorrelationId,
+  stepIndexForSeenEvents,
+  isStreamEventKind,
+  type StreamEventKind,
+} from '~/utils/generation-outcome';
+import { pollJobUntilTerminal, type PolledJobSnapshot } from '~/utils/job-poll';
+import { readActiveGenSession, writeActiveGenSession, clearActiveGenSession } from '~/utils/active-gen-session';
+import { SchemaForm, type JsonSchemaNode } from '~/components/SchemaForm';
 
 
 // Embedded route: authenticates, then loads the real AI-credit balance (same
@@ -51,7 +58,7 @@ export async function loader({ request }: { request: Request }) {
   let shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
   if (!shopRow) {
     shopRow = await prisma.shop.create({
-      data: { shopDomain: session.shop, accessToken: session.accessToken ?? '', planTier: 'FREE' },
+      data: { shopDomain: session.shop, accessToken: sealAccessToken(session.accessToken ?? ''), planTier: 'FREE' },
     });
   }
 
@@ -84,6 +91,11 @@ export async function loader({ request }: { request: Request }) {
     aiLeft: aiLimit === -1 ? null : Math.max(0, aiLimit - aiUsed),
     defaultThemeId: main ? String(main.id) : themes[0] ? String(themes[0].id) : null,
     seedPrompt: seedPrompt && seedPrompt.trim() ? seedPrompt.trim() : null,
+    // WS-C Task 7: when Redis-backed async jobs are configured, the
+    // workspace enqueues + polls (C1) instead of the inline SSE stream.
+    // Loader-only import (enqueue.server.ts is `.server`) — never reaches
+    // the client bundle.
+    asyncGeneration: isAsyncJobsEnabled(),
   });
 }
 
@@ -237,8 +249,9 @@ type BlueprintResult = {
   bindings?: unknown[];
 };
 
+// Read by GenCandMini's decorative concept-picker preview only (real editing
+// goes through the recipe's actual config/style — see SchemaForm mount below).
 const RADIUS_MAP: Record<string, number> = { none: 0, sm: 6, md: 10, lg: 16, full: 999 };
-const SHADOW_MAP: Record<string, string> = { none: 'none', sm: '0 1px 2px rgba(20,33,58,.12)', md: '0 4px 12px rgba(20,33,58,.16)', lg: '0 12px 28px rgba(20,33,58,.22)' };
 // Each refine is one AI request against the monthly quota (enforced server-side).
 const COST_PER_CHANGE = 1;
 
@@ -250,29 +263,13 @@ const GEN_STEPS = [
   { icon: 'eye', label: 'Rendering live previews' },
 ];
 
-const BASE_SETTINGS = {
-  label: 'Add to cart', price: '$48.00', buttonColor: '#1F3A5F', buttonText: '#FFFFFF',
-  bg: '#FFFFFF', radius: 'md', size: 'M', mode: 'sticky', anchor: 'bottom', width: 'full',
-  shadow: 'lg', hideMobile: false, showQty: true, showVariants: true, countdown: false,
-  customCss: '',
-};
-
-// Visual concept presets — icon/accent/default layout per slot. Real data (name,
-// tagline, tags, type) comes from the AI recipe attached to each concept.
-// Icon names are Polaris web-component icon types (s-icon).
+// Visual concept presets — icon/accent per slot. Real data (name, tagline, tags,
+// type, settings) comes from the AI recipe attached to each concept. Icon names
+// are Polaris web-component icon types (s-icon).
 const CONCEPT_PRESETS = [
-  {
-    id: 'sticky', name: 'Concept 1', icon: 'desktop', accent: '#6B40D8',
-    settings: { ...BASE_SETTINGS, mode: 'sticky', anchor: 'bottom', buttonColor: '#1F3A5F', radius: 'md', shadow: 'lg' },
-  },
-  {
-    id: 'floating', name: 'Concept 2', icon: 'cart', accent: '#0E9F6E',
-    settings: { ...BASE_SETTINGS, mode: 'floating', buttonColor: '#0E9F6E', radius: 'full', shadow: 'lg', showVariants: false, showQty: false, size: 'L' },
-  },
-  {
-    id: 'inline', name: 'Concept 3', icon: 'layer', accent: '#2F80ED',
-    settings: { ...BASE_SETTINGS, mode: 'inline', buttonColor: '#14213A', radius: 'lg', bg: '#F6F8FB', countdown: true },
-  },
+  { id: 'sticky', name: 'Concept 1', icon: 'desktop', accent: '#6B40D8' },
+  { id: 'floating', name: 'Concept 2', icon: 'cart', accent: '#0E9F6E' },
+  { id: 'inline', name: 'Concept 3', icon: 'layer', accent: '#2F80ED' },
 ];
 
 type Concept = typeof CONCEPT_PRESETS[number] & {
@@ -289,10 +286,6 @@ type Concept = typeof CONCEPT_PRESETS[number] & {
   /** Set when a validated judge polish replaced this concept's recipe (Phase 5c). */
   polished?: boolean;
 };
-
-const STOREFRONT_TYPES = ['theme.section', 'proxy.widget'];
-const SIZE_TO_TYPO: Record<string, string> = { S: 'SM', M: 'MD', L: 'LG' };
-const TYPO_TO_SIZE: Record<string, string> = { SM: 'S', MD: 'M', LG: 'L' };
 
 /** Display label for a real RecipeSpec type. */
 function displayType(t?: unknown): string {
@@ -316,83 +309,44 @@ function tagsFromRecipe(recipe?: Record<string, unknown> | null): string[] {
 }
 
 /**
- * Persist the merchant's control-panel tweaks into the recipe that gets saved:
- * layout/colors/shape/typography/responsive/customCss map onto the real `style`
- * pack (storefront types), content settings onto `config` (theme.section config
- * is an open object; strict configs simply strip unknown keys server-side).
+ * Decorative-only projection of a concept's REAL recipe onto the small mini
+ * preview shown on the concept-picker card (GenCandMini) — read-only, no
+ * write-back. Replaces the old BASE_SETTINGS/settingsFromRecipe two-way
+ * sync: settings editing now writes straight into the recipe's real
+ * config/style via SchemaForm (see GenSettingsPanel), so this is purely "what
+ * does the real recipe say, with sane fallbacks for the card thumbnail."
  */
-function mergeSettingsIntoRecipe(recipe: Record<string, unknown>, s: any): Record<string, unknown> {
-  // Non-storefront modules are edited directly via GenConfigControls (setConfig
-  // writes recipe.config), so never overlay the storefront button/price/toggle
-  // projection onto them — that would clobber real config fields.
-  if (!STOREFRONT_TYPES.includes(String(recipe.type))) {
-    return { ...recipe };
-  }
-  const config = { ...((recipe.config as Record<string, unknown>) ?? {}) };
-  config.label = s.label;
-  config.price = s.price;
-  config.showQty = !!s.showQty;
-  config.showVariants = !!s.showVariants;
-  config.countdown = !!s.countdown;
-  const merged: Record<string, unknown> = { ...recipe, config };
-  {
-    const style = { ...((recipe.style as Record<string, any>) ?? {}) };
-    style.layout = { ...(style.layout ?? {}), mode: s.mode, anchor: s.anchor, width: s.width };
-    style.colors = { ...(style.colors ?? {}), background: s.bg, buttonBg: s.buttonColor, buttonText: s.buttonText };
-    style.shape = { ...(style.shape ?? {}), radius: s.radius, shadow: s.shadow };
-    style.typography = { ...(style.typography ?? {}), size: SIZE_TO_TYPO[s.size] ?? 'MD' };
-    style.responsive = { ...(style.responsive ?? {}), hideOnMobile: !!s.hideMobile };
-    const css = String(s.customCss ?? '').trim();
-    if (css) style.customCss = css.slice(0, 2000);
-    else delete style.customCss;
-    merged.style = style;
-  }
-  return merged;
-}
-
-/** Reverse mapping: seed/update the control panel from what the recipe really says. */
-function settingsFromRecipe(recipe?: Record<string, unknown> | null): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  if (!recipe) return out;
-  const config = (recipe.config as Record<string, unknown>) ?? {};
-  if (typeof config.label === 'string') out.label = config.label;
-  if (typeof config.price === 'string') out.price = config.price;
-  if (typeof config.showQty === 'boolean') out.showQty = config.showQty;
-  if (typeof config.showVariants === 'boolean') out.showVariants = config.showVariants;
-  if (typeof config.countdown === 'boolean') out.countdown = config.countdown;
-  const style = (recipe.style as Record<string, any>) ?? null;
-  if (style) {
-    if (style.layout?.mode && ['sticky', 'inline', 'floating'].includes(style.layout.mode)) out.mode = style.layout.mode;
-    if (style.layout?.anchor && ['top', 'bottom'].includes(style.layout.anchor)) out.anchor = style.layout.anchor;
-    if (typeof style.colors?.buttonBg === 'string') out.buttonColor = style.colors.buttonBg;
-    if (typeof style.colors?.buttonText === 'string') out.buttonText = style.colors.buttonText;
-    if (typeof style.colors?.background === 'string') out.bg = style.colors.background;
-    if (style.shape?.radius && RADIUS_MAP[style.shape.radius] !== undefined) out.radius = style.shape.radius;
-    if (style.shape?.shadow && SHADOW_MAP[style.shape.shadow] !== undefined) out.shadow = style.shape.shadow;
-    if (style.typography?.size && TYPO_TO_SIZE[style.typography.size]) out.size = TYPO_TO_SIZE[style.typography.size];
-    if (typeof style.responsive?.hideOnMobile === 'boolean') out.hideMobile = style.responsive.hideOnMobile;
-    if (typeof style.customCss === 'string') out.customCss = style.customCss;
-  }
-  return out;
+function candMiniProjection(recipe?: Record<string, unknown> | null): {
+  label: string; buttonColor: string; buttonText: string; bg: string; radius: string; mode: string; showVariants: boolean; countdown: boolean;
+} {
+  const config = (recipe?.config as Record<string, unknown>) ?? {};
+  const style = (recipe?.style as Record<string, any>) ?? {};
+  return {
+    label: typeof config.title === 'string' && config.title ? config.title : 'Add to cart',
+    buttonColor: typeof style.colors?.buttonBg === 'string' ? style.colors.buttonBg : '#1F3A5F',
+    buttonText: typeof style.colors?.buttonText === 'string' ? style.colors.buttonText : '#FFFFFF',
+    bg: typeof style.colors?.background === 'string' ? style.colors.background : '#FFFFFF',
+    radius: typeof style.shape?.radius === 'string' ? style.shape.radius : 'md',
+    mode: typeof style.layout?.mode === 'string' ? style.layout.mode : 'sticky',
+    showVariants: true,
+    countdown: false,
+  };
 }
 
 /**
- * Label/help wrapper for the bespoke controls (swatch rows, segmented fields,
- * range sliders) that have no Polaris web-component equivalent. Local const —
- * the vendored `Field` import is gone; this reuses the legacy field classes
- * that the fullBleed shell still styles.
+ * Label/help wrapper for the bespoke controls (segmented fields, condition
+ * rows) that have no direct Polaris web-component equivalent — mirrors
+ * `<s-text-field>`'s own label/details layout so it reads as one family.
  */
 function Field({ label, optional, help, children }: { label?: ReactNode; optional?: boolean; help?: ReactNode; children?: ReactNode }) {
   return (
-    <div className="field">
+    <s-stack gap="small-100">
       {label && (
-        <div className="row spread">
-          <label className="field-label">{label}{optional && <span className="opt">  (optional)</span>}</label>
-        </div>
+        <s-text type="strong">{label}{optional && <s-text color="subdued"> (optional)</s-text>}</s-text>
       )}
       {children}
-      {help && <div className="field-help">{help}</div>}
-    </div>
+      {help && <s-text color="subdued">{help}</s-text>}
+    </s-stack>
   );
 }
 
@@ -413,10 +367,24 @@ function GenerateWorkspace() {
   // Prefer client-nav router state; fall back to the loader's ?prompt= param so
   // a Sidekick create action-link (which arrives as a fresh URL navigation, no
   // router state) still seeds the generator.
-  const seedPrompt =
+  const stateOrQueryPrompt =
     typeof seed?.prompt === 'string' && seed.prompt.trim()
       ? seed.prompt.trim()
       : (loaderData.seedPrompt ?? '');
+  // WS-C Task 8 commit-0 fold-in (b): `modules._index.tsx` navigates here
+  // with ONLY `location.state.prompt` (no `?prompt=`) — a hard reload loses
+  // that router state entirely, and `stateOrQueryPrompt` above resolves to
+  // ''. Without this fallback the "no prompt" effect below would bounce the
+  // merchant back to /modules instead of resuming their in-flight job. The
+  // effect populates this from the session's OWN persisted prompt (the only
+  // surviving source of truth) — set post-mount only, never at render time,
+  // since sessionStorage is unavailable during SSR and reading it inline
+  // here would desync hydration.
+  const [sessionSeedPrompt, setSessionSeedPrompt] = useState<string | null>(null);
+  const seedPrompt = stateOrQueryPrompt || sessionSeedPrompt || '';
+  // WS-C Task 7 (C1): when Redis-backed async jobs are configured, generation
+  // enqueues + polls instead of the inline SSE stream.
+  const asyncGeneration = loaderData.asyncGeneration;
 
   const proposeFetcher = useFetcher<{ options?: { index: number; explanation: string; recipe: Record<string, unknown>; qualityBadges?: string[]; score?: number }[]; recommendedIndex?: number; blueprint?: BlueprintResult | null; error?: string; message?: string }>();
   const confirmFetcher = useFetcher<{ moduleId?: string; recipeId?: string; firstModuleId?: string; moduleCount?: number; error?: string }>();
@@ -427,14 +395,15 @@ function GenerateWorkspace() {
 
   const [phase, setPhase] = useState<'generating' | 'choosing' | 'ready' | 'failed'>('generating');
   const [genError, setGenError] = useState<string | null>(null);
+  // Task 16: the typed terminal error's requestId (AppErrorPayload spine),
+  // surfaced in the failed-phase UI so support can correlate via ApiLog.
+  const [genRequestId, setGenRequestId] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
   const [candidates, setCandidates] = useState<Concept[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const [settingsMap, setSettingsMap] = useState<Record<string, any>>({});
   const [threadMap, setThreadMap] = useState<Record<string, any[]>>({});
   const [device, setDevice] = useState<'desktop' | 'mobile'>('desktop');
   const [tab, setTab] = useState<'preview' | 'validation'>('preview');
-  const [ctrlTab, setCtrlTab] = useState<'basic' | 'advanced' | 'css'>('basic');
   const [refine, setRefine] = useState('');
   // Real AI-credit balance from QuotaService (null = unlimited plan).
   const [credits, setCredits] = useState<number | null>(loaderData.aiLeft);
@@ -448,21 +417,34 @@ function GenerateWorkspace() {
   const handledConfirmRef = useRef<unknown>(null);
   const handledRefineRef = useRef<unknown>(null);
   const handledPublishRef = useRef<unknown>(null);
+  // WS-C Task 7: the correlationId of the in-flight/most-recent generation
+  // attempt (SSE or async) — Task 13 stamps this onto the saved Module
+  // (generationCorrelationId) so the funnel spine survives past generation.
+  const genCorrelationIdRef = useRef<string | null>(null);
+  // WS-F: the in-flight generation stream's AbortController. Cancel (and
+  // unmounting mid-generation, e.g. the merchant navigating away by any
+  // route) aborts the real fetch instead of merely navigating away while the
+  // request keeps running, keeps billing, and keeps mutating state.
+  // WS-C Task 8 commit-0 fold-in (a): the SAME ref also owns the async poll's
+  // AbortController when `asyncGeneration` is on — only one of streamGenerate
+  // / asyncGenerate is ever in flight for a given attempt, so one ref/one
+  // unmount-cleanup effect covers both without a second parallel ref.
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => abortRef.current?.abort(), []);
 
-  const settings = settingsMap[selected ?? ''] || BASE_SETTINGS;
-  const set = (patch: any) => setSettingsMap((m) => ({ ...m, [selected!]: { ...m[selected!], ...patch } }));
-  // For non-storefront types, edit the generated recipe.config directly (schema-
-  // driven from the real config shape) so preview/validation/save all reflect it.
-  const setConfig = (key: string, value: unknown) => {
+  // WS-F: settings editing now writes straight into the selected concept's real
+  // recipe.config/style (via SchemaForm) instead of a parallel BASE_SETTINGS
+  // projection that got merged in at save time — kills the hard-coded "buy bar"
+  // field set that didn't correspond to any real recipe schema.
+  const updateSelectedRecipe = useCallback((updater: (r: Record<string, unknown>) => Record<string, unknown>) => {
     if (!selected) return;
-    setCandidates((cs) => cs.map((c) => (c.id === selected
-      ? { ...c, recipe: { ...c.recipe, config: { ...((c.recipe as any).config ?? {}), [key]: value } } }
-      : c)));
-  };
+    setCandidates((cs) => cs.map((c) => (c.id === selected && c.recipe ? { ...c, recipe: updater(c.recipe) } : c)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
   // Merchant config for the new packs (rule-engine / recommendation / pricing)
   // writes the pack's whole object straight onto recipe.config[<namespace>] — the
   // flat-pin key the compiler already reads. `undefined` deletes the key (back to
-  // "no pack", byte-identical). Additive: never touches the storefront projection.
+  // "no pack", byte-identical).
   const setConfigObject = (key: string, value: unknown) => {
     if (!selected) return;
     setCandidates((cs) => cs.map((c) => {
@@ -473,36 +455,29 @@ function GenerateWorkspace() {
       return { ...c, recipe: { ...c.recipe, config } };
     }));
   };
-  // Style tokens (density / elevation / motion / seed / scaling) write straight
-  // into recipe.style.<group>. Kept off the `settings` projection because those
-  // keys aren't in it; mergeSettingsIntoRecipe preserves what it doesn't overwrite
-  // (shape.elevation/scaling, motion, colors.seed all survive the merge).
-  const setStyle = (group: string, patch: Record<string, unknown>) => {
-    if (!selected) return;
-    setCandidates((cs) => cs.map((c) => {
-      if (c.id !== selected) return c;
-      const style = { ...((c.recipe as any)?.style ?? {}) };
-      const prev = { ...((style[group] as Record<string, unknown>) ?? {}) };
-      for (const [k, v] of Object.entries(patch)) {
-        if (v === undefined) delete prev[k];
-        else prev[k] = v;
-      }
-      style[group] = prev;
-      return { ...c, recipe: { ...c.recipe, style } };
-    }));
-  };
-  const thread = threadMap[selected ?? ''] || [];
+  const thread = useMemo(() => threadMap[selected ?? ''] || [], [threadMap, selected]);
   const history = historyMap[selected ?? ''] || [];
   const activeCand = candidates.find((c) => c.id === selected);
   const activeIdx = candidates.findIndex((c) => c.id === selected);
   const thinking = refineFetcher.state !== 'idle';
 
-  // No seeded prompt (direct visit / refresh): never silently burn an AI
-  // generation on a canned prompt — send the merchant to the real prompt box.
+  // No seeded prompt from state/query (direct visit / refresh): before
+  // bouncing to the real prompt box, check for a resumable async-generation
+  // session this same tab already started (commit-0 fold-in (b) — a
+  // state-seeded nav from `modules._index.tsx` loses `location.state` on a
+  // hard reload, so the session's own persisted prompt is the only
+  // surviving source of truth). Only runs when there's genuinely nothing
+  // else to seed from — a real state/query prompt always wins outright.
   useEffect(() => {
-    if (!seedPrompt) navigate('/modules?openBuilder=1', { replace: true });
+    if (stateOrQueryPrompt) return;
+    const resumable = readActiveGenSession();
+    if (resumable?.prompt) {
+      setSessionSeedPrompt(resumable.prompt);
+      return;
+    }
+    navigate('/modules?openBuilder=1', { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seedPrompt]);
+  }, [stateOrQueryPrompt]);
 
   // Build the chooser concepts from a set of AI options (shared by the streaming
   // and batch paths). Re-runnable: the stream calls it as each option arrives.
@@ -525,9 +500,8 @@ function GenerateWorkspace() {
         recommended: recommendedPos != null && i === recommendedPos,
       };
     });
-    const sm: Record<string, any> = {}, tm: Record<string, any[]> = {}, hm: Record<string, any[]> = {};
+    const tm: Record<string, any[]> = {}, hm: Record<string, any[]> = {};
     concs.forEach((c) => {
-      sm[c.id] = { ...c.settings, ...settingsFromRecipe(c.recipe) };
       tm[c.id] = [
         { role: 'user', text: seedPrompt },
         { role: 'assistant', text: c.intro + '\n\nUse the controls on the right to fine-tune it, or ask me to change anything below.' },
@@ -535,7 +509,6 @@ function GenerateWorkspace() {
       hm[c.id] = [{ id: 'h_gen', label: 'Module generated', detail: `Created “${c.name}” from your prompt.`, cost: 1, time: 'Just now' }];
     });
     setCandidates(concs);
-    setSettingsMap(sm);
     setThreadMap(tm);
     setHistoryMap(hm);
     if (bp !== undefined) setBlueprint(bp ?? null);
@@ -546,7 +519,11 @@ function GenerateWorkspace() {
 
   // Streaming generation: options render as they validate (faster first paint).
   // Any failure falls back to the proven batch route, so it's never worse.
-  const streamGenerate = useCallback(async () => {
+  // `correlationId` is optional so a caller that already minted an id for a
+  // PRIOR leg of this same click (asyncGenerate's enqueue attempt) can pass
+  // it through instead of this leg minting its own — see the WS-C final
+  // review fix at asyncGenerate's fallback call sites below.
+  const streamGenerate = useCallback(async (correlationId?: string) => {
     const fd = new FormData();
     fd.set('prompt', seedPrompt);
     fd.set('preferredType', 'Auto');
@@ -557,19 +534,40 @@ function GenerateWorkspace() {
     // fallback below resubmits this SAME FormData, so the id travels
     // unchanged to whichever leg the server sees — letting it detect a
     // stream-then-batch retry of one attempt instead of billing it twice.
-    withGenerationCorrelationId(fd, crypto.randomUUID());
+    // WS-C Task 13 fix round 1: stamps BOTH fd and genCorrelationIdRef with
+    // the same id in one call, BEFORE the first await below — this leg
+    // previously stamped only fd (via withGenerationCorrelationId), never
+    // the ref, so a save after an SSE-path generation (the no-Redis default
+    // AND the documented fallback on async transport failure / 503
+    // ASYNC_DISABLED) sent an empty correlationId and the funnel spine never
+    // chained for that traffic.
+    stampGenerationCorrelationId(fd, genCorrelationIdRef, resolveGenerationCorrelationId(correlationId));
     const collected: Record<number, { explanation: string; recipe: Record<string, unknown> }> = {};
     let gotAny = false;
     let sawErrorFrame: string | null = null;
+    let sawErrorRequestId: string | null = null;
+    // WS-F: real progress — every distinct SSE event kind seen so far maps to
+    // a GEN_STEPS index (stepIndexForSeenEvents), replacing the old fake
+    // setInterval tick that advanced independently of the actual stream.
+    const seenEvents = new Set<StreamEventKind>();
+    setStepIdx(0);
+    // WS-F: one AbortController per generation attempt — Cancel (GenLoading's
+    // onCancel) and the unmount-cleanup effect both call abortRef.current?.abort().
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      const res = await fetch('/api/ai/create-module/stream', { method: 'POST', body: fd, headers: { Accept: 'text/event-stream' } });
+      const res = await fetch('/api/ai/create-module/stream', { method: 'POST', body: fd, headers: { Accept: 'text/event-stream' }, signal: controller.signal });
       if (!res.ok || !res.body) throw new Error('stream unavailable');
       const reader = res.body.getReader();
       const dec = new TextDecoder();
       let buf = '';
       for (;;) {
         const { value, done } = await reader.read();
-        if (done) break;
+        if (done) {
+          seenEvents.add('done');
+          setStepIdx(stepIndexForSeenEvents(seenEvents, GEN_STEPS.length));
+          break;
+        }
         buf += dec.decode(value, { stream: true });
         let sep = buf.indexOf('\n\n');
         while (sep !== -1) {
@@ -585,6 +583,13 @@ function GenerateWorkspace() {
             let payload: any = null;
             try { payload = JSON.parse(dataLines.join('\n')); } catch { payload = null; }
             if (payload) {
+              // Narrow the raw `event:` field name via the type guard rather
+              // than an unsafe cast — an unrecognized name (e.g. SSE's
+              // default 'message') is simply not tracked for progress.
+              if (isStreamEventKind(ev)) {
+                seenEvents.add(ev);
+                setStepIdx(stepIndexForSeenEvents(seenEvents, GEN_STEPS.length));
+              }
               if (ev === 'option' && payload.option?.recipe) {
                 collected[payload.index] = { explanation: payload.option.explanation ?? '', recipe: payload.option.recipe };
                 gotAny = true;
@@ -605,20 +610,19 @@ function GenerateWorkspace() {
                 if (pos >= 0) setCandidates((cs) => cs.map((c, i) => (i === pos ? { ...c, judgeScore: payload.score } : c)));
               } else if (ev === 'option_updated' && typeof payload.index === 'number' && payload.recipe) {
                 // A validated, not-worse judge polish (Phase 5c). Replace the
-                // concept's recipe + settings and flag it "Polished".
+                // concept's recipe and flag it "Polished".
                 collected[payload.index] = { explanation: collected[payload.index]?.explanation ?? '', recipe: payload.recipe };
                 const keys = Object.keys(collected).map(Number).sort((a, b) => a - b);
                 const pos = keys.indexOf(payload.index);
-                const cid = CONCEPT_PRESETS[pos]?.id;
                 if (pos >= 0) {
                   setCandidates((cs) => cs.map((c, i) => (i === pos ? { ...c, recipe: payload.recipe, name: (payload.recipe?.name as string) || c.name, polished: true } : c)));
-                  if (cid) setSettingsMap((m) => ({ ...m, [cid]: { ...m[cid], ...settingsFromRecipe(payload.recipe) } }));
                 }
               } else if (ev === 'error') {
                 // Server-terminal failure: the generation RAN and produced nothing.
                 // Do NOT throw into the transport catch — that path auto-refires
                 // the batch route and bills a second request.
                 sawErrorFrame = payload.message || 'Generation failed';
+                sawErrorRequestId = typeof payload.requestId === 'string' ? payload.requestId : null;
               }
             }
           }
@@ -628,41 +632,170 @@ function GenerateWorkspace() {
       const next = nextStepAfterStream({ gotAny, sawErrorFrame: sawErrorFrame != null, transportFailed: false });
       if (next === 'show-retry') {
         setGenError(sawErrorFrame ?? 'The AI returned no valid concepts.');
+        setGenRequestId(sawErrorRequestId);
         genStartedRef.current = false;
         setPhase('failed');
       }
       // next === 'proceed' → applyOptions already rendered the chooser.
-    } catch {
+    } catch (err) {
+      // WS-F: distinguish an intentional Cancel from a real transport failure
+      // — `controller.abort()` rejects both `fetch` and `reader.read()` with a
+      // DOMException named 'AbortError'. An abort must never trigger the
+      // batch-fallback (that would bill a second request the merchant just
+      // told us to stop).
+      const aborted = err instanceof DOMException && err.name === 'AbortError';
       // Transport failure only (SSE unreachable / !res.ok / no body): usually
       // the stream leg billed nothing, but it may have billed just before the
       // drop (WS-QF / AI-2 review finding) — `fd` still carries this attempt's
       // correlationId, so the server-side dedupe (seedBillingStateForCorrelation
       // in llm.server.ts) bills 0 here if the stream leg already charged.
-      const next = nextStepAfterStream({ gotAny, sawErrorFrame: false, transportFailed: true });
+      const next = nextStepAfterStream({ gotAny, sawErrorFrame: false, transportFailed: !aborted, aborted });
       if (next === 'batch-fallback') {
         proposeFetcher.submit(fd, { method: 'post', action: '/api/ai/create-module' });
       }
+      // 'cancelled': the merchant asked to stop — no fallback, no toast, no retry UI.
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedPrompt, applyOptions]);
 
-  // Kick off real generation when entering the generating phase (stream once).
+  // Map a poll snapshot's persisted VALID options onto the same chooser shape
+  // the SSE `option`/`ranking` frames use (recommendedIndex is a real option
+  // index — map it to its position among the returned options, matching the
+  // streamGenerate `ranking` handling above).
+  const applyPolledSnapshot = useCallback((snapshot: PolledJobSnapshot) => {
+    if (snapshot.options.length === 0) return;
+    const recPos =
+      snapshot.recommendedIndex != null
+        ? snapshot.options.findIndex((o) => o.index === snapshot.recommendedIndex)
+        : -1;
+    applyOptions(
+      snapshot.options.map((o) => ({ explanation: o.explanation, recipe: o.recipe as Record<string, unknown> })),
+      undefined,
+      recPos >= 0 ? recPos : undefined,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyOptions]);
+
+  // Async generation (C1): enqueue-and-poll instead of SSE. A dropped
+  // connection (reload, nav away and back) resumes the SAME job via the
+  // sessionStorage session key — it never calls the enqueue route again, so
+  // it never re-spends (Task 6 review requirement #3). Falls through to the
+  // inline SSE path on `ASYNC_DISABLED` (503) or an enqueue transport
+  // failure.
+  //
+  // WS-C final review (IMPORTANT-1): every fallback below passes
+  // `newCorrelationId` through to `streamGenerate`, not a fresh id — even
+  // on the 503/non-ok branches where nothing was actually enqueued (see
+  // api.ai.generate-async.tsx: jobs.create only runs after auth/rate-limit/
+  // quota, and enqueueWebJob's own failure path marks that Job row terminal
+  // FAILED before the response goes out, so no row is ever left QUEUED/
+  // RUNNING behind a non-2xx or 503 response — reusing there is a no-op,
+  // just simpler than special-casing which branches are "safe"). The branch
+  // that actually matters is the ambiguous one: `fetch()` itself rejecting,
+  // or a 200 response whose body we failed to read — in BOTH cases the
+  // server may already have committed `jobs.create` + `enqueueWebJob`
+  // (the route's happy path returns 200 only after both succeed), leaving a
+  // live orphaned worker job that WILL eventually run and bill under
+  // `newCorrelationId` regardless of what the client does next. Reusing that
+  // same id here means the SSE fallback's own billing call
+  // (seedBillingStateForCorrelation in llm.server.ts) sees the SAME id the
+  // orphaned job will eventually bill under and the dedupe seam collapses
+  // them into one billed unit instead of two.
+  const asyncGenerate = useCallback(async () => {
+    const resumed = readActiveGenSession(seedPrompt);
+    let jobId: string;
+    let correlationId: string;
+
+    if (resumed) {
+      jobId = resumed.jobId;
+      correlationId = resumed.correlationId;
+    } else {
+      const fd = new FormData();
+      fd.set('prompt', seedPrompt);
+      fd.set('preferredType', 'Auto');
+      fd.set('preferredCategory', 'Auto');
+      fd.set('preferredBlockType', 'Auto');
+      fd.set('matchStoreColors', 'true');
+      const newCorrelationId = crypto.randomUUID();
+      withGenerationCorrelationId(fd, newCorrelationId);
+      try {
+        const res = await fetch('/api/ai/generate-async', { method: 'POST', body: fd });
+        if (res.status === 503) {
+          // ASYNC_DISABLED — Redis not configured server-side; fall through
+          // to the inline path unchanged. Nothing was enqueued or billed.
+          void streamGenerate(newCorrelationId);
+          return;
+        }
+        const data = (await res.json().catch(() => null)) as { jobId?: string; correlationId?: string } | null;
+        if (!res.ok || !data?.jobId) throw new Error('enqueue failed');
+        jobId = data.jobId;
+        correlationId = data.correlationId ?? newCorrelationId;
+      } catch {
+        // Covers a rejected fetch() AND the `!res.ok || !data?.jobId` throw
+        // above — see the reuse rationale in this function's leading
+        // comment. Reusing newCorrelationId is correct (dedupe) in the
+        // ambiguous "may have committed" case and harmless (no-op) in the
+        // provably-safe cases.
+        void streamGenerate(newCorrelationId);
+        return;
+      }
+      writeActiveGenSession({ jobId, correlationId, prompt: seedPrompt });
+    }
+
+    genCorrelationIdRef.current = correlationId;
+
+    // Give this poll its own AbortController via the shared `abortRef` —
+    // abort any still-running previous one (e.g. a regenerate() firing a new
+    // asyncGenerate() while an older poll is still in flight) and abort this
+    // one on unmount (the shared cleanup effect above) — nothing left
+    // running past the point the merchant left this screen, and never a
+    // state update after.
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    let snapshot: PolledJobSnapshot;
+    try {
+      snapshot = await pollJobUntilTerminal(jobId, { onSnapshot: applyPolledSnapshot, signal: controller.signal });
+    } catch {
+      // Aborted — unmounted or superseded by a newer asyncGenerate() call.
+      // Whichever instance owns the CURRENT controller (if any) will apply
+      // the eventual terminal state; this leg has nothing left to do.
+      return;
+    }
+    if (abortRef.current !== controller) {
+      // Superseded between resolving and this check — a newer poll owns
+      // applying the terminal state now.
+      return;
+    }
+
+    if (snapshot.status === 'SUCCESS') {
+      clearActiveGenSession();
+      // next === 'proceed' equivalent — applyPolledSnapshot already rendered
+      // the chooser via onSnapshot as options streamed in.
+    } else if (snapshot.status === 'FAILED') {
+      setGenError(snapshot.error?.message ?? 'Generation failed.');
+      setGenRequestId(snapshot.error?.requestId ?? null);
+      genStartedRef.current = false;
+      setPhase('failed');
+      clearActiveGenSession();
+    }
+    // QUEUED/RUNNING never reach here — pollJobUntilTerminal only resolves
+    // on SUCCESS or FAILED (Task 6 review requirement #2), including the
+    // synthetic 10-minute wall-clock give-up snapshot (status FAILED).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedPrompt, applyPolledSnapshot, streamGenerate]);
+
+  // Kick off real generation when entering the generating phase (once).
   useEffect(() => {
     if (phase !== 'generating' || !seedPrompt) return;
     if (!genStartedRef.current) {
       genStartedRef.current = true;
-      void streamGenerate();
+      void (asyncGeneration ? asyncGenerate() : streamGenerate());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase]);
-
-  // Step animation while generation is in flight.
-  useEffect(() => {
-    if (phase !== 'generating') return;
-    setStepIdx(0);
-    let i = 0;
-    const tick = setInterval(() => { i += 1; setStepIdx((s) => Math.min(s + 1, GEN_STEPS.length)); if (i >= GEN_STEPS.length) clearInterval(tick); }, 560);
-    return () => clearInterval(tick);
   }, [phase]);
 
   // When real options arrive (or error), build the chooser — one concept per
@@ -756,7 +889,6 @@ function GenerateWorkspace() {
     if (!conceptId) return;
     const recipe = data.recipe;
     setCandidates((cs) => cs.map((c) => (c.id === conceptId ? { ...c, recipe, name: (recipe as any)?.name || c.name } : c)));
-    setSettingsMap((m) => ({ ...m, [conceptId]: { ...m[conceptId], ...settingsFromRecipe(recipe) } }));
     setThreadMap((m) => ({ ...m, [conceptId]: [...(m[conceptId] || []), { role: 'assistant', text: data.summary || 'Change applied to the module spec.' }] }));
     if (data.creditsLeft !== undefined) setCredits(data.creditsLeft);
     setHistoryMap((m) => ({
@@ -774,7 +906,7 @@ function GenerateWorkspace() {
     if (!cand?.recipe) return;
     const fd = new FormData();
     fd.set('intent', 'validate');
-    fd.set('spec', JSON.stringify(mergeSettingsIntoRecipe(cand.recipe, settingsMap[selected] || BASE_SETTINGS)));
+    fd.set('spec', JSON.stringify(cand.recipe));
     valFetcher.submit(fd, { method: 'post', action: '/generate' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, selected]);
@@ -798,21 +930,32 @@ function GenerateWorkspace() {
     const fd = new FormData();
     fd.set('intent', 'refine');
     fd.set('instruction', q);
-    fd.set('spec', JSON.stringify(mergeSettingsIntoRecipe(cand.recipe, settingsMap[selected] || BASE_SETTINGS)));
+    fd.set('spec', JSON.stringify(cand.recipe));
     refineFetcher.submit(fd, { method: 'post', action: '/generate' });
   };
 
-  const openConcept = (id: string) => { setSelected(id); setTab('preview'); setCtrlTab('basic'); setPhase('ready'); };
+  const openConcept = (id: string) => { setSelected(id); setTab('preview'); setPhase('ready'); };
   const backToOptions = () => setPhase('choosing');
   const regenerate = () => {
-    setCandidates([]); setSettingsMap({}); setThreadMap({}); setHistoryMap({}); setSelected(null);
+    setCandidates([]); setThreadMap({}); setHistoryMap({}); setSelected(null);
     setBlueprint(null);
     createdRef.current = null;
     finishRef.current = null;
-    genStartedRef.current = false;
     setGenError(null);
+    setGenRequestId(null);
+    // A regenerate is a fresh attempt, not a resume of whatever was active
+    // before (a different correlationId, a new job) — drop any stale
+    // session so the next asyncGenerate() enqueues instead of resuming.
+    clearActiveGenSession();
+    // Set the guard true (not false) before dispatching directly below: the
+    // phase→'generating' transition also re-runs the kick-off effect above,
+    // and if the guard were still false that effect would ALSO invoke a
+    // generator — for the async path that's a second, separately-billed
+    // enqueue (its own Job + correlationId), not something the dedupe seam
+    // catches, so this must fire exactly once.
+    genStartedRef.current = true;
     setPhase('generating');
-    void streamGenerate();
+    void (asyncGeneration ? asyncGenerate() : streamGenerate());
   };
 
   // Create the real modules from the generated blueprint, then navigate.
@@ -848,85 +991,91 @@ function GenerateWorkspace() {
     }
     finishRef.current = { mode, conceptId: selected };
     const fd = new FormData();
-    fd.set('spec', JSON.stringify(mergeSettingsIntoRecipe(recipe, settings)));
+    fd.set('spec', JSON.stringify(recipe));
+    // WS-C Task 13 (funnel spine): carry the generation Job's correlationId
+    // forward onto the module so hydrate/publish can chain back to it.
+    fd.set('correlationId', genCorrelationIdRef.current ?? '');
     confirmFetcher.submit(fd, { method: 'post', action: '/api/ai/create-module-from-recipe' });
   };
 
   if (!seedPrompt) return null;
-  if (phase === 'generating') return <GenLoading prompt={seedPrompt} stepIdx={stepIdx} onCancel={() => navigate('/')} />;
-  if (phase === 'failed') return <GenFailed prompt={seedPrompt} message={genError} onRetry={regenerate} onCancel={() => navigate('/modules')} />;
-  if (phase === 'choosing') return <GenChoose prompt={seedPrompt} candidates={candidates} settingsMap={settingsMap} onSelect={openConcept} onRegenerate={regenerate} onCancel={() => navigate('/')} />;
+  if (phase === 'generating') return <GenLoading prompt={seedPrompt} stepIdx={stepIdx} onCancel={() => { abortRef.current?.abort(); navigate('/'); }} />;
+  if (phase === 'failed') return <GenFailed prompt={seedPrompt} message={genError} requestId={genRequestId} onRetry={regenerate} onCancel={() => navigate('/modules')} />;
+  if (phase === 'choosing') return <GenChoose prompt={seedPrompt} candidates={candidates} onSelect={openConcept} onRegenerate={regenerate} onCancel={() => navigate('/')} />;
 
   const publishing = confirmFetcher.state !== 'idle' || publishFetcher.state !== 'idle';
 
   return (
-    <div className="gen-shell">
-      <header className="gen-head">
-        <div className="row-3" style={{ minWidth: 0 }}>
-          <button className="gen-back-btn" onClick={backToOptions} title="Back to all concepts">
-            <s-icon type="arrow-left" size="small" /><span>All concepts</span>
+    <div className="sa-m-gen-shell">
+      <header className="sa-m-gen-head">
+        <s-stack direction="inline" gap="small-200" alignItems="center">
+          <button className="sa-m-gen-back" onClick={backToOptions} title="Back to all concepts">
+            <s-icon type="arrow-left" size="small" />All concepts
           </button>
-          <span className="tile-ico" style={{ width: 34, height: 34, background: 'var(--p-info-bg)', color: 'var(--sa-secondary)' }}>
+          <s-box padding="small-200" borderRadius="base" background="strong">
             <s-icon type={((activeCand && activeCand.icon) || 'desktop') as never} size="small" />
-          </span>
-          <div className="stack" style={{ gap: 1, minWidth: 0 }}>
-            <div className="row-2"><span className="t-h3">{activeCand ? activeCand.name : 'Module'}</span><StatusBadge status="DRAFT" /></div>
-            <span className="t-xs t-muted">{(activeCand ? activeCand.type : 'Module') + ' · concept ' + (activeIdx + 1) + ' of ' + candidates.length + ' · unsaved'}</span>
-          </div>
-        </div>
-        <div className="row-2">
+          </s-box>
+          <s-stack gap="none">
+            <s-stack direction="inline" gap="small-200" alignItems="center">
+              <s-text type="strong">{activeCand ? activeCand.name : 'Module'}</s-text>
+              <StatusBadge status="DRAFT" />
+            </s-stack>
+            <s-text color="subdued">{(activeCand ? activeCand.type : 'Module') + ' · concept ' + (activeIdx + 1) + ' of ' + candidates.length + ' · unsaved'}</s-text>
+          </s-stack>
+        </s-stack>
+        <s-stack direction="inline" gap="small-200" alignItems="center">
           <s-button icon="wand" onClick={regenerate}>Regenerate</s-button>
           <s-button onClick={() => navigate('/')}>Discard</s-button>
           <s-button loading={(confirmFetcher.state !== 'idle' && finishRef.current?.mode === 'draft') || undefined} onClick={() => finish('draft')}>Save draft</s-button>
           <s-button variant="primary" icon="rocket" loading={publishing || undefined} onClick={() => finish('publish')}>Publish</s-button>
-        </div>
+        </s-stack>
       </header>
       {blueprint && (
         <div style={{ padding: '12px 16px 0' }}>
           <s-banner tone="info" heading={`This request is a full solution: ${blueprint.name} (${blueprint.moduleCount} modules)`}>
-            <div className="stack" style={{ gap: 8 }}>
-              <span className="t-sm">{blueprint.summary}</span>
-              <div className="row-2" style={{ flexWrap: 'wrap', gap: 6 }}>
+            <s-stack gap="small-200">
+              <s-text>{blueprint.summary}</s-text>
+              <s-stack direction="inline" gap="small-100">
                 {blueprint.modules.map((m) => (
                   <s-badge key={m.role}>{`${m.role} · ${titleCase(String(m.type).replace(/\./g, ' '))}`}</s-badge>
                 ))}
-              </div>
+              </s-stack>
               <div>
                 <s-button variant="primary" icon="layer" loading={publishing || undefined} onClick={finishBlueprint}>
                   {`Create all ${blueprint.moduleCount} modules`}
                 </s-button>
               </div>
-            </div>
+            </s-stack>
           </s-banner>
         </div>
       )}
-      <div className="gen-body">
+      <div className="sa-m-gen-body">
         <GenBuildPanel
-          settings={settings} set={set} ctrlTab={ctrlTab} setCtrlTab={setCtrlTab}
           moduleType={String((activeCand?.recipe as any)?.type ?? '')}
-          config={((activeCand?.recipe as any)?.config ?? {}) as Record<string, unknown>} setConfig={setConfig}
+          config={((activeCand?.recipe as any)?.config ?? {}) as Record<string, unknown>}
+          style={((activeCand?.recipe as any)?.style ?? {}) as Record<string, unknown>}
           setConfigObject={setConfigObject}
-          style={((activeCand?.recipe as any)?.style ?? {}) as Record<string, unknown>} setStyle={setStyle}
+          updateSelectedRecipe={updateSelectedRecipe}
           thread={thread} thinking={thinking} refine={refine} setRefine={setRefine} onRefine={doRefine}
           credits={credits} dockOpen={dockOpen} setDockOpen={setDockOpen} histOpen={histOpen} setHistOpen={setHistOpen} history={history}
         />
-        <div className="gen-center">
-          <div className="gen-toolbar">
-            <div className="seg">
-              <button aria-selected={device === 'desktop'} onClick={() => setDevice('desktop')}><s-icon type="desktop" size="small" />Desktop</button>
-              <button aria-selected={device === 'mobile'} onClick={() => setDevice('mobile')}><s-icon type="mobile" size="small" />Mobile</button>
-            </div>
-            <div className="grow" />
-            <div className="tabs-mini">
+        <div className="sa-m-gen-center">
+          <div className="sa-m-gen-toolbar">
+            <s-button-group>
+              <s-button variant={device === 'desktop' ? 'primary' : 'tertiary'} icon="desktop" onClick={() => setDevice('desktop')}>Desktop</s-button>
+              <s-button variant={device === 'mobile' ? 'primary' : 'tertiary'} icon="mobile" onClick={() => setDevice('mobile')}>Mobile</s-button>
+            </s-button-group>
+            <div style={{ flex: 1 }} />
+            <s-button-group>
               {(['preview', 'validation'] as const).map((x) => (
-                <button key={x} className={'tab-mini' + (tab === x ? ' sel' : '')} onClick={() => setTab(x)}>{titleCase(x)}</button>
+                <s-button key={x} variant={tab === x ? 'primary' : 'tertiary'} onClick={() => setTab(x)}>{titleCase(x)}</s-button>
               ))}
-            </div>
+            </s-button-group>
           </div>
-          <div className="gen-canvas-wrap">
+          <div className="sa-m-gen-canvas-wrap">
             {tab === 'preview' && (
               <GenPreview
-                recipe={activeCand?.recipe ? mergeSettingsIntoRecipe(activeCand.recipe, settings) : null}
+                recipe={activeCand?.recipe ?? null}
                 device={device}
               />
             )}
@@ -940,28 +1089,33 @@ function GenerateWorkspace() {
 
 function GenLoading({ prompt, stepIdx, onCancel }: any) {
   return (
-    <div className="gen-loading">
-      <div className="gen-loading-card">
-        <div className="gen-orb-wrap">
-          <span className="gen-orb-halo" /><span className="gen-orb-ring r1" /><span className="gen-orb-ring r2" /><span className="gen-orb-ring r3" />
-          <div className="gen-orb"><s-icon type="wand" /></div>
-        </div>
-        <div className="gen-loading-eyebrow"><span className="pulse-dot" />Generating concepts</div>
-        <div className="t-h2" style={{ marginTop: 6, textAlign: 'center' }}>Designing your module</div>
-        <div className="gen-prompt-echo">“{prompt}”</div>
-        <div className="gen-steps">
+    <div className="sa-m-gen-loading">
+      <div className="sa-m-gen-loading-card">
+        <s-box padding="base">
+          <s-spinner size="large" accessibilityLabel="Generating concepts" />
+        </s-box>
+        <div className="sa-m-gen-eyebrow"><span className="sa-m-gen-pulse-dot" />Generating concepts</div>
+        <s-box paddingBlockStart="small-100">
+          <s-heading>Designing your module</s-heading>
+        </s-box>
+        <div className="sa-m-gen-prompt-echo">“{prompt}”</div>
+        <div className="sa-m-gen-steps">
           {GEN_STEPS.map((s, i) => {
             const done = i < stepIdx, active = i === stepIdx;
             return (
-              <div key={i} className={'gen-step' + (done ? ' done' : active ? ' active' : '')}>
-                <span className="gen-step-ico">{done ? <s-icon type="check" size="small" /> : active ? <span className="spinner" style={{ width: 14, height: 14 }} /> : <span className="gen-step-dot" />}</span>
+              <div key={i} className={'sa-m-gen-step' + (done ? ' done' : active ? ' active' : '')}>
+                <span className="sa-m-gen-step-ico">{done ? <s-icon type="check" size="small" /> : active ? <s-spinner size="base" accessibilityLabel={s.label} /> : <span className="sa-m-gen-step-dot" />}</span>
                 <span>{s.label}</span>
               </div>
             );
           })}
         </div>
-        <div className="gen-progress"><i style={{ width: Math.min(100, (stepIdx / GEN_STEPS.length) * 100) + '%' }} /></div>
-        <button className="btn btn-plain btn-plain-subdued" style={{ marginTop: 8 }} onClick={onCancel}>Cancel</button>
+        <s-box inlineSize="100%">
+          <Progress value={stepIdx} max={GEN_STEPS.length} />
+        </s-box>
+        <s-box paddingBlockStart="base">
+          <s-button variant="tertiary" onClick={onCancel}>Cancel</s-button>
+        </s-box>
       </div>
     </div>
   );
@@ -970,92 +1124,108 @@ function GenLoading({ prompt, stepIdx, onCancel }: any) {
 function GenFailed({
   prompt,
   message,
+  requestId,
   onRetry,
   onCancel,
 }: {
   prompt: string;
   message: string | null;
+  requestId?: string | null;
   onRetry: () => void;
   onCancel: () => void;
 }) {
   return (
-    <div className="gen-loading">
-      <div className="gen-loading-card">
-        <div className="gen-loading-eyebrow"><span className="pulse-dot" />Generation failed</div>
-        <div className="t-h2" style={{ marginTop: 6, textAlign: 'center' }}>No concepts this time</div>
-        <div className="gen-prompt-echo">“{prompt}”</div>
-        <p style={{ textAlign: 'center', margin: '12px 0 4px' }}>
-          {(() => {
-            const text = message || 'The AI returned no valid concepts.';
-            // The server's terminal error frame already appends its own
-            // "not billed" sentence (see api.ai.create-module.stream.tsx);
-            // only add the client fallback when the message doesn't already
-            // say it, to avoid doubling the sentence.
-            return /not billed/i.test(text) ? text : `${text} This attempt was not billed.`;
-          })()}
-        </p>
-        <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={onRetry}>Try again</button>
-        <button className="btn btn-plain btn-plain-subdued" style={{ marginTop: 8 }} onClick={onCancel}>Back to modules</button>
+    <div className="sa-m-gen-loading">
+      <div className="sa-m-gen-loading-card">
+        <div className="sa-m-gen-eyebrow"><span className="sa-m-gen-pulse-dot" />Generation failed</div>
+        <s-box paddingBlockStart="small-100">
+          <s-heading>No concepts this time</s-heading>
+        </s-box>
+        <div className="sa-m-gen-prompt-echo">“{prompt}”</div>
+        <s-box paddingBlockEnd="base">
+          <s-paragraph>
+            {(() => {
+              const text = message || 'The AI returned no valid concepts.';
+              // The server's terminal error frame already appends its own
+              // "not billed" sentence (see api.ai.create-module.stream.tsx);
+              // only add the client fallback when the message doesn't already
+              // say it, to avoid doubling the sentence.
+              return /not billed/i.test(text) ? text : `${text} This attempt was not billed.`;
+            })()}
+          </s-paragraph>
+        </s-box>
+        {requestId && (
+          // Task 16: correlates with ApiLog.requestId — support can look this
+          // up directly instead of asking the merchant to reproduce the error.
+          <s-box paddingBlockEnd="small-200">
+            <s-text color="subdued">Reference: {requestId}</s-text>
+          </s-box>
+        )}
+        <s-stack gap="small-200" alignItems="center">
+          <s-button variant="primary" onClick={onRetry}>Try again</s-button>
+          <s-button variant="tertiary" onClick={onCancel}>Back to modules</s-button>
+        </s-stack>
       </div>
     </div>
   );
 }
 
-function GenChoose({ prompt, candidates, settingsMap, onSelect, onRegenerate, onCancel }: any) {
+function GenChoose({ prompt, candidates, onSelect, onRegenerate, onCancel }: any) {
   const n = candidates.length;
   return (
-    <div className="gen-choose">
-      <div className="gen-choose-aurora" />
-      <div className="gen-choose-grid-bg" />
-      <div className="gen-choose-inner">
-        <div className="gen-choose-head">
-          <div className="gen-choose-eyebrow"><span className="pulse-dot" />{n + ' concept' + (n === 1 ? '' : 's') + ' generated'}</div>
-          <h1 className="gen-choose-title">Pick a starting point</h1>
-          <p className="gen-choose-sub">From “{prompt}”. Open any concept to customize it — the rest stay right here until you save. Nothing is stored yet, so you can regenerate anytime.</p>
-          <button className="gen-choose-close" onClick={onCancel} title="Cancel"><s-icon type="x" /></button>
+    <div className="sa-m-gen-choose">
+      <div className="sa-m-gen-choose-inner">
+        <div className="sa-m-gen-choose-head">
+          <div className="sa-m-gen-eyebrow"><span className="sa-m-gen-pulse-dot" />{n + ' concept' + (n === 1 ? '' : 's') + ' generated'}</div>
+          <h1 className="sa-m-gen-choose-title">Pick a starting point</h1>
+          <s-box maxInlineSize="620px">
+            <s-text color="subdued">From “{prompt}”. Open any concept to customize it — the rest stay right here until you save. Nothing is stored yet, so you can regenerate anytime.</s-text>
+          </s-box>
+          <button className="sa-m-gen-choose-close" onClick={onCancel} title="Cancel"><s-icon type="x" /></button>
         </div>
-        <div className="gen-cand-grid">
+        <div className="sa-m-gen-cand-grid">
           {candidates.map((c: any, i: number) => (
-            <GenCandCard key={c.id} c={c} idx={i} total={candidates.length} settings={settingsMap[c.id] || c.settings} onSelect={() => onSelect(c.id)} />
+            <GenCandCard key={c.id} c={c} idx={i} total={candidates.length} onSelect={() => onSelect(c.id)} />
           ))}
         </div>
-        <div className="gen-choose-foot">
-          <button className="gen-regen-btn" onClick={onRegenerate}><s-icon type="wand" size="small" />Regenerate</button>
-          <span className="t-xs t-muted">Nothing is saved — concepts reset when you regenerate or leave.</span>
-        </div>
+        <s-box paddingBlockStart="base">
+          <s-stack direction="inline" gap="small-300" alignItems="center">
+            <s-button variant="tertiary" icon="wand" onClick={onRegenerate}>Regenerate</s-button>
+            <s-text color="subdued">Nothing is saved — concepts reset when you regenerate or leave.</s-text>
+          </s-stack>
+        </s-box>
       </div>
     </div>
   );
 }
 
-function GenCandCard({ c, idx, total, settings, onSelect }: any) {
+function GenCandCard({ c, idx, total, onSelect }: any) {
   const num = String(idx + 1).padStart(2, '0') + ' / ' + String(total).padStart(2, '0');
   return (
-    <button className={'gen-cand' + (c.recommended ? ' gen-cand-recommended' : '')} style={{ ['--acc' as any]: c.accent, animationDelay: (0.08 + idx * 0.12) + 's' }} onClick={onSelect} aria-label={c.recommended ? `${c.name} (recommended)` : c.name}>
-      <span className="gen-cand-scan" />
-      <span className="cand-num">{num}</span>
+    <button className={'sa-m-gen-cand' + (c.recommended ? ' sa-m-gen-cand-recommended' : '')} style={{ ['--acc' as any]: c.accent }} onClick={onSelect} aria-label={c.recommended ? `${c.name} (recommended)` : c.name}>
+      <span className="sa-m-gen-cand-num">{num}</span>
       {c.recommended && (
-        <span className="cand-recommended" style={{ position: 'absolute', top: 12, right: 12 }}>
+        <span style={{ position: 'absolute', top: 12, right: 12 }}>
           <s-badge tone="success" icon="wand">Recommended</s-badge>
         </span>
       )}
-      <div className="cand-head">
-        <span className="cand-ico"><s-icon type={c.icon as never} /></span>
-        <div className="stack" style={{ gap: 2, minWidth: 0, textAlign: 'left' }}>
-          <span className="cand-name">{c.name}</span>
-          <span className="t-xs t-muted">{c.type}</span>
-        </div>
+      <div className="sa-m-gen-cand-head">
+        <span className="sa-m-gen-cand-ico"><s-icon type={c.icon as never} /></span>
+        <s-stack gap="small-100">
+          <s-text type="strong">{c.name}</s-text>
+          <s-text color="subdued">{c.type}</s-text>
+        </s-stack>
       </div>
-      <p className="cand-tagline">{c.tagline}</p>
+      <p className="sa-m-gen-cand-tagline">{c.tagline}</p>
       {c.polished && (
-        <span className="cand-polished" style={{ position: 'absolute', top: 12, left: 12 }} title="Refined by an AI reviewer after generation">
+        <span style={{ position: 'absolute', top: 12, left: 12 }} title="Refined by an AI reviewer after generation">
           <s-badge tone="info" icon="wand">Polished</s-badge>
         </span>
       )}
-      <GenCandMini s={settings} accent={c.accent} />
-      <div className="cand-tags">{c.tags.map((t: string) => <span key={t} className="cand-tag">{t}</span>)}</div>
-      <div className="cand-cta">
-        <span className="cand-open"><s-icon type="wand" size="small" />Open & customize</span>
+      <GenCandMini s={candMiniProjection(c.recipe)} accent={c.accent} />
+      <div className="sa-m-gen-cand-tags">{c.tags.map((t: string) => <span key={t} className="sa-m-gen-cand-tag">{t}</span>)}</div>
+      <div className="sa-m-gen-cand-cta">
+        <span><s-icon type="wand" size="small" /> Open &amp; customize</span>
         <s-icon type="arrow-right" />
       </div>
     </button>
@@ -1065,27 +1235,27 @@ function GenCandCard({ c, idx, total, settings, onSelect }: any) {
 function GenCandMini({ s, accent }: any) {
   const r = Math.min(RADIUS_MAP[s.radius] ?? 10, 14);
   const btn = (
-    <span className="cand-btn" style={{ background: s.buttonColor, color: s.buttonText, borderRadius: r }}>
+    <span className="sa-m-gen-mini-btn" style={{ background: s.buttonColor, color: s.buttonText, borderRadius: r }}>
       <s-icon type="cart" size="small" />{s.label}
     </span>
   );
   const chips = s.showVariants && (
-    <span className="cand-chips">{[0, 1, 2].map((i) => <i key={i} className={i === 1 ? 'on' : ''} style={i === 1 ? { borderColor: accent, background: accent } : undefined} />)}</span>
+    <span className="sa-m-gen-mini-chips">{[0, 1, 2].map((i) => <i key={i} className={i === 1 ? 'on' : ''} style={i === 1 ? { borderColor: accent, background: accent } : undefined} />)}</span>
   );
   let bar;
-  if (s.mode === 'floating') bar = <span className="cand-bar cand-bar-floating">{btn}</span>;
+  if (s.mode === 'floating') bar = <span className="sa-m-gen-mini-bar sa-m-gen-mini-bar-floating">{btn}</span>;
   else if (s.mode === 'inline') bar = (
-    <span className="cand-bar cand-bar-inline" style={{ background: s.bg }}>
-      {s.countdown && <span className="cand-count">12:45</span>}{chips}<span className="grow" />{btn}
+    <span className="sa-m-gen-mini-bar sa-m-gen-mini-bar-inline" style={{ background: s.bg }}>
+      {s.countdown && <span className="sa-m-gen-mini-count">12:45</span>}{chips}<span className="sa-m-gen-mini-grow" />{btn}
     </span>
   );
-  else bar = <span className="cand-bar cand-bar-sticky">{chips}<span className="grow" />{btn}</span>;
+  else bar = <span className="sa-m-gen-mini-bar sa-m-gen-mini-bar-sticky">{chips}<span className="sa-m-gen-mini-grow" />{btn}</span>;
   return (
-    <div className="cand-mini">
-      <div className="cand-mini-top"><i /><i /><i /></div>
-      <div className="cand-mini-pdp">
-        <div className="cand-mini-img" />
-        <div className="cand-mini-lines">
+    <div className="sa-m-gen-mini">
+      <div className="sa-m-gen-mini-top"><i /><i /><i /></div>
+      <div className="sa-m-gen-mini-pdp">
+        <div className="sa-m-gen-mini-img" />
+        <div className="sa-m-gen-mini-lines">
           <i className="w3" /><i className="w1" /><i className="w4" style={{ background: accent, opacity: .55 }} /><i className="w2" />
         </div>
       </div>
@@ -1096,11 +1266,10 @@ function GenCandMini({ s, accent }: any) {
 
 function GenBuildPanel(props: any) {
   return (
-    <aside className="gen-build-panel">
-      <GenControls
-        settings={props.settings} set={props.set} ctrlTab={props.ctrlTab} setCtrlTab={props.setCtrlTab}
-        moduleType={props.moduleType} config={props.config} setConfig={props.setConfig}
-        setConfigObject={props.setConfigObject} style={props.style} setStyle={props.setStyle}
+    <aside className="sa-m-gen-build-panel">
+      <GenSettingsPanel
+        moduleType={props.moduleType} config={props.config} style={props.style}
+        setConfigObject={props.setConfigObject} updateSelectedRecipe={props.updateSelectedRecipe}
       />
       <GenBuilderDock
         credits={props.credits} costPerChange={COST_PER_CHANGE} open={props.dockOpen} setOpen={props.setDockOpen}
@@ -1112,59 +1281,153 @@ function GenBuildPanel(props: any) {
   );
 }
 
+/**
+ * WS-F: single schema-driven settings editor for every module type, replacing
+ * the old hard-coded "buy bar" control panel (GenControls) and the ad-hoc
+ * JS-type-inferred fallback for other types (GenConfigControls). Fetches the
+ * type's real JSON Schema (config properties + the design-vocabulary `style`
+ * pack) from /api/generate/config-schema and mounts SchemaForm against it —
+ * the schema-registry module itself stays server-only (binding build rule).
+ *
+ * pricing / recommendation / ruleEngine keep their dedicated, structured pack
+ * editors below (tiered/conditional-list UX SchemaForm's generic renderer
+ * can't represent) — the fetched schema excludes those three keys server-side
+ * so there's exactly one editor per field, never two.
+ */
+function GenSettingsPanel({ moduleType, config, style, setConfigObject, updateSelectedRecipe }: any) {
+  const [schema, setSchema] = useState<JsonSchemaNode | null>(null);
+  const [schemaLoading, setSchemaLoading] = useState(false);
+
+  useEffect(() => {
+    if (!moduleType) { setSchema(null); return; }
+    let cancelled = false;
+    setSchemaLoading(true);
+    fetch(`/api/generate/config-schema?type=${encodeURIComponent(moduleType)}`)
+      .then((r) => r.json())
+      .then((d: { jsonSchema?: JsonSchemaNode | null }) => { if (!cancelled) setSchema(d?.jsonSchema ?? null); })
+      .catch(() => { if (!cancelled) setSchema(null); })
+      .finally(() => { if (!cancelled) setSchemaLoading(false); });
+    return () => { cancelled = true; };
+  }, [moduleType]);
+
+  // Which pack editors apply to this type (flat-pin sites in recipe.ts):
+  //   pricing → functions.discountRules + functions.cartTransform ·
+  //   recommendation → checkout.upsell + checkout.block + postPurchase.offer + theme.section ·
+  //   ruleEngine → theme.section + proxy.widget.
+  const showPricing = moduleType === 'functions.discountRules' || moduleType === 'functions.cartTransform';
+  const showRecs = ['checkout.upsell', 'checkout.block', 'postPurchase.offer', 'theme.section'].includes(moduleType);
+  const showRules = moduleType === 'theme.section' || moduleType === 'proxy.widget';
+
+  // `style` is merged into the same form value under a `style` key (matching
+  // the fetched schema's shape) so style-token edits round-trip through one
+  // onChange, then get split back out into the recipe's real, separate
+  // `style` branch — never left nested under `config.style`.
+  const formValue: Record<string, unknown> = { ...config, style };
+  const onFormChange = (next: Record<string, unknown>) => {
+    const { style: nextStyle, ...restConfig } = next as { style?: Record<string, unknown> } & Record<string, unknown>;
+    updateSelectedRecipe((r: Record<string, unknown>) => ({
+      ...r,
+      config: restConfig,
+      ...(nextStyle !== undefined ? { style: nextStyle } : {}),
+    }));
+  };
+
+  const hasFields = !!schema?.properties && Object.keys(schema.properties).length > 0;
+
+  return (
+    <s-stack gap="none">
+      <s-box padding="base" paddingBlockEnd="small-100">
+        <s-stack direction="inline" justifyContent="space-between" alignItems="baseline">
+          <s-text type="strong">Settings</s-text>
+          <s-text color="subdued">{titleCase(String(moduleType || 'module').replace(/\./g, ' '))}</s-text>
+        </s-stack>
+      </s-box>
+      <div className="sa-m-gen-ctrl-body">
+        <s-stack gap="base">
+          {schemaLoading && <s-spinner size="base" accessibilityLabel="Loading settings" />}
+          {!schemaLoading && hasFields && schema && (
+            <SchemaForm schema={schema} value={formValue} onChange={onFormChange} tier="advanced" />
+          )}
+          {!schemaLoading && !hasFields && !showPricing && !showRecs && !showRules && (
+            <s-banner tone="info">No editable settings on this module yet — describe changes in the Builder chat below.</s-banner>
+          )}
+          {showPricing && (
+            <>
+              <s-divider />
+              <PricingControls value={config?.pricing} onChange={(v: unknown) => setConfigObject('pricing', v)} />
+            </>
+          )}
+          {showRecs && (
+            <>
+              <s-divider />
+              <RecommendationControls value={config?.recommendation} onChange={(v: unknown) => setConfigObject('recommendation', v)} />
+            </>
+          )}
+          {showRules && (
+            <>
+              <s-divider />
+              <RuleEngineControls value={config?.ruleEngine} onChange={(v: unknown) => setConfigObject('ruleEngine', v)} />
+            </>
+          )}
+        </s-stack>
+      </div>
+    </s-stack>
+  );
+}
+
 function GenBuilderDock({ credits, costPerChange, open, setOpen, thread, thinking, refine, setRefine, onRefine, changes, onOpenHistory }: any) {
   const last = thread.slice().reverse().find((m: any) => m.role === 'assistant');
   const unlimited = credits === null;
   const low = !unlimited && credits <= 40, out = !unlimited && credits <= 0;
   const suggestions = ['Use brand green', 'Make it a pill', 'Add a countdown'];
   return (
-    <div className={'gen-dock' + (open ? ' open' : '')}>
-      <button className="gen-dock-head" onClick={() => setOpen(!open)}>
-        <span className="gen-dock-ava"><s-icon type="wand" size="small" /></span>
-        <div className="gen-dock-id">
-          <span className="t-strong t-sm">Builder</span>
-          <span className="t-xs t-muted">{open ? 'Describe a change — applied to the spec' : 'Tap to refine with AI'}</span>
+    <div className="sa-m-gen-dock">
+      <button className="sa-m-gen-dock-head" onClick={() => setOpen(!open)}>
+        <span className="sa-m-gen-dock-ava"><s-icon type="wand" size="small" /></span>
+        <div className="sa-m-gen-dock-id">
+          <s-text type="strong">Builder</s-text>
+          <s-text color="subdued">{open ? 'Describe a change — applied to the spec' : 'Tap to refine with AI'}</s-text>
         </div>
-        <span className={'gen-credit-pill' + (low ? ' low' : '')} title={unlimited ? 'Unlimited AI requests on your plan' : credits.toLocaleString() + ' AI requests remaining this month'}>
+        <span className={'sa-m-gen-credit-pill' + (low ? ' low' : '')} title={unlimited ? 'Unlimited AI requests on your plan' : credits.toLocaleString() + ' AI requests remaining this month'}>
           <s-icon type="bolt" size="small" />{unlimited ? 'Unlimited' : credits.toLocaleString() + ' left'}
         </span>
-        <span className="gen-dock-chev"><s-icon type={open ? 'chevron-down' : 'chevron-up'} /></span>
+        <s-icon type={open ? 'chevron-down' : 'chevron-up'} size="small" />
       </button>
       {open && (
-        <div className="gen-dock-body">
-          <div className={'gen-dock-last' + (last ? '' : ' empty')}>
+        <div className="sa-m-gen-dock-body">
+          <div className={'sa-m-gen-dock-last' + (last ? '' : ' empty')}>
             {last ? (
               <>
-                <span className="gen-last-ico"><s-icon type="check" size="small" /></span>
-                <div className="gen-last-body">
-                  <div className="gen-last-cap">Latest change</div>
-                  <div className="gen-last-text" dangerouslySetInnerHTML={{ __html: gmd(last.text) }} />
+                <span className="sa-m-gen-last-ico"><s-icon type="check" size="small" /></span>
+                <div>
+                  <div className="sa-m-gen-last-cap">Latest change</div>
+                  <div className="sa-m-gen-last-text" dangerouslySetInnerHTML={{ __html: gmd(last.text) }} />
                 </div>
               </>
-            ) : <span className="t-xs t-muted">No changes yet — ask for an edit below and you’ll see what happened here.</span>}
+            ) : <s-text color="subdued">No changes yet — ask for an edit below and you’ll see what happened here.</s-text>}
           </div>
           {thinking && (
-            <div className="gen-dock-thinking">
-              <div className="asst-typing"><span /><span /><span /></div>
-              <span className="t-xs t-muted">Applying your change…</span>
+            <div className="sa-m-gen-dock-thinking">
+              <div className="sa-m-gen-typing"><span /><span /><span /></div>
+              <s-text color="subdued">Applying your change…</s-text>
             </div>
           )}
-          <div className={'gen-dock-input' + (out ? ' is-out' : '')}>
-            <textarea className="gen-refine-input" rows={1} placeholder={out ? 'Out of AI requests — upgrade to keep building' : 'Refine with AI…'}
+          <div className="sa-m-gen-dock-input">
+            <textarea className="sa-m-gen-refine-input" rows={1} placeholder={out ? 'Out of AI requests — upgrade to keep building' : 'Refine with AI…'}
               value={refine} disabled={out} onChange={(e) => setRefine(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onRefine(); } }} />
             <s-button variant="primary" icon="send" accessibilityLabel="Send refinement" onClick={() => onRefine()} disabled={(out || thinking || !refine.trim()) || undefined} />
           </div>
           {!out && (
-            <div className="gen-dock-sugg">
-              {suggestions.map((sg) => <button key={sg} className="example-chip" onClick={() => onRefine(sg)}><s-icon type="wand" size="small" />{sg}</button>)}
+            <div className="sa-m-gen-dock-sugg">
+              {suggestions.map((sg) => <button key={sg} className="sa-m-gen-chip" onClick={() => onRefine(sg)}><s-icon type="wand" size="small" />{sg}</button>)}
             </div>
           )}
-          <div className="gen-dock-foot">
-            <span className="gen-cost-note"><s-icon type="bolt" size="small" />Each change costs <b>{costPerChange === 1 ? '1 AI request' : costPerChange + ' AI requests'}</b></span>
-            <button className="gen-hist-btn" onClick={onOpenHistory}>
-              <s-icon type="clock" size="small" />History{changes ? <span className="gen-hist-count">{changes}</span> : null}
-            </button>
+          <div className="sa-m-gen-dock-foot">
+            <span className="sa-m-gen-cost-note"><s-icon type="bolt" size="small" />Each change costs <b>{costPerChange === 1 ? '1 AI request' : costPerChange + ' AI requests'}</b></span>
+            <s-button variant="tertiary" icon="clock" onClick={onOpenHistory}>
+              History{changes ? <span className="sa-m-gen-hist-count">{changes}</span> : null}
+            </s-button>
           </div>
         </div>
       )}
@@ -1175,32 +1438,31 @@ function GenBuilderDock({ credits, costPerChange, open, setOpen, thread, thinkin
 function GenHistory({ history, credits, onClose }: any) {
   const spent = history.reduce((a: number, h: any) => a + h.cost, 0);
   return (
-    <div className="gen-hist">
-      <div className="gen-hist-head">
-        <div className="stack" style={{ gap: 1 }}>
-          <span className="t-strong t-sm">Change history</span>
-          <span className="t-xs t-muted">{history.length + ' change' + (history.length === 1 ? '' : 's') + ' · ' + spent + ' AI request' + (spent === 1 ? '' : 's') + ' spent'}</span>
-        </div>
-        <button className="gen-hist-x" onClick={onClose} title="Close"><s-icon type="x" size="small" /></button>
+    <div className="sa-m-gen-hist">
+      <div className="sa-m-gen-hist-head">
+        <s-stack gap="none">
+          <s-text type="strong">Change history</s-text>
+          <s-text color="subdued">{history.length + ' change' + (history.length === 1 ? '' : 's') + ' · ' + spent + ' AI request' + (spent === 1 ? '' : 's') + ' spent'}</s-text>
+        </s-stack>
+        <s-button variant="tertiary" icon="x" accessibilityLabel="Close" onClick={onClose} />
       </div>
-      <div className="gen-hist-list">
+      <div className="sa-m-gen-hist-list">
         {history.slice().reverse().map((h: any) => (
-          <div key={h.id} className="gen-hist-row">
-            <span className="gen-hist-dot" />
-            <div className="gen-hist-main">
-              <div className="gen-hist-label">{h.label}</div>
-              <div className="gen-hist-detail">{h.detail}</div>
-              <div className="gen-hist-time">{h.time}</div>
+          <div key={h.id} className="sa-m-gen-hist-row">
+            <span className="sa-m-gen-hist-dot" />
+            <div className="sa-m-gen-hist-main">
+              <div className="sa-m-gen-hist-label">{h.label}</div>
+              <div className="sa-m-gen-hist-detail">{h.detail}</div>
+              <div className="sa-m-gen-hist-time">{h.time}</div>
             </div>
-            <span className="gen-hist-cost">{'−' + h.cost}</span>
+            <span className="sa-m-gen-hist-cost">{'−' + h.cost}</span>
           </div>
         ))}
       </div>
-      <div className="gen-hist-foot">
+      <div className="sa-m-gen-hist-foot">
         <s-icon type="bolt" size="small" />
         <span><b>{credits === null ? 'Unlimited' : credits.toLocaleString()}</b> AI requests remaining</span>
-        <span className="grow" />
-        <a className="gen-hist-topup" href="/billing">Upgrade</a>
+        <a className="sa-m-gen-hist-topup" href="/billing">Upgrade</a>
       </div>
     </div>
   );
@@ -1245,41 +1507,41 @@ function GenPreview({ recipe, device }: { recipe: Record<string, unknown> | null
   }, [specKey, isSimulated, sim.currency, sim.countryCode, sim.isPlus]);
 
   return (
-    <div className={'gen-canvas' + (device === 'mobile' ? ' mobile' : '')}>
+    <div className={'sa-m-gen-canvas' + (device === 'mobile' ? ' mobile' : '')}>
       {isSimulated && (
-        <div className="pv-sim" role="group" aria-label="Simulation context">
-          <span className="t-xs t-muted">Simulate</span>
+        <div className="sa-m-gen-pv-sim" role="group" aria-label="Simulation context">
+          <s-text color="subdued">Simulate</s-text>
           <select aria-label="Currency" value={sim.currency} onChange={(e) => setSim((v) => ({ ...v, currency: e.target.value }))}>
             {['USD', 'CAD', 'GBP', 'EUR'].map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
           <select aria-label="Country" value={sim.countryCode} onChange={(e) => setSim((v) => ({ ...v, countryCode: e.target.value }))}>
             {['US', 'CA', 'GB', 'DE'].map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
-          <label className="pv-sim-plus"><input type="checkbox" checked={sim.isPlus} onChange={(e) => setSim((v) => ({ ...v, isPlus: e.target.checked }))} />Plus</label>
+          <label className="sa-m-gen-pv-sim-plus"><input type="checkbox" checked={sim.isPlus} onChange={(e) => setSim((v) => ({ ...v, isPlus: e.target.checked }))} />Plus</label>
         </div>
       )}
-      <div className="pv-frame">
-        <div className="pv-browser"><span className="pv-dot" /><span className="pv-dot" /><span className="pv-dot" /><div className="pv-url">Live preview · {type || 'module'}</div></div>
-        <div className="pv-live">
+      <div className="sa-m-gen-pv-frame">
+        <div className="sa-m-gen-pv-browser"><span className="sa-m-gen-pv-dot" /><span className="sa-m-gen-pv-dot" /><span className="sa-m-gen-pv-dot" /><div className="sa-m-gen-pv-url">Live preview · {type || 'module'}</div></div>
+        <div className="sa-m-gen-pv-live">
           {state.status === 'idle' && (
-            <div className="pv-msg"><s-icon type="layer" /><span className="t-sm t-muted">Pick a concept to preview it here.</span></div>
+            <div className="sa-m-gen-pv-msg"><s-icon type="layer" /><s-text color="subdued">Pick a concept to preview it here.</s-text></div>
           )}
           {state.status === 'loading' && (
-            <div className="pv-msg"><span className="spinner" style={{ width: 20, height: 20 }} /><span className="t-sm t-muted">Rendering preview…</span></div>
+            <div className="sa-m-gen-pv-msg"><s-spinner size="base" accessibilityLabel="Rendering preview" /><s-text color="subdued">Rendering preview…</s-text></div>
           )}
           {state.status === 'error' && (
-            <div className="pv-msg"><s-icon type="alert-triangle" /><span className="t-sm t-muted">{state.error}</span></div>
+            <div className="sa-m-gen-pv-msg"><s-icon type="alert-triangle" /><s-text color="subdued">{state.error}</s-text></div>
           )}
           {state.status === 'html' && (
             <iframe
               title="Module preview"
-              className="pv-iframe"
+              className="sa-m-gen-pv-iframe"
               srcDoc={state.html}
               sandbox="allow-scripts allow-same-origin allow-popups"
             />
           )}
           {state.status === 'json' && (
-            <pre className="pv-json">{JSON.stringify(state.json, null, 2)}</pre>
+            <pre className="sa-m-gen-pv-json">{JSON.stringify(state.json, null, 2)}</pre>
           )}
         </div>
       </div>
@@ -1287,238 +1549,21 @@ function GenPreview({ recipe, device }: { recipe: Record<string, unknown> | null
   );
 }
 
-/**
- * Settings form for non-storefront modules, driven by the generated config's
- * real shape: top-level scalar fields become editable inputs (writing straight
- * into recipe.config); structured fields are steered to the AI chat.
- */
-// New packs that get a first-class editor on non-storefront types, so they never
-// fall into the "structured — edit via chat" bucket. Keyed by the flat config key.
-const PACK_CONFIG_KEYS = new Set(['pricing', 'recommendation']);
-
-function GenConfigControls({ moduleType, config, setConfig, setConfigObject }: any) {
-  // Which pack editors apply to this type (flat-pin sites in recipe.ts):
-  //   pricing → functions.discountRules + functions.cartTransform ·
-  //   recommendation → checkout.upsell + checkout.block + postPurchase.offer.
-  const showPricing = moduleType === 'functions.discountRules' || moduleType === 'functions.cartTransform';
-  const showRecs = moduleType === 'checkout.upsell' || moduleType === 'checkout.block' || moduleType === 'postPurchase.offer';
-  const entries: [string, unknown][] = Object.entries(config || {});
-  const scalars = entries.filter(([, v]) => v === null || ['string', 'number', 'boolean'].includes(typeof v));
-  // Structured fields we render with a dedicated pack editor are excluded from the
-  // "edit via chat" bucket below (they now have real controls).
-  const complex = entries.filter(([k, v]) => v !== null && typeof v === 'object' && !PACK_CONFIG_KEYS.has(k));
-  const fieldLabel = (key: string) => titleCase(String(key).replace(/([A-Z])/g, ' $1').replace(/[_.]/g, ' ').trim());
-  return (
-    <div className="gbp-controls">
-      <div className="gen-controls-head"><span className="t-h3">Settings</span><span className="t-xs t-muted">{titleCase(String(moduleType || 'module').replace(/\./g, ' '))}</span></div>
-      <div className="gen-ctrl-body">
-        <div className="stack-4" style={{ padding: 16 }}>
-          {scalars.length === 0 && complex.length === 0 && !showPricing && !showRecs && (
-            <s-banner tone="info">No editable settings on this module yet — describe changes in the Builder chat below.</s-banner>
-          )}
-          {scalars.map(([key, val]) => {
-            if (typeof val === 'boolean') {
-              return <ToggleRow key={key} label={fieldLabel(key)} checked={val} onChange={() => setConfig(key, !val)} />;
-            }
-            if (typeof val === 'number') {
-              return (
-                <s-number-field
-                  key={key}
-                  label={fieldLabel(key)}
-                  value={String(val)}
-                  onInput={(e) => setConfig(key, Number(e.currentTarget.value))}
-                />
-              );
-            }
-            return (
-              <s-text-field
-                key={key}
-                label={fieldLabel(key)}
-                value={val == null ? '' : String(val)}
-                onInput={(e) => setConfig(key, e.currentTarget.value ?? '')}
-              />
-            );
-          })}
-          {showPricing && (
-            <div style={{ borderTop: '1px solid var(--p-border)', paddingTop: 14 }}>
-              <PricingControls value={config?.pricing} onChange={(v: unknown) => setConfigObject('pricing', v)} />
-            </div>
-          )}
-          {showRecs && (
-            <div style={{ borderTop: '1px solid var(--p-border)', paddingTop: 14 }}>
-              <RecommendationControls value={config?.recommendation} onChange={(v: unknown) => setConfigObject('recommendation', v)} />
-            </div>
-          )}
-          {complex.length > 0 && (
-            <s-banner tone="info" heading="Structured fields">
-              {complex.map(([k]) => fieldLabel(k)).join(', ')} {complex.length === 1 ? 'is' : 'are'} structured — edit by describing the change in the Builder chat below. The live preview always reflects the real module.
-            </s-banner>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function GenControls({ settings: s, set, ctrlTab, setCtrlTab, moduleType, config, setConfig, setConfigObject, style, setStyle }: any) {
-  const swatches = ['#1F3A5F', '#0E9F6E', '#14213A', '#2F80ED', '#D97706', '#DC2626'];
-  // The visual controls below model a storefront block (button/layout/colors).
-  // For non-storefront types, drive the form off the generated config's real
-  // shape (edit recipe.config directly) instead of the storefront projection.
-  const isStorefront = moduleType === 'theme.section' || moduleType === 'proxy.widget';
-  if (!isStorefront) {
-    return <GenConfigControls moduleType={moduleType} config={config} setConfig={setConfig} setConfigObject={setConfigObject} />;
-  }
-  // Which new packs apply to this storefront type (flat-pin sites in recipe.ts):
-  //   ruleEngine → theme.section + proxy.widget · recommendation → theme.section.
-  const showRules = moduleType === 'theme.section' || moduleType === 'proxy.widget';
-  const showRecs = moduleType === 'theme.section';
-  return (
-    <div className="gbp-controls">
-      <div className="gen-controls-head"><span className="t-h3">Controls</span><span className="t-xs t-muted">Changes apply live</span></div>
-      <div className="gen-ctrl-tabs">
-        {(['basic', 'advanced', 'css'] as const).map((x) => (
-          <button key={x} className={'gen-ctrl-tab' + (ctrlTab === x ? ' sel' : '')} onClick={() => setCtrlTab(x)}>{x === 'css' ? 'Custom CSS' : titleCase(x)}</button>
-        ))}
-      </div>
-      <div className="gen-ctrl-body">
-        {ctrlTab === 'basic' && (
-          <div className="stack-4">
-            <s-text-field label="Button label" value={s.label} onInput={(e) => set({ label: e.currentTarget.value ?? '' })} />
-            <s-text-field label="Price suffix (optional)" value={s.price} onInput={(e) => set({ price: e.currentTarget.value ?? '' })} />
-            <Field label="Button color"><SwatchRow value={s.buttonColor} swatches={swatches} onChange={(c: string) => set({ buttonColor: c })} /></Field>
-            <Field label="Button text color"><SwatchRow value={s.buttonText} swatches={['#FFFFFF', '#14213A']} onChange={(c: string) => set({ buttonText: c })} /></Field>
-            <Field label="Corner radius"><SegField value={s.radius} options={[['none', 'None'], ['sm', 'S'], ['md', 'M'], ['lg', 'L'], ['full', 'Pill']]} onChange={(v: string) => set({ radius: v })} /></Field>
-            <Field label="Button size"><SegField value={s.size} options={[['S', 'S'], ['M', 'M'], ['L', 'L']]} onChange={(v: string) => set({ size: v })} /></Field>
-          </div>
-        )}
-        {ctrlTab === 'advanced' && (
-          <div className="stack-4">
-            <s-select label="Layout mode" details="How the module sits on the page" value={s.mode} onChange={(e) => set({ mode: e.currentTarget.value })}>
-              <s-option value="sticky">Sticky bar</s-option>
-              <s-option value="inline">Inline (in product info)</s-option>
-              <s-option value="floating">Floating button</s-option>
-            </s-select>
-            {s.mode === 'sticky' && <Field label="Anchor"><SegField value={s.anchor} options={[['top', 'Top'], ['bottom', 'Bottom']]} onChange={(v: string) => set({ anchor: v })} /></Field>}
-            <Field label="Background"><SwatchRow value={s.bg} swatches={['#FFFFFF', '#F6F8FB', '#14213A']} onChange={(c: string) => set({ bg: c })} /></Field>
-            <Field label="Shadow"><SegField value={s.shadow} options={[['none', 'None'], ['sm', 'S'], ['md', 'M'], ['lg', 'L']]} onChange={(v: string) => set({ shadow: v })} /></Field>
-            <div className="divider" />
-            <ToggleRow label="Show variant picker" checked={s.showVariants} onChange={() => set({ showVariants: !s.showVariants })} />
-            <ToggleRow label="Show quantity stepper" checked={s.showQty} onChange={() => set({ showQty: !s.showQty })} />
-            <ToggleRow label="Urgency countdown" checked={s.countdown} onChange={() => set({ countdown: !s.countdown })} />
-            <ToggleRow label="Hide on mobile" checked={s.hideMobile} onChange={() => set({ hideMobile: !s.hideMobile })} />
-            <div className="divider" />
-            <StyleTokenControls style={style} setStyle={setStyle} />
-          </div>
-        )}
-        {ctrlTab === 'css' && (
-          <div className="stack-3">
-            <s-banner tone="info">Scoped &amp; sanitized · max 2000 characters. Saved with the module.</s-banner>
-            <s-text-area label="Custom CSS" labelAccessibilityVisibility="exclusive" rows={10} maxLength={2000} value={s.customCss ?? ''}
-              placeholder={'.sa-bar {\n  backdrop-filter: blur(8px);\n}\n.sa-bar__button:hover {\n  transform: translateY(-1px);\n}'}
-              onInput={(e) => set({ customCss: e.currentTarget.value ?? '' })} />
-          </div>
-        )}
-        {ctrlTab === 'basic' && (showRecs || showRules) && (
-          <div className="stack-3" style={{ marginTop: 14, borderTop: '1px solid var(--p-border)', paddingTop: 14 }}>
-            {showRecs && <RecommendationControls value={config?.recommendation} onChange={(v: unknown) => setConfigObject('recommendation', v)} />}
-            {showRules && <RuleEngineControls value={config?.ruleEngine} onChange={(v: unknown) => setConfigObject('ruleEngine', v)} />}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Phase #2 style tokens (design-vocabulary §1) — density / elevation / motion /
- * radius scaling / brand seed. Writes straight into recipe.style.<group> via
- * setStyle; every value is a named token from the manifest (never a raw ms /
- * cubic-bezier / px). All optional: "Auto" clears the key so the compiler falls
- * back to the pack/default, keeping older recipes byte-identical.
- */
-function StyleTokenControls({ style, setStyle }: any) {
-  const spacing = style?.spacing ?? {};
-  const shape = style?.shape ?? {};
-  const motion = style?.motion ?? {};
-  const colors = style?.colors ?? {};
-  const density = spacing.density ?? '';
-  const elevation = shape.elevation ?? '';
-  const scaling = typeof shape.scaling === 'number' ? shape.scaling : 100;
-  const dur = motion.duration ?? '';
-  const ease = motion.easing ?? '';
-  const seedSwatches = ['#1F3A5F', '#0E9F6E', '#2F80ED', '#D97706', '#DC2626', '#7C3AED'];
-  const autoOpt = (label: string) => ({ value: '', label });
-  return (
-    <div className="stack-4">
-      <div className="row spread"><span className="t-sm t-strong">Design tokens</span><span className="t-xs t-muted">Phase 2</span></div>
-      <s-select label="Density" details="Airy for marketing, compact for utility." value={density}
-        onChange={(e) => setStyle('spacing', { density: e.currentTarget.value || undefined })}>
-        {[autoOpt('Auto (pack default)'), ...STOREFRONT_DENSITY_LEVELS.map((d) => ({ value: d, label: titleCase(d) }))].map((o) => (
-          <s-option key={o.value} value={o.value}>{o.label}</s-option>
-        ))}
-      </s-select>
-      <s-select label="Elevation" details="Shadow personality applied to the module surface." value={elevation}
-        onChange={(e) => setStyle('shape', { elevation: e.currentTarget.value || undefined })}>
-        {[autoOpt('Auto (flat / pack default)'), ...STOREFRONT_ELEVATION_IDIOMS.map((v) => ({ value: v, label: titleCase(v) }))].map((o) => (
-          <s-option key={o.value} value={o.value}>{o.label}</s-option>
-        ))}
-      </s-select>
-      <Field label="Corner scaling" help={`Shift the whole radius ladder tighter or softer (${STOREFRONT_RADIUS_SCALING_MIN}–${STOREFRONT_RADIUS_SCALING_MAX}%).`}>
-        <div className="row-2" style={{ alignItems: 'center' }}>
-          <input type="range" min={STOREFRONT_RADIUS_SCALING_MIN} max={STOREFRONT_RADIUS_SCALING_MAX} step={5} value={scaling}
-            style={{ flex: 1 }} onChange={(e) => setStyle('shape', { scaling: Number(e.target.value) })} />
-          <span className="t-mono t-xs t-muted" style={{ width: 42, textAlign: 'right' }}>{scaling}%</span>
-          {typeof shape.scaling === 'number' && (
-            <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 2 }}
-              title="Reset to default" onClick={() => setStyle('shape', { scaling: undefined })}><s-icon type="x" size="small" /></button>
-          )}
-        </div>
-      </Field>
-      <s-select label="Motion duration" details="Named speed; always paired with a reduced-motion fallback." value={dur}
-        onChange={(e) => setStyle('motion', { duration: e.currentTarget.value || undefined })}>
-        {[autoOpt('Auto (base)'), ...STOREFRONT_MOTION_DURATIONS.map((v) => ({ value: v, label: titleCase(v) }))].map((o) => (
-          <s-option key={o.value} value={o.value}>{o.label}</s-option>
-        ))}
-      </s-select>
-      <s-select label="Motion easing" details="Personality of the transition curve." value={ease}
-        onChange={(e) => setStyle('motion', { easing: e.currentTarget.value || undefined })}>
-        {[autoOpt('Auto (standard)'), ...STOREFRONT_MOTION_EASINGS.map((v) => ({ value: v, label: titleCase(v) }))].map((o) => (
-          <s-option key={o.value} value={o.value}>{o.label}</s-option>
-        ))}
-      </s-select>
-      <Field label="Brand seed" optional help="Seeds the OKLCH semantic color ramp. Additive — flat colors above still apply.">
-        <SwatchRow value={colors.seed ?? ''} swatches={seedSwatches} onChange={(c: string) => setStyle('colors', { seed: c })} />
-        {colors.seed && (
-          <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: '4px 2px', marginTop: 4 }}
-            onClick={() => setStyle('colors', { seed: undefined })}><span className="t-xs t-muted">Clear seed</span></button>
-        )}
-      </Field>
-    </div>
-  );
-}
-
-function SwatchRow({ value, swatches, onChange }: any) {
-  return (
-    <div className="row-2 row-wrap">
-      {swatches.map((c: string) => <button key={c} className={'swatch-btn' + (c.toLowerCase() === value.toLowerCase() ? ' sel' : '')} style={{ background: c }} onClick={() => onChange(c)} title={c} />)}
-      <span className="t-mono t-xs t-muted">{value}</span>
-    </div>
-  );
-}
 function SegField({ value, options, onChange }: any) {
   return (
-    <div className="seg" style={{ width: '100%' }}>
-      {options.map((o: any) => <button key={o[0]} aria-selected={value === o[0]} onClick={() => onChange(o[0])} style={{ flex: 1, justifyContent: 'center' }}>{o[1]}</button>)}
-    </div>
+    <s-button-group>
+      {options.map((o: any) => (
+        <s-button key={o[0]} variant={value === o[0] ? 'primary' : 'tertiary'} onClick={() => onChange(o[0])}>{o[1]}</s-button>
+      ))}
+    </s-button-group>
   );
 }
 function ToggleRow({ label, checked, onChange }: any) {
   return (
-    <div className="row spread">
-      <span className="t-sm">{label}</span>
+    <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+      <s-text>{label}</s-text>
       <s-switch accessibilityLabel={String(label)} checked={checked || undefined} onChange={onChange} />
-    </div>
+    </s-stack>
   );
 }
 
@@ -1530,13 +1575,13 @@ function labelize(s: string): string {
 /** Section header for a pack editor with an on/off switch. */
 function PackHeader({ title, hint, enabled, onToggle }: any) {
   return (
-    <div className="row spread" style={{ marginBottom: enabled ? 10 : 0 }}>
-      <div className="stack" style={{ gap: 1 }}>
-        <span className="t-sm t-strong">{title}</span>
-        {hint && <span className="t-xs t-muted">{hint}</span>}
-      </div>
+    <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+      <s-stack gap="none">
+        <s-text type="strong">{title}</s-text>
+        {hint && <s-text color="subdued">{hint}</s-text>}
+      </s-stack>
       <s-switch accessibilityLabel={String(title)} checked={enabled || undefined} onChange={onToggle} />
-    </div>
+    </s-stack>
   );
 }
 
@@ -1560,7 +1605,7 @@ function RecommendationControls({ value, onChange }: any) {
   const patch = (p: Record<string, unknown>) => onChange({ ...v, ...p });
   const isDynamic = !RECS_STATIC.has(strategy);
   return (
-    <div className="stack-4">
+    <s-stack gap="base">
       <PackHeader
         title="Product recommendations"
         hint="How this widget chooses which products to offer."
@@ -1600,7 +1645,7 @@ function RecommendationControls({ value, onChange }: any) {
           )}
         </>
       )}
-    </div>
+    </s-stack>
   );
 }
 
@@ -1628,7 +1673,7 @@ function RuleEngineControls({ value, onChange }: any) {
     setGroups([...groups, { logic: 'AND', conditions: [{ object: 'product', attribute: 'tags', operator: 'contains', value: '' }] }]);
   };
   return (
-    <div className="stack-4">
+    <s-stack gap="base">
       <PackHeader
         title="Display rules"
         hint="Conditions that decide when this module appears."
@@ -1656,11 +1701,11 @@ function RuleEngineControls({ value, onChange }: any) {
             />
           ))}
           {groups.length < RULE_LIMITS.maxGroups && (
-            <button className="example-chip" onClick={addGroup}><s-icon type="plus" size="small" />Add rule group</button>
+            <s-button variant="tertiary" icon="plus" onClick={addGroup}>Add rule group</s-button>
           )}
         </>
       )}
-    </div>
+    </s-stack>
   );
 }
 
@@ -1672,31 +1717,32 @@ function RuleGroupEditor({ group, index, showOuter, onChange, onRemove }: any) {
     setConds([...conditions, { object: 'product', attribute: 'tags', operator: 'contains', value: '' }]);
   };
   return (
-    <div className="card" style={{ padding: 12 }}>
-      <div className="row spread" style={{ marginBottom: 8 }}>
-        <span className="t-xs t-strong">{showOuter ? `Group ${index + 1}` : 'Conditions'}</span>
-        {showOuter && (
-          <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 2 }}
-            title="Remove group" onClick={onRemove}><s-icon type="delete" size="small" /></button>
-        )}
-      </div>
-      <div className="stack-3">
-        {conditions.map((c, ci) => (
-          <RuleRowEditor
-            key={ci}
-            row={c}
-            showLogic={ci > 0}
-            groupLogic={group?.logic ?? 'AND'}
-            onLogic={(l: string) => onChange({ ...group, logic: l })}
-            onChange={(next: any) => setConds(conditions.map((x, i) => (i === ci ? next : x)))}
-            onRemove={conditions.length > 1 ? () => setConds(conditions.filter((_, i) => i !== ci)) : null}
-          />
-        ))}
-        {conditions.length < RULE_LIMITS.maxRowsPerGroup && (
-          <button className="example-chip" onClick={addRow}><s-icon type="plus" size="small" />Add condition</button>
-        )}
-      </div>
-    </div>
+    <s-box border="base" borderRadius="base" padding="small-200">
+      <s-stack gap="small-200">
+        <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+          <s-text type="strong">{showOuter ? `Group ${index + 1}` : 'Conditions'}</s-text>
+          {showOuter && (
+            <s-button variant="tertiary" tone="critical" icon="delete" accessibilityLabel="Remove group" onClick={onRemove} />
+          )}
+        </s-stack>
+        <s-stack gap="small-200">
+          {conditions.map((c, ci) => (
+            <RuleRowEditor
+              key={ci}
+              row={c}
+              showLogic={ci > 0}
+              groupLogic={group?.logic ?? 'AND'}
+              onLogic={(l: string) => onChange({ ...group, logic: l })}
+              onChange={(next: any) => setConds(conditions.map((x, i) => (i === ci ? next : x)))}
+              onRemove={conditions.length > 1 ? () => setConds(conditions.filter((_, i) => i !== ci)) : null}
+            />
+          ))}
+          {conditions.length < RULE_LIMITS.maxRowsPerGroup && (
+            <s-button variant="tertiary" icon="plus" onClick={addRow}>Add condition</s-button>
+          )}
+        </s-stack>
+      </s-stack>
+    </s-box>
   );
 }
 
@@ -1712,15 +1758,15 @@ function RuleRowEditor({ row, showLogic, groupLogic, onLogic, onChange, onRemove
     onChange({ object: obj, attribute: nextAttrs[0] ?? '', operator: 'equal_to', value: '' });
   };
   return (
-    <div className="stack-2">
+    <s-stack gap="small-100">
       {showLogic && (
-        <div className="seg" style={{ width: 'fit-content' }}>
+        <s-button-group>
           {[['AND', 'AND'], ['OR', 'OR']].map((o) => (
-            <button key={o[0]} aria-selected={groupLogic === o[0]} onClick={() => onLogic(o[0])} style={{ padding: '2px 10px' }}>{o[1]}</button>
+            <s-button key={o[0]} variant={groupLogic === o[0] ? 'primary' : 'tertiary'} onClick={() => onLogic(o[0])}>{o[1]}</s-button>
           ))}
-        </div>
+        </s-button-group>
       )}
-      <div className="row-2" style={{ flexWrap: 'wrap', alignItems: 'flex-end', gap: 6 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 6 }}>
         <div style={{ flex: '1 1 110px' }}>
           <s-select label="Object" labelAccessibilityVisibility="exclusive" value={object} onChange={(e) => setObject(e.currentTarget.value)}>
             {RULE_OBJECTS.map((o) => <s-option key={o} value={o}>{titleCase(o)}</s-option>)}
@@ -1756,11 +1802,10 @@ function RuleRowEditor({ row, showLogic, groupLogic, onLogic, onChange, onRemove
           </div>
         )}
         {onRemove && (
-          <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 6 }}
-            title="Remove condition" onClick={onRemove}><s-icon type="x" size="small" /></button>
+          <s-button variant="tertiary" tone="critical" icon="x" accessibilityLabel="Remove condition" onClick={onRemove} />
         )}
       </div>
-    </div>
+    </s-stack>
   );
 }
 
@@ -1780,7 +1825,7 @@ function PricingControls({ value, onChange }: any) {
     emit(body);
   };
   return (
-    <div className="stack-4">
+    <s-stack gap="base">
       <PackHeader
         title="Pricing & discounts"
         hint="Discount vocabulary; lowered into the Function on publish."
@@ -1807,7 +1852,7 @@ function PricingControls({ value, onChange }: any) {
           )}
         </>
       )}
-    </div>
+    </s-stack>
   );
 }
 
@@ -1817,7 +1862,7 @@ function DiscountFields({ discount, onChange }: any) {
   const kind = d.kind ?? 'percentage';
   const needsValue = KIND_NEEDS_VALUE.has(kind);
   return (
-    <div className="stack-3">
+    <s-stack gap="small-200">
       <s-select label="Discount kind" value={kind} onChange={(e) => onChange({ ...d, kind: e.currentTarget.value })}>
         {DISCOUNT_KINDS.map((k) => <s-option key={k} value={k}>{labelize(k)}</s-option>)}
       </s-select>
@@ -1830,7 +1875,7 @@ function DiscountFields({ discount, onChange }: any) {
         <s-number-field label="How many cheapest become free" min={1} value={String(d.cheapestFreeCount ?? 1)}
           onInput={(e) => onChange({ ...d, cheapestFreeCount: e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value) })} />
       )}
-    </div>
+    </s-stack>
   );
 }
 
@@ -1840,28 +1885,30 @@ function PricingTiers({ tiers, onChange }: any) {
   const setRows = (next: any[]) => onChange({ ...t, rows: next });
   const addRow = () => setRows([...rows, { threshold: rows.length + 2, discount: { kind: 'percentage', value: 10 } }]);
   return (
-    <div className="stack-3">
+    <s-stack gap="small-200">
       <Field label="Tier threshold basis">
         <SegField value={t.basis ?? 'quantity'} options={THRESHOLD_BASIS.map((b) => [b, labelize(b)])} onChange={(b: string) => onChange({ ...t, basis: b })} />
       </Field>
       {rows.map((r, ri) => (
-        <div key={ri} className="card" style={{ padding: 12 }}>
-          <div className="row spread" style={{ marginBottom: 8 }}>
-            <span className="t-xs t-strong">Tier {ri + 1}</span>
-            {rows.length > 1 && (
-              <button className="btn-plain btn-plain-subdued" style={{ border: 0, background: 'none', cursor: 'pointer', padding: 2 }}
-                title="Remove tier" onClick={() => setRows(rows.filter((_, i) => i !== ri))}><s-icon type="delete" size="small" /></button>
-            )}
-          </div>
-          <div className="stack-3">
-            <s-number-field label={`Threshold (${t.basis === 'cart-value' ? 'cart value' : 'quantity'})`} min={1} value={String(r.threshold ?? 1)}
-              onInput={(e) => setRows(rows.map((x, i) => (i === ri ? { ...x, threshold: Number(e.currentTarget.value) } : x)))} />
-            <DiscountFields discount={r.discount} onChange={(dd: unknown) => setRows(rows.map((x, i) => (i === ri ? { ...x, discount: dd } : x)))} />
-          </div>
-        </div>
+        <s-box key={ri} border="base" borderRadius="base" padding="small-200">
+          <s-stack gap="small-200">
+            <s-stack direction="inline" justifyContent="space-between" alignItems="center">
+              <s-text type="strong">Tier {ri + 1}</s-text>
+              {rows.length > 1 && (
+                <s-button variant="tertiary" tone="critical" icon="delete" accessibilityLabel={`Remove tier ${ri + 1}`}
+                  onClick={() => setRows(rows.filter((_, i) => i !== ri))} />
+              )}
+            </s-stack>
+            <s-stack gap="small-200">
+              <s-number-field label={`Threshold (${t.basis === 'cart-value' ? 'cart value' : 'quantity'})`} min={1} value={String(r.threshold ?? 1)}
+                onInput={(e) => setRows(rows.map((x, i) => (i === ri ? { ...x, threshold: Number(e.currentTarget.value) } : x)))} />
+              <DiscountFields discount={r.discount} onChange={(dd: unknown) => setRows(rows.map((x, i) => (i === ri ? { ...x, discount: dd } : x)))} />
+            </s-stack>
+          </s-stack>
+        </s-box>
       ))}
-      <button className="example-chip" onClick={addRow}><s-icon type="plus" size="small" />Add tier</button>
-    </div>
+      <s-button variant="tertiary" icon="plus" onClick={addRow}>Add tier</s-button>
+    </s-stack>
   );
 }
 
@@ -1878,8 +1925,8 @@ function GenValidation({ loading, data, hasRecipe }: any) {
   if (loading || !data) {
     return (
       <div style={{ padding: 20, maxWidth: 640, width: '100%', margin: '0 auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span className="spinner" style={{ width: 16, height: 16 }} />
-        <span className="t-sm t-muted">Running schema and pre-publish checks…</span>
+        <s-spinner size="base" accessibilityLabel="Running checks" />
+        <s-text color="subdued">Running schema and pre-publish checks…</s-text>
       </div>
     );
   }
@@ -1914,25 +1961,39 @@ function GenValidation({ loading, data, hasRecipe }: any) {
         : deployBlocked
           ? <s-banner tone="warning" heading="Valid — but not publishable yet">{(publish!.reasons[0] ?? 'This module type needs its runtime shipped before it can publish.') + ' Publishing will be blocked until then; saving a draft still works.'}</s-banner>
           : <s-banner tone="success" heading="All checks passed">Schema and pre-publish validation both passed — Publish runs these same checks server-side before going live.</s-banner>}
-      <div className="card" style={{ marginTop: 16 }}>
-        {rows.map((r, i) => (
-          <div key={i} className="val-row">
-            <span className="val-ico" style={r.pass ? undefined : { background: 'var(--p-critical-bg)', color: 'var(--p-critical)' }}><s-icon type={r.pass ? 'check' : 'alert-triangle'} size="small" /></span>
-            <div className="grow"><div className="t-sm t-strong">{r.label}</div><div className="t-xs t-muted">{r.detail}</div></div>
-            <s-badge tone={r.pass ? 'success' : 'critical'}>{r.pass ? 'Pass' : 'Fail'}</s-badge>
-          </div>
-        ))}
-        {errors.map((e: any, i: number) => (
-          <div key={'e' + i} className="val-row">
-            <span className="val-ico" style={{ background: 'var(--p-critical-bg)', color: 'var(--p-critical)' }}><s-icon type="alert-triangle" size="small" /></span>
-            <div className="grow"><div className="t-sm t-strong">{e.code}</div><div className="t-xs t-muted">{e.message}</div></div>
-            <s-badge tone="critical">Fail</s-badge>
-          </div>
-        ))}
-      </div>
+      <s-box border="base" borderRadius="base" paddingBlockStart="small-100" paddingBlockEnd="small-100">
+        <s-stack gap="none">
+          {rows.map((r, i) => (
+            <s-box key={i} padding="small-200">
+              <s-stack direction="inline" gap="small-200" alignItems="center">
+                <s-icon type={r.pass ? 'check' : 'alert-triangle'} size="small" tone={r.pass ? 'success' : 'critical'} />
+                <div style={{ flex: 1 }}>
+                  <s-text type="strong">{r.label}</s-text>
+                  <s-text color="subdued">{r.detail}</s-text>
+                </div>
+                <s-badge tone={r.pass ? 'success' : 'critical'}>{r.pass ? 'Pass' : 'Fail'}</s-badge>
+              </s-stack>
+            </s-box>
+          ))}
+          {errors.map((e: any, i: number) => (
+            <s-box key={'e' + i} padding="small-200">
+              <s-stack direction="inline" gap="small-200" alignItems="center">
+                <s-icon type="alert-triangle" size="small" tone="critical" />
+                <div style={{ flex: 1 }}>
+                  <s-text type="strong">{e.code}</s-text>
+                  <s-text color="subdued">{e.message}</s-text>
+                </div>
+                <s-badge tone="critical">Fail</s-badge>
+              </s-stack>
+            </s-box>
+          ))}
+        </s-stack>
+      </s-box>
     </div>
   );
 }
+
+export { MerchantErrorBoundary as ErrorBoundary } from '~/components/merchant/MerchantErrorBoundary';
 
 function gmd(str: string) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');

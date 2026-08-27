@@ -124,7 +124,7 @@ export default function FlowBuildPage() {
   }, [flowId, fetcher, name]);
 
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <s-page heading={moduleName ?? 'New Flow'} inlineSize="base">
         <s-stack direction="inline" gap="small-100" alignItems="center">
           <s-button variant="tertiary" icon="arrow-left" onClick={() => navigate('/flows')}>Flows</s-button>

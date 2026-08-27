@@ -44,7 +44,7 @@ export async function loader({ request }: { request: Request }) {
 
 export default function ActivityIndex() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <ActivityBody />
     </MerchantShell>
   );

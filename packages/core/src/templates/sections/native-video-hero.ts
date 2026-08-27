@@ -24,6 +24,7 @@ export const NATIVE_VIDEO_HERO_TEMPLATES: TemplateEntry[] = [
   // 01 — mp4 product film, minimal-luxe, desktop-only (data-saving on mobile).
   {
     id: 'NSEC-VHERO-01',
+    tier: 'standard',
     name: 'Product Film Video Hero (Luxe)',
     description: 'Full-bleed autoplaying product-film hero — a muted, looping mp4 behind an elegant headline and shop CTA, with a soft scrim for legibility. Shown on desktop only so mobile shoppers are not served the heavy video.',
     category: 'STOREFRONT_UI',
@@ -73,6 +74,7 @@ export const NATIVE_VIDEO_HERO_TEMPLATES: TemplateEntry[] = [
   // 02 — YouTube brand-story hero, bold DTC, click-to-play privacy embed.
   {
     id: 'NSEC-VHERO-02',
+    tier: 'standard',
     name: 'Brand Story Video Hero (YouTube, Bold)',
     description: 'Bold brand-story hero backed by a privacy-enhanced YouTube embed (no-cookie, lazy-loaded) with a punchy headline, supporting line and dual CTAs over a dark scrim. Click-to-play by default so it never autoplays motion or eats data.',
     category: 'STOREFRONT_UI',

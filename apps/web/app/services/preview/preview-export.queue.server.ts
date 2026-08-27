@@ -5,7 +5,7 @@ import {
   type ImageWorkerPayload,
 } from '@superapp/platform-contracts';
 import { createJobOrchestrator } from '@superapp/job-orchestration';
-import { createImageStorageProcessor } from '@superapp/workers';
+import { createImageStorageProcessor } from '~/services/assets/image-storage.server';
 import { randomUUID } from 'node:crypto';
 
 type PreviewExportPayload = Extract<ImageWorkerPayload, { type: 'PREVIEW_EXPORT' }>;

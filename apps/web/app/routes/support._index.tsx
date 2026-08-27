@@ -3,6 +3,7 @@ import { useLoaderData, useNavigate, useFetcher } from '@remix-run/react';
 import { useEffect, useRef, useState } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
+import { sealAccessToken } from '~/services/shops/access-token.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { Desc, EmptyState, LearnMore, StatStrip, titleCase, useCustomEvent } from '~/components/merchant/polaris';
 import { SeverityBadge, TICKET_STATUS_LABEL, TicketStatusBadge } from '~/components/support/badges';
@@ -14,7 +15,7 @@ export async function loader({ request }: { request: Request }) {
   let shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
   if (!shopRow) {
     shopRow = await prisma.shop.create({
-      data: { shopDomain: session.shop, accessToken: session.accessToken ?? '', planTier: 'FREE' },
+      data: { shopDomain: session.shop, accessToken: sealAccessToken(session.accessToken ?? ''), planTier: 'FREE' },
     });
   }
 
@@ -144,7 +145,7 @@ function NewTicketModal({ modules, onClose }: { modules: Array<{ id: string; nam
 export default function SupportIndex() {
   const data = useLoaderData<typeof loader>();
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <SupportBody {...data} />
     </MerchantShell>
   );
@@ -195,7 +196,7 @@ function SupportBody({ tickets, modules, stats }: ReturnType<typeof useLoaderDat
       ) : (
         <s-section padding="none">
           <s-table>
-            <s-grid slot="filters" gridTemplateColumns="1fr auto auto auto" gap="small-100" alignItems="center">
+            <s-grid slot="filters" gridTemplateColumns="@container (inline-size > 640px) 1fr auto auto auto, 1fr" gap="small-100" alignItems="center">
               <s-search-field
                 label="Search tickets"
                 labelAccessibilityVisibility="exclusive"

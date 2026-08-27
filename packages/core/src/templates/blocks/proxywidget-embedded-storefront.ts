@@ -39,6 +39,7 @@ export const templates: TemplateEntry[] = [
   // ── 01 · Loox — dynamic photo-review wall (reviews) ────────────────────────
   {
     id: 'PXY-EMB-01',
+    tier: 'standard',
     name: 'Loox Photo Review Wall (Embedded)',
     description:
       'App-proxy reviews widget embedded on the product page — verified-buyer photo/video review cards fetched, sorted (visual-first) and paginated server-side.',
@@ -76,6 +77,7 @@ export const templates: TemplateEntry[] = [
   // ── 02 · Okendo — reviews + Q&A widget (reviews) ───────────────────────────
   {
     id: 'PXY-EMB-02',
+    tier: 'standard',
     name: 'Okendo Reviews & Q&A (Embedded)',
     description:
       'App-proxy Okendo reviews module for the product page — score summary rail, attribute averages, filter chips, and a Q&A accordion hydrated from the reviews backend.',
@@ -113,6 +115,7 @@ export const templates: TemplateEntry[] = [
   // ── 03 · Rebuy — PDP cross-sell recommendations strip (recs) ───────────────
   {
     id: 'PXY-EMB-03',
+    tier: 'standard',
     name: 'Rebuy PDP Cross-Sell Strip (Embedded)',
     description:
       'App-proxy Rebuy recommendation carousel below the product — a Data-Source ruleset resolves personalized cross-sells server-side with an add-to-cart per card.',
@@ -163,6 +166,7 @@ export const templates: TemplateEntry[] = [
   // ── 04 · Rebuy — cart cross-sell recommendations (recs, cart) ──────────────
   {
     id: 'PXY-EMB-04',
+    tier: 'standard',
     name: 'Rebuy Cart Cross-Sell (Embedded)',
     description:
       'App-proxy Rebuy cross-sell embedded on the cart page — recommendations resolved against the live cart contents, shown only when the cart has at least one item.',
@@ -213,6 +217,7 @@ export const templates: TemplateEntry[] = [
   // ── 05 · Selleasy — Frequently Bought Together (recs) ──────────────────────
   {
     id: 'PXY-EMB-05',
+    tier: 'standard',
     name: 'Selleasy Frequently Bought Together (Embedded)',
     description:
       'App-proxy Amazon-style FBT block on the product page — offer products resolved server-side (manual list, recommendation engine, or metafield) with a combined total and "add all".',
@@ -249,6 +254,7 @@ export const templates: TemplateEntry[] = [
   // ── 06 · Swym — wishlist button (wishlist, product) ────────────────────────
   {
     id: 'PXY-EMB-06',
+    tier: 'standard',
     name: 'Swym Wishlist Button (Embedded)',
     description:
       'App-proxy wishlist button beside add-to-cart on the product page — toggles a shopper-scoped list (regid/email) with a default/added state and optional social-save count.',
@@ -285,6 +291,7 @@ export const templates: TemplateEntry[] = [
   // ── 07 · Swym — wishlist page / drawer (wishlist) ──────────────────────────
   {
     id: 'PXY-EMB-07',
+    tier: 'standard',
     name: 'Swym Wishlist Page (Embedded)',
     description:
       'App-proxy wishlist page embedded on a dedicated page — renders the shopper\'s saved product grid with add-to-cart per item and a shareable-list link, hydrated from the list backend.',
@@ -321,6 +328,7 @@ export const templates: TemplateEntry[] = [
   // ── 08 · LoyaltyLion — loyalty launcher / panel (loyalty) ──────────────────
   {
     id: 'PXY-EMB-08',
+    tier: 'standard',
     name: 'LoyaltyLion Rewards Panel (Embedded)',
     description:
       'App-proxy loyalty widget embedded in-page — a tabbed panel (earn / spend / referral / tier) that reads the logged-in shopper\'s points balance server-side; guests see a sign-up splash.',
@@ -372,6 +380,7 @@ export const templates: TemplateEntry[] = [
   // ── 09 · ProveSource — inline social-proof PDP widget (social-proof) ───────
   {
     id: 'PXY-EMB-09',
+    tier: 'standard',
     name: 'ProveSource Inline Social Proof (Embedded)',
     description:
       'App-proxy inline social-proof block on the product page — a trust widget rendered in-flow from the ProveSource event stream; shows nothing until real events resolve (no fabricated counts).',
@@ -408,6 +417,7 @@ export const templates: TemplateEntry[] = [
   // ── 10 · Appikon — back-in-stock "Notify Me" widget (back-in-stock) ────────
   {
     id: 'PXY-EMB-10',
+    tier: 'standard',
     name: 'Notify Me When Available (Embedded)',
     description:
       'App-proxy back-in-stock widget on the product page — a variant-aware "Notify Me" button that captures an email/phone waitlist entry server-side; shows only for sold-out variants.',
@@ -458,6 +468,7 @@ export const templates: TemplateEntry[] = [
   // ── 11 · Rebuy — recently-viewed / buy-it-again strip (recs) ───────────────
   {
     id: 'PXY-EMB-11',
+    tier: 'standard',
     name: 'Rebuy Recently Viewed & Buy It Again (Embedded)',
     description:
       'App-proxy Rebuy "recently viewed / buy it again" strip on the homepage — a returning-shopper recommendation rail resolved from behavioral + order history server-side, shown to logged-in members.',

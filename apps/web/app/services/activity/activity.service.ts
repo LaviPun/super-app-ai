@@ -24,6 +24,7 @@ export type ActivityAction =
   | 'LOGOUT'
   | 'PROVIDER_CREATED'
   | 'PROVIDER_ACTIVATED'
+  | 'PROVIDER_TESTED'
   | 'PROVIDER_EXTRA_CONFIG_UPDATED'
   | 'PRICE_ADDED'
   | 'STORE_SETTINGS_UPDATED'
@@ -59,6 +60,7 @@ export type ActivityAction =
   | 'OPENAI_PROVIDER_UPDATED'
   | 'CLAUDE_PROVIDER_UPDATED'
   | 'DEFAULT_AI_PROVIDER_UPDATED'
+  | 'FALLBACK_AI_PROVIDER_UPDATED'
   | 'MAIN_API_PROVIDER_SET'
   | 'PROVIDER_MODEL_CATALOG_SYNCED'
   | 'PROVIDER_UPDATES_SYNCED'
@@ -92,7 +94,14 @@ export type ActivityAction =
   | 'SUPPORT_FIX_APPLIED'
   | 'SUPPORT_FIX_REJECTED'
   | 'SUPPORT_NOTIFICATION_SENT'
-  | 'SUPPORT_TRIAGE_SETTINGS_UPDATED';
+  | 'SUPPORT_TRIAGE_SETTINGS_UPDATED'
+  | 'QA_ISSUE_PROMOTION'
+  // Ops alerting (WS-G) — OpsAlertService bookkeeping
+  | 'OPS_ALERT_OCCURRED'
+  | 'OPS_ALERT_FIRED'
+  // Integrations Hub (WS-INT) — every save/test action, one member per tile as it lands
+  | 'OPS_INTEGRATION_TESTED'
+  | 'OPS_INTEGRATION_SAVED';
 
 export type ActivityActor = 'SYSTEM' | 'MERCHANT' | 'INTERNAL_ADMIN' | 'WEBHOOK' | 'CRON';
 

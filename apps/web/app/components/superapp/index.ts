@@ -5,4 +5,3 @@ export * from './ui';
 export * from './page-helpers';
 export * from './store-utils';
 export { CommandPalette, superappRoute } from './CommandPalette';
-export { MerchantSubnav } from './MerchantSubnav';

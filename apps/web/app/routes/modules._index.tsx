@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { QuotaService } from '~/services/billing/quota.service';
+import { sealAccessToken } from '~/services/shops/access-token.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import {
   StatStrip, StatusBadge, EmptyState, ConfirmModal, Desc, LearnMore, fmtNum, useViewMode, ViewToggle,
@@ -20,7 +21,7 @@ export async function loader({ request }: { request: Request }) {
     let shopRow = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
     if (!shopRow) {
       shopRow = await prisma.shop.create({
-        data: { shopDomain: session.shop, accessToken: session.accessToken ?? '', planTier: 'FREE' },
+        data: { shopDomain: session.shop, accessToken: sealAccessToken(session.accessToken ?? ''), planTier: 'FREE' },
       });
     }
 
@@ -125,7 +126,7 @@ function ModuleBuilderCard({ onClose, open, aiLeftLabel }: { onClose: () => void
           ))}
         </s-stack>
         <s-divider />
-        <s-grid gridTemplateColumns="1fr auto auto" gap="small-100" alignItems="center">
+        <s-grid gridTemplateColumns="@container (inline-size > 560px) 1fr auto auto, 1fr" gap="small-100" alignItems="center">
           <s-text tone="neutral" color="subdued"><s-text type="strong">{aiLeftLabel}</s-text> AI credits left</s-text>
           <s-button icon="theme-template" onClick={() => ctx.go('#/app/templates')}>Templates</s-button>
           <s-button variant="primary" icon="wand" disabled={!prompt.trim() || undefined} onClick={generate}>Generate</s-button>
@@ -138,7 +139,7 @@ function ModuleBuilderCard({ onClose, open, aiLeftLabel }: { onClose: () => void
 export default function ModulesIndex() {
   const { modules, stats, loaderError, aiUsage } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <ModulesBody modules={modules} stats={stats} loaderError={loaderError} aiUsage={aiUsage} />
     </MerchantShell>
   );
@@ -293,7 +294,7 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
   }, [selected, startPending, modules]);
 
   const filters = (
-    <s-grid gridTemplateColumns="1fr auto auto auto" gap="small-100">
+    <s-grid gridTemplateColumns="@container (inline-size > 640px) 1fr auto auto auto, 1fr" gap="small-100">
       <s-search-field
         ref={searchRef as never}
         label="Search modules"
@@ -374,7 +375,7 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
                 Try adjusting your filters or generate something new.
               </EmptyState>
             ) : view === 'cards' ? (
-              <s-grid gridTemplateColumns="repeat(3, 1fr)" gap="base">
+              <s-grid gridTemplateColumns="@container (inline-size > 560px) repeat(3, 1fr), 1fr" gap="base">
                 {rows.map((m: any) => (
                   <s-clickable key={m.id} href={`/modules/${m.id}`} border="base" borderRadius="base" padding="base">
                     <s-stack gap="small-100">
