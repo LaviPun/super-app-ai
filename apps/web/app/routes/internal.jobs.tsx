@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import { parseCursorParams, buildNextCursorUrl } from '~/services/internal/pagination.server';
+import { replayWarningFor } from '~/services/jobs/job-retry-policy';
 import type { Prisma } from '@prisma/client';
 import {
   useAdminCtx,
@@ -298,7 +299,26 @@ export default function AdminJobs() {
                           disabled={replayBusy}
                           onClick={(e) => {
                             e.stopPropagation();
-                            submitReplay(r.id);
+                            // Fix round (controller ruling, Critical #1): a
+                            // kind with no verified idempotency guard
+                            // (attempts: 1 in job-retry-policy.ts) may repeat
+                            // side effects on replay — a merchant email
+                            // re-sent, a re-POST to a connector endpoint.
+                            // Confirm before firing; a guarded kind (attempts:
+                            // 3) replays straight through, as before.
+                            const warning = replayWarningFor(r.type);
+                            if (warning) {
+                              setConfirm({
+                                title: 'Replay this job?',
+                                message: warning,
+                                confirmLabel: 'Replay anyway',
+                                tone: 'critical',
+                                icon: 'replay',
+                                onConfirm: () => submitReplay(r.id),
+                              });
+                            } else {
+                              submitReplay(r.id);
+                            }
                           }}
                         >
                           Replay

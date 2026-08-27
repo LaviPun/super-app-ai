@@ -3,7 +3,9 @@ import type { ActionFunctionArgs } from '@remix-run/node';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService, type ActivityAction } from '~/services/activity/activity.service';
-import { JobService, type JobType } from '~/services/jobs/job.service';
+import type { JobType } from '~/services/jobs/job.service';
+import { enqueueOwnedJob } from '~/services/jobs/ops-queue.server';
+import { isOwnedJobType, type OwnedJobType } from '~/services/jobs/job-executors.server';
 import { generateCorrelationId } from '~/services/observability/correlation.server';
 import { ModuleService } from '~/services/modules/module.service';
 import { RollbackService } from '~/services/publish/rollback.service';
@@ -21,7 +23,8 @@ import {
 import type { AdminApiContext } from '~/types/shopify';
 
 const KNOWN_JOB_TYPES: readonly JobType[] = [
-  'AI_GENERATE', 'AI_HYDRATE', 'AI_MODIFY', 'PUBLISH', 'CONNECTOR_TEST', 'FLOW_RUN', 'THEME_ANALYZE',
+  'AI_GENERATE', 'AI_HYDRATE', 'AI_MODIFY', 'PUBLISH', 'CONNECTOR_TEST', 'FLOW_RUN',
+  'MESSAGING_RUN', 'HTTP_SYNC_RUN', 'RESTOCK_WATCH_RUN', 'LOYALTY_ACCRUAL_RUN', 'SUPPORT_TRIAGE_RUN', 'THEME_ANALYZE',
 ];
 
 /** Max failed jobs re-enqueued by a single "Replay all DLQ" request. */
@@ -122,21 +125,29 @@ export async function action({ request }: ActionFunctionArgs) {
         if (!(KNOWN_JOB_TYPES as readonly string[]).includes(original.type)) {
           return fail(`Job type ${original.type} cannot be replayed`);
         }
+        if (!isOwnedJobType(original.type)) {
+          // Decision G8: this plan's worker does not own AI_GENERATE/AI_HYDRATE/AI_MODIFY/
+          // PUBLISH — refuse honestly (D8) rather than create a QUEUED row nothing consumes.
+          return fail(
+            `${original.type} is not yet replayable — its execution path is inline-only ` +
+              `(owned by a future async-generation migration). Re-trigger it from its original UI instead.`,
+          );
+        }
 
         // Replays always run under a fresh correlationId (docs/internal-admin.md §Replay actions);
         // the original correlation is preserved in the payload.
         const correlationId = generateCorrelationId();
-        const created = await new JobService().create({
+        const { jobId } = await enqueueOwnedJob({
+          type: original.type,
           shopId: original.shopId ?? undefined,
-          type: original.type as JobType,
           payload: replayPayload(original),
           correlationId,
         });
         await audit(
-          { replayedFrom: id, newJobId: created.id, correlationId },
+          { replayedFrom: id, newJobId: jobId, correlationId },
           { shopId: original.shopId ?? undefined, resource: `job:${id}` },
         );
-        return ok(`Replayed — new job ${created.id}`);
+        return ok(`Replayed — new job ${jobId}`);
       }
 
       case 'job_replay_all': {
@@ -148,21 +159,36 @@ export async function action({ request }: ActionFunctionArgs) {
         });
         if (failedJobs.length === 0) return fail('No failed jobs to replay');
 
-        const jobSvc = new JobService();
-        // Each replayed job gets its OWN fresh correlationId (mirrors job_replay).
-        const created = await Promise.all(
-          failedJobs.map((original) => {
-            const correlationId = generateCorrelationId();
-            return jobSvc.create({
-              shopId: original.shopId ?? undefined,
-              type: original.type as JobType,
-              payload: replayPayload(original),
-              correlationId,
-            });
-          }),
+        const ownedFailed = failedJobs.filter(
+          (j): j is typeof j & { type: OwnedJobType } => isOwnedJobType(j.type),
         );
-        await audit({ replayed: created.length, newJobIds: created.map((j) => j.id) }, { resource: 'jobs:dlq' });
-        return ok(`Re-enqueued ${created.length} failed job${created.length === 1 ? '' : 's'}`);
+        const skipped = failedJobs.length - ownedFailed.length;
+        if (ownedFailed.length === 0) {
+          return fail(
+            `${failedJobs.length} failed job${failedJobs.length === 1 ? '' : 's'} found, but none are replayable ` +
+              `yet — their execution path is inline-only (owned by a future async-generation migration).`,
+          );
+        }
+
+        // Each replayed job gets its OWN fresh correlationId (mirrors job_replay).
+        const replayed = await Promise.all(
+          ownedFailed.map((original) =>
+            enqueueOwnedJob({
+              type: original.type,
+              shopId: original.shopId ?? undefined,
+              payload: replayPayload(original),
+              correlationId: generateCorrelationId(),
+            }),
+          ),
+        );
+        await audit(
+          { replayed: replayed.length, skipped, newJobIds: replayed.map((r) => r.jobId) },
+          { resource: 'jobs:dlq' },
+        );
+        return ok(
+          `Re-enqueued ${replayed.length} failed job${replayed.length === 1 ? '' : 's'}` +
+            (skipped > 0 ? ` (${skipped} skipped: not yet replayable)` : ''),
+        );
       }
 
       case 'publish': {

@@ -23,6 +23,7 @@ import {
   drainShopifyMetaobjectCleanupJobs,
   type MetaobjectCleanupDrainResult,
 } from '~/services/jobs/shopify-metaobject-cleanup.job';
+import { sweepStuckRunningJobs, type StuckSweepResult } from '~/services/jobs/stuck-job-sweep.server';
 import { logger } from '~/services/observability/logger.server';
 import { safeErrorMeta } from '~/services/observability/redact.server';
 import { enforceRateLimit, getClientIp } from '~/services/security/rate-limit.server';
@@ -166,6 +167,17 @@ export async function loader({ request }: { request: Request }) {
     logger.warn('[api.cron] shopify-metaobject-cleanup drain failed', safeErrorMeta(err));
   }
 
+  // WS-G Task 17: belt-and-suspenders reconciliation for Job rows stuck
+  // RUNNING (a worker crash/stall the BullMQ 'failed'-event reconciler
+  // never saw — see stuck-job-sweep.server.ts's doc comment). Own try/catch
+  // so a sweep failure never 500s the whole cron tick.
+  let stuckJobSweep: StuckSweepResult | null = null;
+  try {
+    stuckJobSweep = await sweepStuckRunningJobs();
+  } catch (err) {
+    logger.warn('[api.cron] stuck-running job sweep failed', safeErrorMeta(err));
+  }
+
   let auditRetention: { deleted: number; retentionDays: number; cutoff: string } | null = null;
   let chatRetention: { deleted: number; retentionDays: number; cutoff: string } | null = null;
   const now = Date.now();
@@ -199,5 +211,5 @@ export async function loader({ request }: { request: Request }) {
     }
   }
 
-  return json({ ran: results.length, results, resumeSweep, httpSyncReplay, uninstallCleanup, auditRetention, chatRetention, loyaltyExpiry, planSyncSweep });
+  return json({ ran: results.length, results, resumeSweep, httpSyncReplay, uninstallCleanup, auditRetention, chatRetention, loyaltyExpiry, planSyncSweep, stuckJobSweep });
 }

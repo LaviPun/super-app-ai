@@ -6,9 +6,11 @@ import { ActivityLogService } from '~/services/activity/activity.service';
 import { enforceRateLimit } from '~/services/security/rate-limit.server';
 import { sealAccessToken } from '~/services/shops/access-token.server';
 import { AppError } from '~/services/errors/app-error.server';
-import { runSupportTriage } from '~/services/support/triage.server';
 import { recordTicketEvent } from '~/services/support/ticket-events.server';
-import { notifySupportEvent } from '~/services/support/notifications.server';
+import { enqueueOwnedJob } from '~/services/jobs/ops-queue.server';
+import { OpsAlertService } from '~/services/observability/ops-alert.server';
+import { logger } from '~/services/observability/logger.server';
+import { safeErrorMeta } from '~/services/observability/redact.server';
 
 const MAX_SUBJECT = 200;
 const MAX_DESCRIPTION = 5_000;
@@ -54,14 +56,15 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
 
-  let moduleContext: string | undefined;
   if (moduleId) {
+    // Validate the reference at request time; moduleContext itself is
+    // recomputed from the ticket row inside support-triage-job.server.ts
+    // once the worker actually runs triage.
     const module = await prisma.module.findFirst({
       where: { id: moduleId, shopId: shopRow.id },
-      select: { name: true, type: true, status: true },
+      select: { id: true },
     });
     if (!module) return json({ error: 'Unknown module' }, { status: 400 });
-    moduleContext = `${module.name} (type: ${module.type}, status: ${module.status})`;
   }
 
   const ticket = await prisma.supportTicket.create({
@@ -76,59 +79,39 @@ export async function action({ request }: ActionFunctionArgs) {
 
   await recordTicketEvent(ticket.id, 'CREATED', 'MERCHANT', { subject: subject.slice(0, 120), moduleId });
 
-  // Triage is best-effort: the ticket exists regardless of the model's health.
-  const triage = await runSupportTriage(
-    { subject, description, shopDomain: session.shop, moduleContext },
-    { shopId: shopRow.id },
-  );
-
-  if (triage.ok) {
-    const { result } = triage;
-    await prisma.supportTicket.update({
-      where: { id: ticket.id },
-      data: {
-        status: result.escalate ? 'ESCALATED' : 'AI_RESPONDED',
-        aiSeverity: result.severity,
-        aiCategory: result.category,
-        aiSummary: result.summary,
-        aiConfidence: result.confidence,
-        aiEscalate: result.escalate,
-        aiTriageError: null,
-        triagedAt: new Date(),
-        messages: {
-          create: {
-            role: 'assistant',
-            body: result.suggestedReply,
-            metaJson: JSON.stringify({ ...result, provider: triage.provider, model: triage.model }),
-          },
-        },
-      },
-    });
-    await recordTicketEvent(ticket.id, 'TRIAGED', 'AI', {
-      severity: result.severity, category: result.category, confidence: result.confidence,
-      escalate: result.escalate, provider: triage.provider, model: triage.model,
-    });
-    await recordTicketEvent(ticket.id, 'AI_REPLIED', 'AI');
-    if (result.escalate) {
-      await recordTicketEvent(ticket.id, 'ESCALATED', 'AI', { reason: 'triage recommended escalation' });
-      // Best-effort operator alert; never blocks ticket creation.
-      await notifySupportEvent('escalated', ticket, {
-        shopDomain: session.shop,
-        severity: result.severity,
-        summary: result.summary,
-        reason: 'triage recommended escalation',
-      });
-    }
-  } else {
-    await prisma.supportTicket.update({
-      where: { id: ticket.id },
-      data: { aiTriageError: triage.error },
-    });
-    await recordTicketEvent(ticket.id, 'TRIAGE_FAILED', 'SYSTEM', { error: triage.error, provider: triage.provider });
-    await notifySupportEvent('triage_failed', ticket, {
+  // WS-G Task 20: triage moved off the merchant-facing request path — the
+  // ticket is returned immediately (status stays OPEN, matching today's
+  // pre-triage state) and the worker's SUPPORT_TRIAGE_RUN executor
+  // (support-triage-job.server.ts) does the ticket update / event recording
+  // / notification that used to run inline here.
+  //
+  // Fix round (Important #4): the ticket row is already committed above — an
+  // enqueue failure (e.g. Redis unreachable) must never throw into a 500
+  // here, or the merchant would see "failed to create ticket" for a ticket
+  // that DOES exist. Recorded loudly instead (ErrorLog-equivalent: ticket
+  // event + aiTriageError + an ops alert), same pattern the triage-failure
+  // branch itself already uses when the model call fails.
+  try {
+    await enqueueOwnedJob({ type: 'SUPPORT_TRIAGE_RUN', shopId: shopRow.id, payload: { ticketId: ticket.id } });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error('[api.support.create] SUPPORT_TRIAGE_RUN enqueue failed — ticket created, triage will not run automatically', {
+      ticketId: ticket.id,
       shopDomain: session.shop,
-      reason: triage.error,
+      ...safeErrorMeta(err),
     });
+    await prisma.supportTicket
+      .update({ where: { id: ticket.id }, data: { aiTriageError: `Triage could not be scheduled: ${message}`.slice(0, 500) } })
+      .catch(() => {});
+    await recordTicketEvent(ticket.id, 'TRIAGE_FAILED', 'SYSTEM', { error: message, reason: 'enqueue failed' });
+    await new OpsAlertService()
+      .fire({
+        kind: 'TRIAGE_FAILED',
+        message: `SUPPORT_TRIAGE_RUN enqueue failed for ticket ${ticket.id}`,
+        error: err,
+        context: { shopDomain: session.shop, ticketId: ticket.id },
+      })
+      .catch(() => {});
   }
 
   const activity = new ActivityLogService();
@@ -138,12 +121,9 @@ export async function action({ request }: ActionFunctionArgs) {
       action: 'SUPPORT_TICKET_CREATED',
       resource: `/support/${ticket.id}`,
       shopId: shopRow.id,
-      details: {
-        subject: subject.slice(0, 120),
-        triage: triage.ok ? { severity: triage.result.severity, escalate: triage.result.escalate } : { error: triage.error },
-      },
+      details: { subject: subject.slice(0, 120) },
     })
     .catch(() => {});
 
-  return json({ ok: true, ticketId: ticket.id, triaged: triage.ok });
+  return json({ ok: true, ticketId: ticket.id, triaged: false });
 }

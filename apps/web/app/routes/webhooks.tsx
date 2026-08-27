@@ -1,19 +1,17 @@
 import { shopify } from '~/shopify.server';
 import { getPrisma } from '~/db.server';
 import { FlowRunnerService } from '~/services/flows/flow-runner.service';
-import { MessagingRunnerService } from '~/services/messaging/messaging-runner.service';
-import { RestockWatcherService } from '~/services/messaging/restock-watcher.server';
-import { HttpSyncRunnerService, type HttpSyncTrigger } from '~/services/integration/http-sync-runner.service';
-import { accrueForOrder, type OrderPayload } from '~/services/composites/loyalty-accrual.server';
+import { type HttpSyncTrigger } from '~/services/integration/http-sync-runner.service';
 import {
   checkAndMarkWebhookEvent,
   extractWebhookEventId,
   unmarkWebhookEvent,
 } from '~/services/flows/idempotency.server';
 import { SHOPIFY_METAOBJECT_CLEANUP_JOB_TYPE } from '~/services/jobs/shopify-metaobject-cleanup.job';
+import { enqueueOwnedJob } from '~/services/jobs/ops-queue.server';
 import { logger } from '~/services/observability/logger.server';
 import { safeErrorMeta } from '~/services/observability/redact.server';
-import { OpsAlertService, wasOpsAlerted } from '~/services/observability/ops-alert.server';
+import { OpsAlertService } from '~/services/observability/ops-alert.server';
 import type { AdminApiContext } from '~/types/shopify';
 
 /**
@@ -39,20 +37,6 @@ const TOPIC_TO_TRIGGER: Record<string, HttpSyncTrigger> = {
   'draft_orders/create': 'SHOPIFY_WEBHOOK_DRAFT_ORDER_CREATED',
   'collections/create': 'SHOPIFY_WEBHOOK_COLLECTION_CREATED',
 };
-
-/**
- * Adapt the webhook's Admin context into the `(query, { variables }) => Promise<Response>`
- * shape the restock watcher's consent/email resolver expects. Returns undefined when the
- * context carries no graphql client (e.g. an offline webhook without an admin session).
- */
-function extractAdminGraphql(
-  admin: unknown,
-): ((query: string, opts?: { variables?: Record<string, unknown> }) => Promise<Response>) | undefined {
-  const graphql = (admin as { graphql?: unknown } | null | undefined)?.graphql;
-  if (typeof graphql !== 'function') return undefined;
-  return (query, opts) =>
-    (graphql as (q: string, o?: { variables?: Record<string, unknown> }) => Promise<Response>)(query, opts);
-}
 
 export async function action({ request }: { request: Request }) {
   const { admin, payload, shop, topic } = await shopify.authenticate.webhook(request);
@@ -88,121 +72,130 @@ export async function action({ request }: { request: Request }) {
       return new Response(undefined, { status: 500 });
     }
 
-    // Sibling to the flow runner (R3.4): fan out any PUBLISHED messaging.campaign
-    // reacting to this trigger. Best-effort — a messaging failure must NOT release
-    // the event or 500 the webhook (the flow run already succeeded and consumed the
-    // claim); it's logged for retry via the campaign's own failed job.
+    // WS-G Task 16: the four best-effort siblings below CLAIM + ENQUEUE + ACK
+    // instead of running inline — the actual work happens on
+    // scripts/worker.ts's "superapp-ops" queue (Task 14) so a
+    // slow/rate-limited downstream service can't hold the webhook request
+    // open. shopId is resolved once and shared across all four (a DB hiccup
+    // here must not 500 the webhook either — resolved best-effort, falling
+    // back to undefined so downstream executors surface their own clear
+    // error).
+    let shopId: string | undefined;
     try {
-      await new MessagingRunnerService().runForTrigger(
-        shop,
-        admin as unknown as AdminApiContext['admin'],
-        trigger,
-        payload,
-      );
+      const shopRow = await prisma.shop.findUnique({ where: { shopDomain: shop }, select: { id: true } });
+      shopId = shopRow?.id;
     } catch (err) {
-      logger.error(`[webhooks] ${normalizedTopic} messaging fan-out failed`, {
-        shopDomain: shop,
-        eventId,
-        ...safeErrorMeta(err),
-      });
-      // MessagingRunnerService.runCampaign already fires a JOB_FAILED ops alert
-      // (via JobService.fail) for a resolution/setup failure and tags the error
-      // before re-throwing — skip firing a second, redundant WEBHOOK_FANOUT_FAILED
-      // alert for the same underlying failure (fix round 1).
-      if (!wasOpsAlerted(err)) {
+      logger.error('[webhooks] shop lookup for fan-out failed', { shopDomain: shop, eventId, ...safeErrorMeta(err) });
+    }
+
+    // Fix round (Important #5): each sibling's ENQUEUE call (a fast, local
+    // queue write — never the executor's own downstream work, which stays
+    // genuinely best-effort/async on the Job row it created) is still
+    // attempted independently so one failing doesn't block the others, but
+    // if ANY of them throws the claim is released and the webhook 500s so
+    // Shopify redelivers — an enqueue failure means something structurally
+    // wrong (Redis/DB unreachable), not a downstream side effect that's
+    // expected to sometimes fail, so it deserves the same claim/release
+    // discipline the primary flow run already gets. A redelivery re-runs the
+    // whole handler, including any sibling enqueue that already succeeded —
+    // safe for MESSAGING_RUN/RESTOCK_WATCH_RUN/LOYALTY_ACCRUAL_RUN (all
+    // idempotent per job-retry-policy.ts) and matches the SAME accepted
+    // "release ⇒ full re-run may repeat already-done work" pattern the
+    // primary flow run's own claim/release already carries (a redelivered
+    // flow could re-run an Admin API mutation a step already made) — not a
+    // new risk category this fix introduces, just applied consistently to
+    // HTTP_SYNC_RUN too now.
+    //
+    // Accepted residual (pre-existing, unchanged by this fix): a hard
+    // process CRASH between two sibling enqueues (as opposed to a thrown
+    // error) leaves the event claimed but never releases it or responds —
+    // Shopify's own timeout-triggered redelivery would then see the claim
+    // still held (isNew: false) and drop the redelivery as a duplicate,
+    // silently losing whichever siblings hadn't enqueued yet. This exposure
+    // already existed before this fix (a crash between the primary flow run
+    // and the old per-sibling try/catches had the same shape) and stays out
+    // of scope here — closing it needs a broader atomic-claim/outbox
+    // redesign.
+    let anySiblingEnqueueFailed = false;
+    const enqueueSibling = async (
+      fanout: 'messaging' | 'httpSync' | 'restock' | 'loyalty',
+      input: Parameters<typeof enqueueOwnedJob>[0],
+    ) => {
+      try {
+        await enqueueOwnedJob(input);
+      } catch (err) {
+        anySiblingEnqueueFailed = true;
+        logger.error(`[webhooks] ${normalizedTopic} ${fanout} fan-out enqueue failed`, {
+          shopDomain: shop,
+          eventId,
+          ...safeErrorMeta(err),
+        });
         await new OpsAlertService()
           .fire({
             kind: 'WEBHOOK_FANOUT_FAILED',
-            message: `${normalizedTopic} messaging fan-out failed`,
+            message: `${normalizedTopic} ${fanout} enqueue failed`,
             error: err,
-            context: { shopDomain: shop, topic: normalizedTopic, fanout: 'messaging' },
+            context: { shopDomain: shop, topic: normalizedTopic, fanout },
           })
           .catch(() => {});
       }
-    }
+    };
+
+    // Sibling to the flow runner (R3.4): fan out any PUBLISHED messaging.campaign
+    // reacting to this trigger.
+    await enqueueSibling('messaging', {
+      type: 'MESSAGING_RUN',
+      shopId,
+      payload: { trigger, event: payload },
+      correlationId: eventId,
+    });
 
     // Sibling to the flow runner (build #7a): fan out any PUBLISHED integration.httpSync
     // module reacting to this trigger — map the declared fields and dispatch (signed) to
-    // the merchant's connected service. Best-effort — a sync failure must NOT release the
-    // event or 500 the webhook (the flow run already consumed the claim); the runner
-    // dead-letters its own failures for the cron replay sweep, so nothing is lost.
-    try {
-      await new HttpSyncRunnerService().runForTrigger(
-        shop,
-        admin as unknown as AdminApiContext['admin'],
-        trigger,
-        payload,
-      );
-    } catch (err) {
-      logger.error(`[webhooks] ${normalizedTopic} httpSync fan-out failed`, {
-        shopDomain: shop,
-        eventId,
-        ...safeErrorMeta(err),
-      });
-      await new OpsAlertService()
-        .fire({
-          kind: 'WEBHOOK_FANOUT_FAILED',
-          message: `${normalizedTopic} httpSync fan-out failed`,
-          error: err,
-          context: { shopDomain: shop, topic: normalizedTopic, fanout: 'httpSync' },
-        })
-        .catch(() => {});
-    }
+    // the merchant's connected service.
+    await enqueueSibling('httpSync', {
+      type: 'HTTP_SYNC_RUN',
+      shopId,
+      payload: { trigger, event: payload },
+      correlationId: eventId,
+    });
 
     // Back-in-stock / price-drop watcher (Track V-C, C1): on a products/update, notify
     // any WAITING back_in_stock / price_drop DataCapture subscription whose variant just
     // crossed into stock or fell below its subscription-time price, then mark it notified.
-    // Best-effort — a watcher failure must NOT release the event or 500 the webhook (the
-    // flow run already consumed the claim); it is logged. products/update is the
-    // deliverable signal (read_products granted); inventory_levels/update needs an
-    // ungranted read_inventory scope and would be inert.
+    // products/update is the deliverable signal (read_products granted); inventory_levels/
+    // update needs an ungranted read_inventory scope and would be inert.
     if (normalizedTopic === 'products/update') {
-      try {
-        const adminGraphql = extractAdminGraphql(admin);
-        await new RestockWatcherService().runForProductUpdate(shop, adminGraphql, payload);
-      } catch (err) {
-        logger.error('[webhooks] products/update restock watcher failed', {
-          shopDomain: shop,
-          eventId,
-          ...safeErrorMeta(err),
-        });
-        await new OpsAlertService()
-          .fire({
-            kind: 'WEBHOOK_FANOUT_FAILED',
-            message: `${normalizedTopic} restock fan-out failed`,
-            error: err,
-            context: { shopDomain: shop, topic: normalizedTopic, fanout: 'restock' },
-          })
-          .catch(() => {});
-      }
+      await enqueueSibling('restock', {
+        type: 'RESTOCK_WATCH_RUN',
+        shopId,
+        payload: { event: payload },
+        correlationId: eventId,
+      });
     }
 
     // Loyalty accrual (R3.6): on an order, credit points into every loyalty-ledger
-    // composite the shop published. Best-effort — a failure must NOT release the
-    // event or 500 the webhook (the flow run already consumed the claim). Accrual
-    // is itself idempotent (keyed by the order GID in the ledger row), so it is
-    // safe even under a same-shop double-invoke on top of the WebhookEvent dedup.
+    // composite the shop published. Accrual is itself idempotent (keyed by the order
+    // GID in the ledger row), so it is safe even under a same-shop double-invoke on
+    // top of the WebhookEvent dedup.
     if (normalizedTopic === 'orders/create') {
-      try {
-        const shopRow = await prisma.shop.findUnique({ where: { shopDomain: shop }, select: { id: true } });
-        if (shopRow) {
-          await accrueForOrder(shopRow.id, payload as OrderPayload);
-        }
-      } catch (err) {
-        logger.error('[webhooks] orders/create loyalty accrual failed', {
+      await enqueueSibling('loyalty', {
+        type: 'LOYALTY_ACCRUAL_RUN',
+        shopId,
+        payload,
+        correlationId: eventId,
+      });
+    }
+
+    if (anySiblingEnqueueFailed) {
+      await unmarkWebhookEvent({ shopDomain: shop, topic, eventId }).catch((releaseErr) => {
+        logger.error('[webhooks] failed to release webhook event claim after a sibling enqueue failure', {
           shopDomain: shop,
           eventId,
-          ...safeErrorMeta(err),
+          ...safeErrorMeta(releaseErr),
         });
-        await new OpsAlertService()
-          .fire({
-            kind: 'WEBHOOK_FANOUT_FAILED',
-            message: `${normalizedTopic} loyalty fan-out failed`,
-            error: err,
-            context: { shopDomain: shop, topic: normalizedTopic, fanout: 'loyalty' },
-          })
-          .catch(() => {});
-      }
+      });
+      return new Response(undefined, { status: 500 });
     }
 
     return new Response(undefined, { status: 200 });
