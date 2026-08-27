@@ -440,3 +440,43 @@ a.sa-m-strip-cell:focus-visible { outline: 2px solid #005bd3; outline-offset: -2
 @media (prefers-reduced-motion: reduce) {
   .sa-merchant .cmdk { animation: none; }
 }
+
+/* ---------- module edit page: progressive-disclosure sections ---------- */
+/* Advanced/rarely-used content (metadata, danger zone) collapsed by default —
+   see app/components/merchant/module-detail/Disclosure.tsx. Card look matches
+   s-section's own border/radius so a closed disclosure reads as part of the
+   same rhythm as the surrounding Polaris cards. */
+.sa-m-disclosure {
+  border: 1px solid #e3e3e3;
+  border-radius: 12px;
+  background: #ffffff;
+  overflow: hidden;
+}
+.sa-m-disclosure-head {
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+}
+.sa-m-disclosure-head:hover { background: #f7f7f7; }
+.sa-m-disclosure-head:focus-visible { outline: 2px solid #005bd3; outline-offset: -2px; }
+.sa-m-disclosure-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sa-m-disclosure--critical .sa-m-disclosure-head-text s-text[type='strong'] { color: #b02a13; }
+.sa-m-disclosure-body {
+  padding: 0 20px 20px;
+  border-top: 1px solid #e3e3e3;
+  padding-top: 16px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .sa-m-disclosure-body { animation: sa-m-disclosure-in 150ms ease-out; }
+}
+@keyframes sa-m-disclosure-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
