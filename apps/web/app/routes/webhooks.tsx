@@ -72,17 +72,14 @@ export async function action({ request }: { request: Request }) {
       return new Response(undefined, { status: 500 });
     }
 
-    // WS-G Task 16: the four best-effort siblings below now CLAIM + ENQUEUE +
-    // ACK instead of running inline — a fan-out failure must still never
-    // release the event or 500 the webhook (the flow run already consumed
-    // the claim), but the actual work now happens on scripts/worker.ts's
-    // "superapp-ops" queue (Task 14) so a slow/rate-limited downstream
-    // service can't hold the webhook request open. Only the enqueue call
-    // itself (a fast, local queue write) is in the try/catch now — the
-    // executor's own success/failure is tracked on the Job row it created.
-    // shopId is resolved once and shared across all four (a DB hiccup here
-    // must not 500 the webhook either — resolved best-effort, falling back
-    // to undefined so downstream executors surface their own clear error).
+    // WS-G Task 16: the four best-effort siblings below CLAIM + ENQUEUE + ACK
+    // instead of running inline — the actual work happens on
+    // scripts/worker.ts's "superapp-ops" queue (Task 14) so a
+    // slow/rate-limited downstream service can't hold the webhook request
+    // open. shopId is resolved once and shared across all four (a DB hiccup
+    // here must not 500 the webhook either — resolved best-effort, falling
+    // back to undefined so downstream executors surface their own clear
+    // error).
     let shopId: string | undefined;
     try {
       const shopRow = await prisma.shop.findUnique({ where: { shopDomain: shop }, select: { id: true } });
@@ -91,56 +88,77 @@ export async function action({ request }: { request: Request }) {
       logger.error('[webhooks] shop lookup for fan-out failed', { shopDomain: shop, eventId, ...safeErrorMeta(err) });
     }
 
+    // Fix round (Important #5): each sibling's ENQUEUE call (a fast, local
+    // queue write — never the executor's own downstream work, which stays
+    // genuinely best-effort/async on the Job row it created) is still
+    // attempted independently so one failing doesn't block the others, but
+    // if ANY of them throws the claim is released and the webhook 500s so
+    // Shopify redelivers — an enqueue failure means something structurally
+    // wrong (Redis/DB unreachable), not a downstream side effect that's
+    // expected to sometimes fail, so it deserves the same claim/release
+    // discipline the primary flow run already gets. A redelivery re-runs the
+    // whole handler, including any sibling enqueue that already succeeded —
+    // safe for MESSAGING_RUN/RESTOCK_WATCH_RUN/LOYALTY_ACCRUAL_RUN (all
+    // idempotent per job-retry-policy.ts) and matches the SAME accepted
+    // "release ⇒ full re-run may repeat already-done work" pattern the
+    // primary flow run's own claim/release already carries (a redelivered
+    // flow could re-run an Admin API mutation a step already made) — not a
+    // new risk category this fix introduces, just applied consistently to
+    // HTTP_SYNC_RUN too now.
+    //
+    // Accepted residual (pre-existing, unchanged by this fix): a hard
+    // process CRASH between two sibling enqueues (as opposed to a thrown
+    // error) leaves the event claimed but never releases it or responds —
+    // Shopify's own timeout-triggered redelivery would then see the claim
+    // still held (isNew: false) and drop the redelivery as a duplicate,
+    // silently losing whichever siblings hadn't enqueued yet. This exposure
+    // already existed before this fix (a crash between the primary flow run
+    // and the old per-sibling try/catches had the same shape) and stays out
+    // of scope here — closing it needs a broader atomic-claim/outbox
+    // redesign.
+    let anySiblingEnqueueFailed = false;
+    const enqueueSibling = async (
+      fanout: 'messaging' | 'httpSync' | 'restock' | 'loyalty',
+      input: Parameters<typeof enqueueOwnedJob>[0],
+    ) => {
+      try {
+        await enqueueOwnedJob(input);
+      } catch (err) {
+        anySiblingEnqueueFailed = true;
+        logger.error(`[webhooks] ${normalizedTopic} ${fanout} fan-out enqueue failed`, {
+          shopDomain: shop,
+          eventId,
+          ...safeErrorMeta(err),
+        });
+        await new OpsAlertService()
+          .fire({
+            kind: 'WEBHOOK_FANOUT_FAILED',
+            message: `${normalizedTopic} ${fanout} enqueue failed`,
+            error: err,
+            context: { shopDomain: shop, topic: normalizedTopic, fanout },
+          })
+          .catch(() => {});
+      }
+    };
+
     // Sibling to the flow runner (R3.4): fan out any PUBLISHED messaging.campaign
     // reacting to this trigger.
-    try {
-      await enqueueOwnedJob({
-        type: 'MESSAGING_RUN',
-        shopId,
-        payload: { trigger, event: payload },
-        correlationId: eventId,
-      });
-    } catch (err) {
-      logger.error(`[webhooks] ${normalizedTopic} messaging fan-out enqueue failed`, {
-        shopDomain: shop,
-        eventId,
-        ...safeErrorMeta(err),
-      });
-      await new OpsAlertService()
-        .fire({
-          kind: 'WEBHOOK_FANOUT_FAILED',
-          message: `${normalizedTopic} messaging enqueue failed`,
-          error: err,
-          context: { shopDomain: shop, topic: normalizedTopic, fanout: 'messaging' },
-        })
-        .catch(() => {});
-    }
+    await enqueueSibling('messaging', {
+      type: 'MESSAGING_RUN',
+      shopId,
+      payload: { trigger, event: payload },
+      correlationId: eventId,
+    });
 
     // Sibling to the flow runner (build #7a): fan out any PUBLISHED integration.httpSync
     // module reacting to this trigger — map the declared fields and dispatch (signed) to
     // the merchant's connected service.
-    try {
-      await enqueueOwnedJob({
-        type: 'HTTP_SYNC_RUN',
-        shopId,
-        payload: { trigger, event: payload },
-        correlationId: eventId,
-      });
-    } catch (err) {
-      logger.error(`[webhooks] ${normalizedTopic} httpSync fan-out enqueue failed`, {
-        shopDomain: shop,
-        eventId,
-        ...safeErrorMeta(err),
-      });
-      await new OpsAlertService()
-        .fire({
-          kind: 'WEBHOOK_FANOUT_FAILED',
-          message: `${normalizedTopic} httpSync enqueue failed`,
-          error: err,
-          context: { shopDomain: shop, topic: normalizedTopic, fanout: 'httpSync' },
-        })
-        .catch(() => {});
-    }
+    await enqueueSibling('httpSync', {
+      type: 'HTTP_SYNC_RUN',
+      shopId,
+      payload: { trigger, event: payload },
+      correlationId: eventId,
+    });
 
     // Back-in-stock / price-drop watcher (Track V-C, C1): on a products/update, notify
     // any WAITING back_in_stock / price_drop DataCapture subscription whose variant just
@@ -148,28 +166,12 @@ export async function action({ request }: { request: Request }) {
     // products/update is the deliverable signal (read_products granted); inventory_levels/
     // update needs an ungranted read_inventory scope and would be inert.
     if (normalizedTopic === 'products/update') {
-      try {
-        await enqueueOwnedJob({
-          type: 'RESTOCK_WATCH_RUN',
-          shopId,
-          payload: { event: payload },
-          correlationId: eventId,
-        });
-      } catch (err) {
-        logger.error('[webhooks] products/update restock fan-out enqueue failed', {
-          shopDomain: shop,
-          eventId,
-          ...safeErrorMeta(err),
-        });
-        await new OpsAlertService()
-          .fire({
-            kind: 'WEBHOOK_FANOUT_FAILED',
-            message: `${normalizedTopic} restock enqueue failed`,
-            error: err,
-            context: { shopDomain: shop, topic: normalizedTopic, fanout: 'restock' },
-          })
-          .catch(() => {});
-      }
+      await enqueueSibling('restock', {
+        type: 'RESTOCK_WATCH_RUN',
+        shopId,
+        payload: { event: payload },
+        correlationId: eventId,
+      });
     }
 
     // Loyalty accrual (R3.6): on an order, credit points into every loyalty-ledger
@@ -177,28 +179,23 @@ export async function action({ request }: { request: Request }) {
     // GID in the ledger row), so it is safe even under a same-shop double-invoke on
     // top of the WebhookEvent dedup.
     if (normalizedTopic === 'orders/create') {
-      try {
-        await enqueueOwnedJob({
-          type: 'LOYALTY_ACCRUAL_RUN',
-          shopId,
-          payload,
-          correlationId: eventId,
-        });
-      } catch (err) {
-        logger.error('[webhooks] orders/create loyalty fan-out enqueue failed', {
+      await enqueueSibling('loyalty', {
+        type: 'LOYALTY_ACCRUAL_RUN',
+        shopId,
+        payload,
+        correlationId: eventId,
+      });
+    }
+
+    if (anySiblingEnqueueFailed) {
+      await unmarkWebhookEvent({ shopDomain: shop, topic, eventId }).catch((releaseErr) => {
+        logger.error('[webhooks] failed to release webhook event claim after a sibling enqueue failure', {
           shopDomain: shop,
           eventId,
-          ...safeErrorMeta(err),
+          ...safeErrorMeta(releaseErr),
         });
-        await new OpsAlertService()
-          .fire({
-            kind: 'WEBHOOK_FANOUT_FAILED',
-            message: `${normalizedTopic} loyalty enqueue failed`,
-            error: err,
-            context: { shopDomain: shop, topic: normalizedTopic, fanout: 'loyalty' },
-          })
-          .catch(() => {});
-      }
+      });
+      return new Response(undefined, { status: 500 });
     }
 
     return new Response(undefined, { status: 200 });

@@ -217,7 +217,7 @@ describe('webhooks.tsx main action', () => {
     expect(unmarkMock).not.toHaveBeenCalled();
   });
 
-  it('a restock enqueue failure does NOT 500 the webhook (best-effort)', async () => {
+  it('a restock enqueue failure (fix round, Important #5) releases the claim and 500s the webhook — an enqueue failure is structural, not a downstream side effect', async () => {
     authWebhookMock.mockResolvedValue({
       admin: { graphql: vi.fn() },
       payload: { id: 100, variants: [] },
@@ -232,8 +232,8 @@ describe('webhooks.tsx main action', () => {
     const mod = await import('~/routes/webhooks');
     const res = await mod.action({ request: webhookRequest() });
 
-    expect(res.status).toBe(200);
-    expect(unmarkMock).not.toHaveBeenCalled();
+    expect(res.status).toBe(500);
+    expect(unmarkMock).toHaveBeenCalledWith({ shopDomain: 'shop.example.myshopify.com', topic: 'products/update', eventId: 'wh_event_1' });
     expect(loggerMock.error).toHaveBeenCalled();
   });
 
