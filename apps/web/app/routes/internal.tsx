@@ -1,5 +1,5 @@
 import { json } from '@remix-run/node';
-import type { HeadersFunction, MetaFunction } from '@remix-run/node';
+import type { HeadersFunction, LinksFunction, MetaFunction } from '@remix-run/node';
 import { Outlet, useLoaderData, useLocation, useMatches, useNavigate } from '@remix-run/react';
 import { useState, useCallback, useEffect } from 'react';
 import { internalSessionStorage } from '~/internal-admin/session.server';
@@ -13,6 +13,21 @@ import {
   CommandPalette,
   superappRoute,
 } from '~/components/superapp';
+// SuperApp AI design-system (vendored from the Claude Design handoff bundle).
+// Self-contained --p-*/--sa-* tokens + unprefixed .card/.btn/.page classes;
+// does not collide with @shopify/polaris (.Polaris-* / --p-color-*). Internal
+// admin is the last consumer (WS-F Task 15 moved this off root.tsx's global
+// link once generate._index.tsx, the last merchant route on this system,
+// migrated to Polaris web components).
+import saPolarisCss from '~/styles/superapp/polaris.css?url';
+import saShellCss from '~/styles/superapp/shell.css?url';
+import saPagesCss from '~/styles/superapp/pages.css?url';
+
+export const links: LinksFunction = () => [
+  { rel: 'stylesheet', href: saPolarisCss },
+  { rel: 'stylesheet', href: saShellCss },
+  { rel: 'stylesheet', href: saPagesCss },
+];
 
 /** Live nav-badge / health counts surfaced in the admin chrome. */
 type NavCounts = { dlq: number; err: number; wh: number; tickets: number; unreadReplies: number };

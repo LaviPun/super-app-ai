@@ -71,7 +71,7 @@ export async function loader({ request, params }: { request: Request; params: { 
 
 export default function ModuleCaptures() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <ModuleCapturesBody />
     </MerchantShell>
   );

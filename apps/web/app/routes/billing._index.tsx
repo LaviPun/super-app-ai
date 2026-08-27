@@ -44,7 +44,7 @@ const USAGE_ICON: Record<string, string> = { aiRequests: 'wand', publishOps: 'ro
 export default function BillingPage() {
   const { sub, usage, plans, managePlanUrl } = useLoaderData<typeof loader>();
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <BillingBody sub={sub} usage={usage} plans={plans} managePlanUrl={managePlanUrl} />
     </MerchantShell>
   );
@@ -68,7 +68,7 @@ function BillingBody({ sub, usage, plans, managePlanUrl }: any) {
     <s-page heading="Plan & usage" inlineSize="base">
       <s-paragraph color="subdued">You’re on the {titleCase(current)} plan. Track usage and upgrade any time.{' '}<LearnMore anchor="guide-billing" topic="plans and billing" /></s-paragraph>
 
-      <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+      <s-grid gridTemplateColumns="@container (inline-size > 760px) 2fr 1fr, 1fr" gap="base">
         <s-section heading="This month’s usage">
           <s-stack gap="base">
             <s-text tone="neutral" color="subdued">Resets monthly</s-text>
@@ -116,7 +116,7 @@ function BillingBody({ sub, usage, plans, managePlanUrl }: any) {
 
       <s-section id="billing-plans" heading="Plans">
         <s-paragraph color="subdued">Plans are billed by Shopify. Select or change your plan on the Shopify-hosted pricing page.</s-paragraph>
-        <s-grid gridTemplateColumns="repeat(4, 1fr)" gap="base">
+        <s-grid gridTemplateColumns="@container (inline-size > 480px) repeat(4, 1fr), 1fr" gap="base">
           {plans.filter((p: any) => p.name !== 'FREE').map((p: any) => (
             <s-box key={p.name} padding="base" border="base" borderRadius="base" background={p.name === current ? 'subdued' : undefined}>
               <s-stack gap="small-100">

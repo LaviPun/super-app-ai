@@ -3,7 +3,6 @@ import type { ReactNode } from 'react';
 import { useNavigate, useNavigation } from '@remix-run/react';
 import {
   CommandPalette,
-  MerchantSubnav,
   Toast,
   superappRoute,
 } from '~/components/superapp';
@@ -35,21 +34,19 @@ type AppBridgeToast = { toast?: { show: (message: string, opts?: { isError?: boo
  * Support / Settings / Billing) lives in the Shopify App Bridge `<s-app-nav>`
  * (root.tsx), OUTSIDE the embedded app.
  *
- * Polaris web-components migration (transitional): pages that have been
- * migrated pass `polaris` and render bare `s-page` content under the new
- * `SubnavTabs`; unmigrated pages keep the legacy `.m-content` scaffolding and
- * vendored `MerchantSubnav`. The legacy branch is deleted once the last page
- * migrates. Both branches share the ⌘K palette and the `MerchantCtx` API, so
- * page call-sites never change.
+ * Every merchant route renders bare `s-page` content under `SubnavTabs`
+ * (Polaris web components only, per DESIGN.md). `fullBleed` opts a page out
+ * of any future default content-width wrapping (currently a no-op — kept for
+ * forward compat and because some pages, e.g. the Builder, are intentionally
+ * full-bleed). The legacy vendored-CSS branch + `MerchantSubnav` were deleted
+ * once `generate._index.tsx` (the last holdout) migrated (WS-F Task 14/15).
  */
 export function MerchantShell({
   children,
-  fullBleed,
-  polaris,
+  fullBleed: _fullBleed,
 }: {
   children: ReactNode;
   fullBleed?: boolean;
-  polaris?: boolean;
 }) {
   const navigate = useNavigate();
   const navigation = useNavigation();
@@ -106,11 +103,10 @@ export function MerchantShell({
 
   return (
     <Ctx.Provider value={ctx}>
-      {polaris ? (
-        <div className="sa-merchant">
-          {busy && (
-            <>
-              <style>{`
+      <div className="sa-merchant">
+        {busy && (
+          <>
+            <style>{`
 .sa-m-navbar-progress {
   position: fixed;
   top: 0;
@@ -146,20 +142,18 @@ export function MerchantShell({
   }
 }
 `}</style>
-              <div className="sa-m-navbar-progress" aria-hidden="true" />
-            </>
-          )}
-          <SubnavTabs />
-          {children}
-        </div>
-      ) : (
-        <>
-          <MerchantSubnav />
-          <div className={fullBleed ? '' : 'm-content'}>{children}</div>
-        </>
-      )}
-      {cmdkOpen && <CommandPalette mode="merchant" onClose={() => setCmdkOpen(false)} />}
-      <Toast toast={toast} />
+            <div className="sa-m-navbar-progress" aria-hidden="true" />
+          </>
+        )}
+        <SubnavTabs />
+        {children}
+        {/* Rendered inside .sa-merchant (both are position:fixed overlays, so
+            nesting has no layout effect) so merchant.css's scoped
+            `.sa-merchant .cmdk`/`.kbd`/etc. rules can reach them without
+            bleeding into internal admin's identically-named shell.css rules. */}
+        {cmdkOpen && <CommandPalette mode="merchant" onClose={() => setCmdkOpen(false)} />}
+        <Toast toast={toast} />
+      </div>
     </Ctx.Provider>
   );
 }

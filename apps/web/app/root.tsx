@@ -4,15 +4,14 @@ import { useEffect } from 'react';
 import { Link, Links, Meta, Outlet, Scripts, ScrollRestoration, useLoaderData, useRouteError, useLocation } from '@remix-run/react';
 import polarisCss from '@shopify/polaris/build/esm/styles.css?url';
 import appCss from './app.css?url';
-// SuperApp AI design-system (vendored from the Claude Design handoff bundle).
-// Self-contained --p-*/--sa-* tokens + unprefixed .card/.btn/.page classes;
-// does not collide with @shopify/polaris (.Polaris-* / --p-color-*).
-import saPolarisCss from './styles/superapp/polaris.css?url';
-import saShellCss from './styles/superapp/shell.css?url';
-import saPagesCss from './styles/superapp/pages.css?url';
-import saGenerateCss from './styles/superapp/generate.css?url';
 // Merchant surface (Polaris web-components migration) — light-DOM helpers only.
 import merchantCss from './styles/merchant.css?url';
+// NOTE: the vendored superapp design system (polaris.css/shell.css/pages.css)
+// used to be linked globally here for generate._index.tsx, the last merchant
+// route still on the legacy system. Now that it's migrated (WS-F Task 14),
+// those three files are internal-admin-only and load via internal.tsx's own
+// links() instead — see that file. generate.css was exclusively generate._
+// index.tsx's CSS and is deleted outright (WS-F Task 15).
 import enTranslations from '@shopify/polaris/locales/en.json';
 import { AppProvider as PolarisProvider } from '@shopify/polaris';
 import { boundary } from '@shopify/shopify-app-remix/server';
@@ -29,10 +28,6 @@ export const links: LinksFunction = () => [
   { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap' },
   { rel: 'stylesheet', href: polarisCss },
   { rel: 'stylesheet', href: appCss },
-  { rel: 'stylesheet', href: saPolarisCss },
-  { rel: 'stylesheet', href: saShellCss },
-  { rel: 'stylesheet', href: saPagesCss },
-  { rel: 'stylesheet', href: saGenerateCss },
   { rel: 'stylesheet', href: merchantCss },
 ];
 
@@ -156,7 +151,7 @@ export default function App() {
             {/* Shopify App Bridge top-level nav — rendered OUTSIDE the app (Shopify admin
                 left rail). Matches the design's MERCHANT_NAV. In-app sub-tabs for Build
                 (Modules/Flows/Connectors/Data/Templates) and Insights (Analytics/Activity)
-                are rendered inside each page via <MerchantSubnav />. */}
+                are rendered inside each page via <SubnavTabs /> (MerchantShell). */}
             <s-app-nav>
               <Link to="/" rel="home">Dashboard</Link>
               <Link to="/modules">Build</Link>

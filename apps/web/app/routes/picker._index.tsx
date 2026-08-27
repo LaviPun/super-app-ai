@@ -38,7 +38,7 @@ const STEP_LABELS = [
 
 export default function PickerIndex() {
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <PickerBody />
     </MerchantShell>
   );

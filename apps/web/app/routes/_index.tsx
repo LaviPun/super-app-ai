@@ -165,7 +165,7 @@ export default function Dashboard() {
   const aiOfLabel = usage.aiLimit == null ? 'unlimited' : `of ${fmtNum(usage.aiLimit)} this month`;
 
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <s-page heading={`${greet}, ${titleCase(greetName)}`} inlineSize="base">
         <s-stack gap="base">
         <s-paragraph color="subdued">Here’s how your store is doing with SuperApp AI.</s-paragraph>
@@ -179,7 +179,7 @@ export default function Dashboard() {
           { label: 'AI credits left', value: aiLeftLabel, sub: aiOfLabel, href: '/billing' },
         ]} />
 
-        <s-grid gridTemplateColumns="2fr 1fr" gap="base">
+        <s-grid gridTemplateColumns="@container (inline-size > 760px) 2fr 1fr, 1fr" gap="base">
           <s-section heading="Module views — last 14 days">
             {hasViewData ? (
               <s-stack gap="small-100">

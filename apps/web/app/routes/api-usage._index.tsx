@@ -60,7 +60,7 @@ export default function ApiUsageIndex() {
   const utilTone = utilPct == null ? undefined : utilPct >= 80 ? ('critical' as const) : utilPct >= 50 ? ('warning' as const) : undefined;
 
   return (
-    <MerchantShell polaris>
+    <MerchantShell>
       <s-page heading="API usage" inlineSize="base">
         <s-stack gap="base">
         <s-paragraph color="subdued">
