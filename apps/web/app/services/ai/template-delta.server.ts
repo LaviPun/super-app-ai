@@ -23,6 +23,7 @@ import {
   type RecipeOption,
 } from '~/services/ai/llm.server';
 import { stripCodeFences } from '~/services/ai/tolerant-json.server';
+import { TruncatedOutputError } from '~/services/ai/clients/truncation.server';
 
 /**
  * Apply an RFC 7386 JSON Merge Patch to `target`, returning a new value (does not
@@ -184,12 +185,46 @@ export async function generateRecipeViaDelta(
     designSystemDirective: params.designSystemDirective,
   });
 
-  // No structured responseSchema: the model emits { explanation, patch }, NOT the
-  // recipe-shaped schema the freeform path uses.
-  const result = await params.client.generateRecipe(prompt, {
-    maxTokens: params.maxTokens,
-    deadlineAt: params.deadlineAt,
-  });
+  // Mirrors hydrateRecipeSpec's WS-C Task 12 budget-bump: a truncated delta call
+  // means the model ran out of room for the patch, not that the request is
+  // unanswerable — retrying at the SAME budget would just truncate again, so
+  // bump once (capped) and retry exactly once before giving up. Any other error,
+  // or a second truncation, rethrows immediately so the caller
+  // (`produceOptionRecipe`) falls back to freeform — the option count must never
+  // degrade. No structured responseSchema: the model emits { explanation, patch },
+  // NOT the recipe-shaped schema the freeform path uses.
+  const BUMPED_DELTA_TOKEN_BUDGET = Math.min(24_000, Math.round(params.maxTokens * 1.5));
+  const MAX_DELTA_ATTEMPTS = 2;
+  let maxTokensForAttempt = params.maxTokens;
+  let result: GenerateResult | undefined;
+  for (let attempt = 0; attempt < MAX_DELTA_ATTEMPTS; attempt++) {
+    try {
+      result = await params.client.generateRecipe(prompt, {
+        maxTokens: maxTokensForAttempt,
+        deadlineAt: params.deadlineAt,
+      });
+      break;
+    } catch (err) {
+      const isLastAttempt = attempt === MAX_DELTA_ATTEMPTS - 1;
+      if (!(err instanceof TruncatedOutputError) || isLastAttempt) {
+        throw err;
+      }
+      // This attempt's tokens are not attributable to a GenerateResult — every
+      // provider client throws TruncatedOutputError before computing usage
+      // (see truncation.server.ts), so there is nothing to fold into the next
+      // attempt's cost. The retry itself claims no additional billable unit
+      // either way: the outer per-option `recordAiUsage` call
+      // (llm.server.ts's `produceOptionRecipe` caller) bills exactly once per
+      // option off of whichever GenerateResult this function ultimately
+      // returns, regardless of how many attempts happened in here.
+      maxTokensForAttempt = BUMPED_DELTA_TOKEN_BUDGET;
+    }
+  }
+  if (!result) {
+    // Unreachable (the loop always either returns or throws), but keeps
+    // TypeScript's control-flow analysis happy without a non-null assertion.
+    throw new Error('Tier-1 delta generation produced no result');
+  }
 
   let parsed: unknown;
   try {

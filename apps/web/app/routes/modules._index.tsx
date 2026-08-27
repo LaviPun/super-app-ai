@@ -455,7 +455,11 @@ function ModulesBody({ modules, stats, loaderError, aiUsage }: any) {
                   <s-table-header listSlot="secondary">Description</s-table-header>
                   <s-table-header listSlot="inline">Type</s-table-header>
                   <s-table-header>Version</s-table-header>
-                  <s-table-header listSlot="secondary">Status</s-table-header>
+                  {/* `secondary` may only be claimed once per row (Description already has it) —
+                      `labeled` renders Status as its own "Status: <badge>" heading-content pair
+                      in the list variant instead, matching the default the unlabeled Version/
+                      Actions columns already fall back to. */}
+                  <s-table-header listSlot="labeled">Status</s-table-header>
                   <s-table-header listSlot="kicker">Updated</s-table-header>
                   <s-table-header>Actions</s-table-header>
                 </s-table-header-row>

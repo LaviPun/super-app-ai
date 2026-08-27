@@ -85,6 +85,17 @@ export function catTone(category: string): WcTone {
 }
 
 const CAT_ICON: Record<string, string> = { desktop: 'desktop', settings: 'settings', users: 'team', bolt: 'bolt', connect: 'connect', flow: 'automation' };
+/**
+ * Fallback icon type for an unmapped category. `'layer'` looked valid (it's
+ * still listed in the `@shopify/polaris-types` devDependency's `IconType`
+ * union) but the live, unversioned `https://cdn.shopify.com/shopifycloud/polaris.js`
+ * runtime this app actually loads (`EmbeddedHeadScripts.tsx`) does not ship
+ * it — confirmed by downloading that bundle and inspecting its icon-name
+ * manifest — so `<s-icon type="layer">` rendered blank in the merchant admin.
+ * `'apps'` is present in that live manifest and reads reasonably as a
+ * generic/miscellaneous-category icon.
+ */
+const FALLBACK_ICON_TYPE = 'apps';
 export function catIcon(category: string): string {
-  return CAT_ICON[getCategoryIcon(category)] ?? 'layer';
+  return CAT_ICON[getCategoryIcon(category)] ?? FALLBACK_ICON_TYPE;
 }
