@@ -6,7 +6,8 @@ import { encryptJson, decryptJson } from '~/services/security/crypto.server';
 // import `ai-provider-kinds` directly to avoid pulling `~/db.server` into the
 // client bundle (see that file's header comment — WS-INT Task 13 build-fix).
 export type { ProviderKind } from './ai-provider-kinds';
-export { ALLOWED_PROVIDER_KINDS, DEFAULT_BASE_URL_BY_KIND } from './ai-provider-kinds';
+export { ALLOWED_PROVIDER_KINDS, DEFAULT_BASE_URL_BY_KIND, maskApiKeyPreview } from './ai-provider-kinds';
+import { maskApiKeyPreview } from './ai-provider-kinds';
 import type { ProviderKind } from './ai-provider-kinds';
 
 /** JSON stored in AiProvider.extraConfig for ANTHROPIC: skills list and code execution flag. */
@@ -197,6 +198,21 @@ export class AiProviderService {
       const key = await this.getApiKey(id);
       if (!key || key.length < 4) return '••••';
       return '••••••••' + key.slice(-4);
+    } catch {
+      return '—';
+    }
+  }
+
+  /**
+   * Reveal-UI preview (e.g. "sk-ant-…cAAA") — first segment + last 4, middle
+   * always hidden. Computed here from the decrypted key so the loader never
+   * has to ship the full key to the client for masking. See
+   * `maskApiKeyPreview` in `ai-provider-kinds.ts` for the pure formatting rule.
+   */
+  async getApiKeyPreview(id: string): Promise<string> {
+    try {
+      const key = await this.getApiKey(id);
+      return maskApiKeyPreview(key);
     } catch {
       return '—';
     }
