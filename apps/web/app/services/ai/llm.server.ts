@@ -773,6 +773,15 @@ export function compileCreateModulePrompt(params: {
   if (params.styleSchemaSpec) stable.push('', 'Style schema (storefront only):', params.styleSchemaSpec);
   if (params.platformBlock) stable.push('', params.platformBlock);
 
+  // WS P2-A fix round 1 (review finding 2/D): `hasMeaningfulStatic` gates only
+  // whether the prefix is *worth marking as a cache breakpoint* — it must
+  // NEVER gate whether `stableText`'s content reaches the model. `stable`
+  // above is built unconditionally (typesList, "Recommended type...", the
+  // task text) even when purposeAndGuidance/fullSchemaSpec/settingsPack/summary
+  // are all empty, so silently omitting `stableText` from `prompt` in that
+  // case would drop real content the caller supplied. `cacheableChars: 0`
+  // still correctly signals "don't bother caching this one" (empty/near-empty
+  // prefix isn't worth a breakpoint) without ever dropping content.
   const hasMeaningfulStatic = Boolean(
     params.purposeAndGuidance || params.fullSchemaSpec || params.settingsPack || params.summary,
   );
@@ -795,7 +804,7 @@ export function compileCreateModulePrompt(params: {
   if (params.groundingBlock) dynamic.push('', params.groundingBlock);
   if (params.previousError) dynamic.push('', '(Previous validation error — fix in next response):', params.previousError);
 
-  const prompt = hasMeaningfulStatic ? `${stableText}\n${dynamic.join('\n')}` : dynamic.join('\n');
+  const prompt = `${stableText}\n${dynamic.join('\n')}`;
   return { prompt, cacheableChars: hasMeaningfulStatic ? stableText.length : 0 };
 }
 
@@ -1007,6 +1016,9 @@ export function compileCreateSingleRecipePrompt(params: {
   if (params.styleSchemaSpec) stable.push('', 'Style schema (storefront only):', params.styleSchemaSpec);
   if (params.platformBlock) stable.push('', params.platformBlock);
 
+  // WS P2-A fix round 1 (review finding 2/D): see the identical note in
+  // compileCreateModulePrompt — `hasMeaningfulStatic` must only gate the
+  // cache-breakpoint decision, never whether `stableText` reaches `prompt`.
   const hasMeaningfulStatic = Boolean(
     params.purposeAndGuidance || params.fullSchemaSpec || params.settingsPack || params.summary,
   );
@@ -1027,7 +1039,7 @@ export function compileCreateSingleRecipePrompt(params: {
   if (params.groundingBlock) dynamic.push('', params.groundingBlock);
   if (params.previousError) dynamic.push('', '(Previous validation error — fix in next response):', params.previousError);
 
-  const prompt = hasMeaningfulStatic ? `${stableText}\n${dynamic.join('\n')}` : dynamic.join('\n');
+  const prompt = `${stableText}\n${dynamic.join('\n')}`;
   return { prompt, cacheableChars: hasMeaningfulStatic ? stableText.length : 0 };
 }
 
