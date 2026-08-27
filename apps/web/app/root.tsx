@@ -85,7 +85,26 @@ export const headers: HeadersFunction = (headersArgs) => {
   return boundary.headers(headersArgs);
 };
 
+// Vite/Remix's dev-mode HMR client (@remix-run/dev/dist/vite/static/refresh-utils.cjs)
+// `throw`s a real Error — `[remix:hmr] No module update found for route ...` —
+// when a hot-reload can't be resolved (e.g. edited a route with unsaved deps).
+// That throw is dev-tooling-only: it's never present in a production
+// `remix vite:build` bundle. But when it fires it's a genuine uncaught
+// exception, so it bubbles to our global window 'error'/'unhandledrejection'
+// listeners below like any other client bug and gets POSTed to
+// /api/report-error — and if a developer's local `pnpm dev` happens to point
+// at a shared (e.g. staging/production) database, that noise lands straight
+// in the shared Error Log, drowning out real reports. HMR should never be
+// mistaken for a production symptom, so filter it at the source (before the
+// network call) rather than trying to distinguish it after ingestion.
+const DEV_TOOLING_NOISE = /^\[(remix:hmr|vite)\]/i;
+
+function isDevToolingNoise(message: string): boolean {
+  return DEV_TOOLING_NOISE.test(message);
+}
+
 function reportClientError(payload: { message: string; stack?: string; route?: string; source?: string; meta?: unknown }) {
+  if (isDevToolingNoise(payload.message)) return;
   fetch('/api/report-error', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
