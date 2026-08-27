@@ -113,6 +113,37 @@ function reportClientError(payload: { message: string; stack?: string; route?: s
   }).catch(() => {});
 }
 
+// A merchant-reported prod incident: repeated `Uncaught ReferenceError: Desc
+// is not defined` from the /data route (see app/components/merchant/polaris.tsx's
+// `Desc` export, used correctly and consistently by every caller — data._index.tsx,
+// modules._index.tsx, support._index.tsx, templates._index.tsx,
+// flows.templates.tsx — confirmed by grepping every `Desc` occurrence in the
+// app tree; none showed a naming collision, a stray `import type`, or any
+// other static defect). A ReferenceError for a named import, on a route
+// nothing here reproduces locally, is the signature of a stale client
+// bundle: the browser tab loaded before a deploy, then a client-side
+// navigation pulled in a route chunk built against the *new* deploy's
+// content-hashed vendor chunk — one @remix-run/react calls to fetch a
+// route module can 404/fail outright post-deploy (old chunks get pruned),
+// which is precisely what Vite's own `vite:preloadError` window event exists
+// to signal (see https://vitejs.dev/guide/build.html#load-error-handling).
+// Recover the only way that's actually correct for this failure mode: reload
+// so the tab picks up the current deploy's manifest. Guarded by a
+// one-shot sessionStorage flag so a *persistent* failure (e.g. the app is
+// actually down) surfaces as a real error instead of reload-looping forever.
+const RELOAD_GUARD_KEY = 'sa_preload_error_reload';
+
+function handleStalePreload() {
+  reportClientError({ message: 'vite:preloadError — stale client chunk, reloading', source: 'CLIENT' });
+  try {
+    if (sessionStorage.getItem(RELOAD_GUARD_KEY)) return; // already tried once this tab session — don't loop
+    sessionStorage.setItem(RELOAD_GUARD_KEY, '1');
+  } catch {
+    // sessionStorage unavailable (private mode, etc.) — reload once anyway, no loop guard possible
+  }
+  window.location.reload();
+}
+
 function ClientErrorReporting() {
   const location = useLocation();
   useEffect(() => {
@@ -130,11 +161,19 @@ function ClientErrorReporting() {
       const stack = event.reason instanceof Error ? event.reason.stack : undefined;
       reportClientError({ message, stack, route: location.pathname, meta: { type: 'unhandledrejection' } });
     };
+    // `event.preventDefault()` stops Vite's default (which just re-throws) so
+    // this doesn't also fall through to `onError` as a duplicate report.
+    const onPreloadError = (event: Event) => {
+      event.preventDefault();
+      handleStalePreload();
+    };
     window.addEventListener('error', onError);
     window.addEventListener('unhandledrejection', onUnhandledRejection);
+    window.addEventListener('vite:preloadError', onPreloadError);
     return () => {
       window.removeEventListener('error', onError);
       window.removeEventListener('unhandledrejection', onUnhandledRejection);
+      window.removeEventListener('vite:preloadError', onPreloadError);
     };
   }, [location.pathname]);
   return null;
