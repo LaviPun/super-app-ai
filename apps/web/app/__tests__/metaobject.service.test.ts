@@ -9,7 +9,18 @@ function graphqlJsonResponse(payload: unknown) {
 }
 
 describe('MetaobjectService.ensureMetafieldDefinition', () => {
-  it('creates definition with MERCHANT_READ_WRITE admin access by default', async () => {
+  // superapp.theme / superapp.admin / superapp.functions / superapp.checkout /
+  // superapp.customer_account are all merchant-owned (non app-reserved — the
+  // reserved namespace literal is exactly "$app") metafield namespaces. Per
+  // Shopify's metafield access-control rules, a non app-reserved definition's
+  // admin access can ONLY be the implicit default (PUBLIC_READ_WRITE) — and
+  // PUBLIC_READ_WRITE is not even a legal value in the MetafieldAdminAccessInput
+  // enum (verified against the live 2026-07 schema), so the only way to get it
+  // is to omit `access.admin` from the mutation entirely. Explicitly setting
+  // `admin: MERCHANT_READ_WRITE` (or any other value) on these namespaces is
+  // rejected by Shopify with "Setting this access control is not permitted. It
+  // must be one of [\"public_read_write\"]." — this was the launch-blocking bug.
+  it('creates definition without an admin access override by default', async () => {
     const graphql = vi.fn().mockResolvedValue(
       graphqlJsonResponse({
         data: { metafieldDefinitionCreate: { userErrors: [] } },
@@ -21,18 +32,9 @@ describe('MetaobjectService.ensureMetafieldDefinition', () => {
     await service.ensureMetafieldDefinition('superapp.theme', 'module_refs', '$app:superapp_module', true);
 
     expect(graphql).toHaveBeenCalledTimes(1);
-    expect(graphql).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        variables: expect.objectContaining({
-          definition: expect.objectContaining({
-            access: expect.objectContaining({
-              admin: 'MERCHANT_READ_WRITE',
-            }),
-          }),
-        }),
-      }),
-    );
+    const call = graphql.mock.calls[0]?.[1] as { variables: { definition: { access?: Record<string, string> } } };
+    expect(call.variables.definition.access).not.toHaveProperty('admin');
+    expect(call.variables.definition.access).toEqual({ storefront: 'PUBLIC_READ' });
   });
 
   function policyConstraintResponse() {
@@ -50,36 +52,7 @@ describe('MetaobjectService.ensureMetafieldDefinition', () => {
     });
   }
 
-  // NOTE: MetafieldAdminAccessInput (the type metafieldDefinitionCreate actually accepts)
-  // only has MERCHANT_READ / MERCHANT_READ_WRITE in the 2026-04 schema — PUBLIC_READ_WRITE
-  // is output-only (MetafieldAdminAccess) and is never a legal candidate to retry with. When
-  // the shop's business rules reject MERCHANT_READ_WRITE, there is no valid fallback: the
-  // function must fail loudly, not loop on values Shopify will always reject anyway.
-  it('throws when merchant access is rejected and no compatible admin enum exists', async () => {
-    const graphql = vi
-      .fn()
-      .mockResolvedValueOnce(policyConstraintResponse())
-      .mockResolvedValueOnce(policyConstraintResponse());
-    const admin = { graphql } as unknown as AdminApiContext['admin'];
-    const service = new MetaobjectService(admin);
-
-    await expect(
-      service.ensureMetafieldDefinition('superapp.theme', 'module_refs', '$app:superapp_module', true),
-    ).rejects.toThrow(/public_read_write/i);
-
-    expect(graphql).toHaveBeenCalledTimes(2);
-    const firstCall = graphql.mock.calls[0]?.[1] as { variables: { definition: { access: unknown } } };
-    const secondCall = graphql.mock.calls[1]?.[1] as { variables: { definition: { access: unknown } } };
-    expect(firstCall.variables.definition.access).toEqual({
-      admin: 'MERCHANT_READ_WRITE',
-      storefront: 'PUBLIC_READ',
-    });
-    expect(secondCall.variables.definition.access).toEqual({
-      admin: 'MERCHANT_READ_WRITE',
-    });
-  });
-
-  it('succeeds on the narrower MERCHANT_READ_WRITE-only candidate when the storefront-paired one is rejected', async () => {
+  it('falls back to no access override at all when the storefront-paired candidate is rejected, and succeeds', async () => {
     const graphql = vi
       .fn()
       .mockResolvedValueOnce(policyConstraintResponse())
@@ -92,6 +65,25 @@ describe('MetaobjectService.ensureMetafieldDefinition', () => {
     const service = new MetaobjectService(admin);
 
     await service.ensureMetafieldDefinition('superapp.theme', 'module_refs', '$app:superapp_module', true);
+
+    expect(graphql).toHaveBeenCalledTimes(2);
+    const firstCall = graphql.mock.calls[0]?.[1] as { variables: { definition: { access?: unknown } } };
+    const secondCall = graphql.mock.calls[1]?.[1] as { variables: { definition: { access?: unknown } } };
+    expect(firstCall.variables.definition.access).toEqual({ storefront: 'PUBLIC_READ' });
+    expect(secondCall.variables.definition).not.toHaveProperty('access');
+  });
+
+  it('throws when even the no-access-override candidate is rejected (no third candidate to fall back to)', async () => {
+    const graphql = vi
+      .fn()
+      .mockResolvedValueOnce(policyConstraintResponse())
+      .mockResolvedValueOnce(policyConstraintResponse());
+    const admin = { graphql } as unknown as AdminApiContext['admin'];
+    const service = new MetaobjectService(admin);
+
+    await expect(
+      service.ensureMetafieldDefinition('superapp.theme', 'module_refs', '$app:superapp_module', true),
+    ).rejects.toThrow(/public_read_write/i);
 
     expect(graphql).toHaveBeenCalledTimes(2);
   });

@@ -403,24 +403,34 @@ export class MetaobjectService {
     if (this.ensuredDefs.has(cacheKey)) return;
 
     const type = isList ? 'list.metaobject_reference' : 'metaobject_reference';
-    // MetafieldAdminAccessInput only accepts MERCHANT_READ / MERCHANT_READ_WRITE in the
-    // 2026-04 schema — PUBLIC_READ_WRITE is an *output*-only value (MetafieldAdminAccess)
-    // and is never a legal value here, so there is no third candidate to fall back to.
-    const accessCandidates: Array<Record<string, string>> = [
-      { admin: 'MERCHANT_READ_WRITE', storefront: 'PUBLIC_READ' },
-      { admin: 'MERCHANT_READ_WRITE' },
+    // Every namespace this app creates definitions in (superapp.theme, superapp.admin,
+    // superapp.functions, superapp.checkout, superapp.customer_account, ...) is a
+    // merchant-owned/custom namespace, NOT the app-reserved namespace (the reserved
+    // literal is exactly "$app"). Shopify's access-control rules for a non
+    // app-reserved definition fix admin access at the implicit default
+    // (PUBLIC_READ_WRITE) and reject any explicit `access.admin` value outright —
+    // "Setting this access control is not permitted. It must be one of
+    // ["public_read_write"]." And PUBLIC_READ_WRITE is not even a legal value in the
+    // MetafieldAdminAccessInput enum (only MERCHANT_READ / MERCHANT_READ_WRITE are,
+    // verified against the live 2026-07 schema), so there is no explicit input that
+    // satisfies the constraint — the only way to get PUBLIC_READ_WRITE admin access
+    // is to omit `admin` from the access input entirely and let Shopify default it.
+    // Candidates therefore never set `admin`; only `storefront` varies.
+    const accessCandidates: Array<Record<string, string> | undefined> = [
+      { storefront: 'PUBLIC_READ' },
+      undefined,
     ];
     let lastErr: { message: string } | null = null;
 
     for (let i = 0; i < accessCandidates.length; i += 1) {
-      const access = accessCandidates[i]!;
+      const access = accessCandidates[i];
       const firstErr = await this.tryCreateMetafieldDefinition({
         namespace,
         key,
         name: key,
         type,
         ownerType: 'SHOP',
-        access,
+        ...(access ? { access } : {}),
         validations: [{ name: 'metaobject_definition_type', value: metaobjectType }],
       });
       if (!firstErr || firstErr.code === 'TAKEN') {
@@ -487,7 +497,7 @@ export class MetaobjectService {
     name: string;
     type: string;
     ownerType: string;
-    access: Record<string, string>;
+    access?: Record<string, string>;
     validations: Array<{ name: string; value: string }>;
   }): Promise<{ code?: string; message: string } | null> {
     try {
