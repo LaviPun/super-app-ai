@@ -1,7 +1,6 @@
 import { json } from '@remix-run/node';
 import { useLoaderData, useNavigate, useFetcher, useSearchParams, useRevalidator } from '@remix-run/react';
 import { useState, useEffect, useRef } from 'react';
-import type { CSSProperties } from 'react';
 import { shopify } from '~/shopify.server';
 import { ModuleService } from '~/services/modules/module.service';
 import { BlueprintService } from '~/services/blueprints/blueprint.service';
@@ -14,18 +13,18 @@ import { compileRecipe } from '~/services/recipes/compiler';
 import { ThemeService } from '~/services/shopify/theme.service';
 import { embedActivationDeepLink } from '~/services/publish/embed-status.server';
 import { mintPreviewToken } from '~/services/security/preview-token.server';
-import { SchemaForm, type JsonSchemaNode, type SectionUiHints } from '~/components/SchemaForm';
 import type { Capability, DeployTarget, RecipeSpec } from '@superapp/core';
 import { getPrisma } from '~/db.server';
 import { ActivityLogService } from '~/services/activity/activity.service';
 import { QuotaService } from '~/services/billing/quota.service';
 import { AppError } from '~/services/errors/app-error.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
-import {
-  ConfirmModal, EmptyState, KV, StatusBadge, Tabs, useCustomEvent,
-} from '~/components/merchant/polaris';
-import { getCategoryDisplayLabel, catTone } from '~/utils/type-label';
+import { ConfirmModal, StatusBadge, Tabs } from '~/components/merchant/polaris';
+import { getCategoryDisplayLabel } from '~/utils/type-label';
 import { pollJobUntilTerminal, derivePublishFailureBanner } from '~/utils/job-poll';
+import { OverviewTab } from '~/components/merchant/module-detail/OverviewTab';
+import { SettingsTab } from '~/components/merchant/module-detail/SettingsTab';
+import { ModifyAiModal } from '~/components/merchant/module-detail/ModifyAiModal';
 
 
 // Real placement description derived from the module's spec + raw category — no hardcoded copy.
@@ -243,20 +242,6 @@ export async function loader({ request, params }: { request: Request; params: { 
   return json({ moduleId, shop: session.shop, mod, spec, catalog, compiled, planTier, blockedCapabilities, blockReasons, versions, previewHtml, previewJson, themes, publishedThemeId, hydration, blueprint, internalNotes, deployment, embedDeepLink, previewToken, captureCount });
 }
 
-const RUNTIME_LABEL: Record<string, string> = {
-  theme: 'Theme app extension',
-  'checkout-ui': 'Checkout UI extension',
-  'customer-account-ui': 'Customer account extension',
-  'admin-ui': 'Admin UI extension',
-  flow: 'Shopify Flow',
-  'web-pixel': 'Web Pixel',
-  'pos-ui': 'POS UI extension',
-  'app-proxy': 'App proxy (always available)',
-  function: 'Shopify Function',
-  'agentic-feed': 'Agentic product feed',
-  composite: 'Composite (uses other modules)',
-};
-
 /**
  * Route-owned mutations: duplicate (create a draft copy), rename (Module.name +
  * draft spec name), delete. All return JSON so the UI can toast from the server
@@ -366,12 +351,6 @@ function getDefaultThemeId(
   const main = themes.find(t => String(t.role).toLowerCase() === 'main');
   return main ? String(main.id) : String(themes[0]!.id);
 }
-
-const MONO_PRE: CSSProperties = {
-  margin: 0, maxHeight: 480, overflow: 'auto', padding: 16,
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-};
 
 export default function ModuleDetail() {
   return (
@@ -817,7 +796,6 @@ function ModuleDetailBody() {
         ? <s-button slot="primary-action" variant="primary" icon="rocket" loading={isPublishing || undefined} onClick={() => setPubOpen(true)}>Publish</s-button>
         : <s-button slot="primary-action" variant="primary" icon="refresh" loading={isPublishing || undefined} onClick={() => setPubOpen(true)}>Republish</s-button>}
       <s-button slot="secondary-actions" icon="view" onClick={openPreview}>Preview</s-button>
-      <s-button slot="secondary-actions" icon="wand" onClick={() => setModifyOpen(true)}>Modify with AI</s-button>
       <s-button
         slot="secondary-actions"
         variant="tertiary"
@@ -828,6 +806,7 @@ function ModuleDetailBody() {
       />
       <s-popover id="module-more-menu">
         <s-menu>
+          <s-button icon="wand" onClick={() => setModifyOpen(true)}>Modify with AI</s-button>
           <s-button icon="duplicate" onClick={duplicate}>Duplicate</s-button>
           <s-button icon="download" onClick={exportSpec}>Export spec</s-button>
           {mod.status === 'PUBLISHED' && (
@@ -843,83 +822,90 @@ function ModuleDetailBody() {
         <s-text color="subdued">{summary}</s-text>
       </s-stack>
 
-      {data.blueprint && (
-        <s-banner tone="info" heading={`Part of the “${data.blueprint.name}” blueprint (${data.blueprint.moduleCount} modules)`}>
-          <s-stack gap="small-100">
-            <s-stack direction="inline" gap="small-100">
-              {data.blueprint.members.map((mem: { id: string; name: string; type: string; status: string }) => (
-                <s-link key={mem.id} href={`/modules/${mem.id}`}>
-                  <s-badge tone={mem.id === data.moduleId ? 'info' : mem.status === 'PUBLISHED' ? 'success' : 'neutral'}>{mem.name}</s-badge>
-                </s-link>
-              ))}
+      {/* Every publish/hydrate/embed status signal renders in this one stack,
+          directly under the title row and above the tabs — a single,
+          consistent location instead of scattered banners. At most a couple
+          of these are ever true at once (they're driven by mutually-scoped
+          state), so this reads as one status area, not a wall of banners. */}
+      <s-stack gap="base">
+        {data.blueprint && (
+          <s-banner tone="info" heading={`Part of the “${data.blueprint.name}” blueprint (${data.blueprint.moduleCount} modules)`}>
+            <s-stack gap="small-100">
+              <s-stack direction="inline" gap="small-100">
+                {data.blueprint.members.map((mem: { id: string; name: string; type: string; status: string }) => (
+                  <s-link key={mem.id} href={`/modules/${mem.id}`}>
+                    <s-badge tone={mem.id === data.moduleId ? 'info' : mem.status === 'PUBLISHED' ? 'success' : 'neutral'}>{mem.name}</s-badge>
+                  </s-link>
+                ))}
+              </s-stack>
+              {data.blueprint.draftCount > 0 && (
+                <s-stack direction="inline">
+                  <s-button variant="primary" icon="layer" loading={isCoDeploying || undefined} onClick={publishAll}>
+                    {`Publish all ${data.blueprint.moduleCount} modules`}
+                  </s-button>
+                </s-stack>
+              )}
             </s-stack>
-            {data.blueprint.draftCount > 0 && (
+          </s-banner>
+        )}
+
+        {justPublished && (
+          <s-banner tone="success" heading="Module published">This module is now live on your storefront.</s-banner>
+        )}
+
+        {justUnpublished && (
+          <s-banner tone="info" heading="Module unpublished">This module is no longer live and is now a draft.</s-banner>
+        )}
+
+        {publishSucceeded && isThemeModule && (
+          <s-banner tone="success" heading="Published">
+            {/* The module's live URL depends on theme placement, which this app
+                can't resolve to one page without additional placement metadata —
+                the shop's primary domain is the honest, always-real target. */}
+            <s-button href={`https://${data.shop}/`} target="_blank" variant="tertiary" icon="external">
+              View storefront
+            </s-button>
+          </s-banner>
+        )}
+
+        {publishFailure && (
+          <s-banner tone="critical" heading="Publish stopped partway through">
+            <s-stack gap="small-100">
+              <s-paragraph>
+                {publishFailure.failedOp ? `Failed at "${publishFailure.failedOp}". ` : ''}
+                {publishFailure.guidance ?? publishFailure.message}
+              </s-paragraph>
               <s-stack direction="inline">
-                <s-button variant="primary" icon="layer" loading={isCoDeploying || undefined} onClick={publishAll}>
-                  {`Publish all ${data.blueprint.moduleCount} modules`}
+                <s-button variant="primary" icon="refresh" loading={isPublishing || undefined} onClick={publish}>
+                  Retry publish
                 </s-button>
               </s-stack>
-            )}
-          </s-stack>
-        </s-banner>
-      )}
-
-      {justPublished && (
-        <s-banner tone="success" heading="Module published">This module is now live on your storefront.</s-banner>
-      )}
-
-      {justUnpublished && (
-        <s-banner tone="info" heading="Module unpublished">This module is no longer live and is now a draft.</s-banner>
-      )}
-
-      {publishSucceeded && isThemeModule && (
-        <s-banner tone="success" heading="Published">
-          {/* The module's live URL depends on theme placement, which this app
-              can't resolve to one page without additional placement metadata —
-              the shop's primary domain is the honest, always-real target. */}
-          <s-button href={`https://${data.shop}/`} target="_blank" variant="tertiary" icon="external">
-            View storefront
-          </s-button>
-        </s-banner>
-      )}
-
-      {publishFailure && (
-        <s-banner tone="critical" heading="Publish stopped partway through">
-          <s-stack gap="small-100">
-            <s-paragraph>
-              {publishFailure.failedOp ? `Failed at "${publishFailure.failedOp}". ` : ''}
-              {publishFailure.guidance ?? publishFailure.message}
-            </s-paragraph>
-            <s-stack direction="inline">
-              <s-button variant="primary" icon="refresh" loading={isPublishing || undefined} onClick={publish}>
-                Retry publish
-              </s-button>
             </s-stack>
-          </s-stack>
-        </s-banner>
-      )}
+          </s-banner>
+        )}
 
-      {isThemeModule && embedStatus && (
-        <s-banner tone="warning" heading="Almost there — turn on the app embed">
-          <s-paragraph>
-            Published modules only appear on your storefront once the “SuperApp Theme Modules”
-            app embed is enabled in your theme.
-          </s-paragraph>
-          <s-button href={data.embedDeepLink} target="_blank" variant="primary">
-            Enable it in the theme editor
-          </s-button>
-        </s-banner>
-      )}
+        {isThemeModule && embedStatus && (
+          <s-banner tone="warning" heading="Almost there — turn on the app embed">
+            <s-paragraph>
+              Published modules only appear on your storefront once the “SuperApp Theme Modules”
+              app embed is enabled in your theme.
+            </s-paragraph>
+            <s-button href={data.embedDeepLink} target="_blank" variant="primary">
+              Enable it in the theme editor
+            </s-button>
+          </s-banner>
+        )}
 
-      {isThemeModule && themes.length > 0 && (
-        <s-box maxInlineSize="360px">
-          <s-select label="Publish to theme" value={selectedThemeId} onChange={(e) => setSelectedThemeId(e.currentTarget.value)}>
-            {themes.map((t: { id: number; name: string; role: string }) => (
-              <s-option key={t.id} value={String(t.id)}>{`${t.name}${t.role === 'main' ? ' (live)' : ''}`}</s-option>
-            ))}
-          </s-select>
-        </s-box>
-      )}
+        {isThemeModule && themes.length > 0 && (
+          <s-box maxInlineSize="360px">
+            <s-select label="Publish to theme" value={selectedThemeId} onChange={(e) => setSelectedThemeId(e.currentTarget.value)}>
+              {themes.map((t: { id: number; name: string; role: string }) => (
+                <s-option key={t.id} value={String(t.id)}>{`${t.name}${t.role === 'main' ? ' (live)' : ''}`}</s-option>
+              ))}
+            </s-select>
+          </s-box>
+        )}
+      </s-stack>
 
       {delOpen && (
         <ConfirmModal open heading="Delete module?" tone="critical" confirmLabel="Delete"
@@ -968,111 +954,25 @@ function ModuleDetailBody() {
       <Tabs tabs={tabs} value={tab} onChange={setTab} />
 
       {tab === 'overview' && (
-        <s-grid gridTemplateColumns="@container (inline-size > 760px) 2fr 1fr, 1fr" gap="base">
-          <s-stack gap="base">
-            <s-section padding="none">
-              <s-box border="base" borderRadius="base" overflow="hidden">
-                {previewHtml ? (
-                  <div style={{ position: 'relative', background: '#fff' }}>
-                    <iframe
-                      title={`Preview of ${mod.name}`}
-                      srcDoc={previewHtml}
-                      // No allow-same-origin: previewHtml may include AI-generated
-                      // (draft.previewHtmlJson) markup. Keeping the frame at an opaque
-                      // origin means any injected script can't reach the admin app's
-                      // origin (cookies/storage/parent DOM). The self-contained preview
-                      // scripts (countdown, link-intercept) run fine without it.
-                      sandbox="allow-scripts"
-                      onLoad={() => setPreviewLoaded(true)}
-                      style={{ display: 'block', width: '100%', height: 480, border: 0, background: '#fff' }}
-                    />
-                    {!previewLoaded && (
-                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, background: '#fff' }}>
-                        <s-spinner size="base" accessibilityLabel="Rendering preview" />
-                        <s-text color="subdued">Rendering preview…</s-text>
-                      </div>
-                    )}
-                  </div>
-                ) : previewJson ? (
-                  <pre style={MONO_PRE}>{JSON.stringify(previewJson, null, 2)}</pre>
-                ) : (
-                  <EmptyState icon="view" heading="No preview available">
-                    This module type has no visual storefront preview.
-                  </EmptyState>
-                )}
-              </s-box>
-              <s-box padding="base">
-                <s-grid gridTemplateColumns="1fr auto" gap="small-100" alignItems="center">
-                  <s-text color="subdued">Live preview</s-text>
-                  <s-button icon="external" onClick={openPreview}>Open in new tab</s-button>
-                </s-grid>
-              </s-box>
-            </s-section>
-            <s-section heading="What this module does">
-              <s-paragraph>
-                This module adds a {mod.name.toLowerCase()} to your storefront. It is currently on version {versions[0]?.version ?? 1}. All changes are versioned and reversible.
-              </s-paragraph>
-            </s-section>
-            {validationReport && (
-              <s-section heading="Validation">
-                <s-stack gap="small-200">
-                  {validationReport.checks.slice(0, 6).map((c) => (
-                    <s-stack key={c.id} direction="inline" gap="small-100" alignItems="center">
-                      <s-icon
-                        type={c.status === 'PASS' ? 'check-circle' : 'alert-triangle'}
-                        tone={c.status === 'PASS' ? 'success' : 'critical'}
-                        size="small"
-                      />
-                      <s-text>{c.description}</s-text>
-                    </s-stack>
-                  ))}
-                </s-stack>
-                <s-divider />
-                <s-grid gridTemplateColumns="1fr auto" gap="small-100" alignItems="center">
-                  <s-text color="subdued">Let AI fill any remaining empty settings — merchant-set values are never overwritten.</s-text>
-                  <s-button icon="wand" loading={fillSettingsFetcher.state !== 'idle' || undefined} onClick={fillMissingSettings}>
-                    Fill missing settings
-                  </s-button>
-                </s-grid>
-              </s-section>
-            )}
-          </s-stack>
-          <s-stack gap="base">
-            <s-section heading="Details">
-              <KV rows={[
-                ['Type', <s-badge key="t" tone={catTone(category)}>{categoryLabel}</s-badge>],
-                ['Category', categoryLabel],
-                ['Version', 'v' + (versions[0]?.version ?? 1)],
-                ['Status', <StatusBadge key="s" status={mod.status} />],
-              ]} />
-            </s-section>
-            {deployment ? (
-              <s-section heading="Deployment">
-                <s-stack gap="small-100">
-                  <s-stack direction="inline" gap="small-100">
-                    <s-badge>{RUNTIME_LABEL[deployment.runtime] ?? deployment.runtime}</s-badge>
-                    {deployment.requiresPlan === 'plus' ? <s-badge tone="warning">Takes effect on Shopify Plus</s-badge> : null}
-                    {deployment.runtimeShipped === false ? <s-badge tone="warning">Runtime pending in this app build</s-badge> : null}
-                  </s-stack>
-                  <s-text color="subdued">{deployment.note}</s-text>
-                </s-stack>
-              </s-section>
-            ) : null}
-            <s-section heading="Placement">
-              <s-text color="subdued">{placementText(spec, category)}</s-text>
-            </s-section>
-            <s-section heading="Data captures">
-              <s-stack gap="small-100">
-                <KV rows={[['Captured entries', String(captureCount)]]} />
-                {captureCount > 0 ? (
-                  <s-button variant="tertiary" href={`/modules/${moduleId}/captures`}>View captures →</s-button>
-                ) : (
-                  <s-text color="subdued">No captures yet.</s-text>
-                )}
-              </s-stack>
-            </s-section>
-          </s-stack>
-        </s-grid>
+        <OverviewTab
+          moduleName={mod.name}
+          version={versions[0]?.version ?? 1}
+          previewHtml={previewHtml}
+          previewJson={previewJson}
+          previewLoaded={previewLoaded}
+          onPreviewLoad={() => setPreviewLoaded(true)}
+          onOpenPreview={openPreview}
+          validationReport={validationReport}
+          onFillMissingSettings={fillMissingSettings}
+          fillingSettings={fillSettingsFetcher.state !== 'idle'}
+          category={category}
+          categoryLabel={categoryLabel}
+          status={mod.status}
+          deployment={deployment}
+          placement={placementText(spec, category)}
+          captureCount={captureCount}
+          moduleId={moduleId}
+        />
       )}
 
       {tab === 'versions' && (
@@ -1103,150 +1003,36 @@ function ModuleDetailBody() {
       )}
 
       {tab === 'settings' && (
-        <s-section>
-          <s-box maxInlineSize="520px">
-            <s-stack gap="base">
-              <s-grid gridTemplateColumns="1fr auto" gap="small-100" alignItems="end">
-                <s-text-field label="Module name" value={nameDraft} onInput={(e) => setNameDraft(e.currentTarget.value ?? '')} />
-                <s-button icon="check" loading={renameFetcher.state !== 'idle' || undefined}
-                  disabled={(!nameDraft.trim() || nameDraft.trim() === mod.name) || undefined}
-                  onClick={saveName}>Save</s-button>
-              </s-grid>
-              <s-stack gap="small-100">
-                <s-text-area label="Internal notes" details="Optional — notes for your team" rows={3}
-                  placeholder="Notes for your team…"
-                  value={notesDraft} onInput={(e) => setNotesDraft(e.currentTarget.value ?? '')} />
-                <s-stack direction="inline">
-                  <s-button icon="check" loading={notesFetcher.state !== 'idle' || undefined}
-                    disabled={notesDraft === (internalNotes ?? '') || undefined}
-                    onClick={saveNotes}>Save notes</s-button>
-                </s-stack>
-              </s-stack>
-              <s-divider />
-              {data.hydration.adminConfig ? (
-                <>
-                  <s-stack gap="small-100">
-                    <s-text type="strong">Settings</s-text>
-                    <SchemaForm
-                      schema={data.hydration.adminConfig.jsonSchema as JsonSchemaNode}
-                      uiSchema={data.hydration.adminConfig.uiSchema as Record<string, SectionUiHints>}
-                      value={configValue}
-                      onChange={setConfigValue}
-                      tier="advanced"
-                      disabled={configFetcher.state !== 'idle'}
-                    />
-                    <s-stack direction="inline">
-                      <s-button
-                        variant="primary"
-                        icon="check"
-                        loading={configFetcher.state !== 'idle' || undefined}
-                        onClick={() =>
-                          configFetcher.submit(
-                            { configJson: JSON.stringify(configValue) },
-                            { method: 'post', action: `/api/modules/${moduleId}/update-config` },
-                          )
-                        }
-                      >
-                        Save settings
-                      </s-button>
-                    </s-stack>
-                  </s-stack>
-                  <s-divider />
-                </>
-              ) : null}
-              {hydration?.status === 'none' && (
-                <>
-                  <s-banner tone="info" heading="Generate full settings">
-                    <s-stack gap="small-100">
-                      <s-text>Let AI expand this module into a complete, validated settings schema you can fine-tune.</s-text>
-                      <s-stack direction="inline">
-                        <s-button icon="wand" loading={hydrateFetcher.state !== 'idle' || undefined} onClick={generateSettings}>
-                          Generate full settings
-                        </s-button>
-                      </s-stack>
-                    </s-stack>
-                  </s-banner>
-                  <s-divider />
-                </>
-              )}
-              <s-banner tone="critical" heading="Delete this module">
-                <s-stack gap="small-100">
-                  <s-text>This removes the module and all versions. It cannot be undone.</s-text>
-                  <s-stack direction="inline">
-                    <s-button tone="critical" icon="delete" onClick={() => setDelOpen(true)}>Delete module</s-button>
-                  </s-stack>
-                </s-stack>
-              </s-banner>
-            </s-stack>
-          </s-box>
-        </s-section>
+        <s-box maxInlineSize="640px">
+          <SettingsTab
+            adminConfig={data.hydration.adminConfig}
+            configValue={configValue}
+            onConfigChange={setConfigValue}
+            onSaveConfig={() =>
+              configFetcher.submit(
+                { configJson: JSON.stringify(configValue) },
+                { method: 'post', action: `/api/modules/${moduleId}/update-config` },
+              )
+            }
+            savingConfig={configFetcher.state !== 'idle'}
+            hydrationStatus={hydration?.status ?? 'none'}
+            onGenerateSettings={generateSettings}
+            generatingSettings={hydrateFetcher.state !== 'idle'}
+            nameDraft={nameDraft}
+            setNameDraft={setNameDraft}
+            moduleName={mod.name}
+            onSaveName={saveName}
+            savingName={renameFetcher.state !== 'idle'}
+            notesDraft={notesDraft}
+            setNotesDraft={setNotesDraft}
+            internalNotes={internalNotes}
+            onSaveNotes={saveNotes}
+            savingNotes={notesFetcher.state !== 'idle'}
+            onDelete={() => setDelOpen(true)}
+          />
+        </s-box>
       )}
     </s-page>
-  );
-}
-
-/**
- * "Modify with AI" modal. Ref-driven show()/hide() (Polaris web-component
- * modal), closing via the component's `afterhide` custom event so ESC/overlay
- * dismissal stays in sync with React state.
- */
-function ModifyAiModal({
-  instruction, setInstruction, options, error, generating, applyingIdx, applyBusy, onApply, onGenerate, onClose,
-}: {
-  instruction: string;
-  setInstruction: (v: string) => void;
-  options?: any[];
-  error?: string;
-  generating: boolean;
-  applyingIdx: number | null;
-  applyBusy: boolean;
-  onApply: (option: any, idx: number) => void;
-  onGenerate: () => void;
-  onClose: () => void;
-}) {
-  const modalRef = useRef<HTMLElement | null>(null);
-  useEffect(() => {
-    (modalRef.current as (HTMLElement & { show?: () => void }) | null)?.show?.();
-  }, []);
-  useCustomEvent(modalRef, 'afterhide', onClose);
-
-  return (
-    <s-modal ref={modalRef as never} heading="Modify with AI">
-      <s-stack gap="base">
-        <s-text color="subdued">Describe the change in plain language.</s-text>
-        <s-text-area
-          label="What should change?"
-          rows={4}
-          placeholder="e.g. Make the button green and add a quantity stepper"
-          value={instruction}
-          onInput={(e) => setInstruction(e.currentTarget.value ?? '')}
-        />
-        {error && <s-banner tone="critical">{error}</s-banner>}
-        {options && options.map((o: any, i: number) => (
-          <s-box key={i} border="base" borderRadius="base" padding="base">
-            <s-stack gap="small-100">
-              <s-grid gridTemplateColumns="1fr auto" gap="small-100" alignItems="center">
-                <s-text type="strong">Option {i + 1}</s-text>
-                <s-button variant="primary" icon="check"
-                  loading={applyingIdx === i || undefined}
-                  disabled={applyBusy || undefined}
-                  onClick={() => onApply(o, i)}>
-                  Apply
-                </s-button>
-              </s-grid>
-              <s-text color="subdued">{o.explanation}</s-text>
-            </s-stack>
-          </s-box>
-        ))}
-      </s-stack>
-      <s-button slot="primary-action" variant="primary" icon="wand"
-        loading={generating || undefined}
-        disabled={!instruction.trim() || undefined}
-        onClick={onGenerate}>
-        Generate options
-      </s-button>
-      <s-button slot="secondary-actions" onClick={onClose}>Cancel</s-button>
-    </s-modal>
   );
 }
 
