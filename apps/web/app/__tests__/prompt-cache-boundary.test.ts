@@ -58,7 +58,12 @@ describe('compileCreateSingleRecipePrompt cache boundary', () => {
 });
 
 describe('compileCreateModulePrompt cache boundary', () => {
-  it('keeps the multi-option task text and typesList in the static prefix', () => {
+  // Review finding 6: the task text embeds the merchant-chosen optionCount
+  // (1-3, per-request — see the "adaptation" note in compileCreateModulePrompt),
+  // so it deliberately lives in the DYNAMIC suffix, not the static prefix —
+  // renamed from "...task text and typesList in the static prefix" which
+  // read as if both were in the prefix.
+  it('keeps typesList in the static prefix and the optionCount-dependent task text in the dynamic suffix', () => {
     const { prompt, cacheableChars } = compileCreateModulePrompt({
       purposeAndGuidance: 'PURPOSE_TEXT',
       typesList: 'TYPES_LIST_TEXT',
@@ -67,7 +72,11 @@ describe('compileCreateModulePrompt cache boundary', () => {
       expectations: 'EXPECTATIONS_TEXT',
       userRequest: 'UNIQUE_REQUEST',
     });
-    expect(prompt.slice(0, cacheableChars)).toContain('TYPES_LIST_TEXT');
-    expect(prompt.slice(0, cacheableChars)).not.toContain('UNIQUE_REQUEST');
+    const prefix = prompt.slice(0, cacheableChars);
+    const suffix = prompt.slice(cacheableChars);
+    expect(prefix).toContain('TYPES_LIST_TEXT');
+    expect(prefix).not.toContain('UNIQUE_REQUEST');
+    expect(suffix).toContain('Task: Generate exactly');
+    expect(prefix).not.toContain('Task: Generate exactly');
   });
 });
