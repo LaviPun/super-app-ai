@@ -6,7 +6,85 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/); entries 
 
 ## [Unreleased]
 
-WS-F (merchant UI), WS-G (integrations/ops), WS-H (templates), WS-C (async engine), and WS-I (cleanup) are in flight but not yet merged to `master` as of this file's seed date (2026-08-27) — see the launch program doc for status.
+WS-I (cleanup) is in flight but not yet merged to `master` as of this update (2026-08-27) — see the launch program doc for status.
+
+## [2026-08-27] — WS-C: Async generation engine
+
+BullMQ worker, deadline budgets, funnel spine, hardened errors. Commit `6b4f25e` (PR #19).
+
+### Added
+- Real BullMQ `Worker` runtime mounted in `apps/web/scripts/worker.ts` (`createWebWorkerRuntime`) — active when `JOB_EXECUTION_MODE=queue` and `QUEUE_REDIS_URL` is set; registered queues today are `ai-generation` (`AI_GENERATE`/`AI_HYDRATE`) and `publish` (`PUBLISH`)
+- `enqueueWebJob` seam (`services/jobs/enqueue.server.ts`) — trace rides in the payload; `isAsyncJobsEnabled()` reflects the effective mode
+- `/api/ai/generate-async` + `/api/ai/jobs/:jobId` poll route, `runGenerationPipeline` extracted (hook-driven, route-behavior-identical) so inline and queued paths share one pipeline
+- `/internal/funnel` dashboard (`FunnelService.windowStats`) — tracks the launch program's end-to-end `AI_GENERATE` → `AI_HYDRATE` → `PUBLISH` conversion rate by shared `correlationId`, plus recent-failure surfacing
+- Additive schema: `AiGenerationOption`, `Job.stage`, `Module.generationCorrelationId`, QA promotion setting
+
+### Changed
+- **`JOB_EXECUTION_MODE` still defaults to `inline`** — work runs synchronously in the `web` process unless a deploy explicitly opts into `queue` mode; this is a deliberate, unflipped default (see `docs/operations.md` §1)
+
+Also on this date: `8a656af` (PR #24) — mechanical lint cleanup restoring warning-cap headroom after the wave-two merge (102 → 92 warnings); no behavior changes.
+
+## [2026-08-27] — fix(gdpr): `customers/data_request` now delivers
+
+Commit `e45c061` (PR #23).
+
+### Fixed
+- `customers/data_request` webhook handler previously only logged a `DataCapture` count to `ActivityLog` — no export was ever compiled or delivered, and its `customerId` filter was a dead no-op. `services/gdpr/data-request-export.server.ts` now compiles a real export (`DataCapture`, `DataStoreRecord`, `ModuleEvent`, `AttributionLink`, `SupportTicket`) and emails it to the shop owner via the existing mailer, byte-capped with loud truncation notes, never throwing on failure (every failure path is logged instead of silently swallowed)
+
+## [2026-08-27] — WS-S: Submission prep
+
+Conformance self-check, listing copy, scope table, GDPR verification, reviewer notes. Commit `5e8d284` (PR #22).
+
+### Added
+- Pre-submission conformance self-check script (fail-loud checks, fixture-tested)
+- App Store listing copy draft, scope-justification table, reviewer-notes structure, screenshot/asset checklist (`docs/launch/`)
+- GDPR webhook verification commands + `shop/redact` completeness test (`shop-redact-completeness.test.ts` — asserts every shop-scoped Prisma model, ~31 of them, is either redacted or explicitly retained)
+
+### Fixed
+- Owner decisions folded in: support email, `write_checkouts` scope kept, privacy-URL deferred
+
+## [2026-08-27] — fix(flows): `ROUTE_ORDER` no longer silently no-ops
+
+Commit `7d68b21` (PR #20).
+
+### Fixed
+- `FlowRunnerService.executeStep` had no `ROUTE_ORDER` branch, so it fell through to `{ skipped: true }` — a step that reported SUCCESS on every run without ever routing an order (D8: no silent failures). Ported the existing `ShopifyConnector.order.routeToLocation` (fulfillment-order lookup, then move) onto the admin.graphql pattern the runner's sibling order steps already use, so `ROUTE_ORDER` now genuinely executes or throws loudly on misconfiguration. `ROUTE_ORDER` still isn't reachable through any authoring path (not in FlowBuilder's step catalog or the RecipeSpec Zod schema) — the fix closes the silent-success trap for if/when it becomes authorable, and hardens the generic fallthrough for any other unrecognized step kind
+
+## [2026-08-27] — WS-F: Merchant UI
+
+Honest flows, schema-driven settings, full Polaris migration. Commit `eb5aba5` (PR #18).
+
+### Added
+- Full merchant-surface migration to Shopify Polaris web components
+- Signed capability token authorizes `preview.$moduleId.tsx` instead of a trusted shop param
+
+### Changed
+- Merchant `/jobs` route no longer displays AI cost/token/provider internals
+- Template detail's "Use template" now creates the module instead of dead-navigating; Flows' "Templates" button repoints to `/flows/templates`
+- Maya (merchant support copy) now discloses it's AI per design decision D4 — the prior copy was written to impersonate a human
+
+### Fixed
+- `useTemplateSubmission` renamed to `buildTemplateSubmission` (real `react-hooks/rules-of-hooks` violation — a plain helper named with a `use*` prefix was being treated as a hook)
+- Regression coverage added for "Generate full settings" ([UI-3])
+
+## [2026-08-27] — WS-G+INT: Ops alerting + Integrations Hub
+
+Commit `2bd05af` (PR #17).
+
+### Added
+- `OpsAlertService` (`services/observability/ops-alert.server.ts`) — single fan-out point for operational alerts (Sentry unconditional; Slack/email gated by a rolling-window occurrence count plus a per-kind cooldown, tracked via separate `OPS_ALERT_OCCURRED`/`OPS_ALERT_FIRED` `ActivityLog` rows to avoid a bootstrap deadlock); real Slack incoming-webhook sender wired as the default channel
+- `/internal/integrations` — Integrations Hub: one tile per AI-provider kind (deep-links into `/internal/ai-providers`) plus ops-service tiles (Slack, Email, UptimeRobot, Healthchecks.io, Sentry), each using the config model that fits how the app actually depends on that service (DB read/write, DB read-only status key, or env-only reflect+test)
+- `hub-activity-audit-coverage.test.ts` — static-analysis test asserting every mutating Hub/AI-providers intent branch calls `activity.log` with a typed `ActivityAction`
+
+### Fixed
+- Occurrence-counting split from fire-counting to break a threshold bootstrap deadlock (a single counter that both gated delivery and recorded the threshold could never organically leave zero)
+
+## [2026-08-27] — WS-H: Templates
+
+Honest packs, store-aesthetic installs, Liquid headroom, parity guards. Commit `363cb9d` (PR #16).
+
+### Changed
+- **H1 (controller ruling):** collapsed the documented/selectable render-pack set from 4 (Luxe/Bold/Playful/Utility) to 2 (Luxe/Bold) — 99.35% of authored pack-bearing template content and every low-confidence `resolveStorefrontPack` fallback already resolved to Luxe/Bold only; Playful/Utility were 3 outlier files nobody had kept in sync. `resolveStorefrontPack` now maps only `bold-dtc` → bold, every other aesthetic id → luxe. Recorded in `docs/design-system/module-design-system.md` §10
 
 ## [2026-08-25] — WS-E: Publish integrity
 

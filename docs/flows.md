@@ -48,21 +48,27 @@ live: `CONDITION` (nested then/else branches, retried individually per nested
 step, capped at `MAX_CONDITION_DEPTH`), `HTTP_REQUEST` (via `ConnectorService.test`),
 `SEND_HTTP_REQUEST`, `TAG_ORDER`, `SEND_EMAIL_NOTIFICATION` (real send via the
 email connector, throws loudly if `EMAIL_API_KEY` is unset), `SEND_SLACK_MESSAGE`,
-`TAG_CUSTOMER`, `ADD_ORDER_NOTE`, and `WRITE_TO_STORE` (writes a record via
-`DataStoreService`, auto-enabling the target store if it isn't yet). `DELAY` is
-handled one level up, before the retry wrapper (§2). **Any other `step.kind`
-falls through to `return { skipped: true, kind: step.kind }`** (`flow-runner.service.ts:488`)
-— a silent no-op, not an error.
+`TAG_CUSTOMER`, `ADD_ORDER_NOTE`, `ROUTE_ORDER`, and `WRITE_TO_STORE` (writes a
+record via `DataStoreService`, auto-enabling the target store if it isn't
+yet). `DELAY` is handled one level up, before the retry wrapper (§2). **Any
+other `step.kind` now throws `Unknown flow step kind: <kind>`**
+(`flow-runner.service.ts:512`) instead of silently skipping — fixed by #20
+(2026-08-27, commit `7d68b21`; see below).
 
-**Known gap: `ROUTE_ORDER` is one of those silently-skipped kinds.**
-`flow-compile.ts`'s `stepToAction` switch maps `ROUTE_ORDER` to the canonical
-`shopify.order.routeToLocation` action (§2's connector table), but that mapping
-is only reachable through `WorkflowEngineService` — and nothing compiles a
-live-published flow's *full* step list into a canonical `Workflow` (§2, "Not
-implemented"). So a flow authored with a "Route Order to Location" step and
-run through the live webhook/cron/manual path never calls
-`fulfillmentOrderMove` — it silently no-ops. This is a real, currently-open gap,
-not a documentation omission; see §5.
+**Fixed (#20, 2026-08-27): `ROUTE_ORDER` no longer silently no-ops.**
+`FlowRunnerService.executeStep` previously had no `ROUTE_ORDER` branch, so it
+fell through to a silent `{ skipped: true }` — a step that reported SUCCESS
+on every run without ever routing an order, violating D8 (no silent
+failures). `flow-runner.service.ts:495` now has a real `ROUTE_ORDER` branch:
+it looks up the order's fulfillment orders then calls `fulfillmentOrderMove`,
+using the same `admin.graphql` pattern the runner's sibling order steps
+(`tagOrder`/`addOrderNote`) already use — genuinely executing, or throwing
+loudly on misconfiguration/userErrors, instead of relying on the
+`WorkflowEngineService`/`flow-compile.ts` machinery that was never reachable
+from the live linear runner. **`ROUTE_ORDER` still isn't reachable through
+any authoring path** — it's not in `FlowBuilder`'s step catalog or the
+RecipeSpec Zod schema — so the fix closes the silent-success trap for
+if/when it becomes authorable, rather than making it authorable today.
 
 Each retryable step gets `MAX_STEP_RETRIES = 2` attempts with exponential
 backoff (`STEP_BACKOFF_BASE_MS = 500`, `flow-runner.service.ts:31-32,325-353`);
@@ -265,14 +271,13 @@ All Shopify mutations these paths use were validated against Admin API
 
 ## 5. Known gaps — honest status, dated 2026-08-27
 
-- **`ROUTE_ORDER` silently no-ops on the live path** (§1). A flow built with a
-  "Route Order to Location" step never actually routes an order when run
-  through the normal webhook/cron/manual path — `FlowRunnerService.executeStep`
-  has no handler for that kind and falls through to a silent skip. The mapping
-  to `shopify.order.routeToLocation` exists only in the unused
-  `flowAutomationToWorkflow` compiler. This is a real functional gap, not a
-  docs gap — closing it means either adding a `ROUTE_ORDER` handler to
-  `executeStep` directly, or wiring the full-flow compile path.
+- ~~**`ROUTE_ORDER` silently no-ops on the live path.**~~ **Fixed by #20
+  (2026-08-27, commit `7d68b21`)** — see §1. `FlowRunnerService.executeStep`
+  now has a real `ROUTE_ORDER` handler that calls `fulfillmentOrderMove`
+  directly, and the generic fallthrough throws on any unrecognized step kind
+  instead of silently skipping. `ROUTE_ORDER` itself remains unauthorable
+  (not in `FlowBuilder`'s catalog or the RecipeSpec schema) — that part of the
+  gap is unchanged, only the silent-success trap is closed.
 - **No `FLOW_ENGINE_V2` unification.** Confirmed absent by grep. Loop, switch,
   and parallel node types exist and are tested at the engine level but are
   unreachable from any flow authored in the normal builder — the only live
@@ -295,8 +300,9 @@ What genuinely changed for the better since the last pass (2026-07): the
 DELAY/durable-scheduler wiring (§2 item 1-2) is real and shipped, `flow.automation`
 is now correctly classified `deployable` (not `needs_runtime`) in
 `packages/core/src/extension-eligibility.ts` — confirmed via `docs/generation.md`'s
-own audit — and the live webhook surface grew from two topics to four real
-ones (plus two inert ones declared but not subscribed).
+own audit — the live webhook surface grew from two topics to four real
+ones (plus two inert ones declared but not subscribed), and `ROUTE_ORDER`'s
+silent no-op (above) is fixed.
 
 ---
 
@@ -312,7 +318,7 @@ cd apps/web && pnpm exec vitest run \
   app/__tests__/workflow-engine.test.ts app/__tests__/workflow-durable-wait.test.ts \
   app/__tests__/workflow-safety.test.ts app/__tests__/expression-evaluator.test.ts \
   app/__tests__/workflow-connectors.test.ts app/__tests__/flow-compile.test.ts \
-  app/__tests__/flow-park.test.ts
+  app/__tests__/flow-park.test.ts app/__tests__/flow-runner-route-order.test.ts
 
 # config: validate the webhook topics + scopes against Admin 2026-04
 shopify app config validate --json

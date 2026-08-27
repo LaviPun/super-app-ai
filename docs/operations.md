@@ -8,7 +8,8 @@ or an environment-variable matrix (that's `apps/web/.env.example` and
 `apps/web/app/env.server.ts` directly — a hand-copied matrix here would drift
 the same way `docs/archive/deployment/env-matrix.md` did, which is why that
 file is archived rather than fixed). **Last verified: 2026-08-27**, against
-`master@c201150` (this branch's base).
+`master@8a656af` (post wave-two merge: WS-C async engine #19, WS-F merchant UI
+#18, WS-G ops/integrations #17, WS-H templates #16, plus #20/#22/#23/#24).
 
 ---
 
@@ -21,7 +22,7 @@ database and one Redis instance:
 | Process | Config | Entrypoint | Role |
 |---|---|---|---|
 | `web` | `apps/web/railway.web.toml` | Remix server (`build/server`) | Embedded admin UI, storefront app-proxy routes, webhooks, `/api/agent/*`. |
-| `worker` | `apps/web/railway.worker.toml` | `pnpm --filter web worker:start` | Connects to the queue Redis via `@superapp/job-orchestration`, serves `/healthz`. As of this writing it's a WS-A skeleton — it proves the wiring but doesn't run real BullMQ handlers yet; `JOB_EXECUTION_MODE` stays `inline` (work runs synchronously in `web`) until WS-C's async engine lands (unmerged). |
+| `worker` | `apps/web/railway.worker.toml` | `pnpm --filter web worker:start` | Connects to the queue Redis via `@superapp/job-orchestration`, serves `/healthz`. Two modes, both real, selected by `JOB_EXECUTION_MODE` (`packages/job-orchestration/src/config.ts`): **`inline` (the default)** — work runs synchronously in the `web` process, `worker` stays health-only; **`queue`** (needs `QUEUE_REDIS_URL`) — `scripts/worker.ts` mounts real BullMQ `Worker`s (`createWebWorkerRuntime`) for each queue with a registered handler. `buildWorkerHandlers()` (`apps/web/app/services/jobs/processors/index.ts`) registers two queues today: `ai-generation` (`AI_GENERATE`/`AI_HYDRATE`) and `publish` (`PUBLISH`); `connector`/`flow`/`webhook`/`retention` are declared `PlatformQueueName`s with no handler yet. Nothing in Railway config flips the flag — `queue` mode is an explicit deploy decision, not a rollout default. |
 | `internal-router` | `apps/web/railway.internal-router.toml` | `pnpm --filter web router:internal` | Standalone service fronting the internal admin AI assistant's provider routing — see `docs/internal-admin.md`. |
 
 Both `web` and `worker` set `healthcheckPath = "/healthz"` with a 120s timeout
@@ -92,15 +93,50 @@ no runtime cost), redacts every event through `redact.server.ts` before
 sending, and reads `SENTRY_RELEASE`/`SENTRY_TRACES_SAMPLE_RATE` from the
 environment. `SENTRY_DSN` is declared optional in `apps/web/app/env.server.ts`.
 
-**healthchecks.io and UptimeRobot** — per the launch-program plan these are
-the live external monitors for the `web` process, but **neither has any
-in-repo footprint**: no ping/heartbeat call, no configuration file, and no
-reference outside the planning doc itself (confirmed by a repo-wide search).
-That's expected for both services — they're typically configured entirely in
-their own dashboards against a public health URL, not in application code —
-but it also means this doc cannot verify from source whether they're
-currently configured and green. Check the actual dashboards, not this file,
-before trusting that claim.
+**healthchecks.io and UptimeRobot** are the live external monitors for the
+`web` process. Neither is *driven* from this repo — UptimeRobot polls
+`/healthz` from outside, and the healthchecks.io ping is sent by the cron
+workflow, not the Node process — but as of WS-G (#17) both now have a
+read-only footprint: `/internal/integrations` (the Integrations Hub, below)
+stores a status-API key for each in `AppSettings` and displays live
+check/monitor status pulled from that key. The tile itself is explicit that
+configuring the monitor/ping stays in the external dashboard. Check the
+actual dashboards, not this doc, before trusting whether either is currently
+green.
+
+**`/internal/integrations` — Integrations Hub** (WS-G, #17) is a
+marketplace-style grid of every external service the app talks to: one tile
+per AI-provider kind (deep-links into `/internal/ai-providers`, the single
+`AiProvider` writer) plus ops-service tiles (Slack, Email, UptimeRobot,
+Healthchecks.io, Sentry) using whichever config model fits how the app
+actually depends on that service at runtime (DB-config read/write,
+DB-config read-only status key, or env-only reflect+test). See
+[`docs/internal-admin.md`](./internal-admin.md#integrations-hub) for the
+full per-category breakdown.
+
+**`OpsAlertService`** (`apps/web/app/services/observability/ops-alert.server.ts`,
+WS-G #17) is the single fan-out point for operational alerts — no call site
+pages Sentry or sends Slack/email directly. It fans out via
+`Promise.allSettled` (Sentry unconditional; Slack/email gated by a
+rolling-window threshold plus a per-kind cooldown so one root cause pages
+once, not once per layer or per retry) and skips paging on expected 4xx
+`AppError`s. Wired call sites today: the shared `withApiLogging` catch,
+`JobService.fail`, the webhook route's per-connector catches, and
+support-triage failure notifications. Full mechanics in
+[`docs/internal-admin.md`](./internal-admin.md#ops-alert-fan-out).
+
+**`/internal/funnel`** (WS-C, #19) is the generation funnel dashboard —
+`apps/web/app/routes/internal.funnel.tsx` backed by
+`services/observability/funnel.service.ts`. `FunnelService.windowStats`
+tracks the launch program's "99.9% headline": of every `AI_GENERATE` `Job`
+created in the window, what fraction shares a `correlationId` with a
+successful `AI_HYDRATE` job (`hydrated`) and, further, a successful
+`PUBLISH` job (`published`, the end-to-end rate) — all keyed on the same
+`correlationId` the WS-QF billing-dedupe seam already uses, not a second
+parallel id. It also surfaces the most recent `AI_GENERATE`/`AI_HYDRATE`/
+`PUBLISH` failures with a human-readable error summary, so operators can see
+where generations are actually dropping off instead of inferring it from
+scattered logs.
 
 ---
 
