@@ -5,7 +5,31 @@ import {
   getCategoryDisplayLabel,
   getCategoryTone,
   getCategoryIcon,
+  catIcon,
 } from '~/utils/type-label';
+
+/**
+ * Polaris web components `<s-icon type="...">` icon set actually shipped by
+ * the live `https://cdn.shopify.com/shopifycloud/polaris.js` runtime the app
+ * loads (see `EmbeddedHeadScripts.tsx`) — NOT the `@shopify/polaris-types`
+ * devDependency's declared `IconType` union, which still lists `'layer'` as
+ * valid even though the deployed runtime does not ship it (confirmed by
+ * downloading the live bundle and extracting its icon-name manifest — an
+ * array of `"<name> <content-hash>"` entries used to build each icon's
+ * `admin-ui-foundations/icons/<hash>.svg` URL; `'layer'` is absent, `'apps'`
+ * is present). That version skew between the type package and the unversioned
+ * CDN script is exactly how the `catIcon` fallback regression this file
+ * guards against slipped past `tsc`: `'layer'` type-checked fine but the
+ * icon rendered blank in production. This allowlist is the subset of that
+ * live manifest actually referenced by `s-icon type="..."` in this app today
+ * (grepped) plus `'apps'`, the new fallback.
+ */
+const CONFIRMED_LIVE_ICON_TYPES = new Set([
+  'alert-triangle', 'apps', 'arrow-down', 'arrow-left', 'arrow-right', 'bolt',
+  'cart', 'chart-line', 'check', 'chevron-right', 'credit-card', 'database',
+  'desktop', 'live', 'settings', 'team', 'connect', 'automation', 'view',
+  'wand', 'x',
+]);
 
 /**
  * Regression coverage for the "everything is Storefront UI" taxonomy bug.
@@ -71,5 +95,32 @@ describe('template taxonomy (category → display bucket)', () => {
     for (const t of MODULE_TEMPLATES) {
       expect(known.has(t.category)).toBe(true);
     }
+  });
+});
+
+/**
+ * Regression coverage for a live merchant-admin console error: `<s-icon
+ * type="layer">` rendered blank because 'layer' is not a real Polaris web
+ * components icon type in the deployed polaris.js runtime — `catIcon`'s
+ * catch-all fallback (`CAT_ICON[...] ?? 'layer'`) was reaching for it on any
+ * category not covered by `CAT_ICON`'s known keys.
+ */
+describe('catIcon fallback (Polaris s-icon type validity)', () => {
+  it('every one of the six real categories resolves to a confirmed-live icon type', () => {
+    for (const raw of CATEGORY_ORDER) {
+      expect(CONFIRMED_LIVE_ICON_TYPES.has(catIcon(raw))).toBe(true);
+    }
+  });
+
+  it('falls back to a confirmed-live icon type for an unknown/garbage category, never "layer"', () => {
+    for (const garbage of ['', 'NOT_A_CATEGORY', 'Data store', undefined as unknown as string]) {
+      const icon = catIcon(garbage);
+      expect(icon).not.toBe('layer');
+      expect(CONFIRMED_LIVE_ICON_TYPES.has(icon)).toBe(true);
+    }
+  });
+
+  it('the fallback is "apps" specifically', () => {
+    expect(catIcon('NOT_A_CATEGORY')).toBe('apps');
   });
 });
