@@ -18,6 +18,7 @@ import { boundary } from '@shopify/shopify-app-remix/server';
 import { ActivityLogger } from '~/components/ActivityLogger';
 import { EmbeddedHeadScripts } from '~/components/EmbeddedHeadScripts';
 import { isPublicStandalonePath } from '~/security-headers.server';
+import { describeRouteError } from '~/utils/describe-route-error';
 
 export const links: LinksFunction = () => [
   // Warm the font-host connections, then load both font stylesheets in parallel —
@@ -63,7 +64,7 @@ export function ErrorBoundary() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const message = error instanceof Error ? error.message : String(error);
+    const message = describeRouteError(error);
     const stack = error instanceof Error ? error.stack : undefined;
     fetch('/api/report-error', {
       method: 'POST',
