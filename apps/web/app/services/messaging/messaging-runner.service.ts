@@ -360,10 +360,15 @@ export class MessagingRunnerService {
 
     try {
       for (const r of page) {
-        // Idempotency layer 2 (the sent-marker): a data_store recipient already sent
-        // in THIS fan-out (runToken present in its __sentRuns) is skipped, so a
-        // double-resume or a cursor that overlaps a shifted window never double-sends.
-        if (recipientAlreadySent(r, runToken)) {
+        // Idempotency layer 2 (the sent-marker): a recipient already sent in THIS
+        // fan-out (runToken) is skipped, so a double-resume, an overlapping cursor,
+        // or an automatic BullMQ retry of the whole MESSAGING_RUN job (job-retry-
+        // policy.ts — this is what lets MESSAGING_RUN keep attempts: 3) never
+        // double-sends. data_store checks the __sentRuns marker already loaded on
+        // the record; literal/event_recipient (ephemeral, recomputed fresh every
+        // call — no record to carry a marker) check the durable
+        // MessagingRecipientSent table instead (fix round, Critical #1).
+        if (await this.recipientAlreadySentDurable(cfg, r, runToken)) {
           skipped++;
           continue;
         }
@@ -625,10 +630,50 @@ export class MessagingRunnerService {
   }
 
   /**
-   * Write the per-run sent-marker onto a data_store recipient record so a resume /
-   * redelivery never re-sends it. Mirrors the loyalty ledger's per-GID lots: the
-   * marker is a set of runTokens on the record payload (`__sentRuns`). No-op for
-   * non-data_store sources (literal/event_recipient are single-shot, not paged).
+   * Fix round (Critical #1). Durable-marker recipient KEY for the
+   * literal/event_recipient sources — the same address field the send loop
+   * itself uses, normalized so a re-derived key from a retried event matches
+   * byte-for-byte. Falls back to a stable JSON of the whole recipient when
+   * the address field is absent (never skip the dedupe check just because a
+   * field is missing).
+   */
+  private recipientKey(cfg: MessagingPack, r: Recipient): string {
+    const addressField = cfg.audience.addressField ?? defaultAddressField(cfg.channel);
+    const addr = r[addressField];
+    if (typeof addr === 'string' && addr.trim()) return addr.trim().toLowerCase();
+    return JSON.stringify(r);
+  }
+
+  /**
+   * Idempotency layer 2 read side. `data_store` checks the __sentRuns marker
+   * already loaded on the record (synchronous, no DB call — recipientAlreadySent).
+   * `literal`/`event_recipient` recipients are ephemeral (recomputed fresh from
+   * static config or the trigger event on every call, including a BullMQ retry
+   * of the whole job) so there is no record to carry a marker — check the
+   * durable MessagingRecipientSent table instead.
+   */
+  private async recipientAlreadySentDurable(cfg: MessagingPack, r: Recipient, runToken: string): Promise<boolean> {
+    if (cfg.audience.source === 'data_store') return recipientAlreadySent(r, runToken);
+    try {
+      const found = await this.prisma.messagingRecipientSent.findUnique({
+        where: { runToken_recipientKey: { runToken, recipientKey: this.recipientKey(cfg, r) } },
+        select: { id: true },
+      });
+      return !!found;
+    } catch {
+      // The sent-marker is a best-effort dedupe aid; never let a lookup failure
+      // block the send loop (worst case: a rare duplicate send, not a silent drop).
+      return false;
+    }
+  }
+
+  /**
+   * Write the per-run sent-marker so a resume / redelivery / automatic retry
+   * never re-sends this recipient. `data_store` mirrors the loyalty ledger's
+   * per-GID lots: the marker is a set of runTokens on the record payload
+   * (`__sentRuns`). `literal`/`event_recipient` persist into the durable
+   * MessagingRecipientSent table instead (no record to carry a marker on) —
+   * create()+catch(P2002) makes a concurrent duplicate write a no-op.
    */
   private async markRecipientSent(
     shopId: string | undefined,
@@ -636,7 +681,18 @@ export class MessagingRunnerService {
     r: Recipient,
     runToken: string,
   ): Promise<void> {
-    if (cfg.audience.source !== 'data_store' || !shopId || !cfg.audience.storeKey) return;
+    if (cfg.audience.source !== 'data_store') {
+      try {
+        await this.prisma.messagingRecipientSent.create({
+          data: { runToken, recipientKey: this.recipientKey(cfg, r) },
+        });
+      } catch (err) {
+        if (isUniqueViolation(err)) return; // already marked — fine, that's the point of the guard.
+        // Best-effort dedupe aid; never let a marker write break the send loop.
+      }
+      return;
+    }
+    if (!shopId || !cfg.audience.storeKey) return;
     const recordId = typeof r.__recordId === 'string' ? r.__recordId : undefined;
     if (!recordId) return;
     try {

@@ -414,6 +414,27 @@ model WebhookEvent {
   @@index([processedAt])
 }
 
+/// Fix round (Critical #1): durable per-(runToken, recipient) sent-marker for
+/// messaging.campaign audiences that are NOT DataStore-backed records
+/// (literal / event_recipient — see messaging-runner.service.ts's
+/// recipientAlreadySent/markRecipientSent). data_store audiences already
+/// carry their sent-marker on the record's own payload (__sentRuns); literal
+/// and event_recipient recipients are ephemeral (recomputed fresh from static
+/// config or the trigger event on every call) so there is no record to carry
+/// a marker — this table is that marker's home instead. A create()+catch(P2002)
+/// makes the (runToken, recipientKey) pair idempotent — this is what lets
+/// MESSAGING_RUN keep `attempts: 3` automatic BullMQ retry (job-retry-policy.ts)
+/// without re-sending an already-delivered literal/event_recipient message.
+model MessagingRecipientSent {
+  id           String   @id @default(cuid())
+  runToken     String
+  recipientKey String
+  sentAt       DateTime @default(now())
+
+  @@unique([runToken, recipientKey])
+  @@index([runToken])
+}
+
 model FlowStepLog {
   id         String   @id @default(cuid())
   jobId      String

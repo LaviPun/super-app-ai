@@ -10,11 +10,10 @@
  */
 import http from 'node:http';
 import Redis from 'ioredis';
-import { Worker } from 'bullmq';
 import { loadJobOrchestratorConfig, resolveEffectiveMode } from '@superapp/job-orchestration';
 import { createWebWorkerRuntime, type WebWorkerRuntime } from '../app/services/jobs/worker-runtime.server.js';
 import { buildWorkerHandlers } from '../app/services/jobs/processors/index.js';
-import { OPS_QUEUE_NAME, processOwnedJobById } from '../app/services/jobs/ops-queue.server.js';
+import { createOpsWorkerRuntime, type OpsWorkerRuntime } from '../app/services/jobs/ops-queue.server.js';
 
 const config = loadJobOrchestratorConfig();
 if (!config.queueRedisUrl) {
@@ -81,18 +80,12 @@ if (resolveEffectiveMode(config) === 'queue') {
 // `createWebWorkerRuntime` platform registry above (see ops-queue.server.ts's
 // doc comment for why this queue is deliberately NOT folded into
 // `PlatformQueueName`). Reuses this script's existing `redis` connection.
-let opsWorker: Worker | null = null;
+// Fix round (Important #3): now mounted via createOpsWorkerRuntime, which
+// carries its own 'failed'-event reconciler mirroring WS-C's runtime above.
+let opsWorker: OpsWorkerRuntime | null = null;
 if (resolveEffectiveMode(config) === 'queue') {
-  opsWorker = new Worker(
-    OPS_QUEUE_NAME,
-    async (job) => {
-      const jobId = (job.data as { jobId: string }).jobId;
-      await processOwnedJobById(jobId);
-    },
-    { connection: redis, prefix: config.queuePrefix, concurrency: 5 },
-  );
-  opsWorker.on('error', (err) => console.error('[worker] ops-queue bullmq worker error', err.message));
-  console.info('[worker] bullmq Worker mounted', { queue: OPS_QUEUE_NAME });
+  opsWorker = createOpsWorkerRuntime({ connection: redis });
+  console.info('[worker] bullmq Worker mounted', { queue: 'superapp-ops' });
 }
 
 async function shutdown(signal: string) {

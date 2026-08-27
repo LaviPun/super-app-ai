@@ -7,7 +7,23 @@ export type JobType = 'AI_GENERATE'|'AI_HYDRATE'|'AI_MODIFY'|'PUBLISH'|'CONNECTO
 export type JobStatus = 'QUEUED'|'RUNNING'|'SUCCESS'|'FAILED';
 
 export class JobService {
-  async create(params: { shopId?: string; type: JobType; payload?: unknown; requestId?: string; correlationId?: string }) {
+  async create(params: {
+    shopId?: string;
+    type: JobType;
+    payload?: unknown;
+    requestId?: string;
+    correlationId?: string;
+    /**
+     * Fix round (Critical #1/#2): overrides the DB default (3) so a Job
+     * row's own `maxAttempts` matches the real number of automatic BullMQ
+     * retries the ops queue actually configures for this kind
+     * (job-retry-policy.ts) — kept in sync so the stuck-RUNNING sweep's
+     * "attempts < maxAttempts ⇒ safe to re-enqueue" check (Task 17,
+     * corrected per Critical #2) and the ops worker's final-attempt
+     * detection agree with what BullMQ itself will actually do.
+     */
+    maxAttempts?: number;
+  }) {
     const prisma = getPrisma();
     const ctx = getRequestContext();
     const requestId = params.requestId ?? ctx?.requestId ?? null;
@@ -20,6 +36,7 @@ export class JobService {
         payload: params.payload ? JSON.stringify(params.payload) : null,
         requestId,
         correlationId,
+        ...(params.maxAttempts != null ? { maxAttempts: params.maxAttempts } : {}),
       },
     });
   }

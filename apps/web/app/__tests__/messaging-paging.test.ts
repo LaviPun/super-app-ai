@@ -49,7 +49,30 @@ function fakeModule(config: Record<string, unknown>, opts: { status?: string } =
   };
 }
 
-function fakePrisma(opts: { modules?: unknown[]; moduleFindFirst?: unknown }) {
+/**
+ * Fix round (Critical #1): a durable in-memory MessagingRecipientSent store,
+ * mirroring the real table's create()+P2002 idempotency and
+ * findUnique-by-compound-key lookup — so the literal/event_recipient dedupe
+ * guard (recipientAlreadySentDurable/markRecipientSent) can be exercised
+ * end-to-end without a real DB.
+ */
+function memoryRecipientSentStore() {
+  const marks = new Set<string>(); // `${runToken}::${recipientKey}`
+  const findUnique = vi.fn(async ({ where }: { where: { runToken_recipientKey: { runToken: string; recipientKey: string } } }) => {
+    const key = `${where.runToken_recipientKey.runToken}::${where.runToken_recipientKey.recipientKey}`;
+    return marks.has(key) ? { id: key } : null;
+  });
+  const create = vi.fn(async ({ data }: { data: { runToken: string; recipientKey: string } }) => {
+    const key = `${data.runToken}::${data.recipientKey}`;
+    if (marks.has(key)) throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+    marks.add(key);
+    return { id: key, ...data, sentAt: new Date() };
+  });
+  return { findUnique, create, marks };
+}
+
+function fakePrisma(opts: { modules?: unknown[]; moduleFindFirst?: unknown; recipientSent?: ReturnType<typeof memoryRecipientSentStore> }) {
+  const recipientSent = opts.recipientSent ?? memoryRecipientSentStore();
   return {
     module: {
       findMany: vi.fn(async () => opts.modules ?? []),
@@ -57,6 +80,7 @@ function fakePrisma(opts: { modules?: unknown[]; moduleFindFirst?: unknown }) {
     },
     shop: { findUnique: vi.fn(async () => ({ id: 'shop_1', shopDomain: 'test.myshopify.com' })) },
     flowStepLog: { create: vi.fn(async () => ({})) },
+    messagingRecipientSent: { findUnique: recipientSent.findUnique, create: recipientSent.create },
   } as never;
 }
 
@@ -389,5 +413,90 @@ describe('back-compat — a single-batch audience never parks', () => {
     expect(result!.paged).toBe(true);
     expect(result!.parkedNextOffset).toBeUndefined();
     expect(eng.startRun).not.toHaveBeenCalled();
+  });
+});
+
+describe('fix round (Critical #1) — literal/event_recipient idempotency guard survives an automatic BullMQ retry', () => {
+  /**
+   * MESSAGING_RUN keeps `attempts: 3` (job-retry-policy.ts) because a retry
+   * re-invokes runForTrigger with the SAME event — deriveRunToken is
+   * deterministic (module + trigger + event), so the retry produces the
+   * SAME runToken. Previously literal/event_recipient recipients had no
+   * durable marker at all (recipientAlreadySent only reads a __sentRuns
+   * field data_store records carry); this proves the new
+   * MessagingRecipientSent-backed guard makes a second call with the same
+   * runToken a no-op for already-sent recipients — the actual fix this
+   * test exists to prove.
+   */
+  it('a literal audience: calling runForTrigger twice with the same event sends once, not twice', async () => {
+    const email = fakeEmailConnector();
+    const recipientSent = memoryRecipientSentStore();
+    const literalCfg = {
+      channel: 'email',
+      trigger: { kind: 'event', event: 'SHOPIFY_WEBHOOK_ORDER_CREATED' },
+      audience: { source: 'literal', addressField: 'email', recipients: ['a@x.com', 'b@x.com'] },
+      templates: [{ channel: 'email', subject: 'Back in stock', body: 'Hi {{record.email}}' }],
+      batchSize: 10,
+      respectConsent: false,
+    };
+    const eng = fakeEngine();
+    const buildRunner = () =>
+      new MessagingRunnerService({
+        prisma: fakePrisma({ modules: [fakeModule(literalCfg)], recipientSent }),
+        dataStore: memoryDataStore([]).service,
+        jobs: fakeJobs(),
+        getConnector: () => email as unknown as Connector,
+        emailApiKey: 'key',
+        engine: eng.engine,
+        pageDelayMs: 0,
+      });
+    const event = { admin_graphql_api_id: 'gid://shopify/Order/999' };
+
+    const [first] = await buildRunner().runForTrigger('test.myshopify.com', admin, 'SHOPIFY_WEBHOOK_ORDER_CREATED', event);
+    expect(first!.sent).toBe(2);
+    expect(first!.skipped).toBe(0);
+
+    // Simulates BullMQ retrying the same job — a fresh runner instance (matches a
+    // fresh executor invocation), same event → same deriveRunToken result.
+    const [retry] = await buildRunner().runForTrigger('test.myshopify.com', admin, 'SHOPIFY_WEBHOOK_ORDER_CREATED', event);
+    expect(retry!.runToken).toBe(first!.runToken);
+    expect(retry!.sent).toBe(0);
+    expect(retry!.skipped).toBe(2);
+    // Only the first call actually invoked the connector — twice (2 recipients),
+    // never four times.
+    expect(email.invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it('an event_recipient audience: the same guard applies to the single derived recipient', async () => {
+    const email = fakeEmailConnector();
+    const recipientSent = memoryRecipientSentStore();
+    const eventRecipientCfg = {
+      channel: 'email',
+      trigger: { kind: 'event', event: 'SHOPIFY_WEBHOOK_ORDER_CREATED' },
+      audience: { source: 'event_recipient', addressField: 'email' },
+      templates: [{ channel: 'email', subject: 'Order received', body: 'Hi' }],
+      batchSize: 10,
+      respectConsent: false,
+    };
+    const eng = fakeEngine();
+    const buildRunner = () =>
+      new MessagingRunnerService({
+        prisma: fakePrisma({ modules: [fakeModule(eventRecipientCfg)], recipientSent }),
+        dataStore: memoryDataStore([]).service,
+        jobs: fakeJobs(),
+        getConnector: () => email as unknown as Connector,
+        emailApiKey: 'key',
+        engine: eng.engine,
+        pageDelayMs: 0,
+      });
+    const event = { admin_graphql_api_id: 'gid://shopify/Order/42', customer: { email: 'buyer@x.com' } };
+
+    const [first] = await buildRunner().runForTrigger('test.myshopify.com', admin, 'SHOPIFY_WEBHOOK_ORDER_CREATED', event);
+    expect(first!.sent).toBe(1);
+
+    const [retry] = await buildRunner().runForTrigger('test.myshopify.com', admin, 'SHOPIFY_WEBHOOK_ORDER_CREATED', event);
+    expect(retry!.sent).toBe(0);
+    expect(retry!.skipped).toBe(1);
+    expect(email.invoke).toHaveBeenCalledTimes(1);
   });
 });
