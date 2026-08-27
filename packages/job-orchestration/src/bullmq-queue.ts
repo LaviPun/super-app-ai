@@ -51,6 +51,10 @@ export function createBullMqQueueAdapter(options: BullMqQueueFactoryOptions): Jo
         jobId: input.id,
         removeOnComplete: true,
         removeOnFail: false,
+        ...(input.opts?.attempts ? { attempts: input.opts.attempts } : {}),
+        ...(input.opts?.backoffMs
+          ? { backoff: { type: 'exponential', delay: input.opts.backoffMs } }
+          : {}),
       });
       return { queueName: input.queueName, jobId: input.id };
     },

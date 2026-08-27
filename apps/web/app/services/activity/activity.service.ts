@@ -95,6 +95,7 @@ export type ActivityAction =
   | 'SUPPORT_FIX_REJECTED'
   | 'SUPPORT_NOTIFICATION_SENT'
   | 'SUPPORT_TRIAGE_SETTINGS_UPDATED'
+  | 'QA_ISSUE_PROMOTION'
   // Ops alerting (WS-G) — OpsAlertService bookkeeping
   | 'OPS_ALERT_OCCURRED'
   | 'OPS_ALERT_FIRED'

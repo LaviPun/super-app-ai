@@ -181,12 +181,12 @@ importers:
       '@superapp/rate-limit':
         specifier: workspace:*
         version: link:../../packages/rate-limit
-      '@superapp/workers':
-        specifier: workspace:*
-        version: link:../workers
       '@xyflow/react':
         specifier: ^12.11.0
         version: 12.11.0(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      bullmq:
+        specifier: ^5.78.0
+        version: 5.78.0
       ioredis:
         specifier: ^5.11.1
         version: 5.11.1

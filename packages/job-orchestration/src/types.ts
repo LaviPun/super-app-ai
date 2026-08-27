@@ -14,6 +14,7 @@ export type EnqueueJobInput = {
   jobType: PlatformJobType;
   payload: unknown;
   trace: JobEnvelope['trace'];
+  opts?: { attempts?: number; backoffMs?: number };
 };
 
 export type EnqueueJobResult =

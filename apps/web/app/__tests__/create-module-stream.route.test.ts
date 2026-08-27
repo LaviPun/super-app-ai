@@ -14,7 +14,13 @@ const hoisted = vi.hoisted(() => ({
   jobStart: vi.fn(async () => {}),
   jobSucceed: vi.fn(async () => {}),
   jobFail: vi.fn(async () => {}),
+  jobFailWithPayload: vi.fn(async () => {}),
+  jobUpdatePayload: vi.fn(async () => {}),
   quotaEnforce: vi.fn(async () => {}),
+  // WS-C commit-0 fold-in (a): per-test override for isBlueprintsEnabled so
+  // the SSE-ordering pinning test can enable the blueprint phase without
+  // affecting every other test in this file (which rely on it staying off).
+  blueprintsEnabled: false,
   // WS-QF / AI-2 review fix: captures the options object the route passes to
   // generateValidatedRecipeOptionsStream, so we can assert the request's
   // correlationId form field actually reaches the generation call.
@@ -76,6 +82,8 @@ vi.mock('~/services/jobs/job.service', () => ({
     start = hoisted.jobStart;
     succeed = hoisted.jobSucceed;
     fail = hoisted.jobFail;
+    failWithPayload = hoisted.jobFailWithPayload;
+    updatePayload = hoisted.jobUpdatePayload;
   },
 }));
 vi.mock('~/services/billing/quota.service', () => ({
@@ -113,7 +121,7 @@ vi.mock('~/services/ai/apply-style-pack.server', () => ({ applyStylePackTokens: 
 vi.mock('~/services/ai/apply-composition.server', () => ({ applyCompositionRules: vi.fn() }));
 vi.mock('~/services/ai/design-reference.server', () => ({ loadStoreAesthetic: vi.fn(async () => null) }));
 vi.mock('~/services/ai/blueprint-planner', () => ({ planBlueprint: vi.fn(() => ({ kind: 'single' })) }));
-vi.mock('~/env.server', () => ({ isBlueprintsEnabled: () => false }));
+vi.mock('~/env.server', () => ({ isBlueprintsEnabled: () => hoisted.blueprintsEnabled }));
 
 function streamRequest(fields?: Record<string, string>, signal?: AbortSignal) {
   const fd = new FormData();
@@ -128,10 +136,14 @@ beforeEach(() => {
   hoisted.streamCallOptions = [];
   hoisted.customGenerator = null;
   hoisted.pullCount = 0;
+  hoisted.blueprintsEnabled = false;
 });
 
 describe('api.ai.create-module.stream terminal handling', () => {
-  it('0 valid options → jobs.fail + terminal error frame NO_VALID_OPTIONS (never succeed)', async () => {
+  // WS-C commit-0 fold-in (c): finalizeGenerationJob no longer writes the
+  // Job row itself (that was the redundant bare-string write) — the route
+  // now makes the single typed write via failWithPayload.
+  it('0 valid options → jobs.failWithPayload (typed) + terminal error frame NO_VALID_OPTIONS (never succeed, never the bare-string jobs.fail)', async () => {
     hoisted.streamEvents = [
       { kind: 'started', index: 0, approach: 'A', total: 3 },
       { kind: 'option_failed', index: 0, approach: 'A', error: 'invalid' },
@@ -142,7 +154,12 @@ describe('api.ai.create-module.stream terminal handling', () => {
     const body = await res.text();
     expect(body).toContain('event: error');
     expect(body).toContain('NO_VALID_OPTIONS');
-    expect(hoisted.jobFail).toHaveBeenCalledTimes(1);
+    expect(hoisted.jobFailWithPayload).toHaveBeenCalledTimes(1);
+    expect(hoisted.jobFailWithPayload).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({ error: 'NO_VALID_OPTIONS', message: expect.stringMatching(/not billed/) }),
+    );
+    expect(hoisted.jobFail).not.toHaveBeenCalled();
     expect(hoisted.jobSucceed).not.toHaveBeenCalled();
   });
 
@@ -169,7 +186,14 @@ describe('api.ai.create-module.stream terminal handling', () => {
   it('WS-QF / AI-2 review fix: the request\'s correlationId form field reaches generateValidatedRecipeOptionsStream', async () => {
     hoisted.streamEvents = [{ kind: 'done', valid: 0, total: 3 }];
     const { action } = await import('~/routes/api.ai.create-module.stream');
-    await action({ request: streamRequest({ correlationId: 'attempt-42' }) });
+    const res = await action({ request: streamRequest({ correlationId: 'attempt-42' }) });
+    // WS-C (Task 4): classify/intent/RAG now run inside runGenerationPipeline,
+    // called from the stream's start() callback — several awaits deep before
+    // generateValidatedRecipeOptionsStream is reached. Draining the body (as
+    // the other tests in this file already do) forces that execution to
+    // complete before asserting on it, instead of relying on it having
+    // already run eagerly by the time action() resolves.
+    await res.text();
     expect(hoisted.streamCallOptions).toHaveLength(1);
     expect(hoisted.streamCallOptions[0]).toMatchObject({ correlationId: 'attempt-42' });
   });
@@ -177,7 +201,9 @@ describe('api.ai.create-module.stream terminal handling', () => {
   it('an absent correlationId form field is passed through as undefined (no accidental empty-string id)', async () => {
     hoisted.streamEvents = [{ kind: 'done', valid: 0, total: 3 }];
     const { action } = await import('~/routes/api.ai.create-module.stream');
-    await action({ request: streamRequest() });
+    const res = await action({ request: streamRequest() });
+    await res.text();
+    expect(hoisted.streamCallOptions).toHaveLength(1);
     expect(hoisted.streamCallOptions[0]?.correlationId).toBeUndefined();
   });
 
@@ -262,5 +288,91 @@ describe('api.ai.create-module.stream terminal handling', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(hoisted.pullCount).toBeLessThan(5);
+  });
+
+  it('WS-C commit-0 fold-in (b): classification metadata is persisted onto Job.payload via jobs.updatePayload (jobs.create now runs before classify)', async () => {
+    hoisted.streamEvents = [
+      { kind: 'started', index: 0, approach: 'A', total: 1 },
+      {
+        kind: 'option',
+        index: 0,
+        approach: 'A',
+        option: { explanation: 'e', recipe: { type: 'admin.block', name: 'X' } },
+      },
+      { kind: 'done', valid: 1, total: 1 },
+    ];
+    const { action } = await import('~/routes/api.ai.create-module.stream');
+    const res = await action({ request: streamRequest() });
+    await res.text();
+    expect(hoisted.jobUpdatePayload).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({ classifiedType: 'admin.block', intent: 'test' }),
+    );
+    // jobs.create (before classify) happens strictly before the persisted
+    // metadata (after classify) — confirms the durability gap this fold-in
+    // closes is actually closed in the right order, not just eventually.
+    const createOrder = hoisted.jobCreate.mock.invocationCallOrder[0];
+    const updateOrder = hoisted.jobUpdatePayload.mock.invocationCallOrder[0];
+    expect(createOrder).toBeDefined();
+    expect(updateOrder).toBeDefined();
+    expect(createOrder as number).toBeLessThan(updateOrder as number);
+  });
+
+  it('WS-C commit-0 fold-in (a): a rejected jobs.updatePayload (onIntent telemetry write) does NOT kill the generation — it still completes and sends option/done frames', async () => {
+    hoisted.jobUpdatePayload.mockRejectedValueOnce(new Error('transient DB blip'));
+    hoisted.streamEvents = [
+      { kind: 'started', index: 0, approach: 'A', total: 1 },
+      {
+        kind: 'option',
+        index: 0,
+        approach: 'A',
+        option: { explanation: 'e', recipe: { type: 'admin.block', name: 'X' } },
+      },
+      { kind: 'done', valid: 1, total: 1 },
+    ];
+    const { action } = await import('~/routes/api.ai.create-module.stream');
+    const res = await action({ request: streamRequest() });
+    const body = await res.text();
+    // The load-bearing pipeline work is untouched by the telemetry write's
+    // rejection — options still flow, the job still succeeds, and no error
+    // frame is sent because of it.
+    expect(body).toContain('event: option');
+    expect(body).toContain('event: done');
+    expect(body).not.toContain('event: error');
+    expect(hoisted.jobSucceed).toHaveBeenCalledWith('job-1', expect.objectContaining({ optionCount: 1 }));
+    expect(hoisted.jobUpdatePayload).toHaveBeenCalledTimes(1);
+  });
+
+  it('WS-C commit-0 fold-in (a), PINNED DECISION: when BLUEPRINTS_ENABLED, `blueprint` fires before `done` (post-Task-4 order) — NOT restored to the pre-refactor done-before-blueprint order, because the stream client (generate._index.tsx streamGenerate) never branches on the `done` SSE event at all: it reads frames until the response body stream CLOSES, so `blueprint` vs `done` ordering is unobservable to it either way. See the THROW SURFACE / ordering comment in generation-pipeline.server.ts for the full reasoning.', async () => {
+    hoisted.blueprintsEnabled = true;
+    hoisted.streamEvents = [
+      { kind: 'started', index: 0, approach: 'A', total: 1 },
+      {
+        kind: 'option',
+        index: 0,
+        approach: 'A',
+        option: { explanation: 'e', recipe: { type: 'admin.block', name: 'X' } },
+      },
+      { kind: 'done', valid: 1, total: 1 },
+    ];
+    const { planBlueprint } = await import('~/services/ai/blueprint-planner');
+    vi.mocked(planBlueprint).mockReturnValueOnce({ kind: 'blueprint' } as never);
+    const { generateValidatedBlueprint } = await import('~/services/ai/llm.server');
+    vi.mocked(generateValidatedBlueprint).mockResolvedValueOnce({
+      name: 'B',
+      summary: 'S',
+      modules: [{ role: 'primary', explanation: 'e', recipe: { type: 'admin.block', name: 'M' } }],
+      links: [],
+    } as never);
+
+    const { action } = await import('~/routes/api.ai.create-module.stream');
+    const res = await action({ request: streamRequest() });
+    const body = await res.text();
+
+    const blueprintIdx = body.indexOf('event: blueprint');
+    const doneIdx = body.indexOf('event: done');
+    expect(blueprintIdx).toBeGreaterThan(-1);
+    expect(doneIdx).toBeGreaterThan(-1);
+    expect(blueprintIdx).toBeLessThan(doneIdx);
   });
 });

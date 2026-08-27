@@ -40,6 +40,7 @@ import { wrapUserRequestForPrompt } from '~/services/ai/injection-scan.server';
 import { applyMergePatch } from '~/services/ai/template-delta.server';
 import { rankOptions, type OptionQaSummary, type RankableOption } from '~/services/ai/option-ranking.server';
 import { repairRecipeForValidation, type GenerateResult, type LlmClient } from '~/services/ai/llm.server';
+import { stripCodeFences } from '~/services/ai/tolerant-json.server';
 
 /** Storefront types PreviewService can render to auditable buyer-facing HTML. */
 const RENDERABLE_TYPES = new Set<string>(['theme.section', 'proxy.widget']);
@@ -139,16 +140,6 @@ export interface JudgePolishResult {
 /** True for a plain (non-array) object. */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-/** Strip a leading/trailing markdown code fence, mirroring the freeform parser. */
-function stripCodeFences(text: string): string {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith('```')) return trimmed;
-  return trimmed
-    .replace(/^```[a-zA-Z0-9_-]*\s*\n?/, '')
-    .replace(/\n?```\s*$/, '')
-    .trim();
 }
 
 /**

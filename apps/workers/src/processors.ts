@@ -1,5 +1,5 @@
 import { JobPayloadByType, type JobType, type QueueName, type WorkerEvent } from '@superapp/platform-contracts';
-import { createAiGenerationProcessor, StubAiGenerationAdapter, type AiGenerationAdapter } from './ai-generation.js';
+import { createAiGenerationProcessor, type AiGenerationAdapter } from './ai-generation.js';
 import {
   createInternalAssistantProcessor,
   StubInternalAssistantAdapter,
@@ -59,7 +59,14 @@ const migrationPhaseByType: Record<JobType, string> = {
 
 export type ProcessorRegistryOptions = {
   logger: WorkerLogger;
-  aiAdapter?: AiGenerationAdapter;
+  /**
+   * WS-C Task 17: required — the built-in stub AI adapter was deleted so nothing
+   * can ever silently ship a stub-generated recipe again. Real generation now
+   * runs in apps/web (Task 5's `ai-generation.processor.server.ts`); this
+   * package's own AI_GENERATE/AI_HYDRATE/AI_MODIFY processors need a real
+   * adapter wired in by the caller (or a local test double in tests).
+   */
+  aiAdapter: AiGenerationAdapter;
   internalAssistantAdapter?: InternalAssistantAdapter;
   internalAssistantLocalOnly?: boolean;
   webhookFlowAdapter?: WebhookFlowAdapter;
@@ -69,7 +76,10 @@ export type ProcessorRegistryOptions = {
 
 export function createProcessorRegistry(options: WorkerLogger | ProcessorRegistryOptions): Record<JobType, WorkerProcessor> {
   const logger = 'info' in options ? options : options.logger;
-  const aiAdapter = 'info' in options ? new StubAiGenerationAdapter() : options.aiAdapter ?? new StubAiGenerationAdapter();
+  const aiAdapter = 'info' in options ? undefined : options.aiAdapter;
+  if (!aiAdapter) {
+    throw new Error('AI generation adapter is required; the stub was removed by WS-C (real processors live in apps/web)');
+  }
   const internalAssistantAdapter = 'info' in options
     ? new StubInternalAssistantAdapter()
     : options.internalAssistantAdapter ?? new StubInternalAssistantAdapter();

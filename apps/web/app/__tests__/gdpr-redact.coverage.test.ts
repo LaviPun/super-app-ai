@@ -193,9 +193,6 @@ describe('GDPR redact coverage', () => {
     const targetCustomer = '12345';
     prismaMock.__state.dataStores.push({ id: 'store-1', shopId: 'shop-1' });
     prismaMock.__state.dataStores.push({ id: 'store-2', shopId: 'shop-other' });
-    const targetShopStoreIds = new Set(
-      prismaMock.__state.dataStores.filter((store) => store.shopId === 'shop-1').map((store) => store.id),
-    );
 
     prismaMock.__state.dataCaptures.push(
       { id: 'cap-1', shopId: 'shop-1', customerId: targetCustomer },

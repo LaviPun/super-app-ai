@@ -127,6 +127,7 @@ const ADMIN_NAV: NavSection[] = [
     items: [
       { url: '#/admin/stores', label: 'Stores', icon: 'store' },
       { url: '#/admin/jobs', label: 'Jobs', icon: 'work', countKey: 'dlq', countTone: 'critical' },
+      { url: '#/admin/funnel', label: 'Funnel', icon: 'chart' },
       {
         url: '#/admin/activity',
         label: 'Logs',

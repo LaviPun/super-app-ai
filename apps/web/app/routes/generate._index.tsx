@@ -1,6 +1,6 @@
 import { json } from '@remix-run/node';
 import { useNavigate, useLocation, useFetcher, useLoaderData } from '@remix-run/react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   RecipeSpecSchema,
@@ -32,9 +32,20 @@ import { validateBeforePublish } from '~/services/publish/pre-publish-validator.
 import { classifyModulePublishability } from '~/services/publish/publish-preflight.server';
 import { sealAccessToken } from '~/services/shops/access-token.server';
 import { deployedFunctionExtensions } from '~/services/publish/deployed-extensions.server';
+import { isAsyncJobsEnabled } from '~/services/jobs/enqueue.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { StatusBadge, EmptyState, Progress, titleCase } from '~/components/merchant/polaris';
-import { nextStepAfterStream, withGenerationCorrelationId, stepIndexForSeenEvents, isStreamEventKind, type StreamEventKind } from '~/utils/generation-outcome';
+import {
+  nextStepAfterStream,
+  withGenerationCorrelationId,
+  stampGenerationCorrelationId,
+  resolveGenerationCorrelationId,
+  stepIndexForSeenEvents,
+  isStreamEventKind,
+  type StreamEventKind,
+} from '~/utils/generation-outcome';
+import { pollJobUntilTerminal, type PolledJobSnapshot } from '~/utils/job-poll';
+import { readActiveGenSession, writeActiveGenSession, clearActiveGenSession } from '~/utils/active-gen-session';
 import { SchemaForm, type JsonSchemaNode } from '~/components/SchemaForm';
 
 
@@ -80,6 +91,11 @@ export async function loader({ request }: { request: Request }) {
     aiLeft: aiLimit === -1 ? null : Math.max(0, aiLimit - aiUsed),
     defaultThemeId: main ? String(main.id) : themes[0] ? String(themes[0].id) : null,
     seedPrompt: seedPrompt && seedPrompt.trim() ? seedPrompt.trim() : null,
+    // WS-C Task 7: when Redis-backed async jobs are configured, the
+    // workspace enqueues + polls (C1) instead of the inline SSE stream.
+    // Loader-only import (enqueue.server.ts is `.server`) — never reaches
+    // the client bundle.
+    asyncGeneration: isAsyncJobsEnabled(),
   });
 }
 
@@ -351,10 +367,24 @@ function GenerateWorkspace() {
   // Prefer client-nav router state; fall back to the loader's ?prompt= param so
   // a Sidekick create action-link (which arrives as a fresh URL navigation, no
   // router state) still seeds the generator.
-  const seedPrompt =
+  const stateOrQueryPrompt =
     typeof seed?.prompt === 'string' && seed.prompt.trim()
       ? seed.prompt.trim()
       : (loaderData.seedPrompt ?? '');
+  // WS-C Task 8 commit-0 fold-in (b): `modules._index.tsx` navigates here
+  // with ONLY `location.state.prompt` (no `?prompt=`) — a hard reload loses
+  // that router state entirely, and `stateOrQueryPrompt` above resolves to
+  // ''. Without this fallback the "no prompt" effect below would bounce the
+  // merchant back to /modules instead of resuming their in-flight job. The
+  // effect populates this from the session's OWN persisted prompt (the only
+  // surviving source of truth) — set post-mount only, never at render time,
+  // since sessionStorage is unavailable during SSR and reading it inline
+  // here would desync hydration.
+  const [sessionSeedPrompt, setSessionSeedPrompt] = useState<string | null>(null);
+  const seedPrompt = stateOrQueryPrompt || sessionSeedPrompt || '';
+  // WS-C Task 7 (C1): when Redis-backed async jobs are configured, generation
+  // enqueues + polls instead of the inline SSE stream.
+  const asyncGeneration = loaderData.asyncGeneration;
 
   const proposeFetcher = useFetcher<{ options?: { index: number; explanation: string; recipe: Record<string, unknown>; qualityBadges?: string[]; score?: number }[]; recommendedIndex?: number; blueprint?: BlueprintResult | null; error?: string; message?: string }>();
   const confirmFetcher = useFetcher<{ moduleId?: string; recipeId?: string; firstModuleId?: string; moduleCount?: number; error?: string }>();
@@ -365,6 +395,9 @@ function GenerateWorkspace() {
 
   const [phase, setPhase] = useState<'generating' | 'choosing' | 'ready' | 'failed'>('generating');
   const [genError, setGenError] = useState<string | null>(null);
+  // Task 16: the typed terminal error's requestId (AppErrorPayload spine),
+  // surfaced in the failed-phase UI so support can correlate via ApiLog.
+  const [genRequestId, setGenRequestId] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
   const [candidates, setCandidates] = useState<Concept[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -384,10 +417,18 @@ function GenerateWorkspace() {
   const handledConfirmRef = useRef<unknown>(null);
   const handledRefineRef = useRef<unknown>(null);
   const handledPublishRef = useRef<unknown>(null);
+  // WS-C Task 7: the correlationId of the in-flight/most-recent generation
+  // attempt (SSE or async) — Task 13 stamps this onto the saved Module
+  // (generationCorrelationId) so the funnel spine survives past generation.
+  const genCorrelationIdRef = useRef<string | null>(null);
   // WS-F: the in-flight generation stream's AbortController. Cancel (and
   // unmounting mid-generation, e.g. the merchant navigating away by any
   // route) aborts the real fetch instead of merely navigating away while the
   // request keeps running, keeps billing, and keeps mutating state.
+  // WS-C Task 8 commit-0 fold-in (a): the SAME ref also owns the async poll's
+  // AbortController when `asyncGeneration` is on — only one of streamGenerate
+  // / asyncGenerate is ever in flight for a given attempt, so one ref/one
+  // unmount-cleanup effect covers both without a second parallel ref.
   const abortRef = useRef<AbortController | null>(null);
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -414,18 +455,29 @@ function GenerateWorkspace() {
       return { ...c, recipe: { ...c.recipe, config } };
     }));
   };
-  const thread = threadMap[selected ?? ''] || [];
+  const thread = useMemo(() => threadMap[selected ?? ''] || [], [threadMap, selected]);
   const history = historyMap[selected ?? ''] || [];
   const activeCand = candidates.find((c) => c.id === selected);
   const activeIdx = candidates.findIndex((c) => c.id === selected);
   const thinking = refineFetcher.state !== 'idle';
 
-  // No seeded prompt (direct visit / refresh): never silently burn an AI
-  // generation on a canned prompt — send the merchant to the real prompt box.
+  // No seeded prompt from state/query (direct visit / refresh): before
+  // bouncing to the real prompt box, check for a resumable async-generation
+  // session this same tab already started (commit-0 fold-in (b) — a
+  // state-seeded nav from `modules._index.tsx` loses `location.state` on a
+  // hard reload, so the session's own persisted prompt is the only
+  // surviving source of truth). Only runs when there's genuinely nothing
+  // else to seed from — a real state/query prompt always wins outright.
   useEffect(() => {
-    if (!seedPrompt) navigate('/modules?openBuilder=1', { replace: true });
+    if (stateOrQueryPrompt) return;
+    const resumable = readActiveGenSession();
+    if (resumable?.prompt) {
+      setSessionSeedPrompt(resumable.prompt);
+      return;
+    }
+    navigate('/modules?openBuilder=1', { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seedPrompt]);
+  }, [stateOrQueryPrompt]);
 
   // Build the chooser concepts from a set of AI options (shared by the streaming
   // and batch paths). Re-runnable: the stream calls it as each option arrives.
@@ -467,7 +519,11 @@ function GenerateWorkspace() {
 
   // Streaming generation: options render as they validate (faster first paint).
   // Any failure falls back to the proven batch route, so it's never worse.
-  const streamGenerate = useCallback(async () => {
+  // `correlationId` is optional so a caller that already minted an id for a
+  // PRIOR leg of this same click (asyncGenerate's enqueue attempt) can pass
+  // it through instead of this leg minting its own — see the WS-C final
+  // review fix at asyncGenerate's fallback call sites below.
+  const streamGenerate = useCallback(async (correlationId?: string) => {
     const fd = new FormData();
     fd.set('prompt', seedPrompt);
     fd.set('preferredType', 'Auto');
@@ -478,10 +534,18 @@ function GenerateWorkspace() {
     // fallback below resubmits this SAME FormData, so the id travels
     // unchanged to whichever leg the server sees — letting it detect a
     // stream-then-batch retry of one attempt instead of billing it twice.
-    withGenerationCorrelationId(fd, crypto.randomUUID());
+    // WS-C Task 13 fix round 1: stamps BOTH fd and genCorrelationIdRef with
+    // the same id in one call, BEFORE the first await below — this leg
+    // previously stamped only fd (via withGenerationCorrelationId), never
+    // the ref, so a save after an SSE-path generation (the no-Redis default
+    // AND the documented fallback on async transport failure / 503
+    // ASYNC_DISABLED) sent an empty correlationId and the funnel spine never
+    // chained for that traffic.
+    stampGenerationCorrelationId(fd, genCorrelationIdRef, resolveGenerationCorrelationId(correlationId));
     const collected: Record<number, { explanation: string; recipe: Record<string, unknown> }> = {};
     let gotAny = false;
     let sawErrorFrame: string | null = null;
+    let sawErrorRequestId: string | null = null;
     // WS-F: real progress — every distinct SSE event kind seen so far maps to
     // a GEN_STEPS index (stepIndexForSeenEvents), replacing the old fake
     // setInterval tick that advanced independently of the actual stream.
@@ -558,6 +622,7 @@ function GenerateWorkspace() {
                 // Do NOT throw into the transport catch — that path auto-refires
                 // the batch route and bills a second request.
                 sawErrorFrame = payload.message || 'Generation failed';
+                sawErrorRequestId = typeof payload.requestId === 'string' ? payload.requestId : null;
               }
             }
           }
@@ -567,6 +632,7 @@ function GenerateWorkspace() {
       const next = nextStepAfterStream({ gotAny, sawErrorFrame: sawErrorFrame != null, transportFailed: false });
       if (next === 'show-retry') {
         setGenError(sawErrorFrame ?? 'The AI returned no valid concepts.');
+        setGenRequestId(sawErrorRequestId);
         genStartedRef.current = false;
         setPhase('failed');
       }
@@ -594,12 +660,140 @@ function GenerateWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedPrompt, applyOptions]);
 
-  // Kick off real generation when entering the generating phase (stream once).
+  // Map a poll snapshot's persisted VALID options onto the same chooser shape
+  // the SSE `option`/`ranking` frames use (recommendedIndex is a real option
+  // index — map it to its position among the returned options, matching the
+  // streamGenerate `ranking` handling above).
+  const applyPolledSnapshot = useCallback((snapshot: PolledJobSnapshot) => {
+    if (snapshot.options.length === 0) return;
+    const recPos =
+      snapshot.recommendedIndex != null
+        ? snapshot.options.findIndex((o) => o.index === snapshot.recommendedIndex)
+        : -1;
+    applyOptions(
+      snapshot.options.map((o) => ({ explanation: o.explanation, recipe: o.recipe as Record<string, unknown> })),
+      undefined,
+      recPos >= 0 ? recPos : undefined,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyOptions]);
+
+  // Async generation (C1): enqueue-and-poll instead of SSE. A dropped
+  // connection (reload, nav away and back) resumes the SAME job via the
+  // sessionStorage session key — it never calls the enqueue route again, so
+  // it never re-spends (Task 6 review requirement #3). Falls through to the
+  // inline SSE path on `ASYNC_DISABLED` (503) or an enqueue transport
+  // failure.
+  //
+  // WS-C final review (IMPORTANT-1): every fallback below passes
+  // `newCorrelationId` through to `streamGenerate`, not a fresh id — even
+  // on the 503/non-ok branches where nothing was actually enqueued (see
+  // api.ai.generate-async.tsx: jobs.create only runs after auth/rate-limit/
+  // quota, and enqueueWebJob's own failure path marks that Job row terminal
+  // FAILED before the response goes out, so no row is ever left QUEUED/
+  // RUNNING behind a non-2xx or 503 response — reusing there is a no-op,
+  // just simpler than special-casing which branches are "safe"). The branch
+  // that actually matters is the ambiguous one: `fetch()` itself rejecting,
+  // or a 200 response whose body we failed to read — in BOTH cases the
+  // server may already have committed `jobs.create` + `enqueueWebJob`
+  // (the route's happy path returns 200 only after both succeed), leaving a
+  // live orphaned worker job that WILL eventually run and bill under
+  // `newCorrelationId` regardless of what the client does next. Reusing that
+  // same id here means the SSE fallback's own billing call
+  // (seedBillingStateForCorrelation in llm.server.ts) sees the SAME id the
+  // orphaned job will eventually bill under and the dedupe seam collapses
+  // them into one billed unit instead of two.
+  const asyncGenerate = useCallback(async () => {
+    const resumed = readActiveGenSession(seedPrompt);
+    let jobId: string;
+    let correlationId: string;
+
+    if (resumed) {
+      jobId = resumed.jobId;
+      correlationId = resumed.correlationId;
+    } else {
+      const fd = new FormData();
+      fd.set('prompt', seedPrompt);
+      fd.set('preferredType', 'Auto');
+      fd.set('preferredCategory', 'Auto');
+      fd.set('preferredBlockType', 'Auto');
+      fd.set('matchStoreColors', 'true');
+      const newCorrelationId = crypto.randomUUID();
+      withGenerationCorrelationId(fd, newCorrelationId);
+      try {
+        const res = await fetch('/api/ai/generate-async', { method: 'POST', body: fd });
+        if (res.status === 503) {
+          // ASYNC_DISABLED — Redis not configured server-side; fall through
+          // to the inline path unchanged. Nothing was enqueued or billed.
+          void streamGenerate(newCorrelationId);
+          return;
+        }
+        const data = (await res.json().catch(() => null)) as { jobId?: string; correlationId?: string } | null;
+        if (!res.ok || !data?.jobId) throw new Error('enqueue failed');
+        jobId = data.jobId;
+        correlationId = data.correlationId ?? newCorrelationId;
+      } catch {
+        // Covers a rejected fetch() AND the `!res.ok || !data?.jobId` throw
+        // above — see the reuse rationale in this function's leading
+        // comment. Reusing newCorrelationId is correct (dedupe) in the
+        // ambiguous "may have committed" case and harmless (no-op) in the
+        // provably-safe cases.
+        void streamGenerate(newCorrelationId);
+        return;
+      }
+      writeActiveGenSession({ jobId, correlationId, prompt: seedPrompt });
+    }
+
+    genCorrelationIdRef.current = correlationId;
+
+    // Give this poll its own AbortController via the shared `abortRef` —
+    // abort any still-running previous one (e.g. a regenerate() firing a new
+    // asyncGenerate() while an older poll is still in flight) and abort this
+    // one on unmount (the shared cleanup effect above) — nothing left
+    // running past the point the merchant left this screen, and never a
+    // state update after.
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    let snapshot: PolledJobSnapshot;
+    try {
+      snapshot = await pollJobUntilTerminal(jobId, { onSnapshot: applyPolledSnapshot, signal: controller.signal });
+    } catch {
+      // Aborted — unmounted or superseded by a newer asyncGenerate() call.
+      // Whichever instance owns the CURRENT controller (if any) will apply
+      // the eventual terminal state; this leg has nothing left to do.
+      return;
+    }
+    if (abortRef.current !== controller) {
+      // Superseded between resolving and this check — a newer poll owns
+      // applying the terminal state now.
+      return;
+    }
+
+    if (snapshot.status === 'SUCCESS') {
+      clearActiveGenSession();
+      // next === 'proceed' equivalent — applyPolledSnapshot already rendered
+      // the chooser via onSnapshot as options streamed in.
+    } else if (snapshot.status === 'FAILED') {
+      setGenError(snapshot.error?.message ?? 'Generation failed.');
+      setGenRequestId(snapshot.error?.requestId ?? null);
+      genStartedRef.current = false;
+      setPhase('failed');
+      clearActiveGenSession();
+    }
+    // QUEUED/RUNNING never reach here — pollJobUntilTerminal only resolves
+    // on SUCCESS or FAILED (Task 6 review requirement #2), including the
+    // synthetic 10-minute wall-clock give-up snapshot (status FAILED).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedPrompt, applyPolledSnapshot, streamGenerate]);
+
+  // Kick off real generation when entering the generating phase (once).
   useEffect(() => {
     if (phase !== 'generating' || !seedPrompt) return;
     if (!genStartedRef.current) {
       genStartedRef.current = true;
-      void streamGenerate();
+      void (asyncGeneration ? asyncGenerate() : streamGenerate());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
@@ -747,10 +941,21 @@ function GenerateWorkspace() {
     setBlueprint(null);
     createdRef.current = null;
     finishRef.current = null;
-    genStartedRef.current = false;
     setGenError(null);
+    setGenRequestId(null);
+    // A regenerate is a fresh attempt, not a resume of whatever was active
+    // before (a different correlationId, a new job) — drop any stale
+    // session so the next asyncGenerate() enqueues instead of resuming.
+    clearActiveGenSession();
+    // Set the guard true (not false) before dispatching directly below: the
+    // phase→'generating' transition also re-runs the kick-off effect above,
+    // and if the guard were still false that effect would ALSO invoke a
+    // generator — for the async path that's a second, separately-billed
+    // enqueue (its own Job + correlationId), not something the dedupe seam
+    // catches, so this must fire exactly once.
+    genStartedRef.current = true;
     setPhase('generating');
-    void streamGenerate();
+    void (asyncGeneration ? asyncGenerate() : streamGenerate());
   };
 
   // Create the real modules from the generated blueprint, then navigate.
@@ -787,12 +992,15 @@ function GenerateWorkspace() {
     finishRef.current = { mode, conceptId: selected };
     const fd = new FormData();
     fd.set('spec', JSON.stringify(recipe));
+    // WS-C Task 13 (funnel spine): carry the generation Job's correlationId
+    // forward onto the module so hydrate/publish can chain back to it.
+    fd.set('correlationId', genCorrelationIdRef.current ?? '');
     confirmFetcher.submit(fd, { method: 'post', action: '/api/ai/create-module-from-recipe' });
   };
 
   if (!seedPrompt) return null;
   if (phase === 'generating') return <GenLoading prompt={seedPrompt} stepIdx={stepIdx} onCancel={() => { abortRef.current?.abort(); navigate('/'); }} />;
-  if (phase === 'failed') return <GenFailed prompt={seedPrompt} message={genError} onRetry={regenerate} onCancel={() => navigate('/modules')} />;
+  if (phase === 'failed') return <GenFailed prompt={seedPrompt} message={genError} requestId={genRequestId} onRetry={regenerate} onCancel={() => navigate('/modules')} />;
   if (phase === 'choosing') return <GenChoose prompt={seedPrompt} candidates={candidates} onSelect={openConcept} onRegenerate={regenerate} onCancel={() => navigate('/')} />;
 
   const publishing = confirmFetcher.state !== 'idle' || publishFetcher.state !== 'idle';
@@ -916,11 +1124,13 @@ function GenLoading({ prompt, stepIdx, onCancel }: any) {
 function GenFailed({
   prompt,
   message,
+  requestId,
   onRetry,
   onCancel,
 }: {
   prompt: string;
   message: string | null;
+  requestId?: string | null;
   onRetry: () => void;
   onCancel: () => void;
 }) {
@@ -944,6 +1154,13 @@ function GenFailed({
             })()}
           </s-paragraph>
         </s-box>
+        {requestId && (
+          // Task 16: correlates with ApiLog.requestId — support can look this
+          // up directly instead of asking the merchant to reproduce the error.
+          <s-box paddingBlockEnd="small-200">
+            <s-text color="subdued">Reference: {requestId}</s-text>
+          </s-box>
+        )}
         <s-stack gap="small-200" alignItems="center">
           <s-button variant="primary" onClick={onRetry}>Try again</s-button>
           <s-button variant="tertiary" onClick={onCancel}>Back to modules</s-button>

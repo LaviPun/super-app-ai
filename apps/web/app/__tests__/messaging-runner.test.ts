@@ -5,7 +5,6 @@ import {
   triggerMatches,
   renderMergeVars,
   recordMatchesRuleEngine,
-  type MessagingTrigger,
 } from '~/services/messaging/messaging-runner.service';
 import { wasOpsAlerted } from '~/services/observability/ops-alert.server';
 import type { DataStoreService } from '~/services/data/data-store.service';

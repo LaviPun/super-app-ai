@@ -315,3 +315,46 @@ export function isThemeCheckGateBlocking(): boolean {
 export function isCostRoutingEnabled(): boolean {
   return parseBooleanEnv(process.env.AI_COST_ROUTING_ENABLED, false);
 }
+
+/**
+ * WS-C Task 5 (C7): worker job time budgets, ms. Deadline budgets replace the
+ * old ~90-100s Cloudflare-tunnel discipline for async jobs — the worker has
+ * no HTTP connection to lose, but the underlying LLM calls still need a
+ * bound so a stuck provider call can't hold a BullMQ job (and its slot in
+ * WORKER_CONCURRENCY) open forever. `GENERATION_JOB_BUDGET_MS` covers the
+ * full classify->option-stream->blueprint pipeline; `HYDRATE_JOB_BUDGET_MS`
+ * (Task 8) covers a single hydrate call. Both env-overridable, additive.
+ */
+export function getGenerationJobBudgetMs(): number {
+  const raw = Number.parseInt(process.env.GENERATION_JOB_BUDGET_MS ?? '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 150_000;
+}
+
+export function getHydrateJobBudgetMs(): number {
+  const raw = Number.parseInt(process.env.HYDRATE_JOB_BUDGET_MS ?? '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 90_000;
+}
+
+/**
+ * WS-C Task 9 (C7): publish job budget, ms — bounds the worker's
+ * Shopify-writing phase (`PublishService.publish` + provisioning + theme
+ * embed check) the same way the generation/hydrate budgets bound their LLM
+ * calls, so a stuck Admin API call can't hold a BullMQ job (and its
+ * WORKER_CONCURRENCY slot) open forever.
+ */
+export function getPublishJobBudgetMs(): number {
+  const raw = Number.parseInt(process.env.PUBLISH_JOB_BUDGET_MS ?? '', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 120_000;
+}
+
+/**
+ * WS-C Task 9 (C10, controller ruling): async publish stays OFF by default
+ * even once `JOB_EXECUTION_MODE=queue` turns on generation/hydrate —
+ * flipping this is a post-burn-in OWNER decision, NOT a WS-C exit
+ * criterion. When OFF, `api.publish.tsx`'s sync path is byte-unchanged;
+ * when ON it additionally requires `isAsyncJobsEnabled()` (queue mode) to
+ * actually enqueue instead of publishing inline.
+ */
+export function isPublishAsyncEnabled(): boolean {
+  return parseBooleanEnv(process.env.PUBLISH_ASYNC_ENABLED, false);
+}

@@ -25,6 +25,7 @@ import {
   ConfirmModal, EmptyState, KV, StatusBadge, Tabs, useCustomEvent, type WcTone,
 } from '~/components/merchant/polaris';
 import { getCategoryDisplayLabel, getCategoryTone } from '~/utils/type-label';
+import { pollJobUntilTerminal, derivePublishFailureBanner } from '~/utils/job-poll';
 
 
 // Real placement description derived from the module's spec + raw category — no hardcoded copy.
@@ -454,7 +455,15 @@ function ModuleDetailBody() {
   const renameFetcher = useFetcher<{ ok?: boolean; name?: string; error?: string }>();
   const notesFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const configFetcher = useFetcher<{ ok?: boolean; version?: number; error?: string }>();
-  const hydrateFetcher = useFetcher<{ ok?: boolean; error?: string; message?: string }>();
+  const hydrateFetcher = useFetcher<{ ok?: boolean; error?: string; message?: string; async?: boolean; jobId?: string }>();
+  // WS-C Task 8: guards the async hydrate poll against duplicate/overlapping
+  // pollJobUntilTerminal calls (the effect below can re-fire on unrelated
+  // hydrateFetcher.state churn) and aborts a still-running poll on unmount.
+  const hydratePollRef = useRef<{ jobId: string; controller: AbortController } | null>(null);
+  // WS-C Task 9: same duplicate-poll guard for the `?publishing=<jobId>`
+  // async publish flow (redirect-based, from /api/publish — flag-gated
+  // behind PUBLISH_ASYNC_ENABLED, C10).
+  const publishPollRef = useRef<{ jobId: string; controller: AbortController } | null>(null);
   const fillSettingsFetcher = useFetcher<{
     ok?: boolean;
     filled?: boolean;
@@ -620,6 +629,32 @@ function ModuleDetailBody() {
 
   useEffect(() => {
     if (hydrateFetcher.state !== 'idle') return;
+    // WS-C Task 8 (C1): queue mode returns { async: true, jobId } immediately
+    // instead of the finished result — poll for the terminal state instead
+    // of treating the enqueue response itself as done.
+    if (hydrateFetcher.data?.async && hydrateFetcher.data.jobId) {
+      const jobId = hydrateFetcher.data.jobId;
+      if (hydratePollRef.current?.jobId === jobId) return; // already polling this job
+      hydratePollRef.current?.controller.abort();
+      const controller = new AbortController();
+      hydratePollRef.current = { jobId, controller };
+      pollJobUntilTerminal(jobId, { signal: controller.signal })
+        .then((snapshot) => {
+          if (hydratePollRef.current?.controller !== controller) return; // superseded
+          hydratePollRef.current = null;
+          if (snapshot.status === 'SUCCESS') {
+            ctx.toast('Full settings generated');
+            revalidator.revalidate();
+          } else if (snapshot.status === 'FAILED') {
+            ctx.toast(snapshot.error?.message ?? 'Hydration failed', { error: true });
+          }
+        })
+        .catch(() => {
+          // Aborted (unmounted or superseded by a newer poll) — nothing left
+          // to apply on this leg.
+        });
+      return;
+    }
     if (hydrateFetcher.data?.ok) {
       ctx.toast('Full settings generated');
       revalidator.revalidate();
@@ -628,6 +663,69 @@ function ModuleDetailBody() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrateFetcher.data, hydrateFetcher.state]);
+
+  // Abort any in-flight hydrate poll on unmount — no state update after
+  // unmount, no immortal background loop (same discipline as
+  // generate._index.tsx's async-generation poll).
+  useEffect(() => () => hydratePollRef.current?.controller.abort(), []);
+
+  // WS-C Task 9: async publish (flag-gated, C10). `/api/publish` redirects
+  // to `?publishing=<jobId>` instead of `?published=1` when it enqueued
+  // rather than published inline — poll for the terminal state, mirroring
+  // the hydrate poll above.
+  useEffect(() => {
+    const jobId = searchParams.get('publishing');
+    if (!jobId) return;
+    if (publishPollRef.current?.jobId === jobId) return; // already polling this job
+    publishPollRef.current?.controller.abort();
+    const controller = new AbortController();
+    publishPollRef.current = { jobId, controller };
+    pollJobUntilTerminal(jobId, { signal: controller.signal })
+      .then((snapshot) => {
+        if (publishPollRef.current?.controller !== controller) return; // superseded
+        publishPollRef.current = null;
+        // Strip `?publishing=` once terminal so a later reload/revalidate
+        // never re-polls a job that has already finished.
+        const next = new URLSearchParams(searchParams);
+        next.delete('publishing');
+        const query = next.toString();
+        navigate(`/modules/${moduleId}${query ? `?${query}` : ''}`, { replace: true });
+        if (snapshot.status === 'SUCCESS') {
+          const result = (snapshot.result ?? null) as { embedStatus?: string } | null;
+          ctx.toast('Published — live in a few minutes');
+          // WS-E finding 5 parity: same embed-activation nudge the
+          // redirect-based `?embed=` URL param and the same-page
+          // publishFetcher flow both already surface.
+          if (result?.embedStatus && result.embedStatus !== 'enabled') {
+            setEmbedNudge(result.embedStatus);
+          }
+          revalidator.revalidate();
+        } else if (snapshot.status === 'FAILED') {
+          // Commit-0 fold-in (a): structured guidance now rides through the
+          // poll path (Job.error.details) — reuse the already-tested
+          // sync-path banner (setPublishFailure) instead of a toast-only
+          // message when it's present, exactly like the sync publishFetcher
+          // branch above does for PUBLISH_PARTIAL_FAILURE.
+          const failure = derivePublishFailureBanner(snapshot.error);
+          if (failure) {
+            setPublishFailure(failure);
+            ctx.toast('Publish stopped partway through — see details below', { error: true });
+          } else {
+            // snapshot.error?.message carries WS-E's "republishing is safe"
+            // guidance verbatim for a PublishPartialFailureError (Task 9).
+            ctx.toast(snapshot.error?.message ?? 'Publish failed', { error: true });
+          }
+        }
+      })
+      .catch(() => {
+        // Aborted (unmounted or superseded by a newer poll) — nothing left
+        // to apply on this leg.
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  // Abort any in-flight publish poll on unmount.
+  useEffect(() => () => publishPollRef.current?.controller.abort(), []);
 
   useEffect(() => {
     if (fillSettingsFetcher.state !== 'idle' || !fillSettingsFetcher.data) return;

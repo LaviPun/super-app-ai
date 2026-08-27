@@ -20,6 +20,7 @@ const hoisted = vi.hoisted(() => ({
   jobStart: vi.fn(async () => {}),
   jobSucceed: vi.fn(async () => {}),
   jobFail: vi.fn(async () => {}),
+  jobFailWithPayload: vi.fn(async () => {}),
 }));
 vi.mock('~/shopify.server', () => ({ shopify: { authenticate: { admin: hoisted.authenticateAdmin } } }));
 vi.mock('~/services/security/rate-limit.server', () => ({ enforceRateLimit: hoisted.enforceRateLimit }));
@@ -36,7 +37,15 @@ vi.mock('~/services/ai/llm.server', () => ({
   AiProviderNotConfiguredError: class extends Error {},
 }));
 vi.mock('~/services/jobs/job.service', () => ({
-  JobService: class { create = hoisted.jobCreate; start = hoisted.jobStart; succeed = hoisted.jobSucceed; fail = hoisted.jobFail; },
+  JobService: class {
+    create = hoisted.jobCreate;
+    start = hoisted.jobStart;
+    succeed = hoisted.jobSucceed;
+    fail = hoisted.jobFail;
+    // WS-C Task 16 (AppError sweep): the route's catch block now writes the
+    // typed AppError payload via failWithPayload, not the old bare fail(e).
+    failWithPayload = hoisted.jobFailWithPayload;
+  },
 }));
 
 function req(body: Record<string, string>) {
@@ -75,7 +84,10 @@ describe('api.ai.hydrate-module — "Generate full settings" (WS-F closes [UI-3]
     const res = await action({ request: req({ moduleId: 'mod_1' }) } as never);
     expect(res.status).toBe(503);
     const payload = await res.json();
-    expect(payload.setupUrl).toBe('/internal/ai-providers');
-    expect(hoisted.jobFail).toHaveBeenCalled();
+    // WS-C Task 16 (AppError sweep): setupUrl now travels in the typed
+    // AppErrorPayload's `details` bag (AppError.toPayload()), not top-level.
+    expect(payload.error).toBe('AI_PROVIDER_NOT_CONFIGURED');
+    expect(payload.details?.setupUrl).toBe('/internal/ai-providers');
+    expect(hoisted.jobFailWithPayload).toHaveBeenCalled();
   });
 });
