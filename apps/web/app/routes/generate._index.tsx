@@ -40,7 +40,7 @@ import { deployedFunctionExtensions } from '~/services/publish/deployed-extensio
 import { isAsyncJobsEnabled } from '~/services/jobs/enqueue.server';
 import { MerchantShell, useMerchantCtx } from '~/components/merchant/MerchantShell';
 import { StatusBadge, EmptyState, titleCase } from '~/components/merchant/polaris';
-import { nextStepAfterStream, withGenerationCorrelationId, stampGenerationCorrelationId } from '~/utils/generation-outcome';
+import { nextStepAfterStream, withGenerationCorrelationId, stampGenerationCorrelationId, resolveGenerationCorrelationId } from '~/utils/generation-outcome';
 import { pollJobUntilTerminal, type PolledJobSnapshot } from '~/utils/job-poll';
 import { readActiveGenSession, writeActiveGenSession, clearActiveGenSession } from '~/utils/active-gen-session';
 
@@ -591,7 +591,12 @@ function GenerateWorkspace() {
 
   // Streaming generation: options render as they validate (faster first paint).
   // Any failure falls back to the proven batch route, so it's never worse.
-  const streamGenerate = useCallback(async () => {
+  //
+  // `correlationId` is optional so a caller that already minted an id for a
+  // PRIOR leg of this same click (asyncGenerate's enqueue attempt) can pass
+  // it through instead of this leg minting its own — see the WS-C final
+  // review fix at asyncGenerate's fallback call sites below.
+  const streamGenerate = useCallback(async (correlationId?: string) => {
     const fd = new FormData();
     fd.set('prompt', seedPrompt);
     fd.set('preferredType', 'Auto');
@@ -608,7 +613,7 @@ function GenerateWorkspace() {
     // SSE-path generation (the no-Redis default AND the documented fallback
     // on async transport failure / 503 ASYNC_DISABLED) sent an empty
     // correlationId and the funnel spine never chained for that traffic.
-    stampGenerationCorrelationId(fd, genCorrelationIdRef, crypto.randomUUID());
+    stampGenerationCorrelationId(fd, genCorrelationIdRef, resolveGenerationCorrelationId(correlationId));
     const collected: Record<number, { explanation: string; recipe: Record<string, unknown> }> = {};
     let gotAny = false;
     let sawErrorFrame: string | null = null;
@@ -722,9 +727,26 @@ function GenerateWorkspace() {
   // sessionStorage session key — it never calls the enqueue route again, so
   // it never re-spends (Task 6 review requirement #3). Falls through to the
   // inline SSE path on `ASYNC_DISABLED` (503) or an enqueue transport
-  // failure: the enqueue call is the first thing the server route does
-  // after auth/rate-limit/quota, so a transport failure here means nothing
-  // was billed and streamGenerate is a fresh, first attempt.
+  // failure.
+  //
+  // WS-C final review (IMPORTANT-1): every fallback below passes
+  // `newCorrelationId` through to `streamGenerate`, not a fresh id — even
+  // on the 503/non-ok branches where nothing was actually enqueued (see
+  // api.ai.generate-async.tsx: jobs.create only runs after auth/rate-limit/
+  // quota, and enqueueWebJob's own failure path marks that Job row terminal
+  // FAILED before the response goes out, so no row is ever left QUEUED/
+  // RUNNING behind a non-2xx or 503 response — reusing there is a no-op,
+  // just simpler than special-casing which branches are "safe"). The branch
+  // that actually matters is the ambiguous one: `fetch()` itself rejecting,
+  // or a 200 response whose body we failed to read — in BOTH cases the
+  // server may already have committed `jobs.create` + `enqueueWebJob`
+  // (the route's happy path returns 200 only after both succeed), leaving a
+  // live orphaned worker job that WILL eventually run and bill under
+  // `newCorrelationId` regardless of what the client does next. Reusing that
+  // same id here means the SSE fallback's own billing call
+  // (seedBillingStateForCorrelation in llm.server.ts) sees the SAME id the
+  // orphaned job will eventually bill under and the dedupe seam collapses
+  // them into one billed unit instead of two.
   const asyncGenerate = useCallback(async () => {
     const resumed = readActiveGenSession(seedPrompt);
     let jobId: string;
@@ -747,7 +769,7 @@ function GenerateWorkspace() {
         if (res.status === 503) {
           // ASYNC_DISABLED — Redis not configured server-side; fall through
           // to the inline path unchanged. Nothing was enqueued or billed.
-          void streamGenerate();
+          void streamGenerate(newCorrelationId);
           return;
         }
         const data = (await res.json().catch(() => null)) as { jobId?: string; correlationId?: string } | null;
@@ -755,7 +777,12 @@ function GenerateWorkspace() {
         jobId = data.jobId;
         correlationId = data.correlationId ?? newCorrelationId;
       } catch {
-        void streamGenerate();
+        // Covers a rejected fetch() AND the `!res.ok || !data?.jobId` throw
+        // above — see the reuse rationale in this function's leading
+        // comment. Reusing newCorrelationId is correct (dedupe) in the
+        // ambiguous "may have committed" case and harmless (no-op) in the
+        // provably-safe cases.
+        void streamGenerate(newCorrelationId);
         return;
       }
       writeActiveGenSession({ jobId, correlationId, prompt: seedPrompt });

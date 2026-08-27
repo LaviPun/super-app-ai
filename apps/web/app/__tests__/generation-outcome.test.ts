@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { finalizeGenerationJob } from '~/services/ai/generation-outcome.server';
-import { nextStepAfterStream, withGenerationCorrelationId, stampGenerationCorrelationId } from '~/utils/generation-outcome';
+import {
+  nextStepAfterStream,
+  withGenerationCorrelationId,
+  stampGenerationCorrelationId,
+  resolveGenerationCorrelationId,
+} from '~/utils/generation-outcome';
 
 describe('finalizeGenerationJob', () => {
   // WS-C commit-0 fold-in (c): this function no longer writes the FAILED Job
@@ -107,5 +112,42 @@ describe('stampGenerationCorrelationId (WS-C Task 13 fix round 1)', () => {
 
     expect(ref.current).toBe('new-attempt-id');
     expect(fd.get('correlationId')).toBe('new-attempt-id');
+  });
+});
+
+describe('resolveGenerationCorrelationId (WS-C final review, IMPORTANT-1)', () => {
+  // Regression guard: asyncGenerate's fallback into streamGenerate on a
+  // transport failure / unreadable-response must reuse the SAME
+  // newCorrelationId it already sent to /api/ai/generate-async — that
+  // enqueue route only returns 200 after jobs.create + enqueueWebJob both
+  // succeed, so anything that goes wrong reading the response back leaves a
+  // live orphaned worker job that will still bill under that id later. If
+  // streamGenerate instead minted a fresh id here, the orphan and the SSE
+  // fallback would bill under two different ids and the dedupe seam
+  // (keyed on correlationId) could never collapse them into one unit.
+  it('an explicit correlationId always wins over minting a fresh one', () => {
+    expect(resolveGenerationCorrelationId('orphaned-job-correlation-id')).toBe('orphaned-job-correlation-id');
+  });
+
+  it('mints a fresh uuid only when no explicit id is given (a genuinely first attempt)', () => {
+    const a = resolveGenerationCorrelationId();
+    const b = resolveGenerationCorrelationId(undefined);
+    expect(a).not.toBe(b);
+    // crypto.randomUUID() shape — loose check, just confirms it's not an
+    // empty/undefined fallthrough.
+    expect(a).toMatch(/^[0-9a-f-]{36}$/i);
+  });
+
+  it('threading this through streamGenerate\'s stamp call produces the SAME id on the FormData that asyncGenerate already sent to the enqueue route', () => {
+    // Mirrors the exact call streamGenerate makes:
+    //   stampGenerationCorrelationId(fd, genCorrelationIdRef, resolveGenerationCorrelationId(correlationId))
+    const newCorrelationId = 'async-enqueue-attempt-id';
+    const fd = new FormData();
+    const ref: { current: string | null } = { current: null };
+
+    stampGenerationCorrelationId(fd, ref, resolveGenerationCorrelationId(newCorrelationId));
+
+    expect(fd.get('correlationId')).toBe(newCorrelationId);
+    expect(ref.current).toBe(newCorrelationId);
   });
 });

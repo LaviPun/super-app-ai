@@ -59,3 +59,23 @@ export function stampGenerationCorrelationId(
   ref.current = correlationId;
   return correlationId;
 }
+
+/**
+ * WS-C final review (IMPORTANT-1): resolves the id `streamGenerate` should
+ * stamp — an explicit id, when one is passed in, ALWAYS wins over minting a
+ * fresh uuid. `asyncGenerate`'s fallback paths pass their own
+ * `newCorrelationId` explicitly: the async enqueue route (`POST
+ * /api/ai/generate-async`) only returns 200 after BOTH `jobs.create` and
+ * `enqueueWebJob` succeed, so a transport failure or unreadable response
+ * AFTER that point may leave a live, orphaned worker job that will still run
+ * (and bill) under `newCorrelationId` regardless of what the client does
+ * next. Reusing that same id for the SSE fallback lets the billing dedupe
+ * seam (`seedBillingStateForCorrelation` in llm.server.ts) collapse the
+ * orphan and the fallback into one billed unit instead of two. A genuinely
+ * fresh, first attempt (no prior leg, nothing to reuse) mints its own id.
+ * Naming this its own function keeps "explicit id always wins" independently
+ * testable without a full component/SSE test harness.
+ */
+export function resolveGenerationCorrelationId(explicitCorrelationId?: string): string {
+  return explicitCorrelationId ?? crypto.randomUUID();
+}
