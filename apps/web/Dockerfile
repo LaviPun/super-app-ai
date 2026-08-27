@@ -10,7 +10,7 @@ FROM node:20-alpine AS base
 # openssl nor libssl, so `prisma generate` (build stage) and the engine binary
 # (runtime stage) both need it installed here.
 RUN apk add --no-cache openssl
-RUN corepack enable
+RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 WORKDIR /app
 
 FROM base AS build
