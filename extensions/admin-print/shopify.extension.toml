@@ -3,7 +3,7 @@ api_version = "2026-07"
 # SuperApp Admin Print — custom print documents (packing slip / invoice / label /
 # pick list) for orders and products (Print Action Extension API). Each target renders
 # an `s-admin-print-action` whose `src` points at the app's /admin-print/document route,
-# parameterized by the published admin.print module config (superapp.admin/print_refs)
+# parameterized by the published admin.print module config (superapp_admin/print_refs)
 # and the selected resource id. Config-driven — one generic renderer per target.
 [[extensions]]
 uid = "11ee18b1-784f-4f91-9046-1c8b7fb1a755"

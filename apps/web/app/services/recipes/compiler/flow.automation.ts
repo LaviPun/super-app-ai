@@ -27,10 +27,10 @@ import type { RecipeSpec } from '@superapp/core';
  * type must WRITE something — and the metafield is a genuine, inspectable deploy
  * artifact (the flow definition a merchant/ops can read back), never a fake.
  *
- * Namespace `superapp.flow` satisfies the non-destructive guard's `superapp.` prefix
+ * Namespace `superapp_flow` satisfies the non-destructive guard's `superapp.` prefix
  * invariant (services/recipes/compiler/non-destructive.ts rule 4).
  */
-const FLOW_METAFIELD_NAMESPACE = 'superapp.flow';
+const FLOW_METAFIELD_NAMESPACE = 'superapp_flow';
 
 /** kebab-ify a module name for the per-flow metafield key. */
 function slug(name: string): string {

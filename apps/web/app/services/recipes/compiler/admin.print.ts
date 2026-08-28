@@ -9,7 +9,7 @@ import type { AdminPrintPayload, CompileResult } from './types';
  * registers the four print-action targets and renders an `s-admin-print-action` whose
  * `src` points at the app's `/admin-print/document` route. Publishing persists the
  * documentKind/title/subtitle/bodyTemplate config to a `$app:superapp_admin_print`
- * metaobject referenced by superapp.admin/print_refs; the extension reads it at the
+ * metaobject referenced by superapp_admin/print_refs; the extension reads it at the
  * target to compute the print `src`, and the app route reads it to render the
  * document. A real deployable emit — not an AUDIT no-op.
  */

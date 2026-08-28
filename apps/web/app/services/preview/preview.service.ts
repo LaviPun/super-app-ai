@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { ErrorLogService } from '~/services/observability/error-log.service';
 import type { RecipeSpec, RuleEnginePack, RecommendationPack, ExperimentPack } from '@superapp/core';
 import { sanitizeConfigUrls } from '~/services/recipes/compiler/sanitize-urls';
 import { KIND_ARCHETYPE, type SectionArchetype } from '~/services/recipes/kind-archetype';
@@ -79,13 +80,22 @@ function loadPackCss(): string {
     }
   }
   // None resolved: previews degrade to legacy CSS (no two-pack look) for the rest
-  // of the process. Warn once so a bad deploy layout (e.g. a server bundle that
-  // ships without the extensions/ tree, or an unexpected cwd) is visible instead
-  // of silently shipping unstyled previews merchants judge quality on.
-  console.warn(
+  // of the process. This is a deploy-packaging defect (e.g. a Docker image built
+  // without extensions/theme-app-extension/assets — see apps/web/Dockerfile — or
+  // an unexpected cwd), not a per-request hiccup, so per D8 (no silent failures)
+  // it is surfaced LOUDLY: error-level console line AND an ErrorLog row the
+  // internal-admin Logs surface shows — instead of silently shipping unstyled
+  // previews merchants judge quality on. Deliberately non-fatal: previews still
+  // render (legacy CSS), so the app must not crash over it.
+  const message =
     `[preview] superapp-modules.css not found from cwd=${process.cwd()} (tried ${candidates.length} paths); ` +
-      `storefront previews will render without the two-pack stylesheet until restart.`,
-  );
+    `storefront previews will render without the two-pack stylesheet until restart.`;
+  console.error(message);
+  // Fire-and-forget: loadPackCss() is sync and render() must not fail because
+  // observability is down. ErrorLogService.write already swallows its own errors.
+  void new ErrorLogService()
+    .error(message, undefined, { candidates, cwd: process.cwd() }, undefined, 'SERVER')
+    .catch(() => {});
   packCssCache = '';
   return packCssCache;
 }

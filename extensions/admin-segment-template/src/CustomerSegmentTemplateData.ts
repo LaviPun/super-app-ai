@@ -3,7 +3,7 @@
  *
  * Target: admin.customers.segmentation-templates.data. Returns an array of segment
  * templates into the segment editor's template gallery. The templates come from the
- * published admin.segmentTemplate module config: we read superapp.admin/
+ * published admin.segmentTemplate module config: we read superapp_admin/
  * segment_template_refs (list.metaobject_reference, API 2026-04+) via the admin GraphQL
  * endpoint and return each `{ title, description, query }` verbatim, adding the
  * `queryToInsert` + `createdOn` props the Customer Segment Template API expects.
@@ -28,7 +28,7 @@ type SegmentTemplateResult = {
 
 const METAFIELD_QUERY = `{
   shop {
-    segmentTemplateRefs: metafield(namespace: "superapp.admin", key: "segment_template_refs") {
+    segmentTemplateRefs: metafield(namespace: "superapp_admin", key: "segment_template_refs") {
       references(first: 64) {
         nodes {
           ... on Metaobject {

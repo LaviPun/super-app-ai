@@ -6,7 +6,7 @@
 # the shipped superapp-sidekick-* admin_link extensions. Shopify appends the store domain
 # + the selected/displayed resource id to the url at click time, so `/app/link` can key
 # off `?shop=…&id=…&resource=…` and route the merchant to the right SuperApp workflow.
-# The published admin.link module config (superapp.admin/link_refs) carries the
+# The published admin.link module config (superapp_admin/link_refs) carries the
 # merchant-facing label + intended destination. `admin_link` extensions take no top-level
 # `api_version` (the toml registration itself is the deployed artifact).
 

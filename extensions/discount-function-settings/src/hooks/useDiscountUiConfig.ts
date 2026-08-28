@@ -1,6 +1,6 @@
 /**
  * Fetches the published admin.discountUi module config from the shop via metaobject
- * references. Reads superapp.admin/discount_ui_refs (list.metaobject_reference,
+ * references. Reads superapp_admin/discount_ui_refs (list.metaobject_reference,
  * API 2026-04+). Each entry is a $app:superapp_admin_discount_ui metaobject written by
  * the publish pipeline. The extension renders the declared `fields[]` as the settings
  * form; when no module is published it falls back to a minimal default so the discount
@@ -31,7 +31,7 @@ export type DiscountUiState =
 
 const METAFIELD_QUERY = `{
   shop {
-    discountUiRefs: metafield(namespace: "superapp.admin", key: "discount_ui_refs") {
+    discountUiRefs: metafield(namespace: "superapp_admin", key: "discount_ui_refs") {
       references(first: 64) {
         nodes {
           ... on Metaobject {

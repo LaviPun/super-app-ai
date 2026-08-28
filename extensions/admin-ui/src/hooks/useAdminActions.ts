@@ -1,6 +1,6 @@
 /**
  * Fetches a published admin.action module from the shop via metaobject references.
- * Reads superapp.admin/action_refs (list.metaobject_reference) — API 2026-04+ compliant.
+ * Reads superapp_admin/action_refs (list.metaobject_reference) — API 2026-04+ compliant.
  * Each action is a $app:superapp_admin_action metaobject entry; no large JSON blobs.
  */
 import { useState, useEffect } from 'preact/hooks';
@@ -22,7 +22,7 @@ export type AdminActionsState =
 
 const METAFIELD_QUERY = `{
   shop {
-    actionRefs: metafield(namespace: "superapp.admin", key: "action_refs") {
+    actionRefs: metafield(namespace: "superapp_admin", key: "action_refs") {
       references(first: 128) {
         nodes {
           ... on Metaobject {

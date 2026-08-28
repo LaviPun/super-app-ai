@@ -28,6 +28,14 @@ RUN pnpm install --frozen-lockfile --filter web...
 # live import (image-storage processor) into apps/web/app/services/assets/.
 COPY packages packages
 COPY apps/web apps/web
+# Preview ⇄ storefront parity (R0): PreviewService.loadPackCss() reads the REAL
+# theme-app-extension stylesheet at runtime (resolved relative to cwd
+# /app/apps/web → /app/extensions/theme-app-extension/assets/). Without it every
+# storefront preview silently degrades to legacy CSS for the process lifetime.
+# Only the assets dir is read at runtime (superapp-modules.css/.js) — copying the
+# whole extensions/ tree (wasm builds, node_modules-adjacent extension sources)
+# would bloat the image for no runtime benefit.
+COPY extensions/theme-app-extension/assets extensions/theme-app-extension/assets
 
 # Build web's workspace dependencies in topological order, then the app.
 RUN pnpm --filter "web^..." build

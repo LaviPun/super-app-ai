@@ -35,33 +35,42 @@ import { isThemeNativeSectionEnabled, isThemeCheckGateBlocking } from '~/env.ser
 // Exported (unpublish.service.ts, WS-E Task 9) so publish and unpublish share
 // ONE source of truth for every namespace/key — teardown can never drift from
 // what publish actually wrote.
-export const THEME_MODULES_NAMESPACE = 'superapp.theme';
+//
+// CHARSET RULE (2026-08 prod hotfix): Shopify metafield namespaces — both
+// metafieldDefinitionCreate AND metafieldsSet — must be 3-255 chars of
+// alphanumeric/hyphen/underscore ONLY. Dots are rejected ("Namespace contains
+// one or more invalid characters"), which made every publish 502 at step 0
+// while these were 'superapp.theme' etc. Underscore forms only; the invariant
+// is enforced by __tests__/metafield-namespace-charset.test.ts. No data
+// migration was needed: the dotted namespaces could never be written (both
+// mutations reject them), so no store holds data under the old names.
+export const THEME_MODULES_NAMESPACE = 'superapp_theme';
 export const THEME_MODULE_REFS_KEY = 'module_refs';
 
-export const ADMIN_BLOCKS_NAMESPACE = 'superapp.admin';
+export const ADMIN_BLOCKS_NAMESPACE = 'superapp_admin';
 export const ADMIN_BLOCK_REFS_KEY = 'block_refs';
 
-export const ADMIN_ACTIONS_NAMESPACE = 'superapp.admin';
+export const ADMIN_ACTIONS_NAMESPACE = 'superapp_admin';
 export const ADMIN_ACTION_REFS_KEY = 'action_refs';
 
-export const ADMIN_DISCOUNT_UI_NAMESPACE = 'superapp.admin';
+export const ADMIN_DISCOUNT_UI_NAMESPACE = 'superapp_admin';
 export const ADMIN_DISCOUNT_UI_REFS_KEY = 'discount_ui_refs';
 
-export const ADMIN_LINK_NAMESPACE = 'superapp.admin';
+export const ADMIN_LINK_NAMESPACE = 'superapp_admin';
 export const ADMIN_LINK_REFS_KEY = 'link_refs';
 
-export const ADMIN_PRINT_NAMESPACE = 'superapp.admin';
+export const ADMIN_PRINT_NAMESPACE = 'superapp_admin';
 export const ADMIN_PRINT_REFS_KEY = 'print_refs';
 
-export const ADMIN_SEGMENT_TEMPLATE_NAMESPACE = 'superapp.admin';
+export const ADMIN_SEGMENT_TEMPLATE_NAMESPACE = 'superapp_admin';
 export const ADMIN_SEGMENT_TEMPLATE_REFS_KEY = 'segment_template_refs';
 
-export const FUNCTIONS_NAMESPACE = 'superapp.functions';
+export const FUNCTIONS_NAMESPACE = 'superapp_functions';
 
-export const CHECKOUT_NAMESPACE = 'superapp.checkout';
+export const CHECKOUT_NAMESPACE = 'superapp_checkout';
 export const CHECKOUT_UPSELL_REFS_KEY = 'upsell_refs';
 
-export const CUSTOMER_ACCOUNT_NAMESPACE = 'superapp.customer_account';
+export const CUSTOMER_ACCOUNT_NAMESPACE = 'superapp_customer_account';
 export const CUSTOMER_ACCOUNT_BLOCK_REFS_KEY = 'block_refs';
 
 /**

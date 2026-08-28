@@ -2,7 +2,7 @@ api_version = "2026-07"
 
 # SuperApp Customer Segment Templates — returns pre-built customer-segment query
 # templates into the segment editor's template gallery. Config-driven: the extension
-# reads the published admin.segmentTemplate module config (superapp.admin/
+# reads the published admin.segmentTemplate module config (superapp_admin/
 # segment_template_refs) and returns those templates at the runnable data target. No UI
 # is rendered — the target is a headless data extension.
 [[extensions]]

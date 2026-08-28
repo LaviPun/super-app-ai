@@ -28,10 +28,10 @@ import type { RecipeSpec } from '@superapp/core';
  *     merchant's tool sends back into the module's typed data store (an optional
  *     `spec.dataModel`, provisioned at publish via provisionModuleDataStore).
  */
-// Namespace satisfies the non-destructive guard's `superapp.` prefix invariant
+// Namespace satisfies the non-destructive guard's `superapp_` prefix invariant
 // (services/recipes/compiler/non-destructive.ts rule 4) — the last-line enforcement
 // that every SHOP_METAFIELD_SET stays inside a SuperApp-owned namespace.
-const HTTP_SYNC_METAFIELD_NAMESPACE = 'superapp.integration';
+const HTTP_SYNC_METAFIELD_NAMESPACE = 'superapp_integration';
 
 /** kebab-ify a module name for the per-sync metafield key. */
 function slug(name: string): string {

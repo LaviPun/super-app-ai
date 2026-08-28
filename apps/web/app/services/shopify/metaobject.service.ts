@@ -77,7 +77,7 @@ const MAX_LIST_ITEMS = 128;
  * MetaobjectService — manages metaobject entries for published SuperApp modules.
  *
  * Each published module becomes a metaobject entry (one per module per shop),
- * and the shop metafield `superapp.theme/module_refs` holds a
+ * and the shop metafield `superapp_theme/module_refs` holds a
  * `list.metaobject_reference` pointing to all module metaobjects.
  *
  * This replaces the previous pattern of storing all module configs as one large
@@ -403,8 +403,8 @@ export class MetaobjectService {
     if (this.ensuredDefs.has(cacheKey)) return;
 
     const type = isList ? 'list.metaobject_reference' : 'metaobject_reference';
-    // Every namespace this app creates definitions in (superapp.theme, superapp.admin,
-    // superapp.functions, superapp.checkout, superapp.customer_account, ...) is a
+    // Every namespace this app creates definitions in (superapp_theme, superapp_admin,
+    // superapp_functions, superapp_checkout, superapp_customer_account, ...) is a
     // merchant-owned/custom namespace, NOT the app-reserved namespace (the reserved
     // literal is exactly "$app"). Shopify's access-control rules for a non
     // app-reserved definition fix admin access at the implicit default

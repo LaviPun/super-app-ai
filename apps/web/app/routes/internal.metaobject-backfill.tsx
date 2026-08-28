@@ -107,17 +107,17 @@ export async function action({ request }: { request: Request }) {
 
   // ── Theme modules ──────────────────────────────────────────────────────────
   try {
-    const raw = await mf.getShopMetafield('superapp.theme', 'modules');
+    const raw = await mf.getShopMetafield('superapp_theme', 'modules');
     if (raw) {
       const all = JSON.parse(raw) as Record<string, ThemeModulePayload>;
-      await mo.ensureMetafieldDefinition('superapp.theme', 'module_refs', '$app:superapp_module', true);
+      await mo.ensureMetafieldDefinition('superapp_theme', 'module_refs', '$app:superapp_module', true);
       const gids: string[] = [];
       for (const [moduleId, payload] of Object.entries(all)) {
         const gid = await mo.upsertModuleObject(moduleId, payload);
         gids.push(gid);
         migratedModules++;
       }
-      await mo.setModuleGidList('superapp.theme', 'module_refs', gids);
+      await mo.setModuleGidList('superapp_theme', 'module_refs', gids);
     }
   } catch (err) {
     await errorLog.error(
@@ -132,17 +132,17 @@ export async function action({ request }: { request: Request }) {
 
   // ── Admin blocks ───────────────────────────────────────────────────────────
   try {
-    const raw = await mf.getShopMetafield('superapp.admin', 'blocks');
+    const raw = await mf.getShopMetafield('superapp_admin', 'blocks');
     if (raw) {
       const all = JSON.parse(raw) as Record<string, AdminBlockPayload>;
-      await mo.ensureMetafieldDefinition('superapp.admin', 'block_refs', '$app:superapp_admin_block', true);
+      await mo.ensureMetafieldDefinition('superapp_admin', 'block_refs', '$app:superapp_admin_block', true);
       const gids: string[] = [];
       for (const [moduleId, payload] of Object.entries(all)) {
         const gid = await mo.upsertAdminBlockObject(moduleId, payload);
         gids.push(gid);
         migratedBlocks++;
       }
-      await mo.setModuleGidList('superapp.admin', 'block_refs', gids);
+      await mo.setModuleGidList('superapp_admin', 'block_refs', gids);
     }
   } catch (err) {
     await errorLog.error(
@@ -157,17 +157,17 @@ export async function action({ request }: { request: Request }) {
 
   // ── Admin actions ──────────────────────────────────────────────────────────
   try {
-    const raw = await mf.getShopMetafield('superapp.admin', 'actions');
+    const raw = await mf.getShopMetafield('superapp_admin', 'actions');
     if (raw) {
       const all = JSON.parse(raw) as Record<string, AdminActionPayload>;
-      await mo.ensureMetafieldDefinition('superapp.admin', 'action_refs', '$app:superapp_admin_action', true);
+      await mo.ensureMetafieldDefinition('superapp_admin', 'action_refs', '$app:superapp_admin_action', true);
       const gids: string[] = [];
       for (const [moduleId, payload] of Object.entries(all)) {
         const gid = await mo.upsertAdminActionObject(moduleId, payload);
         gids.push(gid);
         migratedActions++;
       }
-      await mo.setModuleGidList('superapp.admin', 'action_refs', gids);
+      await mo.setModuleGidList('superapp_admin', 'action_refs', gids);
     }
   } catch (err) {
     await errorLog.error(

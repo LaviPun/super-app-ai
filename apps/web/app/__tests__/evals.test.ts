@@ -278,7 +278,7 @@ describe('checkNonDestructive', () => {
 
   it('flags SHOP_METAFIELD_DELETE', () => {
     const result = checkNonDestructive([
-      { kind: 'SHOP_METAFIELD_DELETE', namespace: 'superapp.foo', key: 'bar' },
+      { kind: 'SHOP_METAFIELD_DELETE', namespace: 'superapp_foo', key: 'bar' },
     ]);
     expect(result.ok).toBe(false);
     expect(result.violations[0]).toMatch(/SHOP_METAFIELD_DELETE/);
@@ -321,9 +321,9 @@ describe('checkNonDestructive', () => {
     expect(result.violations[0]).toMatch(/outside SuperApp-owned namespace/);
   });
 
-  it('allows SHOP_METAFIELD_SET with superapp.* namespace', () => {
+  it('allows SHOP_METAFIELD_SET with superapp_* namespace', () => {
     const result = checkNonDestructive([
-      { kind: 'SHOP_METAFIELD_SET', namespace: 'superapp.functions', key: 'discountRules', type: 'json', value: '{}' },
+      { kind: 'SHOP_METAFIELD_SET', namespace: 'superapp_functions', key: 'discountRules', type: 'json', value: '{}' },
     ]);
     expect(result.ok).toBe(true);
   });
@@ -339,7 +339,7 @@ describe('checkNonDestructive', () => {
     const result = checkNonDestructive([
       {
         kind: 'METAOBJECT_ENSURE_DEF',
-        namespace: 'superapp.functions',
+        namespace: 'superapp_functions',
         key: 'fn_discountRules',
         metaobjectType: '$app:superapp_function_config',
         isList: false,
@@ -371,7 +371,7 @@ describe('checkNonDestructive', () => {
   it('accumulates multiple violations', () => {
     const result = checkNonDestructive([
       { kind: 'THEME_ASSET_DELETE', themeId: 't1', key: 'assets/foo.css' },
-      { kind: 'SHOP_METAFIELD_DELETE', namespace: 'superapp.x', key: 'y' },
+      { kind: 'SHOP_METAFIELD_DELETE', namespace: 'superapp_x', key: 'y' },
       { kind: 'THEME_ASSET_UPSERT', themeId: 't1', key: 'layout/theme.liquid', value: '' },
     ]);
     expect(result.ok).toBe(false);

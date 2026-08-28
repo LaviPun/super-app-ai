@@ -2,7 +2,7 @@
   SuperApp Theme Head (App Embed — HEAD / compliance_head)
   Injects head-only SuperApp modules into the document <head>: JSON-LD structured
   data, meta/Open-Graph tags, resource preload hints, pixel bootstrap, and consent
-  scripts. Reads the SAME superapp.theme/module_refs list as the body embed
+  scripts. Reads the SAME superapp_theme/module_refs list as the body embed
   (list.metaobject_reference, API 2026-04+); renders ONLY modules whose
   activation_type == 'head' (all other activations are handled by the body embed or
   slot blocks). Config-driven — markup is produced by snippets/superapp-head-module.liquid.
@@ -13,7 +13,7 @@
   and must not pull the body runtime into <head>.
 {% endcomment %}
 
-{% assign mod_refs = shop.metafields['superapp.theme']['module_refs'].value %}
+{% assign mod_refs = shop.metafields['superapp_theme']['module_refs'].value %}
 {% if mod_refs != blank %}
   {% for mod_ref in mod_refs %}
     {% assign act_type = mod_ref.fields.activation_type.value %}

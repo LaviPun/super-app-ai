@@ -8,6 +8,33 @@ type EstimateCostOptions = {
   tokensOut: number;
 };
 
+/**
+ * Models already warned about this process — an unpriced model can be hit on
+ * every generation, so the unknown-price WARN below is emitted once per model
+ * (per process) instead of flooding the logs.
+ */
+const warnedUnpricedModels = new Set<string>();
+
+/**
+ * Telemetry guard (2026-08 prod audit): a model with no `AiModelPrice` row
+ * silently prices at 0, which masks real spend in every usage rollup. When
+ * that happens on a call that actually consumed tokens, say so loudly (once
+ * per model per process) so the missing row gets seeded instead of hiding.
+ */
+function warnUnpricedModel(model: string, options: EstimateCostOptions): void {
+  if (options.tokensIn + options.tokensOut <= 0) return;
+  const scope = options.providerId?.trim() || (options.providerKinds ?? []).join(',') || 'unscoped';
+  const key = `${scope}/${model}`;
+  if (warnedUnpricedModels.has(key)) return;
+  warnedUnpricedModels.add(key);
+  console.warn(
+    `[ai-cost] no active AiModelPrice row for model "${model}" (provider scope: ${scope}); ` +
+      `cost recorded as 0 despite ${options.tokensIn} in / ${options.tokensOut} out tokens. ` +
+      `Seed pricing (pnpm --filter web seed:ai-pricing or the internal ai-providers admin) — ` +
+      `until then this model's spend is invisible in usage rollups. (Warned once per model per process.)`,
+  );
+}
+
 export async function estimateCostCentsFromDbRates(options: EstimateCostOptions): Promise<number> {
   const model = options.model?.trim();
   if (!model) return 0;
@@ -19,10 +46,14 @@ export async function estimateCostCentsFromDbRates(options: EstimateCostOptions)
       where: { providerId: options.providerId.trim(), model, isActive: true },
       orderBy: { effectiveFrom: 'desc' },
     });
+    if (!price) warnUnpricedModel(model, options);
     return priceToCents(price, options.tokensIn, options.tokensOut);
   }
 
-  if (!options.providerKinds || options.providerKinds.length === 0) return 0;
+  if (!options.providerKinds || options.providerKinds.length === 0) {
+    warnUnpricedModel(model, options);
+    return 0;
+  }
 
   // Prefer a price row attached to a currently routing-active provider of this kind.
   const activePrice = await prisma.aiModelPrice.findFirst({
@@ -38,6 +69,7 @@ export async function estimateCostCentsFromDbRates(options: EstimateCostOptions)
     where: { model, isActive: true, provider: { provider: { in: options.providerKinds } } },
     orderBy: { effectiveFrom: 'desc' },
   });
+  if (!anyPrice) warnUnpricedModel(model, options);
   return priceToCents(anyPrice, options.tokensIn, options.tokensOut);
 }
 

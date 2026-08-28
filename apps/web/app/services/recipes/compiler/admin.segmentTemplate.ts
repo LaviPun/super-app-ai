@@ -10,7 +10,7 @@ import type { AdminSegmentTemplatePayload, CompileResult } from './types';
  * (extensions/admin-segment-template) registers the single data target and returns the
  * published templates verbatim. Publishing persists the templates to a
  * `$app:superapp_admin_segment_template` metaobject referenced by
- * superapp.admin/segment_template_refs, which the extension reads at the target.
+ * superapp_admin/segment_template_refs, which the extension reads at the target.
  */
 export function compileAdminSegmentTemplate(
   spec: Extract<RecipeSpec, { type: 'admin.segmentTemplate' }>,
