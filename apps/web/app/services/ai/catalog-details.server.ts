@@ -25,7 +25,11 @@ export function getCatalogDetails(opts: {
   entries = entries.slice(0, limit);
 
   if (entries.length === 0) {
-    return 'No matching catalog entries found.';
+    // Prompt-diet (2026-08): empty string, not a "no matches" sentence — every
+    // caller treats a falsy catalog block as "omit the section", so returning
+    // prose here injected a pure-noise 'Catalog (examples for inspiration):
+    // No matching catalog entries found.' block into the prompt.
+    return '';
   }
 
   const lines = entries.map((e) => {

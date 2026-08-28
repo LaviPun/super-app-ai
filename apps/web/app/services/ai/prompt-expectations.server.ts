@@ -26,28 +26,50 @@ CTA quality: each option should have one dominant primary action with clear valu
 
 If the request mentions a coupon/code, optimize for effortless copy and confirmation feedback. In each explanation, include one concise line describing audience, trigger, placement, primary CTA, and key interaction behavior.`;
 
-export const UI_DESIGNER_REFINEMENT_PASS = `UI_DESIGNER_PASS:
-- Premium visual target: distinctive and product-appropriate storefront UI, not generic templates.
-- Hierarchy rules: headline communicates value quickly, supporting copy clarifies benefit, CTA is the most visually dominant action.
-- Typography rules: strong heading/body contrast with high readability.
-- Spacing rhythm: tight within groups, looser between groups, with scan-friendly section cadence.
-- Color system: role-based colors (surface, text, accent, semantic) and strong contrast.
-- Interaction polish: include hover/focus/pressed and dismiss behavior; motion is subtle and reduced-motion safe.
-- Option differentiation: each option must differ in both UX strategy and visual strategy.`;
+/**
+ * Prompt-diet type-gating (2026-08): the second paragraph of
+ * PROMPT_PURPOSE_AND_GUIDANCE is a theme.section authoring lesson (kind tags,
+ * fieldSchema/fields/blocks, advancedCustom preview-sandbox caveat, named
+ * theme.* presets). It is load-bearing for storefront section generation and
+ * pure noise (~250 tokens) for every other module family — worse, it actively
+ * lectures a function/flow/admin generation about reaching for theme.section.
+ * The stable prefix is per-moduleType by design (P2-A), so gating it per type
+ * is cache-safe.
+ */
+const THEME_SECTION_AUTHORING_PARAGRAPH_PREFIX = 'Storefront sections are NOT limited';
 
-export const FRONTEND_DEVELOPER_REFINEMENT_PASS = `FRONTEND_DEVELOPER_PASS:
-- Output must map cleanly to RecipeSpec fields with no speculative keys.
-- Keep config values practical for rendering (valid enums, valid URLs, realistic copy lengths).
-- Keep styling decisions implementable in storefront extension surfaces.
-- Prefer deterministic, maintainable settings over fragile gimmicks.`;
+const PROMPT_PURPOSE_AND_GUIDANCE_NON_STOREFRONT = PROMPT_PURPOSE_AND_GUIDANCE.split('\n\n')
+  .filter((paragraph) => !paragraph.startsWith(THEME_SECTION_AUTHORING_PARAGRAPH_PREFIX))
+  .join('\n\n');
 
-export const PREMIUM_OUTPUT_GUARDRAILS = `Premium output guardrails:
-- Avoid generic filler copy and weak CTA labels.
-- Require conversion clarity: value-forward headline, hesitation-reducing support copy, outcome-focused CTA.
-- Require visual intent: deliberate hierarchy, spacing rhythm, role-based color choices.
-- Require interaction intent: include at least one meaningful state behavior per option.
-- Require implementability: valid RecipeSpec fields/enums only.
-- Distinguish options by strategy depth, not superficial wording swaps.`;
+/** Storefront section surfaces get the full purpose block (incl. the theme.section authoring paragraph); everything else gets the block without it. */
+export function getPurposeAndGuidance(moduleType: ModuleType): string {
+  const isStorefront = moduleType === 'theme.section' || moduleType === 'proxy.widget';
+  return isStorefront ? PROMPT_PURPOSE_AND_GUIDANCE : PROMPT_PURPOSE_AND_GUIDANCE_NON_STOREFRONT;
+}
+
+/**
+ * Prompt-diet consolidation (2026-08): the former UI_DESIGNER_PASS,
+ * FRONTEND_DEVELOPER_PASS, and "Premium output guardrails" blocks (~390 tokens
+ * combined) overlapped heavily with the DESIGN SYSTEM DIRECTIVE
+ * (`buildDesignSystemDirective` in style-packs.server.ts), which is ALWAYS
+ * injected alongside them on every storefront generation call and states the
+ * shared rules more precisely (Apple-HIG contrast/CTA floor, F1–F8 interaction
+ * states, named-token grammar, role-based OKLCH color ramp, self-audit).
+ *
+ * This single pass keeps every directive the design-system directive does NOT
+ * cover — verbatim in substance:
+ *  - copy quality (value-forward headline / hesitation-reducing support copy /
+ *    outcome-focused CTA labels; no generic filler) — from the premium guardrails,
+ *  - RecipeSpec implementability (no speculative keys; valid enums/URLs;
+ *    realistic copy lengths; deterministic over fragile) — from the FE pass,
+ *  - option differentiation (UX + visual strategy depth) — from the UI pass.
+ * Everything dropped here is stated (stronger) in the design-system directive.
+ */
+export const STOREFRONT_QUALITY_PASS = `STOREFRONT_QUALITY_PASS (applies in addition to the DESIGN SYSTEM DIRECTIVE — obey both):
+- Copy: value-forward headline that communicates quickly, hesitation-reducing supporting copy, and an outcome-focused CTA label. No generic filler copy or weak CTA labels.
+- Implementability: output maps cleanly to RecipeSpec fields with no speculative keys; keep config values practical for rendering (valid enums, valid URLs, realistic copy lengths); prefer deterministic, maintainable settings over fragile gimmicks.
+- Option differentiation: each option must differ in both UX strategy and visual strategy — strategy depth, not superficial wording swaps.`;
 
 /**
  * Minimal valid JSON examples per type. Shown to the AI so it knows the EXACT shape we expect.

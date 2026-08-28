@@ -168,16 +168,6 @@ export function searchSolutions(
     score,
   }));
 
-  const grounding = startFrom.length
-    ? [
-        'Grounding examples — existing modules close to this request. Reuse their control/config surface where it fits; do not copy verbatim:',
-        ...startFrom.map(
-          (o, i) =>
-            `${i + 1}. ${o.name} (${o.moduleType}) — ${o.description}. Controls: ${o.capabilitySurface.join(', ') || 'n/a'}.`,
-        ),
-      ].join('\n')
-    : '';
-
   // Few-shot: inject the full spec of the single best match when it scores strongly
   // and fits the budget. Weak or oversized matches keep hints only. A very strong,
   // same-type match is promoted to Tier-1 (instantiate + delta-edit); everything
@@ -199,6 +189,25 @@ export function searchSolutions(
       exemplar = { templateId: top.template.id, tier, specJson };
     }
   }
+
+  // Prompt-diet dedupe (2026-08): the create prompt injects BOTH this grounding
+  // block and the exemplar's FULL spec. When a template is promoted to exemplar,
+  // its grounding hint line (name/type/description + config-key list) is strictly
+  // subsumed by the injected spec, so it is dropped here — from the PROMPT hint
+  // list only. `startFrom` (the client's "start from this" options) keeps every
+  // match, exemplar included.
+  const groundingHints = exemplar
+    ? startFrom.filter((o) => o.templateId !== exemplar.templateId)
+    : startFrom;
+  const grounding = groundingHints.length
+    ? [
+        'Grounding examples — existing modules close to this request. Reuse their control/config surface where it fits; do not copy verbatim:',
+        ...groundingHints.map(
+          (o, i) =>
+            `${i + 1}. ${o.name} (${o.moduleType}) — ${o.description}. Controls: ${o.capabilitySurface.join(', ') || 'n/a'}.`,
+        ),
+      ].join('\n')
+    : '';
 
   return { startFrom, grounding, ...(exemplar ? { exemplar } : {}) };
 }

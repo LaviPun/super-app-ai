@@ -39,10 +39,8 @@ import {
   deriveDesignReferencePack,
 } from '~/services/ai/design-reference.server';
 import {
-  PROMPT_PURPOSE_AND_GUIDANCE,
-  UI_DESIGNER_REFINEMENT_PASS,
-  FRONTEND_DEVELOPER_REFINEMENT_PASS,
-  PREMIUM_OUTPUT_GUARDRAILS,
+  getPurposeAndGuidance,
+  STOREFRONT_QUALITY_PASS,
   getPromptExpectations,
   getSettingsPack,
   getFullRecipeSchemaSpec,
@@ -191,7 +189,7 @@ async function main() {
   const storefrontTypes: ModuleType[] = ['theme.section', 'proxy.widget'];
   const isStorefront = storefrontTypes.includes(moduleType);
 
-  const purposeAndGuidance = PROMPT_PURPOSE_AND_GUIDANCE;
+  const purposeAndGuidance = getPurposeAndGuidance(moduleType);
   const summary = getModuleSummary(moduleType);
   const expectations = getPromptExpectations(moduleType, 'single');
   const settingsPack = router.includeFlags.includeSettingsPack === false
@@ -224,9 +222,7 @@ async function main() {
   const designSystemDirective = designReferencePack
     ? buildDesignSystemDirectiveForReference(designReferencePack)
     : undefined;
-  const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
-  const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
-  const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
+  const uiDesignerPass = isStorefront ? STOREFRONT_QUALITY_PASS : undefined;
 
   const compileFor = (approach: { label: string; hint: string }) =>
     compileCreateSingleRecipePrompt({
@@ -247,11 +243,11 @@ async function main() {
       designReferenceBlock,
       designSystemDirective,
       uiDesignerPass,
-      frontendDeveloperPass,
-      premiumGuardrails,
     });
 
-  const prompts = APPROACH_HINTS.map((a) => ({ label: a.label, hint: a.hint, text: compileFor(a) }));
+  // (fix: compileFor returns CompiledPrompt since P2-A #43 — unwrap .prompt so
+  // promptChars and the printed prompt are the actual string again.)
+  const prompts = APPROACH_HINTS.map((a) => ({ label: a.label, hint: a.hint, text: compileFor(a).prompt }));
 
   const metadata = {
     userPrompt: args.prompt,

@@ -20,10 +20,8 @@ import { getCatalogDetails, getCatalogDetailsForType } from '~/services/ai/catal
 import {
   getPromptExpectations,
   getModifyPromptExpectations,
-  PROMPT_PURPOSE_AND_GUIDANCE,
-  UI_DESIGNER_REFINEMENT_PASS,
-  FRONTEND_DEVELOPER_REFINEMENT_PASS,
-  PREMIUM_OUTPUT_GUARDRAILS,
+  getPurposeAndGuidance,
+  STOREFRONT_QUALITY_PASS,
   getFullRecipeSchemaSpec,
   getStorefrontStyleSchemaSpec,
   getSettingsPack,
@@ -1938,7 +1936,7 @@ export async function* generateValidatedRecipeOptionsStream(
   const singleSchema = getRecipeSingleJsonSchemaForType(classification.moduleType);
   const perBudget = getRecipeTokenBudget(classification.moduleType);
 
-  const purposeAndGuidance = PROMPT_PURPOSE_AND_GUIDANCE;
+  const purposeAndGuidance = getPurposeAndGuidance(classification.moduleType);
   const summary = getModuleSummary(classification.moduleType);
   const expectations = getPromptExpectations(classification.moduleType, 'single');
   const settingsPack = options?.routerDecision?.includeFlags.includeSettingsPack === false
@@ -1970,9 +1968,10 @@ export async function* generateValidatedRecipeOptionsStream(
     : undefined;
   const designReferenceBlock = designReferencePack ? buildDesignReferencePromptBlock(designReferencePack) : undefined;
   const designSystemDirective = designReferencePack ? buildDesignSystemDirectiveForReference(designReferencePack) : undefined;
-  const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
-  const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
-  const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
+  // Prompt-diet consolidation: one deduplicated quality pass (see
+  // STOREFRONT_QUALITY_PASS) replaces the former UI/FE/premium trio — the
+  // design-system directive (always present for storefront) carries the rest.
+  const uiDesignerPass = isStorefront ? STOREFRONT_QUALITY_PASS : undefined;
   const exemplarBlock = buildExemplarBlock(options?.exemplar);
   // Current Shopify platform constraints for this module family. Small and
   // correctness-critical, so injected by default across all confidence tiers
@@ -2021,8 +2020,6 @@ export async function* generateValidatedRecipeOptionsStream(
       designSystemDirective,
       blueprintContext: options?.blueprintContext,
       uiDesignerPass,
-      frontendDeveloperPass,
-      premiumGuardrails,
     });
 
     let tokensIn = 0;
@@ -2231,7 +2228,7 @@ export async function generateValidatedRecipeOptionsParallel(
   const singleSchema = getRecipeSingleJsonSchemaForType(classification.moduleType);
   const perBudget = getRecipeTokenBudget(classification.moduleType);
 
-  const purposeAndGuidance = PROMPT_PURPOSE_AND_GUIDANCE;
+  const purposeAndGuidance = getPurposeAndGuidance(classification.moduleType);
   const summary = getModuleSummary(classification.moduleType);
   const expectations = getPromptExpectations(classification.moduleType, 'single');
   const settingsPack = options?.routerDecision?.includeFlags.includeSettingsPack === false
@@ -2263,9 +2260,10 @@ export async function generateValidatedRecipeOptionsParallel(
     : undefined;
   const designReferenceBlock = designReferencePack ? buildDesignReferencePromptBlock(designReferencePack) : undefined;
   const designSystemDirective = designReferencePack ? buildDesignSystemDirectiveForReference(designReferencePack) : undefined;
-  const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
-  const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
-  const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
+  // Prompt-diet consolidation: one deduplicated quality pass (see
+  // STOREFRONT_QUALITY_PASS) replaces the former UI/FE/premium trio — the
+  // design-system directive (always present for storefront) carries the rest.
+  const uiDesignerPass = isStorefront ? STOREFRONT_QUALITY_PASS : undefined;
   const exemplarBlock = buildExemplarBlock(options?.exemplar);
   // Current Shopify platform constraints for this module family. Small and
   // correctness-critical, so injected by default across all confidence tiers
@@ -2301,8 +2299,6 @@ export async function generateValidatedRecipeOptionsParallel(
       designSystemDirective,
       blueprintContext: options?.blueprintContext,
       uiDesignerPass,
-      frontendDeveloperPass,
-      premiumGuardrails,
     });
 
     let tokensIn = 0;
@@ -2586,7 +2582,7 @@ export async function generateValidatedRecipeOptions(
   });
   const usage = new AiUsageService();
 
-  const purposeAndGuidance = PROMPT_PURPOSE_AND_GUIDANCE;
+  const purposeAndGuidance = getPurposeAndGuidance(classification.moduleType);
   const summary = getModuleSummary(classification.moduleType);
   const expectations = getPromptExpectations(classification.moduleType);
 
@@ -2606,9 +2602,10 @@ export async function generateValidatedRecipeOptions(
     : undefined;
   const designReferenceBlock = designReferencePack ? buildDesignReferencePromptBlock(designReferencePack) : undefined;
   const designSystemDirective = designReferencePack ? buildDesignSystemDirectiveForReference(designReferencePack) : undefined;
-  const uiDesignerPass = isStorefront ? UI_DESIGNER_REFINEMENT_PASS : undefined;
-  const frontendDeveloperPass = isStorefront ? FRONTEND_DEVELOPER_REFINEMENT_PASS : undefined;
-  const premiumGuardrails = isStorefront ? PREMIUM_OUTPUT_GUARDRAILS : undefined;
+  // Prompt-diet consolidation: one deduplicated quality pass (see
+  // STOREFRONT_QUALITY_PASS) replaces the former UI/FE/premium trio — the
+  // design-system directive (always present for storefront) carries the rest.
+  const uiDesignerPass = isStorefront ? STOREFRONT_QUALITY_PASS : undefined;
   const exemplarBlock = buildExemplarBlock(options?.exemplar);
   // Current Shopify platform constraints for this module family. Small and
   // correctness-critical, so injected by default across all confidence tiers
@@ -2668,8 +2665,6 @@ export async function generateValidatedRecipeOptions(
       designSystemDirective,
       blueprintContext: options?.blueprintContext,
       uiDesignerPass,
-      frontendDeveloperPass,
-      premiumGuardrails,
       optionCount,
     });
 
