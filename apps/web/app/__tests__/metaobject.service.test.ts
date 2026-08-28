@@ -9,8 +9,8 @@ function graphqlJsonResponse(payload: unknown) {
 }
 
 describe('MetaobjectService.ensureMetafieldDefinition', () => {
-  // superapp.theme / superapp.admin / superapp.functions / superapp.checkout /
-  // superapp.customer_account are all merchant-owned (non app-reserved — the
+  // superapp_theme / superapp_admin / superapp_functions / superapp_checkout /
+  // superapp_customer_account are all merchant-owned (non app-reserved — the
   // reserved namespace literal is exactly "$app") metafield namespaces. Per
   // Shopify's metafield access-control rules, a non app-reserved definition's
   // admin access can ONLY be the implicit default (PUBLIC_READ_WRITE) — and
@@ -29,7 +29,7 @@ describe('MetaobjectService.ensureMetafieldDefinition', () => {
     const admin = { graphql } as unknown as AdminApiContext['admin'];
     const service = new MetaobjectService(admin);
 
-    await service.ensureMetafieldDefinition('superapp.theme', 'module_refs', '$app:superapp_module', true);
+    await service.ensureMetafieldDefinition('superapp_theme', 'module_refs', '$app:superapp_module', true);
 
     expect(graphql).toHaveBeenCalledTimes(1);
     const call = graphql.mock.calls[0]?.[1] as { variables: { definition: { access?: Record<string, string> } } };
@@ -64,7 +64,7 @@ describe('MetaobjectService.ensureMetafieldDefinition', () => {
     const admin = { graphql } as unknown as AdminApiContext['admin'];
     const service = new MetaobjectService(admin);
 
-    await service.ensureMetafieldDefinition('superapp.theme', 'module_refs', '$app:superapp_module', true);
+    await service.ensureMetafieldDefinition('superapp_theme', 'module_refs', '$app:superapp_module', true);
 
     expect(graphql).toHaveBeenCalledTimes(2);
     const firstCall = graphql.mock.calls[0]?.[1] as { variables: { definition: { access?: unknown } } };
@@ -82,7 +82,7 @@ describe('MetaobjectService.ensureMetafieldDefinition', () => {
     const service = new MetaobjectService(admin);
 
     await expect(
-      service.ensureMetafieldDefinition('superapp.theme', 'module_refs', '$app:superapp_module', true),
+      service.ensureMetafieldDefinition('superapp_theme', 'module_refs', '$app:superapp_module', true),
     ).rejects.toThrow(/public_read_write/i);
 
     expect(graphql).toHaveBeenCalledTimes(2);
@@ -101,12 +101,12 @@ describe('MetaobjectService.ensureMetafieldDefinition', () => {
     const admin = { graphql } as unknown as AdminApiContext['admin'];
     const service = new MetaobjectService(admin, { onMetafieldAccessFallback });
 
-    await service.ensureMetafieldDefinition('superapp.theme', 'module_refs', '$app:superapp_module', true);
+    await service.ensureMetafieldDefinition('superapp_theme', 'module_refs', '$app:superapp_module', true);
 
     expect(onMetafieldAccessFallback).toHaveBeenCalledTimes(1);
     expect(onMetafieldAccessFallback).toHaveBeenCalledWith(
       expect.objectContaining({
-        namespace: 'superapp.theme',
+        namespace: 'superapp_theme',
         key: 'module_refs',
         metaobjectType: '$app:superapp_module',
         isList: true,
@@ -121,7 +121,7 @@ describe('MetaobjectService.ensureMetafieldDefinition', () => {
     const service = new MetaobjectService(admin);
 
     await expect(
-      service.ensureMetafieldDefinition('superapp.theme', 'module_refs', '$app:superapp_module', true),
+      service.ensureMetafieldDefinition('superapp_theme', 'module_refs', '$app:superapp_module', true),
     ).rejects.toThrow(/internal error/i);
 
     expect(graphql).toHaveBeenCalledTimes(1);
@@ -176,7 +176,7 @@ describe('MetaobjectService core operations', () => {
     const admin = { graphql } as unknown as AdminApiContext['admin'];
     const service = new MetaobjectService(admin);
 
-    await service.setModuleGidList('superapp.theme', 'module_refs', ['gid://shopify/Metaobject/11']);
+    await service.setModuleGidList('superapp_theme', 'module_refs', ['gid://shopify/Metaobject/11']);
 
     expect(graphql).toHaveBeenCalledTimes(2);
     expect(graphql.mock.calls[1]?.[1]).toEqual(
@@ -184,7 +184,7 @@ describe('MetaobjectService core operations', () => {
         variables: expect.objectContaining({
           metafields: [
             expect.objectContaining({
-              namespace: 'superapp.theme',
+              namespace: 'superapp_theme',
               key: 'module_refs',
               type: 'list.metaobject_reference',
             }),
@@ -208,7 +208,7 @@ describe('MetaobjectService core operations', () => {
     const service = new MetaobjectService(admin);
 
     await expect(
-      service.getModuleGidList('superapp.theme', 'module_refs'),
+      service.getModuleGidList('superapp_theme', 'module_refs'),
     ).rejects.toThrow(/internal error/i);
   });
 
@@ -221,7 +221,7 @@ describe('MetaobjectService core operations', () => {
     const service = new MetaobjectService(admin);
 
     await expect(
-      service.setModuleGidList('superapp.theme', 'module_refs', ['gid://shopify/Metaobject/11']),
+      service.setModuleGidList('superapp_theme', 'module_refs', ['gid://shopify/Metaobject/11']),
     ).rejects.toThrow(/internal error/i);
   });
 

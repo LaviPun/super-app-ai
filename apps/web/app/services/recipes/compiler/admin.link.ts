@@ -9,7 +9,7 @@ import type { AdminLinkPayload, CompileResult } from './types';
  * a `[[extensions.targeting]] target + url` registration in the shipped admin-link
  * extension family (extensions/admin-link), and Shopify appends the store + selected
  * resource id to the URL at click time. Publishing persists the label/url/target to a
- * `$app:superapp_admin_link` metaobject referenced by superapp.admin/link_refs so the
+ * `$app:superapp_admin_link` metaobject referenced by superapp_admin/link_refs so the
  * app's link page (and any admin-link management UI) can resolve the destination. The
  * emitted `compiledJson` mirrors the toml registration shape.
  */

@@ -1,6 +1,6 @@
 /**
  * Fetches SuperApp customer-account block config from
- * `superapp.customer_account/block_refs` (list.metaobject_reference) via
+ * `superapp_customer_account/block_refs` (list.metaobject_reference) via
  * `shopify.query()`, then (build #3, 034) resolves any live-data bindings the
  * matched block declares through the Customer Account / Order API and our
  * app-owned source. Content parsing is defensive; binding resolution degrades
@@ -38,7 +38,7 @@ const CONFIG_QUERY = `#graphql
   query SuperAppCustomerAccountConfigRefs {
     shop {
       primaryDomain { host }
-      blockRefs: metafield(namespace: "superapp.customer_account", key: "block_refs") {
+      blockRefs: metafield(namespace: "superapp_customer_account", key: "block_refs") {
         references(first: 128) {
           nodes {
             ... on Metaobject {

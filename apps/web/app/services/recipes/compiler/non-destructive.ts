@@ -11,7 +11,7 @@ import type { DeployOperation } from './types';
  *  1. No THEME_ASSET_DELETE  — could remove merchant sections/assets irreversibly
  *  2. No SHOP_METAFIELD_DELETE — could break extension config irreversibly
  *  3. THEME_ASSET_UPSERT keys must start with a SuperApp-owned path prefix
- *  4. SHOP_METAFIELD_SET namespace must start with "superapp."
+ *  4. SHOP_METAFIELD_SET namespace must start with "superapp_"
  *  5. AUDIT ops are always safe (no side effects)
  */
 
@@ -21,7 +21,7 @@ export const SUPERAPP_ASSET_PREFIXES = [
   'snippets/superapp-',
 ] as const;
 
-export const SUPERAPP_METAFIELD_NAMESPACE_PREFIX = 'superapp.' as const;
+export const SUPERAPP_METAFIELD_NAMESPACE_PREFIX = 'superapp_' as const;
 
 export type NonDestructiveResult = {
   ok: boolean;

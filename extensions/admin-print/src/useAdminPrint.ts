@@ -1,6 +1,6 @@
 /**
  * Fetches published admin.print modules from the shop via metaobject references.
- * Reads superapp.admin/print_refs (list.metaobject_reference, API 2026-04+). Each entry
+ * Reads superapp_admin/print_refs (list.metaobject_reference, API 2026-04+). Each entry
  * is a $app:superapp_admin_print metaobject written by the publish pipeline; the
  * extension picks the one whose `target` matches the current print-action target and
  * uses its config (documentKind/title) to build the print `src` URL.
@@ -23,7 +23,7 @@ export type AdminPrintState =
 
 const METAFIELD_QUERY = `{
   shop {
-    printRefs: metafield(namespace: "superapp.admin", key: "print_refs") {
+    printRefs: metafield(namespace: "superapp_admin", key: "print_refs") {
       references(first: 64) {
         nodes {
           ... on Metaobject {

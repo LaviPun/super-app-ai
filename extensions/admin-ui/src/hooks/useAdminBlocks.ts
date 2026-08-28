@@ -1,6 +1,6 @@
 /**
  * Fetches published admin.block modules from the shop via metaobject references.
- * Reads superapp.admin/block_refs (list.metaobject_reference) — API 2026-04+ compliant.
+ * Reads superapp_admin/block_refs (list.metaobject_reference) — API 2026-04+ compliant.
  * Each block is a $app:superapp_admin_block metaobject entry; no large JSON blobs.
  */
 import { useState, useEffect } from 'preact/hooks';
@@ -21,7 +21,7 @@ export type AdminBlocksState =
 
 const METAFIELD_QUERY = `{
   shop {
-    blockRefs: metafield(namespace: "superapp.admin", key: "block_refs") {
+    blockRefs: metafield(namespace: "superapp_admin", key: "block_refs") {
       references(first: 128) {
         nodes {
           ... on Metaobject {

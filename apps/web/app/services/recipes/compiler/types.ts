@@ -207,23 +207,23 @@ export type ProxyWidgetPayload = {
 export type CompileResult = {
   ops: DeployOperation[];
   compiledJson?: string;
-  /** When set, PublishService upserts a $app:superapp_module metaobject and adds it to superapp.theme/module_refs. */
+  /** When set, PublishService upserts a $app:superapp_module metaobject and adds it to superapp_theme/module_refs. */
   themeModulePayload?: ThemeModulePayload;
-  /** When set, PublishService upserts a $app:superapp_admin_block metaobject and adds it to superapp.admin/block_refs. */
+  /** When set, PublishService upserts a $app:superapp_admin_block metaobject and adds it to superapp_admin/block_refs. */
   adminBlockPayload?: AdminBlockPayload;
-  /** When set, PublishService upserts a $app:superapp_admin_action metaobject and adds it to superapp.admin/action_refs. */
+  /** When set, PublishService upserts a $app:superapp_admin_action metaobject and adds it to superapp_admin/action_refs. */
   adminActionPayload?: AdminActionPayload;
-  /** When set, PublishService upserts a $app:superapp_admin_discount_ui metaobject and adds it to superapp.admin/discount_ui_refs. */
+  /** When set, PublishService upserts a $app:superapp_admin_discount_ui metaobject and adds it to superapp_admin/discount_ui_refs. */
   adminDiscountUiPayload?: AdminDiscountUiPayload;
-  /** When set, PublishService upserts a $app:superapp_admin_link metaobject and adds it to superapp.admin/link_refs. */
+  /** When set, PublishService upserts a $app:superapp_admin_link metaobject and adds it to superapp_admin/link_refs. */
   adminLinkPayload?: AdminLinkPayload;
-  /** When set, PublishService upserts a $app:superapp_admin_print metaobject and adds it to superapp.admin/print_refs. */
+  /** When set, PublishService upserts a $app:superapp_admin_print metaobject and adds it to superapp_admin/print_refs. */
   adminPrintPayload?: AdminPrintPayload;
-  /** When set, PublishService upserts a $app:superapp_admin_segment_template metaobject and adds it to superapp.admin/segment_template_refs. */
+  /** When set, PublishService upserts a $app:superapp_admin_segment_template metaobject and adds it to superapp_admin/segment_template_refs. */
   adminSegmentTemplatePayload?: AdminSegmentTemplatePayload;
-  /** When set, PublishService upserts a $app:superapp_checkout_upsell metaobject and adds it to superapp.checkout/upsell_refs. */
+  /** When set, PublishService upserts a $app:superapp_checkout_upsell metaobject and adds it to superapp_checkout/upsell_refs. */
   checkoutUpsellPayload?: CheckoutUpsellPayload;
-  /** When set, PublishService upserts a $app:superapp_customer_account_block metaobject and adds it to superapp.customer_account/block_refs. */
+  /** When set, PublishService upserts a $app:superapp_customer_account_block metaobject and adds it to superapp_customer_account/block_refs. */
   customerAccountBlockPayload?: CustomerAccountBlockPayload;
   /** When set, PublishService upserts a $app:superapp_proxy_widget metaobject (handle: superapp-proxy-{widgetId}). */
   proxyWidgetPayload?: ProxyWidgetPayload;

@@ -9,7 +9,7 @@ import { PreviewService } from '~/services/preview/preview.service';
  * shipped in `extensions/discount-function-settings` (registers
  * admin.discount-details.function-settings.render, reads the published field config,
  * saves values to the discount function-configuration metafield). Publishing persists
- * the config to a superapp.admin/discount_ui_refs metaobject via a real compiler payload.
+ * the config to a superapp_admin/discount_ui_refs metaobject via a real compiler payload.
  */
 function discountUiSpec(): RecipeSpec {
   const t = MODULE_TEMPLATES.find((m) => m.spec.type === 'admin.discountUi');

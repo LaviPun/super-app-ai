@@ -1,14 +1,14 @@
 {% comment %}
   SuperApp Universal Slot (App Block)
   Merchant pastes a module ID; this block finds and renders that module from
-  superapp.theme/module_refs (list.metaobject_reference) — API 2026-04+ compliant.
+  superapp_theme/module_refs (list.metaobject_reference) — API 2026-04+ compliant.
   Markup comes from snippets/superapp-module.liquid; styles + runtime are wired
   once per page via this block's schema `stylesheet` / `javascript` attributes.
   See technical.md §15 + docs/design-system/module-design-system.md §3.3 (stylePack).
 {% endcomment %}
 {% assign module_id = block.settings.module_id | strip %}
 {% if module_id != blank %}
-  {% assign mod_refs = shop.metafields['superapp.theme']['module_refs'].value %}
+  {% assign mod_refs = shop.metafields['superapp_theme']['module_refs'].value %}
   {% assign mod_ref = nil %}
   {% for ref in mod_refs %}
     {% if ref.fields.module_id.value == module_id %}

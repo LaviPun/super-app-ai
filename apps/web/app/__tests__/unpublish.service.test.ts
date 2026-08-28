@@ -400,9 +400,9 @@ describe('UnpublishService', () => {
       .unpublish(spec, { kind: 'PLATFORM', moduleId: 'm1' } as never);
     expect(calls.map((c) => c.op)).toEqual(['ShopId', 'MetafieldsDelete']);
     expect(calls[1]!.variables!.metafields).toEqual([
-      { ownerId: 'gid://shopify/Shop/1', namespace: 'superapp.flow', key: 'flow_welcome-flow' },
+      { ownerId: 'gid://shopify/Shop/1', namespace: 'superapp_flow', key: 'flow_welcome-flow' },
     ]);
-    expect(report.deletedShopMetafields).toEqual(['superapp.flow/flow_welcome-flow']);
+    expect(report.deletedShopMetafields).toEqual(['superapp_flow/flow_welcome-flow']);
   });
 
   it('messaging.campaign: inverts SHOP_METAFIELD_SET by deleting the shop metafield', async () => {

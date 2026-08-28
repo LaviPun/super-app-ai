@@ -129,9 +129,9 @@ describe('api.agent.modules.$moduleId.publish — PublishPartialFailureError (fi
     const { PublishPartialFailureError } = await import('~/services/publish/publish.service');
     hoisted.publish.mockRejectedValueOnce(
       new PublishPartialFailureError(
-        'setModuleGidList:superapp.theme/module_refs',
+        'setModuleGidList:superapp_theme/module_refs',
         [
-          { op: 'ensureMetafieldDefinition:superapp.theme/module_refs' },
+          { op: 'ensureMetafieldDefinition:superapp_theme/module_refs' },
           { op: 'upsertMetaobject:superapp-module-mod-1' },
         ],
         new Error('boom'),
@@ -150,9 +150,9 @@ describe('api.agent.modules.$moduleId.publish — PublishPartialFailureError (fi
       guidance: string;
     };
     expect(payload.code).toBe('PUBLISH_PARTIAL_FAILURE');
-    expect(payload.failedOp).toBe('setModuleGidList:superapp.theme/module_refs');
+    expect(payload.failedOp).toBe('setModuleGidList:superapp_theme/module_refs');
     expect(payload.completedOps.map((e) => e.op)).toEqual([
-      'ensureMetafieldDefinition:superapp.theme/module_refs',
+      'ensureMetafieldDefinition:superapp_theme/module_refs',
       'upsertMetaobject:superapp-module-mod-1',
     ]);
     expect(payload.guidance).toMatch(/republish/i);

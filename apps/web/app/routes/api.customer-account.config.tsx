@@ -2,7 +2,7 @@
  * Customer Account UI extension config endpoint.
  *
  * Reads all $app:superapp_customer_account_block metaobject entries for a shop via
- * the superapp.customer_account/block_refs list.metaobject_reference metafield.
+ * the superapp_customer_account/block_refs list.metaobject_reference metafield.
  *
  * The extension reads config from the metaobject references (config-driven, no arbitrary HTML/scripts).
  */
@@ -13,7 +13,7 @@ import { withApiLogging } from '~/services/observability/api-log.service';
 const CA_BLOCK_REFS_QUERY = `#graphql
   query GetCustomerAccountBlockRefs {
     shop {
-      blockRefs: metafield(namespace: "superapp.customer_account", key: "block_refs") {
+      blockRefs: metafield(namespace: "superapp_customer_account", key: "block_refs") {
         references(first: 128) {
           nodes {
             ... on Metaobject {

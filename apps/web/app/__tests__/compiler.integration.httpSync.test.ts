@@ -29,7 +29,7 @@ describe('compileIntegrationHttpSync', () => {
     const metafieldOp = result.ops.find((o) => o.kind === 'SHOP_METAFIELD_SET');
     expect(metafieldOp).toBeDefined();
     if (metafieldOp && metafieldOp.kind === 'SHOP_METAFIELD_SET') {
-      expect(metafieldOp.namespace).toBe('superapp.integration');
+      expect(metafieldOp.namespace).toBe('superapp_integration');
       expect(metafieldOp.type).toBe('json');
       const parsed = JSON.parse(metafieldOp.value);
       expect(parsed.config.trigger).toBe('SHOPIFY_WEBHOOK_ORDER_CREATED');

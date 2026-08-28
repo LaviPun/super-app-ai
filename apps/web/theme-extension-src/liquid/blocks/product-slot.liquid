@@ -1,7 +1,7 @@
 {% comment %}
   SuperApp Product Block
   Place inside a product template section to render a product-level module.
-  Finds the module by ID in superapp.theme/module_refs (list.metaobject_reference) — API 2026-04+ compliant.
+  Finds the module by ID in superapp_theme/module_refs (list.metaobject_reference) — API 2026-04+ compliant.
   activationType 'block' modules are designed for this slot. Markup comes from
   snippets/superapp-module.liquid; styles + runtime are wired once per page via
   this block's schema `stylesheet` / `javascript` attributes.
@@ -9,7 +9,7 @@
 {% endcomment %}
 {% assign module_id = block.settings.module_id | strip %}
 {% if module_id != blank %}
-  {% assign mod_refs = shop.metafields['superapp.theme']['module_refs'].value %}
+  {% assign mod_refs = shop.metafields['superapp_theme']['module_refs'].value %}
   {% assign mod_ref = nil %}
   {% for ref in mod_refs %}
     {% if ref.fields.module_id.value == module_id %}

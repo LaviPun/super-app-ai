@@ -70,9 +70,9 @@ describe('publish ledger (WS-E finding 4)', () => {
     const result = await publisher.publish(THEME_SECTION_SPEC, TARGET);
 
     expect(result.ledger.map((e) => e.op)).toEqual([
-      'ensureMetafieldDefinition:superapp.theme/module_refs',
+      'ensureMetafieldDefinition:superapp_theme/module_refs',
       'upsertMetaobject:superapp-module-m1',
-      'setModuleGidList:superapp.theme/module_refs',
+      'setModuleGidList:superapp_theme/module_refs',
     ]);
   });
 
@@ -88,9 +88,9 @@ describe('publish ledger (WS-E finding 4)', () => {
     const err = await publisher.publish(THEME_SECTION_SPEC, TARGET).catch((e) => e);
 
     expect(err).toBeInstanceOf(PublishPartialFailureError);
-    expect(err.failedOp).toBe('setModuleGidList:superapp.theme/module_refs');
+    expect(err.failedOp).toBe('setModuleGidList:superapp_theme/module_refs');
     expect(err.completed.map((e: { op: string }) => e.op)).toEqual([
-      'ensureMetafieldDefinition:superapp.theme/module_refs',
+      'ensureMetafieldDefinition:superapp_theme/module_refs',
       'upsertMetaobject:superapp-module-m1',
     ]);
     expect(err.message).toMatch(/Republishing is safe/);
@@ -120,9 +120,9 @@ describe('publish ledger (WS-E finding 4)', () => {
     const result2 = await new PublishService(run2.admin, { shop: 'shop.example.com', shopId: 'shop_1' })
       .publish(THEME_SECTION_SPEC, TARGET);
     expect(result2.ledger.map((e) => e.op)).toEqual([
-      'ensureMetafieldDefinition:superapp.theme/module_refs',
+      'ensureMetafieldDefinition:superapp_theme/module_refs',
       'upsertMetaobject:superapp-module-m1',
-      'setModuleGidList:superapp.theme/module_refs',
+      'setModuleGidList:superapp_theme/module_refs',
     ]);
 
     for (const call of [...run1.calls, ...run2.calls]) {

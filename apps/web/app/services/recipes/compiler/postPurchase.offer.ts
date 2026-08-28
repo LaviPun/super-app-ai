@@ -4,7 +4,7 @@ import type { RecipeSpec } from '@superapp/core';
 /**
  * postPurchase.offer deploys through the shipped checkout UI extension's
  * Thank-you / Order-status target (`purchase.thank-you.block.render` in
- * `extensions/checkout-ui`), which reads the same `superapp.checkout/upsell_refs`
+ * `extensions/checkout-ui`), which reads the same `superapp_checkout/upsell_refs`
  * list and renders via `CheckoutBlockRenderer`. Available on all plans (unlike
  * in-checkout blocks). A real, rendered deploy — not an AUDIT no-op.
  */

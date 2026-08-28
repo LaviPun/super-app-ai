@@ -1,6 +1,6 @@
 /**
  * Fetches published SuperApp checkout offers from `$app:superapp_checkout_upsell`
- * metaobjects via `superapp.checkout/upsell_refs` (list.metaobject_reference),
+ * metaobjects via `superapp_checkout/upsell_refs` (list.metaobject_reference),
  * then resolves referenced product variants (title / image / price) so the UI
  * only ever shows buyer-facing content — never GIDs, targets, or raw config JSON.
  * Uses shopify.query() (Storefront API) — Preact / 64 KB friendly.
@@ -45,7 +45,7 @@ export type UseCheckoutConfigResult =
 const UPSELL_REFS_QUERY = `#graphql
   query SuperAppCheckoutUpsellRefs {
     shop {
-      upsellRefs: metafield(namespace: "superapp.checkout", key: "upsell_refs") {
+      upsellRefs: metafield(namespace: "superapp_checkout", key: "upsell_refs") {
         references(first: 128) {
           nodes {
             ... on Metaobject {

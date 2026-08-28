@@ -4,7 +4,7 @@ import type { RecipeSpec } from '@superapp/core';
 /**
  * checkout.block deploys through the SAME shipped checkout UI extension as
  * checkout.upsell: PublishService writes a `$app:superapp_checkout_upsell`
- * metaobject and appends it to `superapp.checkout/upsell_refs`, which
+ * metaobject and appends it to `superapp_checkout/upsell_refs`, which
  * `extensions/checkout-ui` reads (target `purchase.checkout.block.render`) and
  * renders generically via `CheckoutBlockRenderer`. So a custom checkout block is
  * a real, rendered deploy — not an AUDIT no-op.
