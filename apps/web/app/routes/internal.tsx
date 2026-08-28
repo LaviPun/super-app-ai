@@ -409,7 +409,7 @@ function AdminChrome({ settings, counts }: { settings: AppSettingsData | null; c
               <button className="global-search" onClick={() => setCmdkOpen(true)}>
                 <Icon name="search" size={16} />
                 <span className="grow" style={{ textAlign: 'left' }}>
-                  Search stores, modules, jobs, logs…
+                  Jump to Stores, Jobs, Logs…
                 </span>
                 <kbd className="kbd">⌘K</kbd>
               </button>

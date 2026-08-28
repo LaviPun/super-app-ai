@@ -20,6 +20,7 @@ import {
   titleCase,
   formatRelativeTime,
 } from '~/components/admin/page-kit';
+import { useLiveTail } from '~/hooks/useLiveTail';
 
 // Severity → Badge tone. critical is the only "loud" tone; low has no tone.
 const SEVERITY_TONE: Record<string, any> = { critical: 'critical', high: 'warning', medium: 'info', low: undefined };
@@ -143,26 +144,17 @@ export default function AdminSupportQueue() {
 
   // Live tail: consume the SSE endpoint. New ticket rows are prepended (deduped
   // by id, capped at 200); the EventSource is closed on toggle-off/unmount.
-  useEffect(() => {
-    if (!live) return;
-    const since = data.tickets[0]?.updatedAt ?? new Date().toISOString();
-    const es = new EventSource('/internal/support/stream?since=' + encodeURIComponent(since));
-    es.addEventListener('log', (evt) => {
-      try {
-        const row = JSON.parse((evt as MessageEvent).data) as TicketRow;
-        setLiveRows((prev) => [row, ...prev.filter((p) => p.id !== row.id)].slice(0, 200));
-      } catch {
-        // ignore malformed frames
-      }
-    });
-    es.onerror = () => {
-      if (es.readyState === EventSource.CLOSED) {
-        setLive(false);
-        ctx.toast('Live tail disconnected', true);
-      }
-    };
-    return () => es.close();
-  }, [live, data.tickets, ctx]);
+  // See useLiveTail for the reconnect/give-up-loudly behavior.
+  const since = data.tickets[0]?.updatedAt ?? new Date().toISOString();
+  const tailStatus = useLiveTail<TicketRow>({
+    enabled: live,
+    url: live ? '/internal/support/stream?since=' + encodeURIComponent(since) : null,
+    onEvent: (row) => setLiveRows((prev) => [row, ...prev.filter((p) => p.id !== row.id)].slice(0, 200)),
+    onGiveUp: (message) => {
+      setLive(false);
+      ctx.toast(message, true);
+    },
+  });
 
   const setParam = (key: string, value: string) => {
     setSearchParams(
@@ -219,9 +211,19 @@ export default function AdminSupportQueue() {
       </div>
       {live && (
         <div style={{ marginBottom: 14 }}>
-          <Banner tone="info" title="Live tail active">
-            Streaming new and updated tickets via SSE. New rows appear at the top.
-          </Banner>
+          {tailStatus === 'reconnecting' ? (
+            <Banner tone="warning" title="Live tail reconnecting…">
+              The stream dropped — retrying. Rows will resume once reconnected.
+            </Banner>
+          ) : tailStatus === 'connecting' ? (
+            <Banner tone="info" title="Live tail connecting…">
+              Opening the stream.
+            </Banner>
+          ) : (
+            <Banner tone="info" title="Live tail active">
+              Streaming new and updated tickets via SSE. New rows appear at the top.
+            </Banner>
+          )}
         </div>
       )}
       <Card>

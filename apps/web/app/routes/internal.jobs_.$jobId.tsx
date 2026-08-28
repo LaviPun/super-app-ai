@@ -1,10 +1,10 @@
 import { json } from '@remix-run/node';
-import { useFetcher, useLoaderData } from '@remix-run/react';
-import { useEffect } from 'react';
+import { useLoaderData } from '@remix-run/react';
 import { requireInternalAdmin } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import {
   useAdminCtx,
+  useAdminOps,
   Btn,
   Badge,
   StatusBadge,
@@ -65,6 +65,17 @@ export async function loader({ request, params }: { request: Request; params: { 
     // Formatted server-side (once) rather than at component render time — see
     // internal.activity.tsx's loader comment for why (hydration text mismatch).
     created: formatRelativeTime(job.createdAt.toISOString()),
+    // `fmtWhen` (below) wraps `Date#toLocaleString()`, which resolves the
+    // *runtime's* default locale — Node's on the server, the browser's on
+    // the client. Those routinely disagree (e.g. en-US "8/28/2026, 12:53:03 AM"
+    // vs. the browser's "28/08/2026, 00:53:03"), so calling it at component
+    // render time — as this page previously did for every one of these three
+    // timestamps — reliably produced a server/client text mismatch and threw
+    // React into a full hydration-failure client-render fallback on every
+    // load. Compute it once, server-side, same fix as `created` above.
+    createdWhen: fmtWhen(job.createdAt.toISOString()),
+    startedWhen: job.startedAt ? fmtWhen(job.startedAt.toISOString()) : null,
+    finishedWhen: job.finishedAt ? fmtWhen(job.finishedAt.toISOString()) : null,
     durationMs:
       job.startedAt && job.finishedAt ? job.finishedAt.getTime() - job.startedAt.getTime() : null,
   });
@@ -82,7 +93,7 @@ function EventRow({ e }: { e: TimelineEvent }) {
       <span className={'tl-dot ' + (e.critical ? 'critical' : 'success')} />
       <div className="row spread">
         <span className="t-sm t-strong">{e.label}</span>
-        <span className="t-xs t-muted">{fmtWhen(e.when)}</span>
+        <span className="t-xs t-muted">{e.when}</span>
       </div>
       <div className="row spread">
         <span className="t-xs" style={{ color: e.critical ? 'var(--p-critical-text)' : 'var(--p-text-secondary)' }}>
@@ -100,13 +111,16 @@ export default function AdminJobDetail() {
   // Hooks must run unconditionally on every render (Rules of Hooks) — declared here,
   // above the not-found early return, even though `replay`/`replayBusy` are only
   // exercised once a record is actually loaded.
-  const replayFetcher = useFetcher<{ ok: boolean; message: string }>();
-  const replayBusy = replayFetcher.state !== 'idle';
-  useEffect(() => {
-    if (replayFetcher.state === 'idle' && replayFetcher.data) {
-      ctx.toast(replayFetcher.data.message, !replayFetcher.data.ok);
-    }
-  }, [replayFetcher.state, replayFetcher.data, ctx]);
+  //
+  // Replays go through the audited /internal/ops path (job_replay), same as the
+  // jobs list page — this used to be a bespoke fetcher posting directly to
+  // `/internal/jobs` with `intent=replay`, a route+action that never existed,
+  // so clicking "Replay job" here always crashed with a full-page Remix error
+  // ("Route 'routes/internal.jobs' does not have an action"). useAdminOps
+  // also surfaces /internal/ops's honest-refusal responses (e.g. job types
+  // this worker doesn't own yet) as a toast instead of a stack trace.
+  const ops = useAdminOps();
+  const replayBusy = ops.busy;
 
   if (!data.found) {
     return (
@@ -126,32 +140,29 @@ export default function AdminJobDetail() {
   }
   const j = data;
 
-  const replay = () => {
-    const fd = new FormData();
-    fd.set('intent', 'replay');
-    fd.set('jobId', j.id);
-    replayFetcher.submit(fd, { method: 'post', action: '/internal/jobs' });
-  };
+  const replay = () => ops.run('job_replay', { id: j.id, message: 'Replay job' });
 
   // Real lifecycle events from the job row's timestamps — no fabricated attempt logs.
+  // `when` holds the loader's pre-formatted string (see createdWhen/startedWhen/
+  // finishedWhen's comment) — never re-derive it from the raw ISO at render time.
   const events: TimelineEvent[] = [
-    { key: 'created', label: 'Queued', when: j.createdAt, detail: titleCase(j.type) + ' job created', durationMs: null, critical: false },
+    { key: 'created', label: 'Queued', when: j.createdWhen, detail: titleCase(j.type) + ' job created', durationMs: null, critical: false },
   ];
-  if (j.startedAt) {
+  if (j.startedWhen) {
     events.push({
       key: 'started',
       label: 'Started',
-      when: j.startedAt,
+      when: j.startedWhen,
       detail: j.attempts > 1 ? 'Picked up by worker (attempt ' + j.attempts + ')' : 'Picked up by worker',
       durationMs: null,
       critical: false,
     });
   }
-  if (j.finishedAt) {
+  if (j.finishedWhen) {
     events.push({
       key: 'finished',
       label: j.status === 'FAILED' ? 'Failed' : 'Finished',
-      when: j.finishedAt,
+      when: j.finishedWhen,
       detail: j.status === 'FAILED' ? (j.error ?? 'Job failed') : 'Completed successfully',
       durationMs: j.durationMs,
       critical: j.status === 'FAILED',
@@ -190,7 +201,7 @@ export default function AdminJobDetail() {
         <StatTile label="Status" value={titleCase(j.status)} icon={j.status === 'FAILED' ? 'alert' : 'check'} tone={j.status === 'FAILED' ? 'critical' : j.status === 'QUEUED' ? 'warning' : 'success'} />
         <StatTile label="Attempts" value={j.attempts} icon="replay" tone={j.attempts > 1 ? 'warning' : 'info'} />
         <StatTile label="Duration" value={j.durationMs != null ? fmtMs(j.durationMs) : '—'} icon="clock" tone="info" />
-        <StatTile label="Created" value={j.created} sub={fmtWhen(j.createdAt)} icon="work" tone="info" />
+        <StatTile label="Created" value={j.created} sub={j.createdWhen} icon="work" tone="info" />
       </div>
       {j.status === 'FAILED' && j.error ? (
         <div style={{ marginBottom: 16 }}>
@@ -222,7 +233,7 @@ export default function AdminJobDetail() {
               ['Request ID', j.requestId ? <MonoChip key="req">{j.requestId}</MonoChip> : '—'],
               ['Status', <StatusBadge key="st" value={j.status} />],
               ['Attempts', j.attempts],
-              ['Created', fmtWhen(j.createdAt)],
+              ['Created', j.createdWhen],
             ]}
           />
           <div className="divider" style={{ margin: '14px 0' }} />
