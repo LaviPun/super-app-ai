@@ -99,8 +99,8 @@ export const JUDGE_POLISH_JSON_SCHEMA: Record<string, unknown> = {
       properties: {
         relevance: { type: 'number', minimum: 0, maximum: 100 },
         completeness: { type: 'number', minimum: 0, maximum: 100 },
-        copyQuality: { type: 'number', minimum: 0, maximum: 100 },
-        design: { type: 'number', minimum: 0, maximum: 100 },
+        copyQuality: { type: 'number', minimum: 0, maximum: 100, description: 'Penalize generic/placeholder-sounding wording; reward specific, on-brand copy.' },
+        design: { type: 'number', minimum: 0, maximum: 100, description: 'Judged from style.*/config.* — hierarchy, spacing-scale intent, restrained palette/token usage; penalize content living only in advancedCustom.' },
       },
     },
     suggestedPatch: {
@@ -188,9 +188,13 @@ export function compileJudgePolishPrompt(params: {
   }
   parts.push(
     '',
-    'Score the module 0-100 overall, weighting relevance and completeness most heavily. Also rate these dimensions 0-100: relevance (fit to the request), completeness (nothing important missing), copyQuality (headline/body/CTA wording), design (visual/structural quality).',
+    'Score the module 0-100 overall, weighting relevance and completeness most heavily. Also rate these dimensions 0-100 — be a harsh, specific critic, not a lenient one; a schema-valid module that is merely generic is NOT a high score on copyQuality/design:',
+    '- relevance: fit to the request.',
+    '- completeness: nothing important missing (a hero with no CTA, a countdown request with no live timer, etc.).',
+    '- copyQuality: headline/body/CTA wording. Penalize hard: vague/placeholder-sounding copy ("Shop Now", "Great Deal", "Check It Out"), copy that could apply to literally any store, and a headline that just restates the module type. Reward specific, concrete, on-brand wording that reads like it was written for THIS merchant/request.',
+    '- design: hierarchy, spacing rhythm, and palette/token usage AS AUTHORED IN THE RECIPE (not the pixel render, which you cannot see) — judge from style.* and config.*. Penalize: no clear single focal element (everything the same size/weight), spacing tokens that do not vary by role (e.g. every gap "medium"), a rainbow of colors instead of one accent used with intent, >2 effective font roles, a generic centered layout used regardless of content, and any structural content living ONLY in config.advancedCustom (invisible in the merchant preview) instead of the matching structured fields/blocks/pack. Reward deliberate hierarchy (size/weight/color contrast between primary and supporting content), a spacing scale that reflects content grouping, and restrained, intentional accent-color usage.',
     '',
-    'If — and only if — you can improve the wording, labels, visible text or style tokens WITHOUT changing the module\'s structure, type, or capabilities, include a JSON Merge Patch (RFC 7386) as "suggestedPatch":',
+    'If — and only if — you can improve the wording, labels, visible text or style tokens WITHOUT changing the module\'s structure, type, or capabilities, include a JSON Merge Patch (RFC 7386) as "suggestedPatch". A low copyQuality/design score should usually come WITH a patch that fixes what you criticized (specific copy instead of vague, a real accent/spacing token instead of a flat default) — do not just score low and leave it unpatched when a copy/style-only fix is possible:',
     '- Touch ONLY copy/label/text/style fields (e.g. config.fields headings/body/CTA text, config.blocks text, style/color tokens).',
     '- Do NOT change "type", "category" or "requires"; do NOT add or remove blocks or restructure config.',
     '- Emit only the keys you are changing. Omit "suggestedPatch" entirely if there is nothing worth improving.',

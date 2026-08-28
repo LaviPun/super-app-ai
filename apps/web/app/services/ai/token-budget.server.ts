@@ -6,11 +6,33 @@ import type { ModuleType } from '@superapp/core';
  * `{ "options": [ { "explanation": "...", "recipe": {...} } ] }` envelope.
  *
  * Larger types (flow.automation, customerAccount.blocks, functions.*) get more.
- * Storefront types are compact. Default is 4000 — enough for one rich recipe.
+ * Default is 4000 — enough for one rich recipe.
+ *
+ * `theme.section`/`proxy.widget` (generation-aesthetics quality pass, 2026-08):
+ * were 3000/2500 — the SMALLEST budgets in this table — despite carrying the
+ * single richest prompt payload in the system (the module-design-system.md
+ * directive: Apple-HIG floor + pack grammar + effects catalog + F1-F8
+ * micro-interactions + composition rules, ~1.5-2K tokens on its own) and being
+ * the only visually-judged, aesthetically-scrutinized surface. Empirically
+ * reproduced on real Anthropic calls through the live pipeline
+ * (generateValidatedRecipeOptions): a countdown-announcement-bar prompt
+ * truncated (`stop_reason=max_tokens`) on ALL 3 parallel option attempts at the
+ * old 3000 budget — a total, silent generation failure, not just thinner
+ * output — and a free-shipping-bar / email-capture-popup prompt each lost 1-2
+ * of 3 options the same way. Raising the budget measurably fixed the total
+ * failure (0/3 -> 1/3 succeeding at both 6000 and 8000, no further gain past
+ * 6000 in that same trial) — this is a token-budget floor, not a richness/
+ * prompt-quality problem: the model runs out of room mid-recipe and produces
+ * unparseable JSON, which silently drops the option from the result set
+ * (generateValidatedRecipeOptionsParallel swallows per-option failures) and
+ * biases the surviving options toward whichever approach happened to be
+ * terser — the opposite of what a "raise the bar" pass wants. See
+ * docs/design-system/module-design-system.md and the PR description for the
+ * full evidence.
  */
 export const RECIPE_TOKEN_BUDGETS: Partial<Record<ModuleType, number>> = {
-  'theme.section': 3000,
-  'proxy.widget': 2500,
+  'theme.section': 7000,
+  'proxy.widget': 5500,
   'flow.automation': 6000,
   'customerAccount.blocks': 4500,
   'functions.discountRules': 3500,

@@ -110,6 +110,23 @@ function previewPackOf(spec: RecipeSpec): PreviewPack {
   return PREVIEW_PACKS.includes(p as PreviewPack) ? (p as PreviewPack) : 'luxe';
 }
 
+/**
+ * Normalize a Handlebars-style `{{token}}` down to the system's own single-brace
+ * `{token}` convention BEFORE per-token substitution below. The generation
+ * prompt asks for single braces (`{amount}`/`{remaining}`/etc.), but `{{...}}`
+ * is a real, precedented convention elsewhere in this same codebase (the email
+ * template merge-tag substitution a few hundred lines down) — a model slipping
+ * into that habit is plausible, not malformed input to reject. Without this,
+ * `"{{remaining}}".replace(/\{remaining\}/g, value)` only swaps the INNER
+ * `{remaining}` substring, leaving the outer braces as stray literal characters
+ * in shopper-facing copy (observed: "Add {$17.50} more for free shipping.").
+ * Pure string fix — every renderer call site below stays byte-identical for the
+ * (overwhelmingly common) already-single-brace case.
+ */
+function normalizeTokenBraces(template: string): string {
+  return template.replace(/\{\{\s*(\w+)\s*\}\}/g, '{$1}');
+}
+
 function previewAccentOf(spec: RecipeSpec): string | undefined {
   const colors = (spec as { style?: { colors?: { seed?: string } } }).style?.colors;
   return colors?.seed;
@@ -1528,7 +1545,7 @@ export class PreviewService {
       const threshold = Number(saStr(spec, 'threshold')) || 10;
       const sample = Math.max(1, Math.min(Math.round(threshold * 0.7) || 1, threshold));
       const tpl = saStr(spec, 'messageTemplate') || 'Only {count} left in stock!';
-      const msg = tpl.replace(/\{count\}/g, String(sample));
+      const msg = normalizeTokenBraces(tpl).replace(/\{count\}/g, String(sample));
       const urgent = saFields(spec).urgency === true;
       return pageHtml(
         `<section class="superapp-band superapp-band--stock">
@@ -1609,7 +1626,7 @@ export class PreviewService {
     const remaining = Math.max(0, firstTh - current);
     const pct = maxTh > 0 ? Math.min(100, (current / maxTh) * 100) : 65;
     const fmt = (n: number): string => (basis === 'item-count' ? String(Math.round(n)) : withDollarIfBare(n.toFixed(2)));
-    const before = String(pg?.beforeText ?? 'You’re {remaining} away from your reward')
+    const before = normalizeTokenBraces(String(pg?.beforeText ?? 'You’re {remaining} away from your reward'))
       .replace(/\{amount\}/g, fmt(current))
       .replace(/\{remaining\}/g, fmt(remaining));
     const markers = tiers
@@ -1847,7 +1864,7 @@ export class PreviewService {
     const f = (first?.fields ?? {}) as Record<string, unknown>;
     const product = String(f.product ?? 'the Everyday Tote');
     const timeAgo = String(f.timeAgo ?? '2 hours ago');
-    const text = String(first?.text ?? 'Ava from Austin bought {product}')
+    const text = normalizeTokenBraces(String(first?.text ?? 'Ava from Austin bought {product}'))
       .replace(/\{product\}/g, product)
       .replace(/\{timeAgo\}/g, timeAgo);
     const img = typeof f.imageUrl === 'string' && f.imageUrl
@@ -3229,12 +3246,37 @@ function pageHtml(body: string, css: string) {
         letter-spacing: 0.02em; padding: 4px 8px; border-radius: 9999px;
         border: 1px solid rgba(17,24,39,0.08); pointer-events: none;
       }
+      /*
+       * Storefront-like base chrome (generation-aesthetics quality pass, 2026-08).
+       * Modules are deliberately authored to INHERIT ambient color on the real
+       * storefront when a recipe leaves colors.text/background unset — either via
+       * plain color:inherit/currentColor, or (for a seed-only recipe) via the
+       * OKLCH ramp's --sa-ink-equivalent role, module-design-system.md §3.3.2 — so
+       * the module blends into the merchant's own theme. That's correct in
+       * production, where a real theme supplies a real ambient text color. This
+       * preview page is NOT a real theme and previously supplied none, so an
+       * inherit/currentColor-based token silently resolved to nothing meaningful
+       * (verified: a seed-only template rendered near-invisible dark-on-dark text
+       * here). A neutral, deterministic light-storefront baseline — plus a
+       * constrained, centered content measure instead of an edge-to-edge box —
+       * gives every inherited/currentColor token something legible to resolve
+       * against and lets the module read as a page element instead of a bare
+       * fragment, without changing anything about how the module itself renders
+       * (per-kind CSS + the pack stylesheet below still win on any property they
+       * set explicitly).
+       */
+      html, body { background: #F3F4F6; }
+      body {
+        margin: 0; color: #14213A;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      .sa-preview-stage { max-width: 1400px; margin: 0 auto; padding: 24px 16px; }
       ${css}${packCss ? `\n/* ── two-pack design system (real storefront stylesheet) ── */\n${packCss}` : ''}</style>
       </head>
       <body>
         <div class="sa-sample-badge" aria-hidden="true">Sample data</div>
         ${activeDeviceNote ? `<div class="sa-device-note" aria-hidden="true">${esc(activeDeviceNote)}</div>` : ''}
-        <div style="padding:16px">${scopeOpen}${body}${scopeClose}</div>
+        <div class="sa-preview-stage">${scopeOpen}${body}${scopeClose}</div>
         ${LINK_INTERCEPT_SCRIPT}
       </body>
     </html>
