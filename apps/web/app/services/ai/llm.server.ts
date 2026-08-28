@@ -548,18 +548,37 @@ async function withManualFallback(
 
 export async function getLlmClient(
   shopId?: string | null,
-  options?: { blockMerchantCodeExecution?: boolean },
-): Promise<{ client: LlmClient; providerId: string | null }> {
+  options?: {
+    blockMerchantCodeExecution?: boolean;
+    /**
+     * Eval harness only: never wrap the resolved client in any cross-provider
+     * fallback (env OpenAI fallback, operator manual fallback, cost-chain
+     * legs). A qualification run must score exactly one model — a silent
+     * Claude→OpenAI fallback would score the wrong model's outputs.
+     * Production callers never pass this; default (false) behavior is unchanged.
+     */
+    disableFallback?: boolean;
+    /**
+     * Eval harness only: ignore ANTHROPIC_SKILLS / ANTHROPIC_CODE_EXECUTION env
+     * for the env Claude client so eval requests match production's DB-provider
+     * request shape (no container.skills / code_execution / beta headers).
+     * Production callers never pass this; default (false) behavior is unchanged.
+     */
+    ignoreEnvSkills?: boolean;
+  },
+): Promise<{ client: LlmClient; providerId: string | null; envModelDescription?: string }> {
   const block = options?.blockMerchantCodeExecution === true;
+  const noFallback = options?.disableFallback === true;
+  // With noFallback, the operator-assigned manual fallback leg is skipped too.
+  const applyManualFallback = (client: LlmClient, excludeIds: string[]): Promise<LlmClient> =>
+    noFallback ? Promise.resolve(client) : withManualFallback(client, shopId, block, excludeIds);
 
   // An explicit per-shop provider pin (Shop.aiProviderOverrideId) is a deliberate
   // merchant/operator choice — it wins outright and is never re-ranked by cost.
   const overrideProviderId = await resolveShopProviderOverrideId(shopId);
   if (overrideProviderId) {
-    const client = await withManualFallback(
+    const client = await applyManualFallback(
       buildProviderChain([overrideProviderId], shopId, block),
-      shopId,
-      block,
       [overrideProviderId],
     );
     return { client, providerId: overrideProviderId };
@@ -574,11 +593,11 @@ export async function getLlmClient(
   const ranked = isCostRoutingEnabled() ? await getCostRankedActiveProviders() : [];
   const [cheapest, ...restRanked] = ranked;
   if (cheapest) {
-    const chainProviderIds = [cheapest, ...restRanked].map((r) => r.providerId);
-    const client = await withManualFallback(
+    const chainProviderIds = noFallback
+      ? [cheapest.providerId]
+      : [cheapest, ...restRanked].map((r) => r.providerId);
+    const client = await applyManualFallback(
       buildProviderChain(chainProviderIds, shopId, block),
-      shopId,
-      block,
       chainProviderIds,
     );
     return { client, providerId: cheapest.providerId };
@@ -586,10 +605,8 @@ export async function getLlmClient(
 
   const providerId = await resolveProviderIdForShop(shopId);
   if (providerId) {
-    const client = await withManualFallback(
+    const client = await applyManualFallback(
       buildProviderChain([providerId], shopId, block),
-      shopId,
-      block,
       [providerId],
     );
     return { client, providerId };
@@ -603,11 +620,14 @@ export async function getLlmClient(
   const openaiKey = process.env.OPENAI_API_KEY?.trim();
   const geminiKey = process.env.GEMINI_API_KEY?.trim();
 
-  const anthropicSkillsRaw = process.env.ANTHROPIC_SKILLS?.trim();
+  // Eval runs ignore the skills env entirely — see options.ignoreEnvSkills.
+  const anthropicSkillsRaw = options?.ignoreEnvSkills ? undefined : process.env.ANTHROPIC_SKILLS?.trim();
   const anthropicSkills = anthropicSkillsRaw
     ? anthropicSkillsRaw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean).slice(0, 8)
     : undefined;
-  const anthropicCodeExecution = process.env.ANTHROPIC_CODE_EXECUTION?.toLowerCase() === 'true' || process.env.ANTHROPIC_CODE_EXECUTION === '1';
+  const anthropicCodeExecution =
+    !options?.ignoreEnvSkills &&
+    (process.env.ANTHROPIC_CODE_EXECUTION?.toLowerCase() === 'true' || process.env.ANTHROPIC_CODE_EXECUTION === '1');
   const envClaudeSkillsConfig =
     anthropicSkills?.length || anthropicCodeExecution
       ? { skills: anthropicSkills, codeExecution: anthropicCodeExecution }
@@ -623,29 +643,36 @@ export async function getLlmClient(
       envClaudeSkillsConfig,
       options?.blockMerchantCodeExecution === true,
     );
-    // Wrap with OpenAI fallback when both keys are available
-    if (openaiKey) {
+    const envModelDescription = `env (ANTHROPIC_DEFAULT_MODEL=${model})`;
+    // Wrap with OpenAI fallback when both keys are available (never for eval runs)
+    if (openaiKey && !noFallback) {
       const fallbackModel = process.env.OPENAI_DEFAULT_MODEL?.trim() || 'gpt-4o-mini';
       const fallback = new EnvOpenAiClient(openaiKey, fallbackModel, shopId ?? undefined);
-      return { client: new FallbackLlmClient(primary, fallback), providerId: null };
+      return { client: new FallbackLlmClient(primary, fallback), providerId: null, envModelDescription };
     }
-    return { client: primary, providerId: null };
+    return { client: primary, providerId: null, envModelDescription };
   }
   if (defaultAi === 'gemini' && geminiKey) {
     const model = process.env.GEMINI_DEFAULT_MODEL?.trim() || 'gemini-2.5-flash';
     const primary = new EnvGeminiClient(geminiKey, model, shopId ?? undefined);
-    if (openaiKey) {
+    const envModelDescription = `env (GEMINI_DEFAULT_MODEL=${model})`;
+    if (openaiKey && !noFallback) {
       const fallbackModel = process.env.OPENAI_DEFAULT_MODEL?.trim() || 'gpt-4o-mini';
       return {
         client: new FallbackLlmClient(primary, new EnvOpenAiClient(openaiKey, fallbackModel, shopId ?? undefined)),
         providerId: null,
+        envModelDescription,
       };
     }
-    return { client: primary, providerId: null };
+    return { client: primary, providerId: null, envModelDescription };
   }
   if ((defaultAi === 'openai' || defaultAi === null) && openaiKey) {
     const model = process.env.OPENAI_DEFAULT_MODEL?.trim() || 'gpt-4o-mini';
-    return { client: new EnvOpenAiClient(openaiKey, model, shopId ?? undefined), providerId: null };
+    return {
+      client: new EnvOpenAiClient(openaiKey, model, shopId ?? undefined),
+      providerId: null,
+      envModelDescription: `env (OPENAI_DEFAULT_MODEL=${model})`,
+    };
   }
 
   throw new AiProviderNotConfiguredError();
