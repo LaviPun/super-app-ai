@@ -129,7 +129,7 @@ describe('platform block injection into the compiled prompt', () => {
   it('appears in a compiled single-recipe prompt when threaded through', () => {
     const platformBlock = getShopifyDocsBlock('checkout.upsell');
     expect(platformBlock).toBeDefined();
-    const prompt = compileCreateSingleRecipePrompt({
+    const { prompt } = compileCreateSingleRecipePrompt({
       purposeAndGuidance: 'Guidance.',
       moduleType: 'checkout.upsell',
       summary: 'A checkout upsell.',
@@ -142,7 +142,7 @@ describe('platform block injection into the compiled prompt', () => {
   });
 
   it('is omitted when no platform block is supplied', () => {
-    const prompt = compileCreateSingleRecipePrompt({
+    const { prompt } = compileCreateSingleRecipePrompt({
       purposeAndGuidance: 'Guidance.',
       moduleType: 'integration.httpSync',
       summary: 'An HTTP sync.',

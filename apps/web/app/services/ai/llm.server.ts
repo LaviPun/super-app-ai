@@ -101,6 +101,28 @@ export interface GenerateHints {
    * instead of firing a call that cannot finish in time.
    */
   deadlineAt?: number;
+  /**
+   * WS P2-A. Char offset into the prompt marking the end of the cacheable
+   * static prefix (from CompiledPrompt.cacheableChars). Only
+   * anthropicGenerateRecipe reads this.
+   */
+  cacheableChars?: number;
+}
+
+/**
+ * WS P2-A. Return type of compileCreateModulePrompt/compileCreateSingleRecipePrompt/
+ * buildHydratePrompt. `prompt` is the exact string every caller used before this
+ * change (backward-compatible — everything downstream of prompt-compilation still
+ * treats it as a flat string). `cacheableChars` is the character offset marking the
+ * end of the shop-agnostic, request-agnostic, deterministic-per-(moduleType,mode)
+ * stable prefix; 0 means "no meaningful static block, don't bother caching this one."
+ * Only anthropicGenerateRecipe reads it (via GenerateHints.cacheableChars) — every
+ * other provider client ignores it, so this is a strict no-op for OpenAI/Gemini/
+ * OpenAI-compatible by construction (P2A-4).
+ */
+export interface CompiledPrompt {
+  prompt: string;
+  cacheableChars: number;
 }
 
 export interface LlmClient {
@@ -141,6 +163,10 @@ export interface GenerateResult {
   tokensOut: number;
   model?: string;
   servedProviderId?: string | null;
+  /** WS P2-A. Populated only by anthropicGenerateRecipe (via ConfiguredLlmClient/EnvClaudeClient); undefined for every other provider. */
+  cacheReadTokens?: number;
+  /** WS P2-A. Populated only by anthropicGenerateRecipe (via ConfiguredLlmClient/EnvClaudeClient); undefined for every other provider. */
+  cacheCreationTokens?: number;
 }
 
 export function guardAnthropicSkillsConfig(
@@ -149,10 +175,18 @@ export function guardAnthropicSkillsConfig(
 ): { skills?: string[]; codeExecution?: boolean } | undefined {
   if (!skillsConfig) return undefined;
   if (!skillsConfig.codeExecution) return skillsConfig;
-  return {
-    ...skillsConfig,
-    codeExecution: !options.blockMerchantCodeExecution && isMerchantCodeExecutionAllowed(),
-  };
+  const codeExecution = !options.blockMerchantCodeExecution && isMerchantCodeExecutionAllowed();
+  if (codeExecution) {
+    // WS P2-A (P2A-3): code execution forces the tools array to
+    // [{type:'code_execution_20260521', ...}], which the Anthropic client's
+    // useStructured gate already treats as mutually exclusive with forced
+    // structured output — an operator enabling this on a provider used for
+    // RecipeSpec/HydrateEnvelope generation silently loses the JSON-shape
+    // reliability WS-C Task 12 built. Not a redesign target (P2A-3); just
+    // make the tradeoff visible in logs instead of silent.
+    console.warn('[ai-skills] codeExecution enabled — structured-output tool-forcing is now disabled for this provider (mutually exclusive in anthropicGenerateRecipe)');
+  }
+  return { ...skillsConfig, codeExecution };
 }
 
 export class StubLlmClient implements LlmClient {
@@ -340,6 +374,7 @@ export class ConfiguredLlmClient implements LlmClient {
           responseSchema: hints?.responseSchema,
           timeoutMs,
           deadlineAt: hints?.deadlineAt,
+          cacheBoundary: hints?.cacheableChars,
         });
       }
 
@@ -446,6 +481,7 @@ class EnvClaudeClient implements LlmClient {
       responseSchema: hints?.responseSchema,
       timeoutMs,
       deadlineAt: hints?.deadlineAt,
+      cacheBoundary: hints?.cacheableChars,
     });
   }
 }
@@ -738,25 +774,23 @@ export function compileCreateModulePrompt(params: {
   premiumGuardrails?: string;
   /** WS-builder-ux: merchant-chosen concept count (1-3, default 3). */
   optionCount?: number;
-}): string {
+}): CompiledPrompt {
   const profileGuidance = params.promptProfile ? PROFILE_GUIDANCE[params.promptProfile] : undefined;
   const optionCount = Math.max(1, Math.min(3, params.optionCount ?? 3));
   const optionCountWord = optionCount === 1 ? 'one' : optionCount === 2 ? 'two' : 'three';
 
-  const parts: string[] = [];
-  if (params.designReferenceBlock) {
-    parts.push(params.designReferenceBlock, '');
-  }
-  if (params.designSystemDirective) {
-    parts.push(params.designSystemDirective, '');
-  }
-  if (params.blueprintContext) {
-    parts.push(params.blueprintContext, '');
-  }
-  parts.push(
+  // STABLE PREFIX: shop-agnostic, request-agnostic, deterministic given only
+  // (moduleType, mode, promptProfile). Every block here is safe to share a
+  // cache entry across every merchant and every request of this shape.
+  // NOTE: the merchant-chosen optionCount (1-3) is a per-request choice, not
+  // derivable from moduleType alone, so the optionCount-dependent task text
+  // lives in the dynamic suffix below (not in this stable block) — otherwise
+  // two requests for the same moduleType with different optionCount would get
+  // different "stable" prefixes, which would violate the byte-stability
+  // guarantee this split exists to provide.
+  const stable: string[] = [];
+  stable.push(
     params.purposeAndGuidance,
-    '',
-    `Task: Generate exactly ${optionCountWord} (${optionCount}) different module option${optionCount === 1 ? '' : 's'} for the merchant's request.${optionCount > 1 ? ' Vary by approach (content, trigger, when/where it shows, or styling).' : ''}`,
     '',
     params.typesList,
     '',
@@ -764,49 +798,49 @@ export function compileCreateModulePrompt(params: {
     params.summary,
     '',
     params.expectations,
+  );
+  if (profileGuidance) stable.push('', profileGuidance);
+  if (params.uiDesignerPass) stable.push('', params.uiDesignerPass);
+  if (params.frontendDeveloperPass) stable.push('', params.frontendDeveloperPass);
+  if (params.premiumGuardrails) stable.push('', params.premiumGuardrails);
+  if (params.settingsPack) stable.push('', params.settingsPack);
+  if (params.fullSchemaSpec) stable.push('', 'Full recipe schema (Zod validation — every field must match):', params.fullSchemaSpec);
+  if (params.styleSchemaSpec) stable.push('', 'Style schema (storefront only):', params.styleSchemaSpec);
+  if (params.platformBlock) stable.push('', params.platformBlock);
+
+  // WS P2-A fix round 1 (review finding 2/D): `hasMeaningfulStatic` gates only
+  // whether the prefix is *worth marking as a cache breakpoint* — it must
+  // NEVER gate whether `stableText`'s content reaches the model. `stable`
+  // above is built unconditionally (typesList, "Recommended type...", the
+  // task text) even when purposeAndGuidance/fullSchemaSpec/settingsPack/summary
+  // are all empty, so silently omitting `stableText` from `prompt` in that
+  // case would drop real content the caller supplied. `cacheableChars: 0`
+  // still correctly signals "don't bother caching this one" (empty/near-empty
+  // prefix isn't worth a breakpoint) without ever dropping content.
+  const hasMeaningfulStatic = Boolean(
+    params.purposeAndGuidance || params.fullSchemaSpec || params.settingsPack || params.summary,
+  );
+  const stableText = stable.join('\n');
+
+  // DYNAMIC SUFFIX: varies per shop and/or per request. Never share bytes
+  // across requests, so never worth a cache breakpoint.
+  const dynamic: string[] = [];
+  if (params.designReferenceBlock) dynamic.push(params.designReferenceBlock, '');
+  if (params.designSystemDirective) dynamic.push(params.designSystemDirective, '');
+  if (params.blueprintContext) dynamic.push(params.blueprintContext, '');
+  dynamic.push(
+    `Task: Generate exactly ${optionCountWord} (${optionCount}) different module option${optionCount === 1 ? '' : 's'} for the merchant's request.${optionCount > 1 ? ' Vary by approach (content, trigger, when/where it shows, or styling).' : ''}`,
     '',
     wrapUserRequestForPrompt(params.userRequest),
   );
-  if (profileGuidance) {
-    parts.push('', profileGuidance);
-  }
-  if (params.uiDesignerPass) {
-    parts.push('', params.uiDesignerPass);
-  }
-  if (params.frontendDeveloperPass) {
-    parts.push('', params.frontendDeveloperPass);
-  }
-  if (params.premiumGuardrails) {
-    parts.push('', params.premiumGuardrails);
-  }
-  if (params.settingsPack) {
-    parts.push('', params.settingsPack);
-  }
-  if (params.intentPacketJson) {
-    parts.push('', 'PromptIntentSeedV1 (compact intent+routing context; do not change it):', params.intentPacketJson);
-  }
-  if (params.fullSchemaSpec) {
-    parts.push('', 'Full recipe schema (Zod validation — every field must match):', params.fullSchemaSpec);
-  }
-  if (params.styleSchemaSpec) {
-    parts.push('', 'Style schema (storefront only):', params.styleSchemaSpec);
-  }
-  if (params.catalogDetails) {
-    parts.push('', 'Catalog (examples for inspiration):', params.catalogDetails);
-  }
-  if (params.exemplarBlock) {
-    parts.push('', params.exemplarBlock);
-  }
-  if (params.groundingBlock) {
-    parts.push('', params.groundingBlock);
-  }
-  if (params.platformBlock) {
-    parts.push('', params.platformBlock);
-  }
-  if (params.previousError) {
-    parts.push('', '(Previous validation error — fix in next response):', params.previousError);
-  }
-  return parts.join('\n');
+  if (params.intentPacketJson) dynamic.push('', 'PromptIntentSeedV1 (compact intent+routing context; do not change it):', params.intentPacketJson);
+  if (params.catalogDetails) dynamic.push('', 'Catalog (examples for inspiration):', params.catalogDetails);
+  if (params.exemplarBlock) dynamic.push('', params.exemplarBlock);
+  if (params.groundingBlock) dynamic.push('', params.groundingBlock);
+  if (params.previousError) dynamic.push('', '(Previous validation error — fix in next response):', params.previousError);
+
+  const prompt = `${stableText}\n${dynamic.join('\n')}`;
+  return { prompt, cacheableChars: hasMeaningfulStatic ? stableText.length : 0 };
 }
 
 /**
@@ -990,65 +1024,58 @@ export function compileCreateSingleRecipePrompt(params: {
   uiDesignerPass?: string;
   frontendDeveloperPass?: string;
   premiumGuardrails?: string;
-}): string {
+}): CompiledPrompt {
   const profileGuidance = params.promptProfile ? PROFILE_GUIDANCE[params.promptProfile] : undefined;
-  const parts: string[] = [];
-  if (params.designReferenceBlock) {
-    parts.push(params.designReferenceBlock, '');
-  }
-  if (params.designSystemDirective) {
-    parts.push(params.designSystemDirective, '');
-  }
-  if (params.blueprintContext) {
-    parts.push(params.blueprintContext, '');
-  }
-  parts.push(
+
+  // STABLE PREFIX: shop-agnostic, request-agnostic, deterministic given only
+  // (moduleType, promptProfile). The task text embeds moduleType, but it's
+  // still deterministic per moduleType (always "exactly 1 module"), so it's
+  // safe here — unlike the multi-option compiler's optionCount-dependent text.
+  const stable: string[] = [];
+  stable.push(
     params.purposeAndGuidance,
     '',
     `Task: Generate exactly 1 module of type "${params.moduleType}" for the merchant's request. Output a JSON object: { "explanation": "1-2 sentences", "recipe": { ...one full RecipeSpec... } }.`,
-  );
-  if (params.approachHint) {
-    parts.push('', params.approachHint);
-  }
-  parts.push(
     '',
     `Recommended type for this request: ${params.moduleType}`,
     params.summary,
     '',
     params.expectations,
-    '',
-    wrapUserRequestForPrompt(params.userRequest),
   );
-  if (profileGuidance) parts.push('', profileGuidance);
-  if (params.uiDesignerPass) parts.push('', params.uiDesignerPass);
-  if (params.frontendDeveloperPass) parts.push('', params.frontendDeveloperPass);
-  if (params.premiumGuardrails) parts.push('', params.premiumGuardrails);
-  if (params.settingsPack) parts.push('', params.settingsPack);
-  if (params.intentPacketJson) {
-    parts.push('', 'PromptIntentSeedV1 (compact intent+routing context; do not change it):', params.intentPacketJson);
-  }
-  if (params.fullSchemaSpec) {
-    parts.push('', 'Full recipe schema (Zod validation — every field must match):', params.fullSchemaSpec);
-  }
-  if (params.styleSchemaSpec) {
-    parts.push('', 'Style schema (storefront only):', params.styleSchemaSpec);
-  }
-  if (params.catalogDetails) {
-    parts.push('', 'Catalog (examples for inspiration):', params.catalogDetails);
-  }
-  if (params.exemplarBlock) {
-    parts.push('', params.exemplarBlock);
-  }
-  if (params.groundingBlock) {
-    parts.push('', params.groundingBlock);
-  }
-  if (params.platformBlock) {
-    parts.push('', params.platformBlock);
-  }
-  if (params.previousError) {
-    parts.push('', '(Previous validation error — fix in next response):', params.previousError);
-  }
-  return parts.join('\n');
+  if (profileGuidance) stable.push('', profileGuidance);
+  if (params.uiDesignerPass) stable.push('', params.uiDesignerPass);
+  if (params.frontendDeveloperPass) stable.push('', params.frontendDeveloperPass);
+  if (params.premiumGuardrails) stable.push('', params.premiumGuardrails);
+  if (params.settingsPack) stable.push('', params.settingsPack);
+  if (params.fullSchemaSpec) stable.push('', 'Full recipe schema (Zod validation — every field must match):', params.fullSchemaSpec);
+  if (params.styleSchemaSpec) stable.push('', 'Style schema (storefront only):', params.styleSchemaSpec);
+  if (params.platformBlock) stable.push('', params.platformBlock);
+
+  // WS P2-A fix round 1 (review finding 2/D): see the identical note in
+  // compileCreateModulePrompt — `hasMeaningfulStatic` must only gate the
+  // cache-breakpoint decision, never whether `stableText` reaches `prompt`.
+  const hasMeaningfulStatic = Boolean(
+    params.purposeAndGuidance || params.fullSchemaSpec || params.settingsPack || params.summary,
+  );
+  const stableText = stable.join('\n');
+
+  // DYNAMIC SUFFIX: varies per shop and/or per request (including approachHint,
+  // which differs across the parallel fan-out calls for the SAME moduleType —
+  // the key difference from the multi-option compiler's static profileGuidance).
+  const dynamic: string[] = [];
+  if (params.designReferenceBlock) dynamic.push(params.designReferenceBlock, '');
+  if (params.designSystemDirective) dynamic.push(params.designSystemDirective, '');
+  if (params.blueprintContext) dynamic.push(params.blueprintContext, '');
+  if (params.approachHint) dynamic.push('', params.approachHint);
+  dynamic.push('', wrapUserRequestForPrompt(params.userRequest));
+  if (params.intentPacketJson) dynamic.push('', 'PromptIntentSeedV1 (compact intent+routing context; do not change it):', params.intentPacketJson);
+  if (params.catalogDetails) dynamic.push('', 'Catalog (examples for inspiration):', params.catalogDetails);
+  if (params.exemplarBlock) dynamic.push('', params.exemplarBlock);
+  if (params.groundingBlock) dynamic.push('', params.groundingBlock);
+  if (params.previousError) dynamic.push('', '(Previous validation error — fix in next response):', params.previousError);
+
+  const prompt = `${stableText}\n${dynamic.join('\n')}`;
+  return { prompt, cacheableChars: hasMeaningfulStatic ? stableText.length : 0 };
 }
 
 /**
@@ -1232,7 +1259,7 @@ async function applyDesignQaWithRetry(
  */
 async function regenerateSingleRecipeForQa(args: {
   client: LlmClient;
-  compiledPrompt: string;
+  compiledPrompt: CompiledPrompt;
   corrective: string;
   perBudget: number;
   singleSchema: Record<string, unknown> | undefined;
@@ -1242,13 +1269,25 @@ async function regenerateSingleRecipeForQa(args: {
   providerId: string | null;
   deadlineAt?: number;
 }): Promise<QaRegenResult> {
-  const { client, compiledPrompt, corrective, perBudget, singleSchema, moduleType, idx, shopId, providerId, deadlineAt } = args;
-  const result = await client.generateRecipe(`${compiledPrompt}\n\n${corrective}`, {
+  const { client, compiledPrompt, corrective, perBudget, singleSchema, moduleType, shopId, providerId, deadlineAt } = args;
+  // WS P2-A fix round 1 (review finding 1): tool name must be index-invariant
+  // — it renders inside `tools`, which serializes before `system`/`messages`
+  // in the request body, so a name that varies per fan-out option (or per QA
+  // regen vs. the original call) would change the `tools` block bytes and
+  // invalidate BOTH cache breakpoints (system + message-prefix) for every
+  // sibling call. Nothing downstream matches on this string (Anthropic's
+  // `extractToolUseInput` matches by content type, not name) — it only needs
+  // to be a valid identifier unique per (moduleType) tool-choice, not per call.
+  // Reusing the same name as the main option call (below, produceOptionRecipe)
+  // additionally lets a QA-triggered corrective regen share that call's cache
+  // lineage instead of fragmenting into its own.
+  const result = await client.generateRecipe(`${compiledPrompt.prompt}\n\n${corrective}`, {
     maxTokens: perBudget,
     responseSchema: singleSchema
-      ? { name: `RecipeSingle_${moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}_qa`, schema: singleSchema }
+      ? { name: `RecipeSingle_${moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}`, schema: singleSchema }
       : undefined,
     deadlineAt,
+    cacheableChars: compiledPrompt.cacheableChars,
   });
   // Capture the spend BEFORE parse/repair — the LLM call is billed even if its
   // output is unusable (the QA cost-tracking gap this closes).
@@ -1583,7 +1622,7 @@ export async function generateValidatedRecipe(
 
   let lastErr: unknown;
   for (let i = 0; i < maxAttempts; i++) {
-    const { rawJson, tokensIn, tokensOut, model, servedProviderId } = await client.generateRecipe(wrappedPrompt, {
+    const { rawJson, tokensIn, tokensOut, model, servedProviderId, cacheReadTokens, cacheCreationTokens } = await client.generateRecipe(wrappedPrompt, {
       previousError: lastErr ? String(lastErr) : undefined,
       maxTokens: options?.maxTokens,
     });
@@ -1615,6 +1654,8 @@ export async function generateValidatedRecipe(
         meta: { attempts: i + 1, model },
         requestCount: 1,
         prompt: wrappedPrompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
       return parsed;
     } catch (err) {
@@ -1660,6 +1701,8 @@ Output a JSON object with a single key "recipe" whose value is the complete upda
     let tokensOut = 0;
     let model: string | undefined;
     let servedProviderId: string | null | undefined;
+    let cacheReadTokens: number | undefined;
+    let cacheCreationTokens: number | undefined;
     try {
       const result = await client.generateRecipe(modifyPrompt, {
         previousError: lastErr ? String(lastErr) : undefined,
@@ -1669,6 +1712,8 @@ Output a JSON object with a single key "recipe" whose value is the complete upda
       tokensOut = result.tokensOut;
       model = result.model;
       servedProviderId = result.servedProviderId;
+      cacheReadTokens = result.cacheReadTokens;
+      cacheCreationTokens = result.cacheCreationTokens;
       const parsed = RecipeSpecSchema.parse(unwrapRecipe(JSON.parse(result.rawJson)));
       if (!options?.allowTypeChange && parsed.type !== currentSpec.type) {
         throw new Error(`AI changed module type from "${currentSpec.type}" to "${parsed.type}". Type changes are not allowed in modify mode.`);
@@ -1696,6 +1741,8 @@ Output a JSON object with a single key "recipe" whose value is the complete upda
         meta: { attempts: i + 1, model },
         requestCount: 1,
         prompt: modifyPrompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
       return parsed;
     } catch (err) {
@@ -1716,6 +1763,8 @@ Output a JSON object with a single key "recipe" whose value is the complete upda
         meta: { attempts: i + 1, model, error: String(err).slice(0, 500) },
         requestCount: 1,
         prompt: modifyPrompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
     }
   }
@@ -1742,7 +1791,7 @@ async function produceOptionRecipe(args: {
   idx: number;
   approach: { label: string; hint: string };
   client: LlmClient;
-  compiledPrompt: string;
+  compiledPrompt: CompiledPrompt;
   perBudget: number;
   singleSchema: Record<string, unknown> | undefined;
   moduleType: ModuleType;
@@ -1798,12 +1847,17 @@ async function produceOptionRecipe(args: {
   }
 
   // Freeform (default) path.
-  const result = await client.generateRecipe(compiledPrompt, {
+  // WS P2-A fix round 1 (review finding 1): tool name is index-invariant (no
+  // `_${idx}` suffix) so the 3 parallel fan-out option calls for one request
+  // — and any QA corrective regen, see regenerateSingleRecipeForQa above —
+  // share an identical `tools` block and therefore the same cache lineage.
+  const result = await client.generateRecipe(compiledPrompt.prompt, {
     maxTokens: perBudget,
     responseSchema: singleSchema
-      ? { name: `RecipeSingle_${moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}_${idx}`, schema: singleSchema }
+      ? { name: `RecipeSingle_${moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}`, schema: singleSchema }
       : undefined,
     deadlineAt,
+    cacheableChars: compiledPrompt.cacheableChars,
   });
   const parsed = JSON.parse(result.rawJson);
   const raw = unwrapRecipe(parsed);
@@ -1976,6 +2030,8 @@ export async function* generateValidatedRecipeOptionsStream(
     let model: string | undefined;
     let costCents = 0;
     let servedId: string | null = providerId;
+    let cacheReadTokens: number | undefined;
+    let cacheCreationTokens: number | undefined;
     try {
       const produced = await produceOptionRecipe({
         idx,
@@ -1996,6 +2052,8 @@ export async function* generateValidatedRecipeOptionsStream(
       tokensIn = result.tokensIn;
       tokensOut = result.tokensOut;
       model = result.model;
+      cacheReadTokens = result.cacheReadTokens;
+      cacheCreationTokens = result.cacheCreationTokens;
       ({ providerId: servedId, costCents } = await attributeServedCost(result, providerId, tokensIn, tokensOut));
 
       let recipe = produced.recipe;
@@ -2045,7 +2103,9 @@ export async function* generateValidatedRecipeOptionsStream(
         meta: { approach: approach.label, model, repaired: repairedFlag, generationMode: produced.generationMode, durationMs: Date.now() - startedAt },
         requestCount: claimOptionBillableUnit(billing, 'ok'),
         correlationId: options?.correlationId,
-        prompt: compiledPrompt,
+        prompt: compiledPrompt.prompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
       return {
         kind: 'ok' as const,
@@ -2065,7 +2125,9 @@ export async function* generateValidatedRecipeOptionsStream(
         meta: { approach: approach.label, model, error: String(err).slice(0, 500), durationMs: Date.now() - startedAt },
         requestCount: claimOptionBillableUnit(billing, 'failed'),
         correlationId: options?.correlationId,
-        prompt: compiledPrompt,
+        prompt: compiledPrompt.prompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
       return {
         kind: 'err' as const,
@@ -2248,6 +2310,8 @@ export async function generateValidatedRecipeOptionsParallel(
     let model: string | undefined;
     let costCents = 0;
     let servedId: string | null = providerId;
+    let cacheReadTokens: number | undefined;
+    let cacheCreationTokens: number | undefined;
 
     try {
       const produced = await produceOptionRecipe({
@@ -2269,6 +2333,8 @@ export async function generateValidatedRecipeOptionsParallel(
       tokensIn = result.tokensIn;
       tokensOut = result.tokensOut;
       model = result.model;
+      cacheReadTokens = result.cacheReadTokens;
+      cacheCreationTokens = result.cacheCreationTokens;
       ({ providerId: servedId, costCents } = await attributeServedCost(result, providerId, tokensIn, tokensOut));
 
       let recipe = produced.recipe;
@@ -2318,7 +2384,9 @@ export async function generateValidatedRecipeOptionsParallel(
         meta: { approach: approach.label, model, repaired: repairedFlag, generationMode: produced.generationMode },
         requestCount: claimOptionBillableUnit(billing, 'ok'),
         correlationId: options?.correlationId,
-        prompt: compiledPrompt,
+        prompt: compiledPrompt.prompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
       const option: RecipeOption = { explanation, recipe, generationMode: produced.generationMode, qaSummary: qaRetry.qaSummary };
       return { ok: true as const, option };
@@ -2333,7 +2401,9 @@ export async function generateValidatedRecipeOptionsParallel(
         meta: { approach: approach.label, model, error: String(err).slice(0, 500) },
         requestCount: claimOptionBillableUnit(billing, 'failed'),
         correlationId: options?.correlationId,
-        prompt: compiledPrompt,
+        prompt: compiledPrompt.prompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
       return { ok: false as const, error: err };
     }
@@ -2609,14 +2679,17 @@ export async function generateValidatedRecipeOptions(
     let tokensOut = 0;
     let model: string | undefined;
     let servedProviderId: string | null | undefined;
+    let cacheReadTokens: number | undefined;
+    let cacheCreationTokens: number | undefined;
 
     try {
-      ({ rawJson, tokensIn, tokensOut, model, servedProviderId } = await client.generateRecipe(compiledPrompt, {
+      ({ rawJson, tokensIn, tokensOut, model, servedProviderId, cacheReadTokens, cacheCreationTokens } = await client.generateRecipe(compiledPrompt.prompt, {
         maxTokens: optionsBudget,
         responseSchema: optionsJsonSchema
           ? { name: `RecipeOptions_${classification.moduleType.replace(/[^a-zA-Z0-9_]/g, '_')}`, schema: optionsJsonSchema }
           : undefined,
         deadlineAt: options?.deadlineAt,
+        cacheableChars: compiledPrompt.cacheableChars,
       }));
       const parsed = JSON.parse(rawJson);
       const optionsArrRaw = parsed?.options ?? (Array.isArray(parsed) ? parsed : null);
@@ -2681,7 +2754,9 @@ export async function generateValidatedRecipeOptions(
         meta: { attempts: attempt + 1, model, validOptions: validated.length },
         requestCount,
         correlationId: options?.correlationId,
-        prompt: compiledPrompt,
+        prompt: compiledPrompt.prompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
 
       return validated;
@@ -2709,7 +2784,9 @@ export async function generateValidatedRecipeOptions(
         meta: { attempts: attempt + 1, model, error: String(err).slice(0, 500) },
         requestCount: await legacyRecipeOptionsBillableUnits(usage, options?.correlationId, 'failed'),
         correlationId: options?.correlationId,
-        prompt: compiledPrompt,
+        prompt: compiledPrompt.prompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
     }
   }
@@ -2751,6 +2828,8 @@ export async function modifyRecipeSpecOptions(
     let tokensOut = 0;
     let model: string | undefined;
     let servedProviderId: string | null | undefined;
+    let cacheReadTokens: number | undefined;
+    let cacheCreationTokens: number | undefined;
 
     try {
       const result = await client.generateRecipe(compiledPrompt, {
@@ -2760,6 +2839,8 @@ export async function modifyRecipeSpecOptions(
       tokensOut = result.tokensOut;
       model = result.model;
       servedProviderId = result.servedProviderId;
+      cacheReadTokens = result.cacheReadTokens;
+      cacheCreationTokens = result.cacheCreationTokens;
 
       const parsed = JSON.parse(result.rawJson);
       const optionsArr = parsed?.options ?? (Array.isArray(parsed) ? parsed : null);
@@ -2804,6 +2885,8 @@ export async function modifyRecipeSpecOptions(
         meta: { attempts: attempt + 1, model, validOptions: validated.length },
         requestCount: 1,
         prompt: compiledPrompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
 
       return validated;
@@ -2825,6 +2908,8 @@ export async function modifyRecipeSpecOptions(
         meta: { attempts: attempt + 1, model, error: String(err).slice(0, 500) },
         requestCount: 1,
         prompt: compiledPrompt,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
     }
   }
@@ -2951,8 +3036,8 @@ export async function hydrateRecipeSpec(
   });
   const usage = new AiUsageService();
 
-  const prompt = buildHydratePrompt(recipeSpec, options?.merchantContext);
-  const wrappedPrompt = prompt + '\n\nOutput only the HydrateEnvelope JSON object.';
+  const compiled = buildHydratePrompt(recipeSpec, options?.merchantContext);
+  const wrappedPrompt = compiled.prompt + '\n\nOutput only the HydrateEnvelope JSON object.';
 
   // WS-C Task 12. Bumped after a TruncatedOutputError so the RETRY gets more
   // room — burning a second attempt at the SAME budget that just truncated
@@ -2969,13 +3054,15 @@ export async function hydrateRecipeSpec(
     let tokensOut = 0;
     let model: string | undefined;
     let servedProviderId: string | null | undefined;
+    let cacheReadTokens: number | undefined;
+    let cacheCreationTokens: number | undefined;
     try {
       // WS-C Task 12. `client.generateRecipe` moved INSIDE the try: before
       // this, a throw from the call itself (network/HTTP error, and now
       // `TruncatedOutputError`) skipped the retry bookkeeping below entirely
       // — no failed-attempt row, no chance to retry with a bumped budget,
       // the whole function just rejected on attempt 0.
-      ({ rawJson, tokensIn, tokensOut, model, servedProviderId } = await client.generateRecipe(
+      ({ rawJson, tokensIn, tokensOut, model, servedProviderId, cacheReadTokens, cacheCreationTokens } = await client.generateRecipe(
         wrappedPrompt,
         {
           previousError: lastErr ? String(lastErr) : undefined,
@@ -2986,6 +3073,7 @@ export async function hydrateRecipeSpec(
           // eliminates a whole class of retry-burning parse failures.
           responseSchema: getHydrateEnvelopeJsonSchema(),
           deadlineAt: options?.deadlineAt,
+          cacheableChars: compiled.cacheableChars,
         },
       ));
 
@@ -3020,6 +3108,8 @@ export async function hydrateRecipeSpec(
         requestCount,
         prompt: wrappedPrompt,
         correlationId: options?.billingKey,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
       return envelopeToUse;
     } catch (err) {
@@ -3047,6 +3137,8 @@ export async function hydrateRecipeSpec(
         requestCount: 0,
         prompt: wrappedPrompt,
         correlationId: options?.billingKey,
+        cacheReadTokens,
+        cacheCreationTokens,
       });
     }
   }
@@ -3129,6 +3221,9 @@ export async function recordAiUsage(
     requestCount?: number;
     meta?: unknown;
     prompt?: string;
+    /** WS P2-A: Anthropic cache stats (observability only) — merged into `AiUsage.meta` by AiUsageService. */
+    cacheReadTokens?: number;
+    cacheCreationTokens?: number;
     /** Client-generated per-attempt id (WS-QF / AI-2) — see seedBillingStateForCorrelation. */
     correlationId?: string;
   },

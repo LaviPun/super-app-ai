@@ -20,6 +20,14 @@ export class AiUsageService {
     costCents: number;
     requestCount?: number;
     meta?: unknown;
+    /**
+     * WS P2-A: Anthropic prompt-cache observability. Merged into the `meta`
+     * JSON (alongside `attempts`/`model`) rather than stored as columns —
+     * cache stats are observability only, never billing inputs. Absent for
+     * non-Anthropic providers; `undefined` simply drops out of the JSON.
+     */
+    cacheReadTokens?: number;
+    cacheCreationTokens?: number;
     correlationId?: string;
     /**
      * Set when providerId is null. Identifies which env key was used so we can
@@ -31,6 +39,25 @@ export class AiUsageService {
     const providerId = params.providerId ?? (await ensureEnvProviderRow(params.envSource ?? 'env:unknown'));
     const ctx = getRequestContext();
     const correlationId = params.correlationId ?? ctx?.correlationId ?? ctx?.requestId ?? null;
+    // WS P2-A: fold cache stats into the meta JSON. When neither field is
+    // present the pre-P2-A stringify path below runs byte-identically.
+    const cacheMeta = {
+      ...(params.cacheReadTokens !== undefined ? { cacheReadTokens: params.cacheReadTokens } : {}),
+      ...(params.cacheCreationTokens !== undefined ? { cacheCreationTokens: params.cacheCreationTokens } : {}),
+    };
+    const hasCacheMeta = Object.keys(cacheMeta).length > 0;
+    const metaJson = hasCacheMeta
+      ? JSON.stringify({
+          ...(params.meta && typeof params.meta === 'object'
+            ? (params.meta as Record<string, unknown>)
+            : params.meta
+              ? { value: params.meta }
+              : {}),
+          ...cacheMeta,
+        })
+      : params.meta
+        ? JSON.stringify(params.meta)
+        : null;
     await prisma.aiUsage.create({
       data: {
         provider: { connect: { id: providerId } },
@@ -40,7 +67,7 @@ export class AiUsageService {
         tokensOut: params.tokensOut,
         costCents: params.costCents,
         requestCount: params.requestCount ?? 1,
-        meta: params.meta ? JSON.stringify(params.meta) : null,
+        meta: metaJson,
         correlationId,
       },
     });

@@ -74,7 +74,7 @@ describe('Anthropic Messages client', () => {
     expect(capturedBody.container).toBeDefined();
     expect(capturedBody.container.skills).toHaveLength(2);
     expect(capturedBody.container.skills[0]).toEqual({ type: 'anthropic', skill_id: 'pptx', version: 'latest' });
-    expect(capturedBody.tools).toEqual([{ type: 'code_execution_20250825', name: 'code_execution' }]);
+    expect(capturedBody.tools).toEqual([{ type: 'code_execution_20260521', name: 'code_execution' }]);
   });
 });
 

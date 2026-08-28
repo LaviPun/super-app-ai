@@ -64,7 +64,7 @@ describe('paletteToDesignReferencePack (live theme)', () => {
 describe('prompt premium sections', () => {
   it('includes DesignReferenceV1 and refinement passes in compiled prompt', () => {
     const designBlock = buildDesignReferencePromptBlock(deriveDesignReferencePack('https://bummer.in'));
-    const prompt = compileCreateSingleRecipePrompt({
+    const { prompt } = compileCreateSingleRecipePrompt({
       purposeAndGuidance: PROMPT_PURPOSE_AND_GUIDANCE,
       moduleType: 'theme.section',
       summary: 'summary',
