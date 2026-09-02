@@ -7,7 +7,6 @@
  *
  * Fires all FlowSchedule records whose nextRunAt ≤ now.
  */
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { json } from '@remix-run/node';
 import { ScheduleService } from '~/services/flows/schedule.service';
 import { FlowRunnerService } from '~/services/flows/flow-runner.service';
@@ -24,6 +23,8 @@ import {
   type MetaobjectCleanupDrainResult,
 } from '~/services/jobs/shopify-metaobject-cleanup.job';
 import { sweepStuckRunningJobs, type StuckSweepResult } from '~/services/jobs/stuck-job-sweep.server';
+import { runOpsHealthSweep, type OpsHealthSweepResult } from '~/services/observability/ops-health.server';
+import { constantTimeSecretMatch } from '~/services/security/secret-compare.server';
 import { logger } from '~/services/observability/logger.server';
 import { safeErrorMeta } from '~/services/observability/redact.server';
 import { enforceRateLimit, getClientIp } from '~/services/security/rate-limit.server';
@@ -33,11 +34,6 @@ import type { AdminApiContext } from '~/types/shopify';
 let lastAuditRetentionRunAt: number | null = null;
 let lastLoyaltyExpiryRunAt: number | null = null;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-
-function constantTimeSecretMatch(provided: string, expected: string): boolean {
-  const hash = (value: string) => createHash('sha256').update(value).digest();
-  return timingSafeEqual(hash(provided), hash(expected));
-}
 
 export async function loader({ request }: { request: Request }) {
   const secret = process.env.CRON_SECRET;
@@ -178,6 +174,18 @@ export async function loader({ request }: { request: Request }) {
     logger.warn('[api.cron] stuck-running job sweep failed', safeErrorMeta(err));
   }
 
+  // DevOps hardening 2026-09: heartbeat + ops-health snapshot + threshold
+  // alerts (DLQ depth, queue backlog, error spike, cron staleness, AI spend
+  // cap). Runs every tick — the heartbeat it writes is what the staleness
+  // signal measures. Own try/catch so a sweep failure never 500s the tick,
+  // but the failure is logged loudly (D8).
+  let opsHealthSweep: OpsHealthSweepResult | null = null;
+  try {
+    opsHealthSweep = await runOpsHealthSweep();
+  } catch (err) {
+    logger.error('[api.cron] ops-health sweep failed', safeErrorMeta(err));
+  }
+
   let auditRetention: { deleted: number; retentionDays: number; cutoff: string } | null = null;
   let chatRetention: { deleted: number; retentionDays: number; cutoff: string } | null = null;
   const now = Date.now();
@@ -211,5 +219,5 @@ export async function loader({ request }: { request: Request }) {
     }
   }
 
-  return json({ ran: results.length, results, resumeSweep, httpSyncReplay, uninstallCleanup, auditRetention, chatRetention, loyaltyExpiry, planSyncSweep, stuckJobSweep });
+  return json({ ran: results.length, results, resumeSweep, httpSyncReplay, uninstallCleanup, auditRetention, chatRetention, loyaltyExpiry, planSyncSweep, stuckJobSweep, opsHealthSweep });
 }

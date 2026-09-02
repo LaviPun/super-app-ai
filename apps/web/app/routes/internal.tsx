@@ -6,6 +6,7 @@ import { internalSessionStorage } from '~/internal-admin/session.server';
 import { getPrisma } from '~/db.server';
 import { SettingsService, type AppSettingsData } from '~/services/settings/settings.service';
 import { internalDocumentTitle } from '~/utils/internal-route-meta';
+import { parseOpsHealthSnapshot, type OpsHealthSnapshot } from '~/services/observability/ops-health.server';
 import {
   Icon,
   Avatar,
@@ -53,11 +54,12 @@ export async function loader({ request }: { request: Request }) {
   // Each query is guarded so a missing table degrades to 0 rather than 500ing
   // the whole admin shell.
   let counts: NavCounts = { dlq: 0, err: 0, wh: 0, tickets: 0, unreadReplies: 0 };
+  let opsHealth: OpsHealthSnapshot | null = null;
 
   if (isAuthed) {
     const prisma = getPrisma();
     const since24h = new Date(Date.now() - 86_400_000);
-    const [settingsResult, failedJobs, errors24h, failedWebhooks24h, openTickets, latestEventsByTicket] = await Promise.all([
+    const [settingsResult, failedJobs, errors24h, failedWebhooks24h, openTickets, latestEventsByTicket, opsHealthRow] = await Promise.all([
       new SettingsService().get().catch(() => null),
       prisma.job.count({ where: { status: 'FAILED' } }).catch(() => 0),
       prisma.errorLog.count({ where: { level: 'ERROR', createdAt: { gte: since24h } } }).catch(() => 0),
@@ -80,17 +82,23 @@ export async function loader({ request }: { request: Request }) {
           select: { ticketId: true, type: true },
         })
         .catch(() => [] as Array<{ ticketId: string; type: string }>),
+      // DevOps hardening 2026-09: last persisted ops-health snapshot (written by
+      // the cron sweep) — one indexed single-row read, no live counts per nav.
+      prisma.appSettings
+        .findUnique({ where: { id: 'singleton' }, select: { opsHealthSnapshot: true } })
+        .catch(() => null),
     ]);
     settings = settingsResult;
     const unreadReplies = latestEventsByTicket.filter((e) => e.type === 'MERCHANT_REPLIED').length;
     counts = { dlq: failedJobs, err: errors24h, wh: failedWebhooks24h, tickets: openTickets, unreadReplies };
+    opsHealth = parseOpsHealthSnapshot(opsHealthRow?.opsHealthSnapshot);
   }
 
-  return json({ isAuthed, settings, counts });
+  return json({ isAuthed, settings, counts, opsHealth });
 }
 
 export default function InternalLayout() {
-  const { isAuthed, settings, counts } = useLoaderData<typeof loader>();
+  const { isAuthed, settings, counts, opsHealth } = useLoaderData<typeof loader>();
   const location = useLocation();
   const isLoginPage =
     location.pathname === '/internal/login' || location.pathname.startsWith('/internal/sso');
@@ -99,7 +107,51 @@ export default function InternalLayout() {
     return <Outlet />;
   }
 
-  return <AdminChrome settings={settings} counts={counts} />;
+  return <AdminChrome settings={settings} counts={counts} opsHealth={opsHealth} />;
+}
+
+/**
+ * Ops-digest banner (DevOps hardening 2026-09, item d): surfaces the last
+ * cron ops-health sweep even when NO alert channel is configured — the
+ * "fallback digest" for a solo operator without Slack/Sentry keys. Renders
+ * nothing while everything is ok (or before the first sweep has run).
+ * Signals link to the pages where the operator acts on them.
+ */
+function OpsHealthBanner({
+  opsHealth,
+  onNavigate,
+}: {
+  opsHealth: OpsHealthSnapshot | null;
+  onNavigate: (hash: string) => (e: React.MouseEvent) => void;
+}) {
+  if (!opsHealth || opsHealth.status === 'ok') return null;
+  const breached = opsHealth.signals.filter((s) => s.status === 'fail' || s.status === 'warn');
+  if (breached.length === 0) return null;
+  const critical = opsHealth.status === 'fail';
+  const target = breached.some((s) => s.name === 'aiSpend') && breached.length === 1 ? '#/admin/usage' : '#/admin/jobs';
+  return (
+    <div
+      className={'banner ' + (critical ? 'banner-critical' : 'banner-warning')}
+      role="status"
+      style={{ marginBottom: 16 }}
+    >
+      <span className="banner-icon" aria-hidden="true">
+        <Icon name="alert" size={18} />
+      </span>
+      <div className="stack" style={{ gap: 2, minWidth: 0 }}>
+        <div className="banner-title">
+          {critical ? 'Ops health check failing' : 'Ops health warning'} — last sweep{' '}
+          {new Date(opsHealth.checkedAt).toLocaleString()}
+        </div>
+        <div style={{ fontSize: 13 }}>
+          {breached.map((s) => `${s.name}: ${s.status}${s.value != null ? ` (${s.value})` : ''}`).join(' · ')}{' '}
+          <a href={superappRoute(target)} onClick={onNavigate(target)}>
+            Investigate
+          </a>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /* ---------------- ADMIN_NAV — exactly mirrors the design's shell.jsx ---------------- */
@@ -204,7 +256,15 @@ function navMatch(hash: string, pathname: string, exact?: boolean, also?: string
   return (also ?? []).some(hit);
 }
 
-function AdminChrome({ settings, counts }: { settings: AppSettingsData | null; counts: NavCounts }) {
+function AdminChrome({
+  settings,
+  counts,
+  opsHealth,
+}: {
+  settings: AppSettingsData | null;
+  counts: NavCounts;
+  opsHealth: OpsHealthSnapshot | null;
+}) {
   const location = useLocation();
   const navigate = useNavigate();
   const path = location.pathname;
@@ -428,6 +488,7 @@ function AdminChrome({ settings, counts }: { settings: AppSettingsData | null; c
               </div>
             </header>
             <div className="admin-content">
+              <OpsHealthBanner opsHealth={opsHealth} onNavigate={goHash} />
               <Outlet context={{ showToast }} />
             </div>
           </div>

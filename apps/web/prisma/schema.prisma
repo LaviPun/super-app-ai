@@ -568,6 +568,17 @@ model AppSettings {
   opsAlertThresholdCount     Int      @default(3)
   opsAlertThresholdWindowMin Int      @default(15)
   sentryLastTestedAt         DateTime?
+  // DevOps hardening (2026-09) — ops health sweep + AI spend guardrail.
+  // cronLastTickAt: heartbeat written at the top of every /api/cron tick, so the
+  // deep health endpoint can detect "the external scheduler stopped calling us".
+  cronLastTickAt      DateTime?
+  // opsHealthSnapshot: JSON OpsHealthSnapshot persisted by the cron ops-health
+  // sweep; read by the internal admin shell banner (one row read, no live counts
+  // per navigation) and returned by /healthz/deep.
+  opsHealthSnapshot   String?
+  // aiDailySpendCapCents: daily AI spend soft cap in cents (observability only —
+  // never blocks requests). null = use AI_DAILY_SPEND_CAP_CENTS env default.
+  aiDailySpendCapCents Float?
   // Integrations Hub Category 2 (WS-INT) — read-only status API keys.
   uptimeRobotApiKeyEnc    String?  // encryptJson({ apiKey }) — UptimeRobot "read-only" API key
   uptimeRobotMonitorId    String?  // numeric monitor id, e.g. "8123456"

@@ -1,0 +1,141 @@
+name: post-deploy-smoke
+
+# DevOps hardening 2026-09 (item b): automated post-deploy verification.
+# Fires after the CI workflow completes successfully for a push to master —
+# the same moment Railway's auto-deploy (gated on "Wait for CI" / checkSuites,
+# see docs/runbooks/deploy-and-rollback.md) starts rolling the new build.
+#
+# What it does:
+#   1. Polls GET /healthz until the reported `release` sha equals the deployed
+#      commit (Railway injects RAILWAY_GIT_COMMIT_SHA; healthz echoes it), for
+#      up to WAIT_MINUTES. If the sha never appears it still verifies health
+#      and warns — a deploy can lag or be paused; a HEALTHY-but-stale prod is
+#      a warning, an UNHEALTHY prod is a failure.
+#   2. Hits the cheap read endpoints: /healthz (200), /healthz/deep with the
+#      CRON_SECRET header (200 = ok/warn, 503 = a deep signal is failing),
+#      and /internal/login (200 HTML).
+#   3. FAILS LOUDLY: any regression files a GitHub issue (label:
+#      ops-smoke-failure, deduped) — not just a red run in a tab nobody watches.
+#
+# Inert until the owner sets the PROD_BASE_URL repo VARIABLE (not secret — the
+# public app URL is not sensitive) e.g. https://<app>.up.railway.app. The deep
+# check additionally uses the CRON_SECRET repo secret if present.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+
+jobs:
+  smoke:
+    # Only after a successful CI run for a *push to master* (not PRs, not the
+    # nightly schedule), or a manual dispatch.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'master')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PROD_BASE_URL: ${{ vars.PROD_BASE_URL }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+      WAIT_MINUTES: "15"
+    steps:
+      - name: No-op notice (PROD_BASE_URL not set)
+        if: env.PROD_BASE_URL == ''
+        run: |
+          echo "::warning::PROD_BASE_URL repository variable is not set — post-deploy smoke is INERT." \
+            "Set it to the production web URL (e.g. https://<app>.up.railway.app) to enable" \
+            "automated post-deploy verification. See docs/runbooks/deploy-and-rollback.md."
+
+      - name: Wait for the new release to serve /healthz
+        if: env.PROD_BASE_URL != ''
+        run: |
+          set -uo pipefail
+          echo "Expecting release sha: ${EXPECTED_SHA:-'(manual dispatch — any healthy release)'}"
+          DEADLINE=$(( $(date +%s) + WAIT_MINUTES * 60 ))
+          SEEN_HEALTHY=0
+          SEEN_EXPECTED=0
+          while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+            BODY=$(curl -fsS --max-time 15 "$PROD_BASE_URL/healthz" || true)
+            if [ -n "$BODY" ]; then
+              SEEN_HEALTHY=1
+              RELEASE=$(echo "$BODY" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("release") or "")' 2>/dev/null || echo "")
+              echo "healthz ok — serving release: ${RELEASE:-unknown}"
+              if [ -z "${EXPECTED_SHA:-}" ] || [ "$RELEASE" = "$EXPECTED_SHA" ]; then
+                SEEN_EXPECTED=1
+                break
+              fi
+            else
+              echo "healthz not healthy yet…"
+            fi
+            sleep 20
+          done
+          if [ "$SEEN_HEALTHY" -ne 1 ]; then
+            echo "::error::/healthz never returned 200 within ${WAIT_MINUTES} minutes — production is unhealthy after the deploy window."
+            exit 1
+          fi
+          if [ "$SEEN_EXPECTED" -ne 1 ]; then
+            echo "::warning::Production is healthy but never reported release ${EXPECTED_SHA} within ${WAIT_MINUTES} min." \
+              "Either the Railway deploy is slow/paused, 'Wait for CI' is holding it, or RAILWAY_GIT_COMMIT_SHA isn't injected." \
+              "Verifying the currently-serving build instead."
+          fi
+
+      - name: Smoke — /healthz strict
+        if: env.PROD_BASE_URL != ''
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 15 "$PROD_BASE_URL/healthz" | tee /tmp/healthz.json
+          python3 -c 'import json;d=json.load(open("/tmp/healthz.json"));assert d.get("ok") is True, f"healthz not ok: {d}"'
+
+      - name: Smoke — /healthz/deep (queue, DLQ, cron heartbeat, AI spend)
+        if: env.PROD_BASE_URL != ''
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::warning::CRON_SECRET secret not available to this workflow — skipping the deep health check."
+            exit 0
+          fi
+          HTTP=$(curl -sS --max-time 20 -o /tmp/deep.json -w '%{http_code}' \
+            -H "X-Cron-Secret: ${CRON_SECRET}" "$PROD_BASE_URL/healthz/deep")
+          cat /tmp/deep.json
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::/healthz/deep returned HTTP ${HTTP} — a deep ops signal is failing (see body above)."
+            exit 1
+          fi
+
+      - name: Smoke — /internal/login renders
+        if: env.PROD_BASE_URL != ''
+        run: |
+          set -euo pipefail
+          HTTP=$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' "$PROD_BASE_URL/internal/login")
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::/internal/login returned HTTP ${HTTP} (expected 200) — the app shell is not serving."
+            exit 1
+          fi
+
+      - name: File an issue on failure (loud, deduped)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --label ops-smoke-failure --state open --json number --jq 'length')
+          if [ "$EXISTING" -gt 0 ]; then
+            echo "An open ops-smoke-failure issue already exists — not filing a duplicate."
+            exit 0
+          fi
+          gh label create ops-smoke-failure --repo "$GITHUB_REPOSITORY" --color B60205 \
+            --description "Post-deploy smoke test failed" 2>/dev/null || true
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Post-deploy smoke FAILED for ${EXPECTED_SHA:-manual run}" \
+            --label ops-smoke-failure \
+            --body "Post-deploy verification failed after a master deploy: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+
+Production may be unhealthy. Runbook: docs/runbooks/deploy-and-rollback.md (rollback = Railway redeploy of the previous build)."

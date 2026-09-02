@@ -13,6 +13,9 @@ vi.mock('~/db.server', () => ({
     webhookEvent: { count: (...a: unknown[]) => webhookEventCountMock(...a) },
     supportTicket: { count: (...a: unknown[]) => supportTicketCountMock(...a) },
     supportTicketEvent: { findMany: (...a: unknown[]) => supportTicketEventFindManyMock(...a) },
+    // DevOps hardening 2026-09: the loader also reads the persisted ops-health
+    // snapshot (one guarded single-row read) — null = no snapshot, no banner.
+    appSettings: { findUnique: async () => null },
   }),
 }));
 
